@@ -1,5 +1,30 @@
 # AI Team Context Controller - Project Context for Copilot
 
+## Current Implementation Status (Feb 18, 2026)
+
+### ✅ Completed
+- **Core Library** (`packages/core`) - Agent/skill loading, file-based storage, managers
+- **API Server** (`packages/api`) - Express REST API serving core functionality
+- **Web Dashboard** (`packages/web`) - React app with Organization/Employees/Portfolio/Chat views
+- **CLI** (`packages/cli`) - Basic commands (list, init)
+- **Architecture** - Three-tier: Browser ↔ API ↔ Core ↔ Files
+- **Live Testing** - Playwright integration for browser testing
+
+### 🚧 In Progress / Next Steps
+- **LLM Integration** - Connect chat to OpenAI/Anthropic (currently placeholder)
+- **VS Code Extension** (`packages/vscode`) - Tree view, webview, chat participant
+- **CLI Enhancement** - Full command set (chat, hr hire, context share)
+- **File Watching** - Auto-reload agents on file changes
+- **Meeting Summaries** - Convert chats to committed markdown
+- **Agent Tools** - Implement semantic_search, read_file, delegate tools
+- **HR Features** - Hire, archive, assess performance
+- **Context Sharing** - Permission-checked file access
+
+### 📁 Current Workspace State
+- `.ai-team/agents/cto.md` - Single CTO agent (test data)
+- API running on http://localhost:3002
+- Web dashboard on http://localhost:3001
+
 ## What We're Building
 
 A VS Code extension and CLI tool that lets developers manage virtual AI "employees" organized like a real software company. Each AI agent is a specialized team member with:
@@ -37,8 +62,9 @@ We're building what Copilot can do, but for a TEAM of agents:
 ai-team/
 ├── packages/
 │   ├── core/          # Pure TypeScript library (NO UI dependencies)
+│   ├── api/           # Express REST API (bridges core ↔ web)
 │   ├── cli/           # Command-line interface (wraps core)
-│   ├── web/           # React dashboard (graph viz, chat UI)
+│   ├── web/           # React dashboard (browser-only, calls API)
 │   └── vscode/        # VS Code extension (thin adapter)
 ├── ARCHITECTURE.md    # Complete system design (READ THIS!)
 ├── .github/
@@ -47,6 +73,9 @@ ai-team/
     └── file-formats.md  # agent.md and skill.md schemas
 ```
 
+**CRITICAL ARCHITECTURE**: Web package CANNOT import @ai-team/core (uses Node.js fs/path APIs).
+Three-tier architecture: `Browser (React) ←HTTP→ API (Express) ←→ Core (Node.js) ←→ Files`
+
 ## Core Principles for Development
 
 1. **Library-First**: ALL business logic goes in `packages/core`. UI packages are thin wrappers.
@@ -54,6 +83,8 @@ ai-team/
 3. **Manual Context**: Agents can only access files explicitly shared with them
 4. **TypeScript**: Strongly typed, Zod schemas for validation
 5. **Testable**: Core library has zero UI, fully testable without IDE
+6. **Browser Compatibility**: Web package uses API server, never imports core directly
+7. **Live Testing**: Always test web apps with Playwright before considering complete
 
 ## Organizational Roles (Full Software Company)
 
@@ -174,7 +205,32 @@ ai-team hr assess --period=30days
 
 # Open web dashboard
 ai-team serve  # Launches at localhost:3000
-```
+```Web Dashboard (Currently Implemented)
+
+**Running**: http://localhost:3001 (dev server) + http://localhost:3002 (API server)
+
+**Views**:
+- **Organization** - React Flow graph with hierarchical team structure
+  - Click node → opens chat with employee
+  - Zoom, pan, fit view controls
+  - MiniMap for navigation
+- **Employees** - Grid of employee cards
+  - 📋 Portfolio button → view detailed bio/info
+  - Chat → button → open chat interface
+  - Shows role, specializations, reporting structure
+- **Portfolio** - Employee details page
+  - Bio/about section (from agent.md markdown)
+  - API**: Express 5.2.1, CORS, tsx (dev)
+- **CLI**: commander, inquirer, chalk, ora
+- **Web**: React 19, Vite, react-flow
+- **File Parsing**: gray-matter (YAML frontmatter)
+- **File Watching**: chokidar (cross-platform)
+- **Testing**: Playwright MCP integration (live browser testing)
+- **LLM**: OpenAI SDK / Anthropic Claude (not yet integrated)
+- **Avatar Generation**: AI image API or deterministic avatars (planned)
+  - Placeholder LLM integration
+
+## In VS Code (Not Yet Implemented)
 
 ## In VS Code
 
