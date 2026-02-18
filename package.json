@@ -1,0 +1,24 @@
+{
+  "name": "ai-team",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Team Context Controller - Manage virtual AI development teams with graph visualization and context control",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "clean": "pnpm -r clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.9.3",
+    "prettier": "^3.8.1",
+    "eslint": "^10.0.0"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}

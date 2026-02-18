@@ -1,0 +1,103 @@
+{
+  "name": "@ai-team/vscode",
+  "displayName": "AI Team",
+  "description": "Manage virtual AI development teams with graph visualization and context control",
+  "version": "0.1.0",
+  "publisher": "ai-team",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ai-team.showTeamGraph",
+        "title": "Show Team Graph",
+        "category": "AI Team"
+      },
+      {
+        "command": "ai-team.listAgents",
+        "title": "List Team Members",
+        "category": "AI Team"
+      },
+      {
+        "command": "ai-team.createAgent",
+        "title": "Create New Agent",
+        "category": "AI Team"
+      },
+      {
+        "command": "ai-team.chatWithAgent",
+        "title": "Chat with Agent",
+        "category": "AI Team"
+      },
+      {
+        "command": "ai-team.initWorkspace",
+        "title": "Initialize AI Team",
+        "category": "AI Team"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ai-team",
+          "title": "AI Team",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ai-team": [
+        {
+          "id": "ai-team.teamView",
+          "name": "Team Members"
+        },
+        {
+          "id": "ai-team.featuresView",
+          "name": "Features"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "ai-team.createAgent",
+          "when": "view == ai-team.teamView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ai-team.chatWithAgent",
+          "when": "view == ai-team.teamView && viewItem == agent",
+          "group": "inline"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "pnpm build",
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "package": "vsce package",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@ai-team/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^25.2.3",
+    "@vscode/vsce": "^3.7.1",
+    "typescript": "^5.9.3",
+    "eslint": "^10.0.0",
+    "@typescript-eslint/parser": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.0"
+  }
+}

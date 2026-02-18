@@ -1,0 +1,22 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- AI Team Icon: Network of connected nodes representing team members -->
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#007acc;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00a8e8;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Central node (manager) -->
+  <circle cx="64" cy="40" r="16" fill="url(#grad1)" stroke="#fff" stroke-width="2"/>
+  
+  <!-- Team members -->
+  <circle cx="32" cy="88" r="12" fill="url(#grad1)" stroke="#fff" stroke-width="2"/>
+  <circle cx="64" cy="88" r="12" fill="url(#grad1)" stroke="#fff" stroke-width="2"/>
+  <circle cx="96" cy="88" r="12" fill="url(#grad1)" stroke="#fff" stroke-width="2"/>
+  
+  <!-- Connections -->
+  <line x1="64" y1="56" x2="32" y2="76" stroke="#007acc" stroke-width="2" opacity="0.6"/>
+  <line x1="64" y1="56" x2="64" y2="76" stroke="#007acc" stroke-width="2" opacity="0.6"/>
+  <line x1="64" y1="56" x2="96" y2="76" stroke="#007acc" stroke-width="2" opacity="0.6"/>
+</svg>
