@@ -5,13 +5,41 @@
 
 import fs from 'fs/promises';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { glob } from 'glob';
+import { minimatch } from 'minimatch';
 import { z } from 'zod';
 import {
   AgentTool,
   ToolContext,
 } from '../types/index.js';
 import { ContextManager } from '../context/index.js';
+import { loadAgent, loadTeamConfig, saveAgent } from '../storage/index.js';
+import { AgentManager } from '../agent/index.js';
+
+const execFileAsync = promisify(execFile);
+
+const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+const MAX_SEMANTIC_FILE_SIZE_BYTES = 200_000;
+
+export interface ToolExecutionRequest {
+  toolName: string;
+  params: unknown;
+  context: ToolContext;
+}
+
+export interface ToolExecutionResult {
+  ok: boolean;
+  toolName: string;
+  result?: unknown;
+  error?: string;
+}
+
+export interface ToolExecutionOptions {
+  timeoutMs?: number;
+  onBeforeExecute?: (request: ToolExecutionRequest) => Promise<boolean> | boolean;
+}
 
 // ============================================================================
 // Core File Tools
@@ -118,14 +146,78 @@ export const semanticSearchTool: AgentTool = {
     maxResults: z.number().optional().describe('Maximum number of results'),
   }),
   async execute(params, context: ToolContext) {
-    const { query, maxResults = 10 } = params as any;
-    
-    // Placeholder: In production, this would query a vector database
-    // For now, return empty results
+    const { query, maxResults = 10 } = params as { query: string; maxResults?: number };
+
+    const files = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}', {
+      cwd: context.workspaceRoot,
+      absolute: true,
+      ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
+    });
+
+    const contextManager = new ContextManager(context.workspaceRoot);
+    const readableFiles = contextManager.getReadableFiles(context.agent, files);
+
+    const tokens: string[] = query
+      .toLowerCase()
+      .split(/[^a-z0-9_\-/]+/)
+      .map((part: string) => part.trim())
+      .filter((part: string) => part.length >= 2);
+
+    const scored: Array<{ filePath: string; score: number; snippet: string }> = [];
+
+    for (const filePath of readableFiles) {
+      let stat;
+      try {
+        stat = await fs.stat(filePath);
+      } catch {
+        continue;
+      }
+
+      if (!stat.isFile() || stat.size > MAX_SEMANTIC_FILE_SIZE_BYTES) {
+        continue;
+      }
+
+      let content: string;
+      try {
+        content = await fs.readFile(filePath, 'utf-8');
+      } catch {
+        continue;
+      }
+
+      const lower = content.toLowerCase();
+      let score = 0;
+      for (const token of tokens) {
+        if (lower.includes(token)) {
+          score += 1;
+        }
+      }
+
+      if (score === 0) {
+        continue;
+      }
+
+      const firstToken = tokens.find((token: string) => lower.includes(token));
+      const tokenIndex = firstToken ? lower.indexOf(firstToken) : 0;
+      const snippetStart = Math.max(0, tokenIndex - 120);
+      const snippetEnd = Math.min(content.length, tokenIndex + 220);
+      const snippet = content.slice(snippetStart, snippetEnd).trim();
+
+      scored.push({
+        filePath,
+        score,
+        snippet,
+      });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+
     return {
       query,
-      results: [],
-      note: 'Semantic search requires vector database integration',
+      results: scored.slice(0, maxResults).map(entry => ({
+        filePath: entry.filePath,
+        score: entry.score,
+        snippet: entry.snippet,
+      })),
     };
   },
 };
@@ -140,10 +232,44 @@ export const getErrorsTool: AgentTool = {
     filePaths: z.array(z.string()).optional().describe('Files to check (omit for all files)'),
   }),
   async execute(params, context: ToolContext) {
-    // Placeholder: Would integrate with LSP or build system
+    const { filePaths } = params as { filePaths?: string[] };
+    const timeoutMs = 120_000;
+
+    const { stdout = '', stderr = '' } = await withTimeout(
+      execFileAsync('pnpm', ['-r', 'build'], {
+        cwd: context.workspaceRoot,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024 * 8,
+      }),
+      timeoutMs,
+      `get_errors timed out after ${timeoutMs / 1000}s`,
+    );
+
+    const output = `${stdout}\n${stderr}`;
+    const lines = output.split(/\r?\n/);
+
+    const normalizedFilters = (filePaths || []).map(filePath => {
+      const absolute = path.isAbsolute(filePath)
+        ? filePath
+        : path.join(context.workspaceRoot, filePath);
+      return path.normalize(absolute);
+    });
+
+    const errors = lines
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .filter(line => /error\s+TS\d+|\berror\b/i.test(line))
+      .filter(line => {
+        if (normalizedFilters.length === 0) {
+          return true;
+        }
+
+        const normalizedLine = path.normalize(line);
+        return normalizedFilters.some(filterPath => normalizedLine.includes(filterPath));
+      });
+
     return {
-      errors: [],
-      note: 'Error checking requires LSP or build system integration',
+      errors,
     };
   },
 };
@@ -201,6 +327,260 @@ export const askHumanTool: AgentTool = {
     };
   },
 };
+
+/**
+ * Register a CLI command for an employee so it can be executed via run_cli_tool.
+ */
+export const registerCliTool: AgentTool = {
+  name: 'register_cli_tool',
+  description: 'Allow this employee to run a command-line tool by executable name (e.g. git, pnpm, node).',
+  parameters: z.object({
+    command: z.string().min(1).describe('Executable name to allow (no args, e.g. git)'),
+    employee: z.string().optional().describe('Optional target employee name/id/role (defaults to current agent)'),
+  }),
+  async execute(params, context: ToolContext) {
+    const { command, employee } = params as { command: string; employee?: string };
+    const normalized = normalizeExecutableName(command);
+    if (!normalized) {
+      throw new Error('Invalid command name. Provide executable only (for example: git).');
+    }
+
+    const teamConfig = await loadTeamConfig(context.workspaceRoot);
+    const allowedGlobal = teamConfig?.allowedCliTools;
+    if (allowedGlobal && allowedGlobal.length > 0) {
+      const normalizedGlobal = new Set(allowedGlobal.map(normalizeExecutableName).filter(Boolean) as string[]);
+      if (!normalizedGlobal.has(normalized)) {
+        throw new Error(`Command '${normalized}' is not in global allowedCliTools. Ask HR to add it to .ai-team/config.json first.`);
+      }
+    }
+
+    let targetAgent = context.agent;
+    if (employee && employee.trim().length > 0) {
+      const agentManager = new AgentManager(context.workspaceRoot);
+      await agentManager.initialize();
+      const matches = agentManager.resolveAgent(employee.trim());
+
+      if (matches.length === 0) {
+        throw new Error(`No employee found matching '${employee}'.`);
+      }
+      if (matches.length > 1) {
+        throw new Error(`Multiple employees match '${employee}'. Please be more specific.`);
+      }
+
+      const candidate = matches[0];
+      const canManage = context.agent.permissions?.manage_agents === true;
+      const isManager = candidate.reportsTo === context.agent.id;
+      const isSelf = candidate.id === context.agent.id;
+
+      if (!canManage && !isManager && !isSelf) {
+        throw new Error(`Agent ${context.agent.id} cannot grant CLI tools for ${candidate.id}.`);
+      }
+
+      targetAgent = candidate;
+    }
+
+    const agentRecord = await loadAgent(targetAgent.filePath);
+    const current = new Set((agentRecord.cliTools || []).map(entry => normalizeExecutableName(entry)).filter(Boolean) as string[]);
+    current.add(normalized);
+
+    agentRecord.cliTools = [...current].sort();
+    await saveAgent(agentRecord);
+
+    if (targetAgent.id === context.agent.id) {
+      context.agent.cliTools = agentRecord.cliTools;
+    }
+
+    return {
+      employee: targetAgent.id,
+      command: normalized,
+      cliTools: agentRecord.cliTools,
+      persisted: true,
+    };
+  },
+};
+
+/**
+ * Update an employee-specific LLM profile (provider/model/params).
+ */
+export const updateEmployeeLlmTool: AgentTool = {
+  name: 'update_employee_llm',
+  description: 'Update another employee\'s LLM profile (model, provider, and generation params).',
+  parameters: z.object({
+    employee: z.string().min(1).describe('Target employee name/id/role'),
+    provider: z.string().optional(),
+    modelKey: z.string().optional(),
+    model: z.string().optional(),
+    baseUrl: z.string().url().optional(),
+    temperature: z.number().optional(),
+    maxTokens: z.number().int().positive().optional(),
+    topP: z.number().optional(),
+    presencePenalty: z.number().optional(),
+    frequencyPenalty: z.number().optional(),
+    stop: z.array(z.string()).optional(),
+  }),
+  async execute(params, context: ToolContext) {
+    const {
+      employee,
+      provider,
+      modelKey,
+      model,
+      baseUrl,
+      temperature,
+      maxTokens,
+      topP,
+      presencePenalty,
+      frequencyPenalty,
+      stop,
+    } = params as {
+      employee: string;
+      provider?: string;
+      modelKey?: string;
+      model?: string;
+      baseUrl?: string;
+      temperature?: number;
+      maxTokens?: number;
+      topP?: number;
+      presencePenalty?: number;
+      frequencyPenalty?: number;
+      stop?: string[];
+    };
+
+    const agentManager = new AgentManager(context.workspaceRoot);
+    await agentManager.initialize();
+    const matches = agentManager.resolveAgent(employee.trim());
+    if (matches.length === 0) {
+      throw new Error(`No employee found matching '${employee}'.`);
+    }
+    if (matches.length > 1) {
+      throw new Error(`Multiple employees match '${employee}'. Please be more specific.`);
+    }
+
+    const target = matches[0];
+    const canManage = context.agent.permissions?.manage_agents === true;
+    const isManager = target.reportsTo === context.agent.id;
+    const isSelf = target.id === context.agent.id;
+    if (!canManage && !isManager && !isSelf) {
+      throw new Error(`Agent ${context.agent.id} cannot update LLM settings for ${target.id}.`);
+    }
+
+    const record = await loadAgent(target.filePath);
+    const currentProfile = record.llm || {};
+    const currentParams = currentProfile.params || {};
+
+    const nextParams = {
+      ...currentParams,
+      ...(temperature !== undefined ? { temperature } : {}),
+      ...(maxTokens !== undefined ? { maxTokens } : {}),
+      ...(topP !== undefined ? { topP } : {}),
+      ...(presencePenalty !== undefined ? { presencePenalty } : {}),
+      ...(frequencyPenalty !== undefined ? { frequencyPenalty } : {}),
+      ...(stop !== undefined ? { stop } : {}),
+    };
+
+    const nextProfile = {
+      ...currentProfile,
+      ...(provider !== undefined ? { provider } : {}),
+      ...(modelKey !== undefined ? { modelKey } : {}),
+      ...(model !== undefined ? { model } : {}),
+      ...(baseUrl !== undefined ? { baseUrl } : {}),
+      params: Object.keys(nextParams).length > 0 ? nextParams : undefined,
+    };
+
+    record.llm = nextProfile;
+    await saveAgent(record);
+
+    return {
+      employee: target.id,
+      llm: nextProfile,
+      persisted: true,
+    };
+  },
+};
+
+/**
+ * Run a CLI tool that was previously allowed for this employee.
+ */
+export const runCliTool: AgentTool = {
+  name: 'run_cli_tool',
+  description: 'Execute an allowed command-line tool with args. Command must be registered first via register_cli_tool.',
+  parameters: z.object({
+    command: z.string().min(1).describe('Executable name, for example git'),
+    args: z.array(z.string()).optional().describe('Command arguments as array, for example ["status", "--short"]'),
+    cwd: z.string().optional().describe('Optional relative working directory (defaults to workspace root)'),
+  }),
+  async execute(params, context: ToolContext) {
+    const { command, args = [], cwd } = params as { command: string; args?: string[]; cwd?: string };
+    const normalized = normalizeExecutableName(command);
+    if (!normalized) {
+      throw new Error('Invalid command name. Provide executable only (for example: git).');
+    }
+
+    const allowed = new Set((context.agent.cliTools || []).map(entry => normalizeExecutableName(entry)).filter(Boolean) as string[]);
+    if (!allowed.has(normalized)) {
+      throw new Error(`Command '${normalized}' is not allowed for ${context.agent.name}. Register it first with register_cli_tool.`);
+    }
+
+    const execCwd = cwd
+      ? path.resolve(context.workspaceRoot, cwd)
+      : context.workspaceRoot;
+
+    enforceCommandAreaScope(context, execCwd);
+
+    const { stdout = '', stderr = '' } = await withTimeout(
+      execFileAsync(normalized, args, {
+        cwd: execCwd,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024 * 8,
+      }),
+      60_000,
+      `run_cli_tool timed out after 60s (${normalized})`,
+    );
+
+    return {
+      command: normalized,
+      args,
+      cwd: execCwd,
+      stdout: stdout.trim(),
+      stderr: stderr.trim() || undefined,
+    };
+  },
+};
+
+function normalizeExecutableName(command: string): string | undefined {
+  const trimmed = command.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (trimmed.includes(' ') || trimmed.includes('/') || trimmed.includes('\\')) {
+    return undefined;
+  }
+
+  return trimmed.toLowerCase();
+}
+
+function enforceCommandAreaScope(context: ToolContext, execCwd: string): void {
+  if (!path.resolve(execCwd).startsWith(path.resolve(context.workspaceRoot))) {
+    throw new Error('run_cli_tool cwd must stay inside the workspace root.');
+  }
+
+  const readPatterns = context.agent.permissions?.read;
+  if (!readPatterns || readPatterns.length === 0) {
+    return;
+  }
+
+  const relative = path.relative(context.workspaceRoot, execCwd).replace(/\\/g, '/');
+  const relativePath = relative.length === 0 ? '.' : relative;
+  const isAllowed = readPatterns.some(pattern =>
+    minimatch(relativePath, pattern)
+    || minimatch(`${relativePath}/**/*`, pattern)
+    || minimatch(relativePath, pattern.replace(/\/\*\*\/*\*$/, '')),
+  );
+
+  if (!isAllowed) {
+    throw new Error(`Command cwd '${relativePath}' is outside ${context.agent.name}'s responsibility scope.`);
+  }
+}
 
 // ============================================================================
 // HR Tools (restricted to HR Director)
@@ -290,6 +670,9 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   write_file: writeFileTool,
   semantic_search: semanticSearchTool,
   get_errors: getErrorsTool,
+  register_cli_tool: registerCliTool,
+  update_employee_llm: updateEmployeeLlmTool,
+  run_cli_tool: runCliTool,
   delegate_to_agent: delegateToAgentTool,
   ask_human: askHumanTool,
 };
@@ -328,4 +711,76 @@ export function getAgentTools(agent: { tools?: string[]; permissions?: { manage_
   }
   
   return tools;
+}
+
+export async function executeAgentTool(
+  request: ToolExecutionRequest,
+  options?: ToolExecutionOptions,
+): Promise<ToolExecutionResult> {
+  const { toolName, params, context } = request;
+  const availableTools = getAgentTools(context.agent);
+  const tool = availableTools[toolName];
+
+  if (!tool) {
+    return {
+      ok: false,
+      toolName,
+      error: `Tool not allowed for agent: ${toolName}`,
+    };
+  }
+
+  const approved = options?.onBeforeExecute
+    ? await options.onBeforeExecute(request)
+    : true;
+
+  if (!approved) {
+    return {
+      ok: false,
+      toolName,
+      error: `Tool call denied by user: ${toolName}`,
+    };
+  }
+
+  const parsed = tool.parameters.safeParse(params);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      toolName,
+      error: `Invalid parameters for ${toolName}: ${parsed.error.message}`,
+    };
+  }
+
+  try {
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+    const result = await withTimeout(tool.execute(parsed.data, context), timeoutMs, `Tool ${toolName} timed out`);
+    return {
+      ok: true,
+      toolName,
+      result,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      toolName,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }

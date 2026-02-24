@@ -13,11 +13,8 @@ This directory contains your virtual AI development team configuration.
 
 ## Getting Started
 
-1. List your team: `ai-team list`
-2. Chat with the CTO: `ai-team chat cto`
-3. Create a new developer: `ai-team create agent --interactive`
-
-## Learn More
-
-- See ARCHITECTURE.md for system design
-- See COPILOT-CONTEXT.md for project overview
+1. List your team: `ait list`
+2. Chat with the CTO: `ait chat cto`
+3. Chat with HR: `ait chat hr-director`
+4. Hire a new team member: `ait hire`
+5. Chat with Chief Architect (after hire): `ait chat chief-architect`

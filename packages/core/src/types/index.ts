@@ -67,6 +67,37 @@ export const PermissionConfigSchema = z.object({
   manage_agents: z.boolean().optional(),
 });
 
+export const LlmProviderSchema = z.enum(['github-copilot', 'openai-compatible']);
+export type LlmProvider = z.infer<typeof LlmProviderSchema>;
+
+export const LlmGenerationParamsSchema = z.object({
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().int().positive().optional(),
+  topP: z.number().min(0).max(1).optional(),
+  presencePenalty: z.number().min(-2).max(2).optional(),
+  frequencyPenalty: z.number().min(-2).max(2).optional(),
+  stop: z.array(z.string()).max(8).optional(),
+});
+
+export const LlmProfileSchema = z.object({
+  provider: z.string().min(1).optional(),
+  modelKey: z.string().min(1).optional(),
+  model: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  params: LlmGenerationParamsSchema.optional(),
+});
+
+export const LlmProviderConfigSchema = z.object({
+  kind: LlmProviderSchema,
+  isDefault: z.boolean().optional(),
+  model: z.string().optional(),
+  defaultModelKey: z.string().min(1).optional(),
+  models: z.record(z.string(), z.string()).optional(),
+  baseUrl: z.string().url().optional(),
+  apiKeyEnvVar: z.string().min(1).optional(),
+  params: LlmGenerationParamsSchema.optional(),
+});
+
 export const AgentSchema = z.object({
   name: z.string(),
   role: z.string(),
@@ -90,9 +121,11 @@ export const AgentSchema = z.object({
   
   // Capabilities
   tools: z.array(z.string()).optional(),
+  cliTools: z.array(z.string()).optional(),
   canDelegate: z.boolean().optional(),
   delegatesTo: z.array(z.string()).optional(),
   availableFor: z.array(z.string()).optional(),
+  llm: LlmProfileSchema.optional(),
 });
 
 export const SkillSchema = z.object({
@@ -106,6 +139,7 @@ export const SkillSchema = z.object({
   permissions: PermissionConfigSchema,
   
   canDelegate: z.boolean().optional(),
+  llm: LlmProfileSchema.optional(),
 });
 
 export const FeatureSchema = z.object({
@@ -125,6 +159,9 @@ export const FeatureSchema = z.object({
 export type AvatarConfig = z.infer<typeof AvatarConfigSchema>;
 export type PersonalityConfig = z.infer<typeof PersonalityConfigSchema>;
 export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
+export type LlmGenerationParams = z.infer<typeof LlmGenerationParamsSchema>;
+export type LlmProfile = z.infer<typeof LlmProfileSchema>;
+export type LlmProviderConfig = z.infer<typeof LlmProviderConfigSchema>;
 export type AgentConfig = z.infer<typeof AgentSchema>;
 export type SkillConfig = z.infer<typeof SkillSchema>;
 export type FeatureConfig = z.infer<typeof FeatureSchema>;
@@ -314,19 +351,31 @@ export interface TeamHealthSummary {
   recommendations: string[];
 }
 
+export const LlmConfigSchema = z.object({
+  provider: z.string().min(1),
+  model: z.string().optional(),
+  /** Base URL for OpenAI-compatible endpoints (not used for GitHub Copilot) */
+  baseUrl: z.string().url().optional(),
+  params: LlmGenerationParamsSchema.optional(),
+});
+
+export type LlmConfig = z.infer<typeof LlmConfigSchema>;
+
 // ============================================================================
 // Configuration
 // ============================================================================
 
-export interface TeamConfig {
-  version: string;
-  workspaceRoot: string;
-  defaultAgentPath: string;  // Where to create new agents
-  skillTemplatesPath: string;
-  llmProvider?: 'openai' | 'anthropic' | 'azure';
-  llmModel?: string;
-  avatarStyle?: AvatarConfig['style'];
-}
+export const TeamConfigSchema = z.object({
+  version: z.string(),
+  llm: LlmConfigSchema.optional(),
+  providers: z.record(z.string(), LlmProviderConfigSchema).optional(),
+  llmProviders: z.record(z.string(), LlmProviderConfigSchema).optional(),
+  defaultLlmProvider: z.string().min(1).optional(),
+  allowedCliTools: z.array(z.string().min(1)).optional(),
+  avatarStyle: z.enum(['professional-headshot', 'avatar', 'illustrated']).optional(),
+});
+
+export type TeamConfig = z.infer<typeof TeamConfigSchema>;
 
 // ============================================================================
 // Errors

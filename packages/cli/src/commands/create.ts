@@ -5,6 +5,7 @@
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { AgentManager, SkillManager, ContextLevel, RoleType } from '@ai-team/core';
+import type { LlmGenerationParams, LlmProfile } from '@ai-team/core';
 
 interface CreateOptions {
   name?: string;
@@ -80,6 +81,7 @@ async function createAgent(workspaceRoot: string, options: CreateOptions) {
       contextLevel: answers.contextLevel,
       reportsTo: answers.reportsTo || undefined,
       features: answers.features ? answers.features.split(',').map((f: string) => f.trim()) : undefined,
+      llm: await promptLlmProfile('Add agent-specific LLM overrides?'),
     };
   } else {
     // Non-interactive mode
@@ -138,6 +140,8 @@ async function createSkill(workspaceRoot: string, options: CreateOptions) {
     },
   ]);
 
+  const llm = await promptLlmProfile('Add role-level LLM overrides for this skill?');
+
   const skill = await skillManager.createSkill(
     {
       name: answers.name,
@@ -147,10 +151,156 @@ async function createSkill(workspaceRoot: string, options: CreateOptions) {
       responsibilities: [],
       tools: [],
       permissions: { read: [], write: [] },
+      llm,
     },
     answers.instructions
   );
 
   console.log(chalk.green('✓ Created skill:'), chalk.cyan(skill.name));
   console.log(chalk.dim(`  File: ${skill.filePath}`));
+}
+
+async function promptLlmProfile(message: string): Promise<LlmProfile | undefined> {
+  const { enabled } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'enabled',
+      message,
+      default: false,
+    },
+  ]);
+
+  if (!enabled) {
+    return undefined;
+  }
+
+  const basic = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'provider',
+      message: 'Provider ref or kind (optional):',
+    },
+    {
+      type: 'input',
+      name: 'modelKey',
+      message: 'Model key from provider dictionary (optional):',
+    },
+    {
+      type: 'input',
+      name: 'model',
+      message: 'Model override (optional):',
+    },
+    {
+      type: 'input',
+      name: 'baseUrl',
+      message: 'Base URL override (optional):',
+    },
+  ]);
+
+  const { tuneParams } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'tuneParams',
+      message: 'Configure advanced generation params?',
+      default: false,
+    },
+  ]);
+
+  let params: LlmGenerationParams | undefined;
+  if (tuneParams) {
+    const raw = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'temperature',
+        message: 'temperature (0-2, optional):',
+      },
+      {
+        type: 'input',
+        name: 'maxTokens',
+        message: 'maxTokens (integer, optional):',
+      },
+      {
+        type: 'input',
+        name: 'topP',
+        message: 'topP (0-1, optional):',
+      },
+      {
+        type: 'input',
+        name: 'presencePenalty',
+        message: 'presencePenalty (-2 to 2, optional):',
+      },
+      {
+        type: 'input',
+        name: 'frequencyPenalty',
+        message: 'frequencyPenalty (-2 to 2, optional):',
+      },
+      {
+        type: 'input',
+        name: 'stop',
+        message: 'stop sequences (comma-separated, optional):',
+      },
+    ]);
+
+    const stop = toStringList(raw.stop);
+    params = {
+      temperature: toNumber(raw.temperature),
+      maxTokens: toInt(raw.maxTokens),
+      topP: toNumber(raw.topP),
+      presencePenalty: toNumber(raw.presencePenalty),
+      frequencyPenalty: toNumber(raw.frequencyPenalty),
+      stop: stop.length > 0 ? stop : undefined,
+    };
+
+    if (Object.values(params).every(v => v === undefined)) {
+      params = undefined;
+    }
+  }
+
+  const profile: LlmProfile = {
+    provider: toNonEmptyString(basic.provider),
+    modelKey: toNonEmptyString(basic.modelKey),
+    model: toNonEmptyString(basic.model),
+    baseUrl: toNonEmptyString(basic.baseUrl),
+    params,
+  };
+
+  if (Object.values(profile).every(v => v === undefined)) {
+    return undefined;
+  }
+
+  return profile;
+}
+
+function toNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function toNumber(value: unknown): number | undefined {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function toInt(value: unknown): number | undefined {
+  const parsed = toNumber(value);
+  if (parsed === undefined) {
+    return undefined;
+  }
+  return Number.isInteger(parsed) ? parsed : undefined;
+}
+
+function toStringList(value: unknown): string[] {
+  if (typeof value !== 'string') {
+    return [];
+  }
+  return value
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
 }
