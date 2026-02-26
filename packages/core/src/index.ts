@@ -17,6 +17,7 @@ export * from './chat/index.js';
 export * from './tools/index.js';
 export * from './storage/index.js';
 export * from './llm/index.js';
+export * from './command-catalog/index.js';
 
 // Avatar and watcher modules (to be implemented)
 // export * from './avatar/index.js';

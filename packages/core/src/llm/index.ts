@@ -200,7 +200,7 @@ export class LlmService {
 
     try {
       const response = await withTimeout(
-        this.client.chat.completions.create({
+        createChatCompletion(this.client, this.config, {
           model: options?.model ?? this.model,
           messages: allMessages,
           max_tokens: options?.maxTokens,
@@ -214,7 +214,7 @@ export class LlmService {
         `LLM request timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`,
       );
 
-      const text = response.choices[0]?.message?.content?.trim();
+      const text = extractChatCompletionText(response);
       if (!text) {
         throw new Error('LLM returned an empty response');
       }
@@ -268,7 +268,7 @@ export class LlmService {
 
     try {
       const stream = await withTimeout(
-        this.client.chat.completions.create({
+        createChatCompletion(this.client, this.config, {
           model: options?.model ?? this.model,
           messages: allMessages,
           max_tokens: options?.maxTokens,
@@ -281,7 +281,7 @@ export class LlmService {
         }),
         CHAT_REQUEST_TIMEOUT_MS,
         `LLM stream setup timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`,
-      );
+      ) as AsyncIterable<ChatCompletionChunk>;
 
       return this.wrapStreamWithLogging(stream, logBase, start, STREAM_CHUNK_TIMEOUT_MS);
     } catch (error) {
@@ -303,6 +303,7 @@ export class LlmService {
     skill?: Skill,
     teamRoster?: Agent[],
     maxToolRounds: number = 8,
+    onToken?: (token: string) => void,
   ): Promise<LlmToolChatResult> {
     this.assertReady();
 
@@ -318,8 +319,8 @@ export class LlmService {
 
     try {
       for (let round = 0; round < maxToolRounds; round++) {
-        const response = await withTimeout(
-          this.client.chat.completions.create({
+        const stream = await withTimeout(
+          createChatCompletion(this.client, this.config, {
             model: options?.model ?? this.model,
             messages: allMessages,
             max_tokens: options?.maxTokens,
@@ -339,19 +340,75 @@ export class LlmService {
                 },
               },
             })),
+            stream: true,
           }),
           CHAT_REQUEST_TIMEOUT_MS,
           `LLM request timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`,
-        );
+        ) as AsyncIterable<ChatCompletionChunk>;
 
-        const message = response.choices[0]?.message;
-        if (!message) {
-          throw new Error('LLM returned no message choice');
+        const toolCallMap = new Map<number, { id?: string; name: string; args: string }>();
+        let assistantText = '';
+
+        const iterator = stream[Symbol.asyncIterator]();
+        while (true) {
+          const nextChunk = await withTimeout(
+            iterator.next(),
+            STREAM_CHUNK_TIMEOUT_MS,
+            `LLM tool stream timed out after ${STREAM_CHUNK_TIMEOUT_MS / 1000}s without receiving output.`,
+          );
+
+          if (nextChunk.done) {
+            break;
+          }
+
+          const chunk = nextChunk.value;
+          const delta = chunk.choices?.[0]?.delta;
+          const deltaText = extractDeltaText(delta?.content) || extractDeltaText((delta as { reasoning_content?: unknown } | undefined)?.reasoning_content);
+          if (deltaText) {
+            assistantText += deltaText;
+            onToken?.(deltaText);
+          }
+
+          const deltaToolCalls = (delta as { tool_calls?: Array<{
+            index?: number;
+            id?: string;
+            function?: { name?: string; arguments?: string };
+          }> } | undefined)?.tool_calls;
+
+          if (!deltaToolCalls || deltaToolCalls.length === 0) {
+            continue;
+          }
+
+          for (const toolCallDelta of deltaToolCalls) {
+            const index = toolCallDelta.index ?? 0;
+            const current = toolCallMap.get(index) || { name: '', args: '' };
+            if (toolCallDelta.id) {
+              current.id = toolCallDelta.id;
+            }
+            if (toolCallDelta.function?.name) {
+              current.name += toolCallDelta.function.name;
+            }
+            if (toolCallDelta.function?.arguments) {
+              current.args += toolCallDelta.function.arguments;
+            }
+            toolCallMap.set(index, current);
+          }
         }
 
-        const toolCalls = message.tool_calls ?? [];
+        const toolCalls = [...toolCallMap.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([, value]) => ({
+            id: value.id || randomUUID(),
+            type: 'function' as const,
+            function: {
+              name: value.name,
+              arguments: value.args || '{}',
+            },
+          }))
+          .filter(toolCall => toolCall.function.name.trim().length > 0);
+
         if (toolCalls.length === 0) {
-          const text = message.content?.trim();
+          const text = assistantText.trim();
           if (!text) {
             throw new Error('LLM returned an empty response');
           }
@@ -375,7 +432,7 @@ export class LlmService {
 
         allMessages.push({
           role: 'assistant',
-          content: message.content ?? null,
+          content: assistantText.length > 0 ? assistantText : null,
           tool_calls: toolCalls,
         } as ChatCompletionMessageParam);
 
@@ -472,26 +529,48 @@ export class LlmService {
       ...messages,
     ];
 
-    const response = await withTimeout(
-      this.client.chat.completions.create({
-        model: options?.model ?? this.model,
-        messages: allMessages,
-        max_tokens: options?.maxTokens,
-        temperature: options?.temperature ?? 1.0,
-        top_p: options?.topP,
-        presence_penalty: options?.presencePenalty,
-        frequency_penalty: options?.frequencyPenalty,
-        stop: options?.stop,
-      }),
-      CHAT_REQUEST_TIMEOUT_MS,
-      `LLM request timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`,
-    );
+    const start = Date.now();
+    const logBase = this.buildRawLogBase('raw-chat', allMessages, options);
 
-    const text = response.choices[0]?.message?.content?.trim();
-    if (!text) {
-      throw new Error('LLM returned an empty response');
+    try {
+      const response = await withTimeout(
+        createChatCompletion(this.client, this.config, {
+          model: options?.model ?? this.model,
+          messages: allMessages,
+          max_tokens: options?.maxTokens,
+          temperature: options?.temperature,
+          top_p: options?.topP,
+          presence_penalty: options?.presencePenalty,
+          frequency_penalty: options?.frequencyPenalty,
+          stop: options?.stop,
+        }),
+        CHAT_REQUEST_TIMEOUT_MS,
+        `LLM request timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`,
+      );
+
+      const text = extractChatCompletionText(response);
+      if (!text) {
+        throw new Error('LLM returned an empty response');
+      }
+
+      await this.writeLlmLog({
+        ...logBase,
+        durationMs: Date.now() - start,
+        response: {
+          text,
+          raw: safeJsonClone(response),
+        },
+      });
+
+      return text;
+    } catch (error) {
+      await this.writeLlmLog({
+        ...logBase,
+        durationMs: Date.now() - start,
+        error: serializeError(error),
+      });
+      throw error;
     }
-    return text;
   }
 
   /**
@@ -509,21 +588,35 @@ export class LlmService {
       ...messages,
     ];
 
-    return withTimeout(
-      this.client.chat.completions.create({
-        model: options?.model ?? this.model,
-        messages: allMessages,
-        max_tokens: options?.maxTokens,
-        temperature: options?.temperature,
-        top_p: options?.topP,
-        presence_penalty: options?.presencePenalty,
-        frequency_penalty: options?.frequencyPenalty,
-        stop: options?.stop,
-        stream: true,
-      }),
-      CHAT_REQUEST_TIMEOUT_MS,
-      `LLM stream setup timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`,
-    );
+    const start = Date.now();
+    const logBase = this.buildRawLogBase('raw-stream', allMessages, options);
+
+    try {
+      const stream = await withTimeout(
+        createChatCompletion(this.client, this.config, {
+          model: options?.model ?? this.model,
+          messages: allMessages,
+          max_tokens: options?.maxTokens,
+          temperature: options?.temperature,
+          top_p: options?.topP,
+          presence_penalty: options?.presencePenalty,
+          frequency_penalty: options?.frequencyPenalty,
+          stop: options?.stop,
+          stream: true,
+        }),
+        CHAT_REQUEST_TIMEOUT_MS,
+        `LLM stream setup timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`,
+      ) as AsyncIterable<ChatCompletionChunk>;
+
+      return this.wrapStreamWithLogging(stream, logBase, start, STREAM_CHUNK_TIMEOUT_MS);
+    } catch (error) {
+      await this.writeLlmLog({
+        ...logBase,
+        durationMs: Date.now() - start,
+        error: serializeError(error),
+      });
+      throw error;
+    }
   }
 
   /**
@@ -575,6 +668,24 @@ export class LlmService {
     };
   }
 
+  private buildRawLogBase(
+    mode: 'raw-chat' | 'raw-stream',
+    messages: ChatCompletionMessageParam[],
+    options?: LlmChatOptions,
+  ): LlmLogBase {
+    return {
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      provider: this.config.provider,
+      model: options?.model ?? this.model,
+      mode,
+      request: {
+        messages: this.cloneMessages(messages),
+        options: options ? safeJsonClone(options) : undefined,
+      },
+    };
+  }
+
   private cloneMessages(messages: ChatCompletionMessageParam[]): ChatCompletionMessageParam[] {
     return messages.map(msg => safeJsonClone(msg) as ChatCompletionMessageParam);
   }
@@ -602,7 +713,8 @@ export class LlmService {
           }
           const chunk = nextChunk.value;
           snapshots.push(safeJsonClone(chunk));
-          text += extractDeltaText(chunk.choices?.[0]?.delta?.content);
+          const delta = chunk.choices?.[0]?.delta;
+          text += extractDeltaText(delta?.content) || extractDeltaText((delta as { reasoning_content?: unknown } | undefined)?.reasoning_content);
           yield chunk;
         }
 
@@ -1072,7 +1184,7 @@ export async function testLlmConnection(config: LlmConfig, apiKey?: string): Pro
   const model = getDefaultModel(config);
 
   const response = await withTimeout(
-    client.chat.completions.create({
+    createChatCompletion(client, config, {
       model,
       messages: [
         { role: 'user', content: 'Reply with exactly: "Connection successful!" and nothing else.' },
@@ -1083,11 +1195,16 @@ export async function testLlmConnection(config: LlmConfig, apiKey?: string): Pro
     `LLM connection test timed out after ${TEST_CONNECTION_TIMEOUT_MS / 1000}s. Check network, provider URL, and credentials.`,
   );
 
-  const text = response.choices[0]?.message?.content?.trim();
-  if (!text) {
-    throw new Error('LLM returned an empty response');
+  const text = extractChatCompletionText(response);
+  if (text) {
+    return text;
   }
-  return text;
+
+  if (hasNonTextCompletionSignal(response)) {
+    return 'Connection successful (non-text completion)';
+  }
+
+  throw new Error('LLM returned an empty response');
 }
 
 interface LlmLogBase {
@@ -1095,8 +1212,8 @@ interface LlmLogBase {
   timestamp: string;
   provider: string;
   model: string;
-  mode: 'chat' | 'stream';
-  agent: {
+  mode: 'chat' | 'stream' | 'raw-chat' | 'raw-stream';
+  agent?: {
     id: string;
     name: string;
     role: string;
@@ -1161,6 +1278,277 @@ function extractDeltaText(delta: unknown): string {
     }).join('');
   }
   return '';
+}
+
+type ChatCompletionRequestPayload = Record<string, unknown>;
+
+async function createChatCompletion(
+  client: OpenAI,
+  config: LlmConfig,
+  request: ChatCompletionRequestPayload,
+): Promise<any> {
+  let currentRequest = normalizeTokenParameter(request, config);
+  const attempted = new Set<string>([stableRequestKey(currentRequest)]);
+  let lastError: unknown;
+
+  for (let i = 0; i < 5; i += 1) {
+    try {
+      return await client.chat.completions.create(currentRequest as never);
+    } catch (error) {
+      lastError = error;
+
+      const fallbackCandidates = buildFallbackRequests(currentRequest, error);
+      const nextRequest = fallbackCandidates.find(candidate => {
+        const key = stableRequestKey(candidate);
+        if (attempted.has(key)) {
+          return false;
+        }
+        attempted.add(key);
+        return true;
+      });
+
+      if (!nextRequest) {
+        throw error;
+      }
+
+      currentRequest = nextRequest;
+    }
+  }
+
+  throw lastError;
+}
+
+function buildFallbackRequests(
+  request: ChatCompletionRequestPayload,
+  error: unknown,
+): ChatCompletionRequestPayload[] {
+  const fallbacks: ChatCompletionRequestPayload[] = [];
+
+  const maxTokenFallback = buildMaxTokensFallbackRequest(request, error);
+  if (maxTokenFallback) {
+    fallbacks.push(maxTokenFallback);
+  }
+
+  const samplingFallbacks = buildSamplingFallbackRequests(request, error);
+  fallbacks.push(...samplingFallbacks);
+
+  return fallbacks;
+}
+
+function buildMaxTokensFallbackRequest(
+  request: ChatCompletionRequestPayload,
+  error: unknown,
+): ChatCompletionRequestPayload | undefined {
+  if (!isUnsupportedMaxTokensError(error)) {
+    return undefined;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(request, 'max_tokens')) {
+    return undefined;
+  }
+
+  const maxTokens = request.max_tokens;
+  if (maxTokens === undefined || Object.prototype.hasOwnProperty.call(request, 'max_completion_tokens')) {
+    return undefined;
+  }
+
+  const fallbackRequest: ChatCompletionRequestPayload = {
+    ...request,
+    max_completion_tokens: maxTokens,
+  };
+  delete fallbackRequest.max_tokens;
+  return fallbackRequest;
+}
+
+function buildSamplingFallbackRequests(
+  request: ChatCompletionRequestPayload,
+  error: unknown,
+): ChatCompletionRequestPayload[] {
+  const candidates: ChatCompletionRequestPayload[] = [];
+  const hasTemperature = Object.prototype.hasOwnProperty.call(request, 'temperature') && request.temperature !== undefined;
+  const hasTopP = Object.prototype.hasOwnProperty.call(request, 'top_p') && request.top_p !== undefined;
+
+  if (!hasTemperature && !hasTopP) {
+    return candidates;
+  }
+
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  const temperatureUnsupported = hasTemperature && (message.includes('temperature') || message.includes('sampling parameter'))
+    && (message.includes('not supported') || message.includes('unsupported'));
+  const topPUnsupported = hasTopP && (message.includes('top_p') || message.includes('top p') || message.includes('sampling parameter'))
+    && (message.includes('not supported') || message.includes('unsupported'));
+
+  if (!temperatureUnsupported && !topPUnsupported) {
+    return candidates;
+  }
+
+  if (temperatureUnsupported) {
+    const withoutTemperature: ChatCompletionRequestPayload = { ...request };
+    delete withoutTemperature.temperature;
+    candidates.push(withoutTemperature);
+  }
+
+  if (topPUnsupported) {
+    const withoutTopP: ChatCompletionRequestPayload = { ...request };
+    delete withoutTopP.top_p;
+    candidates.push(withoutTopP);
+  }
+
+  if (hasTemperature || hasTopP) {
+    const withoutSampling: ChatCompletionRequestPayload = { ...request };
+    delete withoutSampling.temperature;
+    delete withoutSampling.top_p;
+    candidates.push(withoutSampling);
+  }
+
+  return candidates;
+}
+
+function stableRequestKey(request: ChatCompletionRequestPayload): string {
+  const sortedEntries = Object.entries(request).sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(Object.fromEntries(sortedEntries));
+}
+
+function normalizeTokenParameter(request: ChatCompletionRequestPayload, config: LlmConfig): ChatCompletionRequestPayload {
+  if (!Object.prototype.hasOwnProperty.call(request, 'max_tokens')) {
+    return request;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(request, 'max_completion_tokens')) {
+    return request;
+  }
+
+  const maxTokens = request.max_tokens;
+  if (maxTokens === undefined) {
+    return request;
+  }
+
+  const model = typeof request.model === 'string' ? request.model : undefined;
+  if (!shouldUseMaxCompletionTokens(config, model)) {
+    return request;
+  }
+
+  const normalized: ChatCompletionRequestPayload = {
+    ...request,
+    max_completion_tokens: maxTokens,
+  };
+  delete normalized.max_tokens;
+  return normalized;
+}
+
+function shouldUseMaxCompletionTokens(config: LlmConfig, model?: string): boolean {
+  if (config.provider !== 'openai-compatible' || !config.baseUrl) {
+    return false;
+  }
+
+  let hostname: string;
+  try {
+    hostname = new URL(config.baseUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+
+  if (hostname !== 'api.openai.com') {
+    return false;
+  }
+
+  if (!model) {
+    return false;
+  }
+
+  return model.toLowerCase().startsWith('gpt-5');
+}
+
+function isUnsupportedMaxTokensError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  return normalized.includes('unsupported parameter') && normalized.includes('max_tokens');
+}
+
+function extractChatCompletionText(response: unknown): string {
+  const choices = (response as { choices?: unknown[] } | undefined)?.choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    return '';
+  }
+
+  for (const choice of choices) {
+    const message = (choice as { message?: { content?: unknown } } | undefined)?.message;
+    const messageText = extractMessageContentText(message?.content);
+    if (messageText) {
+      return messageText;
+    }
+
+    const directText = (choice as { text?: unknown } | undefined)?.text;
+    if (typeof directText === 'string' && directText.trim().length > 0) {
+      return directText.trim();
+    }
+  }
+
+  return '';
+}
+
+function extractMessageContentText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content.trim();
+  }
+
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  const parts: string[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== 'object') {
+      continue;
+    }
+
+    const textValue = (part as { text?: unknown }).text;
+    if (typeof textValue === 'string' && textValue.trim().length > 0) {
+      parts.push(textValue.trim());
+      continue;
+    }
+
+    const nested = (part as { content?: unknown }).content;
+    if (typeof nested === 'string' && nested.trim().length > 0) {
+      parts.push(nested.trim());
+    }
+  }
+
+  return parts.join('\n').trim();
+}
+
+function hasNonTextCompletionSignal(response: unknown): boolean {
+  const choices = (response as { choices?: unknown[] } | undefined)?.choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    return false;
+  }
+
+  return choices.some(choice => {
+    const message = (choice as {
+      message?: {
+        reasoning_content?: unknown;
+        tool_calls?: unknown;
+        function_call?: unknown;
+      };
+      finish_reason?: unknown;
+    } | undefined)?.message;
+
+    const reasoning = message?.reasoning_content;
+    if (typeof reasoning === 'string' && reasoning.trim().length > 0) {
+      return true;
+    }
+
+    if (Array.isArray(message?.tool_calls) && message.tool_calls.length > 0) {
+      return true;
+    }
+
+    if (message?.function_call) {
+      return true;
+    }
+
+    const finishReason = (choice as { finish_reason?: unknown } | undefined)?.finish_reason;
+    return typeof finishReason === 'string' && finishReason.trim().length > 0;
+  });
 }
 
 // ============================================================================

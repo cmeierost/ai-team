@@ -3,23 +3,16 @@
  */
 
 import chalk from 'chalk';
-import { AgentManager, TeamGraphBuilder, ViewMode } from '@ai-team/core';
+import type { AiTeamClient } from '@ai-team/api-client';
 
 interface OrgOptions {
   mermaid?: boolean;
   output?: string;
 }
 
-export async function orgCommand(options: OrgOptions) {
+export async function orgCommand(client: AiTeamClient, options: OrgOptions) {
   try {
-    const workspaceRoot = process.cwd();
-    const agentManager = new AgentManager(workspaceRoot);
-    await agentManager.initialize();
-
-    const graphBuilder = new TeamGraphBuilder(agentManager);
-    const mode: ViewMode = 'hierarchy';
-
-    const graphData = graphBuilder.buildGraph(mode);
+    const graphData = await client.getOrganizationGraph();
 
     if (!graphData.nodes.length) {
       console.log(chalk.yellow('\n⚠ No agents found in this workspace.'));

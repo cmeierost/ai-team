@@ -4,17 +4,6 @@ This document summarizes core concepts used across modern AI coding assistants a
 
 The goal is to give both humans and LLMs a shared vocabulary for designing, configuring, and collaborating with agents.
 
-For detailed, ai-team-specific explanations of the most important concepts, see:
-- [Agents](core/agents.md)
-- [Subagents and Teams](core/subagents-and-teams.md)
-- [Skills and Tools](core/skills-and-tools.md)
-- [Context Management](core/context-management.md)
-- [Workflows vs Agents](core/workflows-vs-agents.md)
-- [Memory](core/memory.md)
-- [Guardrails and Permissions](core/guardrails-and-permissions.md)
-- [MCP](core/mcp.md)
-- [Evaluation and Tracing](core/evaluation-and-tracing.md)
-
 ---
 
 ## 1. Agents

@@ -3,59 +3,46 @@
  */
 
 import chalk from 'chalk';
-import { AgentManager } from '@ai-team/core';
+import type { AiTeamClient, ListEmployeesRequest } from '@ai-team/api-client';
 
-interface ListOptions {
-  role?: string;
-  feature?: string;
+interface ListOptions extends ListEmployeesRequest {
   json?: boolean;
 }
 
-export async function listCommand(options: ListOptions) {
+export async function listCommand(client: AiTeamClient, options: ListOptions) {
   try {
-    const workspaceRoot = process.cwd();
-    const agentManager = new AgentManager(workspaceRoot);
-    await agentManager.initialize();
-
-    let agents = agentManager.getAllAgents();
-
-    // Apply filters
-    if (options.role) {
-      agents = agents.filter(a => a.role === options.role);
-    }
-
-    if (options.feature) {
-      const feature = options.feature;
-      agents = agents.filter(a => a.features?.includes(feature));
-    }
+    const employees = await client.listEmployees({
+      role: options.role,
+      feature: options.feature,
+    });
 
     if (options.json) {
-      console.log(JSON.stringify(agents, null, 2));
+      console.log(JSON.stringify(employees, null, 2));
       return;
     }
 
     // Pretty print
-    if (agents.length === 0) {
+    if (employees.length === 0) {
       console.log(chalk.yellow('No team members found. Run') + ' ai-team init ' + chalk.yellow('to get started.'));
       return;
     }
 
-    console.log(chalk.bold(`\n${agents.length} Team Members\n`));
+    console.log(chalk.bold(`\n${employees.length} Team Members\n`));
 
-    for (const agent of agents) {
-      const status = getStatusIcon(agent.status);
-      console.log(`${status} ${chalk.cyan(agent.name)} ${chalk.dim(`(${agent.role})`)}`);
+    for (const employee of employees) {
+      const status = getStatusIcon(employee.status);
+      console.log(`${status} ${chalk.cyan(employee.name)} ${chalk.dim(`(${employee.role})`)}`);
       
-      if (agent.reportsTo) {
-        console.log(chalk.dim(`  ├─ Reports to: ${agent.reportsTo}`));
+      if (employee.reportsTo) {
+        console.log(chalk.dim(`  ├─ Reports to: ${employee.reportsTo}`));
       }
       
-      if (agent.features && agent.features.length > 0) {
-        console.log(chalk.dim(`  ├─ Features: ${agent.features.join(', ')}`));
+      if (employee.features && employee.features.length > 0) {
+        console.log(chalk.dim(`  ├─ Features: ${employee.features.join(', ')}`));
       }
       
-      if (agent.conversationCount) {
-        console.log(chalk.dim(`  └─ Conversations: ${agent.conversationCount}`));
+      if (employee.conversationCount) {
+        console.log(chalk.dim(`  └─ Conversations: ${employee.conversationCount}`));
       }
       
       console.log('');

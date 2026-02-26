@@ -3,23 +3,18 @@
  */
 
 import chalk from 'chalk';
-import { AgentManager, TeamGraphBuilder, ViewMode } from '@ai-team/core';
+import type { AiTeamClient } from '@ai-team/api-client';
+import { ViewMode } from '@ai-team/core';
 
 interface GraphOptions {
   mode?: string;
   output?: string;
 }
 
-export async function graphCommand(options: GraphOptions) {
+export async function graphCommand(client: AiTeamClient, options: GraphOptions) {
   try {
-    const workspaceRoot = process.cwd();
-    const agentManager = new AgentManager(workspaceRoot);
-    await agentManager.initialize();
-
-    const graphBuilder = new TeamGraphBuilder(agentManager);
     const mode = (options.mode || 'hierarchy') as ViewMode;
-    
-    const graphData = graphBuilder.buildGraph(mode);
+    const graphData = await client.getTeamGraph(mode);
 
     if (options.output) {
       // Export to file

@@ -1,0 +1,116 @@
+import type { AiTeamClient, AiTeamCommandName, MediatorRequest } from '@ai-team/api-client';
+import chalk from 'chalk';
+
+interface StreamRunnerOptions {
+  showStatus?: boolean;
+}
+
+function setupAbortController() {
+  const controller = new AbortController();
+  let abortRequested = false;
+  let forceExitTimer: NodeJS.Timeout | undefined;
+
+  const requestAbort = (signalName: 'SIGINT' | 'SIGTERM') => {
+    if (abortRequested) {
+      process.exit(130);
+      return;
+    }
+
+    abortRequested = true;
+    process.stderr.write(chalk.yellow(`\nReceived ${signalName}, aborting...\n`));
+    controller.abort(new Error(`Aborted by ${signalName}`));
+    forceExitTimer = setTimeout(() => {
+      process.stderr.write(chalk.yellow('\nAbort timed out, forcing exit.\n'));
+      process.exit(130);
+    }, 1500);
+    forceExitTimer.unref();
+  };
+
+  const onSigint = () => requestAbort('SIGINT');
+  const onSigterm = () => requestAbort('SIGTERM');
+
+  process.on('SIGINT', onSigint);
+  process.on('SIGTERM', onSigterm);
+
+  return {
+    signal: controller.signal,
+    wasAborted: () => abortRequested,
+    dispose: () => {
+      if (forceExitTimer) {
+        clearTimeout(forceExitTimer);
+        forceExitTimer = undefined;
+      }
+      process.off('SIGINT', onSigint);
+      process.off('SIGTERM', onSigterm);
+    },
+  };
+}
+
+function isAbortLikeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /aborted|abort/i.test(message);
+}
+
+export async function runCommandStream<TCommand extends AiTeamCommandName>(
+  client: AiTeamClient,
+  request: MediatorRequest<TCommand>,
+  options: StreamRunnerOptions = {},
+): Promise<void> {
+  const abortControl = setupAbortController();
+  let lastErrorLogMessage: string | undefined;
+
+  try {
+    for await (const event of client.stream(request, { signal: abortControl.signal })) {
+      if (event.kind === 'token') {
+        process.stdout.write(event.text);
+        continue;
+      }
+
+      if (event.kind === 'aborted') {
+        process.stderr.write(chalk.yellow('\nCommand aborted.\n'));
+        process.exitCode = 130;
+        return;
+      }
+
+      if (event.kind === 'log') {
+        const line = `${event.message}\n`;
+        if (event.level === 'error') {
+          lastErrorLogMessage = event.message;
+          process.stderr.write(chalk.red(line));
+        } else {
+          process.stdout.write(line);
+        }
+        continue;
+      }
+
+      if (event.kind === 'status' && options.showStatus && event.message) {
+        process.stderr.write(`[service:${event.command}] ${event.message}\n`);
+        continue;
+      }
+
+      if (event.kind === 'error') {
+        if (abortControl.wasAborted() || isAbortLikeError(event.message)) {
+          process.stderr.write(chalk.yellow('\nCommand aborted.\n'));
+          process.exitCode = 130;
+          return;
+        }
+
+        if (lastErrorLogMessage && lastErrorLogMessage === event.message) {
+          process.exitCode = 1;
+          return;
+        }
+        throw new Error(chalk.red(event.message));
+      }
+    }
+  } catch (error) {
+    if (abortControl.wasAborted() || isAbortLikeError(error)) {
+      process.stderr.write(chalk.yellow('\nCommand aborted.\n'));
+      process.exitCode = 130;
+      return;
+    }
+
+    throw error;
+  } finally {
+    abortControl.dispose();
+  }
+}

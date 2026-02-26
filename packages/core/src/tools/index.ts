@@ -311,21 +311,44 @@ export const delegateToAgentTool: AgentTool = {
  */
 export const askHumanTool: AgentTool = {
   name: 'ask_human',
-  description: 'Request clarification or input from the human developer.',
+  description: 'Ask the human developer a structured question. Supports input, confirm, select, checklist, and password modes.',
   parameters: z.object({
-    question: z.string().describe('Question to ask'),
-    context: z.string().optional().describe('Additional context'),
+    question: z.string().min(1).describe('Question to ask the developer'),
+    questionType: z.enum(['input', 'confirm', 'select', 'checklist', 'password']).optional().describe('Question mode (defaults to input)'),
+    context: z.string().optional().describe('Optional additional context shown with the question'),
+    choices: z.array(z.object({
+      name: z.string().min(1),
+      value: z.string().min(1),
+    })).optional().describe('Required for select/checklist modes'),
+    default: z.union([z.string(), z.boolean(), z.array(z.string())]).optional().describe('Optional default answer'),
+    mask: z.string().optional().describe('Optional mask character for password mode'),
+    allowEmpty: z.boolean().optional().describe('Allow empty input for input mode'),
+  }).superRefine((value, refinementCtx) => {
+    const questionType = value.questionType ?? 'input';
+    if ((questionType === 'select' || questionType === 'checklist') && (!value.choices || value.choices.length === 0)) {
+      refinementCtx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `choices are required when questionType is '${questionType}'`,
+      });
+    }
   }),
   async execute(params, context: ToolContext) {
-    const { question, context: additionalContext } = params as any;
+    const { question, context: additionalContext, questionType = 'input', choices } = params as any;
     
     return {
       question,
+      questionType,
       context: additionalContext,
+      choices,
       requestedBy: context.agent.id,
       timestamp: new Date().toISOString(),
     };
   },
+};
+
+export const askQuestionTool: AgentTool = {
+  ...askHumanTool,
+  name: 'ask_question',
 };
 
 /**
@@ -675,6 +698,7 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   run_cli_tool: runCliTool,
   delegate_to_agent: delegateToAgentTool,
   ask_human: askHumanTool,
+  ask_question: askQuestionTool,
 };
 
 export const HR_TOOLS: Record<string, AgentTool> = {

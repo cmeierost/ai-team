@@ -1,398 +1,229 @@
-# AI Team Context Controller - Architecture
+# AI Team - Architecture
+
+## Documentation Map
+
+- [Copilot Context](COPILOT-CONTEXT.md) - working assumptions and execution guardrails for coding agents.
+- [Architecture Overview](docs/architecture/overview.md) - concise architecture summary.
+- [Architecture Diagrams](docs/architecture/diagrams.md) - Mermaid context/container views.
+- [API/Service Contracts](docs/api/contracts.md) - mediator contracts and extension checklist.
+- [Core Package Guide](packages/core/README.md) - core package usage notes.
+- [VS Code Package Guide](packages/vscode/README.md) - extension adapter notes.
+- [Web Package Guide](packages/web/README.md) - web adapter notes.
+
+## Implementation Entry Points
+
+Use this as a "where should I change code" index:
+
+- Mediator contracts and command payload/response types: [packages/service/src/contracts.ts](packages/service/src/contracts.ts)
+- Service command dispatch and runtime event wiring: [packages/service/src/index.ts](packages/service/src/index.ts)
+- Service command metadata / `llmCallable`: [packages/service/src/command-registry.ts](packages/service/src/command-registry.ts)
+- Chat orchestration rules (slash commands, tool-calling, handoff/hire directives): [packages/service/src/commands/chat.ts](packages/service/src/commands/chat.ts)
+- Workflow continuation persistence: [packages/service/src/workflow-state.ts](packages/service/src/workflow-state.ts)
+- Tool definitions and registry (`ask_human`, `ask_question`, etc.): [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts)
+- Command catalog metadata for model-facing command descriptions: [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts)
+- Typed client facade and local service wiring: [packages/api-client/src/index.ts](packages/api-client/src/index.ts)
+- CLI adapter command wiring: [packages/cli/src/cli.ts](packages/cli/src/cli.ts), [packages/cli/src/commands](packages/cli/src/commands)
 
 ## System Overview
 
-A VS Code extension and CLI tool for managing virtual AI development teams. Enables developers to interact with AI "employees" organized in a realistic software company structure, with full context control and lifecycle management.
+AI Team is a TypeScript monorepo for running a file-backed virtual software organization.
 
-## Core Philosophy
+It provides multiple user surfaces (`CLI`, `VS Code extension`, and `Web`) while keeping reusable business logic centralized and adapter-independent.
 
-1. **Library-First**: `@ai-team/core` contains ALL business logic with ZERO UI dependencies
-2. **CLI-Primary**: Complete functionality available via command line
-3. **File-Based State**: All configuration stored in `.ai-team/` folder (git-friendly)
-4. **Manual Context Control**: Explicit sharing, no automatic inheritance
-5. **Realistic Organization**: Full software company simulation (exec → junior dev)
+## Current Architecture (February 2026)
 
-## Architecture Layers
+The current runtime is a layered model:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  UI Layer (Adapters)                                    │
-│  ├─ VS Code Extension (thin wrapper)                    │
-│  ├─ Web Dashboard (React + Vite)                        │
-│  └─ CLI (commander.js wrapper)                          │
-└────────────────┬────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────┐
-│  @ai-team/core (Pure TypeScript Library)                │
-│  ├─ TeamGraph (hierarchy management)                    │
-│  ├─ AgentManager (CRUD operations)                      │
-│  ├─ ContextManager (manual sharing)                     │
-│  ├─ ChatOrchestrator (LLM integration)                  │
-│  ├─ ToolSystem (agent capabilities)                     │
-│  └─ FileWatcher (real-time sync)                        │
-└────────────────┬────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────┐
-│  Storage Layer                                           │
-│  ├─ .ai-team/agents/*.md (committed)                    │
-│  ├─ .ai-team/roles/*.skill.md (committed)               │
-│  ├─ .ai-team/meetings/ (committed summaries)            │
-│  ├─ .ai-team/avatars/*.png (committed)                  │
-│  └─ .ai-team/private/chats/ (NOT committed)             │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Adapter Layer                                                │
+│  ├─ @ai-team/cli (commander + terminal UX)                  │
+│  ├─ @ai-team/vscode (extension views/panels)                │
+│  └─ @ai-team/web (React UI)                                 │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+┌─────────────────────────────▼────────────────────────────────┐
+│ Client Layer: @ai-team/api-client                           │
+│  ├─ Typed client API used by adapters                        │
+│  ├─ Command-oriented methods (`chat`, `hire`, `provider.*`) │
+│  └─ In-process client factory (`createLocalAiTeamClient`)   │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+┌─────────────────────────────▼────────────────────────────────┐
+│ Service Layer: @ai-team/service                              │
+│  ├─ Mediator contracts (`invoke`, `stream`)                 │
+│  ├─ Command dispatch/orchestration                           │
+│  ├─ Workflow state continuation for interactive commands     │
+│  └─ Runtime event stream (status, token, tool, question)     │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+┌─────────────────────────────▼────────────────────────────────┐
+│ Domain Layer: @ai-team/core                                  │
+│  ├─ Team, agent, context, chat, llm, tool, storage domains  │
+│  ├─ Shared domain types and graph models                     │
+│  └─ UI-free business logic and file operations               │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+┌─────────────────────────────▼────────────────────────────────┐
+│ State + Integrations                                         │
+│  ├─ .ai-team/* runtime artifacts                             │
+│  └─ LLM provider APIs                                        │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ## Package Responsibilities
 
-### @ai-team/core
-
-**Pure TypeScript library. NO imports from:**
-- `vscode` (VS Code APIs)
-- `react` / `react-dom` (UI frameworks)
-- `electron` (desktop APIs)
-
-**Allowed dependencies:**
-- `gray-matter` (YAML frontmatter parsing)
-- `zod` (schema validation)
-- `chokidar` (cross-platform file watching)
-- `openai` / `anthropic` (LLM SDKs)
-
-**Exports:**
-- All domain models (Agent, Skill, Feature, etc.)
-- All business logic classes
-- All tool definitions
-- File format parsers
-
-### @ai-team/cli
-
-**Wraps core library with CLI interface.**
-
-Dependencies: `@ai-team/core`, `commander`, `inquirer`, `chalk`, `ora`
-
-Commands:
-- `ai-team init` - Initialize workspace
-- `ai-team create <name>` - Create agent
-- `ai-team list` - Show team hierarchy
-- `ai-team chat <agent>` - Interactive chat
-- `ai-team context share/list/revoke` - Context management
-- `ai-team hr hire/archive/assess` - HR operations
-- `ai-team serve` - Launch web dashboard
-
-### @ai-team/web
-
-**React dashboard for graph visualization and management.**
-
-Dependencies: `@ai-team/core`, `react`, `react-flow`, `vite`
-
-Features:
-- Interactive team graph (react-flow)
-- Agent profile editor
-- Chat interface
-- Context management UI
-- Meeting summary viewer
-
-### @ai-team/vscode
-
-**Thin VS Code extension adapter.**
-
-Dependencies: `@ai-team/core`, `vscode` (external)
-
-Adapters:
-- TreeView → TeamGraph
-- Webview → Embeds @ai-team/web
-- Chat Participant → ChatOrchestrator
-- Commands → Core library methods
-
-## Data Models
-
-### Agent (Virtual Employee)
-
-```typescript
-interface Agent {
-  id: string;                    // Unique identifier
-  name: string;                  // Human name (e.g., "Sarah Chen")
-  role: string;                  // References skill.md
-  type: RoleType;                // hierarchical, feature-owner, consultant, etc.
-  
-  // Organization
-  reportsTo?: string;            // Manager's agent ID
-  features: string[];            // Feature assignments
-  specializations: string[];     // Expertise areas
-  
-  // Context
-  contextLevel: ContextLevel;    // task, module, feature, repository, organization
-  contextPaths: string[];        // File patterns agent can access
-  
-  // Metadata
-  avatar: AvatarConfig;
-  personality: PersonalityConfig;
-  pronouns: string;
-  timezone: string;
-  workHours: string;
-  
-  // File paths
-  filePath: string;              // Path to agent.md
-  skillPath: string;             // Path to skill.md
-}
-```
-
-### Skill (Role Template)
-
-```typescript
-interface Skill {
-  name: string;
-  type: RoleType;
-  description: string;
-  responsibilities: string[];
-  tools: string[];               // Tool names agent can use
-  permissions: PermissionConfig;
-  contextLevel: ContextLevel;
-  filePath: string;
-}
-```
-
-### Tool (Agent Capability)
-
-```typescript
-interface AgentTool {
-  name: string;
-  description: string;
-  parameters: z.ZodSchema;
-  execute(params: unknown, context: ToolContext): Promise<unknown>;
-}
-```
-
-## Organizational Structure
-
-### Role Types
-
-1. **Executive** (CTO, HR Director) - Strategic decisions, ADRs
-2. **Leadership** (Engineering Manager, QA Lead) - Team coordination, planning
-3. **Team Lead** (Tech Lead, Senior Architect) - Technical design, mentoring
-4. **Individual Contributor** (Senior/Mid/Junior Dev) - Implementation
-5. **Quality Gate** (Code Reviewer, QA Engineer) - Verification, standards
-6. **Cross-Concern** (Consultants) - Domain expertise, available to all
-7. **Product** (Product Owner, PM) - Requirements, acceptance criteria
-
-### Context Levels
-
-- **Organization**: Executives see strategic docs only (ADRs, roadmap)
-- **Repository**: Architects, QA Lead see entire codebase (read-only)
-- **Feature**: Team leads, POs see feature area code
-- **Module**: Senior devs see specific modules
-- **Task**: Junior devs see only assigned files
-
-### Delegation Patterns
-
-- **Downward** (Command): Exec → Manager → Lead → Dev
-- **Upward** (Escalation): Dev → Lead → Manager (questions, blockers)
-- **Peer** (Consultation): Any dev → Consultant (expertise)
-- **Lateral** (Collaboration): Feature team members (coordination)
-
-## File Formats
-
-### agent.md (Team Member Instance)
-
-```yaml
----
-name: Sarah Chen
-role: senior-frontend-developer
-type: individual-contributor
-contextLevel: module
-
-# Organization
-reportsTo: tech-lead
-features: [login, dashboard]
-specializations: [react, typescript, accessibility]
-
-# Identity
-avatar:
-  type: ai-generated
-  seed: sarah-chen-frontend-2026
-pronouns: she/her
-timezone: PST
-workHours: 9am-5pm
-
-# Access
-permissions:
-  read: [src/frontend/**, shared/types/**]
-  write: [src/frontend/components/**, tests/frontend/**]
----
-
-# Sarah Chen - Senior Frontend Developer
-
-Expertise: React, TypeScript, Accessibility
-Current Focus: OAuth implementation, Dashboard refactoring
-
-## Recent Work
-- Implemented token refresh UI (PR-156)
-- Refactored Dashboard state management (PR-142)
-
-## Meeting Summaries
-See [meetings/sarah-chen/](../../meetings/sarah-chen/)
-```
-
-### skill.md (Role Template)
-
-```yaml
----
-name: senior-frontend-developer
-type: individual-contributor
-description: Senior developer specializing in frontend
-contextLevel: module
-
-responsibilities:
-  - feature-implementation
-  - code-review
-  - mentoring
-
-tools:
-  - semantic_search
-  - file_search
-  - read_file
-  - write_file
-  - run_test
-  - delegate_to_agent
-
-permissions:
-  read: [src/frontend/**, docs/**]
-  write: [src/frontend/**, tests/**]
----
-
-# Senior Frontend Developer Role
-
-Implements features, reviews code, mentors junior developers.
-Expertise in modern frontend frameworks and best practices.
-```
-
-## Tool System
-
-Agents execute tasks using tools (modeled after GitHub Copilot Feb 2026):
-
-**Core Tools:**
-- `semantic_search` - Find relevant code semantically
-- `file_search` - Glob pattern file discovery
-- `read_file` - Read file contents with line ranges
-- `write_file` - Modify files (with permission check)
-- `get_errors` - Read compiler/linter errors
-- `get_git_status` - Check git changes
-- `run_test` - Execute tests
-
-**Agent Interaction Tools:**
-- `delegate_to_agent` - Ask another agent for help (like Copilot's runSubagent)
-- `ask_human` - Request clarification (like Copilot's ask_questions)
-
-**HR Tools** (HR Director only):
-- `create_agent` - Hire new team member
-- `archive_agent` - Offboard agent
-- `reassign_agent` - Change reporting structure
-- `assess_performance` - Analyze activity
-
-## Chat & Meeting System
-
-### Private Chat (Ephemeral)
-- Stored in `.ai-team/private/chats/{agent-id}/YYYY-MM-DD.jsonl`
-- NOT committed to git
-- Natural conversation history
-- Full context for agent
-
-### Meeting Summaries (Permanent)
-- Stored in `.ai-team/meetings/{agent-id}/YYYY-MM-DD-title.md`
-- Committed to git
-- AI-generated from chat sessions
-- Contains: decisions, action items, related files
-- Becomes part of agent's knowledge base
-
-## UX Design
-
-### Human-Like Agent Interactions
-
-1. **Visual Identity**: AI-generated professional headshots
-2. **Human Names**: "Sarah Chen" not "frontend-agent-1"
-3. **Personality**: Communication style affects chat tone
-4. **Presence**: Status indicators (available/busy/offline)
-5. **Timezone Awareness**: Work hours per agent
-
-### Smooth Workflows
-
-- Click agent in graph → Opens chat immediately
-- Important conversations → "Save as Meeting Summary" button
-- AI auto-generates summary with decisions and action items
-- Summaries become searchable project knowledge
-
-## Technical Constraints
-
-### Core Library Rules
-
-1. **NO UI DEPENDENCIES**: Core library must run headless
-2. **Cross-Platform**: Works on Windows, macOS, Linux
-3. **File-Based**: No database, all data in files
-4. **Git-Friendly**: Text formats, structured diffs
-5. **Testable**: All logic testable without IDE
-
-### Performance
-
-- File watching debounced (500ms)
-- Large graphs use virtual scrolling
-- Streaming LLM responses
-- Avatar generation cached
-
-## Development Workflow
-
-### For Copilot to Generate Code
-
-1. **Write specs first** (this file, DESIGN.md per package)
-2. **Define types early** (TypeScript interfaces with JSDoc)
-3. **Write tests first** (Test-Driven AI)
-4. **Let Copilot implement** (Tab through suggestions)
-5. **Use runSubagent** for research and complex logic
-6. **Iterate with /fix, /tests, /doc**
-
-### Naming Conventions
-
-- **Files**: kebab-case (`team-graph.ts`)
-- **Classes**: PascalCase (`TeamGraph`)
-- **Functions**: camelCase (`getAgentHierarchy`)
-- **Constants**: UPPER_SNAKE_CASE (`DEFAULT_CONFIG_PATH`)
-- **Types**: PascalCase (`Agent`, `Skill`)
-
-### Error Handling
-
-- Use typed errors (extend `Error`)
-- Include context in error messages
-- Validate with Zod schemas
-- Handle file I/O errors gracefully
-
-## Security & Permissions
-
-- Agents can only read files in their `contextPaths`
-- Write permissions checked before file modifications
-- HR tools restricted to HR Director role
-- Private chat data never exposed to other agents
-- Meeting summaries reviewed before commit
-
-## Extensibility
-
-### Adding New Roles
-
-1. Create `.ai-team/roles/{role-name}.skill.md`
-2. Define tools and permissions
-3. HR Director can hire agents with this role
-
-### Adding New Tools
-
-1. Implement `AgentTool` interface in core
-2. Add to appropriate skill.md `tools` array
-3. Tool automatically available to agents with that skill
-
-### Custom IDE Integration
-
-Other IDEs can:
-1. Import `@ai-team/core` as library
-2. Implement thin adapter layer
-3. Reuse web dashboard (embed webview)
-4. Call same CLI commands under the hood
-
----
-
-**This architecture enables a realistic, controllable, extensible AI team simulation with maximum code reuse across CLI, web, and IDE interfaces.**
+### `@ai-team/core`
+
+- Canonical business/domain logic.
+- Owns shared types, domain operations, file-backed state behaviors, and context boundaries.
+- Must remain UI-free (no `vscode`, `react`, `react-dom`, `electron` imports).
+
+### `@ai-team/service`
+
+- Application service orchestration on top of core.
+- Defines command contracts and command response maps.
+- Provides mediator execution APIs:
+  - `invoke(...)` for request/response command execution.
+  - `stream(...)` for token/event streaming execution.
+- Owns workflow continuation snapshots for interactive command flows.
+
+### `@ai-team/api-client`
+
+- Typed client facade over service contracts.
+- Provides command-specific convenience methods (`listEmployees`, `chat`, `providerModels`, etc.).
+- Encapsulates in-process wiring (`createLocalAiTeamClient`) so adapters don’t directly manage service internals.
+
+### `@ai-team/cli`
+
+- Terminal adapter.
+- Handles command-line parsing, prompts, terminal rendering, and process signals.
+- Delegates command execution to `@ai-team/api-client`.
+
+### `@ai-team/vscode`
+
+- VS Code adapter.
+- Hosts extension activation, tree/panel integrations, and editor-facing UX.
+- Delegates business operations through client/service contracts.
+
+### `@ai-team/web`
+
+- React visualization adapter.
+- Presents graph/chat/team UI and delegates operations through shared contracts.
+
+## Runtime State Model
+
+All runtime artifacts are rooted under `.ai-team/` in the workspace:
+
+- `.ai-team/config.json` - non-secret provider/model/configuration state.
+- `.ai-team/.env` - secrets and provider tokens.
+- `.ai-team/agents/*.md` - agent definitions (frontmatter + markdown).
+- `.ai-team/private/chats/*.jsonl` - private chat transcripts.
+
+## Command Execution Model
+
+1. Adapter accepts a user action (CLI command, extension action, or web interaction).
+2. Adapter calls `AiTeamClient` (`@ai-team/api-client`).
+3. Client forwards typed `MediatorRequest` to `@ai-team/service`.
+4. Service dispatches to command handlers and orchestrates workflow continuation.
+5. Service uses `@ai-team/core` for domain logic and storage/model interactions.
+6. Responses/events flow back to the adapter for rendering.
+
+## Orchestration Rules
+
+Orchestration rules are deterministic service-side decision rules that shape command/chat execution before and after model generation.
+
+They are distinct from:
+
+- **Commands**: typed mediator operations (`AiTeamCommandName`) and payload/response contracts.
+- **Tools**: executable capabilities (`AgentTool`) with permission checks and optional user approval.
+
+Rules decide **which path runs next** (command dispatch, tool path, workflow continuation, handoff/hire actions), while commands and tools define **what capabilities exist**.
+
+Current rule categories in `@ai-team/service`:
+
+1. **Input routing precedence**
+  - In-chat slash commands (`/list`, `/hire`, `/chat`, etc.) are parsed and handled directly.
+  - Direct tool syntax (`#tool {...}` or `/tool ...`) is parsed and executed through tool guards.
+  - Non-command natural language falls through to LLM response generation.
+
+2. **Safety and approval gates**
+  - Tool execution emits runtime tool events (`request`, `start`, `result`, `error`, `denied`).
+  - Non-question tools require explicit confirmation before execution.
+  - Permission checks (`getAgentTools`) constrain what each agent can run.
+
+3. **Interactive workflow continuation**
+  - Question prompts (`input`, `confirm`, `select`, `password`, `checklist`) emit workflow frames.
+  - Continuation state (`workflowId`, `continuationToken`, answers) is persisted and resumed.
+
+### Questioning as an orchestration primitive
+
+Developer questioning belongs to orchestration, not to a separate capability layer.
+
+- The service owns the canonical question flow through mediator context responders (`questionInput`, `questionConfirm`, `questionSelect`, `questionPassword`, `questionChecklist`) and `question` runtime events.
+- Adapters provide UX-specific responders (terminal prompt, VS Code UI, web form) and return typed answers.
+- Tool entrypoints such as `ask_human`/`ask_question` are allowed ways to trigger that same orchestration primitive during model turns.
+- Workflow state persistence/continuation keeps question-driven flows resumable across command invocations.
+
+This keeps one question system across local CLI usage and future remote transports.
+
+4. **Post-response orchestration directives**
+  - Service can parse structured/implicit directives from agent responses (for example `HANDOFF:` and HR hire directives).
+  - These rules trigger service actions (switch agent, create new hire) after response persistence.
+
+5. **LLM guidance vs execution boundary**
+  - Metadata such as `llmCallable` influences what the model is told it may request.
+  - It does not automatically turn every command into a tool invocation path.
+
+This rule layer keeps behavior predictable and auditable while still allowing flexible natural-language interaction.
+
+## Mediator Pattern
+
+`@ai-team/service` is the mediator boundary for application operations.
+
+- Request contract: `MediatorRequest<TCommand>` (command + typed payload).
+- Unary execution: `invoke(request, context)`.
+- Streaming execution: `stream(request, context)`.
+- Stream contract: `MediatorEvent<TCommand>` (`started`, `status`, `progress`, `log`, `token`, `tool`, `question`, `result`, `done`, `error`, `aborted`).
+
+This keeps adapter UX and transport concerns separate from command orchestration and domain behavior.
+
+### Current CLI connection (direct local path)
+
+Today the CLI runs an in-process path:
+
+`@ai-team/cli -> createLocalAiTeamClient(...) -> createAiTeamService(...) -> command handlers -> @ai-team/core`
+
+This gives zero network overhead for local workflows.
+
+### Remote-UI-ready design
+
+Although CLI currently connects directly to the local service process, the architecture is intentionally transport-agnostic:
+
+- Adapters depend on `AiTeamClient` shape, not command internals.
+- Service behavior is already expressed as request/response + event stream contracts.
+- A future remote client can map `invoke/stream` to HTTP/WebSocket/SSE without changing core command logic.
+
+In other words, the service is local-first today but structured for remote UIs with minimal adapter changes.
+
+## Architecture Invariants
+
+1. **Core is UI-free** and reusable across adapters.
+2. **Adapters stay thin**: orchestration/UX at edges, reusable behavior in service/core.
+3. **Runtime state conventions** remain under `.ai-team/`.
+4. **Typed command contracts** are centralized in service and consumed through api-client.
+5. **Permission/context boundaries** are enforced before file/tool operations.
+
+## Extension Guidance
+
+When adding or changing capabilities:
+
+1. Add/adjust domain behavior in `@ai-team/core`.
+2. Expose operation through `@ai-team/service` command contracts and handlers.
+3. Update `@ai-team/api-client` convenience methods.
+4. Wire UX in one or more adapters (`cli`, `vscode`, `web`).
+5. Update architecture docs and compatibility notes in the same change.
+
+Detailed implementation checklists for adding commands/tools are maintained in `docs/api/contracts.md` (Extension Checklist) to avoid duplicated guidance.
+
+For Copilot-oriented implementation guidance, start with [API/Service Contracts](docs/api/contracts.md) and then apply the file-level entry points above.

@@ -6,6 +6,12 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { registerCliCommandCatalog, type CliCommandMetadata } from '@ai-team/core';
+import {
+  createLocalAiTeamClient,
+  ServiceDomainError,
+  type ServiceErrorInputRequest,
+} from '@ai-team/api-client';
 import { initCommand } from './commands/init.js';
 import { listCommand } from './commands/list.js';
 import { createCommand } from './commands/create.js';
@@ -17,144 +23,149 @@ import { fireCommand } from './commands/fire.js';
 import { hhRefreshCommand } from './commands/hh.js';
 
 import { testConnectionCommand } from './commands/test-connection.js';
-import { providerSetCommand } from './commands/provider.js';
-import { providerModelsCommand, providerModelsRefreshCommand } from './commands/models.js';
+import { providerAddCommand, providerConfigureCommand, providerSetCommand } from './commands/provider.js';
+import { providerListCommand, providerModelsCommand, providerModelsRefreshCommand } from './commands/models.js';
 import { orgCommand } from './commands/org.js';
+import { CLI_COMMAND_REGISTRY, getCliCommandMetadata } from './commands/registry.js';
+
+registerCliCommandCatalog(CLI_COMMAND_REGISTRY);
 
 const program = new Command();
+const client = createLocalAiTeamClient(process.cwd());
+
+function formatInputRequestHint(request: ServiceErrorInputRequest | undefined): string | undefined {
+  if (!request) {
+    return undefined;
+  }
+
+  if (request.kind === 'env-var') {
+    return `Missing required value for ${request.key}.`;
+  }
+
+  return undefined;
+}
+
+function handleCliError(error: unknown): void {
+  if (error instanceof ServiceDomainError) {
+    const hint = formatInputRequestHint(error.inputRequest);
+    console.error(chalk.red(error.message));
+    if (hint) {
+      console.error(chalk.dim(hint));
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(chalk.red(message));
+  process.exitCode = 1;
+}
+
+function withCliErrorHandling<TArgs extends unknown[]>(
+  action: (...args: TArgs) => Promise<unknown> | unknown,
+): (...args: TArgs) => Promise<void> {
+  return async (...args: TArgs) => {
+    try {
+      await action(...args);
+    } catch (error) {
+      handleCliError(error);
+    }
+  };
+}
+
+function applyCommandMetadata(command: Command, metadata: CliCommandMetadata): Command {
+  command.description(metadata.description);
+
+  if (metadata.arguments) {
+    for (const argument of metadata.arguments) {
+      command.argument(argument.syntax, argument.description);
+    }
+  }
+
+  if (metadata.options) {
+    for (const option of metadata.options) {
+      if (option.defaultValue !== undefined) {
+        command.option(option.flags, option.description, option.defaultValue);
+      } else {
+        command.option(option.flags, option.description);
+      }
+    }
+  }
+
+  return command;
+}
 
 program
   .name('ai-team')
   .description('Manage virtual AI development teams')
   .version('0.1.0');
 
-// Initialize workspace
-program
-  .command('init')
-  .description('Initialize AI Team in current workspace')
-  .option('-t, --template <type>', 'Use a starter template', 'basic')
-  .option('-f, --force', 'Force reinitialize even if already initialized')
-  .action(initCommand);
+const initMeta = getCliCommandMetadata('init');
+applyCommandMetadata(program.command(initMeta.command), initMeta).action(withCliErrorHandling((options) => initCommand(client, options)));
 
-// List agents
-program
-  .command('list')
-  .description('List all team members')
-  .option('-r, --role <role>', 'Filter by role')
-  .option('-f, --feature <feature>', 'Filter by feature')
-  .option('--json', 'Output as JSON')
-  .action(listCommand);
+const listMeta = getCliCommandMetadata('list');
+applyCommandMetadata(program.command(listMeta.command), listMeta).action(withCliErrorHandling((options) => listCommand(client, options)));
 
-// Create agent
-program
-  .command('create <type>')
-  .description('Create a new team member or role')
-  .argument('<type>', 'What to create: agent, skill')
-  .option('-n, --name <name>', 'Agent name')
-  .option('-r, --role <role>', 'Agent role')
-  .option('--interactive', 'Interactive mode')
-  .action(createCommand);
+const createMeta = getCliCommandMetadata('create');
+applyCommandMetadata(program.command(createMeta.command), createMeta).action(withCliErrorHandling((type, options) => createCommand(client, type, options)));
 
-// Chat with agent
-program
-  .command('chat <agent-id>')
-  .argument('[message...]', 'Optional inline message to send immediately')
-  .description('Start a chat session with an agent')
-  .option('-m, --message <message>', 'Send a single message')
-  .option('-c, --context <files...>', 'Include files in context')
-  .action((agentId: string, messageParts: string[] | undefined, options: { message?: string; context?: string[] }) => {
+const chatMeta = getCliCommandMetadata('chat');
+applyCommandMetadata(program.command(chatMeta.command), chatMeta)
+  .action(withCliErrorHandling((agentId: string | undefined, messageParts: string[] | undefined, options: { message?: string; context?: string[]; mediatorLog?: boolean }) => {
+    const { mediatorLog, ...chatOptions } = options;
     const inlineMessage = messageParts && messageParts.length > 0
       ? messageParts.join(' ')
       : undefined;
-    const hasOptionMessage = Boolean(options.message);
-    const message = options.message || inlineMessage;
-    return chatCommand(agentId, { ...options, message, oneShot: hasOptionMessage });
-  });
+    const hasOptionMessage = Boolean(chatOptions.message || inlineMessage);
+    const message = chatOptions.message || inlineMessage;
+    return chatCommand(client, agentId, { ...chatOptions, message, oneShot: hasOptionMessage }, Boolean(mediatorLog));
+  }));
 
-// View team graph
-program
-  .command('graph')
-  .description('View team organization graph')
-  .option('-m, --mode <mode>', 'View mode: hierarchy, features, expertise, matrix', 'hierarchy')
-  .option('-o, --output <file>', 'Export to file (SVG, PNG, or JSON)')
-  .action(graphCommand);
+const graphMeta = getCliCommandMetadata('graph');
+applyCommandMetadata(program.command(graphMeta.command), graphMeta).action(withCliErrorHandling((options) => graphCommand(client, options)));
 
-// Quick org overview
-program
-  .command('org')
-  .description('Show organization hierarchy (fast CLI view)')
-  .option('-o, --output <file>', 'Export to JSON or Mermaid (with --mermaid)')
-  .option('--mermaid', 'Output Mermaid diagram text instead of ASCII tree')
-  .action(orgCommand);
+const orgMeta = getCliCommandMetadata('org');
+applyCommandMetadata(program.command(orgMeta.command), orgMeta).action(withCliErrorHandling((options) => orgCommand(client, options)));
 
-// Hire a new team member
-program
-  .command('hire')
-  .description('Hire a new team member (interactive workflow)')
-  .option('-n, --name <name>', 'Employee name')
-  .option('-r, --role <role>', 'Unique role name')
-  .option('-s, --skill <skill>', 'Skill from catalog')
-  .option('-t, --type <type>', 'Role type (executive, team-lead, individual-contributor, etc.)')
-  .option('--reports-to <agent>', 'Manager agent ID')
-  .option('--no-chat', 'Skip the onboarding chat phase')
-  .action(hireCommand);
+const hireMeta = getCliCommandMetadata('hire');
+applyCommandMetadata(program.command(hireMeta.command), hireMeta).action(withCliErrorHandling((options) => hireCommand(client, options)));
 
-// Agent info / portfolio
-program
-  .command('info <agent>')
-  .description('Show detailed profile for an agent')
-  .option('--json', 'Output as JSON')
-  .action(infoCommand);
+const infoMeta = getCliCommandMetadata('info');
+applyCommandMetadata(program.command(infoMeta.command), infoMeta).action(withCliErrorHandling((agentId, options) => infoCommand(client, agentId, options)));
 
-// Fire (delete) an agent
-program
-  .command('fire <agent>')
-  .description('Fire (delete) an agent and remove their data')
-  .option('-f, --force', 'Do not prompt for confirmation')
-  .action(fireCommand);
+const fireMeta = getCliCommandMetadata('fire');
+applyCommandMetadata(program.command(fireMeta.command), fireMeta).action(withCliErrorHandling((agentQuery, options) => fireCommand(client, agentQuery, options)));
 
-// Headhunter commands
-const hh = program
-  .command('hh')
-  .description('Headhunter — scout skills and manage the talent catalog');
+const hhMeta = getCliCommandMetadata('hh');
+const hh = applyCommandMetadata(program.command(hhMeta.command), hhMeta);
 
-hh
-  .command('refresh')
-  .description('Scout and refresh skill catalog from GitHub')
-  .action(hhRefreshCommand);
+const hhRefreshMeta = getCliCommandMetadata('hh.refresh');
+applyCommandMetadata(hh.command(hhRefreshMeta.command), hhRefreshMeta).action(withCliErrorHandling(() => hhRefreshCommand(client)));
 
-// Test LLM connection
-program
-  .command('test-connection')
-  .description('Test the configured LLM connection')
-  .option('-e, --employee <employee>', 'Resolve employee by fuzzy search and test their effective model/provider')
-  .option('-p, --provider <providerRef>', 'Provider reference key in config.providers')
-  .option('--model-key <modelKey>', 'Model key from provider models dictionary')
-  .option('--model <modelId>', 'Direct model ID override (bypasses model key)')
-  .option('--all', 'Test all configured model keys (optionally scoped by --provider)')
-  .action(testConnectionCommand);
+const testConnectionMeta = getCliCommandMetadata('test-connection');
+applyCommandMetadata(program.command(testConnectionMeta.command), testConnectionMeta).action(withCliErrorHandling((options) => testConnectionCommand(client, options)));
 
-// Provider commands
-const provider = program
-  .command('provider')
-  .description('Manage LLM providers and models');
+const providerMeta = getCliCommandMetadata('provider');
+const provider = applyCommandMetadata(program.command(providerMeta.command), providerMeta);
 
-provider
-  .command('set')
-  .description('Interactively change LLM provider and update configuration')
-  .action(providerSetCommand);
+const providerConfigureMeta = getCliCommandMetadata('provider.configure');
+applyCommandMetadata(provider.command(providerConfigureMeta.command), providerConfigureMeta).action(withCliErrorHandling((options) => providerConfigureCommand(client, options)));
 
-const providerModels = provider
-  .command('models')
-  .description('List available models from the configured LLM provider')
-  .option('-p, --provider <providerRef>', 'Provider reference key in config.providers')
-  .option('--json', 'Output as JSON')
-  .action(providerModelsCommand);
+const providerAddMeta = getCliCommandMetadata('provider.add');
+applyCommandMetadata(provider.command(providerAddMeta.command), providerAddMeta).action(withCliErrorHandling(() => providerAddCommand(client)));
 
-providerModels
-  .command('refresh')
-  .description('Refresh provider model dictionary from provider /models endpoint')
-  .option('-p, --provider <providerRef>', 'Provider reference key in config.providers')
-  .action(providerModelsRefreshCommand);
+const providerSetMeta = getCliCommandMetadata('provider.set');
+applyCommandMetadata(provider.command(providerSetMeta.command), providerSetMeta).action(withCliErrorHandling((options) => providerSetCommand(client, options)));
+
+const providerListMeta = getCliCommandMetadata('provider.list');
+applyCommandMetadata(provider.command(providerListMeta.command), providerListMeta).action(withCliErrorHandling((options) => providerListCommand(client, options)));
+
+const providerModelsMeta = getCliCommandMetadata('provider.models');
+const providerModels = applyCommandMetadata(provider.command(providerModelsMeta.command), providerModelsMeta)
+  .action(withCliErrorHandling((options) => providerModelsCommand(client, options)));
+
+const providerModelsRefreshMeta = getCliCommandMetadata('provider.models.refresh');
+applyCommandMetadata(providerModels.command(providerModelsRefreshMeta.command), providerModelsRefreshMeta)
+  .action(withCliErrorHandling((options) => providerModelsRefreshCommand(client, options)));
 
 program.parse();

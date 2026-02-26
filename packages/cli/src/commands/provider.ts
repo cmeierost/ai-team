@@ -1,139 +1,320 @@
-import path from 'path';
-import chalk from 'chalk';
-import { select, input, password } from '@inquirer/prompts';
-import {
-  loadTeamConfig,
-  saveTeamConfig,
-  saveEnvFile,
-  testLlmConnection,
-  fetchGitHubModels,
-  resolveEffectiveLlmSettings,
-} from '@ai-team/core';
-import type { LlmConfig, TeamConfig, LlmProviderConfig } from '@ai-team/core';
+import { confirm, input, password, select } from '@inquirer/prompts';
+import type {
+  AddProviderOptions,
+  AiTeamClient,
+  ConfigureProviderOptions,
+  ProviderSetupInput,
+  SetProviderOptions,
+} from '@ai-team/api-client';
+import { fetchGitHubModels, loadEnvFile, loadTeamConfig } from '@ai-team/core';
+import type { LlmConfig, LlmProviderConfig, TeamConfig } from '@ai-team/core';
+import { runCommandStream } from './stream-runner.js';
 
-export async function providerSetCommand() {
+export async function providerConfigureCommand(client: AiTeamClient, options: ConfigureProviderOptions = {}) {
+  if (!options.fromInit) {
+    const workspaceRoot = process.cwd();
+    const existing = await loadTeamConfig(workspaceRoot);
+    const currentDefault = resolveCurrentDefaultProvider(existing);
+
+    if (currentDefault) {
+      const keep = await confirm({
+        message: `Current default provider is '${currentDefault.ref}' (${currentDefault.config.kind}). Keep it?`,
+        default: true,
+      });
+
+      if (keep) {
+        await runCommandStream(client, {
+          command: 'providerConfigure',
+          payload: { options: { ...options, keepCurrentDefault: true } },
+        });
+        return;
+      }
+    }
+
+    const setup = await askProviderSetup(workspaceRoot, existing, { mode: 'configure' });
+    await runCommandStream(client, {
+      command: 'providerConfigure',
+      payload: { options: { ...options, keepCurrentDefault: false, setup } },
+    });
+    return;
+  }
+
+  await runCommandStream(client, {
+    command: 'providerConfigure',
+    payload: { options },
+  });
+}
+
+export async function providerAddCommand(client: AiTeamClient, options: AddProviderOptions = {}) {
+  if (options.setup) {
+    await runCommandStream(client, {
+      command: 'providerAdd',
+      payload: { options },
+    });
+    return;
+  }
+
   const workspaceRoot = process.cwd();
-
   const existing = await loadTeamConfig(workspaceRoot);
+  const setup = await askProviderSetup(workspaceRoot, existing, { mode: 'add' });
+  const makeDefault = await confirm({
+    message: `Make '${setup.providerRef}' the default provider?`,
+    default: false,
+  });
 
-  const provider = await select<"github-copilot" | "openai-compatible">({
-    message: 'Which LLM provider do you want to use?',
+  await runCommandStream(client, {
+    command: 'providerAdd',
+    payload: { options: { setup, makeDefault } },
+  });
+}
+
+export async function providerSetCommand(client: AiTeamClient, options: SetProviderOptions = {}) {
+  if (!options.fromInit) {
+    const workspaceRoot = process.cwd();
+    const existing = await loadTeamConfig(workspaceRoot);
+    const currentDefault = resolveCurrentDefaultProvider(existing);
+
+    if (currentDefault) {
+      const keep = await confirm({
+        message: `Current default provider is '${currentDefault.ref}' (${currentDefault.config.kind}). Keep it?`,
+        default: true,
+      });
+
+      if (keep) {
+        await runCommandStream(client, {
+          command: 'providerSet',
+          payload: { options: { ...options, keepCurrentDefault: true } },
+        });
+        return;
+      }
+    }
+
+    const setup = await askProviderSetup(workspaceRoot, existing, { mode: 'configure' });
+    await runCommandStream(client, {
+      command: 'providerSet',
+      payload: { options: { ...options, keepCurrentDefault: false, setup } },
+    });
+    return;
+  }
+
+  await runCommandStream(client, {
+    command: 'providerSet',
+    payload: { options },
+  });
+}
+
+export default providerConfigureCommand;
+
+async function askProviderSetup(
+  workspaceRoot: string,
+  existing: TeamConfig | undefined,
+  options: { mode: 'configure' | 'add' },
+): Promise<ProviderSetupInput> {
+  const providerKind = await select<'github-copilot' | 'openai-compatible'>({
+    message: options.mode === 'configure'
+      ? 'Which provider should be configured as default?'
+      : 'Which provider do you want to add?',
     choices: [
       { name: 'GitHub Copilot', value: 'github-copilot' },
       { name: 'OpenAI-compatible (OpenAI, Ollama, Azure, etc.)', value: 'openai-compatible' },
     ],
   });
 
-  let llm: LlmConfig;
-  let apiKey: string | undefined;
-
-  if (provider === 'github-copilot') {
-    console.log(chalk.dim('\n GitHub Copilot will use your active VS Code / CLI session.'));
-    const spinnerModels = await fetchGitHubModels();
-    const modelChoices = (spinnerModels.length > 0
-      ? spinnerModels.map(m => ({ name: m.name, value: m.id }))
+  if (providerKind === 'github-copilot') {
+    const models = await fetchGitHubModels();
+    const modelChoices = (models.length > 0
+      ? models.map(model => ({ name: model.name, value: model.id }))
       : [
           { name: 'GPT-4o', value: 'gpt-4o' },
           { name: 'GPT-4o mini', value: 'gpt-4o-mini' },
           { name: 'Claude Sonnet 4', value: 'claude-sonnet-4' },
         ]) as { name: string; value: string }[];
 
-    const model = await select({ message: 'Which model?', choices: modelChoices });
-    llm = { provider: 'github-copilot', model };
-  } else {
-    const preset = await select({
-      message: 'Which service?',
-      choices: [
-        { name: 'OpenAI (api.openai.com)', value: 'openai' },
-        { name: 'Ollama — local', value: 'ollama' },
-        { name: 'LM Studio — local', value: 'lmstudio' },
-        { name: 'Azure OpenAI', value: 'azure' },
-        { name: 'Custom URL', value: 'custom' },
-      ],
+    const model = await select({
+      message: 'Which model?',
+      choices: modelChoices,
     });
 
-    const presets: Record<string, { baseUrl: string; needsKey: boolean; models: string[] }> = {
-      openai:   { baseUrl: 'https://api.openai.com/v1', needsKey: true,  models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'] },
-      ollama:   { baseUrl: 'http://localhost:11434/v1',  needsKey: false, models: ['llama3', 'mistral'] },
-      lmstudio: { baseUrl: 'http://localhost:1234/v1',   needsKey: false, models: ['(uses loaded model)'] },
-      azure:    { baseUrl: '',                           needsKey: true,  models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'] },
+    const suggestedRef = buildProviderRef({ provider: 'github-copilot', model }, existing);
+    const providerRef = await input({
+      message: 'Provider reference key (used in config.providers):',
+      default: suggestedRef,
+      validate: validateProviderRef,
+    });
+
+    const providerConfig: LlmProviderConfig = {
+      kind: 'github-copilot',
+      model,
+      defaultModelKey: toModelKey(model),
+      models: { [toModelKey(model)]: model },
     };
 
-    const info = presets[preset];
-
-    let baseUrl: string;
-    if (preset === 'custom' || preset === 'azure') {
-      baseUrl = await input({ message: preset === 'azure' ? 'Azure endpoint URL:' : 'Base URL:', validate: (val: string) => { try { new URL(val); return true; } catch { return 'Please enter a valid URL'; } } });
-    } else {
-      baseUrl = info.baseUrl;
-    }
-
-    let key = '';
-    const needsKey = info ? info.needsKey : true;
-    if (needsKey) {
-      key = await password({ message: 'API key:', mask: '*' });
-    }
-
-    const modelChoices = (info?.models || ['gpt-4o']).map(m => ({ name: m, value: m }));
-    if (preset !== 'lmstudio') modelChoices.push({ name: 'Other (type manually)', value: '__custom__' });
-
-    const modelChoice = await select({ message: 'Which model?', choices: modelChoices });
-    let model: string = '';
-    if (modelChoice === '__custom__') {
-      model = await input({ message: 'Model name:' });
-    } else if (modelChoice === '(uses loaded model)') {
-      model = '';
-    } else {
-      model = modelChoice;
-    }
-
-    apiKey = key || undefined;
-    llm = { provider: 'openai-compatible', baseUrl, ...(model ? { model } : {}) } as LlmConfig;
+    return {
+      providerRef,
+      providerConfig,
+      legacyLlm: {
+        provider: 'github-copilot',
+        model,
+      },
+    };
   }
 
-  const teamConfig: TeamConfig = existing || { version: '0.1.0' } as TeamConfig;
-  const providerRef = buildProviderRef(llm, existing);
+  const preset = await select({
+    message: 'Which service?',
+    choices: [
+      { name: 'OpenAI (api.openai.com)', value: 'openai' },
+      { name: 'Ollama — local', value: 'ollama' },
+      { name: 'LM Studio — local', value: 'lmstudio' },
+      { name: 'Azure OpenAI', value: 'azure' },
+      { name: 'Custom URL', value: 'custom' },
+    ],
+  });
 
-  const models = llm.model ? { [toModelKey(llm.model)]: llm.model } : undefined;
-  const defaultModelKey = llm.model ? toModelKey(llm.model) : undefined;
-
-  const providerConfig: LlmProviderConfig = {
-    kind: llm.provider as 'github-copilot' | 'openai-compatible',
-    isDefault: true,
-    model: llm.model,
-    defaultModelKey,
-    models,
-    baseUrl: llm.baseUrl,
+  const presets: Record<string, { baseUrl: string; needsKey: boolean; models: string[] }> = {
+    openai: { baseUrl: 'https://api.openai.com/v1', needsKey: true, models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'] },
+    ollama: { baseUrl: 'http://localhost:11434/v1', needsKey: false, models: ['llama3', 'mistral', 'codellama', 'deepseek-coder'] },
+    lmstudio: { baseUrl: 'http://localhost:1234/v1', needsKey: false, models: ['(uses loaded model)'] },
+    azure: { baseUrl: '', needsKey: true, models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'] },
   };
 
-  const registry = { ...(teamConfig.providers || teamConfig.llmProviders || {}) };
-  for (const key of Object.keys(registry)) {
-    registry[key] = { ...registry[key], isDefault: false };
+  const presetInfo = presets[preset];
+
+  let baseUrl: string;
+  if (preset === 'custom' || preset === 'azure') {
+    baseUrl = await input({
+      message: preset === 'azure' ? 'Azure endpoint URL:' : 'Base URL:',
+      validate: (value: string) => {
+        try {
+          new URL(value);
+          return true;
+        } catch {
+          return 'Please enter a valid URL';
+        }
+      },
+    });
+  } else {
+    baseUrl = presetInfo.baseUrl;
   }
-  registry[providerRef] = providerConfig;
 
-  teamConfig.providers = registry;
-  teamConfig.defaultLlmProvider = providerRef;
-  teamConfig.llmProviders = registry;
-  teamConfig.llm = llm;
-
-  await saveTeamConfig(workspaceRoot, teamConfig);
-  if (apiKey) {
-    await saveEnvFile(workspaceRoot, { AI_TEAM_LLM_API_KEY: apiKey });
+  const modelChoices = (presetInfo?.models || ['gpt-4o']).map(modelId => ({ name: modelId, value: modelId }));
+  if (preset !== 'lmstudio') {
+    modelChoices.push({ name: 'Other (type manually)', value: '__custom__' });
   }
 
-  console.log(chalk.green('\nSaved provider settings to .ai-team/config.json'));
+  const modelChoice = await select({
+    message: 'Which model?',
+    choices: modelChoices,
+  });
 
-  // Run test-connection
-  try {
-    const resolved = resolveEffectiveLlmSettings(teamConfig);
-    const reply = await testLlmConnection(resolved.config, apiKey);
-    console.log(chalk.green('LLM connection working!'), reply ? `Response: ${reply}` : '');
-  } catch (err) {
-    console.error(chalk.red('LLM connection failed'));
-    if (err instanceof Error) console.error(chalk.dim(err.message));
-    console.log(chalk.dim('\nRun `ait test-connection` to retry later.'));
+  const model = modelChoice === '__custom__'
+    ? await input({ message: 'Model name:' })
+    : (modelChoice === '(uses loaded model)' ? '' : modelChoice);
+
+  const suggestedRef = buildProviderRef(
+    { provider: 'openai-compatible', baseUrl, ...(model ? { model } : {}) },
+    existing,
+  );
+
+  const providerRef = await input({
+    message: 'Provider reference key (used in config.providers):',
+    default: suggestedRef,
+    validate: validateProviderRef,
+  });
+
+  const needsKey = presetInfo ? presetInfo.needsKey : true;
+  let apiKeyEnvVar: string | undefined;
+  let apiKey: string | undefined;
+
+  if (needsKey) {
+    const envVars = await loadEnvFile(workspaceRoot);
+    const existingRefConfig = (existing?.providers || existing?.llmProviders || {})[providerRef];
+    const defaultEnvVar = existingRefConfig?.apiKeyEnvVar || `${providerRef.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`;
+
+    apiKeyEnvVar = await input({
+      message: 'API key environment variable name (stored in config, value stays in .ai-team/.env):',
+      default: defaultEnvVar,
+      validate: (value: string) => /^[A-Z_][A-Z0-9_]*$/.test(value.trim()) || 'Use uppercase letters, numbers, and underscores only.',
+    });
+
+    const existingValue = envVars[apiKeyEnvVar];
+    if (existingValue) {
+      const useExisting = await confirm({
+        message: `Use existing value for ${apiKeyEnvVar} from .ai-team/.env?`,
+        default: true,
+      });
+
+      if (!useExisting) {
+        apiKey = await password({
+          message: `New value for ${apiKeyEnvVar}:`,
+          mask: '*',
+          validate: value => value.trim().length > 0 || 'API key cannot be empty',
+        });
+      }
+    } else {
+      const saveNow = await confirm({
+        message: `No value for ${apiKeyEnvVar} found in .ai-team/.env. Save one now?`,
+        default: true,
+      });
+
+      if (saveNow) {
+        apiKey = await password({
+          message: `Value for ${apiKeyEnvVar}:`,
+          mask: '*',
+          validate: value => value.trim().length > 0 || 'API key cannot be empty',
+        });
+      }
+    }
   }
+
+  const modelKey = model ? toModelKey(model) : undefined;
+  const providerConfig: LlmProviderConfig = {
+    kind: 'openai-compatible',
+    baseUrl,
+    ...(model ? { model } : {}),
+    ...(modelKey ? { defaultModelKey: modelKey, models: { [modelKey]: model } } : {}),
+    ...(apiKeyEnvVar ? { apiKeyEnvVar } : {}),
+  };
+
+  const legacyLlm: LlmConfig = {
+    provider: 'openai-compatible',
+    baseUrl,
+    ...(model ? { model } : {}),
+  };
+
+  return {
+    providerRef,
+    providerConfig,
+    legacyLlm,
+    apiKeyEnvVar,
+    apiKey,
+  };
+}
+
+function resolveCurrentDefaultProvider(
+  config: TeamConfig | undefined,
+): { ref: string; config: LlmProviderConfig } | undefined {
+  const registry = config?.providers || config?.llmProviders;
+  if (!registry || Object.keys(registry).length === 0) {
+    return undefined;
+  }
+
+  const byFlag = Object.entries(registry).find(([, provider]) => provider.isDefault);
+  if (byFlag) {
+    return { ref: byFlag[0], config: byFlag[1] };
+  }
+
+  if (config?.defaultLlmProvider && registry[config.defaultLlmProvider]) {
+    return {
+      ref: config.defaultLlmProvider,
+      config: registry[config.defaultLlmProvider],
+    };
+  }
+
+  const first = Object.keys(registry)[0];
+  return {
+    ref: first,
+    config: registry[first],
+  };
 }
 
 function buildProviderRef(llm: LlmConfig, existing?: TeamConfig): string {
@@ -141,13 +322,12 @@ function buildProviderRef(llm: LlmConfig, existing?: TeamConfig): string {
     return 'github-copilot';
   }
 
-  const baseUrl = llm.baseUrl;
-  if (!baseUrl) {
+  if (!llm.baseUrl) {
     return 'openai-compatible';
   }
 
   try {
-    const host = new URL(baseUrl).hostname.toLowerCase();
+    const host = new URL(llm.baseUrl).hostname.toLowerCase();
     const sanitized = host.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     const baseRef = sanitized || 'openai-compatible';
 
@@ -166,12 +346,20 @@ function buildProviderRef(llm: LlmConfig, existing?: TeamConfig): string {
   }
 }
 
-function toModelKey(modelId: string): string {
-  return modelId
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    || 'default-model';
+function validateProviderRef(value: string): true | string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 'Provider reference is required';
+  }
+  if (!/^[a-z0-9][a-z0-9-_.]*$/i.test(trimmed)) {
+    return 'Use letters, numbers, and -_. only';
+  }
+  return true;
 }
 
-export default providerSetCommand;
+function toModelKey(model: string): string {
+  return model
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'default';
+}

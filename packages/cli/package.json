@@ -25,6 +25,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@ai-team/api-client": "workspace:*",
     "@ai-team/core": "workspace:*",
     "@inquirer/prompts": "^8.2.1",
     "chalk": "^5.4.1",

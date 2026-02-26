@@ -1,255 +1,100 @@
-# Copilot Instructions for AI Team Project
-
-When writing code for this project, follow these guidelines:
-
-## Architecture Rules
-
-1. **Core Library Isolation**: NEVER import UI dependencies in `packages/core/`
-   - ❌ NO: `vscode`, `react`, `react-dom`, `electron`
-   - ✅ YES: `gray-matter`, `zod`, `chokidar`, Node.js built-ins
-
-2. **Browser Compatibility**: NEVER import `@ai-team/core` in browser packages
-   - ❌ NO: Import core in `packages/web/` - it uses Node.js fs/path APIs
-   - ✅ YES: Use mock data or create a backend API server to expose core functionality
-   - Package separation: CLI/VSCode use core directly, web needs API layer
-
-3. **File-Based State**: Store all data as files in `.ai-team/` folder
-   - Use JSON for structured data
-   - Use Markdown with YAML frontmatter for agents/skills
-   - Use JSONL for append-only logs (chat history)
-
-4. **Manual Context Control**: Agents can ONLY access files in their `contextPaths`
-   - Always check permissions before reading/writing files
-   - Throw `PermissionError` if agent lacks access
+# Project Guidelines
 
 ## Code Style
+- TypeScript-first monorepo; keep `strict`-safe changes and ES2022/bundler assumptions consistent with root config (`tsconfig.json`).
+- Naming: files `kebab-case.ts`, classes/types `PascalCase`, functions `camelCase`, constants `UPPER_SNAKE_CASE`.
+- Prefer `async`/`await` in command and service flows (see `packages/cli/src/commands/*.ts`).
+- Use typed/domain errors in core; in CLI commands, provide user-friendly output and explicit non-zero exits for failures.
+- Validate external/untrusted data with `zod` (core dependency and existing project convention).
 
-1. **Naming Conventions**:
-   - Files: `kebab-case.ts`
-   - Classes: `PascalCase`
-   - Functions: `camelCase`
-   - Constants: `UPPER_SNAKE_CASE`
-   - Types: `PascalCase`
+## Architecture
+- Monorepo packages: `@ai-team/core` (business logic), `@ai-team/cli` and `@ai-team/vscode` (adapters), `@ai-team/web` (React UI).
+- Keep core UI-free: do not import `vscode`, `react`, `react-dom`, or `electron` in `packages/core`.
+- Store runtime state as files under `.ai-team/` (JSON config, Markdown + frontmatter for agents/skills, JSONL chat logs).
+- Resolve paths from workspace root and use absolute paths internally for file operations.
+- Enforce agent context/write permissions before file access; throw permission-related errors when blocked.
 
-2. **Async/Await**: Prefer `async`/`await` over promises
-   ```typescript
-   // Good
-   async function loadAgent(path: string): Promise<Agent> {
-     const content = await fs.readFile(path, 'utf-8');
-     return parseAgent(content);
-   }
-   
-   // Avoid
-   function loadAgent(path: string): Promise<Agent> {
-     return fs.readFile(path, 'utf-8').then(parseAgent);
-   }
-   ```
+## Build and Test
+- Install: `pnpm install` (Node >= 18, pnpm >= 8).
+- Build all: `pnpm -r build`; build single package: `pnpm --filter @ai-team/cli build`.
+- Test all: `pnpm -r test`; test one package: `pnpm --filter @ai-team/cli exec vitest run`.
+- Lint: `pnpm -r lint`; clean: `pnpm -r clean`.
+- Web manual check: `pnpm --filter @ai-team/web dev` and verify UI + console/runtime errors.
 
-3. **Error Handling**: Use typed errors
-   ```typescript
-   export class PermissionError extends Error {
-     constructor(agentId: string, filePath: string) {
-       super(`Agent ${agentId} does not have permission to access ${filePath}`);
-       this.name = 'PermissionError';
-     }
-   }
-   ```
+## Task Triage
+- If the request is concrete (bug fix, feature, refactor), implement directly instead of returning only a proposal.
+- If the request is exploratory (brainstorming, design choice, plan request), answer first and avoid unsolicited edits.
+- Ask 1-3 clarifying questions only when a choice would change API shape, data format, or architecture boundaries.
+- If blocked after reasonable attempts (e.g., same failing command 3 times), report blocker, what was tried, and the smallest next decision needed.
 
-4. **Validation**: Use Zod schemas for all external data
-   ```typescript
-   import { z } from 'zod';
-   
-   const AgentSchema = z.object({
-     name: z.string(),
-     role: z.string(),
-     reportsTo: z.string().optional(),
-   });
-   
-   export type AgentConfig = z.infer<typeof AgentSchema>;
-   ```
+## Change Budget
+- Default scope: touch at most 4 files for a normal task unless the user asks for broader changes.
+- Do not introduce dependency upgrades, broad renames, or cross-package refactors unless required by the task.
+- Preserve public APIs and command behavior unless the user explicitly asks to change them.
+- Avoid unrelated formatting/reorganization changes.
 
-## File Formats
+## Ambiguity Rules
+- Default to the safest interpretation that preserves existing behavior; implement, then state assumptions briefly.
+- Ask before editing only when assumptions risk breaking behavior, data compatibility, or user workflows.
+- When multiple safe options exist, choose the smallest change set and note one alternative in the final message.
 
-1. **agent.md**: YAML frontmatter + Markdown body
-2. **skill.md**: YAML frontmatter + Markdown body
-3. **Meeting summaries**: Markdown with metadata header
-4. **Private chats**: JSONL (one message per line)
+## Verification Matrix
+- `packages/core/**` changed: run `pnpm --filter @ai-team/core build` and relevant tests when present.
+- `packages/cli/**` changed: run `pnpm --filter @ai-team/cli build` and `pnpm --filter @ai-team/cli exec vitest run`.
+- `packages/vscode/**` changed: run `pnpm --filter @ai-team/vscode build`.
+- `packages/web/**` changed: run `pnpm --filter @ai-team/web build` (or `pnpm --filter @ai-team/web dev` for manual verification tasks).
+- If a change crosses package boundaries or shared contracts/types, run `pnpm -r build` after targeted checks.
 
-## Package-Specific Guidelines
+## Safe Edit Zones
+- CLI command behavior and UX: `packages/cli/src/commands/` and `packages/cli/src/cli.ts`.
+- Core business logic and reusable services: `packages/core/src/**`.
+- VS Code adapter/UI integration: `packages/vscode/src/**`.
+- Web UI and presentation logic: `packages/web/src/**`.
 
-### @ai-team/core
+## Boundary Enforcement
+- Keep adapters thin: orchestration in CLI/VS Code/Web adapters, reusable logic in core.
+- Keep core UI-free: no `vscode`, `react`, `react-dom`, `electron` imports in `packages/core`.
+- Keep file-state conventions centralized under `.ai-team/`.
 
-- Pure functions where possible
-- Export types alongside implementations
-- JSDoc comments for ALL public APIs
-- No console.log (throw errors instead)
-- Fully testable without UI
+## Do / Don't Patterns
+- Do follow existing command patterns in `packages/cli/src/commands/*.ts` (`async` handlers, explicit exit codes, user-facing errors).
+- Do validate external/untrusted inputs with `zod` and existing utility patterns.
+- Don't create new runtime storage locations when `.ai-team/` conventions already cover the use case.
+- Don't move business logic into adapters when it belongs in `@ai-team/core`.
 
-Example:
-```typescript
-/**
- * Load agent configuration from file
- * @param filePath - Absolute path to agent.md file
- * @returns Parsed agent data
- * @throws {FileNotFoundError} If file doesn't exist
- * @throws {ValidationError} If frontmatter is invalid
- */
-export async function loadAgent(filePath: string): Promise<Agent> {
-  const content = await fs.readFile(filePath, 'utf-8');
-  const { data, content: markdown } = matter(content);
-  return AgentSchema.parse({ ...data, markdown });
-}
-```
+## Output Contract
+- Use a balanced final response: short summary + bullets for what changed, what was verified, assumptions/risks, and next step.
+- Include exact commands executed for verification and whether they passed or failed.
+- Mention any intentionally deferred work or unresolved blocker explicitly.
 
-### @ai-team/cli
+## Project Conventions
+- CLI command wiring lives in `packages/cli/src/cli.ts`; add new commands there with `commander`.
+- `ait init` is the source of truth for generated workspace artifacts (`.ai-team/*`, docs templates, `.gitignore` updates).
+- Command tests use Vitest and mock core integrations (see `packages/cli/src/commands/*.test.ts`).
+- Keep adapters thin: orchestration in CLI/VS Code, reusable logic in core managers/services.
 
-- Use `commander` for command structure
-- Use `inquirer` for interactive prompts
-- Use `chalk` for colors, `ora` for spinners
-- Handle errors gracefully (user-friendly messages)
+## Integration Points
+- CLI integrates core via manager/service imports (e.g., chat/provider/model commands in `packages/cli/src/commands/`).
+- Provider/model config persists in `.ai-team/config.json`; secrets are sourced from `.ai-team/.env` and env vars.
+- Web currently depends on `@ai-team/core`; if changing this boundary, update docs and imports consistently across packages.
+- VS Code extension panel/tree providers should delegate business logic to core and dispose resources on deactivate.
 
-### @ai-team/web
+## Security
+- Treat `.ai-team/.env`, API keys, and private chat logs as sensitive; never print secrets in logs or commit them.
+- Keep `.ai-team/private/` and related generated/private paths ignored by git.
+- Use masked prompts for secret entry in interactive CLI flows.
+- For tool/file access features, enforce context-path permission checks before reads/writes.
 
-- React functional components with hooks
-- TypeScript for all components
-- Props interfaces exported
-- Use react-flow for graph visualization
+## References
+- Architecture: `ARCHITECTURE.md`, `COPILOT-CONTEXT.md`
+- Core package: `packages/core/README.md`
+- CLI package: `packages/cli/src/commands/`
+- VS Code package: `packages/vscode/README.md`
+- Web package: `packages/web/README.md`
 
-### @ai-team/vscode
-
-- Keep adapters thin (delegate to core library)
-- Handle VS Code API lifecycle properly
-- Dispose resources in deactivate()
-
-## Patterns to Follow
-
-1. **Tool System**: Implement `AgentTool` interface
-   ```typescript
-   export const readFileTool: AgentTool = {
-     name: 'read_file',
-     description: 'Read file contents',
-     parameters: z.object({
-       filePath: z.string(),
-       startLine: z.number().optional(),
-       endLine: z.number().optional(),
-     }),
-     execute: async (params, context) => {
-       // Check permissions first
-       if (!canAccess(context.agent, params.filePath)) {
-         throw new PermissionError(context.agent.id, params.filePath);
-       }
-       // Implementation
-     },
-   };
-   ```
-
-2. **File Operations**: Always use absolute paths internally
-   ```typescript
-   // Good
-   const absolutePath = path.resolve(workspaceRoot, relativePath);
-   
-   // Bad - fragile
-   const content = await fs.readFile('../../some/file.ts');
-   ```
-
-3. **Agent Discovery**: Use glob patterns
-   ```typescript
-   import { glob } from 'glob';
-   
-   const agentFiles = await glob('**/{agent,skill}.md', {
-     cwd: workspaceRoot,
-     absolute: true,
-   });
-   ```
-
-## Testing
-
-1. Write tests alongside implementation
-2. Use fixtures in `__fixtures__/` directories
-3. Test core library without any UI
-4. Mock file system where appropriate
-
-## Documentation
-
-1. JSDoc for public APIs (helps Copilot suggestions)
-2. README.md in each package
-3. Examples in comments
-
-## Common Pitfalls to Avoid
-
-- ❌ Importing VS Code in core package
-- ❌ Storing state in memory (use files)
-- ❌ Hardcoded file paths (always resolve from workspace root)
-- ❌ Not checking agent permissions before file access
-- ❌ Console.log in library code (use error throwing)
-- ❌ Forgetting to close file watchers (memory leaks)
-
-## Tool Reference
-
-Agents should have access to these tools (implement as needed):
-
-**Core Tools**:
-- `semantic_search` - Search codebase semantically
-- `file_search` - Find files by glob pattern
-- `read_file` - Read file contents
-- `write_file` - Modify files (permission-checked)
-- `get_errors` - Get linter/compiler errors
-- `get_git_status` - Check git status
-
-**Agent Tools**:
-- `delegate_to_agent` - Ask another agent for help
-- `ask_human` - Request clarification from developer
-
-**HR Tools** (restricted to HR Director):
-- `create_agent` - Hire new team member
-- `archive_agent` - Offboard agent
-- `assess_performance` - Analyze activity
-
-## When in Doubt
-
-1. Check ARCHITECTURE.md for system design
-2. Check types in `packages/core/src/types/`
-3. Keep core library pure and testable
-4. Prefer explicit over implicit
-5. Throw descriptive errors
-
-## Web Development & Testing
-
-**CRITICAL**: Always test web applications live with Playwright before considering them complete.
-
-1. **Live Testing Workflow**:
-   ```bash
-   # Start dev server in background
-   cd packages/web && pnpm dev
-   
-   # Use Playwright to navigate and screenshot
-   mcp_microsoft_pla_browser_navigate to http://localhost:3001
-   mcp_microsoft_pla_browser_take_screenshot
-   
-   # Check browser console for errors
-   # Look at the screenshot to verify UI renders correctly
-   ```
-
-2. **Browser Compatibility**:
-   - Web packages CANNOT import `@ai-team/core` (uses Node.js APIs)
-   - Use mock data for development
-   - Create backend API server to expose core functionality
-   - Test that page loads without console errors
-
-3. **UI Development**:
-   - Always verify with screenshots that UI actually renders
-   - Check browser console for runtime errors
-   - Test interactive elements (clicks, forms, etc.)
-   - Ensure responsive design works at different viewport sizes
-
-4. **Common Issues**:
-   - Blank page = Check browser console for import errors
-   - "Module externalized" warnings = Node.js API in browser context
-   - TypeError on class extends = Missing polyfill or wrong environment
-
-**Remember**: Code that compiles ≠ code that works in browser. Always test live!
-
-
----
-
-Following these guidelines ensures consistent, maintainable code that Copilot can easily understand and extend.
+## Instruction Maintenance
+- Treat this file as architecture-adjacent source of truth for coding agents; update it in the same change whenever architecture or package boundaries change.
+- Trigger updates when changing any of: package responsibilities, runtime/storage model, security/permission model, provider/config flow, or build/test commands.
+- Keep these files in sync in the same PR/commit when relevant: `ARCHITECTURE.md`, `COPILOT-CONTEXT.md`, `.github/copilot-instructions.md`, and affected package `README.md` files.
+- If a previous rule becomes outdated, replace it with the current behavior (do not leave conflicting guidance in multiple sections).
+- For major architecture changes, include a short “Agent Impact” note in PR description listing what changed for: boundaries, commands, and security assumptions.

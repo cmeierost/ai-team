@@ -3,16 +3,15 @@
  */
 
 import chalk from 'chalk';
-import { AgentManager, Agent } from '@ai-team/core';
+import type { AiTeamClient } from '@ai-team/api-client';
+import { Agent } from '@ai-team/core';
 
 interface InfoOptions {
   json?: boolean;
 }
 
-export async function infoCommand(agentId: string, options: InfoOptions) {
-  const agentManager = new AgentManager(process.cwd());
-  await agentManager.initialize();
-  const matches = agentManager.resolveAgent(agentId);
+export async function infoCommand(client: AiTeamClient, agentId: string, options: InfoOptions) {
+  const matches = await client.resolveEmployees(agentId);
 
   if (matches.length === 0) {
     console.log(chalk.red(`No agent found matching "${agentId}".`));

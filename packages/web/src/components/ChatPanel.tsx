@@ -8,6 +8,71 @@ interface ChatPanelProps {
   agentId: string;
 }
 
+interface ApiQuestionPayload {
+  kind: 'question';
+  message?: string;
+  questionType?: string;
+  choices?: Array<{ name: string; value: string }>;
+}
+
+interface ApiErrorPayload {
+  kind: 'error';
+  message?: string;
+}
+
+function isApiQuestionPayload(value: unknown): value is ApiQuestionPayload {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  return (value as { kind?: unknown }).kind === 'question';
+}
+
+function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  return (value as { kind?: unknown }).kind === 'error';
+}
+
+function toChatMessage(payload: unknown, agentId: string): ChatMessage {
+  if (isApiQuestionPayload(payload)) {
+    const choices = Array.isArray(payload.choices) && payload.choices.length > 0
+      ? `\n\n${payload.choices.map((choice, index) => `${index + 1}. ${choice.name}`).join('\n')}`
+      : '';
+
+    return {
+      from: agentId,
+      content: `${payload.message || 'Question from service'}${choices}`,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (isApiErrorPayload(payload)) {
+    return {
+      from: agentId,
+      content: `Error: ${payload.message || 'Request failed'}`,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (payload && typeof payload === 'object') {
+    const maybeMessage = payload as Partial<ChatMessage>;
+    if (typeof maybeMessage.content === 'string') {
+      return {
+        from: typeof maybeMessage.from === 'string' ? maybeMessage.from : agentId,
+        content: maybeMessage.content,
+        timestamp: typeof maybeMessage.timestamp === 'string' ? maybeMessage.timestamp : new Date().toISOString(),
+      };
+    }
+  }
+
+  return {
+    from: agentId,
+    content: 'Received unexpected response payload from server.',
+    timestamp: new Date().toISOString(),
+  };
+}
+
 export function ChatPanel({ agentId }: ChatPanelProps) {
   const { agents } = useTeam();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -63,7 +128,8 @@ export function ChatPanel({ agentId }: ChatPanelProps) {
         throw new Error('Failed to send message');
       }
 
-      const assistantMessage: ChatMessage = await response.json();
+      const payload = await response.json();
+      const assistantMessage: ChatMessage = toChatMessage(payload, agentId);
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
       console.error('Failed to send message:', error);
