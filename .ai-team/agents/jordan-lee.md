@@ -1,12 +1,12 @@
 ---
-name: Alex Morgan
+name: Jordan Lee
 role: chief-architect
-type: individual-contributor
-contextLevel: module
-reportsTo: emily-davis
+type: leadership
+contextLevel: repository
+reportsTo: michael-brown
 avatar:
   type: ai-generated
-  seed: alex-morgan-chief-architect
+  seed: jordan-lee-chief-architect
   style: professional-headshot
 personality:
   communication_style: strategic

@@ -61,6 +61,7 @@ function printHierarchy(graphData: any) {
   const roots = nodes.filter((n: any) => !hasManager.has(n.id));
   
   const printed = new Set<string>();
+  const brokenReferences: Array<{ agent: string; error: string }> = [];
   
   function printNode(nodeId: string, indent: number = 0) {
     if (printed.has(nodeId)) return;
@@ -84,8 +85,28 @@ function printHierarchy(graphData: any) {
     }
   }
   
+  // Print hierarchy starting from roots
   for (const root of roots) {
     printNode(root.id);
+  }
+  
+  // Print agents with broken parent references
+  const brokenEdges = edges.filter((e: any) => e.type === 'reports-to-unresolved');
+  
+  if (brokenEdges.length > 0) {
+    console.log();
+    console.log(chalk.yellow('⚠ Unresolved reporting relationships:'));
+    
+    for (const edge of brokenEdges) {
+      const node = nodes.find((n: any) => n.id === edge.source);
+      if (node) {
+        const icon = chalk.red('✗');
+        console.log(`  ${icon} ${chalk.cyan(node.data.label)} ${chalk.dim(`(${node.data.role})`)} → ${chalk.red(`[${edge.target}]`)}`);
+        if (edge.error) {
+          console.log(`    ${chalk.dim(edge.error)}`);
+        }
+      }
+    }
   }
 }
 

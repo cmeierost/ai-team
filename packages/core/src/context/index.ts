@@ -93,6 +93,110 @@ export class ContextManager {
   }
 
   /**
+   * Validate if an agent can write to all files in an edit proposal
+   * @param agent - Agent proposing the edit
+   * @param filePaths - List of file paths to be modified
+   * @returns Validation result with blocked files and suggestions
+   */
+  validateEditProposal(agent: Agent, filePaths: string[]): {
+    allowed: boolean;
+    blockedFiles: string[];
+    message?: string;
+  } {
+    const blockedFiles: string[] = [];
+
+    for (const filePath of filePaths) {
+      if (!this.canWrite(agent, filePath)) {
+        blockedFiles.push(filePath);
+      }
+    }
+
+    if (blockedFiles.length === 0) {
+      return { allowed: true, blockedFiles: [] };
+    }
+
+    return {
+      allowed: false,
+      blockedFiles,
+      message: `Agent ${agent.id} cannot write to ${blockedFiles.length} file(s): ${blockedFiles.join(', ')}`,
+    };
+  }
+
+  /**
+   * Get permission guidance for a file - suggests which agents might have access
+   * @param filePath - File path to check
+   * @param allAgents - List of all agents in the team
+   * @returns List of agents that can write to this file
+   */
+  getPermissionGuidance(filePath: string, allAgents: Agent[]): {
+    canWrite: Agent[];
+    suggestions: string[];
+  } {
+    const canWrite: Agent[] = [];
+    const suggestions: string[] = [];
+
+    for (const agent of allAgents) {
+      if (this.canWrite(agent, filePath)) {
+        canWrite.push(agent);
+      }
+    }
+
+    if (canWrite.length === 0) {
+      suggestions.push('No agents currently have permission to modify this file.');
+      suggestions.push('Consider expanding an existing agent\'s permissions or creating a new agent.');
+    } else if (canWrite.length === 1) {
+      suggestions.push(`Only ${canWrite[0].name} (${canWrite[0].id}) can modify this file.`);
+      suggestions.push('Consider delegating this task to that agent.');
+    } else {
+      const names = canWrite.map(a => a.name).join(', ');
+      suggestions.push(`${canWrite.length} agents can modify this file: ${names}`);
+      suggestions.push('Consider delegating to one of these agents or coordinating with them.');
+    }
+
+    return { canWrite, suggestions };
+  }
+
+  /**
+   * Get a list of files from a proposal that the agent cannot write to
+   * @param agent - Agent to check
+   * @param filePaths - File paths in the proposal
+   * @returns List of blocked files with details
+   */
+  getBlockedFiles(agent: Agent, filePaths: string[]): Array<{
+    filePath: string;
+    relativePath: string;
+    reason: string;
+  }> {
+    const blocked: Array<{
+      filePath: string;
+      relativePath: string;
+      reason: string;
+    }> = [];
+
+    for (const filePath of filePaths) {
+      if (!this.canWrite(agent, filePath)) {
+        const relativePath = this.getRelativePath(filePath);
+        const writePatterns = agent.permissions?.write || [];
+
+        let reason = 'No write patterns match this file';
+        if (writePatterns.length === 0) {
+          reason = 'Agent has no write permissions configured';
+        } else {
+          reason = `File does not match any write patterns: ${writePatterns.join(', ')}`;
+        }
+
+        blocked.push({
+          filePath,
+          relativePath,
+          reason,
+        });
+      }
+    }
+
+    return blocked;
+  }
+
+  /**
    * Generate default permissions based on context level
    * @param contextLevel - Agent's context level
    * @param features - Agent's assigned features

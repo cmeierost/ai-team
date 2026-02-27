@@ -1,4 +1,6 @@
 import { useTeam } from '../context/TeamContext';
+import { Avatar } from './Avatar';
+import './AgentList.css';
 
 interface AgentListProps {
   onSelectAgent: (agentId: string) => void;
@@ -36,6 +38,9 @@ export function AgentList({ onSelectAgent, onViewPortfolio }: AgentListProps) {
             key={agent.id}
             className="agent-card"
           >
+            <div className="agent-card-avatar">
+              <Avatar agent={agent} size="large" />
+            </div>
             <div className="agent-card-header">
               <h3>{agent.name}</h3>
               <span className="agent-role-badge">{agent.role}</span>

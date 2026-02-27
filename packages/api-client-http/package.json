@@ -1,0 +1,24 @@
+{
+  "name": "@ai-team/api-client-http",
+  "version": "0.1.0",
+  "description": "Browser-safe HTTP client for AI Team API",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@ai-team/core": "workspace:*",
+    "@ai-team/service": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.16",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.2"
+  }
+}

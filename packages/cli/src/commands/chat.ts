@@ -189,6 +189,64 @@ function isEssentialInteractiveInfo(message: string): boolean {
   return /^(loading |validating |initializing |connecting to |connected to |chat with |switched to |type "\/help"|type "exit"|\(\d+ previous messages loaded\)|goodbye!)/i.test(normalized);
 }
 
+async function handleCodeEditProposal(
+  event: any,
+  writeStderrLine: (text: string) => void,
+  isOneShot: boolean
+): Promise<void> {
+  const { proposalId, description, filesChanged, additions, deletions, warnings } = event;
+
+  // Display proposal summary
+  writeStderrLine('');
+  writeStderrLine(chalk.bold.cyan('📝 Code Edit Proposal'));
+  writeStderrLine(chalk.gray('─'.repeat(60)));
+  writeStderrLine(`${chalk.bold('ID:')} ${proposalId}`);
+  writeStderrLine(`${chalk.bold('Description:')} ${description}`);
+  writeStderrLine(`${chalk.bold('Files:')} ${filesChanged}`);
+  writeStderrLine(`${chalk.bold('Changes:')} ${chalk.green(`+${additions}`)} ${chalk.red(`-${deletions}`)}`);
+  
+  if (warnings && warnings.length > 0) {
+    writeStderrLine('');
+    writeStderrLine(chalk.yellow('⚠️  Warnings:'));
+    warnings.forEach((warning: string) => {
+      writeStderrLine(chalk.yellow(`   • ${warning}`));
+    });
+  }
+  
+  writeStderrLine(chalk.gray('─'.repeat(60)));
+
+  // In one-shot mode, just log and continue
+  if (isOneShot) {
+    writeStderrLine(chalk.dim('Run with --interactive to review and apply proposals'));
+    return;
+  }
+
+  // Interactive mode: ask for approval
+  const rl = createInterface({ input, output: process.stderr });
+  
+  try {
+    const answer = await rl.question(
+      chalk.yellow('Review this proposal? [y/n/view] (y): ')
+    );
+    
+    const choice = (answer || 'y').toLowerCase().trim();
+    
+    if (choice === 'view' || choice === 'v') {
+      writeStderrLine(chalk.dim('Detailed diff view requires VS Code extension or web UI'));
+      writeStderrLine(chalk.dim(`Proposal ID: ${proposalId}`));
+    } else if (choice === 'y' || choice === 'yes') {
+      writeStderrLine(chalk.green('✅ Proposal accepted for review'));
+      writeStderrLine(chalk.dim('Use the VS Code extension or web UI to apply changes'));
+    } else {
+      writeStderrLine(chalk.red('❌ Proposal review skipped'));
+    }
+  } finally {
+    rl.close();
+  }
+  
+  writeStderrLine('');
+}
+
 export async function chatCommand(client: AiTeamClient, agentId: string | undefined, options: ChatOptions, mediatorLog: boolean = false) {
   const mediatorLoggerEnabled = mediatorLog || process.env.AI_TEAM_MEDIATOR_LOG === '1';
   const frontendFileLogEnabled = isFrontendFileLogEnabled();
@@ -247,6 +305,12 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
         const phase = event.toolPhase || 'event';
         const suffix = event.message ? chalk.gray(` — ${event.message}`) : '';
         writeStderrLine(`${chalk.cyan(`[backend:tool:${phase}]`)} ${chalk.white(event.toolName)}${suffix}`);
+        continue;
+      }
+
+      // Handle code edit proposals
+      if ('kind' in event && (event as any).kind === 'code_edit_proposal') {
+        await handleCodeEditProposal(event as any, writeStderrLine, options.oneShot || false);
         continue;
       }
 

@@ -1,13 +1,23 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Agent } from '../types';
+import { createHttpAiTeamClient, type AiTeamHttpClient } from '@ai-team/api-client-http';
+import { Agent, GraphData } from '../types';
 
-const API_BASE = 'http://localhost:3002/api';
+// Use window.location.origin in production, or default to localhost in dev
+const API_BASE = window.location.hostname === 'localhost' 
+  ? 'http://localhost:3002'
+  : window.location.origin;
+const client = createHttpAiTeamClient({ baseUrl: API_BASE });
+
+// Export API_BASE for use in other components
+export { API_BASE };
 
 interface TeamContextValue {
   agents: Agent[];
+  graphData: GraphData | null;
   loading: boolean;
   error: Error | null;
   refresh: () => Promise<void>;
+  client: AiTeamHttpClient;
 }
 
 const TeamContext = createContext<TeamContextValue | null>(null);
@@ -25,6 +35,7 @@ interface TeamProviderProps {
 }
 
 export function TeamProvider({ children }: TeamProviderProps) {
+  const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -33,14 +44,18 @@ export function TeamProvider({ children }: TeamProviderProps) {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${API_BASE}/agents`);
-      if (!response.ok) {
-        throw new Error(`Failed to load agents: ${response.statusText}`);
-      }
-      const loadedAgents = await response.json();
-      setAgents(loadedAgents);
+      
+      // Load team graph with resolved role references
+      const loadedGraphData = await client.getTeamGraph('hierarchy');
+      setGraphData(loadedGraphData);
+      
+      // Derive agents array from graph nodes for backward compatibility
+      const agentNodes = loadedGraphData.nodes
+        .filter(node => node.type === 'agent' && node.data.agent)
+        .map(node => node.data.agent!);
+      setAgents(agentNodes);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to load agents'));
+      setError(err instanceof Error ? err : new Error('Failed to load team data'));
     } finally {
       setLoading(false);
     }
@@ -54,9 +69,11 @@ export function TeamProvider({ children }: TeamProviderProps) {
     <TeamContext.Provider
       value={{
         agents,
+        graphData,
         loading,
         error,
         refresh,
+        client,
       }}
     >
       {children}

@@ -59,7 +59,7 @@ function applyProviderConfiguration(
   setup: ProviderSetupResult,
   makeDefault: boolean,
 ): TeamConfig {
-  const base: TeamConfig = existing ? { ...existing } : { version: '0.1.0' };
+  const base: TeamConfig = existing ? { ...existing } : { version: '0.1.0', randomAvatarUrls: [] };
   const registry = { ...(base.providers || base.llmProviders || {}) };
 
   if (makeDefault) {

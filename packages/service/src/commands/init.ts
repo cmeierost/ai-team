@@ -18,6 +18,7 @@ import {
 import type { LlmConfig, TeamConfig, Agent, ChatMessage, ChatCompletionMessageParam } from '@ai-team/core';
 import type {
   InitOptions,
+  MediatorRuntimeEvent,
   QuestionAnswerValue,
   QuestionChecklistRequest,
   QuestionConfirmRequest,
@@ -27,8 +28,8 @@ import type {
   WorkflowFrame,
   WorkflowStateSnapshot,
 } from '../contracts.js';
+import { getGitUserName, developerNameToId } from '../utils/git.js';
 import { listEmployeesCommand } from './list.js';
-const REAL_STDOUT_WRITE = process.stdout.write.bind(process.stdout);
 
 interface LlmSetupResult extends LlmConfig {
   apiKey?: string;
@@ -42,6 +43,7 @@ interface AgentSeed {
   reportsTo?: string;
   personality?: { communication_style?: string; expertise_level?: string; mentoring?: boolean };
   specializations?: string[];
+  tools?: string[];
   bio: string;
 }
 
@@ -71,18 +73,7 @@ const DEFAULT_NAME_SUGGESTIONS = [
 
 interface InitRuntimeHooks {
   signal?: AbortSignal;
-  emit?: (event: {
-    kind: 'status' | 'progress' | 'log' | 'token' | 'tool' | 'question';
-    phase?: string;
-    message?: string;
-    percent?: number;
-    level?: 'info' | 'warn' | 'error';
-    text?: string;
-    toolName?: string;
-    toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
-    questionType?: 'confirm' | 'input' | 'select' | 'password' | 'checklist';
-    choices?: Array<{ name: string; value: string }>;
-  }) => void;
+  emit?: (event: MediatorRuntimeEvent) => void;
   questionInput?: (request: QuestionInputRequest) => Promise<string>;
   questionConfirm?: (request: QuestionConfirmRequest) => Promise<boolean>;
   questionSelect?: (request: QuestionSelectRequest) => Promise<string>;
@@ -162,16 +153,6 @@ function ensureNotAborted(hooks: InitRuntimeHooks | undefined) {
   }
 }
 
-async function runWithRealStdout<T>(fn: () => Promise<T>): Promise<T> {
-  const previous = process.stdout.write;
-  process.stdout.write = REAL_STDOUT_WRITE as typeof process.stdout.write;
-  try {
-    return await fn();
-  } finally {
-    process.stdout.write = previous;
-  }
-}
-
 function writeToken(hooks: InitRuntimeHooks | undefined, text: string) {
   hooks?.emit?.({ kind: 'token', text });
   if (!hooks?.emit) {
@@ -218,7 +199,8 @@ async function requestInput(hooks: InitRuntimeHooks | undefined, request: Questi
   if (!hooks?.questionInput) {
     throw new Error('Input question requested but no client questionInput responder is available.');
   }
-  const answer = await runWithRealStdout(() => hooks.questionInput!(request));
+  await Promise.resolve();
+  const answer = await hooks.questionInput!(request);
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -241,7 +223,8 @@ async function requestConfirm(hooks: InitRuntimeHooks | undefined, request: Ques
   if (!hooks?.questionConfirm) {
     throw new Error('Confirm question requested but no client questionConfirm responder is available.');
   }
-  const answer = await runWithRealStdout(() => hooks.questionConfirm!(request));
+  await Promise.resolve();
+  const answer = await hooks.questionConfirm!(request);
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -268,14 +251,15 @@ async function requestSelect(hooks: InitRuntimeHooks | undefined, request: Quest
         .map((choice, index) => `${index + 1}. ${choice.name}`)
         .join('\n');
 
-      const answer = await runWithRealStdout(() => hooks.questionInput!({
+      await Promise.resolve();
+      const answer = await hooks.questionInput!({
         message: `${request.message}\n${choiceLines}\nEnter number or option value:`,
         workflow: request.workflow,
         validate: (value: string) => {
           const resolved = resolveSelectAnswer(value, request.choices);
           return resolved ? true : 'Please enter a valid option number, name, or value.';
         },
-      }));
+      });
 
       const resolved = resolveSelectAnswer(answer, request.choices);
       if (!resolved) {
@@ -288,7 +272,8 @@ async function requestSelect(hooks: InitRuntimeHooks | undefined, request: Quest
 
     throw new Error('Select question requested but no client questionSelect or compatible questionInput responder is available.');
   }
-  const answer = await runWithRealStdout(() => hooks.questionSelect!(request));
+  await Promise.resolve();
+  const answer = await hooks.questionSelect!(request);
   const resolved = resolveSelectAnswer(answer, request.choices);
   if (!resolved) {
     throw new Error('Select responder returned an invalid choice. Please choose one of the listed options.');
@@ -339,7 +324,8 @@ async function requestPassword(hooks: InitRuntimeHooks | undefined, request: Que
   if (!hooks?.questionPassword) {
     throw new Error('Password question requested but no client questionPassword responder is available.');
   }
-  const answer = await runWithRealStdout(() => hooks.questionPassword!(request));
+  await Promise.resolve();
+  const answer = await hooks.questionPassword!(request);
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -389,9 +375,6 @@ export async function initCommand(workspaceRoot: string, options: InitOptions, h
   } catch {
   }
 
-  writeLine(hooks, '');
-  writeLine(hooks, 'Welcome to AI Team!');
-
   let reusedExistingLlm = false;
   let llmConfig: LlmSetupResult;
   let existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined;
@@ -404,6 +387,8 @@ export async function initCommand(workspaceRoot: string, options: InitOptions, h
     existingResolvedLlm = undefined;
   }
 
+  // Ask LLM reuse BEFORE writing any log messages so the confirm prompt
+  // is not clobbered by buffered events delivered to the CLI concurrently.
   if (options.force && existingResolvedLlm) {
     const providerLabel = existingResolvedLlm.config.provider === 'github-copilot'
       ? 'GitHub Copilot'
@@ -412,8 +397,9 @@ export async function initCommand(workspaceRoot: string, options: InitOptions, h
       ? ` [${existingResolvedLlm.providerRef}]`
       : '';
 
+    writeLine(hooks, `  Current LLM: ${providerLabel}${providerRefSuffix}`);
     const reuse = await requestConfirm(hooks, {
-      message: `Reuse existing default LLM connection (${providerLabel}${providerRefSuffix})?`,
+      message: 'Reuse existing default LLM connection?',
       default: true,
     });
 
@@ -442,6 +428,8 @@ export async function initCommand(workspaceRoot: string, options: InitOptions, h
     llmConfig = await askLlmSetup(hooks);
   }
 
+  writeLine(hooks, '');
+  writeLine(hooks, 'Welcome to AI Team!');
   writeLine(hooks, "Let's set up your virtual development team.");
 
   const spinner = ora('Initializing AI Team workspace...').start();
@@ -453,7 +441,7 @@ export async function initCommand(workspaceRoot: string, options: InitOptions, h
     const { apiKey, ...safeLlmConfig } = llmConfig;
     const teamConfig: TeamConfig = existingConfig
       ? { ...existingConfig, llm: safeLlmConfig }
-      : { version: '0.1.0', llm: safeLlmConfig };
+      : { version: '0.1.0', randomAvatarUrls: [], llm: safeLlmConfig };
     await saveTeamConfig(workspaceRoot, teamConfig);
 
     if (apiKey && !reusedExistingLlm) {
@@ -708,6 +696,7 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
   writeLine(hooks, 'Tell your CTO what business problem your software solves.');
   writeLine(hooks, 'Describe the product vision, target users, and core goals.');
   writeLine(hooks, 'Type "done" when you are ready to move on.');
+  const developerName = getGitUserName();
   const businessContext = await onboardingChat(
     workspaceRoot,
     llm,
@@ -722,6 +711,7 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     + `You know your team: ${hrName} is your HR Director and ${hhName} is your Headhunter. `
     + 'When the business definition feels clear, tell the developer to type "done" or say "forward me to HR" to end this conversation and move on to the HR planning phase with your HR Director. '
     + 'You cannot transfer the developer directly — they must type "done" or ask to be forwarded to proceed.',
+    developerName,
     // NOTE: agent switching is not available during init onboarding; the loop moves to HR automatically when the user types "done"
     hooks,
   );
@@ -750,6 +740,7 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     + 'backend lead, frontend lead, QA, DevOps, platform/infrastructure). '
     + `Your Headhunter is ${hhName} — mention that you can have them scout for specific skills. `
     + 'Ask about priorities and constraints. Be concise — 2-4 sentences per reply.',
+    developerName,
     hooks,
   );
 
@@ -955,6 +946,7 @@ async function onboardingChat(
   agent: Agent,
   exitWord: string,
   extraSystemContext: string,
+  developerName: string | undefined,
   hooks?: InitRuntimeHooks,
 ): Promise<ChatMessage[]> {
   const chatManager = new ChatManager(workspaceRoot);
@@ -1035,9 +1027,11 @@ async function onboardingChat(
       }
     }
 
+    const developerId = developerName ? developerNameToId(developerName) : 'human';
     const userMsg: ChatMessage = {
       timestamp: new Date().toISOString(),
-      from: 'human',
+      from: developerId,
+      isHuman: true,
       content: userText,
     };
     history.push(userMsg);
@@ -1183,40 +1177,160 @@ Focus on the big picture: business goals, product vision, and organizational str
   const hrDirectorRole = `---
 name: hr-director
 type: executive
-description: HR Director - Team composition, hiring, onboarding, and organizational health
+description: HR Director - Team composition, hiring, onboarding, organizational health, and agent file management
 contextLevel: organization
 responsibilities:
   - Hire and onboard new team members
   - Archive inactive agents
   - Assess team performance and health
-  - Maintain organizational structure
+  - Maintain organizational structure and hierarchy
   - Ensure role coverage and balance
+  - Write and edit agent .md files with correct YAML frontmatter
+  - Manage file-access permissions for all agents
+  - Define and enforce the reporting hierarchy (reportsTo, delegatesTo)
 tools:
   - read_file
   - file_search
+  - write_file
+  - apply_code_edit
   - create_agent
   - archive_agent
   - assess_performance
 permissions:
   read:
-    - ".ai-team/**/*"
+    - "**/*"
   write:
     - ".ai-team/agents/**/*"
     - ".ai-team/roles/**/*"
+    - "docs/**/*"
   manage_agents: true
 canDelegate: true
 ---
 
-As HR Director, you manage the team's composition and health. You can:
+As HR Director, you manage the team's composition, health, and organizational structure. You are an expert markdown author who writes clean, precise \`.md\` files.
 
-1. Hire new team members with appropriate roles and skills
-2. Onboard agents by setting up their portfolio and context
-3. Archive agents who are no longer needed
-4. Assess team performance and utilization
-5. Recommend organizational changes and role adjustments
-6. Delegate skill scouting to the Headhunter
+## Core Capabilities
 
-Focus on people, skills, and team dynamics.
+1. **Hire** new team members with appropriate roles and skills
+2. **Onboard** agents by writing their portfolio and context into \`.ai-team/agents/{id}.md\`
+3. **Archive** agents who are no longer needed
+4. **Assess** team performance and utilization
+5. **Recommend** organizational changes and role adjustments
+6. **Delegate** skill scouting to the Headhunter
+
+## Agent File Management
+
+You are the authority on writing and editing agent \`.md\` files. Every agent lives at \`.ai-team/agents/{id}.md\` as Markdown with YAML frontmatter.
+
+### Granting File Access
+
+When told that an employee needs access to files, you **write the correct permission globs** into that agent's frontmatter. The format is:
+
+\\\`\\\`\\\`yaml
+permissions:
+  read:
+    - "src/feature/**/*"      # read access to a feature folder
+    - "docs/**/*"              # read access to docs
+  write:
+    - "src/feature/**/*"      # write access to a feature folder
+  approve: true                # optional: can approve changes
+  manage_agents: true          # optional: can create/archive agents
+\\\`\\\`\\\`
+
+Rules:
+- Use minimatch glob patterns relative to the workspace root
+- Grant the **minimum** permissions needed for the agent's role
+- \`contextLevel\` guides defaults: \`task\` = minimal, \`module\` = feature folders, \`repository\` = broad, \`organization\` = everything
+- Always validate that the paths exist and are relevant to the agent's responsibilities
+
+### Setting Up Hierarchy
+
+The hierarchy you define is critical to the organization. You control it through these frontmatter fields:
+
+- **\`reportsTo\`**: The agent ID of the direct manager (e.g., \`reportsTo: john-smith\`)
+- **\`type\`**: The organizational level — \`executive\`, \`leadership\`, \`team-lead\`, \`individual-contributor\`
+- **\`contextLevel\`**: The scope of responsibility — \`task\`, \`module\`, \`feature\`, \`repository\`, \`organization\`
+- **\`canDelegate\`**: Whether this agent can delegate work to others
+- **\`delegatesTo\`**: Array of agent IDs this agent can delegate to
+
+Every non-CTO agent MUST have a valid \`reportsTo\`. The hierarchy defines how work flows, who can delegate to whom, and the org chart.
+
+### Complete Agent Frontmatter Template
+
+\\\`\\\`\\\`yaml
+---
+name: Full Name
+role: kebab-case-role
+type: individual-contributor  # executive | leadership | team-lead | individual-contributor
+contextLevel: module          # task | module | feature | repository | organization
+reportsTo: manager-agent-id
+features:
+  - src/some-feature
+specializations:
+  - domain-expertise
+tools:
+  - read_file
+  - write_file
+  - file_search
+permissions:
+  read:
+    - "src/some-feature/**/*"
+  write:
+    - "src/some-feature/**/*"
+canDelegate: false
+delegatesTo: []
+personality:
+  communication_style: collaborative
+  expertise_level: senior
+  mentoring: true
+avatar:
+  type: ai-generated
+  style: professional-headshot
+  seed: agent-id-role
+---
+\\\`\\\`\\\`
+
+Focus on people, skills, team dynamics, and organizational clarity.
+
+## Tool Assignment & Capabilities
+
+Assign tools to agents based on their responsibilities:
+
+**File Operations:**
+- \`read_file\`, \`file_search\` — Essential for all agents
+- \`write_file\` — For creating new files
+- \`apply_code_edit\` — For editing existing files with diffs (preferred for changes)
+
+**Search & Analysis:**
+- \`semantic_search\`, \`grep_code\`, \`get_errors\` — Code investigation
+- \`find_symbol\`, \`find_references\`, \`find_pattern\`, \`analyze_complexity\` — Advanced analysis
+
+**Agent Management (require \`manage_agents: true\`):**
+- \`create_agent\`, \`archive_agent\`, \`assess_performance\`, \`add_picture\` — HR/management only
+
+**Collaboration:**
+- \`delegate_to_agent\`, \`ask_human\`, \`ask_question\` — Workflow tools
+
+**CLI:**
+- \`register_cli_tool\`, \`run_cli_tool\`, \`update_employee_llm\` — Advanced automation
+
+## CRITICAL: Use apply_code_edit for Edits
+
+When editing existing agent \`.md\` files, **always use \`apply_code_edit\`**, never \`write_file\`. This creates diff-based proposals (like GitHub Copilot) that require user approval.
+
+Example:
+\\\`\\\`\\\`json
+{
+  "description": "Grant write access to auth module for Sarah",
+  "changes": [{
+    "filePath": ".ai-team/agents/sarah-johnson.md",
+    "oldContent": "permissions:\\n  read:\\n    - \\"**/*\\"",
+    "newContent": "permissions:\\n  read:\\n    - \\"**/*\\"\\n  write:\\n    - \\"src/auth/**/*\\""
+  }]
+}
+\\\`\\\`\\\`
+
+This shows diffs, ensures transparency, and prevents mistakes.
 `;
 
   const headhunterRole = `---

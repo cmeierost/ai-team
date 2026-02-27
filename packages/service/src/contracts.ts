@@ -199,7 +199,7 @@ export interface MediatorContext {
 }
 
 export interface MediatorRuntimeEvent {
-  kind: 'status' | 'progress' | 'log' | 'token' | 'tool' | 'question';
+  kind: 'status' | 'progress' | 'log' | 'token' | 'tool' | 'question' | 'code_edit_proposal' | 'handoff';
   phase?: string;
   message?: string;
   percent?: number;
@@ -209,6 +209,17 @@ export interface MediatorRuntimeEvent {
   toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
   questionType?: 'confirm' | 'input' | 'select' | 'password' | 'checklist';
   choices?: QuestionSelectChoice[];
+  // Code edit proposal fields
+  proposalId?: string;
+  description?: string;
+  filesChanged?: number;
+  additions?: number;
+  deletions?: number;
+  warnings?: string[];
+  // Handoff fields
+  fromAgentId?: string;
+  toAgentId?: string;
+  handoffNote?: string;
 }
 
 export type AiTeamCommandName =
@@ -332,6 +343,16 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       questionType?: 'confirm' | 'input' | 'select' | 'password' | 'checklist';
       message: string;
       choices?: QuestionSelectChoice[];
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'handoff';
+      timestamp: string;
+      fromAgentId: string;
+      toAgentId: string;
+      handoffNote?: string;
+      message?: string;
     }
   | {
       requestId?: string;

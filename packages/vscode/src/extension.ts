@@ -3,14 +3,16 @@
  */
 
 import * as vscode from 'vscode';
-import { AgentManager, SkillManager, TeamGraphBuilder, ChatManager } from '@ai-team/core';
+import { AgentManager, SkillManager, TeamGraphBuilder, ChatManager, CodeEditManager } from '@ai-team/core';
 import { TeamTreeProvider } from './views/teamTreeProvider';
 import { FeaturesTreeProvider } from './views/featuresTreeProvider';
 import { TeamGraphPanel } from './panels/teamGraphPanel';
+import { CodeEditPanel } from './panels/codeEditPanel';
 
 let agentManager: AgentManager;
 let skillManager: SkillManager;
 let chatManager: ChatManager;
+let codeEditManager: CodeEditManager;
 let teamTreeProvider: TeamTreeProvider;
 let featuresTreeProvider: FeaturesTreeProvider;
 
@@ -27,6 +29,7 @@ export async function activate(context: vscode.ExtensionContext) {
   agentManager = new AgentManager(workspaceRoot);
   skillManager = new SkillManager(workspaceRoot);
   chatManager = new ChatManager(workspaceRoot);
+  codeEditManager = new CodeEditManager();
 
   try {
     await agentManager.initialize();
@@ -48,6 +51,10 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('ai-team.showTeamGraph', () => {
       TeamGraphPanel.createOrShow(context.extensionUri, agentManager);
+    }),
+
+    vscode.commands.registerCommand('ai-team.showCodeEditPanel', (proposalId?: string) => {
+      CodeEditPanel.createOrShow(context.extensionUri, codeEditManager, proposalId);
     }),
 
     vscode.commands.registerCommand('ai-team.listAgents', async () => {
@@ -139,6 +146,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const chatMessage = {
           timestamp: new Date().toISOString(),
           from: 'human' as const,
+          isHuman: true,
           content: message,
         };
 

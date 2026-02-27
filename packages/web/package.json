@@ -10,10 +10,14 @@
     "lint": "eslint src --ext ts,tsx"
   },
   "dependencies": {
+    "@ai-team/api-client-http": "workspace:*",
     "@ai-team/core": "workspace:*",
+    "@xyflow/react": "^12.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "@xyflow/react": "^12.6.0"
+    "react-markdown": "^10.1.0",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.6",

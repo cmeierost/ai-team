@@ -57,7 +57,10 @@ export function App() {
             />
           )}
           {view === 'chat' && selectedAgent && (
-            <ChatPanel agentId={selectedAgent} />
+            <ChatPanel 
+              agentId={selectedAgent}
+              onSwitchAgent={(agentId) => setSelectedAgent(agentId)}
+            />
           )}
           {view === 'portfolio' && selectedAgent && (
             <Portfolio 

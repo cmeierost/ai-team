@@ -75,18 +75,66 @@ export class TeamGraphBuilder {
   }
 
   /**
+   * Resolve manager ID from reportsTo field (supports ID or role-based reference)
+   * @param reportsTo - Raw reportsTo value (ID or role name)
+   * @returns Resolved manager ID and optional error message
+   */
+  private resolveManagerId(reportsTo: string): { id: string | null; error?: string } {
+    // Try exact ID lookup first (fast path)
+    const exactMatch = this.agentManager.getAgent(reportsTo);
+    if (exactMatch) {
+      return { id: reportsTo };
+    }
+
+    // Fall back to fuzzy resolution (role, name, partial matches)
+    const matches = this.agentManager.resolveAgent(reportsTo);
+    
+    if (matches.length === 0) {
+      return { 
+        id: null, 
+        error: `Manager "${reportsTo}" not found` 
+      };
+    }
+    
+    if (matches.length > 1) {
+      const names = matches.map(m => m.name).join(', ');
+      return { 
+        id: null, 
+        error: `Ambiguous reference "${reportsTo}" matches: ${names}` 
+      };
+    }
+    
+    return { id: matches[0].id };
+  }
+
+  /**
    * Add reporting relationship edges
    */
   private addHierarchyEdges(agents: Agent[], edges: GraphEdge[]): void {
     for (const agent of agents) {
       if (agent.reportsTo) {
-        edges.push({
-          id: `${agent.id}-reports-to-${agent.reportsTo}`,
-          source: agent.id,
-          target: agent.reportsTo,
-          type: EdgeType.REPORTS_TO,
-          label: 'reports to',
-        });
+        const { id: managerId, error } = this.resolveManagerId(agent.reportsTo);
+        
+        if (managerId) {
+          // Successfully resolved
+          edges.push({
+            id: `${agent.id}-reports-to-${managerId}`,
+            source: agent.id,
+            target: managerId,
+            type: EdgeType.REPORTS_TO,
+            label: 'reports to',
+          });
+        } else {
+          // Resolution failed - add broken edge for visualization
+          edges.push({
+            id: `${agent.id}-reports-to-unresolved`,
+            source: agent.id,
+            target: agent.reportsTo, // Keep original for error display
+            type: EdgeType.REPORTS_TO_UNRESOLVED,
+            label: 'reports to',
+            error,
+          });
+        }
       }
     }
   }

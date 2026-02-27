@@ -142,11 +142,7 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
             expertise_level: personalityPreset.expertise_level,
             mentoring: personalityPreset.mentoring,
           },
-          avatar: {
-            type: 'ai-generated',
-            style: 'professional-headshot',
-            seed: `${config.name.toLowerCase().replace(/\s+/g, '-')}-${config.role}`,
-          },
+          // Note: Avatar is not set during hire - use `ait avatar <agent>` command
           llm: config.llm,
           cliTools: config.cliTools,
         },

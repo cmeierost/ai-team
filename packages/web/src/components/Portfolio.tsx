@@ -1,4 +1,6 @@
 import { useTeam } from '../context/TeamContext';
+import { Avatar } from './Avatar';
+import './Portfolio.css';
 
 interface PortfolioProps {
   agentId: string;
@@ -33,6 +35,9 @@ export function Portfolio({ agentId, onClose }: PortfolioProps) {
         <button onClick={onClose} className="btn-back">
           ← Back
         </button>
+        <div className="portfolio-avatar">
+          <Avatar agent={agent} size="large" />
+        </div>
         <h1>{agent.name}</h1>
         <span className="agent-role-badge">{agent.role}</span>
       </div>

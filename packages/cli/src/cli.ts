@@ -21,6 +21,8 @@ import { hireCommand } from './commands/hire.js';
 import { infoCommand } from './commands/info.js';
 import { fireCommand } from './commands/fire.js';
 import { hhRefreshCommand } from './commands/hh.js';
+import { codeEditCommand } from './commands/code-edit.js';
+import { avatarCommand } from './commands/avatar.js';
 
 import { testConnectionCommand } from './commands/test-connection.js';
 import { providerAddCommand, providerConfigureCommand, providerSetCommand } from './commands/provider.js';
@@ -131,10 +133,23 @@ const hireMeta = getCliCommandMetadata('hire');
 applyCommandMetadata(program.command(hireMeta.command), hireMeta).action(withCliErrorHandling((options) => hireCommand(client, options)));
 
 const infoMeta = getCliCommandMetadata('info');
-applyCommandMetadata(program.command(infoMeta.command), infoMeta).action(withCliErrorHandling((agentId, options) => infoCommand(client, agentId, options)));
+applyCommandMetadata(program.command(infoMeta.command), infoMeta)
+  .action(withCliErrorHandling((agentId, options) => infoCommand(client, agentId, options)));
+
+// Show command - open avatar only
+program
+  .command('show <agent>')
+  .description('Open the avatar image for an employee')
+  .action(withCliErrorHandling((agentId) => infoCommand(client, agentId, { openAvatar: true })));
 
 const fireMeta = getCliCommandMetadata('fire');
 applyCommandMetadata(program.command(fireMeta.command), fireMeta).action(withCliErrorHandling((agentQuery, options) => fireCommand(client, agentQuery, options)));
+
+// Avatar command
+program
+  .command('avatar <agent>')
+  .description('Download and set an avatar picture for an agent')
+  .action(withCliErrorHandling((agentQuery) => avatarCommand(agentQuery, { workspaceRoot: process.cwd() })));
 
 const hhMeta = getCliCommandMetadata('hh');
 const hh = applyCommandMetadata(program.command(hhMeta.command), hhMeta);
@@ -167,5 +182,16 @@ const providerModels = applyCommandMetadata(provider.command(providerModelsMeta.
 const providerModelsRefreshMeta = getCliCommandMetadata('provider.models.refresh');
 applyCommandMetadata(providerModels.command(providerModelsRefreshMeta.command), providerModelsRefreshMeta)
   .action(withCliErrorHandling((options) => providerModelsRefreshCommand(client, options)));
+
+// Code edit proposals command
+program
+  .command('code-edit')
+  .description('Manage code edit proposals')
+  .option('--status <status>', 'Filter by status (PENDING, APPROVED, APPLIED, REJECTED, FAILED)')
+  .option('--agent <agent>', 'Filter by agent name')
+  .option('--approve <id>', 'Approve a proposal')
+  .option('--reject <id>', 'Reject a proposal')
+  .option('--apply <id>', 'Apply an approved proposal')
+  .action(withCliErrorHandling((options) => codeEditCommand(process.cwd(), options)));
 
 program.parse();

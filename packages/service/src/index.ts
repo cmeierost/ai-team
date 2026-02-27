@@ -533,6 +533,19 @@ class CoreAiTeamService implements AiTeamService {
           choices: runtimeEvent.choices,
         });
       }
+
+      if (runtimeEvent.kind === 'handoff' && runtimeEvent.fromAgentId && runtimeEvent.toAgentId) {
+        yield toStreamEvent({
+          requestId: request.requestId,
+          command: request.command,
+          kind: 'handoff',
+          timestamp: timestamp(),
+          fromAgentId: runtimeEvent.fromAgentId,
+          toAgentId: runtimeEvent.toAgentId,
+          handoffNote: runtimeEvent.handoffNote,
+          message: runtimeEvent.message,
+        });
+      }
     }
 
     if (context.signal?.aborted) {
@@ -698,3 +711,4 @@ export type {
 
 export { ServiceDomainError, type ServiceErrorCode, type ServiceErrorInputRequest } from './errors.js';
 export { MissingUserInputError } from './utils/user-env.js';
+export { SessionManager } from './session-manager.js';

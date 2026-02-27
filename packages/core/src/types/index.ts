@@ -36,6 +36,7 @@ export enum AgentStatus {
 
 export enum EdgeType {
   REPORTS_TO = 'reports-to',
+  REPORTS_TO_UNRESOLVED = 'reports-to-unresolved',
   MANAGES = 'manages',
   OWNS_FEATURE = 'owns-feature',
   CONTRIBUTES_TO = 'contributes-to',
@@ -50,7 +51,7 @@ export enum EdgeType {
 export const AvatarConfigSchema = z.object({
   type: z.enum(['ai-generated', 'url', 'initials']),
   seed: z.string().optional(),
-  url: z.string().url().optional(),
+  url: z.string().optional(),
   style: z.enum(['professional-headshot', 'avatar', 'illustrated']).optional(),
 });
 
@@ -93,6 +94,7 @@ export const LlmProviderConfigSchema = z.object({
   model: z.string().optional(),
   defaultModelKey: z.string().min(1).optional(),
   models: z.record(z.string(), z.string()).optional(),
+  imageModels: z.record(z.string(), z.string()).optional(),
   baseUrl: z.string().url().optional(),
   apiKeyEnvVar: z.string().min(1).optional(),
   params: LlmGenerationParamsSchema.optional(),
@@ -216,6 +218,7 @@ export interface GraphEdge {
   target: string;
   type: EdgeType;
   label?: string;
+  error?: string;
 }
 
 export interface GraphData {
@@ -255,11 +258,14 @@ export interface FileContext {
 
 export interface ChatMessage {
   timestamp: string;
-  from: 'human' | string;  // 'human' or agent ID
+  from: string;  // Agent ID or developer ID (e.g., 'clemens-meier')
+  to?: string;  // Target agent ID (used for handoff messages)
+  isHuman?: boolean;  // True if message is from human developer
   content: string;
   context?: string[];  // File paths referenced
   tool_calls?: ToolCall[];
   suggestions?: CodeSuggestion[];
+  archived?: boolean;  // If true, message is shown but not sent to LLM
 }
 
 export interface ToolCall {
@@ -274,6 +280,35 @@ export interface CodeSuggestion {
   line?: number;
   description: string;
   code?: string;
+}
+
+// ============================================================================
+// Sessions & Artifacts
+// ============================================================================
+
+export interface ChatSession {
+  id: string;  // e.g., 'session-2026-02-27-abc123'
+  agentId: string;
+  developerId: string;  // e.g., 'clemens-meier'
+  startedAt: string;  // ISO timestamp
+  lastActivityAt: string;  // ISO timestamp
+  messageCount: number;
+  artifacts: string[];  // Artifact IDs or paths in context
+  allowedFiles: string[];  // Files agent can access in this session
+}
+
+export interface Artifact {
+  id: string;  // e.g., 'brief-user-auth-design'
+  type: 'brief' | 'summary' | 'record' | 'document';
+  title: string;
+  content: string;  // Markdown content
+  createdAt: string;
+  createdBy: string;  // developer ID
+  sourceSessionId: string;  // Session where it was created
+  fromMessageIndex: number;  // Start of summarized range
+  toMessageIndex: number;  // End of summarized range
+  filepath: string;  // .ai-team/artifacts/briefs/{filename}.md
+  tags?: string[];
 }
 
 export interface MeetingSummary {
@@ -373,6 +408,7 @@ export const TeamConfigSchema = z.object({
   defaultLlmProvider: z.string().min(1).optional(),
   allowedCliTools: z.array(z.string().min(1)).optional(),
   avatarStyle: z.enum(['professional-headshot', 'avatar', 'illustrated']).optional(),
+  randomAvatarUrls: z.array(z.string().url()).optional().default([]),
 });
 
 export type TeamConfig = z.infer<typeof TeamConfigSchema>;
@@ -407,4 +443,42 @@ export class AgentNotFoundError extends Error {
     super(`Agent not found: ${agentId}`);
     this.name = 'AgentNotFoundError';
   }
+}
+
+// Context management types
+export interface MessageAnnotation {
+  type: 'summary' | 'anti-pattern' | 'highlight' | 'note';
+  content: string;
+  timestamp: string;
+  tags?: string[];
+}
+
+export interface AnnotatedChatMessage extends ChatMessage {
+  annotations?: MessageAnnotation[];
+}
+
+export interface ChatSummary {
+  id: string;
+  title: string;
+  content: string;
+  sourceMessages: {
+    agentId: string;
+    messageIndices: number[];
+  };
+  timestamp: string;
+  tags?: string[];
+}
+
+export interface ArtifactReference {
+  type: 'summary' | 'document' | 'code-snippet';
+  path: string;
+  title: string;
+  tags?: string[];
+}
+
+export interface MessageStats {
+  total: number;
+  archived: number;
+  active: number;
+  byAgent: Record<string, number>;
 }

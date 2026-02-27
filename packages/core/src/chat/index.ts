@@ -10,6 +10,8 @@ import {
   Agent,
 } from '../types/index.js';
 
+export { ChatContextManager } from './chat-context-manager.js';
+
 export class ChatManager {
   private workspaceRoot: string;
 
@@ -35,15 +37,22 @@ export class ChatManager {
   /**
    * Load chat history for an agent
    * @param agentId - Agent ID
+   * @param includeArchived - Include archived messages (default: false)
    * @returns Array of chat messages
    */
-  async loadChatHistory(agentId: string): Promise<ChatMessage[]> {
+  async loadChatHistory(agentId: string, includeArchived: boolean = false): Promise<ChatMessage[]> {
     const filePath = this.getChatFilePath(agentId);
     
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const lines = content.trim().split('\n').filter(line => line);
-      return lines.map(line => JSON.parse(line));
+      const messages = lines.map(line => JSON.parse(line));
+      
+      // Filter out archived messages unless explicitly requested
+      if (includeArchived) {
+        return messages;
+      }
+      return messages.filter(msg => !msg.archived);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return []; // No chat history yet

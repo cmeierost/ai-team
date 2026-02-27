@@ -1,0 +1,62 @@
+{
+  "version": "0.1.0",
+  "llm": {
+    "provider": "openai-compatible",
+    "model": "gpt-5.1",
+    "baseUrl": "https://api.openai.com/v1"
+  },
+  "providers": {
+    "api-llmhub-infs-ai": {
+      "kind": "openai-compatible",
+      "defaultModelKey": "best-chat",
+      "models": {
+        "apertus-70b-instruct-2509-qx64-mlx": "apertus-70b-instruct-2509-qx64-mlx",
+        "best-chat": "best-chat",
+        "best-code": "best-code",
+        "best-embedding": "best-embedding",
+        "best-vision": "best-vision",
+        "gemma-3-27b-it": "gemma-3-27b-it",
+        "granite-docling-258m-mlx": "granite-docling-258m-mlx",
+        "intfloat-multilingual-e5-large-instruct": "intfloat/multilingual-e5-large-instruct",
+        "mlx-community-qwen3-5-397b-a17b": "mlx-community/qwen3.5-397b-a17b",
+        "nomic-ai-nomic-embed-text-v1-5": "nomic-ai/nomic-embed-text-v1.5",
+        "openai-gpt-oss-120b": "openai/gpt-oss-120b",
+        "openai-gpt-oss-20b": "openai/gpt-oss-20b",
+        "openai-whisper-large-v3": "openai/whisper-large-v3",
+        "qwen-qwen3-coder-30b": "qwen/qwen3-coder-30b",
+        "qwen-qwen3-coder-next": "Qwen/Qwen3-Coder-Next",
+        "qwen-qwen3-vl-30b": "qwen/qwen3-vl-30b",
+        "qwen3-vl-30b-a3b-thinking": "qwen3-vl-30b-a3b-thinking",
+        "text-embedding-bge-reranker-v2-m3": "text-embedding-bge-reranker-v2-m3",
+        "vibethinker-1-5b-mlx": "vibethinker-1.5b-mlx",
+        "zai-org-glm-4-7-flash": "zai-org/glm-4.7-flash"
+      },
+      "baseUrl": "https://api.llmhub.infs.ai/v1"
+    },
+    "copilot": {
+      "kind": "github-copilot",
+      "model": "claude-haiku-4.5",
+      "defaultModelKey": "claude-haiku-4-5",
+      "models": {
+        "claude-haiku-4-5": "claude-haiku-4.5"
+      }
+    },
+    "openai": {
+      "kind": "openai-compatible",
+      "isDefault": true,
+      "model": "gpt-5.1",
+      "defaultModelKey": "gpt-5.1",
+      "models": {
+        "gpt-5.1": "gpt-5.1"
+      },
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnvVar": "OPENAI_API_KEY"
+    }
+  },
+  "defaultLlmProvider": "openai",
+  "allowedCliTools": [
+    "git",
+    "pnpm",
+    "node"
+  ]
+}

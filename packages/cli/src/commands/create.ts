@@ -1,5 +1,6 @@
 import inquirer from 'inquirer';
-import { ContextLevel, RoleType } from '@ai-team/core';
+import chalk from 'chalk';
+import { ContextLevel, RoleType, AgentManager, loadTeamConfig } from '@ai-team/core';
 import type {
   AiTeamClient,
   CreateAgentSetupInput,
@@ -8,14 +9,17 @@ import type {
 } from '@ai-team/api-client';
 import type { LlmGenerationParams, LlmProfile } from '@ai-team/core';
 import { runCommandStream } from './stream-runner.js';
+import { interactiveAvatarSelection } from '../utils/avatar-selection.js';
 
 export async function createCommand(client: AiTeamClient, type: string, options: CreateOptions) {
   const normalizedType = type.toLowerCase();
   const nextOptions = { ...options };
+  let agentName: string | undefined;
 
   if (normalizedType === 'agent' && (options.interactive || (!options.name && !options.role))) {
     const setup = await askAgentSetup();
     nextOptions.setup = setup;
+    agentName = setup.name;
   }
 
   if (normalizedType === 'skill') {
@@ -27,6 +31,35 @@ export async function createCommand(client: AiTeamClient, type: string, options:
     command: 'create',
     payload: { type: normalizedType, options: nextOptions },
   });
+
+  // Offer avatar selection after agent creation (only if interactive)
+  if (normalizedType === 'agent' && agentName && nextOptions.interactive !== false) {
+    try {
+      const { wantAvatar } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'wantAvatar',
+        message: 'Would you like to set an avatar now?',
+        default: false,
+      }]);
+
+      if (wantAvatar) {
+        const workspaceRoot = process.cwd();
+        const agentManager = new AgentManager(workspaceRoot);
+        await agentManager.initialize();
+        
+        const agent = agentManager.resolveAgentOrThrow(agentName);
+        const teamConfig = await loadTeamConfig(workspaceRoot);
+        
+        if (teamConfig) {
+          await interactiveAvatarSelection(agent, workspaceRoot, teamConfig);
+        } else {
+          console.error(chalk.yellow('\n⚠ Team config not found, skipping avatar setup.\n'));
+        }
+      }
+    } catch (error) {
+      console.error(chalk.yellow(`\n⚠ Could not set avatar: ${(error as Error).message}\n`));
+    }
+  }
 }
 
 async function askAgentSetup(): Promise<CreateAgentSetupInput> {

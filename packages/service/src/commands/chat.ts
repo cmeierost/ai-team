@@ -46,11 +46,10 @@ import type {
   WorkflowFrame,
   WorkflowStateSnapshot,
 } from '../contracts.js';
-import { getGitUserName } from '../utils/git.js';
+import { getGitUserName, developerNameToId } from '../utils/git.js';
 import { ensureUserEnvVars as ensureServiceUserEnvVars } from '../utils/user-env.js';
 
 const execAsync = promisify(exec);
-const REAL_STDOUT_WRITE = process.stdout.write.bind(process.stdout);
 const CHAT_CONNECT_TIMEOUT_MS = 20_000;
 const GREETING_TIMEOUT_MS = 12_000;
 const PREFLIGHT_STEP_TIMEOUT_MS = 15_000;
@@ -185,16 +184,6 @@ function throwIfAborted(signal: AbortSignal | undefined, message: string): void 
   }
 }
 
-async function runWithRealStdout<T>(fn: () => Promise<T>): Promise<T> {
-  const previous = process.stdout.write;
-  process.stdout.write = REAL_STDOUT_WRITE as typeof process.stdout.write;
-  try {
-    return await fn();
-  } finally {
-    process.stdout.write = previous;
-  }
-}
-
 async function tryGreetUser(
   llm: LlmService,
   chatManager: ChatManager,
@@ -319,7 +308,8 @@ async function requestInput(hooks: ChatRuntimeHooks | undefined, request: Questi
     throw new Error('Input question requested but no client questionInput responder is available.');
   }
 
-  const answer = await runWithRealStdout(() => hooks.questionInput!(request));
+  await Promise.resolve();
+  const answer = await hooks.questionInput!(request);
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -342,7 +332,8 @@ async function requestConfirm(hooks: ChatRuntimeHooks | undefined, request: Ques
     throw new Error('Confirm question requested but no client questionConfirm responder is available.');
   }
 
-  const answer = await runWithRealStdout(() => hooks.questionConfirm!(request));
+  await Promise.resolve();
+  const answer = await hooks.questionConfirm!(request);
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -368,14 +359,15 @@ async function requestSelect(hooks: ChatRuntimeHooks | undefined, request: Quest
         .map((choice, index) => `${index + 1}. ${choice.name}`)
         .join('\n');
 
-      const answer = await runWithRealStdout(() => hooks.questionInput!({
+      await Promise.resolve();
+      const answer = await hooks.questionInput!({
         message: `${request.message}\n${choiceLines}\nEnter number or option value:`,
         workflow: request.workflow,
         validate: (value: string) => {
           const resolved = resolveSelectAnswer(value, request.choices);
           return resolved ? true : 'Please enter a valid option number, name, or value.';
         },
-      }));
+      });
 
       const resolved = resolveSelectAnswer(answer, request.choices);
       if (!resolved) {
@@ -389,7 +381,8 @@ async function requestSelect(hooks: ChatRuntimeHooks | undefined, request: Quest
     throw new Error('Select question requested but no client questionSelect or compatible questionInput responder is available.');
   }
 
-  const answer = await runWithRealStdout(() => hooks.questionSelect!(request));
+  await Promise.resolve();
+  const answer = await hooks.questionSelect!(request);
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -436,7 +429,8 @@ async function requestPassword(hooks: ChatRuntimeHooks | undefined, request: Que
     throw new Error('Password question requested but no client questionPassword responder is available.');
   }
 
-  const answer = await runWithRealStdout(() => hooks.questionPassword!(request));
+  await Promise.resolve();
+  const answer = await hooks.questionPassword!(request);
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -460,7 +454,8 @@ async function requestChecklist(hooks: ChatRuntimeHooks | undefined, request: Qu
     throw new Error('Checklist question requested but no client questionChecklist responder is available.');
   }
 
-  const answer = await runWithRealStdout(() => hooks.questionChecklist!(request));
+  await Promise.resolve();
+  const answer = await hooks.questionChecklist!(request);
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -946,6 +941,14 @@ export async function chatCommand(
             fromAgentId: fromAgent.id,
             note: result.handoffMessage,
           });
+          // Emit handoff event to notify clients
+          emitRuntimeEvent(hooks, {
+            kind: 'handoff',
+            fromAgentId: fromAgent.id,
+            toAgentId: agent.id,
+            handoffNote: result.handoffMessage,
+            message: `Handed off from ${fromAgent.name} to ${agent.name}`,
+          });
           await acknowledgeHandoff(
             llm,
             chatManager,
@@ -1165,15 +1168,24 @@ export async function chatCommand(
         }
 
         if (cmd.name === 'graph') {
-          const graphData = await getTeamGraphCommand(workspaceRoot, 'hierarchy');
-          writeInfo(hooks, '\nTeam Graph\n');
-          writeInfo(hooks, `Nodes: ${graphData.nodes.length}`);
-          writeInfo(hooks, `Edges: ${graphData.edges.length}`);
+          try {
+            const graphData = await getTeamGraphCommand(workspaceRoot, 'hierarchy');
+            writeInfo(hooks, '\nTeam Graph (hierarchy view)\n');
+            writeInfo(hooks, `Nodes: ${graphData.nodes.length}`);
+            writeInfo(hooks, `Edges: ${graphData.edges.length}`);
+            writeInfo(hooks, '');
+            printGraphHierarchy(graphData, hooks);
+          } catch (err) {
+            writeError(hooks, `Failed to generate graph: ${err instanceof Error ? err.message : String(err)}`);
+          }
           writeInfo(hooks, '');
           continue;
         }
 
-        // Unknown command — fall through to LLM
+        // Parsed but no handler matched — warn instead of silently sending to LLM
+        writeWarn(hooks, `Command "/${cmd.name}" is recognized but not available in this context. Type /help to see available commands.`);
+        writeInfo(hooks, '');
+        continue;
       }
 
       // ── Natural language forward detection ────────────────────────
@@ -1215,6 +1227,14 @@ export async function chatCommand(
             handoffTracker.set(agent.id, {
               fromAgentId: fromAgent.id,
               note: handoffResult.handoffMessage,
+            });
+            // Emit handoff event to notify clients
+            emitRuntimeEvent(hooks, {
+              kind: 'handoff',
+              fromAgentId: fromAgent.id,
+              toAgentId: agent.id,
+              handoffNote: handoffResult.handoffMessage,
+              message: `Handed off from ${fromAgent.name} to ${agent.name}`,
             });
             await acknowledgeHandoff(
               llm,
@@ -1538,9 +1558,11 @@ async function sendMessage(
   }
 
   // Save user message
+  const developerId = developerName ? developerNameToId(developerName) : 'human';
   const userMessage: ChatMessage = {
     timestamp: new Date().toISOString(),
-    from: 'human',
+    from: developerId,
+    isHuman: true,
     content: message,
     context: contextFiles,
   };
@@ -2167,8 +2189,12 @@ function extractHireDirective(
     }
   }
 
+  // Natural-language fallback: match "hire <FirstName LastName> as <role>".
+  // Name must look like a proper person name (2–3 capitalized words, each
+  // 2-20 chars) to avoid capturing arbitrary phrases like "priorities and
+  // start scoping candidates" as a hire name.
   const natural = message.match(
-    /(?:hire|hiring|onboard|onboarding|bringing on)\s+([A-Z][A-Za-z' -]{2,60})\s+(?:as|for)\s+(?:a|an|the|our)?\s*([a-z][a-z0-9 -]{2,40})/i,
+    /(?:hire|hiring|onboard|onboarding|bringing on)\s+((?:[A-Z][a-z]{1,19})(?:\s+[A-Z][a-z]{1,19}){1,2})\s+(?:as|for)\s+(?:a|an|the|our)?\s*([a-z][a-z0-9 -]{2,40})/i,
   );
   if (!natural) {
     return undefined;
@@ -2210,14 +2236,32 @@ async function createAgentFromChat(
         ? { communication_style: 'supportive' as const, expertise_level: 'senior' as const, mentoring: true }
         : { communication_style: 'collaborative' as const, expertise_level: 'mid-level' as const, mentoring: true };
 
-  const reportsTo = managerAgent?.id ?? hiringAgent.id;
+  // Determine the correct manager in the org hierarchy.
+  // If an explicit managerAgent was provided (e.g. via handoff lineage), use it.
+  // Otherwise, for senior/leadership roles (architect, lead, etc.) find the CTO
+  // or top executive rather than defaulting to the hiring HR agent.
+  let reportsTo: string;
+  if (managerAgent) {
+    reportsTo = managerAgent.id;
+  } else {
+    const allAgents = agentManager.getAllAgents();
+    const cto = allAgents.find(a => a.role === 'cto');
+    const topExec = cto ?? allAgents.find(a => a.type === 'executive' && a.id !== hiringAgent.id);
+    const isLeadershipRole = /architect|lead|director|manager|principal/.test(lowerRole);
+    reportsTo = (isLeadershipRole && topExec) ? topExec.id : (topExec?.id ?? hiringAgent.id);
+  }
+
+  // Infer type and contextLevel from role
+  const isLeadership = /architect|lead|director|principal/.test(lowerRole);
+  const agentType = isLeadership ? RoleType.LEADERSHIP : RoleType.INDIVIDUAL_CONTRIBUTOR;
+  const contextLevel = isLeadership ? ContextLevel.REPOSITORY : ContextLevel.MODULE;
 
   try {
     const created = await agentManager.createAgent({
       name,
       role,
-      type: RoleType.INDIVIDUAL_CONTRIBUTOR,
-      contextLevel: ContextLevel.MODULE,
+      type: agentType,
+      contextLevel,
       reportsTo,
       personality,
       avatar: {
@@ -2247,6 +2291,56 @@ interface InChatCommand {
 interface DirectToolCall {
   toolName: string;
   params: Record<string, unknown>;
+}
+
+function printGraphHierarchy(
+  graphData: { nodes: { id: string; data: Record<string, unknown> }[]; edges: { source: string; target: string; type: string }[] },
+  hooks: ChatRuntimeHooks | undefined,
+): void {
+  const { nodes, edges } = graphData;
+
+  // Find root nodes (not managed by anyone)
+  const hasManager = new Set(
+    edges.filter(e => e.type === 'reports-to').map(e => e.source),
+  );
+  const roots = nodes.filter(n => !hasManager.has(n.id));
+
+  const printed = new Set<string>();
+
+  function printNode(nodeId: string, indent: number) {
+    if (printed.has(nodeId)) return;
+    printed.add(nodeId);
+
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    const prefix = '  '.repeat(indent);
+    const label = node.data.label ?? node.id;
+    const role = node.data.role ?? '';
+    writeInfo(hooks, `${prefix}- ${label} (${role})`);
+
+    // Direct reports: edges where target === this node
+    const reports = edges
+      .filter(e => e.type === 'reports-to' && e.target === nodeId)
+      .map(e => e.source);
+
+    for (const reportId of reports) {
+      printNode(reportId, indent + 1);
+    }
+  }
+
+  if (roots.length === 0 && nodes.length > 0) {
+    // Fallback: just list all nodes
+    for (const n of nodes) {
+      const label = n.data.label ?? n.id;
+      const role = n.data.role ?? '';
+      writeInfo(hooks, `  - ${label} (${role})`);
+    }
+  } else {
+    for (const root of roots) {
+      printNode(root.id, 0);
+    }
+  }
 }
 
 function selectDefaultTopAgent(agents: Agent[]): Agent | undefined {
@@ -2768,7 +2862,7 @@ async function appendToolOutputToHistory(
 
   const message: ChatMessage = {
     timestamp: new Date().toISOString(),
-    from: 'human',
+    from: 'system',
     content: `Tool Output (${toolName}):\n${content}`,
   };
 
@@ -2787,7 +2881,8 @@ async function appendHandoffNote(
   const content = `Handoff note from ${fromAgent.name} (${fromAgent.role}):\n${trimmed}`;
   const message: ChatMessage = {
     timestamp: new Date().toISOString(),
-    from: 'human',
+    from: fromAgent.id,
+    to: agentId,
     content,
   };
   await chatManager.appendMessage(agentId, message);
@@ -2876,7 +2971,7 @@ async function seedNewHireContext(
 
   const message: ChatMessage = {
     timestamp: new Date().toISOString(),
-    from: 'human',
+    from: 'system',
     content: lines.join('\n'),
   };
 

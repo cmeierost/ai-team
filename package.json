@@ -6,6 +6,8 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
+    "dev:web": "pnpm --filter @ai-team/api-server --filter @ai-team/web --parallel dev",
+    "dev:api": "pnpm --filter @ai-team/api-server dev",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "clean": "pnpm -r clean && rm -rf node_modules"

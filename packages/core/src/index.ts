@@ -18,7 +18,11 @@ export * from './tools/index.js';
 export * from './storage/index.js';
 export * from './llm/index.js';
 export * from './command-catalog/index.js';
+export * from './code-analysis/index.js';
+export * from './code-edit/index.js';
 
-// Avatar and watcher modules (to be implemented)
-// export * from './avatar/index.js';
+// Avatar module
+export * from './avatar/index.js';
+
+// Watcher module (to be implemented)
 // export * from './watcher/index.js';

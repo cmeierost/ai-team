@@ -17,6 +17,15 @@ import {
 import { ContextManager } from '../context/index.js';
 import { loadAgent, loadTeamConfig, saveAgent } from '../storage/index.js';
 import { AgentManager } from '../agent/index.js';
+import {
+  downloadRandomAvatar,
+  generateAvatarWithAI,
+  buildAvatarPrompt,
+  saveAvatarPreview,
+  finalizeAvatar,
+  updateAgentAvatar,
+} from '../avatar/index.js';
+import { resolveEffectiveLlmSettings } from '../llm/index.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -683,6 +692,339 @@ export const assessPerformanceTool: AgentTool = {
   },
 };
 
+const addPictureTool: AgentTool = {
+  name: 'add_picture',
+  description: 'Download and set an avatar picture for an agent. Requires manage_agents permission. Can use random source or AI generation.',
+  parameters: z.object({
+    agentName: z.string().describe('Name or ID of the agent'),
+    source: z.enum(['random', 'generate']).default('random').describe('Source: random (download) or generate (AI)'),
+    randomUrlIndex: z.number().int().min(0).optional().describe('Index of random URL to use (defaults to first)'),
+    prompt: z.string().optional().describe('Custom prompt for AI generation (auto-generated if omitted)'),
+  }),
+  async execute(params, context: ToolContext) {
+    if (!context.agent.permissions?.manage_agents) {
+      throw new Error(`Agent ${context.agent.id} does not have permission to add pictures`);
+    }
+
+    const { agentName, source, randomUrlIndex, prompt } = params as {
+      agentName: string;
+      source: 'random' | 'generate';
+      randomUrlIndex?: number;
+      prompt?: string;
+    };
+
+    // Resolve target agent
+    const agentManager = new AgentManager(context.workspaceRoot);
+    await agentManager.initialize();
+    const targetAgent = agentManager.resolveAgentOrThrow(agentName);
+
+    // Load team config
+    const teamConfig = await loadTeamConfig(context.workspaceRoot);
+    if (!teamConfig) {
+      throw new Error('Team config not found. Run `ait init` first.');
+    }
+    let imageData: Buffer;
+
+    if (source === 'random') {
+      // Use random avatar URL
+      const randomUrls = teamConfig.randomAvatarUrls || [];
+      if (randomUrls.length === 0) {
+        throw new Error('No random avatar URLs configured in .ai-team/config.json');
+      }
+
+      const urlIndex = randomUrlIndex ?? 0;
+      if (urlIndex >= randomUrls.length) {
+        throw new Error(`Random URL index ${urlIndex} out of range (max: ${randomUrls.length - 1})`);
+      }
+
+      const urlTemplate = randomUrls[urlIndex];
+      imageData = await downloadRandomAvatar(urlTemplate, targetAgent);
+    } else {
+      // Generate with AI
+      // Find first provider with imageModels configured
+      const providers = teamConfig.providers || {};
+      const imageCapableProviders = Object.entries(providers).filter(
+        ([_, config]) => config.imageModels && Object.keys(config.imageModels).length > 0
+      );
+
+      if (imageCapableProviders.length === 0) {
+        throw new Error('No providers with imageModels configured in .ai-team/config.json');
+      }
+
+      // Use first image-capable provider
+      const [providerName, providerConfig] = imageCapableProviders[0];
+      const modelName = Object.values(providerConfig.imageModels!)[0];
+
+      // Get API key from environment
+      const apiKeyVar = providerConfig.apiKeyEnvVar || 'OPENAI_API_KEY';
+      const apiKey = process.env[apiKeyVar];
+      if (!apiKey) {
+        throw new Error(`API key not found in environment variable: ${apiKeyVar}`);
+      }
+
+      // Generate prompt if not provided
+      const finalPrompt = prompt || buildAvatarPrompt(targetAgent);
+
+      imageData = await generateAvatarWithAI(finalPrompt, providerConfig, modelName, apiKey);
+    }
+
+    // Save and finalize avatar
+    await saveAvatarPreview(targetAgent.id, imageData, context.workspaceRoot);
+    const avatarPath = await finalizeAvatar(targetAgent.id, context.workspaceRoot);
+    await updateAgentAvatar(targetAgent, avatarPath, context.workspaceRoot);
+
+    return {
+      action: 'add_picture',
+      agentName: targetAgent.name,
+      source,
+      avatarPath,
+      timestamp: new Date().toISOString(),
+    };
+  },
+};
+
+// ============================================================================
+// Code Analysis Tools
+// ============================================================================
+
+/**
+ * Find symbol definitions in a file or across files
+ */
+export const findSymbolTool: AgentTool = {
+  name: 'find_symbol',
+  description: 'Find symbol definitions (functions, classes, variables) in code. Requires read permission.',
+  parameters: z.object({
+    symbolName: z.string().describe('Name of the symbol to find'),
+    filePath: z.string().optional().describe('Specific file to search (omit to search all readable files)'),
+    language: z.string().default('typescript').describe('Language (typescript, javascript, python, etc.)'),
+  }),
+  async execute(params, context: ToolContext) {
+    const { SymbolFinder } = await import('../code-analysis/index.js');
+    const { symbolName, filePath, language } = params as any;
+    
+    const contextManager = new ContextManager(context.workspaceRoot);
+    const finder = new SymbolFinder();
+    
+    try {
+      await finder.initialize();
+      
+      // TODO: Load language grammar (needs language WASM files)
+      // For now, return a placeholder indicating the feature needs language grammars
+      return {
+        error: 'Symbol finding requires language grammar files to be loaded. This feature is pending configuration.',
+        symbolName,
+        filePath,
+      };
+    } finally {
+      finder.dispose();
+    }
+  },
+};
+
+/**
+ * Find all references to a symbol
+ */
+export const findReferencesTool: AgentTool = {
+  name: 'find_references',
+  description: 'Find all references/usages of a symbol across files. Requires read permission.',
+  parameters: z.object({
+    symbolName: z.string().describe('Symbol name to find references for'),
+    filePatterns: z.array(z.string()).optional().describe('Glob patterns for files to search'),
+    language: z.string().default('typescript').describe('Language (typescript, javascript, python, etc.)'),
+  }),
+  async execute(params, context: ToolContext) {
+    const { ReferenceFinder } = await import('../code-analysis/index.js');
+    const { symbolName, filePatterns, language } = params as any;
+    
+    // TODO: Implement with tree-sitter once language grammars are configured
+    return {
+      error: 'Reference finding requires language grammar files to be loaded. This feature is pending configuration.',
+      symbolName,
+      filePatterns,
+    };
+  },
+};
+
+/**
+ * Find code patterns (anti-patterns, TODO comments, etc.)
+ */
+export const findPatternTool: AgentTool = {
+  name: 'find_pattern',
+  description: 'Find code patterns like console.log, TODO comments, empty catch blocks, etc. Requires read permission.',
+  parameters: z.object({
+    patternType: z.enum(['console-log', 'todo-comment', 'empty-catch', 'async-without-await']).describe('Type of pattern to find'),
+    filePatterns: z.array(z.string()).optional().describe('Glob patterns for files to search'),
+    language: z.string().default('typescript').describe('Language to analyze'),
+  }),
+  async execute(params, context: ToolContext) {
+    const { PatternMatcher } = await import('../code-analysis/index.js');
+    const { patternType, filePatterns, language } = params as any;
+    
+    // TODO: Implement with tree-sitter once language grammars are configured
+    return {
+      error: 'Pattern matching requires language grammar files to be loaded. This feature is pending configuration.',
+      patternType,
+      filePatterns,
+    };
+  },
+};
+
+/**
+ * Fast grep-style text search
+ */
+export const grepCodeTool: AgentTool = {
+  name: 'grep_code',
+  description: 'Fast regex-based text search in files. More efficient than tree-sitter for simple text searches. Requires read permission.',
+  parameters: z.object({
+    pattern: z.string().describe('Text pattern or regex to search for'),
+    filePatterns: z.array(z.string()).describe('Glob patterns for files to search'),
+    caseInsensitive: z.boolean().optional().describe('Case-insensitive search'),
+    wholeWord: z.boolean().optional().describe('Match whole words only'),
+    maxMatchesPerFile: z.number().optional().describe('Limit matches per file'),
+  }),
+  async execute(params, context: ToolContext) {
+    const { GrepSearch } = await import('../code-analysis/index.js');
+    const { pattern, filePatterns, caseInsensitive, wholeWord, maxMatchesPerFile } = params as any;
+    
+    const contextManager = new ContextManager(context.workspaceRoot);
+    const grep = new GrepSearch();
+    
+    // Find all files matching the patterns
+    const allFiles: string[] = [];
+    for (const filePattern of filePatterns) {
+      const files = await glob(filePattern, {
+        cwd: context.workspaceRoot,
+        absolute: true,
+        ignore: ['**/node_modules/**', '**/.git/**'],
+      });
+      allFiles.push(...files);
+    }
+    
+    // Filter to only files the agent can read
+    const readableFiles = contextManager.getReadableFiles(context.agent, allFiles);
+    
+    // Search
+    const matches = await grep.searchFiles(readableFiles, pattern, {
+      caseInsensitive,
+      wholeWord,
+      maxMatchesPerFile,
+    });
+    
+    return {
+      pattern,
+      matchCount: matches.length,
+      fileCount: new Set(matches.map(m => m.filePath)).size,
+      matches: matches.slice(0, 100), // Limit to first 100 matches in response
+    };
+  },
+};
+
+/**
+ * Analyze TypeScript/JavaScript code complexity
+ */
+export const analyzeComplexityTool: AgentTool = {
+  name: 'analyze_complexity',
+  description: 'Analyze code complexity metrics (cyclomatic complexity, LOC, etc.) for TypeScript/JavaScript files. Requires read permission.',
+  parameters: z.object({
+    filePath: z.string().describe('File path to analyze'),
+    functionName: z.string().optional().describe('Specific function to analyze (omit for all functions)'),
+  }),
+  async execute(params, context: ToolContext) {
+    const { TypeScriptAnalyzer } = await import('../code-analysis/index.js');
+    const { filePath, functionName } = params as any;
+    
+    const absolutePath = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(context.workspaceRoot, filePath);
+    
+    const contextManager = new ContextManager(context.workspaceRoot);
+    contextManager.assertCanRead(context.agent, absolutePath);
+    
+    const analyzer = new TypeScriptAnalyzer();
+    
+    if (functionName) {
+      const complexity = await analyzer.calculateComplexity(absolutePath, functionName);
+      return { filePath, functionName, complexity };
+    } else {
+      const functions = await analyzer.getFunctions(absolutePath);
+      return { filePath, functions };
+    }
+  },
+};
+
+/**
+ * Propose code edits for user approval
+ */
+export const applyCodeEditTool: AgentTool = {
+  name: 'apply_code_edit',
+  description: 'Propose code changes to one or more files. Changes must be approved by the user before being applied. Requires write permission for all files.',
+  parameters: z.object({
+    description: z.string().describe('Clear description of what changes are being made and why'),
+    changes: z.array(z.object({
+      filePath: z.string().describe('File path (relative or absolute)'),
+      oldContent: z.string().describe('Current content of the file'),
+      newContent: z.string().describe('New content after changes'),
+    })).min(1).describe('List of file changes to apply'),
+  }),
+  async execute(params, context: ToolContext) {
+    const { CodeEditManager } = await import('../code-edit/index.js');
+    const { description, changes } = params as any;
+    
+    const contextManager = new ContextManager(context.workspaceRoot);
+    const editManager = new CodeEditManager();
+    
+    // Convert paths to absolute
+    const absoluteChanges = changes.map((change: any) => ({
+      ...change,
+      filePath: path.isAbsolute(change.filePath)
+        ? change.filePath
+        : path.join(context.workspaceRoot, change.filePath),
+    }));
+    
+    // Validate permissions for all files
+    const filePaths = absoluteChanges.map((c: any) => c.filePath);
+    const validation = contextManager.validateEditProposal(context.agent, filePaths);
+    
+    if (!validation.allowed) {
+      const blockedFiles = contextManager.getBlockedFiles(context.agent, validation.blockedFiles);
+      
+      return {
+        status: 'permission_denied',
+        message: validation.message,
+        blockedFiles: blockedFiles.map(bf => ({
+          filePath: bf.relativePath,
+          reason: bf.reason,
+        })),
+      };
+    }
+    
+    // Create proposal
+    const { proposal, validation: proposalValidation } = await editManager.createProposal(
+      context.agent.id,
+      {
+        description,
+        changes: absoluteChanges,
+      },
+      {
+        checkPermissions: true,
+        maxFiles: 10,
+        maxDiffLines: 500,
+      }
+    );
+    
+    return {
+      status: 'pending_approval',
+      proposalId: proposal.id,
+      description: proposal.description,
+      filesChanged: proposal.changes.length,
+      additions: proposal.changes.reduce((sum, c) => sum + c.diff.additions, 0),
+      deletions: proposal.changes.reduce((sum, c) => sum + c.diff.deletions, 0),
+      warnings: proposalValidation.warnings,
+      message: 'Code edit proposal created. Awaiting user approval.',
+    };
+  },
+};
+
 // ============================================================================
 // Tool Registry
 // ============================================================================
@@ -699,12 +1041,19 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   delegate_to_agent: delegateToAgentTool,
   ask_human: askHumanTool,
   ask_question: askQuestionTool,
+  find_symbol: findSymbolTool,
+  find_references: findReferencesTool,
+  find_pattern: findPatternTool,
+  grep_code: grepCodeTool,
+  analyze_complexity: analyzeComplexityTool,
+  apply_code_edit: applyCodeEditTool,
 };
 
 export const HR_TOOLS: Record<string, AgentTool> = {
   create_agent: createAgentTool,
   archive_agent: archiveAgentTool,
   assess_performance: assessPerformanceTool,
+  add_picture: addPictureTool,
 };
 
 export const ALL_TOOLS: Record<string, AgentTool> = {

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useEffect } from 'react';
 import {
   ReactFlow,
   Node,
@@ -12,66 +12,93 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useTeam } from '../context/TeamContext';
-import { Agent } from '../types';
+import { GraphData, GraphNode as GraphDataNode } from '../types';
+import { getAvatarUrl, getAgentInitials } from '../utils/avatar';
 
 interface TeamGraphProps {
   onSelectAgent: (agentId: string) => void;
 }
 
-function createHierarchyLayout(agents: Agent[]) {
+function transformGraphDataToReactFlow(graphData: GraphData | null) {
+  if (!graphData) {
+    return { nodes: [], edges: [] };
+  }
+
   const nodes: Node[] = [];
   const edges: Edge[] = [];
+
+  // Calculate hierarchy levels for positioning if not provided
   const levelMap = new Map<string, number>();
+  const agentNodes = graphData.nodes.filter(n => n.type === 'agent');
 
-  // Calculate hierarchy levels
-  function getLevel(agent: Agent, visited = new Set<string>()): number {
-    if (levelMap.has(agent.id)) {
-      return levelMap.get(agent.id)!;
+  // Build level map from edges
+  const childToParent = new Map<string, string>();
+  graphData.edges
+    .filter(e => e.type === 'reports-to')
+    .forEach(edge => {
+      // Edge represents "source reports to target" relationship
+      // So source is the employee (child), target is the manager (parent)
+      childToParent.set(edge.source, edge.target);
+    });
+
+  function getLevel(nodeId: string, visited = new Set<string>()): number {
+    if (levelMap.has(nodeId)) {
+      return levelMap.get(nodeId)!;
     }
-
-    if (!agent.reportsTo || visited.has(agent.id)) {
-      levelMap.set(agent.id, 0);
+    if (visited.has(nodeId) || !childToParent.has(nodeId)) {
+      levelMap.set(nodeId, 0);
       return 0;
     }
-
-    visited.add(agent.id);
-    const manager = agents.find((a) => a.id === agent.reportsTo);
-    const level = manager ? getLevel(manager, visited) + 1 : 0;
-    levelMap.set(agent.id, level);
+    visited.add(nodeId);
+    const parent = childToParent.get(nodeId);
+    const level = parent ? getLevel(parent, visited) + 1 : 0;
+    levelMap.set(nodeId, level);
     return level;
   }
 
-  agents.forEach((agent) => getLevel(agent));
+  agentNodes.forEach(node => getLevel(node.id));
 
-  // Group agents by level
-  const levels: Agent[][] = [];
-  agents.forEach((agent) => {
-    const level = levelMap.get(agent.id) || 0;
+  // Group by level for layout
+  const levels: GraphDataNode[][] = [];
+  agentNodes.forEach(node => {
+    const level = levelMap.get(node.id) || 0;
     if (!levels[level]) levels[level] = [];
-    levels[level].push(agent);
+    levels[level].push(node);
   });
 
   // Create nodes with layout
   const nodeWidth = 200;
-  const nodeHeight = 80;
-  const levelGap = 150;
-  const nodeGap = 50;
+  const levelGap = 280;  // Increased vertical spacing for 150px avatars with comfortable padding
+  const nodeGap = 100;    // Increased horizontal spacing for avatars
 
-  levels.forEach((levelAgents, levelIndex) => {
-    const totalWidth = levelAgents.length * (nodeWidth + nodeGap) - nodeGap;
+  levels.forEach((levelNodes, levelIndex) => {
+    const totalWidth = levelNodes.length * (nodeWidth + nodeGap) - nodeGap;
     const startX = -totalWidth / 2;
 
-    levelAgents.forEach((agent, index) => {
+    levelNodes.forEach((graphNode, index) => {
+      const agent = graphNode.data.agent;
+      if (!agent) return;
+
+      const avatarUrl = getAvatarUrl(agent);
+      const initials = getAgentInitials(agent);
+      
       nodes.push({
-        id: agent.id,
+        id: graphNode.id,
         type: 'default',
-        position: {
+        position: graphNode.position || {
           x: startX + index * (nodeWidth + nodeGap),
           y: levelIndex * levelGap,
         },
         data: {
           label: (
             <div className="agent-node">
+              <div className="agent-node-avatar">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={agent.name} className="node-avatar-img" />
+                ) : (
+                  <div className="node-avatar-initials">{initials}</div>
+                )}
+              </div>
               <div className="agent-name">{agent.name}</div>
               <div className="agent-role">{agent.role}</div>
             </div>
@@ -85,33 +112,58 @@ function createHierarchyLayout(agents: Agent[]) {
           padding: 10,
         },
       });
-
-      if (agent.reportsTo) {
-        edges.push({
-          id: `${agent.id}-${agent.reportsTo}`,
-          source: agent.reportsTo,
-          target: agent.id,
-          type: 'smoothstep',
-          animated: false,
-          style: { stroke: '#888', strokeWidth: 2 },
-        });
-      }
     });
   });
+
+  // Create edges from resolved graph data (filter out unresolved ones)
+  // Swap source/target for top-down org chart: manager (target) → employee (source)
+  graphData.edges
+    .filter(e => e.type === 'reports-to')
+    .forEach(graphEdge => {
+      edges.push({
+        id: graphEdge.id,
+        source: graphEdge.target,  // Manager at top
+        target: graphEdge.source,  // Employee below
+        type: 'smoothstep',
+        animated: false,
+        style: { stroke: '#888', strokeWidth: 2 },
+      });
+    });
+
+  // Optionally show unresolved edges with error styling
+  graphData.edges
+    .filter(e => e.type === 'reports-to-unresolved')
+    .forEach(graphEdge => {
+      edges.push({
+        id: graphEdge.id,
+        source: graphEdge.target, // target still exists
+        target: graphEdge.target, // self-loop to show error
+        type: 'straight',
+        animated: true,
+        style: { stroke: '#ff0000', strokeWidth: 1, strokeDasharray: '5,5' },
+        label: graphEdge.error || 'Unresolved',
+      });
+    });
 
   return { nodes, edges };
 }
 
 export function TeamGraph({ onSelectAgent }: TeamGraphProps) {
-  const { agents, loading, error } = useTeam();
+  const { graphData, loading, error } = useTeam();
   
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
-    () => createHierarchyLayout(agents),
-    [agents]
+    () => transformGraphDataToReactFlow(graphData),
+    [graphData]
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  // Update nodes and edges when data changes
+  useEffect(() => {
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
@@ -128,7 +180,7 @@ export function TeamGraph({ onSelectAgent }: TeamGraphProps) {
     return <div className="error">Error: {error.message}</div>;
   }
 
-  if (agents.length === 0) {
+  if (!graphData || graphData.nodes.length === 0) {
     return (
       <div className="empty-state">
         <p>No employees found.</p>

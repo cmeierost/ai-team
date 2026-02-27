@@ -49,11 +49,19 @@
       "models": {
         "gpt-5.1": "gpt-5.1"
       },
+      "imageModels": {
+        "avatar": "dall-e-3",
+        "hd": "dall-e-3"
+      },
       "baseUrl": "https://api.openai.com/v1",
       "apiKeyEnvVar": "OPENAI_API_KEY"
     }
   },
   "defaultLlmProvider": "openai",
+  "randomAvatarUrls": [
+    "https://i.pravatar.cc/150",
+    "https://robohash.org/{name}?size=150x150"
+  ],
   "allowedCliTools": [
     "git",
     "pnpm",

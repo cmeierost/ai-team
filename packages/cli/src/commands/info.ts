@@ -2,12 +2,19 @@
  * Info command - display an agent's full profile / portfolio
  */
 
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { platform } from 'os';
+import { resolve } from 'path';
 import chalk from 'chalk';
 import type { AiTeamClient } from '@ai-team/api-client';
 import { Agent } from '@ai-team/core';
 
+const execAsync = promisify(exec);
+
 interface InfoOptions {
   json?: boolean;
+  openAvatar?: boolean;
 }
 
 export async function infoCommand(client: AiTeamClient, agentId: string, options: InfoOptions) {
@@ -34,6 +41,18 @@ export async function infoCommand(client: AiTeamClient, agentId: string, options
     return;
   }
 
+  // Show command - only open avatar
+  if (options.openAvatar) {
+    if (agent.avatar?.type === 'url' && agent.avatar.url) {
+      const avatarPath = resolve(process.cwd(), agent.avatar.url);
+      await openInDefaultViewer(avatarPath);
+    } else {
+      console.log(chalk.yellow('No avatar configured'));
+    }
+    return;
+  }
+
+  // Info command - display full profile
   printAgentInfo(agent);
 }
 
@@ -55,6 +74,12 @@ function printAgentInfo(agent: Agent) {
     if (p.communication_style) console.log(chalk.dim('  Style:        ') + p.communication_style);
     if (p.expertise_level) console.log(chalk.dim('  Expertise:    ') + p.expertise_level);
   }
+  
+  // Display avatar if configured
+  if (agent.avatar?.type === 'url' && agent.avatar.url) {
+    console.log(chalk.dim('  Avatar:       ') + agent.avatar.url);
+  }
+  
   if (agent.llm) {
     if (agent.llm.provider) console.log(chalk.dim('  LLM Provider: ') + agent.llm.provider);
     if (agent.llm.modelKey) console.log(chalk.dim('  LLM ModelKey: ') + agent.llm.modelKey);
@@ -89,4 +114,27 @@ function printAgentInfo(agent: Agent) {
 
   console.log(chalk.dim(`\n  File: ${agent.filePath}`));
   console.log();
+}
+
+async function openInDefaultViewer(filePath: string): Promise<void> {
+  const os = platform();
+  let command: string;
+
+  switch (os) {
+    case 'win32':
+      command = `start "" "${filePath}"`;
+      break;
+    case 'darwin':
+      command = `open "${filePath}"`;
+      break;
+    default: // linux and others
+      command = `xdg-open "${filePath}"`;
+      break;
+  }
+
+  try {
+    await execAsync(command);
+  } catch (error) {
+    console.warn(chalk.yellow(`\nCould not open avatar automatically. Please open manually:\n${filePath}\n`));
+  }
 }
