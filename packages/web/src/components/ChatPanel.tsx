@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTeam, API_BASE } from '../context/TeamContext';
 import { ChatMessage } from '../types';
@@ -986,7 +986,7 @@ export function ChatPanel() {
           )}
 
           {messages.map((message, index) => (
-            <>
+            <React.Fragment key={`message-${index}`}>
               {/* Show divider before each message (except the first) */}
               {index > 0 && (
                 <MessageDivider
@@ -997,7 +997,6 @@ export function ChatPanel() {
                 />
               )}
               <div
-                key={index}
                 className={`message message-${isHumanMessage(message) ? 'user' : 'assistant'}${
                   message.archived ? ' message-archived' : ''
                 }`}
@@ -1109,7 +1108,7 @@ export function ChatPanel() {
                 )}
               </div>
             </div>
-            </>
+            </React.Fragment>
           ))}
           <div ref={messagesEndRef} />
         </div>

@@ -31,8 +31,14 @@
   border-bottom: 1px solid #3e3e42;
 }
 
+.context-section-header-wrapper {
+  display: flex;
+  align-items: stretch;
+  position: relative;
+}
+
 .context-section-header {
-  width: 100%;
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -86,11 +92,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 6px;
-  margin-left: 4px;
+  padding: 8px 12px;
   background: transparent;
   border: none;
-  border-radius: 3px;
+  border-radius: 0;
   color: #888;
   font-size: 16px;
   cursor: pointer;

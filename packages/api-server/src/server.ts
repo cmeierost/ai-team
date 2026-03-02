@@ -71,11 +71,11 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   app.use(express.json());
 
   // API Routes
-  app.use('/api/agents', createAgentsRouter(client));
+  app.use('/api/agents', createAgentsRouter(client, agentManager));
   app.use('/api/team', createTeamRouter(client));
-  app.use('/api/chat', createChatRouter(client, workspaceRoot, agentManager));
-  app.use('/api/sessions', createSessionsRouter(workspaceRoot, agentManager));
-  app.use('/api/artifacts', createArtifactsRouter(workspaceRoot));
+  app.use('/api/chat', createChatRouter(client, workspaceRoot, agentManager, sessionManager));
+  app.use('/api/sessions', createSessionsRouter(workspaceRoot, agentManager, sessionManager));
+  app.use('/api/artifacts', createArtifactsRouter(workspaceRoot, sessionManager));
   app.use('/api/tasks', createTaskRoutes(workspaceRoot, agentManager));
   app.use('/api/developer', createDeveloperRouter(client, workspaceRoot));
   app.use('/api/files', createFileTreeRouter(workspaceRoot));

@@ -4,6 +4,7 @@ import {
   AgentManager,
   ContextLevel,
   RoleType,
+  buildAgentMarkdown,
 } from '@ai-team/core';
 import type { HireOptions } from '../contracts.js';
 
@@ -102,28 +103,22 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
 
     const personalityPreset = getPersonalityForHire(config.role, config.roleType);
 
-    const portfolioSections: string[] = [];
-    portfolioSections.push(`# ${config.name} — ${config.role}\n`);
-    portfolioSections.push('## Personality Profile\n');
-    for (const line of personalityPreset.profile) {
-      portfolioSections.push(`- ${line}`);
-    }
-    portfolioSections.push('');
-
+    // Build structured markdown using the canonical layout
+    const skillEntries: Array<{ name: string; body: string }> = [];
     if (config.selectedSkills.length > 0) {
-      portfolioSections.push('## Skills\n');
       for (const skillName of config.selectedSkills) {
         const content = await readSkillContent(workspaceRoot, skillName);
-        if (content) {
-          const body = content.replace(/^---[\s\S]*?---\s*/, '').trim();
-          portfolioSections.push(`### ${skillName}\n\n${body}\n`);
-        } else {
-          portfolioSections.push(`### ${skillName}\n`);
-        }
+        const body = content
+          ? content.replace(/^---[\s\S]*?---\s*/, '').trim()
+          : '';
+        skillEntries.push({ name: skillName, body });
       }
     }
 
-    const markdown = portfolioSections.join('\n');
+    const markdown = buildAgentMarkdown({
+      personalityProfile: personalityPreset.profile,
+      skills: skillEntries.length > 0 ? skillEntries : undefined,
+    });
 
     try {
       const agent = await agentManager.createAgent(
@@ -146,10 +141,8 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
           llm: config.llm,
           cliTools: config.cliTools,
         },
-        undefined
+        { markdown },
       );
-
-      await appendMarkdownToAgent(agent.filePath, markdown);
 
       if (config.reportsTo) {
         const manager = agentManager.getAgent(config.reportsTo);
@@ -161,13 +154,6 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : `Error during hire: ${String(error)}`);
   }
-}
-
-
-async function appendMarkdownToAgent(filePath: string, markdown: string): Promise<void> {
-  const content = await fs.readFile(filePath, 'utf-8');
-  const updated = content.trimEnd() + '\n' + markdown;
-  await fs.writeFile(filePath, updated, 'utf-8');
 }
 
 

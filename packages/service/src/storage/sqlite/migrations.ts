@@ -312,17 +312,22 @@ export class MigrationManager {
     }
   }
   
+  private initialized = false;
+
   /**
-   * Initialize the database (run all migrations if needed)
+   * Initialize the database (run all migrations if needed).
+   * Safe to call multiple times — subsequent calls are no-ops.
    */
   async initialize(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
     const applied = await this.migrate();
+    this.initialized = true;
     
     if (applied > 0) {
       console.log(`Database initialized: applied ${applied} migration(s)`);
-    } else {
-      const version = await this.getCurrentVersion();
-      console.log(`Database already at latest version: v${version}`);
     }
   }
 }

@@ -169,12 +169,20 @@ export class AgentManager {
 
   /**
    * Create a new agent
-   * @param config - Agent configuration
-   * @param targetPath - Optional custom path (defaults to .ai-team/agents/{name}.md)
+   * @param config - Agent configuration (frontmatter fields)
+   * @param options - Optional: markdown body and/or custom file path
    * @returns Created agent
    * @throws {ValidationError} If an agent with the same role already exists
    */
-  async createAgent(config: AgentConfig, targetPath?: string): Promise<Agent> {
+  async createAgent(
+    config: AgentConfig,
+    options?: { markdown?: string; targetPath?: string } | string,
+  ): Promise<Agent> {
+    // Support legacy positional `targetPath` string for backward compat
+    const opts = typeof options === 'string'
+      ? { targetPath: options }
+      : (options ?? {});
+
     // Enforce unique role names
     const existingWithRole = this.getAllAgents().find(
       a => a.role.toLowerCase() === config.role.toLowerCase()
@@ -186,7 +194,7 @@ export class AgentManager {
     }
 
     const id = config.name.toLowerCase().replace(/\s+/g, '-');
-    const filePath = targetPath || path.join(
+    const filePath = opts.targetPath || path.join(
       this.workspaceRoot,
       '.ai-team',
       'agents',
@@ -200,6 +208,7 @@ export class AgentManager {
       createdAt: new Date().toISOString(),
       status: AgentStatus.AVAILABLE,
       ...config,
+      ...(opts.markdown !== undefined ? { markdown: opts.markdown } : {}),
     };
 
     await saveAgent(agent);
@@ -211,10 +220,10 @@ export class AgentManager {
   /**
    * Update an existing agent
    * @param id - Agent ID
-   * @param updates - Partial agent config to update
+   * @param updates - Partial agent config and/or markdown body to update
    * @returns Updated agent
    */
-  async updateAgent(id: string, updates: Partial<AgentConfig>): Promise<Agent> {
+  async updateAgent(id: string, updates: Partial<AgentConfig> & { markdown?: string }): Promise<Agent> {
     const agent = this.getAgentOrThrow(id);
     
     const updatedAgent: Agent = {

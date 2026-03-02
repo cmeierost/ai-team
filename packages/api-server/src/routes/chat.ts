@@ -2,20 +2,11 @@ import { Router } from 'express';
 import type { AiTeamClient } from '@ai-team/api-client';
 import express from 'express';
 import { ChatContextManager, type AgentManager } from '@ai-team/core';
-import { SessionManager, createSqliteStorage, resolveAgentForOperation } from '@ai-team/service';
+import { type SessionManager, resolveAgentForOperation } from '@ai-team/service';
 
-export function createChatRouter(client: AiTeamClient, workspaceRoot: string, agentManager?: AgentManager): Router {
+export function createChatRouter(client: AiTeamClient, workspaceRoot: string, agentManager?: AgentManager, sessionManager?: SessionManager): Router {
   const router = express.Router();
   const contextManager = new ChatContextManager(workspaceRoot);
-  const sessionManager = agentManager
-    ? new SessionManager(workspaceRoot, createSqliteStorage(workspaceRoot), agentManager)
-    : undefined;
-
-  if (sessionManager) {
-    sessionManager.initialize().catch((error) => {
-      console.error('[chat-router] Failed to initialize SessionManager:', error);
-    });
-  }
 
   /**
    * Helper to resolve agent query to exact agent ID

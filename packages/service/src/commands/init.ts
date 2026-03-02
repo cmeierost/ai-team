@@ -8,14 +8,16 @@ import {
   saveTeamConfig,
   saveEnvFile,
   loadAgent,
+  saveAgent,
   loadSkill,
   testLlmConnection,
   fetchGitHubModels,
   LlmService,
   ChatManager,
   loadEnvFile,
+  buildAgentMarkdown,
 } from '@ai-team/core';
-import type { LlmConfig, TeamConfig, Agent, ChatMessage, ChatCompletionMessageParam } from '@ai-team/core';
+import type { LlmConfig, TeamConfig, Agent, ChatMessage, ChatCompletionMessageParam, AgentConfig, ContextLevel, RoleType, AgentStatus } from '@ai-team/core';
 import type {
   InitOptions,
   MediatorRuntimeEvent,
@@ -44,7 +46,10 @@ interface AgentSeed {
   personality?: { communication_style?: string; expertise_level?: string; mentoring?: boolean };
   specializations?: string[];
   tools?: string[];
-  bio: string;
+  /** Introduction paragraph (placed under ## Introduction) */
+  introduction: string;
+  /** Personality bullet lines (without leading `- `) */
+  personalityProfile: string[];
 }
 
 const NAME_SYSTEM_PROMPT =
@@ -665,7 +670,12 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     type: 'executive',
     contextLevel: 'organization',
     personality: { communication_style: 'strategic', expertise_level: 'executive', mentoring: true },
-    bio: `I am ${ctoName}, the Chief Technology Officer. I oversee the technical organization and define the business & technical strategy. I do not write code — I lead and delegate. My HR Director is ${hrName}, and our Headhunter is ${hhName}.\n\n## Personality Profile\n- Strategic, calm, and highly outcome-focused\n- Motivated and determined to move the organization forward\n- Speaks like an executive: clear priorities, strong decisions, minimal fluff`,
+    introduction: `I am ${ctoName}, the Chief Technology Officer. I oversee the technical organization and define the business & technical strategy. I do not write code — I lead and delegate. My HR Director is ${hrName}, and our Headhunter is ${hhName}.`,
+    personalityProfile: [
+      'Strategic, calm, and highly outcome-focused',
+      'Motivated and determined to move the organization forward',
+      'Speaks like an executive: clear priorities, strong decisions, minimal fluff',
+    ],
   });
   writeLine(hooks, `  ${ctoName} has joined as CTO`);
 
@@ -676,7 +686,12 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     contextLevel: 'organization',
     reportsTo: 'cto',
     personality: { communication_style: 'supportive', expertise_level: 'executive', mentoring: true },
-    bio: `I am ${hrName}, the HR Director responsible for team composition, hiring, onboarding, and organizational health. I report to ${ctoName} (CTO). My Headhunter is ${hhName}.\n\n## Personality Profile\n- Friendly, people-centric, and chatty when useful\n- Proactive and decisive in hiring actions\n- Excellent at understanding team fit and role clarity`,
+    introduction: `I am ${hrName}, the HR Director responsible for team composition, hiring, onboarding, and organizational health. I report to ${ctoName} (CTO). My Headhunter is ${hhName}.`,
+    personalityProfile: [
+      'Friendly, people-centric, and chatty when useful',
+      'Proactive and decisive in hiring actions',
+      'Excellent at understanding team fit and role clarity',
+    ],
   });
   writeLine(hooks, `  ${hrName} has joined as HR Director`);
 
@@ -688,7 +703,12 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     reportsTo: 'hr-director',
     personality: { communication_style: 'analytical', expertise_level: 'senior', mentoring: false },
     specializations: ['talent-acquisition', 'skill-assessment', 'role-matching'],
-    bio: `I am ${hhName}, the Headhunter responsible for scouting talent and skills. I report to ${hrName} (HR Director).\n\n## Personality Profile\n- Analytical, curious, and data-driven\n- Sharp at matching skills to concrete role needs\n- Communicates recommendations with confidence and precision`,
+    introduction: `I am ${hhName}, the Headhunter responsible for scouting talent and skills. I report to ${hrName} (HR Director).`,
+    personalityProfile: [
+      'Analytical, curious, and data-driven',
+      'Sharp at matching skills to concrete role needs',
+      'Communicates recommendations with confidence and precision',
+    ],
   });
   writeLine(hooks, `  ${hhName} has joined as Headhunter`);
 
@@ -1073,41 +1093,41 @@ async function createAgentFile(workspaceRoot: string, seed: AgentSeed): Promise<
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
   const filePath = path.join(aiTeamDir, 'agents', `${id}.md`);
 
-  const permissionsBlock = seed.type === 'executive'
-    ? `permissions:\n  read:\n    - "**/*"\n  write:\n    - ".ai-team/**/*"\n    - "docs/**/*"\n  manage_agents: true`
-    : `permissions:\n  read:\n    - ".ai-team/**/*"\n  write:\n    - ".ai-team/**/*"`;
+  // Build permissions based on type
+  const permissions = seed.type === 'executive'
+    ? { read: ['**/*'], write: ['.ai-team/**/*', 'docs/**/*'], manage_agents: true }
+    : { read: ['.ai-team/**/*'], write: ['.ai-team/**/*'] };
 
-  const personalityBlock = seed.personality
-    ? `personality:\n  communication_style: ${seed.personality.communication_style || 'collaborative'}\n  expertise_level: ${seed.personality.expertise_level || 'senior'}${typeof seed.personality.mentoring === 'boolean' ? `\n  mentoring: ${seed.personality.mentoring}` : ''}`
-    : '';
+  // Build structured markdown using the canonical layout
+  const markdown = buildAgentMarkdown({
+    introduction: seed.introduction,
+    personalityProfile: seed.personalityProfile,
+  });
 
-  const reportsLine = seed.reportsTo ? `reportsTo: ${seed.reportsTo}` : '';
-  const specsLine = seed.specializations && seed.specializations.length > 0
-    ? `specializations:\n${seed.specializations.map(s => `  - ${s}`).join('\n')}`
-    : '';
-
-  const lines = [
-    '---',
-    `name: ${seed.name}`,
-    `role: ${seed.role}`,
-    `type: ${seed.type}`,
-    `contextLevel: ${seed.contextLevel}`,
-    reportsLine,
-    permissionsBlock,
-    personalityBlock,
-    specsLine,
-    'avatar:',
-    '  type: ai-generated',
-    '  style: professional-headshot',
-    `  seed: ${id}`,
-    '---',
-    '',
-    seed.bio,
-    '',
-  ].filter(Boolean).join('\n');
+  // Construct the Agent object and use the canonical saveAgent serializer
+  const agent: Agent = {
+    id,
+    filePath,
+    skillPath: path.join(workspaceRoot, '.ai-team', 'roles', `${seed.role}.md`),
+    createdAt: new Date().toISOString(),
+    name: seed.name,
+    role: seed.role,
+    type: seed.type as RoleType,
+    contextLevel: seed.contextLevel as ContextLevel,
+    ...(seed.reportsTo ? { reportsTo: seed.reportsTo } : {}),
+    ...(seed.specializations ? { specializations: seed.specializations } : {}),
+    permissions,
+    personality: seed.personality as Agent['personality'],
+    avatar: {
+      type: 'ai-generated' as const,
+      style: 'professional-headshot',
+      seed: id,
+    },
+    markdown,
+  };
 
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, lines, 'utf-8');
+  await saveAgent(agent);
 
   return loadAgent(filePath);
 }

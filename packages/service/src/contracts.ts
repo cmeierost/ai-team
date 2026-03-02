@@ -404,6 +404,7 @@ export interface AiTeamMediator {
 }
 
 export interface AiTeamService extends AiTeamMediator {
+  readonly workspaceRoot: string;
   listEmployees(request: ListEmployeesRequest): Promise<Employee[]>;
   resolveEmployees(query: string): Promise<Employee[]>;
   searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse>;

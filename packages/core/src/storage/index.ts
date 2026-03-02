@@ -306,5 +306,170 @@ export async function saveEnvFile(workspaceRoot: string, vars: Record<string, st
   await fs.writeFile(envPath, lines.join('\n'), 'utf-8');
 }
 
+// ============================================================================
+// Markdown Section Utilities
+// ============================================================================
+
+/**
+ * A parsed markdown section with its heading and body content
+ */
+export interface MarkdownSection {
+  /** Heading text (empty string for preamble before first ## heading) */
+  heading: string;
+  /** Body content (without the heading line itself), trimmed */
+  content: string;
+}
+
+/**
+ * Input for building agent markdown from structured parts
+ */
+export interface AgentMarkdownParts {
+  /** Avatar image markdown, e.g. `![avatar](../avatars/id.jpg)` */
+  avatar?: string;
+  /** Introduction paragraph (placed under ## Introduction) */
+  introduction?: string;
+  /** Personality profile bullet lines (each line without the leading `- `) */
+  personalityProfile?: string[];
+  /** Skills with heading name and body content */
+  skills?: Array<{ name: string; body: string }>;
+  /** Additional sections in order */
+  extraSections?: Array<{ heading: string; content: string }>;
+}
+
+/**
+ * Parse a markdown body into ordered sections split on `## ` boundaries.
+ * Content before the first `## ` heading is returned with heading = "".
+ *
+ * @param markdown - The raw markdown body (without YAML frontmatter)
+ * @returns Ordered array of sections
+ */
+export function parseMarkdownSections(markdown: string): MarkdownSection[] {
+  if (!markdown || !markdown.trim()) return [];
+
+  const lines = markdown.split('\n');
+  const sections: MarkdownSection[] = [];
+  let currentHeading = '';
+  let currentLines: string[] = [];
+
+  for (const line of lines) {
+    // Match ## headings (but not ### or deeper)
+    const match = line.match(/^## (.+)$/);
+    if (match) {
+      // Flush previous section
+      sections.push({
+        heading: currentHeading,
+        content: currentLines.join('\n').trim(),
+      });
+      currentHeading = match[1].trim();
+      currentLines = [];
+    } else {
+      currentLines.push(line);
+    }
+  }
+
+  // Flush last section
+  sections.push({
+    heading: currentHeading,
+    content: currentLines.join('\n').trim(),
+  });
+
+  // Remove leading empty preamble if it's blank
+  if (sections.length > 0 && sections[0].heading === '' && sections[0].content === '') {
+    sections.shift();
+  }
+
+  return sections;
+}
+
+/**
+ * Replace a markdown section by heading title, or append it at the end if not found.
+ *
+ * @param markdown - The raw markdown body
+ * @param heading - The heading title to find/replace (without the `## ` prefix)
+ * @param newContent - The new body content for that section
+ * @returns Updated markdown string
+ */
+export function replaceOrAppendMarkdownSection(
+  markdown: string,
+  heading: string,
+  newContent: string,
+): string {
+  const sections = parseMarkdownSections(markdown || '');
+  const index = sections.findIndex(s => s.heading === heading);
+
+  if (index >= 0) {
+    sections[index] = { heading, content: newContent.trim() };
+  } else {
+    sections.push({ heading, content: newContent.trim() });
+  }
+
+  return sectionsToMarkdown(sections);
+}
+
+/**
+ * Serialize an ordered array of sections back to markdown text.
+ */
+function sectionsToMarkdown(sections: MarkdownSection[]): string {
+  const parts: string[] = [];
+
+  for (const section of sections) {
+    if (section.heading === '') {
+      // Preamble (avatar, etc.)
+      if (section.content) {
+        parts.push(section.content);
+      }
+    } else {
+      parts.push(`## ${section.heading}\n${section.content}`);
+    }
+  }
+
+  return parts.join('\n\n') + '\n';
+}
+
+/**
+ * Build a complete agent markdown body from structured parts.
+ * This is the canonical layout used by hire/init commands when generating markdown.
+ * Callers may also provide raw markdown directly via `updateAgent({ markdown })`.
+ *
+ * @param parts - Structured markdown parts
+ * @returns Assembled markdown string
+ */
+export function buildAgentMarkdown(parts: AgentMarkdownParts): string {
+  const sections: MarkdownSection[] = [];
+
+  // Avatar goes in the preamble (before any ## heading)
+  if (parts.avatar) {
+    sections.push({ heading: '', content: parts.avatar });
+  }
+
+  // Introduction section
+  if (parts.introduction) {
+    sections.push({ heading: 'Introduction', content: parts.introduction });
+  }
+
+  // Personality Profile section
+  if (parts.personalityProfile && parts.personalityProfile.length > 0) {
+    const bullets = parts.personalityProfile.map(line => `- ${line}`).join('\n');
+    sections.push({ heading: 'Personality Profile', content: bullets });
+  }
+
+  // Skills section with sub-headings
+  if (parts.skills && parts.skills.length > 0) {
+    const skillParts = parts.skills
+      .map(s => `### ${s.name}\n\n${s.body}`)
+      .join('\n\n');
+    sections.push({ heading: 'Skills', content: skillParts });
+  }
+
+  // Extra sections in order
+  if (parts.extraSections) {
+    for (const extra of parts.extraSections) {
+      sections.push({ heading: extra.heading, content: extra.content.trim() });
+    }
+  }
+
+  return sectionsToMarkdown(sections);
+}
+
 // File tree utilities — re-export for convenience
 export * from './file-tree.js';

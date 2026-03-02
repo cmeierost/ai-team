@@ -26,6 +26,13 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
             </code>
           );
         },
+        p({ node, children, ...props }: any) {
+          // Prevent <p> from wrapping <pre> elements
+          const hasCodeBlock = node.children?.some(
+            (child: any) => child.tagName === 'pre' || child.tagName === 'code'
+          );
+          return hasCodeBlock ? <>{children}</> : <p {...props}>{children}</p>;
+        },
         a({ node, children, href, ...props }: any) {
           return (
             <a href={href} target="_blank" rel="noopener noreferrer" {...props}>

@@ -21,7 +21,7 @@ import type {
   RefreshProviderModelsOptions,
   TestConnectionOptions,
 } from '@ai-team/service';
-import type { AgentStatus, ContextLevel, GraphData, RoleType, ViewMode } from '@ai-team/core';
+import type { AgentStatus, AgentConfig, AnnotatedFile, ContextLevel, GraphData, MarkdownSection, RoleType, ViewMode } from '@ai-team/core';
 import { streamViaWebSocket } from './websocket.js';
 
 function getFallbackQuestionAnswer(question: any): any {
@@ -42,6 +42,14 @@ export interface HttpClientConfig {
   wsUrl?: string;
 }
 
+/** Response shape for GET /api/agents/:id/files */
+export interface AgentFilesResponse {
+  agent: string;
+  readPatterns: string[];
+  writePatterns: string[];
+  files: AnnotatedFile[];
+}
+
 export interface AiTeamHttpClient {
   invoke<TCommand extends AiTeamCommandName>(
     request: MediatorRequest<TCommand>,
@@ -54,6 +62,20 @@ export interface AiTeamHttpClient {
   listEmployees(request: ListEmployeesRequest): Promise<Employee[]>;
   resolveEmployees(query: string): Promise<Employee[]>;
   searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse>;
+  /** Get agent frontmatter (fuzzy query by id/name/role) */
+  getAgentFrontmatter(query: string): Promise<Employee>;
+  /** Partially update agent frontmatter fields (fuzzy query) */
+  updateAgentFrontmatter(query: string, data: Partial<AgentConfig>): Promise<Employee>;
+  /** Get agent markdown body parsed into sections (fuzzy query) */
+  getAgentSections(query: string): Promise<MarkdownSection[]>;
+  /** Update or create a markdown section by heading (fuzzy query) */
+  updateAgentSection(query: string, heading: string, content: string): Promise<MarkdownSection[]>;
+  /** Get raw markdown body (fuzzy query) */
+  getAgentMarkdown(query: string): Promise<string>;
+  /** Replace full markdown body (fuzzy query) */
+  updateAgentMarkdown(query: string, markdown: string): Promise<Employee>;
+  /** Get annotated file list with read/write permissions (fuzzy query) */
+  getAgentFiles(query: string, options?: { depth?: number; all?: boolean }): Promise<AgentFilesResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;
@@ -161,6 +183,81 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     }
     const agent = await response.json();
     return [agent];
+  }
+
+  // ---- Agent detail endpoints (all fuzzy by id/name/role) ----
+
+  async getAgentFrontmatter(query: string): Promise<Employee> {
+    const response = await fetch(`${this.baseUrl}/api/agents/${encodeURIComponent(query)}/frontmatter`);
+    if (!response.ok) {
+      throw new Error(`Failed to get agent frontmatter for "${query}"`);
+    }
+    return response.json();
+  }
+
+  async updateAgentFrontmatter(query: string, data: Partial<AgentConfig>): Promise<Employee> {
+    const response = await fetch(`${this.baseUrl}/api/agents/${encodeURIComponent(query)}/frontmatter`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to update agent frontmatter for "${query}"`);
+    }
+    return response.json();
+  }
+
+  async getAgentSections(query: string): Promise<MarkdownSection[]> {
+    const response = await fetch(`${this.baseUrl}/api/agents/${encodeURIComponent(query)}/sections`);
+    if (!response.ok) {
+      throw new Error(`Failed to get agent sections for "${query}"`);
+    }
+    return response.json();
+  }
+
+  async updateAgentSection(query: string, heading: string, content: string): Promise<MarkdownSection[]> {
+    const response = await fetch(`${this.baseUrl}/api/agents/${encodeURIComponent(query)}/sections/${encodeURIComponent(heading)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to update section "${heading}" for agent "${query}"`);
+    }
+    return response.json();
+  }
+
+  async getAgentMarkdown(query: string): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/api/agents/${encodeURIComponent(query)}/markdown`);
+    if (!response.ok) {
+      throw new Error(`Failed to get agent markdown for "${query}"`);
+    }
+    return response.text();
+  }
+
+  async updateAgentMarkdown(query: string, markdown: string): Promise<Employee> {
+    const response = await fetch(`${this.baseUrl}/api/agents/${encodeURIComponent(query)}/markdown`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to update agent markdown for "${query}"`);
+    }
+    return response.json();
+  }
+
+  async getAgentFiles(query: string, options?: { depth?: number; all?: boolean }): Promise<AgentFilesResponse> {
+    const params = new URLSearchParams();
+    if (options?.depth != null) params.append('depth', String(options.depth));
+    if (options?.all) params.append('all', 'true');
+    const qs = params.toString();
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(query)}/files${qs ? `?${qs}` : ''}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to get agent files for "${query}"`);
+    }
+    return response.json();
   }
 
   async searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse> {
@@ -296,4 +393,4 @@ export type {
   AiTeamCommandName,
 } from '@ai-team/service';
 
-export type { GraphData, ViewMode, Agent } from '@ai-team/core';
+export type { GraphData, ViewMode, Agent, AgentConfig, AnnotatedFile, MarkdownSection } from '@ai-team/core';

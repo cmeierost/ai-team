@@ -18,16 +18,42 @@ export interface Developer {
   portfolioUrl?: string | null;
 }
 
+export interface AgentPersonality {
+  communication_style?: 'collaborative' | 'direct' | 'supportive' | 'analytical' | 'strategic';
+  expertise_level?: 'executive' | 'senior' | 'mid-level' | 'junior';
+  mentoring?: boolean;
+}
+
+export interface AgentLlm {
+  provider?: string;
+  modelKey?: string;
+  model?: string;
+}
+
 export interface Agent {
   id: string;
   name: string;
   role: string;
+  type?: 'executive' | 'leadership' | 'team-lead' | 'individual-contributor' | 'quality-gate' | 'cross-concern' | 'product';
+  contextLevel?: 'task' | 'module' | 'feature' | 'repository' | 'organization';
   reportsTo?: string;
   features?: string[];
   specializations?: string[];
+  tools?: string[];
+  cliTools?: string[];
+  canDelegate?: boolean;
+  delegatesTo?: string[];
   status?: 'available' | 'busy' | 'in-meeting' | 'offline';
   markdown?: string;  // Portfolio/bio content
   avatar?: AvatarConfig;
+  personality?: AgentPersonality;
+  pronouns?: string;
+  timezone?: string;
+  workHours?: string;
+  llm?: AgentLlm;
+  createdAt?: string;
+  lastInteraction?: string;
+  conversationCount?: number;
 }
 
 export type EdgeType =

@@ -3,15 +3,17 @@ import { SessionManager, createSqliteStorage } from '@ai-team/service';
 import type { AgentManager } from '@ai-team/core';
 import express from 'express';
 
-export function createSessionsRouter(workspaceRoot: string, agentManager?: AgentManager): Router {
+export function createSessionsRouter(workspaceRoot: string, agentManager?: AgentManager, sharedSessionManager?: SessionManager): Router {
   const router = express.Router();
-  const storage = createSqliteStorage(workspaceRoot);
-  const sessionManager = new SessionManager(workspaceRoot, storage, agentManager);
+  const sessionManager = sharedSessionManager
+    ?? new SessionManager(workspaceRoot, createSqliteStorage(workspaceRoot), agentManager);
 
-  // Initialize session manager
-  sessionManager.initialize().catch((error) => {
-    console.error('Failed to initialize session manager:', error);
-  });
+  if (!sharedSessionManager) {
+    // Only initialize if we had to create our own instance
+    sessionManager.initialize().catch((error) => {
+      console.error('Failed to initialize session manager:', error);
+    });
+  }
 
   /**
    * @openapi
@@ -84,11 +86,7 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
   router.get('/recent', async (req: any, res: any, next: any) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit, 10) : 10;
-      const sessions = await storage.listSessions({
-        sortBy: 'lastActivityAt',
-        sortOrder: 'desc',
-        limit,
-      });
+      const sessions = await sessionManager.listRecentSessions(limit);
 
       res.json(sessions);
     } catch (error) {
@@ -571,15 +569,16 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
   return router;
 }
 
-export function createArtifactsRouter(workspaceRoot: string): Router {
+export function createArtifactsRouter(workspaceRoot: string, sharedSessionManager?: SessionManager): Router {
   const router = express.Router();
-  const storage = createSqliteStorage(workspaceRoot);
-  const sessionManager = new SessionManager(workspaceRoot, storage);
+  const sessionManager = sharedSessionManager
+    ?? new SessionManager(workspaceRoot, createSqliteStorage(workspaceRoot));
 
-  // Initialize session manager
-  sessionManager.initialize().catch((error) => {
-    console.error('Failed to initialize session manager:', error);
-  });
+  if (!sharedSessionManager) {
+    sessionManager.initialize().catch((error) => {
+      console.error('Failed to initialize session manager:', error);
+    });
+  }
 
   /**
    * @openapi

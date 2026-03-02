@@ -1,4 +1,4 @@
-import { GraphData, ViewMode } from '@ai-team/core';
+import { GraphData, ViewMode, Agent, AgentConfig, AnnotatedFile, MarkdownSection, AgentManager, ContextManager, getFileTree, loadTeamConfig, parseMarkdownSections, replaceOrAppendMarkdownSection } from '@ai-team/core';
 import {
   AiTeamCommandName,
   AiTeamCommandResponseMap,
@@ -43,6 +43,14 @@ import {
 } from '@ai-team/service';
 import { SearchAgentsRequest, SearchAgentsResponse } from '@ai-team/service/src/contracts';
 
+/** Response shape for agent file-tree listing with read/write annotations */
+export interface AgentFilesResponse {
+  agent: string;
+  readPatterns: string[];
+  writePatterns: string[];
+  files: AnnotatedFile[];
+}
+
 export interface AiTeamClient {
   invoke<TCommand extends AiTeamCommandName>(
     request: MediatorRequest<TCommand>,
@@ -55,6 +63,20 @@ export interface AiTeamClient {
   listEmployees(request: ListEmployeesRequest): Promise<Employee[]>;
   resolveEmployees(query: string): Promise<Employee[]>;
   searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse>;
+  /** Get agent frontmatter (fuzzy query by id/name/role) */
+  getAgentFrontmatter(query: string): Promise<Agent>;
+  /** Partially update agent frontmatter fields (fuzzy query) */
+  updateAgentFrontmatter(query: string, data: Partial<AgentConfig>): Promise<Agent>;
+  /** Get agent markdown body parsed into sections (fuzzy query) */
+  getAgentSections(query: string): Promise<MarkdownSection[]>;
+  /** Update or create a markdown section by heading (fuzzy query) */
+  updateAgentSection(query: string, heading: string, content: string): Promise<MarkdownSection[]>;
+  /** Get raw markdown body (fuzzy query) */
+  getAgentMarkdown(query: string): Promise<string>;
+  /** Replace full markdown body (fuzzy query) */
+  updateAgentMarkdown(query: string, markdown: string): Promise<Agent>;
+  /** Get annotated file list with read/write permissions (fuzzy query) */
+  getAgentFiles(query: string, options?: { depth?: number; all?: boolean }): Promise<AgentFilesResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;
@@ -99,6 +121,72 @@ class InProcessAiTeamClient implements AiTeamClient {
 
   async searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse> {
     return this.service.searchAgents(request);
+  }
+
+  async getAgentFrontmatter(query: string): Promise<Agent> {
+    const agents = await this.service.resolveEmployees(query);
+    if (agents.length === 0) throw new Error(`No agent matching "${query}"`);
+    return agents[0] as unknown as Agent;
+  }
+
+  async updateAgentFrontmatter(query: string, data: Partial<AgentConfig>): Promise<Agent> {
+    const agents = await this.service.resolveEmployees(query);
+    if (agents.length === 0) throw new Error(`No agent matching "${query}"`);
+    const agent = agents[0] as unknown as Agent;
+    const mgr = new AgentManager(this.service.workspaceRoot);
+    await mgr.initialize();
+    return mgr.updateAgent(agent.id, data);
+  }
+
+  async getAgentSections(query: string): Promise<MarkdownSection[]> {
+    const agent = await this.getAgentFrontmatter(query);
+    return parseMarkdownSections(agent.markdown || '');
+  }
+
+  async updateAgentSection(query: string, heading: string, content: string): Promise<MarkdownSection[]> {
+    const agent = await this.getAgentFrontmatter(query);
+    const newMd = replaceOrAppendMarkdownSection(agent.markdown || '', heading, content);
+    const mgr = new AgentManager(this.service.workspaceRoot);
+    await mgr.initialize();
+    const updated = await mgr.updateAgent(agent.id, { markdown: newMd });
+    return parseMarkdownSections(updated.markdown || '');
+  }
+
+  async getAgentMarkdown(query: string): Promise<string> {
+    const agent = await this.getAgentFrontmatter(query);
+    return agent.markdown || '';
+  }
+
+  async updateAgentMarkdown(query: string, markdown: string): Promise<Agent> {
+    const agent = await this.getAgentFrontmatter(query);
+    const mgr = new AgentManager(this.service.workspaceRoot);
+    await mgr.initialize();
+    return mgr.updateAgent(agent.id, { markdown });
+  }
+
+  async getAgentFiles(query: string, options?: { depth?: number; all?: boolean }): Promise<AgentFilesResponse> {
+    const agent = await this.getAgentFrontmatter(query);
+    const ws = this.service.workspaceRoot;
+    const config = await loadTeamConfig(ws);
+    const allowPaths = config?.fileTree?.allowPaths ?? [];
+    const tree = await getFileTree(ws, { maxDepth: options?.depth ?? 6, allowPaths });
+    // flatten
+    const allFiles: string[] = [];
+    const stack = [tree];
+    while (stack.length > 0) {
+      const n = stack.pop()!;
+      if (!n.isDirectory && n.relativePath !== '') allFiles.push(n.relativePath);
+      if (n.children) for (let i = n.children.length - 1; i >= 0; i--) stack.push(n.children[i]);
+    }
+    const ctx = new ContextManager(ws);
+    const annotated = ctx.getAnnotatedFiles(agent, allFiles);
+    const files = options?.all ? annotated : annotated.filter(f => f.readable || f.writable);
+    return {
+      agent: agent.id,
+      readPatterns: agent.permissions?.read ?? [],
+      writePatterns: agent.permissions?.write ?? [],
+      files,
+    };
   }
 
   async getTeamGraph(mode?: ViewMode): Promise<GraphData> {

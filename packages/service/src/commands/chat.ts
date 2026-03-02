@@ -59,11 +59,19 @@ const PREFLIGHT_STEP_TIMEOUT_MS = 15_000;
 interface SendResult {
   switchedTo?: Agent;
   handoffMessage?: string;
+  previousSessionId?: string;
 }
 
 interface HandoffMeta {
   fromAgentId: string;
   note: string;
+}
+
+/** Strip the HANDOFF: directive line from agent text before persisting. */
+function stripHandoffDirective(text: string): string {
+  let cleaned = text.replaceAll(/^\s*HANDOFF:\s*[^\n]+$/gim, '');
+  cleaned = cleaned.replaceAll(/\n{3,}/g, '\n\n').trim();
+  return cleaned;
 }
 
 function extractStreamDeltaText(chunk: { choices?: Array<{ delta?: { content?: unknown; reasoning_content?: unknown } }> }): string {
@@ -957,18 +965,29 @@ export async function chatCommand(
         const fromAgent = agent;
         agent = result.switchedTo;
         try { skill = await loadSkill(agent.skillPath); } catch { skill = undefined; }
-        history = await loadHistory(agent.id);
+        // Create a new handoff session linked to the previous one
+        if (result.handoffMessage && result.previousSessionId) {
+          const developerId = developerNameToId(developerName || 'developer');
+          const handoffSession = await sessionManager.createHandoffSession(
+            agent.id, developerId, result.previousSessionId);
+          currentSessionId = handoffSession.id;
+          history = [];
+        } else {
+          history = await loadHistory(agent.id);
+        }
         if (result.handoffMessage) {
           const handoffMessage: ChatMessage = {
             timestamp: new Date().toISOString(),
             from: fromAgent.id,
-            content: result.handoffMessage,
+            to: agent.id,
+            content: `Handoff note from ${fromAgent.name} (${fromAgent.role}):\n${result.handoffMessage}`,
           };
           if (sessionManager && currentSessionId) {
             await sessionManager.appendMessage(currentSessionId, handoffMessage);
           }
           history.push(handoffMessage);
-          writeInfo(hooks, `  Handoff note ${fromAgent.name} (${fromAgent.role}): ${result.handoffMessage}`);
+          writeInfo(hooks, `\n  ── ${fromAgent.name} → ${agent.name} ──`);
+          writeInfo(hooks, `  ${result.handoffMessage}`);
           writeInfo(hooks, '');
           handoffTracker.set(agent.id, {
             fromAgentId: fromAgent.id,
@@ -1143,7 +1162,16 @@ export async function chatCommand(
             const fromAgent = agent;
             agent = target;
             try { skill = await loadSkill(agent.skillPath); } catch { skill = undefined; }
-            history = await loadHistory(agent.id);
+            // Create a new handoff session if switching with a message
+            if (parsed.handoffMessage) {
+              const developerId = developerNameToId(developerName || 'developer');
+              const handoffSession = await sessionManager.createHandoffSession(
+                agent.id, developerId, currentSessionId);
+              currentSessionId = handoffSession.id;
+              history = [];
+            } else {
+              history = await loadHistory(agent.id);
+            }
 
             if (parsed.handoffMessage) {
               await appendHandoffNote(chatManager, history, agent.id, fromAgent, parsed.handoffMessage, sessionManager, currentSessionId);
@@ -1159,7 +1187,8 @@ export async function chatCommand(
             }
 
             if (parsed.handoffMessage) {
-              writeInfo(hooks, `  Handoff note ${fromAgent.name} (${fromAgent.role}): ${parsed.handoffMessage}`);
+              writeInfo(hooks, `\n  ── ${fromAgent.name} → ${agent.name} ──`);
+              writeInfo(hooks, `  ${parsed.handoffMessage}`);
               writeInfo(hooks, '');
               await acknowledgeHandoff(
                 llm,
@@ -1330,10 +1359,20 @@ export async function chatCommand(
         const fromAgent = agent;
         agent = result.switchedTo;
         try { skill = await loadSkill(agent.skillPath); } catch { skill = undefined; }
-        history = await loadHistory(agent.id);
+        // Create a new handoff session linked to the previous one
+        if (result.handoffMessage && result.previousSessionId) {
+          const developerId = developerNameToId(developerName || 'developer');
+          const handoffSession = await sessionManager.createHandoffSession(
+            agent.id, developerId, result.previousSessionId);
+          currentSessionId = handoffSession.id;
+          history = [];
+        } else {
+          history = await loadHistory(agent.id);
+        }
         if (result.handoffMessage) {
           await appendHandoffNote(chatManager, history, agent.id, fromAgent, result.handoffMessage, sessionManager, currentSessionId);
-          writeInfo(hooks, `  Handoff note ${fromAgent.name} (${fromAgent.role}): ${result.handoffMessage}`);
+          writeInfo(hooks, `\n  ── ${fromAgent.name} → ${agent.name} ──`);
+          writeInfo(hooks, `  ${result.handoffMessage}`);
           writeInfo(hooks, '');
           handoffTracker.set(agent.id, {
             fromAgentId: fromAgent.id,
@@ -1901,11 +1940,17 @@ async function sendMessage(
   // Record interaction
   await agentManager.recordInteraction(agent.id);
 
-  // Save agent response
+  // Detect handoff BEFORE saving so we can strip the HANDOFF: directive
+  const handoff = detectResponseHandoffDirective(fullResponse, agentManager, agent.id);
+  const cleanContent = handoff?.target
+    ? stripHandoffDirective(fullResponse)
+    : fullResponse.trim();
+
+  // Save agent response (HANDOFF directive stripped when present)
   const agentMessage: ChatMessage = {
     timestamp: new Date().toISOString(),
     from: agent.id,
-    content: fullResponse.trim(),
+    content: cleanContent,
   };
   if (sessionManager && sessionId) {
     await sessionManager.appendMessage(sessionId, agentMessage);
@@ -1938,18 +1983,15 @@ async function sendMessage(
     }
   }
 
-  const handoff = detectResponseHandoffDirective(fullResponse, agentManager, agent.id);
   if (handoff?.target) {
     writeInfo(hooks, `\n${agent.name} (${agent.role}) handed off to ${handoff.target.name} (${handoff.target.role}).`);
-    const trimmedResponse = fullResponse.trim();
-    const trimmedNote = handoff.message?.trim();
-    const combinedNote = trimmedNote
-      ? `${trimmedNote}\n\n---\nContext from ${agent.name}:\n${trimmedResponse}`
-      : trimmedResponse;
+    // Return only the extracted handoff note — not the full response dump
+    const handoffNote = handoff.message?.trim() || `Handoff requested by ${agent.name}`;
 
     return {
       switchedTo: handoff.target,
-      handoffMessage: combinedNote,
+      handoffMessage: handoffNote,
+      previousSessionId: sessionId,
     };
   }
 

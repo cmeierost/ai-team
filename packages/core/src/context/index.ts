@@ -11,6 +11,16 @@ import {
   PermissionError,
 } from '../types/index.js';
 
+/** A file annotated with its read/write permission state for a specific agent */
+export interface AnnotatedFile {
+  /** Workspace-relative path */
+  path: string;
+  /** Whether the agent can read this file */
+  readable: boolean;
+  /** Whether the agent can write this file */
+  writable: boolean;
+}
+
 export class ContextManager {
   private workspaceRoot: string;
 
@@ -90,6 +100,20 @@ export class ContextManager {
    */
   getWritableFiles(agent: Agent, allFiles: string[]): string[] {
     return allFiles.filter(file => this.canWrite(agent, file));
+  }
+
+  /**
+   * Annotate every file with its read/write permissions for a given agent.
+   * @param agent - Agent to check permissions for
+   * @param allFiles - Workspace-relative file paths
+   * @returns Annotated list with per-file read + write booleans
+   */
+  getAnnotatedFiles(agent: Agent, allFiles: string[]): AnnotatedFile[] {
+    return allFiles.map(filePath => ({
+      path: filePath,
+      readable: this.canRead(agent, filePath),
+      writable: this.canWrite(agent, filePath),
+    }));
   }
 
   /**

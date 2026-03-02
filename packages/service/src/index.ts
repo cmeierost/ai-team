@@ -95,7 +95,10 @@ function formatRuntimeConsoleArgs(args: unknown[]): string {
 }
 
 class CoreAiTeamService implements AiTeamService {
-  constructor(private readonly workspaceRoot: string) {}
+  public readonly workspaceRoot: string;
+  constructor(workspaceRoot: string) {
+    this.workspaceRoot = workspaceRoot;
+  }
 
   async invoke<TCommand extends AiTeamCommandName>(
     request: MediatorRequest<TCommand>,
@@ -123,9 +126,27 @@ class CoreAiTeamService implements AiTeamService {
     const originalError = console.error;
     const originalStdoutWrite = process.stdout.write.bind(process.stdout);
 
+    // Wrap emit so every event reaches the client AND is mirrored to the
+    // real server console (log → console.log/warn/error, token → stdout).
+    // This gives full visibility when running the service behind the API
+    // server without affecting the CLI path (where context.emit is absent).
+    const emitWithConsole: ((event: MediatorRuntimeEvent) => void) | undefined = context.emit
+      ? (event: MediatorRuntimeEvent) => {
+          context.emit!(event);
+          if (event.kind === 'log') {
+            const msg = event.message ?? '';
+            if (event.level === 'error') originalError(msg);
+            else if (event.level === 'warn') originalWarn(msg);
+            else originalLog(msg);
+          } else if (event.kind === 'token' && event.text) {
+            originalStdoutWrite(event.text);
+          }
+        }
+      : undefined;
+
     if (context.emit) {
       console.log = (...args: unknown[]) => {
-        context.emit?.({
+        emitWithConsole!({
           kind: 'log',
           level: 'info',
           message: formatRuntimeConsoleArgs(args),
@@ -133,7 +154,7 @@ class CoreAiTeamService implements AiTeamService {
       };
 
       console.warn = (...args: unknown[]) => {
-        context.emit?.({
+        emitWithConsole!({
           kind: 'log',
           level: 'warn',
           message: formatRuntimeConsoleArgs(args),
@@ -141,7 +162,7 @@ class CoreAiTeamService implements AiTeamService {
       };
 
       console.error = (...args: unknown[]) => {
-        context.emit?.({
+        emitWithConsole!({
           kind: 'log',
           level: 'error',
           message: formatRuntimeConsoleArgs(args),
@@ -162,7 +183,7 @@ class CoreAiTeamService implements AiTeamService {
             ? chunk.toString(typeof encoding === 'string' ? encoding : undefined)
             : String(chunk);
 
-        context.emit?.({
+        emitWithConsole!({
           kind: 'token',
           text,
         });
@@ -204,7 +225,7 @@ class CoreAiTeamService implements AiTeamService {
           const persistedWorkflowState = workflowStateStore.loadForCommand('chat');
           response = await chatCommand(this.workspaceRoot, payload.employeeId, payload.options, {
             signal: context.signal,
-            emit: context.emit,
+            emit: emitWithConsole,
             questionInput: context.questionInput
               ? (request) => runWithoutStdoutCapture(() => context.questionInput!(request))
               : undefined,
@@ -242,7 +263,7 @@ class CoreAiTeamService implements AiTeamService {
           const persistedWorkflowState = workflowStateStore.loadForCommand('init');
           response = await initCommand(this.workspaceRoot, (request.payload as { options: InitOptions }).options, {
             signal: context.signal,
-            emit: context.emit,
+            emit: emitWithConsole,
             questionInput: context.questionInput
               ? (request) => runWithoutStdoutCapture(() => context.questionInput!(request))
               : undefined,
@@ -326,7 +347,7 @@ class CoreAiTeamService implements AiTeamService {
           details: serviceError.details,
         },
       });
-      context.emit?.({
+      emitWithConsole?.({
         kind: 'log',
         level: 'error',
         message: serviceError.message,

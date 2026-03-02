@@ -170,6 +170,8 @@ const files = program
   .option('-a, --all', 'Include hidden files and directories')
   .option('--no-gitignore', 'Ignore .gitignore rules and show all files')
   .option('--json', 'Output as JSON')
+  .option('--agent <id>', 'Show files accessible to a specific agent')
+  .option('--writeable', 'Show writeable files instead of readable (requires --agent)')
   .action(withCliErrorHandling((options) => filesCommand(options)));
 
 files

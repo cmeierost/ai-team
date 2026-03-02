@@ -163,26 +163,25 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
       <div className="context-sections">
         {/* Sessions Section */}
         <div className="context-section">
-          <button
-            className={`context-section-header ${expandedSection === 'sessions' ? 'expanded' : ''}`}
-            onClick={() => toggleSection('sessions')}
-          >
-            <i className={`codicon codicon-chevron-${expandedSection === 'sessions' ? 'down' : 'right'}`} />
-            <span className="context-section-title"><i className="codicon codicon-comment-discussion" /> Sessions</span>
-            <span className="context-section-count">{sessions.length}</span>
+          <div className="context-section-header-wrapper">
+            <button
+              className={`context-section-header ${expandedSection === 'sessions' ? 'expanded' : ''}`}
+              onClick={() => toggleSection('sessions')}
+            >
+              <i className={`codicon codicon-chevron-${expandedSection === 'sessions' ? 'down' : 'right'}`} />
+              <span className="context-section-title"><i className="codicon codicon-comment-discussion" /> Sessions</span>
+              <span className="context-section-count">{sessions.length}</span>
+            </button>
             {onCreateSession && (
               <button
                 className="context-section-action"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCreateSession();
-                }}
+                onClick={onCreateSession}
                 title="Create new session"
               >
                 <i className="codicon codicon-add" />
               </button>
             )}
-          </button>
+          </div>
 
           {expandedSection === 'sessions' && (
             <div className="context-section-content">

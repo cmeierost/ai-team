@@ -19,6 +19,12 @@ export function RelativeTime({ timestamp, className }: RelativeTimeProps) {
 
   const formatRelativeTime = (timestamp: string): string => {
     const date = new Date(timestamp);
+    
+    // Validate date is valid
+    if (Number.isNaN(date.getTime())) {
+      return 'Invalid date';
+    }
+
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffSecs = Math.floor(diffMs / 1000);

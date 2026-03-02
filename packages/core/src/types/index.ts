@@ -101,6 +101,23 @@ export const LlmProviderConfigSchema = z.object({
   params: LlmGenerationParamsSchema.optional(),
 });
 
+// A2A AgentCard-aligned skill definition
+export const AgentSkillSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  examples: z.array(z.string()).optional(),
+});
+
+// A2A AgentCard-aligned capabilities
+export const AgentCapabilitiesSchema = z.object({
+  streaming: z.boolean().optional(),
+  multimodal: z.boolean().optional(),
+  codeExecution: z.boolean().optional(),
+  reasoning: z.boolean().optional(),
+});
+
 export const AgentSchema = z.object({
   name: z.string(),
   role: z.string(),
@@ -108,7 +125,7 @@ export const AgentSchema = z.object({
   contextLevel: z.nativeEnum(ContextLevel),
   
   // Organization
- reportsTo: z.string().optional(),
+  reportsTo: z.string().optional(),
   features: z.array(z.string()).optional(),
   specializations: z.array(z.string()).optional(),
   
@@ -119,10 +136,32 @@ export const AgentSchema = z.object({
   timezone: z.string().optional(),
   workHours: z.string().optional(),
   
+  // Discovery (A2A AgentCard aligned)
+  description: z.string().optional(),
+  version: z.string().optional(),
+
+  // Persona (CrewAI aligned)
+  goal: z.string().optional(),
+  backstory: z.string().optional(),
+
+  // Agent capabilities (A2A aligned)
+  capabilities: AgentCapabilitiesSchema.optional(),
+
+  // Structured skill definitions (A2A AgentCard aligned)
+  skills: z.array(AgentSkillSchema).optional(),
+
+  // Path scoping — Copilot & Claude Code compatibility
+  applyTo: z.string().optional(),
+  paths: z.array(z.string()).optional(),
+
+  // Operational (CrewAI / OpenAI Agents aligned)
+  memory: z.boolean().optional(),
+  maxIterations: z.number().optional(),
+
   // Permissions
   permissions: PermissionConfigSchema.optional(),
   
-  // Capabilities
+  // Capabilities — tools & delegation
   tools: z.array(z.string()).optional(),
   cliTools: z.array(z.string()).optional(),
   canDelegate: z.boolean().optional(),

@@ -127,6 +127,23 @@ export class SessionManager {
   }
 
   /**
+   * List recent sessions across all agents
+   * @param limit - Maximum number of sessions to return (default 10)
+   */
+  async listRecentSessions(limit = 10): Promise<ChatSession[]> {
+    try {
+      return await this.storage.listSessions({
+        sortBy: 'lastActivityAt',
+        sortOrder: 'desc',
+        limit,
+      });
+    } catch (error) {
+      console.error('Failed to list recent sessions:', error);
+      return [];
+    }
+  }
+
+  /**
    * List all sessions for an agent
    * @param agentQuery - Agent ID, role, name, or partial match
    * @param limit - Maximum number of sessions to return
