@@ -1,5 +1,5 @@
 ---
-name: sarah-ceeses
+name: Sarah Ceeses
 role: css-specialist
 type: individual-contributor
 contextLevel: module

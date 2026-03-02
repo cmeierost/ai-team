@@ -10,9 +10,10 @@ interface ContextPanelProps {
   onToggleArtifact: (artifactId: string) => void;
   onSwitchSession?: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string) => void;
+  onCreateSession?: () => void;
 }
 
-export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, onSwitchSession, onDeleteSession }: ContextPanelProps) {
+export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession }: ContextPanelProps) {
   const [allArtifacts, setAllArtifacts] = useState<Artifact[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -169,6 +170,18 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
             <i className={`codicon codicon-chevron-${expandedSection === 'sessions' ? 'down' : 'right'}`} />
             <span className="context-section-title"><i className="codicon codicon-comment-discussion" /> Sessions</span>
             <span className="context-section-count">{sessions.length}</span>
+            {onCreateSession && (
+              <button
+                className="context-section-action"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCreateSession();
+                }}
+                title="Create new session"
+              >
+                <i className="codicon codicon-add" />
+              </button>
+            )}
           </button>
 
           {expandedSection === 'sessions' && (

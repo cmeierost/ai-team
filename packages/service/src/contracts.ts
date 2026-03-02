@@ -128,8 +128,8 @@ export interface ChatOptions {
   createNewSession?: boolean;  // Force create new session instead of resuming latest
   addAgentToSession?: string;  // Add another agent to this session (multi-agent mode)
   
-  // Persistence control
-  skipPersistence?: boolean;  // Don't save messages to file system (when using database sessions)
+  /** @deprecated No longer used. Messages are always persisted to SQLite via SessionManager. */
+  skipPersistence?: boolean;
 }
 
 export interface QuestionSelectChoice {

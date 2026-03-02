@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import type { AiTeamClient } from '@ai-team/api-client';
-import type { AgentManager, ChatMessage } from '@ai-team/core';
+import type { AgentManager } from '@ai-team/core';
 import type { QuestionInputRequest, QuestionConfirmRequest, QuestionSelectRequest, QuestionPasswordRequest, QuestionChecklistRequest } from '@ai-team/service';
 import { resolveAgentForOperation, SessionManager } from '@ai-team/service';
 
@@ -202,16 +202,8 @@ export function setupChatWebSocket(
         currentAbortController = new AbortController();
 
         try {
-          // Persist user message to session if sessionId is provided
-          if (sessionId) {
-            const userMessage: ChatMessage = {
-              from: 'human',
-              content: message.content,
-              timestamp: new Date().toISOString(),
-              isHuman: true,
-            };
-            await sessionManager.appendMessage(sessionId, userMessage);
-          }
+          // Message persistence is handled by the service layer (chatCommand/sendMessage)
+          // — no need to save user or assistant messages here.
 
           // Stream chat response with question handlers
           const stream = client.stream(
@@ -221,7 +213,7 @@ export function setupChatWebSocket(
                 employeeId: agentId,
                 options: {
                   message: message.content,
-                  skipPersistence: true,
+                  sessionId: sessionId ?? undefined,
                   ...message.options,
                 },
               },
@@ -251,17 +243,10 @@ export function setupChatWebSocket(
             }
           );
 
-          let assistantResponse = '';
-
           for await (const event of stream) {
             // Check if cancelled
             if (currentAbortController.signal.aborted) {
               break;
-            }
-
-            // Accumulate assistant response tokens
-            if (event.kind === 'token' && (event as any).text) {
-              assistantResponse += (event as any).text;
             }
 
             // Send event to client
@@ -270,17 +255,6 @@ export function setupChatWebSocket(
               data: event,
             };
             ws.send(JSON.stringify(wsEvent));
-          }
-
-          // Persist assistant message to session if sessionId is provided
-          if (sessionId && assistantResponse && !currentAbortController.signal.aborted) {
-            const assistantMessage: ChatMessage = {
-              from: agentId,
-              content: assistantResponse,
-              timestamp: new Date().toISOString(),
-              isHuman: false,
-            };
-            await sessionManager.appendMessage(sessionId, assistantMessage);
           }
 
           // Send done event

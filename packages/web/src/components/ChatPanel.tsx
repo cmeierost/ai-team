@@ -140,7 +140,10 @@ export function ChatPanel() {
   const [pendingSelectAnswer, setPendingSelectAnswer] = useState('');
   const [pendingChecklistAnswer, setPendingChecklistAnswer] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  const lastScrollTopRef = useRef<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingQuestionResolveRef = useRef<((value: unknown) => void) | null>(null);
   const pendingQuestionRejectRef = useRef<((reason?: unknown) => void) | null>(null);
@@ -302,9 +305,40 @@ export function ChatPanel() {
     };
   }, [agentId]);
 
+  // Helper: Check if scroll position is at bottom
+  const isAtBottom = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return true;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    // Consider "at bottom" if within 5 pixels
+    return scrollHeight - scrollTop - clientHeight < 5;
+  };
+
+  // Handle scroll events to detect user scrolling
+  const handleScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const currentScrollTop = container.scrollTop;
+    const previousScrollTop = lastScrollTopRef.current;
+
+    // If user scrolled up (even by 1 pixel), stop auto-scroll
+    if (currentScrollTop < previousScrollTop) {
+      setIsUserScrolledUp(true);
+    }
+    // If user scrolled to the very bottom, resume auto-scroll
+    else if (isAtBottom()) {
+      setIsUserScrolledUp(false);
+    }
+
+    lastScrollTopRef.current = currentScrollTop;
+  };
+
   useEffect(() => {
-    // Scroll to bottom on new messages
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Only auto-scroll if user hasn't scrolled up
+    if (!isUserScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   const rejectAndClearPendingQuestion = (reason: Error) => {
@@ -432,6 +466,8 @@ export function ChatPanel() {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+    // Reset scroll lock when user sends a message
+    setIsUserScrolledUp(false);
     setSending(true);
     setStreaming(true);
     abortControllerRef.current = new AbortController();
@@ -846,6 +882,35 @@ export function ChatPanel() {
     }
   };
 
+  const handleCreateSession = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: currentAgentId,
+          developerId: developer?.id || 'clemens-meier',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create new session');
+      }
+
+      const newSession = await response.json();
+      
+      // Clear current state and switch to new session
+      setMessages([]);
+      setArtifactsInContext([]);
+      setCurrentSessionId(newSession.id);
+      
+      console.log('Created new session:', newSession.id);
+    } catch (error) {
+      console.error('Failed to create new session:', error);
+      alert('Failed to create new session. Please try again.');
+    }
+  };
+
   const handleSwitchSession = async (sessionId: string) => {
     try {
       // Load session with messages in one call
@@ -900,10 +965,17 @@ export function ChatPanel() {
             <h2>Chat with {agent.name}</h2>
             <p className="agent-role">{agent.role}</p>
           </div>
+          <button
+            onClick={() => navigate(`/portfolio/${agent.id}`)}
+            className="btn-header-action"
+            title="View portfolio"
+          >
+            <i className="codicon codicon-account" /> Portfolio
+          </button>
           {streaming && <span className="streaming-indicator">●</span>}
         </div>
 
-        <div className="chat-messages">
+        <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
           {messages.length === 0 && (
             <div className="empty-chat">
               <p>Start a conversation with {agent.name}</p>
@@ -1179,6 +1251,7 @@ export function ChatPanel() {
         onToggleArtifact={handleToggleArtifact}
         onSwitchSession={handleSwitchSession}
         onDeleteSession={handleDeleteSession}
+        onCreateSession={handleCreateSession}
       />
     </div>
   );

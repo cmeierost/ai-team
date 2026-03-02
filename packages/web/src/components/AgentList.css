@@ -30,6 +30,7 @@
   border-radius: var(--radius-lg);
   padding: var(--spacing-xl);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
   --card-color-opacity-base: 0.22;
   --card-color-opacity-hover: 0.32;
   --card-color-opacity: var(--card-color-opacity-base);

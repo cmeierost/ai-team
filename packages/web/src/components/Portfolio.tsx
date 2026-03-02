@@ -33,14 +33,25 @@ export function Portfolio() {
   return (
     <div className="portfolio">
       <div className="portfolio-header">
-        <button onClick={() => navigate('/employees')} className="btn-back">
-          ← Back
-        </button>
-        <div className="portfolio-avatar">
-          <Avatar agent={agent} size="large" />
+        <Avatar agent={agent} size="medium" />
+        <div className="portfolio-header-info">
+          <h2>{agent.name}</h2>
+          <span className="portfolio-header-role">{agent.role}</span>
         </div>
-        <h1>{agent.name}</h1>
-        <span className="agent-role-badge">{agent.role}</span>
+        <button
+          onClick={() => navigate(`/chat/${agent.id}`)}
+          className="btn-header-action"
+          title="Chat with agent"
+        >
+          <i className="codicon codicon-comment-discussion" /> Chat
+        </button>
+        <button
+          onClick={() => navigate('/employees')}
+          className="btn-header-action"
+          title="Back to employees"
+        >
+          <i className="codicon codicon-arrow-left" /> Back
+        </button>
       </div>
 
       <div className="portfolio-content">

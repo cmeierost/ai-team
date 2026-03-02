@@ -195,12 +195,13 @@ async function tryGreetUser(
   skill: import('@ai-team/core').Skill | undefined,
   developerName: string | undefined,
   hooks?: ChatRuntimeHooks,
-  skipPersistence?: boolean,
+  sessionManager?: SessionManager,
+  sessionId?: string,
 ): Promise<void> {
   try {
     await withAbortSignal(
       withTimeout(
-        greetUser(llm, chatManager, agentManager, agent, history, skill, developerName, hooks, skipPersistence),
+        greetUser(llm, chatManager, agentManager, agent, history, skill, developerName, hooks, sessionManager, sessionId),
         GREETING_TIMEOUT_MS,
         `Greeting timed out after ${GREETING_TIMEOUT_MS / 1000}s.`,
       ),
@@ -765,23 +766,34 @@ export async function chatCommand(
     }) as typeof process.stdout.write;
   }
 
-  let sessionManager: SessionManager | undefined;
+  let sessionManager!: SessionManager;
+  let currentSessionId!: string;
 
   try {
     const agentManager = new AgentManager(workspaceRoot);
     const chatManager = new ChatManager(workspaceRoot);
     const handoffTracker = new Map<string, HandoffMeta>();
 
-    if (options.sessionId) {
-      sessionManager = new SessionManager(workspaceRoot, createSqliteStorage(workspaceRoot), agentManager);
-      await sessionManager.initialize();
-    }
+    // Always use SQLite sessions (not JSONL files)
+    sessionManager = new SessionManager(workspaceRoot, createSqliteStorage(workspaceRoot), agentManager);
+    await sessionManager.initialize();
 
     const loadHistory = async (currentAgentId: string): Promise<ChatMessage[]> => {
-      if (sessionManager && options.sessionId) {
+      if (options.sessionId) {
+        currentSessionId = options.sessionId;
         return sessionManager.getSessionMessages(options.sessionId);
       }
-      return chatManager.loadChatHistory(currentAgentId);
+      // Auto-create or resume latest session for this agent
+      const latestSession = await sessionManager.getLatestSession(currentAgentId);
+      if (latestSession) {
+        currentSessionId = latestSession.id;
+        return sessionManager.getSessionMessages(latestSession.id);
+      }
+      // Create new session
+      const developerId = developerNameToId(developerName || 'developer');
+      const newSession = await sessionManager.createSession(currentAgentId, developerId);
+      currentSessionId = newSession.id;
+      return [];
     };
 
     const teamConfig = await runPreflightStep(
@@ -917,7 +929,7 @@ export async function chatCommand(
 
     // Agent greets the user on first contact
     if (history.length === 0) {
-      await tryGreetUser(llm, chatManager, agentManager, agent, history, skill, developerName, hooks, options.skipPersistence);
+      await tryGreetUser(llm, chatManager, agentManager, agent, history, skill, developerName, hooks, sessionManager, currentSessionId);
     }
 
     // Single message mode
@@ -935,7 +947,8 @@ export async function chatCommand(
           handoffTracker,
           developerName,
           hooks,
-          options.skipPersistence,
+          sessionManager,
+          currentSessionId,
         ),
         hooks.signal,
         'Chat request aborted by user.',
@@ -951,8 +964,8 @@ export async function chatCommand(
             from: fromAgent.id,
             content: result.handoffMessage,
           };
-          if (!options.skipPersistence) {
-            await chatManager.appendMessage(agent.id, handoffMessage);
+          if (sessionManager && currentSessionId) {
+            await sessionManager.appendMessage(currentSessionId, handoffMessage);
           }
           history.push(handoffMessage);
           writeInfo(hooks, `  Handoff note ${fromAgent.name} (${fromAgent.role}): ${result.handoffMessage}`);
@@ -979,7 +992,8 @@ export async function chatCommand(
             fromAgent,
             result.handoffMessage,
             hooks,
-            options.skipPersistence,
+            sessionManager,
+            currentSessionId,
           );
         }
       }
@@ -1105,7 +1119,7 @@ export async function chatCommand(
           const overview = await getWorkspaceOverview(workspaceRoot);
           writeInfo(hooks, '\nWorkspace Overview\n');
           writeInfo(hooks, overview);
-          await appendToolOutputToHistory(chatManager, history, agent.id, 'overview', overview, options.skipPersistence);
+          await appendToolOutputToHistory(chatManager, history, agent.id, 'overview', overview, sessionManager, currentSessionId);
           writeInfo(hooks, `  (Shared overview output with ${agent.name} for future context.)`);
           writeInfo(hooks, '');
           continue;
@@ -1117,7 +1131,7 @@ export async function chatCommand(
             writeInfo(hooks, '');
             continue;
           }
-          await runShellCommand(cmd.args, workspaceRoot, chatManager, history, agent, hooks, options.skipPersistence);
+          await runShellCommand(cmd.args, workspaceRoot, chatManager, history, agent, hooks, sessionManager, currentSessionId);
           writeInfo(hooks, '');
           continue;
         }
@@ -1132,7 +1146,7 @@ export async function chatCommand(
             history = await loadHistory(agent.id);
 
             if (parsed.handoffMessage) {
-              await appendHandoffNote(chatManager, history, agent.id, fromAgent, parsed.handoffMessage, options.skipPersistence);
+              await appendHandoffNote(chatManager, history, agent.id, fromAgent, parsed.handoffMessage, sessionManager, currentSessionId);
               handoffTracker.set(agent.id, {
                 fromAgentId: fromAgent.id,
                 note: parsed.handoffMessage,
@@ -1157,13 +1171,14 @@ export async function chatCommand(
                 fromAgent,
                 parsed.handoffMessage,
                 hooks,
-                options.skipPersistence,
+                sessionManager,
+                currentSessionId,
               );
             }
 
             const shouldGreet = history.length === 0 && !parsed.handoffMessage;
             if (shouldGreet) {
-              await tryGreetUser(llm, chatManager, agentManager, agent, history, skill, developerName, hooks, options.skipPersistence);
+              await tryGreetUser(llm, chatManager, agentManager, agent, history, skill, developerName, hooks, sessionManager, currentSessionId);
             }
           } else {
             writeError(hooks, `Agent not found: "${parsed.targetQuery}"`);
@@ -1235,7 +1250,8 @@ export async function chatCommand(
           handoffTracker,
           developerName,
           hooks,
-          options.skipPersistence,
+          sessionManager,
+          currentSessionId,
         );
 
         if (handoffResult.switchedTo) {
@@ -1244,7 +1260,7 @@ export async function chatCommand(
           try { skill = await loadSkill(agent.skillPath); } catch { skill = undefined; }
           history = await loadHistory(agent.id);
           if (handoffResult.handoffMessage) {
-            await appendHandoffNote(chatManager, history, agent.id, fromAgent, handoffResult.handoffMessage, options.skipPersistence);
+            await appendHandoffNote(chatManager, history, agent.id, fromAgent, handoffResult.handoffMessage, sessionManager, currentSessionId);
             writeInfo(hooks, `  Handoff note ${fromAgent.name} (${fromAgent.role}): ${handoffResult.handoffMessage}`);
             writeInfo(hooks, '');
             handoffTracker.set(agent.id, {
@@ -1269,7 +1285,8 @@ export async function chatCommand(
               fromAgent,
               handoffResult.handoffMessage,
               hooks,
-              options.skipPersistence,
+              sessionManager,
+              currentSessionId,
             );
           }
           (sendMessage as any).identitySwitch = true;
@@ -1302,7 +1319,8 @@ export async function chatCommand(
           handoffTracker,
           developerName,
           hooks,
-          options.skipPersistence,
+          sessionManager,
+          currentSessionId,
         ),
         hooks.signal,
         'Chat request aborted by user.',
@@ -1314,7 +1332,7 @@ export async function chatCommand(
         try { skill = await loadSkill(agent.skillPath); } catch { skill = undefined; }
         history = await loadHistory(agent.id);
         if (result.handoffMessage) {
-          await appendHandoffNote(chatManager, history, agent.id, fromAgent, result.handoffMessage, options.skipPersistence);
+          await appendHandoffNote(chatManager, history, agent.id, fromAgent, result.handoffMessage, sessionManager, currentSessionId);
           writeInfo(hooks, `  Handoff note ${fromAgent.name} (${fromAgent.role}): ${result.handoffMessage}`);
           writeInfo(hooks, '');
           handoffTracker.set(agent.id, {
@@ -1331,7 +1349,8 @@ export async function chatCommand(
             fromAgent,
             result.handoffMessage,
             hooks,
-            options.skipPersistence,
+            sessionManager,
+            currentSessionId,
           );
         }
         (sendMessage as any).identitySwitch = true;
@@ -1377,7 +1396,8 @@ async function sendMessage(
   handoffTracker?: Map<string, HandoffMeta>,
   developerName?: string,
   hooks?: ChatRuntimeHooks,
-  skipPersistence?: boolean,
+  sessionManager?: SessionManager,
+  sessionId?: string,
 ): Promise<SendResult> {
   throwIfAborted(hooks?.signal, 'Chat request aborted by user.');
 
@@ -1398,7 +1418,8 @@ async function sendMessage(
       agentManager.workspaceRoot,
       contextFiles,
       hooks,
-      skipPersistence,
+      sessionManager,
+      sessionId,
     );
     return {};
   }
@@ -1489,8 +1510,8 @@ async function sendMessage(
       from: agent.id,
       content: responseText,
     };
-    if (!skipPersistence) {
-      await chatManager.appendMessage(agent.id, agentMessage);
+    if (sessionManager && sessionId) {
+      await sessionManager.appendMessage(sessionId, agentMessage);
     }
     history.push(agentMessage);
     await appendToolOutputToHistory(
@@ -1580,8 +1601,8 @@ async function sendMessage(
       from: agent.id,
       content: responseText,
     };
-    if (!skipPersistence) {
-      await chatManager.appendMessage(agent.id, agentMessage);
+    if (sessionManager && sessionId) {
+      await sessionManager.appendMessage(sessionId, agentMessage);
     }
     history.push(agentMessage);
     await appendToolOutputToHistory(
@@ -1604,8 +1625,8 @@ async function sendMessage(
     content: message,
     context: contextFiles,
   };
-  if (!skipPersistence) {
-    await chatManager.appendMessage(agent.id, userMessage);
+  if (sessionManager && sessionId) {
+    await sessionManager.appendMessage(sessionId, userMessage);
   }
   history.push(userMessage);
 
@@ -1758,7 +1779,7 @@ async function sendMessage(
               const outputText = execution.ok
                 ? stringifyToolPayload(execution.result)
                 : execution.error || 'Unknown question tool error';
-              await appendToolOutputToHistory(chatManager, history, agent.id, execution.toolName, outputText, skipPersistence);
+              await appendToolOutputToHistory(chatManager, history, agent.id, execution.toolName, outputText, sessionManager, sessionId);
 
               emitRuntimeEvent(hooks, {
                 kind: 'tool',
@@ -1814,7 +1835,7 @@ async function sendMessage(
             const outputText = execution.ok
               ? stringifyToolPayload(execution.result)
               : execution.error || 'Unknown tool execution error';
-            await appendToolOutputToHistory(chatManager, history, agent.id, execution.toolName, outputText, skipPersistence);
+            await appendToolOutputToHistory(chatManager, history, agent.id, execution.toolName, outputText, sessionManager, sessionId);
 
             emitRuntimeEvent(hooks, {
               kind: 'tool',
@@ -1886,8 +1907,8 @@ async function sendMessage(
     from: agent.id,
     content: fullResponse.trim(),
   };
-  if (!skipPersistence) {
-    await chatManager.appendMessage(agent.id, agentMessage);
+  if (sessionManager && sessionId) {
+    await sessionManager.appendMessage(sessionId, agentMessage);
   }
   history.push(agentMessage);
 
@@ -1911,7 +1932,8 @@ async function sendMessage(
         created,
         onboardingManager,
         lineage?.note,
-        skipPersistence,
+        sessionManager,
+        sessionId,
       );
     }
   }
@@ -1999,7 +2021,8 @@ async function greetUser(
   skill: import('@ai-team/core').Skill | undefined,
   developerName: string | undefined,
   hooks?: ChatRuntimeHooks,
-  skipPersistence?: boolean,
+  sessionManager?: SessionManager,
+  sessionId?: string,
 ) {
   const nameRef = developerName ? `, ${developerName}` : '';
   const prompt = `The developer${nameRef} just opened a chat with you. `
@@ -2059,8 +2082,8 @@ async function greetUser(
     from: agent.id,
     content: fullResponse.trim(),
   };
-  if (!skipPersistence) {
-    await chatManager.appendMessage(agent.id, agentMsg);
+  if (sessionManager && sessionId) {
+    await sessionManager.appendMessage(sessionId, agentMsg);
   }
   history.push(agentMsg);
   await agentManager.recordInteraction(agent.id);
@@ -2608,7 +2631,8 @@ async function executeDirectToolCall(
   workspaceRoot: string,
   contextFiles?: string[],
   hooks?: ChatRuntimeHooks,
-  skipPersistence?: boolean,
+  sessionManager?: SessionManager,
+  sessionId?: string,
 ) {
   const { toolName, params } = directToolCall;
   const allowedTools = getAgentTools(agent);
@@ -2648,7 +2672,7 @@ async function executeDirectToolCall(
       writeInfo(hooks, outputText);
       writeInfo(hooks, '');
 
-      await appendToolOutputToHistory(chatManager, history, agent.id, execution.toolName, outputText, skipPersistence);
+      await appendToolOutputToHistory(chatManager, history, agent.id, execution.toolName, outputText, sessionManager, sessionId);
       writeInfo(hooks, `  (Shared direct tool output with ${agent.name} for future context.)`);
       return;
     }
@@ -2714,7 +2738,7 @@ async function executeDirectToolCall(
     writeInfo(hooks, outputText);
     writeInfo(hooks, '');
 
-    await appendToolOutputToHistory(chatManager, history, agent.id, execution.toolName, outputText, skipPersistence);
+    await appendToolOutputToHistory(chatManager, history, agent.id, execution.toolName, outputText, sessionManager, sessionId);
     writeInfo(hooks, `  (Shared direct tool output with ${agent.name} for future context.)`);
     return;
   }
@@ -2899,7 +2923,7 @@ async function appendToolOutputToHistory(
   history: ChatMessage[],
   agentId: string,
   toolName: string,
-  output: string, skipPersistence?: boolean) {
+  output: string, sessionManager?: SessionManager, sessionId?: string) {
   const MAX_CONTEXT_CHARS = 4000;
   let content = output.trim();
   if (content.length > MAX_CONTEXT_CHARS) {
@@ -2912,8 +2936,8 @@ async function appendToolOutputToHistory(
     content: `Tool Output (${toolName}):\n${content}`,
   };
 
-  if (!skipPersistence) {
-    await chatManager.appendMessage(agentId, message);
+  if (sessionManager && sessionId) {
+    await sessionManager.appendMessage(sessionId, message);
   }
   history.push(message);
 }
@@ -2923,7 +2947,7 @@ async function appendHandoffNote(
   history: ChatMessage[],
   agentId: string,
   fromAgent: Agent,
-  note: string, skipPersistence?: boolean) {
+  note: string, sessionManager?: SessionManager, sessionId?: string) {
   const trimmed = note.trim();
   const content = `Handoff note from ${fromAgent.name} (${fromAgent.role}):\n${trimmed}`;
   const message: ChatMessage = {
@@ -2932,8 +2956,8 @@ async function appendHandoffNote(
     to: agentId,
     content,
   };
-  if (!skipPersistence) {
-    await chatManager.appendMessage(agentId, message);
+  if (sessionManager && sessionId) {
+    await sessionManager.appendMessage(sessionId, message);
   }
   history.push(message);
 }
@@ -2948,7 +2972,8 @@ async function acknowledgeHandoff(
   fromAgent: Agent,
   note: string,
   hooks?: ChatRuntimeHooks,
-  skipPersistence?: boolean,
+  sessionManager?: SessionManager,
+  sessionId?: string,
 ) {
   const trimmedNote = note?.trim();
   if (!trimmedNote) {
@@ -2995,8 +3020,8 @@ async function acknowledgeHandoff(
     from: agent.id,
     content: fullResponse.trim(),
   };
-  if (!skipPersistence) {
-    await chatManager.appendMessage(agent.id, agentMsg);
+  if (sessionManager && sessionId) {
+    await sessionManager.appendMessage(sessionId, agentMsg);
   }
   history.push(agentMsg);
   await agentManager.recordInteraction(agent.id);
@@ -3006,7 +3031,7 @@ async function seedNewHireContext(
   chatManager: ChatManager,
   newAgent: Agent,
   manager: Agent,
-  contextNote?: string, skipPersistence?: boolean) {
+  contextNote?: string, sessionManager?: SessionManager, sessionId?: string) {
   const trimmedNote = contextNote?.trim();
   const truncated = trimmedNote ? truncateForPrompt(trimmedNote, 1800) : undefined;
   const lines: string[] = [];
@@ -3026,8 +3051,8 @@ async function seedNewHireContext(
     content: lines.join('\n'),
   };
 
-  if (!skipPersistence) {
-    await chatManager.appendMessage(newAgent.id, message);
+  if (sessionManager && sessionId) {
+    await sessionManager.appendMessage(sessionId, message);
   }
   process.stdout.write(`  Shared onboarding brief with ${newAgent.name}.\n`);
 }
@@ -3238,7 +3263,8 @@ async function runShellCommand(
   history: ChatMessage[],
   agent: Agent,
   hooks?: ChatRuntimeHooks,
-  skipPersistence?: boolean,
+  sessionManager?: SessionManager,
+  sessionId?: string,
 ) {
   const trimmed = command.trim();
   if (!trimmed) {
@@ -3281,14 +3307,14 @@ async function runShellCommand(
     } else {
       writeInfo(hooks, '(no output)');
     }
-    await appendToolOutputToHistory(chatManager, history, agent.id, `shell:${trimmed}`, output || '(no output)', skipPersistence);
-    writeInfo(hooks, `  (Shared command output with ${agent.name}.)`);
+    await appendToolOutputToHistory(chatManager, history, agent.id, `shell:${trimmed}`, output || '(no output)', sessionManager, sessionId);
+    writeInfo(hooks, `  (Shared command output with ${agent.name}.)`);  
   } catch (error) {
     const err = error as { stdout?: string; stderr?: string; message: string };
     const output = formatOutput(err.stdout, err.stderr) || err.message;
     writeError(hooks, 'Command failed:');
     writeError(hooks, output);
-    await appendToolOutputToHistory(chatManager, history, agent.id, `shell:${trimmed}`, output, skipPersistence);
-    writeInfo(hooks, `  (Shared failed command output with ${agent.name}.)`);
+    await appendToolOutputToHistory(chatManager, history, agent.id, `shell:${trimmed}`, output, sessionManager, sessionId);
+    writeInfo(hooks, `  (Shared failed command output with ${agent.name}.)`);  
   }
 }
