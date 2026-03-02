@@ -3,7 +3,7 @@
  */
 
 import chalk from 'chalk';
-import { type FileTreeNode, type AnnotatedFile, AgentManager, ContextManager } from '@ai-team/core';
+import { type FileTreeNode, type AnnotatedFile, AgentManager, ContextManager, loadTeamConfig } from '@ai-team/core';
 import {
   findWorkspaceRoot,
   getFileTreeCommand,
@@ -64,7 +64,8 @@ export async function filesCommand(options: FilesOptions = {}): Promise<void> {
     });
 
     const allFiles = flattenFiles(tree);
-    const contextManager = new ContextManager(workspaceRoot);
+    const config = await loadTeamConfig(workspaceRoot);
+    const contextManager = ContextManager.fromConfig(workspaceRoot, config?.fileTree);
 
     if (options.writeable) {
       // Legacy behaviour: only writable files
@@ -204,9 +205,9 @@ export async function filesAllowCommand(filePath: string, options: AllowOptions 
     console.log(chalk.green(`  ✔ ${filePath} added to agent ${result.agent.id} ${mode} permissions`));
     console.log(chalk.dim(`  ${mode}: ${result.paths.join(', ') || '(none)'}`));
   } else {
-    const next = await allowPathCommand(workspaceRoot, filePath);
-    console.log(chalk.green(`  ✔ ${filePath} is in the allow list`));
-    console.log(chalk.dim(`  .ai-team/config.json (${next.length} path${next.length === 1 ? '' : 's'})`));
+    const next = await allowPathCommand(workspaceRoot, filePath, mode);
+    console.log(chalk.green(`  ✔ ${filePath} added to global ${mode} permissions`));
+    console.log(chalk.dim(`  .ai-team/config.json fileTree.${mode === 'write' ? 'writePaths' : 'readPaths'} (${next.length} path${next.length === 1 ? '' : 's'})`));
   }
 }
 
@@ -218,8 +219,8 @@ export async function filesDisallowCommand(filePath: string, options: AllowOptio
     console.log(chalk.green(`  ✔ ${filePath} removed from agent ${result.agent.id} ${mode} permissions`));
     console.log(chalk.dim(`  ${mode}: ${result.paths.join(', ') || '(none)'}`));
   } else {
-    const next = await disallowPathCommand(workspaceRoot, filePath);
-    console.log(chalk.green(`  ✔ ${filePath} removed from allow list`));
-    console.log(chalk.dim(`  .ai-team/config.json (${next.length} path${next.length === 1 ? '' : 's'})`));
+    const next = await disallowPathCommand(workspaceRoot, filePath, mode);
+    console.log(chalk.green(`  ✔ ${filePath} removed from global ${mode} permissions`));
+    console.log(chalk.dim(`  .ai-team/config.json fileTree.${mode === 'write' ? 'writePaths' : 'readPaths'} (${next.length} path${next.length === 1 ? '' : 's'})`));
   }
 }

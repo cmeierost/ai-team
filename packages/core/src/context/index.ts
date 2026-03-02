@@ -7,6 +7,7 @@ import path from 'path';
 import {
   Agent,
   ContextLevel,
+  FileTreeConfig,
   PermissionConfig,
   PermissionError,
 } from '../types/index.js';
@@ -21,41 +22,64 @@ export interface AnnotatedFile {
   writable: boolean;
 }
 
+/** Global workspace-level permission overrides loaded from config.json fileTree */
+export interface GlobalPermissions {
+  readPaths: string[];
+  writePaths: string[];
+}
+
 export class ContextManager {
   private workspaceRoot: string;
+  private globalPerms: GlobalPermissions;
 
-  constructor(workspaceRoot: string) {
+  /**
+   * @param workspaceRoot - Absolute workspace root
+   * @param globalPerms - Optional global read/write patterns from config.json fileTree.
+   *                       When provided, these patterns are merged with every agent's permissions.
+   */
+  constructor(workspaceRoot: string, globalPerms?: GlobalPermissions) {
     this.workspaceRoot = workspaceRoot;
+    this.globalPerms = globalPerms ?? { readPaths: [], writePaths: [] };
   }
 
   /**
-   * Check if an agent has read permission for a file
+   * Create a ContextManager pre-loaded with global permissions from a FileTreeConfig.
+   */
+  static fromConfig(workspaceRoot: string, fileTreeConfig?: FileTreeConfig): ContextManager {
+    return new ContextManager(workspaceRoot, {
+      readPaths: fileTreeConfig?.readPaths ?? [],
+      writePaths: fileTreeConfig?.writePaths ?? [],
+    });
+  }
+
+  /**
+   * Check if an agent has read permission for a file (agent + global patterns)
    * @param agent - Agent to check permissions for
-   * @param filePath - Absolute file path
+   * @param filePath - Absolute or workspace-relative file path
    * @returns True if agent can read the file
    */
   canRead(agent: Agent, filePath: string): boolean {
-    if (!agent.permissions) {
-      return false;
-    }
-
     const relativePath = this.getRelativePath(filePath);
-    return this.matchesPatterns(relativePath, agent.permissions.read);
+    // Global read patterns
+    if (this.matchesPatterns(relativePath, this.globalPerms.readPaths)) return true;
+    // Agent-level read patterns
+    if (agent.permissions && this.matchesPatterns(relativePath, agent.permissions.read)) return true;
+    return false;
   }
 
   /**
-   * Check if an agent has write permission for a file
+   * Check if an agent has write permission for a file (agent + global patterns)
    * @param agent - Agent to check permissions for
-   * @param filePath - Absolute file path
+   * @param filePath - Absolute or workspace-relative file path
    * @returns True if agent can write the file
    */
   canWrite(agent: Agent, filePath: string): boolean {
-    if (!agent.permissions) {
-      return false;
-    }
-
     const relativePath = this.getRelativePath(filePath);
-    return this.matchesPatterns(relativePath, agent.permissions.write);
+    // Global write patterns
+    if (this.matchesPatterns(relativePath, this.globalPerms.writePaths)) return true;
+    // Agent-level write patterns
+    if (agent.permissions && this.matchesPatterns(relativePath, agent.permissions.write)) return true;
+    return false;
   }
 
   /**

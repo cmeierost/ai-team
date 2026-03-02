@@ -16,12 +16,18 @@ export async function getFileTreeCommand(
 }
 
 /**
- * Add a path to the gitignore allow-list stored in .ai-team/config.json.
- * Returns the updated allow list.
+ * Add a path to the global read or write permission list in .ai-team/config.json.
+ * When mode is omitted it falls back to the legacy allowPaths list.
+ * Returns the updated path list for that mode.
  */
-export async function allowPathCommand(workspaceRoot: string, filePath: string): Promise<string[]> {
+export async function allowPathCommand(
+  workspaceRoot: string,
+  filePath: string,
+  mode?: 'read' | 'write',
+): Promise<string[]> {
   const config = await loadTeamConfig(workspaceRoot);
-  const current = config?.fileTree?.allowPaths ?? [];
+  const key = mode === 'write' ? 'writePaths' : mode === 'read' ? 'readPaths' : 'allowPaths';
+  const current: string[] = (config?.fileTree as any)?.[key] ?? [];
 
   if (current.includes(filePath)) return current;
 
@@ -29,18 +35,24 @@ export async function allowPathCommand(workspaceRoot: string, filePath: string):
   await saveTeamConfig(workspaceRoot, {
     ...DEFAULT_CONFIG,
     ...config,
-    fileTree: { ...config?.fileTree, allowPaths: next },
+    fileTree: { allowPaths: [], readPaths: [], writePaths: [], ...config?.fileTree, [key]: next },
   });
   return next;
 }
 
 /**
- * Remove a path from the gitignore allow-list stored in .ai-team/config.json.
- * Returns the updated allow list.
+ * Remove a path from the global read or write permission list in .ai-team/config.json.
+ * When mode is omitted it falls back to the legacy allowPaths list.
+ * Returns the updated path list for that mode.
  */
-export async function disallowPathCommand(workspaceRoot: string, filePath: string): Promise<string[]> {
+export async function disallowPathCommand(
+  workspaceRoot: string,
+  filePath: string,
+  mode?: 'read' | 'write',
+): Promise<string[]> {
   const config = await loadTeamConfig(workspaceRoot);
-  const current = config?.fileTree?.allowPaths ?? [];
+  const key = mode === 'write' ? 'writePaths' : mode === 'read' ? 'readPaths' : 'allowPaths';
+  const current: string[] = (config?.fileTree as any)?.[key] ?? [];
   const next = current.filter((p) => p !== filePath);
 
   if (next.length === current.length) return current;
@@ -48,7 +60,7 @@ export async function disallowPathCommand(workspaceRoot: string, filePath: strin
   await saveTeamConfig(workspaceRoot, {
     ...DEFAULT_CONFIG,
     ...config,
-    fileTree: { ...config?.fileTree, allowPaths: next },
+    fileTree: { allowPaths: [], readPaths: [], writePaths: [], ...config?.fileTree, [key]: next },
   });
   return next;
 }

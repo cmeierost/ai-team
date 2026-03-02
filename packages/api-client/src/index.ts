@@ -178,7 +178,7 @@ class InProcessAiTeamClient implements AiTeamClient {
       if (!n.isDirectory && n.relativePath !== '') allFiles.push(n.relativePath);
       if (n.children) for (let i = n.children.length - 1; i >= 0; i--) stack.push(n.children[i]);
     }
-    const ctx = new ContextManager(ws);
+    const ctx = ContextManager.fromConfig(ws, config?.fileTree);
     const annotated = ctx.getAnnotatedFiles(agent, allFiles);
     const files = options?.all ? annotated : annotated.filter(f => f.readable || f.writable);
     return {

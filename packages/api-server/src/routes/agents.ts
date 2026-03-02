@@ -629,7 +629,7 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
       const allFiles = flattenTree(tree);
 
       // Annotate with permissions
-      const ctx = new ContextManager(agentManager.workspaceRoot);
+      const ctx = ContextManager.fromConfig(agentManager.workspaceRoot, config?.fileTree);
       const annotated = ctx.getAnnotatedFiles(agent, allFiles);
 
       const files = includeAll

@@ -639,6 +639,16 @@ export const FileTreeConfigSchema = z.object({
    * Accepts exact relative paths or glob patterns (e.g. "dist/types/**").
    */
   allowPaths: z.array(z.string()).optional().default([]),
+  /**
+   * Global workspace-wide read permission patterns.
+   * Any agent inherits these patterns in addition to its own.
+   */
+  readPaths: z.array(z.string()).optional().default([]),
+  /**
+   * Global workspace-wide write permission patterns.
+   * Any agent inherits these patterns in addition to its own.
+   */
+  writePaths: z.array(z.string()).optional().default([]),
 });
 
 export type FileTreeConfig = z.infer<typeof FileTreeConfigSchema>;
