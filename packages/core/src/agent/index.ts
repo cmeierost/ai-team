@@ -8,6 +8,10 @@ import {
   AgentNotFoundError,
   AgentConfig,
   AgentStatus,
+  AgentSearchOptions,
+  AgentSearchResult,
+  RoleType,
+  ContextLevel,
   ValidationError,
 } from '../types/index.js';
 import {
@@ -265,6 +269,183 @@ export class AgentManager {
     return this.getAllAgents().filter(agent => 
       agent.features?.includes(featureId)
     );
+  }
+
+  /**
+   * Comprehensive agent search with fuzzy matching and filtering
+   * @param options - Search options
+   * @returns Search results with relevance scores
+   */
+  searchAgents(options: AgentSearchOptions): AgentSearchResult[] {
+    let agents = this.getAllAgents();
+    const results: AgentSearchResult[] = [];
+
+    // Apply filters first (narrow down candidates)
+    if (options.role) {
+      const roles = Array.isArray(options.role) ? options.role : [options.role];
+      agents = agents.filter(a => roles.some(r => a.role.toLowerCase() === r.toLowerCase()));
+    }
+
+    if (options.type) {
+      const types = Array.isArray(options.type) ? options.type : [options.type];
+      agents = agents.filter(a => a.type && types.includes(a.type));
+    }
+
+    if (options.status) {
+      const statuses = Array.isArray(options.status) ? options.status : [options.status];
+      agents = agents.filter(a => a.status && statuses.includes(a.status));
+    }
+
+    if (options.contextLevel) {
+      const levels = Array.isArray(options.contextLevel) ? options.contextLevel : [options.contextLevel];
+      agents = agents.filter(a => levels.includes(a.contextLevel));
+    }
+
+    if (options.feature) {
+      const features = Array.isArray(options.feature) ? options.feature : [options.feature];
+      agents = agents.filter(a => 
+        a.features && features.some(f => a.features!.includes(f))
+      );
+    }
+
+    if (options.specialization) {
+      const specs = Array.isArray(options.specialization) ? options.specialization : [options.specialization];
+      agents = agents.filter(a => 
+        a.specializations && specs.some(s => 
+          a.specializations!.some(as => as.toLowerCase().includes(s.toLowerCase()))
+        )
+      );
+    }
+
+    if (options.tool) {
+      const tools = Array.isArray(options.tool) ? options.tool : [options.tool];
+      agents = agents.filter(a => {
+        const agentTools = [...(a.tools || []), ...(a.cliTools || [])];
+        return tools.some(t => 
+          agentTools.some(at => at.toLowerCase().includes(t.toLowerCase()))
+        );
+      });
+    }
+
+    if (options.reportsTo !== undefined) {
+      agents = agents.filter(a => a.reportsTo === options.reportsTo);
+    }
+
+    // If no query, return filtered agents with default score
+    if (!options.query || options.query.trim() === '') {
+      return agents.map(agent => ({
+        agent,
+        score: 50,
+        matches: [],
+      }));
+    }
+
+    // Perform fuzzy text search on remaining candidates
+    const query = options.query.toLowerCase().trim();
+    
+    for (const agent of agents) {
+      let score = 0;
+      const matches: string[] = [];
+
+      // 1. Exact ID match (score: 100)
+      if (agent.id === query) {
+        score = 100;
+        matches.push('id');
+      }
+      // 2. Exact name match (score: 95)
+      else if (agent.name.toLowerCase() === query) {
+        score = 95;
+        matches.push('name');
+      }
+      // 3. Exact role match (score: 90)
+      else if (agent.role.toLowerCase() === query) {
+        score = 90;
+        matches.push('role');
+      }
+      // 4. Partial name match (score: 85)
+      else if (agent.name.toLowerCase().includes(query)) {
+        score = 85;
+        matches.push('name');
+      }
+      // 5. Partial ID or role match (score: 80)
+      else if (agent.id.includes(query) || agent.role.toLowerCase().includes(query)) {
+        score = agent.id.includes(query) ? 80 : 75;
+        matches.push(agent.id.includes(query) ? 'id' : 'role');
+      }
+      // 6. Fuzzy name match (Levenshtein ≤ 2, score: 70-75)
+      else if (levenshtein(agent.name.toLowerCase(), query) <= 2) {
+        score = 70 + (2 - levenshtein(agent.name.toLowerCase(), query)) * 2.5;
+        matches.push('name');
+      }
+      // 7. Fuzzy first name match (score: 65-70)
+      else {
+        const firstName = agent.name.toLowerCase().split(/\s+/)[0];
+        if (levenshtein(firstName, query) <= 2) {
+          score = 65 + (2 - levenshtein(firstName, query)) * 2.5;
+          matches.push('name');
+        }
+      }
+
+      // Boost score for specialization matches (add 30-40 points)
+      if (agent.specializations) {
+        for (const spec of agent.specializations) {
+          const specLower = spec.toLowerCase();
+          if (specLower === query) {
+            score = Math.max(score, 70);
+            if (!matches.includes('specializations')) matches.push('specializations');
+          } else if (specLower.includes(query)) {
+            score = Math.max(score, 60);
+            if (!matches.includes('specializations')) matches.push('specializations');
+          } else if (query.length > 3 && levenshtein(specLower, query) <= 2) {
+            score = Math.max(score, 55);
+            if (!matches.includes('specializations')) matches.push('specializations');
+          }
+        }
+      }
+
+      // Boost score for feature path matches (add 20-30 points)
+      if (agent.features) {
+        for (const feature of agent.features) {
+          const featureLower = feature.toLowerCase();
+          if (featureLower.includes(query) || query.includes(featureLower)) {
+            score = Math.max(score, 55);
+            if (!matches.includes('features')) matches.push('features');
+          }
+        }
+      }
+
+      // Boost score for tool matches (add 20-25 points)
+      const agentTools = [...(agent.tools || []), ...(agent.cliTools || [])];
+      for (const tool of agentTools) {
+        const toolLower = tool.toLowerCase();
+        if (toolLower === query) {
+          score = Math.max(score, 50);
+          if (!matches.includes('tools')) matches.push('tools');
+        } else if (toolLower.includes(query)) {
+          score = Math.max(score, 45);
+          if (!matches.includes('tools')) matches.push('tools');
+        }
+      }
+
+      // Search in portfolio/bio content (score: 35-40)
+      if (agent.markdown) {
+        const contentLower = agent.markdown.toLowerCase();
+        if (contentLower.includes(query)) {
+          score = Math.max(score, query.length > 5 ? 40 : 35);
+          if (!matches.includes('markdown')) matches.push('markdown');
+        }
+      }
+
+      // Only include agents with matches
+      if (score > 0) {
+        results.push({ agent, score, matches });
+      }
+    }
+
+    // Sort by score (descending)
+    results.sort((a, b) => b.score - a.score);
+
+    return results;
   }
 
   /**

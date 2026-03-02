@@ -339,18 +339,22 @@ const allMessages = await chatManager.loadChatHistory('agent-id', true);
 
 ## Storage Format
 
-### Chat History Files
+### Chat Sessions and Messages
 
-**Location**: `.ai-team/private/chats/{agentId}.jsonl`
+**Location**: `.ai-team/private/ai-team.db` (SQLite database)
 
-**Format**: JSON Lines (JSONL) - one JSON object per line
+**Schema**: Normalized relational model with sessions, messages, and related entities
 
-**Example**:
-```jsonl
-{"from":"human","content":"Hello","timestamp":"2026-02-26T20:00:00.000Z"}
-{"from":"agent-id","content":"Hi there!","timestamp":"2026-02-26T20:00:05.000Z"}
-{"from":"human","content":"Old message","timestamp":"2026-02-26T20:01:00.000Z","archived":true}
-```
+**Key Tables**:
+- `sessions` - Session metadata (ID, agent, developer, timestamps, artifacts, etc.)
+- `messages` - Chat messages (content, timestamps, handoff info, archived flag)
+- `session_agents` - Multi-agent session tracking
+- `session_artifacts`, `session_files`, `session_tasks` - Session context
+- `message_files`, `message_tool_calls`, `message_suggestions` - Message metadata
+
+**Access**: Via `SessionManager` and `SqliteMessageStorage` (see `packages/service/src/storage/`)
+
+**Migration**: Old JSONL files (`.ai-team/private/chats/*.jsonl`) are deprecated and no longer used
 
 ### Summary Files
 

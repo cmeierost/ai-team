@@ -1,15 +1,83 @@
 import { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useTeam, API_BASE } from '../context/TeamContext';
 import { ChatMessage } from '../types';
 import { Avatar } from './Avatar';
 import { MarkdownMessage } from './MarkdownMessage';
 import { ContextPanel } from './ContextPanel';
+import { AgentBriefingBadge } from './AgentBriefingBadge';
+import { RelativeTime } from './RelativeTime';
+import { getAgentColor } from '../utils/color';
 import './ChatPanel.css';
 
-interface ChatPanelProps {
-  agentId: string;
-  onSwitchAgent?: (agentId: string) => void;
+interface QuestionChoice {
+  name: string;
+  value: string;
 }
+
+interface InputQuestionRequest {
+  message: string;
+}
+
+interface ConfirmQuestionRequest {
+  message: string;
+  default?: boolean;
+}
+
+interface SelectQuestionRequest {
+  message: string;
+  choices: QuestionChoice[];
+}
+
+interface PasswordQuestionRequest {
+  message: string;
+}
+
+interface ChecklistQuestionRequest {
+  message: string;
+  choices: QuestionChoice[];
+}
+
+function getFallbackQuestionAnswer(question: {
+  kind: 'input' | 'password' | 'confirm' | 'select' | 'checklist';
+  choices?: QuestionChoice[];
+}): string | boolean | string[] {
+  if (question.kind === 'confirm') {
+    return false;
+  }
+  if (question.kind === 'checklist') {
+    return [];
+  }
+  if (question.kind === 'select') {
+    return question.choices?.[0]?.value ?? '';
+  }
+  return '';
+}
+
+type PendingQuestion =
+  | {
+      kind: 'input';
+      message: string;
+    }
+  | {
+      kind: 'password';
+      message: string;
+    }
+  | {
+      kind: 'confirm';
+      message: string;
+      defaultValue: boolean;
+    }
+  | {
+      kind: 'select';
+      message: string;
+      choices: QuestionChoice[];
+    }
+  | {
+      kind: 'checklist';
+      message: string;
+      choices: QuestionChoice[];
+    };
 
 interface MessageDividerProps {
   messageIndex: number;
@@ -49,30 +117,69 @@ function MessageDivider({ messageIndex, onSummarize, onSplitSession }: MessageDi
   );
 }
 
-export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
-  const { agents, client } = useTeam();
+export function ChatPanel() {
+  const { agentId } = useParams<{ agentId: string }>();
+  const navigate = useNavigate();
+  const { agents, client, developer } = useTeam();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [currentAgentId, setCurrentAgentId] = useState(agentId);
+  const [currentAgentId, setCurrentAgentId] = useState(agentId || '');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [artifactsInContext, setArtifactsInContext] = useState<string[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recognition, setRecognition] = useState<any>(null);
+  const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
+  const [pendingInputAnswer, setPendingInputAnswer] = useState('');
+  const [pendingPasswordAnswer, setPendingPasswordAnswer] = useState('');
+  const [pendingConfirmAnswer, setPendingConfirmAnswer] = useState(false);
+  const [pendingSelectAnswer, setPendingSelectAnswer] = useState('');
+  const [pendingChecklistAnswer, setPendingChecklistAnswer] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const pendingQuestionResolveRef = useRef<((value: unknown) => void) | null>(null);
+  const pendingQuestionRejectRef = useRef<((reason?: unknown) => void) | null>(null);
 
   const agent = agents.find((a) => a.id === currentAgentId);
+
+  // Auto-resize textarea based on content
+  const autoResizeTextarea = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  };
 
   // Helper: check if message is from human (handles both old 'human' format and new isHuman flag)
   const isHumanMessage = (message: ChatMessage): boolean => {
     return message.isHuman === true || message.from === 'human';
   };
 
-  // Helper: check if message is a handoff (has 'to' field or HANDOFF pattern in content)
+  // Helper: check if message is a handoff (has handoffType or legacy 'to' field or HANDOFF pattern)
   const isHandoffMessage = (message: ChatMessage): boolean => {
-    return !!(message.to || /HANDOFF:\s*[a-z0-9-]+\s*\|/i.test(message.content));
+    return !!(
+      message.handoffType ||
+      message.to ||
+      /HANDOFF:\s*[a-z0-9-]+\s*\|/i.test(message.content)
+    );
+  };
+
+  // Helper: check if message is an agent-to-agent briefing
+  const isAgentBriefing = (message: ChatMessage): boolean => {
+    return message.handoffType === 'agent-briefing';
+  };
+
+  // Helper: get target agent name from briefing message
+  const getTargetAgentName = (message: ChatMessage): string | null => {
+    if (!message.targetAgentId) return null;
+    const targetAgent = agents.find((a) => a.id === message.targetAgentId);
+    return targetAgent ? targetAgent.name : message.targetAgentId;
   };
 
   // Helper: format developer ID to display name (e.g., "clemens-meier" -> "Clemens Meier")
@@ -84,48 +191,6 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
       .join(' ');
   };
 
-  // Helper: format timestamp as relative date/time
-  const formatRelativeTime = (timestamp: string): string => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSecs = Math.floor(diffMs / 1000);
-    const diffMins = Math.floor(diffSecs / 60);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    // Less than 1 minute: "just now"
-    if (diffSecs < 60) return 'just now';
-    
-    // Less than 1 hour: "X min ago"
-    if (diffMins < 60) return `${diffMins} min ago`;
-    
-    // Less than 24 hours: show time only
-    if (diffHours < 24) {
-      return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    }
-    
-    // Yesterday
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) {
-      return `Yesterday ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
-    }
-    
-    // Within the last 7 days: show day name + time
-    if (diffDays < 7) {
-      return `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
-    }
-    
-    // Within current year: show month + day
-    if (date.getFullYear() === now.getFullYear()) {
-      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    }
-    
-    // Older: show full date
-    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-  };
-
   // Helper: extract target agent ID from handoff message
   const extractHandoffTarget = (content: string): string | null => {
     const match = content.match(/HANDOFF:\s*([a-z0-9-]+)\s*\|/i);
@@ -133,80 +198,95 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
   };
 
   // Handle handoff link click
-  const handleHandoffClick = (targetAgentId: string) => {
-    if (onSwitchAgent) {
-      onSwitchAgent(targetAgentId);
+  const handleHandoffClick = async (targetAgentId: string) => {
+    if (!currentSessionId) {
+      console.error('Cannot handoff: no current session');
+      return;
+    }
+
+    try {
+      // Create a new handoff session
+      const response = await fetch(`${API_BASE}/api/sessions/handoff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toAgentId: targetAgentId,
+          developerId: developer?.id || 'clemens-meier',
+          previousSessionId: currentSessionId,
+          transferArtifacts: true,
+          transferAllowedFiles: true,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create handoff session');
+      }
+
+      const newSession = await response.json();
+      console.log('Created handoff session:', newSession.id);
+
+      // Load messages from the new session
+      const messagesResponse = await fetch(`${API_BASE}/api/sessions/${newSession.id}/messages?includeMessages=true`);
+      if (messagesResponse.ok) {
+        const sessionWithMessages = await messagesResponse.json();
+        setMessages(sessionWithMessages.messages || []);
+        setCurrentSessionId(newSession.id);
+        setCurrentAgentId(targetAgentId);
+        setArtifactsInContext(sessionWithMessages.artifacts || newSession.artifacts || []);
+      }
+
+      // Notify parent to switch agent
+      // Navigate to the target agent's chat
+      navigate(`/chat/${targetAgentId}`);
+    } catch (error) {
+      console.error('Failed to handle handoff:', error);
     }
   };
 
   // Load chat history when agentId changes
   useEffect(() => {
+    if (!agentId) return;
+    
     let cancelled = false;
     
     const loadSession = async () => {
       setLoading(true);
       try {
-        // Try to get the latest session for this agent
-        const sessionResponse = await fetch(`${API_BASE}/api/sessions/${agentId}/latest`);
-        
-        let sessionId: string;
-        let sessionArtifacts: string[] = [];
+        // Try to get the latest session for this agent (with messages)
+        const sessionResponse = await fetch(`${API_BASE}/api/sessions/${agentId}/latest?includeMessages=true`);
         
         if (sessionResponse.ok) {
-          const session = await sessionResponse.json();
-          sessionId = session.id;
-          sessionArtifacts = session.artifacts || [];
+          // Load existing session with messages
+          const sessionWithMessages = await sessionResponse.json();
+          const sessionId = sessionWithMessages.id;
+          const sessionArtifacts = sessionWithMessages.artifacts || [];
+          const sessionMessages = sessionWithMessages.messages || [];
           console.log('Loaded existing session:', sessionId);
-        } else {
-          // No session exists, create a new one
-          const createResponse = await fetch(`${API_BASE}/api/sessions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              agentId,
-              developerId: 'clemens.meier', // TODO: Get from user context
-            }),
-          });
           
-          if (!createResponse.ok) {
-            throw new Error('Failed to create new session');
+          if (!cancelled) {
+            setCurrentSessionId(sessionId);
+            setMessages(sessionMessages);
+            setArtifactsInContext(sessionArtifacts);
+            setCurrentAgentId(agentId);
           }
-          
-          const newSession = await createResponse.json();
-          sessionId = newSession.id;
-          sessionArtifacts = newSession.artifacts || [];
-          console.log('Created new session:', sessionId);
-        }
-        
-        // Load messages from the session
-        const messagesResponse = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`);
-        if (!messagesResponse.ok) {
-          console.error('Failed to load session messages');
-          return;
-        }
-        
-        const sessionMessages = await messagesResponse.json();
-        
-        if (!cancelled) {
-          setCurrentSessionId(sessionId);
-          setMessages(sessionMessages);
-          setArtifactsInContext(sessionArtifacts);
-          setCurrentAgentId(agentId);
+        } else {
+          // No session exists yet - start fresh
+          console.log('No existing session found for agent:', agentId);
+          if (!cancelled) {
+            setCurrentSessionId(null);
+            setMessages([]);
+            setArtifactsInContext([]);
+            setCurrentAgentId(agentId);
+          }
         }
       } catch (error) {
         console.error('Failed to load session:', error);
-        // Fallback to old chat history if session loading fails
-        try {
-          const response = await fetch(`${API_BASE}/api/chat/${agentId}?includeArchived=true`);
-          if (response.ok) {
-            const history = await response.json();
-            if (!cancelled) {
-              setMessages(history);
-              setCurrentAgentId(agentId);
-            }
-          }
-        } catch (fallbackError) {
-          console.error('Fallback to old chat history also failed:', fallbackError);
+        // Start fresh on error
+        if (!cancelled) {
+          setCurrentSessionId(null);
+          setMessages([]);
+          setArtifactsInContext([]);
+          setCurrentAgentId(agentId);
         }
       } finally {
         if (!cancelled) {
@@ -227,6 +307,115 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const rejectAndClearPendingQuestion = (reason: Error) => {
+    if (pendingQuestionRejectRef.current) {
+      pendingQuestionRejectRef.current(reason);
+    }
+    clearPendingQuestion();
+  };
+
+  const handleInterrupt = () => {
+    rejectAndClearPendingQuestion(new Error('Question interrupted by user.'));
+
+    // Abort streaming (the HTTP client forwards this to websocket cancel)
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setSending(false);
+    setStreaming(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      rejectAndClearPendingQuestion(new Error('Question interrupted: chat panel unmounted.'));
+    };
+  }, []);
+
+  const clearPendingQuestion = () => {
+    pendingQuestionResolveRef.current = null;
+    pendingQuestionRejectRef.current = null;
+    setPendingQuestion(null);
+    setPendingInputAnswer('');
+    setPendingPasswordAnswer('');
+    setPendingConfirmAnswer(false);
+    setPendingSelectAnswer('');
+    setPendingChecklistAnswer([]);
+  };
+
+  const beginPendingQuestion = <T,>(question: PendingQuestion): Promise<T> => {
+    if (pendingQuestionRejectRef.current) {
+      pendingQuestionRejectRef.current(new Error('Previous question was replaced before submission.'));
+    }
+
+    if (question.kind === 'input') {
+      setPendingInputAnswer('');
+    } else if (question.kind === 'password') {
+      setPendingPasswordAnswer('');
+    } else if (question.kind === 'confirm') {
+      setPendingConfirmAnswer(question.defaultValue);
+    } else if (question.kind === 'select') {
+      setPendingSelectAnswer(question.choices[0]?.value ?? '');
+    } else if (question.kind === 'checklist') {
+      setPendingChecklistAnswer([]);
+    }
+
+    setPendingQuestion(question);
+
+    return new Promise<T>((resolve, reject) => {
+      pendingQuestionResolveRef.current = (value: unknown) => resolve(value as T);
+      pendingQuestionRejectRef.current = reject;
+    });
+  };
+
+  const togglePendingChecklistValue = (choiceValue: string, checked: boolean) => {
+    setPendingChecklistAnswer((prev) =>
+      checked ? [...prev, choiceValue] : prev.filter((value) => value !== choiceValue)
+    );
+  };
+
+  const handlePendingQuestionSubmit = (e: { preventDefault: () => void }) => {
+    e.preventDefault();
+
+    if (!pendingQuestion || !pendingQuestionResolveRef.current) {
+      return;
+    }
+
+    if (pendingQuestion.kind === 'input') {
+      pendingQuestionResolveRef.current(pendingInputAnswer);
+    } else if (pendingQuestion.kind === 'password') {
+      pendingQuestionResolveRef.current(pendingPasswordAnswer);
+    } else if (pendingQuestion.kind === 'confirm') {
+      pendingQuestionResolveRef.current(pendingConfirmAnswer);
+    } else if (pendingQuestion.kind === 'select') {
+      pendingQuestionResolveRef.current(pendingSelectAnswer);
+    } else if (pendingQuestion.kind === 'checklist') {
+      pendingQuestionResolveRef.current(pendingChecklistAnswer);
+    }
+
+    clearPendingQuestion();
+  };
+
+  const askInputQuestion = async (request: InputQuestionRequest): Promise<string> => {
+    return getFallbackQuestionAnswer({ kind: 'input' }) as string;
+  };
+
+  const askConfirmQuestion = async (request: ConfirmQuestionRequest): Promise<boolean> => {
+    return getFallbackQuestionAnswer({ kind: 'confirm' }) as boolean;
+  };
+
+  const askSelectQuestion = async (request: SelectQuestionRequest): Promise<string> => {
+    return getFallbackQuestionAnswer({ kind: 'select', choices: request.choices }) as string;
+  };
+
+  const askPasswordQuestion = async (request: PasswordQuestionRequest): Promise<string> => {
+    return getFallbackQuestionAnswer({ kind: 'password' }) as string;
+  };
+
+  const askChecklistQuestion = async (request: ChecklistQuestionRequest): Promise<string[]> => {
+    return getFallbackQuestionAnswer({ kind: 'checklist' }) as string[];
+  };
+
   const handleSend = async () => {
     if (!input.trim() || sending) return;
 
@@ -239,26 +428,64 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
 
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     setSending(true);
     setStreaming(true);
+    abortControllerRef.current = new AbortController();
 
     // Create a placeholder for the streaming response
     const assistantMessageIndex = messages.length + 1;
     const assistantMessage: ChatMessage = {
-      from: currentAgentId,
+      from: currentAgentId || 'agent',
       content: '',
       timestamp: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, assistantMessage]);
 
     try {
-      // Stream the response using WebSocket
+      // Create session if it doesn't exist (lazy session creation)
+      let sessionId = currentSessionId;
+      if (!sessionId) {
+        console.log('Creating new session for first message...');
+        const createResponse = await fetch(`${API_BASE}/api/sessions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: currentAgentId,
+            developerId: developer?.id || 'clemens-meier',
+          }),
+        });
+        
+        if (!createResponse.ok) {
+          throw new Error('Failed to create new session');
+        }
+        
+        const newSession = await createResponse.json();
+        sessionId = newSession.id;
+        setCurrentSessionId(sessionId);
+        console.log('Created new session:', sessionId);
+      }
+      const abortSignal = abortControllerRef.current?.signal;
+      if (!abortSignal) {
+        throw new Error('Chat request was interrupted before it started. Please try again.');
+      }
+
       const stream = client.stream({
         command: 'chat',
         payload: {
           employeeId: currentAgentId,
-          options: { message: messageContent },
+          options: { message: messageContent, sessionId: sessionId ?? undefined },
         },
+      }, {
+        signal: abortSignal,
+        questionInput: askInputQuestion,
+        questionConfirm: askConfirmQuestion,
+        questionSelect: askSelectQuestion,
+        questionPassword: askPasswordQuestion,
+        questionChecklist: askChecklistQuestion,
       });
 
       let accumulator = '';
@@ -266,28 +493,51 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
       
       for await (const event of stream) {
         if (event.kind === 'handoff') {
-          // Agent handoff detected - switch to new agent
+          // Agent handoff detected - create new session and switch to new agent
+          const fromAgentId = (event as any).fromAgentId;
           const toAgentId = (event as any).toAgentId;
           const handoffNote = (event as any).handoffNote;
           
-          if (toAgentId) {
+          if (toAgentId && currentSessionId) {
             handoffDetected = true;
-            console.log(`Handoff detected: switching to ${toAgentId}`);
+            console.log(`Handoff detected: switching from ${fromAgentId} to ${toAgentId}`);
             
-            // Load the new agent's chat history
             try {
-              const response = await fetch(`${API_BASE}/api/chat/${toAgentId}`);
-              if (response.ok) {
-                const history = await response.json();
-                setMessages(history);
-                setCurrentAgentId(toAgentId);
+              // Create a new handoff session
+              const handoffResponse = await fetch(`${API_BASE}/api/sessions/handoff`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  toAgentId,
+                  developerId: developer?.id || 'clemens-meier',
+                  previousSessionId: currentSessionId,
+                  transferArtifacts: true,
+                  transferAllowedFiles: true,
+                }),
+              });
+
+              if (handoffResponse.ok) {
+                const newSession = await handoffResponse.json();
+                console.log('Created handoff session:', newSession.id);
+
+                // Load messages from the new session
+                const messagesResponse = await fetch(`${API_BASE}/api/sessions/${newSession.id}?includeMessages=true`);
+                if (messagesResponse.ok) {
+                  const sessionWithMessages = await messagesResponse.json();
+                  setMessages(sessionWithMessages.messages || []);
+                  setCurrentSessionId(newSession.id);
+                  setCurrentAgentId(toAgentId);
+                  setArtifactsInContext(sessionWithMessages.artifacts || []);
+                }
+              } else {
+                throw new Error('Failed to create handoff session');
               }
             } catch (error) {
-              console.error('Failed to load new agent chat history:', error);
+              console.error('Failed to create handoff session:', error);
             }
             
             // Reset accumulator for the new agent's response
-            accumulator = '';
+            accumulator = '';;
           }
         } else if (event.kind === 'token') {
           // Append token to accumulated text
@@ -296,7 +546,7 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
             const updated = [...prev];
             updated[assistantMessageIndex] = {
               ...updated[assistantMessageIndex],
-              from: currentAgentId,
+              from: currentAgentId || 'agent',
               content: accumulator,
             };
             return updated;
@@ -325,9 +575,13 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
       }
     } catch (error) {
       console.error('Failed to send message:', error);
+      const rawMessage = error instanceof Error ? error.message : 'Failed to send message';
+      const normalizedMessage = /question timeout|did not receive a response in time/i.test(rawMessage)
+        ? 'The request could not be completed. Please try again.'
+        : rawMessage;
       const errorMessage: ChatMessage = {
-        from: currentAgentId,
-        content: `Error: ${error instanceof Error ? error.message : 'Failed to send message'}`,
+        from: currentAgentId || 'agent',
+        content: `Error: ${normalizedMessage}`,
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => {
@@ -338,6 +592,7 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
     } finally {
       setSending(false);
       setStreaming(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -346,6 +601,44 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const startVoiceRecording = () => {
+    // Check if browser supports speech recognition
+    const SpeechRecognition = (globalThis as any).SpeechRecognition || (globalThis as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Speech recognition is not supported in your browser. Please try Chrome or Edge.');
+      return;
+    }
+
+    const recognitionInstance = new SpeechRecognition();
+    recognitionInstance.continuous = false;
+    recognitionInstance.interimResults = false;
+    recognitionInstance.lang = 'en-US';
+
+    recognitionInstance.onstart = () => {
+      setIsRecording(true);
+    };
+
+    recognitionInstance.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput((prev) => prev ? `${prev} ${transcript}` : transcript);
+    };
+
+    recognitionInstance.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      setIsRecording(false);
+      if (event.error === 'not-allowed') {
+        alert('Microphone access denied. Please allow microphone access in your browser settings.');
+      }
+    };
+
+    recognitionInstance.onend = () => {
+      setIsRecording(false);
+    };
+
+    setRecognition(recognitionInstance);
+    recognitionInstance.start();
   };
 
   // Message operations
@@ -454,7 +747,7 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
           toIndex,
           title,
           summary,
-          developerId: 'clemens.meier', // TODO: Get from user context
+          developerId: developer?.id || 'clemens-meier',
         }),
       });
 
@@ -491,7 +784,7 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           atIndex,
-          developerId: 'clemens.meier', // TODO: Get from user context
+          developerId: developer?.id || 'clemens-meier',
         }),
       });
 
@@ -543,26 +836,30 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
     }
   };
 
+  const handleDeleteSession = async (deletedSessionId: string) => {
+    if (deletedSessionId === currentSessionId) {
+      // Current session was deleted, clear chat state
+      setCurrentSessionId(null);
+      setMessages([]);
+      setArtifactsInContext([]);
+      console.log('Current session deleted, chat cleared');
+    }
+  };
+
   const handleSwitchSession = async (sessionId: string) => {
     try {
-      // Load session metadata
-      const sessionResponse = await fetch(`${API_BASE}/api/sessions/${sessionId}`);
+      // Load session with messages in one call
+      const sessionResponse = await fetch(`${API_BASE}/api/sessions/${sessionId}?includeMessages=true`);
       if (!sessionResponse.ok) {
         throw new Error('Failed to load session');
       }
-      const session = await sessionResponse.json();
-
-      // Load messages from the session
-      const messagesResponse = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`);
-      if (!messagesResponse.ok) {
-        throw new Error('Failed to load session messages');
-      }
-      const sessionMessages = await messagesResponse.json();
+      const sessionWithMessages = await sessionResponse.json();
 
       // Update state
       setCurrentSessionId(sessionId);
-      setMessages(sessionMessages);
-      setArtifactsInContext(session.artifacts || []);
+      setMessages(sessionWithMessages.messages || []);
+      setArtifactsInContext(sessionWithMessages.artifacts || []);
+      setCurrentAgentId(sessionWithMessages.agentId || agentId);
 
       console.log(`Switched to session: ${sessionId}`);
     } catch (error) {
@@ -632,11 +929,28 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
                 className={`message message-${isHumanMessage(message) ? 'user' : 'assistant'}${
                   message.archived ? ' message-archived' : ''
                 }`}
+                style={!isHumanMessage(message) && agent ? { '--agent-color': getAgentColor(agent) } as React.CSSProperties : undefined}
               >
               <div className="message-avatar">
                 {isHumanMessage(message) ? (
-                  <div className="avatar avatar-small avatar-initials">
-                    {formatDeveloperName(message.from).substring(0, 2).toUpperCase()}
+                  <div 
+                    className={`avatar avatar-small avatar-initials${developer?.portfolioUrl ? ' avatar-clickable' : ''}`}
+                    onClick={() => {
+                      if (developer?.portfolioUrl) {
+                        window.open(developer.portfolioUrl, '_blank');
+                      }
+                    }}
+                    title={developer?.portfolioUrl ? `Visit ${developer.name}'s portfolio` : undefined}
+                  >
+                    {developer?.avatar ? (
+                      <img
+                        src={developer.avatar}
+                        alt={developer.name}
+                        className="avatar avatar-small developer-avatar-img"
+                      />
+                    ) : (
+                      (developer?.name || formatDeveloperName(message.from)).substring(0, 2).toUpperCase()
+                    )}
                   </div>
                 ) : (
                   <Avatar agent={agent} size="small" />
@@ -644,10 +958,11 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
               </div>
               <div className="message-bubble">
                 <div className="message-header">
-                  <strong>{isHumanMessage(message) ? formatDeveloperName(message.from) : agent.name}</strong>
-                  <span className="message-time">
-                    {formatRelativeTime(message.timestamp)}
-                  </span>
+                  <strong>{isHumanMessage(message) ? (developer?.name || formatDeveloperName(message.from)) : agent.name}</strong>
+                  {isAgentBriefing(message) && getTargetAgentName(message) && (
+                    <AgentBriefingBadge targetAgentName={getTargetAgentName(message)!} />
+                  )}
+                  <RelativeTime timestamp={message.timestamp} className="message-time" />
                   {message.archived && <span className="archived-badge">📦 Archived</span>}
                 </div>
                 <div className="message-content">
@@ -658,6 +973,7 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
                         onChange={(e) => setEditContent(e.target.value)}
                         className="message-edit-textarea"
                         rows={5}
+                        title="Edit message content"
                       />
                       <div className="message-edit-actions">
                         <button onClick={() => handleEditMessage(index)} className="btn-save">
@@ -726,31 +1042,143 @@ export function ChatPanel({ agentId, onSwitchAgent }: ChatPanelProps) {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="chat-input">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder={`Message ${agent.name}...`}
-            rows={3}
-            disabled={sending}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || sending}
-            className="btn-send"
-          >
-            {sending ? 'Sending...' : 'Send'}
-          </button>
+        <div className="chat-input-area">
+          {pendingQuestion ? (
+            <form className="chat-input-container pending-question-form" onSubmit={handlePendingQuestionSubmit}>
+              <div className="pending-question-title">{pendingQuestion.message}</div>
+
+              {pendingQuestion.kind === 'input' && (
+                <input
+                  type="text"
+                  className="pending-question-control pending-question-input"
+                  value={pendingInputAnswer}
+                  onChange={(e) => setPendingInputAnswer(e.target.value)}
+                  placeholder="Enter your answer"
+                  title="Answer"
+                />
+              )}
+
+              {pendingQuestion.kind === 'password' && (
+                <input
+                  type="password"
+                  className="pending-question-control pending-question-input"
+                  value={pendingPasswordAnswer}
+                  onChange={(e) => setPendingPasswordAnswer(e.target.value)}
+                  placeholder="Enter your answer"
+                  title="Answer"
+                />
+              )}
+
+              {pendingQuestion.kind === 'confirm' && (
+                <label className="pending-question-control pending-question-confirm">
+                  <input
+                    type="checkbox"
+                    checked={pendingConfirmAnswer}
+                    onChange={(e) => setPendingConfirmAnswer(e.target.checked)}
+                  />
+                  <span>Confirm</span>
+                </label>
+              )}
+
+              {pendingQuestion.kind === 'select' && (
+                <select
+                  className="pending-question-control pending-question-select"
+                  value={pendingSelectAnswer}
+                  onChange={(e) => setPendingSelectAnswer(e.target.value)}
+                  title="Choose an option"
+                >
+                  {pendingQuestion.choices.map((choice) => (
+                    <option key={choice.value} value={choice.value}>
+                      {choice.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {pendingQuestion.kind === 'checklist' && (
+                <div className="pending-question-control pending-question-checklist">
+                  {pendingQuestion.choices.map((choice) => (
+                    <label key={choice.value} className="pending-question-checklist-item">
+                      <input
+                        type="checkbox"
+                        checked={pendingChecklistAnswer.includes(choice.value)}
+                        onChange={(e) => togglePendingChecklistValue(choice.value, e.target.checked)}
+                      />
+                      {choice.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              <div className="chat-input-actions">
+                <button type="submit" className="chat-action-button chat-send-button pending-question-submit">
+                  Send answers
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="chat-input-container">
+              <textarea
+                ref={textareaRef}
+                className="chat-input-textarea"
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  autoResizeTextarea();
+                }}
+                onKeyPress={handleKeyPress}
+                placeholder={`Ask ${agent.name}...`}
+                rows={1}
+                disabled={Boolean(pendingQuestion) || (sending && !streaming)}
+              />
+              <div className="chat-input-actions">
+                {streaming ? (
+                  <button
+                    onClick={handleInterrupt}
+                    className="chat-action-button chat-interrupt-button"
+                    title="Stop generation"
+                  >
+                    <i className="codicon codicon-debug-stop" />
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        if (isRecording) {
+                          recognition?.stop();
+                        } else {
+                          startVoiceRecording();
+                        }
+                      }}
+                      className={`chat-action-button ${isRecording ? 'chat-recording' : ''}`}
+                      title={isRecording ? 'Stop recording' : 'Voice input'}
+                      disabled={sending}
+                    >
+                      <i className={`codicon ${isRecording ? 'codicon-record' : 'codicon-mic'}`} />
+                    </button>
+                    <button
+                      onClick={handleSend}
+                      disabled={Boolean(pendingQuestion) || !input.trim() || sending}
+                      className="chat-action-button chat-send-button"
+                      title="Send message"
+                    >
+                      <i className="codicon codicon-send" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       <ContextPanel
-        agentId={agentId}
+        agentId={agentId || currentAgentId}
         sessionId={currentSessionId ?? undefined}
         artifacts={artifactsInContext}
         onToggleArtifact={handleToggleArtifact}
         onSwitchSession={handleSwitchSession}
+        onDeleteSession={handleDeleteSession}
       />
     </div>
   );

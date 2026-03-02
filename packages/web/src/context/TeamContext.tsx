@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { createHttpAiTeamClient, type AiTeamHttpClient } from '@ai-team/api-client-http';
-import { Agent, GraphData } from '../types';
+import { Agent, GraphData, Developer } from '../types';
 
 // Use window.location.origin in production, or default to localhost in dev
 const API_BASE = window.location.hostname === 'localhost' 
@@ -14,6 +14,7 @@ export { API_BASE };
 interface TeamContextValue {
   agents: Agent[];
   graphData: GraphData | null;
+  developer: Developer | null;
   loading: boolean;
   error: Error | null;
   refresh: () => Promise<void>;
@@ -37,6 +38,7 @@ interface TeamProviderProps {
 export function TeamProvider({ children }: TeamProviderProps) {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [developer, setDeveloper] = useState<Developer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -54,6 +56,17 @@ export function TeamProvider({ children }: TeamProviderProps) {
         .filter(node => node.type === 'agent' && node.data.agent)
         .map(node => node.data.agent!);
       setAgents(agentNodes);
+
+      // Load developer profile
+      try {
+        const response = await fetch(`${API_BASE}/api/developer/me`);
+        if (response.ok) {
+          const devData = await response.json();
+          setDeveloper(devData);
+        }
+      } catch (err) {
+        console.warn('Failed to load developer profile:', err);
+      }
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load team data'));
     } finally {
@@ -70,6 +83,7 @@ export function TeamProvider({ children }: TeamProviderProps) {
       value={{
         agents,
         graphData,
+        developer,
         loading,
         error,
         refresh,

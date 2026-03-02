@@ -147,6 +147,24 @@ node packages/api-server/dist/index.js
 
 Server runs on **http://localhost:3002**
 
+### API Testing with Swagger UI
+
+The API server includes interactive Swagger UI documentation:
+- **Swagger UI**: http://localhost:3002/api-docs
+- **OpenAPI Spec**: http://localhost:3002/api-docs.json
+
+Use Swagger UI to:
+- Explore all available API endpoints and schemas
+- Test endpoints interactively without writing code
+- View request/response examples
+- Debug API integration issues
+
+**Example: Testing the Agents Endpoint**
+1. Open http://localhost:3002/api-docs
+2. Expand "Agents" → "GET /api/agents"
+3. Click "Try it out" → "Execute"
+4. View the response with actual agent data
+
 ### API Server Endpoints Used by Web UI
 - `GET /api/team/graph?mode=hierarchy` - Team hierarchy with resolved roles
 - `GET /api/agents` - List all agents (legacy, prefer team/graph)

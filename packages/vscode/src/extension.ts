@@ -143,14 +143,6 @@ export async function activate(context: vscode.ExtensionContext) {
       });
 
       if (message) {
-        const chatMessage = {
-          timestamp: new Date().toISOString(),
-          from: 'human' as const,
-          isHuman: true,
-          content: message,
-        };
-
-        await chatManager.appendMessage(agentId, chatMessage);
         await agentManager.recordInteraction(agentId);
 
         vscode.window.showInformationMessage(

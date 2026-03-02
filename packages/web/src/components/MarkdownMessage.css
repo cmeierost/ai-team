@@ -1,6 +1,6 @@
 /* Markdown rendering styles */
 .message-content {
-  line-height: 1.6;
+  line-height: 1.2;
   color: #333;
 }
 
@@ -10,9 +10,9 @@
 .message-content h4,
 .message-content h5,
 .message-content h6 {
-  margin: 1em 0 0.5em;
+  margin: 0.5em 0 0.25em;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.2;
   color: #1a1a1a;
 }
 
@@ -42,17 +42,33 @@
 }
 
 .message-content p {
-  margin: 0.5em 0;
+  margin: 0;
+}
+
+.message-content p + p {
+  margin-top: 0.25em;
 }
 
 .message-content ul,
 .message-content ol {
-  margin: 0.5em 0;
-  padding-left: 2em;
+  margin: 0;
+  padding-left: 1.5em;
 }
 
 .message-content li {
-  margin: 0.25em 0;
+  margin: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.message-content li > p {
+  margin: 0;
+  display: inline;
+}
+
+.message-content li > ul,
+.message-content li > ol {
+  margin-top: 0;
 }
 
 .message-content blockquote {
@@ -64,7 +80,7 @@
 }
 
 .message-content blockquote p {
-  margin: 0.25em 0;
+  margin: 0.1em 0;
 }
 
 .message-content a {

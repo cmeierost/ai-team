@@ -10,6 +10,14 @@ export interface AvatarConfig {
   seed?: string;
 }
 
+export interface Developer {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  portfolioUrl?: string | null;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -65,6 +73,8 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   archived?: boolean;
+  handoffType?: 'user-acknowledgment' | 'agent-briefing'; // Type of handoff message
+  targetAgentId?: string; // Target agent for briefing messages
 }
 
 export interface ChatSession {
@@ -76,6 +86,7 @@ export interface ChatSession {
   messageCount: number;
   artifacts: string[];  // Artifact IDs or paths in context
   allowedFiles: string[];  // Files agent can access in this session
+  previousSessionId?: string;  // ID of session this was handed off from
 }
 
 export interface Artifact {
@@ -90,4 +101,139 @@ export interface Artifact {
   toMessageIndex: number;  // End of summarized range
   filepath: string;  // .ai-team/artifacts/briefs/{filename}.md
   tags?: string[];
+}
+
+// Task Management Types
+export enum TaskStatus {
+  NOT_STARTED = "not_started",
+  IN_PROGRESS = "in_progress",
+  BLOCKED = "blocked",
+  WAITING_APPROVAL = "waiting_approval",
+  COMPLETED = "completed",
+  CANCELLED = "cancelled",
+  DELEGATED = "delegated",
+}
+
+export enum TaskPriority {
+  LOW = "low",
+  MEDIUM = "medium",
+  HIGH = "high",
+  URGENT = "urgent",
+}
+
+export enum TaskType {
+  FEATURE = "feature",
+  BUG = "bug",
+  DOCUMENTATION = "documentation",
+}
+
+export enum TaskExecutionMode {
+  SEQUENTIAL = "sequential",
+  PARALLEL = "parallel",
+}
+
+export interface TimeLogEntry {
+  id: string;
+  taskId: string;
+  agentId: string;
+  startTime: string;
+  endTime?: string;
+  durationMinutes?: number;
+  description?: string;
+  createdAt: string;
+}
+
+export interface WorkflowStep {
+  id: string;
+  title: string;
+  description?: string;
+  assignedTo?: string;
+  autoAssign: boolean;
+  accepted?: boolean;
+  status: TaskStatus;
+  dependencies?: string[];
+  order: number;
+  completedAt?: string;
+}
+
+export interface TaskDelegationRecord {
+  id: string;
+  fromAgentId: string;
+  toAgentId: string;
+  delegatedAt: string;
+  reason?: string;
+  accepted: boolean;
+  acceptedAt?: string;
+}
+
+export interface Task {
+  id: string;
+  type: TaskType;
+  title: string;
+  description?: string;
+  createdBy: string;
+  createdByType: "human" | "agent";
+  assignedTo?: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  requiresApproval: boolean;
+  approved?: boolean;
+  approvedBy?: string;
+  approvedAt?: string;
+  parentTaskId?: string;
+  subtaskIds?: string[];
+  executionMode?: TaskExecutionMode;
+  workflowSteps?: WorkflowStep[];
+  estimatedHours?: number;
+  actualHours?: number;
+  timeLog?: TimeLogEntry[];
+  dueDate?: string;
+  startedAt?: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  tags?: string[];
+  sessionId?: string;
+  artifactIds?: string[];
+  delegationHistory?: TaskDelegationRecord[];
+  delegatedTo?: string;
+  blockedReason?: string;
+  blockedBy?: string[];
+  metadata?: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskTemplate {
+  id: string;
+  name: string;
+  type: TaskType;
+  description: string;
+  titleTemplate: string;
+  descriptionTemplate: string;
+  priority: TaskPriority;
+  estimatedHours?: number;
+  workflowSteps?: Omit<WorkflowStep, "id" | "status" | "completedAt">[];
+  tags?: string[];
+  requiresApproval: boolean;
+}
+
+export interface TaskStatistics {
+  totalTasks: number;
+  tasksByStatus: Record<TaskStatus, number>;
+  tasksByPriority: Record<TaskPriority, number>;
+  tasksByAgent: Record<string, number>;
+  averageCompletionTime?: number;
+  totalEstimatedHours: number;
+  totalActualHours: number;
+}
+
+export interface SystemInfo {
+  apiUrl: string;
+  workspace: string;
+  branch: string | null;
+  package: {
+    name: string | null;
+    version: string | null;
+    description: string | null;
+  } | null;
 }

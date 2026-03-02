@@ -42,7 +42,9 @@ describe('fire command', () => {
         employeeQuery: 'maya',
         options: { force: true },
       },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
     expect(questionApi.confirm).not.toHaveBeenCalled();
   });
 
@@ -56,7 +58,9 @@ describe('fire command', () => {
         employeeQuery: 'maya',
         options: { force: true },
       },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 
   it('does not invoke service when confirmation is declined', async () => {

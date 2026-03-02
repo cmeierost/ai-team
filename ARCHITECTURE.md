@@ -118,7 +118,7 @@ All runtime artifacts are rooted under `.ai-team/` in the workspace:
 - `.ai-team/config.json` - non-secret provider/model/configuration state.
 - `.ai-team/.env` - secrets and provider tokens.
 - `.ai-team/agents/*.md` - agent definitions (frontmatter + markdown).
-- `.ai-team/private/chats/*.jsonl` - private chat transcripts.
+- `.ai-team/private/ai-team.db` - SQLite database for chat sessions, messages, and metadata.
 
 ## Command Execution Model
 

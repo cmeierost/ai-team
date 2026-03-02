@@ -1,13 +1,11 @@
+import { useNavigate } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
 import { Avatar } from './Avatar';
+import { getAgentColor } from '../utils/color';
 import './AgentList.css';
 
-interface AgentListProps {
-  onSelectAgent: (agentId: string) => void;
-  onViewPortfolio: (agentId: string) => void;
-}
-
-export function AgentList({ onSelectAgent, onViewPortfolio }: AgentListProps) {
+export function AgentList() {
+  const navigate = useNavigate();
   const { agents, loading, error } = useTeam();
 
   if (loading) {
@@ -37,6 +35,7 @@ export function AgentList({ onSelectAgent, onViewPortfolio }: AgentListProps) {
           <div
             key={agent.id}
             className="agent-card"
+            style={{ '--agent-color': getAgentColor(agent) } as React.CSSProperties}
           >
             <div className="agent-card-avatar">
               <Avatar agent={agent} size="large" />
@@ -74,16 +73,16 @@ export function AgentList({ onSelectAgent, onViewPortfolio }: AgentListProps) {
             </div>
             <div className="agent-card-footer">
               <button 
-                className="btn-portfolio"
-                onClick={() => onViewPortfolio(agent.id)}
+                className="btn btn-secondary"
+                onClick={() => navigate(`/portfolio/${agent.id}`)}
               >
-                📋 Portfolio
+                <i className="codicon codicon-book" /> Portfolio
               </button>
               <button 
-                className="btn-chat"
-                onClick={() => onSelectAgent(agent.id)}
+                className="btn btn-primary"
+                onClick={() => navigate(`/chat/${agent.id}`)}
               >
-                Chat →
+                Chat <i className="codicon codicon-comment" />
               </button>
             </div>
           </div>

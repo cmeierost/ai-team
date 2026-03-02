@@ -30,7 +30,9 @@ describe('provider models commands', () => {
     expect(clientApi.stream).toHaveBeenCalledWith({
       command: 'providerModels',
       payload: { options: { provider: 'local', json: true } },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 
   it('forwards refresh options to api client', async () => {
@@ -39,6 +41,8 @@ describe('provider models commands', () => {
     expect(clientApi.stream).toHaveBeenCalledWith({
       command: 'providerModelsRefresh',
       payload: { options: { provider: 'local' } },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 });

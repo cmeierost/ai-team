@@ -1,5 +1,9 @@
 {
   "version": "0.1.0",
+  "randomAvatarUrls": [
+    "https://i.pravatar.cc/150",
+    "https://robohash.org/{name}?size=150x150"
+  ],
   "llm": {
     "provider": "openai-compatible",
     "model": "gpt-5.1",
@@ -58,13 +62,12 @@
     }
   },
   "defaultLlmProvider": "openai",
-  "randomAvatarUrls": [
-    "https://i.pravatar.cc/150",
-    "https://robohash.org/{name}?size=150x150"
-  ],
   "allowedCliTools": [
     "git",
     "pnpm",
     "node"
-  ]
+  ],
+  "fileTree": {
+    "allowPaths": []
+  }
 }

@@ -37,6 +37,8 @@ describe('create command', () => {
           interactive: false,
         },
       },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 });

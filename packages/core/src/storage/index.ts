@@ -305,3 +305,6 @@ export async function saveEnvFile(workspaceRoot: string, vars: Record<string, st
   lines.push('');
   await fs.writeFile(envPath, lines.join('\n'), 'utf-8');
 }
+
+// File tree utilities — re-export for convenience
+export * from './file-tree.js';

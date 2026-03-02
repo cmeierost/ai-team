@@ -23,6 +23,23 @@ export const CLI_COMMAND_REGISTRY: CliCommandMetadata[] = [
     ],
   },
   {
+    key: 'search',
+    command: 'search [query]',
+    description: 'Search for team members by name, role, skills, or expertise',
+    llmCallable: true,
+    options: [
+      { flags: '-r, --role <role>', description: 'Filter by role' },
+      { flags: '-t, --type <type>', description: 'Filter by type (executive, team-lead, individual-contributor)' },
+      { flags: '-s, --status <status>', description: 'Filter by status (active, busy, offline)' },
+      { flags: '-f, --feature <feature>', description: 'Filter by feature' },
+      { flags: '--specialization <spec>', description: 'Filter by specialization' },
+      { flags: '--tool <tool>', description: 'Filter by tool' },
+      { flags: '--reports-to <agent>', description: 'Filter by reports-to relationship' },
+      { flags: '--context-level <level>', description: 'Filter by context level' },
+      { flags: '--json', description: 'Output as JSON' },
+    ],
+  },
+  {
     key: 'create',
     command: 'create <type>',
     description: 'Create a new entity (agent or skill)',

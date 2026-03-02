@@ -53,6 +53,7 @@ export const AvatarConfigSchema = z.object({
   seed: z.string().optional(),
   url: z.string().optional(),
   style: z.enum(['professional-headshot', 'avatar', 'illustrated']).optional(),
+  color: z.string().optional(),
 });
 
 export const PersonalityConfigSchema = z.object({
@@ -196,6 +197,34 @@ export interface Skill extends SkillConfig {
 export interface Feature extends FeatureConfig {}
 
 // ============================================================================
+// Agent Search
+// ============================================================================
+
+/**
+ * Options for searching agents
+ */
+export interface AgentSearchOptions {
+  query?: string;  // Fulltext search term (fuzzy)
+  role?: string | string[];  // Filter by role(s)
+  type?: RoleType | RoleType[];  // Filter by type
+  status?: AgentStatus | AgentStatus[];  // Filter by status
+  feature?: string | string[];  // Filter by features
+  specialization?: string | string[];  // Filter by specializations
+  tool?: string | string[];  // Filter by tools
+  reportsTo?: string;  // Filter by manager
+  contextLevel?: ContextLevel | ContextLevel[];  // Filter by context level
+}
+
+/**
+ * Result from agent search with scoring
+ */
+export interface AgentSearchResult {
+  agent: Agent;
+  score: number;  // Relevance score (higher is better)
+  matches: string[];  // Fields that matched (for highlighting)
+}
+
+// ============================================================================
 // Graph Data Structures
 // ============================================================================
 
@@ -266,6 +295,8 @@ export interface ChatMessage {
   tool_calls?: ToolCall[];
   suggestions?: CodeSuggestion[];
   archived?: boolean;  // If true, message is shown but not sent to LLM
+  handoffType?: 'user-acknowledgment' | 'agent-briefing';  // Type of handoff message
+  targetAgentId?: string;  // Target agent for briefing messages
 }
 
 export interface ToolCall {
@@ -286,15 +317,50 @@ export interface CodeSuggestion {
 // Sessions & Artifacts
 // ============================================================================
 
+/**
+ * RAG (Retrieval-Augmented Generation) configuration for a session
+ * Controls how context is retrieved and prioritized for this workspace
+ */
+export interface SessionRagConfig {
+  /** Maximum number of file chunks to include in context */
+  maxChunks?: number;
+  /** Similarity threshold for semantic search (0-1) */
+  similarityThreshold?: number;
+  /** Whether to include git history in context */
+  includeGitHistory?: boolean;
+  /** Custom embedding model override */
+  embeddingModel?: string;
+}
+
+/**
+ * Chat session - represents a conversation workspace with an agent or multiple agents
+ * Sessions are the primary unit for chat interactions and include workspace features
+ * like prioritized files, tasks, artifacts, and RAG configuration
+ */
 export interface ChatSession {
   id: string;  // e.g., 'session-2026-02-27-abc123'
-  agentId: string;
+  
+  // Agent(s) involved in this session
+  agentIds: string[];  // Primary field - supports multi-agent sessions
+  agentId: string;  // Deprecated: kept for backward compatibility, returns agentIds[0]
+  
   developerId: string;  // e.g., 'clemens-meier'
   startedAt: string;  // ISO timestamp
   lastActivityAt: string;  // ISO timestamp
   messageCount: number;
+  
+  // Session workspace features
+  title?: string;  // Auto-generated after 2nd human message
   artifacts: string[];  // Artifact IDs or paths in context
   allowedFiles: string[];  // Files agent can access in this session
+  prioritizedFiles?: string[];  // Files ranked for RAG retrieval priority
+  tasks?: string[];  // Linked task IDs for session goals
+  notes?: string;  // Session-level notes/brief for developer
+  ragConfig?: SessionRagConfig;  // Per-session context strategy
+  
+  // Session relationships
+  previousSessionId?: string;  // ID of session this was handed off from
+  mergedFromSessionIds?: string[];  // Sessions that were merged into this one
 }
 
 export interface Artifact {
@@ -335,6 +401,133 @@ export interface ActionItem {
   assignee: string;
   task: string;
   completed?: boolean;
+}
+
+// ============================================================================
+// Task Management
+// ============================================================================
+
+export enum TaskStatus {
+  NOT_STARTED = "not_started",
+  IN_PROGRESS = "in_progress",
+  BLOCKED = "blocked",
+  WAITING_APPROVAL = "waiting_approval",
+  COMPLETED = "completed",
+  CANCELLED = "cancelled",
+  DELEGATED = "delegated",
+}
+
+export enum TaskPriority {
+  LOW = "low",
+  MEDIUM = "medium",
+  HIGH = "high",
+  URGENT = "urgent",
+}
+
+export enum TaskType {
+  FEATURE = "feature",
+  BUG = "bug",
+  DOCUMENTATION = "documentation",
+}
+
+export enum TaskExecutionMode {
+  SEQUENTIAL = "sequential",
+  PARALLEL = "parallel",
+}
+
+export interface TimeLogEntry {
+  id: string;
+  taskId: string;
+  agentId: string;
+  startTime: Date;
+  endTime?: Date;
+  durationMinutes?: number;
+  description?: string;
+  createdAt: Date;
+}
+
+export interface WorkflowStep {
+  id: string;
+  title: string;
+  description?: string;
+  assignedTo?: string;
+  autoAssign: boolean;
+  accepted?: boolean;
+  status: TaskStatus;
+  dependencies?: string[];
+  order: number;
+  completedAt?: Date;
+}
+
+export interface TaskDelegationRecord {
+  id: string;
+  fromAgentId: string;
+  toAgentId: string;
+  delegatedAt: Date;
+  reason?: string;
+  accepted: boolean;
+  acceptedAt?: Date;
+}
+
+export interface Task {
+  id: string;
+  type: TaskType;
+  title: string;
+  description?: string;
+  createdBy: string;
+  createdByType: "human" | "agent";
+  assignedTo?: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  requiresApproval: boolean;
+  approved?: boolean;
+  approvedBy?: string;
+  approvedAt?: Date;
+  parentTaskId?: string;
+  subtaskIds?: string[];
+  executionMode?: TaskExecutionMode;
+  workflowSteps?: WorkflowStep[];
+  estimatedHours?: number;
+  actualHours?: number;
+  timeLog?: TimeLogEntry[];
+  dueDate?: Date;
+  startedAt?: Date;
+  completedAt?: Date;
+  cancelledAt?: Date;
+  tags?: string[];
+  sessionId?: string;
+  artifactIds?: string[];
+  delegationHistory?: TaskDelegationRecord[];
+  delegatedTo?: string;
+  blockedReason?: string;
+  blockedBy?: string[];
+  metadata?: Record<string, any>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TaskTemplate {
+  id: string;
+  name: string;
+  type: TaskType;
+  description: string;
+  titleTemplate: string;
+  descriptionTemplate: string;
+  priority: TaskPriority;
+  estimatedHours?: number;
+  workflowSteps?: Omit<WorkflowStep, "id" | "status" | "completedAt">[];
+  tags?: string[];
+  requiresApproval: boolean;
+}
+
+export interface TaskStatistics {
+  totalTasks: number;
+  tasksByStatus: Record<TaskStatus, number>;
+  tasksByPriority: Record<TaskPriority, number>;
+  tasksByAgent: Record<string, number>;
+  averageCompletionTime?: number;
+  totalEstimatedHours: number;
+  totalActualHours: number;
 }
 
 // ============================================================================
@@ -400,6 +593,17 @@ export type LlmConfig = z.infer<typeof LlmConfigSchema>;
 // Configuration
 // ============================================================================
 
+export const FileTreeConfigSchema = z.object({
+  /**
+   * Workspace-relative paths (files or directories) that should be visible in the
+   * file tree even if they are matched by a .gitignore rule.
+   * Accepts exact relative paths or glob patterns (e.g. "dist/types/**").
+   */
+  allowPaths: z.array(z.string()).optional().default([]),
+});
+
+export type FileTreeConfig = z.infer<typeof FileTreeConfigSchema>;
+
 export const TeamConfigSchema = z.object({
   version: z.string(),
   llm: LlmConfigSchema.optional(),
@@ -409,6 +613,8 @@ export const TeamConfigSchema = z.object({
   allowedCliTools: z.array(z.string().min(1)).optional(),
   avatarStyle: z.enum(['professional-headshot', 'avatar', 'illustrated']).optional(),
   randomAvatarUrls: z.array(z.string().url()).optional().default([]),
+  /** File tree behaviour for the agent portfolio permission editor */
+  fileTree: FileTreeConfigSchema.optional(),
 });
 
 export type TeamConfig = z.infer<typeof TeamConfigSchema>;

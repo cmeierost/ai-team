@@ -1,15 +1,50 @@
 import { Router } from 'express';
 import type { AiTeamClient } from '@ai-team/api-client';
-import { readFile, access, writeFile } from 'fs/promises';
-import { join } from 'path';
 import express from 'express';
-import { ChatContextManager } from '@ai-team/core';
+import { ChatContextManager, type AgentManager } from '@ai-team/core';
+import { SessionManager, createSqliteStorage, resolveAgentForOperation } from '@ai-team/service';
 
-export function createChatRouter(client: AiTeamClient, workspaceRoot: string): Router {
+export function createChatRouter(client: AiTeamClient, workspaceRoot: string, agentManager?: AgentManager): Router {
   const router = express.Router();
   const contextManager = new ChatContextManager(workspaceRoot);
+  const sessionManager = agentManager
+    ? new SessionManager(workspaceRoot, createSqliteStorage(workspaceRoot), agentManager)
+    : undefined;
 
-  // GET /api/chat/summaries - Get all summaries (must come before /:agentId routes)
+  if (sessionManager) {
+    sessionManager.initialize().catch((error) => {
+      console.error('[chat-router] Failed to initialize SessionManager:', error);
+    });
+  }
+
+  /**
+   * Helper to resolve agent query to exact agent ID
+   */
+  const resolveAgentId = (agentQuery: string): string => {
+    if (!agentManager) {
+      return agentQuery; // Fallback to exact match if no AgentManager
+    }
+    const resolved = resolveAgentForOperation(agentManager, agentQuery, 'access chat');
+    return resolved.id;
+  };
+
+  /**
+   * @openapi
+   * /api/chat/summaries:
+   *   get:
+   *     tags: [Chat]
+   *     summary: Get all chat summaries
+   *     description: Returns summaries of all chat sessions across all agents
+   *     responses:
+   *       200:
+   *         description: Array of chat summaries
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: array
+   *               items:
+   *                 type: object
+   */
   router.get('/summaries', async (req: any, res: any, next: any) => {
     try {
       const summaries = await contextManager.loadSummaries();
@@ -19,31 +54,55 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string): R
     }
   });
 
-  // GET /api/chat/:agentId - Load chat history
+  /**
+   * @openapi
+   * /api/chat/{agentId}:
+   *   get:
+   *     tags: [Chat]
+   *     summary: Load chat history for an agent
+   *     description: Returns all messages from the chat log for the specified agent
+   *     parameters:
+   *       - in: path
+   *         name: agentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Agent ID (exact match or fuzzy query if AgentManager available)
+   *       - in: query
+   *         name: includeArchived
+   *         schema:
+   *           type: boolean
+   *           default: false
+   *         description: Include archived messages in response
+   *     responses:
+   *       200:
+   *         description: Array of chat messages
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: array
+   *               items:
+   *                 type: object
+   */
   router.get('/:agentId', async (req: any, res: any, next: any) => {
     try {
-      const { agentId } = req.params;
+      const agentQuery = req.params.agentId;
+      const agentId = resolveAgentId(agentQuery); // Resolve to exact ID
       const includeArchived = req.query.includeArchived === 'true';
-      const chatLogPath = join(workspaceRoot, '.ai-team', 'private', 'chats', `${agentId}.jsonl`);
-
-      // Check if file exists
-      try {
-        await access(chatLogPath);
-      } catch {
-        // No chat history yet
+      if (!sessionManager) {
         return res.json([]);
       }
 
-      // Read and parse JSONL
-      const content = await readFile(chatLogPath, 'utf-8');
-      const messages = content
-        .split('\n')
-        .filter((line) => line.trim())
-        .map((line) => JSON.parse(line));
+      const session = await sessionManager.getLatestSession(agentId);
+      if (!session) {
+        return res.json([]);
+      }
+
+      const messages = await sessionManager.getSessionMessages(session.id);
 
       // Filter archived messages unless requested
-      const filteredMessages = includeArchived 
-        ? messages 
+      const filteredMessages = includeArchived
+        ? messages
         : messages.filter((msg: any) => !msg.archived);
 
       res.json(filteredMessages);
@@ -52,10 +111,42 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string): R
     }
   });
 
-  // POST /api/chat/:agentId - Send message (fallback for non-streaming)
+  /**
+   * @openapi
+   * /api/chat/{agentId}:
+   *   post:
+   *     tags: [Chat]
+   *     summary: Send message to agent
+   *     description: Send a message to an agent (non-streaming fallback). For real-time experience, use WebSocket.
+   *     parameters:
+   *       - in: path
+   *         name: agentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Agent ID
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - content
+   *             properties:
+   *               content:
+   *                 type: string
+   *                 description: Message content
+   *     responses:
+   *       200:
+   *         description: Chat response
+   *       400:
+   *         description: Invalid request
+   */
   router.post('/:agentId', async (req: any, res: any, next: any) => {
     try {
-      const { agentId } = req.params;
+      const agentQuery = req.params.agentId;
+      const agentId = resolveAgentId(agentQuery); // Resolve to exact ID
       const { content } = req.body;
 
       if (!content || typeof content !== 'string') {
@@ -71,7 +162,7 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string): R
         command: 'chat',
         payload: {
           employeeId: agentId,
-          options: { message: content },
+          options: { message: content, skipPersistence: true },
         },
       });
 
@@ -81,10 +172,49 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string): R
     }
   });
 
-  // PUT /api/chat/:agentId/messages/:index - Edit a message
+  /**
+   * @openapi
+   * /api/chat/{agentId}/messages/{index}:
+   *   put:
+   *     tags: [Chat]
+   *     summary: Edit a message
+   *     description: Edit the content of a specific message in the chat history
+   *     parameters:
+   *       - in: path
+   *         name: agentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Agent ID
+   *       - in: path
+   *         name: index
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Message index
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - content
+   *             properties:
+   *               content:
+   *                 type: string
+   *                 description: New message content
+   *     responses:
+   *       200:
+   *         description: Success
+   *       400:
+   *         description: Invalid request
+   */
   router.put('/:agentId/messages/:index', async (req: any, res: any, next: any) => {
     try {
-      const { agentId, index } = req.params;
+      const agentQuery = req.params.agentId;
+      const agentId = resolveAgentId(agentQuery); // Resolve to exact ID
+      const { index } = req.params;
       const { content } = req.body;
 
       if (!content || typeof content !== 'string') {
@@ -103,10 +233,35 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string): R
     }
   });
 
-  // DELETE /api/chat/:agentId/messages/:index - Delete a message
+  /**
+   * @openapi
+   * /api/chat/{agentId}/messages/{index}:
+   *   delete:
+   *     tags: [Chat]
+   *     summary: Delete a message
+   *     description: Delete a specific message from the chat history
+   *     parameters:
+   *       - in: path
+   *         name: agentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Agent ID
+   *       - in: path
+   *         name: index
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Message index
+   *     responses:
+   *       200:
+   *         description: Success
+   */
   router.delete('/:agentId/messages/:index', async (req: any, res: any, next: any) => {
     try {
-      const { agentId, index } = req.params;
+      const agentQuery = req.params.agentId;
+      const agentId = resolveAgentId(agentQuery); // Resolve to exact ID
+      const { index } = req.params;
       const messageIndex = parseInt(index, 10);
 
       console.log(`[DELETE] Deleting message ${messageIndex} for agent ${agentId}`);
@@ -120,10 +275,35 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string): R
     }
   });
 
-  // PATCH /api/chat/:agentId/messages/:index/archive - Archive a message
+  /**
+   * @openapi
+   * /api/chat/{agentId}/messages/{index}/archive:
+   *   patch:
+   *     tags: [Chat]
+   *     summary: Archive a message
+   *     description: Mark a message as archived (hidden by default)
+   *     parameters:
+   *       - in: path
+   *         name: agentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Agent ID
+   *       - in: path
+   *         name: index
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Message index
+   *     responses:
+   *       200:
+   *         description: Success
+   */
   router.patch('/:agentId/messages/:index/archive', async (req: any, res: any, next: any) => {
     try {
-      const { agentId, index } = req.params;
+      const agentQuery = req.params.agentId;
+      const agentId = resolveAgentId(agentQuery); // Resolve to exact ID
+      const { index } = req.params;
       const messageIndex = parseInt(index, 10);
 
       await contextManager.archiveMessage(agentId, messageIndex);
@@ -134,10 +314,35 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string): R
     }
   });
 
-  // PATCH /api/chat/:agentId/messages/:index/unarchive - Unarchive a message
+  /**
+   * @openapi
+   * /api/chat/{agentId}/messages/{index}/unarchive:
+   *   patch:
+   *     tags: [Chat]
+   *     summary: Unarchive a message
+   *     description: Restore an archived message
+   *     parameters:
+   *       - in: path
+   *         name: agentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Agent ID
+   *       - in: path
+   *         name: index
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Message index
+   *     responses:
+   *       200:
+   *         description: Success
+   */
   router.patch('/:agentId/messages/:index/unarchive', async (req: any, res: any, next: any) => {
     try {
-      const { agentId, index } = req.params;
+      const agentQuery = req.params.agentId;
+      const agentId = resolveAgentId(agentQuery); // Resolve to exact ID
+      const { index } = req.params;
       const messageIndex = parseInt(index, 10);
 
       await contextManager.unarchiveMessage(agentId, messageIndex);
@@ -148,10 +353,28 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string): R
     }
   });
 
-  // GET /api/chat/:agentId/stats - Get message statistics
+  /**
+   * @openapi
+   * /api/chat/{agentId}/stats:
+   *   get:
+   *     tags: [Chat]
+   *     summary: Get message statistics
+   *     description: Returns statistics about messages (total, archived, by role, etc.)
+   *     parameters:
+   *       - in: path
+   *         name: agentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Agent ID
+   *     responses:
+   *       200:
+   *         description: Message statistics
+   */
   router.get('/:agentId/stats', async (req: any, res: any, next: any) => {
     try {
-      const { agentId } = req.params;
+      const agentQuery = req.params.agentId;
+      const agentId = resolveAgentId(agentQuery); // Resolve to exact ID
       const stats = await contextManager.getMessageStats(agentId);
 
       res.json(stats);
@@ -160,10 +383,53 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string): R
     }
   });
 
-  // POST /api/chat/:agentId/summary - Create a summary from selected messages
+  /**
+   * @openapi
+   * /api/chat/{agentId}/summary:
+   *   post:
+   *     tags: [Chat]
+   *     summary: Create a summary from selected messages
+   *     description: Create a summary artifact from specific messages in chat history
+   *     parameters:
+   *       - in: path
+   *         name: agentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Agent ID
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - messageIndices
+   *               - title
+   *             properties:
+   *               messageIndices:
+   *                 type: array
+   *                 items:
+   *                   type: integer
+   *                 description: Array of message indices to include
+   *               title:
+   *                 type: string
+   *                 description: Summary title
+   *               tags:
+   *                 type: array
+   *                 items:
+   *                   type: string
+   *                 description: Optional tags
+   *     responses:
+   *       200:
+   *         description: Created summary
+   *       400:
+   *         description: Invalid request
+   */
   router.post('/:agentId/summary', async (req: any, res: any, next: any) => {
     try {
-      const { agentId } = req.params;
+      const agentQuery = req.params.agentId;
+      const agentId = resolveAgentId(agentQuery); // Resolve to exact ID
       const { messageIndices, title, tags } = req.body;
 
       if (!Array.isArray(messageIndices) || !title) {
@@ -181,10 +447,58 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string): R
     }
   });
 
-  // POST /api/chat/:agentId/messages/:index/annotate - Add annotation to a message
+  /**
+   * @openapi
+   * /api/chat/{agentId}/messages/{index}/annotate:
+   *   post:
+   *     tags: [Chat]
+   *     summary: Add annotation to a message
+   *     description: Add metadata annotation to a specific message
+   *     parameters:
+   *       - in: path
+   *         name: agentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Agent ID
+   *       - in: path
+   *         name: index
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Message index
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - type
+   *               - content
+   *             properties:
+   *               type:
+   *                 type: string
+   *                 description: Annotation type
+   *               content:
+   *                 type: string
+   *                 description: Annotation content
+   *               tags:
+   *                 type: array
+   *                 items:
+   *                   type: string
+   *                 description: Optional tags
+   *     responses:
+   *       200:
+   *         description: Success
+   *       400:
+   *         description: Invalid request
+   */
   router.post('/:agentId/messages/:index/annotate', async (req: any, res: any, next: any) => {
     try {
-      const { agentId, index } = req.params;
+      const agentQuery = req.params.agentId;
+      const agentId = resolveAgentId(agentQuery); // Resolve to exact ID
+      const { index } = req.params;
       const { type, content, tags } = req.body;
 
       if (!type || !content) {

@@ -30,7 +30,9 @@ describe('test-connection command', () => {
     expect(clientApi.stream).toHaveBeenCalledWith({
       command: 'testConnection',
       payload: { options: { model: 'gpt-4o', modelKey: 'gpt-4o-mini' } },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 
   it('forwards employee-specific test options to api client', async () => {
@@ -39,7 +41,9 @@ describe('test-connection command', () => {
     expect(clientApi.stream).toHaveBeenCalledWith({
       command: 'testConnection',
       payload: { options: { employee: 'maya' } },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 
   it('forwards all-mode options to api client', async () => {
@@ -48,6 +52,8 @@ describe('test-connection command', () => {
     expect(clientApi.stream).toHaveBeenCalledWith({
       command: 'testConnection',
       payload: { options: { all: true, provider: 'local' } },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 });

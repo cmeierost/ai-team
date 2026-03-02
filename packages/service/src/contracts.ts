@@ -1,5 +1,7 @@
 import {
   Agent,
+  AgentSearchOptions,
+  AgentSearchResult,
   ContextLevel,
   GraphData,
   LlmConfig,
@@ -14,6 +16,13 @@ export type Employee = Agent;
 export interface ListEmployeesRequest {
   role?: string;
   feature?: string;
+}
+
+export interface SearchAgentsRequest extends AgentSearchOptions {}
+
+export interface SearchAgentsResponse {
+  results: AgentSearchResult[];
+  totalCount: number;
 }
 
 export interface ProviderModelsOptions {
@@ -113,6 +122,14 @@ export interface ChatOptions {
   message?: string;
   context?: string[];
   oneShot?: boolean;
+  
+  // Session management
+  sessionId?: string;  // Resume this specific session
+  createNewSession?: boolean;  // Force create new session instead of resuming latest
+  addAgentToSession?: string;  // Add another agent to this session (multi-agent mode)
+  
+  // Persistence control
+  skipPersistence?: boolean;  // Don't save messages to file system (when using database sessions)
 }
 
 export interface QuestionSelectChoice {
@@ -389,6 +406,7 @@ export interface AiTeamMediator {
 export interface AiTeamService extends AiTeamMediator {
   listEmployees(request: ListEmployeesRequest): Promise<Employee[]>;
   resolveEmployees(query: string): Promise<Employee[]>;
+  searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;

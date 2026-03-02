@@ -1,0 +1,447 @@
+.dashboard {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100%;
+  padding: var(--spacing-3xl) var(--spacing-xl);
+  background: var(--color-bg-primary);
+}
+
+.dashboard-container {
+  max-width: 1200px;
+  width: 100%;
+}
+
+/* Hero Section */
+.dashboard-hero {
+  text-align: center;
+  margin-bottom: var(--spacing-3xl);
+  padding-bottom: var(--spacing-xl);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dashboard-logo {
+  margin-bottom: var(--spacing-xl);
+}
+
+.dashboard-title {
+  font-size: 2rem;
+  margin: 0 0 var(--spacing-sm) 0;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.02em;
+}
+
+.dashboard-mission {
+  font-size: 1rem;
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Featured Agents Section */
+.featured-agents {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-3xl);
+  margin-top: var(--spacing-3xl);
+}
+
+.featured-agent-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  background-color: var(--color-bg-secondary);
+  border: 1.5px solid var(--agent-color, #4CAF50);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --card-color-opacity-base: 0.22;
+  --card-color-opacity-hover: 0.32;
+  --card-color-opacity: var(--card-color-opacity-base);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 10px));
+  backdrop-filter: blur(var(--glass-blur, 10px));
+  box-shadow: 
+    0 4px 10px color-mix(in srgb, var(--agent-color, #4CAF50) 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--agent-color, #4CAF50) 24%, transparent);
+  text-align: left;
+  font: inherit;
+}
+
+.featured-agent-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  background: var(--agent-color, #4CAF50);
+  opacity: var(--card-color-opacity);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.featured-agent-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  padding: 1.5px;
+  background: linear-gradient(135deg, 
+    color-mix(in srgb, var(--agent-color, #4CAF50) 30%, transparent),
+    color-mix(in srgb, var(--agent-color, #4CAF50) 10%, transparent)
+  );
+  -webkit-mask: 
+    linear-gradient(#fff 0 0) content-box, 
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: 
+    linear-gradient(#fff 0 0) content-box, 
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.featured-agent-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.featured-agent-card:hover {
+  --card-color-opacity: var(--card-color-opacity-hover);
+  border-color: var(--agent-color, #4CAF50);
+  box-shadow: 
+    0 8px 22px color-mix(in srgb, var(--agent-color, #4CAF50) 30%, transparent),
+    0 0 24px color-mix(in srgb, var(--agent-color, #4CAF50) 22%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--agent-color, #4CAF50) 32%, transparent);
+  transform: translateY(-2px);
+}
+
+.featured-agent-card:hover::before {
+  opacity: 1;
+}
+
+.featured-agent-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  position: relative;
+  z-index: 1;
+}
+
+.featured-agent-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.agent-role-badge {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: color-mix(in srgb, var(--agent-color) 85%, #000);
+  color: white;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  border: 1px solid color-mix(in srgb, var(--agent-color) 40%, transparent);
+  box-shadow: 
+    0 2px 8px color-mix(in srgb, var(--agent-color) 30%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 20%, transparent);
+  text-transform: capitalize;
+  letter-spacing: 0.3px;
+  display: inline-block;
+  max-width: fit-content;
+}
+
+.chat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: color-mix(in srgb, var(--agent-color) 75%, #000);
+  color: white;
+  border-radius: var(--radius-full);
+  font-size: 0.65rem;
+  font-weight: 600;
+  white-space: nowrap;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  border: 1px solid color-mix(in srgb, var(--agent-color) 35%, transparent);
+  box-shadow: 
+    0 2px 6px color-mix(in srgb, var(--agent-color) 25%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 15%, transparent);
+  max-width: fit-content;
+  letter-spacing: 0.3px;
+}
+
+.chat-badge i {
+  font-size: 0.65rem;
+}
+
+.ceo-chat-button {
+  background: var(--color-accent-primary);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-xl);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.ceo-chat-button:hover {
+  background: var(--color-accent-hover);
+}
+
+.ceo-chat-button:active {
+  background: var(--color-accent-active);
+}
+
+/* Statistics Section */
+.dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--spacing-xl);
+  margin-bottom: var(--spacing-3xl);
+}
+
+.stat-card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  transition: all 0.2s ease;
+  text-align: left;
+  font: inherit;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--stat-card-color, var(--color-border));
+  opacity: 0.8;
+  transition: opacity 0.2s ease, height 0.2s ease;
+}
+
+.stat-card:hover::before {
+  opacity: 1;
+  height: 4px;
+}
+
+.stat-card:hover {
+  border-color: color-mix(in srgb, var(--stat-card-color, var(--color-accent-primary)) 60%, var(--color-border));
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--stat-card-color, var(--color-accent-primary)) 20%, transparent);
+}
+
+.stat-card-clickable {
+  cursor: pointer;
+}
+
+.stat-card-clickable:hover {
+  border-color: color-mix(in srgb, var(--stat-card-color, var(--color-accent-primary)) 70%, var(--color-border));
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--stat-card-color, var(--color-accent-primary)) 25%, transparent);
+}
+
+.stat-card-clickable:active {
+  transform: translateY(-1px);
+}
+
+/* Stat Card Color Variants */
+.stat-card-agents {
+  --stat-card-color: #3794ff;
+}
+
+.stat-card-tasks {
+  --stat-card-color: #ff9800;
+}
+
+.stat-card-completion {
+  --stat-card-color: #4caf50;
+}
+
+.stat-header {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-md);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stat-header i {
+  font-size: 0.85rem;
+  opacity: 0.5;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.stat-card-clickable:hover .stat-header i {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+.stat-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.stat-value {
+  font-size: 2.5rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1;
+  text-shadow: 0 0 20px color-mix(in srgb, var(--stat-card-color, transparent) 30%, transparent);
+}
+
+.stat-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.stat-item::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.stat-item.stat-available {
+  color: var(--color-success);
+  font-weight: 500;
+}
+
+.stat-item.stat-busy {
+  color: var(--color-warning);
+  font-weight: 500;
+}
+
+.stat-item.stat-in-progress {
+  color: #3794ff;
+  font-weight: 500;
+}
+
+.stat-item.stat-not-started {
+  color: #888888;
+  font-weight: 500;
+}
+
+.stat-item.stat-completed {
+  color: var(--color-success);
+  font-weight: 500;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .dashboard {
+    padding: 2rem 1rem;
+  }
+
+  .dashboard-title {
+    font-size: 1.75rem;
+  }
+
+  .featured-agents {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-md);
+  }
+
+  .featured-agent-card {
+    padding: var(--spacing-md);
+  }
+
+  .dashboard-stats {
+    grid-template-columns: 1fr;
+  }
+  
+  .stat-value {
+    font-size: 2rem;
+  }
+}
+
+/* System Info Section */
+.system-info {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  margin-top: var(--spacing-xl);
+}
+
+.system-info-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--spacing-lg) 0;
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.system-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.info-item-full {
+  grid-column: 1 / -1;
+}
+
+.info-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.info-value {
+  font-size: 0.9rem;
+  color: var(--color-text-primary);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  word-break: break-all;
+}
+
+.info-empty {
+  color: var(--color-text-tertiary);
+  font-style: italic;
+  font-family: inherit;
+}

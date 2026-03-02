@@ -1,73 +1,28 @@
-import { useState, useEffect } from 'react';
+import { Routes, Route } from 'react-router-dom';
+import { Dashboard } from './components/Dashboard';
 import { TeamGraph } from './components/TeamGraph';
 import { AgentList } from './components/AgentList';
 import { ChatPanel } from './components/ChatPanel';
 import { Portfolio } from './components/Portfolio';
+import { NotFound } from './components/NotFound';
+import { Sidebar } from './components/Sidebar';
 import { TeamProvider } from './context/TeamContext';
+import './App.css';
 
 export function App() {
-  const [view, setView] = useState<'graph' | 'list' | 'chat' | 'portfolio'>('graph');
-  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
-
   return (
     <TeamProvider>
       <div className="app">
-        <header className="app-header">
-          <h1>🤖 AI Team Dashboard</h1>
-          <nav className="app-nav">
-            <button
-              className={view === 'graph' ? 'active' : ''}
-              onClick={() => setView('graph')}
-            >
-              Organization
-            </button>
-            <button
-              className={view === 'list' ? 'active' : ''}
-              onClick={() => setView('list')}
-            >
-              Employees
-            </button>
-            <button
-              className={view === 'chat' ? 'active' : ''}
-              onClick={() => setView('chat')}
-              disabled={!selectedAgent}
-            >
-              Chat {selectedAgent && `(${selectedAgent})`}
-            </button>
-          </nav>
-        </header>
-
+        <Sidebar />
         <main className="app-main">
-          {view === 'graph' && (
-            <TeamGraph onSelectAgent={(id) => {
-              setSelectedAgent(id);
-              setView('chat');
-            }} />
-          )}
-          {view === 'list' && (
-            <AgentList 
-              onSelectAgent={(id) => {
-                setSelectedAgent(id);
-                setView('chat');
-              }}
-              onViewPortfolio={(id) => {
-                setSelectedAgent(id);
-                setView('portfolio');
-              }}
-            />
-          )}
-          {view === 'chat' && selectedAgent && (
-            <ChatPanel 
-              agentId={selectedAgent}
-              onSwitchAgent={(agentId) => setSelectedAgent(agentId)}
-            />
-          )}
-          {view === 'portfolio' && selectedAgent && (
-            <Portfolio 
-              agentId={selectedAgent} 
-              onClose={() => setView('list')}
-            />
-          )}
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/organization" element={<TeamGraph />} />
+            <Route path="/employees" element={<AgentList />} />
+            <Route path="/chat/:agentId" element={<ChatPanel />} />
+            <Route path="/portfolio/:agentId" element={<Portfolio />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
         </main>
       </div>
     </TeamProvider>

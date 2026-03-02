@@ -1,23 +1,133 @@
 import type { WebSocket } from 'ws';
 import type { AiTeamClient } from '@ai-team/api-client';
+import type { AgentManager, ChatMessage } from '@ai-team/core';
 import type { QuestionInputRequest, QuestionConfirmRequest, QuestionSelectRequest, QuestionPasswordRequest, QuestionChecklistRequest } from '@ai-team/service';
+import { resolveAgentForOperation, SessionManager } from '@ai-team/service';
 
+/**
+ * Messages sent from client to server over WebSocket.
+ * 
+ * @example Send a chat message
+ * ```json
+ * {
+ *   "type": "message",
+ *   "content": "What tasks are assigned to me?",
+ *   "options": {}
+ * }
+ * ```
+ * 
+ * @example Cancel an ongoing operation
+ * ```json
+ * {
+ *   "type": "cancel"
+ * }
+ * ```
+ * 
+ * @example Answer an agent question
+ * ```json
+ * {
+ *   "type": "answer",
+ *   "answer": {
+ *     "questionId": "q1",
+ *     "value": "my-branch-name"
+ *   }
+ * }
+ * ```
+ */
 export interface ChatWebSocketMessage {
+  /** Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question */
   type: 'message' | 'cancel' | 'answer';
+  /** Chat message content (required for 'message' type) */
   content?: string;
+  /** Additional options for the chat interaction (optional for 'message' type) */
   options?: any;
+  /** Answer to a question (required for 'answer' type) */
   answer?: {
+    /** Question ID from the QuestionEvent */
     questionId: string;
+    /** Answer value (string for input/select/password, boolean for confirm, string[] for checklist) */
     value: string | boolean | string[];
   };
 }
 
+/**
+ * Events sent from server to client over WebSocket.
+ * 
+ * @example Streaming token
+ * ```json
+ * {
+ *   "type": "token",
+ *   "data": { "token": "Hello" }
+ * }
+ * ```
+ * 
+ * @example Status update
+ * ```json
+ * {
+ *   "type": "status",
+ *   "data": { "status": "ready" }
+ * }
+ * ```
+ * 
+ * @example Agent question
+ * ```json
+ * {
+ *   "type": "question",
+ *   "data": {
+ *     "questionId": "q1",
+ *     "kind": "input",
+ *     "message": "What branch name?"
+ *   }
+ * }
+ * ```
+ * 
+ * @example Error
+ * ```json
+ * {
+ *   "type": "error",
+ *   "data": { "error": "Agent not found" }
+ * }
+ * ```
+ * 
+ * @example Completion
+ * ```json
+ * {
+ *   "type": "done"
+ * }
+ * ```
+ */
 export interface ChatWebSocketEvent {
+  /** Event type: 'token' = streaming text, 'status' = status update, 'tool' = tool execution, 'question' = agent question, 'error' = error occurred, 'done' = response complete */
   type: 'token' | 'status' | 'tool' | 'question' | 'error' | 'done';
+  /** Event payload (structure varies by event type) */
   data?: any;
 }
 
-export function setupChatWebSocket(ws: WebSocket, agentId: string, client: AiTeamClient): void {
+export function setupChatWebSocket(
+  ws: WebSocket,
+  agentQuery: string,
+  client: AiTeamClient,
+  sessionManager: SessionManager,
+  sessionId: string | null,
+  agentManager?: AgentManager
+): void {
+  // Resolve agent query to exact ID
+  let agentId = agentQuery;
+  if (agentManager) {
+    try {
+      const resolved = resolveAgentForOperation(agentManager, agentQuery, 'WebSocket chat');
+      agentId = resolved.id;
+    } catch (error) {
+      // Send error and close connection
+      ws.send(JSON.stringify({
+        type: 'error',
+        data: { error: error instanceof Error ? error.message : 'Failed to resolve agent' },
+      }));
+      ws.close();
+      return;
+    }
+  }
+
   let currentAbortController: AbortController | null = null;
   let questionCounter = 0;
   const pendingQuestions = new Map<string, {
@@ -39,13 +149,7 @@ export function setupChatWebSocket(ws: WebSocket, agentId: string, client: AiTea
         },
       }));
 
-      // Set timeout (30 seconds)
-      setTimeout(() => {
-        if (pendingQuestions.has(questionId)) {
-          pendingQuestions.delete(questionId);
-          reject(new Error('Question timeout'));
-        }
-      }, 30000);
+        // No timeout: questions can remain pending until answered or connection closes.
     });
   };
 
@@ -98,6 +202,17 @@ export function setupChatWebSocket(ws: WebSocket, agentId: string, client: AiTea
         currentAbortController = new AbortController();
 
         try {
+          // Persist user message to session if sessionId is provided
+          if (sessionId) {
+            const userMessage: ChatMessage = {
+              from: 'human',
+              content: message.content,
+              timestamp: new Date().toISOString(),
+              isHuman: true,
+            };
+            await sessionManager.appendMessage(sessionId, userMessage);
+          }
+
           // Stream chat response with question handlers
           const stream = client.stream(
             {
@@ -106,6 +221,7 @@ export function setupChatWebSocket(ws: WebSocket, agentId: string, client: AiTea
                 employeeId: agentId,
                 options: {
                   message: message.content,
+                  skipPersistence: true,
                   ...message.options,
                 },
               },
@@ -135,10 +251,17 @@ export function setupChatWebSocket(ws: WebSocket, agentId: string, client: AiTea
             }
           );
 
+          let assistantResponse = '';
+
           for await (const event of stream) {
             // Check if cancelled
             if (currentAbortController.signal.aborted) {
               break;
+            }
+
+            // Accumulate assistant response tokens
+            if (event.kind === 'token' && (event as any).text) {
+              assistantResponse += (event as any).text;
             }
 
             // Send event to client
@@ -147,6 +270,17 @@ export function setupChatWebSocket(ws: WebSocket, agentId: string, client: AiTea
               data: event,
             };
             ws.send(JSON.stringify(wsEvent));
+          }
+
+          // Persist assistant message to session if sessionId is provided
+          if (sessionId && assistantResponse && !currentAbortController.signal.aborted) {
+            const assistantMessage: ChatMessage = {
+              from: agentId,
+              content: assistantResponse,
+              timestamp: new Date().toISOString(),
+              isHuman: false,
+            };
+            await sessionManager.appendMessage(sessionId, assistantMessage);
           }
 
           // Send done event
@@ -160,6 +294,8 @@ export function setupChatWebSocket(ws: WebSocket, agentId: string, client: AiTea
           } else {
             ws.send(JSON.stringify({ type: 'error', data: { error: error.message } }));
           }
+          // Always send done event to signal completion, even after errors
+          ws.send(JSON.stringify({ type: 'done' }));
         } finally {
           currentAbortController = null;
         }

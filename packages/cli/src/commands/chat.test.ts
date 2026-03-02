@@ -13,10 +13,12 @@ const client = {
 
 describe('chat command', () => {
   const originalMediatorLog = process.env.AI_TEAM_MEDIATOR_LOG;
+  const originalFrontendFileLog = process.env.AI_TEAM_FRONTEND_FILE_LOG;
 
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.AI_TEAM_MEDIATOR_LOG = '0';
+    process.env.AI_TEAM_FRONTEND_FILE_LOG = '0';
     clientApi.stream.mockReturnValue((async function* () {
       yield {
         kind: 'started',
@@ -36,6 +38,11 @@ describe('chat command', () => {
       delete process.env.AI_TEAM_MEDIATOR_LOG;
     } else {
       process.env.AI_TEAM_MEDIATOR_LOG = originalMediatorLog;
+    }
+    if (originalFrontendFileLog === undefined) {
+      delete process.env.AI_TEAM_FRONTEND_FILE_LOG;
+    } else {
+      process.env.AI_TEAM_FRONTEND_FILE_LOG = originalFrontendFileLog;
     }
     vi.restoreAllMocks();
   });

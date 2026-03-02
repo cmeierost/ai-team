@@ -14,13 +14,28 @@ import type {
   HireOptions,
   InitOptions,
   ListEmployeesRequest,
+  SearchAgentsRequest,
+  SearchAgentsResponse,
   ProviderListOptions,
   ProviderModelsOptions,
   RefreshProviderModelsOptions,
   TestConnectionOptions,
 } from '@ai-team/service';
-import type { GraphData, ViewMode } from '@ai-team/core';
+import type { AgentStatus, ContextLevel, GraphData, RoleType, ViewMode } from '@ai-team/core';
 import { streamViaWebSocket } from './websocket.js';
+
+function getFallbackQuestionAnswer(question: any): any {
+  if (question?.kind === 'confirm') {
+    return false;
+  }
+  if (question?.kind === 'checklist') {
+    return [];
+  }
+  if (question?.kind === 'select') {
+    return question?.choices?.[0]?.value ?? '';
+  }
+  return '';
+}
 
 export interface HttpClientConfig {
   baseUrl: string;
@@ -38,6 +53,7 @@ export interface AiTeamHttpClient {
   ): AsyncIterable<MediatorEvent<TCommand>>;
   listEmployees(request: ListEmployeesRequest): Promise<Employee[]>;
   resolveEmployees(query: string): Promise<Employee[]>;
+  searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;
@@ -92,7 +108,38 @@ class HttpAiTeamClient implements AiTeamHttpClient {
       const agentId = payload.employeeId;
       const message = payload.options?.message || '';
 
-      yield* streamViaWebSocket<TCommand>(agentId, message, { url: this.wsUrl });
+      const onQuestion = async (question: any): Promise<any> => {
+        if (!context) {
+          return getFallbackQuestionAnswer(question);
+        }
+
+        if (question.kind === 'input' && context.questionInput) {
+          return context.questionInput(question);
+        }
+        if (question.kind === 'confirm' && context.questionConfirm) {
+          return context.questionConfirm(question);
+        }
+        if (question.kind === 'select' && context.questionSelect) {
+          return context.questionSelect(question);
+        }
+        if (question.kind === 'password' && context.questionPassword) {
+          return context.questionPassword(question);
+        }
+        if (question.kind === 'checklist' && context.questionChecklist) {
+          return context.questionChecklist(question);
+        }
+
+        return getFallbackQuestionAnswer(question);
+      };
+
+      yield* streamViaWebSocket<TCommand>(agentId, message, {
+        url: this.wsUrl,
+        onQuestion,
+        disableQuestions: true,
+        signal: context?.signal,
+        sessionId: payload.options?.sessionId,
+        messageOptions: payload.options,
+      });
     } else {
       // For other commands, fall back to HTTP polling or throw
       throw new Error(`Streaming not supported for command: ${request.command}`);
@@ -114,6 +161,47 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     }
     const agent = await response.json();
     return [agent];
+  }
+
+  async searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse> {
+    const params = new URLSearchParams();
+    
+    if (request.query) params.append('q', request.query);
+    if (request.role) {
+      const roles = Array.isArray(request.role) ? request.role : [request.role];
+      roles.forEach((r: string) => params.append('role', r));
+    }
+    if (request.type) {
+      const types = Array.isArray(request.type) ? request.type : [request.type];
+      types.forEach((t: RoleType) => params.append('type', t));
+    }
+    if (request.status) {
+      const statuses = Array.isArray(request.status) ? request.status : [request.status];
+      statuses.forEach((s: AgentStatus) => params.append('status', s));
+    }
+    if (request.feature) {
+      const features = Array.isArray(request.feature) ? request.feature : [request.feature];
+      features.forEach((f: string) => params.append('feature', f));
+    }
+    if (request.specialization) {
+      const specs = Array.isArray(request.specialization) ? request.specialization : [request.specialization];
+      specs.forEach((s: string) => params.append('specialization', s));
+    }
+    if (request.tool) {
+      const tools = Array.isArray(request.tool) ? request.tool : [request.tool];
+      tools.forEach((t: string) => params.append('tool', t));
+    }
+    if (request.reportsTo) params.append('reportsTo', request.reportsTo);
+    if (request.contextLevel) {
+      const levels = Array.isArray(request.contextLevel) ? request.contextLevel : [request.contextLevel];
+      levels.forEach((l: ContextLevel) => params.append('contextLevel', l));
+    }
+
+    const response = await fetch(`${this.baseUrl}/api/agents/search?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error('Failed to search agents');
+    }
+    return response.json();
   }
 
   async getTeamGraph(mode?: ViewMode): Promise<GraphData> {

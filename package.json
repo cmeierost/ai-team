@@ -2,7 +2,7 @@
   "name": "ai-team",
   "version": "0.1.0",
   "private": true,
-  "description": "AI Team Context Controller - Manage virtual AI development teams with graph visualization and context control",
+  "description": "AI Team - AI supported software engineering without losing control",
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",

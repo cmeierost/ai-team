@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ReactFlow,
   Node,
@@ -14,10 +15,8 @@ import '@xyflow/react/dist/style.css';
 import { useTeam } from '../context/TeamContext';
 import { GraphData, GraphNode as GraphDataNode } from '../types';
 import { getAvatarUrl, getAgentInitials } from '../utils/avatar';
-
-interface TeamGraphProps {
-  onSelectAgent: (agentId: string) => void;
-}
+import { getAgentColor } from '../utils/color';
+import './TeamGraph.css';
 
 function transformGraphDataToReactFlow(graphData: GraphData | null) {
   if (!graphData) {
@@ -81,6 +80,7 @@ function transformGraphDataToReactFlow(graphData: GraphData | null) {
 
       const avatarUrl = getAvatarUrl(agent);
       const initials = getAgentInitials(agent);
+      const agentColor = getAgentColor(agent);
       
       nodes.push({
         id: graphNode.id,
@@ -91,12 +91,12 @@ function transformGraphDataToReactFlow(graphData: GraphData | null) {
         },
         data: {
           label: (
-            <div className="agent-node">
+            <div className="agent-node" style={{ '--agent-color': agentColor } as React.CSSProperties}>
               <div className="agent-node-avatar">
                 {avatarUrl ? (
                   <img src={avatarUrl} alt={agent.name} className="node-avatar-img" />
                 ) : (
-                  <div className="node-avatar-initials">{initials}</div>
+                  <div className="node-avatar-initials" style={{ backgroundColor: agentColor }}>{initials}</div>
                 )}
               </div>
               <div className="agent-name">{agent.name}</div>
@@ -106,9 +106,9 @@ function transformGraphDataToReactFlow(graphData: GraphData | null) {
         },
         style: {
           width: nodeWidth,
-          border: '2px solid #4CAF50',
+          border: `2px solid color-mix(in srgb, ${agentColor} 60%, transparent)`,
           borderRadius: 8,
-          background: '#fff',
+          background: `color-mix(in srgb, ${agentColor} 35%, var(--color-bg-secondary, #1e1e1e))`,
           padding: 10,
         },
       });
@@ -148,7 +148,8 @@ function transformGraphDataToReactFlow(graphData: GraphData | null) {
   return { nodes, edges };
 }
 
-export function TeamGraph({ onSelectAgent }: TeamGraphProps) {
+export function TeamGraph() {
+  const navigate = useNavigate();
   const { graphData, loading, error } = useTeam();
   
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
@@ -167,9 +168,9 @@ export function TeamGraph({ onSelectAgent }: TeamGraphProps) {
 
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
-      onSelectAgent(node.id);
+      navigate(`/portfolio/${node.id}`);
     },
-    [onSelectAgent]
+    [navigate]
   );
 
   if (loading) {

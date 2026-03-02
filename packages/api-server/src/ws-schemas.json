@@ -1,0 +1,85 @@
+{
+  "ChatWebSocketMessage": {
+    "description": "Messages sent from client to server over WebSocket.",
+    "type": "object",
+    "properties": {
+      "type": {
+        "description": "Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question",
+        "enum": [
+          "answer",
+          "cancel",
+          "message"
+        ],
+        "type": "string"
+      },
+      "content": {
+        "description": "Chat message content (required for 'message' type)",
+        "type": "string"
+      },
+      "options": {
+        "description": "Additional options for the chat interaction (optional for 'message' type)"
+      },
+      "answer": {
+        "description": "Answer to a question (required for 'answer' type)",
+        "type": "object",
+        "properties": {
+          "questionId": {
+            "description": "Question ID from the QuestionEvent",
+            "type": "string"
+          },
+          "value": {
+            "description": "Answer value (string for input/select/password, boolean for confirm, string[] for checklist)",
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": [
+                  "string",
+                  "boolean"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "questionId",
+          "value"
+        ]
+      }
+    },
+    "required": [
+      "type"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "ChatWebSocketEvent": {
+    "description": "Events sent from server to client over WebSocket.",
+    "type": "object",
+    "properties": {
+      "type": {
+        "description": "Event type: 'token' = streaming text, 'status' = status update, 'tool' = tool execution, 'question' = agent question, 'error' = error occurred, 'done' = response complete",
+        "enum": [
+          "done",
+          "error",
+          "question",
+          "status",
+          "token",
+          "tool"
+        ],
+        "type": "string"
+      },
+      "data": {
+        "description": "Event payload (structure varies by event type)"
+      }
+    },
+    "required": [
+      "type"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "generatedAt": "2026-03-02T12:52:46.129Z"
+}

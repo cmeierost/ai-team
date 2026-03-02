@@ -20,20 +20,23 @@ import { graphCommand } from './commands/graph.js';
 import { hireCommand } from './commands/hire.js';
 import { infoCommand } from './commands/info.js';
 import { fireCommand } from './commands/fire.js';
+import { sysinfoCommand } from './commands/sysinfo.js';
 import { hhRefreshCommand } from './commands/hh.js';
 import { codeEditCommand } from './commands/code-edit.js';
 import { avatarCommand } from './commands/avatar.js';
+import { filesCommand, filesAllowCommand, filesDisallowCommand } from './commands/files.js';
 
 import { testConnectionCommand } from './commands/test-connection.js';
 import { providerAddCommand, providerConfigureCommand, providerSetCommand } from './commands/provider.js';
 import { providerListCommand, providerModelsCommand, providerModelsRefreshCommand } from './commands/models.js';
 import { orgCommand } from './commands/org.js';
 import { CLI_COMMAND_REGISTRY, getCliCommandMetadata } from './commands/registry.js';
+import { dbStatusCommand, dbMigrateCommand } from './commands/db.js';
 
 registerCliCommandCatalog(CLI_COMMAND_REGISTRY);
 
 const program = new Command();
-const client = createLocalAiTeamClient(process.cwd());
+const client = createLocalAiTeamClient();
 
 function formatInputRequestHint(request: ServiceErrorInputRequest | undefined): string | undefined {
   if (!request) {
@@ -151,6 +154,42 @@ program
   .description('Download and set an avatar picture for an agent')
   .action(withCliErrorHandling((agentQuery) => avatarCommand(agentQuery, { workspaceRoot: process.cwd() })));
 
+// System info command
+program
+  .command('sysinfo')
+  .alias('sys')
+  .description('Display system information about the workspace')
+  .option('--json', 'Output as JSON')
+  .action(withCliErrorHandling((options) => sysinfoCommand(options)));
+
+// Files / file tree command
+const files = program
+  .command('files')
+  .description('Preview the workspace file tree with gitignore awareness')
+  .option('-d, --depth <number>', 'Max recursion depth (default: 4)')
+  .option('-a, --all', 'Include hidden files and directories')
+  .option('--no-gitignore', 'Ignore .gitignore rules and show all files')
+  .option('--json', 'Output as JSON')
+  .action(withCliErrorHandling((options) => filesCommand(options)));
+
+files
+  .command('allow <path>')
+  .description('Allow a gitignored path to appear in the file tree (saves to .ai-team/config.json)')
+  .option('--agent <id>', 'Scope to a specific agent (updates their .md permissions)')
+  .option('--write', 'Affect write permissions instead of read (default: read)')
+  .action(withCliErrorHandling((p: string, options: { agent?: string; write?: boolean }) =>
+    filesAllowCommand(p, options)
+  ));
+
+files
+  .command('disallow <path>')
+  .description('Remove a path from the gitignore allow list')
+  .option('--agent <id>', 'Scope to a specific agent (updates their .md permissions)')
+  .option('--write', 'Affect write permissions instead of read (default: read)')
+  .action(withCliErrorHandling((p: string, options: { agent?: string; write?: boolean }) =>
+    filesDisallowCommand(p, options)
+  ));
+
 const hhMeta = getCliCommandMetadata('hh');
 const hh = applyCommandMetadata(program.command(hhMeta.command), hhMeta);
 
@@ -193,5 +232,9 @@ program
   .option('--reject <id>', 'Reject a proposal')
   .option('--apply <id>', 'Apply an approved proposal')
   .action(withCliErrorHandling((options) => codeEditCommand(process.cwd(), options)));
+
+// Database commands
+program.addCommand(dbStatusCommand(process.cwd()));
+program.addCommand(dbMigrateCommand(process.cwd()));
 
 program.parse();

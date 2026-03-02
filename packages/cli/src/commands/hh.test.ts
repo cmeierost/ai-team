@@ -30,6 +30,8 @@ describe('hh command', () => {
     expect(clientApi.stream).toHaveBeenCalledWith({
       command: 'hhRefresh',
       payload: {},
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 });

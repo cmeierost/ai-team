@@ -8,6 +8,14 @@ export function getGitUserName(): string | undefined {
   }
 }
 
+export function getGitUserEmail(): string | undefined {
+  try {
+    return execSync('git config user.email', { encoding: 'utf-8' }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Convert developer name from git config (e.g., "Clemens Meier") to ID format (e.g., "clemens-meier").
  * Matches the agent ID format for consistency.

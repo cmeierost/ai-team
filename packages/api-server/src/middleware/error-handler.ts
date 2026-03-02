@@ -1,4 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
+import { AmbiguousAgentQueryError } from '@ai-team/service';
+import { AgentNotFoundError } from '@ai-team/core';
 
 export interface ApiError {
   error: string;
@@ -17,6 +19,26 @@ export function errorHandler(
   // Check if headers already sent
   if (res.headersSent) {
     return next(err);
+  }
+
+  // Handle AmbiguousAgentQueryError - multiple matches
+  if (err instanceof AmbiguousAgentQueryError) {
+    res.status(400).json({
+      error: err.message,
+      query: err.query,
+      matches: err.matches,
+      details: 'Multiple agents matched your query. Please be more specific.',
+    } as ApiError);
+    return;
+  }
+
+  // Handle AgentNotFoundError - no matches
+  if (err instanceof AgentNotFoundError || err.name === 'AgentNotFoundError') {
+    res.status(404).json({
+      error: err.message,
+      details: 'Agent not found. Check the agent ID, role, or name.',
+    } as ApiError);
+    return;
   }
 
   // Map error types to status codes

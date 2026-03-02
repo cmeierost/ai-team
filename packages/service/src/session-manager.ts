@@ -1,81 +1,125 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { ChatMessage, ChatSession, Artifact } from '@ai-team/core';
+import { ChatMessage, ChatSession, Artifact, type AgentManager } from '@ai-team/core';
 import { randomBytes } from 'crypto';
+import { resolveAgentForOperation } from './utils/agent-resolution.js';
+import type { IMessageStorage } from './storage/contracts.js';
 
 export class SessionManager {
   private workspaceRoot: string;
-  private sessionsDir: string;
   private artifactsDir: string;
+  private agentManager?: AgentManager;
+  private storage: IMessageStorage;
 
-  constructor(workspaceRoot: string) {
+  constructor(workspaceRoot: string, storage: IMessageStorage, agentManager?: AgentManager) {
     this.workspaceRoot = workspaceRoot;
-    this.sessionsDir = path.join(workspaceRoot, '.ai-team', 'private', 'sessions');
     this.artifactsDir = path.join(workspaceRoot, '.ai-team', 'artifacts', 'briefs');
+    this.agentManager = agentManager;
+    this.storage = storage;
   }
 
   /**
-   * Initialize directories for sessions and artifacts
+   * Initialize storage and directories
    */
   async initialize(): Promise<void> {
-    await fs.mkdir(this.sessionsDir, { recursive: true });
+    await this.storage.initialize();
     await fs.mkdir(this.artifactsDir, { recursive: true });
   }
 
   /**
-   * Generate a unique session ID
+   * Close storage connections
    */
-  private generateSessionId(): string {
-    const date = new Date().toISOString().split('T')[0]; // "2026-02-27"
-    const random = randomBytes(6).toString('hex'); // "abc123def456"
-    return `session-${date}-${random}`;
+  async close(): Promise<void> {
+    await this.storage.close();
   }
 
   /**
    * Create a new session for an agent
+   * @param agentQuery - Agent ID, role, name, or partial match
+   * @param developerId - Developer ID
    */
-  async createSession(agentId: string, developerId: string): Promise<ChatSession> {
-    const session: ChatSession = {
-      id: this.generateSessionId(),
-      agentId,
+  async createSession(agentQuery: string, developerId: string): Promise<ChatSession> {
+    // Resolve agent query to exact ID if AgentManager is available
+    let agentId = agentQuery;
+    if (this.agentManager) {
+      const resolved = resolveAgentForOperation(this.agentManager, agentQuery, 'create session');
+      agentId = resolved.id;
+    }
+
+    const now = new Date().toISOString();
+    const session = await this.storage.createSession({
+      agentIds: [agentId],  // Primary field - array for multi-agent support
+      agentId,  // Backward compatibility
       developerId,
-      startedAt: new Date().toISOString(),
-      lastActivityAt: new Date().toISOString(),
-      messageCount: 0,
+      startedAt: now,
+      lastActivityAt: now,
       artifacts: [],
       allowedFiles: [],
-    };
+    });
 
-    await this.saveSession(session);
     return session;
   }
 
   /**
-   * Get the latest (most recent) session for an agent
+   * Create a new session for a handoff from one agent to another
+   * @param toAgentQuery - Target agent ID, role, name, or partial match
+   * @param developerId - Developer ID
+   * @param previousSessionId - Previous session ID
+   * @param transferArtifacts - Whether to transfer artifacts
+   * @param transferAllowedFiles - Whether to transfer allowed files
    */
-  async getLatestSession(agentId: string): Promise<ChatSession | null> {
+  async createHandoffSession(
+    toAgentQuery: string,
+    developerId: string,
+    previousSessionId: string,
+    transferArtifacts: boolean = true,
+    transferAllowedFiles: boolean = true
+  ): Promise<ChatSession> {
+    // Resolve agent query to exact ID if AgentManager is available
+    let toAgentId = toAgentQuery;
+    if (this.agentManager) {
+      const resolved = resolveAgentForOperation(this.agentManager, toAgentQuery, 'create handoff session');
+      toAgentId = resolved.id;
+    }
+
+    const previousSession = await this.getSession(previousSessionId);
+    
+    const now = new Date().toISOString();
+    const newSession = await this.storage.createSession({
+      agentIds: [toAgentId],  // Primary field - array for multi-agent support
+      agentId: toAgentId,  // Backward compatibility
+      developerId,
+      startedAt: now,
+      lastActivityAt: now,
+      artifacts: transferArtifacts && previousSession ? [...previousSession.artifacts] : [],
+      allowedFiles: transferAllowedFiles && previousSession ? [...previousSession.allowedFiles] : [],
+      previousSessionId,
+    });
+
+    return newSession;
+  }
+
+  /**
+   * Get the latest (most recent) session for an agent
+   * @param agentQuery - Agent ID, role, name, or partial match
+   */
+  async getLatestSession(agentQuery: string): Promise<ChatSession | null> {
+    // Resolve agent query to exact ID if AgentManager is available
+    let agentId = agentQuery;
+    if (this.agentManager) {
+      const resolved = resolveAgentForOperation(this.agentManager, agentQuery, 'get latest session');
+      agentId = resolved.id;
+    }
+
     try {
-      const files = await fs.readdir(this.sessionsDir);
-      const sessionFiles = files.filter((f) => f.endsWith('.json'));
+      const sessions = await this.storage.listSessions({
+        agentId,
+        sortBy: 'lastActivityAt',
+        sortOrder: 'desc',
+        limit: 1,
+      });
 
-      // Load all sessions for this agent and find the latest
-      const sessions: ChatSession[] = [];
-      for (const file of sessionFiles) {
-        const sessionPath = path.join(this.sessionsDir, file);
-        const data = await fs.readFile(sessionPath, 'utf-8');
-        const session: ChatSession = JSON.parse(data);
-        if (session.agentId === agentId) {
-          sessions.push(session);
-        }
-      }
-
-      if (sessions.length === 0) {
-        return null;
-      }
-
-      // Sort by lastActivityAt descending and return the most recent
-      sessions.sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime());
-      return sessions[0];
+      return sessions.length > 0 ? sessions[0] : null;
     } catch (error) {
       console.error('Failed to get latest session:', error);
       return null;
@@ -84,27 +128,24 @@ export class SessionManager {
 
   /**
    * List all sessions for an agent
+   * @param agentQuery - Agent ID, role, name, or partial match
+   * @param limit - Maximum number of sessions to return
    */
-  async listSessions(agentId: string, limit?: number): Promise<ChatSession[]> {
+  async listSessions(agentQuery: string, limit?: number): Promise<ChatSession[]> {
+    // Resolve agent query to exact ID if AgentManager is available
+    let agentId = agentQuery;
+    if (this.agentManager) {
+      const resolved = resolveAgentForOperation(this.agentManager, agentQuery, 'list sessions');
+      agentId = resolved.id;
+    }
+
     try {
-      const files = await fs.readdir(this.sessionsDir);
-      const sessionFiles = files.filter((f) => f.endsWith('.json'));
-
-      const sessions: ChatSession[] = [];
-      for (const file of sessionFiles) {
-        const sessionPath = path.join(this.sessionsDir, file);
-        const data = await fs.readFile(sessionPath, 'utf-8');
-        const session: ChatSession = JSON.parse(data);
-        if (session.agentId === agentId) {
-          sessions.push(session);
-        }
-      }
-
-      // Sort by lastActivityAt descending (most recent first)
-      sessions.sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime());
-
-      // Apply limit if specified
-      return limit ? sessions.slice(0, limit) : sessions;
+      return await this.storage.listSessions({
+        agentId,
+        sortBy: 'lastActivityAt',
+        sortOrder: 'desc',
+        limit,
+      });
     } catch (error) {
       console.error('Failed to list sessions:', error);
       return [];
@@ -116,9 +157,7 @@ export class SessionManager {
    */
   async getSession(sessionId: string): Promise<ChatSession | null> {
     try {
-      const sessionPath = path.join(this.sessionsDir, `${sessionId}.json`);
-      const data = await fs.readFile(sessionPath, 'utf-8');
-      return JSON.parse(data);
+      return await this.storage.getSession(sessionId);
     } catch (error) {
       return null;
     }
@@ -128,8 +167,7 @@ export class SessionManager {
    * Save session metadata
    */
   async saveSession(session: ChatSession): Promise<void> {
-    const sessionPath = path.join(this.sessionsDir, `${session.id}.json`);
-    await fs.writeFile(sessionPath, JSON.stringify(session, null, 2), 'utf-8');
+    await this.storage.updateSession(session.id, session);
   }
 
   /**
@@ -137,12 +175,9 @@ export class SessionManager {
    */
   async getSessionMessages(sessionId: string): Promise<ChatMessage[]> {
     try {
-      const messagesPath = path.join(this.sessionsDir, `${sessionId}.jsonl`);
-      const data = await fs.readFile(messagesPath, 'utf-8');
-      const lines = data.trim().split('\n').filter((line) => line.length > 0);
-      return lines.map((line) => JSON.parse(line));
+      return await this.storage.getSessionMessages(sessionId);
     } catch (error) {
-      // If file doesn't exist yet, return empty array
+      // If session doesn't exist, return empty array
       return [];
     }
   }
@@ -151,17 +186,7 @@ export class SessionManager {
    * Append a message to a session
    */
   async appendMessage(sessionId: string, message: ChatMessage): Promise<void> {
-    const messagesPath = path.join(this.sessionsDir, `${sessionId}.jsonl`);
-    const line = JSON.stringify(message) + '\n';
-    await fs.appendFile(messagesPath, line, 'utf-8');
-
-    // Update session metadata
-    const session = await this.getSession(sessionId);
-    if (session) {
-      session.lastActivityAt = new Date().toISOString();
-      session.messageCount++;
-      await this.saveSession(session);
-    }
+    await this.storage.insertMessage(sessionId, message);
   }
 
   /**
@@ -192,15 +217,11 @@ export class SessionManager {
       await this.appendMessage(newSession.id, message);
     }
 
-    // Update old session: truncate messages to split point
-    const remainingMessages = messages.slice(0, atIndex);
-    const messagesPath = path.join(this.sessionsDir, `${sessionId}.jsonl`);
-    const content = remainingMessages.map((m) => JSON.stringify(m)).join('\n') + '\n';
-    await fs.writeFile(messagesPath, content, 'utf-8');
-
-    // Update old session metadata
-    currentSession.messageCount = remainingMessages.length;
-    await this.saveSession(currentSession);
+    // Delete messages from old session (split point onwards)
+    // Since we don't have a bulk delete, we need to delete from the end
+    for (let i = messages.length - 1; i >= atIndex; i--) {
+      await this.storage.deleteMessage(sessionId, messages[i].timestamp);
+    }
 
     return newSession;
   }
@@ -321,5 +342,144 @@ ${summary}
   async getArtifact(artifactId: string): Promise<Artifact | null> {
     const artifacts = await this.listArtifacts();
     return artifacts.find((a) => a.id === artifactId) || null;
+  }
+
+  /**
+   * Get or create the latest session for an agent (auto-resume behavior)
+   * @param agentId - Agent ID
+   * @param developerId - Developer ID
+   * @returns Latest existing session or newly created session
+   */
+  async getOrCreateLatestSession(agentId: string, developerId: string): Promise<ChatSession> {
+    // Try to get latest session first
+    const latest = await this.getLatestSession(agentId);
+    
+    if (latest && latest.developerId === developerId) {
+      return latest;
+    }
+    
+    // No session exists or developer mismatch - create new one
+    return await this.createSession(agentId, developerId);
+  }
+
+  /**
+   * Generate a title for a session using LLM
+   * Reads first 2 human + 2 agent messages and generates descriptive title
+   * @param sessionId - Session ID
+   * @param llmService - LLM service instance for title generation
+   * @returns Generated title
+   */
+  async generateTitle(sessionId: string, llmService: any): Promise<string> {
+    const messages = await this.getSessionMessages(sessionId);
+    
+    // Get first 2 human and 2 agent messages for context
+    const humanMessages = messages.filter(m => m.isHuman).slice(0, 2);
+    const agentMessages = messages.filter(m => !m.isHuman).slice(0, 2);
+    const contextMessages = [...humanMessages, ...agentMessages]
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .slice(0, 4);
+    
+    if (contextMessages.length === 0) {
+      return 'New Conversation';
+    }
+    
+    // Use LLM to generate title
+    const title = await llmService.generateTitle(contextMessages);
+    
+    // Update session with title
+    const session = await this.getSession(sessionId);
+    if (session) {
+      session.title = title;
+      await this.saveSession(session);
+    }
+    
+    return title;
+  }
+
+  /**
+   * Add an agent to an existing session (multi-agent mode)
+   * @param sessionId - Session ID
+   * @param agentId - Agent ID to add
+   */
+  async addAgentToSession(sessionId: string, agentId: string): Promise<ChatSession> {
+    await this.storage.addSessionAgent(sessionId, agentId);
+    
+    // Update lastActivityAt
+    await this.storage.updateSession(sessionId, {
+      lastActivityAt: new Date().toISOString(),
+    });
+    
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`);
+    }
+    
+    return session;
+  }
+
+  /**
+   * Merge two sessions - combines messages from newer session into older one
+   * @param olderSessionId - Target session (will receive all messages)
+   * @param newerSessionId - Source session (will be deleted)
+   */
+  async mergeSessionsIntoOlder(olderSessionId: string, newerSessionId: string): Promise<ChatSession> {
+    const olderSession = await this.getSession(olderSessionId);
+    const newerSession = await this.getSession(newerSessionId);
+    
+    if (!olderSession || !newerSession) {
+      throw new Error('Both sessions must exist');
+    }
+    
+    if (olderSession.developerId !== newerSession.developerId) {
+      throw new Error('Cannot merge sessions from different developers');
+    }
+    
+    // Load messages from newer session and copy to older
+    const newerMessages = await this.getSessionMessages(newerSessionId);
+    for (const message of newerMessages) {
+      await this.storage.insertMessage(olderSessionId, message);
+    }
+    
+    // Merge agentIds arrays
+    const mergedAgentIds = new Set([
+      ...olderSession.agentIds,
+      ...newerSession.agentIds,
+    ]);
+    
+    for (const agentId of mergedAgentIds) {
+      await this.storage.addSessionAgent(olderSessionId, agentId);
+    }
+    
+    // Track merge history and merge artifacts/files
+    const mergedFromSessionIds = [
+      ...(olderSession.mergedFromSessionIds || []),
+      newerSessionId,
+      ...(newerSession.mergedFromSessionIds || []),
+    ];
+    
+    await this.storage.updateSession(olderSessionId, {
+      lastActivityAt: new Date().toISOString(),
+      mergedFromSessionIds,
+      artifacts: [...new Set([...olderSession.artifacts, ...newerSession.artifacts])],
+      allowedFiles: [...new Set([...olderSession.allowedFiles, ...newerSession.allowedFiles])],
+    });
+    
+    // Delete newer session
+    await this.storage.deleteSession(newerSessionId);
+    
+    const updatedSession = await this.getSession(olderSessionId);
+    if (!updatedSession) {
+      throw new Error(`Failed to retrieve merged session ${olderSessionId}`);
+    }
+    
+    return updatedSession;
+  }
+
+  /**
+   * Delete a session and all its messages
+   * @param sessionId - Session ID to delete
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.storage.deleteSession(sessionId);
   }
 }

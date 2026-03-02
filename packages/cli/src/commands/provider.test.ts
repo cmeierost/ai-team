@@ -30,7 +30,9 @@ describe('provider commands', () => {
     expect(clientApi.stream).toHaveBeenCalledWith({
       command: 'providerConfigure',
       payload: { options: { fromInit: true } },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 
   it('forwards add command to api client', async () => {
@@ -71,7 +73,9 @@ describe('provider commands', () => {
           },
         },
       },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 
   it('forwards set command to api client', async () => {
@@ -80,6 +84,8 @@ describe('provider commands', () => {
     expect(clientApi.stream).toHaveBeenCalledWith({
       command: 'providerSet',
       payload: { options: { fromInit: true } },
-    });
+    }, expect.objectContaining({
+      signal: expect.any(Object),
+    }));
   });
 });

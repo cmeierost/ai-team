@@ -27,6 +27,7 @@ Use this path when implementing or modifying behavior:
 ## Package Docs
 
 - Core: [packages/core/README.md](packages/core/README.md)
+- API Server: [packages/api-server/README.md](packages/api-server/README.md) - REST API with Swagger UI docs
 - VS Code adapter: [packages/vscode/README.md](packages/vscode/README.md)
 - Web adapter: [packages/web/README.md](packages/web/README.md)
 

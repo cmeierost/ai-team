@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Artifact, ChatSession } from '../types';
+import { Artifact, ChatSession, Task, TaskStatus, TaskPriority } from '../types';
 import { API_BASE } from '../context/TeamContext';
 import './ContextPanel.css';
 
@@ -9,17 +9,20 @@ interface ContextPanelProps {
   artifacts: string[]; // Artifact IDs in context
   onToggleArtifact: (artifactId: string) => void;
   onSwitchSession?: (sessionId: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
 }
 
-export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, onSwitchSession }: ContextPanelProps) {
+export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, onSwitchSession, onDeleteSession }: ContextPanelProps) {
   const [allArtifacts, setAllArtifacts] = useState<Artifact[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedSection, setExpandedSection] = useState<'sessions' | 'artifacts' | 'files' | null>('sessions');
+  const [expandedSection, setExpandedSection] = useState<'sessions' | 'tasks' | 'artifacts' | 'files' | null>('sessions');
 
   useEffect(() => {
     loadArtifacts();
     loadSessions();
+    loadTasks();
   }, [agentId]);
 
   const loadArtifacts = async () => {
@@ -48,11 +51,53 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
     }
   };
 
+  const loadTasks = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/tasks?assignedTo=${agentId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setTasks(data);
+      }
+    } catch (error) {
+      console.error('Failed to load tasks:', error);
+    }
+  };
+
+  const handleDeleteSession = async (e: React.MouseEvent, sessionIdToDelete: string) => {
+    e.stopPropagation();
+
+    if (!window.confirm('Delete this session? This cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/sessions/${sessionIdToDelete}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok || response.status === 204) {
+        // Remove from local state
+        setSessions(sessions.filter(s => s.id !== sessionIdToDelete));
+        
+        // Notify parent if this was the current session
+        if (sessionIdToDelete === sessionId && onDeleteSession) {
+          onDeleteSession(sessionIdToDelete);
+        }
+      } else {
+        console.error('Failed to delete session');
+        alert('Failed to delete session. Please try again.');
+      }
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+      alert('Failed to delete session. Please try again.');
+    }
+  };
+
   const isInContext = (artifactId: string) => {
     return artifacts.includes(artifactId);
   };
 
-  const toggleSection = (section: 'sessions' | 'artifacts' | 'files') => {
+  const toggleSection = (section: 'sessions' | 'tasks' | 'artifacts' | 'files') => {
     setExpandedSection(expandedSection === section ? null : section);
   };
 
@@ -85,6 +130,29 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
     return `Session ${date.toLocaleDateString()} ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
   };
 
+  const getTaskStatusIcon = (status: TaskStatus) => {
+    switch (status) {
+      case TaskStatus.NOT_STARTED: return 'circle-outline';
+      case TaskStatus.IN_PROGRESS: return 'loading';
+      case TaskStatus.BLOCKED: return 'error';
+      case TaskStatus.WAITING_APPROVAL: return 'watch';
+      case TaskStatus.COMPLETED: return 'pass';
+      case TaskStatus.CANCELLED: return 'close';
+      case TaskStatus.DELEGATED: return 'arrow-small-right';
+      default: return 'circle-outline';
+    }
+  };
+
+  const getTaskPriorityClass = (priority: TaskPriority) => {
+    switch (priority) {
+      case TaskPriority.URGENT: return 'priority-urgent';
+      case TaskPriority.HIGH: return 'priority-high';
+      case TaskPriority.MEDIUM: return 'priority-medium';
+      case TaskPriority.LOW: return 'priority-low';
+      default: return '';
+    }
+  };
+
   return (
     <div className="context-panel">
       <div className="context-panel-header">
@@ -98,10 +166,8 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
             className={`context-section-header ${expandedSection === 'sessions' ? 'expanded' : ''}`}
             onClick={() => toggleSection('sessions')}
           >
-            <span className="context-section-icon">
-              {expandedSection === 'sessions' ? '▼' : '▶'}
-            </span>
-            <span className="context-section-title">💬 Sessions</span>
+            <i className={`codicon codicon-chevron-${expandedSection === 'sessions' ? 'down' : 'right'}`} />
+            <span className="context-section-title"><i className="codicon codicon-comment-discussion" /> Sessions</span>
             <span className="context-section-count">{sessions.length}</span>
           </button>
 
@@ -120,10 +186,15 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
                       onClick={() => onSwitchSession?.(session.id)}
                     >
                       <div className="context-item-header">
-                        <span className="context-item-pin">
-                          {session.id === sessionId ? '🔵' : '○'}
-                        </span>
+                        <i className={`codicon codicon-${session.id === sessionId ? 'circle-filled' : 'circle-outline'} context-item-pin`} />
                         <span className="context-item-title">{getSessionTitle(session)}</span>
+                        <button
+                          className="context-item-action"
+                          onClick={(e) => handleDeleteSession(e, session.id)}
+                          title="Delete session"
+                        >
+                          <i className="codicon codicon-trash" />
+                        </button>
                       </div>
                       <div className="context-item-meta">
                         <span className="context-item-date">{formatSessionTime(session.lastActivityAt)}</span>
@@ -141,16 +212,63 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
           )}
         </div>
 
+        {/* Tasks Section */}
+        <div className="context-section">
+          <button
+            className={`context-section-header ${expandedSection === 'tasks' ? 'expanded' : ''}`}
+            onClick={() => toggleSection('tasks')}
+          >
+            <i className={`codicon codicon-chevron-${expandedSection === 'tasks' ? 'down' : 'right'}`} />
+            <span className="context-section-title"><i className="codicon codicon-checklist" /> Tasks</span>
+            <span className="context-section-count">{tasks.length}</span>
+          </button>
+
+          {expandedSection === 'tasks' && (
+            <div className="context-section-content">
+              {tasks.length === 0 ? (
+                <div className="context-empty">
+                  No tasks assigned yet.
+                </div>
+              ) : (
+                <div className="context-items">
+                  {tasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className={`context-item context-task ${getTaskPriorityClass(task.priority)}`}
+                    >
+                      <div className="context-item-header">
+                        <i className={`codicon codicon-${getTaskStatusIcon(task.status)} context-item-pin task-status-icon`} />
+                        <span className="context-item-title">{task.title}</span>
+                      </div>
+                      <div className="context-item-meta">
+                        <span className="task-priority">{task.priority}</span>
+                        {task.dueDate && (
+                          <span className="task-due-date">
+                            Due {formatDate(task.dueDate)}
+                          </span>
+                        )}
+                      </div>
+                      {task.subtaskIds && task.subtaskIds.length > 0 && (
+                        <div className="task-subtasks">
+                          {task.subtaskIds.length} subtask{task.subtaskIds.length > 1 ? 's' : ''}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Artifacts Section */}
         <div className="context-section">
           <button
             className={`context-section-header ${expandedSection === 'artifacts' ? 'expanded' : ''}`}
             onClick={() => toggleSection('artifacts')}
           >
-            <span className="context-section-icon">
-              {expandedSection === 'artifacts' ? '▼' : '▶'}
-            </span>
-            <span className="context-section-title">📄 Briefs & Summaries</span>
+            <i className={`codicon codicon-chevron-${expandedSection === 'artifacts' ? 'down' : 'right'}`} />
+            <span className="context-section-title"><i className="codicon codicon-file" /> Briefs & Summaries</span>
             <span className="context-section-count">{artifacts.length}</span>
           </button>
 
@@ -171,9 +289,7 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
                       onClick={() => onToggleArtifact(artifact.id)}
                     >
                       <div className="context-item-header">
-                        <span className="context-item-pin">
-                          {isInContext(artifact.id) ? '📌' : '○'}
-                        </span>
+                        <i className={`codicon codicon-${isInContext(artifact.id) ? 'pinned' : 'circle-outline'} context-item-pin`} />
                         <span className="context-item-title">{artifact.title}</span>
                       </div>
                       <div className="context-item-meta">
@@ -194,10 +310,8 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
             className={`context-section-header ${expandedSection === 'files' ? 'expanded' : ''}`}
             onClick={() => toggleSection('files')}
           >
-            <span className="context-section-icon">
-              {expandedSection === 'files' ? '▼' : '▶'}
-            </span>
-            <span className="context-section-title">📁 Accessible Files</span>
+            <i className={`codicon codicon-chevron-${expandedSection === 'files' ? 'down' : 'right'}`} />
+            <span className="context-section-title"><i className="codicon codicon-folder" /> Accessible Files</span>
             <span className="context-section-count">0</span>
           </button>
 

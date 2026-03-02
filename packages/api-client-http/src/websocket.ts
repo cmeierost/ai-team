@@ -5,12 +5,20 @@ export interface WebSocketStreamOptions {
   reconnectAttempts?: number;
   reconnectDelay?: number;
   onQuestion?: (question: any) => Promise<any>;
+  disableQuestions?: boolean;
+  signal?: AbortSignal;
+  sessionId?: string;
+  messageOptions?: Record<string, unknown>;
 }
 
 interface WebSocketMessage {
-  type: 'message' | 'cancel';
+  type: 'message' | 'cancel' | 'answer';
   content?: string;
   options?: any;
+  answer?: {
+    questionId: string;
+    value: any;
+  };
 }
 
 interface WebSocketEvent {
@@ -23,10 +31,15 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
   message: string,
   options: WebSocketStreamOptions
 ): AsyncIterable<MediatorEvent<TCommand>> {
-  const ws = new WebSocket(`${options.url}/ws/chat/${agentId}`);
+  const encodedAgentId = encodeURIComponent(agentId);
+  const wsUrl = options.sessionId
+    ? `${options.url}/ws/chat/${encodedAgentId}?sessionId=${encodeURIComponent(options.sessionId)}`
+    : `${options.url}/ws/chat/${encodedAgentId}`;
+  const ws = new WebSocket(wsUrl);
   const events: MediatorEvent<TCommand>[] = [];
   let error: Error | null = null;
   let done = false;
+  let abortHandler: (() => void) | null = null;
   let readyResolve: (() => void) | null = null;
   const readyPromise = new Promise<void>((resolve) => {
     readyResolve = resolve;
@@ -47,27 +60,48 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
       }
 
       if (wsEvent.type === 'question') {
-        // Handle question - invoke callback and send answer back
+        if (options.disableQuestions) {
+          if (ws.readyState === WebSocket.OPEN) {
+            const cancelPayload: WebSocketMessage = { type: 'cancel' };
+            ws.send(JSON.stringify(cancelPayload));
+          }
+          done = true;
+          ws.close();
+          return;
+        }
+
+        const sendAnswer = (value: any) => {
+          const answerPayload: WebSocketMessage = {
+            type: 'answer',
+            answer: {
+              questionId: wsEvent.data.questionId,
+              value,
+            },
+          };
+          ws.send(JSON.stringify(answerPayload));
+        };
+
         if (options.onQuestion) {
-          options.onQuestion(wsEvent.data).then((answer) => {
-            ws.send(JSON.stringify({
-              type: 'answer',
-              answer: {
-                questionId: wsEvent.data.questionId,
-                value: answer,
-              },
-            }));
-          }).catch((err) => {
-            console.error('Failed to get answer for question:', err);
-            // Send a default/empty answer to unblock the server
-            ws.send(JSON.stringify({
-              type: 'answer',
-              answer: {
-                questionId: wsEvent.data.questionId,
-                value: '',
-              },
-            }));
-          });
+          options.onQuestion(wsEvent.data)
+            .then((answer) => {
+              sendAnswer(answer);
+            })
+            .catch((err) => {
+              console.error('Failed to get answer for question:', err);
+              const fallback = wsEvent.data?.kind === 'confirm'
+                ? false
+                : wsEvent.data?.kind === 'checklist'
+                  ? []
+                  : '';
+              sendAnswer(fallback);
+            });
+        } else {
+          const fallback = wsEvent.data?.kind === 'confirm'
+            ? false
+            : wsEvent.data?.kind === 'checklist'
+              ? []
+              : '';
+          sendAnswer(fallback);
         }
         return;
       }
@@ -96,6 +130,25 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
   };
 
   try {
+    abortHandler = () => {
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          const cancelPayload: WebSocketMessage = { type: 'cancel' };
+          ws.send(JSON.stringify(cancelPayload));
+        }
+      } finally {
+        done = true;
+      }
+    };
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        abortHandler();
+      } else {
+        options.signal.addEventListener('abort', abortHandler, { once: true });
+      }
+    }
+
     // Wait for ready signal
     await readyPromise;
 
@@ -103,8 +156,16 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
     const messagePayload: WebSocketMessage = {
       type: 'message',
       content: message,
-      options: {},
+      options: {
+        ...(options.messageOptions || {}),
+      },
     };
+    if (messagePayload.options && 'message' in messagePayload.options) {
+      delete messagePayload.options.message;
+    }
+    if (messagePayload.options && 'sessionId' in messagePayload.options) {
+      delete messagePayload.options.sessionId;
+    }
     ws.send(JSON.stringify(messagePayload));
 
     // Yield events as they arrive
@@ -122,6 +183,9 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
       }
     }
   } finally {
+    if (options.signal && abortHandler) {
+      options.signal.removeEventListener('abort', abortHandler);
+    }
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
       ws.close();
     }

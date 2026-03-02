@@ -1,14 +1,22 @@
+import { useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
 import { Avatar } from './Avatar';
 import './Portfolio.css';
 
-interface PortfolioProps {
-  agentId: string;
-  onClose: () => void;
-}
-
-export function Portfolio({ agentId, onClose }: PortfolioProps) {
+export function Portfolio() {
+  const { agentId } = useParams<{ agentId: string }>();
+  const navigate = useNavigate();
   const { agents, loading, error } = useTeam();
+  
+  const agent = agents.find((a) => a.id === agentId);
+  
+  // Validate agent exists
+  useEffect(() => {
+    if (!loading && !agent && agentId) {
+      navigate('/not-found', { replace: true });
+    }
+  }, [agent, agentId, loading, navigate]);
   
   if (loading) {
     return <div className="loading">Loading portfolio...</div>;
@@ -18,21 +26,14 @@ export function Portfolio({ agentId, onClose }: PortfolioProps) {
     return <div className="error">Error: {error.message}</div>;
   }
 
-  const agent = agents.find((a) => a.id === agentId);
-
-  if (!agent) {
-    return (
-      <div className="error">
-        <p>Employee not found: {agentId}</p>
-        <button onClick={onClose}>← Back</button>
-      </div>
-    );
+  if (!agentId || !agent) {
+    return null; // Will redirect via useEffect
   }
 
   return (
     <div className="portfolio">
       <div className="portfolio-header">
-        <button onClick={onClose} className="btn-back">
+        <button onClick={() => navigate('/employees')} className="btn-back">
           ← Back
         </button>
         <div className="portfolio-avatar">

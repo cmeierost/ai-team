@@ -6,6 +6,7 @@ HTTP REST API server for AI Team web UI.
 
 - REST API endpoints for agents, team graph, and chat
 - WebSocket support for real-time chat streaming
+- **Swagger UI** for interactive API documentation
 - Static file serving for production deployment
 - CORS support for development
 - Environment-based configuration
@@ -37,9 +38,22 @@ pnpm --filter @ai-team/web build
 
 # Start production server
 NODE_ENV=production pnpm start
+
+# Server will be available at:
+# - Web UI: http://localhost:3002
+# - API: http://localhost:3002/api
+# - API Docs: http://localhost:3002/api-docs
 ```
 
 ## API Endpoints
+
+### API Documentation
+
+Access the interactive Swagger UI documentation at:
+- **Swagger UI**: `http://localhost:3002/api-docs`
+- **OpenAPI JSON**: `http://localhost:3002/api-docs.json`
+
+The Swagger UI provides a comprehensive, interactive interface to explore and test all API endpoints with request/response examples.
 
 ### REST API
 

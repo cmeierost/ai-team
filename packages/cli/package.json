@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest",
+    "test": "vitest --passWithNoTests",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },
@@ -27,6 +27,7 @@
   "dependencies": {
     "@ai-team/api-client": "workspace:*",
     "@ai-team/core": "workspace:*",
+    "@ai-team/service": "workspace:*",
     "@inquirer/prompts": "^8.2.1",
     "chalk": "^5.4.1",
     "commander": "^13.0.0",

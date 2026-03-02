@@ -26,6 +26,7 @@ import {
   CreateSetupInput,
   CreateSkillSetupInput,
   createAiTeamService,
+  findWorkspaceRoot,
   FireOptions,
   HireOptions,
   InitOptions,
@@ -40,6 +41,7 @@ import {
   type ServiceErrorInputRequest,
   TestConnectionOptions,
 } from '@ai-team/service';
+import { SearchAgentsRequest, SearchAgentsResponse } from '@ai-team/service/src/contracts';
 
 export interface AiTeamClient {
   invoke<TCommand extends AiTeamCommandName>(
@@ -52,6 +54,7 @@ export interface AiTeamClient {
   ): AsyncIterable<MediatorEvent<TCommand>>;
   listEmployees(request: ListEmployeesRequest): Promise<Employee[]>;
   resolveEmployees(query: string): Promise<Employee[]>;
+  searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;
@@ -92,6 +95,10 @@ class InProcessAiTeamClient implements AiTeamClient {
 
   async resolveEmployees(query: string): Promise<Employee[]> {
     return this.service.resolveEmployees(query);
+  }
+
+  async searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse> {
+    return this.service.searchAgents(request);
   }
 
   async getTeamGraph(mode?: ViewMode): Promise<GraphData> {
@@ -159,8 +166,9 @@ export function createInProcessAiTeamClient(service: AiTeamService): AiTeamClien
   return new InProcessAiTeamClient(service);
 }
 
-export function createLocalAiTeamClient(workspaceRoot: string): AiTeamClient {
-  const service = createAiTeamService(workspaceRoot);
+export function createLocalAiTeamClient(workspaceRoot?: string): AiTeamClient {
+  const resolvedWorkspaceRoot = workspaceRoot || findWorkspaceRoot();
+  const service = createAiTeamService(resolvedWorkspaceRoot);
   return createInProcessAiTeamClient(service);
 }
 

@@ -1,6 +1,7 @@
 import { listEmployeesCommand } from './commands/list.js';
 import { getOrganizationGraphCommand, getTeamGraphCommand } from './commands/graph.js';
 import { resolveEmployeesCommand } from './commands/info.js';
+import { searchAgentsCommand } from './commands/search.js';
 import {
   AiTeamCommandName,
   AiTeamCommandResponseMap,
@@ -32,6 +33,8 @@ import {
   HireOptions,
   InitOptions,
   ListEmployeesRequest,
+  SearchAgentsRequest,
+  SearchAgentsResponse,
   ProviderSetupInput,
   ProviderListOptions,
   ProviderModelsOptions,
@@ -604,6 +607,14 @@ class CoreAiTeamService implements AiTeamService {
     return resolveEmployeesCommand(this.workspaceRoot, query);
   }
 
+  async searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse> {
+    const results = await searchAgentsCommand(this.workspaceRoot, request);
+    return {
+      results,
+      totalCount: results.length,
+    };
+  }
+
   async getTeamGraph(mode: ViewMode = 'hierarchy'): Promise<GraphData> {
     return getTeamGraphCommand(this.workspaceRoot, mode);
   }
@@ -704,11 +715,39 @@ export type {
   SetProviderOptions,
   ProviderModelsOptions,
   RefreshProviderModelsOptions,
+  SearchAgentsRequest,
+  SearchAgentsResponse,
   WorkflowFrame,
   WorkflowStateSnapshot,
   TestConnectionOptions,
 };
 
-export { ServiceDomainError, type ServiceErrorCode, type ServiceErrorInputRequest } from './errors.js';
+export { ServiceDomainError, AmbiguousAgentQueryError, type ServiceErrorCode, type ServiceErrorInputRequest } from './errors.js';
 export { MissingUserInputError } from './utils/user-env.js';
 export { SessionManager } from './session-manager.js';
+export { TaskManager, type TaskFilter } from './task-manager.js';
+export { resolveAgentForOperation, resolveAgentSafe } from './utils/agent-resolution.js';
+export { findWorkspaceRoot } from './utils/workspace.js';
+export { getSystemInfo, type SystemInfo } from './utils/system-info.js';
+export {
+  getFileTreeCommand,
+  allowPathCommand,
+  disallowPathCommand,
+  agentAllowPathCommand,
+  agentDisallowPathCommand,
+  type AgentPathResult,
+} from './commands/file-tree.js';
+
+// Storage abstraction layer
+export {
+  type IMessageStorage,
+  type MessageFilter,
+  type SessionFilter,
+  type StorageStats,
+  type MessageInsertResult,
+  type MessageStorageFactory,
+  SqliteMessageStorage,
+  SqliteConnection,
+  MigrationManager,
+  createSqliteStorage,
+} from './storage/index.js';

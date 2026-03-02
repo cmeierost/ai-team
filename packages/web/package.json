@@ -12,10 +12,13 @@
   "dependencies": {
     "@ai-team/api-client-http": "workspace:*",
     "@ai-team/core": "workspace:*",
+    "@vscode/codicons": "^0.0.44",
     "@xyflow/react": "^12.6.0",
+    "dayjs": "^1.11.19",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.13.1",
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1"
   },
