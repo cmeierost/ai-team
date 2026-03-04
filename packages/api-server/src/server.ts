@@ -292,6 +292,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   const shutdown = async () => {
     console.log('\nShutting down server...');
     wss.close();
+    await storage.close();
     httpServer.close(() => {
       console.log('Server closed');
       process.exit(0);
@@ -301,7 +302,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  return { app, httpServer, wss };
+  return { app, httpServer, wss, storage };
 }
 
 // Start server if this file is run directly

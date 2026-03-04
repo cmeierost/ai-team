@@ -116,14 +116,20 @@ applyCommandMetadata(program.command(createMeta.command), createMeta).action(wit
 
 const chatMeta = getCliCommandMetadata('chat');
 applyCommandMetadata(program.command(chatMeta.command), chatMeta)
-  .action(withCliErrorHandling((agentId: string | undefined, messageParts: string[] | undefined, options: { message?: string; context?: string[]; mediatorLog?: boolean }) => {
-    const { mediatorLog, ...chatOptions } = options;
+  .action(withCliErrorHandling((agentId: string | undefined, messageParts: string[] | undefined, options: { message?: string; context?: string[]; mediatorLog?: boolean; new?: boolean; session?: string }) => {
+    const { mediatorLog, new: createNew, session, ...chatOptions } = options;
     const inlineMessage = messageParts && messageParts.length > 0
       ? messageParts.join(' ')
       : undefined;
     const hasOptionMessage = Boolean(chatOptions.message || inlineMessage);
     const message = chatOptions.message || inlineMessage;
-    return chatCommand(client, agentId, { ...chatOptions, message, oneShot: hasOptionMessage }, Boolean(mediatorLog));
+    return chatCommand(client, agentId, {
+      ...chatOptions,
+      message,
+      oneShot: hasOptionMessage,
+      createNewSession: createNew,
+      sessionId: session,
+    }, Boolean(mediatorLog));
   }));
 
 const graphMeta = getCliCommandMetadata('graph');

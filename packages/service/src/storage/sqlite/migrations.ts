@@ -215,6 +215,22 @@ export const MIGRATIONS: Migration[] = [
       SELECT title, content, agent_id, id FROM notes;
     `,
   },
+  {
+    version: 3,
+    name: 'add_handoff_session_links',
+    up: `
+      ALTER TABLE messages ADD COLUMN handoff_from_session_id TEXT;
+      ALTER TABLE messages ADD COLUMN handoff_to_session_id TEXT;
+    `,
+  },
+  {
+    version: 4,
+    name: 'add_handoff_id',
+    up: `
+      ALTER TABLE messages ADD COLUMN handoff_id TEXT;
+      CREATE INDEX IF NOT EXISTS idx_messages_handoff_id ON messages(handoff_id) WHERE handoff_id IS NOT NULL;
+    `,
+  },
 ];
 
 /**

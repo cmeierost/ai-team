@@ -62,6 +62,8 @@ export const CLI_COMMAND_REGISTRY: CliCommandMetadata[] = [
       { flags: '-m, --message <message>', description: 'Send a single message' },
       { flags: '-c, --context <files...>', description: 'Include files in context' },
       { flags: '--mediator-log', description: 'Print raw mediator runtime/stream event logs' },
+      { flags: '--new', description: 'Start a new session instead of resuming the latest' },
+      { flags: '-s, --session <id>', description: 'Resume a specific session by ID' },
     ],
   },
   {
@@ -215,6 +217,8 @@ export const IN_CHAT_COMMAND_REGISTRY = [
   { key: 'history', usage: '/history', description: 'Show recent messages (history 20 for more)', llmCallable: false },
   { key: 'portfolio', usage: '/portfolio', description: "Show the employee's portfolio / bio", llmCallable: false },
   { key: 'graph', usage: '/graph', description: 'Generate team graph', llmCallable: true },
+  { key: 'session', usage: '/session', description: 'Show current session ID', llmCallable: false },
+  { key: 'new', usage: '/new', description: 'Start a new session with the current agent', llmCallable: false },
   { key: 'help', usage: '/help', description: 'Show this help', llmCallable: false },
   { key: 'tool', usage: '#<tool> <json>', description: 'Run a direct tool call', llmCallable: false },
 ] as const;

@@ -235,7 +235,9 @@ export interface MediatorRuntimeEvent {
   warnings?: string[];
   // Handoff fields
   fromAgentId?: string;
+  fromAgentName?: string;
   toAgentId?: string;
+  toAgentName?: string;
   handoffNote?: string;
 }
 
@@ -367,7 +369,9 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       kind: 'handoff';
       timestamp: string;
       fromAgentId: string;
+      fromAgentName?: string;
       toAgentId: string;
+      toAgentName?: string;
       handoffNote?: string;
       message?: string;
     }

@@ -46,8 +46,8 @@ export class SqliteMessageStorage implements IMessageStorage {
     
     // Insert message
     const messageResult = await this.connection.run(
-      `INSERT INTO messages (session_id, timestamp, from_id, to_id, is_human, content, archived, handoff_type, target_agent_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (session_id, timestamp, from_id, to_id, is_human, content, archived, handoff_type, target_agent_id, handoff_from_session_id, handoff_to_session_id, handoff_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         sessionId,
         timestamp,
@@ -58,6 +58,9 @@ export class SqliteMessageStorage implements IMessageStorage {
         message.archived ? 1 : 0,
         message.handoffType || null,
         message.targetAgentId || null,
+        message.handoffFromSessionId || null,
+        message.handoffToSessionId || null,
+        message.handoffId || null,
       ]
     );
     
@@ -594,6 +597,21 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async deleteSession(sessionId: string): Promise<boolean> {
+    // NULL-out cross-session references before deleting so linked sessions/messages
+    // don't hold dangling IDs. These columns have no FK ON DELETE SET NULL because
+    // they were added via ALTER TABLE (SQLite limitation).
+    await this.connection.run(
+      'UPDATE sessions SET previous_session_id = NULL WHERE previous_session_id = ?',
+      [sessionId]
+    );
+    await this.connection.run(
+      'UPDATE messages SET handoff_from_session_id = NULL WHERE handoff_from_session_id = ?',
+      [sessionId]
+    );
+    await this.connection.run(
+      'UPDATE messages SET handoff_to_session_id = NULL WHERE handoff_to_session_id = ?',
+      [sessionId]
+    );
     const result = await this.connection.run(
       'DELETE FROM sessions WHERE id = ?',
       [sessionId]
@@ -697,6 +715,9 @@ export class SqliteMessageStorage implements IMessageStorage {
       archived: row.archived === 1 || undefined,
       handoffType: row.handoff_type || undefined,
       targetAgentId: row.target_agent_id || undefined,
+      handoffFromSessionId: row.handoff_from_session_id || undefined,
+      handoffToSessionId: row.handoff_to_session_id || undefined,
+      handoffId: row.handoff_id || undefined,
     };
   }
   

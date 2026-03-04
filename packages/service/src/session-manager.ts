@@ -493,6 +493,28 @@ ${summary}
   }
 
   /**
+   * Walk the previousSessionId chain from the given session back to the root.
+   * Returns sessions ordered root → leaf (oldest first).
+   * A visited-set guards against corrupt data cycles.
+   */
+  async getSessionChain(sessionId: string): Promise<ChatSession[]> {
+    const chain: ChatSession[] = [];
+    const visited = new Set<string>();
+    let current: ChatSession | null = await this.getSession(sessionId);
+
+    while (current) {
+      if (visited.has(current.id)) break; // cycle guard
+      visited.add(current.id);
+      chain.push(current);
+      if (!current.previousSessionId) break;
+      current = await this.getSession(current.previousSessionId);
+    }
+
+    chain.reverse(); // root first
+    return chain;
+  }
+
+  /**
    * Delete a session and all its messages
    * @param sessionId - Session ID to delete
    */

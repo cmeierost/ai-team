@@ -3,6 +3,31 @@
 
 export type ViewMode = 'hierarchy' | 'features' | 'expertise' | 'matrix';
 
+export interface FileTreeNode {
+  name: string;
+  path: string;
+  relativePath: string;
+  isDirectory: boolean;
+  children?: FileTreeNode[];
+  size?: number;
+  modified?: string;
+  extension?: string;
+  gitignored?: boolean;
+}
+
+export interface AnnotatedFile {
+  path: string;
+  readable: boolean;
+  writable: boolean;
+}
+
+export interface AgentFilesResponse {
+  agent: string;
+  readPatterns: string[];
+  writePatterns: string[];
+  files: AnnotatedFile[];
+}
+
 export interface AvatarConfig {
   type?: 'url' | 'ai-generated' | 'initials';
   url?: string;
@@ -30,6 +55,21 @@ export interface AgentLlm {
   model?: string;
 }
 
+export interface AgentSkill {
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  examples?: string[];
+}
+
+export interface AgentCapabilities {
+  streaming?: boolean;
+  multimodal?: boolean;
+  codeExecution?: boolean;
+  reasoning?: boolean;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -43,6 +83,7 @@ export interface Agent {
   cliTools?: string[];
   canDelegate?: boolean;
   delegatesTo?: string[];
+  availableFor?: string[];
   status?: 'available' | 'busy' | 'in-meeting' | 'offline';
   markdown?: string;  // Portfolio/bio content
   avatar?: AvatarConfig;
@@ -50,6 +91,12 @@ export interface Agent {
   pronouns?: string;
   timezone?: string;
   workHours?: string;
+  goal?: string;
+  backstory?: string;
+  skills?: AgentSkill[];
+  capabilities?: AgentCapabilities;
+  memory?: boolean;
+  maxIterations?: number;
   llm?: AgentLlm;
   createdAt?: string;
   lastInteraction?: string;

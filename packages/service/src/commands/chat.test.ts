@@ -1,0 +1,175 @@
+import { describe, expect, it } from 'vitest';
+
+import { requestInput, requestConfirm, stripHandoffDirective } from './chat.js';
+import type { ChatRuntimeHooks } from './chat.js';
+
+// ---------------------------------------------------------------------------
+// requestInput / requestConfirm — event ordering
+// ---------------------------------------------------------------------------
+// Regression guard: log events emitted to hooks.emit must be observable
+// *before* hooks.questionInput is called (i.e. before readline writes the
+// prompt). This broke when only Promise.resolve() (one microtask) was used;
+// fixed by switching to setImmediate (full event-loop tick).
+// ---------------------------------------------------------------------------
+
+function makeHooks(answer: string): {
+  hooks: ChatRuntimeHooks;
+  order: string[];
+} {
+  const order: string[] = [];
+
+  const hooks: ChatRuntimeHooks = {
+    emit(event: Parameters<NonNullable<ChatRuntimeHooks['emit']>>[0]) {
+      order.push(`emit:${event.kind}`);
+    },
+    async questionInput(_req: Parameters<NonNullable<ChatRuntimeHooks['questionInput']>>[0]) {
+      order.push('questionInput');
+      return answer;
+    },
+    async questionConfirm(_req: Parameters<NonNullable<ChatRuntimeHooks['questionConfirm']>>[0]) {
+      order.push('questionConfirm');
+      return true;
+    },
+  };
+
+  return { hooks, order };
+}
+
+describe('requestInput — event-ordering (setImmediate fix)', () => {
+  it('emits question event before calling questionInput', async () => {
+    const { hooks, order } = makeHooks('hello');
+
+    await requestInput(hooks, { message: 'Prompt:' });
+
+    const emitIdx = order.indexOf('emit:question');
+    const inputIdx = order.indexOf('questionInput');
+    expect(emitIdx).toBeGreaterThanOrEqual(0);
+    expect(inputIdx).toBeGreaterThan(emitIdx);
+  });
+
+  it('any setImmediate-scheduled work runs before questionInput', async () => {
+    const { hooks, order } = makeHooks('hi');
+
+    // Simulate a pending log event scheduled via setImmediate (as the CLI
+    // for-await loop does when draining runtimeQueue).
+    setImmediate(() => order.push('consumer:drained'));
+
+    await requestInput(hooks, { message: 'Prompt:' });
+
+    const drainIdx = order.indexOf('consumer:drained');
+    const inputIdx = order.indexOf('questionInput');
+    expect(drainIdx).toBeGreaterThanOrEqual(0);
+    expect(inputIdx).toBeGreaterThan(drainIdx);
+  });
+
+  it('returns the value from questionInput', async () => {
+    const { hooks } = makeHooks('my answer');
+    const result = await requestInput(hooks, { message: 'Q:' });
+    expect(result).toBe('my answer');
+  });
+
+  it('throws when no questionInput handler is provided', async () => {
+    const hooks: ChatRuntimeHooks = { emit: () => {} };
+    await expect(requestInput(hooks, { message: 'Q:' })).rejects.toThrow(
+      'Input question requested but no client questionInput responder is available.',
+    );
+  });
+});
+
+describe('requestConfirm — event-ordering (setImmediate fix)', () => {
+  it('emits question event before calling questionConfirm', async () => {
+    const { hooks, order } = makeHooks('');
+
+    await requestConfirm(hooks, { message: 'Continue?' });
+
+    const emitIdx = order.indexOf('emit:question');
+    const confirmIdx = order.indexOf('questionConfirm');
+    expect(emitIdx).toBeGreaterThanOrEqual(0);
+    expect(confirmIdx).toBeGreaterThan(emitIdx);
+  });
+
+  it('any setImmediate-scheduled work runs before questionConfirm', async () => {
+    const { hooks, order } = makeHooks('');
+
+    setImmediate(() => order.push('consumer:drained'));
+
+    await requestConfirm(hooks, { message: 'Continue?' });
+
+    const drainIdx = order.indexOf('consumer:drained');
+    const confirmIdx = order.indexOf('questionConfirm');
+    expect(drainIdx).toBeGreaterThanOrEqual(0);
+    expect(confirmIdx).toBeGreaterThan(drainIdx);
+  });
+
+  it('returns the boolean from questionConfirm', async () => {
+    const { hooks } = makeHooks('');
+    const result = await requestConfirm(hooks, { message: 'Q?' });
+    expect(result).toBe(true);
+  });
+});
+
+
+
+describe('stripHandoffDirective', () => {
+  it('removes a bare HANDOFF: line', () => {
+    const input = 'Sure thing!\nHANDOFF: engineer | pass to dev team\nLet me know.';
+    const result = stripHandoffDirective(input);
+    expect(result).toContain('Sure thing!');
+    expect(result).toContain('Let me know.');
+    expect(result).not.toMatch(/HANDOFF/i);
+  });
+
+  it('removes multiple HANDOFF: lines', () => {
+    const input = 'HANDOFF: hr | go here\nSome text.\nHANDOFF: cto | also here\nDone.';
+    const result = stripHandoffDirective(input);
+    expect(result).toContain('Some text.');
+    expect(result).toContain('Done.');
+    expect(result).not.toMatch(/HANDOFF/i);
+  });
+
+  it('is case-insensitive', () => {
+    const input = 'Hello.\nhandoff: engineer | route it\nBye.';
+    // Removing the directive line leaves one blank line; that is acceptable
+    const result = stripHandoffDirective(input);
+    expect(result).toContain('Hello.');
+    expect(result).toContain('Bye.');
+    expect(result).not.toMatch(/handoff/i);
+  });
+
+  it('handles leading/trailing whitespace on the directive line', () => {
+    const input = 'Hi.\n   HANDOFF: cto | urgent   \nThanks.';
+    const result = stripHandoffDirective(input);
+    expect(result).toContain('Hi.');
+    expect(result).toContain('Thanks.');
+    expect(result).not.toMatch(/HANDOFF/i);
+  });
+
+  it('collapses more than two consecutive blank lines left by removal', () => {
+    const input = 'Start.\n\n\nHANDOFF: x | y\n\n\n\nEnd.';
+    const result = stripHandoffDirective(input);
+    expect(result).not.toMatch(/\n{3,}/);
+    expect(result).toContain('Start.');
+    expect(result).toContain('End.');
+  });
+
+  it('leaves text without a directive unchanged', () => {
+    const input = 'This is a normal message.';
+    expect(stripHandoffDirective(input)).toBe('This is a normal message.');
+  });
+
+  it('does not strip lines that merely mention handoff in a sentence', () => {
+    const input = 'The handoff process is important.\nHANDOFF: cto | do it\nProceed.';
+    const result = stripHandoffDirective(input);
+    expect(result).toContain('The handoff process is important.');
+    expect(result).not.toContain('HANDOFF: cto');
+  });
+
+  it('returns empty string when input is only a HANDOFF directive', () => {
+    expect(stripHandoffDirective('HANDOFF: engineer | go')).toBe('');
+  });
+
+  it('returns trimmed result', () => {
+    const input = '\n\nHANDOFF: x | y\n\n';
+    expect(stripHandoffDirective(input)).toBe('');
+  });
+});

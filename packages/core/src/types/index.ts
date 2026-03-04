@@ -336,6 +336,9 @@ export interface ChatMessage {
   archived?: boolean;  // If true, message is shown but not sent to LLM
   handoffType?: 'user-acknowledgment' | 'agent-briefing';  // Type of handoff message
   targetAgentId?: string;  // Target agent for briefing messages
+  handoffFromSessionId?: string;  // Session ID this briefing was forwarded FROM
+  handoffToSessionId?: string;    // Session ID this briefing was forwarded TO
+  handoffId?: string;             // UUID shared by all messages belonging to one handoff event
 }
 
 export interface ToolCall {

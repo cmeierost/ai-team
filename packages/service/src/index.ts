@@ -130,17 +130,14 @@ class CoreAiTeamService implements AiTeamService {
     // real server console (log → console.log/warn/error, token → stdout).
     // This gives full visibility when running the service behind the API
     // server without affecting the CLI path (where context.emit is absent).
+    // Wrap emit so every event reaches the client via the event queue.
+    // Do NOT mirror log events back to console.log/warn/error here:
+    // originalLog still calls process.stdout.write (which is patched when
+    // context.emit is present), so mirroring would emit a second token event
+    // for every log message and cause double-printing in the CLI.
     const emitWithConsole: ((event: MediatorRuntimeEvent) => void) | undefined = context.emit
       ? (event: MediatorRuntimeEvent) => {
           context.emit!(event);
-          if (event.kind === 'log') {
-            const msg = event.message ?? '';
-            if (event.level === 'error') originalError(msg);
-            else if (event.level === 'warn') originalWarn(msg);
-            else originalLog(msg);
-          } else if (event.kind === 'token' && event.text) {
-            originalStdoutWrite(event.text);
-          }
         }
       : undefined;
 
@@ -565,7 +562,9 @@ class CoreAiTeamService implements AiTeamService {
           kind: 'handoff',
           timestamp: timestamp(),
           fromAgentId: runtimeEvent.fromAgentId,
+          fromAgentName: runtimeEvent.fromAgentName,
           toAgentId: runtimeEvent.toAgentId,
+          toAgentName: runtimeEvent.toAgentName,
           handoffNote: runtimeEvent.handoffNote,
           message: runtimeEvent.message,
         });

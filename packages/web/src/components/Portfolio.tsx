@@ -3,9 +3,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTeam } from '../context/TeamContext';
-import { Agent, AgentPersonality } from '../types';
+import { Agent, AgentPersonality, AgentSkill, AgentCapabilities } from '../types';
 import { Avatar } from './Avatar';
 import { RelativeTime } from './RelativeTime';
+import { FileTree } from './FileTree';
 import './Portfolio.css';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -113,6 +114,44 @@ function MarkdownEditor({ value, onChange }: { value: string; onChange: (v: stri
   );
 }
 
+// ─── Skill Editor ────────────────────────────────────────────────────────────
+
+interface SkillEditorProps {
+  skills: AgentSkill[];
+  onChange: (skills: AgentSkill[]) => void;
+}
+
+function SkillEditor({ skills, onChange }: SkillEditorProps) {
+  const addSkill = () => {
+    const id = `skill-${Date.now()}`;
+    onChange([...skills, { id, name: '' }]);
+  };
+  const removeSkill = (idx: number) => onChange(skills.filter((_, i) => i !== idx));
+  const patchSkill = (idx: number, patch: Partial<AgentSkill>) =>
+    onChange(skills.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+
+  return (
+    <div className="skill-editor">
+      {skills.map((sk, idx) => (
+        <div key={sk.id} className="skill-editor-item">
+          <div className="skill-editor-row">
+            <input className="skill-editor-name" placeholder="Skill name"
+              value={sk.name} onChange={(e) => patchSkill(idx, { name: e.target.value })} />
+            <button type="button" className="skill-editor-remove"
+              onClick={() => removeSkill(idx)} aria-label="Remove skill">×</button>
+          </div>
+          <textarea className="skill-editor-desc" placeholder="Description (optional)"
+            value={sk.description ?? ''} rows={2}
+            onChange={(e) => patchSkill(idx, { description: e.target.value || undefined })} />
+          <div className="skill-editor-label">Tags</div>
+          <TagInput tags={sk.tags ?? []} onChange={(t) => patchSkill(idx, { tags: t })} placeholder="Add tag…" />
+        </div>
+      ))}
+      <button type="button" className="skill-editor-add" onClick={addSkill}>+ Add skill</button>
+    </div>
+  );
+}
+
 // ─── Section Card ─────────────────────────────────────────────────────────────
 
 function SectionCard({ title, icon, children }: { title: string; icon?: string; children: React.ReactNode }) {
@@ -187,6 +226,8 @@ export function Portfolio() {
   const patchDraft = (fields: Partial<Agent>) => setDraft((d) => ({ ...d, ...fields }));
   const patchPersonality = (fields: Partial<AgentPersonality>) =>
     setDraft((d) => ({ ...d, personality: { ...d.personality, ...fields } }));
+  const patchCapabilities = (fields: Partial<AgentCapabilities>) =>
+    setDraft((d) => ({ ...d, capabilities: { ...d.capabilities, ...fields } }));
 
   // In edit mode, draft overrides agent for display
   const v: Agent = isEditing ? { ...agent, ...draft } : agent;
@@ -296,6 +337,43 @@ export function Portfolio() {
             <p className="text-muted">No bio written yet.</p>
           )}
         </SectionCard>
+
+        {/* ── Goal & Backstory ── */}
+        {(v.goal || v.backstory || isEditing) && (
+          <SectionCard title="Goal & Backstory" icon="🎯">
+            {isEditing ? (
+              <div className="portfolio-form-stack">
+                <label><span>Goal</span>
+                  <textarea className="portfolio-textarea" rows={2}
+                    placeholder="What this agent is trying to achieve…"
+                    value={draft.goal ?? agent.goal ?? ''}
+                    onChange={(e) => patchDraft({ goal: e.target.value || undefined })} />
+                </label>
+                <label><span>Backstory</span>
+                  <textarea className="portfolio-textarea" rows={3}
+                    placeholder="Background, context, and persona…"
+                    value={draft.backstory ?? agent.backstory ?? ''}
+                    onChange={(e) => patchDraft({ backstory: e.target.value || undefined })} />
+                </label>
+              </div>
+            ) : (
+              <div className="goal-backstory-grid">
+                {v.goal && (
+                  <div className="goal-backstory-item">
+                    <div className="goal-backstory-label">Goal</div>
+                    <p className="goal-backstory-text">{v.goal}</p>
+                  </div>
+                )}
+                {v.backstory && (
+                  <div className="goal-backstory-item">
+                    <div className="goal-backstory-label">Backstory</div>
+                    <p className="goal-backstory-text">{v.backstory}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </SectionCard>
+        )}
 
         {/* ── Personality ── */}
         {(v.personality || isEditing) && (
@@ -430,6 +508,96 @@ export function Portfolio() {
           </SectionCard>
         )}
 
+        {/* ── Agent Skills (structured A2A) ── */}
+        {((v.skills?.length ?? 0) > 0 || isEditing) && (
+          <SectionCard title="Agent Skills" icon="🧩">
+            {isEditing ? (
+              <SkillEditor
+                skills={draft.skills ?? agent.skills ?? []}
+                onChange={(skills) => patchDraft({ skills })}
+              />
+            ) : (
+              <div className="agent-skills-list">
+                {(v.skills ?? []).map((sk) => (
+                  <div key={sk.id} className="agent-skill-card">
+                    <div className="agent-skill-header">
+                      <span className="agent-skill-name">{sk.name}</span>
+                      {sk.tags?.map((t) => <span key={t} className="skill-tag skill-tag-sm">{t}</span>)}
+                    </div>
+                    {sk.description && <p className="agent-skill-desc">{sk.description}</p>}
+                    {sk.examples && sk.examples.length > 0 && (
+                      <ul className="agent-skill-examples">
+                        {sk.examples.map((ex, i) => <li key={i}>{ex}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        )}
+
+        {/* ── Agent Capabilities (A2A) ── */}
+        {(v.capabilities || isEditing) && (
+          <SectionCard title="Agent Capabilities" icon="⚙️">
+            {isEditing ? (
+              <div className="portfolio-form-grid">
+                <label className="portfolio-checkbox-label">
+                  <input type="checkbox"
+                    checked={draft.capabilities?.streaming ?? agent.capabilities?.streaming ?? false}
+                    onChange={(e) => patchCapabilities({ streaming: e.target.checked })} />
+                  <span>Streaming</span>
+                </label>
+                <label className="portfolio-checkbox-label">
+                  <input type="checkbox"
+                    checked={draft.capabilities?.multimodal ?? agent.capabilities?.multimodal ?? false}
+                    onChange={(e) => patchCapabilities({ multimodal: e.target.checked })} />
+                  <span>Multimodal</span>
+                </label>
+                <label className="portfolio-checkbox-label">
+                  <input type="checkbox"
+                    checked={draft.capabilities?.codeExecution ?? agent.capabilities?.codeExecution ?? false}
+                    onChange={(e) => patchCapabilities({ codeExecution: e.target.checked })} />
+                  <span>Code Execution</span>
+                </label>
+                <label className="portfolio-checkbox-label">
+                  <input type="checkbox"
+                    checked={draft.capabilities?.reasoning ?? agent.capabilities?.reasoning ?? false}
+                    onChange={(e) => patchCapabilities({ reasoning: e.target.checked })} />
+                  <span>Reasoning</span>
+                </label>
+              </div>
+            ) : (
+              <div className="capabilities-grid">
+                <div className="capability-item">
+                  <span className={`capability-icon ${v.capabilities?.streaming ? 'capability-enabled' : ''}`}>
+                    {v.capabilities?.streaming ? '✓' : '—'}
+                  </span>
+                  <span>Streaming</span>
+                </div>
+                <div className="capability-item">
+                  <span className={`capability-icon ${v.capabilities?.multimodal ? 'capability-enabled' : ''}`}>
+                    {v.capabilities?.multimodal ? '✓' : '—'}
+                  </span>
+                  <span>Multimodal</span>
+                </div>
+                <div className="capability-item">
+                  <span className={`capability-icon ${v.capabilities?.codeExecution ? 'capability-enabled' : ''}`}>
+                    {v.capabilities?.codeExecution ? '✓' : '—'}
+                  </span>
+                  <span>Code Execution</span>
+                </div>
+                <div className="capability-item">
+                  <span className={`capability-icon ${v.capabilities?.reasoning ? 'capability-enabled' : ''}`}>
+                    {v.capabilities?.reasoning ? '✓' : '—'}
+                  </span>
+                  <span>Reasoning</span>
+                </div>
+              </div>
+            )}
+          </SectionCard>
+        )}
+
         {/* ── Tools ── */}
         {((v.tools?.length ?? 0) > 0 || isEditing) && (
           <SectionCard title="Tools" icon="🔧">
@@ -444,6 +612,31 @@ export function Portfolio() {
           </SectionCard>
         )}
 
+        {/* ── Capabilities ── */}
+        {(v.capabilities || isEditing) && (
+          <SectionCard title="Capabilities" icon="⚙️">
+            {isEditing ? (
+              <div className="portfolio-capabilities-grid">
+                {(['streaming', 'multimodal', 'codeExecution', 'reasoning'] as const).map((cap) => (
+                  <label key={cap} className="portfolio-checkbox-label">
+                    <input type="checkbox"
+                      checked={!!(draft.capabilities?.[cap] ?? agent.capabilities?.[cap])}
+                      onChange={(e) => patchCapabilities({ [cap]: e.target.checked || undefined })} />
+                    <span>{cap.charAt(0).toUpperCase() + cap.replace(/([A-Z])/g, ' $1').slice(1)}</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div className="capabilities-grid">
+                {v.capabilities?.streaming && <span className="capability-chip">Streaming</span>}
+                {v.capabilities?.multimodal && <span className="capability-chip">Multimodal</span>}
+                {v.capabilities?.codeExecution && <span className="capability-chip">Code Execution</span>}
+                {v.capabilities?.reasoning && <span className="capability-chip">Reasoning</span>}
+              </div>
+            )}
+          </SectionCard>
+        )}
+
         {/* ── LLM Config (view only) ── */}
         {!isEditing && v.llm && (v.llm.provider || v.llm.model || v.llm.modelKey) && (
           <SectionCard title="LLM Configuration" icon="🤖">
@@ -453,6 +646,11 @@ export function Portfolio() {
             </div>
           </SectionCard>
         )}
+
+        {/* ── File Access ── */}
+        <SectionCard title="File Access" icon="📂">
+          <FileTree agentId={agent.id} editMode={isEditing} />
+        </SectionCard>
 
         {/* ── Activity (view only) ── */}
         {!isEditing && (v.conversationCount !== undefined || v.lastInteraction || v.createdAt) && (

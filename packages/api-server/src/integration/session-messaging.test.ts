@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 describe('Session-Message Integration', () => {
-  let server: { httpServer: Server; wss: any };
+  let server: { httpServer: Server; wss: any; storage: { close(): Promise<void> } };
   let workspaceRoot: string;
   let port: number;
 
@@ -65,9 +65,10 @@ A test agent for integration testing.
     if (server?.wss) {
       server.wss.close();
     }
-    
-    // Wait a bit for connections to close
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Close SQLite connection before deleting the temp workspace (prevents EBUSY on Windows)
+    if (server?.storage) {
+      await server.storage.close();
+    }
     
     // Clean up workspace
     try {

@@ -692,7 +692,7 @@ describe('SqliteMessageStorage', () => {
       const stats = await storage.getStats();
       expect(stats.totalSessions).toBe(2);
       expect(stats.totalMessages).toBe(3);
-      expect(stats.schemaVersion).toBe(2);
+      expect(stats.schemaVersion).toBe(4);
       expect(stats.storageSize).toBeGreaterThan(0);
     });
   });

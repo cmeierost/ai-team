@@ -219,6 +219,104 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
 
   /**
    * @openapi
+   * /api/sessions/{sessionId}/thread:
+   *   get:
+   *     tags: [Sessions]
+   *     summary: Get the full session chain for a handoff thread
+   *     description: |
+   *       Walks the previousSessionId chain from the given session back to the root.
+   *       Returns all sessions in the thread ordered root → leaf, each with their
+   *       messages. Messages belonging to the same handoff event share a handoffId,
+   *       enabling cross-session message linking in the UI.
+   *     parameters:
+   *       - in: path
+   *         name: sessionId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Any session ID in the thread (root or any descendant)
+   *     responses:
+   *       200:
+   *         description: Full thread with all sessions and messages
+   *       404:
+   *         description: Session not found
+   */
+  router.get('/:sessionId/thread', async (req: any, res: any, next: any) => {
+    try {
+      const { sessionId } = req.params;
+
+      const rootCheck = await sessionManager.getSession(sessionId);
+      if (!rootCheck) {
+        return res.status(404).json({
+          error: 'Session not found',
+          details: `Session ${sessionId} does not exist`,
+        });
+      }
+
+      const chain = await sessionManager.getSessionChain(sessionId);
+
+      const sessions = await Promise.all(
+        chain.map(async (session) => {
+          const messages = await sessionManager.getSessionMessages(session.id);
+          const ids = session.agentIds ?? (session.agentId ? [session.agentId] : []);
+          const agentNames = ids.map((id) => {
+            try { return agentManager?.getAgent(id)?.name ?? id; } catch { return id; }
+          });
+          return {
+            sessionId: session.id,
+            agentIds: ids,
+            agentNames,
+            developerId: session.developerId ?? null,
+            title: session.title ?? null,
+            startedAt: session.startedAt,
+            lastActivityAt: session.lastActivityAt,
+            previousSessionId: session.previousSessionId ?? null,
+            mergedFromSessionIds: session.mergedFromSessionIds ?? null,
+            messageCount: messages.length,
+            messages,
+          };
+        }),
+      );
+
+      // Build a cross-session handoff edge index from messages that carry handoffId + session links.
+      // Each unique handoffId represents one handoff event with a FROM and TO side.
+      const handoffMap = new Map<string, { handoffId: string; fromSessionId: string | null; toSessionId: string | null; fromAgentIds: string[]; toAgentIds: string[] }>();
+      for (const s of sessions) {
+        for (const m of s.messages) {
+          if (!m.handoffId) continue;
+          const existing = handoffMap.get(m.handoffId);
+          if (!existing) {
+            handoffMap.set(m.handoffId, {
+              handoffId: m.handoffId,
+              fromSessionId: m.handoffFromSessionId ?? null,
+              toSessionId: m.handoffToSessionId ?? null,
+              fromAgentIds: [],
+              toAgentIds: [],
+            });
+          }
+        }
+        // Populate agent IDs from session membership
+        for (const [, edge] of handoffMap) {
+          if (edge.fromSessionId === s.sessionId) edge.fromAgentIds = s.agentIds;
+          if (edge.toSessionId === s.sessionId) edge.toAgentIds = s.agentIds;
+        }
+      }
+      const handoffs = Array.from(handoffMap.values());
+
+      res.json({
+        rootSessionId: sessions[0]?.sessionId ?? sessionId,
+        currentSessionId: sessionId,
+        depth: sessions.length,
+        handoffs,
+        sessions,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * @openapi
    * /api/sessions:
    *   post:
    *     tags: [Sessions]

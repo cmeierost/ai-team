@@ -186,7 +186,7 @@ function isEssentialInteractiveInfo(message: string): boolean {
     return false;
   }
 
-  return /^(loading |validating |initializing |connecting to |connected to |chat with |switched to |type "\/help"|type "exit"|\(\d+ previous messages loaded\)|goodbye!)/i.test(normalized);
+  return /^(loading |validating |initializing |connecting to |connected to |chat with |switched to |type "\/help"|type "exit"|\(\d+ previous messages loaded\)|goodbye!|session: |new session started: )/i.test(normalized);
 }
 
 async function handleCodeEditProposal(
@@ -311,6 +311,18 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
       // Handle code edit proposals
       if ('kind' in event && (event as any).kind === 'code_edit_proposal') {
         await handleCodeEditProposal(event as any, writeStderrLine, options.oneShot || false);
+        continue;
+      }
+
+      // Handle agent handoff — print a single clean transition line
+      if ('kind' in event && (event as any).kind === 'handoff') {
+        const e = event as any;
+        const from = e.fromAgentName || e.fromAgentId;
+        const to = e.toAgentName || e.toAgentId;
+        const note = e.handoffNote ? `: ${e.handoffNote}` : '';
+        writeStderrLine('');
+        writeStderrLine(chalk.bold(`${from}`) + chalk.dim(' → ') + chalk.bold(`${to}`) + chalk.dim(note));
+        writeStderrLine('');
         continue;
       }
 
