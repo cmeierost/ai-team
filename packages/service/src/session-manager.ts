@@ -498,20 +498,85 @@ ${summary}
    * A visited-set guards against corrupt data cycles.
    */
   async getSessionChain(sessionId: string): Promise<ChatSession[]> {
-    const chain: ChatSession[] = [];
+    // 1. Walk upward to find the root session.
+    const upwardChain: ChatSession[] = [];
     const visited = new Set<string>();
     let current: ChatSession | null = await this.getSession(sessionId);
 
     while (current) {
       if (visited.has(current.id)) break; // cycle guard
       visited.add(current.id);
-      chain.push(current);
+      upwardChain.push(current);
       if (!current.previousSessionId) break;
       current = await this.getSession(current.previousSessionId);
     }
 
-    chain.reverse(); // root first
-    return chain;
+    upwardChain.reverse(); // root first
+    const root = upwardChain[0];
+    if (!root) return [];
+
+    // 2. BFS downward from root to collect all descendants.
+    // Load all sessions for the same developer and build a children map.
+    const allSessions = await this.storage.listSessions(
+      root.developerId ? { developerId: root.developerId } : undefined,
+    );
+
+    const childrenOf = new Map<string, ChatSession[]>();
+    for (const s of allSessions) {
+      if (!s.previousSessionId) continue;
+      const children = childrenOf.get(s.previousSessionId) ?? [];
+      children.push(s);
+      childrenOf.set(s.previousSessionId, children);
+    }
+
+    // BFS from root
+    const result: ChatSession[] = [];
+    const queue: ChatSession[] = [root];
+    const seen = new Set<string>([root.id]);
+
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      result.push(node);
+      for (const child of (childrenOf.get(node.id) ?? [])) {
+        if (!seen.has(child.id)) {
+          seen.add(child.id);
+          queue.push(child);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Walk the session chain from the given session to the root and return the
+   * first session that belongs to the specified agent. Returns null if no such
+   * session exists in the chain.
+   *
+   * This is used by the handoff logic to avoid creating a duplicate session
+   * when the developer is sent back to an agent they have already spoken with
+   * earlier in the same thread (e.g. Alex → Michael → Alex → Michael should
+   * reuse Michael's first session, not open a third one).
+   */
+  async findAgentSessionInChain(fromSessionId: string, agentId: string): Promise<ChatSession | null> {
+    const visited = new Set<string>();
+    let current: ChatSession | null = await this.getSession(fromSessionId);
+
+    while (current) {
+      if (visited.has(current.id)) break; // cycle guard
+      visited.add(current.id);
+
+      const ids: string[] = current.agentIds?.length
+        ? current.agentIds
+        : current.agentId ? [current.agentId] : [];
+
+      if (ids.includes(agentId)) return current;
+
+      if (!current.previousSessionId) break;
+      current = await this.getSession(current.previousSessionId);
+    }
+
+    return null;
   }
 
   /**

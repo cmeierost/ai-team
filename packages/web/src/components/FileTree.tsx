@@ -90,6 +90,18 @@ interface NodeRowProps {
   onToggle: (path: string, mode: 'read' | 'write', current: boolean) => void;
 }
 
+async function openFileInIde(relativePath: string) {
+  try {
+    await fetch(`${API_BASE}/api/ide/open-file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath: relativePath }),
+    });
+  } catch {
+    // silent — IDE may not be connected
+  }
+}
+
 function NodeRow({ node, depth, editMode, pendingPaths, onToggle }: NodeRowProps) {
   const [open, setOpen] = useState(depth < 2);
 
@@ -112,12 +124,31 @@ function NodeRow({ node, depth, editMode, pendingPaths, onToggle }: NodeRowProps
           >
             <i className={`codicon codicon-chevron-${open ? 'down' : 'right'}`} />
           </button>
+        ) : !editMode ? (
+          <button
+            className="ft-expand ft-open-btn"
+            onClick={() => openFileInIde(node.path)}
+            title="Open in IDE"
+            aria-label="Open in IDE"
+          >
+            <i className="codicon codicon-go-to-file" />
+          </button>
         ) : (
           <span className="ft-expand ft-expand-spacer" />
         )}
 
         <span className="ft-icon">{fileIcon(node.name, node.isDir)}</span>
-        <span className="ft-name" title={node.path}>{node.name}</span>
+        {!node.isDir && !editMode ? (
+          <button
+            className="ft-name ft-name-link"
+            title={`Open in IDE: ${node.path}`}
+            onClick={() => openFileInIde(node.path)}
+          >
+            {node.name}
+          </button>
+        ) : (
+          <span className="ft-name" title={node.path}>{node.name}</span>
+        )}
 
         {!node.isDir && (
           <div className="ft-perms">

@@ -16,6 +16,7 @@
   "dependencies": {
     "@ai-team/api-client": "workspace:*",
     "@ai-team/core": "workspace:*",
+    "@ai-team/ide-interface": "workspace:*",
     "@ai-team/service": "workspace:*",
     "cors": "^2.8.5",
     "express": "^4.18.2",

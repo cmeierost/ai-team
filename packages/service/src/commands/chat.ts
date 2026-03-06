@@ -8,7 +8,9 @@ import { exec } from 'child_process';
 import { randomUUID } from 'crypto';
 import ora from 'ora';
 import fs from 'fs/promises';
+import * as path from 'path';
 import { format as formatMessage, promisify } from 'util';
+import { ProposalStore } from '../storage/proposal-store.js';
 import {
   AgentManager,
   ChatManager,
@@ -54,7 +56,7 @@ import { createSqliteStorage } from '../storage/index.js';
 
 const execAsync = promisify(exec);
 const CHAT_CONNECT_TIMEOUT_MS = 20_000;
-const GREETING_TIMEOUT_MS = 12_000;
+const INTRODUCTION_TIMEOUT_MS = 12_000;
 const PREFLIGHT_STEP_TIMEOUT_MS = 15_000;
 
 interface SendResult {
@@ -195,7 +197,7 @@ function throwIfAborted(signal: AbortSignal | undefined, message: string): void 
   }
 }
 
-async function tryGreetUser(
+async function tryIntroduceUser(
   llm: LlmService,
   chatManager: ChatManager,
   agentManager: AgentManager,
@@ -210,18 +212,18 @@ async function tryGreetUser(
   try {
     await withAbortSignal(
       withTimeout(
-        greetUser(llm, chatManager, agentManager, agent, history, skill, developerName, hooks, sessionManager, sessionId),
-        GREETING_TIMEOUT_MS,
-        `Greeting timed out after ${GREETING_TIMEOUT_MS / 1000}s.`,
+        introduceUser(llm, chatManager, agentManager, agent, history, skill, developerName, hooks, sessionManager, sessionId),
+        INTRODUCTION_TIMEOUT_MS,
+        `Introduction timed out after ${INTRODUCTION_TIMEOUT_MS / 1000}s.`,
       ),
       hooks?.signal,
-      'Chat greeting aborted by user.',
+      'Chat introduction aborted by user.',
     );
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
     }
-    writeWarn(hooks, 'Greeting skipped due to slow LLM response. You can start typing now.');
+    writeWarn(hooks, 'Introduction skipped due to slow LLM response. You can start typing now.');
   }
 }
 
@@ -689,6 +691,44 @@ function writeError(hooks: ChatRuntimeHooks | undefined, message: string): void 
   }
 }
 
+/**
+ * Replay previous conversation messages to the terminal when resuming an existing session.
+ * Skips archived messages, internal handoff briefings, and low-importance messages (introductions).
+ */
+function printSessionResume(
+  history: ChatMessage[],
+  agentName: string,
+  developerName: string | undefined,
+  hooks: ChatRuntimeHooks | undefined,
+): void {
+  const visible = history.filter(
+    m => !m.archived && !m.handoffType && m.importance !== 'low',
+  );
+
+  if (visible.length === 0) return;
+
+  writeInfo(hooks, '\n─── Previous conversation ───────────────────────────────');
+  for (const msg of visible) {
+    const speaker = msg.isHuman
+      ? (developerName ?? 'You')
+      : agentName;
+
+    // Wrap long content at 100 chars for readability
+    const lines = msg.content
+      .split('\n')
+      .flatMap(line =>
+        line.length <= 100
+          ? [line]
+          : line.match(/.{1,100}(\s|$)/g) ?? [line],
+      )
+      .map((l, i) => (i === 0 ? l : `  ${l}`))
+      .join('\n');
+
+    writeInfo(hooks, `\n${speaker}: ${lines}`);
+  }
+  writeInfo(hooks, '\n─────────────────────────────────────────────────────────\n');
+}
+
 export const CHAT_COMMAND_META = {
   description: 'Start a chat session with an agent (defaults to top-level manager if omitted)',
   llmCallable: false,
@@ -931,12 +971,27 @@ export async function chatCommand(
     // Load chat history
     let history = await loadHistory(agent.id);
     if (history.length > 0) {
-      writeInfo(hooks, `\n(${history.length} previous messages loaded)`);
+      printSessionResume(history, agent.name, developerName, hooks);
     }
 
-    // Agent greets the user on first contact
-    if (history.length === 0) {
-      await tryGreetUser(llm, chatManager, agentManager, agent, history, skill, developerName, hooks, sessionManager, currentSessionId);
+    // Agent introduces themselves on first contact (skip if web client already generated one)
+    if (history.length === 0 && !options.pendingIntroduction) {
+      await tryIntroduceUser(llm, chatManager, agentManager, agent, history, skill, developerName, hooks, sessionManager, currentSessionId);
+    }
+
+    // If the web client already generated and displayed an introduction, persist it now
+    // (before the first human message so history ordering is preserved)
+    if (options.pendingIntroduction && history.length === 0) {
+      const introMsg: ChatMessage = {
+        timestamp: new Date().toISOString(),
+        from: agent.id,
+        content: options.pendingIntroduction,
+        importance: 'low',
+      };
+      if (sessionManager && currentSessionId) {
+        await sessionManager.appendMessage(currentSessionId, introMsg);
+      }
+      history.push(introMsg);
     }
 
     // Single message mode
@@ -967,28 +1022,20 @@ export async function chatCommand(
         agent = result.switchedTo;
         try { skill = await loadSkill(agent.skillPath); } catch { skill = undefined; }
 
-        // Always create a fresh handoff session — never load old history
+        // Reuse the agent's existing session in the chain, or create a fresh one
         const developerId0 = developerNameToId(developerName || 'developer');
         const handoffId0 = randomUUID();
         const handoffNote0 = result.handoffMessage
           || `The developer has been forwarded to you by ${fromAgent.name} (${fromAgent.role}).`;
-        if (sessionManager && fromSessionId) {
-          const handoffSession0 = await sessionManager.createHandoffSession(agent.id, developerId0, fromSessionId);
-          currentSessionId = handoffSession0.id;
-          const parentNote0 = result.handoffMessage
-            || `${fromAgent.name} (${fromAgent.role}) forwarded the developer to ${agent.name}.`;
-          await sessionManager.appendMessage(fromSessionId, {
-            timestamp: new Date().toISOString(),
-            from: fromAgent.id,
-            to: agent.id,
-            handoffType: 'agent-briefing',
-            content: parentNote0,
-            handoffId: handoffId0,
-            handoffToSessionId: handoffSession0.id,
-          });
-        }
         const historySnapshot0 = [...history];
         history = [];
+        if (sessionManager && fromSessionId) {
+          const { session: handoffSession0, reused: reused0 } = await resolveHandoffSession(sessionManager, agent.id, developerId0, fromSessionId);
+          currentSessionId = handoffSession0.id;
+          if (reused0) {
+            history = await sessionManager.getSessionMessages(handoffSession0.id);
+          }
+        }
         const briefing0 = await appendHandoffNote(llm, history, agent.id, agent.name, fromAgent, historySnapshot0, developerName, handoffNote0, sessionManager, currentSessionId, fromSessionId, handoffId0);
         handoffTracker.set(agent.id, { fromAgentId: fromAgent.id, note: briefing0 });
         emitRuntimeEvent(hooks, {
@@ -997,6 +1044,7 @@ export async function chatCommand(
           fromAgentName: fromAgent.name,
           toAgentId: agent.id,
           toAgentName: agent.name,
+          toSessionId: currentSessionId,
           handoffNote: briefing0,
           message: `Handed off from ${fromAgent.name} to ${agent.name}`,
         });
@@ -1200,23 +1248,15 @@ export async function chatCommand(
             const ackNote = parsed.handoffMessage
               || `The developer has been forwarded to you by ${fromAgent.name} (${fromAgent.role}).`;
             const handoffId = randomUUID();
-            if (sessionManager && fromSessionId) {
-              const handoffSession = await sessionManager.createHandoffSession(agent.id, developerId, fromSessionId);
-              currentSessionId = handoffSession.id;
-              const parentNote = parsed.handoffMessage
-                || `${fromAgent.name} (${fromAgent.role}) forwarded the developer to ${agent.name}.`;
-              await sessionManager.appendMessage(fromSessionId, {
-                timestamp: new Date().toISOString(),
-                from: fromAgent.id,
-                to: agent.id,
-                handoffType: 'agent-briefing',
-                content: parentNote,
-                handoffId,
-                handoffToSessionId: handoffSession.id,
-              });
-            }
             const historySnapshot = [...history];
             history = [];
+            if (sessionManager && fromSessionId) {
+              const { session: handoffSession, reused } = await resolveHandoffSession(sessionManager, agent.id, developerId, fromSessionId);
+              currentSessionId = handoffSession.id;
+              if (reused) {
+                history = await sessionManager.getSessionMessages(handoffSession.id);
+              }
+            }
 
             const briefing = await appendHandoffNote(llm, history, agent.id, agent.name, fromAgent, historySnapshot, developerName, ackNote, sessionManager, currentSessionId, fromSessionId, handoffId);
             handoffTracker.set(agent.id, { fromAgentId: fromAgent.id, note: briefing });
@@ -1228,6 +1268,7 @@ export async function chatCommand(
               fromAgentName: fromAgent.name,
               toAgentId: agent.id,
               toAgentName: agent.name,
+              toSessionId: currentSessionId,
               handoffNote: briefing,
               message: `Handed off from ${fromAgent.name} to ${agent.name}`,
             });
@@ -1282,7 +1323,7 @@ export async function chatCommand(
 
       // ── Natural language forward detection ────────────────────────
       const { resolved: switchTarget, looksLikeForward } = await detectForwardRequestWithFallback(
-        message, agentManager, agent.id, llm, agent,
+        message, agentManager, agent.id, llm, agent, history,
       );
       if (switchTarget) {
         const fromAgent = agent;
@@ -1308,18 +1349,22 @@ export async function chatCommand(
         agent = switchTarget;
         try { skill = await loadSkill(agent.skillPath); } catch { skill = undefined; }
 
-        // 4. Create a fresh handoff session (now agent is the TO agent)
+        // 4. Reuse the agent's existing session in the chain, or create a fresh one
+        let toSessionHistory: ChatMessage[] = [];
         if (sessionManager && fromSessionId) {
-          const handoffSession = await sessionManager.createHandoffSession(agent.id, devId, fromSessionId);
+          const { session: handoffSession, reused } = await resolveHandoffSession(sessionManager, agent.id, devId, fromSessionId);
           currentSessionId = handoffSession.id;
           fwdUserMsg.handoffToSessionId = handoffSession.id;
-        }
-        if (sessionManager && fromSessionId) {
           await sessionManager.appendMessage(fromSessionId, fwdUserMsg);
+          if (reused) {
+            // Restore the existing conversation so the agent has full context.
+            // fwdUserMsg is already saved to storage; don't push it again.
+            toSessionHistory = await sessionManager.getSessionMessages(handoffSession.id);
+          }
         }
         history.push(fwdUserMsg);
-        const historySnapshot = [...history];
-        history = [];
+        const historySnapshot = [...history]; // FROM-session context used for briefing
+        history = toSessionHistory;           // TO-session history (empty if new, prior msgs if reused)
 
         // 5. Generate LLM briefing and inject into receiver's session
         const briefing = await appendHandoffNote(llm, history, agent.id, agent.name, fromAgent, historySnapshot, developerName, message, sessionManager, currentSessionId, fromSessionId, handoffId);
@@ -1332,6 +1377,7 @@ export async function chatCommand(
           fromAgentName: fromAgent.name,
           toAgentId: agent.id,
           toAgentName: agent.name,
+          toSessionId: currentSessionId,
           handoffNote: briefing,
           message: `Handed off from ${fromAgent.name} to ${agent.name}`,
         });
@@ -1380,28 +1426,20 @@ export async function chatCommand(
         agent = result.switchedTo;
         try { skill = await loadSkill(agent.skillPath); } catch { skill = undefined; }
 
-        // Always create a fresh handoff session — never load old history
+        // Reuse the agent's existing session in the chain, or create a fresh one
         const developerId = developerNameToId(developerName || 'developer');
         const handoffId = randomUUID();
         const handoffNote = result.handoffMessage
           || `The developer has been forwarded to you by ${fromAgent.name} (${fromAgent.role}).`;
-        if (sessionManager && fromSessionId) {
-          const handoffSession = await sessionManager.createHandoffSession(agent.id, developerId, fromSessionId);
-          currentSessionId = handoffSession.id;
-          const parentNote = result.handoffMessage
-            || `${fromAgent.name} (${fromAgent.role}) forwarded the developer to ${agent.name}.`;
-          await sessionManager.appendMessage(fromSessionId, {
-            timestamp: new Date().toISOString(),
-            from: fromAgent.id,
-            to: agent.id,
-            handoffType: 'agent-briefing',
-            content: parentNote,
-            handoffId,
-            handoffToSessionId: handoffSession.id,
-          });
-        }
         const historySnapshot = [...history];
         history = [];
+        if (sessionManager && fromSessionId) {
+          const { session: handoffSession, reused } = await resolveHandoffSession(sessionManager, agent.id, developerId, fromSessionId);
+          currentSessionId = handoffSession.id;
+          if (reused) {
+            history = await sessionManager.getSessionMessages(handoffSession.id);
+          }
+        }
         const briefing = await appendHandoffNote(llm, history, agent.id, agent.name, fromAgent, historySnapshot, developerName, handoffNote, sessionManager, currentSessionId, fromSessionId, handoffId);
         handoffTracker.set(agent.id, { fromAgentId: fromAgent.id, note: briefing });
         emitRuntimeEvent(hooks, {
@@ -1410,6 +1448,7 @@ export async function chatCommand(
           fromAgentName: fromAgent.name,
           toAgentId: agent.id,
           toAgentName: agent.name,
+          toSessionId: currentSessionId,
           handoffNote: briefing,
           message: `Handed off from ${fromAgent.name} to ${agent.name}`,
         });
@@ -1909,6 +1948,55 @@ async function sendMessage(
               message: execution.ok ? 'Tool call completed' : (execution.error || 'Tool call failed'),
             });
 
+            // Persist apply_code_edit proposals: write files to disk + save to store + emit event
+            if (execution.ok && toolCall.toolName === 'apply_code_edit' && (execution.result as any)?.status === 'pending_approval') {
+              try {
+                const result = execution.result as any;
+                const proposalId: string = result.proposalId;
+                const changes = ((toolCall.args as any).changes ?? []) as Array<{
+                  filePath: string;
+                  oldContent: string;
+                  newContent: string;
+                }>;
+
+                // Resolve paths and write new content to disk
+                const resolvedFiles: Array<{ filePath: string; oldContent: string; newContent: string }> = [];
+                for (const change of changes) {
+                  const absPath = path.isAbsolute(change.filePath)
+                    ? change.filePath
+                    : path.join(agentManager.workspaceRoot, change.filePath);
+                  await fs.mkdir(path.dirname(absPath), { recursive: true });
+                  await fs.writeFile(absPath, change.newContent, 'utf8');
+                  resolvedFiles.push({ filePath: absPath, oldContent: change.oldContent, newContent: change.newContent });
+                }
+
+                // Persist to proposal store (preserves oldContent for undo after restart)
+                const store = new ProposalStore(agentManager.workspaceRoot);
+                store.save({
+                  proposalId,
+                  agentName: agent.name,
+                  description: result.description ?? '',
+                  createdAt: new Date().toISOString(),
+                  files: resolvedFiles,
+                });
+
+                // Emit code_edit_proposal event so connected IDE adapters can show the diff
+                emitRuntimeEvent(hooks, {
+                  kind: 'code_edit_proposal',
+                  proposalId,
+                  agentName: agent.name,
+                  description: result.description,
+                  filesChanged: resolvedFiles.length,
+                  additions: result.additions,
+                  deletions: result.deletions,
+                  warnings: result.warnings,
+                  files: resolvedFiles,
+                });
+              } catch (err) {
+                console.error('[chat] Failed to handle code edit proposal:', err);
+              }
+            }
+
             return {
               toolCallId: toolCall.toolCallId,
               toolName: toolCall.toolName,
@@ -2074,14 +2162,68 @@ async function printEmployeeInfo(workspaceRoot: string, query: string) {
 }
 
 // ============================================================================
-// Agent greeting
+// Agent introduction
 // ============================================================================
 
 /**
- * Have the agent introduce themselves and greet the user.
+ * Generate an introduction message from the agent.
+ * Pure function — no stdout, no persistence, no history mutation.
+ * Throws on LLM failure or abort; callers are responsible for error handling.
+ *
+ * @param onChunk Optional callback invoked for each streamed text delta (e.g. for writing to stdout).
+ */
+export async function generateIntroduction(
+  llm: LlmService,
+  agentManager: AgentManager,
+  agent: Agent,
+  skill: import('@ai-team/core').Skill | undefined,
+  developerName: string | undefined,
+  signal?: AbortSignal,
+  onChunk?: (delta: string) => void,
+): Promise<string> {
+  const nameRef = developerName ? `, ${developerName}` : '';
+  const prompt = `The developer${nameRef} just opened a chat with you. `
+    + 'Introduce yourself briefly: say hi, state your name and role, and ask what you can do for them. '
+    + '1-2 sentences max. Be warm but concise.';
+
+  const messages: ChatCompletionMessageParam[] = [
+    { role: 'user', content: prompt },
+  ];
+
+  const teamRoster = agentManager.getAllAgents();
+  const llmOptions = await configureLlmForAgent(agentManager.workspaceRoot, llm, agent, skill);
+  const stream = await llm.streamChat(agent, messages, llmOptions, skill, teamRoster);
+  const iterator = stream[Symbol.asyncIterator]();
+  let fullResponse = '';
+  try {
+    while (true) {
+      const nextChunk = await withAbortSignal(
+        iterator.next(),
+        signal,
+        'Chat introduction aborted by user.',
+      );
+      if (nextChunk.done) {
+        break;
+      }
+      const deltaText = extractStreamDeltaText(nextChunk.value);
+      if (deltaText) {
+        onChunk?.(deltaText);
+        fullResponse += deltaText;
+      }
+    }
+  } finally {
+    if (typeof iterator.return === 'function') {
+      await iterator.return();
+    }
+  }
+  return fullResponse.trim();
+}
+
+/**
+ * Have the agent introduce themselves to the user.
  * Only called on first contact (no history) or on agent switch.
  */
-async function greetUser(
+async function introduceUser(
   llm: LlmService,
   chatManager: ChatManager,
   agentManager: AgentManager,
@@ -2093,63 +2235,31 @@ async function greetUser(
   sessionManager?: SessionManager,
   sessionId?: string,
 ) {
-  const nameRef = developerName ? `, ${developerName}` : '';
-  const prompt = `The developer${nameRef} just opened a chat with you. `
-    + 'Introduce yourself briefly: say hi, state your name and role, and ask what you can do for them. '
-    + '1-2 sentences max. Be warm but concise.';
-
-  // We inject this as a hidden system-level nudge, not a user message
-  const messages: ChatCompletionMessageParam[] = [
-    { role: 'user', content: prompt },
-  ];
-
-  const teamRoster = agentManager.getAllAgents();
   process.stdout.write(`\n${agent.name} (${agent.role}): `);
-
-  let fullResponse = '';
-  let llmOptions: LlmChatOptions | undefined;
+  let text: string;
   try {
-    llmOptions = await configureLlmForAgent(agentManager.workspaceRoot, llm, agent, skill);
-    const stream = await llm.streamChat(agent, messages, llmOptions, skill, teamRoster);
-    const iterator = stream[Symbol.asyncIterator]();
-    try {
-      while (true) {
-        const nextChunk = await withAbortSignal(
-          iterator.next(),
-          hooks?.signal,
-          'Chat greeting aborted by user.',
-        );
-        if (nextChunk.done) {
-          break;
-        }
-        const deltaText = extractStreamDeltaText(nextChunk.value);
-        if (deltaText) {
-          process.stdout.write(deltaText);
-          fullResponse += deltaText;
-        }
-      }
-    } finally {
-      if (typeof iterator.return === 'function') {
-        await iterator.return();
-      }
-    }
+    text = await generateIntroduction(
+      llm, agentManager, agent, skill, developerName, hooks?.signal,
+      (delta) => process.stdout.write(delta),
+    );
   } catch (err) {
+    process.stdout.write('\n\n');
     if (isAbortError(err)) {
       throw err;
     }
     writeError(hooks, `LLM unavailable: ${formatLlmError(err)}`);
-    writeInfo(hooks, `Attempted provider/model: ${formatLlmAttempt(llm, llmOptions)}`);
-    writeInfo(hooks, 'LLM greeting skipped. You can continue once the server is reachable.');
+    writeInfo(hooks, 'LLM introduction skipped. You can continue once the server is reachable.');
     return;
   }
 
   process.stdout.write('\n\n');
 
-  // Save the greeting to history so it persists
+  // Save the introduction with importance: 'low' (skipped on session resume)
   const agentMsg: ChatMessage = {
     timestamp: new Date().toISOString(),
     from: agent.id,
-    content: fullResponse.trim(),
+    content: text,
+    importance: 'low',
   };
   if (sessionManager && sessionId) {
     await sessionManager.appendMessage(sessionId, agentMsg);
@@ -2168,6 +2278,14 @@ const FORWARD_PATTERNS = [
   /(?:can (?:you|i)|please)\s+(?:forward|transfer|connect|switch|redirect)\s+(?:me\s+)?(?:to|with)\s+(.+)/i,
   /(?:put me through|patch me through|hand me off)\s+(?:to)\s+(.+)/i,
   /(?:i (?:want|need) to (?:talk|speak|chat) (?:to|with))\s+(.+)/i,
+  // "brief <name> about/on/regarding this", "can you brief <name>", "please brief <name>"
+  /(?:can (?:you|i)|please|could you)?\s*brief\s+(.+?)(?:\s+(?:about|on|regarding|with)\b.*)?$/i,
+  // "tell <name> about …", "let <name> know …"
+  /(?:tell|inform|update|notify)\s+(.+?)\s+(?:about|on|regarding)\b/i,
+  /let\s+(.+?)\s+know\b/i,
+  // "loop in <name>", "ping <name> about …", "bring <name> in"
+  /(?:loop\s+in|bring\s+in|include)\s+(.+)/i,
+  /ping\s+(.+?)(?:\s+(?:about|on|regarding)\b.*)?$/i,
 ];
 
 const HANDOFF_PATTERNS = [
@@ -2201,12 +2319,20 @@ function detectForwardRequest(
  * Phase 2 — progressively shorter word-prefix slices of the raw extracted string.
  * Phase 3 — LLM fallback: ask the model which team member the user is referring to.
  */
-async function detectForwardRequestWithFallback(
+/** Third-person pronouns and vague references that cannot be resolved without context. */
+export const REFERENCE_PRONOUNS = new Set([
+  'him', 'her', 'them', 'they', 'he', 'she',
+  'that person', 'this person', 'that agent', 'the agent',
+  'that team member', 'this team member', 'that one', 'this one',
+]);
+
+export async function detectForwardRequestWithFallback(
   message: string,
   agentManager: AgentManager,
   currentAgentId: string,
   llm: LlmService,
   agent: Agent,
+  history: ChatMessage[] = [],
 ): Promise<{ resolved: Agent | undefined; looksLikeForward: boolean }> {
   // Phase 1: existing exact/fuzzy logic
   const direct = detectForwardRequest(message, agentManager, currentAgentId);
@@ -2216,25 +2342,42 @@ async function detectForwardRequestWithFallback(
   const rawTarget = extractForwardTargetName(message);
   if (!rawTarget) return { resolved: undefined, looksLikeForward: false };
 
-  // Phase 2: try shorter word-prefix slices (handles trailing "i want to …")
-  const words = rawTarget.trim().split(/\s+/);
-  for (let len = words.length - 1; len >= 1; len--) {
-    const candidate = words.slice(0, len).join(' ');
-    const matches = agentManager.resolveAgent(candidate).filter(a => a.id !== currentAgentId);
-    if (matches.length > 0) return { resolved: matches[0], looksLikeForward: true };
+  const isPronouns = REFERENCE_PRONOUNS.has(rawTarget.toLowerCase().trim());
+
+  // Phase 2: try shorter word-prefix slices (handles trailing "i want to …").
+  // Skip if the extracted target is a plain pronoun — slicing won't help.
+  if (!isPronouns) {
+    const words = rawTarget.trim().split(/\s+/);
+    for (let len = words.length - 1; len >= 1; len--) {
+      const candidate = words.slice(0, len).join(' ');
+      const matches = agentManager.resolveAgent(candidate).filter(a => a.id !== currentAgentId);
+      if (matches.length > 0) return { resolved: matches[0], looksLikeForward: true };
+    }
   }
 
-  // Phase 3: LLM fallback — let the model identify the target from the roster
+  // Phase 3: LLM fallback — let the model identify the target from the roster.
+  // When the user used a pronoun, include the last few conversation turns so
+  // the model can resolve "him" / "her" / "them" from prior context.
   const candidates = agentManager.getAllAgents().filter(a => a.id !== currentAgentId);
   if (candidates.length > 0) {
     try {
-      const nameList = candidates.map(a => a.name).join(', ');
+      const nameList = candidates.map(a => `${a.name} (${a.role})`).join(', ');
+
+      let contextBlock = '';
+      if (isPronouns && history.length > 0) {
+        const recentTurns = history.slice(-4);
+        contextBlock =
+          '\nRecent conversation (last few messages):\n'
+          + recentTurns.map(m => `${m.isHuman ? 'Developer' : m.from}: ${m.content}`).join('\n')
+          + '\n';
+      }
+
       const reply = await llm.chat(
         agent,
         [{
           role: 'user',
           content:
-            `The user said: "${message}"\n`
+            `The developer said: "${message}"${contextBlock}\n`
             + `Which of these team members are they referring to? Options: ${nameList}\n`
             + `Reply with just the exact name from the list, or "none" if it is unclear.`,
         }],
@@ -3071,6 +3214,26 @@ async function appendToolOutputToHistory(
 }
 
 /**
+ * Return the existing session for `agentId` in the session-chain starting at
+ * `fromSessionId`, or create a brand-new handoff session if none exists.
+ *
+ * This prevents duplicate sessions when the developer is bounced back to an
+ * agent they already spoke with (e.g. Michael → Alex → Michael should land
+ * in Michael's original session, not open a second Michael session).
+ */
+async function resolveHandoffSession(
+  sessionManager: SessionManager,
+  agentId: string,
+  developerId: string,
+  fromSessionId: string,
+): Promise<{ session: import('@ai-team/core').ChatSession; reused: boolean }> {
+  const existing = await sessionManager.findAgentSessionInChain(fromSessionId, agentId);
+  if (existing) return { session: existing, reused: true };
+  const session = await sessionManager.createHandoffSession(agentId, developerId, fromSessionId);
+  return { session, reused: false };
+}
+
+/**
  * Ask the forwarding agent to write an LLM briefing for the receiving agent,
  * save it to the new session, and return the briefing text.
  * Falls back to the raw trigger message if the LLM is unavailable.
@@ -3121,8 +3284,12 @@ async function appendHandoffNote(
     handoffToSessionId: toSessionId,
     handoffId,
   };
+  // Persist the briefing into BOTH sessions so the handoff is visible from either side.
   if (sessionManager && toSessionId) {
     await sessionManager.appendMessage(toSessionId, message);
+  }
+  if (sessionManager && fromSessionId) {
+    await sessionManager.appendMessage(fromSessionId, message);
   }
   newHistory.push(message);
   return briefing;
@@ -3388,22 +3555,15 @@ function parseEmployeeLlmUpdateRequest(message: string): {
   return request;
 }
 
+/**
+ * Convert a Zod schema to a JSON Schema object suitable for LLM tool definitions.
+ * Zod v4 has a built-in toJSONSchema() method; falls back to permissive object schema.
+ */
 function buildModelToolParameters(schema: unknown): Record<string, unknown> {
-  if (!schema || typeof schema !== 'object') {
-    return {
-      type: 'object',
-      properties: {},
-      required: [],
-      additionalProperties: true,
-    };
+  if (schema && typeof schema === 'object' && typeof (schema as any).toJSONSchema === 'function') {
+    return (schema as any).toJSONSchema() as Record<string, unknown>;
   }
-
-  return {
-    type: 'object',
-    properties: {},
-    required: [],
-    additionalProperties: true,
-  };
+  return { type: 'object', additionalProperties: true };
 }
 
 function formatToolArgs(args: unknown): string {

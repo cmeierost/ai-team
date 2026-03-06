@@ -1,0 +1,21 @@
+{
+  "name": "@ai-team/ide-interface",
+  "version": "0.1.0",
+  "description": "IDE adapter interface and client for AI Team — no runtime or IDE dependencies",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.16",
+    "@types/ws": "^8.5.10",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3"
+  }
+}

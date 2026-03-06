@@ -7,6 +7,8 @@ import type {
   QuestionPasswordRequest,
   QuestionSelectRequest,
 } from '@ai-team/api-client';
+import { createIdeAdapter } from '@ai-team/ide-interface';
+import { findWorkspaceRoot } from '@ai-team/service';
 import chalk from 'chalk';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
@@ -192,7 +194,8 @@ function isEssentialInteractiveInfo(message: string): boolean {
 async function handleCodeEditProposal(
   event: any,
   writeStderrLine: (text: string) => void,
-  isOneShot: boolean
+  isOneShot: boolean,
+  workspaceRoot: string,
 ): Promise<void> {
   const { proposalId, description, filesChanged, additions, deletions, warnings } = event;
 
@@ -214,6 +217,25 @@ async function handleCodeEditProposal(
   }
   
   writeStderrLine(chalk.gray('─'.repeat(60)));
+
+  // Notify VS Code plugin (best-effort, non-blocking)
+  createIdeAdapter(workspaceRoot, 'cli').then(adapter => {
+    if (adapter.isConnected()) {
+      return adapter.notifyCodeEditProposal({
+        proposalId: event.proposalId ?? '',
+        agentName: event.agentName ?? '',
+        description: event.description ?? '',
+        files: (event.files ?? []).map((f: any) => ({
+          filePath: f.filePath,
+          oldContent: f.oldContent ?? '',
+          newContent: f.newContent ?? '',
+          additions: f.additions ?? 0,
+          deletions: f.deletions ?? 0,
+        })),
+      }).then(() => adapter.dispose());
+    }
+    adapter.dispose();
+  }).catch(() => { /* VS Code not running — silent */ });
 
   // In one-shot mode, just log and continue
   if (isOneShot) {
@@ -250,6 +272,7 @@ async function handleCodeEditProposal(
 export async function chatCommand(client: AiTeamClient, agentId: string | undefined, options: ChatOptions, mediatorLog: boolean = false) {
   const mediatorLoggerEnabled = mediatorLog || process.env.AI_TEAM_MEDIATOR_LOG === '1';
   const frontendFileLogEnabled = isFrontendFileLogEnabled();
+  const workspaceRoot = findWorkspaceRoot();
   const writeStderrLine = (text: string) => {
     process.stderr.write(`${text}\n`);
   };
@@ -310,7 +333,7 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
 
       // Handle code edit proposals
       if ('kind' in event && (event as any).kind === 'code_edit_proposal') {
-        await handleCodeEditProposal(event as any, writeStderrLine, options.oneShot || false);
+        await handleCodeEditProposal(event as any, writeStderrLine, options.oneShot || false, workspaceRoot);
         continue;
       }
 

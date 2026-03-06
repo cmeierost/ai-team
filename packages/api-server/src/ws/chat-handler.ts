@@ -3,6 +3,7 @@ import type { AiTeamClient } from '@ai-team/api-client';
 import type { AgentManager } from '@ai-team/core';
 import type { QuestionInputRequest, QuestionConfirmRequest, QuestionSelectRequest, QuestionPasswordRequest, QuestionChecklistRequest } from '@ai-team/service';
 import { resolveAgentForOperation, SessionManager } from '@ai-team/service';
+import { createIdeAdapter, type IdeAdapter } from '@ai-team/ide-interface';
 
 /**
  * Messages sent from client to server over WebSocket.
@@ -109,7 +110,8 @@ export function setupChatWebSocket(
   client: AiTeamClient,
   sessionManager: SessionManager,
   sessionId: string | null,
-  agentManager?: AgentManager
+  agentManager?: AgentManager,
+  workspaceRoot?: string,
 ): void {
   // Resolve agent query to exact ID
   let agentId = agentQuery;
@@ -126,6 +128,14 @@ export function setupChatWebSocket(
       ws.close();
       return;
     }
+  }
+
+  // Connect to VS Code plugin if it is running for this workspace (fire-and-forget init)
+  let ideAdapter: IdeAdapter | null = null;
+  if (workspaceRoot) {
+    createIdeAdapter(workspaceRoot, 'web').then(adapter => {
+      ideAdapter = adapter;
+    }).catch(() => { /* no IDE connected — silent */ });
   }
 
   let currentAbortController: AbortController | null = null;
@@ -249,6 +259,23 @@ export function setupChatWebSocket(
               break;
             }
 
+            // Forward code-edit proposals to VS Code plugin
+            if ((event.kind as string) === 'code_edit_proposal' && ideAdapter) {
+              const e = event as any;
+              ideAdapter.notifyCodeEditProposal({
+                proposalId: e.proposalId ?? '',
+                agentName: e.agentName ?? agentId,
+                description: e.description ?? '',
+                files: (e.files ?? []).map((f: any) => ({
+                  filePath: f.filePath,
+                  oldContent: f.oldContent ?? '',
+                  newContent: f.newContent ?? '',
+                  additions: f.additions ?? 0,
+                  deletions: f.deletions ?? 0,
+                })),
+              }).catch(() => { /* best-effort */ });
+            }
+
             // Send event to client
             const wsEvent: ChatWebSocketEvent = {
               type: event.kind as any,
@@ -288,6 +315,7 @@ export function setupChatWebSocket(
     // Reject all pending questions
     pendingQuestions.forEach(({ reject }) => reject(new Error('Connection closed')));
     pendingQuestions.clear();
+    ideAdapter?.dispose();
   });
 
   ws.on('error', (error) => {

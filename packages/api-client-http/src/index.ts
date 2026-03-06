@@ -78,6 +78,12 @@ export interface AiTeamHttpClient {
   getAgentFiles(query: string, options?: { depth?: number; all?: boolean }): Promise<AgentFilesResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
+  /** Get the full handoff session thread for any session in the chain */
+  getSessionThread(sessionId: string): Promise<SessionThread>;
+  /** Get a single session; pass includeMessages=true to embed messages */
+  getSession(sessionId: string, includeMessages?: boolean): Promise<ChatSession>;
+  /** Get all messages for a session */
+  getSessionMessages(sessionId: string): Promise<ChatMessage[]>;
   create(type: string, options: CreateOptions): Promise<void>;
   chat(employeeId: string | undefined, options: ChatOptions): Promise<void>;
   hire(options: HireOptions): Promise<void>;
@@ -314,6 +320,31 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     return this.getTeamGraph('hierarchy');
   }
 
+  async getSessionThread(sessionId: string): Promise<SessionThread> {
+    const response = await fetch(`${this.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/thread`);
+    if (!response.ok) {
+      throw new Error(`Failed to get session thread for "${sessionId}"`);
+    }
+    return response.json();
+  }
+
+  async getSession(sessionId: string, includeMessages = false): Promise<ChatSession> {
+    const qs = includeMessages ? '?includeMessages=true' : '';
+    const response = await fetch(`${this.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}${qs}`);
+    if (!response.ok) {
+      throw new Error(`Failed to get session "${sessionId}"`);
+    }
+    return response.json();
+  }
+
+  async getSessionMessages(sessionId: string): Promise<ChatMessage[]> {
+    const response = await fetch(`${this.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/messages`);
+    if (!response.ok) {
+      throw new Error(`Failed to get messages for session "${sessionId}"`);
+    }
+    return response.json();
+  }
+
   async create(type: string, options: CreateOptions): Promise<void> {
     throw new Error('Create operation not supported via HTTP client');
   }
@@ -394,3 +425,64 @@ export type {
 } from '@ai-team/service';
 
 export type { GraphData, ViewMode, Agent, AgentConfig, AnnotatedFile, MarkdownSection } from '@ai-team/core';
+
+// Inline browser-safe session types (mirrors packages/web/src/types.ts)
+export interface ChatMessage {
+  from: string;
+  to?: string;
+  isHuman?: boolean;
+  content: string;
+  timestamp: string;
+  archived?: boolean;
+  handoffType?: 'user-acknowledgment' | 'agent-briefing';
+  targetAgentId?: string;
+  handoffId?: string;
+  handoffFromSessionId?: string;
+  handoffToSessionId?: string;
+}
+
+export interface ChatSession {
+  id: string;
+  agentId: string;
+  agentIds?: string[];
+  developerId: string;
+  title?: string;
+  startedAt: string;
+  lastActivityAt: string;
+  messageCount: number;
+  artifacts: string[];
+  allowedFiles: string[];
+  previousSessionId?: string;
+  mergedFromSessionIds?: string[] | null;
+  messages?: ChatMessage[];
+}
+
+export interface HandoffEdge {
+  handoffId: string;
+  fromSessionId: string | null;
+  toSessionId: string | null;
+  fromAgentIds: string[];
+  toAgentIds: string[];
+}
+
+export interface SessionNode {
+  sessionId: string;
+  agentIds: string[];
+  agentNames: string[];
+  developerId: string | null;
+  title: string | null;
+  startedAt: string;
+  lastActivityAt: string;
+  previousSessionId: string | null;
+  mergedFromSessionIds: string[] | null;
+  messageCount: number;
+  messages: ChatMessage[];
+}
+
+export interface SessionThread {
+  rootSessionId: string;
+  currentSessionId: string;
+  depth: number;
+  handoffs: HandoffEdge[];
+  sessions: SessionNode[];
+}

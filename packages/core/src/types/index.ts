@@ -339,6 +339,7 @@ export interface ChatMessage {
   handoffFromSessionId?: string;  // Session ID this briefing was forwarded FROM
   handoffToSessionId?: string;    // Session ID this briefing was forwarded TO
   handoffId?: string;             // UUID shared by all messages belonging to one handoff event
+  importance?: 'low' | 'normal' | 'high'; // Message priority for LLM context/RAG filtering; undefined = normal
 }
 
 export interface ToolCall {

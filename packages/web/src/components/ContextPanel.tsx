@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Artifact, ChatSession, Task, TaskStatus, TaskPriority } from '../types';
 import { API_BASE } from '../context/TeamContext';
+import { FileTree } from './FileTree';
 import './ContextPanel.css';
 
 interface ContextPanelProps {
@@ -11,9 +12,12 @@ interface ContextPanelProps {
   onSwitchSession?: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onCreateSession?: () => void;
+  onOpenSessionGraph?: (sessionId: string) => void;
+  /** Increment this to trigger a session list refresh */
+  refreshTrigger?: number;
 }
 
-export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession }: ContextPanelProps) {
+export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, refreshTrigger }: ContextPanelProps) {
   const [allArtifacts, setAllArtifacts] = useState<Artifact[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -25,6 +29,12 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
     loadSessions();
     loadTasks();
   }, [agentId]);
+
+  // Re-fetch sessions whenever ChatPanel signals a new session was created
+  useEffect(() => {
+    if (refreshTrigger === undefined || refreshTrigger === 0) return;
+    loadSessions();
+  }, [refreshTrigger]);
 
   const loadArtifacts = async () => {
     try {
@@ -169,7 +179,7 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
               onClick={() => toggleSection('sessions')}
             >
               <i className={`codicon codicon-chevron-${expandedSection === 'sessions' ? 'down' : 'right'}`} />
-              <span className="context-section-title"><i className="codicon codicon-comment-discussion" /> Sessions</span>
+              <span className="context-section-title"><i className="codicon codicon-comment-discussion" /> Session</span>
               <span className="context-section-count">{sessions.length}</span>
             </button>
             {onCreateSession && (
@@ -207,6 +217,15 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
                         >
                           <i className="codicon codicon-trash" />
                         </button>
+                        {onOpenSessionGraph && (
+                          <button
+                            className="context-item-action"
+                            onClick={(e) => { e.stopPropagation(); onOpenSessionGraph(session.id); }}
+                            title="View session thread graph"
+                          >
+                            <i className="codicon codicon-git-branch" />
+                          </button>
+                        )}
                       </div>
                       <div className="context-item-meta">
                         <span className="context-item-date">{formatSessionTime(session.lastActivityAt)}</span>
@@ -324,14 +343,11 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
           >
             <i className={`codicon codicon-chevron-${expandedSection === 'files' ? 'down' : 'right'}`} />
             <span className="context-section-title"><i className="codicon codicon-folder" /> Accessible Files</span>
-            <span className="context-section-count">0</span>
           </button>
 
           {expandedSection === 'files' && (
-            <div className="context-section-content">
-              <div className="context-empty">
-                File tree coming soon. You'll be able to grant agents access to specific files and folders here.
-              </div>
+            <div className="context-section-content context-section-filetree">
+              <FileTree agentId={agentId} editMode={false} />
             </div>
           )}
         </div>

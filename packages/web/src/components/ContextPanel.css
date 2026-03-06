@@ -39,6 +39,7 @@
 
 .context-section-header {
   flex: 1;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -86,6 +87,8 @@
   border-radius: 10px;
   min-width: 20px;
   text-align: center;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .context-section-action {
@@ -110,6 +113,45 @@
 
 .context-section-content {
   padding: 8px 0;
+  background-color: #2d2d30;
+}
+
+.context-section-filetree {
+  padding: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+  background-color: #2d2d30;
+}
+
+/* Make FileTree blend into the context panel — no nested card look */
+.context-section-filetree .ft-root {
+  gap: 6px;
+}
+
+.context-section-filetree .ft-summary {
+  border-bottom-color: #3e3e42;
+}
+
+.context-section-filetree .ft-tree {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  max-height: none;
+  overflow-y: visible;
+}
+
+.context-section-filetree .ft-search {
+  background: #1e1e1e;
+  border-color: #3e3e42;
+}
+
+.context-section-filetree .ft-filter-group {
+  background: #1e1e1e;
+  border-color: #3e3e42;
+}
+
+.context-section-filetree .ft-filter-active {
+  background: #3c3c3c;
 }
 
 .context-loading {
@@ -135,16 +177,16 @@
 
 .context-item {
   padding: 10px 12px;
-  background-color: #2d2d30;
-  border: 1px solid transparent;
+  background-color: #1e1e1e;
+  border: 1px solid #3e3e42;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .context-item:hover {
-  background-color: #3c3c3c;
-  border-color: #3e3e42;
+  background-color: #2d2d30;
+  border-color: #555558;
 }
 
 .context-item-active {

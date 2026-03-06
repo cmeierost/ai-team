@@ -231,6 +231,14 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_messages_handoff_id ON messages(handoff_id) WHERE handoff_id IS NOT NULL;
     `,
   },
+  {
+    version: 5,
+    name: 'add_message_importance',
+    up: `
+      ALTER TABLE messages ADD COLUMN importance TEXT;
+      CREATE INDEX IF NOT EXISTS idx_messages_importance ON messages(importance) WHERE importance IS NOT NULL;
+    `,
+  },
 ];
 
 /**

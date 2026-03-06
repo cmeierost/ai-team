@@ -692,8 +692,40 @@ describe('SqliteMessageStorage', () => {
       const stats = await storage.getStats();
       expect(stats.totalSessions).toBe(2);
       expect(stats.totalMessages).toBe(3);
-      expect(stats.schemaVersion).toBe(4);
+      expect(stats.schemaVersion).toBe(5);
       expect(stats.storageSize).toBeGreaterThan(0);
+    });
+
+    it('stores and retrieves message importance field', async () => {
+      const session = await storage.createSession({
+        agentIds: ['agent-1'],
+        agentId: 'agent-1',
+        developerId: 'developer-1',
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        artifacts: [],
+        allowedFiles: [],
+      });
+
+      await storage.insertMessage(session.id, {
+        timestamp: new Date().toISOString(),
+        from: 'agent-1',
+        content: 'Hi there! How can I help?',
+        importance: 'low',
+      });
+
+      await storage.insertMessage(session.id, {
+        timestamp: new Date().toISOString(),
+        from: 'developer-1',
+        isHuman: true,
+        content: 'Please help me with X.',
+        // importance omitted → undefined (normal)
+      });
+
+      const messages = await storage.getSessionMessages(session.id);
+      expect(messages).toHaveLength(2);
+      expect(messages[0].importance).toBe('low');
+      expect(messages[1].importance).toBeUndefined();
     });
   });
 

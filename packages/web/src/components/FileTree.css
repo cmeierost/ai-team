@@ -193,6 +193,9 @@
 .ft-expand:hover { background: rgba(255,255,255,0.06); color: var(--color-text-primary); }
 .ft-expand-spacer { pointer-events: none; opacity: 0; }
 
+.ft-open-btn { color: var(--color-text-muted); opacity: 0; transition: opacity 0.1s; }
+.ft-row:hover .ft-open-btn { opacity: 1; }
+
 /* ── Icon & Name ───────────────────────────────────────────────────────────── */
 
 .ft-icon {
@@ -211,6 +214,23 @@
   text-overflow: ellipsis;
   font-family: 'Consolas', 'Monaco', monospace;
 }
+
+.ft-name-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  text-align: left;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ft-name-link:hover { color: var(--color-accent, #4fc3f7); text-decoration: underline; }
 
 .ft-dir .ft-name { color: var(--color-text-bright); font-family: inherit; font-size: 13px; }
 

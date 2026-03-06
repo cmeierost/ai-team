@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useMatch } from 'react-router-dom';
 import { useTeam, API_BASE } from '../context/TeamContext';
 import { ChatMessage } from '../types';
 import { Avatar } from './Avatar';
@@ -7,8 +7,13 @@ import { MarkdownMessage } from './MarkdownMessage';
 import { ContextPanel } from './ContextPanel';
 import { AgentBriefingBadge } from './AgentBriefingBadge';
 import { RelativeTime } from './RelativeTime';
+import { SessionGraphLoader } from './SessionGraph';
 import { getAgentColor } from '../utils/color';
 import './ChatPanel.css';
+
+/** Match patterns for URL-driven session + graph routing */
+const SESSION_ROUTE  = '/chat/:agentId/session/:sessionId';
+const GRAPH_ROUTE   = '/chat/:agentId/session/:sessionId/thread';
 
 interface QuestionChoice {
   name: string;
@@ -139,6 +144,10 @@ export function ChatPanel() {
   const [pendingConfirmAnswer, setPendingConfirmAnswer] = useState(false);
   const [pendingSelectAnswer, setPendingSelectAnswer] = useState('');
   const [pendingChecklistAnswer, setPendingChecklistAnswer] = useState<string[]>([]);
+  const [scrollToHandoffId, setScrollToHandoffId] = useState<string | null>(null);
+  const [sessionRefreshTrigger, setSessionRefreshTrigger] = useState(0);
+  // True when a greeting is showing but no session has been persisted yet
+  const [isEphemeral, setIsEphemeral] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -147,6 +156,19 @@ export function ChatPanel() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingQuestionResolveRef = useRef<((value: unknown) => void) | null>(null);
   const pendingQuestionRejectRef = useRef<((reason?: unknown) => void) | null>(null);
+  // Mutable ref tracking current assistant message slot — survives handoff resets
+  const assistantIndexRef = useRef<number>(-1);
+  // When handleSend lazy-creates a session and navigates to its URL, the URL change would
+  // normally re-trigger loadSession and wipe the in-progress stream. We store the
+  // just-navigated session ID here so loadSession can skip that one reload.
+  const skipNextSessionLoadRef = useRef<string | null>(null);
+
+  // Detect when we are on the graph subroute or session subroute
+  const graphRouteMatch   = useMatch(GRAPH_ROUTE);
+  const sessionRouteMatch = useMatch(SESSION_ROUTE);
+  // sessionId from URL — present on both session and graph routes
+  const urlSessionId  = graphRouteMatch?.params?.sessionId ?? sessionRouteMatch?.params?.sessionId ?? null;
+  const graphSessionId = graphRouteMatch?.params?.sessionId ?? null;
 
   const agent = agents.find((a) => a.id === currentAgentId);
 
@@ -200,15 +222,48 @@ export function ChatPanel() {
     return match ? match[1] : null;
   };
 
+  // Resolve which agent to show a "Go to" button for, covering two cases:
+  //   1. Message has a HANDOFF directive: target = message.to or extracted from content
+  //   2. Message is an agent-briefing FROM a different agent: target = message.from (the sender)
+  // Also returns the existing session ID if known, so we navigate there directly.
+  const resolveNavigateAgent = (message: ChatMessage): { agent: (typeof agents)[0]; sessionId: string | null } | null => {
+    const currentAgent = currentAgentId || agentId;
+    // Case 1: outgoing handoff directive
+    if (isHandoffMessage(message)) {
+      const targetId = message.to || extractHandoffTarget(message.content);
+      if (targetId && targetId !== currentAgent) {
+        const a = agents.find((ag) => ag.id === targetId);
+        if (a) return { agent: a, sessionId: message.handoffToSessionId ?? null };
+      }
+    }
+    // Case 2: incoming agent-briefing authored by a different agent
+    if (message.handoffType === 'agent-briefing' && message.from && message.from !== currentAgent) {
+      const a = agents.find((ag) => ag.id === message.from);
+      if (a) {
+        // handoffFromSessionId = the session the briefing came FROM (the other agent's session)
+        // handoffToSessionId   = the session the briefing was directed TO (current session)
+        // We want to navigate to the OTHER agent's session → handoffFromSessionId
+        return { agent: a, sessionId: message.handoffFromSessionId ?? null };
+      }
+    }
+    return null;
+  };
+
   // Handle handoff link click
-  const handleHandoffClick = async (targetAgentId: string) => {
+  const handleHandoffClick = async (targetAgentId: string, existingSessionId?: string | null) => {
+    // If the handoff session already exists, navigate directly — do NOT create a new one
+    if (existingSessionId) {
+      navigate(`/chat/${targetAgentId}/session/${existingSessionId}`);
+      return;
+    }
+
     if (!currentSessionId) {
       console.error('Cannot handoff: no current session');
       return;
     }
 
     try {
-      // Create a new handoff session
+      // No existing session found — create a new handoff session
       const response = await fetch(`${API_BASE}/api/sessions/handoff`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -246,50 +301,128 @@ export function ChatPanel() {
     }
   };
 
-  // Load chat history when agentId changes
+  // Open the session thread graph as a subroute
+  const handleOpenSessionGraph = (sessionId: string) => {
+    const currentAgent = agentId || currentAgentId;
+    if (currentAgent) {
+      navigate(`/chat/${currentAgent}/session/${sessionId}/thread`);
+    }
+  };
+
+  // Called when a node is clicked inside the session graph
+  const handleSelectSessionFromGraph = (targetSessionId: string, targetAgentId: string, handoffId?: string) => {
+    if (handoffId) setScrollToHandoffId(handoffId);
+    // Navigate to that session using the correct agent, closes graph view
+    const agent = targetAgentId || agentId || currentAgentId;
+    if (agent) navigate(`/chat/${agent}/session/${targetSessionId}`);
+  };
+
+  /** Fetch the agent introduction and display it as an ephemeral (not-yet-persisted) greeting */
+  const loadGreeting = async (targetAgentId: string, cancelled?: { value: boolean }) => {
+    try {
+      const developerName = encodeURIComponent(developer?.name || 'Developer');
+      const res = await fetch(
+        `${API_BASE}/api/agents/${targetAgentId}/introduction?developerName=${developerName}`,
+      );
+      if (cancelled?.value) return;
+      if (res.ok) {
+        const data = await res.json();
+        const greetingMessage: ChatMessage = {
+          from: data.agentId ?? targetAgentId,
+          content: data.content ?? '',
+          timestamp: data.timestamp ?? new Date().toISOString(),
+        };
+        setMessages([greetingMessage]);
+        setIsEphemeral(true);
+      } else {
+        // Greeting endpoint unavailable — just show an empty chat
+        setMessages([]);
+        setIsEphemeral(false);
+      }
+    } catch {
+      setMessages([]);
+      setIsEphemeral(false);
+    }
+  };
+
+  // Scroll to a handoff message identified by handoffId after messages have loaded
+  useEffect(() => {
+    if (!scrollToHandoffId) return;
+    const timer = setTimeout(() => {
+      const el = messagesContainerRef.current?.querySelector<HTMLElement>(
+        `[data-handoff-id="${scrollToHandoffId}"]`,
+      );
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('handoff-highlight');
+        setTimeout(() => el.classList.remove('handoff-highlight'), 1800);
+        setScrollToHandoffId(null);
+      }
+    }, 120); // brief delay for React to flush messages to the DOM
+    return () => clearTimeout(timer);
+  }, [scrollToHandoffId, messages]);
+
+  // Load chat history — driven by the agentId and URL session ID
   useEffect(() => {
     if (!agentId) return;
     
     let cancelled = false;
     
     const loadSession = async () => {
+      // Skip reload if this URL change was caused by our own lazy session creation
+      if (urlSessionId && urlSessionId === skipNextSessionLoadRef.current) {
+        skipNextSessionLoadRef.current = null;
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
-        // Try to get the latest session for this agent (with messages)
-        const sessionResponse = await fetch(`${API_BASE}/api/sessions/${agentId}/latest?includeMessages=true`);
+        // If URL already specifies a session, load that one directly
+        const targetUrl = urlSessionId
+          ? `${API_BASE}/api/sessions/${urlSessionId}?includeMessages=true`
+          : `${API_BASE}/api/sessions/${agentId}/latest?includeMessages=true`;
+
+        const sessionResponse = await fetch(targetUrl);
         
         if (sessionResponse.ok) {
-          // Load existing session with messages
           const sessionWithMessages = await sessionResponse.json();
           const sessionId = sessionWithMessages.id;
           const sessionArtifacts = sessionWithMessages.artifacts || [];
           const sessionMessages = sessionWithMessages.messages || [];
-          console.log('Loaded existing session:', sessionId);
+          console.log('Loaded session:', sessionId);
           
           if (!cancelled) {
             setCurrentSessionId(sessionId);
             setMessages(sessionMessages);
             setArtifactsInContext(sessionArtifacts);
             setCurrentAgentId(agentId);
+
+            // Reflect the session ID in the URL (replace so back button stays clean)
+            if (!urlSessionId && sessionId) {
+              navigate(`/chat/${agentId}/session/${sessionId}`, { replace: true });
+            }
           }
         } else {
-          // No session exists yet - start fresh
+          // No session exists yet — show the agent greeting without creating a session
           console.log('No existing session found for agent:', agentId);
           if (!cancelled) {
             setCurrentSessionId(null);
-            setMessages([]);
             setArtifactsInContext([]);
             setCurrentAgentId(agentId);
           }
+          // loadGreeting has its own cancel guard via the closure flag
+          const cancelObj = { value: false };
+          if (!cancelled) await loadGreeting(agentId, cancelObj);
+          if (cancelled) cancelObj.value = true;
         }
       } catch (error) {
         console.error('Failed to load session:', error);
-        // Start fresh on error
         if (!cancelled) {
           setCurrentSessionId(null);
-          setMessages([]);
           setArtifactsInContext([]);
           setCurrentAgentId(agentId);
+          await loadGreeting(agentId);
         }
       } finally {
         if (!cancelled) {
@@ -303,7 +436,7 @@ export function ChatPanel() {
     return () => {
       cancelled = true;
     };
-  }, [agentId]);
+  }, [agentId, urlSessionId]);
 
   // Helper: Check if scroll position is at bottom
   const isAtBottom = () => {
@@ -431,29 +564,32 @@ export function ChatPanel() {
   };
 
   const askInputQuestion = async (request: InputQuestionRequest): Promise<string> => {
-    return getFallbackQuestionAnswer({ kind: 'input' }) as string;
+    return beginPendingQuestion<string>({ kind: 'input', message: request.message });
   };
 
   const askConfirmQuestion = async (request: ConfirmQuestionRequest): Promise<boolean> => {
-    return getFallbackQuestionAnswer({ kind: 'confirm' }) as boolean;
+    return beginPendingQuestion<boolean>({ kind: 'confirm', message: request.message, defaultValue: request.default ?? false });
   };
 
   const askSelectQuestion = async (request: SelectQuestionRequest): Promise<string> => {
-    return getFallbackQuestionAnswer({ kind: 'select', choices: request.choices }) as string;
+    return beginPendingQuestion<string>({ kind: 'select', message: request.message, choices: request.choices });
   };
 
   const askPasswordQuestion = async (request: PasswordQuestionRequest): Promise<string> => {
-    return getFallbackQuestionAnswer({ kind: 'password' }) as string;
+    return beginPendingQuestion<string>({ kind: 'password', message: request.message });
   };
 
   const askChecklistQuestion = async (request: ChecklistQuestionRequest): Promise<string[]> => {
-    return getFallbackQuestionAnswer({ kind: 'checklist' }) as string[];
+    return beginPendingQuestion<string[]>({ kind: 'checklist', message: request.message, choices: request.choices });
   };
 
   const handleSend = async () => {
     if (!input.trim() || sending) return;
 
     const messageContent = input.trim();
+    // Capture the ephemeral greeting now, before state changes clear it
+    const pendingIntroductionContent = isEphemeral ? messages[0]?.content : undefined;
+
     const userMessage: ChatMessage = {
       from: 'human',
       content: messageContent,
@@ -472,8 +608,9 @@ export function ChatPanel() {
     setStreaming(true);
     abortControllerRef.current = new AbortController();
 
-    // Create a placeholder for the streaming response
-    const assistantMessageIndex = messages.length + 1;
+    // Create a placeholder for the streaming response.
+    // assistantIndexRef tracks the current slot dynamically so it survives handoff resets.
+    assistantIndexRef.current = messages.length + 1;
     const assistantMessage: ChatMessage = {
       from: currentAgentId || 'agent',
       content: '',
@@ -502,6 +639,11 @@ export function ChatPanel() {
         const newSession = await createResponse.json();
         sessionId = newSession.id;
         setCurrentSessionId(sessionId);
+        setIsEphemeral(false);
+        setSessionRefreshTrigger((t) => t + 1);
+        // Mark this session ID so loadSession skips the redundant reload
+        skipNextSessionLoadRef.current = sessionId;
+        navigate(`/chat/${currentAgentId}/session/${sessionId}`, { replace: true });
         console.log('Created new session:', sessionId);
       }
       const abortSignal = abortControllerRef.current?.signal;
@@ -513,7 +655,11 @@ export function ChatPanel() {
         command: 'chat',
         payload: {
           employeeId: currentAgentId,
-          options: { message: messageContent, sessionId: sessionId ?? undefined },
+          options: {
+            message: messageContent,
+            sessionId: sessionId ?? undefined,
+            ...(pendingIntroductionContent ? { pendingIntroduction: pendingIntroductionContent } : {}),
+          },
         },
       }, {
         signal: abortSignal,
@@ -529,62 +675,85 @@ export function ChatPanel() {
       
       for await (const event of stream) {
         if (event.kind === 'handoff') {
-          // Agent handoff detected - create new session and switch to new agent
+          // Agent handoff: server has already created the session and saved the briefing.
+          // Use toSessionId from the event to navigate directly — no need to create a new session.
           const fromAgentId = (event as any).fromAgentId;
           const toAgentId = (event as any).toAgentId;
-          const handoffNote = (event as any).handoffNote;
-          
-          if (toAgentId && currentSessionId) {
+          const toSessionId: string | undefined = (event as any).toSessionId;
+
+          if (toAgentId) {
             handoffDetected = true;
-            console.log(`Handoff detected: switching from ${fromAgentId} to ${toAgentId}`);
-            
+            console.log(`Handoff detected: ${fromAgentId} → ${toAgentId} (session: ${toSessionId ?? 'unknown'})`);
+
             try {
-              // Create a new handoff session
-              const handoffResponse = await fetch(`${API_BASE}/api/sessions/handoff`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  toAgentId,
-                  developerId: developer?.id || 'clemens-meier',
-                  previousSessionId: currentSessionId,
-                  transferArtifacts: true,
-                  transferAllowedFiles: true,
-                }),
-              });
+              let targetSessionId = toSessionId ?? null;
 
-              if (handoffResponse.ok) {
+              if (!targetSessionId) {
+                // Legacy fallback: server didn't supply toSessionId, create via API
+                const handoffResponse = await fetch(`${API_BASE}/api/sessions/handoff`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    toAgentId,
+                    developerId: developer?.id || 'clemens-meier',
+                    previousSessionId: currentSessionId,
+                    transferArtifacts: true,
+                    transferAllowedFiles: true,
+                  }),
+                });
+                if (!handoffResponse.ok) throw new Error('Failed to create handoff session');
                 const newSession = await handoffResponse.json();
-                console.log('Created handoff session:', newSession.id);
+                targetSessionId = newSession.id;
+                console.log('Created handoff session (fallback):', targetSessionId);
+              }
 
-                // Load messages from the new session
-                const messagesResponse = await fetch(`${API_BASE}/api/sessions/${newSession.id}?includeMessages=true`);
-                if (messagesResponse.ok) {
-                  const sessionWithMessages = await messagesResponse.json();
-                  setMessages(sessionWithMessages.messages || []);
-                  setCurrentSessionId(newSession.id);
-                  setCurrentAgentId(toAgentId);
-                  setArtifactsInContext(sessionWithMessages.artifacts || []);
-                }
-              } else {
-                throw new Error('Failed to create handoff session');
+              // Load messages from the already-existing session (includes the briefing message)
+              const messagesResponse = await fetch(`${API_BASE}/api/sessions/${targetSessionId}?includeMessages=true`);
+              if (messagesResponse.ok) {
+                const sessionWithMessages = await messagesResponse.json();
+                const existingMessages: ChatMessage[] = sessionWithMessages.messages || [];
+                // Add placeholder for the incoming agent's streaming response
+                const newAssistantPlaceholder: ChatMessage = {
+                  from: toAgentId,
+                  content: '',
+                  timestamp: new Date().toISOString(),
+                };
+                assistantIndexRef.current = existingMessages.length;
+                setMessages([...existingMessages, newAssistantPlaceholder]);
+                setCurrentSessionId(targetSessionId);
+                setCurrentAgentId(toAgentId);
+                setArtifactsInContext(sessionWithMessages.artifacts || []);
+                setSessionRefreshTrigger((t) => t + 1);
+                // Navigate to the real session URL immediately — no F5 needed
+                skipNextSessionLoadRef.current = targetSessionId;
+                navigate(`/chat/${toAgentId}/session/${targetSessionId}`, { replace: true });
+                // Scroll to the agent-briefing message
+                const briefing = existingMessages.find(
+                  (m) => m.handoffType === 'agent-briefing' && m.handoffId,
+                );
+                if (briefing?.handoffId) setScrollToHandoffId(briefing.handoffId);
               }
             } catch (error) {
-              console.error('Failed to create handoff session:', error);
+              console.error('Failed to set up handoff session:', error);
             }
-            
+
             // Reset accumulator for the new agent's response
-            accumulator = '';;
+            accumulator = '';
           }
         } else if (event.kind === 'token') {
           // Append token to accumulated text
           accumulator += event.text;
           setMessages((prev) => {
             const updated = [...prev];
-            updated[assistantMessageIndex] = {
-              ...updated[assistantMessageIndex],
-              from: currentAgentId || 'agent',
-              content: accumulator,
-            };
+            const idx = assistantIndexRef.current;
+            if (idx >= 0 && idx < updated.length) {
+              updated[idx] = {
+                ...updated[idx],
+                // Do NOT overwrite `from` — the placeholder already has the correct agent ID.
+                // Setting it from `currentAgentId` would use a stale closure value after handoff.
+                content: accumulator,
+              };
+            }
             return updated;
           });
         } else if (event.kind === 'status') {
@@ -602,10 +771,13 @@ export function ChatPanel() {
       if (!accumulator && !handoffDetected) {
         setMessages((prev) => {
           const updated = [...prev];
-          updated[assistantMessageIndex] = {
-            ...updated[assistantMessageIndex],
-            content: 'No response received.',
-          };
+          const idx = assistantIndexRef.current;
+          if (idx >= 0 && idx < updated.length) {
+            updated[idx] = {
+              ...updated[idx],
+              content: 'No response received.',
+            };
+          }
           return updated;
         });
       }
@@ -622,7 +794,12 @@ export function ChatPanel() {
       };
       setMessages((prev) => {
         const updated = [...prev];
-        updated[assistantMessageIndex] = errorMessage;
+        const idx = assistantIndexRef.current;
+        if (idx >= 0 && idx < updated.length) {
+          updated[idx] = errorMessage;
+        } else {
+          updated.push(errorMessage);
+        }
         return updated;
       });
     } finally {
@@ -831,11 +1008,11 @@ export function ChatPanel() {
       const newSession = await response.json();
       console.log('Created new session:', newSession);
 
-      // Update current session ID and reload messages
+      // Update current session ID and reload messages from new session
       setCurrentSessionId(newSession.id);
+      setSessionRefreshTrigger((t) => t + 1);
+      handleSwitchSession(newSession.id);
       alert(`Session split successfully! New session: ${newSession.id}`);
-
-      // TODO: Reload messages from new session
     } catch (error) {
       console.error('Failed to split session:', error);
       alert('Failed to split session. Check the console for details.');
@@ -874,62 +1051,34 @@ export function ChatPanel() {
 
   const handleDeleteSession = async (deletedSessionId: string) => {
     if (deletedSessionId === currentSessionId) {
-      // Current session was deleted, clear chat state
+      // Current session was deleted — clear state and go back to agent base URL
       setCurrentSessionId(null);
       setMessages([]);
       setArtifactsInContext([]);
+      navigate(`/chat/${agentId || currentAgentId}`);
       console.log('Current session deleted, chat cleared');
     }
   };
 
   const handleCreateSession = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/sessions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentId: currentAgentId,
-          developerId: developer?.id || 'clemens-meier',
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create new session');
-      }
-
-      const newSession = await response.json();
-      
-      // Clear current state and switch to new session
-      setMessages([]);
-      setArtifactsInContext([]);
-      setCurrentSessionId(newSession.id);
-      
-      console.log('Created new session:', newSession.id);
-    } catch (error) {
-      console.error('Failed to create new session:', error);
-      alert('Failed to create new session. Please try again.');
-    }
+    // Do NOT create a session immediately — show the greeting and wait for the first user message
+    setCurrentSessionId(null);
+    setArtifactsInContext([]);
+    setMessages([]);
+    setIsEphemeral(false);
+    // Navigate to the agent base URL so no stale session ID lingers in the URL
+    navigate(`/chat/${currentAgentId}`);
+    await loadGreeting(currentAgentId);
+    console.log('New ephemeral session started for agent:', currentAgentId);
   };
 
   const handleSwitchSession = async (sessionId: string) => {
     try {
-      // Load session with messages in one call
-      const sessionResponse = await fetch(`${API_BASE}/api/sessions/${sessionId}?includeMessages=true`);
-      if (!sessionResponse.ok) {
-        throw new Error('Failed to load session');
-      }
-      const sessionWithMessages = await sessionResponse.json();
-
-      // Update state
-      setCurrentSessionId(sessionId);
-      setMessages(sessionWithMessages.messages || []);
-      setArtifactsInContext(sessionWithMessages.artifacts || []);
-      setCurrentAgentId(sessionWithMessages.agentId || agentId);
-
-      console.log(`Switched to session: ${sessionId}`);
+      // Navigate to the session URL — the URL-driven effect will load messages
+      const currentAgent = agentId || currentAgentId;
+      navigate(`/chat/${currentAgent}/session/${sessionId}`);
     } catch (error) {
       console.error('Failed to switch session:', error);
-      alert('Failed to load session. Check the console for details.');
     }
   };
 
@@ -975,15 +1124,35 @@ export function ChatPanel() {
           {streaming && <span className="streaming-indicator">●</span>}
         </div>
 
-        <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
-          {messages.length === 0 && (
-            <div className="empty-chat">
-              <p>Start a conversation with {agent.name}</p>
-              <div className="agent-info">
-                <strong>Role:</strong> {agent.role}
-              </div>
+        {graphSessionId ? (
+          <>
+            <div className="graph-view-header">
+              <button
+                className="graph-view-back"
+              onClick={() => navigate(`/chat/${agentId || currentAgentId}/session/${currentSessionId ?? ''}`.replace(/\/session\/$/, ''))}
+              >
+                <i className="codicon codicon-arrow-left" /> Back to chat
+              </button>
+              <span className="graph-view-header-title">Session thread</span>
             </div>
-          )}
+            <div className="chat-messages chat-messages-graph">
+              <SessionGraphLoader
+                sessionId={graphSessionId}
+                activeSessionId={currentSessionId}
+                onSelectSession={handleSelectSessionFromGraph}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
+            {messages.length === 0 && (
+              <div className="empty-chat">
+                <p>Start a conversation with {agent.name}</p>
+                <div className="agent-info">
+                  <strong>Role:</strong> {agent.role}
+                </div>
+              </div>
+            )}
 
           {messages.map((message, index) => (
             <React.Fragment key={`message-${index}`}>
@@ -1000,7 +1169,12 @@ export function ChatPanel() {
                 className={`message message-${isHumanMessage(message) ? 'user' : 'assistant'}${
                   message.archived ? ' message-archived' : ''
                 }`}
-                style={!isHumanMessage(message) && agent ? { '--agent-color': getAgentColor(agent) } as React.CSSProperties : undefined}
+                style={(() => {
+                  if (isHumanMessage(message)) return undefined;
+                  const senderAgent = agents.find((a) => a.id === message.from) ?? agent;
+                  return { '--agent-color': getAgentColor(senderAgent) } as React.CSSProperties;
+                })()}
+                {...(message.handoffId ? { 'data-handoff-id': message.handoffId } : {})}
               >
               <div className="message-avatar">
                 {isHumanMessage(message) ? (
@@ -1024,12 +1198,12 @@ export function ChatPanel() {
                     )}
                   </div>
                 ) : (
-                  <Avatar agent={agent} size="small" />
+                  <Avatar agent={agents.find((a) => a.id === message.from) ?? agent} size="small" />
                 )}
               </div>
               <div className="message-bubble">
                 <div className="message-header">
-                  <strong>{isHumanMessage(message) ? (developer?.name || formatDeveloperName(message.from)) : agent.name}</strong>
+                  <strong>{isHumanMessage(message) ? (developer?.name || formatDeveloperName(message.from)) : (agents.find((a) => a.id === message.from) ?? agent).name}</strong>
                   {isAgentBriefing(message) && getTargetAgentName(message) && (
                     <AgentBriefingBadge targetAgentName={getTargetAgentName(message)!} />
                   )}
@@ -1058,18 +1232,19 @@ export function ChatPanel() {
                   ) : (
                     <>
                       <MarkdownMessage content={message.content} />
-                      {isHandoffMessage(message) && (() => {
-                        // Use 'to' field if available, otherwise extract from content
-                        const targetAgentId = message.to || extractHandoffTarget(message.content);
-                        return targetAgentId ? (
+                      {(() => {
+                        const nav = resolveNavigateAgent(message);
+                        if (!nav) return null;
+                        return (
                           <button
-                            onClick={() => handleHandoffClick(targetAgentId)}
+                            onClick={() => handleHandoffClick(nav.agent.id, nav.sessionId)}
                             className="btn-handoff-link"
-                            title={`Switch to ${targetAgentId}`}
+                            title={`Go to ${nav.agent.name}`}
                           >
-                            → Switch to {targetAgentId}
+                            <Avatar agent={nav.agent} size="small" />
+                            <span>Go to {nav.agent.name}</span>
                           </button>
-                        ) : null;
+                        );
                       })()}
                     </>
                   )}
@@ -1111,7 +1286,8 @@ export function ChatPanel() {
             </React.Fragment>
           ))}
           <div ref={messagesEndRef} />
-        </div>
+          </div>
+        )}
 
         <div className="chat-input-area">
           {pendingQuestion ? (
@@ -1251,6 +1427,8 @@ export function ChatPanel() {
         onSwitchSession={handleSwitchSession}
         onDeleteSession={handleDeleteSession}
         onCreateSession={handleCreateSession}
+        onOpenSessionGraph={handleOpenSessionGraph}
+        refreshTrigger={sessionRefreshTrigger}
       />
     </div>
   );

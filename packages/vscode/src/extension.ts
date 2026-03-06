@@ -1,203 +1,177 @@
-/**
- * VS Code Extension Entry Point
- */
-
 import * as vscode from 'vscode';
-import { AgentManager, SkillManager, TeamGraphBuilder, ChatManager, CodeEditManager } from '@ai-team/core';
-import { TeamTreeProvider } from './views/teamTreeProvider';
-import { FeaturesTreeProvider } from './views/featuresTreeProvider';
-import { TeamGraphPanel } from './panels/teamGraphPanel';
-import { CodeEditPanel } from './panels/codeEditPanel';
+import * as fs from 'fs';
+import * as path from 'path';
+import { IdeLocalServer } from './ide-local-server';
+import { ConnectionStatusProvider } from './views/connection-status-provider';
+import { PendingChangesProvider, ProposalItem } from './views/pending-changes-provider';
+import { CodeEditDecorationManager } from './decorations/code-edit-decorator';
+import { PendingChangesPanel } from './panels/pending-changes-panel';
 
-let agentManager: AgentManager;
-let skillManager: SkillManager;
-let chatManager: ChatManager;
-let codeEditManager: CodeEditManager;
-let teamTreeProvider: TeamTreeProvider;
-let featuresTreeProvider: FeaturesTreeProvider;
+/** Reads ide.webAppUrl from .ai-team/config.json, falls back to VS Code setting, then default. */
+function getWebAppUrl(workspaceRoot: string): string {
+  try {
+    const configPath = path.join(workspaceRoot, '.ai-team', 'config.json');
+    if (fs.existsSync(configPath)) {
+      const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (cfg?.ide?.webAppUrl) return cfg.ide.webAppUrl;
+    }
+  } catch { /* ignore */ }
+  const setting = vscode.workspace.getConfiguration('ai-team').get<string>('webAppUrl');
+  return setting || 'http://localhost:3000';
+}
 
-export async function activate(context: vscode.ExtensionContext) {
-  console.log('AI Team extension activated');
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) return;
 
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!workspaceRoot) {
-    vscode.window.showWarningMessage('AI Team requires a workspace to be open');
+  const workspaceRoot = workspaceFolders[0].uri.fsPath;
+  const aiTeamDir = path.join(workspaceRoot, '.ai-team');
+
+  const connectionProvider = new ConnectionStatusProvider();
+  vscode.window.createTreeView('ai-team.connectionsView', {
+    treeDataProvider: connectionProvider,
+    showCollapseAll: false,
+  });
+
+  const pendingChangesProvider = new PendingChangesProvider();
+  vscode.window.createTreeView('ai-team.pendingChangesView', {
+    treeDataProvider: pendingChangesProvider,
+    showCollapseAll: false,
+  });
+
+  // ── Commands available regardless of initialization state ─────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ai-team.openWebApp', () => {
+      const url = getWebAppUrl(workspaceRoot);
+      vscode.env.openExternal(vscode.Uri.parse(url));
+    }),
+  );
+
+  // ── Guard: no .ai-team directory ──────────────────────────────────────────
+  if (!fs.existsSync(aiTeamDir)) {
+    connectionProvider.setUninitialized();
+
+    // Register init command only — everything else is deferred
+    context.subscriptions.push(
+      vscode.commands.registerCommand('ai-team.initWorkspace', () => {
+        vscode.window.showInformationMessage(
+          'Run `ait init` in the terminal to initialize this workspace.',
+        );
+      }),
+    );
+
+    // Watch for .ai-team to appear, then re-activate
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(workspaceRoot, '.ai-team/**'),
+    );
+    context.subscriptions.push(watcher);
+    watcher.onDidCreate(async () => {
+      if (fs.existsSync(aiTeamDir)) {
+        watcher.dispose();
+        await activateFull(context, workspaceRoot, connectionProvider, pendingChangesProvider);
+      }
+    });
     return;
   }
 
-  // Initialize managers
-  agentManager = new AgentManager(workspaceRoot);
-  skillManager = new SkillManager(workspaceRoot);
-  chatManager = new ChatManager(workspaceRoot);
-  codeEditManager = new CodeEditManager();
-
-  try {
-    await agentManager.initialize();
-    await skillManager.initialize();
-  } catch (error) {
-    console.error('Failed to initialize AI Team:', error);
-  }
-
-  // Register tree providers
-  teamTreeProvider = new TeamTreeProvider(agentManager);
-  featuresTreeProvider = new FeaturesTreeProvider(agentManager);
-
-  context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('ai-team.teamView', teamTreeProvider),
-    vscode.window.registerTreeDataProvider('ai-team.featuresView', featuresTreeProvider)
-  );
-
-  // Register commands
-  context.subscriptions.push(
-    vscode.commands.registerCommand('ai-team.showTeamGraph', () => {
-      TeamGraphPanel.createOrShow(context.extensionUri, agentManager);
-    }),
-
-    vscode.commands.registerCommand('ai-team.showCodeEditPanel', (proposalId?: string) => {
-      CodeEditPanel.createOrShow(context.extensionUri, codeEditManager, proposalId);
-    }),
-
-    vscode.commands.registerCommand('ai-team.listAgents', async () => {
-      const agents = agentManager.getAllAgents();
-      const items = agents.map(a => ({
-        label: a.name,
-        description: a.role,
-        detail: `Reports to: ${a.reportsTo || 'None'}`,
-      }));
-
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Select an agent to view details',
-      });
-
-      if (selected) {
-        vscode.window.showInformationMessage(`Selected: ${selected.label}`);
-      }
-    }),
-
-    vscode.commands.registerCommand('ai-team.createAgent', async () => {
-      const name = await vscode.window.showInputBox({
-        prompt: 'Agent name',
-        placeHolder: 'e.g., Senior Developer',
-      });
-
-      if (!name) return;
-
-      const role = await vscode.window.showInputBox({
-        prompt: 'Role/skill name',
-        placeHolder: 'e.g., senior-developer',
-      });
-
-      if (!role) return;
-
-      const contextLevel = await vscode.window.showQuickPick(
-        ['task', 'module', 'feature', 'repository', 'organization'],
-        { placeHolder: 'Select context level' }
-      );
-
-      if (!contextLevel) return;
-
-      try {
-        const agent = await agentManager.createAgent({
-          name,
-          role,
-          contextLevel: contextLevel as any,
-        });
-
-        vscode.window.showInformationMessage(`Created agent: ${agent.name}`);
-        teamTreeProvider.refresh();
-      } catch (error) {
-        vscode.window.showErrorMessage(`Failed to create agent: ${error}`);
-      }
-    }),
-
-    vscode.commands.registerCommand('ai-team.chatWithAgent', async (agentItem?: any) => {
-      let agentId: string | undefined;
-
-      if (agentItem?.agentId) {
-        agentId = agentItem.agentId;
-      } else {
-        // Show quick pick
-        const agents = agentManager.getAllAgents();
-        const items = agents.map(a => ({
-          label: a.name,
-          description: a.role,
-          agentId: a.id,
-        }));
-
-        const selected = await vscode.window.showQuickPick(items, {
-          placeHolder: 'Select an agent to chat with',
-        });
-
-        agentId = selected?.agentId;
-      }
-
-      if (!agentId) return;
-
-      const agent = agentManager.getAgent(agentId);
-      if (!agent) return;
-
-      // Open chat interface (placeholder - would open webview)
-      const message = await vscode.window.showInputBox({
-        prompt: `Chat with ${agent.name}`,
-        placeHolder: 'Type your message...',
-      });
-
-      if (message) {
-        await agentManager.recordInteraction(agentId);
-
-        vscode.window.showInformationMessage(
-          `Message sent to ${agent.name}. (LLM integration pending)`
-        );
-      }
-    }),
-
-    vscode.commands.registerCommand('ai-team.initWorkspace', async () => {
-      const confirm = await vscode.window.showWarningMessage(
-        'Initialize AI Team in this workspace?',
-        'Yes',
-        'No'
-      );
-
-      if (confirm !== 'Yes') return;
-
-      try {
-        const { ensureAiTeamDirectory } = await import('@ai-team/core');
-        await ensureAiTeamDirectory(workspaceRoot);
-
-        await agentManager.initialize();
-        await skillManager.initialize();
-
-        teamTreeProvider.refresh();
-        featuresTreeProvider.refresh();
-
-        vscode.window.showInformationMessage('AI Team initialized successfully!');
-      } catch (error) {
-        vscode.window.showErrorMessage(`Failed to initialize: ${error}`);
-      }
-    })
-  );
-
-  // File watcher for agent changes
-  const watcher = vscode.workspace.createFileSystemWatcher('**/.ai-team/agents/*.md');
-  
-  watcher.onDidCreate(() => {
-    agentManager.loadAllAgents();
-    teamTreeProvider.refresh();
-  });
-
-  watcher.onDidChange(() => {
-    agentManager.loadAllAgents();
-    teamTreeProvider.refresh();
-  });
-
-  watcher.onDidDelete(() => {
-    agentManager.loadAllAgents();
-    teamTreeProvider.refresh();
-  });
-
-  context.subscriptions.push(watcher);
+  // ── Full activation ────────────────────────────────────────────────────────
+  await activateFull(context, workspaceRoot, connectionProvider, pendingChangesProvider);
 }
 
-export function deactivate() {
-  // Cleanup
+async function activateFull(
+  context: vscode.ExtensionContext,
+  workspaceRoot: string,
+  connectionProvider: ConnectionStatusProvider,
+  pendingChangesProvider: PendingChangesProvider,
+): Promise<void> {
+  // Start local WS server
+  const server = new IdeLocalServer(workspaceRoot);
+  await server.start();
+  context.subscriptions.push({ dispose: () => server.stop() });
+
+  // Wire connection status tree
+  connectionProvider.setServer(server);
+
+  // Code-edit decoration manager
+  const decoratorManager = new CodeEditDecorationManager(context, server);
+  context.subscriptions.push(decoratorManager);
+
+  function refreshPendingTree(): void {
+    pendingChangesProvider.setProposals(decoratorManager.getPendingEntries());
+    PendingChangesPanel.refresh(decoratorManager.getPendingProposals());
+  }
+
+  // Any time the decorator resolves a proposal (accept/reject/manual edit), refresh the tree
+  context.subscriptions.push(decoratorManager.onProposalResolved(() => refreshPendingTree()));
+
+  // Route server events
+  server.on(async event => {
+    if (event.kind === 'openFile') {
+      try {
+        const uri = vscode.Uri.file(event.filePath);
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const opts: vscode.TextDocumentShowOptions = {};
+        if (event.line !== undefined) {
+          const pos = new vscode.Position(Math.max(0, event.line - 1), 0);
+          opts.selection = new vscode.Range(pos, pos);
+        }
+        await vscode.window.showTextDocument(doc, opts);
+      } catch {
+        vscode.window.showErrorMessage(`AI Team: could not open file ${event.filePath}`);
+      }
+    } else if (event.kind === 'codeEditProposal') {
+      await decoratorManager.applyProposal(event.proposal);
+      refreshPendingTree();
+    }
+  });
+
+  // ── Commands ──────────────────────────────────────────────────────────────
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ai-team.initWorkspace', () => {
+      vscode.window.showInformationMessage('Workspace is already initialized.');
+    }),
+
+    vscode.commands.registerCommand('ai-team.openWebApp', () => {
+      const url = getWebAppUrl(workspaceRoot);
+      vscode.env.openExternal(vscode.Uri.parse(url));
+    }),
+
+    // CodeLens keep/undo (called with proposalId string) — refresh via onProposalResolved event
+    vscode.commands.registerCommand('ai-team.acceptChange', (proposalId: string) => {
+      decoratorManager.acceptProposal(proposalId);
+    }),
+
+    vscode.commands.registerCommand('ai-team.rejectChange', (proposalId: string) => {
+      decoratorManager.rejectProposal(proposalId);
+    }),
+
+    // Tree view inline keep/undo (called with ProposalItem)
+    vscode.commands.registerCommand('ai-team.acceptProposal', (item: ProposalItem) => {
+      decoratorManager.acceptProposal(item.proposal.proposalId);
+    }),
+
+    vscode.commands.registerCommand('ai-team.rejectProposal', (item: ProposalItem) => {
+      decoratorManager.rejectProposal(item.proposal.proposalId);
+    }),
+
+    // Tree row click / inline diff button — receives primitives to avoid circular JSON
+    vscode.commands.registerCommand('ai-team.showFileDiff', async (filePath: string, _proposalId: string, tmpDir: string) => {
+      if (!tmpDir) return;
+      const tmpFile = path.join(tmpDir, path.basename(filePath) + '.orig');
+      if (!fs.existsSync(tmpFile)) return;
+      const origUri = vscode.Uri.file(tmpFile);
+      const newUri = vscode.Uri.file(filePath);
+      await vscode.commands.executeCommand('vscode.diff', origUri, newUri,
+        `AI Team · ${path.basename(filePath)}`, { preview: true });
+    }),
+
+    vscode.commands.registerCommand('ai-team.showPendingChanges', () => {
+      PendingChangesPanel.createOrShow(context, decoratorManager);
+    }),
+  );
+}
+
+export function deactivate(): void {
+  // Disposables registered on context.subscriptions are cleaned up by VS Code automatically.
 }

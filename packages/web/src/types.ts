@@ -148,18 +148,58 @@ export interface ChatMessage {
   archived?: boolean;
   handoffType?: 'user-acknowledgment' | 'agent-briefing'; // Type of handoff message
   targetAgentId?: string; // Target agent for briefing messages
+  // Cross-session handoff tracking (added with /thread API)
+  handoffId?: string;              // UUID shared by all messages in one handoff event
+  handoffFromSessionId?: string;   // Session this briefing came FROM
+  handoffToSessionId?: string;     // Session this briefing is directed TO
 }
 
 export interface ChatSession {
   id: string;  // e.g., 'session-2026-02-27-abc123'
-  agentId: string;
+  agentId: string;      // deprecated — use agentIds[0]
+  agentIds?: string[];  // Primary agent IDs for this session
   developerId: string;  // e.g., 'clemens-meier'
-  startedAt: string;  // ISO timestamp
+  title?: string;       // Optional session title
+  startedAt: string;    // ISO timestamp
   lastActivityAt: string;  // ISO timestamp
   messageCount: number;
   artifacts: string[];  // Artifact IDs or paths in context
   allowedFiles: string[];  // Files agent can access in this session
-  previousSessionId?: string;  // ID of session this was handed off from
+  previousSessionId?: string;      // ID of session this was handed off from
+  mergedFromSessionIds?: string[] | null;  // Sessions merged into this one
+}
+
+/** One directed handoff edge in the session thread graph */
+export interface HandoffEdge {
+  handoffId: string;
+  fromSessionId: string | null;  // null if source session was deleted
+  toSessionId: string | null;    // null if target session was deleted
+  fromAgentIds: string[];
+  toAgentIds: string[];
+}
+
+/** A single node in the session thread, as returned by GET /api/sessions/:id/thread */
+export interface SessionNode {
+  sessionId: string;
+  agentIds: string[];
+  agentNames: string[];
+  developerId: string | null;
+  title: string | null;
+  startedAt: string;
+  lastActivityAt: string;
+  previousSessionId: string | null;
+  mergedFromSessionIds: string[] | null;
+  messageCount: number;
+  messages: ChatMessage[];
+}
+
+/** Full session thread returned by GET /api/sessions/:id/thread */
+export interface SessionThread {
+  rootSessionId: string;
+  currentSessionId: string;
+  depth: number;
+  handoffs: HandoffEdge[];
+  sessions: SessionNode[];
 }
 
 export interface Artifact {

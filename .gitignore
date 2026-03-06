@@ -46,6 +46,7 @@ pnpm-debug.log*
 
 # AI Team Private Data (NOT committed to git)
 .ai-team/private/
+.ai-team/proposals/
 .ai-team/**/*.jsonl
 .ai-team/logs/
 

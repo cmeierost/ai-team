@@ -27,6 +27,7 @@
   "dependencies": {
     "@ai-team/api-client": "workspace:*",
     "@ai-team/core": "workspace:*",
+    "@ai-team/ide-interface": "workspace:*",
     "@ai-team/service": "workspace:*",
     "@inquirer/prompts": "^8.2.1",
     "chalk": "^5.4.1",

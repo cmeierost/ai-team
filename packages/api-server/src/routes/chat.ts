@@ -138,7 +138,7 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string, ag
     try {
       const agentQuery = req.params.agentId;
       const agentId = resolveAgentId(agentQuery); // Resolve to exact ID
-      const { content } = req.body;
+      const { content, pendingIntroduction } = req.body;
 
       if (!content || typeof content !== 'string') {
         return res.status(400).json({
@@ -147,17 +147,43 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string, ag
         });
       }
 
-      // Use basic chat (non-streaming)
-      // Note: For real-time experience, clients should use WebSocket instead
-      const result = await client.invoke({
+      // Collect streamed tokens to build the full agent reply
+      const stream = client.stream({
         command: 'chat',
         payload: {
           employeeId: agentId,
-          options: { message: content, skipPersistence: true },
+          options: {
+            message: content,
+            oneShot: true,
+            ...(pendingIntroduction ? { pendingIntroduction } : {}),
+          },
         },
       });
 
-      res.json(result);
+      let agentReply = '';
+      let handoffEvent: any = null;
+      for await (const event of stream) {
+        if (event.kind === 'token') {
+          agentReply += (event as any).text;
+        } else if (event.kind === 'handoff') {
+          handoffEvent = event;
+        } else if (event.kind === 'error') {
+          return res.status(500).json({ error: (event as any).message });
+        }
+      }
+
+      const responseBody: Record<string, any> = { content: agentReply.trim() };
+      if (handoffEvent) {
+        responseBody.handoff = {
+          fromAgentId: handoffEvent.fromAgentId,
+          fromAgentName: handoffEvent.fromAgentName,
+          toAgentId: handoffEvent.toAgentId,
+          toAgentName: handoffEvent.toAgentName,
+          handoffNote: handoffEvent.handoffNote,
+        };
+      }
+
+      res.json(responseBody);
     } catch (error) {
       next(error);
     }

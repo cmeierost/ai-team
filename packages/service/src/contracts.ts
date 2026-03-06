@@ -130,6 +130,13 @@ export interface ChatOptions {
   
   /** @deprecated No longer used. Messages are always persisted to SQLite via SessionManager. */
   skipPersistence?: boolean;
+
+  /**
+   * Introduction text already displayed by the client (e.g. web UI). When provided on an empty-history
+   * session, the introduction is persisted (with importance: 'low') immediately before the first user
+   * message, without triggering a second LLM call. Mutually exclusive with the CLI introduction flow.
+   */
+  pendingIntroduction?: string;
 }
 
 export interface QuestionSelectChoice {
@@ -228,16 +235,21 @@ export interface MediatorRuntimeEvent {
   choices?: QuestionSelectChoice[];
   // Code edit proposal fields
   proposalId?: string;
+  agentName?: string;
   description?: string;
   filesChanged?: number;
   additions?: number;
   deletions?: number;
   warnings?: string[];
+  /** Full file changes — present when kind === 'code_edit_proposal' */
+  files?: Array<{ filePath: string; oldContent: string; newContent: string; additions?: number; deletions?: number }>;
   // Handoff fields
   fromAgentId?: string;
   fromAgentName?: string;
+  fromSessionId?: string;
   toAgentId?: string;
   toAgentName?: string;
+  toSessionId?: string;
   handoffNote?: string;
 }
 
@@ -370,8 +382,10 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       timestamp: string;
       fromAgentId: string;
       fromAgentName?: string;
+      fromSessionId?: string;
       toAgentId: string;
       toAgentName?: string;
+      toSessionId?: string;
       handoffNote?: string;
       message?: string;
     }

@@ -103,6 +103,23 @@
   gap: 0;
 }
 
+/* When the session graph is shown instead of messages, remove scroll padding */
+.chat-messages.chat-messages-graph {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Brief highlight applied to a handoff message after navigation */
+@keyframes handoff-flash {
+  0%   { background: var(--color-accent-alpha, rgba(0,127,212,0.25)); }
+  100% { background: transparent; }
+}
+
+.handoff-highlight {
+  animation: handoff-flash 1.8s ease-out forwards;
+  border-radius: 6px;
+}
+
 .chat-input-area {
   padding: 12px 16px;
   background-color: var(--color-bg-primary);
@@ -518,13 +535,15 @@
 }
 
 .btn-handoff-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin-top: 12px;
-  padding: 8px 16px;
+  padding: 6px 12px 6px 6px;
   background-color: #0078d4;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 20px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;

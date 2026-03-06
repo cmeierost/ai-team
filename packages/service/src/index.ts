@@ -563,8 +563,10 @@ class CoreAiTeamService implements AiTeamService {
           timestamp: timestamp(),
           fromAgentId: runtimeEvent.fromAgentId,
           fromAgentName: runtimeEvent.fromAgentName,
+          fromSessionId: runtimeEvent.fromSessionId,
           toAgentId: runtimeEvent.toAgentId,
           toAgentName: runtimeEvent.toAgentName,
+          toSessionId: runtimeEvent.toSessionId,
           handoffNote: runtimeEvent.handoffNote,
           message: runtimeEvent.message,
         });
@@ -758,6 +760,8 @@ export {
   type AgentPathResult,
 } from './commands/file-tree.js';
 
+export { generateIntroduction } from './commands/chat.js';
+
 // Storage abstraction layer
 export {
   type IMessageStorage,
@@ -771,3 +775,4 @@ export {
   MigrationManager,
   createSqliteStorage,
 } from './storage/index.js';
+export { ProposalStore, type StoredProposal, type StoredProposalFile } from './storage/proposal-store.js';

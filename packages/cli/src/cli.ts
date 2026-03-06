@@ -24,6 +24,7 @@ import { sysinfoCommand } from './commands/sysinfo.js';
 import { hhRefreshCommand } from './commands/hh.js';
 import { codeEditCommand } from './commands/code-edit.js';
 import { avatarCommand } from './commands/avatar.js';
+import { patchCommand } from './commands/patch.js';
 import { filesCommand, filesAllowCommand, filesDisallowCommand } from './commands/files.js';
 
 import { testConnectionCommand } from './commands/test-connection.js';
@@ -244,5 +245,13 @@ program
 // Database commands
 program.addCommand(dbStatusCommand(process.cwd()));
 program.addCommand(dbMigrateCommand(process.cwd()));
+
+// Patch: replace a single line in a file and push through the proposal pipeline
+program
+  .command('patch <file> <line> <content>')
+  .description('Replace a single line in a file and send a code-edit proposal to VS Code')
+  .action(withCliErrorHandling((file: string, line: string, content: string) =>
+    patchCommand(file, line, content)
+  ));
 
 program.parse();

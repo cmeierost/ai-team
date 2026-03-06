@@ -5,12 +5,14 @@ import {
   AgentManager,
   AgentSchema,
   ContextManager,
+  LlmService,
   getFileTree,
   loadTeamConfig,
   parseMarkdownSections,
   replaceOrAppendMarkdownSection,
   type FileTreeNode,
 } from '@ai-team/core';
+import { generateIntroduction } from '@ai-team/service';
 
 /**
  * @openapi
@@ -641,6 +643,67 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
         readPatterns: agent.permissions?.read ?? [],
         writePatterns: agent.permissions?.write ?? [],
         files,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/agents/{id}/introduction:
+   *   get:
+   *     tags: [Agents]
+   *     summary: Generate an agent introduction
+   *     description: Ask the agent to introduce themselves via LLM. Not persisted.
+   *     parameters:
+   *       - name: id
+   *         in: path
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Agent ID
+   *       - name: developerName
+   *         in: query
+   *         schema:
+   *           type: string
+   *         description: Optional developer name to personalise the greeting
+   *     responses:
+   *       200:
+   *         description: Introduction generated successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 content:
+   *                   type: string
+   *                 agentId:
+   *                   type: string
+   *                 agentName:
+   *                   type: string
+   *                 timestamp:
+   *                   type: string
+   *       404:
+   *         description: Agent not found
+   *       503:
+   *         description: LLM unavailable
+   */
+  router.get('/:id/introduction', async (req: any, res: any, next: any) => {
+    try {
+      const agents = agentManager.resolveAgent(req.params.id);
+      if (!agents || agents.length === 0) {
+        return res.status(404).json({ error: 'Agent not found', details: `No agent matching '${req.params.id}'` });
+      }
+      const agent = agents[0];
+      const developerName = typeof req.query.developerName === 'string' ? req.query.developerName : undefined;
+      const llm = new LlmService(agentManager.workspaceRoot);
+      const content = await generateIntroduction(llm, agentManager, agent, undefined, developerName);
+      res.json({
+        content,
+        agentId: agent.id,
+        agentName: agent.name,
+        timestamp: new Date().toISOString(),
       });
     } catch (error) {
       next(error);

@@ -46,8 +46,8 @@ export class SqliteMessageStorage implements IMessageStorage {
     
     // Insert message
     const messageResult = await this.connection.run(
-      `INSERT INTO messages (session_id, timestamp, from_id, to_id, is_human, content, archived, handoff_type, target_agent_id, handoff_from_session_id, handoff_to_session_id, handoff_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (session_id, timestamp, from_id, to_id, is_human, content, archived, handoff_type, target_agent_id, handoff_from_session_id, handoff_to_session_id, handoff_id, importance)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         sessionId,
         timestamp,
@@ -61,6 +61,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         message.handoffFromSessionId || null,
         message.handoffToSessionId || null,
         message.handoffId || null,
+        message.importance || null,
       ]
     );
     
@@ -140,7 +141,11 @@ export class SqliteMessageStorage implements IMessageStorage {
         m.content,
         m.archived,
         m.handoff_type,
-        m.target_agent_id
+        m.target_agent_id,
+        m.handoff_from_session_id,
+        m.handoff_to_session_id,
+        m.handoff_id,
+        m.importance
       FROM messages m
       WHERE m.session_id = ?
         ${!includeArchived ? 'AND m.archived = 0' : ''}
@@ -217,7 +222,11 @@ export class SqliteMessageStorage implements IMessageStorage {
         m.content,
         m.archived,
         m.handoff_type,
-        m.target_agent_id
+        m.target_agent_id,
+        m.handoff_from_session_id,
+        m.handoff_to_session_id,
+        m.handoff_id,
+        m.importance
       FROM messages m
       ${whereClause}
       ORDER BY m.timestamp ASC
@@ -290,6 +299,10 @@ export class SqliteMessageStorage implements IMessageStorage {
         m.archived,
         m.handoff_type,
         m.target_agent_id,
+        m.handoff_from_session_id,
+        m.handoff_to_session_id,
+        m.handoff_id,
+        m.importance,
         messages_fts.rank
       FROM messages m
       INNER JOIN messages_fts ON messages_fts.message_id = m.id
@@ -718,6 +731,7 @@ export class SqliteMessageStorage implements IMessageStorage {
       handoffFromSessionId: row.handoff_from_session_id || undefined,
       handoffToSessionId: row.handoff_to_session_id || undefined,
       handoffId: row.handoff_id || undefined,
+      importance: (row.importance as 'low' | 'normal' | 'high' | null) || undefined,
     };
   }
   

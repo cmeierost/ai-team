@@ -18,6 +18,7 @@ import { createSessionsRouter, createArtifactsRouter } from './routes/sessions.j
 import { createTaskRoutes } from './routes/tasks.js';
 import { createDeveloperRouter } from './routes/developer.js';
 import { createFileTreeRouter } from './routes/file-tree.js';
+import { createIdeRouter } from './routes/ide.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { setupChatWebSocket } from './ws/chat-handler.js';
 
@@ -79,6 +80,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   app.use('/api/tasks', createTaskRoutes(workspaceRoot, agentManager));
   app.use('/api/developer', createDeveloperRouter(client, workspaceRoot));
   app.use('/api/files', createFileTreeRouter(workspaceRoot));
+  app.use('/api/ide', createIdeRouter(workspaceRoot));
 
   // System info endpoint
   /**
@@ -273,7 +275,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     }
 
     console.log(`WebSocket connected: agent=${agentId}, session=${sessionId || 'none'}`);
-    setupChatWebSocket(ws, agentId, client, sessionManager, sessionId, agentManager);
+    setupChatWebSocket(ws, agentId, client, sessionManager, sessionId, agentManager, workspaceRoot);
   });
 
   // Start server
