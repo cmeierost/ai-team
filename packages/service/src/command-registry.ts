@@ -1,4 +1,6 @@
 import type { CliCommandMetadata } from '@ai-team/core';
+import { buildChatCommandRegistry, buildChatCommandAliases } from './orchestrator/slash-commands.js';
+export type { ChatCommandRegistryEntry } from './orchestrator/slash-commands.js';
 
 export const CLI_COMMAND_REGISTRY: CliCommandMetadata[] = [
   {
@@ -196,37 +198,17 @@ export const CLI_COMMAND_REGISTRY: CliCommandMetadata[] = [
   },
 ];
 
-export const IN_CHAT_COMMAND_REGISTRY = [
-  { key: 'chat', usage: '/chat <name|role>', description: 'Switch to another employee', llmCallable: false },
-  { key: 'list', usage: '/list', description: 'List all team members', llmCallable: true },
-  { key: 'who', usage: '/who', description: 'Show who you are currently talking to', llmCallable: false },
-  { key: 'hire', usage: '/hire', description: 'Hire a new team member', llmCallable: true },
-  { key: 'overview', usage: '/overview', description: 'Show workspace file overview', llmCallable: false },
-  { key: 'run', usage: '/run <command>', description: 'Run a shell command and share its output', llmCallable: false },
-  { key: 'info', usage: '/info <employee>', description: 'Show detailed information about an employee', llmCallable: true },
-  { key: 'fire', usage: '/fire <employee>', description: 'Fire (delete) an employee and remove their data', llmCallable: true },
-  { key: 'create', usage: '/create [employee|skill]', description: 'Create a new team member or role', llmCallable: true },
-  { key: 'hh', usage: '/hh refresh', description: 'Pull and refresh the skill catalog from GitHub', llmCallable: true },
-  {
-    key: 'test-connection',
-    usage: '/test-connection',
-    description: 'Test LLM provider/model connectivity',
-    llmCallable: true,
-  },
-  { key: 'init', usage: '/init', description: 'Initialize AI Team in current workspace', llmCallable: false },
-  { key: 'history', usage: '/history', description: 'Show recent messages (history 20 for more)', llmCallable: false },
-  { key: 'portfolio', usage: '/portfolio', description: "Show the employee's portfolio / bio", llmCallable: false },
-  { key: 'graph', usage: '/graph', description: 'Generate team graph', llmCallable: true },
-  { key: 'session', usage: '/session', description: 'Show current session ID', llmCallable: false },
-  { key: 'new', usage: '/new', description: 'Start a new session with the current agent', llmCallable: false },
-  { key: 'help', usage: '/help', description: 'Show this help', llmCallable: false },
-  { key: 'tool', usage: '#<tool> <json>', description: 'Run a direct tool call', llmCallable: false },
-] as const;
+/**
+ * Flat registry of in-chat slash commands.
+ * Derived from the ISlashCommand objects in slash-commands.ts (single source of truth).
+ */
+export const IN_CHAT_COMMAND_REGISTRY = buildChatCommandRegistry();
 
-export const IN_CHAT_COMMAND_ALIASES: Record<string, string> = {
-  shell: 'run',
-  bio: 'portfolio',
-};
+/**
+ * Alias → canonical-key map for in-chat slash commands.
+ * Derived from the aliases on each ISlashCommand object in slash-commands.ts.
+ */
+export const IN_CHAT_COMMAND_ALIASES: Record<string, string> = buildChatCommandAliases();
 
 export function getLlmCallableCliCommands(): CliCommandMetadata[] {
   return CLI_COMMAND_REGISTRY.filter(entry => entry.llmCallable);

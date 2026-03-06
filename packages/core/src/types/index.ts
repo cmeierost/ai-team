@@ -5,6 +5,9 @@
 
 import { z } from 'zod';
 
+// Structured tool result shapes (pure data — no orchestrator dependency)
+export * from './tool-results.js';
+
 // ============================================================================
 // Enums and Constants
 // ============================================================================
@@ -583,10 +586,37 @@ export interface ToolContext {
   currentFiles?: string[];
 }
 
+/**
+ * Declarative permission descriptor attached to each tool.
+ * ToolManager reads this to call ContextManager once in canExecute()
+ * rather than having each tool do its own permission check internally.
+ */
+export type PermissionDescriptor =
+  | { type: 'none' }
+  | { type: 'file-read';        argsPath: string }
+  | { type: 'file-write';       argsPath: string }
+  | { type: 'agent-delegation'; argsPath: string }
+  | { type: 'manage-agents' };
+
+/** Result of a ToolManager.canExecute() check. */
+export interface PermissionResult {
+  allowed: boolean;
+  reason?: string;
+}
+
 export interface AgentTool {
   name: string;
   description: string;
   parameters: z.ZodSchema;
+  /**
+   * Declarative permission requirements for this tool.
+   * When omitted the ToolManager falls back to { type: 'none' }.
+   */
+  permissionCheck?: PermissionDescriptor;
+  /** Optional usage examples shown in catalog() output. */
+  examples?: string[];
+  /** Optional tags for filtering and documentation. */
+  tags?: string[];
   execute(params: unknown, context: ToolContext): Promise<unknown>;
 }
 

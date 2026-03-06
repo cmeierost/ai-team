@@ -1157,3 +1157,13 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMes
     }
   }
 }
+
+// ============================================================================
+// ToolManager — new plugin-capable façade (replaces the global CORE_TOOLS map)
+// ============================================================================
+
+export { ToolManager } from './tool-manager.js';
+export type {
+  ToolExecutionResult as ToolManagerExecutionResult,
+  ToolExecutionOptions as ToolManagerExecutionOptions,
+} from './tool-manager.js';

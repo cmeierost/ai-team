@@ -1,10 +1,24 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Server } from 'http';
+import type { AddressInfo } from 'net';
 import { WebSocket } from 'ws';
 import { startServer } from '../server.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
+// Module-level handle — closed in beforeAll if a previous test run crashed
+// before afterAll could clean up (e.g. vitest watch-mode restart, Ctrl-C).
+let _lingering: { httpServer: Server; wss: any; storage: { close(): Promise<void> } } | null = null;
+
+async function closeServer(s: typeof _lingering): Promise<void> {
+  if (!s) return;
+  // Close WebSocket server first so in-flight connections drain.
+  if (s.wss) await new Promise<void>(r => s!.wss.close(r));
+  // Close SQLite before HTTP so Windows does not report EBUSY.
+  if (s.storage) await s.storage.close();
+  if (s.httpServer?.listening) await new Promise<void>(r => s!.httpServer.close(() => r()));
+}
 
 describe('Session-Message Integration', () => {
   let server: { httpServer: Server; wss: any; storage: { close(): Promise<void> } };
@@ -12,6 +26,10 @@ describe('Session-Message Integration', () => {
   let port: number;
 
   beforeAll(async () => {
+    // Kill any server that survived a previous crashed run (watch-mode, Ctrl-C, etc.).
+    await closeServer(_lingering);
+    _lingering = null;
+
     // Create temporary workspace
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-integration-test-'));
     
@@ -46,30 +64,20 @@ A test agent for integration testing.
       })
     );
     
-    // Start server on random port
-    port = 30000 + Math.floor(Math.random() * 10000);
+    // Port 0 lets the OS assign a guaranteed-free ephemeral port.
+    // Read the actual assigned port from httpServer.address() after listen.
     server = await startServer({
-      port,
+      port: 0,
       workspaceRoot,
       serveStaticFiles: false,
     });
+    _lingering = server;
+    port = (server.httpServer.address() as AddressInfo).port;
   }, 30000);
 
   afterAll(async () => {
-    // Close server
-    if (server?.httpServer) {
-      await new Promise<void>((resolve) => {
-        server.httpServer.close(() => resolve());
-      });
-    }
-    if (server?.wss) {
-      server.wss.close();
-    }
-    // Close SQLite connection before deleting the temp workspace (prevents EBUSY on Windows)
-    if (server?.storage) {
-      await server.storage.close();
-    }
-    
+    await closeServer(server);
+    _lingering = null;
     // Clean up workspace
     try {
       await fs.rm(workspaceRoot, { recursive: true, force: true });

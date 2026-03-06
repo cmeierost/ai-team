@@ -33,7 +33,7 @@ export interface ServerOptions {
 }
 
 export async function startServer(options: ServerOptions = {}): Promise<any> {
-  const port = options.port || parseInt(process.env.PORT || '3002', 10);
+  const port = options.port ?? parseInt(process.env.PORT || '3002', 10);
   const workspaceRoot = options.workspaceRoot || process.env.AI_TEAM_WORKSPACE || findWorkspaceRoot();
   const serveStaticFiles = options.serveStaticFiles ?? process.env.NODE_ENV === 'production';
 
@@ -281,11 +281,13 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   // Start server
   await new Promise<void>((resolve) => {
     httpServer.listen(port, () => {
-      console.log(`✓ Server listening on http://localhost:${port}`);
-      console.log(`✓ API available at http://localhost:${port}/api`);
-      console.log(`✓ API Documentation available at http://localhost:${port}/api-docs`);
-      console.log(`✓ WebSocket Documentation available at http://localhost:${port}/asyncapi`);
-      console.log(`✓ WebSocket available at ws://localhost:${port}/ws/chat/:agentId`);
+      const addr = httpServer.address() as { port: number } | null;
+      const actualPort = addr?.port ?? port;
+      console.log(`✓ Server listening on http://localhost:${actualPort}`);
+      console.log(`✓ API available at http://localhost:${actualPort}/api`);
+      console.log(`✓ API Documentation available at http://localhost:${actualPort}/api-docs`);
+      console.log(`✓ WebSocket Documentation available at http://localhost:${actualPort}/asyncapi`);
+      console.log(`✓ WebSocket available at ws://localhost:${actualPort}/ws/chat/:agentId`);
       resolve();
     });
   });

@@ -1,0 +1,391 @@
+/**
+ * Chat command — entry point for `ait chat`.
+ *
+ * This file is intentionally thin. Each cross-cutting service concern lives
+ * in its own module inside this folder:
+ *
+ *   hooks.ts            — ChatRuntimeHooks interface (the caller's contract)
+ *   async-utils.ts      — withTimeout / withAbortSignal / isAbortError
+ *   emit.ts             — emitRuntimeEvent / writeInfo / writeWarn / writeError
+ *   questions.ts        — requestInput / requestConfirm / requestSelect / …
+ *   forward-detection.ts — natural-language agent-switch detection
+ *   agent-selection.ts  — selectDefaultTopAgent / formatUserPrompt
+ */
+
+import ora from 'ora';
+import {
+  AgentManager,
+  ChatMessage,
+  Agent,
+  LlmService,
+  loadSkill,
+  loadTeamConfig,
+} from '@ai-team/core';
+import type { ChatOptions } from '../../contracts.js';
+import { getGitUserName, developerNameToId } from '../../utils/git.js';
+import { ensureUserEnvVars as ensureServiceUserEnvVars } from '../../utils/user-env.js';
+import { SessionManager } from '../../session-manager.js';
+import { createSqliteStorage } from '../../storage/index.js';
+import { ChatOrchestrator } from '../../orchestrator/chat-orchestrator.js';
+import { tryIntroduceUser as tryIntroduceUserNew } from '../../orchestrator/introduction.js';
+import { createContainer, resolvePlugins, TOKENS } from '../../container/index.js';
+import type { OrchestratorContext } from '../../orchestrator/pipeline-context.js';
+
+// ── Service modules ───────────────────────────────────────────────────────────
+export type { ChatRuntimeHooks } from './hooks.js';
+export {
+  emitRuntimeEvent,
+  formatConsoleArgs,
+  writeInfo,
+  writeWarn,
+  writeError,
+  printSessionResume,
+} from './emit.js';
+export { withTimeout, withAbortSignal, isAbortError, throwIfAborted } from './async-utils.js';
+export { requestInput, requestConfirm, requestSelect, requestPassword, requestChecklist } from './questions.js';
+export { selectDefaultTopAgent, formatUserPrompt, resolveDeveloperName } from './agent-selection.js';
+export { detectForwardRequestWithFallback, REFERENCE_PRONOUNS } from './forward-detection.js';
+
+// ── Internal service imports (used by chatCommand but not re-exported) ────────
+import type { ChatRuntimeHooks } from './hooks.js';
+import { emitRuntimeEvent, formatConsoleArgs, writeInfo, writeWarn, writeError, printSessionResume } from './emit.js';
+import { withTimeout, withAbortSignal, isAbortError, throwIfAborted } from '../../orchestrator/async-utils.js';
+import { requestInput, requestConfirm, requestSelect } from './questions.js';
+import { selectDefaultTopAgent, formatUserPrompt, resolveDeveloperName } from '../../utils/agent-selection.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CHAT_CONNECT_TIMEOUT_MS = 20_000;
+const PREFLIGHT_STEP_TIMEOUT_MS = 15_000;
+
+/** Strip the HANDOFF: directive line from agent text before persisting. */
+export function stripHandoffDirective(text: string): string {
+  let cleaned = text.replaceAll(/^\s*HANDOFF:\s*[^\n]+$/gim, '');
+  cleaned = cleaned.replaceAll(/\n{3,}/g, '\n\n').trim();
+  return cleaned;
+}
+
+export const CHAT_COMMAND_META = {
+  description: 'Start a chat session with an agent (defaults to top-level manager if omitted)',
+  llmCallable: false,
+};
+
+// ── Preflight helper (only used by chatCommand) ───────────────────────────────
+
+async function runPreflightStep<T>(
+  hooks: ChatRuntimeHooks | undefined,
+  message: string,
+  task: () => Promise<T>,
+  timeoutMs: number = PREFLIGHT_STEP_TIMEOUT_MS,
+): Promise<T> {
+  writeInfo(hooks, message);
+  return withAbortSignal(
+    withTimeout(task(), timeoutMs, `${message} timed out after ${Math.floor(timeoutMs / 1000)}s.`),
+    hooks?.signal,
+    `${message} aborted by user.`,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function chatCommand(
+  workspaceRoot: string,
+  agentId: string | undefined,
+  options: ChatOptions,
+  hooks: ChatRuntimeHooks = {},
+) {
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const originalError = console.error;
+
+  // Note: process.stdout.write is already patched by the invoke() wrapper in
+  // AiTeamService when context.emit is present. Do NOT add a second patch here
+  // — that would cause every token and log line to be emitted (and printed)
+  // twice in the CLI. console.log/warn/error are safe to override because they
+  // go through emitRuntimeEvent → hooks.emit into the same queue, but stdout
+  // must only be patched once at the invoke level.
+  if (hooks.emit) {
+    console.log = (...args: unknown[]) =>
+      emitRuntimeEvent(hooks, { kind: 'log', level: 'info', message: formatConsoleArgs(args) });
+    console.warn = (...args: unknown[]) =>
+      emitRuntimeEvent(hooks, { kind: 'log', level: 'warn', message: formatConsoleArgs(args) });
+    console.error = (...args: unknown[]) =>
+      emitRuntimeEvent(hooks, { kind: 'log', level: 'error', message: formatConsoleArgs(args) });
+  }
+
+  let sessionManager!: SessionManager;
+  let currentSessionId!: string;
+
+  try {
+    const agentManager = new AgentManager(workspaceRoot);
+    // Navigation stack for /back — each entry is the session we came FROM
+    const navStack: Array<{ agentId: string; sessionId: string; agentName: string }> = [];
+
+    sessionManager = new SessionManager(workspaceRoot, createSqliteStorage(workspaceRoot), agentManager);
+    await sessionManager.initialize();
+
+    const loadHistory = async (currentAgentId: string): Promise<ChatMessage[]> => {
+      if (options.sessionId) {
+        currentSessionId = options.sessionId;
+        return sessionManager.getSessionMessages(options.sessionId);
+      }
+      if (options.createNewSession) {
+        const developerId = developerNameToId(developerName || 'developer');
+        const newSession = await sessionManager.createSession(currentAgentId, developerId);
+        currentSessionId = newSession.id;
+        return [];
+      }
+      const latestSession = await sessionManager.getLatestSession(currentAgentId);
+      if (latestSession) {
+        currentSessionId = latestSession.id;
+        return sessionManager.getSessionMessages(latestSession.id);
+      }
+      const developerId = developerNameToId(developerName || 'developer');
+      const newSession = await sessionManager.createSession(currentAgentId, developerId);
+      currentSessionId = newSession.id;
+      return [];
+    };
+
+    const teamConfig = await runPreflightStep(
+      hooks,
+      'Loading team configuration...',
+      () => loadTeamConfig(workspaceRoot),
+    );
+    const registry = teamConfig?.providers || teamConfig?.llmProviders;
+    const defaultProviderRef = registry
+      ? (Object.entries(registry).find(([, cfg]) => cfg.isDefault)?.[0]
+        || teamConfig?.defaultLlmProvider
+        || Object.keys(registry)[0])
+      : undefined;
+    const defaultProviderKind = defaultProviderRef ? registry?.[defaultProviderRef]?.kind : undefined;
+    const requiresApiKey = defaultProviderKind
+      ? defaultProviderKind === 'openai-compatible'
+      : teamConfig?.llm?.provider === 'openai-compatible';
+    const env = await runPreflightStep(
+      hooks,
+      'Validating user environment...',
+      () => ensureServiceUserEnvVars(
+        workspaceRoot,
+        { developerName: true, apiKey: requiresApiKey },
+        { quiet: true },
+      ),
+    );
+    const developerName = resolveDeveloperName(env) ?? getGitUserName();
+
+    await runPreflightStep(hooks, 'Initializing agents...', () => agentManager.initialize());
+
+    let resolvedAgent: Agent | undefined;
+
+    if (!agentId || agentId.trim().length === 0) {
+      const all = agentManager.getAllAgents();
+      resolvedAgent = selectDefaultTopAgent(all);
+      if (!resolvedAgent) {
+        writeError(hooks, 'No agents found in this workspace.');
+        writeInfo(hooks, 'Run ait init to initialize your team.');
+        throw new Error('No agents found in this workspace. Run ait init to initialize your team.');
+      }
+      writeInfo(hooks, `No agent specified; defaulting to ${resolvedAgent.name} (${resolvedAgent.role}).`);
+    } else {
+      const matches = agentManager.resolveAgent(agentId);
+      if (matches.length === 0) {
+        writeError(hooks, `Agent not found: "${agentId}"`);
+        const all = agentManager.getAllAgents();
+        if (all.length > 0) {
+          writeInfo(hooks, '');
+          writeInfo(hooks, 'Available agents:');
+          for (const a of all) writeInfo(hooks, `  - ${a.name} (${a.role}) [id: ${a.id}]`);
+        }
+        writeInfo(hooks, '');
+        writeInfo(hooks, 'Run ait list to see all agents.');
+        throw new Error(`Agent not found: "${agentId}"`);
+      } else if (matches.length === 1) {
+        resolvedAgent = matches[0];
+      } else {
+        const chosen = await requestSelect(hooks, {
+          message: `Multiple agents match "${agentId}". Which one?`,
+          choices: matches.map(a => ({ name: `${a.name} — ${a.role} [${a.id}]`, value: a.id })),
+        });
+        resolvedAgent = agentManager.getAgent(chosen);
+      }
+    }
+
+    if (!resolvedAgent) {
+      writeError(hooks, 'Could not resolve agent.');
+      throw new Error('Could not resolve agent.');
+    }
+
+    let agent: Agent = resolvedAgent;
+
+    // Initialize LLM service
+    const llm = new LlmService(workspaceRoot);
+    const useSpinner = !hooks?.emit && Boolean(process.stderr.isTTY);
+    const spinner = useSpinner ? ora('Connecting to LLM...').start() : undefined;
+    if (!spinner) writeInfo(hooks, 'Connecting to LLM...');
+
+    try {
+      await withAbortSignal(
+        withTimeout(
+          llm.initialize(),
+          CHAT_CONNECT_TIMEOUT_MS,
+          `LLM initialization timed out after ${CHAT_CONNECT_TIMEOUT_MS / 1000}s.`,
+        ),
+        hooks?.signal,
+        'Chat connection aborted by user.',
+      );
+      if (spinner) {
+        spinner.succeed(`Connected to ${llm.provider} using ${llm.modelName}`);
+      } else {
+        writeInfo(hooks, `Connected to ${llm.provider} using ${llm.modelName}`);
+      }
+    } catch (error) {
+      if (spinner) spinner.fail('Could not connect to configured LLM');
+      writeError(hooks, (error as Error).message);
+      writeInfo(hooks, 'Run "ait test-connection" to debug, or "ait init" to configure provider.');
+      throw new Error((error as Error).message);
+    }
+
+    // Load skill instructions for the agent's role
+    let skill;
+    try {
+      skill = await loadSkill(agent.skillPath);
+    } catch {
+      // Skill file may not exist — that's fine, agent bio is still used
+    }
+
+    writeInfo(hooks, `\nChat with ${agent.name} (${agent.role})`);
+    writeInfo(hooks, 'Type "exit" to end the conversation');
+    writeInfo(hooks, 'Type "/help" to see available in-chat commands');
+    writeInfo(hooks, 'Ask to be forwarded or type "/chat <name>" to switch agents');
+    writeInfo(hooks, 'Use "#tool_name {json}" or "/tool tool_name {json}" for direct tool calls');
+
+    // Load chat history
+    let history = await loadHistory(agent.id);
+    if (history.length > 0) {
+      printSessionResume(history, agent.name, developerName, hooks);
+    }
+
+    // Agent introduces themselves on first contact
+    if (history.length === 0 && !options.pendingIntroduction) {
+      await tryIntroduceUserNew(llm, agentManager, agent, history, skill, developerName, sessionManager, currentSessionId, hooks);
+    }
+
+    // Persist a web-client-generated introduction (keeps history ordering correct)
+    if (options.pendingIntroduction && history.length === 0) {
+      const introMsg: ChatMessage = {
+        timestamp: new Date().toISOString(),
+        from: agent.id,
+        content: options.pendingIntroduction,
+        importance: 'low',
+      };
+      if (sessionManager && currentSessionId) {
+        await sessionManager.appendMessage(currentSessionId, introMsg);
+      }
+      history.push(introMsg);
+    }
+
+    // ── Build OrchestratorContext + ChatOrchestrator ─────────────────────────
+    const _container = createContainer({ workspaceRoot });
+    const _ctx: OrchestratorContext = {
+      agent,
+      workspaceRoot,
+      sessionId: currentSessionId,
+      hooks,
+      toolManager: _container.resolve(TOKENS.ToolManager),
+      sessionManager,
+      agentManager,
+      skillManager: _container.resolve(TOKENS.SkillManager),
+      llmService: llm,
+      contextManager: _container.resolve(TOKENS.ContextManager),
+      history,
+    };
+    const _plugins = resolvePlugins(_container);
+    const _orchestrator = new ChatOrchestrator(_ctx, _plugins);
+
+    // Single message mode
+    if (options.message) {
+      await withAbortSignal(
+        _orchestrator.run({ message: options.message, contextFiles: options.context }),
+        hooks.signal,
+        'Chat request aborted by user.',
+      );
+      agent = _ctx.agent;
+      currentSessionId = _ctx.sessionId;
+      history = _ctx.history;
+      if (options.oneShot) return;
+    }
+
+    // Interactive chat loop — delegates to ChatOrchestrator
+    while (true) {
+      throwIfAborted(hooks.signal, 'Chat request aborted by user.');
+
+      const message = await withAbortSignal(
+        requestInput(hooks, {
+          message: formatUserPrompt(_ctx.agent, developerName),
+          validate: (val: string) => val.length > 0 || 'Message cannot be empty',
+        }),
+        hooks.signal,
+        'Chat input aborted by user.',
+      );
+
+      if (message.toLowerCase() === 'exit') {
+        writeInfo(hooks, 'Goodbye!');
+        break;
+      }
+
+      // /back — handled here so it has access to the local navStack
+      if (message.trim() === '/back') {
+        if (navStack.length === 0) {
+          writeWarn(hooks, 'No previous agent to return to.');
+          writeInfo(hooks, '');
+        } else {
+          const prev = navStack.pop()!;
+          const prevAgent = agentManager.getAgent(prev.agentId);
+          if (!prevAgent) {
+            writeError(hooks, `Previous agent ${prev.agentId} no longer found.`);
+          } else {
+            const prevHistory = await sessionManager.getSessionMessages(prev.sessionId);
+            (_ctx as any).agent     = prevAgent;
+            (_ctx as any).sessionId = prev.sessionId;
+            (_ctx as any).history   = prevHistory;
+            agent = prevAgent;
+            currentSessionId = prev.sessionId;
+            history = prevHistory;
+            writeInfo(hooks, `\n← Returned to ${prevAgent.name} (${prevAgent.role})\n`);
+          }
+        }
+        continue;
+      }
+
+      // Regular turn — delegate to ChatOrchestrator
+      const prevAgentId   = _ctx.agent.id;
+      const prevSessionId = _ctx.sessionId;
+      await withAbortSignal(
+        _orchestrator.run({ message, contextFiles: options.context }),
+        hooks.signal,
+        'Chat request aborted by user.',
+      );
+      if (_ctx.agent.id !== prevAgentId) {
+        navStack.push({ agentId: prevAgentId, sessionId: prevSessionId, agentName: prevAgentId });
+        agent = _ctx.agent;
+        currentSessionId = _ctx.sessionId;
+        history = _ctx.history;
+      }
+    }
+  } catch (error) {
+    if (isAbortError(error)) {
+      writeInfo(hooks, 'Chat aborted.');
+      return;
+    }
+    writeError(hooks, `Error in chat: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (sessionManager) {
+      try { await sessionManager.close(); } catch {}
+    }
+    if (hooks.emit) {
+      console.log = originalLog;
+      console.warn = originalWarn;
+      console.error = originalError;
+    }
+  }
+}

@@ -516,7 +516,8 @@ ${summary}
     if (!root) return [];
 
     // 2. BFS downward from root to collect all descendants.
-    // Load all sessions for the same developer and build a children map.
+    // This gives the full connected graph the caller is part of, regardless
+    // of which session they started from.
     const allSessions = await this.storage.listSessions(
       root.developerId ? { developerId: root.developerId } : undefined,
     );

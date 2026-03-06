@@ -6,8 +6,8 @@ import {
   stripHandoffDirective,
   detectForwardRequestWithFallback,
   REFERENCE_PRONOUNS,
-} from './chat.js';
-import type { ChatRuntimeHooks } from './chat.js';
+} from './chat/index.js';
+import type { ChatRuntimeHooks } from './chat/index.js';
 import type { Agent, AgentManager } from '@ai-team/core';
 
 // ---------------------------------------------------------------------------

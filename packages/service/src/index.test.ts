@@ -29,7 +29,7 @@ vi.mock('./commands/create.js', () => ({
   createCommand: listApi.createCommand,
 }));
 
-vi.mock('./commands/chat.js', () => ({
+vi.mock('./commands/chat/index.js', () => ({
   chatCommand: listApi.chatCommand,
 }));
 

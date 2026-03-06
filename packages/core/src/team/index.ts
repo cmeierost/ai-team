@@ -86,24 +86,45 @@ export class TeamGraphBuilder {
       return { id: reportsTo };
     }
 
-    // Fall back to fuzzy resolution (role, name, partial matches)
+    const q = reportsTo.toLowerCase().trim();
+    const allAgents = this.agentManager.getAllAgents();
+
+    // Try exact role match before fuzzy (e.g. reportsTo: 'cto').
+    // This avoids fuzzy collisions where a short role string also fuzzy-matches
+    // a different agent (e.g. levenshtein('ceo','cto') = 1).
+    const roleMatches = allAgents.filter(a => a.role.toLowerCase() === q);
+    if (roleMatches.length === 1) return { id: roleMatches[0].id };
+    if (roleMatches.length > 1) {
+      const names = roleMatches.map(m => m.name).join(', ');
+      return { id: null, error: `Ambiguous role reference "${reportsTo}" matches: ${names}` };
+    }
+
+    // Try exact name match (e.g. reportsTo: 'Alice Wong').
+    const nameMatches = allAgents.filter(a => a.name.toLowerCase() === q);
+    if (nameMatches.length === 1) return { id: nameMatches[0].id };
+    if (nameMatches.length > 1) {
+      const names = nameMatches.map(m => m.name).join(', ');
+      return { id: null, error: `Ambiguous name reference "${reportsTo}" matches: ${names}` };
+    }
+
+    // Fall back to fuzzy resolution (partial substring, Levenshtein, etc.)
     const matches = this.agentManager.resolveAgent(reportsTo);
-    
+
     if (matches.length === 0) {
-      return { 
-        id: null, 
-        error: `Manager "${reportsTo}" not found` 
+      return {
+        id: null,
+        error: `Manager "${reportsTo}" not found`,
       };
     }
-    
+
     if (matches.length > 1) {
       const names = matches.map(m => m.name).join(', ');
-      return { 
-        id: null, 
-        error: `Ambiguous reference "${reportsTo}" matches: ${names}` 
+      return {
+        id: null,
+        error: `Ambiguous reference "${reportsTo}" matches: ${names}`,
       };
     }
-    
+
     return { id: matches[0].id };
   }
 

@@ -770,7 +770,7 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
   writeLine(hooks, '');
 
   // Import chatCommand lazily to avoid circular dependency issues
-  const { chatCommand: startChat } = await import('./chat.js');
+  const { chatCommand: startChat } = await import('./chat/index.js');
   await startChat(workspaceRoot, ctoAgent.id, {}, {
     signal: hooks?.signal,
     emit: hooks?.emit,

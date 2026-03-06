@@ -48,7 +48,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { providerListCommand, providerModelsCommand, providerModelsRefreshCommand } from './commands/models.js';
 import { testConnectionCommand } from './commands/test-connection.js';
 import { createCommand } from './commands/create.js';
-import { chatCommand } from './commands/chat.js';
+import { chatCommand } from './commands/chat/index.js';
 import { fireCommand } from './commands/fire.js';
 import { hhRefreshCommand } from './commands/hh.js';
 import { hireCommand } from './commands/hire.js';
@@ -760,7 +760,7 @@ export {
   type AgentPathResult,
 } from './commands/file-tree.js';
 
-export { generateIntroduction } from './commands/chat.js';
+export { generateIntroduction } from './orchestrator/introduction.js';
 
 // Storage abstraction layer
 export {

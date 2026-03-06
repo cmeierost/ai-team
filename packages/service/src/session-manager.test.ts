@@ -160,14 +160,12 @@ describe('SessionManager.getSessionChain', () => {
     const s2 = await sessionManager.createHandoffSession('alex-johnson', 'dev-1', s1.id);
     const s3 = await sessionManager.createHandoffSession('sarah-morgan', 'dev-1', s2.id);
 
-    // Starting from the middle session s2 should still walk back to the root
+    // Starting from the middle session s2 returns the full connected graph
+    // (root → all descendants), not just the upward path.
     const chainFromMiddle = await sessionManager.getSessionChain(s2.id);
-    expect(chainFromMiddle).toHaveLength(2);
+    expect(chainFromMiddle).toHaveLength(3);
     expect(chainFromMiddle[0].id).toBe(s1.id);
     expect(chainFromMiddle[1].id).toBe(s2.id);
-
-    // s3 is not reachable from s2 (chain walks backward only)
-    const ids = chainFromMiddle.map(s => s.id);
-    expect(ids).not.toContain(s3.id);
+    expect(chainFromMiddle[2].id).toBe(s3.id);
   });
 });

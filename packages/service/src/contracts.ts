@@ -222,6 +222,12 @@ export interface MediatorContext {
   }) => void;
 }
 
+/**
+ * Runtime hooks passed from the surface layer (CLI, VS Code, Web) into chatCommand.
+ * Equivalent to MediatorContext without the internal structured logger.
+ */
+export type ChatRuntimeHooks = Omit<MediatorContext, 'logger'>;
+
 export interface MediatorRuntimeEvent {
   kind: 'status' | 'progress' | 'log' | 'token' | 'tool' | 'question' | 'code_edit_proposal' | 'handoff';
   phase?: string;

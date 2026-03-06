@@ -7,6 +7,7 @@
 
 // Type definitions and schemas
 export * from './types/index.js';
+export { withAbortSignal, isAbortError } from './utils/async.js';
 
 // Core modules
 export * from './agent/index.js';
