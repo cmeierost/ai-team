@@ -45,7 +45,7 @@ describe('ContextManager', () => {
     const permissions = contextManager.generateDefaultPermissions(ContextLevel.ORGANIZATION);
 
     expect(permissions.read).toEqual(['README.md', 'docs/**/*', '.ai-team/**/*']);
-    expect(permissions.write).toEqual(['.ai-team/meetings/**/*', '.ai-team/agents/**/*']);
+    expect(permissions.write).toEqual(['.ai-team/meetings/**/*', '**/agent.md', '**/*.agent.md']);
     expect(permissions.manage_agents).toBe(true);
   });
 });

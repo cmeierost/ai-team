@@ -134,7 +134,7 @@ async function openInDefaultViewer(filePath: string): Promise<void> {
 
   try {
     await execAsync(command);
-  } catch (error) {
+  } catch (_error) {
     console.warn(chalk.yellow(`\nCould not open avatar automatically. Please open manually:\n${filePath}\n`));
   }
 }

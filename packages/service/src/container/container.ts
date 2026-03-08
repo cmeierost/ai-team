@@ -24,11 +24,18 @@ import type { Token } from './token.js';
 
 type Factory<T> = (container: ServiceContainer) => T;
 
+type Lifetime = 'singleton' | 'transient';
+
+interface Registration {
+  factory: Factory<unknown>;
+  lifetime: Lifetime;
+}
+
 export class ServiceContainer {
   /** Resolved singleton instances. */
   private readonly singletons = new Map<string, unknown>();
   /** Registered factories (unresolved). */
-  private readonly factories = new Map<string, Factory<unknown>>();
+  private readonly factories = new Map<string, Registration>();
   /** Tracks tokens currently being resolved for circular-dep detection. */
   private readonly resolving: string[] = [];
   /** Optional parent container; provides fallback factory lookup. */
@@ -48,8 +55,31 @@ export class ServiceContainer {
    * registration (enables plugin override before first resolve).
    */
   register<T>(token: Token<T>, factory: (c: ServiceContainer) => T): this {
-    this.factories.set(token.id, factory as Factory<unknown>);
+    this.factories.set(token.id, {
+      factory: factory as Factory<unknown>,
+      lifetime: 'singleton',
+    });
     // Clear any cached singleton so the new factory takes effect.
+    this.singletons.delete(token.id);
+    return this;
+  }
+
+  /**
+   * Register a singleton factory explicitly.
+   * Equivalent to register(), provided for clarity at call sites.
+   */
+  registerSingleton<T>(token: Token<T>, factory: (c: ServiceContainer) => T): this {
+    return this.register(token, factory);
+  }
+
+  /**
+   * Register a transient factory. A new instance is created on every resolve().
+   */
+  registerTransient<T>(token: Token<T>, factory: (c: ServiceContainer) => T): this {
+    this.factories.set(token.id, {
+      factory: factory as Factory<unknown>,
+      lifetime: 'transient',
+    });
     this.singletons.delete(token.id);
     return this;
   }
@@ -78,9 +108,12 @@ export class ServiceContainer {
     }
 
     // 2. Own factory
-    const factory = this.factories.get(token.id);
-    if (factory) {
-      return this._construct(token, factory as Factory<T>);
+    const registration = this.factories.get(token.id);
+    if (registration) {
+      if (registration.lifetime === 'singleton') {
+        return this._constructSingleton(token, registration.factory as Factory<T>);
+      }
+      return this._constructTransient(token, registration.factory as Factory<T>);
     }
 
     // 3. Delegate to parent, capturing the result as our own singleton
@@ -135,7 +168,7 @@ export class ServiceContainer {
 
   // ── Internal ─────────────────────────────────────────────────────────────
 
-  private _construct<T>(token: Token<T>, factory: Factory<T>): T {
+  private _constructSingleton<T>(token: Token<T>, factory: Factory<T>): T {
     if (this.resolving.includes(token.id)) {
       throw new Error(
         `ServiceContainer: circular dependency detected.\n` +
@@ -148,6 +181,22 @@ export class ServiceContainer {
       const instance = factory(this);
       this.singletons.set(token.id, instance);
       return instance;
+    } finally {
+      this.resolving.pop();
+    }
+  }
+
+  private _constructTransient<T>(token: Token<T>, factory: Factory<T>): T {
+    if (this.resolving.includes(token.id)) {
+      throw new Error(
+        `ServiceContainer: circular dependency detected.\n` +
+          `Resolution chain: ${[...this.resolving, token.id].join(' → ')}`,
+      );
+    }
+
+    this.resolving.push(token.id);
+    try {
+      return factory(this);
     } finally {
       this.resolving.pop();
     }

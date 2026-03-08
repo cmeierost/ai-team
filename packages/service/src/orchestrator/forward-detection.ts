@@ -38,6 +38,42 @@ function extractForwardTargetName(message: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Extract any trailing context from a forward request after stripping the
+ * directive and the agent name.
+ *
+ * e.g. "forward me to michael about the budget" → "about the budget"
+ *      "forward me to michael"                  → undefined
+ */
+export function extractForwardNote(message: string, agentName: string): string | undefined {
+  const trimmedMsg = message.trim();
+
+  // Try full name first (e.g. "Michael Brown")
+  const nameEscaped = agentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let afterName = message.replace(new RegExp(`^.*?${nameEscaped}`, 'i'), '').trim();
+
+  // If full name wasn't found, try individual name parts (first name, last name)
+  // so "connect me to michael" matches agent "Michael Brown".
+  if (afterName === trimmedMsg) {
+    const nameParts = agentName.split(/\s+/).filter(p => p.length >= 2);
+    for (const part of nameParts) {
+      const partEscaped = part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const result = message.replace(new RegExp(`^.*?${partEscaped}`, 'i'), '').trim();
+      if (result !== trimmedMsg) {
+        afterName = result;
+        break;
+      }
+    }
+  }
+
+  // Nothing matched — no trailing context to extract
+  if (afterName === trimmedMsg) return undefined;
+
+  // Strip leading punctuation / conjunctions
+  const note = afterName.replace(/^[,;:\s]+/, '').trim();
+  return note.length > 0 ? note : undefined;
+}
+
 function detectForwardRequest(
   message: string,
   agentManager: AgentManager,
@@ -88,26 +124,49 @@ export async function detectForwardRequestWithFallback(
     }
   }
 
-  // Phase 3: LLM fallback — let the model identify the target from the roster
+  // Phase 2.5: pronoun resolution from history.
+  // Walk history newest-first; return the first agent whose name appears in any message.
+  // Handles "forward me to him" when the conversation just mentioned "Michael" two turns ago.
+  if (isPronouns && history.length > 0) {
+    const allCandidates = agentManager.getAllAgents().filter(a => a.id !== currentAgentId);
+    for (const msg of [...history].reverse()) {
+      const content = (msg.content ?? '').toLowerCase();
+      for (const candidate of allCandidates) {
+        const nameParts = candidate.name.toLowerCase().split(/\s+/).filter(p => p.length >= 3);
+        if (nameParts.some(p => content.includes(p))) {
+          return { resolved: candidate, looksLikeForward: true };
+        }
+      }
+    }
+  }
+
+  // Phase 3: LLM fallback — let the model identify the target from the roster.
+  // Always include recent conversation history so pronouns and implicit references
+  // ("her", "him", "the one you mentioned") can be resolved from context.
   const candidates = agentManager.getAllAgents().filter(a => a.id !== currentAgentId);
   if (candidates.length > 0) {
     try {
       const nameList = candidates.map(a => `${a.name} (${a.role})`).join(', ');
       let contextBlock = '';
-      if (isPronouns && history.length > 0) {
-        const recentTurns = history.slice(-4);
+      if (history.length > 0) {
+        const recentTurns = history.slice(-6);
         contextBlock =
           '\nRecent conversation (last few messages):\n'
           + recentTurns.map(m => `${m.isHuman ? 'Developer' : m.from}: ${m.content}`).join('\n')
           + '\n';
       }
+      const pronounHint = isPronouns
+        ? `The word "${rawTarget}" is a pronoun — use the conversation history to identify who it refers to.\n`
+        : '';
       const reply = await llm.chat(
         agent,
         [{
           role: 'user',
           content:
-            `The developer said: "${message}"${contextBlock}\n`
-            + `Which of these team members are they referring to? Options: ${nameList}\n`
+            `The developer said: "${message}"\n`
+            + pronounHint
+            + contextBlock
+            + `\nWhich of these team members are they referring to? Options: ${nameList}\n`
             + 'Reply with just the exact name from the list, or "none" if it is unclear.',
         }],
         { maxTokens: 20 },

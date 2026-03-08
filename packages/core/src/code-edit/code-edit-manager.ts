@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'fs/promises';
+import { writeFile } from 'fs/promises';
 import { DiffBuilder, type StructuredDiff } from './diff-builder.js';
 import {
   type CodeEditProposal,

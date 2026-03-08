@@ -1,1 +1,0 @@
-const D=require('better-sqlite3');const db=new D('./.ai-team/private/ai-team.db',{readonly:true});const r=db.prepare("SELECT id,agent_id,started_at,previous_session_id FROM sessions WHERE id LIKE '%gbxrra%' LIMIT 20").all();console.log(JSON.stringify(r,null,2));db.close();

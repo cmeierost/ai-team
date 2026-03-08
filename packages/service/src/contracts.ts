@@ -8,6 +8,7 @@ import {
   LlmProfile,
   LlmProviderConfig,
   RoleType,
+  ToolCatalogEntry,
   ViewMode,
 } from '@ai-team/core';
 
@@ -44,6 +45,84 @@ export interface TestConnectionOptions {
   model?: string;
   all?: boolean;
   employee?: string;
+}
+
+export interface SearchSkillsOptions {
+  query?: string;
+  agent?: string;
+}
+
+export interface SkillCatalogEntry {
+  name: string;
+  description: string;
+  type: string;
+  contextLevel: string;
+  tools: string[];
+}
+
+export interface AgentSkillAssignmentEntry extends SkillCatalogEntry {
+  assignedToAgent?: boolean;
+}
+
+export interface SearchSkillsResponse {
+  entries: AgentSkillAssignmentEntry[];
+  timestamp: string;
+  agent?: {
+    id: string;
+    name: string;
+    role: string;
+  };
+}
+
+export interface UpdateAgentSkillOptions {
+  agent: string;
+  skill: string;
+}
+
+export interface UpdateAgentSkillResponse {
+  agent: {
+    id: string;
+    name: string;
+    role: string;
+  };
+  skill: string;
+  skills: string[];
+  changed: boolean;
+}
+
+export interface ListToolsOptions {
+  agent?: string;
+}
+
+export interface AgentToolPermissionEntry extends ToolCatalogEntry {
+  allowedForAgent?: boolean;
+  deniedReason?: string;
+}
+
+export interface ListToolsResponse {
+  entries: AgentToolPermissionEntry[];
+  timestamp: string;
+  agent?: {
+    id: string;
+    name: string;
+    role: string;
+  };
+}
+
+export interface UpdateAgentToolOptions {
+  agent: string;
+  tool: string;
+}
+
+export interface UpdateAgentToolResponse {
+  agent: {
+    id: string;
+    name: string;
+    role: string;
+  };
+  tool: string;
+  tools: string[];
+  changed: boolean;
 }
 
 export interface CreateOptions {
@@ -257,6 +336,8 @@ export interface MediatorRuntimeEvent {
   toAgentName?: string;
   toSessionId?: string;
   handoffNote?: string;
+  /** LLM-generated briefing written in the FROM agent's voice */
+  briefingContent?: string;
 }
 
 export type AiTeamCommandName =
@@ -393,6 +474,7 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       toAgentName?: string;
       toSessionId?: string;
       handoffNote?: string;
+      briefingContent?: string;
       message?: string;
     }
   | {
@@ -432,6 +514,12 @@ export interface AiTeamService extends AiTeamMediator {
   listEmployees(request: ListEmployeesRequest): Promise<Employee[]>;
   resolveEmployees(query: string): Promise<Employee[]>;
   searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse>;
+  searchSkills(options?: SearchSkillsOptions): Promise<SearchSkillsResponse>;
+  addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse>;
+  removeSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse>;
+  listTools(options?: ListToolsOptions): Promise<ListToolsResponse>;
+  allowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
+  disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;

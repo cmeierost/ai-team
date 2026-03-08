@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Artifact, ChatSession, Task, TaskStatus, TaskPriority } from '../types';
+import { Artifact, ChatSession, SessionActivatedTool, Task, TaskStatus, TaskPriority } from '../types';
 import { API_BASE } from '../context/TeamContext';
 import { FileTree } from './FileTree';
 import './ContextPanel.css';
@@ -8,6 +8,8 @@ interface ContextPanelProps {
   agentId: string;
   sessionId?: string;
   artifacts: string[]; // Artifact IDs in context
+  allowedTools: string[];
+  activatedTools: SessionActivatedTool[];
   onToggleArtifact: (artifactId: string) => void;
   onSwitchSession?: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string) => void;
@@ -17,17 +19,34 @@ interface ContextPanelProps {
   refreshTrigger?: number;
 }
 
-export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, refreshTrigger }: ContextPanelProps) {
+export function ContextPanel({ agentId, sessionId, artifacts, allowedTools, activatedTools, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, refreshTrigger }: ContextPanelProps) {
   const [allArtifacts, setAllArtifacts] = useState<Artifact[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [skillEntries, setSkillEntries] = useState<Array<{ name: string; assignedToAgent?: boolean; description?: string }>>([]);
+  const [skillActionPending, setSkillActionPending] = useState<string | null>(null);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [expandedSection, setExpandedSection] = useState<'sessions' | 'tasks' | 'artifacts' | 'files' | null>('sessions');
+  const [expandedSection, setExpandedSection] = useState<'sessions' | 'notes' | 'skills' | 'tools' | 'tasks' | 'artifacts' | 'files' | null>('sessions');
+
+  const SESSION_META_PREFIX = '<!-- ai-team:session-meta ';
+
+  const stripSessionMetaNotes = (raw?: string) => {
+    if (!raw) return '';
+    const idx = raw.lastIndexOf(SESSION_META_PREFIX);
+    if (idx < 0) return raw;
+    return raw.slice(0, idx).trimEnd();
+  };
 
   useEffect(() => {
     loadArtifacts();
     loadSessions();
     loadTasks();
+    loadSkills();
   }, [agentId]);
 
   // Re-fetch sessions whenever ChatPanel signals a new session was created
@@ -74,6 +93,84 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
     }
   };
 
+  const loadSkills = async () => {
+    setSkillsLoading(true);
+    setSkillsError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/skills?agent=${encodeURIComponent(agentId)}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load skills: ${response.statusText}`);
+      }
+      const data = await response.json();
+      const entries = Array.isArray(data.entries) ? data.entries : [];
+      setSkillEntries(
+        entries
+          .map((entry: any) => ({
+            name: entry.name,
+            assignedToAgent: entry.assignedToAgent,
+            description: entry.description,
+          }))
+          .sort((a: any, b: any) => a.name.localeCompare(b.name)),
+      );
+    } catch (error: any) {
+      setSkillsError(error?.message || 'Failed to load skills');
+      setSkillEntries([]);
+    } finally {
+      setSkillsLoading(false);
+    }
+  };
+
+  const handleToggleSkill = async (skillName: string, currentlyAssigned: boolean) => {
+    setSkillActionPending(skillName);
+    setSkillsError(null);
+    try {
+      const endpoint = currentlyAssigned ? 'remove' : 'add';
+      const response = await fetch(`${API_BASE}/api/skills/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent: agentId, skill: skillName }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to ${currentlyAssigned ? 'remove' : 'add'} skill`);
+      }
+
+      await loadSkills();
+    } catch (error: any) {
+      setSkillsError(error?.message || 'Failed to update skill assignment');
+    } finally {
+      setSkillActionPending(null);
+    }
+  };
+
+  const currentSession = sessions.find((s) => s.id === sessionId);
+
+  useEffect(() => {
+    setNotesDraft(stripSessionMetaNotes(currentSession?.notes));
+    setNotesError(null);
+  }, [sessionId, currentSession?.notes]);
+
+  const saveNotes = async () => {
+    if (!sessionId) return;
+    setSavingNotes(true);
+    setNotesError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notesDraft }),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to save notes: ${response.statusText}`);
+      }
+      await loadSessions();
+    } catch (error: any) {
+      setNotesError(error?.message || 'Failed to save notes');
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
   const handleDeleteSession = async (e: React.MouseEvent, sessionIdToDelete: string) => {
     e.stopPropagation();
 
@@ -108,9 +205,53 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
     return artifacts.includes(artifactId);
   };
 
-  const toggleSection = (section: 'sessions' | 'tasks' | 'artifacts' | 'files') => {
+  const toggleSection = (section: 'sessions' | 'notes' | 'skills' | 'tools' | 'tasks' | 'artifacts' | 'files') => {
     setExpandedSection(expandedSection === section ? null : section);
   };
+
+  const getToolPhaseLabel = (phase?: SessionActivatedTool['toolPhase']) => {
+    switch (phase) {
+      case 'request': return 'Requested';
+      case 'start': return 'Running';
+      case 'result': return 'Completed';
+      case 'error': return 'Error';
+      case 'denied': return 'Denied';
+      default: return 'Observed';
+    }
+  };
+
+  const getToolPhaseClass = (phase?: SessionActivatedTool['toolPhase']) => {
+    switch (phase) {
+      case 'request':
+      case 'start':
+        return 'running';
+      case 'result':
+        return 'completed';
+      case 'error':
+      case 'denied':
+        return 'failed';
+      default:
+        return 'neutral';
+    }
+  };
+
+  const recentToolEvents = [...activatedTools]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 12);
+
+  const activeToolNames = (() => {
+    const latestByTool = new Map<string, SessionActivatedTool>();
+    for (const event of activatedTools) {
+      const prev = latestByTool.get(event.toolName);
+      if (!prev || new Date(event.timestamp).getTime() >= new Date(prev.timestamp).getTime()) {
+        latestByTool.set(event.toolName, event);
+      }
+    }
+    return Array.from(latestByTool.values())
+      .filter((entry) => entry.toolPhase === 'request' || entry.toolPhase === 'start')
+      .map((entry) => entry.toolName)
+      .sort((a, b) => a.localeCompare(b));
+  })();
 
   const formatDate = (isoString: string) => {
     const date = new Date(isoString);
@@ -239,6 +380,150 @@ export function ContextPanel({ agentId, sessionId, artifacts, onToggleArtifact, 
                   ))}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Notes Section */}
+        <div className="context-section">
+          <button
+            className={`context-section-header ${expandedSection === 'notes' ? 'expanded' : ''}`}
+            onClick={() => toggleSection('notes')}
+          >
+            <i className={`codicon codicon-chevron-${expandedSection === 'notes' ? 'down' : 'right'}`} />
+            <span className="context-section-title"><i className="codicon codicon-note" /> Notes</span>
+            <span className="context-section-count">{notesDraft.trim().length > 0 ? 1 : 0}</span>
+          </button>
+
+          {expandedSection === 'notes' && (
+            <div className="context-section-content">
+              {!sessionId ? (
+                <div className="context-empty">Start or open a session to keep notes.</div>
+              ) : (
+                <div className="context-notes-wrap">
+                  <textarea
+                    className="context-notes-input"
+                    value={notesDraft}
+                    onChange={(e) => setNotesDraft(e.target.value)}
+                    placeholder="Write session notes here..."
+                    rows={5}
+                  />
+                  <div className="context-notes-actions">
+                    <button type="button" className="context-notes-save" onClick={saveNotes} disabled={savingNotes}>
+                      {savingNotes ? 'Saving…' : 'Save notes'}
+                    </button>
+                    {notesError ? <span className="context-notes-error">{notesError}</span> : null}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Skills Section */}
+        <div className="context-section">
+          <button
+            className={`context-section-header ${expandedSection === 'skills' ? 'expanded' : ''}`}
+            onClick={() => toggleSection('skills')}
+          >
+            <i className={`codicon codicon-chevron-${expandedSection === 'skills' ? 'down' : 'right'}`} />
+            <span className="context-section-title"><i className="codicon codicon-library" /> Skills</span>
+            <span className="context-section-count">{skillEntries.filter((entry) => entry.assignedToAgent).length}</span>
+          </button>
+
+          {expandedSection === 'skills' && (
+            <div className="context-section-content">
+              {skillsLoading ? (
+                <div className="context-loading">Loading skills...</div>
+              ) : skillEntries.length === 0 ? (
+                <div className="context-empty">No skills available.</div>
+              ) : (
+                <div className="context-items">
+                  {skillEntries.map((entry) => {
+                    const assigned = entry.assignedToAgent === true;
+                    const pending = skillActionPending === entry.name;
+                    return (
+                      <div key={entry.name} className={`context-item ${assigned ? 'context-item-active' : ''}`}>
+                        <div className="context-item-header">
+                          <span className="context-item-title">{entry.name}</span>
+                          <button
+                            className="context-item-action context-skill-action"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleToggleSkill(entry.name, assigned);
+                            }}
+                            disabled={pending || !!skillActionPending}
+                            title={assigned ? 'Remove skill' : 'Assign skill'}
+                          >
+                            {pending ? '…' : assigned ? '−' : '+'}
+                          </button>
+                        </div>
+                        {entry.description ? (
+                          <div className="context-item-meta">
+                            <span className="context-item-extra">{entry.description}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {skillsError ? <div className="context-empty context-skills-error">{skillsError}</div> : null}
+            </div>
+          )}
+        </div>
+
+        {/* Tools Section */}
+        <div className="context-section">
+          <button
+            className={`context-section-header ${expandedSection === 'tools' ? 'expanded' : ''}`}
+            onClick={() => toggleSection('tools')}
+          >
+            <i className={`codicon codicon-chevron-${expandedSection === 'tools' ? 'down' : 'right'}`} />
+            <span className="context-section-title"><i className="codicon codicon-tools" /> Tools</span>
+            <span className="context-section-count">{activeToolNames.length}/{allowedTools.length}</span>
+          </button>
+
+          {expandedSection === 'tools' && (
+            <div className="context-section-content">
+              <div className="context-tools-block">
+                <div className="context-tools-subtitle">Allowed</div>
+                {allowedTools.length === 0 ? (
+                  <div className="context-empty">No tools are currently allowed for this agent.</div>
+                ) : (
+                  <div className="context-tool-chip-list">
+                    {allowedTools.map((toolName) => (
+                      <span key={toolName} className={`context-tool-chip ${activeToolNames.includes(toolName) ? 'is-active' : ''}`}>
+                        {toolName}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="context-tools-block">
+                <div className="context-tools-subtitle">Activated (recent)</div>
+                {recentToolEvents.length === 0 ? (
+                  <div className="context-empty">No tool activity yet in this session.</div>
+                ) : (
+                  <div className="context-items">
+                    {recentToolEvents.map((event, index) => (
+                      <div key={`${event.toolName}-${event.timestamp}-${index}`} className="context-item context-tool-event">
+                        <div className="context-item-header">
+                          <span className="context-item-title">{event.toolName}</span>
+                          <span className={`context-tool-phase ${getToolPhaseClass(event.toolPhase)}`}>
+                            {getToolPhaseLabel(event.toolPhase)}
+                          </span>
+                        </div>
+                        <div className="context-item-meta">
+                          <span className="context-item-date">{formatSessionTime(event.timestamp)}</span>
+                          {event.message ? <span className="context-item-extra">{event.message}</span> : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

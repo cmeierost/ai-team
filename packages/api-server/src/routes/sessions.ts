@@ -1,7 +1,6 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { SessionManager, createSqliteStorage } from '@ai-team/service';
 import type { AgentManager } from '@ai-team/core';
-import express from 'express';
 
 export function createSessionsRouter(workspaceRoot: string, agentManager?: AgentManager, sharedSessionManager?: SessionManager): Router {
   const router = express.Router();
@@ -14,6 +13,55 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
       console.error('Failed to initialize session manager:', error);
     });
   }
+
+  type ToolPhase = 'request' | 'start' | 'result' | 'error' | 'denied';
+  interface SessionActivatedTool {
+    toolName: string;
+    toolPhase?: ToolPhase;
+    message?: string;
+    timestamp: string;
+  }
+
+  const SESSION_META_PREFIX = '<!-- ai-team:session-meta ';
+  const SESSION_META_SUFFIX = ' -->';
+
+  const readSessionMeta = (notes?: string): { cleanNotes?: string; activatedTools: SessionActivatedTool[] } => {
+    if (!notes?.includes(SESSION_META_PREFIX)) {
+      return { cleanNotes: notes, activatedTools: [] };
+    }
+
+    const start = notes.lastIndexOf(SESSION_META_PREFIX);
+    if (start < 0) {
+      return { cleanNotes: notes, activatedTools: [] };
+    }
+    const afterPrefix = start + SESSION_META_PREFIX.length;
+    const end = notes.indexOf(SESSION_META_SUFFIX, afterPrefix);
+    if (end < 0) {
+      return { cleanNotes: notes, activatedTools: [] };
+    }
+
+    const json = notes.slice(afterPrefix, end);
+    const cleanNotes = notes.slice(0, start).trimEnd() || undefined;
+
+    try {
+      const parsed = JSON.parse(json) as { activatedTools?: SessionActivatedTool[] };
+      return {
+        cleanNotes,
+        activatedTools: Array.isArray(parsed.activatedTools) ? parsed.activatedTools : [],
+      };
+    } catch {
+      return { cleanNotes: notes, activatedTools: [] };
+    }
+  };
+
+  const writeSessionMeta = (cleanNotes: string | undefined, activatedTools: SessionActivatedTool[]): string | undefined => {
+    if (!activatedTools.length) {
+      return cleanNotes;
+    }
+
+    const meta = `${SESSION_META_PREFIX}${JSON.stringify({ activatedTools })}${SESSION_META_SUFFIX}`;
+    return cleanNotes ? `${cleanNotes}\n\n${meta}` : meta;
+  };
 
   /**
    * @openapi
@@ -212,6 +260,59 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
       const { sessionId } = req.params;
       const messages = await sessionManager.getSessionMessages(sessionId);
       res.json(messages);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/sessions/{sessionId}/messages/{timestamp}:
+   *   delete:
+   *     tags: [Sessions]
+   *     summary: Delete a message from a session
+   *     description: Deletes a single message identified by its timestamp from a specific session
+   *     parameters:
+   *       - in: path
+   *         name: sessionId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Session ID
+   *       - in: path
+   *         name: timestamp
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: ISO timestamp of the message to delete
+   *     responses:
+   *       200:
+   *         description: Message deleted
+   *       404:
+   *         description: Session or message not found
+   */
+  router.delete('/:sessionId/messages/:timestamp', async (req: any, res: any, next: any) => {
+    try {
+      const { sessionId } = req.params;
+      const timestamp = decodeURIComponent(req.params.timestamp);
+
+      const session = await sessionManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          error: 'Session not found',
+          details: `Session ${sessionId} does not exist`,
+        });
+      }
+
+      const deleted = await sessionManager.deleteSessionMessage(sessionId, timestamp);
+      if (!deleted) {
+        return res.status(404).json({
+          error: 'Message not found',
+          details: `No message found in session ${sessionId} at timestamp ${timestamp}`,
+        });
+      }
+
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }
@@ -602,12 +703,33 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
   router.patch('/:sessionId', async (req: any, res: any, next: any) => {
     try {
       const { sessionId } = req.params;
-      const { artifacts } = req.body;
+      const { artifacts, activatedTools, notes } = req.body;
 
-      if (!Array.isArray(artifacts)) {
+      if (artifacts !== undefined && !Array.isArray(artifacts)) {
         return res.status(400).json({
           error: 'Invalid request',
-          details: 'artifacts array is required',
+          details: 'artifacts must be an array when provided',
+        });
+      }
+
+      if (activatedTools !== undefined && !Array.isArray(activatedTools)) {
+        return res.status(400).json({
+          error: 'Invalid request',
+          details: 'activatedTools must be an array when provided',
+        });
+      }
+
+      if (notes !== undefined && notes !== null && typeof notes !== 'string') {
+        return res.status(400).json({
+          error: 'Invalid request',
+          details: 'notes must be a string or null when provided',
+        });
+      }
+
+      if (artifacts === undefined && activatedTools === undefined && notes === undefined) {
+        return res.status(400).json({
+          error: 'Invalid request',
+          details: 'at least one of artifacts, activatedTools, or notes must be provided',
         });
       }
 
@@ -616,10 +738,28 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
         return res.status(404).json({ error: 'Session not found' });
       }
 
-      session.artifacts = artifacts;
+      if (artifacts !== undefined) {
+        session.artifacts = artifacts;
+      }
+
+      if (activatedTools !== undefined || notes !== undefined) {
+        const { cleanNotes, activatedTools: existingActivatedTools } = readSessionMeta(session.notes);
+        const nextCleanNotes = notes === undefined
+          ? cleanNotes
+          : (notes === null ? undefined : notes);
+        const nextActivatedTools = activatedTools === undefined
+          ? existingActivatedTools
+          : (activatedTools as SessionActivatedTool[]);
+        session.notes = writeSessionMeta(nextCleanNotes, nextActivatedTools);
+      }
+
       await sessionManager.saveSession(session);
 
-      res.json(session);
+      const { activatedTools: currentActivatedTools } = readSessionMeta(session.notes);
+      res.json({
+        ...session,
+        activatedTools: currentActivatedTools,
+      });
     } catch (error) {
       next(error);
     }

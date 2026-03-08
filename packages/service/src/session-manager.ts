@@ -1,7 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { ChatMessage, ChatSession, Artifact, type AgentManager } from '@ai-team/core';
-import { randomBytes } from 'crypto';
 import { resolveAgentForOperation } from './utils/agent-resolution.js';
 import type { IMessageStorage } from './storage/contracts.js';
 
@@ -97,6 +96,34 @@ export class SessionManager {
     });
 
     return newSession;
+  }
+
+  /**
+   * Resolve the TO session for a handoff, enforcing the one-session-per-agent-per-thread rule.
+   *
+   * Walks the `previousSessionId` spine from `currentSessionId` back to the root and checks
+   * whether the target agent already has a session in this thread. If it does, that session is
+   * returned so it can be resumed. If it does not, a new handoff session is created with
+   * `previousSessionId = currentSessionId`.
+   *
+   * In both cases the full briefing sequence (briefing messages + handoffId stamping) still runs —
+   * the distinction is only whether a new DB row is created for the session.
+   */
+  async resolveHandoffSession(
+    targetAgentId: string,
+    currentSessionId: string,
+    developerId: string,
+  ): Promise<{ session: ChatSession; isNew: boolean }> {
+    const chain = await this.getSessionChain(currentSessionId);
+    const existing = chain.find(s => {
+      const ids: string[] = (s as any).agentIds ?? (s.agentId ? [(s as any).agentId] : []);
+      return ids.includes(targetAgentId);
+    });
+    if (existing) return { session: existing, isNew: false };
+
+    // First time reaching this agent in this thread — extend the spine.
+    const session = await this.createHandoffSession(targetAgentId, developerId, currentSessionId);
+    return { session, isNew: true };
   }
 
   /**
@@ -204,6 +231,14 @@ export class SessionManager {
    */
   async appendMessage(sessionId: string, message: ChatMessage): Promise<void> {
     await this.storage.insertMessage(sessionId, message);
+  }
+
+  /**
+   * Delete a specific message from a session by timestamp.
+   * Returns true if a message was deleted.
+   */
+  async deleteSessionMessage(sessionId: string, messageTimestamp: string): Promise<boolean> {
+    return this.storage.deleteMessage(sessionId, messageTimestamp);
   }
 
   /**

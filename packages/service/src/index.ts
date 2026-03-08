@@ -35,10 +35,18 @@ import {
   ListEmployeesRequest,
   SearchAgentsRequest,
   SearchAgentsResponse,
+  SearchSkillsOptions,
+  SearchSkillsResponse,
   ProviderSetupInput,
   ProviderListOptions,
+  UpdateAgentSkillOptions,
+  UpdateAgentSkillResponse,
   ProviderModelsOptions,
   RefreshProviderModelsOptions,
+  ListToolsOptions,
+  ListToolsResponse,
+  UpdateAgentToolOptions,
+  UpdateAgentToolResponse,
   WorkflowFrame,
   WorkflowStateSnapshot,
   TestConnectionOptions,
@@ -47,6 +55,8 @@ import { GraphData, ViewMode } from '@ai-team/core';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { providerListCommand, providerModelsCommand, providerModelsRefreshCommand } from './commands/models.js';
 import { testConnectionCommand } from './commands/test-connection.js';
+import { allowToolCommand, disallowToolCommand, listToolsCommand } from './commands/tools.js';
+import { addSkillCommand, removeSkillCommand, searchSkillsCommand } from './commands/skills.js';
 import { createCommand } from './commands/create.js';
 import { chatCommand } from './commands/chat/index.js';
 import { fireCommand } from './commands/fire.js';
@@ -568,6 +578,7 @@ class CoreAiTeamService implements AiTeamService {
           toAgentName: runtimeEvent.toAgentName,
           toSessionId: runtimeEvent.toSessionId,
           handoffNote: runtimeEvent.handoffNote,
+          briefingContent: runtimeEvent.briefingContent,
           message: runtimeEvent.message,
         });
       }
@@ -635,6 +646,30 @@ class CoreAiTeamService implements AiTeamService {
       results,
       totalCount: results.length,
     };
+  }
+
+  async searchSkills(options: SearchSkillsOptions = {}): Promise<SearchSkillsResponse> {
+    return searchSkillsCommand(this.workspaceRoot, options);
+  }
+
+  async addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
+    return addSkillCommand(this.workspaceRoot, options);
+  }
+
+  async removeSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
+    return removeSkillCommand(this.workspaceRoot, options);
+  }
+
+  async listTools(options: ListToolsOptions = {}): Promise<ListToolsResponse> {
+    return listToolsCommand(this.workspaceRoot, options);
+  }
+
+  async allowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse> {
+    return allowToolCommand(this.workspaceRoot, options);
+  }
+
+  async disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse> {
+    return disallowToolCommand(this.workspaceRoot, options);
   }
 
   async getTeamGraph(mode: ViewMode = 'hierarchy'): Promise<GraphData> {
@@ -734,9 +769,17 @@ export type {
   QuestionWorkflowMetadata,
   ProviderSetupInput,
   ProviderListOptions,
+  SearchSkillsOptions,
+  SearchSkillsResponse,
+  ListToolsOptions,
+  ListToolsResponse,
   SetProviderOptions,
   ProviderModelsOptions,
   RefreshProviderModelsOptions,
+  UpdateAgentSkillOptions,
+  UpdateAgentSkillResponse,
+  UpdateAgentToolOptions,
+  UpdateAgentToolResponse,
   SearchAgentsRequest,
   SearchAgentsResponse,
   WorkflowFrame,

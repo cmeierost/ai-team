@@ -21,4 +21,16 @@ describe('command registry metadata', () => {
     expect(llmCommands.find(command => command.key === 'init')).toBeUndefined();
     expect(CLI_COMMAND_REGISTRY.find(command => command.key === 'init')?.llmCallable).toBe(false);
   });
+
+  it('registers tools command metadata with agent/json options', () => {
+    const tools = getCliCommandMetadata('tools');
+
+    expect(tools.command).toBe('tools');
+    expect(tools.options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ flags: '--agent <agent>' }),
+        expect.objectContaining({ flags: '--json' }),
+      ]),
+    );
+  });
 });

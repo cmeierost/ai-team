@@ -375,6 +375,102 @@
   color: var(--color-text-secondary);
 }
 
+.tool-permissions-error {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(244, 135, 113, 0.35);
+  background: rgba(244, 135, 113, 0.1);
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool-permissions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-permission-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--color-bg-tertiary);
+}
+
+.tool-permission-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.tool-permission-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.tool-permission-state {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.tool-permission-state.allowed {
+  background: rgba(76, 175, 80, 0.12);
+  color: var(--color-text-primary);
+  border-color: rgba(76, 175, 80, 0.35);
+}
+
+.tool-permission-state.disallowed {
+  background: rgba(244, 67, 54, 0.1);
+  color: var(--color-text-primary);
+  border-color: rgba(244, 67, 54, 0.35);
+}
+
+.tool-permission-description {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.tool-permission-toggle {
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  align-self: flex-start;
+  min-width: 82px;
+}
+
+.tool-permission-toggle.is-allow {
+  border-color: rgba(76, 175, 80, 0.4);
+  color: #81c784;
+}
+
+.tool-permission-toggle.is-disallow {
+  border-color: rgba(244, 67, 54, 0.4);
+  color: #ef9a9a;
+}
+
+.tool-permission-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ── LLM Row ────────────────────────────────────────────────────────────── */
 
 .llm-row { display: flex; flex-wrap: wrap; gap: 20px; }

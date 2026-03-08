@@ -61,29 +61,29 @@ export function createContainer(config: BootstrapConfig): ServiceContainer {
 
   // ── Storage ────────────────────────────────────────────────────────────────
 
-  c.register(TOKENS.MessageStorage, c =>
+  c.registerSingleton(TOKENS.MessageStorage, c =>
     createSqliteStorage(c.resolve(TOKENS.WorkspaceRoot)),
   );
 
   // ── Core services ──────────────────────────────────────────────────────────
 
-  c.register(TOKENS.LlmService, c =>
+  c.registerSingleton(TOKENS.LlmService, c =>
     new LlmService(c.resolve(TOKENS.WorkspaceRoot)),
   );
 
-  c.register(TOKENS.AgentManager, c =>
+  c.registerSingleton(TOKENS.AgentManager, c =>
     new AgentManager(c.resolve(TOKENS.WorkspaceRoot)),
   );
 
-  c.register(TOKENS.SkillManager, c =>
+  c.registerSingleton(TOKENS.SkillManager, c =>
     new SkillManager(c.resolve(TOKENS.WorkspaceRoot)),
   );
 
-  c.register(TOKENS.ContextManager, c =>
+  c.registerSingleton(TOKENS.ContextManager, c =>
     new ContextManager(c.resolve(TOKENS.WorkspaceRoot)),
   );
 
-  c.register(TOKENS.SessionManager, c =>
+  c.registerSingleton(TOKENS.SessionManager, c =>
     new SessionManager(
       c.resolve(TOKENS.WorkspaceRoot),
       c.resolve(TOKENS.MessageStorage),
@@ -96,7 +96,7 @@ export function createContainer(config: BootstrapConfig): ServiceContainer {
   // `manager` is assigned synchronously inside the factory before any
   // tool.execute() could ever fire, so the thunk delegation is always safe.
 
-  c.register(TOKENS.ToolManager, c => {
+  c.registerSingleton(TOKENS.ToolManager, c => {
     let manager: ToolManager;
 
     const deps: OrchestrationDeps = {
@@ -116,21 +116,21 @@ export function createContainer(config: BootstrapConfig): ServiceContainer {
   // Every slot has a no-op or sensible default. Replace any token after
   // createContainer() to plug in a real implementation.
 
-  c.register(TOKENS.ContextCompressor, () => new NoOpCompressor());
-  c.register(TOKENS.ContextBuilder,    () => new DefaultContextBuilder());
+  c.registerSingleton(TOKENS.ContextCompressor, () => new NoOpCompressor());
+  c.registerSingleton(TOKENS.ContextBuilder,    () => new DefaultContextBuilder());
 
   // Enrichers get ctx at call-time so no constructor deps needed here.
-  c.register(TOKENS.ContextEnrichers, () => [
+  c.registerSingleton(TOKENS.ContextEnrichers, () => [
     new WorkspaceOverviewEnricher(),
     new TeamRosterEnricher(),
   ]);
 
-  c.register(TOKENS.RagProvider,   () => new NoOpRagProvider());
-  c.register(TOKENS.ToolResolver,  () => new DefaultToolResolver());
-  c.register(TOKENS.McpGateway,    () => new NoOpMcpGateway());
-  c.register(TOKENS.LlmSelector,   () => new DefaultLlmSelector());
-  c.register(TOKENS.OutputHandler, () => new DefaultOutputHandler());
-  c.register(TOKENS.SlashCommands, () => buildDefaultSlashCommands());
+  c.registerSingleton(TOKENS.RagProvider,   () => new NoOpRagProvider());
+  c.registerSingleton(TOKENS.ToolResolver,  () => new DefaultToolResolver());
+  c.registerSingleton(TOKENS.McpGateway,    () => new NoOpMcpGateway());
+  c.registerSingleton(TOKENS.LlmSelector,   () => new DefaultLlmSelector());
+  c.registerSingleton(TOKENS.OutputHandler, () => new DefaultOutputHandler());
+  c.registerSingleton(TOKENS.SlashCommands, () => buildDefaultSlashCommands());
 
   return c;
 }

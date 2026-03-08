@@ -11,6 +11,8 @@
  *   const svc = container.resolve(MY_SERVICE); // typed as MyService
  */
 export class Token<T> {
+  declare readonly __type?: T;
+
   constructor(readonly id: string) {}
   toString(): string {
     return `Token(${this.id})`;

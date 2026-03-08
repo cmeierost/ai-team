@@ -138,6 +138,68 @@ export function rankAgents(query: string | undefined, agents: Agent[]): RankedAg
 }
 
 /**
+ * Identity-only ranking for agent resolution and handoff detection.
+ *
+ * Only scores against id, name, and role — never against markdown content,
+ * tools, features, or specializations. This prevents false positives where an
+ * agent's document body mentions another agent's name (e.g. "reports to
+ * Michael Brown") and makes that agent appear as a match.
+ *
+ * Scoring tiers (same as the base tier of rankAgents):
+ *  100 – exact ID
+ *   95 – exact name (case-insensitive)
+ *   90 – exact role
+ *   85 – partial name substring
+ *   80 – partial ID substring
+ *   75 – partial role substring
+ *   70-75 – fuzzy full-name (Levenshtein ≤ 2)
+ *   65-70 – fuzzy first-name (Levenshtein ≤ 2)
+ */
+export function rankAgentsByIdentity(query: string | undefined, agents: Agent[]): RankedAgentResult[] {
+  if (!query || query.trim() === '') {
+    return agents.map(agent => ({ agent, score: 50, matches: [] }));
+  }
+
+  const q = query.toLowerCase().trim();
+  const results: RankedAgentResult[] = [];
+
+  for (const agent of agents) {
+    let score = 0;
+    const matches: string[] = [];
+
+    if (agent.id === q) {
+      score = 100; matches.push('id');
+    } else if (agent.name.toLowerCase() === q) {
+      score = 95; matches.push('name');
+    } else if (agent.role.toLowerCase() === q) {
+      score = 90; matches.push('role');
+    } else if (agent.name.toLowerCase().includes(q)) {
+      score = 85; matches.push('name');
+    } else if (agent.id.includes(q)) {
+      score = 80; matches.push('id');
+    } else if (agent.role.toLowerCase().includes(q)) {
+      score = 75; matches.push('role');
+    } else if (levenshtein(agent.name.toLowerCase(), q) <= 2) {
+      score = 70 + (2 - levenshtein(agent.name.toLowerCase(), q)) * 2.5;
+      matches.push('name');
+    } else {
+      const firstName = agent.name.toLowerCase().split(/\s+/)[0];
+      if (levenshtein(firstName, q) <= 2) {
+        score = 65 + (2 - levenshtein(firstName, q)) * 2.5;
+        matches.push('name');
+      }
+    }
+
+    if (score > 0) {
+      results.push({ agent, score, matches });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
+}
+
+/**
  * Apply the structural filters from AgentSearchOptions, then call rankAgents().
  * This is the full implementation backing AgentManager.searchAgents().
  */

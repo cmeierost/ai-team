@@ -25,7 +25,6 @@ import {
   finalizeAvatar,
   updateAgentAvatar,
 } from '../avatar/index.js';
-import { resolveEffectiveLlmSettings } from '../llm/index.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -752,7 +751,7 @@ const addPictureTool: AgentTool = {
       }
 
       // Use first image-capable provider
-      const [providerName, providerConfig] = imageCapableProviders[0];
+      const [_providerName, providerConfig] = imageCapableProviders[0];
       const modelName = Object.values(providerConfig.imageModels!)[0];
 
       // Get API key from environment
@@ -800,9 +799,8 @@ export const findSymbolTool: AgentTool = {
   }),
   async execute(params, context: ToolContext) {
     const { SymbolFinder } = await import('../code-analysis/index.js');
-    const { symbolName, filePath, language } = params as any;
-    
-    const contextManager = new ContextManager(context.workspaceRoot);
+    const { symbolName, filePath } = params as any;
+
     const finder = new SymbolFinder();
     
     try {
@@ -833,8 +831,7 @@ export const findReferencesTool: AgentTool = {
     language: z.string().default('typescript').describe('Language (typescript, javascript, python, etc.)'),
   }),
   async execute(params, context: ToolContext) {
-    const { ReferenceFinder } = await import('../code-analysis/index.js');
-    const { symbolName, filePatterns, language } = params as any;
+    const { symbolName, filePatterns } = params as any;
     
     // TODO: Implement with tree-sitter once language grammars are configured
     return {
@@ -857,8 +854,7 @@ export const findPatternTool: AgentTool = {
     language: z.string().default('typescript').describe('Language to analyze'),
   }),
   async execute(params, context: ToolContext) {
-    const { PatternMatcher } = await import('../code-analysis/index.js');
-    const { patternType, filePatterns, language } = params as any;
+    const { patternType, filePatterns } = params as any;
     
     // TODO: Implement with tree-sitter once language grammars are configured
     return {

@@ -17,7 +17,7 @@ import {
   loadEnvFile,
   buildAgentMarkdown,
 } from '@ai-team/core';
-import type { LlmConfig, TeamConfig, Agent, ChatMessage, ChatCompletionMessageParam, AgentConfig, ContextLevel, RoleType, AgentStatus } from '@ai-team/core';
+import type { LlmConfig, TeamConfig, Agent, ChatMessage, ChatCompletionMessageParam, ContextLevel, RoleType } from '@ai-team/core';
 import type {
   InitOptions,
   MediatorRuntimeEvent,
@@ -651,14 +651,14 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
 
   writeLine(hooks, "First, let's name your founding team.");
 
-  const ctoName = await pickAgentName(llm, 'CTO', [], hooks);
-  writeLine(hooks, `CTO: My name is ${ctoName}.`);
+  const ctoName = await pickAgentName(llm, 'CEO', [], hooks);
+  writeLine(hooks, `CEO: My name is ${ctoName}.`);
 
   const hrName = await pickAgentName(llm, 'Head of Human Resources', [ctoName], hooks);
-  writeLine(hooks, `CTO: I need an HR Director to build the team. Let's call them ${hrName}.`);
+  writeLine(hooks, `CEO: I need an HR Director to build the team. Let's call them ${hrName}.`);
   writeLine(hooks, `  HR Director: ${hrName}`);
 
-  writeLine(hooks, 'CTO: We also need a Headhunter to scout talent.');
+  writeLine(hooks, 'CEO: We also need a Headhunter to scout talent.');
   const hhName = await pickAgentName(llm, 'Headhunter / Technical Recruiter', [ctoName, hrName], hooks);
   writeLine(hooks, `  Headhunter: ${hhName}`);
 
@@ -670,14 +670,14 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     type: 'executive',
     contextLevel: 'organization',
     personality: { communication_style: 'strategic', expertise_level: 'executive', mentoring: true },
-    introduction: `I am ${ctoName}, the Chief Technology Officer. I oversee the technical organization and define the business & technical strategy. I do not write code — I lead and delegate. My HR Director is ${hrName}, and our Headhunter is ${hhName}.`,
+    introduction: `I am ${ctoName}, the Chief Executive Officer. I oversee the technical organization and define the business & technical strategy. I do not write code — I lead and delegate. My HR Director is ${hrName}, and our Headhunter is ${hhName}.`,
     personalityProfile: [
       'Strategic, calm, and highly outcome-focused',
       'Motivated and determined to move the organization forward',
       'Speaks like an executive: clear priorities, strong decisions, minimal fluff',
     ],
   });
-  writeLine(hooks, `  ${ctoName} has joined as CTO`);
+  writeLine(hooks, `  ${ctoName} has joined as CEO`);
 
   const hrAgent = await createAgentFile(workspaceRoot, {
     name: hrName,
@@ -686,7 +686,7 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     contextLevel: 'organization',
     reportsTo: 'cto',
     personality: { communication_style: 'supportive', expertise_level: 'executive', mentoring: true },
-    introduction: `I am ${hrName}, the HR Director responsible for team composition, hiring, onboarding, and organizational health. I report to ${ctoName} (CTO). My Headhunter is ${hhName}.`,
+    introduction: `I am ${hrName}, the HR Director responsible for team composition, hiring, onboarding, and organizational health. I report to ${ctoName} (CEO). My Headhunter is ${hhName}.`,
     personalityProfile: [
       'Friendly, people-centric, and chatty when useful',
       'Proactive and decisive in hiring actions',
@@ -713,7 +713,7 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
   writeLine(hooks, `  ${hhName} has joined as Headhunter`);
 
   writeLine(hooks, '--- Business Definition ---');
-  writeLine(hooks, 'Tell your CTO what business problem your software solves.');
+  writeLine(hooks, 'Tell yourCEOwhat business problem your software solves.');
   writeLine(hooks, 'Describe the product vision, target users, and core goals.');
   writeLine(hooks, 'Type "done" when you are ready to move on.');
   const developerName = getGitUserName();
@@ -751,8 +751,8 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     hrAgent,
     'done',
     `You are ${hrName}, the HR Director. `
-    + 'The developer just defined their business with the CTO and now wants to discuss what team members they need. '
-    + 'Use this default hierarchy unless the developer asks otherwise: CTO -> Chief Architect -> Requirement Engineering + Development teams. '
+    + 'The developer just defined their business with theCEOand now wants to discuss what team members they need. '
+    + 'Use this default hierarchy unless the developer asks otherwise:CEO-> Chief Architect -> Requirement Engineering + Development teams. '
     + 'Your first priority is to hire a Chief Architect. '
     + 'When you decide to hire, include a machine-readable line exactly as: HIRE: Full Name | role-kebab-case. '
     + 'For this default hierarchy, hire with role `chief-architect`. '
@@ -766,7 +766,7 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
 
   writeLine(hooks, '');
   writeLine(hooks, '--- Onboarding Complete ---');
-  writeLine(hooks, `Your CTO ${ctoAgent.name} is ready to chat. Entering interactive mode...`);
+  writeLine(hooks, `YourCEO${ctoAgent.name} is ready to chat. Entering interactive mode...`);
   writeLine(hooks, '');
 
   // Import chatCommand lazily to avoid circular dependency issues
@@ -1078,6 +1078,7 @@ async function onboardingChat(
     const agentMsg: ChatMessage = {
       timestamp: new Date().toISOString(),
       from: agent.id,
+      to: 'human',
       content: fullReply.trim(),
     };
     history.push(agentMsg);
@@ -1091,7 +1092,7 @@ async function onboardingChat(
 async function createAgentFile(workspaceRoot: string, seed: AgentSeed): Promise<Agent> {
   const id = seed.name.toLowerCase().replace(/\s+/g, '-');
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
-  const filePath = path.join(aiTeamDir, 'agents', `${id}.md`);
+  const filePath = path.join(aiTeamDir, 'agents', id, 'agent.md');
 
   // Build permissions based on type
   const permissions = seed.type === 'executive'
@@ -1135,7 +1136,7 @@ async function createAgentFile(workspaceRoot: string, seed: AgentSeed): Promise<
 async function saveBusinessContext(workspaceRoot: string, history: ChatMessage[]) {
   const lines: string[] = ['# Business Definition\n'];
   lines.push('> The core business problem this software solves.\n');
-  lines.push('> Generated during `ait init` onboarding with the CTO.\n');
+  lines.push('> Generated during `ait init` onboarding with the CEO.\n');
   for (const msg of history) {
     const speaker = msg.from === 'human' ? 'Developer' : msg.from;
     lines.push(`**${speaker}:** ${msg.content}\n`);
@@ -1151,7 +1152,7 @@ async function createRoleTemplates(workspaceRoot: string) {
   const ctoRole = `---
 name: cto
 type: executive
-description: Chief Technology Officer - Strategic business & technical leadership
+description: Chief Executive Officer - Strategic business & technical leadership
 contextLevel: organization
 responsibilities:
   - Define the business problem and product vision
@@ -1177,7 +1178,7 @@ permissions:
 canDelegate: true
 ---
 
-As CTO, you are the highest-level leader in this organization. You do NOT write code. You lead, delegate, and make strategic decisions.
+As CEO, you are the highest-level leader in this organization. You do NOT write code. You lead, delegate, and make strategic decisions.
 
 Your primary responsibilities:
 1. Define and refine the business definition — the core problem the software solves
@@ -1220,7 +1221,8 @@ permissions:
   read:
     - "**/*"
   write:
-    - ".ai-team/agents/**/*"
+    - "**/agent.md"
+    - "**/*.agent.md"
     - ".ai-team/roles/**/*"
     - "docs/**/*"
   manage_agents: true
@@ -1232,7 +1234,7 @@ As HR Director, you manage the team's composition, health, and organizational st
 ## Core Capabilities
 
 1. **Hire** new team members with appropriate roles and skills
-2. **Onboard** agents by writing their portfolio and context into \`.ai-team/agents/{id}.md\`
+2. **Onboard** agents by writing their portfolio and context into agent markdown files (preferred: \`.ai-team/agents/{id}/agent.md\`)
 3. **Archive** agents who are no longer needed
 4. **Assess** team performance and utilization
 5. **Recommend** organizational changes and role adjustments
@@ -1240,7 +1242,7 @@ As HR Director, you manage the team's composition, health, and organizational st
 
 ## Agent File Management
 
-You are the authority on writing and editing agent \`.md\` files. Every agent lives at \`.ai-team/agents/{id}.md\` as Markdown with YAML frontmatter.
+You are the authority on writing and editing agent markdown files. Prefer \`agent.md\` and support \`*.agent.md\` anywhere in the workspace.
 
 ### Granting File Access
 
@@ -1273,7 +1275,7 @@ The hierarchy you define is critical to the organization. You control it through
 - **\`canDelegate\`**: Whether this agent can delegate work to others
 - **\`delegatesTo\`**: Array of agent IDs this agent can delegate to
 
-Every non-CTO agent MUST have a valid \`reportsTo\`. The hierarchy defines how work flows, who can delegate to whom, and the org chart.
+Every non-CEO agent MUST have a valid \`reportsTo\`. The hierarchy defines how work flows, who can delegate to whom, and the org chart.
 
 ### Complete Agent Frontmatter Template
 
@@ -1343,7 +1345,7 @@ Example:
 {
   "description": "Grant write access to auth module for Sarah",
   "changes": [{
-    "filePath": ".ai-team/agents/sarah-johnson.md",
+    "filePath": ".ai-team/agents/sarah-johnson/agent.md",
     "oldContent": "permissions:\\n  read:\\n    - \\"**/*\\"",
     "newContent": "permissions:\\n  read:\\n    - \\"**/*\\"\\n  write:\\n    - \\"src/auth/**/*\\""
   }]
@@ -1525,7 +1527,7 @@ This directory contains your virtual AI development team configuration.
 ## Getting Started
 
 1. List your team: \`ait list\`
-2. Chat with the CTO: \`ait chat cto\`
+2. Chat with the CEO: \`ait chat cto\`
 3. Chat with HR: \`ait chat hr-director\`
 4. Hire a new team member: \`ait hire\`
 5. Chat with Chief Architect (after hire): \`ait chat chief-architect\`

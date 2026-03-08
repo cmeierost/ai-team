@@ -1,5 +1,4 @@
 import sqlite3 from 'sqlite3';
-import { promisify } from 'node:util';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 

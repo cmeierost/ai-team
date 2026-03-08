@@ -10,6 +10,43 @@ import OpenAI from 'openai';
 import type { Agent, LlmProviderConfig } from '../types/index.js';
 import { saveAgent } from '../storage/index.js';
 
+// ── Deterministic agent color ─────────────────────────────────────────────────
+
+/**
+ * Generate a deterministic hue (0-359) from a string using a simple hash.
+ * Matches the algorithm used by the web UI so colours are consistent.
+ */
+function hashStringToHue(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash % 360);
+}
+
+/**
+ * Return a deterministic HSL color string for an agent.
+ *
+ * Priority:
+ *   1. `agent.avatar.color` (explicit setting in agent file)
+ *   2. Hash of `agent.avatar.seed` or `agent.name`
+ */
+export function generateAgentColor(agent: Pick<Agent, 'name' | 'avatar'>): string {
+  if (agent.avatar?.color) return agent.avatar.color;
+  const seed = agent.avatar?.seed || agent.name;
+  const hue = hashStringToHue(seed);
+  return `hsl(${hue}, 70%, 60%)`;
+}
+
+/**
+ * Parse an HSL color string into its hue component (0-359).
+ * Returns undefined for non-HSL strings.
+ */
+export function parseHslHue(hsl: string): number | undefined {
+  const m = hsl.match(/^hsl\((\d+)/i);
+  return m ? Number(m[1]) : undefined;
+}
+
 /**
  * Resizes an image to 150px height while maintaining aspect ratio
  * @param imageBuffer - Original image buffer

@@ -385,3 +385,142 @@
   margin-top: 4px;
   padding-left: 24px;
 }
+
+.context-tools-block {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.context-tools-subtitle {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9aa0a6;
+  padding: 0 2px;
+}
+
+.context-tool-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.context-tool-chip {
+  font-size: 11px;
+  border: 1px solid #3e3e42;
+  background: #1e1e1e;
+  color: #cccccc;
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+
+.context-tool-chip.is-active {
+  border-color: #2d7a45;
+  background: #1a472a;
+}
+
+.context-tool-event {
+  cursor: default;
+}
+
+.context-notes-wrap {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.context-notes-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 90px;
+  background: #1e1e1e;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  color: #cccccc;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.context-notes-input:focus {
+  outline: none;
+  border-color: #007acc;
+}
+
+.context-notes-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-notes-save {
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  background: #2d2d30;
+  color: #cccccc;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.context-notes-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.context-notes-error,
+.context-skills-error {
+  color: #ef9a9a;
+}
+
+.context-skill-action {
+  opacity: 1;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid #3e3e42;
+  background: #2d2d30;
+  color: #cccccc;
+  font-weight: 600;
+}
+
+.context-skill-action:disabled {
+  opacity: 0.5;
+}
+
+.context-tool-phase {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.context-tool-phase.running {
+  color: #ffcc80;
+  border-color: rgba(255, 167, 38, 0.45);
+  background: transparent;
+}
+
+.context-tool-phase.completed {
+  color: #a5d6a7;
+  border-color: rgba(102, 187, 106, 0.45);
+  background: transparent;
+}
+
+.context-tool-phase.failed {
+  color: #ef9a9a;
+  border-color: rgba(244, 67, 54, 0.45);
+  background: transparent;
+}
+
+.context-tool-phase.neutral {
+  color: #cccccc;
+  border-color: rgba(204, 204, 204, 0.3);
+  background: transparent;
+}

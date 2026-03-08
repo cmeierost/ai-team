@@ -41,16 +41,13 @@ export {
   writeError,
   printSessionResume,
 } from './emit.js';
-export { withTimeout, withAbortSignal, isAbortError, throwIfAborted } from './async-utils.js';
 export { requestInput, requestConfirm, requestSelect, requestPassword, requestChecklist } from './questions.js';
-export { selectDefaultTopAgent, formatUserPrompt, resolveDeveloperName } from './agent-selection.js';
-export { detectForwardRequestWithFallback, REFERENCE_PRONOUNS } from './forward-detection.js';
 
 // ── Internal service imports (used by chatCommand but not re-exported) ────────
 import type { ChatRuntimeHooks } from './hooks.js';
 import { emitRuntimeEvent, formatConsoleArgs, writeInfo, writeWarn, writeError, printSessionResume } from './emit.js';
 import { withTimeout, withAbortSignal, isAbortError, throwIfAborted } from '../../orchestrator/async-utils.js';
-import { requestInput, requestConfirm, requestSelect } from './questions.js';
+import { requestInput, requestSelect } from './questions.js';
 import { selectDefaultTopAgent, formatUserPrompt, resolveDeveloperName } from '../../utils/agent-selection.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,11 +55,32 @@ import { selectDefaultTopAgent, formatUserPrompt, resolveDeveloperName } from '.
 const CHAT_CONNECT_TIMEOUT_MS = 20_000;
 const PREFLIGHT_STEP_TIMEOUT_MS = 15_000;
 
-/** Strip the HANDOFF: directive line from agent text before persisting. */
+/** Strip HANDOFF:/FORWARD_TO: directive lines from agent text before persisting. */
 export function stripHandoffDirective(text: string): string {
-  let cleaned = text.replaceAll(/^\s*HANDOFF:\s*[^\n]+$/gim, '');
+  let cleaned = text.replaceAll(/^\s*(?:HANDOFF|FORWARD_TO):\s*[^\n]+$/gim, '');
   cleaned = cleaned.replaceAll(/\n{3,}/g, '\n\n').trim();
   return cleaned;
+}
+
+/**
+ * Parse a HANDOFF: directive from agent response text.
+ *
+ * Matches: `HANDOFF: <agentId> | <optional note>`
+ *          `FORWARD_TO: <agentId> | <optional note>`
+ *
+ * Returns the parsed fields, or null if no directive is present.
+ */
+export function parseHandoffDirective(
+  text: string,
+): { targetAgentId: string; note: string } | null {
+  // Allow spaces in the agent name — LLMs write "Emily Davis", not "emily-davis".
+  const re = /^\s*(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*$/im;
+  const match = re.exec(text);
+  if (!match) return null;
+  return {
+    targetAgentId: match[1].trim(),
+    note: (match[2] ?? '').trim(),
+  };
 }
 
 export const CHAT_COMMAND_META = {
@@ -253,6 +271,7 @@ export async function chatCommand(
     }
 
     writeInfo(hooks, `\nChat with ${agent.name} (${agent.role})`);
+    emitRuntimeEvent(hooks, { kind: 'status', phase: 'agent_info', agentName: agent.name });
     writeInfo(hooks, 'Type "exit" to end the conversation');
     writeInfo(hooks, 'Type "/help" to see available in-chat commands');
     writeInfo(hooks, 'Ask to be forwarded or type "/chat <name>" to switch agents');
@@ -274,6 +293,7 @@ export async function chatCommand(
       const introMsg: ChatMessage = {
         timestamp: new Date().toISOString(),
         from: agent.id,
+        to: 'human',
         content: options.pendingIntroduction,
         importance: 'low',
       };

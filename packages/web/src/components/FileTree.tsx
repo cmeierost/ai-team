@@ -10,7 +10,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_BASE } from '../context/TeamContext';
-import type { AnnotatedFile, AgentFilesResponse } from '../types';
+import type { AgentFilesResponse, FilePatternsResponse } from '../types';
 import './FileTree.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ async function openFileInIde(relativePath: string) {
   }
 }
 
-function NodeRow({ node, depth, editMode, pendingPaths, onToggle }: NodeRowProps) {
+function NodeRow({ node, depth, editMode, pendingPaths, onToggle }: Readonly<NodeRowProps>) {
   const [open, setOpen] = useState(depth < 2);
 
   const file = node.file;
@@ -204,11 +204,16 @@ interface FileTreeProps {
   editMode: boolean;
 }
 
-export function FileTree({ agentId, editMode }: FileTreeProps) {
+export function FileTree({ agentId, editMode }: Readonly<FileTreeProps>) {
   const [data, setData] = useState<AgentFilesResponse | null>(null);
+  const [patterns, setPatterns] = useState<FilePatternsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingPaths, setPendingPaths] = useState<Set<string>>(new Set());
+  const [pendingPatternKey, setPendingPatternKey] = useState<string | null>(null);
+  const [patternScope, setPatternScope] = useState<'agent' | 'global'>('agent');
+  const [patternMode, setPatternMode] = useState<'read' | 'write'>('read');
+  const [patternInput, setPatternInput] = useState('');
   const [filter, setFilter] = useState<'all' | 'read' | 'write'>('all');
   const [search, setSearch] = useState('');
 
@@ -216,10 +221,16 @@ export function FileTree({ agentId, editMode }: FileTreeProps) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/agents/${encodeURIComponent(agentId)}/files?all=true`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: AgentFilesResponse = await res.json();
-      setData(json);
+      const [filesRes, patternsRes] = await Promise.all([
+        fetch(`${API_BASE}/api/agents/${encodeURIComponent(agentId)}/files?all=true`),
+        fetch(`${API_BASE}/api/files/patterns?agent=${encodeURIComponent(agentId)}`),
+      ]);
+      if (!filesRes.ok) throw new Error(`HTTP ${filesRes.status}`);
+      if (!patternsRes.ok) throw new Error(`HTTP ${patternsRes.status}`);
+      const filesJson: AgentFilesResponse = await filesRes.json();
+      const patternsJson: FilePatternsResponse = await patternsRes.json();
+      setData(filesJson);
+      setPatterns(patternsJson);
     } catch (e: any) {
       setError(e?.message || 'Failed to load files');
     } finally {
@@ -262,6 +273,66 @@ export function FileTree({ agentId, editMode }: FileTreeProps) {
     }
   }, [agentId]);
 
+  const addPattern = useCallback(async () => {
+    const value = patternInput.trim();
+    if (!value) return;
+
+    const key = `add:${patternScope}:${patternMode}:${value}`;
+    setPendingPatternKey(key);
+    setError(null);
+    try {
+      const url = patternScope === 'agent'
+        ? `${API_BASE}/api/files/agents/${encodeURIComponent(agentId)}/allow`
+        : `${API_BASE}/api/files/allow`;
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: value, mode: patternMode }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+
+      setPatternInput('');
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to add pattern');
+    } finally {
+      setPendingPatternKey(null);
+    }
+  }, [agentId, load, patternInput, patternMode, patternScope]);
+
+  const removePattern = useCallback(async (scope: 'agent' | 'global', mode: 'read' | 'write', value: string) => {
+    const key = `remove:${scope}:${mode}:${value}`;
+    setPendingPatternKey(key);
+    setError(null);
+    try {
+      const url = scope === 'agent'
+        ? `${API_BASE}/api/files/agents/${encodeURIComponent(agentId)}/allow`
+        : `${API_BASE}/api/files/allow`;
+
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: value, mode }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to remove pattern');
+    } finally {
+      setPendingPatternKey(null);
+    }
+  }, [agentId, load]);
+
   const filteredFiles = useMemo<FlatFile[]>(() => {
     if (!data) return [];
     return data.files
@@ -278,6 +349,17 @@ export function FileTree({ agentId, editMode }: FileTreeProps) {
 
   const readCount = data?.files.filter((f) => f.readable).length ?? 0;
   const writeCount = data?.files.filter((f) => f.writable).length ?? 0;
+  const agentReadPatterns = patterns?.agent?.readPaths ?? data?.readPatterns ?? [];
+  const agentWritePatterns = patterns?.agent?.writePaths ?? data?.writePatterns ?? [];
+  const globalReadPatterns = patterns?.global.readPaths ?? [];
+  const globalWritePatterns = patterns?.global.writePaths ?? [];
+
+  const visiblePatternGroups = [
+    { label: 'Agent Read', scope: 'agent' as const, mode: 'read' as const, values: agentReadPatterns },
+    { label: 'Agent Write', scope: 'agent' as const, mode: 'write' as const, values: agentWritePatterns },
+    { label: 'Global Read', scope: 'global' as const, mode: 'read' as const, values: globalReadPatterns },
+    { label: 'Global Write', scope: 'global' as const, mode: 'write' as const, values: globalWritePatterns },
+  ].filter((group) => group.values.length > 0);
 
   if (loading) return (
     <div className="ft-loading">
@@ -308,12 +390,78 @@ export function FileTree({ agentId, editMode }: FileTreeProps) {
           <details className="ft-patterns">
             <summary>Patterns</summary>
             <div className="ft-pattern-list">
-              {data.readPatterns.map((p) => <span key={p} className="ft-pattern ft-pattern-read">{p}</span>)}
-              {data.writePatterns.map((p) => <span key={p} className="ft-pattern ft-pattern-write">{p}</span>)}
+              {visiblePatternGroups.map((group) => (
+                <div key={`${group.scope}-${group.mode}`} className="ft-pattern-group">
+                  <span className="ft-pattern-group-label">{group.label}</span>
+                  {group.values.map((p) => (
+                    <span key={`${group.scope}-${group.mode}-${p}`} className={`ft-pattern ${group.mode === 'read' ? 'ft-pattern-read' : 'ft-pattern-write'}`}>
+                      {p}
+                      {editMode && (
+                        <button
+                          type="button"
+                          className="ft-pattern-remove"
+                          onClick={() => removePattern(group.scope, group.mode, p)}
+                          disabled={pendingPatternKey === `remove:${group.scope}:${group.mode}:${p}`}
+                          title="Remove pattern"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              ))}
             </div>
           </details>
         )}
       </div>
+
+      {editMode && (
+        <div className="ft-pattern-editor">
+          <div className="ft-pattern-editor-controls">
+            <select
+              className="ft-pattern-select"
+              value={patternScope}
+              title="Pattern scope"
+              aria-label="Pattern scope"
+              onChange={(e) => setPatternScope(e.target.value as 'agent' | 'global')}
+            >
+              <option value="agent">Agent</option>
+              <option value="global">Global</option>
+            </select>
+            <select
+              className="ft-pattern-select"
+              value={patternMode}
+              title="Pattern mode"
+              aria-label="Pattern mode"
+              onChange={(e) => setPatternMode(e.target.value as 'read' | 'write')}
+            >
+              <option value="read">Read</option>
+              <option value="write">Write</option>
+            </select>
+            <input
+              className="ft-pattern-input"
+              placeholder="Pattern (e.g. src/**/*.ts)"
+              value={patternInput}
+              onChange={(e) => setPatternInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void addPattern();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="ft-pattern-add"
+              disabled={pendingPatternKey?.startsWith('add:') || !patternInput.trim()}
+              onClick={() => void addPattern()}
+            >
+              Add pattern
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className="ft-toolbar">

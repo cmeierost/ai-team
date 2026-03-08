@@ -64,7 +64,6 @@ export class ChatContextManager {
     field: string,
     value: any
   ): Promise<void> {
-    const filePath = this.getChatFilePath(agentId);
     const messages = await this.loadAllMessages(agentId);
 
     if (messageIndex < 0 || messageIndex >= messages.length) {
@@ -127,7 +126,6 @@ export class ChatContextManager {
    * Delete a message
    */
   async deleteMessage(agentId: string, messageIndex: number): Promise<void> {
-    const filePath = this.getChatFilePath(agentId);
     const messages = await this.loadAllMessages(agentId);
 
     if (messageIndex < 0 || messageIndex >= messages.length) {

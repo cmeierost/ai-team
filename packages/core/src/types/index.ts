@@ -68,6 +68,8 @@ export const PersonalityConfigSchema = z.object({
 export const PermissionConfigSchema = z.object({
   read: z.array(z.string()),
   write: z.array(z.string()),
+  create: z.array(z.string()).optional().default([]),
+  delete: z.array(z.string()).optional().default([]),
   approve: z.boolean().optional(),
   manage_agents: z.boolean().optional(),
 });
@@ -122,7 +124,13 @@ export const AgentCapabilitiesSchema = z.object({
 });
 
 export const AgentSchema = z.object({
-  name: z.string(),
+  // Vendor-neutral ai-team aliases (authoritative when provided)
+  aiTeamName: z.string().optional(),
+  aiTeamId: z.string().optional(),
+
+  // Generic fields used across other ecosystems
+  name: z.string().optional(),
+  id: z.string().optional(),
   role: z.string(),
   type: z.nativeEnum(RoleType).optional(),
   contextLevel: z.nativeEnum(ContextLevel),
@@ -216,6 +224,7 @@ export type FeatureConfig = z.infer<typeof FeatureSchema>;
  */
 export interface Agent extends AgentConfig {
   id: string;
+  name: string;
   filePath: string;
   skillPath: string;
   markdown?: string;  // Portfolio/bio content
@@ -668,12 +677,6 @@ export type LlmConfig = z.infer<typeof LlmConfigSchema>;
 
 export const FileTreeConfigSchema = z.object({
   /**
-   * Workspace-relative paths (files or directories) that should be visible in the
-   * file tree even if they are matched by a .gitignore rule.
-   * Accepts exact relative paths or glob patterns (e.g. "dist/types/**").
-   */
-  allowPaths: z.array(z.string()).optional().default([]),
-  /**
    * Global workspace-wide read permission patterns.
    * Any agent inherits these patterns in addition to its own.
    */
@@ -683,6 +686,14 @@ export const FileTreeConfigSchema = z.object({
    * Any agent inherits these patterns in addition to its own.
    */
   writePaths: z.array(z.string()).optional().default([]),
+  /**
+   * Global workspace-wide create permission patterns (typically directory-scoped).
+   */
+  createPaths: z.array(z.string()).optional().default([]),
+  /**
+   * Global workspace-wide delete permission patterns.
+   */
+  deletePaths: z.array(z.string()).optional().default([]),
 });
 
 export type FileTreeConfig = z.infer<typeof FileTreeConfigSchema>;

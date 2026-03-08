@@ -19,6 +19,8 @@ import { createTaskRoutes } from './routes/tasks.js';
 import { createDeveloperRouter } from './routes/developer.js';
 import { createFileTreeRouter } from './routes/file-tree.js';
 import { createIdeRouter } from './routes/ide.js';
+import { createSkillsRouter } from './routes/skills.js';
+import { createToolsRouter } from './routes/tools.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { setupChatWebSocket } from './ws/chat-handler.js';
 
@@ -81,6 +83,8 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   app.use('/api/developer', createDeveloperRouter(client, workspaceRoot));
   app.use('/api/files', createFileTreeRouter(workspaceRoot));
   app.use('/api/ide', createIdeRouter(workspaceRoot));
+  app.use('/api/skills', createSkillsRouter(client));
+  app.use('/api/tools', createToolsRouter(client));
 
   // System info endpoint
   /**

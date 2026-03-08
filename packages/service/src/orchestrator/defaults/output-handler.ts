@@ -1,42 +1,25 @@
 /**
  * DefaultOutputHandler — default IOutputHandler.
  *
- * After each completed LLM turn:
- *  1. Persists the assistant message to SessionManager (SQLite).
- *  2. Emits a 'status' runtime event via hooks.emit if connected.
+ * After each completed LLM turn, emits a 'status' runtime event via hooks.emit.
+ *
+ * Message persistence is handled by send-turn.ts (step 1 for user message,
+ * step 8 for agent reply). This handler does NOT persist messages to avoid
+ * duplicate DB writes.
  */
 
-import type { ChatMessage } from '@ai-team/core';
-import type { MediatorRuntimeEvent } from '../../contracts.js';
 import type { IOutputHandler, TurnResult } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
 
 export class DefaultOutputHandler implements IOutputHandler {
   async handle(result: TurnResult, ctx: OrchestratorContext): Promise<void> {
-    // 1. Persist assistant reply to session history
-    if (result.text) {
-      const message: ChatMessage = {
-        from: ctx.agent.id,
-        content: result.text,
-        timestamp: new Date().toISOString(),
-        isHuman: false,
-      };
-      await ctx.sessionManager.appendMessage(ctx.sessionId, message);
-    }
+    // NOTE: Message persistence is handled by send-turn.ts (step 1 for user,
+    // step 8 for agent reply). This handler only emits completion events.
+    // Do NOT persist here — doing so would cause duplicate DB writes.
 
-    // 2. Emit runtime event if the surface is listening
-    if (ctx.hooks.emit) {
-      const event: MediatorRuntimeEvent = result.handedOff
-        ? {
-            kind: 'handoff',
-            fromAgentId: ctx.agent.id,
-            toAgentId: result.handoffTargetId,
-          }
-        : {
-            kind: 'status',
-            phase: 'complete',
-          };
-      ctx.hooks.emit(event);
+    // Emit completion status (handoff events are emitted by executeHandoff)
+    if (ctx.hooks.emit && !result.handedOff) {
+      ctx.hooks.emit({ kind: 'status', phase: 'complete' });
     }
   }
 }

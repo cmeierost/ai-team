@@ -36,9 +36,6 @@ const GHOST_MSGS  = 8;    // assumed message count for deleted ghost sessions
 function makeMinimalAgent(id: string, name?: string): Agent {
   return { id, name: name ?? id, role: '' };
 }
-function formatTime(ms: number) {
-  return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-}
 function formatDuration(startMs: number, endMs: number) {
   const mins = Math.round((endMs - startMs) / 60_000);
   return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`;

@@ -1,4 +1,7 @@
 {
+    "files.associations": {
+        "**/.ai-team/agents/*.agent.md": "markdown"
+    },
     "chat.tools.terminal.autoApprove": {
         "pnpm": true,
         "Test-Path": true,
@@ -7,5 +10,34 @@
     },
     "github.copilot.chat.alternateGptPrompt.enabled": true,
     "github.copilot.chat.anthropic.contextEditing.enabled": true,
-    "github.copilot.chat.anthropic.tools.websearch.enabled": true
+    "github.copilot.chat.anthropic.tools.websearch.enabled": false,
+    "chat.viewProgressBadge.enabled": true,
+    "chat.useNestedAgentsMdFiles": true,
+    "chat.unifiedAgentsBar.enabled": true,
+    "chat.tools.terminal.enforceTimeoutFromModel": false,
+    "chat.promptFilesLocations": {
+        ".ai-team/prompts": true
+    },
+    "chat.mcp.gallery.enabled": true,
+    "chat.mcp.assisted.nuget.enabled": true,
+    "chat.instructionsFilesLocations": {
+        ".ai-team/instructions": true
+    },
+    "chat.includeReferencedInstructions": true,
+    "chat.hookFilesLocations": {
+        ".ai-team/hooks": true
+    },
+    "chat.experimental.useSkillAdherencePrompt": true,
+    "chat.edits2.enabled": true,
+    "chat.editing.explainChanges.enabled": true,
+    "chat.customAgentInSubagent.enabled": true,
+    "chat.checkpoints.showFileChanges": true,
+    "chat.allowAnonymousAccess": true,
+    "chat.agentSkillsLocations": {
+        ".ai-team/skills": true
+    },
+    "chat.agentSessionProjection.enabled": true,
+    "chat.agentFilesLocations": {
+        ".ai-team/agents": true
+    }
 }

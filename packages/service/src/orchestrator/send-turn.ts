@@ -16,13 +16,24 @@ import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
 import { dispatchToolCall, type ToolCallResponse } from './tool-dispatch.js';
 import { extractStreamDeltaText, emitStatus } from './stream-events.js';
+import { stripHandoffDirective, parseHandoffDirective } from '../commands/chat/index.js';
+
+export interface SendTurnOptions {
+  /**
+   * When true the user message is injected into the LLM context but NOT
+   * persisted to the session store.  Used for synthetic / system-generated
+   * prompts (e.g. post-handoff auto-react) that should never appear in the DB.
+   */
+  skipPersist?: boolean;
+}
 
 export async function sendTurn(
   userMessage: string,
   plugins: ResolvedPlugins,
   ctx: OrchestratorContext,
+  options?: SendTurnOptions,
 ): Promise<TurnResult> {
-  const { agent, hooks, sessionManager, sessionId, llmService, skillManager } = ctx;
+  const { agent, hooks, sessionManager, sessionId, llmService } = ctx;
 
   // ── Abort guard ────────────────────────────────────────────────────────────
   if (hooks?.signal?.aborted) {
@@ -37,7 +48,9 @@ export async function sendTurn(
     isHuman: true,
     content: userMessage,
   };
-  await sessionManager.appendMessage(sessionId, userMsg);
+  if (!options?.skipPersist) {
+    await sessionManager.appendMessage(sessionId, userMsg);
+  }
   ctx.history.push(userMsg);
 
   emitStatus(hooks, 'thinking');
@@ -91,6 +104,66 @@ export async function sendTurn(
   let fullResponse = '';
   const structuredResults: ToolCallResponse['structured'][] = [];
 
+  // ── Streaming filter ───────────────────────────────────────────────────────
+  // Suppress HANDOFF:/FORWARD_TO: directive lines without buffering the whole
+  // response — critical for real-time streaming to web clients via WebSocket.
+  //
+  // Strategy: at the start of each new line, buffer up to DIRECTIVE_MAX_LEN
+  // chars. As soon as we know the prefix cannot be a directive keyword, switch
+  // to "safe" mode and emit everything else immediately. On newline, make the
+  // final call and reset. The buffer is at most ~12 chars per line, so the
+  // streaming latency impact is negligible.
+  //
+  // Works for both the CLI path (process.stdout → terminal) and the WebSocket
+  // path (process.stdout is patched by AiTeamService.invoke() to emit token
+  // events through the runtime event queue).
+  const HANDOFF_LINE_RE = /^\s*(?:HANDOFF|FORWARD_TO):/i;
+  const DIRECTIVE_MAX_LEN = 12; // length of 'FORWARD_TO:' + 1
+
+  let _lineBuf  = '';    // chars held while we are still deciding about the current line
+  let _lineSafe = false; // true = line is confirmed not a directive; emit freely
+
+  const writeFiltered = (delta: string): void => {
+    let pos = 0;
+    while (pos < delta.length) {
+      if (_lineSafe) {
+        // Fast path: emit until the next newline, then reset for the next line.
+        const nl = delta.indexOf('\n', pos);
+        if (nl === -1) {
+          process.stdout.write(delta.slice(pos));
+          return;
+        }
+        process.stdout.write(delta.slice(pos, nl + 1));
+        pos = nl + 1;
+        _lineSafe = false;
+        _lineBuf  = '';
+      } else {
+        // Slow path: accumulate one char at a time until we can decide.
+        const ch = delta[pos++];
+        if (ch === '\n') {
+          _lineBuf += ch;
+          if (!HANDOFF_LINE_RE.test(_lineBuf)) process.stdout.write(_lineBuf);
+          _lineBuf  = '';
+          _lineSafe = false;
+        } else {
+          _lineBuf += ch;
+          // Once we have enough content to rule out a directive, switch to safe.
+          if (_lineBuf.trimStart().length >= DIRECTIVE_MAX_LEN) {
+            _lineSafe = true;
+            process.stdout.write(_lineBuf);
+            _lineBuf = '';
+          }
+        }
+      }
+    }
+  };
+
+  const flushFiltered = (): void => {
+    if (_lineBuf && !HANDOFF_LINE_RE.test(_lineBuf)) process.stdout.write(_lineBuf);
+    _lineBuf  = '';
+    _lineSafe = false;
+  };
+
   try {
     if (toolDefs.length === 0) {
       // Plain streaming, no tools
@@ -103,10 +176,11 @@ export async function sendTurn(
       for await (const chunk of stream) {
         const delta = extractStreamDeltaText(chunk as Parameters<typeof extractStreamDeltaText>[0]);
         if (delta) {
-          process.stdout.write(delta);
+          writeFiltered(delta);
           fullResponse += delta;
         }
       }
+      flushFiltered();
     } else {
       // Tool-calling path
       const result = await withAbortSignal(
@@ -137,7 +211,7 @@ export async function sendTurn(
           8,
           (delta: string) => {
             if (delta) {
-              process.stdout.write(delta);
+              writeFiltered(delta);
               fullResponse += delta;
             }
           },
@@ -146,6 +220,7 @@ export async function sendTurn(
         'Chat aborted.',
       );
 
+      flushFiltered();
       if (result?.text) fullResponse = result.text;
     }
   } catch (err: unknown) {
@@ -161,10 +236,14 @@ export async function sendTurn(
   process.stdout.write('\n');
 
   // ── 8. Persist agent reply ─────────────────────────────────────────────────
+  // Strip the HANDOFF:/FORWARD_TO: directive from persisted text — it is an
+  // internal signal, not something the developer should see in the history.
+  const persistedContent = stripHandoffDirective(fullResponse);
   const agentMsg: ChatMessage = {
     timestamp: new Date().toISOString(),
     from: agent.id,
-    content: fullResponse.trim(),
+    to: 'human',
+    content: persistedContent,
     isHuman: false,
   };
   await sessionManager.appendMessage(sessionId, agentMsg);
@@ -173,12 +252,19 @@ export async function sendTurn(
   await ctx.agentManager.recordInteraction(agent.id);
 
   // ── 9. Surface structured results to the caller ───────────────────────────
-  const handoffReq = structuredResults.find(isHandoffRequest);
+  //
+  // Handoff can come from two sources:
+  //   a) A tool call (structuredResults) — e.g. handoff_to_agent tool
+  //   b) A text directive in fullResponse — HANDOFF: <agentId> | <note>
+  //      (Paths 1, 2, 4 from the spec: agent writes a HANDOFF: line in text)
+  //
+  const handoffReq  = structuredResults.find(isHandoffRequest);
+  const textHandoff = handoffReq ? null : parseHandoffDirective(fullResponse);
   const hireResult  = structuredResults.find(isHireResult);
 
   if (handoffReq && isHandoffRequest(handoffReq)) {
     return {
-      text: fullResponse.trim(),
+      text: persistedContent,
       done: false,
       handedOff: true,
       handoffTargetId: handoffReq.targetAgentId,
@@ -187,16 +273,26 @@ export async function sendTurn(
     };
   }
 
+  if (textHandoff) {
+    return {
+      text: persistedContent,
+      done: false,
+      handedOff: true,
+      handoffTargetId: textHandoff.targetAgentId,
+      handoffNote: textHandoff.note || undefined,
+    };
+  }
+
   if (hireResult && isHireResult(hireResult)) {
     return {
-      text: fullResponse.trim(),
+      text: persistedContent,
       done: false,
       hired: { agentId: hireResult.agentId, name: hireResult.name, role: hireResult.role },
     };
   }
 
   // ── 10. Delegate to IOutputHandler ────────────────────────────────────────
-  const turnResult: TurnResult = { text: fullResponse.trim(), done: false };
+  const turnResult: TurnResult = { text: persistedContent, done: false };
   await plugins.outputHandler.handle(turnResult, ctx);
 
   return turnResult;

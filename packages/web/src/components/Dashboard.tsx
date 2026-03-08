@@ -22,8 +22,8 @@ export function Dashboard() {
     return ceo || agents[0]; // Fallback to first agent
   }, [agents, loading]);
 
-  // Find CTO (agent with most direct reports, excluding CEO)
-  const ctoAgent = useMemo(() => {
+  // Find CEO (agent with most direct reports, excluding CEO)
+  const topAgent = useMemo(() => {
     if (loading || agents.length === 0 || !ceoAgent) return null;
     const nonCeoAgents = agents.filter(a => a.id !== ceoAgent.id);
     if (nonCeoAgents.length === 0) return null;
@@ -37,8 +37,8 @@ export function Dashboard() {
     // Find agent with most direct reports (create copy before sorting)
     const sorted = [...reportCounts];
     sorted.sort((a, b) => b.count - a.count);
-    const cto = sorted[0];
-    return cto.count > 0 ? cto.agent : null;
+    const top = sorted[0];
+    return top.count > 0 ? top.agent : null;
   }, [agents, loading, ceoAgent]);
 
   // Get recently chatted agents based on session activity
@@ -47,23 +47,23 @@ export function Dashboard() {
     
     // Get unique agent IDs from recent sessions
     const agentIds = [...new Set(recentSessions.map(s => s.agentId))]
-      .filter(id => id !== ceoAgent?.id && id !== ctoAgent?.id); // Exclude CEO and CTO
+      .filter(id => id !== ceoAgent?.id && id !== topAgent?.id); // Exclude CEO and CEO
     
     // Map to agent objects
     return agentIds
       .map(id => agents.find(a => a.id === id))
       .filter((a): a is Agent => a !== undefined)
       .slice(0, 2); // Take 2 most recent
-  }, [agents, loading, recentSessions, ceoAgent, ctoAgent]);
+  }, [agents, loading, recentSessions, ceoAgent, topAgent]);
 
-  // Combine featured agents (CEO, CTO, 2 recent)
+  // Combine featured agents (CEO, CEO, 2 recent)
   const featuredAgents = useMemo(() => {
     const featured: Agent[] = [];
     if (ceoAgent) featured.push(ceoAgent);
-    if (ctoAgent) featured.push(ctoAgent);
+    if (topAgent) featured.push(topAgent);
     featured.push(...recentAgents);
     return featured;
-  }, [ceoAgent, ctoAgent, recentAgents]);
+  }, [ceoAgent, topAgent, recentAgents]);
 
   // Fetch task statistics
   useEffect(() => {

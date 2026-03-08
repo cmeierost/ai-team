@@ -28,6 +28,19 @@ export interface AgentFilesResponse {
   files: AnnotatedFile[];
 }
 
+export interface FilePatternsResponse {
+  global: {
+    allowPaths: string[];
+    readPaths: string[];
+    writePaths: string[];
+  };
+  agent?: {
+    id: string;
+    readPaths: string[];
+    writePaths: string[];
+  };
+}
+
 export interface AvatarConfig {
   type?: 'url' | 'ai-generated' | 'initials';
   url?: string;
@@ -154,6 +167,13 @@ export interface ChatMessage {
   handoffToSessionId?: string;     // Session this briefing is directed TO
 }
 
+export interface SessionActivatedTool {
+  toolName: string;
+  toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
+  message?: string;
+  timestamp: string;
+}
+
 export interface ChatSession {
   id: string;  // e.g., 'session-2026-02-27-abc123'
   agentId: string;      // deprecated — use agentIds[0]
@@ -165,6 +185,8 @@ export interface ChatSession {
   messageCount: number;
   artifacts: string[];  // Artifact IDs or paths in context
   allowedFiles: string[];  // Files agent can access in this session
+  notes?: string;
+  activatedTools?: SessionActivatedTool[];
   previousSessionId?: string;      // ID of session this was handed off from
   mergedFromSessionIds?: string[] | null;  // Sessions merged into this one
 }

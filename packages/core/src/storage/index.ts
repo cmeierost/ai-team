@@ -19,6 +19,50 @@ import {
   FileNotFoundError,
   ValidationError,
 } from '../types/index.js';
+import { generateAgentColor } from '../avatar/index.js';
+
+function normalizeText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function slugifyName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function fileNameToAgentId(filePath: string): string {
+  const base = path.basename(filePath).toLowerCase();
+  if (base === 'agent.md') {
+    return path.basename(path.dirname(filePath));
+  }
+  if (base.endsWith('.agent.md')) {
+    return path.basename(filePath, '.agent.md');
+  }
+  return path.basename(filePath, '.md');
+}
+
+function isDotAgentFile(filePath: string): boolean {
+  return path.basename(filePath).toLowerCase().endsWith('.agent.md');
+}
+
+function isAgentMdFile(filePath: string): boolean {
+  return path.basename(filePath).toLowerCase() === 'agent.md';
+}
+
+function humanizeId(id: string): string {
+  return id
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
 
 /**
  * Load agent configuration from file
@@ -31,12 +75,49 @@ export async function loadAgent(filePath: string): Promise<Agent> {
   try {
     const content = await fs.readFile(filePath, 'utf-8');
     const { data, content: markdown } = matter(content);
-    
+
+    // Detect unterminated frontmatter: file starts with --- but gray-matter
+    // returned no fields, which happens when the closing --- is missing and
+    // the YAML parser silently bails on the markdown body content.
+    if (content.trimStart().startsWith('---') && Object.keys(data).length === 0) {
+      throw new ValidationError(
+        `Invalid agent configuration in ${filePath}: YAML frontmatter appears to be missing its closing --- delimiter.`
+      );
+    }
+
     // Validate against schema
     const config = AgentSchema.parse(data) as AgentConfig;
     
-    // Generate ID from filename (remove .md extension)
-    const id = path.basename(filePath, '.md');
+    const explicitAiTeamId = normalizeText(config.aiTeamId);
+    const explicitId = normalizeText(config.id);
+    const explicitAiTeamName = normalizeText(config.aiTeamName);
+    const explicitName = normalizeText(config.name);
+
+    const fallbackFileId = (isDotAgentFile(filePath) || isAgentMdFile(filePath))
+      ? fileNameToAgentId(filePath)
+      : undefined;
+
+    const hasExplicitIdentity = Boolean(
+      explicitAiTeamId || explicitId || explicitAiTeamName || explicitName
+    );
+
+    if (!hasExplicitIdentity && !fallbackFileId) {
+      throw new ValidationError(
+        `Agent identity missing in ${filePath}. Provide one of aiTeamName, aiTeamId, name, id, or use *.agent.md filename.`
+      );
+    }
+
+    const effectiveId = explicitAiTeamId
+      || explicitId
+      || slugifyName(explicitAiTeamName || explicitName || fallbackFileId || '');
+
+    if (!effectiveId) {
+      throw new ValidationError(`Unable to resolve agent id for ${filePath}`);
+    }
+
+    const effectiveName = explicitAiTeamName
+      || explicitName
+      || humanizeId(effectiveId);
     
     // Find corresponding skill file
     const skillPath = path.join(path.dirname(filePath), `${config.role}.md`);
@@ -45,13 +126,20 @@ export async function loadAgent(filePath: string): Promise<Agent> {
     const stats = await fs.stat(filePath);
     
     return {
-      id,
+      ...config,
+      id: effectiveId,
+      name: effectiveName,
       filePath,
       skillPath,
       markdown,
       createdAt: stats.birthtime.toISOString(),
       lastInteraction: stats.mtime.toISOString(),
-      ...config,
+      // Ensure every agent has a deterministic colour even if not set in the file
+      avatar: {
+        ...config.avatar,
+        type: config.avatar?.type ?? 'initials',
+        color: config.avatar?.color ?? generateAgentColor({ name: effectiveName, avatar: config.avatar }),
+      },
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -71,10 +159,19 @@ export async function loadAgent(filePath: string): Promise<Agent> {
  */
 export async function saveAgent(agent: Agent): Promise<void> {
   // Validate before saving
-  const config = AgentSchema.parse(agent);
+  AgentSchema.parse(agent);
   
   // Separate frontmatter from file-specific and content fields
-  const { filePath, id, skillPath, createdAt, lastInteraction, conversationCount, status, markdown, ...frontmatter } = agent;
+  const {
+    filePath: _filePath,
+    skillPath: _skillPath,
+    createdAt: _createdAt,
+    lastInteraction: _lastInteraction,
+    conversationCount: _conversationCount,
+    status: _status,
+    markdown,
+    ...frontmatter
+  } = agent;
   
   // Strip undefined values — js-yaml cannot serialize them
   const cleanFrontmatter = Object.fromEntries(
@@ -131,7 +228,7 @@ export async function saveSkill(skill: Skill): Promise<void> {
   // Validate before saving
   SkillSchema.parse(skill);
   
-  const { filePath, instructions, ...frontmatter } = skill;
+  const { filePath: _filePath, instructions, ...frontmatter } = skill;
   
   const content = matter.stringify(instructions, frontmatter);
   
@@ -147,13 +244,22 @@ export async function saveSkill(skill: Skill): Promise<void> {
  * @returns Array of absolute file paths
  */
 export async function findAgentFiles(workspaceRoot: string): Promise<string[]> {
-  const pattern = '.ai-team/agents/*.md';
-  const files = await glob(pattern, {
-    cwd: workspaceRoot,
-    absolute: true,
-    ignore: ['**/node_modules/**', '**/.git/**'],
-  });
-  return files;
+  const patterns = [
+    '**/agent.md',
+    '**/*.agent.md',
+    '.ai-team/agents/*.md',
+  ];
+
+  const ignore = ['**/node_modules/**', '**/.git/**'];
+  const allResults = await Promise.all(
+    patterns.map(pattern => glob(pattern, {
+      cwd: workspaceRoot,
+      absolute: true,
+      ignore,
+    }))
+  );
+
+  return Array.from(new Set(allResults.flat())).sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -473,3 +579,4 @@ export function buildAgentMarkdown(parts: AgentMarkdownParts): string {
 
 // File tree utilities — re-export for convenience
 export * from './file-tree.js';
+export * from './file-tree-cache.js';

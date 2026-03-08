@@ -107,7 +107,11 @@ export async function tryIntroduceUser(
   }
 
   async function doIntroduce(): Promise<void> {
-    if (!hooks.emit) process.stdout.write(`\n${agent.name} (${agent.role}): `);
+    if (hooks.emit) {
+      hooks.emit({ kind: 'token', text: `\n${agent.name} (${agent.role}): ` });
+    } else {
+      process.stdout.write(`\n${agent.name} (${agent.role}): `);
+    }
 
     let text: string;
     try {
@@ -127,18 +131,27 @@ export async function tryIntroduceUser(
         },
       );
     } catch (err) {
-      if (!hooks.emit) process.stdout.write('\n\n');
+      if (hooks.emit) {
+        hooks.emit({ kind: 'token', text: '\n\n' });
+      } else {
+        process.stdout.write('\n\n');
+      }
       if (isAbort(err)) throw err;
       emitLog(hooks, 'error', `LLM unavailable: ${err instanceof Error ? err.message : String(err)}`);
       emitLog(hooks, 'info', 'Introduction skipped. You can continue once the LLM is reachable.');
       return;
     }
 
-    if (!hooks.emit) process.stdout.write('\n\n');
+    if (hooks.emit) {
+      hooks.emit({ kind: 'token', text: '\n\n' });
+    } else {
+      process.stdout.write('\n\n');
+    }
 
     const agentMsg: ChatMessage = {
       timestamp: new Date().toISOString(),
       from: agent.id,
+      to: 'human',
       content: text,
       importance: 'low',
     };

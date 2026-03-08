@@ -1,4 +1,4 @@
-import { AgentManager, SkillManager, ContextLevel, RoleType } from '@ai-team/core';
+import { AgentManager, SkillManager, ContextLevel } from '@ai-team/core';
 import type { CreateAgentSetupInput, CreateOptions, CreateSkillSetupInput } from '../contracts.js';
 
 export async function createCommand(workspaceRoot: string, type: string, options: CreateOptions) {

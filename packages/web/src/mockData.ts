@@ -7,7 +7,7 @@ export const mockAgents: Agent[] = [
   {
     id: 'cto',
     name: 'Alex Chen',
-    role: 'Chief Technology Officer',
+    role: 'Chief Executive Officer',
     status: 'available',
     specializations: ['Architecture', 'Strategy', 'Team Leadership'],
   },

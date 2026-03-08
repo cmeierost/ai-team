@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useMatch } from 'react-router-dom';
 import { useTeam, API_BASE } from '../context/TeamContext';
-import { ChatMessage } from '../types';
+import { ChatMessage, SessionActivatedTool } from '../types';
 import { Avatar } from './Avatar';
 import { MarkdownMessage } from './MarkdownMessage';
 import { ContextPanel } from './ContextPanel';
-import { AgentBriefingBadge } from './AgentBriefingBadge';
 import { RelativeTime } from './RelativeTime';
 import { SessionGraphLoader } from './SessionGraph';
 import { getAgentColor } from '../utils/color';
@@ -14,6 +13,23 @@ import './ChatPanel.css';
 /** Match patterns for URL-driven session + graph routing */
 const SESSION_ROUTE  = '/chat/:agentId/session/:sessionId';
 const GRAPH_ROUTE   = '/chat/:agentId/session/:sessionId/thread';
+const SESSION_META_PREFIX = '<!-- ai-team:session-meta ';
+const SESSION_META_SUFFIX = ' -->';
+
+function extractSessionActivatedTools(notes?: string): SessionActivatedTool[] {
+  if (!notes?.includes(SESSION_META_PREFIX)) return [];
+  const start = notes.lastIndexOf(SESSION_META_PREFIX);
+  if (start < 0) return [];
+  const jsonStart = start + SESSION_META_PREFIX.length;
+  const end = notes.indexOf(SESSION_META_SUFFIX, jsonStart);
+  if (end < 0) return [];
+  try {
+    const parsed = JSON.parse(notes.slice(jsonStart, end)) as { activatedTools?: SessionActivatedTool[] };
+    return Array.isArray(parsed.activatedTools) ? parsed.activatedTools : [];
+  } catch {
+    return [];
+  }
+}
 
 interface QuestionChoice {
   name: string;
@@ -41,22 +57,6 @@ interface PasswordQuestionRequest {
 interface ChecklistQuestionRequest {
   message: string;
   choices: QuestionChoice[];
-}
-
-function getFallbackQuestionAnswer(question: {
-  kind: 'input' | 'password' | 'confirm' | 'select' | 'checklist';
-  choices?: QuestionChoice[];
-}): string | boolean | string[] {
-  if (question.kind === 'confirm') {
-    return false;
-  }
-  if (question.kind === 'checklist') {
-    return [];
-  }
-  if (question.kind === 'select') {
-    return question.choices?.[0]?.value ?? '';
-  }
-  return '';
 }
 
 type PendingQuestion =
@@ -136,6 +136,8 @@ export function ChatPanel() {
   const [editContent, setEditContent] = useState('');
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [artifactsInContext, setArtifactsInContext] = useState<string[]>([]);
+  const [allowedTools, setAllowedTools] = useState<string[]>([]);
+  const [activatedTools, setActivatedTools] = useState<SessionActivatedTool[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [recognition, setRecognition] = useState<any>(null);
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
@@ -162,6 +164,7 @@ export function ChatPanel() {
   // normally re-trigger loadSession and wipe the in-progress stream. We store the
   // just-navigated session ID here so loadSession can skip that one reload.
   const skipNextSessionLoadRef = useRef<string | null>(null);
+  const lastPersistedToolStateRef = useRef<string>('');
 
   // Detect when we are on the graph subroute or session subroute
   const graphRouteMatch   = useMatch(GRAPH_ROUTE);
@@ -198,13 +201,6 @@ export function ChatPanel() {
   // Helper: check if message is an agent-to-agent briefing
   const isAgentBriefing = (message: ChatMessage): boolean => {
     return message.handoffType === 'agent-briefing';
-  };
-
-  // Helper: get target agent name from briefing message
-  const getTargetAgentName = (message: ChatMessage): string | null => {
-    if (!message.targetAgentId) return null;
-    const targetAgent = agents.find((a) => a.id === message.targetAgentId);
-    return targetAgent ? targetAgent.name : message.targetAgentId;
   };
 
   // Helper: format developer ID to display name (e.g., "clemens-meier" -> "Clemens Meier")
@@ -291,6 +287,7 @@ export function ChatPanel() {
         setCurrentSessionId(newSession.id);
         setCurrentAgentId(targetAgentId);
         setArtifactsInContext(sessionWithMessages.artifacts || newSession.artifacts || []);
+        setActivatedTools(extractSessionActivatedTools(sessionWithMessages.notes));
       }
 
       // Notify parent to switch agent
@@ -345,6 +342,33 @@ export function ChatPanel() {
     }
   };
 
+  useEffect(() => {
+    if (!currentAgentId) {
+      setAllowedTools([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadAllowedTools = async () => {
+      try {
+        const response = await client.listTools({ agent: currentAgentId });
+        if (cancelled) return;
+        const allowed = response.entries
+          .filter((entry) => entry.allowedForAgent === true)
+          .map((entry) => entry.name)
+          .sort((a, b) => a.localeCompare(b));
+        setAllowedTools(allowed);
+      } catch {
+        if (!cancelled) setAllowedTools([]);
+      }
+    };
+
+    void loadAllowedTools();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, currentAgentId]);
+
   // Scroll to a handoff message identified by handoffId after messages have loaded
   useEffect(() => {
     if (!scrollToHandoffId) return;
@@ -396,6 +420,7 @@ export function ChatPanel() {
             setCurrentSessionId(sessionId);
             setMessages(sessionMessages);
             setArtifactsInContext(sessionArtifacts);
+            setActivatedTools(extractSessionActivatedTools(sessionWithMessages.notes));
             setCurrentAgentId(agentId);
 
             // Reflect the session ID in the URL (replace so back button stays clean)
@@ -409,6 +434,7 @@ export function ChatPanel() {
           if (!cancelled) {
             setCurrentSessionId(null);
             setArtifactsInContext([]);
+            setActivatedTools([]);
             setCurrentAgentId(agentId);
           }
           // loadGreeting has its own cancel guard via the closure flag
@@ -421,6 +447,7 @@ export function ChatPanel() {
         if (!cancelled) {
           setCurrentSessionId(null);
           setArtifactsInContext([]);
+          setActivatedTools([]);
           setCurrentAgentId(agentId);
           await loadGreeting(agentId);
         }
@@ -723,6 +750,7 @@ export function ChatPanel() {
                 setCurrentSessionId(targetSessionId);
                 setCurrentAgentId(toAgentId);
                 setArtifactsInContext(sessionWithMessages.artifacts || []);
+                setActivatedTools(extractSessionActivatedTools(sessionWithMessages.notes));
                 setSessionRefreshTrigger((t) => t + 1);
                 // Navigate to the real session URL immediately — no F5 needed
                 skipNextSessionLoadRef.current = targetSessionId;
@@ -760,8 +788,13 @@ export function ChatPanel() {
           // Could show status like "thinking..." in UI
           console.log('Status:', event);
         } else if (event.kind === 'tool') {
-          // Could show tool usage in UI
-          console.log('Tool:', event);
+          const toolEvent: SessionActivatedTool = {
+            toolName: event.toolName,
+            toolPhase: event.toolPhase,
+            message: event.message,
+            timestamp: event.timestamp || new Date().toISOString(),
+          };
+          setActivatedTools((prev) => [...prev, toolEvent].slice(-40));
         } else if (event.kind === 'error') {
           throw new Error(event.message || 'Chat error');
         }
@@ -893,9 +926,17 @@ export function ChatPanel() {
     if (!confirm('Delete this message?')) return;
 
     try {
-      const response = await fetch(`${API_BASE}/api/chat/${currentAgentId}/messages/${index}`, {
-        method: 'DELETE',
-      });
+      const targetMessage = messages[index];
+      if (!targetMessage) return;
+
+      const response = currentSessionId
+        ? await fetch(
+            `${API_BASE}/api/sessions/${encodeURIComponent(currentSessionId)}/messages/${encodeURIComponent(targetMessage.timestamp)}`,
+            { method: 'DELETE' },
+          )
+        : await fetch(`${API_BASE}/api/chat/${currentAgentId}/messages/${index}`, {
+            method: 'DELETE',
+          });
 
       if (response.ok) {
         setMessages((prev) => prev.filter((_, i) => i !== index));
@@ -1064,6 +1105,7 @@ export function ChatPanel() {
     // Do NOT create a session immediately — show the greeting and wait for the first user message
     setCurrentSessionId(null);
     setArtifactsInContext([]);
+    setActivatedTools([]);
     setMessages([]);
     setIsEphemeral(false);
     // Navigate to the agent base URL so no stale session ID lingers in the URL
@@ -1081,6 +1123,27 @@ export function ChatPanel() {
       console.error('Failed to switch session:', error);
     }
   };
+
+  useEffect(() => {
+    if (!currentSessionId) {
+      lastPersistedToolStateRef.current = '';
+      return;
+    }
+
+    const payload = JSON.stringify(activatedTools);
+    if (payload === lastPersistedToolStateRef.current) {
+      return;
+    }
+
+    lastPersistedToolStateRef.current = payload;
+    void fetch(`${API_BASE}/api/sessions/${currentSessionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activatedTools }),
+    }).catch((error) => {
+      console.error('Failed to persist activated tools:', error);
+    });
+  }, [currentSessionId, activatedTools]);
 
   if (!agent) {
     return <div className="error">Agent not found: {currentAgentId}</div>;
@@ -1203,10 +1266,14 @@ export function ChatPanel() {
               </div>
               <div className="message-bubble">
                 <div className="message-header">
-                  <strong>{isHumanMessage(message) ? (developer?.name || formatDeveloperName(message.from)) : (agents.find((a) => a.id === message.from) ?? agent).name}</strong>
-                  {isAgentBriefing(message) && getTargetAgentName(message) && (
-                    <AgentBriefingBadge targetAgentName={getTargetAgentName(message)!} />
-                  )}
+                  <strong>
+                    {isHumanMessage(message)
+                      ? (developer?.name || formatDeveloperName(message.from))
+                      : isAgentBriefing(message) && message.to
+                        ? `${(agents.find((a) => a.id === message.from) ?? agent).name} → ${(agents.find((a) => a.id === message.to))?.name ?? message.to}`
+                        : (agents.find((a) => a.id === message.from) ?? agent).name
+                    }
+                  </strong>
                   <RelativeTime timestamp={message.timestamp} className="message-time" />
                   {message.archived && <span className="archived-badge">📦 Archived</span>}
                 </div>
@@ -1423,6 +1490,8 @@ export function ChatPanel() {
         agentId={agentId || currentAgentId}
         sessionId={currentSessionId ?? undefined}
         artifacts={artifactsInContext}
+        allowedTools={allowedTools}
+        activatedTools={activatedTools}
         onToggleArtifact={handleToggleArtifact}
         onSwitchSession={handleSwitchSession}
         onDeleteSession={handleDeleteSession}

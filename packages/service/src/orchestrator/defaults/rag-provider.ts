@@ -11,7 +11,6 @@ import type { IRagProvider } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
 
 export class NoOpRagProvider implements IRagProvider {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async retrieve(_query: string, _ctx: OrchestratorContext): Promise<null> {
     return null;
   }

@@ -7,7 +7,6 @@ import path from 'path';
 import {
   ChatMessage,
   MeetingSummary,
-  Agent,
 } from '../types/index.js';
 
 export { ChatContextManager } from './chat-context-manager.js';

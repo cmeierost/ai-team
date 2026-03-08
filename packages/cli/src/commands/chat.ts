@@ -7,6 +7,7 @@ import type {
   QuestionPasswordRequest,
   QuestionSelectRequest,
 } from '@ai-team/api-client';
+import { generateAgentColor, parseHslHue } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/ide-interface';
 import { findWorkspaceRoot } from '@ai-team/service';
 import chalk from 'chalk';
@@ -279,6 +280,52 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
   const streamOut = options.oneShot ? process.stdout : process.stderr;
   const abortControl = setupAbortController(writeStderrLine);
 
+  // ── Agent color tracking ──────────────────────────────────────────────────
+  // Colors are resolved from the agent's identity at render time.
+  // The current agent identity is updated from status (agent_info) and handoff events.
+  let currentAgentId: string | undefined = agentId;
+  let currentAgentName: string | undefined;
+
+  function resolveAgentIdentity(id?: string, name?: string) {
+    return {
+      id,
+      name: name ?? id ?? 'unknown',
+      avatar: undefined,
+    };
+  }
+
+  function agentChalk(id?: string, name?: string) {
+    const identity = resolveAgentIdentity(id, name);
+    const hsl = generateAgentColor({
+      name: identity.name,
+      avatar: identity.avatar,
+    });
+    const hue = parseHslHue(hsl);
+    if (hue !== undefined) {
+      // Convert HSL(hue, 70%, 60%) to RGB for chalk v5 compatibility
+      const s = 0.7, l = 0.6;
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+      const m = l - c / 2;
+      let r1 = 0, g1 = 0, b1 = 0;
+      if (hue < 60)      { r1 = c; g1 = x; }
+      else if (hue < 120) { r1 = x; g1 = c; }
+      else if (hue < 180) { g1 = c; b1 = x; }
+      else if (hue < 240) { g1 = x; b1 = c; }
+      else if (hue < 300) { r1 = x; b1 = c; }
+      else                { r1 = c; b1 = x; }
+      const r = Math.round((r1 + m) * 255);
+      const g = Math.round((g1 + m) * 255);
+      const b = Math.round((b1 + m) * 255);
+      return chalk.rgb(r, g, b);
+    }
+    return chalk;
+  }
+
+  function colorize(text: string, id?: string, name?: string): string {
+    return agentChalk(id, name)(text);
+  }
+
   try {
     for await (const event of client.stream({
       command: 'chat',
@@ -307,7 +354,10 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
         : undefined,
     })) {
       if (event.kind === 'token') {
-        streamOut.write(event.text);
+        // Always write tokens to stdout — same stream as readline's prompt,
+        // guaranteeing correct ordering on Windows (ConPTY merges stdout/stderr
+        // but they may flush in non-deterministic order).
+        process.stdout.write(colorize(event.text, currentAgentId, currentAgentName));
         continue;
       }
 
@@ -318,6 +368,9 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
       }
 
       if (event.kind === 'status' && event.message) {
+        if (event.phase === 'agent_info') {
+          currentAgentName = event.message.trim() || currentAgentName;
+        }
         if (options.oneShot || mediatorLoggerEnabled) {
           writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
         }
@@ -342,9 +395,17 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
         const e = event as any;
         const from = e.fromAgentName || e.fromAgentId;
         const to = e.toAgentName || e.toAgentId;
+        currentAgentId = e.toAgentId || currentAgentId;
+        currentAgentName = e.toAgentName || e.toAgentId || currentAgentName;
         const note = e.handoffNote ? `: ${e.handoffNote}` : '';
+        const fromStyled = agentChalk(e.fromAgentId, e.fromAgentName).bold(String(from));
+        const toStyled = agentChalk(e.toAgentId, e.toAgentName).bold(String(to));
         writeStderrLine('');
-        writeStderrLine(chalk.bold(`${from}`) + chalk.dim(' → ') + chalk.bold(`${to}`) + chalk.dim(note));
+        writeStderrLine(fromStyled + chalk.dim(' → ') + toStyled + chalk.dim(note));
+        if (e.briefingContent) {
+          writeStderrLine('');
+          writeStderrLine(chalk.italic.gray(e.briefingContent));
+        }
         writeStderrLine('');
         continue;
       }

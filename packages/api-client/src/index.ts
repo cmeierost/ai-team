@@ -1,4 +1,4 @@
-import { GraphData, ViewMode, Agent, AgentConfig, AnnotatedFile, MarkdownSection, AgentManager, ContextManager, getFileTree, loadTeamConfig, parseMarkdownSections, replaceOrAppendMarkdownSection } from '@ai-team/core';
+import { GraphData, ViewMode, Agent, AgentConfig, AnnotatedFile, MarkdownSection, AgentManager, ContextManager, listCachedWorkspaceFiles, loadTeamConfig, parseMarkdownSections, replaceOrAppendMarkdownSection } from '@ai-team/core';
 import {
   AiTeamCommandName,
   AiTeamCommandResponseMap,
@@ -31,10 +31,18 @@ import {
   HireOptions,
   InitOptions,
   ListEmployeesRequest,
+  SearchSkillsOptions,
+  SearchSkillsResponse,
   ProviderSetupInput,
   ProviderListOptions,
   ProviderModelsOptions,
   RefreshProviderModelsOptions,
+  UpdateAgentSkillOptions,
+  UpdateAgentSkillResponse,
+  ListToolsOptions,
+  ListToolsResponse,
+  UpdateAgentToolOptions,
+  UpdateAgentToolResponse,
   WorkflowFrame,
   WorkflowStateSnapshot,
   type ServiceErrorCode,
@@ -63,6 +71,7 @@ export interface AiTeamClient {
   listEmployees(request: ListEmployeesRequest): Promise<Employee[]>;
   resolveEmployees(query: string): Promise<Employee[]>;
   searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse>;
+  searchSkills(options?: SearchSkillsOptions): Promise<SearchSkillsResponse>;
   /** Get agent frontmatter (fuzzy query by id/name/role) */
   getAgentFrontmatter(query: string): Promise<Agent>;
   /** Partially update agent frontmatter fields (fuzzy query) */
@@ -77,6 +86,11 @@ export interface AiTeamClient {
   updateAgentMarkdown(query: string, markdown: string): Promise<Agent>;
   /** Get annotated file list with read/write permissions (fuzzy query) */
   getAgentFiles(query: string, options?: { depth?: number; all?: boolean }): Promise<AgentFilesResponse>;
+  addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse>;
+  removeSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse>;
+  listTools(options?: ListToolsOptions): Promise<ListToolsResponse>;
+  allowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
+  disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;
@@ -121,6 +135,10 @@ class InProcessAiTeamClient implements AiTeamClient {
 
   async searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse> {
     return this.service.searchAgents(request);
+  }
+
+  async searchSkills(options: SearchSkillsOptions = {}): Promise<SearchSkillsResponse> {
+    return this.service.searchSkills(options);
   }
 
   async getAgentFrontmatter(query: string): Promise<Agent> {
@@ -169,15 +187,12 @@ class InProcessAiTeamClient implements AiTeamClient {
     const ws = this.service.workspaceRoot;
     const config = await loadTeamConfig(ws);
     const allowPaths = config?.fileTree?.allowPaths ?? [];
-    const tree = await getFileTree(ws, { maxDepth: options?.depth ?? 6, allowPaths });
-    // flatten
-    const allFiles: string[] = [];
-    const stack = [tree];
-    while (stack.length > 0) {
-      const n = stack.pop()!;
-      if (!n.isDirectory && n.relativePath !== '') allFiles.push(n.relativePath);
-      if (n.children) for (let i = n.children.length - 1; i >= 0; i--) stack.push(n.children[i]);
-    }
+      const entries = await listCachedWorkspaceFiles(ws, {
+        maxDepth: options?.depth ?? 6,
+        allowPaths,
+        filesOnly: true,
+      });
+      const allFiles = entries.map((entry) => entry.relativePath);
     const ctx = ContextManager.fromConfig(ws, config?.fileTree);
     const annotated = ctx.getAnnotatedFiles(agent, allFiles);
     const files = options?.all ? annotated : annotated.filter(f => f.readable || f.writable);
@@ -187,6 +202,26 @@ class InProcessAiTeamClient implements AiTeamClient {
       writePatterns: agent.permissions?.write ?? [],
       files,
     };
+  }
+
+  async addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
+    return this.service.addSkill(options);
+  }
+
+  async removeSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
+    return this.service.removeSkill(options);
+  }
+
+  async listTools(options: ListToolsOptions = {}): Promise<ListToolsResponse> {
+    return this.service.listTools(options);
+  }
+
+  async allowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse> {
+    return this.service.allowTool(options);
+  }
+
+  async disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse> {
+    return this.service.disallowTool(options);
   }
 
   async getTeamGraph(mode?: ViewMode): Promise<GraphData> {
@@ -277,6 +312,8 @@ export type {
   HireOptions,
   InitOptions,
   ListEmployeesRequest,
+  SearchSkillsOptions,
+  SearchSkillsResponse,
   MediatorContext,
   MediatorEvent,
   MediatorRuntimeEvent,
@@ -291,8 +328,14 @@ export type {
   QuestionSelectRequest,
   ProviderSetupInput,
   ProviderListOptions,
+  ListToolsOptions,
+  ListToolsResponse,
   ProviderModelsOptions,
   RefreshProviderModelsOptions,
+  UpdateAgentSkillOptions,
+  UpdateAgentSkillResponse,
+  UpdateAgentToolOptions,
+  UpdateAgentToolResponse,
   WorkflowFrame,
   WorkflowStateSnapshot,
   ServiceErrorCode,

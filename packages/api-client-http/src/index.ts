@@ -16,9 +16,17 @@ import type {
   ListEmployeesRequest,
   SearchAgentsRequest,
   SearchAgentsResponse,
+  SearchSkillsOptions,
+  SearchSkillsResponse,
   ProviderListOptions,
   ProviderModelsOptions,
   RefreshProviderModelsOptions,
+  UpdateAgentSkillOptions,
+  UpdateAgentSkillResponse,
+  ListToolsOptions,
+  ListToolsResponse,
+  UpdateAgentToolOptions,
+  UpdateAgentToolResponse,
   TestConnectionOptions,
 } from '@ai-team/service';
 import type { AgentStatus, AgentConfig, AnnotatedFile, ContextLevel, GraphData, MarkdownSection, RoleType, ViewMode } from '@ai-team/core';
@@ -62,6 +70,7 @@ export interface AiTeamHttpClient {
   listEmployees(request: ListEmployeesRequest): Promise<Employee[]>;
   resolveEmployees(query: string): Promise<Employee[]>;
   searchAgents(request: SearchAgentsRequest): Promise<SearchAgentsResponse>;
+  searchSkills(options?: SearchSkillsOptions): Promise<SearchSkillsResponse>;
   /** Get agent frontmatter (fuzzy query by id/name/role) */
   getAgentFrontmatter(query: string): Promise<Employee>;
   /** Partially update agent frontmatter fields (fuzzy query) */
@@ -76,6 +85,11 @@ export interface AiTeamHttpClient {
   updateAgentMarkdown(query: string, markdown: string): Promise<Employee>;
   /** Get annotated file list with read/write permissions (fuzzy query) */
   getAgentFiles(query: string, options?: { depth?: number; all?: boolean }): Promise<AgentFilesResponse>;
+  addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse>;
+  removeSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse>;
+  listTools(options?: ListToolsOptions): Promise<ListToolsResponse>;
+  allowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
+  disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   /** Get the full handoff session thread for any session in the chain */
@@ -258,10 +272,137 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     if (options?.depth != null) params.append('depth', String(options.depth));
     if (options?.all) params.append('all', 'true');
     const qs = params.toString();
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(query)}/files${qs ? `?${qs}` : ''}`;
+    const baseUrl = `${this.baseUrl}/api/agents/${encodeURIComponent(query)}/files`;
+    const url = qs ? `${baseUrl}?${qs}` : baseUrl;
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Failed to get agent files for "${query}"`);
+    }
+    return response.json();
+  }
+
+  async listTools(options: ListToolsOptions = {}): Promise<ListToolsResponse> {
+    const params = new URLSearchParams();
+    if (options.agent) {
+      params.set('agent', options.agent);
+    }
+    const queryString = params.toString();
+    const baseUrl = `${this.baseUrl}/api/tools`;
+    const url = queryString ? `${baseUrl}?${queryString}` : baseUrl;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error('Failed to list tools');
+    }
+    return response.json();
+  }
+
+  async allowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse> {
+    const response = await fetch(`${this.baseUrl}/api/tools/allow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    });
+
+    if (response.ok) {
+      return response.json();
+    }
+
+    // Backward compatibility fallback for older servers
+    if (response.status !== 404) {
+      throw new Error('Failed to allow tool');
+    }
+
+    const frontmatter = await this.getAgentFrontmatter(options.agent);
+    const currentTools = frontmatter.tools ?? [];
+    const changed = !currentTools.includes(options.tool);
+    const nextTools = changed
+      ? [...currentTools, options.tool].sort((a, b) => a.localeCompare(b))
+      : [...currentTools];
+
+    const updated = changed
+      ? await this.updateAgentFrontmatter(frontmatter.id, { tools: nextTools })
+      : frontmatter;
+
+    return {
+      agent: { id: updated.id, name: updated.name, role: updated.role },
+      tool: options.tool,
+      tools: updated.tools ?? nextTools,
+      changed,
+    };
+  }
+
+  async disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse> {
+    const response = await fetch(`${this.baseUrl}/api/tools/disallow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    });
+
+    if (response.ok) {
+      return response.json();
+    }
+
+    // Backward compatibility fallback for older servers
+    if (response.status !== 404) {
+      throw new Error('Failed to disallow tool');
+    }
+
+    const frontmatter = await this.getAgentFrontmatter(options.agent);
+    const currentTools = frontmatter.tools ?? [];
+    const nextTools = currentTools.filter(tool => tool !== options.tool);
+    const changed = nextTools.length !== currentTools.length;
+
+    const updated = changed
+      ? await this.updateAgentFrontmatter(frontmatter.id, { tools: nextTools })
+      : frontmatter;
+
+    return {
+      agent: { id: updated.id, name: updated.name, role: updated.role },
+      tool: options.tool,
+      tools: updated.tools ?? nextTools,
+      changed,
+    };
+  }
+
+  async addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
+    const response = await fetch(`${this.baseUrl}/api/skills/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to add skill');
+    }
+
+    return response.json();
+  }
+
+  async removeSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
+    const response = await fetch(`${this.baseUrl}/api/skills/remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to remove skill');
+    }
+
+    return response.json();
+  }
+
+  async searchSkills(options: SearchSkillsOptions = {}): Promise<SearchSkillsResponse> {
+    const params = new URLSearchParams();
+    if (options.query) params.append('q', options.query);
+    if (options.agent) params.append('agent', options.agent);
+
+    const queryString = params.toString();
+    const baseUrl = `${this.baseUrl}/api/skills`;
+    const url = queryString ? `${baseUrl}?${queryString}` : baseUrl;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error('Failed to search skills');
     }
     return response.json();
   }
@@ -441,6 +582,13 @@ export interface ChatMessage {
   handoffToSessionId?: string;
 }
 
+export interface SessionActivatedTool {
+  toolName: string;
+  toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
+  message?: string;
+  timestamp: string;
+}
+
 export interface ChatSession {
   id: string;
   agentId: string;
@@ -452,6 +600,8 @@ export interface ChatSession {
   messageCount: number;
   artifacts: string[];
   allowedFiles: string[];
+  notes?: string;
+  activatedTools?: SessionActivatedTool[];
   previousSessionId?: string;
   mergedFromSessionIds?: string[] | null;
   messages?: ChatMessage[];

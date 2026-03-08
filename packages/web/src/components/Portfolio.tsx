@@ -182,6 +182,58 @@ export function Portfolio() {
   const [draft, setDraft] = useState<Partial<Agent>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [toolEntries, setToolEntries] = useState<Array<{ name: string; description: string; allowedForAgent?: boolean }>>([]);
+  const [toolsLoading, setToolsLoading] = useState(false);
+  const [toolActionPending, setToolActionPending] = useState<string | null>(null);
+  const [toolsError, setToolsError] = useState<string | null>(null);
+  const [skillEntries, setSkillEntries] = useState<Array<{ name: string; description: string; assignedToAgent?: boolean }>>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillActionPending, setSkillActionPending] = useState<string | null>(null);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+
+  const loadTools = async (targetAgentId: string) => {
+    setToolsLoading(true);
+    setToolsError(null);
+    try {
+      const response = await client.listTools({ agent: targetAgentId });
+      setToolEntries(
+        response.entries
+          .map((entry) => ({
+            name: entry.name,
+            description: entry.description,
+            allowedForAgent: entry.allowedForAgent,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    } catch (e: any) {
+      setToolsError(e?.message || 'Failed to load tools');
+      setToolEntries([]);
+    } finally {
+      setToolsLoading(false);
+    }
+  };
+
+  const loadSkills = async (targetAgentId: string) => {
+    setSkillsLoading(true);
+    setSkillsError(null);
+    try {
+      const response = await client.searchSkills({ agent: targetAgentId });
+      setSkillEntries(
+        response.entries
+          .map((entry) => ({
+            name: entry.name,
+            description: entry.description,
+            assignedToAgent: entry.assignedToAgent,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    } catch (e: any) {
+      setSkillsError(e?.message || 'Failed to load skills');
+      setSkillEntries([]);
+    } finally {
+      setSkillsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!loading && !agent && agentId) navigate('/not-found', { replace: true });
@@ -191,6 +243,12 @@ export function Portfolio() {
     setIsEditing(false);
     setDraft({});
     setSaveError(null);
+  }, [agentId]);
+
+  useEffect(() => {
+    if (!agentId) return;
+    void loadTools(agentId);
+    void loadSkills(agentId);
   }, [agentId]);
 
   if (loading) return <div className="portfolio-loading"><i className="codicon codicon-loading codicon-modifier-spin" /> Loading portfolio…</div>;
@@ -208,7 +266,7 @@ export function Portfolio() {
     setSaveError(null);
     try {
       const { markdown: draftMarkdown, id: _id, filePath: _fp, skillPath: _sp, createdAt: _ca,
-        lastInteraction: _li, conversationCount: _cc, status: _st, ...editableFields } = draft as any;
+        lastInteraction: _li, conversationCount: _cc, status: _st, tools: _tools, ...editableFields } = draft as any;
       await client.updateAgentFrontmatter(agent.id, editableFields);
       if (draftMarkdown !== undefined && draftMarkdown !== agent.markdown) {
         await client.updateAgentMarkdown(agent.id, draftMarkdown);
@@ -228,6 +286,42 @@ export function Portfolio() {
     setDraft((d) => ({ ...d, personality: { ...d.personality, ...fields } }));
   const patchCapabilities = (fields: Partial<AgentCapabilities>) =>
     setDraft((d) => ({ ...d, capabilities: { ...d.capabilities, ...fields } }));
+
+  const handleToggleTool = async (toolName: string, currentlyAllowed: boolean) => {
+    if (!agentId || toolActionPending) return;
+    setToolActionPending(toolName);
+    setToolsError(null);
+    try {
+      if (currentlyAllowed) {
+        await client.disallowTool({ agent: agentId, tool: toolName });
+      } else {
+        await client.allowTool({ agent: agentId, tool: toolName });
+      }
+      await Promise.all([refresh(), loadTools(agentId)]);
+    } catch (e: any) {
+      setToolsError(e?.message || `Failed to ${currentlyAllowed ? 'disallow' : 'allow'} tool`);
+    } finally {
+      setToolActionPending(null);
+    }
+  };
+
+  const handleToggleSkill = async (skillName: string, currentlyAssigned: boolean) => {
+    if (!agentId || skillActionPending) return;
+    setSkillActionPending(skillName);
+    setSkillsError(null);
+    try {
+      if (currentlyAssigned) {
+        await client.removeSkill({ agent: agentId, skill: skillName });
+      } else {
+        await client.addSkill({ agent: agentId, skill: skillName });
+      }
+      await Promise.all([refresh(), loadSkills(agentId)]);
+    } catch (e: any) {
+      setSkillsError(e?.message || `Failed to ${currentlyAssigned ? 'remove' : 'add'} skill`);
+    } finally {
+      setSkillActionPending(null);
+    }
+  };
 
   // In edit mode, draft overrides agent for display
   const v: Agent = isEditing ? { ...agent, ...draft } : agent;
@@ -537,6 +631,51 @@ export function Portfolio() {
           </SectionCard>
         )}
 
+        {/* ── Skill Assignments (catalog) ── */}
+        <SectionCard title="Skill Assignments" icon="🎓">
+          {skillsError && (
+            <div className="tool-permissions-error">
+              <i className="codicon codicon-error" /> {skillsError}
+            </div>
+          )}
+
+          {skillsLoading ? (
+            <p className="text-muted">Loading skills…</p>
+          ) : skillEntries.length === 0 ? (
+            <p className="text-muted">No skills found.</p>
+          ) : (
+            <div className="tool-permissions-list">
+              {skillEntries.map((entry) => {
+                const assigned = entry.assignedToAgent === true;
+                const pending = skillActionPending === entry.name;
+                return (
+                  <div key={entry.name} className="tool-permission-item">
+                    <div className="tool-permission-main">
+                      <div className="tool-permission-name-row">
+                        <span className="tool-tag">{entry.name}</span>
+                        <span className={`tool-permission-state ${assigned ? 'allowed' : 'disallowed'}`}>
+                          {assigned ? 'Assigned' : 'Unassigned'}
+                        </span>
+                      </div>
+                      {entry.description ? (
+                        <p className="tool-permission-description">{entry.description}</p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      className={`tool-permission-toggle ${assigned ? 'is-disallow' : 'is-allow'}`}
+                      onClick={() => handleToggleSkill(entry.name, assigned)}
+                      disabled={pending || !!skillActionPending}
+                    >
+                      {pending ? 'Updating…' : assigned ? 'Remove' : 'Assign'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
+
         {/* ── Agent Capabilities (A2A) ── */}
         {(v.capabilities || isEditing) && (
           <SectionCard title="Agent Capabilities" icon="⚙️">
@@ -598,19 +737,48 @@ export function Portfolio() {
           </SectionCard>
         )}
 
-        {/* ── Tools ── */}
-        {((v.tools?.length ?? 0) > 0 || isEditing) && (
-          <SectionCard title="Tools" icon="🔧">
-            {isEditing ? (
-              <TagInput tags={draft.tools ?? agent.tools ?? []}
-                onChange={(tags) => patchDraft({ tools: tags })} placeholder="Add tool…" />
-            ) : (
-              <div className="tool-tags">
-                {v.tools?.map((t) => <span key={t} className="tool-tag">{t}</span>)}
-              </div>
-            )}
-          </SectionCard>
-        )}
+        {/* ── Tools / Command Permissions ── */}
+        <SectionCard title="Tools & Command Permissions" icon="🔧">
+          {toolsError && (
+            <div className="tool-permissions-error">
+              <i className="codicon codicon-error" /> {toolsError}
+            </div>
+          )}
+
+          {toolsLoading ? (
+            <p className="text-muted">Loading tool catalog…</p>
+          ) : toolEntries.length === 0 ? (
+            <p className="text-muted">No tools found.</p>
+          ) : (
+            <div className="tool-permissions-list">
+              {toolEntries.map((tool) => {
+                const allowed = tool.allowedForAgent === true;
+                const pending = toolActionPending === tool.name;
+                return (
+                  <div key={tool.name} className="tool-permission-item">
+                    <div className="tool-permission-main">
+                      <div className="tool-permission-name-row">
+                        <span className="tool-tag">{tool.name}</span>
+                        <span className={`tool-permission-state ${allowed ? 'allowed' : 'disallowed'}`}>
+                          {allowed ? 'Allowed' : 'Disallowed'}
+                        </span>
+                      </div>
+                      <p className="tool-permission-description">{tool.description}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className={`tool-permission-toggle ${allowed ? 'is-disallow' : 'is-allow'}`}
+                      onClick={() => handleToggleTool(tool.name, allowed)}
+                      disabled={pending || !!toolActionPending}
+                    >
+                      {pending ? 'Updating…' : allowed ? 'Disallow' : 'Allow'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
 
         {/* ── Capabilities ── */}
         {(v.capabilities || isEditing) && (

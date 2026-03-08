@@ -12,6 +12,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { minimatch } from 'minimatch';
+import {
+  normalizeWorkspaceRelativePath,
+  resolveInsideWorkspace,
+  toWorkspaceRelativePath,
+} from './path-safety.js';
 
 // ============================================================================
 // Types
@@ -157,11 +162,14 @@ function isIgnoredByRules(relPath: string, isDirectory: boolean, ruleSets: Ignor
  */
 function isAllowed(relPath: string, allowPaths: string[]): boolean {
   if (allowPaths.length === 0) return false;
+
+  const normalizedRelPath = normalizeWorkspaceRelativePath(relPath);
   return allowPaths.some((pattern) => {
-    if (minimatch(relPath, pattern, { dot: true })) return true;
+    const normalizedPattern = normalizeWorkspaceRelativePath(pattern);
+    if (minimatch(normalizedRelPath, normalizedPattern, { dot: true })) return true;
     // Also allow entire subtree when pattern matches an ancestor directory
-    const prefix = pattern.endsWith('/') ? pattern : `${pattern}/`;
-    return relPath.startsWith(prefix) || relPath === pattern;
+    const prefix = normalizedPattern.endsWith('/') ? normalizedPattern : `${normalizedPattern}/`;
+    return normalizedRelPath.startsWith(prefix) || normalizedRelPath === normalizedPattern;
   });
 }
 
@@ -180,6 +188,8 @@ export async function getFileTree(
 ): Promise<FileTreeNode> {
   gitignoreCache.clear();
 
+  const normalizedWorkspaceRoot = path.resolve(workspaceRoot);
+
   const {
     maxDepth = DEFAULT_MAX_DEPTH,
     includeHidden = false,
@@ -190,9 +200,15 @@ export async function getFileTree(
   } = options;
 
   const excluded = new Set([...ALWAYS_EXCLUDED, ...excludeDirs]);
-  const startPath = rootSubPath ? path.resolve(workspaceRoot, rootSubPath) : workspaceRoot;
+  const startPath = rootSubPath
+    ? resolveInsideWorkspace(normalizedWorkspaceRoot, rootSubPath)
+    : normalizedWorkspaceRoot;
 
-  return buildNode(startPath, workspaceRoot, 0, maxDepth, {
+  if (!startPath) {
+    throw new Error(`Path "${rootSubPath}" is outside workspace root`);
+  }
+
+  return buildNode(startPath, normalizedWorkspaceRoot, 0, maxDepth, {
     includeHidden,
     ignoreGitignore,
     excluded,
@@ -209,6 +225,8 @@ export async function listWorkspaceFiles(
 ): Promise<FlatFileEntry[]> {
   gitignoreCache.clear();
 
+  const normalizedWorkspaceRoot = path.resolve(workspaceRoot);
+
   const {
     maxDepth = DEFAULT_MAX_DEPTH,
     includeHidden = false,
@@ -221,15 +239,28 @@ export async function listWorkspaceFiles(
   } = options;
 
   const excluded = new Set([...ALWAYS_EXCLUDED, ...excludeDirs]);
-  const startPath = rootSubPath ? path.resolve(workspaceRoot, rootSubPath) : workspaceRoot;
+  const startPath = rootSubPath
+    ? resolveInsideWorkspace(normalizedWorkspaceRoot, rootSubPath)
+    : normalizedWorkspaceRoot;
 
-  const results: FlatFileEntry[] = [];
-  await collectFlat(startPath, workspaceRoot, 0, maxDepth, { includeHidden, ignoreGitignore, excluded, allowPaths }, results);
+  if (!startPath) {
+    throw new Error(`Path "${rootSubPath}" is outside workspace root`);
+  }
+
+  const results = await collectFlat(startPath, normalizedWorkspaceRoot, 0, maxDepth, {
+    includeHidden,
+    ignoreGitignore,
+    excluded,
+    allowPaths,
+  });
 
   return results.filter((e) => {
     if (filesOnly && e.isDirectory) return false;
     if (extensions && !e.isDirectory && !extensions.includes(e.extension ?? '')) return false;
     return true;
+  }).sort((a, b) => {
+    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+    return a.relativePath.localeCompare(b.relativePath);
   });
 }
 
@@ -239,15 +270,16 @@ export async function listWorkspaceFiles(
  */
 export function resolveWorkspacePath(workspaceRoot: string, relativePath: string): string | null {
   if (path.isAbsolute(relativePath)) return null;
-  const absolute = path.resolve(workspaceRoot, relativePath);
-  const root = path.resolve(workspaceRoot);
-  if (absolute !== root && !absolute.startsWith(root + path.sep)) return null;
-  return absolute;
+  return resolveInsideWorkspace(workspaceRoot, relativePath);
 }
 
 /** Converts an absolute path to a forward-slash workspace-relative path. */
 export function toRelativePath(workspaceRoot: string, absolutePath: string): string {
-  return path.relative(workspaceRoot, absolutePath).replaceAll('\\', '/');
+  const relativePath = toWorkspaceRelativePath(workspaceRoot, absolutePath);
+  if (relativePath === null) {
+    throw new Error(`Path "${absolutePath}" is outside workspace root`);
+  }
+  return relativePath;
 }
 
 // ============================================================================
@@ -262,15 +294,12 @@ interface TraversalContext {
 }
 
 async function resolveGitignored(
-  childAbs: string,
   childRel: string,
+  childIsDir: boolean,
   parentRuleSets: IgnoreRule[][],
   ctx: TraversalContext
 ): Promise<{ include: boolean; gitignored: boolean }> {
   if (ctx.ignoreGitignore) return { include: true, gitignored: false };
-
-  let childIsDir = false;
-  try { childIsDir = (await fs.stat(childAbs)).isDirectory(); } catch { return { include: false, gitignored: false }; }
 
   const gitignored = isIgnoredByRules(childRel, childIsDir, parentRuleSets);
   if (!gitignored) return { include: true, gitignored: false };
@@ -306,9 +335,24 @@ async function buildNode(
 
   if (!isDirectory || depth >= maxDepth) return node;
 
-  let entries: string[];
+  let filteredEntries: Array<{ name: string; isDirectory: boolean }>;
   try {
-    entries = await fs.readdir(absolutePath);
+    const entries = await fs.readdir(absolutePath, { withFileTypes: true, encoding: 'utf8' });
+    filteredEntries = entries
+      .map((entry) => ({
+        name: entry.name.toString(),
+        isDirectory: entry.isDirectory(),
+      }))
+      .filter((entry) => {
+        if (ctx.excluded.has(entry.name)) return false;
+        // Always show .ai-team; hide other dot-entries unless includeHidden
+        if (entry.name.startsWith('.') && entry.name !== '.ai-team' && !ctx.includeHidden) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
   } catch {
     return { ...node, children: [] };
   }
@@ -316,17 +360,11 @@ async function buildNode(
   const ruleSets = ctx.ignoreGitignore ? [] : await collectRules(workspaceRoot, absolutePath);
 
   const childNodes = await Promise.all(
-    entries
-      .filter((entry) => {
-        if (ctx.excluded.has(entry)) return false;
-        // Always show .ai-team; hide other dot-entries unless includeHidden
-        if (entry.startsWith('.') && entry !== '.ai-team' && !ctx.includeHidden) return false;
-        return true;
-      })
+    filteredEntries
       .map(async (entry) => {
-        const childAbs = path.join(absolutePath, entry);
+        const childAbs = path.join(absolutePath, entry.name);
         const childRel = toRelativePath(workspaceRoot, childAbs);
-        const { include, gitignored } = await resolveGitignored(childAbs, childRel, ruleSets, ctx);
+        const { include, gitignored } = await resolveGitignored(childRel, entry.isDirectory, ruleSets, ctx);
         if (!include) return null;
         const child = await buildNode(childAbs, workspaceRoot, depth + 1, maxDepth, ctx);
         if (gitignored) child.gitignored = true;
@@ -347,14 +385,15 @@ async function collectFlat(
   workspaceRoot: string,
   depth: number,
   maxDepth: number,
-  ctx: TraversalContext,
-  results: FlatFileEntry[]
-): Promise<void> {
+  ctx: TraversalContext
+): Promise<FlatFileEntry[]> {
+  const results: FlatFileEntry[] = [];
+
   let stats;
   try {
     stats = await fs.stat(absolutePath);
   } catch {
-    return;
+    return results;
   }
 
   const name = path.basename(absolutePath);
@@ -372,35 +411,43 @@ async function collectFlat(
     });
   }
 
-  if (!isDirectory || depth >= maxDepth) return;
+  if (!isDirectory || depth >= maxDepth) return results;
 
-  let entries: string[];
+  let filteredEntries: Array<{ name: string; isDirectory: boolean }>;
   try {
-    entries = await fs.readdir(absolutePath);
+    const entries = await fs.readdir(absolutePath, { withFileTypes: true, encoding: 'utf8' });
+    filteredEntries = entries
+      .map((entry) => ({
+        name: entry.name.toString(),
+        isDirectory: entry.isDirectory(),
+      }))
+      .filter((entry) => {
+        if (ctx.excluded.has(entry.name)) return false;
+        if (entry.name.startsWith('.') && entry.name !== '.ai-team' && !ctx.includeHidden) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
   } catch {
-    return;
+    return results;
   }
 
   const ruleSets = ctx.ignoreGitignore ? [] : await collectRules(workspaceRoot, absolutePath);
 
-  await Promise.all(
-    entries
-      .filter((entry) => {
-        if (ctx.excluded.has(entry)) return false;
-        if (entry.startsWith('.') && entry !== '.ai-team' && !ctx.includeHidden) return false;
-        return true;
-      })
-      .map(async (entry) => {
-        const childAbs = path.join(absolutePath, entry);
-        const childRel = toRelativePath(workspaceRoot, childAbs);
-        const { include, gitignored } = await resolveGitignored(childAbs, childRel, ruleSets, ctx);
-        if (!include) return;
-        const beforeLen = results.length;
-        await collectFlat(childAbs, workspaceRoot, depth + 1, maxDepth, ctx, results);
-        // Mark the direct child entry as gitignored if applicable
-        if (gitignored && results.length > beforeLen && results[beforeLen].relativePath === childRel) {
-          results[beforeLen].gitignored = true;
-        }
-      })
-  );
+  for (const entry of filteredEntries) {
+    const childAbs = path.join(absolutePath, entry.name);
+    const childRel = toRelativePath(workspaceRoot, childAbs);
+    const { include, gitignored } = await resolveGitignored(childRel, entry.isDirectory, ruleSets, ctx);
+    if (!include) continue;
+
+    const childResults = await collectFlat(childAbs, workspaceRoot, depth + 1, maxDepth, ctx);
+    if (gitignored && childResults.length > 0) {
+      childResults[0].gitignored = true;
+    }
+    results.push(...childResults);
+  }
+
+  return results;
 }

@@ -61,7 +61,6 @@ function printHierarchy(graphData: any) {
   const roots = nodes.filter((n: any) => !hasManager.has(n.id));
   
   const printed = new Set<string>();
-  const brokenReferences: Array<{ agent: string; error: string }> = [];
   
   function printNode(nodeId: string, indent: number = 0) {
     if (printed.has(nodeId)) return;

@@ -13,7 +13,6 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
       components={{
         // Custom renderers for better control
         code({ node, inline, className, children, ...props }: any) {
-          const match = /language-(\w+)/.exec(className || '');
           return !inline ? (
             <pre className="code-block">
               <code className={className} {...props}>

@@ -1,4 +1,4 @@
-import { createPatch, createTwoFilesPatch } from 'diff';
+import { createTwoFilesPatch } from 'diff';
 import parseDiff from 'parse-diff';
 
 /**

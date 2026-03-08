@@ -200,7 +200,7 @@ describe('ContextManager - Edit Validation', () => {
       expect(blocked).toHaveLength(1);
       expect(blocked[0].filePath).toBe('/workspace/blocked/file.ts');
       // Normalize path separators (Windows uses backslash)
-      const normalizedPath = blocked[0].relativePath.replace(/\\/g, '/');
+      const normalizedPath = blocked[0].relativePath.replaceAll('\\', '/');
       expect(normalizedPath).toBe('blocked/file.ts');
     });
   });
@@ -229,6 +229,26 @@ describe('ContextManager - Edit Validation', () => {
 
       expect(validation.allowed).toBe(false);
       expect(validation.blockedFiles).toContain('/workspace/src/module-b/file.ts');
+    });
+
+    it('should deny access to paths outside workspace root', () => {
+      const agent = createAgent('agent1', ['**/*']);
+
+      const outsideRead = contextManager.canRead(agent, '/other/place/secrets.txt');
+      const outsideWrite = contextManager.canWrite(agent, '/other/place/secrets.txt');
+
+      expect(outsideRead).toBe(false);
+      expect(outsideWrite).toBe(false);
+    });
+
+    it('should support workspace-relative paths with windows separators', () => {
+      const agent = createAgent('agent1', ['src/module-a/**/*']);
+
+      const canWrite = contextManager.canWrite(agent, String.raw`src\module-a\file.ts`);
+      const blocked = contextManager.canWrite(agent, String.raw`src\module-b\file.ts`);
+
+      expect(canWrite).toBe(true);
+      expect(blocked).toBe(false);
     });
   });
 });

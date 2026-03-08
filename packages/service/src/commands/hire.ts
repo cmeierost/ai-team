@@ -8,12 +8,6 @@ import {
 } from '@ai-team/core';
 import type { HireOptions } from '../contracts.js';
 
-interface SkillCatalogEntry {
-  name: string;
-  description: string;
-  filePath: string;
-}
-
 function getPersonalityForHire(role: string, roleType: RoleType) {
   const r = role.toLowerCase();
 
@@ -121,7 +115,7 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
     });
 
     try {
-      const agent = await agentManager.createAgent(
+      await agentManager.createAgent(
         {
           name: config.name,
           role: config.role,
@@ -145,8 +139,7 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
       );
 
       if (config.reportsTo) {
-        const manager = agentManager.getAgent(config.reportsTo);
-        void manager;
+        agentManager.getAgent(config.reportsTo);
       }
     } catch (error) {
       throw error;

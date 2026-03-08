@@ -1,14 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   requestInput,
   requestConfirm,
   stripHandoffDirective,
-  detectForwardRequestWithFallback,
-  REFERENCE_PRONOUNS,
 } from './chat/index.js';
 import type { ChatRuntimeHooks } from './chat/index.js';
-import type { Agent, AgentManager } from '@ai-team/core';
+import { REFERENCE_PRONOUNS } from '../orchestrator/forward-detection.js';
 
 // ---------------------------------------------------------------------------
 // requestInput / requestConfirm — event ordering
@@ -127,7 +125,7 @@ describe('stripHandoffDirective', () => {
   });
 
   it('removes multiple HANDOFF: lines', () => {
-    const input = 'HANDOFF: hr | go here\nSome text.\nHANDOFF: cto | also here\nDone.';
+    const input = 'HANDOFF: hr | go here\nSome text.\nHANDOFF:CEO| also here\nDone.';
     const result = stripHandoffDirective(input);
     expect(result).toContain('Some text.');
     expect(result).toContain('Done.');
@@ -144,7 +142,7 @@ describe('stripHandoffDirective', () => {
   });
 
   it('handles leading/trailing whitespace on the directive line', () => {
-    const input = 'Hi.\n   HANDOFF: cto | urgent   \nThanks.';
+    const input = 'Hi.\n   HANDOFF:CEO| urgent   \nThanks.';
     const result = stripHandoffDirective(input);
     expect(result).toContain('Hi.');
     expect(result).toContain('Thanks.');
@@ -165,7 +163,7 @@ describe('stripHandoffDirective', () => {
   });
 
   it('does not strip lines that merely mention handoff in a sentence', () => {
-    const input = 'The handoff process is important.\nHANDOFF: cto | do it\nProceed.';
+    const input = 'The handoff process is important.\nHANDOFF:CEO| do it\nProceed.';
     const result = stripHandoffDirective(input);
     expect(result).toContain('The handoff process is important.');
     expect(result).not.toContain('HANDOFF: cto');
@@ -180,10 +178,10 @@ describe('stripHandoffDirective', () => {
     expect(stripHandoffDirective(input)).toBe('');
   });
 });
-// ---------------------------------------------------------------------------
-// REFERENCE_PRONOUNS
-// ---------------------------------------------------------------------------
-describe('REFERENCE_PRONOUNS', () => {
+
+// detectForwardRequestWithFallback and REFERENCE_PRONOUNS tests live in
+// packages/service/src/orchestrator/forward-detection.test.ts
+
   it('contains common English third-person pronouns', () => {
     expect(REFERENCE_PRONOUNS.has('him')).toBe(true);
     expect(REFERENCE_PRONOUNS.has('her')).toBe(true);

@@ -4,15 +4,26 @@ The handoff system lets agents (or the developer) transfer a conversation to ano
 
 ---
 
+## Design Principles
+
+- **Everything is natural language.** The developer never types a command or special syntax to trigger a handoff. Any natural expression of intent is sufficient — "let me talk to her", "get me connected to Sarah", "I'd rather ask Alex about this" all work without the developer knowing how handoffs work.
+- **Agents suggest handoffs conversationally.** When an agent decides to forward the developer, it says so in plain conversation ("I think Sarah would be better placed to help with this — want me to connect you?"). Structured directives (`HANDOFF:`, `FORWARD_TO:`) are internal implementation signals; they are never shown to the developer.
+- **Pronouns and implicit references work.** If an agent was mentioned by name during the conversation ("Sarah could handle that"), then "let me talk to her" must resolve correctly. Recent conversation context is always used when resolving indirect references.
+- **The transition feels seamless.** The developer should experience handoffs as a natural continuation of the conversation, not as a routing or command mechanism.
+
+---
+
 ## Concepts
 
 | Term | Description |
 |---|---|
 | **Session** | A single conversation thread between a developer and one agent. |
-| **Handoff** | The act of one agent forwarding the developer to another agent. Creates a new child session. |
-| **Handoff session** | A new session created during a handoff. Its `previousSessionId` points to the parent session. |
-| **Session chain / thread** | The ordered list of sessions from root to the current leaf, linked via `previousSessionId`. |
-| **Handoff ID** | A UUID shared by every DB message that belongs to the same handoff event, across both the FROM and the TO session. |
+| **Thread** | A set of sessions connected by handoffs. A thread contains **at most one session per agent** — if a handoff targets an agent that already has a session in the thread, that session is resumed rather than a new one being created. Independent threads share no sessions. |
+| **Session spine** | The linear chain of sessions linked by `previousSessionId`, from the thread root (`previousSessionId = null`) to the newest session. Used to determine whether a target agent already has a session in the current thread. |
+| **Session graph** | All sessions in a thread plus the directed handoff edges between them (from `handoffs[]`). Unlike the spine, the graph is not a tree — handoff edges can point back to earlier sessions (return handoffs), so the graph is a directed graph that may contain cycles. |
+| **Handoff** | The act of one agent forwarding the developer to another agent. **Always writes briefing messages to both the FROM and TO sessions** regardless of whether the TO session is new or pre-existing. |
+| **Handoff session** | A session reached via a handoff. May be newly created (first time reaching this agent in the thread) or pre-existing (returning to an agent already in the thread). |
+| **Handoff ID** | A UUID generated fresh for each handoff event. Shared by every DB message written during that event, across both the FROM and the TO session. A return handoff generates a new UUID even though the TO session already exists — it is a new event. |
 
 ---
 
@@ -32,8 +43,27 @@ sessions (
 )
 ```
 
-- `previous_session_id` is set when the session was created by a handoff (`createHandoffSession`).
-- Following the chain of `previous_session_id` values back to `NULL` gives the full session thread.
+- `previous_session_id` is `null` for the root session of a thread.
+- `previous_session_id` is set to the current session's ID when a handoff creates a new child session.
+- For return handoffs (resuming an existing session), `previous_session_id` on the target session is unchanged — it already points to wherever it was when the session was first created.
+- Following the chain of `previous_session_id` values back to `NULL` gives the full session spine.
+
+---
+
+## Session Resolution
+
+Before executing a handoff, the target session must be resolved. The rule is: **one session per agent per thread**.
+
+**Algorithm (`resolveHandoffSession`):**
+
+1. Walk the `previousSessionId` spine from the current session back to the thread root, collecting all sessions.
+2. Search those sessions for one where `agent_id` matches the target agent.
+3. **If found** → that is the TO session. Resume it. No new session is created.
+4. **If not found** → call `createHandoffSession(targetAgentId, developerId, currentSessionId)`. This creates a new session with `previousSessionId = currentSessionId`, extending the spine.
+
+In both cases — new or resumed — the full handoff briefing sequence runs: a fresh `handoffId` UUID is generated and briefing messages are written to both the FROM and TO sessions with all handoff columns stamped.
+
+**Starting a new independent thread** is only triggered by explicit user action (e.g. the `--new` flag or an explicit "new session" command). This creates a root session with `previousSessionId = null`, unconnected to any other thread.
 
 ### `messages` table (handoff-relevant columns)
 
@@ -58,7 +88,7 @@ messages (
 
 ## Handoff Event — Message Pattern
 
-A single handoff event writes messages to **two sessions** that all share the same `handoff_id` UUID.
+A single handoff event writes messages to **two sessions**, both stamped with the same `handoff_id` UUID. This applies whether the TO session is newly created or pre-existing (return handoff). A return handoff appends the briefing messages to the existing session — it does not resume silently.
 
 ### FROM session (where the handoff originated)
 
@@ -83,7 +113,7 @@ A single handoff event writes messages to **two sessions** that all share the sa
 All paths follow the same sequence:
 
 1. Generate `handoffId = randomUUID()`
-2. **Create the handoff session** (sets `previousSessionId`)
+2. **Resolve the TO session** via `resolveHandoffSession` — resumes the existing session for this agent in the current thread, or creates a new one if this is the first handoff to that agent (see [Session Resolution](#session-resolution))
 3. Save the trigger/parentNote to the FROM session with `handoffToSessionId`
 4. Call `appendHandoffNote` → generates LLM briefing → saves to TO session with `handoffFromSessionId`
 5. Emit a `handoff` runtime event (drives the CLI banner)
@@ -101,9 +131,11 @@ The developer types something like *"forward me to Alex"* or *"send me to the CS
 Resolution is three-phase (`detectForwardRequestWithFallback`):
 1. Exact/fuzzy match from `extractForwardTargetName` + `agentManager.resolveAgent`
 2. Progressive word-prefix slices (handles *"alex i want to talk about handoffs"*)
-3. LLM fallback — sends roster of agent names, asks model to identify the one being referenced (`maxTokens: 20`)
+3. LLM fallback — sends the roster of agent names **plus recent conversation history as context**, asks the model to identify which agent the developer means (`maxTokens: 20`). Recent context is always included because it is the only way to resolve pronouns and implicit references correctly.
 
 If all phases fail but the message looks like a forward request, `looksLikeForward=true` triggers a user-facing warning.
+
+> **Constraint:** Pronoun and implicit reference resolution ("her", "him", "that person", "the one you mentioned") is a first-class requirement. If an agent was mentioned by name earlier in the conversation, "let me talk to her" must resolve to that agent. Phase 3 must always pass recent history to the LLM — without it, pronoun resolution is impossible.
 
 ### Path 4 — Inline `HANDOFF:` directive from a non-streaming response
 Same intent as path 1, handled in the non-streaming branch.
@@ -250,19 +282,21 @@ Returns the full session chain from root to leaf, enriched with messages and a p
 To render a session graph:
 
 1. Call `GET /api/sessions/{anySessionId}/thread` for any session in the thread.
-2. **Nodes** = `sessions[]` — one node per session, label with `agentNames` + `developerId`, annotate with `messageCount` and timestamps.
-3. **Edges** = `handoffs[]` — one directed edge per entry, `fromSessionId → toSessionId`, label with `handoffId` (truncated) or agent names.
+2. **Nodes** = `sessions[]` — one node per session, at most one per agent in a thread. Label with `agentNames` + `developerId`, annotate with `messageCount` and timestamps.
+3. **Edges** = `handoffs[]` — one directed edge per entry, `fromSessionId → toSessionId`. **The graph is not a tree.** Return handoffs produce back-edges pointing to earlier nodes. Render as a directed graph; do not assume acyclicity.
 4. **Deep-link a message** — a handoff edge points to messages where `message.handoffId === edge.handoffId`. Messages with `handoffToSessionId` are on the FROM side; messages with `handoffFromSessionId` are on the TO side.
 5. **Deleted sessions** — `fromSessionId` or `toSessionId` in `handoffs` may be `null` if the linked session was deleted. Render as a dangling edge or ghost node.
 
 ### Identifying handoff message pairs
 
 ```
-FROM side:  session[n].messages where handoffId == X  AND handoffToSessionId != null
-TO side:    session[n+1].messages where handoffId == X AND handoffFromSessionId != null
+FROM side:  messages where handoffId == X  AND handoffToSessionId != null
+TO side:    messages where handoffId == X  AND handoffFromSessionId != null
 ```
 
 The LLM acknowledgement in the TO session also carries `handoffId == X` but has neither `handoffFromSessionId` nor `handoffToSessionId` — it is the receiving agent's opening response.
+
+A session node may have **multiple incoming handoff edges** when agents return to it more than once. Each return handoff appends a fresh briefing pair (new UUID) to that session's message list.
 
 ---
 

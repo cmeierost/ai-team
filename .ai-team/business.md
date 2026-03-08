@@ -2,7 +2,7 @@
 
 > The core business problem this software solves.
 
-> Generated during `ait init` onboarding with the CTO.
+> Generated during `ait init` onboarding with the CEO.
 
 **Developer:** We are building a tool, that makes it easy for developers to set up ai  agents by using best practices in defining agent.mds and using other widely  used tools to narrow context for llms. it is the app we are working with to  build it too. the goal is that a developer can talk to a team of virtual  employees that are alwayst focussed on what they are doing like in an ideal   human software team. the primary pain to solve is that we constantly need to learn how to   narrow context by writing these files. the process of writing a software with  ai should not be knowing everything about that. ai should do it for us just by asking questions and optimizing our agents. we talk to an employee that is  always focussed on his task.
 

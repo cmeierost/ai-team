@@ -143,7 +143,7 @@ export class TypeScriptAnalyzer {
    * Find unused imports in a file
    */
   async findUnusedImports(filePath: string): Promise<ImportInfo[]> {
-    const ast = await this.parseFile(filePath);
+    await this.parseFile(filePath);
     const sourceCode = await readFile(filePath, 'utf-8');
 
     const imports = await this.getImports(filePath);
@@ -281,10 +281,8 @@ export class TypeScriptAnalyzer {
     let complexity = 1; // Base complexity
     let returnStatements = 0;
     let nestedDepth = 0;
-    let currentDepth = 0;
 
     this.visitNode(node, (n, depth = 0) => {
-      currentDepth = depth;
       if (depth > nestedDepth) {
         nestedDepth = depth;
       }

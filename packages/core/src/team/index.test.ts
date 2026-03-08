@@ -199,7 +199,7 @@ describe('TeamGraphBuilder', () => {
 
       const cto: Agent = {
         id: 'cto-id',
-        name: 'CTO Name',
+        name: 'CEO Name',
         role: 'cto',
         type: RoleType.LEADER,
         contextLevel: ContextLevel.FEATURE,

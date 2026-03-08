@@ -3,7 +3,6 @@
  */
 
 import { minimatch } from 'minimatch';
-import path from 'path';
 import {
   Agent,
   ContextLevel,
@@ -11,6 +10,7 @@ import {
   PermissionConfig,
   PermissionError,
 } from '../types/index.js';
+import { normalizeWorkspaceRelativePath, toWorkspaceRelativePath } from '../storage/path-safety.js';
 
 /** A file annotated with its read/write permission state for a specific agent */
 export interface AnnotatedFile {
@@ -26,11 +26,14 @@ export interface AnnotatedFile {
 export interface GlobalPermissions {
   readPaths: string[];
   writePaths: string[];
+  createPaths: string[];
+  deletePaths: string[];
 }
 
 export class ContextManager {
-  private workspaceRoot: string;
-  private globalPerms: GlobalPermissions;
+  private readonly workspaceRoot: string;
+  private readonly globalPerms: GlobalPermissions;
+  private readonly patternMatchCache = new Map<string, boolean>();
 
   /**
    * @param workspaceRoot - Absolute workspace root
@@ -39,7 +42,12 @@ export class ContextManager {
    */
   constructor(workspaceRoot: string, globalPerms?: GlobalPermissions) {
     this.workspaceRoot = workspaceRoot;
-    this.globalPerms = globalPerms ?? { readPaths: [], writePaths: [] };
+    this.globalPerms = globalPerms ?? {
+      readPaths: [],
+      writePaths: [],
+      createPaths: [],
+      deletePaths: [],
+    };
   }
 
   /**
@@ -49,6 +57,8 @@ export class ContextManager {
     return new ContextManager(workspaceRoot, {
       readPaths: fileTreeConfig?.readPaths ?? [],
       writePaths: fileTreeConfig?.writePaths ?? [],
+      createPaths: fileTreeConfig?.createPaths ?? [],
+      deletePaths: fileTreeConfig?.deletePaths ?? [],
     });
   }
 
@@ -60,6 +70,11 @@ export class ContextManager {
    */
   canRead(agent: Agent, filePath: string): boolean {
     const relativePath = this.getRelativePath(filePath);
+    if (relativePath === null) return false;
+
+    // Write permission always implies read permission.
+    if (this.canWrite(agent, filePath)) return true;
+
     // Global read patterns
     if (this.matchesPatterns(relativePath, this.globalPerms.readPaths)) return true;
     // Agent-level read patterns
@@ -75,10 +90,27 @@ export class ContextManager {
    */
   canWrite(agent: Agent, filePath: string): boolean {
     const relativePath = this.getRelativePath(filePath);
+    if (relativePath === null) return false;
     // Global write patterns
     if (this.matchesPatterns(relativePath, this.globalPerms.writePaths)) return true;
     // Agent-level write patterns
     if (agent.permissions && this.matchesPatterns(relativePath, agent.permissions.write)) return true;
+    return false;
+  }
+
+  canCreate(agent: Agent, filePath: string): boolean {
+    const relativePath = this.getRelativePath(filePath);
+    if (relativePath === null) return false;
+    if (this.matchesPatterns(relativePath, this.globalPerms.createPaths)) return true;
+    if (agent.permissions && this.matchesPatterns(relativePath, agent.permissions.create ?? [])) return true;
+    return false;
+  }
+
+  canDelete(agent: Agent, filePath: string): boolean {
+    const relativePath = this.getRelativePath(filePath);
+    if (relativePath === null) return false;
+    if (this.matchesPatterns(relativePath, this.globalPerms.deletePaths)) return true;
+    if (agent.permissions && this.matchesPatterns(relativePath, agent.permissions.delete ?? [])) return true;
     return false;
   }
 
@@ -190,15 +222,21 @@ export class ContextManager {
     }
 
     if (canWrite.length === 0) {
-      suggestions.push('No agents currently have permission to modify this file.');
-      suggestions.push('Consider expanding an existing agent\'s permissions or creating a new agent.');
+      suggestions.push(
+        'No agents currently have permission to modify this file.',
+        'Consider expanding an existing agent\'s permissions or creating a new agent.'
+      );
     } else if (canWrite.length === 1) {
-      suggestions.push(`Only ${canWrite[0].name} (${canWrite[0].id}) can modify this file.`);
-      suggestions.push('Consider delegating this task to that agent.');
+      suggestions.push(
+        `Only ${canWrite[0].name} (${canWrite[0].id}) can modify this file.`,
+        'Consider delegating this task to that agent.'
+      );
     } else {
       const names = canWrite.map(a => a.name).join(', ');
-      suggestions.push(`${canWrite.length} agents can modify this file: ${names}`);
-      suggestions.push('Consider delegating to one of these agents or coordinating with them.');
+      suggestions.push(
+        `${canWrite.length} agents can modify this file: ${names}`,
+        'Consider delegating to one of these agents or coordinating with them.'
+      );
     }
 
     return { canWrite, suggestions };
@@ -223,15 +261,12 @@ export class ContextManager {
 
     for (const filePath of filePaths) {
       if (!this.canWrite(agent, filePath)) {
-        const relativePath = this.getRelativePath(filePath);
+        const relativePath = this.getRelativePath(filePath) ?? normalizeWorkspaceRelativePath(filePath);
         const writePatterns = agent.permissions?.write || [];
 
-        let reason = 'No write patterns match this file';
-        if (writePatterns.length === 0) {
-          reason = 'Agent has no write permissions configured';
-        } else {
-          reason = `File does not match any write patterns: ${writePatterns.join(', ')}`;
-        }
+        const reason = writePatterns.length === 0
+          ? 'Agent has no write permissions configured'
+          : `File does not match any write patterns: ${writePatterns.join(', ')}`;
 
         blocked.push({
           filePath,
@@ -260,6 +295,8 @@ export class ContextManager {
         return {
           read: [],
           write: [],
+          create: [],
+          delete: [],
         };
 
       case ContextLevel.MODULE:
@@ -267,6 +304,8 @@ export class ContextManager {
         return {
           read: features?.map(f => `${f}/**/*`) || [],
           write: features?.map(f => `${f}/**/*`) || [],
+          create: features?.map(f => `${f}/**/*`) || [],
+          delete: [],
         };
 
       case ContextLevel.FEATURE:
@@ -278,6 +317,8 @@ export class ContextManager {
             'tests/**/*',
           ],
           write: features?.map(f => `${f}/**/*`) || [],
+          create: features?.map(f => `${f}/**/*`) || [],
+          delete: [],
         };
 
       case ContextLevel.REPOSITORY:
@@ -289,6 +330,12 @@ export class ContextManager {
             'docs/design/**/*',
             '.ai-team/**/*',
           ],
+          create: [
+            'docs/architecture/**/*',
+            'docs/design/**/*',
+            '.ai-team/**/*',
+          ],
+          delete: [],
         };
 
       case ContextLevel.ORGANIZATION:
@@ -301,27 +348,45 @@ export class ContextManager {
           ],
           write: [
             '.ai-team/meetings/**/*',
+            '**/agent.md',
+            '**/*.agent.md',
+          ],
+          create: [
+            '.ai-team/meetings/**/*',
             '.ai-team/agents/**/*',
           ],
+          delete: [],
           manage_agents: true,
         };
 
       default:
-        return { read: [], write: [] };
+        return { read: [], write: [], create: [], delete: [] };
     }
   }
 
   /**
    * Convert absolute path to workspace-relative path
    */
-  private getRelativePath(absolutePath: string): string {
-    return path.relative(this.workspaceRoot, absolutePath);
+  private getRelativePath(absolutePath: string): string | null {
+    return toWorkspaceRelativePath(this.workspaceRoot, absolutePath);
   }
 
   /**
    * Check if a path matches any of the given glob patterns
    */
   private matchesPatterns(filePath: string, patterns: string[]): boolean {
-    return patterns.some(pattern => minimatch(filePath, pattern));
+    if (patterns.length === 0) return false;
+
+    const normalizedFilePath = normalizeWorkspaceRelativePath(filePath);
+    return patterns.some((pattern) => {
+      const normalizedPattern = normalizeWorkspaceRelativePath(pattern);
+      const cacheKey = `${normalizedFilePath}\u0000${normalizedPattern}`;
+      const cached = this.patternMatchCache.get(cacheKey);
+      if (cached !== undefined) return cached;
+
+      const matched = minimatch(normalizedFilePath, normalizedPattern);
+      this.patternMatchCache.set(cacheKey, matched);
+      return matched;
+    });
   }
 }

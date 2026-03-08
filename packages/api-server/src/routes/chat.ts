@@ -180,6 +180,7 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string, ag
           toAgentId: handoffEvent.toAgentId,
           toAgentName: handoffEvent.toAgentName,
           handoffNote: handoffEvent.handoffNote,
+          briefingContent: handoffEvent.briefingContent,
         };
       }
 

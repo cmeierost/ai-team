@@ -26,6 +26,8 @@ import { codeEditCommand } from './commands/code-edit.js';
 import { avatarCommand } from './commands/avatar.js';
 import { patchCommand } from './commands/patch.js';
 import { filesCommand, filesAllowCommand, filesDisallowCommand } from './commands/files.js';
+import { toolsAllowCommand, toolsCommand, toolsDisallowCommand } from './commands/tools.js';
+import { skillsAddCommand, skillsCommand, skillsRemoveCommand } from './commands/skills.js';
 
 import { testConnectionCommand } from './commands/test-connection.js';
 import { providerAddCommand, providerConfigureCommand, providerSetCommand } from './commands/provider.js';
@@ -198,6 +200,30 @@ files
   .action(withCliErrorHandling((p: string, options: { agent?: string; write?: boolean }) =>
     filesDisallowCommand(p, options)
   ));
+
+const toolsMeta = getCliCommandMetadata('tools');
+const tools = applyCommandMetadata(program.command(toolsMeta.command), toolsMeta)
+  .action(withCliErrorHandling((options: { agent?: string; json?: boolean }) => toolsCommand(client, options)));
+
+const toolsAllowMeta = getCliCommandMetadata('tools.allow');
+applyCommandMetadata(tools.command(toolsAllowMeta.command).alias('add'), toolsAllowMeta)
+  .action(withCliErrorHandling((options: { agent?: string; tool?: string; json?: boolean }) => toolsAllowCommand(client, options)));
+
+const toolsDisallowMeta = getCliCommandMetadata('tools.disallow');
+applyCommandMetadata(tools.command(toolsDisallowMeta.command).alias('remove'), toolsDisallowMeta)
+  .action(withCliErrorHandling((options: { agent?: string; tool?: string; json?: boolean }) => toolsDisallowCommand(client, options)));
+
+const skillsMeta = getCliCommandMetadata('skills');
+const skills = applyCommandMetadata(program.command(skillsMeta.command), skillsMeta)
+  .action(withCliErrorHandling((options: { query?: string; agent?: string; json?: boolean }) => skillsCommand(client, options)));
+
+const skillsAddMeta = getCliCommandMetadata('skills.add');
+applyCommandMetadata(skills.command(skillsAddMeta.command), skillsAddMeta)
+  .action(withCliErrorHandling((options: { agent?: string; skill?: string; json?: boolean }) => skillsAddCommand(client, options)));
+
+const skillsRemoveMeta = getCliCommandMetadata('skills.remove');
+applyCommandMetadata(skills.command(skillsRemoveMeta.command), skillsRemoveMeta)
+  .action(withCliErrorHandling((options: { agent?: string; skill?: string; json?: boolean }) => skillsRemoveCommand(client, options)));
 
 const hhMeta = getCliCommandMetadata('hh');
 const hh = applyCommandMetadata(program.command(hhMeta.command), hhMeta);

@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import { AgentManager, loadTeamConfig } from '@ai-team/core';
 import {
   getFileTreeCommand,
   allowPathCommand,
@@ -15,6 +16,47 @@ import {
  */
 export function createFileTreeRouter(workspaceRoot: string): express.Router {
   const router = express.Router();
+
+  router.get('/patterns', async (req: Request, res: Response) => {
+    try {
+      const config = await loadTeamConfig(workspaceRoot);
+      const globalPatterns = {
+        allowPaths: config?.fileTree?.allowPaths ?? [],
+        readPaths: config?.fileTree?.readPaths ?? [],
+        writePaths: config?.fileTree?.writePaths ?? [],
+      };
+
+      const agentQuery = typeof req.query.agent === 'string' ? req.query.agent : undefined;
+      if (!agentQuery) {
+        return res.json({ global: globalPatterns });
+      }
+
+      const manager = new AgentManager(workspaceRoot);
+      await manager.initialize();
+      const matches = manager.resolveAgent(agentQuery);
+      if (matches.length === 0) {
+        return res.status(404).json({ error: `Agent not found: "${agentQuery}"` });
+      }
+      if (matches.length > 1) {
+        return res.status(409).json({
+          error: `Ambiguous agent "${agentQuery}"`,
+          matches: matches.map((a) => a.id),
+        });
+      }
+
+      const agent = matches[0];
+      return res.json({
+        global: globalPatterns,
+        agent: {
+          id: agent.id,
+          readPaths: agent.permissions?.read ?? [],
+          writePaths: agent.permissions?.write ?? [],
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
 
   /**
    * @openapi
@@ -53,7 +95,11 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
       const tree = await getFileTreeCommand(workspaceRoot, { maxDepth, includeHidden, rootSubPath });
       res.json(tree);
     } catch (error) {
-      res.status(500).json({ error: String(error) });
+      const message = String(error);
+      if (message.includes('outside workspace root')) {
+        return res.status(400).json({ error: message });
+      }
+      res.status(500).json({ error: message });
     }
   });
 
@@ -62,8 +108,11 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
    * /api/files/allow:
    *   post:
    *     tags: [FileTree]
-   *     summary: Add a path to the global gitignore allow list
-   *     description: Saves to .ai-team/config.json → fileTree.allowPaths
+   *     summary: Add a path to global file visibility/permission patterns
+   *     description: |
+   *       - mode omitted: updates legacy .ai-team/config.json → fileTree.allowPaths
+   *       - mode=read: updates .ai-team/config.json → fileTree.readPaths
+   *       - mode=write: updates .ai-team/config.json → fileTree.writePaths
    *     requestBody:
    *       required: true
    *       content:
@@ -74,20 +123,27 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
    *             properties:
    *               path:
    *                 type: string
+   *               mode:
+   *                 type: string
+   *                 enum: [read, write]
+   *                 description: Optional. When omitted, legacy allowPaths is used.
    *     responses:
    *       200:
-   *         description: Updated allow list
+   *         description: Updated path list for selected mode
    *       400:
-   *         description: Missing path
+   *         description: Missing path or invalid mode
    *       500:
    *         description: Server error
    */
   router.post('/allow', async (req: Request, res: Response) => {
     try {
-      const { path: filePath } = req.body as { path?: string };
+      const { path: filePath, mode } = req.body as { path?: string; mode?: 'read' | 'write' };
       if (!filePath) return res.status(400).json({ error: '"path" is required' });
-      const allowPaths = await allowPathCommand(workspaceRoot, filePath);
-      res.json({ allowPaths });
+      if (mode && mode !== 'read' && mode !== 'write') {
+        return res.status(400).json({ error: '"mode" must be "read" or "write" when provided' });
+      }
+      const paths = await allowPathCommand(workspaceRoot, filePath, mode);
+      res.json({ mode: mode ?? 'allow', paths });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
@@ -98,7 +154,11 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
    * /api/files/allow:
    *   delete:
    *     tags: [FileTree]
-   *     summary: Remove a path from the global gitignore allow list
+   *     summary: Remove a path from global file visibility/permission patterns
+   *     description: |
+   *       - mode omitted: updates legacy .ai-team/config.json → fileTree.allowPaths
+   *       - mode=read: updates .ai-team/config.json → fileTree.readPaths
+   *       - mode=write: updates .ai-team/config.json → fileTree.writePaths
    *     requestBody:
    *       required: true
    *       content:
@@ -109,20 +169,27 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
    *             properties:
    *               path:
    *                 type: string
+   *               mode:
+   *                 type: string
+   *                 enum: [read, write]
+   *                 description: Optional. When omitted, legacy allowPaths is used.
    *     responses:
    *       200:
-   *         description: Updated allow list
+   *         description: Updated path list for selected mode
    *       400:
-   *         description: Missing path
+   *         description: Missing path or invalid mode
    *       500:
    *         description: Server error
    */
   router.delete('/allow', async (req: Request, res: Response) => {
     try {
-      const { path: filePath } = req.body as { path?: string };
+      const { path: filePath, mode } = req.body as { path?: string; mode?: 'read' | 'write' };
       if (!filePath) return res.status(400).json({ error: '"path" is required' });
-      const allowPaths = await disallowPathCommand(workspaceRoot, filePath);
-      res.json({ allowPaths });
+      if (mode && mode !== 'read' && mode !== 'write') {
+        return res.status(400).json({ error: '"mode" must be "read" or "write" when provided' });
+      }
+      const paths = await disallowPathCommand(workspaceRoot, filePath, mode);
+      res.json({ mode: mode ?? 'allow', paths });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }

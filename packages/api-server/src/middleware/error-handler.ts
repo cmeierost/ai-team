@@ -44,7 +44,6 @@ export function errorHandler(
   // Map error types to status codes
   let statusCode = 500;
   let message = err.message || 'Internal server error';
-  let details: unknown = undefined;
 
   // Check for common error patterns
   if (err.name === 'ValidationError') {

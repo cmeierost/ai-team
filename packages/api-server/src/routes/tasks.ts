@@ -1,6 +1,6 @@
 import express, { Request, Response } from "express";
 import { TaskManager, TaskFilter } from "@ai-team/service";
-import { Task, TaskStatus, TaskPriority, TaskType, type AgentManager } from "@ai-team/core";
+import { TaskStatus, TaskPriority, TaskType, type AgentManager } from "@ai-team/core";
 
 export function createTaskRoutes(workspaceRoot: string, agentManager?: AgentManager): express.Router {
   const router = express.Router();

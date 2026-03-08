@@ -18,14 +18,46 @@ import {
   findAgentFiles,
   ensureAiTeamDirectory,
 } from '../storage/index.js';
-import { rankAgents, filterAndRankAgents } from './agent-search.js';
+import { rankAgentsByIdentity, filterAndRankAgents } from './agent-search.js';
 
 export class AgentManager {
   private agents: Map<string, Agent> = new Map();
+  private idIndex: Map<string, Agent> = new Map();
+  private roleIndex: Map<string, Set<string>> = new Map();
+  private nameIndex: Map<string, Set<string>> = new Map();
+  private tokenIndex: Map<string, Set<string>> = new Map();
   public readonly workspaceRoot: string;
 
   constructor(workspaceRoot: string) {
     this.workspaceRoot = workspaceRoot;
+  }
+
+  private toAgentId(config: AgentConfig): string {
+    const raw = config.aiTeamId ?? config.id ?? config.aiTeamName ?? config.name;
+    const normalized = raw
+      ?.trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    if (!normalized) {
+      throw new ValidationError('Agent identity is invalid. Provide aiTeamId/id or a valid aiTeamName/name.');
+    }
+    return normalized;
+  }
+
+  private toAgentName(config: AgentConfig, id: string): string {
+    const explicit = config.aiTeamName ?? config.name;
+    const cleaned = explicit?.trim();
+    if (cleaned) return cleaned;
+
+    return id
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
   }
 
   /**
@@ -43,11 +75,17 @@ export class AgentManager {
     const agentFiles = await findAgentFiles(this.workspaceRoot);
     
     this.agents.clear();
+    this.clearIndexes();
     
     for (const filePath of agentFiles) {
       try {
         const agent = await loadAgent(filePath);
+        if (this.agents.has(agent.id)) {
+          console.error(`Duplicate agent id "${agent.id}" detected at ${filePath}. Skipping duplicate.`);
+          continue;
+        }
         this.agents.set(agent.id, agent);
+        this.indexAgent(agent);
       } catch (error) {
         console.error(`Failed to load agent from ${filePath}:`, error);
       }
@@ -85,20 +123,23 @@ export class AgentManager {
   }
 
   /**
-   * Resolve an agent by fuzzy query (id, role, or name).
-   * Delegates to the shared rankAgents() primitive in agent-search.ts.
+   * Resolve an agent by identity — id, name, or role only.
+   * Uses rankAgentsByIdentity() which never scores against markdown content,
+   * tools, features, or specializations, preventing false positives where
+   * another agent's document body mentions the queried name.
    *
-   * @param query - Search string
-   * @param minScore - Minimum relevance score to include (default 60). This
-   *   excludes markdown-content (35-40), tool (45-50), and feature (55) boosters
-   *   which cause false positives when the queried name appears only in another
-   *   agent's document body (e.g. an org chart listing their manager). Pass 0
-   *   to get every agent with any non-zero score, as for broad search UIs.
+   * Use searchAgents() when you need full fuzzy search across document content.
+   *
+   * @param query - Search string (id, full name, first name, or role)
    * @returns Matching agents sorted by relevance
    */
-  resolveAgent(query: string, minScore = 60): Agent[] {
-    return rankAgents(query, this.getAllAgents())
-      .filter(r => r.score >= minScore)
+  resolveAgent(query: string): Agent[] {
+    const queryNorm = query.trim().toLowerCase();
+    if (!queryNorm) return [];
+
+    const candidates = this.getCandidates(queryNorm);
+
+    return rankAgentsByIdentity(query, candidates)
       .map(r => r.agent);
   }
 
@@ -152,16 +193,19 @@ export class AgentManager {
       );
     }
 
-    const id = config.name.toLowerCase().replace(/\s+/g, '-');
+    const id = this.toAgentId(config);
+    const name = this.toAgentName(config, id);
     const filePath = opts.targetPath || path.join(
       this.workspaceRoot,
       '.ai-team',
       'agents',
-      `${id}.md`
+      id,
+      'agent.md'
     );
 
     const agent: Agent = {
       id,
+      name,
       filePath,
       skillPath: path.join(this.workspaceRoot, '.ai-team', 'roles', `${config.role}.md`),
       createdAt: new Date().toISOString(),
@@ -172,6 +216,7 @@ export class AgentManager {
 
     await saveAgent(agent);
     this.agents.set(id, agent);
+    this.indexAgent(agent);
 
     return agent;
   }
@@ -185,6 +230,8 @@ export class AgentManager {
   async updateAgent(id: string, updates: Partial<AgentConfig> & { markdown?: string }): Promise<Agent> {
     const agent = this.getAgentOrThrow(id);
     
+    const oldAgent = this.getAgentOrThrow(id);
+
     const updatedAgent: Agent = {
       ...agent,
       ...updates,
@@ -192,7 +239,9 @@ export class AgentManager {
     };
 
     await saveAgent(updatedAgent);
+    this.deindexAgent(oldAgent);
     this.agents.set(id, updatedAgent);
+    this.indexAgent(updatedAgent);
 
     return updatedAgent;
   }
@@ -204,12 +253,13 @@ export class AgentManager {
   async archiveAgent(id: string): Promise<void> {
     const agent = this.getAgentOrThrow(id);
     
-    // Move to archived subdirectory
-    const archivedPath = agent.filePath.replace('/agents/', '/agents/archived/');
+    // Move to archived subdirectory relative to current file location
+    const archivedPath = path.join(path.dirname(agent.filePath), 'archived', path.basename(agent.filePath));
     const fs = await import('fs/promises');
     await fs.mkdir(path.dirname(archivedPath), { recursive: true });
     await fs.rename(agent.filePath, archivedPath);
     
+    this.deindexAgent(agent);
     this.agents.delete(id);
   }
 
@@ -275,7 +325,80 @@ export class AgentManager {
     };
 
     await saveAgent(updatedAgent);
+    this.deindexAgent(agent);
     this.agents.set(id, updatedAgent);
+    this.indexAgent(updatedAgent);
+  }
+
+  private clearIndexes(): void {
+    this.idIndex.clear();
+    this.roleIndex.clear();
+    this.nameIndex.clear();
+    this.tokenIndex.clear();
+  }
+
+  private indexAgent(agent: Agent): void {
+    this.idIndex.set(agent.id.toLowerCase(), agent);
+    this.addIndexEntry(this.roleIndex, agent.role.toLowerCase(), agent.id);
+    this.addIndexEntry(this.nameIndex, agent.name.toLowerCase(), agent.id);
+
+    for (const token of this.tokenize(agent.name)) {
+      this.addIndexEntry(this.tokenIndex, token, agent.id);
+    }
+  }
+
+  private deindexAgent(agent: Agent): void {
+    this.idIndex.delete(agent.id.toLowerCase());
+    this.removeIndexEntry(this.roleIndex, agent.role.toLowerCase(), agent.id);
+    this.removeIndexEntry(this.nameIndex, agent.name.toLowerCase(), agent.id);
+
+    for (const token of this.tokenize(agent.name)) {
+      this.removeIndexEntry(this.tokenIndex, token, agent.id);
+    }
+  }
+
+  private addIndexEntry(index: Map<string, Set<string>>, key: string, id: string): void {
+    const existing = index.get(key) ?? new Set<string>();
+    existing.add(id);
+    index.set(key, existing);
+  }
+
+  private removeIndexEntry(index: Map<string, Set<string>>, key: string, id: string): void {
+    const existing = index.get(key);
+    if (!existing) return;
+    existing.delete(id);
+    if (existing.size === 0) {
+      index.delete(key);
+      return;
+    }
+    index.set(key, existing);
+  }
+
+  private tokenize(value: string): string[] {
+    return value
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .map(part => part.trim())
+      .filter(Boolean);
+  }
+
+  private getCandidates(normalizedQuery: string): Agent[] {
+    const exactId = this.idIndex.get(normalizedQuery);
+    if (exactId) return [exactId];
+
+    const candidateIds = new Set<string>();
+
+    for (const id of this.roleIndex.get(normalizedQuery) ?? []) candidateIds.add(id);
+    for (const id of this.nameIndex.get(normalizedQuery) ?? []) candidateIds.add(id);
+    for (const id of this.tokenIndex.get(normalizedQuery) ?? []) candidateIds.add(id);
+
+    if (candidateIds.size === 0) {
+      return this.getAllAgents();
+    }
+
+    return Array.from(candidateIds)
+      .map(id => this.agents.get(id))
+      .filter((agent): agent is Agent => Boolean(agent));
   }
 }
 

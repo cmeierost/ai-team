@@ -13,11 +13,11 @@
  * To extend: register pipeline plugins via OrchestratorPlugins before calling run().
  */
 
-import { emitStatus, emitLog, emitEvent } from './stream-events.js';
-import { detectForwardRequestWithFallback } from './forward-detection.js';
+import { emitStatus, emitLog } from './stream-events.js';
 import { sendTurn } from './send-turn.js';
+import { executeHandoff, tryNlForward } from './handoff.js';
 import type { OrchestratorContext } from './pipeline-context.js';
-import type { OrchestratorPlugins, ResolvedPlugins } from './pipeline.js';
+import type { ResolvedPlugins } from './pipeline.js';
 
 /** Options for a single run() call. */
 export interface RunOptions {
@@ -47,22 +47,31 @@ export class ChatOrchestrator {
    *   - The maximum hop count is reached.
    */
   async run(options: RunOptions): Promise<string> {
-    const { message, contextFiles, maxHops = 10 } = options;
+    const { message, maxHops = 10 } = options;
 
     // ── Slash command intercept ─────────────────────────────────────────────
     const slashResult = await this.trySlashCommand(message);
     if (slashResult !== null) return slashResult;
 
     // ── Natural-language forward detection ──────────────────────────────────
-    const nlResult = await this.tryNlForward(message);
-    if (nlResult !== null) return nlResult;
+    const nlResult = await tryNlForward(message, this.ctx);
+    if (nlResult !== null) {
+      if (nlResult === 'forwarded') {
+        // Handoff succeeded — auto-run a turn so the new agent reacts to
+        // the briefing and asks the developer how to proceed.
+        const autoMsg = `[Handoff received] You have just been handed this conversation. `
+          + `Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.`;
+        const result = await sendTurn(autoMsg, this.plugins, this.ctx, { skipPersist: true });
+        return result.text;
+      }
+      return nlResult;
+    }
 
     // ── Turn loop (handles handoff chains) ──────────────────────────────────
     let currentMessage = message;
-    let hops = 0;
     let lastText = '';
 
-    while (hops < maxHops) {
+    for (let hops = 0; hops < maxHops; hops++) {
       const result = await sendTurn(currentMessage, this.plugins, this.ctx);
       lastText = result.text;
 
@@ -78,9 +87,10 @@ export class ChatOrchestrator {
         break;
       }
 
-      // ── Handoff: switch agent, loop ────────────────────────────────────────
+      // ── Handoff: switch agent, auto-react ──────────────────────────────────
       if (result.handedOff && result.handoffTargetId) {
-        const switched = await this.switchAgent(
+        const switched = await executeHandoff(
+          this.ctx,
           result.handoffTargetId,
           result.handoffTargetSessionId,
           result.handoffNote,
@@ -101,65 +111,25 @@ export class ChatOrchestrator {
           `${this.ctx.agent.name} taking over.`,
         );
 
-        // The briefing note from the handing-off agent becomes the next message.
-        currentMessage = result.handoffNote ?? `Continued from ${this.ctx.agent.id}.`;
-        hops++;
+        // The new agent has the LLM briefing in their session history.
+        // Auto-run a turn so the recipient reacts to the handoff context
+        // and asks the developer how to proceed.  skipPersist keeps the
+        // synthetic prompt out of the DB.
+        const autoMsg = `[Handoff received] You have just been handed this conversation. `
+          + `Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.`;
+        const autoResult = await sendTurn(autoMsg, this.plugins, this.ctx, { skipPersist: true });
+        lastText = autoResult.text;
+        // If the auto-react itself triggers another handoff, the next
+        // iteration of the loop will handle it.
+        if (!autoResult.handedOff) break;
         continue;
       }
 
+      // Normal turn — no handoff, we're done.
       break;
     }
 
-    if (hops >= maxHops) {
-      emitLog(this.ctx.hooks, 'warn', `Maximum handoff chain length (${maxHops}) reached.`);
-    }
-
     return lastText;
-  }
-
-  // ── Natural-language forward detection ──────────────────────────────────────
-
-  /**
-   * Detect if the message is a natural-language request to be forwarded to
-   * another agent. Returns an empty string if a forward was handled (or a
-   * near-miss warning was emitted), null if the message is not a forward.
-   */
-  private async tryNlForward(message: string): Promise<string | null> {
-    const { resolved, looksLikeForward } = await detectForwardRequestWithFallback(
-      message,
-      this.ctx.agentManager,
-      this.ctx.agent.id,
-      this.ctx.llmService,
-      this.ctx.agent,
-      this.ctx.history,
-    );
-
-    if (resolved) {
-      const fromAgent = this.ctx.agent;
-      await this.switchAgent(resolved.id);
-      emitLog(this.ctx.hooks, 'info', `\nSwitching to ${resolved.name} (${resolved.role})...\n`);
-      emitEvent(this.ctx.hooks, {
-        kind: 'handoff',
-        fromAgentId: fromAgent.id,
-        fromAgentName: fromAgent.name,
-        toAgentId: resolved.id,
-        toAgentName: resolved.name,
-        toSessionId: this.ctx.sessionId,
-        message: `Forwarded from ${fromAgent.name} to ${resolved.name}`,
-      });
-      return '';
-    }
-
-    if (looksLikeForward) {
-      emitLog(
-        this.ctx.hooks,
-        'warn',
-        `I couldn't find anyone on your team matching that request. Use /chat <name> to switch directly, or hire them first.`,
-      );
-      return '';
-    }
-
-    return null;
   }
 
   // ── Slash command handling ──────────────────────────────────────────────────
@@ -185,55 +155,5 @@ export class ChatOrchestrator {
     return '';   // Slash commands handle their own output via hooks / stdout.
   }
 
-  // ── Agent switching ─────────────────────────────────────────────────────────
-
-  /**
-   * Switch the current agent in `ctx`. Returns true if the target agent exists.
-   * If `targetSessionId` is provided (pre-resolved by handoff_to_agent tool),
-   * no extra session lookup is needed.
-   */
-  private async switchAgent(
-    targetAgentId: string,
-    targetSessionId?: string,
-    handoffNote?: string,
-  ): Promise<boolean> {
-    const target = this.ctx.agentManager.getAgent(targetAgentId);
-    if (!target) return false;
-
-    // Derive the developer ID from the current session so we don't lose identity.
-    const currentSession = await this.ctx.sessionManager.getSession(this.ctx.sessionId);
-    const developerId = currentSession?.developerId ?? 'unknown';
-
-    // Resolve (or create) the target session
-    const targetSession = targetSessionId
-      ? await this.ctx.sessionManager.getSession(targetSessionId)
-      : await this.ctx.sessionManager.getOrCreateLatestSession(target.id, developerId);
-
-    if (!targetSession) return false;
-    const sessionId = targetSession.id;
-
-    // Load history for the target's session
-    const history = await this.ctx.sessionManager.getSessionMessages(sessionId);
-
-    // Prepend briefing note as a synthetic human message so the target agent
-    // sees context from the handing-off agent.
-    if (handoffNote) {
-      const briefing: import('@ai-team/core').ChatMessage = {
-        from: this.ctx.agent.id,
-        to: targetAgentId,
-        content: `[Handoff briefing from ${this.ctx.agent.name}]: ${handoffNote}`,
-        timestamp: new Date().toISOString(),
-        isHuman: false,
-      };
-      history.push(briefing);
-      await this.ctx.sessionManager.appendMessage(sessionId, briefing);
-    }
-
-    // Mutate context in place — all downstream pipeline stages see the new agent.
-    (this.ctx as any).agent       = target;
-    (this.ctx as any).sessionId   = sessionId;
-    (this.ctx as any).history     = history;
-
-    return true;
-  }
 }
+

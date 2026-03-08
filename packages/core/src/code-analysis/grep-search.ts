@@ -43,7 +43,6 @@ export class GrepSearch {
       caseInsensitive = false,
       wholeWord = false,
       maxMatchesPerFile = Infinity,
-      contextLines = 0,
     } = options;
 
     const sourceCode = await readFile(filePath, 'utf-8');

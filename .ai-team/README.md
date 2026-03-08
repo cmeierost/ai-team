@@ -14,7 +14,7 @@ This directory contains your virtual AI development team configuration.
 ## Getting Started
 
 1. List your team: `ait list`
-2. Chat with the CTO: `ait chat cto`
+2. Chat with the CEO: `ait chat cto`
 3. Chat with HR: `ait chat hr-director`
 4. Hire a new team member: `ait hire`
 5. Chat with Chief Architect (after hire): `ait chat chief-architect`

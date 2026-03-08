@@ -6,11 +6,10 @@ import {
   AgentSchema,
   ContextManager,
   LlmService,
-  getFileTree,
+  listCachedWorkspaceFiles,
   loadTeamConfig,
   parseMarkdownSections,
   replaceOrAppendMarkdownSection,
-  type FileTreeNode,
 } from '@ai-team/core';
 import { generateIntroduction } from '@ai-team/service';
 
@@ -625,10 +624,12 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
       // Build file tree respecting global allowPaths
       const config = await loadTeamConfig(agentManager.workspaceRoot);
       const allowPaths = config?.fileTree?.allowPaths ?? [];
-      const tree = await getFileTree(agentManager.workspaceRoot, { maxDepth, allowPaths });
-
-      // Flatten to relative paths
-      const allFiles = flattenTree(tree);
+      const entries = await listCachedWorkspaceFiles(agentManager.workspaceRoot, {
+        maxDepth,
+        allowPaths,
+        filesOnly: true,
+      });
+      const allFiles = entries.map((entry) => entry.relativePath);
 
       // Annotate with permissions
       const ctx = ContextManager.fromConfig(agentManager.workspaceRoot, config?.fileTree);
@@ -711,22 +712,4 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
   });
 
   return router;
-}
-
-/** Iteratively flatten a FileTreeNode into workspace-relative file paths */
-function flattenTree(root: FileTreeNode): string[] {
-  const files: string[] = [];
-  const stack: FileTreeNode[] = [root];
-  while (stack.length > 0) {
-    const node = stack.pop()!;
-    if (!node.isDirectory && node.relativePath !== '') {
-      files.push(node.relativePath);
-    }
-    if (node.children) {
-      for (let i = node.children.length - 1; i >= 0; i--) {
-        stack.push(node.children[i]);
-      }
-    }
-  }
-  return files;
 }
