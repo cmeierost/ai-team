@@ -29,7 +29,11 @@
   width: 200px;
   border: 2px solid var(--color-border-primary, #3e3e42);
   border-radius: 8px;
-  background: var(--color-bg-secondary, #252526);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--agent-color, #4CAF50) 22%, var(--color-bg-secondary, #252526)),
+    color-mix(in srgb, var(--agent-color, #4CAF50) 12%, var(--color-bg-secondary, #252526))
+  );
   padding: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
 }
