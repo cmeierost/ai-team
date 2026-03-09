@@ -78,7 +78,7 @@ async function createSkillFromSetup(skillManager: SkillManager, setup: CreateSki
       contextLevel: setup.contextLevel,
       responsibilities: [],
       tools: [],
-      permissions: { read: [], write: [] },
+      permissions: { read: [], write: [], create: [], delete: [] },
       llm: setup.llm,
     },
     setup.instructions,

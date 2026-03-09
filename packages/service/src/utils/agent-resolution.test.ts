@@ -16,7 +16,7 @@ describe('Agent Resolution Utilities', () => {
       { id: 'john-smith', name: 'John Smith', role: 'hr-director' },
       { id: 'michael-brown', name: 'Michael Brown', role: 'cto' },
       { id: 'emily-davis', name: 'Emily Davis', role: 'developer' },
-      { id: 'jordan-lee', name: 'Jordan Lee', role: 'chief-architect' },
+      { id: 'sarah-lee', name: 'Sarah Lee', role: 'chief-architect' },
     ];
 
     // Override resolveAgent to return mock data

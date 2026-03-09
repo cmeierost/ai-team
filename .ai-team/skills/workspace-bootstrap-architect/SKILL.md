@@ -17,7 +17,7 @@ Use this skill to create or refine the repository's customization architecture:
 - `.ai-team/agents/**/*`
 - `.ai-team/prompts/**/*`
 - `.ai-team/skills/**/*`
-- thin compatibility artifacts in `.github/**/*` when needed
+- optional thin compatibility artifacts in `.github/**/*` when explicitly needed
 
 ## Read These Sources First
 
@@ -37,7 +37,7 @@ Use this skill to create or refine the repository's customization architecture:
 Treat:
 
 - `.ai-team/` as the source of truth
-- `.github/` as the bootstrap and compatibility layer
+- `.github/` as an optional bootstrap and compatibility layer
 
 Do not duplicate large bodies of knowledge across both unless there is a compelling compatibility reason.
 
@@ -66,6 +66,7 @@ Before writing anything, ask:
 When shaping customization files:
 
 - agents should feel like focused coworkers
+- in `.ai-team/agents/`, prefer `.agent.md` for Copilot-facing portfolio content and `.agent.yml` for ai-team runtime metadata
 - agents should greet naturally on their first reply when the conversation did not already begin with a greeting
 - prompts should be personal, communicative, and scoped
 - skills should stay procedural and auditable
@@ -99,7 +100,7 @@ Before finishing, confirm:
 - avoid giant bootstrap docs that try to solve every future problem
 - keep instructions artifact-specific when possible
 - let Emily own role and customization shape; let John scout and shape skill capability inputs
-- if GitHub compatibility is needed, mirror only the minimum necessary content
+- if GitHub compatibility is needed, mirror only the minimum necessary content and do not treat `.github/` as the default home for agents, prompts, or skills
 
 ## Successful Outcome
 

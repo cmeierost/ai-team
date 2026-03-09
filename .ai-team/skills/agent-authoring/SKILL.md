@@ -7,11 +7,10 @@ description: Use when creating, restructuring, or refining agent files, skill fi
 
 Use this skill when the task is to create or improve:
 
-- `.github/agents/*.agent.md`
-- `.github/skills/*/SKILL.md`
-- `.github/prompts/*.prompt.md`
 - `.ai-team/agents/*.md`
+- `.ai-team/agents/*.yml`
 - `.ai-team/roles/*.md`
+- optional compatibility artifacts under `.github/**/*` when GitHub-side discovery specifically needs them
 - supporting bootstrap docs such as `AGENTS.md`
 
 ## Goal
@@ -43,6 +42,7 @@ Always review the most relevant repository guidance first:
 When creating or refining `.ai-team/agents/**/*.agent.md` files, also review:
 
 - `.ai-team/instructions/agents.instructions.md`
+- `.ai-team/instructions/agent-metadata.instructions.md`
 - `packages/core/src/types/index.ts` for the supported `AgentSchema` fields when you need to verify what YAML is valid
 
 If the target is an internal `.ai-team` agent, also inspect nearby agent and role files before editing.
@@ -53,6 +53,7 @@ Keep responsibilities separated:
 
 - put global policy in instructions
 - put reusable role behavior in agents
+- put ai-team runtime-specific agent metadata in `.agent.yml` sidecars
 - put on-demand workflows in skills
 - put one-off launch patterns in prompts
 
@@ -71,10 +72,10 @@ A good agent or skill should clearly answer:
 
 For ai-team agent files specifically, also confirm:
 
-- the agent has a personality that suits its role without drifting into roleplay
-- every non-CEO agent has an explicit, unambiguous `reportsTo`
-- the YAML uses schema-backed fields that materially help the role instead of decorative metadata
-- the body sounds like a focused coworker and keeps procedural workflows in skills rather than burying them inside the agent portfolio
+- the `.agent.md` portfolio has a personality that suits its role without drifting into roleplay
+- every non-CEO agent has an explicit, unambiguous `reportsTo` in runtime metadata
+- the `.agent.yml` uses schema-backed fields that materially help the role instead of decorative metadata
+- the `.agent.md` body sounds like a focused coworker and keeps procedural workflows in skills rather than burying them inside the agent portfolio
 - when the role changes, the persona and collaboration style are re-evaluated instead of being left behind from an older version of the file
 - the agent's first-turn behavior is natural: greet briefly when the opening user message was not already a greeting, and avoid redundant double-greetings when it was
 
@@ -108,7 +109,7 @@ Before finishing, confirm:
 - examples and constraints are concrete
 - naming matches repository conventions
 - the final file would still be useful six months from now
-- for `.ai-team` agents, `aiTeamId` / `aiTeamName` are preferred identity fields when present
+- for `.ai-team` agents, prefer `id` / `name`; treat `aiTeamId` / `aiTeamName` as legacy compatibility aliases only
 - for `.ai-team` agents, `reportsTo` is explicit for every non-root executive agent
 - for `.ai-team` agents, the `personality` block and body tone support the role rather than sounding interchangeable
 - for `.ai-team` agents, collaboration expectations are clear when they materially affect how the role works with nearby agents or developers
@@ -122,4 +123,4 @@ Avoid:
 - repeating the full repo handbook inside every agent
 - vague goals like “help with coding” without scope
 - inventing permissions, responsibilities, or workflows not grounded in the repo
-- mixing Copilot bootstrap files and `.ai-team` truth files without explaining the boundary
+- treating `.github/agents`, `.github/prompts`, or `.github/skills` as the default home when `.ai-team/` already covers the use case

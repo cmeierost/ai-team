@@ -186,13 +186,18 @@ class InProcessAiTeamClient implements AiTeamClient {
     const agent = await this.getAgentFrontmatter(query);
     const ws = this.service.workspaceRoot;
     const config = await loadTeamConfig(ws);
-    const allowPaths = config?.fileTree?.allowPaths ?? [];
-      const entries = await listCachedWorkspaceFiles(ws, {
-        maxDepth: options?.depth ?? 6,
-        allowPaths,
-        filesOnly: true,
-      });
-      const allFiles = entries.map((entry) => entry.relativePath);
+    const allowPaths = Array.from(new Set([
+      ...(config?.fileTree?.readPaths ?? []),
+      ...(config?.fileTree?.writePaths ?? []),
+      ...(config?.fileTree?.createPaths ?? []),
+      ...(config?.fileTree?.deletePaths ?? []),
+    ]));
+    const entries = await listCachedWorkspaceFiles(ws, {
+      maxDepth: options?.depth ?? 6,
+      allowPaths,
+      filesOnly: true,
+    });
+    const allFiles = entries.map((entry) => entry.relativePath);
     const ctx = ContextManager.fromConfig(ws, config?.fileTree);
     const annotated = ctx.getAnnotatedFiles(agent, allFiles);
     const files = options?.all ? annotated : annotated.filter(f => f.readable || f.writable);

@@ -42,6 +42,7 @@ Write skills the ai-team way.
 - Keep the tone competent, direct, and collaborative.
 - Prefer practical language over buzzwords and prompt-theater.
 - Make the skill feel like a focused internal capability, not a marketplace collectible.
+- Use `.ai-team/skills/` as the default home.
 - Preserve `.ai-team/` as the source of truth even when a similar `.github` artifact exists for compatibility.
 
 ## Successful outcome

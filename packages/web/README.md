@@ -17,7 +17,7 @@ Web dashboard for AI Team management and visualization.
 pnpm --filter @ai-team/web dev
 ```
 
-Open http://localhost:3000
+Open `http://localhost:3000`
 
 ### Build
 
@@ -31,9 +31,24 @@ pnpm --filter @ai-team/web build
 pnpm --filter @ai-team/web preview
 ```
 
+### Storybook
+
+```bash
+pnpm --filter @ai-team/web storybook
+```
+
+Open `http://localhost:6006`
+
+To generate a static Storybook build:
+
+```bash
+pnpm --filter @ai-team/web storybook:build
+```
+
 ## Architecture
 
 The web dashboard uses:
+
 - **React 19** for UI components
 - **Vite** for fast development and building
 - **@xyflow/react** (react-flow) for interactive graph visualization
@@ -58,3 +73,13 @@ The dashboard looks for the `.ai-team/` directory in the current working directo
   <App />
 </TeamProvider>
 ```
+
+## Storybook coverage
+
+Storybook lives alongside the web package and is intended as a frontend quality asset, not just a demo gallery.
+
+- config: `packages/web/.storybook/*`
+- starter stories: `packages/web/src/components/*.stories.tsx`
+- shared story fixtures: `packages/web/src/storybook/storyData.ts`
+
+The initial setup focuses on isolated, low-dependency components so the Storybook stays fast and reliable while broader dashboard and graph states are added incrementally.

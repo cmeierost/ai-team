@@ -33,7 +33,7 @@ export class AgentManager {
   }
 
   private toAgentId(config: AgentConfig): string {
-    const raw = config.aiTeamId ?? config.id ?? config.aiTeamName ?? config.name;
+    const raw = config.id ?? config.aiTeamId ?? config.name ?? config.aiTeamName;
     const normalized = raw
       ?.trim()
       .toLowerCase()
@@ -43,13 +43,13 @@ export class AgentManager {
       .replace(/^-|-$/g, '');
 
     if (!normalized) {
-      throw new ValidationError('Agent identity is invalid. Provide aiTeamId/id or a valid aiTeamName/name.');
+      throw new ValidationError('Agent identity is invalid. Provide id/name or a compatible legacy aiTeamId/aiTeamName.');
     }
     return normalized;
   }
 
   private toAgentName(config: AgentConfig, id: string): string {
-    const explicit = config.aiTeamName ?? config.name;
+    const explicit = config.name ?? config.aiTeamName;
     const cleaned = explicit?.trim();
     if (cleaned) return cleaned;
 
@@ -199,8 +199,7 @@ export class AgentManager {
       this.workspaceRoot,
       '.ai-team',
       'agents',
-      id,
-      'agent.md'
+      `${id}.agent.md`
     );
 
     const agent: Agent = {
@@ -258,6 +257,21 @@ export class AgentManager {
     const fs = await import('fs/promises');
     await fs.mkdir(path.dirname(archivedPath), { recursive: true });
     await fs.rename(agent.filePath, archivedPath);
+
+    const metadataCandidates = agent.filePath.toLowerCase().endsWith('.agent.md')
+      ? [agent.filePath.slice(0, -3) + 'yml', agent.filePath.slice(0, -3) + 'yaml']
+      : [];
+    for (const candidate of metadataCandidates) {
+      try {
+        await fs.access(candidate);
+        const archivedMetadataPath = path.join(path.dirname(candidate), 'archived', path.basename(candidate));
+        await fs.mkdir(path.dirname(archivedMetadataPath), { recursive: true });
+        await fs.rename(candidate, archivedMetadataPath);
+        break;
+      } catch {
+        // Ignore missing sidecars
+      }
+    }
     
     this.deindexAgent(agent);
     this.agents.delete(id);

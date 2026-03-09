@@ -23,6 +23,8 @@ AI Team is a toolset for running a virtual software organization with explicit c
 - Task management system tracks work across human-agent collaboration.
 - Session management preserves context and creates shareable artifacts.
 
+For customization layout, treat `.ai-team/` as the source of truth and `.github/` as an optional Copilot bootstrap/compatibility layer.
+
 ## Architecture Model (Current)
 
 Layered adapter-to-core architecture with file-backed runtime state:
@@ -44,12 +46,15 @@ Core invariants:
 
 - `.ai-team/config.json` - non-secret provider/model/config state.
 - `.ai-team/.env` - secrets.
-- `.ai-team/agents/*.md` - agent definitions (frontmatter + markdown).
+- `.ai-team/agents/*.agent.md` - Copilot-facing agent portfolio files.
+- `.ai-team/agents/*.agent.yml` - ai-team runtime metadata sidecars.
 - `.ai-team/private/ai-team.db` - SQLite database for chat sessions, messages, and metadata (gitignored).
 - `.ai-team/artifacts/briefs/*.md` - shared knowledge artifacts (version controlled).
 - `.ai-team/tasks/*.md` - task definitions (frontmatter + markdown).
 - `.ai-team/tasks/index.json` - task lookup index.
 - `.ai-team/tasks/templates.json` - task templates.
+
+Compatibility files under `.github/` may guide GitHub-side Copilot discovery, but they are optional rather than the default home for authoring.
 
 ## Where to Read First
 

@@ -95,7 +95,7 @@ describe('TeamGraphBuilder', () => {
 
       const dev: Agent = {
         id: 'jordan-dev',
-        name: 'Jordan Lee',
+        name: 'Sarah Lee',
         role: 'senior-dev',
         type: RoleType.INDIVIDUAL_CONTRIBUTOR,
         contextLevel: ContextLevel.TASK,
@@ -120,7 +120,7 @@ describe('TeamGraphBuilder', () => {
     it('creates broken edge for non-existent manager', () => {
       const dev: Agent = {
         id: 'jordan-dev',
-        name: 'Jordan Lee',
+        name: 'Sarah Lee',
         role: 'senior-dev',
         type: RoleType.INDIVIDUAL_CONTRIBUTOR,
         contextLevel: ContextLevel.TASK,
@@ -145,7 +145,7 @@ describe('TeamGraphBuilder', () => {
       // Two agents with same role
       const dev1: Agent = {
         id: 'jordan-1',
-        name: 'Jordan Lee',
+        name: 'Sarah Lee',
         role: 'developer',
         type: RoleType.INDIVIDUAL_CONTRIBUTOR,
         contextLevel: ContextLevel.TASK,
@@ -183,7 +183,7 @@ describe('TeamGraphBuilder', () => {
 
       expect(brokenEdge).toBeDefined();
       expect(brokenEdge?.error).toContain('Ambiguous');
-      expect(brokenEdge?.error).toContain('Jordan Lee');
+      expect(brokenEdge?.error).toContain('Sarah Lee');
       expect(brokenEdge?.error).toContain('Jordan Smith');
     });
 

@@ -454,6 +454,9 @@ export async function initCommand(workspaceRoot: string, options: InitOptions, h
     }
     spinner.text = 'Saved LLM configuration';
 
+    await updateWorkspaceSettings(workspaceRoot);
+    spinner.text = 'Updated workspace Copilot settings';
+
     await updateGitignore(workspaceRoot);
     spinner.text = 'Updated .gitignore';
 
@@ -642,11 +645,65 @@ function showNextSteps(hooks?: InitRuntimeHooks) {
   writeLine(hooks, '  2. Run ait chat <agent-id> to start chatting');
 }
 
+type JsonObject = Record<string, unknown>;
+
+function asObject(value: unknown): JsonObject {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonObject
+    : {};
+}
+
+function ensureLocationSetting(settings: JsonObject, key: string, location: string): void {
+  const current = asObject(settings[key]);
+  settings[key] = {
+    ...current,
+    [location]: true,
+  };
+}
+
+async function updateWorkspaceSettings(workspaceRoot: string): Promise<void> {
+  const vscodeDir = path.join(workspaceRoot, '.vscode');
+  const settingsPath = path.join(vscodeDir, 'settings.json');
+
+  let settings: JsonObject = {};
+  try {
+    const raw = await fs.readFile(settingsPath, 'utf-8');
+    settings = asObject(JSON.parse(raw));
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      throw new Error(`Failed to parse existing .vscode/settings.json: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  ensureLocationSetting(settings, 'chat.promptFilesLocations', '.ai-team/prompts');
+  ensureLocationSetting(settings, 'chat.instructionsFilesLocations', '.ai-team/instructions');
+  ensureLocationSetting(settings, 'chat.hookFilesLocations', '.ai-team/hooks');
+  ensureLocationSetting(settings, 'chat.agentFilesLocations', '.ai-team/agents');
+  ensureLocationSetting(settings, 'chat.agentSkillsLocations', '.ai-team/skills');
+
+  await fs.mkdir(vscodeDir, { recursive: true });
+  await fs.writeFile(settingsPath, JSON.stringify(settings, null, 4) + '\n', 'utf-8');
+}
+
+async function writeFileIfMissing(filePath: string, content: string): Promise<void> {
+  try {
+    await fs.access(filePath);
+    return;
+  } catch {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, content, 'utf-8');
+  }
+}
+
 async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: InitRuntimeHooks) {
   writeLine(hooks, '');
   writeLine(hooks, '--- Team Onboarding ---');
   writeLine(hooks, "Let's set up your founding team.");
 
+  await createBootstrapWorkspaceFiles(workspaceRoot);
+  await createBootstrapInstructions(workspaceRoot);
+  await createBootstrapSkills(workspaceRoot);
   await createRoleTemplates(workspaceRoot);
 
   writeLine(hooks, "First, let's name your founding team.");
@@ -1092,12 +1149,12 @@ async function onboardingChat(
 async function createAgentFile(workspaceRoot: string, seed: AgentSeed): Promise<Agent> {
   const id = seed.name.toLowerCase().replace(/\s+/g, '-');
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
-  const filePath = path.join(aiTeamDir, 'agents', id, 'agent.md');
+  const filePath = path.join(aiTeamDir, 'agents', `${id}.agent.md`);
 
   // Build permissions based on type
   const permissions = seed.type === 'executive'
-    ? { read: ['**/*'], write: ['.ai-team/**/*', 'docs/**/*'], manage_agents: true }
-    : { read: ['.ai-team/**/*'], write: ['.ai-team/**/*'] };
+    ? { read: ['**/*'], write: ['.ai-team/**/*', 'docs/**/*'], create: [], delete: [], manage_agents: true }
+    : { read: ['.ai-team/**/*'], write: ['.ai-team/**/*'], create: [], delete: [] };
 
   // Build structured markdown using the canonical layout
   const markdown = buildAgentMarkdown({
@@ -1518,6 +1575,10 @@ This directory contains your virtual AI development team configuration.
 ## Structure
 
 - \`agents/\` - Individual team members
+- \`instructions/\` - Always-on and file-targeted guidance for Copilot and ai-team
+- \`prompts/\` - Human-launched task starters
+- \`hooks/\` - Hook files for deterministic workflow automation when needed
+- \`skills/\` - On-demand workflow skills for Copilot and ai-team
 - \`roles/\` - Role templates/skills
 - \`features/\` - Feature teams and assignments
 - \`meetings/\` - Meeting summaries (committed to git)
@@ -1533,6 +1594,403 @@ This directory contains your virtual AI development team configuration.
 5. Chat with Chief Architect (after hire): \`ait chat chief-architect\`
 `;
   await fs.writeFile(path.join(workspaceRoot, '.ai-team', 'README.md'), readme, 'utf-8');
+}
+
+async function createBootstrapWorkspaceFiles(workspaceRoot: string) {
+  const agentsBootstrap = `# AI Team — Global Entry Agent
+
+This workspace is bootstrapped for ai-team and Copilot.
+
+Use this file as the high-level bridge into the repository's ai-team customization layer.
+
+## Read these first
+
+1. \`.github/copilot-instructions.md\`
+2. \`.ai-team/README.md\`
+3. \`.ai-team/ai-team-way.md\`
+4. \`.ai-team/instructions/**/*.instructions.md\`
+5. \`.ai-team/agents/\`
+
+## Source-of-truth split
+
+- \`.ai-team/\` is the durable home for agents, skills, prompts, instructions, and doctrine.
+- \`.github/\` is the thin compatibility layer for Copilot discovery.
+- In \`.ai-team/agents/\`, prefer \`.agent.md\` for Copilot-facing portfolio content and \`.agent.yml\` for ai-team runtime metadata.
+
+## How to route work
+
+- team structure, hiring, delegation, org design → \`.ai-team/agents/\`
+- repeatable workflows → \`.ai-team/skills/\`
+- intentional one-shot launch tasks → \`.ai-team/prompts/\`
+- always-on or file-targeted policy → \`.ai-team/instructions/\`
+
+## Practical guidance
+
+- Start from the current CEO or top-level executive agent in \`.ai-team/agents/\` when the task is organizational.
+- Keep \`.github/\` thin; do not turn it into the long-lived project brain when \`.ai-team/\` already covers the need.
+- If a stronger, more specific file exists under \`.ai-team/\`, prefer that over the bootstrap layer.
+`;
+
+  const copilotInstructions = `# AI Team Copilot bootstrap instructions
+
+This file is a thin compatibility bridge for Copilot discovery.
+
+The authoritative ai-team customization layer lives under \`.ai-team/\`. Use \`.github/\` as bootstrap metadata, not as the long-lived source of truth.
+
+## Read these first
+
+1. \`AGENTS.md\`
+2. \`.ai-team/README.md\`
+3. \`.ai-team/ai-team-way.md\`
+4. \`.ai-team/instructions/**/*.instructions.md\`
+5. \`.ai-team/agents/**/*.agent.md\`
+
+## Source-of-truth rules
+
+- \`.ai-team/\` is the durable source of truth for agents, skills, prompts, instructions, and doctrine.
+- \`.github/\` is an optional Copilot compatibility layer, not the default home for agents, prompts, or skills.
+- In \`.ai-team/agents/\`, prefer \`.agent.md\` for Copilot-facing portfolio content and \`.agent.yml\` for ai-team runtime metadata.
+
+## Working defaults
+
+- Prefer the smallest change set that preserves existing project behavior.
+- Infer the project's language, framework, and structure from the repository before making stack-specific assumptions.
+- Keep reusable workflows in skills or prompts instead of bloating agent files.
+- Preserve YAML frontmatter + Markdown body structure when editing agent, prompt, or skill files.
+- Validate the area you changed before finishing.
+
+## Compatibility note
+
+This file is intentionally generic so \`ait init\` can bootstrap many different projects safely. Add project-specific architecture, package, and validation guidance under \`.ai-team/\` once the repository shape is clearer.
+`;
+
+  const aiTeamWay = `# The ai-team Way
+
+This document defines how ai-team agents, skills, prompts, and instructions should feel and work.
+
+Use it when shaping or reviewing any customization artifact in \`.ai-team/\`.
+
+## Core stance
+
+- \`.ai-team/\` is the durable source of truth.
+- \`.github/\` is an optional bootstrap and compatibility layer, not the default home for agents, prompts, or skills.
+- In \`.ai-team/agents/\`, prefer \`.agent.md\` for Copilot-facing portfolio content and \`.agent.yml\` for ai-team runtime metadata.
+- Artifacts should stay separated by job:
+  - **agent** = stable teammate with a role and working style
+  - **skill** = repeatable workflow loaded on demand
+  - **prompt** = focused human-launched starter
+  - **instruction** = always-on or file-targeted policy
+
+## How agents should feel
+
+Agents should sound like focused coworkers:
+
+- personal
+- communicative
+- role-appropriate
+- trustworthy
+- easy to delegate to
+
+Use personality in service of the work. Avoid theatrical roleplay.
+
+## Conversation rules
+
+- On the first reply, greet briefly if the developer did not already greet first.
+- If the developer already opened with hello, answer naturally without awkwardly greeting again.
+- Keep first-turn greetings short and useful.
+
+## Organization rules
+
+- Every non-CEO agent should have an explicit \`reportsTo\`.
+- Reporting lines should stay easy to understand at a glance.
+- Role boundaries should be crisp enough that delegation is obvious.
+- Collaboration patterns should be written down when they materially define the role.
+
+## Preferred outcome
+
+The ai-team should feel like a coherent organization of specialist coworkers, with \`.ai-team/\` holding the durable knowledge and \`.github/\` staying thin enough to help discovery without becoming a competing source of truth.
+`;
+
+  await writeFileIfMissing(path.join(workspaceRoot, 'AGENTS.md'), agentsBootstrap);
+  await writeFileIfMissing(path.join(workspaceRoot, '.github', 'copilot-instructions.md'), copilotInstructions);
+  await writeFileIfMissing(path.join(workspaceRoot, '.ai-team', 'ai-team-way.md'), aiTeamWay);
+}
+
+async function createBootstrapInstructions(workspaceRoot: string) {
+  const instructionsDir = path.join(workspaceRoot, '.ai-team', 'instructions');
+
+  const agentsInstructions = `---
+applyTo: ".ai-team/agents/**/*.agent.md,.github/agents/**/*.agent.md"
+---
+
+# ai-team agent portfolio authoring
+
+Write agent portfolio markdown files the ai-team way.
+
+## Purpose
+
+- \`.agent.md\` is the Copilot-facing portfolio file for an agent.
+- In \`.ai-team/agents/\`, keep ai-team runtime-specific metadata in a sibling \`.agent.yml\` sidecar when one exists.
+- Agents are reusable specialist teammates with a stable role, clear ownership, and a recognizable working style.
+- An agent should feel like a person we are talking to: personal, communicative, and focused on the task.
+- Do **not** make agents into giant containers for every workflow, repo rule, or implementation detail.
+
+## Frontmatter rules
+
+- Preserve YAML frontmatter and Markdown body structure.
+- In \`.ai-team/agents/**/*.agent.md\`, keep frontmatter focused on Copilot-facing discovery and presentation.
+- Put ai-team runtime-specific metadata such as permissions, tools, and other operational fields in the sibling \`.agent.yml\` sidecar instead of the Markdown portfolio.
+- Keep discovery-facing fields sharp and intentional, especially:
+  - \`name\`
+  - \`description\`
+- \`description\` is the main discovery surface. Make it explicit, concrete, and trigger-rich.
+
+## Body rules
+
+- The body should sound human and confident, not robotic or bloated.
+- Keep the agent focused on its real responsibility.
+- Include collaboration patterns when they materially define the role.
+- Use clear sections such as who the agent is, what to use the agent for, what files to read first, working rules, and successful outcome.
+- Keep workflows that are procedural in skills, not buried inside the agent file.
+
+## Successful outcome
+
+A good agent portfolio markdown file is discoverable, trustworthy, human in tone, role-appropriate in personality, clear in ownership, and cleanly separated from ai-team runtime metadata.
+`;
+
+  const agentMetadataInstructions = `---
+applyTo: ".ai-team/agents/**/*.agent.yml,.ai-team/agents/**/*.agent.yaml"
+---
+
+# ai-team agent metadata authoring
+
+Write ai-team runtime agent metadata sidecars the ai-team way.
+
+## Purpose
+
+- \`.agent.yml\` is the ai-team runtime metadata file for an agent.
+- Keep runtime-specific fields here so the sibling \`.agent.md\` can stay focused on Copilot discovery, personality, and human-readable portfolio content.
+
+## What belongs here
+
+- identity and organization fields such as:
+  - \`id\`, \`name\`
+  - \`role\`, \`type\`, \`contextLevel\`
+  - \`reportsTo\`, \`specializations\`, \`features\`
+- operational fields:
+  - \`permissions\`
+  - \`tools\`
+  - \`cliTools\`
+  - \`canDelegate\`, \`delegatesTo\`
+  - \`llm\`
+
+## Rules
+
+- Use only schema-backed fields from \`packages/core/src/types/index.ts\` when that file exists in the repository.
+- Prefer \`id\` and \`name\` as the normal identity fields.
+- Every non-CEO agent should have an explicit \`reportsTo\`.
+- Keep permissions as small as possible while still letting the agent do its real job.
+- Keep the YAML compact, practical, and easy to audit.
+
+## Successful outcome
+
+A good \`.agent.yml\` file is operationally complete, schema-valid, minimal, and clearly separated from the sibling Markdown portfolio.
+`;
+
+  const skillsInstructions = `---
+applyTo: ".ai-team/skills/**/SKILL.md,.github/skills/**/SKILL.md"
+---
+
+# ai-team skill authoring
+
+Write skills the ai-team way.
+
+## Purpose
+
+- Skills are for **procedural, on-demand workflows**.
+- Use a skill when the job is repeatable and benefits from a checklist, decision flow, references, or bundled assets.
+- Do **not** turn a skill into a full agent persona, a repo-wide handbook, or a one-off prompt.
+
+## Rules
+
+- Keep each skill narrow enough that someone can explain its job in one sentence.
+- \`name\` must be stable, lowercase, hyphenated, and match the folder name.
+- \`description\` is the primary discovery surface. Make it trigger-rich and practical.
+- Use \`.ai-team/skills/\` as the default home.
+- Preserve \`.ai-team/\` as the source of truth even when a similar \`.github\` artifact exists for compatibility.
+
+## Successful outcome
+
+A good skill is easy to discover, easy to trust, narrow in scope, and clearly worth loading only when relevant.
+`;
+
+  const promptsInstructions = `---
+applyTo: ".ai-team/prompts/**/*.prompt.md,.github/prompts/**/*.prompt.md"
+---
+
+# ai-team prompt authoring
+
+Write prompts the ai-team way.
+
+## Purpose
+
+- Prompts are **human-launched task starters**.
+- Use a prompt for a focused, repeatable request that someone intentionally invokes.
+- Do **not** use a prompt as a substitute for a full skill, a standing policy file, or a whole custom agent persona.
+
+## Rules
+
+- Keep each prompt focused on one job or one closely related workflow.
+- \`description\` should clearly say what the prompt does and when to use it.
+- Write like you are launching a capable coworker, not filling out a compliance template.
+- Use \`.ai-team/prompts/\` as the default home; only mirror a prompt into \`.github/prompts/\` when explicit GitHub-side compatibility is needed.
+
+## Successful outcome
+
+A good prompt is easy to trigger, easy to understand, tightly scoped, and clearly complements nearby agents, skills, and instructions.
+`;
+
+  await writeFileIfMissing(path.join(instructionsDir, 'agents.instructions.md'), agentsInstructions);
+  await writeFileIfMissing(path.join(instructionsDir, 'agent-metadata.instructions.md'), agentMetadataInstructions);
+  await writeFileIfMissing(path.join(instructionsDir, 'skills.instructions.md'), skillsInstructions);
+  await writeFileIfMissing(path.join(instructionsDir, 'prompts.instructions.md'), promptsInstructions);
+}
+
+async function createBootstrapSkills(workspaceRoot: string) {
+  const skillsDir = path.join(workspaceRoot, '.ai-team', 'skills');
+  const agentAuthoringDir = path.join(skillsDir, 'agent-authoring');
+
+  await fs.mkdir(agentAuthoringDir, { recursive: true });
+
+  const agentAuthoringSkill = `---
+name: agent-authoring
+description: Use when creating, restructuring, or refining agent files, skill files, prompt files, or repository instruction files.
+---
+
+# Agent authoring skill
+
+Use this skill when the task is to create or improve:
+
+- \`.ai-team/agents/*.md\`
+- \`.ai-team/agents/*.yml\`
+- \`.ai-team/roles/*.md\`
+- optional compatibility artifacts under \`.github/**/*\` when GitHub-side discovery specifically needs them
+- supporting bootstrap docs such as \`AGENTS.md\`
+
+## Goal
+
+Produce the smallest, clearest agent setup that matches the task without spreading overlapping instructions across too many files.
+
+## Workflow
+
+### 1. Classify the target
+
+Decide which artifact is actually needed:
+
+- **custom agent** for a reusable role/persona
+- **skill** for a repeatable workflow
+- **prompt** for a reusable one-shot task starter
+- **repo instruction update** for always-on policy
+- **.ai-team agent or role** for the internal organization model
+
+### 2. Read the right context
+
+Always review the most relevant repository guidance first:
+
+- \`AGENTS.md\`
+- \`.github/copilot-instructions.md\`
+- \`.ai-team/ai-team-way.md\`
+- \`analysis/copilot/copilot-files.md\`
+- \`analysis/copilot/copilot-project-setup-guide.md\`
+
+When creating or refining \`.ai-team/agents/**/*.agent.md\` files, also review:
+
+- \`.ai-team/instructions/agents.instructions.md\`
+- \`.ai-team/instructions/agent-metadata.instructions.md\`
+- \`packages/core/src/types/index.ts\` for the supported \`AgentSchema\` fields when you need to verify what YAML is valid
+
+If the target is an internal \`.ai-team\` agent, also inspect nearby agent and role files before editing.
+
+### 3. Design for minimum overlap
+
+Keep responsibilities separated:
+
+- put global policy in instructions
+- put reusable role behavior in agents
+- put ai-team runtime-specific agent metadata in \`.agent.yml\` sidecars
+- put on-demand workflows in skills
+- put one-off launch patterns in prompts
+
+Do not dump everything into one giant agent file.
+
+### 4. Write high-signal content
+
+A good agent or skill should clearly answer:
+
+- what it is for
+- when to use it
+- which repo files matter most
+- what it should optimize for
+- what mistakes it must avoid
+- what a successful outcome looks like
+
+For ai-team agent files specifically, also confirm:
+
+- the \`.agent.md\` portfolio has a personality that suits its role without drifting into roleplay
+- every non-CEO agent has an explicit, unambiguous \`reportsTo\` in runtime metadata
+- the \`.agent.yml\` uses schema-backed fields that materially help the role instead of decorative metadata
+- the \`.agent.md\` body sounds like a focused coworker and keeps procedural workflows in skills rather than burying them inside the agent portfolio
+- when the role changes, the persona and collaboration style are re-evaluated instead of being left behind from an older version of the file
+- the agent's first-turn behavior is natural: greet briefly when the opening user message was not already a greeting, and avoid redundant double-greetings when it was
+
+## Patterns to prefer
+
+### Prefer a custom agent when
+
+- the same persona or decision style will be reused often
+- the task needs consistent boundaries and review heuristics
+- the user is likely to invoke the role directly
+
+### Prefer a skill when
+
+- the task is procedural
+- the instructions are best loaded only when relevant
+- a checklist or workflow is more useful than a persona
+
+### Prefer \`.ai-team\` files when
+
+- the repository's internal org structure is being changed
+- the file must participate in the ai-team agent ecosystem
+- the output should become project truth rather than Copilot-only bootstrap
+
+## Agent quality checklist
+
+Before finishing, confirm:
+
+- the file location matches the intended runtime
+- the role is narrow enough to stay understandable
+- instructions do not duplicate existing repo-wide policy without reason
+- examples and constraints are concrete
+- naming matches repository conventions
+- the final file would still be useful six months from now
+- for \`.ai-team\` agents, prefer \`id\` / \`name\`; treat \`aiTeamId\` / \`aiTeamName\` as legacy compatibility aliases only
+- for \`.ai-team\` agents, \`reportsTo\` is explicit for every non-root executive agent
+- for \`.ai-team\` agents, the \`personality\` block and body tone support the role rather than sounding interchangeable
+- for \`.ai-team\` agents, collaboration expectations are clear when they materially affect how the role works with nearby agents or developers
+- for \`.ai-team\` agents, the opening conversational behavior feels human and does not force an unnecessary greeting when the developer already greeted first
+
+## Anti-patterns
+
+Avoid:
+
+- giant “does everything” agent files
+- repeating the full repo handbook inside every agent
+- vague goals like “help with coding” without scope
+- inventing permissions, responsibilities, or workflows not grounded in the repo
+- treating \`.github/agents\`, \`.github/prompts\`, or \`.github/skills\` as the default home when \`.ai-team/\` already covers the use case
+`;
+
+  await fs.writeFile(path.join(agentAuthoringDir, 'SKILL.md'), agentAuthoringSkill, 'utf-8');
 }
 
 async function updateGitignore(workspaceRoot: string) {

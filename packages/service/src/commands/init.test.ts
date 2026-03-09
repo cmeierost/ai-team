@@ -328,4 +328,178 @@ describe('initCommand', () => {
       expect(events.every(e => typeof e.kind === 'string')).toBe(true);
     });
   });
+
+  describe('workspace settings bootstrap', () => {
+    beforeEach(() => {
+      coreApi.loadTeamConfig.mockResolvedValue({
+        version: '0.1.0',
+        llm: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
+      });
+      coreApi.resolveEffectiveLlmSettings.mockReturnValue({
+        config: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
+        providerRef: 'openai',
+        apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY',
+      });
+      coreApi.loadEnvFile.mockResolvedValue({ AI_TEAM_LLM_API_KEY: 'sk-test' });
+      coreApi.testLlmConnection.mockResolvedValue({ success: true });
+    });
+
+    it('creates .vscode/settings.json with required chat locations when missing', async () => {
+      const questionConfirm = vi.fn().mockResolvedValue(true);
+      const questionInput = vi.fn().mockRejectedValue(new Error('abort'));
+
+      try {
+        await initCommand(workspaceRoot, { force: true }, {
+          questionConfirm,
+          questionInput,
+        });
+      } catch {
+        // expected — abort during onboarding after bootstrap work is done
+      }
+
+      const settingsPath = path.join(workspaceRoot, '.vscode', 'settings.json');
+      const settings = JSON.parse(await fs.readFile(settingsPath, 'utf-8')) as Record<string, Record<string, boolean>>;
+
+      expect(settings['chat.promptFilesLocations']?.['.ai-team/prompts']).toBe(true);
+      expect(settings['chat.instructionsFilesLocations']?.['.ai-team/instructions']).toBe(true);
+      expect(settings['chat.hookFilesLocations']?.['.ai-team/hooks']).toBe(true);
+      expect(settings['chat.agentFilesLocations']?.['.ai-team/agents']).toBe(true);
+      expect(settings['chat.agentSkillsLocations']?.['.ai-team/skills']).toBe(true);
+    });
+
+    it('merges required chat locations into existing settings without overwriting siblings', async () => {
+      await fs.mkdir(path.join(workspaceRoot, '.vscode'), { recursive: true });
+      await fs.writeFile(
+        path.join(workspaceRoot, '.vscode', 'settings.json'),
+        JSON.stringify({
+          'files.associations': {
+            '**/.ai-team/agents/*.agent.md': 'markdown',
+          },
+          'chat.promptFilesLocations': {
+            '.existing/prompts': true,
+          },
+          'chat.agentFilesLocations': {
+            '.existing/agents': true,
+          },
+          'chat.agentSkillsLocations': {
+            '.existing/skills': true,
+          },
+        }, null, 4),
+        'utf-8',
+      );
+
+      const questionConfirm = vi.fn().mockResolvedValue(true);
+      const questionInput = vi.fn().mockRejectedValue(new Error('abort'));
+
+      try {
+        await initCommand(workspaceRoot, { force: true }, {
+          questionConfirm,
+          questionInput,
+        });
+      } catch {
+        // expected — abort during onboarding after bootstrap work is done
+      }
+
+      const settingsPath = path.join(workspaceRoot, '.vscode', 'settings.json');
+      const settings = JSON.parse(await fs.readFile(settingsPath, 'utf-8')) as Record<string, Record<string, boolean> | Record<string, string>>;
+
+      expect((settings['files.associations'] as Record<string, string>)['**/.ai-team/agents/*.agent.md']).toBe('markdown');
+      expect((settings['chat.promptFilesLocations'] as Record<string, boolean>)['.existing/prompts']).toBe(true);
+      expect((settings['chat.promptFilesLocations'] as Record<string, boolean>)['.ai-team/prompts']).toBe(true);
+      expect((settings['chat.agentFilesLocations'] as Record<string, boolean>)['.existing/agents']).toBe(true);
+      expect((settings['chat.agentFilesLocations'] as Record<string, boolean>)['.ai-team/agents']).toBe(true);
+      expect((settings['chat.agentSkillsLocations'] as Record<string, boolean>)['.existing/skills']).toBe(true);
+      expect((settings['chat.agentSkillsLocations'] as Record<string, boolean>)['.ai-team/skills']).toBe(true);
+      expect((settings['chat.instructionsFilesLocations'] as Record<string, boolean>)['.ai-team/instructions']).toBe(true);
+      expect((settings['chat.hookFilesLocations'] as Record<string, boolean>)['.ai-team/hooks']).toBe(true);
+    });
+  });
+
+  describe('bootstrap compatibility docs', () => {
+    beforeEach(async () => {
+      await fs.mkdir(path.join(workspaceRoot, '.ai-team'), { recursive: true });
+      coreApi.loadTeamConfig.mockResolvedValue({
+        version: '0.1.0',
+        llm: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
+      });
+      coreApi.resolveEffectiveLlmSettings.mockReturnValue({
+        config: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
+        providerRef: 'openai',
+        apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY',
+      });
+      coreApi.loadEnvFile.mockResolvedValue({ AI_TEAM_LLM_API_KEY: 'sk-test' });
+      coreApi.testLlmConnection.mockResolvedValue({ success: true });
+    });
+
+    it('seeds generic AGENTS, copilot instructions, and ai-team doctrine files during init', async () => {
+      const questionConfirm = vi.fn().mockResolvedValue(true);
+      const questionSelect = vi.fn().mockRejectedValue(new Error('abort-bootstrap-check'));
+
+      await expect(initCommand(workspaceRoot, { force: true }, {
+        questionConfirm,
+        questionSelect,
+      })).rejects.toThrow('abort-bootstrap-check');
+
+      const agentsMd = await fs.readFile(path.join(workspaceRoot, 'AGENTS.md'), 'utf-8');
+      const copilotInstructions = await fs.readFile(path.join(workspaceRoot, '.github', 'copilot-instructions.md'), 'utf-8');
+      const aiTeamWay = await fs.readFile(path.join(workspaceRoot, '.ai-team', 'ai-team-way.md'), 'utf-8');
+      const agentsInstructions = await fs.readFile(path.join(workspaceRoot, '.ai-team', 'instructions', 'agents.instructions.md'), 'utf-8');
+
+      expect(agentsMd).toContain('.ai-team/ai-team-way.md');
+      expect(copilotInstructions).toContain('thin compatibility bridge');
+      expect(aiTeamWay).toContain('The ai-team Way');
+      expect(agentsInstructions).toContain('ai-team agent portfolio authoring');
+    });
+
+    it('does not overwrite existing AGENTS.md or .github/copilot-instructions.md', async () => {
+      await fs.mkdir(path.join(workspaceRoot, '.github'), { recursive: true });
+      await fs.writeFile(path.join(workspaceRoot, 'AGENTS.md'), 'existing agents file\n', 'utf-8');
+      await fs.writeFile(path.join(workspaceRoot, '.github', 'copilot-instructions.md'), 'existing instructions file\n', 'utf-8');
+
+      const questionConfirm = vi.fn().mockResolvedValue(true);
+      const questionSelect = vi.fn().mockRejectedValue(new Error('abort-preserve-check'));
+
+      await expect(initCommand(workspaceRoot, { force: true }, {
+        questionConfirm,
+        questionSelect,
+      })).rejects.toThrow('abort-preserve-check');
+
+      await expect(fs.readFile(path.join(workspaceRoot, 'AGENTS.md'), 'utf-8')).resolves.toBe('existing agents file\n');
+      await expect(fs.readFile(path.join(workspaceRoot, '.github', 'copilot-instructions.md'), 'utf-8')).resolves.toBe('existing instructions file\n');
+    });
+  });
+
+  describe('bootstrap skills', () => {
+    beforeEach(async () => {
+      await fs.mkdir(path.join(workspaceRoot, '.ai-team'), { recursive: true });
+      coreApi.loadTeamConfig.mockResolvedValue({
+        version: '0.1.0',
+        llm: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
+      });
+      coreApi.resolveEffectiveLlmSettings.mockReturnValue({
+        config: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
+        providerRef: 'openai',
+        apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY',
+      });
+      coreApi.loadEnvFile.mockResolvedValue({ AI_TEAM_LLM_API_KEY: 'sk-test' });
+      coreApi.testLlmConnection.mockResolvedValue({ success: true });
+    });
+
+    it('seeds the agent-authoring skill into .ai-team during init onboarding', async () => {
+      const questionConfirm = vi.fn().mockResolvedValue(true);
+      const questionSelect = vi.fn().mockRejectedValue(new Error('abort-name-pick'));
+
+      await expect(initCommand(workspaceRoot, { force: true }, {
+        questionConfirm,
+        questionSelect,
+      })).rejects.toThrow('abort-name-pick');
+
+      const skillPath = path.join(workspaceRoot, '.ai-team', 'skills', 'agent-authoring', 'SKILL.md');
+      const skillContent = await fs.readFile(skillPath, 'utf-8');
+
+      expect(skillContent).toContain('name: agent-authoring');
+      expect(skillContent).toContain('Use this skill when the task is to create or improve:');
+      expect(skillContent).toContain('`.ai-team/agents/*.md`');
+    });
+  });
 });

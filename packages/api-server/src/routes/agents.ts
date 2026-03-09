@@ -623,7 +623,12 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
 
       // Build file tree respecting global allowPaths
       const config = await loadTeamConfig(agentManager.workspaceRoot);
-      const allowPaths = config?.fileTree?.allowPaths ?? [];
+      const allowPaths = Array.from(new Set([
+        ...(config?.fileTree?.readPaths ?? []),
+        ...(config?.fileTree?.writePaths ?? []),
+        ...(config?.fileTree?.createPaths ?? []),
+        ...(config?.fileTree?.deletePaths ?? []),
+      ]));
       const entries = await listCachedWorkspaceFiles(agentManager.workspaceRoot, {
         maxDepth,
         allowPaths,

@@ -1,8 +1,8 @@
 import { Agent } from '../types';
 
-const API_BASE = window.location.hostname === 'localhost' 
+const API_BASE = globalThis.location.hostname === 'localhost'
   ? 'http://localhost:3002'
-  : window.location.origin;
+  : globalThis.location.origin;
 
 /**
  * Get the avatar URL for an agent
@@ -26,7 +26,12 @@ export function getAvatarUrl(agent: Agent | null | undefined): string | null {
   }
   
   // If it's an absolute URL, return it as is
-  if (agent.avatar.url.startsWith('http://') || agent.avatar.url.startsWith('https://')) {
+  if (
+    agent.avatar.url.startsWith('http://')
+    || agent.avatar.url.startsWith('https://')
+    || agent.avatar.url.startsWith('data:')
+    || agent.avatar.url.startsWith('blob:')
+  ) {
     return agent.avatar.url;
   }
   
@@ -41,7 +46,8 @@ export function getAvatarUrl(agent: Agent | null | undefined): string | null {
 export function getAgentInitials(agent: Agent): string {
   const names = agent.name.split(' ');
   if (names.length >= 2) {
-    return `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase();
+    const lastName = names.slice(-1)[0];
+    return `${names[0][0]}${lastName?.[0] ?? ''}`.toUpperCase();
   }
   return agent.name.substring(0, 2).toUpperCase();
 }

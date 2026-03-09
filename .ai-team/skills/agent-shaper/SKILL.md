@@ -1,6 +1,6 @@
 ---
 name: agent-shaper
-description: 'Shape or review ai-team agents from a hiring brief into a clear final portfolio. Use when Emily Davis or another agent needs to turn a role idea into a strong agent with the right personality, reporting line, permissions, collaboration behavior, and supporting skills.'
+description: 'Shape or review ai-team agents from a hiring brief into a clear final portfolio. Use when Emily Davis or another agent needs to turn a role idea into a strong agent with the right personality, reporting line, runtime metadata, collaboration behavior, and supporting skills.'
 ---
 
 # Agent Shaper
@@ -16,6 +16,7 @@ This includes:
 - shaping new agents
 - restructuring existing agents
 - reviewing whether an agent should exist at all
+- deciding what belongs in `.agent.md` versus `.agent.yml`
 - deciding supporting skills, prompts, and instructions
 - validating personality, reporting lines, and collaboration patterns
 - directly updating the relevant files when normal workspace tools are available
@@ -24,11 +25,12 @@ This includes:
 
 1. `.ai-team/ai-team-way.md`
 2. `.ai-team/instructions/agents.instructions.md`
-3. `packages/core/src/types/index.ts`
-4. Existing agent files in `.ai-team/agents/**/*`
-5. Related skills in `.ai-team/skills/**/*`
-6. `templates/john-to-emily-hiring-brief.md`
-7. `references/good-agent-examples.md`
+3. `.ai-team/instructions/agent-metadata.instructions.md`
+4. `packages/core/src/types/index.ts`
+5. Existing agent files in `.ai-team/agents/**/*`
+6. Related skills in `.ai-team/skills/**/*`
+7. `templates/john-to-emily-hiring-brief.md`
+8. `references/good-agent-examples.md`
 
 ## Workflow
 
@@ -69,6 +71,8 @@ Write the personality so it supports the job instead of becoming decoration.
 
 Design:
 
+- the Copilot-facing `.agent.md` portfolio
+- the ai-team runtime `.agent.yml` sidecar
 - identity fields
 - role and context level
 - explicit `reportsTo`
@@ -136,6 +140,7 @@ When shaping or reviewing an agent, summarize the result as:
 - keep the agent human, but not theatrical
 - prefer the smallest believable role
 - keep `.ai-team/` as the source of truth
+- use `.github/agents/` only when explicit GitHub-side compatibility is needed, not as the default home for agents
 - treat personality as design, not garnish
 - make collaboration and delegation obvious
 - when file tools are available, use them to complete the shaping work instead of only describing the work

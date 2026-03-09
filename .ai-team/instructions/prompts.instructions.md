@@ -43,6 +43,7 @@ Write prompts the ai-team way.
 - Avoid generic filler such as “follow best practices” unless you also say what that means here.
 - Prefer sharp instructions and reusable structure over long, theatrical prose.
 - Make sure the prompt fits the right owner, skill, and instruction context instead of colliding with them.
+- Use `.ai-team/prompts/` as the default home; only mirror a prompt into `.github/prompts/` when explicit GitHub-side compatibility is needed.
 
 ## Successful outcome
 

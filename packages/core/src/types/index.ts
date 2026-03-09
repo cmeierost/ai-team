@@ -124,11 +124,11 @@ export const AgentCapabilitiesSchema = z.object({
 });
 
 export const AgentSchema = z.object({
-  // Vendor-neutral ai-team aliases (authoritative when provided)
+  // Legacy ai-team aliases kept for compatibility with older files
   aiTeamName: z.string().optional(),
   aiTeamId: z.string().optional(),
 
-  // Generic fields used across other ecosystems
+  // Generic fields used across ecosystems and preferred for new ai-team files
   name: z.string().optional(),
   id: z.string().optional(),
   role: z.string(),

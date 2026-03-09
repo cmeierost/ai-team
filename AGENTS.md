@@ -44,6 +44,13 @@ If the task is about implementation work:
 - follow repository rules from `.github/copilot-instructions.md`
 - use `.ai-team/` as the long-lived source of truth where applicable
 
+## Source-of-truth split
+
+- `.ai-team/` is the authoritative home for ai-team agents, skills, prompts, instructions, and doctrine.
+- `.github/` is an optional bootstrap and compatibility layer for Copilot discovery, not the default home for agents, prompts, or skills.
+- In `.ai-team/agents/`, prefer `.agent.md` for Copilot-facing portfolio content and `.agent.yml` for ai-team runtime metadata.
+- When a `.github/` file and a `.ai-team/` file cover the same topic, prefer the `.ai-team/` file for durable project knowledge unless the task is specifically about GitHub-side compatibility.
+
 ## Precedence
 
 This file is a **bootstrap entry point**, not the full repository rule set.
@@ -54,5 +61,7 @@ When more specific guidance exists:
 - repository coding guidance comes from `.github/copilot-instructions.md`
 - ai-team customization doctrine comes from `.ai-team/ai-team-way.md`
 - deeper Copilot setup guidance comes from `analysis/copilot/`
+
+Thin compatibility mirrors in `.github/` should be optional and should point back to these stronger sources instead of duplicating them.
 
 If these sources appear to conflict, prefer the more specific document for the task at hand.

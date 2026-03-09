@@ -1,0 +1,48 @@
+:root {
+  color-scheme: dark;
+}
+
+body,
+#storybook-root,
+.sb-show-main,
+.sbdocs,
+.sbdocs-wrapper {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+body {
+  overflow: auto;
+}
+
+.storybook-shell {
+  min-height: 100vh;
+  padding: 1.5rem;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.storybook-surface {
+  display: grid;
+  gap: 1rem;
+  min-width: min(100%, 20rem);
+}
+
+.storybook-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.storybook-row-end {
+  align-items: flex-end;
+}
+
+.storybook-card {
+  max-width: 28rem;
+}
+
+.storybook-list {
+  padding-left: 1.25rem;
+}

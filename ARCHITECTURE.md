@@ -209,8 +209,11 @@ All runtime artifacts are rooted under `.ai-team/` in the workspace:
 
 - `.ai-team/config.json` - non-secret provider/model/configuration state.
 - `.ai-team/.env` - secrets and provider tokens.
-- `.ai-team/agents/*.md` - agent definitions (frontmatter + markdown).
+- `.ai-team/agents/*.agent.md` - Copilot-facing agent portfolio files.
+- `.ai-team/agents/*.agent.yml` - ai-team runtime metadata sidecars for those agent portfolios.
 - `.ai-team/private/ai-team.db` - SQLite database for chat sessions, messages, and metadata.
+
+Compatibility/bootstrap artifacts may also exist under `.github/`, but they are optional and are not the default home for agent, prompt, or skill authoring in this repository.
 
 ## Command Execution Model
 

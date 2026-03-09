@@ -56,6 +56,126 @@ function isAgentMdFile(filePath: string): boolean {
   return path.basename(filePath).toLowerCase() === 'agent.md';
 }
 
+function isDotAgentYamlFile(filePath: string): boolean {
+  const base = path.basename(filePath).toLowerCase();
+  return base.endsWith('.agent.yml') || base.endsWith('.agent.yaml');
+}
+
+function isAgentYamlFile(filePath: string): boolean {
+  const base = path.basename(filePath).toLowerCase();
+  return base === 'agent.yml' || base === 'agent.yaml';
+}
+
+function isYamlAgentFile(filePath: string): boolean {
+  return isDotAgentYamlFile(filePath) || isAgentYamlFile(filePath);
+}
+
+function isAiTeamAgentPath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/');
+  return normalized.includes('/.ai-team/agents/');
+}
+
+function getMetadataSidecarCandidates(filePath: string): string[] {
+  const lowerBase = path.basename(filePath).toLowerCase();
+  if (lowerBase === 'agent.md') {
+    return [
+      path.join(path.dirname(filePath), 'agent.yml'),
+      path.join(path.dirname(filePath), 'agent.yaml'),
+    ];
+  }
+
+  if (lowerBase.endsWith('.agent.md')) {
+    return [
+      filePath.slice(0, -3) + '.yml',
+      filePath.slice(0, -3) + '.yaml',
+    ];
+  }
+
+  return [];
+}
+
+function getMarkdownSidecarCandidates(filePath: string): string[] {
+  const lowerBase = path.basename(filePath).toLowerCase();
+  if (lowerBase === 'agent.yml' || lowerBase === 'agent.yaml') {
+    return [path.join(path.dirname(filePath), 'agent.md')];
+  }
+
+  if (lowerBase.endsWith('.agent.yml')) {
+    return [filePath.slice(0, -4) + '.md'];
+  }
+
+  if (lowerBase.endsWith('.agent.yaml')) {
+    return [filePath.slice(0, -5) + '.md'];
+  }
+
+  return [];
+}
+
+async function firstExistingPath(paths: string[]): Promise<string | undefined> {
+  for (const candidate of paths) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function parseYamlSidecar(content: string, filePath: string): Record<string, unknown> {
+  const wrapped = `---\n${content.trim()}\n---\n`;
+  const { data } = matter(wrapped);
+
+  if (content.trim().length > 0 && Object.keys(data).length === 0) {
+    throw new ValidationError(`Invalid agent YAML metadata in ${filePath}`);
+  }
+
+  return data as Record<string, unknown>;
+}
+
+function stringifyYamlSidecar(data: Record<string, unknown>): string {
+  const serialized = matter.stringify('', data).trim();
+  const match = serialized.match(/^---\n([\s\S]*?)\n---$/);
+  if (!match) {
+    return serialized + '\n';
+  }
+
+  return match[1].trimEnd() + '\n';
+}
+
+async function readMarkdownAgentFile(filePath: string): Promise<{ data: Record<string, unknown>; markdown: string; }> {
+  const content = await fs.readFile(filePath, 'utf-8');
+  const { data, content: markdown } = matter(content);
+
+  if (content.trimStart().startsWith('---') && Object.keys(data).length === 0) {
+    throw new ValidationError(
+      `Invalid agent configuration in ${filePath}: YAML frontmatter appears to be missing its closing --- delimiter.`
+    );
+  }
+
+  return {
+    data: data as Record<string, unknown>,
+    markdown,
+  };
+}
+
+function extractPortfolioFrontmatter(agent: Agent): Record<string, unknown> {
+  const frontmatter: Record<string, unknown> = {};
+
+  if (agent.name) frontmatter.name = agent.name;
+  if (agent.description) frontmatter.description = agent.description;
+
+  return frontmatter;
+}
+
+function extractMetadataFrontmatter(frontmatter: Record<string, unknown>): Record<string, unknown> {
+  const {
+    description: _description,
+    aiTeamName: _aiTeamName,
+    aiTeamId: _aiTeamId,
+    ...metadata
+  } = frontmatter;
+  return metadata;
+}
+
 function humanizeId(id: string): string {
   return id
     .split(/[-_\s]+/)
@@ -73,65 +193,75 @@ function humanizeId(id: string): string {
  */
 export async function loadAgent(filePath: string): Promise<Agent> {
   try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    const { data, content: markdown } = matter(content);
+    const markdownPath = isYamlAgentFile(filePath)
+      ? await firstExistingPath(getMarkdownSidecarCandidates(filePath))
+      : filePath;
 
-    // Detect unterminated frontmatter: file starts with --- but gray-matter
-    // returned no fields, which happens when the closing --- is missing and
-    // the YAML parser silently bails on the markdown body content.
-    if (content.trimStart().startsWith('---') && Object.keys(data).length === 0) {
-      throw new ValidationError(
-        `Invalid agent configuration in ${filePath}: YAML frontmatter appears to be missing its closing --- delimiter.`
-      );
-    }
+    const metadataPath = isYamlAgentFile(filePath)
+      ? filePath
+      : await firstExistingPath(getMetadataSidecarCandidates(filePath));
+
+    const markdownRecord = markdownPath
+      ? await readMarkdownAgentFile(markdownPath)
+      : { data: {}, markdown: '' };
+
+    const metadataRecord = metadataPath
+      ? parseYamlSidecar(await fs.readFile(metadataPath, 'utf-8'), metadataPath)
+      : {};
 
     // Validate against schema
-    const config = AgentSchema.parse(data) as AgentConfig;
+    const config = AgentSchema.parse({
+      ...markdownRecord.data,
+      ...metadataRecord,
+    }) as AgentConfig;
     
-    const explicitAiTeamId = normalizeText(config.aiTeamId);
     const explicitId = normalizeText(config.id);
-    const explicitAiTeamName = normalizeText(config.aiTeamName);
     const explicitName = normalizeText(config.name);
+    const explicitAiTeamId = normalizeText(config.aiTeamId);
+    const explicitAiTeamName = normalizeText(config.aiTeamName);
 
-    const fallbackFileId = (isDotAgentFile(filePath) || isAgentMdFile(filePath))
-      ? fileNameToAgentId(filePath)
+    const identityPath = markdownPath || metadataPath || filePath;
+    const fallbackFileId = (isDotAgentFile(identityPath) || isAgentMdFile(identityPath))
+      ? fileNameToAgentId(identityPath)
       : undefined;
 
     const hasExplicitIdentity = Boolean(
-      explicitAiTeamId || explicitId || explicitAiTeamName || explicitName
+      explicitId || explicitName || explicitAiTeamId || explicitAiTeamName
     );
 
     if (!hasExplicitIdentity && !fallbackFileId) {
       throw new ValidationError(
-        `Agent identity missing in ${filePath}. Provide one of aiTeamName, aiTeamId, name, id, or use *.agent.md filename.`
+        `Agent identity missing in ${identityPath}. Provide one of name, id, legacy aiTeamName, legacy aiTeamId, or use *.agent.md filename.`
       );
     }
 
-    const effectiveId = explicitAiTeamId
-      || explicitId
-      || slugifyName(explicitAiTeamName || explicitName || fallbackFileId || '');
+    const effectiveId = explicitId
+      || explicitAiTeamId
+      || slugifyName(explicitName || explicitAiTeamName || fallbackFileId || '');
 
     if (!effectiveId) {
       throw new ValidationError(`Unable to resolve agent id for ${filePath}`);
     }
 
-    const effectiveName = explicitAiTeamName
-      || explicitName
+    const effectiveName = explicitName
+      || explicitAiTeamName
       || humanizeId(effectiveId);
     
     // Find corresponding skill file
-    const skillPath = path.join(path.dirname(filePath), `${config.role}.md`);
-    
+    const skillPath = path.join(path.dirname(identityPath), `${config.role}.md`);
+
     // Get file stats for timestamps
-    const stats = await fs.stat(filePath);
+    const stats = await fs.stat(metadataPath || markdownPath || filePath);
     
     return {
       ...config,
       id: effectiveId,
       name: effectiveName,
-      filePath,
+      aiTeamId: effectiveId,
+      aiTeamName: effectiveName,
+      filePath: markdownPath || metadataPath || filePath,
       skillPath,
-      markdown,
+      markdown: markdownRecord.markdown,
       createdAt: stats.birthtime.toISOString(),
       lastInteraction: stats.mtime.toISOString(),
       // Ensure every agent has a deterministic colour even if not set in the file
@@ -178,13 +308,38 @@ export async function saveAgent(agent: Agent): Promise<void> {
     Object.entries(frontmatter).filter(([, v]) => v !== undefined)
   );
 
+  const defaultMetadataPath = isAiTeamAgentPath(agent.filePath) && (isDotAgentFile(agent.filePath) || isAgentMdFile(agent.filePath))
+    ? getMetadataSidecarCandidates(agent.filePath)[0]
+    : undefined;
+  const existingMetadataPath = await firstExistingPath(getMetadataSidecarCandidates(agent.filePath));
+  const metadataPath = isYamlAgentFile(agent.filePath)
+    ? agent.filePath
+    : (existingMetadataPath || defaultMetadataPath);
+  const markdownPath = isYamlAgentFile(agent.filePath)
+    ? (getMarkdownSidecarCandidates(agent.filePath)[0] || agent.filePath)
+    : agent.filePath;
+
   // Use markdown body if present, otherwise empty
   const body = (markdown || '').trim();
+
+  if (metadataPath) {
+    const portfolioFrontmatter = extractPortfolioFrontmatter(agent);
+    const metadataFrontmatter = extractMetadataFrontmatter(cleanFrontmatter);
+    const markdownContent = matter.stringify(body ? '\n' + body + '\n' : '', portfolioFrontmatter);
+    const metadataContent = stringifyYamlSidecar(metadataFrontmatter);
+
+    await fs.mkdir(path.dirname(markdownPath), { recursive: true });
+    await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+    await fs.writeFile(markdownPath, markdownContent, 'utf-8');
+    await fs.writeFile(metadataPath, metadataContent, 'utf-8');
+    return;
+  }
+
   const content = matter.stringify(body ? '\n' + body + '\n' : '', cleanFrontmatter);
-  
+
   // Ensure directory exists
   await fs.mkdir(path.dirname(agent.filePath), { recursive: true });
-  
+
   await fs.writeFile(agent.filePath, content, 'utf-8');
 }
 
@@ -248,6 +403,7 @@ export async function findAgentFiles(workspaceRoot: string): Promise<string[]> {
     '**/agent.md',
     '**/*.agent.md',
     '.ai-team/agents/*.md',
+    '.github/agents/*.md',
   ];
 
   const ignore = ['**/node_modules/**', '**/.git/**'];
@@ -300,6 +456,10 @@ export async function ensureAiTeamDirectory(workspaceRoot: string): Promise<void
   
   // Create directories
   await fs.mkdir(path.join(aiTeamDir, 'agents'), { recursive: true });
+  await fs.mkdir(path.join(aiTeamDir, 'instructions'), { recursive: true });
+  await fs.mkdir(path.join(aiTeamDir, 'prompts'), { recursive: true });
+  await fs.mkdir(path.join(aiTeamDir, 'hooks'), { recursive: true });
+  await fs.mkdir(path.join(aiTeamDir, 'skills'), { recursive: true });
   await fs.mkdir(path.join(aiTeamDir, 'roles'), { recursive: true });
   await fs.mkdir(path.join(aiTeamDir, 'features'), { recursive: true });
   await fs.mkdir(path.join(aiTeamDir, 'meetings'), { recursive: true });
