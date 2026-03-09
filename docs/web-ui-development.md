@@ -55,6 +55,45 @@ pnpm --filter @ai-team/web build
 - Outputs to `packages/web/dist/`
 - Use only when testing production build or deploying
 
+## State Architecture Direction
+
+The target frontend state split for `packages/web` is:
+
+- **TanStack Query** for server state and ordinary API-backed data fetching
+- **Zustand** for shared live runtime client state such as mediated chat streaming
+- **local state or small reducers** for tiny view-local interactions
+- **dumb presentational views** for Storybook-friendly rendering
+
+See `docs/implementation/web-state-architecture.md` for the detailed guidance.
+
+### What belongs where
+
+- sessions, tasks, artifacts, team graph, dashboard stats, and other persisted API resources → TanStack Query
+- in-flight token streaming, pending workflow questions, tool activity, handoff state, and other shared runtime chat behavior → Zustand
+- small local interaction details such as input drafts or hover state → local component or controller state
+
+### Storybook and state boundaries
+
+When refactoring important UI:
+
+- prefer controller/view or hook/view boundaries
+- keep views prop-driven when practical
+- keep raw fetch logic, router orchestration, and WebSocket protocol handling out of presentational views
+
+### Testing requirement
+
+All meaningful extracted state logic should be unit tested.
+
+That includes:
+
+- store actions
+- selectors
+- reducers
+- event-application helpers
+- controller logic
+
+Storybook helps validate rendering and interaction states, but it is not a substitute for direct unit coverage of state transitions.
+
 ### Type Checking Without Building
 ```powershell
 cd packages/web

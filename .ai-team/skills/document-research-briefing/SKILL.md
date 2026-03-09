@@ -86,6 +86,8 @@ Prefer an output structure like:
 - **Implication for ai-team** — why this matters here
 - **Recommended next move** — adopt, test, watch, ignore, or delegate
 
+When the output is meant to become a durable `analysis/` document, prefer the standard structure from `knowledge-brief-writing/templates/analysis-brief-template.md` so readers can get to the point quickly and recognize the shape immediately.
+
 ## Working rules
 
 - normalize documents into Markdown before heavy summarization when possible

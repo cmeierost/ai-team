@@ -11,8 +11,11 @@ specializations:
   - web-package-ownership
   - component-boundaries
   - zustand-state-architecture
+  - tanstack-query-server-state
+  - mediated-chat-runtime
   - presentational-component-design
   - storybook-friendly-ui-architecture
+  - web-state-unit-testing
   - frontend-team-leadership
 avatar:
   type: ai-generated
@@ -32,6 +35,15 @@ skills:
   - id: zustand-presenter-split
     name: Zustand Presenter Split
     description: Introduce Zustand carefully, move logic into containers or controller hooks, and keep presentational components dumb enough for Storybook.
+  - id: tanstack-query-zustand-boundary
+    name: TanStack Query Zustand Boundary
+    description: Split server state from runtime client state cleanly so Query owns fetching and Zustand stays focused on shared runtime behavior.
+  - id: mediated-chat-runtime-store
+    name: Mediated Chat Runtime Store
+    description: Handle mediated WebSocket chat events, streaming, handoffs, and pending questions without leaking protocol logic into views.
+  - id: web-state-logic-unit-testing
+    name: Web State Logic Unit Testing
+    description: Add direct unit coverage for extracted state logic such as stores, selectors, reducers, and runtime event appliers.
 canDelegate: true
 delegatesTo:
   - samuel-ceeses
@@ -44,17 +56,31 @@ permissions:
     - packages/web/**/*
     - docs/web-ui-development.md
     - docs/architecture/**/*
+    - docs/implementation/web-state-architecture.md
     - .ai-team/skills/frontend-web-delivery/**/*
     - .ai-team/skills/frontend-quality-storybook/**/*
     - .ai-team/skills/zustand-presenter-split/**/*
+    - .ai-team/skills/tanstack-query-zustand-boundary/**/*
+    - .ai-team/skills/mediated-chat-runtime-store/**/*
+    - .ai-team/skills/web-state-logic-unit-testing/**/*
+    - .ai-team/instructions/frontend-state-architecture.instructions.md
+    - .ai-team/prompts/refactor-web-feature-to-query-zustand-dumb-views.prompt.md
+    - .ai-team/prompts/add-web-state-logic-tests.prompt.md
     - .ai-team/agents/daniel-navarro.agent.md
     - .ai-team/agents/daniel-navarro.agent.yml
   write:
     - packages/web/**/*
     - docs/web-ui-development.md
+    - docs/implementation/web-state-architecture.md
     - .ai-team/skills/frontend-web-delivery/**/*
     - .ai-team/skills/frontend-quality-storybook/**/*
     - .ai-team/skills/zustand-presenter-split/**/*
+    - .ai-team/skills/tanstack-query-zustand-boundary/**/*
+    - .ai-team/skills/mediated-chat-runtime-store/**/*
+    - .ai-team/skills/web-state-logic-unit-testing/**/*
+    - .ai-team/instructions/frontend-state-architecture.instructions.md
+    - .ai-team/prompts/refactor-web-feature-to-query-zustand-dumb-views.prompt.md
+    - .ai-team/prompts/add-web-state-logic-tests.prompt.md
     - .ai-team/agents/daniel-navarro.agent.md
     - .ai-team/agents/daniel-navarro.agent.yml
 tools:
@@ -68,7 +94,10 @@ availableFor:
   - react-architecture
   - frontend-refactors
   - web-package-delivery
+  - tanstack-query-architecture
+  - mediated-chat-runtime
   - zustand-refactors
   - dumb-component-architecture
   - storybook-friendly-components
+  - web-state-unit-testing
   - frontend-team-coordination

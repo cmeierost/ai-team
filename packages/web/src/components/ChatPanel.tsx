@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate, useMatch } from 'react-router-dom';
 import { useTeam, API_BASE } from '../context/TeamContext';
 import { ChatMessage, SessionActivatedTool } from '../types';
@@ -8,6 +9,7 @@ import { ContextPanel } from './ContextPanel';
 import { RelativeTime } from './RelativeTime';
 import { SessionGraphLoader } from './SessionGraph';
 import { getAgentColor } from '../utils/color';
+import { contextPanelQueryKeys } from '../hooks/contextPanelQueryKeys';
 import './ChatPanel.css';
 
 /** Match patterns for URL-driven session + graph routing */
@@ -125,6 +127,7 @@ function MessageDivider({ messageIndex, onSummarize, onSplitSession }: MessageDi
 export function ChatPanel() {
   const { agentId } = useParams<{ agentId: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { agents, client, developer } = useTeam();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -147,7 +150,6 @@ export function ChatPanel() {
   const [pendingSelectAnswer, setPendingSelectAnswer] = useState('');
   const [pendingChecklistAnswer, setPendingChecklistAnswer] = useState<string[]>([]);
   const [scrollToHandoffId, setScrollToHandoffId] = useState<string | null>(null);
-  const [sessionRefreshTrigger, setSessionRefreshTrigger] = useState(0);
   // True when a greeting is showing but no session has been persisted yet
   const [isEphemeral, setIsEphemeral] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -667,7 +669,7 @@ export function ChatPanel() {
         sessionId = newSession.id;
         setCurrentSessionId(sessionId);
         setIsEphemeral(false);
-        setSessionRefreshTrigger((t) => t + 1);
+        void queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
         // Mark this session ID so loadSession skips the redundant reload
         skipNextSessionLoadRef.current = sessionId;
         navigate(`/chat/${currentAgentId}/session/${sessionId}`, { replace: true });
@@ -751,7 +753,7 @@ export function ChatPanel() {
                 setCurrentAgentId(toAgentId);
                 setArtifactsInContext(sessionWithMessages.artifacts || []);
                 setActivatedTools(extractSessionActivatedTools(sessionWithMessages.notes));
-                setSessionRefreshTrigger((t) => t + 1);
+                void queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
                 // Navigate to the real session URL immediately — no F5 needed
                 skipNextSessionLoadRef.current = targetSessionId;
                 navigate(`/chat/${toAgentId}/session/${targetSessionId}`, { replace: true });
@@ -1051,7 +1053,7 @@ export function ChatPanel() {
 
       // Update current session ID and reload messages from new session
       setCurrentSessionId(newSession.id);
-      setSessionRefreshTrigger((t) => t + 1);
+      void queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
       handleSwitchSession(newSession.id);
       alert(`Session split successfully! New session: ${newSession.id}`);
     } catch (error) {
@@ -1497,7 +1499,6 @@ export function ChatPanel() {
         onDeleteSession={handleDeleteSession}
         onCreateSession={handleCreateSession}
         onOpenSessionGraph={handleOpenSessionGraph}
-        refreshTrigger={sessionRefreshTrigger}
       />
     </div>
   );

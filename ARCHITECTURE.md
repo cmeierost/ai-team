@@ -2,523 +2,273 @@
 
 ## Documentation Map
 
-- [Copilot Context](COPILOT-CONTEXT.md) - working assumptions and execution guardrails for coding agents.
-- [Architecture Overview](docs/architecture/overview.md) - concise architecture summary.
-- [Architecture Diagrams](docs/architecture/diagrams.md) - Mermaid context/container views.
-- [API/Service Contracts](docs/api/contracts.md) - mediator contracts and extension checklist.
-- [Core Package Guide](packages/core/README.md) - core package usage notes.
-- [VS Code Package Guide](packages/vscode/README.md) - extension adapter notes.
-- [Web Package Guide](packages/web/README.md) - web adapter notes.
+- [README.md](README.md) - repository front door, setup, and navigation.
+- [COPILOT-CONTEXT.md](COPILOT-CONTEXT.md) - tactical implementation briefing for coding agents.
+- [docs/architecture/overview.md](docs/architecture/overview.md) - concise human-readable summary of the current architecture.
+- [docs/architecture/diagrams.md](docs/architecture/diagrams.md) - Mermaid diagrams for package boundaries and runtime flows.
+- [docs/api/contracts.md](docs/api/contracts.md) - transport-facing API documentation for the API server surface.
+- [docs/implementation/web-state-architecture.md](docs/implementation/web-state-architecture.md) - target frontend state split and migration guidance.
+
+## Purpose
+
+AI Team is a TypeScript monorepo for running a file-backed virtual software organization across multiple user surfaces.
+
+The architecture optimizes for:
+
+- thin adapters at the edges
+- typed service boundaries in the middle
+- reusable UI-free logic in `@ai-team/core`
+- transport flexibility for local and remote clients
+- runtime state rooted under `.ai-team/`
 
 ## Implementation Entry Points
 
-Use this as a "where should I change code" index:
+Use this as a “where should I change code?” index.
 
 | What | Where |
-|---|---|
-| Mediator contracts and command payload/response types | [packages/service/src/contracts.ts](packages/service/src/contracts.ts) |
-| Service command dispatch and runtime event wiring | [packages/service/src/index.ts](packages/service/src/index.ts) |
-| CLI/LLM command metadata (`llmCallable`, `usage`, `description`) | [packages/service/src/command-registry.ts](packages/service/src/command-registry.ts) |
-| In-chat slash command implementations and descriptions | [packages/service/src/orchestrator/slash-commands.ts](packages/service/src/orchestrator/slash-commands.ts) |
-| LLM turn orchestration (tool-calling, handoff/hire, context) | [packages/service/src/orchestrator/chat-orchestrator.ts](packages/service/src/orchestrator/chat-orchestrator.ts) |
-| Pipeline stage interfaces (ISlashCommand, IContextEnricher, …) | [packages/service/src/orchestrator/pipeline.ts](packages/service/src/orchestrator/pipeline.ts) |
-| Natural-language agent-switch detection | [packages/service/src/orchestrator/forward-detection.ts](packages/service/src/orchestrator/forward-detection.ts) |
-| Timeout / abort-signal wrapping (used across all async pipeline stages) | [packages/service/src/orchestrator/async-utils.ts](packages/service/src/orchestrator/async-utils.ts) |
-| Chat command entry point (thin bootstrap + interactive loop) | [packages/service/src/commands/chat/index.ts](packages/service/src/commands/chat/index.ts) |
-| Agent selection logic (default top agent, prompt formatting) | [packages/service/src/utils/agent-selection.ts](packages/service/src/utils/agent-selection.ts) |
-| Tool definitions and registry (`ask_human`, `ask_question`, etc.) | [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts) |
-| Command catalog metadata for model-facing command descriptions | [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts) |
-| Typed client facade and local service wiring | [packages/api-client/src/index.ts](packages/api-client/src/index.ts) |
-| CLI adapter command wiring | [packages/cli/src/cli.ts](packages/cli/src/cli.ts) |
+| --- | --- |
+| Mediator command payload/response/event contracts | [packages/service/src/contracts.ts](packages/service/src/contracts.ts) |
+| Service command dispatch, `invoke()`, `stream()`, and runtime event bridging | [packages/service/src/index.ts](packages/service/src/index.ts) |
+| Thin chat bootstrap: env checks, agent resolution, session selection, orchestrator setup | [packages/service/src/commands/chat/index.ts](packages/service/src/commands/chat/index.ts) |
+| Chat turn controller: slash commands, NL forwarding, handoffs, turn loop | [packages/service/src/orchestrator/chat-orchestrator.ts](packages/service/src/orchestrator/chat-orchestrator.ts) |
+| Single-turn LLM pipeline: context build, tool dispatch, handoff/hire detection | [packages/service/src/orchestrator/send-turn.ts](packages/service/src/orchestrator/send-turn.ts) |
+| Handoff protocol and context mutation | [packages/service/src/orchestrator/handoff.ts](packages/service/src/orchestrator/handoff.ts) |
+| Pipeline extension interfaces | [packages/service/src/orchestrator/pipeline.ts](packages/service/src/orchestrator/pipeline.ts) |
+| Workflow continuation persistence | [packages/service/src/workflow-state.ts](packages/service/src/workflow-state.ts) |
+| Session lifecycle and persisted chat behavior | [packages/service/src/session-manager.ts](packages/service/src/session-manager.ts) |
+| Task lifecycle and task-oriented state | [packages/service/src/task-manager.ts](packages/service/src/task-manager.ts) |
+| Local typed client façade and local service wiring | [packages/api-client/src/index.ts](packages/api-client/src/index.ts) |
+| Browser-safe HTTP/WebSocket client | [packages/api-client-http/src/index.ts](packages/api-client-http/src/index.ts) |
+| Browser WebSocket chat transport | [packages/api-client-http/src/websocket.ts](packages/api-client-http/src/websocket.ts) |
+| API server transport assembly | [packages/api-server/src/server.ts](packages/api-server/src/server.ts) |
+| API server HTTP routes | [packages/api-server/src/routes/](packages/api-server/src/routes/) |
+| API server WebSocket chat bridge | [packages/api-server/src/ws/chat-handler.ts](packages/api-server/src/ws/chat-handler.ts) |
+| Core tools and question primitives | [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts) |
+| Model-facing command metadata | [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts) |
+| IDE bridge contracts and discovery file | [packages/ide-interface/src/index.ts](packages/ide-interface/src/index.ts) |
+| VS Code extension activation and IDE-local server | [packages/vscode/src/extension.ts](packages/vscode/src/extension.ts), [packages/vscode/src/ide-local-server.ts](packages/vscode/src/ide-local-server.ts) |
+| Web frontend bootstrap and routing | [packages/web/src/main.tsx](packages/web/src/main.tsx), [packages/web/src/App.tsx](packages/web/src/App.tsx) |
+| Current web chat/runtime hotspot | [packages/web/src/components/ChatPanel.tsx](packages/web/src/components/ChatPanel.tsx) |
 
-## System Overview
+## System Model
 
-AI Team is a TypeScript monorepo for running a file-backed virtual software organization.
+AI Team has three important runtime shapes:
 
-It provides multiple user surfaces (`CLI`, `VS Code extension`, and `Web`) while keeping reusable business logic centralized and adapter-independent.
+1. **Local command path** for CLI-driven work.
+2. **Remote browser path** for the web UI.
+3. **IDE integration path** for editor-local review/open-file workflows.
 
-## Current Architecture (March 2026)
+### Layered architecture
 
-The current runtime is a layered model:
+```text
+Adapters / Transports
+  ├─ @ai-team/cli
+  ├─ @ai-team/vscode
+  ├─ @ai-team/web
+  ├─ @ai-team/api-server
+  └─ @ai-team/api-client-http
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│ Adapter Layer                                                │
-│  ├─ @ai-team/cli (commander + terminal UX)                  │
-│  ├─ @ai-team/vscode (extension views/panels)                │
-│  └─ @ai-team/web (React UI)                                 │
-└─────────────────────────────┬────────────────────────────────┘
-                              │
-┌─────────────────────────────▼────────────────────────────────┐
-│ Client Layer: @ai-team/api-client                           │
-│  ├─ Typed client API used by adapters                        │
-│  ├─ Command-oriented methods (`chat`, `hire`, `provider.*`) │
-│  └─ In-process client factory (`createLocalAiTeamClient`)   │
-└─────────────────────────────┬────────────────────────────────┘
-                              │
-┌─────────────────────────────▼────────────────────────────────┐
-│ Service Layer: @ai-team/service                              │
-│  ├─ Mediator contracts (`invoke`, `stream`)                 │
-│  ├─ Command dispatch / session management                    │
-│  ├─ ChatOrchestrator pipeline (see below)                   │
-│  └─ Runtime event stream (status, token, tool, question)    │
-└─────────────────────────────┬────────────────────────────────┘
-                              │
-┌─────────────────────────────▼────────────────────────────────┐
-│ Domain Layer: @ai-team/core                                  │
-│  ├─ Team, agent, context, chat, llm, tool, storage domains  │
-│  ├─ Shared domain types and graph models                     │
-│  └─ UI-free business logic and file operations               │
-└─────────────────────────────┬────────────────────────────────┘
-                              │
-┌─────────────────────────────▼────────────────────────────────┐
-│ State + Integrations                                         │
-│  ├─ .ai-team/* runtime artifacts                             │
-│  └─ LLM provider APIs                                        │
-└──────────────────────────────────────────────────────────────┘
+Typed clients / integration contracts
+  ├─ @ai-team/api-client
+  └─ @ai-team/ide-interface
+
+Application orchestration
+  └─ @ai-team/service
+
+UI-free domain + workspace logic
+  └─ @ai-team/core
+
+Runtime state + external integrations
+  ├─ .ai-team/*
+  └─ LLM / provider APIs
 ```
 
-## ChatOrchestrator Pipeline (`packages/service/src/orchestrator/`)
+### Execution paths
 
-`chatCommand` (the CLI entry point) is a thin bootstrap. All LLM turn logic,
-slash command dispatch, tool-calling, handoffs, and NL agent-switch detection
-live inside `ChatOrchestrator` — meaning CLI, VS Code, and API server all get
-identical behavior automatically.
-
-```
-chatCommand (commands/chat/index.ts)
-  └─ ChatOrchestrator.run(message)
-       ├─ 1. trySlashCommand()     slash-commands.ts
-       ├─ 2. tryNlForward()        forward-detection.ts
-       └─ 3. turn loop
-            ├─ IContextBuilder     orchestrator/defaults/
-            ├─ IContextEnricher[]  orchestrator/defaults/
-            ├─ IRagProvider        orchestrator/defaults/
-            ├─ ILlmSelector        orchestrator/defaults/
-            ├─ send-turn.ts        → LLM call + tool dispatch
-            └─ IOutputHandler      persist + emit events
-```
-
-### Pipeline interfaces
-
-All pipeline stages are defined as interfaces in `pipeline.ts`.
-Concrete defaults live in `orchestrator/defaults/`.
-Callers can inject alternatives via `OrchestratorPlugins`.
-
-| Interface | Purpose |
-|---|---|
-| `ISlashCommand` | In-chat `/command` handler (key, aliases, description, usage, llmCallable, execute) |
-| `IContextCompressor` | Truncate / summarize history before context build |
-| `IContextBuilder` | Assemble the final prompt context |
-| `IContextEnricher` | Add enrichment blocks (file context, workspace overview, …) |
-| `IRagProvider` | Inject retrieval-augmented passages |
-| `IToolResolver` | Look up and execute agent tools |
-| `IMcpGateway` | Route MCP tool calls |
-| `ILlmSelector` | Select provider + model per turn |
-| `IOutputHandler` | Persist and emit the completed turn |
-
-### Slash command registry
-
-Slash command descriptions, usage strings, and `llmCallable` flags live
-**directly on the `ISlashCommand` objects** in `slash-commands.ts` — next to
-the `execute` implementation. There is no separate metadata table to keep
-in sync.
-
-`command-registry.ts` exports `IN_CHAT_COMMAND_REGISTRY` and
-`IN_CHAT_COMMAND_ALIASES` derived from those objects, so CLI, web, and API
-surfaces always reflect the authoritative descriptions:
-
-```typescript
-export const IN_CHAT_COMMAND_REGISTRY = buildChatCommandRegistry();
-export const IN_CHAT_COMMAND_ALIASES  = buildChatCommandAliases();
-```
-
-Adding a new slash command requires only one object in `slash-commands.ts`.
-
-## `commands/chat/` Module Map
-
-`chatCommand` in `commands/chat/index.ts` is intentionally thin.
-Cross-cutting service concerns are separated into focused sub-modules:
-
-| File | Exports |
-|---|---|
-| `hooks.ts` | `ChatRuntimeHooks` — caller I/O contract |
-| `emit.ts` | `emitRuntimeEvent`, `writeInfo/Warn/Error`, `printSessionResume` |
-| `questions.ts` | `requestInput`, `requestConfirm`, `requestSelect`, `requestPassword`, `requestChecklist` |
-| `forward-detection.ts` | Re-export barrel → `orchestrator/forward-detection.ts` |
-| `async-utils.ts` | Re-export barrel → `orchestrator/async-utils.ts` |
-| `agent-selection.ts` | Re-export barrel → `utils/agent-selection.ts` |
-
-Re-export barrels keep existing test and adapter imports stable while the
-implementations live in their canonical layers.
-
-## Utility Module Map (`packages/service/src/utils/`, `packages/service/src/orchestrator/`)
-
-| Module | Location | Purpose |
-|---|---|---|
-| `async-utils.ts` | `orchestrator/` | `withTimeout`, `withAbortSignal`, `isAbortError`, `throwIfAborted` — used by orchestrator pipeline stages, tool dispatch, and `chatCommand` |
-| `agent-selection.ts` | `utils/` | `selectDefaultTopAgent`, `formatUserPrompt`, `resolveDeveloperName` — UI-free, usable from any surface |
-| `forward-detection.ts` | `orchestrator/` | NL agent-switch detection (3-phase: regex → word slices → LLM fallback) |
-| `git.ts` | `utils/` | `getGitUserName`, `developerNameToId` |
-| `user-env.ts` | `utils/` | `ensureUserEnvVars` |
+- **CLI local path**: `@ai-team/cli -> @ai-team/api-client -> @ai-team/service -> @ai-team/core -> .ai-team/*`
+- **Web remote path**: `@ai-team/web -> @ai-team/api-client-http -> @ai-team/api-server -> @ai-team/api-client -> @ai-team/service -> @ai-team/core -> .ai-team/*`
+- **VS Code IDE integration path**: `CLI or api-server -> @ai-team/ide-interface -> @ai-team/vscode IDE-local server -> VS Code-native review/open-file UX`
 
 ## Package Responsibilities
 
 ### `@ai-team/core`
 
-- Canonical business/domain logic.
-- Owns shared types, domain operations, file-backed state behaviors, and context boundaries.
-- Must remain UI-free (no `vscode`, `react`, `react-dom`, `electron` imports).
+- Owns UI-free domain logic, shared types, Zod-backed schemas, and workspace-backed file/domain operations.
+- Owns the core concepts for agents, teams, skills, context, tools, and file-backed runtime behavior under `.ai-team/`.
+- Must remain adapter-agnostic and UI-free.
 
 ### `@ai-team/service`
 
-- Application service orchestration on top of core.
-- Defines command contracts and command response maps.
-- Provides mediator execution APIs:
-  - `invoke(...)` for request/response command execution.
-  - `stream(...)` for token/event streaming execution.
-- Owns `ChatOrchestrator` — the full LLM turn pipeline available to all surfaces.
-- Owns slash command implementations and their metadata (descriptions live next to execute).
+- Owns application orchestration on top of core.
+- Defines mediator contracts in `src/contracts.ts`.
+- Implements `invoke()` and `stream()` in `src/index.ts`.
+- Owns chat runtime orchestration, including slash command routing, NL forwarding, handoff flow, tool execution flow, question flow, and workflow continuation.
+- Owns backend managers such as sessions, tasks, workflow state, and proposal persistence used by adapters and transports.
 
 ### `@ai-team/api-client`
 
-- Typed client facade over service contracts.
-- Provides command-specific convenience methods (`listEmployees`, `chat`, `providerModels`, etc.).
-- Encapsulates in-process wiring (`createLocalAiTeamClient`) so adapters don't manage service internals.
+- Owns the typed in-process client façade used by local adapters and the API server.
+- Wraps `@ai-team/service` for command-style operations.
+- Exposes local convenience helpers for agent metadata, content editing, and other local workflows that are not pure remote mediator calls.
+- Provides `createLocalAiTeamClient()` as the standard local runtime entry point.
+
+### `@ai-team/api-server`
+
+- Owns HTTP and WebSocket transport adaptation for browser and remote clients.
+- Mounts REST routes, Swagger/OpenAPI docs, AsyncAPI docs, and the chat WebSocket endpoint.
+- Uses the local `@ai-team/api-client` plus shared service/session managers to expose backend capabilities remotely.
+- Brokers optional IDE-facing integration paths such as proposal replay and editor notifications.
+
+### `@ai-team/api-client-http`
+
+- Owns the browser-safe remote client for the API server.
+- Provides REST helpers plus WebSocket chat streaming for the web UI.
+- Shares service/core types where practical, but does not currently provide full parity with the local in-process client surface.
+- Should be treated as the **remote transport client**, not as the canonical client for every workflow.
+
+### `@ai-team/ide-interface`
+
+- Owns the shared IDE bridge contracts, discovery file shape, and adapter factory used by CLI, API server, and the VS Code extension.
+- Defines how non-IDE runtimes discover and talk to a running editor instance.
+- Keeps IDE message protocols out of the service/core layers.
 
 ### `@ai-team/cli`
 
-- Terminal adapter.
-- Handles command-line parsing, prompts, terminal rendering, and process signals.
-- Delegates command execution to `@ai-team/api-client`.
+- Owns terminal parsing, prompts, rendering, and process-level UX.
+- Delegates business operations to `@ai-team/api-client`.
+- Can forward proposal/open-file actions into the IDE bridge when VS Code is available.
 
 ### `@ai-team/vscode`
 
-- VS Code adapter.
-- Hosts extension activation, tree/panel integrations, and editor-facing UX.
-- Delegates business operations through client/service contracts.
+- Owns editor-native activation, commands, views, panels, decorations, and IDE-local integration UX.
+- Starts an IDE-local WebSocket server for initialized workspaces and writes `.ai-team/.ide-server.json` for discovery.
+- Acts as the IDE endpoint for open-file requests and code-edit review requests coming through `@ai-team/ide-interface`.
+- Keeps reusable business logic out of the extension package; the extension translates shared IDE messages into VS Code-native UX.
 
 ### `@ai-team/web`
 
-- React visualization adapter.
-- Presents graph/chat/team UI and delegates operations through shared contracts.
+- Owns the browser UI for dashboard, team graph, employee list, portfolio/editor, chat, session/thread graph, and context/task/permission surfaces.
+- Uses the remote transport path through `@ai-team/api-client-http` and `@ai-team/api-server` rather than importing lower runtime layers directly into browser code.
+- Is currently a hybrid frontend architecture: some data access is extracted into query hooks, while several feature screens still combine fetching, orchestration, and rendering.
+- Target direction remains TanStack Query for persisted API-backed state, narrow runtime controllers/stores for live chat state, and prop-driven presentational views where practical.
 
 ## Runtime State Model
 
-All runtime artifacts are rooted under `.ai-team/` in the workspace:
+All durable runtime state lives under `.ai-team/` in the workspace.
 
 - `.ai-team/config.json` - non-secret provider/model/configuration state.
 - `.ai-team/.env` - secrets and provider tokens.
 - `.ai-team/agents/*.agent.md` - Copilot-facing agent portfolio files.
 - `.ai-team/agents/*.agent.yml` - ai-team runtime metadata sidecars for those agent portfolios.
-- `.ai-team/private/ai-team.db` - SQLite database for chat sessions, messages, and metadata.
+- `.ai-team/private/ai-team.db` - SQLite database for sessions, messages, and related metadata.
+- `.ai-team/proposals/` - persisted code-edit proposals used by review/replay flows.
+- `.ai-team/.ide-server.json` - discovery file for the active IDE-local server when the VS Code extension is running.
 
-Compatibility/bootstrap artifacts may also exist under `.github/`, but they are optional and are not the default home for agent, prompt, or skill authoring in this repository.
+Compatibility/bootstrap artifacts may also exist under `.github/`, but `.ai-team/` remains the durable runtime source of truth.
 
-## Command Execution Model
+## Command and Transport Model
 
-1. Adapter accepts a user action (CLI command, extension action, or web interaction).
-2. Adapter calls `AiTeamClient` (`@ai-team/api-client`).
-3. Client forwards typed `MediatorRequest` to `@ai-team/service`.
-4. Service dispatches to command handlers; chat commands enter `ChatOrchestrator.run()`.
-5. Service uses `@ai-team/core` for domain logic and storage/model interactions.
-6. Responses/events flow back to the adapter for rendering.
+`@ai-team/service` is the mediator boundary for application operations.
 
-## Orchestration Rules
+- Request contract: `MediatorRequest<TCommand>`.
+- Unary execution: `invoke(request, context)`.
+- Streaming execution: `stream(request, context)`.
+- Stream contract: `MediatorEvent<TCommand>` with `started`, `status`, `progress`, `log`, `token`, `tool`, `question`, `handoff`, `result`, `error`, `done`, and `aborted` variants.
 
-Orchestration rules are deterministic service-side decision rules that shape command/chat execution before and after model generation. They are applied inside `ChatOrchestrator` before each LLM turn.
+### Local adapters
+
+- CLI flows use the local in-process client path.
+- The service emits runtime events which `stream()` converts into adapter-facing mediator events.
+
+### Remote browser transport
+
+- Snapshot/resource reads and mutations flow through REST.
+- Active chat generation flows through WebSocket.
+- The browser transport is mediator-event-driven rather than a bespoke frontend-only protocol.
+
+### IDE integration transport
+
+- The service can emit `code_edit_proposal` runtime events.
+- CLI and API server use `@ai-team/ide-interface` to forward proposals/open-file requests to a running VS Code extension.
+- The extension renders diff/review UX and sends acknowledgements back so upstream layers can reconcile proposal state.
+
+## ChatOrchestrator Pipeline
+
+`packages/service/src/commands/chat/index.ts` is intentionally thin. It performs preflight checks, resolves the current agent/session, builds the orchestration context, and hands control to `ChatOrchestrator`.
+
+The orchestration pipeline lives in `packages/service/src/orchestrator/`.
+
+```text
+chatCommand (commands/chat/index.ts)
+  └─ ChatOrchestrator.run(message)
+       ├─ 1. trySlashCommand()
+       ├─ 2. tryNlForward()
+       └─ 3. turn loop
+            ├─ IContextCompressor
+            ├─ IContextBuilder
+            ├─ IContextEnricher[]
+            ├─ IRagProvider
+            ├─ IToolResolver + IMcpGateway
+            ├─ ILlmSelector
+            ├─ send-turn.ts
+            └─ IOutputHandler
+```
+
+### Pipeline interfaces
+
+All orchestration extension seams are defined in [packages/service/src/orchestrator/pipeline.ts](packages/service/src/orchestrator/pipeline.ts).
+
+| Interface | Purpose |
+| --- | --- |
+| `ISlashCommand` | In-chat `/command` handler |
+| `IContextCompressor` | History compression / summarization seam |
+| `IContextBuilder` | Final prompt/context assembly |
+| `IContextEnricher` | Role-aware system-message enrichment |
+| `IRagProvider` | Retrieval-augmented context injection |
+| `IToolResolver` | Local tool resolution per turn |
+| `IMcpGateway` | External MCP tool discovery |
+| `ILlmSelector` | Provider/model selection per turn |
+| `IOutputHandler` | Completed-turn persistence and output routing |
 
 ### Turn dispatch precedence
 
-1. **Slash commands** — `/list`, `/hire`, `/chat`, etc. Implementations in `slash-commands.ts`.
-2. **NL forward detection** — natural-language requests to be forwarded to another agent. Implementation in `forward-detection.ts`, called via `tryNlForward()` in the orchestrator.
-3. **Direct tool syntax** — `#tool {...}` or `/tool ...` parsed and executed through tool guards.
-4. **LLM generation** — non-command natural language falls through to the turn loop.
+Inside `ChatOrchestrator.run()` the service applies deterministic routing rules in this order:
 
-### Safety and approval gates
+1. **Slash commands**
+2. **Natural-language forward detection**
+3. **Regular turn loop** via `sendTurn()`
+4. **Post-turn side effects** such as hire and handoff handling
 
-- Tool execution emits runtime tool events (`request`, `start`, `result`, `error`, `denied`).
-- Non-question tools require explicit confirmation before execution.
-- Permission checks (`getAgentTools`) constrain what each agent can run.
-
-### Interactive workflow continuation
-
-- Question prompts (`input`, `confirm`, `select`, `password`, `checklist`) emit workflow frames.
-- Continuation state (`workflowId`, `continuationToken`, answers) is persisted and resumed.
-- Adapters provide UX-specific responders; a single question system is shared across CLI, VS Code, and web.
-
-### Post-response directives
-
-- Service parses structured directives from agent responses (`HANDOFF:`, HR hire directives).
-- These trigger service actions (switch agent, create hire) after response persistence.
-
-### LLM guidance vs execution
-
-- `llmCallable` on `ISlashCommand` influences what the model is told it may request.
-- It does not automatically turn every command into a tool invocation path.
-
-## Mediator Pattern
-
-`@ai-team/service` is the mediator boundary for application operations.
-
-- Request contract: `MediatorRequest<TCommand>` (command + typed payload).
-- Unary execution: `invoke(request, context)`.
-- Streaming execution: `stream(request, context)`.
-- Stream contract: `MediatorEvent<TCommand>` (`started`, `status`, `progress`, `log`, `token`, `tool`, `question`, `result`, `done`, `error`, `aborted`).
-
-### Current CLI connection (direct local path)
-
-Today the CLI runs an in-process path:
-
-`@ai-team/cli → createLocalAiTeamClient() → createAiTeamService() → ChatOrchestrator → @ai-team/core`
-
-### Remote-UI-ready design
-
-Although CLI currently connects directly to the local service process, the architecture is intentionally transport-agnostic:
-
-- Adapters depend on `AiTeamClient` shape, not command internals.
-- Service behavior is expressed as request/response + event stream contracts.
-- A future remote client can map `invoke/stream` to HTTP/WebSocket/SSE without changing core command logic.
+This keeps orchestration behavior consistent across surfaces that use the same service pipeline.
 
 ## Architecture Invariants
 
-1. **Core is UI-free** — no `vscode`, `react`, `react-dom`, or `electron` imports.
-2. **Adapters stay thin** — orchestration and UX at edges, reusable behavior in service/core.
-3. **Orchestrator owns LLM behavior** — slash commands, NL forwarding, tool dispatch, handoffs, and context building all live inside `ChatOrchestrator`, not in adapters.
-4. **Descriptions live next to implementations** — slash command `description`, `usage`, and `llmCallable` are fields on the `ISlashCommand` object, not in a separate registry table.
-5. **Runtime state conventions** remain under `.ai-team/`.
-6. **Typed command contracts** are centralized in service and consumed through api-client.
-7. **Permission/context boundaries** are enforced before file/tool operations.
+1. **`@ai-team/core` stays UI-free** - no `vscode`, `react`, `react-dom`, or `electron` imports.
+2. **Adapters stay thin** - UX lives at the edge; business logic flows through shared clients/service/core.
+3. **`@ai-team/service` owns orchestration** - command dispatch, runtime events, workflow continuation, and chat control flow live there.
+4. **Remote and local clients are different on purpose** - `@ai-team/api-client` is the in-process local façade; `@ai-team/api-client-http` is the remote/browser transport client.
+5. **IDE integration is its own boundary** - `@ai-team/ide-interface` and `@ai-team/vscode` handle editor-local workflows without pushing IDE concerns down into service/core.
+6. **Runtime state conventions remain under `.ai-team/`**.
+7. **Typed command contracts remain centralized in service**.
+8. **Web state should use the right tool for the job** - Query for persisted API state, runtime-specific controllers/stores for live chat behavior, and local state for tiny interactions.
 
-## Extension Guidance
+## Change Guidance
 
 When adding or changing capabilities:
 
-1. Add/adjust domain behavior in `@ai-team/core`.
-2. Expose operation through `@ai-team/service` command contracts and handlers.
-3. Update `@ai-team/api-client` convenience methods.
-4. Wire UX in one or more adapters (`cli`, `vscode`, `web`).
-5. Update architecture docs and compatibility notes in the same change.
-
-### Adding a new slash command
-
-Add one `ISlashCommand` object to `buildDefaultSlashCommands()` in `slash-commands.ts`:
-
-```typescript
-{
-  key: 'my-command',
-  usage: '/my-command <arg>',
-  description: 'What it does',
-  llmCallable: false,
-  execute: async (args, ctx) => { /* ... */ },
-}
-```
-
-That's it. `IN_CHAT_COMMAND_REGISTRY`, `/help` output, and `IN_CHAT_COMMAND_ALIASES` all derive from it automatically.
-
-Detailed implementation checklists for adding commands/tools are maintained in `docs/api/contracts.md`.
-
-
-## System Overview
-
-AI Team is a TypeScript monorepo for running a file-backed virtual software organization.
-
-It provides multiple user surfaces (`CLI`, `VS Code extension`, and `Web`) while keeping reusable business logic centralized and adapter-independent.
-
-## Current Architecture (February 2026)
-
-The current runtime is a layered model:
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│ Adapter Layer                                                │
-│  ├─ @ai-team/cli (commander + terminal UX)                  │
-│  ├─ @ai-team/vscode (extension views/panels)                │
-│  └─ @ai-team/web (React UI)                                 │
-└─────────────────────────────┬────────────────────────────────┘
-                              │
-┌─────────────────────────────▼────────────────────────────────┐
-│ Client Layer: @ai-team/api-client                           │
-│  ├─ Typed client API used by adapters                        │
-│  ├─ Command-oriented methods (`chat`, `hire`, `provider.*`) │
-│  └─ In-process client factory (`createLocalAiTeamClient`)   │
-└─────────────────────────────┬────────────────────────────────┘
-                              │
-┌─────────────────────────────▼────────────────────────────────┐
-│ Service Layer: @ai-team/service                              │
-│  ├─ Mediator contracts (`invoke`, `stream`)                 │
-│  ├─ Command dispatch/orchestration                           │
-│  ├─ Workflow state continuation for interactive commands     │
-│  └─ Runtime event stream (status, token, tool, question)     │
-└─────────────────────────────┬────────────────────────────────┘
-                              │
-┌─────────────────────────────▼────────────────────────────────┐
-│ Domain Layer: @ai-team/core                                  │
-│  ├─ Team, agent, context, chat, llm, tool, storage domains  │
-│  ├─ Shared domain types and graph models                     │
-│  └─ UI-free business logic and file operations               │
-└─────────────────────────────┬────────────────────────────────┘
-                              │
-┌─────────────────────────────▼────────────────────────────────┐
-│ State + Integrations                                         │
-│  ├─ .ai-team/* runtime artifacts                             │
-│  └─ LLM provider APIs                                        │
-└──────────────────────────────────────────────────────────────┘
-```
-
-## Package Responsibilities
-
-### `@ai-team/core`
-
-- Canonical business/domain logic.
-- Owns shared types, domain operations, file-backed state behaviors, and context boundaries.
-- Must remain UI-free (no `vscode`, `react`, `react-dom`, `electron` imports).
-
-### `@ai-team/service`
-
-- Application service orchestration on top of core.
-- Defines command contracts and command response maps.
-- Provides mediator execution APIs:
-  - `invoke(...)` for request/response command execution.
-  - `stream(...)` for token/event streaming execution.
-- Owns workflow continuation snapshots for interactive command flows.
-
-### `@ai-team/api-client`
-
-- Typed client facade over service contracts.
-- Provides command-specific convenience methods (`listEmployees`, `chat`, `providerModels`, etc.).
-- Encapsulates in-process wiring (`createLocalAiTeamClient`) so adapters don’t directly manage service internals.
-
-### `@ai-team/cli`
-
-- Terminal adapter.
-- Handles command-line parsing, prompts, terminal rendering, and process signals.
-- Delegates command execution to `@ai-team/api-client`.
-
-### `@ai-team/vscode`
-
-- VS Code adapter.
-- Hosts extension activation, tree/panel integrations, and editor-facing UX.
-- Delegates business operations through client/service contracts.
-
-### `@ai-team/web`
-
-- React visualization adapter.
-- Presents graph/chat/team UI and delegates operations through shared contracts.
-
-## Runtime State Model
-
-All runtime artifacts are rooted under `.ai-team/` in the workspace:
-
-- `.ai-team/config.json` - non-secret provider/model/configuration state.
-- `.ai-team/.env` - secrets and provider tokens.
-- `.ai-team/agents/*.md` - agent definitions (frontmatter + markdown).
-- `.ai-team/private/ai-team.db` - SQLite database for chat sessions, messages, and metadata.
-
-## Command Execution Model
-
-1. Adapter accepts a user action (CLI command, extension action, or web interaction).
-2. Adapter calls `AiTeamClient` (`@ai-team/api-client`).
-3. Client forwards typed `MediatorRequest` to `@ai-team/service`.
-4. Service dispatches to command handlers and orchestrates workflow continuation.
-5. Service uses `@ai-team/core` for domain logic and storage/model interactions.
-6. Responses/events flow back to the adapter for rendering.
-
-## Orchestration Rules
-
-Orchestration rules are deterministic service-side decision rules that shape command/chat execution before and after model generation.
-
-They are distinct from:
-
-- **Commands**: typed mediator operations (`AiTeamCommandName`) and payload/response contracts.
-- **Tools**: executable capabilities (`AgentTool`) with permission checks and optional user approval.
-
-Rules decide **which path runs next** (command dispatch, tool path, workflow continuation, handoff/hire actions), while commands and tools define **what capabilities exist**.
-
-Current rule categories in `@ai-team/service`:
-
-1. **Input routing precedence**
-  - In-chat slash commands (`/list`, `/hire`, `/chat`, etc.) are parsed and handled directly.
-  - Direct tool syntax (`#tool {...}` or `/tool ...`) is parsed and executed through tool guards.
-  - Non-command natural language falls through to LLM response generation.
-
-2. **Safety and approval gates**
-  - Tool execution emits runtime tool events (`request`, `start`, `result`, `error`, `denied`).
-  - Non-question tools require explicit confirmation before execution.
-  - Permission checks (`getAgentTools`) constrain what each agent can run.
-
-3. **Interactive workflow continuation**
-  - Question prompts (`input`, `confirm`, `select`, `password`, `checklist`) emit workflow frames.
-  - Continuation state (`workflowId`, `continuationToken`, answers) is persisted and resumed.
-
-### Questioning as an orchestration primitive
-
-Developer questioning belongs to orchestration, not to a separate capability layer.
-
-- The service owns the canonical question flow through mediator context responders (`questionInput`, `questionConfirm`, `questionSelect`, `questionPassword`, `questionChecklist`) and `question` runtime events.
-- Adapters provide UX-specific responders (terminal prompt, VS Code UI, web form) and return typed answers.
-- Tool entrypoints such as `ask_human`/`ask_question` are allowed ways to trigger that same orchestration primitive during model turns.
-- Workflow state persistence/continuation keeps question-driven flows resumable across command invocations.
-
-This keeps one question system across local CLI usage and future remote transports.
-
-4. **Post-response orchestration directives**
-  - Service can parse structured/implicit directives from agent responses (for example `HANDOFF:` and HR hire directives).
-  - These rules trigger service actions (switch agent, create new hire) after response persistence.
-
-5. **LLM guidance vs execution boundary**
-  - Metadata such as `llmCallable` influences what the model is told it may request.
-  - It does not automatically turn every command into a tool invocation path.
-
-This rule layer keeps behavior predictable and auditable while still allowing flexible natural-language interaction.
-
-## Mediator Pattern
-
-`@ai-team/service` is the mediator boundary for application operations.
-
-- Request contract: `MediatorRequest<TCommand>` (command + typed payload).
-- Unary execution: `invoke(request, context)`.
-- Streaming execution: `stream(request, context)`.
-- Stream contract: `MediatorEvent<TCommand>` (`started`, `status`, `progress`, `log`, `token`, `tool`, `question`, `result`, `done`, `error`, `aborted`).
-
-This keeps adapter UX and transport concerns separate from command orchestration and domain behavior.
-
-### Current CLI connection (direct local path)
-
-Today the CLI runs an in-process path:
-
-`@ai-team/cli -> createLocalAiTeamClient(...) -> createAiTeamService(...) -> command handlers -> @ai-team/core`
-
-This gives zero network overhead for local workflows.
-
-### Remote-UI-ready design
-
-Although CLI currently connects directly to the local service process, the architecture is intentionally transport-agnostic:
-
-- Adapters depend on `AiTeamClient` shape, not command internals.
-- Service behavior is already expressed as request/response + event stream contracts.
-- A future remote client can map `invoke/stream` to HTTP/WebSocket/SSE without changing core command logic.
-
-In other words, the service is local-first today but structured for remote UIs with minimal adapter changes.
-
-## Architecture Invariants
-
-1. **Core is UI-free** and reusable across adapters.
-2. **Adapters stay thin**: orchestration/UX at edges, reusable behavior in service/core.
-3. **Runtime state conventions** remain under `.ai-team/`.
-4. **Typed command contracts** are centralized in service and consumed through api-client.
-5. **Permission/context boundaries** are enforced before file/tool operations.
-
-## Extension Guidance
-
-When adding or changing capabilities:
-
-1. Add/adjust domain behavior in `@ai-team/core`.
-2. Expose operation through `@ai-team/service` command contracts and handlers.
-3. Update `@ai-team/api-client` convenience methods.
-4. Wire UX in one or more adapters (`cli`, `vscode`, `web`).
-5. Update architecture docs and compatibility notes in the same change.
-
-Detailed implementation checklists for adding commands/tools are maintained in `docs/api/contracts.md` (Extension Checklist) to avoid duplicated guidance.
-
-For Copilot-oriented implementation guidance, start with [API/Service Contracts](docs/api/contracts.md) and then apply the file-level entry points above.
+1. Add or adjust reusable business/domain behavior in `@ai-team/core`.
+2. Expose or adapt application operations through `@ai-team/service`.
+3. Extend the relevant transport/client package:
+   - `@ai-team/api-client` for local/in-process use
+   - `@ai-team/api-client-http` and `@ai-team/api-server` for remote/browser use
+   - `@ai-team/ide-interface` for IDE-facing integration
+4. Wire UX in the appropriate adapter package (`cli`, `vscode`, or `web`).
+5. Update architecture docs in the same change when the architecture, boundaries, runtime storage, or execution path changes.
+
+## Related Reading
+
+- [COPILOT-CONTEXT.md](COPILOT-CONTEXT.md)
+- [docs/architecture/overview.md](docs/architecture/overview.md)
+- [docs/architecture/diagrams.md](docs/architecture/diagrams.md)
+- [docs/api/contracts.md](docs/api/contracts.md)
+- [docs/implementation/web-state-architecture.md](docs/implementation/web-state-architecture.md)

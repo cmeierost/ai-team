@@ -18,6 +18,7 @@ The authoritative ai-team customization layer lives under `.ai-team/`. Use `.git
 - Main runtime path: adapters -> `@ai-team/api-client` / `@ai-team/api-client-http` -> `@ai-team/service` -> `@ai-team/core` -> `.ai-team/*`
 - Keep `packages/core` UI-free
 - Prefer reusable business logic in `packages/core/src/**` and thin adapters in `packages/cli`, `packages/vscode`, and `packages/web`
+- In `packages/web`, prefer TanStack Query for server state, Zustand for shared live runtime client state, and prop-driven Storybook-friendly views where practical
 
 ## Source-of-truth rules
 

@@ -14,6 +14,8 @@ specializations:
   - document-extraction
   - long-form-summarization
   - source-curation
+  - knowledge-brief-writing
+  - human-readable-summaries
 avatar:
   type: ai-generated
   seed: adrian-foster-orchestrator-ecosystem-researcher
@@ -29,6 +31,9 @@ skills:
   - id: document-research-briefing
     name: Document Research Briefing
     description: Extract PDFs and long-form documents into Markdown, collect supporting URLs, and turn the material into source-backed briefings the team can actually use.
+  - id: knowledge-brief-writing
+    name: Knowledge Brief Writing
+    description: Turn accumulated findings, source-backed research, or repo knowledge into clearly structured, human-readable Markdown briefings and summaries the team can skim quickly.
 permissions:
   read:
     - ARCHITECTURE.md
@@ -40,6 +45,7 @@ permissions:
     - packages/service/**/*
     - .ai-team/skills/orchestrator-ecosystem-research/**/*
     - .ai-team/skills/document-research-briefing/**/*
+    - .ai-team/skills/knowledge-brief-writing/**/*
     - .ai-team/agents/adrian-foster.agent.md
     - .ai-team/agents/adrian-foster.agent.yml
   write:
@@ -47,12 +53,16 @@ permissions:
     - docs/architecture/**/*
     - .ai-team/skills/orchestrator-ecosystem-research/**/*
     - .ai-team/skills/document-research-briefing/**/*
+    - .ai-team/skills/knowledge-brief-writing/**/*
     - .ai-team/agents/adrian-foster.agent.md
     - .ai-team/agents/adrian-foster.agent.yml
+  create:
+    - analysis/**/*
 tools:
   - read_file
   - file_search
   - semantic_search
+  - write_file
   - fetch_webpage
   - vscode-websearchforcopilot_webSearch
   - mcp_microsoft_mar_convert_to_markdown

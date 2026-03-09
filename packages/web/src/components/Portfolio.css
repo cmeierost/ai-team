@@ -141,6 +141,11 @@
   gap: 12px;
 }
 
+.portfolio-story-shell {
+  padding: 16px;
+  background: var(--color-bg-primary);
+}
+
 /* ── Section Cards ──────────────────────────────────────────────────────── */
 
 .portfolio-card {

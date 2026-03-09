@@ -14,6 +14,8 @@ Keep the UI responsive by default so the app is usable on phone and on desktop, 
 
 - Treat responsive design as a core product requirement for the whole web UI, not as polish to add later.
 - New screens, layouts, and important UI components should work on narrow mobile widths and on wider desktop layouts.
+- Keep visual styling in CSS files rather than inline `style` props in `.tsx` files. Prefer `className` plus CSS rules for layout, spacing, typography, borders, shadows, and theme-driven visual styling.
+- Use CSS variables for all theming concerns, not only basic colors. Theme-controlled values such as text color, background and surface color, border color, accent color, focus states, and similar visual tokens should be defined as reusable CSS variables and referenced with `var(...)`.
 - Prefer layouts that adapt cleanly across breakpoints:
   - flexible containers
   - wrapping instead of overflow where appropriate
@@ -22,6 +24,7 @@ Keep the UI responsive by default so the app is usable on phone and on desktop, 
 - Avoid assumptions that only work on desktop, such as permanently side-by-side layouts, hover-only affordances, tiny click targets, or content that requires horizontal scrolling to function.
 - When a desktop-first or mobile-first compromise is necessary, choose the option that preserves usability on both and explain the tradeoff in the change summary.
 - When building reusable UI components, prefer APIs and structure that support responsive composition instead of hard-coded one-size-fits-desktop layouts.
+- When a component needs a new theme token, add or extend a named CSS variable in the appropriate shared stylesheet instead of introducing raw theme values directly in the component or scattering hard-coded visual values across CSS files.
 
 ## Validation after changes
 

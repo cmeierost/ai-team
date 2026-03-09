@@ -53,8 +53,16 @@ The web dashboard uses:
 - **Vite** for fast development and building
 - **@xyflow/react** (react-flow) for interactive graph visualization
 - **@ai-team/core** for all business logic
+- **@ai-team/api-client-http** for HTTP and WebSocket access to the service layer
 
-All state management is handled through React Context API, with the core library providing file-based persistence.
+The target state architecture is:
+
+- **TanStack Query** for server state and normal API-backed fetching/caching
+- **Zustand** for shared live runtime client state, especially chat streaming/runtime behavior
+- **local state / reducers** for tiny view-local interactions
+- **dumb presentational views** for Storybook-friendly rendering
+
+See `docs/implementation/web-state-architecture.md` for the full guidance.
 
 ## Components
 
@@ -63,6 +71,8 @@ All state management is handled through React Context API, with the core library
 - `AgentList.tsx` - Grid view of all agents
 - `ChatPanel.tsx` - Chat interface for agent interaction
 - `TeamContext.tsx` - Global state management
+
+As the web package evolves, prefer moving smart state and orchestration into feature hooks, stores, and controllers so presentational views can be exercised in Storybook with props.
 
 ## Configuration
 
@@ -83,3 +93,18 @@ Storybook lives alongside the web package and is intended as a frontend quality 
 - shared story fixtures: `packages/web/src/storybook/storyData.ts`
 
 The initial setup focuses on isolated, low-dependency components so the Storybook stays fast and reliable while broader dashboard and graph states are added incrementally.
+
+## Testing direction
+
+Meaningful frontend state logic should be directly unit tested.
+
+Run the web package tests with `pnpm --filter @ai-team/web test`.
+
+This especially includes:
+
+- Query/Zustand boundary logic
+- Zustand actions and selectors
+- reducers and event-application helpers
+- chat runtime logic for streaming, handoffs, and pending questions
+
+Storybook remains important for visual and interaction review, but it does not replace direct unit tests for state transitions.

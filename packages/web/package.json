@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint src --ext ts,tsx",
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build"
@@ -14,6 +16,7 @@
   "dependencies": {
     "@ai-team/api-client-http": "workspace:*",
     "@ai-team/core": "workspace:*",
+    "@tanstack/react-query": "^5.62.8",
     "@vscode/codicons": "^0.0.44",
     "@xyflow/react": "^12.6.0",
     "dayjs": "^1.11.19",
@@ -25,14 +28,17 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.0",
     "@storybook/addon-a11y": "^10.2.16",
     "@storybook/addon-docs": "^10.2.16",
     "@storybook/react-vite": "^10.2.16",
     "@types/react": "^19.0.6",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^26.1.0",
     "storybook": "^10.2.16",
     "typescript": "^5.7.2",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "vitest": "^4.0.18"
   }
 }
