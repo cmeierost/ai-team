@@ -149,8 +149,8 @@
 .ft-pattern-add:hover:not(:disabled) { background: var(--color-bg-hover); }
 .ft-pattern-add:disabled { opacity: 0.6; cursor: default; }
 
-.ft-pattern-read  { background: rgba(79, 195, 247, 0.08); border-color: rgba(79, 195, 247, 0.3); color: #4fc3f7; }
-.ft-pattern-write { background: rgba(129, 199, 132, 0.08); border-color: rgba(129, 199, 132, 0.3); color: #81c784; }
+.ft-pattern-read  { background: var(--color-bg-secondary); border-color: rgba(79, 195, 247, 0.45); color: var(--color-text-primary); }
+.ft-pattern-write { background: var(--color-bg-secondary); border-color: rgba(129, 199, 132, 0.45); color: var(--color-text-primary); }
 
 /* ── Toolbar ───────────────────────────────────────────────────────────────── */
 
@@ -234,6 +234,16 @@
   transition: background 0.1s;
   position: relative;
 }
+
+.ft-depth-0 { padding-left: 8px; }
+.ft-depth-1 { padding-left: 22px; }
+.ft-depth-2 { padding-left: 36px; }
+.ft-depth-3 { padding-left: 50px; }
+.ft-depth-4 { padding-left: 64px; }
+.ft-depth-5 { padding-left: 78px; }
+.ft-depth-6 { padding-left: 92px; }
+.ft-depth-7 { padding-left: 106px; }
+.ft-depth-8 { padding-left: 120px; }
 
 .ft-row:hover { background: var(--color-bg-hover); }
 
@@ -325,8 +335,8 @@
   border: 1px solid;
 }
 
-.ft-badge-read  { background: rgba(79,195,247,0.12); border-color: rgba(79,195,247,0.35); color: #4fc3f7; }
-.ft-badge-write { background: rgba(129,199,132,0.12); border-color: rgba(129,199,132,0.35); color: #81c784; }
+.ft-badge-read  { background: rgba(79,195,247,0.16); border-color: rgba(79,195,247,0.38); color: #d8f4ff; }
+.ft-badge-write { background: rgba(129,199,132,0.16); border-color: rgba(129,199,132,0.38); color: #e3f7e5; }
 
 /* Edit-mode toggle buttons */
 .ft-perm-btn {
@@ -358,15 +368,15 @@
 
 .ft-perm-on {
   border-color: rgba(79,195,247,0.5);
-  background: rgba(79,195,247,0.12);
-  color: #4fc3f7;
+  background: rgba(79,195,247,0.16);
+  color: #d8f4ff;
 }
 
 /* Write-on override */
 .ft-perm-btn:last-child.ft-perm-on {
   border-color: rgba(129,199,132,0.5);
-  background: rgba(129,199,132,0.12);
-  color: #81c784;
+  background: rgba(129,199,132,0.16);
+  color: #e3f7e5;
 }
 
 .ft-perm-btn:disabled { opacity: 0.5; cursor: default; }

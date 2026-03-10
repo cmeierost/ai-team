@@ -25,6 +25,8 @@ permissions:
   write:
     - .ai-team/**/*
     - .github/skills/**/*
+  create: []
+  delete: []
 tools:
   - read_file
   - file_search
@@ -32,3 +34,6 @@ tools:
   - write_file
   - apply_code_edit
   - get_errors
+avatar:
+  type: url
+  url: .ai-team/avatars/john-smith.jpg

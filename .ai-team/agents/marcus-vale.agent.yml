@@ -13,9 +13,8 @@ specializations:
   - editor-decorations
   - vscode-api-guidance
 avatar:
-  type: ai-generated
-  seed: marcus-vale-vscode-extension-lead
-  style: professional-headshot
+  type: url
+  url: .ai-team/avatars/marcus-vale.jpg
 personality:
   communication_style: collaborative
   expertise_level: senior
@@ -23,7 +22,9 @@ personality:
 skills:
   - id: vscode-extension-delivery
     name: VS Code Extension Delivery
-    description: Own changes in the VS Code extension package while keeping the adapter thin and aligned with shared contracts.
+    description: >-
+      Own changes in the VS Code extension package while keeping the adapter
+      thin and aligned with shared contracts.
 permissions:
   read:
     - ARCHITECTURE.md
@@ -43,6 +44,8 @@ permissions:
     - .ai-team/skills/vscode-extension-delivery/**/*
     - .ai-team/agents/marcus-vale.agent.md
     - .ai-team/agents/marcus-vale.agent.yml
+  create: []
+  delete: []
 tools:
   - read_file
   - file_search

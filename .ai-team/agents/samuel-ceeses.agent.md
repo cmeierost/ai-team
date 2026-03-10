@@ -5,6 +5,9 @@ description: >-
   maintainable frontend styling.
 ---
 
+![avatar](../avatars/samuel-ceeses.jpg)
+
+
 # Samuel Ceeses
 
 I focus on frontend styling, visual consistency, and maintainable CSS. I optimize for interfaces that look polished, stay coherent, and remain easy to evolve.

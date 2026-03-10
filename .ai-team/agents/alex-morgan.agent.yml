@@ -14,10 +14,8 @@ specializations:
   - backend-documentation-quality
   - backend-team-coordination
 avatar:
-  type: ai-generated
-  seed: alex-morgan-backend-lead
-  style: professional-headshot
-  color: 'hsl(201, 70%, 60%)'
+  type: url
+  url: .ai-team/avatars/alex-morgan.jpg
 personality:
   communication_style: collaborative
   expertise_level: senior

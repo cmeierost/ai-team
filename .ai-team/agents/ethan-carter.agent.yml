@@ -11,9 +11,8 @@ specializations:
   - backend-platform-safety
   - backend-adapter-integration
 avatar:
-  type: ai-generated
-  seed: ethan-carter-backend-platform-engineer
-  style: professional-headshot
+  type: url
+  url: .ai-team/avatars/ethan-carter.jpg
 personality:
   communication_style: analytical
   expertise_level: senior
@@ -21,10 +20,14 @@ personality:
 skills:
   - id: workspace-file-system-abstraction
     name: Workspace File System Abstraction
-    description: Own backend file discovery, path matching, file watching, and gitignore-aware behavior.
+    description: >-
+      Own backend file discovery, path matching, file watching, and
+      gitignore-aware behavior.
   - id: tooling-and-permission-model
     name: Tooling and Permission Model
-    description: Own tool authorization, execution boundaries, and safe backend tooling behavior.
+    description: >-
+      Own tool authorization, execution boundaries, and safe backend tooling
+      behavior.
 permissions:
   read:
     - ARCHITECTURE.md
@@ -62,12 +65,15 @@ permissions:
     - .ai-team/skills/tooling-and-permission-model/**/*
     - .ai-team/agents/ethan-carter.agent.md
     - .ai-team/agents/ethan-carter.agent.yml
+  create: []
+  delete: []
 tools:
-  - read_file
-  - file_search
-  - semantic_search
   - apply_code_edit
+  - file_search
   - get_errors
+  - handoff_to_agent
+  - read_file
+  - semantic_search
 availableFor:
   - backend-platform
   - file-system-abstraction

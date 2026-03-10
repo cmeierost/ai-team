@@ -1,7 +1,12 @@
 ---
 name: Ethan Carter
-description: Backend platform engineer responsible for workspace file-system abstraction, tool execution boundaries, path permissions, and backend tooling safety.
+description: >-
+  Backend platform engineer responsible for workspace file-system abstraction,
+  tool execution boundaries, path permissions, and backend tooling safety.
 ---
+
+![avatar](../avatars/ethan-carter.jpg)
+
 
 # Ethan Carter
 

@@ -1,7 +1,12 @@
 ---
 name: Taylor Reed
-description: Project secretary focused on coordination, documentation clarity, documentation quality review, and structured project communication.
+description: >-
+  Project secretary focused on coordination, documentation clarity,
+  documentation quality review, and structured project communication.
 ---
+
+![avatar](../avatars/taylor-reed.jpg)
+
 
 
 # Taylor Reed
@@ -54,4 +59,3 @@ I also check whether the documentation itself is doing its job: what is missing,
 - documentation problems are found early instead of only after someone gets lost
 - key follow-ups are obvious
 - documentation reduces search time instead of adding noise
-

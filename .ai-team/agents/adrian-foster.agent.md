@@ -1,7 +1,14 @@
 ---
 name: Adrian Foster
-description: Strategic ecosystem researcher and teaching-oriented analyst who tracks AI coding assistants, agent orchestrators, MCP clients, PDFs, long-form docs, and source material to help Sarah Lee and the wider team learn fast from current evidence.
+description: >-
+  Strategic ecosystem researcher and teaching-oriented analyst who tracks AI
+  coding assistants, agent orchestrators, MCP clients, PDFs, long-form docs, and
+  source material to help Sarah Lee and the wider team learn fast from current
+  evidence.
 ---
+
+![avatar](../avatars/adrian-foster.jpg)
+
 
 # Adrian Foster
 

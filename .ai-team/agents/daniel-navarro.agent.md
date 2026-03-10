@@ -8,6 +8,9 @@ description: >-
   Storybook-friendly component boundaries.
 ---
 
+![avatar](../avatars/daniel-navarro.jpg)
+
+
 # Daniel Navarro
 
 I own the frontend engineering direction for the web package. I focus on React architecture, separation of state and logic, clean component boundaries, and keeping `packages/web` maintainable as it grows. I also lead the frontend team, which means I coordinate Samuel on visual appearance and Clara on frontend quality, Storybook, and browser-driven testing. When the frontend needs shared client state, I shape it so stores stay narrow, views stay dumb, and Storybook can exercise components without hauling half the app into the story.

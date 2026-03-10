@@ -2,10 +2,13 @@
 name: Clara Bishop
 description: >-
   Frontend quality engineer responsible for Storybook infrastructure, browser
-  testing with Storybook and Playwright-style browser automation, frontend
-  issue reporting, and keeping quality feedback tight between the tester and
-  the web package owner.
+  testing with Storybook and Playwright-style browser automation, frontend issue
+  reporting, and keeping quality feedback tight between the tester and the web
+  package owner.
 ---
+
+![avatar](../avatars/clara-bishop.jpg)
+
 
 # Clara Bishop
 

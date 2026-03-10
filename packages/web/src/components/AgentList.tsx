@@ -1,12 +1,16 @@
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
 import { Avatar } from './Avatar';
-import { getAgentColor } from '../utils/color';
+import { rankAgentsBySearch } from './agentListSearch';
 import './AgentList.css';
 
 export function AgentList() {
   const navigate = useNavigate();
   const { agents, loading, error } = useTeam();
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const visibleAgents = useMemo(() => rankAgentsBySearch(agents, searchTerm), [agents, searchTerm]);
 
   if (loading) {
     return <div className="loading">Loading employees...</div>;
@@ -28,16 +32,43 @@ export function AgentList() {
   return (
     <div className="agent-list">
       <div className="agent-list-header">
-        <h2>Employees ({agents.length})</h2>
+        <div>
+          <h2>Employees ({visibleAgents.length})</h2>
+          <p className="agent-list-subtitle">Searches all agent text with weighted ranking for the strongest matches first.</p>
+        </div>
+        <label className="agent-search" aria-label="Search employees">
+          <i className="codicon codicon-search" />
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search names, roles, skills, docs, and more..."
+            className="agent-search-input"
+          />
+          {searchTerm ? (
+            <button
+              type="button"
+              className="agent-search-clear"
+              onClick={() => setSearchTerm('')}
+              aria-label="Clear employee search"
+              title="Clear search"
+            >
+              <i className="codicon codicon-close" />
+            </button>
+          ) : null}
+        </label>
       </div>
+      {visibleAgents.length === 0 ? (
+        <div className="agent-list-empty-search">
+          <p>No employees matched “{searchTerm}”.</p>
+          <button type="button" className="btn btn-secondary" onClick={() => setSearchTerm('')}>
+            Clear search
+          </button>
+        </div>
+      ) : (
       <div className="agent-grid">
-        {agents.map((agent) => (
-          <div
-            key={agent.id}
-            className="agent-card"
-            style={{ '--agent-color': getAgentColor(agent) } as React.CSSProperties}
-            onClick={() => navigate(`/chat/${agent.id}`)}
-          >
+        {visibleAgents.map((agent) => (
+          <article key={agent.id} className="agent-card">
             <div className="agent-card-avatar">
               <Avatar agent={agent} size="large" />
             </div>
@@ -92,9 +123,10 @@ export function AgentList() {
                 Chat <i className="codicon codicon-comment" />
               </button>
             </div>
-          </div>
+          </article>
         ))}
       </div>
+      )}
     </div>
   );
 }

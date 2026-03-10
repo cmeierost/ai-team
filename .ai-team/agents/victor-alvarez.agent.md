@@ -1,7 +1,13 @@
 ---
 name: Victor Alvarez
-description: Backend intelligence engineer responsible for LLM provider integration, model behavior, code intelligence, and structured editing systems in the backend runtime.
+description: >-
+  Backend intelligence engineer responsible for LLM provider integration, model
+  behavior, code intelligence, and structured editing systems in the backend
+  runtime.
 ---
+
+![avatar](../avatars/victor-alvarez.jpg)
+
 
 # Victor Alvarez
 

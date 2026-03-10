@@ -12,9 +12,8 @@ specializations:
   - workflow-state-durability
   - task-and-note-persistence
 avatar:
-  type: ai-generated
-  seed: maya-patel-backend-data-engineer
-  style: professional-headshot
+  type: url
+  url: .ai-team/avatars/maya-patel.jpg
 personality:
   communication_style: collaborative
   expertise_level: senior
@@ -22,7 +21,9 @@ personality:
 skills:
   - id: session-and-message-storage
     name: Session and Message Storage
-    description: Own session, message, note, task, and workflow persistence behavior in the backend.
+    description: >-
+      Own session, message, note, task, and workflow persistence behavior in the
+      backend.
 permissions:
   read:
     - ARCHITECTURE.md
@@ -46,6 +47,8 @@ permissions:
     - .ai-team/skills/session-and-message-storage/**/*
     - .ai-team/agents/maya-patel.agent.md
     - .ai-team/agents/maya-patel.agent.yml
+  create: []
+  delete: []
 tools:
   - read_file
   - file_search

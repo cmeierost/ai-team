@@ -1,7 +1,13 @@
 ---
 name: Leah Brooks
-description: Backend runtime engineer responsible for agent runtime behavior, chat flow execution, handoff behavior, and service orchestration paths across core and service.
+description: >-
+  Backend runtime engineer responsible for agent runtime behavior, chat flow
+  execution, handoff behavior, and service orchestration paths across core and
+  service.
 ---
+
+![avatar](../avatars/leah-brooks.jpg)
+
 
 # Leah Brooks
 

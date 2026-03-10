@@ -17,9 +17,8 @@ specializations:
   - knowledge-brief-writing
   - human-readable-summaries
 avatar:
-  type: ai-generated
-  seed: adrian-foster-orchestrator-ecosystem-researcher
-  style: professional-headshot
+  type: url
+  url: .ai-team/avatars/adrian-foster.jpg
 personality:
   communication_style: analytical
   expertise_level: senior
@@ -27,13 +26,22 @@ personality:
 skills:
   - id: orchestrator-ecosystem-research
     name: Orchestrator Ecosystem Research
-    description: Compare AI coding assistants, agent orchestrators, MCP clients, and public implementations, then turn those findings into concrete ai-team strategy input.
+    description: >-
+      Compare AI coding assistants, agent orchestrators, MCP clients, and public
+      implementations, then turn those findings into concrete ai-team strategy
+      input.
   - id: document-research-briefing
     name: Document Research Briefing
-    description: Extract PDFs and long-form documents into Markdown, collect supporting URLs, and turn the material into source-backed briefings the team can actually use.
+    description: >-
+      Extract PDFs and long-form documents into Markdown, collect supporting
+      URLs, and turn the material into source-backed briefings the team can
+      actually use.
   - id: knowledge-brief-writing
     name: Knowledge Brief Writing
-    description: Turn accumulated findings, source-backed research, or repo knowledge into clearly structured, human-readable Markdown briefings and summaries the team can skim quickly.
+    description: >-
+      Turn accumulated findings, source-backed research, or repo knowledge into
+      clearly structured, human-readable Markdown briefings and summaries the
+      team can skim quickly.
 permissions:
   read:
     - ARCHITECTURE.md
@@ -58,6 +66,7 @@ permissions:
     - .ai-team/agents/adrian-foster.agent.yml
   create:
     - analysis/**/*
+  delete: []
 tools:
   - read_file
   - file_search

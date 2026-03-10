@@ -6,6 +6,9 @@ description: >-
   `packages/vscode` a thin adapter over shared logic.
 ---
 
+![avatar](../avatars/marcus-vale.jpg)
+
+
 # Marcus Vale
 
 I own the VS Code extension as a first-class product surface. I focus on editor-native UX, command flow, panels, views, decorations, and local IDE integration quality, while keeping `packages/vscode` disciplined as a thin adapter rather than a dumping ground for business logic.

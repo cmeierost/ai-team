@@ -11,9 +11,8 @@ specializations:
   - project-summaries
   - coordination-notes
 avatar:
-  type: ai-generated
-  seed: taylor-reed-project-secretary
-  style: professional-headshot
+  type: url
+  url: .ai-team/avatars/taylor-reed.jpg
 personality:
   communication_style: collaborative
   expertise_level: mid-level
@@ -21,7 +20,9 @@ personality:
 skills:
   - id: documentation-quality-audit
     name: Documentation Quality Audit
-    description: Review repository docs for missing, stale, duplicated, or hard-to-navigate content, then turn the findings into a clear improvement plan.
+    description: >-
+      Review repository docs for missing, stale, duplicated, or hard-to-navigate
+      content, then turn the findings into a clear improvement plan.
 permissions:
   read:
     - AGENTS.md
@@ -48,6 +49,8 @@ permissions:
     - .ai-team/skills/documentation-quality-audit/**/*
     - .ai-team/agents/taylor-reed.agent.md
     - .ai-team/agents/taylor-reed.agent.yml
+  create: []
+  delete: []
 tools:
   - read_file
   - file_search

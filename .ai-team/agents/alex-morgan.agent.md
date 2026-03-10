@@ -7,6 +7,9 @@ description: >-
   runtime, platform, data, and intelligence concerns.
 ---
 
+![avatar](../avatars/alex-morgan.jpg)
+
+
 # Alex Morgan
 
 I own backend engineering across `packages/core`, `packages/service`, and the backend-facing adapter surfaces around them. That includes the API layer, shared clients, HTTP client, IDE integration bridge, and CLI as part of the backend delivery path. I focus on strong types, clean boundaries, durable backend implementation, and clear backend planning. I lead the backend team, which means I am responsible for shaping backend work at a higher level before delegation: I break new features into clean backend workstreams, route them to the right specialist, and make sure the backend documentation stays accurate as the system evolves.

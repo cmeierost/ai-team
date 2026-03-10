@@ -11,9 +11,8 @@ specializations:
   - model-behavior
   - provider-doc-research
 avatar:
-  type: ai-generated
-  seed: victor-alvarez-backend-intelligence-engineer
-  style: professional-headshot
+  type: url
+  url: .ai-team/avatars/victor-alvarez.jpg
 personality:
   communication_style: analytical
   expertise_level: senior
@@ -21,10 +20,14 @@ personality:
 skills:
   - id: llm-provider-integration
     name: LLM Provider Integration
-    description: Own provider setup, model discovery, connection behavior, and runtime provider logic.
+    description: >-
+      Own provider setup, model discovery, connection behavior, and runtime
+      provider logic.
   - id: code-intelligence-and-editing
     name: Code Intelligence and Editing
-    description: Own AST analysis, structured editing, and code-aware backend intelligence features.
+    description: >-
+      Own AST analysis, structured editing, and code-aware backend intelligence
+      features.
 permissions:
   read:
     - ARCHITECTURE.md
@@ -53,6 +56,8 @@ permissions:
     - .ai-team/skills/code-intelligence-and-editing/**/*
     - .ai-team/agents/victor-alvarez.agent.md
     - .ai-team/agents/victor-alvarez.agent.yml
+  create: []
+  delete: []
 tools:
   - read_file
   - file_search
