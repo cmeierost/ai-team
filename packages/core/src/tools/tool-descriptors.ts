@@ -113,6 +113,18 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
     description: 'Search metadata/path names (list-right operation)',
   });
 
+  engine.registerTool({
+    name: 'who_has_access',
+    pathParams: [{ paramName: 'path', right: 'list' }],
+    description: 'Show which contexts can access a path (default right: list)',
+  });
+
+  engine.registerTool({
+    name: 'do_i_have_access',
+    pathParams: [{ paramName: 'path', right: 'list' }],
+    description: 'Check whether a context has access to a path (default right: list)',
+  });
+
   // -- Code intelligence tools --
 
   engine.registerTool({

@@ -1,4 +1,15 @@
-import { getCachedFileTree, loadTeamConfig, saveTeamConfig, AgentManager, type Agent, type FileTreeNode, type GetFileTreeOptions, type TeamConfig } from '@ai-team/core';
+import {
+  getCachedFileTree,
+  loadAgentAccessPatterns,
+  loadTeamConfig,
+  saveAgentAccessPatterns,
+  saveTeamConfig,
+  AgentManager,
+  type Agent,
+  type FileTreeNode,
+  type GetFileTreeOptions,
+  type TeamConfig,
+} from '@ai-team/core';
 
 type PathMode = 'read' | 'write' | 'create' | 'delete';
 
@@ -103,6 +114,32 @@ async function resolveOneAgent(workspaceRoot: string, query: string): Promise<Ag
   return matches[0];
 }
 
+async function syncAgentFrontmatterPermissions(
+  manager: AgentManager,
+  agent: Agent,
+  patterns: { read: string[]; write: string[]; create: string[]; delete: string[] },
+): Promise<Agent> {
+  const currentPerms = agent.permissions ?? { read: [], write: [], create: [], delete: [] };
+  const sameRead = JSON.stringify(currentPerms.read ?? []) === JSON.stringify(patterns.read);
+  const sameWrite = JSON.stringify(currentPerms.write ?? []) === JSON.stringify(patterns.write);
+  const sameCreate = JSON.stringify(currentPerms.create ?? []) === JSON.stringify(patterns.create);
+  const sameDelete = JSON.stringify(currentPerms.delete ?? []) === JSON.stringify(patterns.delete);
+
+  if (sameRead && sameWrite && sameCreate && sameDelete) {
+    return agent;
+  }
+
+  return manager.updateAgent(agent.id, {
+    permissions: {
+      ...currentPerms,
+      read: patterns.read,
+      write: patterns.write,
+      create: patterns.create,
+      delete: patterns.delete,
+    },
+  });
+}
+
 /**
  * Add a path to an agent's read or write permission list in their .md frontmatter.
  * Persists via AgentManager.updateAgent which writes the YAML frontmatter back to the .md file.
@@ -117,16 +154,17 @@ export async function agentAllowPathCommand(
   const manager = new AgentManager(workspaceRoot);
   await manager.initialize();
 
-  const currentPerms = agent.permissions ?? { read: [], write: [], create: [], delete: [] };
-  const current: string[] = currentPerms[mode] ?? [];
+  const accessPatterns = await loadAgentAccessPatterns(workspaceRoot, agent.id);
+  const current = accessPatterns[mode] ?? [];
 
-  if (current.includes(filePath)) return { agent, paths: current };
+  const nextPatterns = current.includes(filePath)
+    ? accessPatterns
+    : { ...accessPatterns, [mode]: [...current, filePath] };
 
-  const next = [...current, filePath];
-  const updated = await manager.updateAgent(agent.id, {
-    permissions: { ...currentPerms, [mode]: next },
-  });
-  return { agent: updated, paths: next };
+  await saveAgentAccessPatterns(workspaceRoot, agent.id, nextPatterns);
+  const updated = await syncAgentFrontmatterPermissions(manager, agent, nextPatterns);
+
+  return { agent: updated, paths: nextPatterns[mode] };
 }
 
 /**
@@ -143,14 +181,16 @@ export async function agentDisallowPathCommand(
   const manager = new AgentManager(workspaceRoot);
   await manager.initialize();
 
-  const currentPerms = agent.permissions ?? { read: [], write: [], create: [], delete: [] };
-  const current: string[] = currentPerms[mode] ?? [];
+  const accessPatterns = await loadAgentAccessPatterns(workspaceRoot, agent.id);
+  const current = accessPatterns[mode] ?? [];
   const next = current.filter((p) => p !== filePath);
 
-  if (next.length === current.length) return { agent, paths: current };
+  const nextPatterns = next.length === current.length
+    ? accessPatterns
+    : { ...accessPatterns, [mode]: next };
 
-  const updated = await manager.updateAgent(agent.id, {
-    permissions: { ...currentPerms, [mode]: next },
-  });
-  return { agent: updated, paths: next };
+  await saveAgentAccessPatterns(workspaceRoot, agent.id, nextPatterns);
+  const updated = await syncAgentFrontmatterPermissions(manager, agent, nextPatterns);
+
+  return { agent: updated, paths: nextPatterns[mode] };
 }

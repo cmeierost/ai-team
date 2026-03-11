@@ -87,8 +87,25 @@ export function matchesIgnorePatterns(
   wsRelPath: string,
   patterns: string[],
 ): boolean {
-  for (const pat of patterns) {
-    if (minimatch(wsRelPath, pat, { dot: true })) return true;
+  let ignored = false;
+
+  for (const rawPattern of patterns) {
+    const trimmed = rawPattern.trim();
+    if (!trimmed) continue;
+
+    const negate = trimmed.startsWith('!');
+    let pattern = negate ? trimmed.slice(1).trim() : trimmed;
+    if (!pattern) continue;
+
+    // Directory-like ignore entries should affect all descendants.
+    if (pattern.endsWith('/')) {
+      pattern = `${pattern}**`;
+    }
+
+    if (minimatch(wsRelPath, pattern, { dot: true })) {
+      ignored = !negate;
+    }
   }
-  return false;
+
+  return ignored;
 }

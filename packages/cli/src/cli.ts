@@ -25,7 +25,8 @@ import { hhRefreshCommand } from './commands/hh.js';
 import { codeEditCommand } from './commands/code-edit.js';
 import { avatarCommand } from './commands/avatar.js';
 import { patchCommand } from './commands/patch.js';
-import { filesCommand, filesAllowCommand, filesDisallowCommand } from './commands/files.js';
+import { filesCommand, filesAllowCommand, filesDisallowCommand, filesPatternsCommand } from './commands/files.js';
+import { accessCanCommand, accessWhoCommand } from './commands/access.js';
 import { toolsAllowCommand, toolsCommand, toolsDisallowCommand } from './commands/tools.js';
 import { skillsAddCommand, skillsCommand, skillsRemoveCommand } from './commands/skills.js';
 
@@ -188,7 +189,8 @@ files
   .description('Allow a gitignored path to appear in the file tree (saves to .ai-team/config.json)')
   .option('--agent <id>', 'Scope to a specific agent (updates their .md permissions)')
   .option('--write', 'Affect write permissions instead of read (default: read)')
-  .action(withCliErrorHandling((p: string, options: { agent?: string; write?: boolean }) =>
+  .option('--mode <mode>', 'Permission mode: read | write | create | delete')
+  .action(withCliErrorHandling((p: string, options: { agent?: string; write?: boolean; mode?: string }) =>
     filesAllowCommand(p, options)
   ));
 
@@ -197,13 +199,34 @@ files
   .description('Remove a path from the gitignore allow list')
   .option('--agent <id>', 'Scope to a specific agent (updates their .md permissions)')
   .option('--write', 'Affect write permissions instead of read (default: read)')
-  .action(withCliErrorHandling((p: string, options: { agent?: string; write?: boolean }) =>
+  .option('--mode <mode>', 'Permission mode: read | write | create | delete')
+  .action(withCliErrorHandling((p: string, options: { agent?: string; write?: boolean; mode?: string }) =>
     filesDisallowCommand(p, options)
+  ));
+
+files
+  .command('patterns')
+  .description('List configured file permission patterns (global or per-agent)')
+  .option('--agent <id>', 'Show patterns for a specific agent')
+  .option('--json', 'Output as JSON')
+  .action(withCliErrorHandling((options: { agent?: string; json?: boolean }) =>
+    filesPatternsCommand(options)
   ));
 
 const toolsMeta = getCliCommandMetadata('tools');
 const tools = applyCommandMetadata(program.command(toolsMeta.command), toolsMeta)
   .action(withCliErrorHandling((options: { agent?: string; json?: boolean }) => toolsCommand(client, options)));
+
+const accessMeta = getCliCommandMetadata('access');
+const access = applyCommandMetadata(program.command(accessMeta.command), accessMeta);
+
+const accessWhoMeta = getCliCommandMetadata('access.who');
+applyCommandMetadata(access.command(accessWhoMeta.command), accessWhoMeta)
+  .action(withCliErrorHandling((options: { path?: string; right?: 'read' | 'write' | 'create' | 'delete' | 'list'; json?: boolean }) => accessWhoCommand(client, options)));
+
+const accessCanMeta = getCliCommandMetadata('access.can');
+applyCommandMetadata(access.command(accessCanMeta.command), accessCanMeta)
+  .action(withCliErrorHandling((options: { path?: string; right?: 'read' | 'write' | 'create' | 'delete' | 'list'; agent?: string; json?: boolean }) => accessCanCommand(client, options)));
 
 const toolsAllowMeta = getCliCommandMetadata('tools.allow');
 applyCommandMetadata(tools.command(toolsAllowMeta.command).alias('add'), toolsAllowMeta)

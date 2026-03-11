@@ -16,7 +16,7 @@ export interface TreeNode {
 
 export type FileAccessFilter = 'all' | 'read' | 'write';
 export type PatternScope = 'agent' | 'global';
-export type PatternMode = 'read' | 'write';
+export type PatternMode = 'read' | 'write' | 'create' | 'delete';
 
 export interface PatternGroup {
   label: string;

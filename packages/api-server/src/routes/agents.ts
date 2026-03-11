@@ -6,6 +6,7 @@ import {
   AgentSchema,
   ContextManager,
   LlmService,
+  loadAgentAccessPatterns,
   listCachedWorkspaceFiles,
   loadTeamConfig,
   parseMarkdownSections,
@@ -644,10 +645,14 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
         ? annotated
         : annotated.filter(f => f.readable || f.writable);
 
+      const accessPatterns = await loadAgentAccessPatterns(agentManager.workspaceRoot, agent.id);
+
       res.json({
         agent: agent.id,
-        readPatterns: agent.permissions?.read ?? [],
-        writePatterns: agent.permissions?.write ?? [],
+        readPatterns: accessPatterns.read,
+        writePatterns: accessPatterns.write,
+        createPatterns: accessPatterns.create,
+        deletePatterns: accessPatterns.delete,
         files,
       });
     } catch (error) {

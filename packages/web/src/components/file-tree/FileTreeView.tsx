@@ -37,6 +37,13 @@ interface FileTreeViewProps {
 }
 
 export function FileTreeView({ editMode, loading, error, hasData, readCount, writeCount, patternsOpen, visiblePatternGroups, pendingPatternKey, patternScope, patternMode, patternInput, filter, search, tree, pendingPaths, onRetry, onPatternScopeChange, onPatternModeChange, onPatternInputChange, onAddPattern, onRemovePattern, onSearchChange, onFilterChange, onTogglePermission }: Readonly<FileTreeViewProps>) {
+  const patternClassName = (mode: PatternMode): string => {
+    if (mode === 'read') return 'ft-pattern-read';
+    if (mode === 'write') return 'ft-pattern-write';
+    if (mode === 'create') return 'ft-pattern-create';
+    return 'ft-pattern-delete';
+  };
+
   if (loading) {
     return (
       <div className="ft-loading">
@@ -75,7 +82,7 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, wri
                 <div key={`${group.scope}-${group.mode}`} className="ft-pattern-group">
                   <span className="ft-pattern-group-label">{group.label}</span>
                   {group.values.map((value) => (
-                    <span key={`${group.scope}-${group.mode}-${value}`} className={`ft-pattern ${group.mode === 'read' ? 'ft-pattern-read' : 'ft-pattern-write'}`}>
+                    <span key={`${group.scope}-${group.mode}-${value}`} className={`ft-pattern ${patternClassName(group.mode)}`}>
                       {value}
                       {editMode ? (
                         <button
@@ -119,6 +126,8 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, wri
             >
               <option value="read">Read</option>
               <option value="write">Write</option>
+              <option value="create">Create</option>
+              <option value="delete">Delete</option>
             </select>
             <input
               className="ft-pattern-input"

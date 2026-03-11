@@ -34,4 +34,11 @@ export type {
 export { ContextRegistry } from './registry.js';
 export { CompiledRuleSet, matchesIgnorePatterns } from './policy.js';
 export { normalizePath, resolveAndNormalize, fileName } from './paths.js';
-export { parseAccessFile, parseIgnoreStylePatterns, scopePatternToBaseDir } from './access-file.js';
+export {
+  parseAccessFile,
+  parseIgnoreStylePatterns,
+  scopePatternToBaseDir,
+  accessRulesToPatternSet,
+  serializePatternSetToAccessFile,
+} from './access-file.js';
+export type { AccessPatternSet } from './access-file.js';

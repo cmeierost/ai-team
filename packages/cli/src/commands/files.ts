@@ -3,7 +3,7 @@
  */
 
 import chalk from 'chalk';
-import { type FileTreeNode, type AnnotatedFile, AgentManager, ContextManager, loadTeamConfig } from '@ai-team/core';
+import { type FileTreeNode, type AnnotatedFile, AgentManager, ContextManager, loadAgentAccessPatterns, loadTeamConfig } from '@ai-team/core';
 import {
   findWorkspaceRoot,
   getFileTreeCommand,
@@ -20,6 +20,19 @@ interface FilesOptions {
   json?: boolean;
   agent?: string;
   writeable?: boolean;
+}
+
+type PathMode = 'read' | 'write' | 'create' | 'delete';
+
+function resolvePathMode(options: AllowOptions): PathMode {
+  if (options.mode) {
+    if (options.mode === 'read' || options.mode === 'write' || options.mode === 'create' || options.mode === 'delete') {
+      return options.mode;
+    }
+    throw new Error(`Invalid mode "${options.mode}". Use one of: read, write, create, delete.`);
+  }
+
+  return options.write ? 'write' : 'read';
 }
 
 function printTree(node: FileTreeNode, prefix = '', isLast = true): void {
@@ -195,11 +208,12 @@ function flattenFiles(root: FileTreeNode): string[] {
 export interface AllowOptions {
   agent?: string;
   write?: boolean;
+  mode?: string;
 }
 
 export async function filesAllowCommand(filePath: string, options: AllowOptions = {}): Promise<void> {
   const workspaceRoot = findWorkspaceRoot();
-  const mode = options.write ? 'write' : 'read';
+  const mode = resolvePathMode(options);
   if (options.agent) {
     const result = await agentAllowPathCommand(workspaceRoot, options.agent, filePath, mode);
     console.log(chalk.green(`  ✔ ${filePath} added to agent ${result.agent.id} ${mode} permissions`));
@@ -213,7 +227,7 @@ export async function filesAllowCommand(filePath: string, options: AllowOptions 
 
 export async function filesDisallowCommand(filePath: string, options: AllowOptions = {}): Promise<void> {
   const workspaceRoot = findWorkspaceRoot();
-  const mode = options.write ? 'write' : 'read';
+  const mode = resolvePathMode(options);
   if (options.agent) {
     const result = await agentDisallowPathCommand(workspaceRoot, options.agent, filePath, mode);
     console.log(chalk.green(`  ✔ ${filePath} removed from agent ${result.agent.id} ${mode} permissions`));
@@ -221,6 +235,57 @@ export async function filesDisallowCommand(filePath: string, options: AllowOptio
   } else {
     const next = await disallowPathCommand(workspaceRoot, filePath, mode);
     console.log(chalk.green(`  ✔ ${filePath} removed from global ${mode} permissions`));
-    console.log(chalk.dim(`  .ai-team/config.json fileTree.${mode === 'write' ? 'writePaths' : 'readPaths'} (${next.length} path${next.length === 1 ? '' : 's'})`));
+    console.log(chalk.dim(`  .ai-team/config.json fileTree.${mode}Paths (${next.length} path${next.length === 1 ? '' : 's'})`));
   }
+}
+
+export async function filesPatternsCommand(options: { agent?: string; json?: boolean } = {}): Promise<void> {
+  const workspaceRoot = findWorkspaceRoot();
+  const config = await loadTeamConfig(workspaceRoot);
+
+  const global = {
+    read: config?.fileTree?.readPaths ?? [],
+    write: config?.fileTree?.writePaths ?? [],
+    create: config?.fileTree?.createPaths ?? [],
+    delete: config?.fileTree?.deletePaths ?? [],
+  };
+
+  if (!options.agent) {
+    if (options.json) {
+      console.log(JSON.stringify({ global }, null, 2));
+      return;
+    }
+
+    console.log(chalk.bold('\n  Global file patterns (.ai-team/config.json)'));
+    (Object.entries(global) as Array<[PathMode, string[]]>).forEach(([mode, values]) => {
+      console.log(chalk.dim(`  ${mode}: ${values.join(', ') || '(none)'}`));
+    });
+    console.log();
+    return;
+  }
+
+  const manager = new AgentManager(workspaceRoot);
+  await manager.initialize();
+  const matches = manager.resolveAgent(options.agent);
+  if (matches.length === 0) {
+    throw new Error(`Agent not found: "${options.agent}"`);
+  }
+  const agent = matches[0];
+  const patterns = await loadAgentAccessPatterns(workspaceRoot, agent.id);
+
+  if (options.json) {
+    console.log(JSON.stringify({
+      agent: { id: agent.id, name: agent.name, role: agent.role },
+      global,
+      agentPatterns: patterns,
+    }, null, 2));
+    return;
+  }
+
+  console.log(chalk.bold(`\n  Agent file patterns (${agent.name} / ${agent.id})`));
+  console.log(chalk.dim(`  Source: .ai-team/agents/.${agent.id}.access`));
+  (Object.entries(patterns) as Array<[PathMode, string[]]>).forEach(([mode, values]) => {
+    console.log(chalk.dim(`  ${mode}: ${values.join(', ') || '(none)'}`));
+  });
+  console.log();
 }

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { parseAccessFile } from '../access-file.js';
+import { accessRulesToPatternSet, parseAccessFile, serializePatternSetToAccessFile } from '../access-file.js';
 import { AccessEngine } from '../engine.js';
 
 const WORKSPACE = '/workspace/project';
@@ -42,19 +42,20 @@ async function waitForCondition(
 }
 
 describe('parseAccessFile', () => {
-  it('treats files without sections as deny-all-rights patterns', () => {
+  it('treats files without sections as allow-all-rights patterns and ! as deny', () => {
     const rules = parseAccessFile([
-      '# ignore-like fallback',
-      'secrets/**',
+      '# allow-list style fallback',
+      'src/**',
+      '!src/private/**',
       '*.log',
       '',
     ].join('\n'));
 
-    // 2 patterns × 5 rights
-    expect(rules).toHaveLength(10);
-    expect(rules.every((r) => r.effect === 'deny')).toBe(true);
-    expect(rules.some((r) => r.pathPattern === 'secrets/**' && r.right === 'read')).toBe(true);
-    expect(rules.some((r) => r.pathPattern === '*.log' && r.right === 'delete')).toBe(true);
+    // 3 patterns × 5 rights
+    expect(rules).toHaveLength(15);
+    expect(rules.some((r) => r.pathPattern === 'src/**' && r.effect === 'allow' && r.right === 'read')).toBe(true);
+    expect(rules.some((r) => r.pathPattern === 'src/private/**' && r.effect === 'deny' && r.right === 'write')).toBe(true);
+    expect(rules.some((r) => r.pathPattern === '*.log' && r.effect === 'allow' && r.right === 'delete')).toBe(true);
   });
 
   it('parses section-based rights and effects', () => {
@@ -79,6 +80,44 @@ describe('parseAccessFile', () => {
   });
 });
 
+describe('access pattern conversion + serialization', () => {
+  it('projects allow rules into mode-specific pattern sets', () => {
+    const rules = parseAccessFile([
+      '[read,write]',
+      'src/**',
+      '[create]',
+      'docs/**',
+      '[deny delete]',
+      'secrets/**',
+    ].join('\n'));
+
+    const patterns = accessRulesToPatternSet(rules);
+
+    expect(patterns.read).toEqual(['src/**']);
+    expect(patterns.write).toEqual(['src/**']);
+    expect(patterns.create).toEqual(['docs/**']);
+    expect(patterns.delete).toEqual([]);
+  });
+
+  it('serializes and re-parses pattern sets deterministically', () => {
+    const serialized = serializePatternSetToAccessFile({
+      read: ['src/**', 'src/**', 'docs/**'],
+      write: ['src/**'],
+      create: ['artifacts/**'],
+      delete: [],
+    });
+
+    const reparsed = accessRulesToPatternSet(parseAccessFile(serialized));
+
+    expect(reparsed).toEqual({
+      read: ['docs/**', 'src/**'],
+      write: ['src/**'],
+      create: ['artifacts/**'],
+      delete: [],
+    });
+  });
+});
+
 describe('AccessEngine.registerAccessFile/registerGlobalAccessFile', () => {
   let engine: AccessEngine;
 
@@ -99,16 +138,16 @@ describe('AccessEngine.registerAccessFile/registerGlobalAccessFile', () => {
     engine.setActiveContext('agent-a');
   });
 
-  it('loads fallback deny-all patterns into a context', async () => {
+  it('loads fallback allow-all patterns with negation exclusions into a context', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ai-team-access-'));
     const file = join(dir, '.access');
-    await writeFile(file, ['secrets/**', '*.log'].join('\n'), 'utf8');
+    await writeFile(file, ['src/**', '!src/private/**'].join('\n'), 'utf8');
 
     await engine.registerAccessFile('agent-a', file);
 
-    expect(engine.checkPath('secrets/key.pem', 'read', CWD).allowed).toBe(false);
-    expect(engine.checkPath('app.log', 'delete', CWD).allowed).toBe(false);
     expect(engine.checkPath('src/app.ts', 'read', CWD).allowed).toBe(true);
+    expect(engine.checkPath('src/private/key.ts', 'read', CWD).allowed).toBe(false);
+    expect(engine.checkPath('docs/readme.md', 'read', CWD).allowed).toBe(true);
   });
 
   it('loads section rules into global context via registerGlobalAccessFile', async () => {
@@ -147,7 +186,8 @@ describe('AccessEngine workspace conventions', () => {
     engine.setActiveContext('agent-a');
 
     expect(engine.checkPath('apps/web/docs/guide.md', 'read', workspace).allowed).toBe(false);
-    expect(engine.checkPath('docs/guide.md', 'read', workspace).allowed).toBe(true);
+    // strict mode: unmatched paths are denied when .agent-a.access exists
+    expect(engine.checkPath('docs/guide.md', 'read', workspace).allowed).toBe(false);
   });
 
   it('treats .contextId.access under .ai-team/** as workspace-root relative', async () => {
@@ -161,7 +201,8 @@ describe('AccessEngine workspace conventions', () => {
     engine.setActiveContext('agent-a');
 
     expect(engine.checkPath('docs/guide.md', 'read', workspace).allowed).toBe(false);
-    expect(engine.checkPath('apps/web/docs/guide.md', 'read', workspace).allowed).toBe(true);
+    // strict mode: unmatched paths are denied when .agent-a.access exists
+    expect(engine.checkPath('apps/web/docs/guide.md', 'read', workspace).allowed).toBe(false);
   });
 
   it('loads ignore conventions including .claudeignore with file-folder scoping', async () => {
@@ -212,7 +253,7 @@ describe('AccessEngine workspace conventions', () => {
 
       await writeFile(accessFile, ['[deny read]', 'docs/**'].join('\n'), 'utf8');
       await waitForCondition(() => engine.checkPath('docs/guide.md', 'read', workspace).allowed === false);
-      await waitForCondition(() => engine.checkPath('secrets/key.pem', 'read', workspace).allowed === true);
+      await waitForCondition(() => engine.checkPath('secrets/key.pem', 'read', workspace).allowed === false);
 
       await unlink(accessFile);
       await waitForCondition(() => engine.checkPath('docs/guide.md', 'read', workspace).allowed === true);

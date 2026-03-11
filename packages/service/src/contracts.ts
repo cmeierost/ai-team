@@ -47,6 +47,54 @@ export interface TestConnectionOptions {
   employee?: string;
 }
 
+export type AccessRight = 'read' | 'write' | 'create' | 'delete' | 'list';
+
+export interface WhoHasAccessOptions {
+  path: string;
+  right?: AccessRight;
+}
+
+export interface AccessContextCandidate {
+  contextId: string;
+  label?: string;
+}
+
+export interface WhoHasAccessResponse {
+  path: {
+    input: string;
+    absolute: string;
+    relative: string;
+  };
+  right: AccessRight;
+  contextIds: string[];
+  contexts: AccessContextCandidate[];
+  explanation: string;
+}
+
+export interface DoIHaveAccessOptions {
+  path: string;
+  right?: AccessRight;
+  agent?: string;
+}
+
+export interface DoIHaveAccessResponse {
+  path: {
+    input: string;
+    absolute: string;
+    relative: string;
+  };
+  right: AccessRight;
+  contextId: string;
+  contextLabel?: string;
+  selectedBy: 'explicit' | 'default-first-agent';
+  allowed: boolean;
+  allRights: AccessRight[];
+  explanation: string;
+  alternativeContexts: Array<{ contextId: string; allowedPaths: string[] }>;
+  deniedByIgnore: boolean;
+  blockedByPatterns: string[];
+}
+
 export interface SearchSkillsOptions {
   query?: string;
   agent?: string;
@@ -123,6 +171,50 @@ export interface UpdateAgentToolResponse {
   tool: string;
   tools: string[];
   changed: boolean;
+}
+
+export type PathMode = 'read' | 'write' | 'create' | 'delete';
+
+export interface FilePatternCollections {
+  readPaths: string[];
+  writePaths: string[];
+  createPaths: string[];
+  deletePaths: string[];
+}
+
+export interface GetFilePatternsResponse {
+  global: {
+    allowPaths: string[];
+  } & FilePatternCollections;
+  agent?: {
+    id: string;
+  } & FilePatternCollections;
+}
+
+export interface UpdateGlobalPathOptions {
+  path: string;
+  mode?: PathMode;
+}
+
+export interface UpdateGlobalPathResponse {
+  mode: PathMode;
+  paths: string[];
+}
+
+export interface UpdateAgentPathOptions {
+  agent: string;
+  path: string;
+  mode?: PathMode;
+}
+
+export interface UpdateAgentPathResponse {
+  agent: {
+    id: string;
+    name: string;
+    role: string;
+  };
+  mode: PathMode;
+  paths: string[];
 }
 
 export interface CreateOptions {
@@ -535,4 +627,6 @@ export interface AiTeamService extends AiTeamMediator {
   providerModels(options: ProviderModelsOptions): Promise<void>;
   providerModelsRefresh(options: RefreshProviderModelsOptions): Promise<void>;
   testConnection(options?: TestConnectionOptions): Promise<void>;
+  whoHasAccess(options: WhoHasAccessOptions): Promise<WhoHasAccessResponse>;
+  doIHaveAccess(options: DoIHaveAccessOptions): Promise<DoIHaveAccessResponse>;
 }

@@ -42,6 +42,7 @@ export interface AccessEngineOptions {
 
 interface DiscoveredConventions {
   contextRules: Map<string, AccessRule[]>;
+  strictContextIds: Set<string>;
   ignorePatterns: string[];
 }
 
@@ -77,6 +78,7 @@ export class AccessEngine {
   private ignorePatterns: string[] = [];
   private discoveredIgnorePatterns: string[] = [];
   private discoveredContextRules = new Map<string, AccessRule[]>();
+  private discoveredStrictContextIds = new Set<string>();
   private readonly explicitContextRules = new Map<string, AccessRule[]>();
   private conventionWatcher: FSWatcher | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
@@ -163,7 +165,8 @@ export class AccessEngine {
   /**
    * Load rules from an ignore-style access file and append them to a context.
    *
-   * - Without sections, every pattern is treated as deny-all-rights.
+    * - Without sections, every pattern is treated as allow-all-rights and
+    *   `!pattern` is treated as deny-all-rights.
    * - With sections, each section title defines effect/rights for its patterns.
    */
   async registerAccessFile(contextId: string, filePath: string, cwd?: string): Promise<void> {
@@ -211,6 +214,7 @@ export class AccessEngine {
   loadWorkspaceConventions(): void {
     const discovered = this.discoverWorkspaceConventions();
     this.discoveredContextRules = discovered.contextRules;
+    this.discoveredStrictContextIds = discovered.strictContextIds;
     this.discoveredIgnorePatterns = discovered.ignorePatterns;
 
     for (const contextId of this.contexts.ids()) {
@@ -544,6 +548,7 @@ export class AccessEngine {
 
     const globalId = this.contexts.getGlobalId();
     const activeId = contextId ?? this.contexts.getActiveId();
+    const isStrictContext = !!activeId && this.discoveredStrictContextIds.has(activeId);
 
     const deniedByGlobal = this.evaluateDeniedByContext(globalId, wsRelPath, right);
     if (deniedByGlobal) return deniedByGlobal;
@@ -553,6 +558,12 @@ export class AccessEngine {
 
     const allowedByActive = this.evaluateAllowedByContext(activeId, wsRelPath, right);
     if (allowedByActive) return allowedByActive;
+
+    // If a discovered .contextId.access file exists, treat that context as strict
+    // allow-list mode for unmatched paths (no fallback to global allows).
+    if (isStrictContext) {
+      return { path: wsRelPath, right, allowed: false };
+    }
 
     const allowedByGlobal = this.evaluateAllowedByContext(globalId, wsRelPath, right);
     if (allowedByGlobal) return allowedByGlobal;
@@ -651,6 +662,7 @@ export class AccessEngine {
 
   private discoverWorkspaceConventions(): DiscoveredConventions {
     const contextRules = new Map<string, AccessRule[]>();
+    const strictContextIds = new Set<string>();
     const ignorePatterns: string[] = [];
 
     const files = this.listFilesRecursively(this.workspaceRoot);
@@ -663,6 +675,10 @@ export class AccessEngine {
 
       if (this.isContextConventionFileName(fileName)) {
         this.collectContextConventionRules(filePath, fileName, contextRules);
+        const contextId = this.getContextIdFromConventionFile(fileName);
+        if (contextId) {
+          strictContextIds.add(contextId);
+        }
       }
 
       if (IGNORE_CONVENTION_FILE_NAMES.has(fileName)) {
@@ -670,7 +686,7 @@ export class AccessEngine {
       }
     }
 
-    return { contextRules, ignorePatterns };
+    return { contextRules, strictContextIds, ignorePatterns };
   }
 
   private listFilesRecursively(rootDir: string): string[] {

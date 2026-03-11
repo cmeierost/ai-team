@@ -1,4 +1,18 @@
-import { GraphData, ViewMode, Agent, AgentConfig, AnnotatedFile, MarkdownSection, AgentManager, ContextManager, listCachedWorkspaceFiles, loadTeamConfig, parseMarkdownSections, replaceOrAppendMarkdownSection } from '@ai-team/core';
+import {
+  GraphData,
+  ViewMode,
+  Agent,
+  AgentConfig,
+  AnnotatedFile,
+  MarkdownSection,
+  AgentManager,
+  ContextManager,
+  listCachedWorkspaceFiles,
+  loadAgentAccessPatterns,
+  loadTeamConfig,
+  parseMarkdownSections,
+  replaceOrAppendMarkdownSection,
+} from '@ai-team/core';
 import {
   AiTeamCommandName,
   AiTeamCommandResponseMap,
@@ -43,11 +57,26 @@ import {
   ListToolsResponse,
   UpdateAgentToolOptions,
   UpdateAgentToolResponse,
+  GetFilePatternsResponse,
+  PathMode,
+  UpdateAgentPathOptions,
+  UpdateAgentPathResponse,
+  UpdateGlobalPathOptions,
+  UpdateGlobalPathResponse,
+  AccessRight,
+  WhoHasAccessOptions,
+  WhoHasAccessResponse,
+  DoIHaveAccessOptions,
+  DoIHaveAccessResponse,
   WorkflowFrame,
   WorkflowStateSnapshot,
   type ServiceErrorCode,
   type ServiceErrorInputRequest,
   TestConnectionOptions,
+  allowPathCommand,
+  disallowPathCommand,
+  agentAllowPathCommand,
+  agentDisallowPathCommand,
 } from '@ai-team/service';
 import { SearchAgentsRequest, SearchAgentsResponse } from '@ai-team/service/src/contracts';
 
@@ -56,6 +85,8 @@ export interface AgentFilesResponse {
   agent: string;
   readPatterns: string[];
   writePatterns: string[];
+  createPatterns?: string[];
+  deletePatterns?: string[];
   files: AnnotatedFile[];
 }
 
@@ -86,11 +117,18 @@ export interface AiTeamClient {
   updateAgentMarkdown(query: string, markdown: string): Promise<Agent>;
   /** Get annotated file list with read/write permissions (fuzzy query) */
   getAgentFiles(query: string, options?: { depth?: number; all?: boolean }): Promise<AgentFilesResponse>;
+  getFilePatterns(agentQuery?: string): Promise<GetFilePatternsResponse>;
+  allowPath(options: UpdateGlobalPathOptions): Promise<UpdateGlobalPathResponse>;
+  disallowPath(options: UpdateGlobalPathOptions): Promise<UpdateGlobalPathResponse>;
+  allowAgentPath(options: UpdateAgentPathOptions): Promise<UpdateAgentPathResponse>;
+  disallowAgentPath(options: UpdateAgentPathOptions): Promise<UpdateAgentPathResponse>;
   addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse>;
   removeSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse>;
   listTools(options?: ListToolsOptions): Promise<ListToolsResponse>;
   allowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
   disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
+  whoHasAccess(options: WhoHasAccessOptions): Promise<WhoHasAccessResponse>;
+  doIHaveAccess(options: DoIHaveAccessOptions): Promise<DoIHaveAccessResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;
@@ -201,11 +239,89 @@ class InProcessAiTeamClient implements AiTeamClient {
     const ctx = ContextManager.fromConfig(ws, config?.fileTree);
     const annotated = ctx.getAnnotatedFiles(agent, allFiles);
     const files = options?.all ? annotated : annotated.filter(f => f.readable || f.writable);
+    const accessPatterns = await loadAgentAccessPatterns(ws, agent.id);
     return {
       agent: agent.id,
-      readPatterns: agent.permissions?.read ?? [],
-      writePatterns: agent.permissions?.write ?? [],
+      readPatterns: accessPatterns.read,
+      writePatterns: accessPatterns.write,
+      createPatterns: accessPatterns.create,
+      deletePatterns: accessPatterns.delete,
       files,
+    };
+  }
+
+  async getFilePatterns(agentQuery?: string): Promise<GetFilePatternsResponse> {
+    const ws = this.service.workspaceRoot;
+    const config = await loadTeamConfig(ws);
+    const global = {
+      allowPaths: Array.from(new Set([
+        ...(config?.fileTree?.readPaths ?? []),
+        ...(config?.fileTree?.writePaths ?? []),
+        ...(config?.fileTree?.createPaths ?? []),
+        ...(config?.fileTree?.deletePaths ?? []),
+      ])),
+      readPaths: config?.fileTree?.readPaths ?? [],
+      writePaths: config?.fileTree?.writePaths ?? [],
+      createPaths: config?.fileTree?.createPaths ?? [],
+      deletePaths: config?.fileTree?.deletePaths ?? [],
+    };
+
+    if (!agentQuery) {
+      return { global };
+    }
+
+    const agent = await this.getAgentFrontmatter(agentQuery);
+    const patterns = await loadAgentAccessPatterns(ws, agent.id);
+
+    return {
+      global,
+      agent: {
+        id: agent.id,
+        readPaths: patterns.read,
+        writePaths: patterns.write,
+        createPaths: patterns.create,
+        deletePaths: patterns.delete,
+      },
+    };
+  }
+
+  async allowPath(options: UpdateGlobalPathOptions): Promise<UpdateGlobalPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const paths = await allowPathCommand(this.service.workspaceRoot, options.path, mode);
+    return { mode, paths };
+  }
+
+  async disallowPath(options: UpdateGlobalPathOptions): Promise<UpdateGlobalPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const paths = await disallowPathCommand(this.service.workspaceRoot, options.path, mode);
+    return { mode, paths };
+  }
+
+  async allowAgentPath(options: UpdateAgentPathOptions): Promise<UpdateAgentPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const result = await agentAllowPathCommand(this.service.workspaceRoot, options.agent, options.path, mode);
+    return {
+      agent: {
+        id: result.agent.id,
+        name: result.agent.name,
+        role: result.agent.role,
+      },
+      mode,
+      paths: result.paths,
+    };
+  }
+
+  async disallowAgentPath(options: UpdateAgentPathOptions): Promise<UpdateAgentPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const result = await agentDisallowPathCommand(this.service.workspaceRoot, options.agent, options.path, mode);
+    return {
+      agent: {
+        id: result.agent.id,
+        name: result.agent.name,
+        role: result.agent.role,
+      },
+      mode,
+      paths: result.paths,
     };
   }
 
@@ -227,6 +343,14 @@ class InProcessAiTeamClient implements AiTeamClient {
 
   async disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse> {
     return this.service.disallowTool(options);
+  }
+
+  async whoHasAccess(options: WhoHasAccessOptions): Promise<WhoHasAccessResponse> {
+    return this.service.whoHasAccess(options);
+  }
+
+  async doIHaveAccess(options: DoIHaveAccessOptions): Promise<DoIHaveAccessResponse> {
+    return this.service.doIHaveAccess(options);
   }
 
   async getTeamGraph(mode?: ViewMode): Promise<GraphData> {
@@ -341,6 +465,11 @@ export type {
   UpdateAgentSkillResponse,
   UpdateAgentToolOptions,
   UpdateAgentToolResponse,
+  AccessRight,
+  WhoHasAccessOptions,
+  WhoHasAccessResponse,
+  DoIHaveAccessOptions,
+  DoIHaveAccessResponse,
   WorkflowFrame,
   WorkflowStateSnapshot,
   ServiceErrorCode,

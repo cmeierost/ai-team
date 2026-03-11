@@ -27,6 +27,12 @@ import type {
   ListToolsResponse,
   UpdateAgentToolOptions,
   UpdateAgentToolResponse,
+  GetFilePatternsResponse,
+  PathMode,
+  UpdateAgentPathOptions,
+  UpdateAgentPathResponse,
+  UpdateGlobalPathOptions,
+  UpdateGlobalPathResponse,
   TestConnectionOptions,
 } from '@ai-team/service';
 import type { AgentStatus, AgentConfig, AnnotatedFile, ContextLevel, GraphData, MarkdownSection, RoleType, ViewMode } from '@ai-team/core';
@@ -55,6 +61,8 @@ export interface AgentFilesResponse {
   agent: string;
   readPatterns: string[];
   writePatterns: string[];
+  createPatterns?: string[];
+  deletePatterns?: string[];
   files: AnnotatedFile[];
 }
 
@@ -85,6 +93,11 @@ export interface AiTeamHttpClient {
   updateAgentMarkdown(query: string, markdown: string): Promise<Employee>;
   /** Get annotated file list with read/write permissions (fuzzy query) */
   getAgentFiles(query: string, options?: { depth?: number; all?: boolean }): Promise<AgentFilesResponse>;
+  getFilePatterns(agentQuery?: string): Promise<GetFilePatternsResponse>;
+  allowPath(options: UpdateGlobalPathOptions): Promise<UpdateGlobalPathResponse>;
+  disallowPath(options: UpdateGlobalPathOptions): Promise<UpdateGlobalPathResponse>;
+  allowAgentPath(options: UpdateAgentPathOptions): Promise<UpdateAgentPathResponse>;
+  disallowAgentPath(options: UpdateAgentPathOptions): Promise<UpdateAgentPathResponse>;
   addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse>;
   removeSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse>;
   listTools(options?: ListToolsOptions): Promise<ListToolsResponse>;
@@ -277,6 +290,74 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Failed to get agent files for "${query}"`);
+    }
+    return response.json();
+  }
+
+  async getFilePatterns(agentQuery?: string): Promise<GetFilePatternsResponse> {
+    const params = new URLSearchParams();
+    if (agentQuery) {
+      params.set('agent', agentQuery);
+    }
+    const query = params.toString();
+    const url = query
+      ? `${this.baseUrl}/api/files/patterns?${query}`
+      : `${this.baseUrl}/api/files/patterns`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error('Failed to get file patterns');
+    }
+    return response.json();
+  }
+
+  async allowPath(options: UpdateGlobalPathOptions): Promise<UpdateGlobalPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const response = await fetch(`${this.baseUrl}/api/files/allow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: options.path, mode }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to allow global path');
+    }
+    return response.json();
+  }
+
+  async disallowPath(options: UpdateGlobalPathOptions): Promise<UpdateGlobalPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const response = await fetch(`${this.baseUrl}/api/files/allow`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: options.path, mode }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to disallow global path');
+    }
+    return response.json();
+  }
+
+  async allowAgentPath(options: UpdateAgentPathOptions): Promise<UpdateAgentPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const response = await fetch(`${this.baseUrl}/api/files/agents/${encodeURIComponent(options.agent)}/allow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: options.path, mode }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to allow agent path');
+    }
+    return response.json();
+  }
+
+  async disallowAgentPath(options: UpdateAgentPathOptions): Promise<UpdateAgentPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const response = await fetch(`${this.baseUrl}/api/files/agents/${encodeURIComponent(options.agent)}/allow`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: options.path, mode }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to disallow agent path');
     }
     return response.json();
   }

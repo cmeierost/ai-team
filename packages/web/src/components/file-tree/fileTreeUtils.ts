@@ -97,14 +97,22 @@ export function getAccessCounts(files: AgentFilesResponse['files']) {
 export function getVisiblePatternGroups(data: AgentFilesResponse | null, patterns: FilePatternsResponse | null): PatternGroup[] {
   const agentReadPatterns = patterns?.agent?.readPaths ?? data?.readPatterns ?? [];
   const agentWritePatterns = patterns?.agent?.writePaths ?? data?.writePatterns ?? [];
+  const agentCreatePatterns = patterns?.agent?.createPaths ?? data?.createPatterns ?? [];
+  const agentDeletePatterns = patterns?.agent?.deletePaths ?? data?.deletePatterns ?? [];
   const globalReadPatterns = patterns?.global.readPaths ?? [];
   const globalWritePatterns = patterns?.global.writePaths ?? [];
+  const globalCreatePatterns = patterns?.global.createPaths ?? [];
+  const globalDeletePatterns = patterns?.global.deletePaths ?? [];
 
   const groups: PatternGroup[] = [
     { label: 'Agent Read', scope: 'agent', mode: 'read', values: agentReadPatterns },
     { label: 'Agent Write', scope: 'agent', mode: 'write', values: agentWritePatterns },
+    { label: 'Agent Create', scope: 'agent', mode: 'create', values: agentCreatePatterns },
+    { label: 'Agent Delete', scope: 'agent', mode: 'delete', values: agentDeletePatterns },
     { label: 'Global Read', scope: 'global', mode: 'read', values: globalReadPatterns },
     { label: 'Global Write', scope: 'global', mode: 'write', values: globalWritePatterns },
+    { label: 'Global Create', scope: 'global', mode: 'create', values: globalCreatePatterns },
+    { label: 'Global Delete', scope: 'global', mode: 'delete', values: globalDeletePatterns },
   ];
 
   return groups.filter((group) => group.values.length > 0);

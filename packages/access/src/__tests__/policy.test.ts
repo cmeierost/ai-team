@@ -60,4 +60,16 @@ describe('matchesIgnorePatterns', () => {
   it('matches dotfiles', () => {
     expect(matchesIgnorePatterns('.env', ['.*'])).toBe(true);
   });
+
+  it('supports negation patterns to unignore specific files', () => {
+    expect(matchesIgnorePatterns('.vscode/settings.json', ['.vscode/**', '!.vscode/settings.json'])).toBe(false);
+  });
+
+  it('applies last matching pattern wins semantics', () => {
+    expect(matchesIgnorePatterns('build/keep.txt', ['build/**', '!build/keep.txt', 'build/keep.txt'])).toBe(true);
+  });
+
+  it('treats trailing slash as directory ignore', () => {
+    expect(matchesIgnorePatterns('coverage/index.html', ['coverage/'])).toBe(true);
+  });
 });

@@ -33,6 +33,11 @@ import {
   HireOptions,
   InitOptions,
   ListEmployeesRequest,
+  AccessRight,
+  WhoHasAccessOptions,
+  WhoHasAccessResponse,
+  DoIHaveAccessOptions,
+  DoIHaveAccessResponse,
   SearchAgentsRequest,
   SearchAgentsResponse,
   SearchSkillsOptions,
@@ -47,10 +52,18 @@ import {
   ListToolsResponse,
   UpdateAgentToolOptions,
   UpdateAgentToolResponse,
+  PathMode,
+  FilePatternCollections,
+  GetFilePatternsResponse,
+  UpdateGlobalPathOptions,
+  UpdateGlobalPathResponse,
+  UpdateAgentPathOptions,
+  UpdateAgentPathResponse,
   WorkflowFrame,
   WorkflowStateSnapshot,
   TestConnectionOptions,
 } from './contracts.js';
+import { doIHaveAccessCommand, whoHasAccessCommand } from './commands/access.js';
 import { GraphData, ViewMode } from '@ai-team/core';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { providerListCommand, providerModelsCommand, providerModelsRefreshCommand } from './commands/models.js';
@@ -731,6 +744,14 @@ class CoreAiTeamService implements AiTeamService {
   async testConnection(options: TestConnectionOptions = {}): Promise<void> {
     return testConnectionCommand(this.workspaceRoot, options);
   }
+
+  async whoHasAccess(options: WhoHasAccessOptions): Promise<WhoHasAccessResponse> {
+    return whoHasAccessCommand(this.workspaceRoot, options);
+  }
+
+  async doIHaveAccess(options: DoIHaveAccessOptions): Promise<DoIHaveAccessResponse> {
+    return doIHaveAccessCommand(this.workspaceRoot, options);
+  }
 }
 
 export function createAiTeamService(workspaceRoot: string): AiTeamService {
@@ -780,11 +801,23 @@ export type {
   UpdateAgentSkillResponse,
   UpdateAgentToolOptions,
   UpdateAgentToolResponse,
+  PathMode,
+  FilePatternCollections,
+  GetFilePatternsResponse,
+  UpdateGlobalPathOptions,
+  UpdateGlobalPathResponse,
+  UpdateAgentPathOptions,
+  UpdateAgentPathResponse,
   SearchAgentsRequest,
   SearchAgentsResponse,
   WorkflowFrame,
   WorkflowStateSnapshot,
   TestConnectionOptions,
+  AccessRight,
+  WhoHasAccessOptions,
+  WhoHasAccessResponse,
+  DoIHaveAccessOptions,
+  DoIHaveAccessResponse,
 };
 
 export { ServiceDomainError, AmbiguousAgentQueryError, type ServiceErrorCode, type ServiceErrorInputRequest } from './errors.js';

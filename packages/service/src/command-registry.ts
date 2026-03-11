@@ -35,6 +35,37 @@ export const CLI_COMMAND_REGISTRY: CliCommandMetadata[] = [
     ],
   },
   {
+    key: 'access',
+    command: 'access',
+    description: 'Access introspection commands',
+    llmCallable: false,
+  },
+  {
+    key: 'access.who',
+    command: 'who',
+    parentKey: 'access',
+    description: 'Show which contexts/agents can access a path for a right',
+    llmCallable: true,
+    options: [
+      { flags: '--path <path>', description: 'Path to evaluate' },
+      { flags: '--right <right>', description: 'Right to evaluate (read, write, create, delete, list)', defaultValue: 'list' },
+      { flags: '--json', description: 'Output as JSON' },
+    ],
+  },
+  {
+    key: 'access.can',
+    command: 'can',
+    parentKey: 'access',
+    description: 'Check whether a context/agent can access a path for a right',
+    llmCallable: true,
+    options: [
+      { flags: '--path <path>', description: 'Path to evaluate' },
+      { flags: '--right <right>', description: 'Right to evaluate (read, write, create, delete, list)', defaultValue: 'list' },
+      { flags: '--agent <agent>', description: 'Optional agent query override' },
+      { flags: '--json', description: 'Output as JSON' },
+    ],
+  },
+  {
     key: 'tools.allow',
     command: 'allow',
     parentKey: 'tools',

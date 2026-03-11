@@ -25,6 +25,8 @@ export interface AgentFilesResponse {
   agent: string;
   readPatterns: string[];
   writePatterns: string[];
+  createPatterns?: string[];
+  deletePatterns?: string[];
   files: AnnotatedFile[];
 }
 
@@ -33,11 +35,15 @@ export interface FilePatternsResponse {
     allowPaths: string[];
     readPaths: string[];
     writePaths: string[];
+    createPaths: string[];
+    deletePaths: string[];
   };
   agent?: {
     id: string;
     readPaths: string[];
     writePaths: string[];
+    createPaths?: string[];
+    deletePaths?: string[];
   };
 }
 
