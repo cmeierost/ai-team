@@ -115,34 +115,13 @@ async function resolveOneAgent(workspaceRoot: string, query: string): Promise<Ag
 }
 
 async function syncAgentFrontmatterPermissions(
-  manager: AgentManager,
   agent: Agent,
-  patterns: { read: string[]; write: string[]; create: string[]; delete: string[] },
 ): Promise<Agent> {
-  const currentPerms = agent.permissions ?? { read: [], write: [], create: [], delete: [] };
-  const sameRead = JSON.stringify(currentPerms.read ?? []) === JSON.stringify(patterns.read);
-  const sameWrite = JSON.stringify(currentPerms.write ?? []) === JSON.stringify(patterns.write);
-  const sameCreate = JSON.stringify(currentPerms.create ?? []) === JSON.stringify(patterns.create);
-  const sameDelete = JSON.stringify(currentPerms.delete ?? []) === JSON.stringify(patterns.delete);
-
-  if (sameRead && sameWrite && sameCreate && sameDelete) {
-    return agent;
-  }
-
-  return manager.updateAgent(agent.id, {
-    permissions: {
-      ...currentPerms,
-      read: patterns.read,
-      write: patterns.write,
-      create: patterns.create,
-      delete: patterns.delete,
-    },
-  });
+  return agent;
 }
 
 /**
- * Add a path to an agent's read or write permission list in their .md frontmatter.
- * Persists via AgentManager.updateAgent which writes the YAML frontmatter back to the .md file.
+ * Add a path to an agent's access pattern file.
  */
 export async function agentAllowPathCommand(
   workspaceRoot: string,
@@ -151,8 +130,6 @@ export async function agentAllowPathCommand(
   mode: PathMode = 'read'
 ): Promise<AgentPathResult> {
   const agent = await resolveOneAgent(workspaceRoot, agentQuery);
-  const manager = new AgentManager(workspaceRoot);
-  await manager.initialize();
 
   const accessPatterns = await loadAgentAccessPatterns(workspaceRoot, agent.id);
   const current = accessPatterns[mode] ?? [];
@@ -162,14 +139,13 @@ export async function agentAllowPathCommand(
     : { ...accessPatterns, [mode]: [...current, filePath] };
 
   await saveAgentAccessPatterns(workspaceRoot, agent.id, nextPatterns);
-  const updated = await syncAgentFrontmatterPermissions(manager, agent, nextPatterns);
+  const updated = await syncAgentFrontmatterPermissions(agent);
 
   return { agent: updated, paths: nextPatterns[mode] };
 }
 
 /**
- * Remove a path from an agent's read or write permission list in their .md frontmatter.
- * Persists via AgentManager.updateAgent which writes the YAML frontmatter back to the .md file.
+ * Remove a path from an agent's access pattern file.
  */
 export async function agentDisallowPathCommand(
   workspaceRoot: string,
@@ -178,8 +154,6 @@ export async function agentDisallowPathCommand(
   mode: PathMode = 'read'
 ): Promise<AgentPathResult> {
   const agent = await resolveOneAgent(workspaceRoot, agentQuery);
-  const manager = new AgentManager(workspaceRoot);
-  await manager.initialize();
 
   const accessPatterns = await loadAgentAccessPatterns(workspaceRoot, agent.id);
   const current = accessPatterns[mode] ?? [];
@@ -190,7 +164,7 @@ export async function agentDisallowPathCommand(
     : { ...accessPatterns, [mode]: next };
 
   await saveAgentAccessPatterns(workspaceRoot, agent.id, nextPatterns);
-  const updated = await syncAgentFrontmatterPermissions(manager, agent, nextPatterns);
+  const updated = await syncAgentFrontmatterPermissions(agent);
 
   return { agent: updated, paths: nextPatterns[mode] };
 }

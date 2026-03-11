@@ -416,3 +416,38 @@ describe('AccessEngine — context switching', () => {
     expect(engine.checkPath('config/app.json', 'write', CWD).allowed).toBe(true);
   });
 });
+
+describe('AccessEngine — organization fallback without .access', () => {
+  it('grants full rights for organization context when no strict access file exists', () => {
+    const engine = new AccessEngine({ workspaceRoot: WORKSPACE });
+    engine.registerContext({
+      id: 'michael-brown',
+      label: 'Michael Brown',
+      rules: [],
+      metadata: { contextLevel: 'organization' },
+    });
+    engine.setActiveContext('michael-brown');
+
+    expect(engine.checkPath('packages/core/src/index.ts', 'list', CWD).allowed).toBe(true);
+    expect(engine.checkPath('packages/core/src/index.ts', 'read', CWD).allowed).toBe(true);
+    expect(engine.checkPath('packages/core/src/index.ts', 'write', CWD).allowed).toBe(true);
+    expect(engine.checkPath('packages/core/src/index.ts', 'create', CWD).allowed).toBe(true);
+    expect(engine.checkPath('packages/core/src/index.ts', 'delete', CWD).allowed).toBe(true);
+  });
+
+  it('still honors ignore denies under organization fallback', () => {
+    const engine = new AccessEngine({ workspaceRoot: WORKSPACE });
+    engine.registerContext({
+      id: 'michael-brown',
+      label: 'Michael Brown',
+      rules: [],
+      metadata: { contextLevel: 'organization' },
+    });
+    engine.setActiveContext('michael-brown');
+    engine.setIgnorePatterns(['node_modules/**']);
+
+    const verdict = engine.checkPath('node_modules/foo/index.js', 'read', CWD);
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.paths[0].deniedByIgnore).toBe(true);
+  });
+});

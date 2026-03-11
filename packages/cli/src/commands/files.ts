@@ -3,7 +3,7 @@
  */
 
 import chalk from 'chalk';
-import { type FileTreeNode, type AnnotatedFile, AgentManager, ContextManager, loadAgentAccessPatterns, loadTeamConfig } from '@ai-team/core';
+import { type FileTreeNode, type AnnotatedFile, AgentManager, ContextManager, createAccessEngine, loadAgentAccessPatterns, loadTeamConfig } from '@ai-team/core';
 import {
   findWorkspaceRoot,
   getFileTreeCommand,
@@ -78,14 +78,21 @@ export async function filesCommand(options: FilesOptions = {}): Promise<void> {
 
     const allFiles = flattenFiles(tree);
     const config = await loadTeamConfig(workspaceRoot);
-    const contextManager = ContextManager.fromConfig(workspaceRoot, config?.fileTree);
+    const engine = createAccessEngine({
+      workspaceRoot,
+      fileTreeConfig: config?.fileTree,
+      agents: agentManager.getAllAgents(),
+    });
+    const contextManager = ContextManager.fromConfig(workspaceRoot, config?.fileTree, engine);
+    const accessPatterns = await loadAgentAccessPatterns(workspaceRoot, agent.id);
 
     if (options.writeable) {
       // Legacy behaviour: only writable files
       const filtered = contextManager.getWritableFiles(agent, allFiles);
-      const patterns = agent.permissions?.write ?? [];
+      const patterns = accessPatterns.write ?? [];
+      const agentLabel = chalk.cyan(agent.name) + ' ' + chalk.dim(`(${agent.id})`);
 
-      console.log(chalk.bold(`\n  Agent: ${chalk.cyan(agent.name)} ${chalk.dim(`(${agent.id})`)}`));
+      console.log(chalk.bold(`\n  Agent: ${agentLabel}`));
       console.log(chalk.dim(`  Role: ${agent.role}  |  Mode: write`));
       console.log(chalk.dim(`  Patterns: ${patterns.length > 0 ? patterns.join(', ') : '(none)'}\n`));
 
@@ -114,10 +121,11 @@ export async function filesCommand(options: FilesOptions = {}): Promise<void> {
     const annotated = contextManager.getAnnotatedFiles(agent, allFiles);
     const withAccess = annotated.filter(f => f.readable || f.writable);
 
-    const readPatterns = agent.permissions?.read ?? [];
-    const writePatterns = agent.permissions?.write ?? [];
+    const readPatterns = accessPatterns.read ?? [];
+    const writePatterns = accessPatterns.write ?? [];
+    const agentLabel = chalk.cyan(agent.name) + ' ' + chalk.dim(`(${agent.id})`);
 
-    console.log(chalk.bold(`\n  Agent: ${chalk.cyan(agent.name)} ${chalk.dim(`(${agent.id})`)}`));
+    console.log(chalk.bold(`\n  Agent: ${agentLabel}`));
     console.log(chalk.dim(`  Role: ${agent.role}`));
     console.log(chalk.dim(`  Read patterns:  ${readPatterns.length > 0 ? readPatterns.join(', ') : '(none)'}`));
     console.log(chalk.dim(`  Write patterns: ${writePatterns.length > 0 ? writePatterns.join(', ') : '(none)'}\n`));
@@ -283,7 +291,7 @@ export async function filesPatternsCommand(options: { agent?: string; json?: boo
   }
 
   console.log(chalk.bold(`\n  Agent file patterns (${agent.name} / ${agent.id})`));
-  console.log(chalk.dim(`  Source: .ai-team/agents/.${agent.id}.access`));
+  console.log(chalk.dim(`  Source: .ai-team/agents/${agent.id}.access`));
   (Object.entries(patterns) as Array<[PathMode, string[]]>).forEach(([mode, values]) => {
     console.log(chalk.dim(`  ${mode}: ${values.join(', ') || '(none)'}`));
   });

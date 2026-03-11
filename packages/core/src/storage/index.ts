@@ -475,7 +475,7 @@ export async function ensureAiTeamDirectory(workspaceRoot: string): Promise<void
 }
 
 // ============================================================================
-// Agent access files (.ai-team/agents/.<agentId>.access)
+// Agent access files (.ai-team/agents/<agentId>.access)
 // ============================================================================
 
 const EMPTY_AGENT_ACCESS_PATTERNS: AccessPatternSet = {
@@ -489,18 +489,40 @@ const EMPTY_AGENT_ACCESS_PATTERNS: AccessPatternSet = {
  * Get the canonical access file path for an agent.
  */
 export function getAgentAccessFilePath(workspaceRoot: string, agentId: string): string {
+  return path.join(workspaceRoot, '.ai-team', 'agents', `${agentId}.access`);
+}
+
+function getLegacyAgentAccessFilePath(workspaceRoot: string, agentId: string): string {
   return path.join(workspaceRoot, '.ai-team', 'agents', `.${agentId}.access`);
 }
 
 /**
- * Load per-agent access patterns from `.ai-team/agents/.<agentId>.access`.
+ * Load per-agent access patterns from `.ai-team/agents/<agentId>.access`.
  * Returns empty arrays when the file does not exist.
  */
 export async function loadAgentAccessPatterns(workspaceRoot: string, agentId: string): Promise<AccessPatternSet> {
   const filePath = getAgentAccessFilePath(workspaceRoot, agentId);
+  const legacyFilePath = getLegacyAgentAccessFilePath(workspaceRoot, agentId);
 
   try {
     const content = await fs.readFile(filePath, 'utf-8');
+    const rules = parseAccessFile(content);
+    const parsed = accessRulesToPatternSet(rules);
+
+    return {
+      read: parsed.read,
+      write: parsed.write,
+      create: parsed.create,
+      delete: parsed.delete,
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  try {
+    const content = await fs.readFile(legacyFilePath, 'utf-8');
     const rules = parseAccessFile(content);
     const parsed = accessRulesToPatternSet(rules);
 
@@ -519,7 +541,7 @@ export async function loadAgentAccessPatterns(workspaceRoot: string, agentId: st
 }
 
 /**
- * Persist per-agent access patterns to `.ai-team/agents/.<agentId>.access`.
+ * Persist per-agent access patterns to `.ai-team/agents/<agentId>.access`.
  * If every mode is empty, the file is removed when present.
  */
 export async function saveAgentAccessPatterns(
@@ -528,6 +550,7 @@ export async function saveAgentAccessPatterns(
   patterns: AccessPatternSet,
 ): Promise<void> {
   const filePath = getAgentAccessFilePath(workspaceRoot, agentId);
+  const legacyFilePath = getLegacyAgentAccessFilePath(workspaceRoot, agentId);
   const content = serializePatternSetToAccessFile(patterns);
 
   if (!content.trim()) {
@@ -538,11 +561,26 @@ export async function saveAgentAccessPatterns(
         throw error;
       }
     }
+    try {
+      await fs.unlink(legacyFilePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
     return;
   }
 
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, content, 'utf-8');
+
+  try {
+    await fs.unlink(legacyFilePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
 }
 
 // ============================================================================

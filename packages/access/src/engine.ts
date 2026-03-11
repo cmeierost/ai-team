@@ -594,6 +594,10 @@ export class AccessEngine {
     const allowedByGlobal = this.evaluateAllowedByContext(globalId, wsRelPath, right);
     if (allowedByGlobal) return allowedByGlobal;
 
+    if (this.shouldAllowByOrganizationFallback(activeId, isStrictContext)) {
+      return { path: wsRelPath, right, allowed: true };
+    }
+
     // 5. No rule matched → implicit deny
     return { path: wsRelPath, right, allowed: false };
   }
@@ -602,6 +606,18 @@ export class AccessEngine {
     if (right === 'read') return ['write'];
     if (right === 'list') return ['read', 'write'];
     return [];
+  }
+
+  private shouldAllowByOrganizationFallback(
+    activeContextId: string | null,
+    isStrictContext: boolean,
+  ): boolean {
+    if (!activeContextId || isStrictContext) {
+      return false;
+    }
+
+    const ctx = this.contexts.get(activeContextId);
+    return ctx?.metadata?.contextLevel === 'organization';
   }
 
   /** Find contexts that can handle the given denied paths. */
