@@ -5,6 +5,7 @@ import {
   AgentManager,
   AgentSchema,
   ContextManager,
+  createAccessEngine,
   LlmService,
   loadAgentAccessPatterns,
   listCachedWorkspaceFiles,
@@ -638,7 +639,12 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
       const allFiles = entries.map((entry) => entry.relativePath);
 
       // Annotate with permissions
-      const ctx = ContextManager.fromConfig(agentManager.workspaceRoot, config?.fileTree);
+      const engine = createAccessEngine({
+        workspaceRoot: agentManager.workspaceRoot,
+        fileTreeConfig: config?.fileTree,
+        agents: agentManager.getAllAgents(),
+      });
+      const ctx = ContextManager.fromConfig(agentManager.workspaceRoot, config?.fileTree, engine);
       const annotated = ctx.getAnnotatedFiles(agent, allFiles);
 
       const files = includeAll

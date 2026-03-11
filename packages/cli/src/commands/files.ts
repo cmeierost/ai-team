@@ -226,8 +226,8 @@ export async function filesAllowCommand(filePath: string, options: AllowOptions 
     const result = await agentAllowPathCommand(workspaceRoot, options.agent, filePath, mode);
     console.log(chalk.green(`  ✔ ${filePath} added to agent ${result.agent.id} ${mode} permissions`));
     console.log(chalk.dim(`  ${mode}: ${result.paths.join(', ') || '(none)'}`));
-  } else {
-    const next = await allowPathCommand(workspaceRoot, filePath, mode);
+        const agentLabel = `${chalk.cyan(agent.name)} ${chalk.dim(`(${agent.id})`)}`;
+        console.log(chalk.bold(`\n  Agent: ${agentLabel}`));
     console.log(chalk.green(`  ✔ ${filePath} added to global ${mode} permissions`));
     console.log(chalk.dim(`  .ai-team/config.json fileTree.${mode === 'write' ? 'writePaths' : 'readPaths'} (${next.length} path${next.length === 1 ? '' : 's'})`));
   }

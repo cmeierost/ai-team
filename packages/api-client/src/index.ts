@@ -7,6 +7,7 @@ import {
   MarkdownSection,
   AgentManager,
   ContextManager,
+  createAccessEngine,
   listCachedWorkspaceFiles,
   loadAgentAccessPatterns,
   loadTeamConfig,
@@ -224,6 +225,13 @@ class InProcessAiTeamClient implements AiTeamClient {
     const agent = await this.getAgentFrontmatter(query);
     const ws = this.service.workspaceRoot;
     const config = await loadTeamConfig(ws);
+    const manager = new AgentManager(ws);
+    await manager.initialize();
+    const engine = createAccessEngine({
+      workspaceRoot: ws,
+      fileTreeConfig: config?.fileTree,
+      agents: manager.getAllAgents(),
+    });
     const allowPaths = Array.from(new Set([
       ...(config?.fileTree?.readPaths ?? []),
       ...(config?.fileTree?.writePaths ?? []),
@@ -236,7 +244,7 @@ class InProcessAiTeamClient implements AiTeamClient {
       filesOnly: true,
     });
     const allFiles = entries.map((entry) => entry.relativePath);
-    const ctx = ContextManager.fromConfig(ws, config?.fileTree);
+    const ctx = ContextManager.fromConfig(ws, config?.fileTree, engine);
     const annotated = ctx.getAnnotatedFiles(agent, allFiles);
     const files = options?.all ? annotated : annotated.filter(f => f.readable || f.writable);
     const accessPatterns = await loadAgentAccessPatterns(ws, agent.id);
