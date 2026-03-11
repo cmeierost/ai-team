@@ -96,10 +96,11 @@ export class ToolManager {
    */
   getForAgent(agent: Agent): AgentTool[] {
     const result: AgentTool[] = [];
+    const canManageAgents = agent.contextLevel === ContextLevel.ORGANIZATION;
 
     for (const tool of this.tools.values()) {
       // HR tools: require manage_agents permission
-      if (tool.tags?.includes('hr') && !agent.permissions?.manage_agents) {
+      if (tool.tags?.includes('hr') && !canManageAgents) {
         continue;
       }
 
@@ -179,10 +180,10 @@ export class ToolManager {
         }
 
         case 'manage-agents': {
-          if (!agent.permissions?.manage_agents) {
+          if (agent.contextLevel !== ContextLevel.ORGANIZATION) {
             return {
               allowed: false,
-              reason: `Agent '${agent.id}' does not have manage_agents permission.`,
+              reason: `Agent '${agent.id}' does not have organization-level authority.`,
             };
           }
           return { allowed: true };

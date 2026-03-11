@@ -28,45 +28,6 @@ skills:
     description: >-
       Own tool authorization, execution boundaries, and safe backend tooling
       behavior.
-permissions:
-  read:
-    - ARCHITECTURE.md
-    - COPILOT-CONTEXT.md
-    - .github/copilot-instructions.md
-    - .gitignore
-    - package.json
-    - pnpm-workspace.yaml
-    - tsconfig.json
-    - .vscode/settings.json
-    - packages/core/src/storage/**/*
-    - packages/core/src/context/**/*
-    - packages/core/src/tools/**/*
-    - packages/service/src/tools/**/*
-    - packages/api-client/**/*
-    - packages/api-client-http/**/*
-    - packages/ide-interface/**/*
-    - packages/cli/**/*
-    - .ai-team/skills/workspace-file-system-abstraction/**/*
-    - .ai-team/skills/tooling-and-permission-model/**/*
-    - .ai-team/agents/ethan-carter.agent.md
-    - .ai-team/agents/ethan-carter.agent.yml
-  write:
-    - .gitignore
-    - .vscode/settings.json
-    - packages/core/src/storage/**/*
-    - packages/core/src/context/**/*
-    - packages/core/src/tools/**/*
-    - packages/service/src/tools/**/*
-    - packages/api-client/src/**/*
-    - packages/api-client-http/src/**/*
-    - packages/ide-interface/src/**/*
-    - packages/cli/src/**/*
-    - .ai-team/skills/workspace-file-system-abstraction/**/*
-    - .ai-team/skills/tooling-and-permission-model/**/*
-    - .ai-team/agents/ethan-carter.agent.md
-    - .ai-team/agents/ethan-carter.agent.yml
-  create: []
-  delete: []
 tools:
   - apply_code_edit
   - file_search

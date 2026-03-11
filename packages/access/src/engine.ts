@@ -534,6 +534,32 @@ export class AccessEngine {
    * If contextId is omitted, uses the active context (if set).
    */
   private evaluatePath(wsRelPath: string, right: Right, contextId?: string): PathVerdict {
+    const baseVerdict = this.evaluatePathBase(wsRelPath, right, contextId);
+    if (baseVerdict.allowed) return baseVerdict;
+
+    // Respect explicit denies/ignore denies for the requested right.
+    // Inheritance (write=>read/list, read=>list) only fills implicit-deny gaps.
+    if (baseVerdict.deniedBy || baseVerdict.deniedByIgnore) {
+      return baseVerdict;
+    }
+
+    const impliedRights = this.getImpliedRights(right);
+    for (const impliedRight of impliedRights) {
+      const impliedVerdict = this.evaluatePathBase(wsRelPath, impliedRight, contextId);
+      if (impliedVerdict.allowed) {
+        return {
+          path: wsRelPath,
+          right,
+          allowed: true,
+          matchedRule: impliedVerdict.matchedRule,
+        };
+      }
+    }
+
+    return baseVerdict;
+  }
+
+  private evaluatePathBase(wsRelPath: string, right: Right, contextId?: string): PathVerdict {
     const effectiveIgnorePatterns = this.getEffectiveIgnorePatterns();
 
     // Check ignore patterns first — ignored = invisible
@@ -570,6 +596,12 @@ export class AccessEngine {
 
     // 5. No rule matched → implicit deny
     return { path: wsRelPath, right, allowed: false };
+  }
+
+  private getImpliedRights(right: Right): Right[] {
+    if (right === 'read') return ['write'];
+    if (right === 'list') return ['read', 'write'];
+    return [];
   }
 
   /** Find contexts that can handle the given denied paths. */

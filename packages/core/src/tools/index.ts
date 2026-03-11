@@ -319,7 +319,7 @@ export const readFileTool: AgentTool = {
       ? filePath
       : path.join(context.workspaceRoot, filePath);
 
-    const contextManager = new ContextManager(context.workspaceRoot);
+    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.accessEngine);
     contextManager.assertCanRead(context.agent, absolutePath);
 
     const content = await fs.readFile(absolutePath, 'utf-8');
@@ -352,7 +352,7 @@ export const fileSearchTool: AgentTool = {
       ignore: ['**/node_modules/**', '**/.git/**'],
     });
 
-    const contextManager = new ContextManager(context.workspaceRoot);
+    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.accessEngine);
     const readableFiles = contextManager.getReadableFiles(context.agent, files);
 
     return readableFiles.slice(0, maxResults);
@@ -376,7 +376,7 @@ export const writeFileTool: AgentTool = {
       ? filePath
       : path.join(context.workspaceRoot, filePath);
 
-    const contextManager = new ContextManager(context.workspaceRoot);
+    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.accessEngine);
     contextManager.assertCanWrite(context.agent, absolutePath);
 
     if (createDirectories) {
@@ -1561,7 +1561,7 @@ export const registerCliTool: AgentTool = {
       }
 
       const candidate = matches[0];
-      const canManage = context.agent.permissions?.manage_agents === true;
+      const canManage = context.agent.contextLevel === 'organization';
       const isManager = candidate.reportsTo === context.agent.id;
       const isSelf = candidate.id === context.agent.id;
 
@@ -1649,7 +1649,7 @@ export const updateEmployeeLlmTool: AgentTool = {
     }
 
     const target = matches[0];
-    const canManage = context.agent.permissions?.manage_agents === true;
+    const canManage = context.agent.contextLevel === 'organization';
     const isManager = target.reportsTo === context.agent.id;
     const isSelf = target.id === context.agent.id;
     if (!canManage && !isManager && !isSelf) {
@@ -1757,22 +1757,7 @@ function enforceCommandAreaScope(context: ToolContext, execCwd: string): void {
     throw new Error('run_cli_tool cwd must stay inside the workspace root.');
   }
 
-  const readPatterns = context.agent.permissions?.read;
-  if (!readPatterns || readPatterns.length === 0) {
-    return;
-  }
-
-  const relative = path.relative(context.workspaceRoot, execCwd).replace(/\\/g, '/');
-  const relativePath = relative.length === 0 ? '.' : relative;
-  const isAllowed = readPatterns.some(pattern =>
-    minimatch(relativePath, pattern)
-    || minimatch(`${relativePath}/**/*`, pattern)
-    || minimatch(relativePath, pattern.replace(/\/\*\*\/*\*$/, '')),
-  );
-
-  if (!isAllowed) {
-    throw new Error(`Command cwd '${relativePath}' is outside ${context.agent.name}'s responsibility scope.`);
-  }
+  // Workspace boundary is the only universal cwd scope for run_cli_tool.
 }
 
 // ============================================================================
@@ -1793,7 +1778,7 @@ export const createAgentTool: AgentTool = {
     features: z.array(z.string()).optional(),
   }),
   async execute(params, context: ToolContext) {
-    if (!context.agent.permissions?.manage_agents) {
+    if (context.agent.contextLevel !== 'organization') {
       throw new Error(`Agent ${context.agent.id} does not have permission to create agents`);
     }
 
@@ -1817,7 +1802,7 @@ export const archiveAgentTool: AgentTool = {
     reason: z.string().optional().describe('Reason for archiving'),
   }),
   async execute(params, context: ToolContext) {
-    if (!context.agent.permissions?.manage_agents) {
+    if (context.agent.contextLevel !== 'organization') {
       throw new Error(`Agent ${context.agent.id} does not have permission to archive agents`);
     }
 
@@ -1840,7 +1825,7 @@ export const assessPerformanceTool: AgentTool = {
     period: z.string().optional().describe('Time period (e.g., "last-30-days")'),
   }),
   async execute(params, context: ToolContext) {
-    if (!context.agent.permissions?.manage_agents) {
+    if (context.agent.contextLevel !== 'organization') {
       throw new Error(`Agent ${context.agent.id} does not have permission to assess performance`);
     }
 
@@ -1863,7 +1848,7 @@ const addPictureTool: AgentTool = {
     prompt: z.string().optional().describe('Custom prompt for AI generation (auto-generated if omitted)'),
   }),
   async execute(params, context: ToolContext) {
-    if (!context.agent.permissions?.manage_agents) {
+    if (context.agent.contextLevel !== 'organization') {
       throw new Error(`Agent ${context.agent.id} does not have permission to add pictures`);
     }
 
@@ -2044,7 +2029,7 @@ export const grepCodeTool: AgentTool = {
     const { GrepSearch } = await import('../code-analysis/index.js');
     const { pattern, filePatterns, caseInsensitive, wholeWord, maxMatchesPerFile } = params as any;
     
-    const contextManager = new ContextManager(context.workspaceRoot);
+    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.accessEngine);
     const grep = new GrepSearch();
     
     // Find all files matching the patterns
@@ -2095,7 +2080,7 @@ export const analyzeComplexityTool: AgentTool = {
       ? filePath
       : path.join(context.workspaceRoot, filePath);
     
-    const contextManager = new ContextManager(context.workspaceRoot);
+    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.accessEngine);
     contextManager.assertCanRead(context.agent, absolutePath);
     
     const analyzer = new TypeScriptAnalyzer();
@@ -2128,7 +2113,7 @@ export const applyCodeEditTool: AgentTool = {
     const { CodeEditManager } = await import('../code-edit/index.js');
     const { description, changes } = params as any;
     
-    const contextManager = new ContextManager(context.workspaceRoot);
+    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.accessEngine);
     const editManager = new CodeEditManager();
     
     // Convert paths to absolute

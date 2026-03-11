@@ -147,6 +147,19 @@ describe('AccessEngine — checkPath', () => {
     expect(altIds).toContain('agent-b');
     expect(altIds).toContain('agent-c');
   });
+
+  it('write permission automatically implies read and list', () => {
+    engine.setActiveContext('agent-a');
+    expect(engine.checkPath('src/app.ts', 'write', CWD).allowed).toBe(true);
+    expect(engine.checkPath('src/app.ts', 'read', CWD).allowed).toBe(true);
+    expect(engine.checkPath('src/app.ts', 'list', CWD).allowed).toBe(true);
+  });
+
+  it('read permission automatically implies list', () => {
+    engine.setActiveContext('agent-a');
+    expect(engine.checkPath('docs/readme.md', 'read', CWD).allowed).toBe(true);
+    expect(engine.checkPath('docs/readme.md', 'list', CWD).allowed).toBe(true);
+  });
 });
 
 describe('AccessEngine — checkCommand', () => {

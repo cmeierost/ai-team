@@ -23,34 +23,6 @@ skills:
     description: >-
       Review repository docs for missing, stale, duplicated, or hard-to-navigate
       content, then turn the findings into a clear improvement plan.
-permissions:
-  read:
-    - AGENTS.md
-    - ARCHITECTURE.md
-    - COPILOT-CONTEXT.md
-    - README.md
-    - docs/**/*
-    - analysis/**/*
-    - packages/*/README.md
-    - requirements/**/*
-    - todo/**/*
-    - .ai-team/tasks/**/*
-    - .ai-team/skills/documentation-quality-audit/**/*
-    - .ai-team/agents/taylor-reed.agent.md
-    - .ai-team/agents/taylor-reed.agent.yml
-  write:
-    - ARCHITECTURE.md
-    - COPILOT-CONTEXT.md
-    - README.md
-    - docs/**/*
-    - packages/*/README.md
-    - todo/**/*
-    - .ai-team/tasks/**/*
-    - .ai-team/skills/documentation-quality-audit/**/*
-    - .ai-team/agents/taylor-reed.agent.md
-    - .ai-team/agents/taylor-reed.agent.yml
-  create: []
-  delete: []
 tools:
   - read_file
   - file_search

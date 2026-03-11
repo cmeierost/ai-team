@@ -71,6 +71,16 @@ describe('parseAccessFile', () => {
     expect(rules.some((r) => r.pathPattern === 'docs/archive/**' && r.right === 'delete' && r.effect === 'deny')).toBe(true);
   });
 
+  it('maps [read] section entries to list as well', () => {
+    const rules = parseAccessFile([
+      '[read]',
+      'packages/service/**/*',
+    ].join('\n'));
+
+    expect(rules.some((r) => r.pathPattern === 'packages/service/**/*' && r.right === 'read' && r.effect === 'allow')).toBe(true);
+    expect(rules.some((r) => r.pathPattern === 'packages/service/**/*' && r.right === 'list' && r.effect === 'allow')).toBe(true);
+  });
+
   it('rejects section mode with patterns outside sections', () => {
     expect(() => parseAccessFile([
       'orphan/**',

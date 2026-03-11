@@ -1,0 +1,11 @@
+# Migrated from .agent.yml permissions
+[read]
+packages/web/**/*
+docs/web-ui-development.md
+.ai-team/agents/samuel-ceeses.agent.md
+.ai-team/agents/samuel-ceeses.agent.yml
+
+[write]
+packages/web/src/**/*
+.ai-team/agents/samuel-ceeses.agent.md
+.ai-team/agents/samuel-ceeses.agent.yml

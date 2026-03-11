@@ -1,0 +1,20 @@
+# Migrated from .agent.yml permissions
+[read]
+ARCHITECTURE.md
+COPILOT-CONTEXT.md
+.github/copilot-instructions.md
+packages/vscode/**/*
+packages/ide-interface/**/*
+packages/api-client/**/*
+packages/service/src/contracts.ts
+.ai-team/skills/vscode-extension-delivery/**/*
+.ai-team/agents/marcus-vale.agent.md
+.ai-team/agents/marcus-vale.agent.yml
+
+[write]
+packages/vscode/**/*
+packages/ide-interface/src/**/*
+packages/vscode/README.md
+.ai-team/skills/vscode-extension-delivery/**/*
+.ai-team/agents/marcus-vale.agent.md
+.ai-team/agents/marcus-vale.agent.yml

@@ -21,22 +21,6 @@ personality:
   communication_style: strategic
   expertise_level: executive
   mentoring: true
-permissions:
-  read:
-    - .ai-team/**/*
-    - .github/copilot-instructions.md
-    - AGENTS.md
-    - README.md
-    - docs/**/*
-  write:
-    - .ai-team/**/*
-    - .ai-team/ai-team-way.md
-    - docs/**/*
-    - AGENTS.md
-    - .github/copilot-instructions.md
-  create: []
-  delete: []
-  manage_agents: true
 tools:
   - read_file
   - file_search

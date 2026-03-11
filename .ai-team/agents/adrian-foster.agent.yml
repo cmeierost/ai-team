@@ -42,31 +42,6 @@ skills:
       Turn accumulated findings, source-backed research, or repo knowledge into
       clearly structured, human-readable Markdown briefings and summaries the
       team can skim quickly.
-permissions:
-  read:
-    - ARCHITECTURE.md
-    - COPILOT-CONTEXT.md
-    - analysis/**/*
-    - docs/architecture/**/*
-    - packages/vscode/**/*
-    - packages/core/**/*
-    - packages/service/**/*
-    - .ai-team/skills/orchestrator-ecosystem-research/**/*
-    - .ai-team/skills/document-research-briefing/**/*
-    - .ai-team/skills/knowledge-brief-writing/**/*
-    - .ai-team/agents/adrian-foster.agent.md
-    - .ai-team/agents/adrian-foster.agent.yml
-  write:
-    - analysis/**/*
-    - docs/architecture/**/*
-    - .ai-team/skills/orchestrator-ecosystem-research/**/*
-    - .ai-team/skills/document-research-briefing/**/*
-    - .ai-team/skills/knowledge-brief-writing/**/*
-    - .ai-team/agents/adrian-foster.agent.md
-    - .ai-team/agents/adrian-foster.agent.yml
-  create:
-    - analysis/**/*
-  delete: []
 tools:
   - read_file
   - file_search

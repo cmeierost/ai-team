@@ -1,0 +1,14 @@
+# Migrated from .agent.yml permissions
+[read]
+.ai-team/**/*
+.github/copilot-instructions.md
+AGENTS.md
+README.md
+docs/**/*
+
+[write]
+.ai-team/**/*
+.ai-team/ai-team-way.md
+docs/**/*
+AGENTS.md
+.github/copilot-instructions.md

@@ -26,23 +26,6 @@ skills:
     description: >-
       Set up Storybook, run Playwright-style and browser-driven checks, and
       report frontend quality issues clearly.
-permissions:
-  read:
-    - packages/web/**/*
-    - docs/web-ui-development.md
-    - ARCHITECTURE.md
-    - .github/copilot-instructions.md
-    - .ai-team/skills/frontend-quality-storybook/**/*
-    - .ai-team/agents/clara-bishop.agent.md
-    - .ai-team/agents/clara-bishop.agent.yml
-  write:
-    - packages/web/**/*
-    - docs/web-ui-development.md
-    - .ai-team/skills/frontend-quality-storybook/**/*
-    - .ai-team/agents/clara-bishop.agent.md
-    - .ai-team/agents/clara-bishop.agent.yml
-  create: []
-  delete: []
 tools:
   - read_file
   - file_search

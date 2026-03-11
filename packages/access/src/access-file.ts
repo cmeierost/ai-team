@@ -121,6 +121,16 @@ function parseAccessFileWithSections(lines: string[]): AccessRule[] {
         pathPattern: pattern,
         label: `access-file section: ${currentSection.title}`,
       });
+
+      // Keep AI Team compatibility: read access implies list access.
+      if (right === 'read') {
+        rules.push({
+          right: 'list',
+          effect: currentSection.effect,
+          pathPattern: pattern,
+          label: `access-file section: ${currentSection.title} (read=>list)`,
+        });
+      }
     }
   }
 

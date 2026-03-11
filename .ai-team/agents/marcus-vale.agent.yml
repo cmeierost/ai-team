@@ -25,27 +25,6 @@ skills:
     description: >-
       Own changes in the VS Code extension package while keeping the adapter
       thin and aligned with shared contracts.
-permissions:
-  read:
-    - ARCHITECTURE.md
-    - COPILOT-CONTEXT.md
-    - .github/copilot-instructions.md
-    - packages/vscode/**/*
-    - packages/ide-interface/**/*
-    - packages/api-client/**/*
-    - packages/service/src/contracts.ts
-    - .ai-team/skills/vscode-extension-delivery/**/*
-    - .ai-team/agents/marcus-vale.agent.md
-    - .ai-team/agents/marcus-vale.agent.yml
-  write:
-    - packages/vscode/**/*
-    - packages/ide-interface/src/**/*
-    - packages/vscode/README.md
-    - .ai-team/skills/vscode-extension-delivery/**/*
-    - .ai-team/agents/marcus-vale.agent.md
-    - .ai-team/agents/marcus-vale.agent.yml
-  create: []
-  delete: []
 tools:
   - read_file
   - file_search

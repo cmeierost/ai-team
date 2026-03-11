@@ -1,7 +1,7 @@
 /**
  * Bridge between AI Team agent/config types and @ai-team/access.
  *
- * Converts Agent.permissions and FileTreeConfig into AccessContext/AccessRule,
+ * Converts Agent/FileTreeConfig into AccessContext/AccessRule,
  * and provides a factory to create a fully wired AccessEngine.
  */
 
@@ -24,39 +24,6 @@ export const GLOBAL_CONTEXT_ID = '__global__';
  */
 export function agentToAccessContext(agent: Agent): AccessContext {
   const rules: AccessRule[] = [];
-  const perms = agent.permissions;
-  const listSet = new Set<string>();
-
-  if (perms) {
-    for (const pattern of perms.read) {
-      rules.push({ right: 'read', effect: 'allow', pathPattern: pattern });
-      if (!listSet.has(pattern)) {
-        rules.push({ right: 'list', effect: 'allow', pathPattern: pattern });
-        listSet.add(pattern);
-      }
-    }
-
-    // Write implies read in AI Team
-    const readSet = new Set(perms.read);
-    for (const pattern of perms.write) {
-      rules.push({ right: 'write', effect: 'allow', pathPattern: pattern });
-      if (!readSet.has(pattern)) {
-        rules.push({ right: 'read', effect: 'allow', pathPattern: pattern });
-        if (!listSet.has(pattern)) {
-          rules.push({ right: 'list', effect: 'allow', pathPattern: pattern });
-          listSet.add(pattern);
-        }
-      }
-    }
-
-    for (const pattern of perms.create ?? []) {
-      rules.push({ right: 'create', effect: 'allow', pathPattern: pattern });
-    }
-
-    for (const pattern of perms.delete ?? []) {
-      rules.push({ right: 'delete', effect: 'allow', pathPattern: pattern });
-    }
-  }
 
   return {
     id: agent.id,
@@ -64,7 +31,7 @@ export function agentToAccessContext(agent: Agent): AccessContext {
     rules,
     metadata: {
       contextLevel: agent.contextLevel,
-      manage_agents: perms?.manage_agents ?? false,
+      manage_agents: agent.contextLevel === 'organization',
     },
   };
 }

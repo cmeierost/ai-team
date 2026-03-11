@@ -18,18 +18,6 @@ personality:
   communication_style: supportive
   expertise_level: executive
   mentoring: true
-permissions:
-  read:
-    - '**/*'
-  write:
-    - .ai-team/**/*
-    - .github/skills/**/*
-    - .github/copilot-instructions.md
-    - AGENTS.md
-    - docs/**/*
-  create: []
-  delete: []
-  manage_agents: true
 tools:
   - read_file
   - file_search

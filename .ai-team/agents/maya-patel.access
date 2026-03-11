@@ -1,0 +1,24 @@
+# Migrated from .agent.yml permissions
+[read]
+ARCHITECTURE.md
+COPILOT-CONTEXT.md
+.github/copilot-instructions.md
+docs/implementation/task-management.md
+packages/service/src/storage/**/*
+packages/service/src/contracts.ts
+packages/service/src/session-manager.ts
+packages/service/src/task-manager.ts
+packages/service/src/workflow-state.ts
+.ai-team/skills/session-and-message-storage/**/*
+.ai-team/agents/maya-patel.agent.md
+.ai-team/agents/maya-patel.agent.yml
+
+[write]
+packages/service/src/storage/**/*
+packages/service/src/contracts.ts
+packages/service/src/session-manager.ts
+packages/service/src/task-manager.ts
+packages/service/src/workflow-state.ts
+.ai-team/skills/session-and-message-storage/**/*
+.ai-team/agents/maya-patel.agent.md
+.ai-team/agents/maya-patel.agent.yml

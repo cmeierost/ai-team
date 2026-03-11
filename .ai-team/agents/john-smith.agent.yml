@@ -14,19 +14,6 @@ personality:
   communication_style: collaborative
   expertise_level: senior
   mentoring: false
-permissions:
-  read:
-    - .ai-team/**/*
-    - .github/skills/**/*
-    - analysis/copilot/**/*
-    - AGENTS.md
-    - docs/**/*
-    - requirements/**/*
-  write:
-    - .ai-team/**/*
-    - .github/skills/**/*
-  create: []
-  delete: []
 tools:
   - read_file
   - file_search
