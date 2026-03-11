@@ -46,9 +46,19 @@ For customization layout, treat `.ai-team/` as the durable source of truth and `
 - `.ai-team/.env` - secrets.
 - `.ai-team/agents/*.agent.md` - Copilot-facing agent portfolio files.
 - `.ai-team/agents/*.agent.yml` - ai-team runtime metadata sidecars.
+- `.ai-team/agents/*.access` - per-agent file-path access policy files.
 - `.ai-team/private/ai-team.db` - SQLite database for chat sessions, messages, and metadata.
 - `.ai-team/proposals/` - persisted code-edit proposals for review/replay flows.
 - `.ai-team/.ide-server.json` - active IDE-local server discovery file when the VS Code extension is running.
+
+### Access and file-tree model (current)
+
+- File-path rights are evaluated by `@ai-team/access` through the core access adapter/engine.
+- Keep file-path rules in `.ai-team/agents/<agent-id>.access` (not in `.agent.yml`).
+- Rights inheritance is:
+  - `write => read + list`
+  - `read => list`
+- Explicit deny patterns still take precedence over inherited allows.
 
 ## Where to Read First
 

@@ -22,12 +22,17 @@ Write ai-team runtime agent metadata sidecars the ai-team way.
   - `personality`, `avatar`, `goal`, `backstory`
   - `capabilities`, `skills`, `availableFor`
 - operational fields:
-  - `permissions`
   - `tools`
   - `cliTools`
   - `canDelegate`, `delegatesTo`
   - `memory`, `maxIterations`
   - `llm`
+
+## Path-access location (important)
+
+- Do **not** store file-path read/write/create/delete globs in `.agent.yml`.
+- Per-agent file-system access now lives in `.ai-team/agents/<agent-id>.access`.
+- Keep `.agent.yml` focused on runtime identity, org structure, tools, delegation, and related metadata.
 
 ## Rules
 
@@ -36,7 +41,7 @@ Write ai-team runtime agent metadata sidecars the ai-team way.
 - Treat `aiTeamId` and `aiTeamName` as legacy compatibility aliases rather than the preferred naming.
 - Every non-CEO agent should have an explicit `reportsTo`.
 - Prefer real ai-team runtime tool names over decorative or imaginary ones.
-- Keep permissions as small as possible while still letting the agent do its real job.
+- Keep runtime metadata as small as possible while still letting the agent do its real job.
 - If a field only helps Copilot discovery or human readability, prefer keeping it in `.agent.md` instead.
 - Keep the YAML compact, practical, and easy to audit.
 

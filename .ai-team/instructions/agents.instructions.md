@@ -18,7 +18,8 @@ Write agent portfolio markdown files the ai-team way.
 
 - Preserve YAML frontmatter and Markdown body structure.
 - In `.ai-team/agents/**/*.agent.md`, keep frontmatter focused on Copilot-facing discovery and presentation.
-- Put ai-team runtime-specific metadata such as permissions, tools, and other operational fields in the sibling `.agent.yml` sidecar instead of the Markdown portfolio.
+- Put ai-team runtime-specific metadata such as tools, delegation, and other operational fields in the sibling `.agent.yml` sidecar instead of the Markdown portfolio.
+- Keep file-path access rules out of `.agent.md` and `.agent.yml`; store path rules in `.ai-team/agents/<agent-id>.access`.
 - Keep discovery-facing fields sharp and intentional, especially:
   - `name`
   - `description`
@@ -36,7 +37,7 @@ If you need to edit ai-team runtime metadata, use the `.agent.yml` instruction f
 - Keep the agent focused on its real responsibility.
 - Let the personality fit the role: an executive can sound strategic, a headhunter can sound evaluative, a documentation specialist can sound structured, and a design specialist can sound visually opinionated without drifting off-task.
 - If the role is expected to modify workspace files, say so explicitly and make direct action the default when normal workspace tools are available.
-- Make sure the agent can do its job efficiently in practice: give it the right scope, realistic tools, sufficient permissions, and supporting assets instead of leaving it elegant but underpowered.
+- Make sure the agent can do its job efficiently in practice: give it the right scope, realistic tools, correct `.access` path rules, and supporting assets instead of leaving it elegant but underpowered.
 - On the first reply in a conversation, the agent should normally greet the developer briefly before continuing, unless the developer already opened with a greeting.
 - If the developer's first message already says hello or otherwise greets the agent, respond naturally without forcing a second greeting on top of it.
 - Keep first-turn greetings short and useful: a quick hello, optional role context when helpful, then move into the actual response.

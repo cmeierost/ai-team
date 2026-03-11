@@ -145,6 +145,29 @@ flowchart LR
   ACK --> IDE
 ```
 
+## File-system access evaluation flow
+
+This diagram shows how global file-tree defaults and per-agent `.access` rules combine into effective rights.
+
+```mermaid
+flowchart TD
+  REQUEST[Path + right request\nread/write/create/delete/list] --> ENGINE[@ai-team/access AccessEngine]
+
+  GLOBAL[.ai-team/config.json\nfileTree.read/write/create/delete paths] --> ENGINE
+  AGENTCFG[.ai-team/agents/*.agent.yml\nidentity/tools/delegation metadata] --> ADAPTER[core access adapter]
+  AGENTACCESS[.ai-team/agents/<agent-id>.access\nper-agent path policies] --> ADAPTER
+  ADAPTER --> ENGINE
+
+  ENGINE --> INHERIT[Rights inheritance\nwrite => read + list\nread => list]
+  INHERIT --> PRECEDENCE[Explicit deny precedence]
+  PRECEDENCE --> VERDICT[Allowed or denied verdict\nwith path-level rationale]
+
+  VERDICT --> CLI[@ai-team/cli files/access views]
+  VERDICT --> SERVICE[@ai-team/service commands]
+  VERDICT --> API[@ai-team/api-server routes]
+  VERDICT --> WEB[@ai-team/web file tree]
+```
+
 ## Notes
 
 - `@ai-team/api-client` and `@ai-team/api-client-http` are intentionally different client surfaces.

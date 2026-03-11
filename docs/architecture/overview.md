@@ -43,6 +43,7 @@ Editor-local workflows use a dedicated IDE bridge:
 - layered contexts with deny-before-allow semantics
 - operation-aware: shell command and tool call path extraction
 - structured verdicts with alternative-context suggestions for delegation
+- powers per-agent `.ai-team/agents/<agent-id>.access` path policies
 
 ### `@ai-team/core`
 
@@ -154,6 +155,16 @@ In short: the architecture direction is clear, but the frontend is still mid-mig
 - Remote and local clients are different on purpose.
 - IDE integration stays behind `@ai-team/ide-interface` and the VS Code adapter.
 - Runtime state conventions stay under `.ai-team/`.
+
+## Access and file-system model (current)
+
+- File-path rights are evaluated by the `@ai-team/access` engine via the core access adapter.
+- Agent-specific path rules live in `.ai-team/agents/<agent-id>.access`.
+- `.agent.yml` files are runtime metadata sidecars and should not carry file-path access globs.
+- Rights inheritance:
+  - `write => read + list`
+  - `read => list`
+- Explicit deny patterns still override inherited allows.
 
 ## Where to go next
 

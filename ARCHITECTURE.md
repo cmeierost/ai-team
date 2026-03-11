@@ -173,11 +173,25 @@ All durable runtime state lives under `.ai-team/` in the workspace.
 - `.ai-team/.env` - secrets and provider tokens.
 - `.ai-team/agents/*.agent.md` - Copilot-facing agent portfolio files.
 - `.ai-team/agents/*.agent.yml` - ai-team runtime metadata sidecars for those agent portfolios.
+- `.ai-team/agents/*.access` - per-agent file-path access policy files (read/write/create/delete + optional deny via `!pattern`).
 - `.ai-team/private/ai-team.db` - SQLite database for sessions, messages, and related metadata.
 - `.ai-team/proposals/` - persisted code-edit proposals used by review/replay flows.
 - `.ai-team/.ide-server.json` - discovery file for the active IDE-local server when the VS Code extension is running.
 
 Compatibility/bootstrap artifacts may also exist under `.github/`, but `.ai-team/` remains the durable runtime source of truth.
+
+## File-System Access Model
+
+The current file-path access model is centered on `@ai-team/access` and per-agent `.access` files.
+
+- Agent metadata (`.agent.yml`) no longer carries file-path read/write/create/delete rules.
+- Per-agent path policy lives in `.ai-team/agents/<agent-id>.access`.
+- Global file-tree defaults still come from `.ai-team/config.json` (`fileTree.readPaths`, `writePaths`, `createPaths`, `deletePaths`).
+- Effective evaluation is engine-based across CLI/service/API paths.
+- Rights inheritance is enforced as:
+  - `write => read + list`
+  - `read => list`
+- Explicit deny/ignore rules retain precedence over inherited allows.
 
 ## Command and Transport Model
 
