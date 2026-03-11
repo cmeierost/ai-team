@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import type { AccessEngine } from '@ai-team/access';
 
 // Structured tool result shapes (pure data — no orchestrator dependency)
 export * from './tool-results.js';
@@ -593,6 +594,7 @@ export interface ToolContext {
   agent: Agent;
   workspaceRoot: string;
   currentFiles?: string[];
+  accessEngine?: AccessEngine;
 }
 
 /**

@@ -140,6 +140,9 @@ function ContextPanelStory(args: DemoArgs) {
 const meta = {
   title: 'Components/ContextPanelView',
   component: ContextPanelView,
+  parameters: {
+    layout: 'fullscreen',
+  },
   tags: ['autodocs'],
   render: (args) => <ContextPanelStory {...args} />,
   args: {

@@ -33,14 +33,22 @@ export function useTeam() {
 
 interface TeamProviderProps {
   children: ReactNode;
+  initialAgents?: Agent[];
+  initialLoading?: boolean;
+  initialError?: Error | null;
 }
 
-export function TeamProvider({ children }: TeamProviderProps) {
+export function TeamProvider({
+  children,
+  initialAgents,
+  initialLoading = false,
+  initialError = null,
+}: TeamProviderProps) {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agents, setAgents] = useState<Agent[]>(initialAgents || []);
   const [developer, setDeveloper] = useState<Developer | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const [loading, setLoading] = useState(initialLoading);
+  const [error, setError] = useState<Error | null>(initialError);
 
   const refresh = async () => {
     try {
@@ -75,8 +83,10 @@ export function TeamProvider({ children }: TeamProviderProps) {
   };
 
   useEffect(() => {
-    refresh();
-  }, []);
+    if (!initialAgents) {
+      refresh();
+    }
+  }, [initialAgents]);
 
   return (
     <TeamContext.Provider

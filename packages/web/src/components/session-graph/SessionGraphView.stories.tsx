@@ -71,13 +71,9 @@ const meta: Meta<typeof SessionGraphView> = {
   title: 'Components/SessionGraphView',
   component: SessionGraphView,
   tags: ['autodocs'],
-  decorators: [
-    (Story) => (
-      <div className="session-graph-story-shell">
-        <Story />
-      </div>
-    ),
-  ],
+  parameters: {
+    layout: 'fullscreen',
+  },
   args: {
     thread,
     agents: [storyAgents.sarah, storyAgents.adrian, storyAgents.clara],

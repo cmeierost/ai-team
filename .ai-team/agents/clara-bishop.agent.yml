@@ -15,6 +15,7 @@ specializations:
 avatar:
   type: url
   url: .ai-team/avatars/clara-bishop.jpg
+  color: 'hsl(42, 70%, 60%)'
 personality:
   communication_style: analytical
   expertise_level: senior

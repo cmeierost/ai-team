@@ -21,6 +21,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@ai-team/access": "workspace:*",
+    "@ai-team/fs": "workspace:*",
     "@typescript-eslint/typescript-estree": "^8.56.0",
     "chokidar": "^5.0.0",
     "diff": "^7.0.0",

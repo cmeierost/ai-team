@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
+import { getAgentColor } from '../utils/color';
 import { Avatar } from './Avatar';
 import { rankAgentsBySearch } from './agentListSearch';
 import './AgentList.css';
@@ -68,7 +69,11 @@ export function AgentList() {
       ) : (
       <div className="agent-grid">
         {visibleAgents.map((agent) => (
-          <article key={agent.id} className="agent-card">
+          <article 
+            key={agent.id} 
+            className="agent-card"
+            style={{ '--agent-color': getAgentColor(agent) } as React.CSSProperties}
+          >
             <div className="agent-card-avatar">
               <Avatar agent={agent} size="large" />
             </div>

@@ -109,8 +109,8 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 18%, var(--color-bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 30%, var(--color-border));
   border-radius: var(--radius-lg);
   padding: var(--spacing-xl);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -118,6 +118,7 @@
   backdrop-filter: blur(var(--glass-blur, 10px));
   box-shadow: 
     0 4px 10px rgba(0, 0, 0, 0.18),
+    0 0 0 0 color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 20%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
@@ -126,7 +127,11 @@
   position: absolute;
   inset: 0;
   border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 35%);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 22%, transparent) 0%,
+    transparent 55%
+  );
   opacity: 1;
   pointer-events: none;
   z-index: 0;
@@ -138,8 +143,8 @@
   inset: 0;
   border-radius: var(--radius-lg);
   padding: 1.5px;
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.12),
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 40%, rgba(255,255,255,0.15)),
     rgba(255, 255, 255, 0.02)
   );
   -webkit-mask: 
@@ -161,10 +166,11 @@
 }
 
 .agent-card:hover {
-  border-color: var(--color-accent-primary);
+  border-color: color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 60%, var(--color-border));
+  background: color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 26%, var(--color-bg-secondary));
   box-shadow: 
     0 8px 22px rgba(0, 0, 0, 0.24),
-    0 0 24px rgba(0, 122, 204, 0.16),
+    0 0 28px color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 25%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   transform: translateY(-2px);
 }
@@ -188,7 +194,7 @@
   height: 100px;
   background: radial-gradient(
     circle,
-    rgba(0, 122, 204, 0.18) 0%,
+    color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 25%, transparent) 0%,
     transparent 70%
   );
   border-radius: 50%;

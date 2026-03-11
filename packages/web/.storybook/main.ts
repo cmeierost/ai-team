@@ -7,6 +7,7 @@ const config: StorybookConfig = {
     name: '@storybook/react-vite',
     options: {},
   },
+  staticDirs: [{ from: '../../.ai-team/avatars', to: '/avatars' }],
   docs: {
     autodocs: 'tag',
   },

@@ -24,6 +24,7 @@ flowchart LR
     IDE[@ai-team/ide-interface\nIDE bridge contracts]
     SERVICE[@ai-team/service\nMediator, orchestration, runtime events]
     CORE[@ai-team/core\nUI-free domain logic]
+    ACCESS[@ai-team/access\nFile-path access rights policy engine]
   end
 
   STATE[.ai-team/*\nRuntime state]
@@ -35,6 +36,7 @@ flowchart LR
   APISERVER --> LOCALCLIENT
   LOCALCLIENT --> SERVICE
   SERVICE --> CORE
+  CORE --> ACCESS
   CORE --> STATE
   SERVICE --> STATE
   SERVICE --> PROVIDERS

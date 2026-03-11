@@ -37,11 +37,19 @@ Editor-local workflows use a dedicated IDE bridge:
 
 ## Main package responsibilities
 
+### `@ai-team/access`
+
+- standalone file-path access rights policy engine
+- layered contexts with deny-before-allow semantics
+- operation-aware: shell command and tool call path extraction
+- structured verdicts with alternative-context suggestions for delegation
+
 ### `@ai-team/core`
 
 - UI-free domain logic and shared types
 - workspace-backed file/domain operations
 - agent, team, skill, context, and tool primitives
+- adapter layer bridging Agent/FileTreeConfig types to `@ai-team/access`
 
 ### `@ai-team/service`
 
@@ -90,6 +98,7 @@ flowchart LR
     IDE[@ai-team/ide-interface]
     SERVICE[@ai-team/service]
     CORE[@ai-team/core]
+    ACCESS[@ai-team/access]
   end
 
   STATE[.ai-team/* runtime state]
@@ -101,6 +110,7 @@ flowchart LR
   APISERVER --> LOCALCLIENT
   LOCALCLIENT --> SERVICE
   SERVICE --> CORE
+  CORE --> ACCESS
   CORE --> STATE
   SERVICE --> STATE
   SERVICE --> PROVIDERS

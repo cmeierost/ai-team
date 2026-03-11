@@ -19,6 +19,7 @@ import {
   ToolCatalogEntry,
   ToolContext,
 } from '../types/index.js';
+import type { AccessEngine, AccessVerdict } from '@ai-team/access';
 import { ContextManager } from '../context/index.js';
 
 // Re-export for convenience so callers only import from 'tools'.
@@ -57,9 +58,12 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 export class ToolManager {
   private readonly tools = new Map<string, AgentTool>();
   private readonly contextManager: ContextManager;
+  /** Optional AccessEngine for richer verdicts and delegation support. */
+  readonly accessEngine?: AccessEngine;
 
-  constructor(workspaceRoot: string) {
-    this.contextManager = new ContextManager(workspaceRoot);
+  constructor(workspaceRoot: string, engine?: AccessEngine) {
+    this.contextManager = new ContextManager(workspaceRoot, undefined, engine);
+    this.accessEngine = engine;
   }
 
   // ── Registration ─────────────────────────────────────────────────────────
@@ -241,7 +245,7 @@ export class ToolManager {
     }
 
     // Execution with timeout
-    const toolContext: ToolContext = { ...context, agent };
+    const toolContext: ToolContext = { ...context, agent, accessEngine: this.accessEngine };
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     try {
@@ -289,6 +293,24 @@ export class ToolManager {
     );
 
     return results;
+  }
+
+  // ── AccessEngine integration ──────────────────────────────────────────────
+
+  /**
+   * Check a tool call via the AccessEngine, returning a full AccessVerdict
+   * with per-path breakdown and alternative contexts.
+   *
+   * Returns undefined when no AccessEngine is configured.
+   */
+  checkToolCallAccess(
+    agent: Agent,
+    toolName: string,
+    args: Record<string, unknown>,
+    cwd: string,
+  ): AccessVerdict | undefined {
+    if (!this.accessEngine) return undefined;
+    return this.accessEngine.checkToolCall(toolName, args, cwd, agent.id);
   }
 
   // ── Introspection ─────────────────────────────────────────────────────────

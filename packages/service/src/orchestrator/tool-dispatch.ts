@@ -58,6 +58,14 @@ const SILENT_TOOL_NAMES = new Set([
   'hire_agent',         // requires manage-agents permission (checked by ToolManager)
   'find_capable_agent',
   'list_tools',
+  'fs_read_file',
+  'fs_read_lines',
+  'fs_exists',
+  'fs_info',
+  'fs_list',
+  'fs_tree',
+  'fs_search_content',
+  'fs_search_metadata',
   'ask_human',
   'ask_question',
 ]);

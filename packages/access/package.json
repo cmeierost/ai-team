@@ -1,0 +1,32 @@
+{
+  "name": "@ai-team/access",
+  "version": "0.1.0",
+  "description": "File-path access rights library — layered policy engine for shell commands, tool calls, and direct path checks",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "access-control",
+    "file-permissions",
+    "policy-engine",
+    "delegation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "chokidar": "^5.0.0",
+    "minimatch": "^10.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}

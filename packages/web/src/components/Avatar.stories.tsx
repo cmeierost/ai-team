@@ -35,6 +35,12 @@ export const InitialsFallback: Story = {
   },
 };
 
+export const WithRealPhoto: Story = {
+  args: {
+    agent: storyAgents.claraPhoto,
+  },
+};
+
 export const SizeScale: Story = {
   render: (args) => (
     <div className="storybook-row">

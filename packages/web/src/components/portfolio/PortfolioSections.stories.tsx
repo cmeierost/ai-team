@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { MemoryRouter } from 'react-router-dom';
 import type { Agent, AgentCapabilities, AgentSkill } from '../../types';
 import { PortfolioHeader } from './PortfolioHeader';
 import { PortfolioIdentitySection } from './PortfolioIdentitySection';
@@ -136,11 +135,9 @@ const meta: Meta = {
   title: 'Portfolio/Sections',
   decorators: [
     (Story) => (
-      <MemoryRouter>
-        <div className="portfolio-story-shell">
-          <Story />
-        </div>
-      </MemoryRouter>
+      <div className="portfolio-story-shell">
+        <Story />
+      </div>
     ),
   ],
 };

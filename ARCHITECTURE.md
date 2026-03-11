@@ -43,7 +43,9 @@ Use this as a “where should I change code?” index.
 | API server transport assembly | [packages/api-server/src/server.ts](packages/api-server/src/server.ts) |
 | API server HTTP routes | [packages/api-server/src/routes/](packages/api-server/src/routes/) |
 | API server WebSocket chat bridge | [packages/api-server/src/ws/chat-handler.ts](packages/api-server/src/ws/chat-handler.ts) |
+| File-path access rights policy engine | [packages/access/](packages/access/) |
 | Core tools and question primitives | [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts) |
+| Access adapter: Agent/FileTreeConfig → AccessEngine bridge | [packages/core/src/context/access-adapter.ts](packages/core/src/context/access-adapter.ts) |
 | Model-facing command metadata | [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts) |
 | IDE bridge contracts and discovery file | [packages/ide-interface/src/index.ts](packages/ide-interface/src/index.ts) |
 | VS Code extension activation and IDE-local server | [packages/vscode/src/extension.ts](packages/vscode/src/extension.ts), [packages/vscode/src/ide-local-server.ts](packages/vscode/src/ide-local-server.ts) |
@@ -78,6 +80,9 @@ Application orchestration
 UI-free domain + workspace logic
   └─ @ai-team/core
 
+Standalone policy engine
+  └─ @ai-team/access
+
 Runtime state + external integrations
   ├─ .ai-team/*
   └─ LLM / provider APIs
@@ -90,6 +95,14 @@ Runtime state + external integrations
 - **VS Code IDE integration path**: `CLI or api-server -> @ai-team/ide-interface -> @ai-team/vscode IDE-local server -> VS Code-native review/open-file UX`
 
 ## Package Responsibilities
+
+### `@ai-team/access`
+
+- Standalone file-path access rights policy engine.
+- Provides layered, context-based access control with deny-before-allow semantics.
+- Operation-aware: understands shell command and tool call path extraction via `CommandRegistry` and `ToolRegistry`.
+- Returns structured verdicts with per-path breakdown, alternative-context suggestions, and delegation support.
+- Used by `@ai-team/core` through an opt-in adapter layer (`access-adapter.ts`) that bridges `Agent`, `FileTreeConfig`, and built-in tool/command definitions.
 
 ### `@ai-team/core`
 

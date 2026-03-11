@@ -5,6 +5,7 @@
 Monorepo packages currently present:
 
 - `packages/core` - UI-free domain logic, shared types, tools, workspace-backed operations.
+- `packages/access` - standalone file-path access rights policy engine (layered contexts, operation-aware, structured verdicts with delegation).
 - `packages/service` - application orchestration, mediator contracts, chat runtime, workflow/session/task state.
 - `packages/api-client` - typed local in-process client façade.
 - `packages/api-client-http` - browser-safe remote HTTP/WebSocket client.
@@ -58,6 +59,7 @@ For customization layout, treat `.ai-team/` as the durable source of truth and `
 - [docs/api/contracts.md](docs/api/contracts.md) - transport-facing API docs for the API server surface.
 - [docs/implementation/web-state-architecture.md](docs/implementation/web-state-architecture.md) - frontend state boundaries and migration target.
 - [packages/core/README.md](packages/core/README.md)
+- [packages/access/README.md](packages/access/README.md)
 - [packages/api-server/README.md](packages/api-server/README.md)
 - [packages/web/README.md](packages/web/README.md)
 
@@ -73,6 +75,9 @@ For customization layout, treat `.ai-team/` as the durable source of truth and `
 - [packages/service/src/task-manager.ts](packages/service/src/task-manager.ts) - task lifecycle and state.
 - [packages/service/src/storage/proposal-store.ts](packages/service/src/storage/proposal-store.ts) - persisted code-edit proposal storage.
 - [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts) - tool registry + question tools.
+- [packages/core/src/tools/tool-descriptors.ts](packages/core/src/tools/tool-descriptors.ts) - built-in tool and command descriptors for AccessEngine.
+- [packages/core/src/context/access-adapter.ts](packages/core/src/context/access-adapter.ts) - Agent/FileTreeConfig → AccessEngine bridge.
+- [packages/access/src/engine.ts](packages/access/src/engine.ts) - AccessEngine — core policy evaluation.
 - [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts) - command metadata for model-facing guidance.
 - [packages/api-client/src/index.ts](packages/api-client/src/index.ts) - local typed client and in-process wiring.
 - [packages/api-client-http/src/index.ts](packages/api-client-http/src/index.ts) - remote browser client.

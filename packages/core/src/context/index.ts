@@ -3,6 +3,7 @@
  */
 
 import { minimatch } from 'minimatch';
+import type { AccessEngine, AccessVerdict } from '@ai-team/access';
 import {
   Agent,
   ContextLevel,
@@ -36,11 +37,18 @@ export class ContextManager {
   private readonly patternMatchCache = new Map<string, boolean>();
 
   /**
+   * Optional AccessEngine. When provided, canRead/canWrite/canCreate/canDelete
+   * delegate to the engine for richer verdicts and delegation support.
+   */
+  readonly engine?: AccessEngine;
+
+  /**
    * @param workspaceRoot - Absolute workspace root
    * @param globalPerms - Optional global read/write patterns from config.json fileTree.
    *                       When provided, these patterns are merged with every agent's permissions.
+   * @param engine - Optional AccessEngine for delegated evaluation.
    */
-  constructor(workspaceRoot: string, globalPerms?: GlobalPermissions) {
+  constructor(workspaceRoot: string, globalPerms?: GlobalPermissions, engine?: AccessEngine) {
     this.workspaceRoot = workspaceRoot;
     this.globalPerms = globalPerms ?? {
       readPaths: [],
@@ -48,18 +56,27 @@ export class ContextManager {
       createPaths: [],
       deletePaths: [],
     };
+    this.engine = engine;
   }
 
   /**
    * Create a ContextManager pre-loaded with global permissions from a FileTreeConfig.
    */
-  static fromConfig(workspaceRoot: string, fileTreeConfig?: FileTreeConfig): ContextManager {
-    return new ContextManager(workspaceRoot, {
-      readPaths: fileTreeConfig?.readPaths ?? [],
-      writePaths: fileTreeConfig?.writePaths ?? [],
-      createPaths: fileTreeConfig?.createPaths ?? [],
-      deletePaths: fileTreeConfig?.deletePaths ?? [],
-    });
+  static fromConfig(
+    workspaceRoot: string,
+    fileTreeConfig?: FileTreeConfig,
+    engine?: AccessEngine,
+  ): ContextManager {
+    return new ContextManager(
+      workspaceRoot,
+      {
+        readPaths: fileTreeConfig?.readPaths ?? [],
+        writePaths: fileTreeConfig?.writePaths ?? [],
+        createPaths: fileTreeConfig?.createPaths ?? [],
+        deletePaths: fileTreeConfig?.deletePaths ?? [],
+      },
+      engine,
+    );
   }
 
   /**
@@ -69,6 +86,10 @@ export class ContextManager {
    * @returns True if agent can read the file
    */
   canRead(agent: Agent, filePath: string): boolean {
+    if (this.engine) {
+      return this.checkViaEngine(agent, filePath, 'read');
+    }
+
     const relativePath = this.getRelativePath(filePath);
     if (relativePath === null) return false;
 
@@ -89,6 +110,10 @@ export class ContextManager {
    * @returns True if agent can write the file
    */
   canWrite(agent: Agent, filePath: string): boolean {
+    if (this.engine) {
+      return this.checkViaEngine(agent, filePath, 'write');
+    }
+
     const relativePath = this.getRelativePath(filePath);
     if (relativePath === null) return false;
     // Global write patterns
@@ -99,6 +124,10 @@ export class ContextManager {
   }
 
   canCreate(agent: Agent, filePath: string): boolean {
+    if (this.engine) {
+      return this.checkViaEngine(agent, filePath, 'create');
+    }
+
     const relativePath = this.getRelativePath(filePath);
     if (relativePath === null) return false;
     if (this.matchesPatterns(relativePath, this.globalPerms.createPaths)) return true;
@@ -107,6 +136,10 @@ export class ContextManager {
   }
 
   canDelete(agent: Agent, filePath: string): boolean {
+    if (this.engine) {
+      return this.checkViaEngine(agent, filePath, 'delete');
+    }
+
     const relativePath = this.getRelativePath(filePath);
     if (relativePath === null) return false;
     if (this.matchesPatterns(relativePath, this.globalPerms.deletePaths)) return true;
@@ -362,6 +395,27 @@ export class ContextManager {
       default:
         return { read: [], write: [], create: [], delete: [] };
     }
+  }
+
+  // ── AccessEngine delegation ────────────────────────────────────
+
+  /**
+   * Delegate a single-path permission check to the AccessEngine.
+   * Used internally by canRead/canWrite/canCreate/canDelete when an engine is present.
+   */
+  private checkViaEngine(agent: Agent, filePath: string, right: 'read' | 'write' | 'create' | 'delete'): boolean {
+    const verdict = this.engine!.checkPath(filePath, right, this.workspaceRoot, agent.id);
+    return verdict.allowed;
+  }
+
+  /**
+   * Return a full AccessVerdict for a single-path check via the engine.
+   * Useful for callers that need alternative-context information.
+   * Returns undefined when no engine is configured.
+   */
+  checkPathDetailed(agent: Agent, filePath: string, right: 'read' | 'write' | 'create' | 'delete'): AccessVerdict | undefined {
+    if (!this.engine) return undefined;
+    return this.engine.checkPath(filePath, right, this.workspaceRoot, agent.id);
   }
 
   /**

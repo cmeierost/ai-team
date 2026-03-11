@@ -11,7 +11,7 @@ function createAvatarDataUri(initials: string, fill: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
-export const storyAgents: Record<'adrian' | 'clara' | 'sarah', Agent> = {
+export const storyAgents: Record<'adrian' | 'clara' | 'sarah' | 'claraPhoto', Agent> = {
   adrian: {
     id: 'adrian-foster',
     name: 'Adrian Foster',
@@ -45,6 +45,19 @@ export const storyAgents: Record<'adrian' | 'clara' | 'sarah', Agent> = {
     type: 'executive',
     status: 'in-meeting',
     specializations: ['Architecture', 'System Design', 'Decision Records'],
+  },
+  claraPhoto: {
+    id: 'clara-bishop-photo',
+    name: 'Clara Bishop',
+    role: 'Frontend Quality Engineer',
+    type: 'quality-gate',
+    status: 'available',
+    specializations: ['Storybook', 'Browser Checks', 'UI Regression Reporting'],
+    avatar: {
+      type: 'url',
+      url: '/avatars/clara-bishop.jpg',
+      seed: 'clara-bishop',
+    },
   },
 };
 
