@@ -10,6 +10,12 @@ import {
   type GetFileTreeOptions,
   type TeamConfig,
 } from '@ai-team/core';
+import {
+  type GovernanceRequest,
+  assertDefaultGovernancePolicy,
+  requireUserApproval,
+  resolveGovernanceActor,
+} from './governance.js';
 
 type PathMode = 'read' | 'write' | 'create' | 'delete';
 
@@ -145,6 +151,26 @@ export async function agentAllowPathCommand(
 }
 
 /**
+ * Alias for agentAllowPathCommand using governance naming.
+ */
+export async function accessAllowCommand(
+  workspaceRoot: string,
+  agentQuery: string,
+  filePath: string,
+  governance: GovernanceRequest,
+  mode: PathMode = 'read',
+): Promise<AgentPathResult> {
+  const actor = await resolveGovernanceActor(workspaceRoot, governance.requestedBy, 'access_allow');
+  assertDefaultGovernancePolicy(actor);
+  await requireUserApproval(
+    governance,
+    `Approve access_allow by ${actor.name} (${actor.id}) for target agent '${agentQuery}', mode '${mode}', path '${filePath}'?`,
+  );
+
+  return agentAllowPathCommand(workspaceRoot, agentQuery, filePath, mode);
+}
+
+/**
  * Remove a path from an agent's access pattern file.
  */
 export async function agentDisallowPathCommand(
@@ -167,4 +193,24 @@ export async function agentDisallowPathCommand(
   const updated = await syncAgentFrontmatterPermissions(agent);
 
   return { agent: updated, paths: nextPatterns[mode] };
+}
+
+/**
+ * Alias for agentDisallowPathCommand using governance naming.
+ */
+export async function accessDenyCommand(
+  workspaceRoot: string,
+  agentQuery: string,
+  filePath: string,
+  governance: GovernanceRequest,
+  mode: PathMode = 'read',
+): Promise<AgentPathResult> {
+  const actor = await resolveGovernanceActor(workspaceRoot, governance.requestedBy, 'access_deny');
+  assertDefaultGovernancePolicy(actor);
+  await requireUserApproval(
+    governance,
+    `Approve access_deny by ${actor.name} (${actor.id}) for target agent '${agentQuery}', mode '${mode}', path '${filePath}'?`,
+  );
+
+  return agentDisallowPathCommand(workspaceRoot, agentQuery, filePath, mode);
 }

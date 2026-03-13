@@ -7,6 +7,7 @@ import {
   findMatchingMessage,
   findMatchingMessageIndex,
   normalizeChatErrorMessage,
+  resolveRouteAgent,
   resolveNavigateAgent,
   SESSION_META_PREFIX,
   SESSION_META_SUFFIX,
@@ -72,6 +73,28 @@ describe('chatPanelUtils', () => {
       'The request could not be completed. Please try again.',
     );
     expect(normalizeChatErrorMessage('Something else went wrong')).toBe('Something else went wrong');
+  });
+
+  it('resolves route agent query by exact id', () => {
+    expect(resolveRouteAgent(agents, 'daniel-navarro')?.id).toBe('daniel-navarro');
+  });
+
+  it('resolves route agent query by role', () => {
+    expect(resolveRouteAgent(agents, 'frontend lead')?.id).toBe('daniel-navarro');
+  });
+
+  it('resolves route agent query by display name and name slug', () => {
+    expect(resolveRouteAgent(agents, 'Clara Bishop')?.id).toBe('clara-bishop');
+    expect(resolveRouteAgent(agents, 'clara-bishop')?.id).toBe('clara-bishop');
+  });
+
+  it('returns null for ambiguous route query matches', () => {
+    const duplicateRoleAgents: Agent[] = [
+      { id: 'a', name: 'Alex One', role: 'Engineer' },
+      { id: 'b', name: 'Alex Two', role: 'Engineer' },
+    ];
+
+    expect(resolveRouteAgent(duplicateRoleAgents, 'engineer')).toBeNull();
   });
 
   it('builds summary markdown with developer names and separators', () => {

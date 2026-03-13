@@ -3,12 +3,11 @@
  * Mirrors VS Code Copilot capabilities (Feb 2026)
  */
 
-import fs from 'fs/promises';
-import path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { glob } from 'glob';
-import { minimatch } from 'minimatch';
 import { z } from 'zod';
 import {
   getFileTree,
@@ -37,6 +36,14 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 const MAX_SEMANTIC_FILE_SIZE_BYTES = 200_000;
+const HTTP_DEFAULT_TIMEOUT_MS = 12_000;
+const HTTP_MAX_TIMEOUT_MS = 30_000;
+const HTTP_DEFAULT_MAX_CHARS = 8_000;
+const HTTP_MAX_TEXT_BYTES = 400_000;
+const HTTP_DEFAULT_MAX_CHUNKS = 10;
+const HTTP_MAX_CHUNKS = 50;
+const HTTP_DEFAULT_CONTEXT_CHARS = 120;
+const HTTP_DEFAULT_MAX_LINES = 300;
 
 export interface ToolExecutionRequest {
   toolName: string;
@@ -105,10 +112,10 @@ function filterTreeByListAccess(context: ToolContext, node: FileTreeNode): FileT
 function toFsPathAccessEnvelope(
   context: ToolContext,
   toolName:
-    | 'fs_read_file'
+    | 'fs_read'
     | 'fs_read_lines'
     | 'fs_write_file'
-    | 'fs_create_file'
+    | 'fs_create'
     | 'fs_delete_path'
     | 'fs_mkdir'
     | 'fs_exists'
@@ -128,10 +135,10 @@ function toFsPathAccessEnvelope(
   }
 
   const args =
-    toolName === 'fs_read_file'
+    toolName === 'fs_read'
     || toolName === 'fs_read_lines'
     || toolName === 'fs_write_file'
-    || toolName === 'fs_create_file'
+    || toolName === 'fs_create'
       ? { filePath: targetPath }
       : { path: targetPath };
 
@@ -181,7 +188,7 @@ type AccessRight = z.infer<typeof accessRightSchema>;
  * Show which contexts can access a path for a given right.
  */
 export const whoHasAccessTool: AgentTool = {
-  name: 'who_has_access',
+  name: 'fs_who_can',
   description: 'Show which contexts/agents can access a path for a given right.',
   parameters: z.object({
     path: z.string().describe('Relative or absolute workspace path to check'),
@@ -235,7 +242,7 @@ export const whoHasAccessTool: AgentTool = {
  * Check whether the current (or specified) context has access to a path/right.
  */
 export const doIHaveAccessTool: AgentTool = {
-  name: 'do_i_have_access',
+  name: 'tool_can_i',
   description: 'Check whether the current context (or an explicit context) has access to a path/right.',
   parameters: z.object({
     path: z.string().describe('Relative or absolute workspace path to check'),
@@ -583,7 +590,7 @@ export const fsInfoTool: AgentTool = {
  * Read file contents through @ai-team/access (read right).
  */
 export const fsReadFileTool: AgentTool = {
-  name: 'fs_read_file',
+  name: 'fs_read',
   description: 'Read a file through @ai-team/access with structured access metadata.',
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
@@ -611,7 +618,7 @@ export const fsReadFileTool: AgentTool = {
       };
     }
 
-    const access = toFsPathAccessEnvelope(context, 'fs_read_file', filePath);
+    const access = toFsPathAccessEnvelope(context, 'fs_read', filePath);
     if (!access.allowed) {
       return {
         path: pathMeta,
@@ -792,7 +799,7 @@ export const fsWriteFileTool: AgentTool = {
  * Create a new file through @ai-team/access (create right).
  */
 export const fsCreateFileTool: AgentTool = {
-  name: 'fs_create_file',
+  name: 'fs_create',
   description: 'Create a new file through @ai-team/access.',
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
@@ -825,7 +832,7 @@ export const fsCreateFileTool: AgentTool = {
       };
     }
 
-    const access = toFsPathAccessEnvelope(context, 'fs_create_file', filePath);
+    const access = toFsPathAccessEnvelope(context, 'fs_create', filePath);
     if (!access.allowed) {
       return {
         path: pathMeta,
@@ -1309,7 +1316,7 @@ export const fsSearchMetadataTool: AgentTool = {
  * Semantic search across codebase (placeholder - would integrate with vector DB)
  */
 export const semanticSearchTool: AgentTool = {
-  name: 'semantic_search',
+  name: 'search_semantic',
   description: 'Search codebase semantically for relevant code and documentation.',
   parameters: z.object({
     query: z.string().describe('Natural language search query'),
@@ -1396,7 +1403,7 @@ export const semanticSearchTool: AgentTool = {
  * Get compiler/linter errors
  */
 export const getErrorsTool: AgentTool = {
-  name: 'get_errors',
+  name: 'tool_get_errors',
   description: 'Get compile or lint errors for specified files.',
   parameters: z.object({
     filePaths: z.array(z.string()).optional().describe('Files to check (omit for all files)'),
@@ -1452,7 +1459,7 @@ export const getErrorsTool: AgentTool = {
  * Delegate task to another agent
  */
 export const delegateToAgentTool: AgentTool = {
-  name: 'delegate_to_agent',
+  name: 'com_delegate',
   description: 'Delegate a task to another agent. Checks delegation permissions.',
   parameters: z.object({
     agentId: z.string().describe('Target agent ID'),
@@ -1477,55 +1484,10 @@ export const delegateToAgentTool: AgentTool = {
 };
 
 /**
- * Ask human for clarification
- */
-export const askHumanTool: AgentTool = {
-  name: 'ask_human',
-  description: 'Ask the human developer a structured question. Supports input, confirm, select, checklist, and password modes.',
-  parameters: z.object({
-    question: z.string().min(1).describe('Question to ask the developer'),
-    questionType: z.enum(['input', 'confirm', 'select', 'checklist', 'password']).optional().describe('Question mode (defaults to input)'),
-    context: z.string().optional().describe('Optional additional context shown with the question'),
-    choices: z.array(z.object({
-      name: z.string().min(1),
-      value: z.string().min(1),
-    })).optional().describe('Required for select/checklist modes'),
-    default: z.union([z.string(), z.boolean(), z.array(z.string())]).optional().describe('Optional default answer'),
-    mask: z.string().optional().describe('Optional mask character for password mode'),
-    allowEmpty: z.boolean().optional().describe('Allow empty input for input mode'),
-  }).superRefine((value, refinementCtx) => {
-    const questionType = value.questionType ?? 'input';
-    if ((questionType === 'select' || questionType === 'checklist') && (!value.choices || value.choices.length === 0)) {
-      refinementCtx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `choices are required when questionType is '${questionType}'`,
-      });
-    }
-  }),
-  async execute(params, context: ToolContext) {
-    const { question, context: additionalContext, questionType = 'input', choices } = params as any;
-    
-    return {
-      question,
-      questionType,
-      context: additionalContext,
-      choices,
-      requestedBy: context.agent.id,
-      timestamp: new Date().toISOString(),
-    };
-  },
-};
-
-export const askQuestionTool: AgentTool = {
-  ...askHumanTool,
-  name: 'ask_question',
-};
-
-/**
  * Register a CLI command for an employee so it can be executed via run_cli_tool.
  */
 export const registerCliTool: AgentTool = {
-  name: 'register_cli_tool',
+  name: 'tool_register_cli',
   description: 'Allow this employee to run a command-line tool by executable name (e.g. git, pnpm, node).',
   parameters: z.object({
     command: z.string().min(1).describe('Executable name to allow (no args, e.g. git)'),
@@ -1596,7 +1558,7 @@ export const registerCliTool: AgentTool = {
  * Update an employee-specific LLM profile (provider/model/params).
  */
 export const updateEmployeeLlmTool: AgentTool = {
-  name: 'update_employee_llm',
+  name: 'hr_update_llm',
   description: 'Update another employee\'s LLM profile (model, provider, and generation params).',
   parameters: z.object({
     employee: z.string().min(1).describe('Target employee name/id/role'),
@@ -1694,8 +1656,8 @@ export const updateEmployeeLlmTool: AgentTool = {
  * Run a CLI tool that was previously allowed for this employee.
  */
 export const runCliTool: AgentTool = {
-  name: 'run_cli_tool',
-  description: 'Execute an allowed command-line tool with args. Command must be registered first via register_cli_tool.',
+  name: 'tool_run',
+  description: 'Execute an allowed command-line tool with args. Command must be registered first via tool_register_cli.',
   parameters: z.object({
     command: z.string().min(1).describe('Executable name, for example git'),
     args: z.array(z.string()).optional().describe('Command arguments as array, for example ["status", "--short"]'),
@@ -1710,7 +1672,7 @@ export const runCliTool: AgentTool = {
 
     const allowed = new Set((context.agent.cliTools || []).map(entry => normalizeExecutableName(entry)).filter(Boolean) as string[]);
     if (!allowed.has(normalized)) {
-      throw new Error(`Command '${normalized}' is not allowed for ${context.agent.name}. Register it first with register_cli_tool.`);
+      throw new Error(`Command '${normalized}' is not allowed for ${context.agent.name}. Register it first with tool_register_cli.`);
     }
 
     const execCwd = cwd
@@ -1726,7 +1688,7 @@ export const runCliTool: AgentTool = {
         maxBuffer: 1024 * 1024 * 8,
       }),
       60_000,
-      `run_cli_tool timed out after 60s (${normalized})`,
+      `tool_run timed out after 60s (${normalized})`,
     );
 
     return {
@@ -1754,10 +1716,10 @@ function normalizeExecutableName(command: string): string | undefined {
 
 function enforceCommandAreaScope(context: ToolContext, execCwd: string): void {
   if (!path.resolve(execCwd).startsWith(path.resolve(context.workspaceRoot))) {
-    throw new Error('run_cli_tool cwd must stay inside the workspace root.');
+    throw new Error('tool_run cwd must stay inside the workspace root.');
   }
 
-  // Workspace boundary is the only universal cwd scope for run_cli_tool.
+  // Workspace boundary is the only universal cwd scope for tool_run.
 }
 
 // ============================================================================
@@ -1795,7 +1757,7 @@ export const createAgentTool: AgentTool = {
  * Archive an agent
  */
 export const archiveAgentTool: AgentTool = {
-  name: 'archive_agent',
+  name: 'hr_archive',
   description: 'Archive (offboard) a virtual team member. Requires manage_agents permission.',
   parameters: z.object({
     agentId: z.string().describe('Agent ID to archive'),
@@ -1807,7 +1769,7 @@ export const archiveAgentTool: AgentTool = {
     }
 
     return {
-      action: 'archive_agent',
+      action: 'hr_archive',
       params,
       timestamp: new Date().toISOString(),
     };
@@ -1818,7 +1780,7 @@ export const archiveAgentTool: AgentTool = {
  * Assess agent performance
  */
 export const assessPerformanceTool: AgentTool = {
-  name: 'assess_performance',
+  name: 'analyze_performance',
   description: 'Analyze agent activity and performance metrics. Requires manage_agents permission.',
   parameters: z.object({
     agentId: z.string().optional().describe('Specific agent (omit for all)'),
@@ -1831,7 +1793,7 @@ export const assessPerformanceTool: AgentTool = {
 
     // Placeholder: Would analyze chat logs and meeting summaries
     return {
-      action: 'assess_performance',
+      action: 'analyze_performance',
       params,
       timestamp: new Date().toISOString(),
     };
@@ -1839,7 +1801,7 @@ export const assessPerformanceTool: AgentTool = {
 };
 
 const addPictureTool: AgentTool = {
-  name: 'add_picture',
+  name: 'hr_avatar',
   description: 'Download and set an avatar picture for an agent. Requires manage_agents permission. Can use random source or AI generation.',
   parameters: z.object({
     agentName: z.string().describe('Name or ID of the agent'),
@@ -1920,7 +1882,7 @@ const addPictureTool: AgentTool = {
     await updateAgentAvatar(targetAgent, avatarPath, context.workspaceRoot);
 
     return {
-      action: 'add_picture',
+      action: 'hr_avatar',
       agentName: targetAgent.name,
       source,
       avatarPath,
@@ -2016,7 +1978,7 @@ export const findPatternTool: AgentTool = {
  * Fast grep-style text search
  */
 export const grepCodeTool: AgentTool = {
-  name: 'grep_code',
+  name: 'search_grep',
   description: 'Fast regex-based text search in files. More efficient than tree-sitter for simple text searches. Requires read permission.',
   parameters: z.object({
     pattern: z.string().describe('Text pattern or regex to search for'),
@@ -2099,7 +2061,7 @@ export const analyzeComplexityTool: AgentTool = {
  * Propose code edits for user approval
  */
 export const applyCodeEditTool: AgentTool = {
-  name: 'apply_code_edit',
+  name: 'fs_apply_patch',
   description: 'Propose code changes to one or more files. Changes must be approved by the user before being applied. Requires write permission for all files.',
   parameters: z.object({
     description: z.string().describe('Clear description of what changes are being made and why'),
@@ -2169,17 +2131,507 @@ export const applyCodeEditTool: AgentTool = {
 };
 
 // ============================================================================
+// HTTP Fetch/Crawl Tools
+// ============================================================================
+
+interface HttpFilterOptions {
+  regex?: string;
+  regexFlags?: string;
+  search?: string;
+  startLine?: number;
+  endLine?: number;
+  maxLines?: number;
+  maxChars?: number;
+  maxChunks?: number;
+  contextChars?: number;
+}
+
+interface HttpPreparedText {
+  text: string;
+  chunks: string[];
+  lineCount: number;
+  charCount: number;
+  filtersApplied: string[];
+  truncated: boolean;
+  regexMatchCount?: number;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function stripHtmlToText(input: string): string {
+  return input
+    .replaceAll(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
+    .replaceAll(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
+    .replaceAll(/<[^>]+>/g, ' ')
+    .replaceAll(/&nbsp;/gi, ' ')
+    .replaceAll(/&amp;/gi, '&')
+    .replaceAll(/&lt;/gi, '<')
+    .replaceAll(/&gt;/gi, '>')
+    .replaceAll('\r', '')
+    .replaceAll('\t', ' ')
+    .replaceAll(/ {2,}/g, ' ')
+    .replaceAll(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractLinksFromHtml(html: string, baseUrl: string): string[] {
+  const links = new Set<string>();
+  const hrefRegex = /href\s*=\s*["']([^"']+)["']/gi;
+  let match: RegExpExecArray | null;
+  while ((match = hrefRegex.exec(html)) !== null) {
+    const raw = match[1]?.trim();
+    if (!raw || raw.startsWith('#') || raw.startsWith('mailto:') || raw.startsWith('javascript:')) continue;
+    try {
+      const normalized = new URL(raw, baseUrl);
+      if (normalized.protocol !== 'http:' && normalized.protocol !== 'https:') continue;
+      normalized.hash = '';
+      links.add(normalized.toString());
+    } catch {
+      // ignore invalid link
+    }
+  }
+  return [...links];
+}
+
+function collectRegexSnippets(source: string, pattern: RegExp, contextChars: number, maxChunks: number): { snippets: string[]; count: number } {
+  const snippets: string[] = [];
+  let count = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(source)) !== null) {
+    count += 1;
+    if (snippets.length < maxChunks) {
+      const idx = match.index ?? 0;
+      const start = Math.max(0, idx - contextChars);
+      const end = Math.min(source.length, idx + (match[0]?.length ?? 0) + contextChars);
+      snippets.push(source.slice(start, end).trim());
+    }
+    if (!pattern.global) break;
+    if (match.index === pattern.lastIndex) pattern.lastIndex += 1;
+  }
+  return { snippets, count };
+}
+
+function splitIntoChunks(text: string, maxChunks: number, targetChunkChars = 700): string[] {
+  if (!text) return [];
+  const chunks: string[] = [];
+  let cursor = 0;
+  while (cursor < text.length && chunks.length < maxChunks) {
+    const next = Math.min(text.length, cursor + targetChunkChars);
+    chunks.push(text.slice(cursor, next).trim());
+    cursor = next;
+  }
+  return chunks.filter((chunk) => chunk.length > 0);
+}
+
+function applyHttpTextFilters(rawText: string, options: HttpFilterOptions): HttpPreparedText {
+  const filtersApplied: string[] = [];
+  const maxLines = clampNumber(options.maxLines ?? HTTP_DEFAULT_MAX_LINES, 1, 3000);
+  const maxChars = clampNumber(options.maxChars ?? HTTP_DEFAULT_MAX_CHARS, 256, 100_000);
+  const maxChunks = clampNumber(options.maxChunks ?? HTTP_DEFAULT_MAX_CHUNKS, 1, HTTP_MAX_CHUNKS);
+  const contextChars = clampNumber(options.contextChars ?? HTTP_DEFAULT_CONTEXT_CHARS, 10, 1000);
+
+  let text = rawText.replaceAll(/\r\n?/g, '\n');
+  let regexMatchCount = 0;
+
+  if (options.search?.trim()) {
+    const needle = options.search.trim().toLowerCase();
+    const lines = text.split('\n').filter((line) => line.toLowerCase().includes(needle));
+    text = lines.join('\n');
+    filtersApplied.push(`search:${options.search.trim()}`);
+  }
+
+  if (options.regex?.trim()) {
+    try {
+      const flags = options.regexFlags?.trim() || 'gi';
+      const compiled = new RegExp(options.regex.trim(), flags);
+      const snippets = collectRegexSnippets(text, compiled, contextChars, maxChunks);
+      regexMatchCount = snippets.count;
+      text = snippets.snippets.join('\n---\n');
+      filtersApplied.push(`regex:${options.regex.trim()}`);
+    } catch {
+      filtersApplied.push('regex:invalid');
+    }
+  }
+
+  const originalLines = text.split('\n');
+  const startLine = options.startLine ? clampNumber(options.startLine, 1, originalLines.length || 1) : 1;
+  const endLineInput = options.endLine ? clampNumber(options.endLine, startLine, originalLines.length || startLine) : originalLines.length;
+  let filteredLines = originalLines.slice(startLine - 1, endLineInput);
+
+  if (startLine !== 1 || options.endLine !== undefined) {
+    filtersApplied.push(`lines:${startLine}-${endLineInput}`);
+  }
+
+  let truncated = false;
+  if (filteredLines.length > maxLines) {
+    filteredLines = filteredLines.slice(0, maxLines);
+    truncated = true;
+    filtersApplied.push(`maxLines:${maxLines}`);
+  }
+
+  text = filteredLines.join('\n').trim();
+
+  if (text.length > maxChars) {
+    text = `${text.slice(0, maxChars)}\n…[truncated at ${maxChars} chars]`;
+    truncated = true;
+    filtersApplied.push(`maxChars:${maxChars}`);
+  }
+
+  return {
+    text,
+    chunks: splitIntoChunks(text, maxChunks),
+    lineCount: filteredLines.length,
+    charCount: text.length,
+    filtersApplied,
+    truncated,
+    regexMatchCount: options.regex ? regexMatchCount : undefined,
+  };
+}
+
+async function fetchUrlText(url: string, timeoutMs: number): Promise<{
+  finalUrl: string;
+  status: number;
+  ok: boolean;
+  contentType: string;
+  bodyText: string;
+  rawHtml?: string;
+}> {
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        'user-agent': 'ai-team-http-tool/1.0',
+      },
+    });
+
+    const contentType = response.headers.get('content-type') ?? '';
+    const buffer = await response.arrayBuffer();
+    const raw = Buffer.from(buffer);
+    const bounded = raw.subarray(0, HTTP_MAX_TEXT_BYTES);
+    const text = bounded.toString('utf8');
+
+    const isHtml = contentType.includes('text/html');
+    return {
+      finalUrl: response.url || url,
+      status: response.status,
+      ok: response.ok,
+      contentType,
+      bodyText: isHtml ? stripHtmlToText(text) : text,
+      rawHtml: isHtml ? text : undefined,
+    };
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
+export const httpFetchTool: AgentTool = {
+  name: 'http_fetch',
+  description: 'Fetch a URL and return filtered chunks (lines, regex/search, length) for safe LLM context usage.',
+  parameters: z.object({
+    url: z.string().min(1).describe('Absolute URL to fetch').refine((value) => {
+      try {
+        const parsed = new URL(value);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    }, 'Expected an absolute http/https URL'),
+    timeoutMs: z.number().int().min(500).max(HTTP_MAX_TIMEOUT_MS).optional().describe('Request timeout in milliseconds'),
+    regex: z.string().optional().describe('Optional regex pattern to extract snippets from result text'),
+    regexFlags: z.string().optional().describe('Regex flags (default: gi)'),
+    search: z.string().optional().describe('Optional substring search applied before regex/line filtering'),
+    startLine: z.number().int().min(1).optional().describe('1-based inclusive start line'),
+    endLine: z.number().int().min(1).optional().describe('1-based inclusive end line'),
+    maxLines: z.number().int().min(1).max(3000).optional().describe('Maximum number of lines returned'),
+    maxChars: z.number().int().min(256).max(100000).optional().describe('Maximum characters returned'),
+    maxChunks: z.number().int().min(1).max(HTTP_MAX_CHUNKS).optional().describe('Maximum chunks returned'),
+    contextChars: z.number().int().min(10).max(1000).optional().describe('Context window around regex matches'),
+    includeLinks: z.boolean().optional().describe('Include discovered links when response is HTML'),
+  }),
+  async execute(params) {
+    const {
+      url,
+      timeoutMs = HTTP_DEFAULT_TIMEOUT_MS,
+      includeLinks = true,
+      ...filterOptions
+    } = params as {
+      url: string;
+      timeoutMs?: number;
+      includeLinks?: boolean;
+    } & HttpFilterOptions;
+
+    const boundedTimeout = clampNumber(timeoutMs, 500, HTTP_MAX_TIMEOUT_MS);
+    const fetched = await fetchUrlText(url, boundedTimeout);
+    const processed = applyHttpTextFilters(fetched.bodyText, filterOptions);
+    const links = includeLinks && fetched.rawHtml
+      ? extractLinksFromHtml(fetched.rawHtml, fetched.finalUrl)
+      : [];
+
+    return {
+      url,
+      finalUrl: fetched.finalUrl,
+      status: fetched.status,
+      ok: fetched.ok,
+      contentType: fetched.contentType,
+      lineCount: processed.lineCount,
+      charCount: processed.charCount,
+      chunks: processed.chunks,
+      filtersApplied: processed.filtersApplied,
+      regexMatchCount: processed.regexMatchCount,
+      truncated: processed.truncated || fetched.bodyText.length >= HTTP_MAX_TEXT_BYTES,
+      links,
+      linkCount: links.length,
+    };
+  },
+};
+
+export const httpCrawlTool: AgentTool = {
+  name: 'http_crawl',
+  description: 'Crawl links from a starting URL with depth/page limits and return filtered text chunks.',
+  parameters: z.object({
+    url: z.string().min(1).describe('Start URL').refine((value) => {
+      try {
+        const parsed = new URL(value);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    }, 'Expected an absolute http/https URL'),
+    crawlEnabled: z.boolean().optional().describe('Must be true to execute crawling (default false)'),
+    maxDepth: z.number().int().min(0).max(5).optional().describe('Max crawl depth (default 1)'),
+    maxPages: z.number().int().min(1).max(100).optional().describe('Max pages to fetch (default 10)'),
+    timeoutMsPerPage: z.number().int().min(500).max(HTTP_MAX_TIMEOUT_MS).optional().describe('Per-page timeout'),
+    allowCrossDomain: z.boolean().optional().describe('Allow crawling links across domains'),
+    allowedDomains: z.array(z.string()).optional().describe('Optional explicit domain allowlist when cross-domain is enabled'),
+    regex: z.string().optional().describe('Optional regex pattern to extract snippets from crawled text'),
+    regexFlags: z.string().optional().describe('Regex flags (default: gi)'),
+    search: z.string().optional().describe('Optional substring search applied before regex/line filtering'),
+    startLine: z.number().int().min(1).optional().describe('1-based inclusive start line'),
+    endLine: z.number().int().min(1).optional().describe('1-based inclusive end line'),
+    maxLines: z.number().int().min(1).max(3000).optional().describe('Maximum number of lines returned'),
+    maxChars: z.number().int().min(256).max(100000).optional().describe('Maximum characters returned'),
+    maxChunks: z.number().int().min(1).max(HTTP_MAX_CHUNKS).optional().describe('Maximum chunks returned'),
+    contextChars: z.number().int().min(10).max(1000).optional().describe('Context window around regex matches'),
+  }),
+  async execute(params) {
+    const {
+      url,
+      crawlEnabled = false,
+      maxDepth = 1,
+      maxPages = 10,
+      timeoutMsPerPage = HTTP_DEFAULT_TIMEOUT_MS,
+      allowCrossDomain = false,
+      allowedDomains = [],
+      ...filterOptions
+    } = params as {
+      url: string;
+      crawlEnabled?: boolean;
+      maxDepth?: number;
+      maxPages?: number;
+      timeoutMsPerPage?: number;
+      allowCrossDomain?: boolean;
+      allowedDomains?: string[];
+    } & HttpFilterOptions;
+
+    if (!crawlEnabled) {
+      return {
+        url,
+        crawled: false,
+        message: 'Crawling is disabled. Set crawlEnabled=true to start crawling.',
+        pages: [],
+        visitedCount: 0,
+        chunks: [],
+      };
+    }
+
+    const crawlResult = await runHttpCrawl(url, {
+      maxDepth,
+      maxPages,
+      timeoutMsPerPage,
+      allowCrossDomain,
+      allowedDomains,
+      filterOptions,
+    });
+
+    const cappedMaxChunks = clampNumber((filterOptions.maxChunks ?? HTTP_DEFAULT_MAX_CHUNKS), 1, HTTP_MAX_CHUNKS);
+    const finalChunks = crawlResult.allChunks.slice(0, cappedMaxChunks);
+
+    return {
+      url,
+      crawled: true,
+      maxDepth,
+      maxPages,
+      visitedCount: crawlResult.visitedCount,
+      pageCount: crawlResult.pages.length,
+      chunks: finalChunks,
+      pages: crawlResult.pages,
+      truncated: crawlResult.allChunks.length > finalChunks.length,
+      filtersApplied: applyHttpTextFilters('noop', filterOptions).filtersApplied,
+    };
+  },
+};
+
+async function runHttpCrawl(
+  rootUrl: string,
+  options: {
+    maxDepth: number;
+    maxPages: number;
+    timeoutMsPerPage: number;
+    allowCrossDomain: boolean;
+    allowedDomains: string[];
+    filterOptions: HttpFilterOptions;
+  },
+): Promise<{
+  visitedCount: number;
+  pages: Array<{
+    url: string;
+    status?: number;
+    ok?: boolean;
+    contentType?: string;
+    error?: string;
+    chunkCount: number;
+    linkCount: number;
+  }>;
+  allChunks: string[];
+}> {
+  const start = new URL(rootUrl);
+  const allowedHosts = new Set(
+    [start.hostname, ...options.allowedDomains.map((d) => d.trim()).filter(Boolean)]
+      .map((domain) => domain.toLowerCase()),
+  );
+
+  const queue: Array<{ href: string; depth: number }> = [{ href: start.toString(), depth: 0 }];
+  const visited = new Set<string>();
+  const pages: Array<{
+    url: string;
+    status?: number;
+    ok?: boolean;
+    contentType?: string;
+    error?: string;
+    chunkCount: number;
+    linkCount: number;
+  }> = [];
+  const allChunks: string[] = [];
+
+  while (queue.length > 0 && visited.size < options.maxPages) {
+    const current = queue.shift()!;
+    if (visited.has(current.href)) continue;
+    visited.add(current.href);
+
+    const crawled = await crawlSingleHttpPage(current.href, options.timeoutMsPerPage, options.filterOptions);
+    pages.push(crawled.page);
+    allChunks.push(...crawled.pageChunks);
+
+    if (!crawled.links || current.depth >= options.maxDepth) continue;
+    enqueueCrawlLinks(queue, visited, crawled.links, current.depth + 1, {
+      rootHost: start.hostname.toLowerCase(),
+      allowCrossDomain: options.allowCrossDomain,
+      allowedHosts,
+      maxPages: options.maxPages,
+    });
+  }
+
+  return {
+    visitedCount: visited.size,
+    pages,
+    allChunks,
+  };
+}
+
+async function crawlSingleHttpPage(
+  href: string,
+  timeoutMsPerPage: number,
+  filterOptions: HttpFilterOptions,
+): Promise<{
+  page: {
+    url: string;
+    status?: number;
+    ok?: boolean;
+    contentType?: string;
+    error?: string;
+    chunkCount: number;
+    linkCount: number;
+  };
+  pageChunks: string[];
+  links?: string[];
+}> {
+  try {
+    const fetched = await fetchUrlText(href, clampNumber(timeoutMsPerPage, 500, HTTP_MAX_TIMEOUT_MS));
+    const prepared = applyHttpTextFilters(fetched.bodyText, filterOptions);
+    const pageChunks = prepared.chunks.slice(0, HTTP_DEFAULT_MAX_CHUNKS);
+    const links = fetched.rawHtml ? extractLinksFromHtml(fetched.rawHtml, fetched.finalUrl) : [];
+    return {
+      page: {
+        url: fetched.finalUrl,
+        status: fetched.status,
+        ok: fetched.ok,
+        contentType: fetched.contentType,
+        chunkCount: pageChunks.length,
+        linkCount: links.length,
+      },
+      pageChunks,
+      links,
+    };
+  } catch (error) {
+    return {
+      page: {
+        url: href,
+        error: error instanceof Error ? error.message : String(error),
+        chunkCount: 0,
+        linkCount: 0,
+      },
+      pageChunks: [],
+    };
+  }
+}
+
+function enqueueCrawlLinks(
+  queue: Array<{ href: string; depth: number }>,
+  visited: Set<string>,
+  links: string[],
+  nextDepth: number,
+  options: {
+    rootHost: string;
+    allowCrossDomain: boolean;
+    allowedHosts: Set<string>;
+    maxPages: number;
+  },
+): void {
+  for (const link of links) {
+    if (visited.has(link)) continue;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(link);
+    } catch {
+      continue;
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    const sameDomain = host === options.rootHost;
+    if (!sameDomain && !options.allowCrossDomain) continue;
+    if (!sameDomain && options.allowCrossDomain && !options.allowedHosts.has(host)) continue;
+
+    queue.push({ href: parsed.toString(), depth: nextDepth });
+    if ((visited.size + queue.length) >= options.maxPages) break;
+  }
+}
+
+// ============================================================================
 // Tool Registry
 // ============================================================================
 
 export const CORE_TOOLS: Record<string, AgentTool> = {
-  read_file: readFileTool,
-  file_search: fileSearchTool,
-  write_file: writeFileTool,
-  fs_read_file: fsReadFileTool,
+  fs_read: fsReadFileTool,
   fs_read_lines: fsReadLinesTool,
   fs_write_file: fsWriteFileTool,
-  fs_create_file: fsCreateFileTool,
+  fs_create: fsCreateFileTool,
   fs_delete_path: fsDeletePathTool,
   fs_mkdir: fsMkdirTool,
   fs_exists: fsExistsTool,
@@ -2188,29 +2640,27 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   fs_tree: fsTreeTool,
   fs_search_content: fsSearchContentTool,
   fs_search_metadata: fsSearchMetadataTool,
-  who_has_access: whoHasAccessTool,
-  do_i_have_access: doIHaveAccessTool,
-  semantic_search: semanticSearchTool,
-  get_errors: getErrorsTool,
-  register_cli_tool: registerCliTool,
-  update_employee_llm: updateEmployeeLlmTool,
-  run_cli_tool: runCliTool,
-  delegate_to_agent: delegateToAgentTool,
-  ask_human: askHumanTool,
-  ask_question: askQuestionTool,
+  fs_who_can: whoHasAccessTool,
+  tool_can_i: doIHaveAccessTool,
+  search_semantic: semanticSearchTool,
+  tool_get_errors: getErrorsTool,
+  tool_register_cli: registerCliTool,
+  hr_update_llm: updateEmployeeLlmTool,
+  tool_run: runCliTool,
+  com_delegate: delegateToAgentTool,
   find_symbol: findSymbolTool,
   find_references: findReferencesTool,
-  find_pattern: findPatternTool,
-  grep_code: grepCodeTool,
+  search_grep: grepCodeTool,
+  http_fetch: httpFetchTool,
+  http_crawl: httpCrawlTool,
   analyze_complexity: analyzeComplexityTool,
-  apply_code_edit: applyCodeEditTool,
+  analyze_performance: assessPerformanceTool,
+  fs_apply_patch: applyCodeEditTool,
 };
 
 export const HR_TOOLS: Record<string, AgentTool> = {
-  create_agent: createAgentTool,
-  archive_agent: archiveAgentTool,
-  assess_performance: assessPerformanceTool,
-  add_picture: addPictureTool,
+  hr_archive: archiveAgentTool,
+  hr_avatar: addPictureTool,
 };
 
 export const ALL_TOOLS: Record<string, AgentTool> = {

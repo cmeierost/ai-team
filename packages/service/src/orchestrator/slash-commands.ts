@@ -93,12 +93,28 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       description: 'List all team members',
       llmCallable: true,
       execute: async (_args, ctx) => {
-        const agents = ctx.agentManager.getAllAgents();
-        if (agents.length === 0) { write(ctx, 'No agents found.'); return; }
+        const result = await ctx.toolManager.execute(
+          ctx.agent,
+          'team_list',
+          {},
+          { workspaceRoot: ctx.workspaceRoot },
+        );
+
+        if (!result.ok) {
+          write(ctx, `Unable to list team members: ${result.error ?? 'unknown error'}`);
+          return;
+        }
+
+        const payload = result.result as {
+          members?: Array<{ agentId: string; agentName: string; agentRole: string }>;
+        };
+        const members = payload.members ?? [];
+        if (members.length === 0) { write(ctx, 'No agents found.'); return; }
+
         write(ctx, '\nTeam members:');
-        for (const a of agents) {
-          const marker = a.id === ctx.agent.id ? '  ← you are here' : '';
-          write(ctx, `  ${a.name} (${a.role}) [${a.id}]${marker}`);
+        for (const member of members) {
+          const marker = member.agentId === ctx.agent.id ? '  ← you are here' : '';
+          write(ctx, `  ${member.agentName} (${member.agentRole}) [${member.agentId}]${marker}`);
         }
         write(ctx, '');
       },
@@ -332,6 +348,57 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
         }
       },
     },
+
+    {
+      key: 'tool',
+      usage: '/tool <tool-name> [json-args]',
+      description: 'Run a direct tool call and print the result',
+      llmCallable: false,
+      execute: async (args, ctx) => {
+        const trimmed = args.trim();
+        if (!trimmed) {
+          write(ctx, 'Usage: /tool <tool-name> [json-args]');
+          return;
+        }
+
+        const firstSpace = trimmed.indexOf(' ');
+        const toolName = firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace).trim();
+        const rawJson = firstSpace === -1 ? '' : trimmed.slice(firstSpace + 1).trim();
+
+        if (!toolName) {
+          write(ctx, 'Usage: /tool <tool-name> [json-args]');
+          return;
+        }
+
+        let parsedArgs: unknown = {};
+        if (rawJson) {
+          try {
+            parsedArgs = JSON.parse(rawJson);
+          } catch (error) {
+            write(ctx, `Invalid JSON args: ${error instanceof Error ? error.message : String(error)}`);
+            return;
+          }
+        }
+
+        const result = await ctx.toolManager.execute(
+          ctx.agent,
+          toolName,
+          parsedArgs,
+          { workspaceRoot: ctx.workspaceRoot },
+        );
+
+        if (!result.ok) {
+          write(ctx, `Tool failed (${toolName}): ${result.error ?? 'unknown error'}`);
+          return;
+        }
+
+        const pretty = typeof result.result === 'string'
+          ? result.result
+          : JSON.stringify(result.result, null, 2);
+
+        write(ctx, `\nTool result (${toolName}):\n${pretty}`);
+      },
+    },
   ];
 }
 
@@ -354,8 +421,6 @@ export function buildChatCommandRegistry(): ChatCommandRegistryEntry[] {
   }));
   // /back is handled by the CLI chat loop (needs navStack), not the orchestrator
   entries.push({ key: 'back', usage: '/back', description: 'Return to previous agent in handoff chain', llmCallable: false });
-  // #tool is a pseudo-command (# prefix), documented here for completeness
-  entries.push({ key: 'tool', usage: '#<tool> <json>', description: 'Run a direct tool call', llmCallable: false });
   return entries;
 }
 

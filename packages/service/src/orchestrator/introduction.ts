@@ -1,162 +1,130 @@
 /**
- * Introduction module — generates agent greetings for new chat sessions.
+ * Introduction module — deterministic agent greetings for new chat sessions.
  * Extracted from commands/chat.ts to keep the command thin.
  */
 
-import type { Agent, AgentManager, ChatMessage, Skill, ChatCompletionMessageParam } from '@ai-team/core';
-import { LlmService, withAbortSignal } from '@ai-team/core';
+import {
+  parseMarkdownSections,
+  type Agent,
+  type AgentManager,
+  type ChatMessage,
+  type Skill,
+  type LlmService,
+} from '@ai-team/core';
 import type { SessionManager } from '../session-manager.js';
 import type { ChatRuntimeHooks } from '../contracts.js';
-import { extractStreamDeltaText, emitLog } from './stream-events.js';
 
-const INTRODUCTION_TIMEOUT_MS = 12_000;
+const DEFAULT_GREETING_TEMPLATE = 'Hi {{developerName}}, I\'m {{agentName}} ({{agentRole}}). How can I help today?';
 
-async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<never>((_, rej) => {
-    timer = setTimeout(() => rej(new Error(message)), ms);
+function resolveGreetingTemplate(agent: Agent): string {
+  const markdown = agent.markdown?.trim();
+  if (!markdown) return DEFAULT_GREETING_TEMPLATE;
+
+  const sections = parseMarkdownSections(markdown);
+  const greetingSection = sections.find((section) => {
+    const heading = section.heading.trim().toLowerCase();
+    return heading === 'greeting'
+      || heading === 'greeting template'
+      || heading === 'welcome';
   });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    clearTimeout(timer);
+
+  if (greetingSection?.content?.trim()) {
+    return greetingSection.content.trim();
   }
+
+  return DEFAULT_GREETING_TEMPLATE;
+}
+
+function renderGreetingTemplate(
+  template: string,
+  agent: Agent,
+  developerName: string | undefined,
+): string {
+  const safeDeveloper = developerName?.trim() || 'there';
+
+  return template
+    .replaceAll(/\{\{\s*developerName\s*\}\}/gi, safeDeveloper)
+    .replaceAll(/\{\{\s*developer\s*\}\}/gi, safeDeveloper)
+    .replaceAll(/\{\{\s*agentName\s*\}\}/gi, agent.name)
+    .replaceAll(/\{\{\s*agentRole\s*\}\}/gi, agent.role)
+    .trim();
 }
 
 /**
- * Ask the LLM to introduce itself to the developer on session open.
- * Returns the full introduction text (may be empty on error).
+ * Deterministically render an introduction from the agent markdown greeting template.
+ * Supports placeholders like {{developerName}}, {{agentName}}, and {{agentRole}}.
  */
 export async function generateIntroduction(
-  llm: LlmService,
-  agentManager: AgentManager,
+  _llm: LlmService,
+  _agentManager: AgentManager,
   agent: Agent,
-  skill: Skill | undefined,
+  _skill: Skill | undefined,
   developerName: string | undefined,
-  signal?: AbortSignal,
-  onChunk?: (delta: string) => void,
+  _signal?: AbortSignal,
+  _onChunk?: (delta: string) => void,
 ): Promise<string> {
-  const nameRef = developerName ? `, ${developerName}` : '';
-  const prompt =
-    `The developer${nameRef} just opened a chat with you. ` +
-    'Introduce yourself briefly: say hi, state your name and role, and ask what you can help with. ' +
-    '1–2 sentences max. Be warm but concise.';
-
-  const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: prompt }];
-  const teamRoster = agentManager.getAllAgents();
-
-  // initializeForChat returns provider-specific options; optional — OK to call pre-stream
-  const llmOptions = await llm.initializeForChat(agent, skill);
-  const stream = await llm.streamChat(agent, messages, llmOptions, skill, teamRoster);
-
-  const iterator = stream[Symbol.asyncIterator]();
-  let fullText = '';
-
-  try {
-    while (true) {
-      const next = await withAbortSignal(
-        iterator.next(),
-        signal,
-        'Chat introduction aborted by user.',
-      );
-      if (next.done) break;
-      const delta = extractStreamDeltaText(next.value);
-      if (delta) {
-        onChunk?.(delta);
-        fullText += delta;
-      }
-    }
-  } finally {
-    await iterator.return?.();
-  }
-
-  return fullText.trim();
+  const template = resolveGreetingTemplate(agent);
+  return renderGreetingTemplate(template, agent, developerName);
 }
 
 /**
  * Best-effort introduction: prints the agent's greeting to stdout and appends it to history.
- * If the LLM is slow or unavailable, issues a warning and returns without introducing.
+ * This path is deterministic and does not call the LLM.
  */
-export async function tryIntroduceUser(
-  llm: LlmService,
-  agentManager: AgentManager,
-  agent: Agent,
-  history: ChatMessage[],
-  skill: Skill | undefined,
-  developerName: string | undefined,
-  sessionManager: SessionManager,
-  sessionId: string,
-  hooks: ChatRuntimeHooks,
-): Promise<void> {
-  const isAbort = (e: unknown) =>
-    /aborted|abort/i.test(e instanceof Error ? e.message : String(e));
+export interface TryIntroduceUserRequest {
+  llm: LlmService;
+  agentManager: AgentManager;
+  agent: Agent;
+  history: ChatMessage[];
+  skill: Skill | undefined;
+  developerName: string | undefined;
+  sessionManager: SessionManager;
+  sessionId: string;
+  hooks: ChatRuntimeHooks;
+}
 
-  try {
-    await withAbortSignal(
-      withTimeout(
-        doIntroduce(),
-        INTRODUCTION_TIMEOUT_MS,
-        `Introduction timed out after ${INTRODUCTION_TIMEOUT_MS / 1000}s.`,
-      ),
-      hooks.signal,
-      'Chat introduction aborted by user.',
-    );
-  } catch (err) {
-    if (isAbort(err)) throw err;
-    emitLog(hooks, 'warn', 'Introduction skipped. You can start typing now.');
+export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promise<void> {
+  const {
+    llm,
+    agentManager,
+    agent,
+    history,
+    skill,
+    developerName,
+    sessionManager,
+    sessionId,
+    hooks,
+  } = request;
+
+  if (hooks.emit) {
+    hooks.emit({ kind: 'token', text: `\n${agent.name} (${agent.role}): ` });
+  } else {
+    process.stdout.write(`\n${agent.name} (${agent.role}): `);
   }
 
-  async function doIntroduce(): Promise<void> {
-    if (hooks.emit) {
-      hooks.emit({ kind: 'token', text: `\n${agent.name} (${agent.role}): ` });
-    } else {
-      process.stdout.write(`\n${agent.name} (${agent.role}): `);
-    }
+  const text = await generateIntroduction(
+    llm,
+    agentManager,
+    agent,
+    skill,
+    developerName,
+    hooks.signal,
+  );
 
-    let text: string;
-    try {
-      text = await generateIntroduction(
-        llm,
-        agentManager,
-        agent,
-        skill,
-        developerName,
-        hooks.signal,
-        delta => {
-          if (hooks.emit) {
-            hooks.emit({ kind: 'token', text: delta });
-          } else {
-            process.stdout.write(delta);
-          }
-        },
-      );
-    } catch (err) {
-      if (hooks.emit) {
-        hooks.emit({ kind: 'token', text: '\n\n' });
-      } else {
-        process.stdout.write('\n\n');
-      }
-      if (isAbort(err)) throw err;
-      emitLog(hooks, 'error', `LLM unavailable: ${err instanceof Error ? err.message : String(err)}`);
-      emitLog(hooks, 'info', 'Introduction skipped. You can continue once the LLM is reachable.');
-      return;
-    }
-
-    if (hooks.emit) {
-      hooks.emit({ kind: 'token', text: '\n\n' });
-    } else {
-      process.stdout.write('\n\n');
-    }
-
-    const agentMsg: ChatMessage = {
-      timestamp: new Date().toISOString(),
-      from: agent.id,
-      to: 'human',
-      content: text,
-      importance: 'low',
-    };
-    await sessionManager.appendMessage(sessionId, agentMsg);
-    history.push(agentMsg);
-    await agentManager.recordInteraction(agent.id);
+  if (hooks.emit) {
+    hooks.emit({ kind: 'token', text: `${text}\n\n` });
+  } else {
+    process.stdout.write(`${text}\n\n`);
   }
+
+  const agentMsg: ChatMessage = {
+    timestamp: new Date().toISOString(),
+    from: agent.id,
+    to: 'human',
+    content: text,
+    importance: 'low',
+  };
+  await sessionManager.appendMessage(sessionId, agentMsg);
+  history.push(agentMsg);
+  await agentManager.recordInteraction(agent.id);
 }

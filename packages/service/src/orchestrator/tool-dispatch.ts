@@ -2,28 +2,29 @@
  * tool-dispatch.ts — single execution gate for all LLM tool calls.
  *
  * Responsibilities:
- *   1. Route ask_human / ask_question to question-io (bypass ToolManager).
- *   2. Ask the human for confirmation on write/destructive tools.
- *   3. Execute via ToolManager (permission check + execute).
- *   4. Detect structured results (HandoffRequest, HireResult, …) and surface
+ *   1. Ask the human for confirmation on write/destructive tools.
+ *   2. Execute via ToolManager (permission check + execute).
+ *   3. Detect structured results (HandoffRequest, HireResult, …) and surface
  *      them in the return value so the chat loop can act on them.
- *   5. Handle apply_code_edit proposal persistence inline.
- *   6. Emit lifecycle runtime events throughout.
+ *   4. Handle fs_apply_patch proposal persistence inline.
+ *   5. Emit lifecycle runtime events throughout.
  */
 
-import path from 'path';
-import { promises as fs } from 'fs';
+import path from 'node:path';
+import { promises as fs } from 'node:fs';
 import {
   isHandoffRequest,
   isHireResult,
   isFindCapableAgentResult,
   isToolCatalogResult,
+  isTeamListResult,
   type StructuredToolResult,
 } from '@ai-team/core';
 import { ProposalStore } from '../storage/proposal-store.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import { requestConfirm } from './question-io.js';
 import { emitEvent, emitToolEvent } from './stream-events.js';
+import type { ToolDenialEvent, ToolRuntimePayloadEvent } from '../contracts.js';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -41,24 +42,65 @@ export interface ToolCallResponse {
   isError: boolean;
   /** Set when the tool returned a typed orchestration result. */
   structured?: StructuredToolResult;
+  /** Set when tool execution was denied (user or policy) or failed. */
+  denial?: ToolDenial;
 }
 
-// ── Interactive question tool detection ───────────────────────────────────────
+export type ToolDenialKind = 'user-denied' | 'policy-denied' | 'execution-failed';
 
-const QUESTION_TOOL_NAMES = new Set(['ask_human', 'ask_question']);
+export interface ToolDenial {
+  kind: ToolDenialKind;
+  reasonCode: string;
+  message: string;
+  blockedPaths?: string[];
+  alternativeContexts?: Array<{ contextId: string; allowedPaths: string[] }>;
+  handoffRecommendation?: {
+    possible: boolean;
+    requiresUserApproval: true;
+    contexts: Array<{ contextId: string; allowedPaths: string[] }>;
+  };
+}
 
-function isQuestionTool(toolName: string): boolean {
-  return QUESTION_TOOL_NAMES.has(toolName);
+interface ToolHistoryIntent {
+  mode?: 'summary' | 'analysis';
+  regex?: string;
+  regexFlags?: string;
+  search?: string;
+  lineStart?: number;
+  lineEnd?: number;
+  firstLines?: number;
+  lastLines?: number;
+  maxChars?: number;
+}
+
+interface PreparedHistoryOutput {
+  output: string;
+  filtered: boolean;
+  label?: string;
+}
+
+function toToolDenialEvent(denial: ToolDenial): ToolDenialEvent {
+  return {
+    kind: denial.kind,
+    reasonCode: denial.reasonCode,
+    message: denial.message,
+    blockedPaths: denial.blockedPaths,
+    alternativeContexts: denial.alternativeContexts,
+    handoffRecommendation: denial.handoffRecommendation,
+  };
 }
 
 // Tools whose results never need human approval (read-only / info-only).
 const SILENT_TOOL_PREFIXES = ['find_', 'list_', 'read_', 'search_', 'get_'];
 const SILENT_TOOL_NAMES = new Set([
-  'handoff_to_agent',   // orchestration — already requires delegation permission
-  'hire_agent',         // requires manage-agents permission (checked by ToolManager)
-  'find_capable_agent',
-  'list_tools',
-  'fs_read_file',
+  'com_handoff',   // orchestration — already requires delegation permission
+  'hr_hire',       // requires manage-agents permission (checked by ToolManager)
+  'http_fetch',
+  'http_crawl',
+  'fs_who_should',
+  'tool_list',
+  'team_list',
+  'fs_read',
   'fs_read_lines',
   'fs_exists',
   'fs_info',
@@ -66,8 +108,6 @@ const SILENT_TOOL_NAMES = new Set([
   'fs_tree',
   'fs_search_content',
   'fs_search_metadata',
-  'ask_human',
-  'ask_question',
 ]);
 
 function requiresConfirmation(toolName: string): boolean {
@@ -88,49 +128,18 @@ export async function dispatchToolCall(
 
   emitEvent(ctx.hooks, { kind: 'tool', toolName, toolPhase: 'request', message: label });
 
-  // ── 1. Interactive question tools ─────────────────────────────────────────
-
-  if (isQuestionTool(toolName)) {
-    emitToolEvent(ctx.hooks, toolName, 'start', 'Asking developer question');
-    const execution = await executeQuestionTool(toolName, args, ctx);
-
-    await appendToolHistory(ctx, toolName, serialise(execution.ok ? execution.result : execution.error));
-
-    emitToolEvent(
-      ctx.hooks,
-      toolName,
-      execution.ok ? 'result' : 'error',
-      execution.ok ? 'Question answered' : (execution.error ?? 'Question tool failed'),
-    );
-
+  const deniedByUser = await requestExecutionApproval(toolName, label, ctx);
+  if (deniedByUser) {
     return {
       toolCallId,
       toolName,
-      result: execution.ok ? execution.result : execution.error,
-      isError: !execution.ok,
+      result: deniedByUser.message,
+      isError: false,
+      denial: deniedByUser,
     };
   }
 
-  // ── 2. Human confirmation for write/dangerous tools ───────────────────────
-
-  let approved = true;
-  if (requiresConfirmation(toolName)) {
-    approved = await requestConfirm(ctx.hooks, {
-      message: `Allow ${ctx.agent.name} to run ${label}?`,
-      default: false,
-    });
-
-    if (!approved) {
-      emitToolEvent(ctx.hooks, toolName, 'denied', 'Tool call denied by user');
-      const denied = 'Tool call denied by user.';
-      await appendToolHistory(ctx, toolName, denied);
-      return { toolCallId, toolName, result: denied, isError: false };
-    }
-  }
-
   emitToolEvent(ctx.hooks, toolName, 'start', 'Executing');
-
-  // ── 3. Execute via ToolManager ─────────────────────────────────────────────
 
   const execResult = await ctx.toolManager.execute(
     ctx.agent,
@@ -145,26 +154,36 @@ export async function dispatchToolCall(
 
   await appendToolHistory(ctx, toolName, outputText);
 
+  const denial = classifyToolDenial(execResult.ok, execResult.result, outputText);
+
+  const toolPhase = denial?.kind === 'policy-denied'
+    ? 'denied'
+    : (execResult.ok ? 'result' : 'error');
+
+  const toolEventMessage = denial?.message
+    ?? (execResult.ok ? formatToolResultPreview(outputText) : outputText);
+
+  const toolEventPayload = buildToolRuntimePayload(
+    toolName,
+    denial ? 'denied' : (execResult.ok ? 'result' : 'error'),
+    execResult.ok ? execResult.result : outputText,
+    denial,
+  );
+
   emitToolEvent(
     ctx.hooks,
     toolName,
-    execResult.ok ? 'result' : 'error',
-    execResult.ok ? 'Completed' : outputText,
+    toolPhase,
+    toolEventMessage,
+    denial ? toToolDenialEvent(denial) : undefined,
+    toolEventPayload,
   );
 
-  // ── 4. Detect structured results ──────────────────────────────────────────
+  const structured = execResult.ok ? asStructuredToolResult(execResult.result) : undefined;
 
-  let structured: StructuredToolResult | undefined;
-  if (execResult.ok) {
-    const r = execResult.result;
-    if (isHandoffRequest(r) || isHireResult(r) || isFindCapableAgentResult(r) || isToolCatalogResult(r)) {
-      structured = r;
-    }
-  }
+  // ── 5. fs_apply_patch proposal persistence ────────────────────────────────
 
-  // ── 5. apply_code_edit proposal persistence ───────────────────────────────
-
-  if (execResult.ok && toolName === 'apply_code_edit') {
+  if (execResult.ok && toolName === 'fs_apply_patch') {
     await persistCodeEditProposal(execResult.result, args, ctx).catch(err =>
       console.error('[tool-dispatch] Failed to persist code edit proposal:', err),
     );
@@ -176,7 +195,141 @@ export async function dispatchToolCall(
     result: execResult.ok ? execResult.result : outputText,
     isError: !execResult.ok,
     structured,
+    denial,
   };
+}
+
+async function requestExecutionApproval(
+  toolName: string,
+  label: string,
+  ctx: OrchestratorContext,
+): Promise<ToolDenial | undefined> {
+  if (!requiresConfirmation(toolName)) return undefined;
+
+  const approved = await requestConfirm(ctx.hooks, {
+    message: `Allow ${ctx.agent.name} to run ${label}?`,
+    default: false,
+  });
+  if (approved) return undefined;
+
+  const denied = 'Tool call denied by user.';
+  const denial: ToolDenial = {
+    kind: 'user-denied',
+    reasonCode: 'user_declined',
+    message: denied,
+  };
+  emitToolEvent(
+    ctx.hooks,
+    toolName,
+    'denied',
+    denied,
+    toToolDenialEvent(denial),
+    buildToolRuntimePayload(toolName, 'denied', denied, denial),
+  );
+  await appendToolHistory(ctx, toolName, denied);
+  return denial;
+}
+
+function buildToolRuntimePayload(
+  toolName: string,
+  outcome: ToolRuntimePayloadEvent['outcome'],
+  result: unknown,
+  denial?: ToolDenial,
+): ToolRuntimePayloadEvent {
+  return {
+    toolName,
+    outcome,
+    result,
+    denial: denial ? toToolDenialEvent(denial) : undefined,
+  };
+}
+
+function asStructuredToolResult(result: unknown): StructuredToolResult | undefined {
+  if (
+    isHandoffRequest(result)
+    || isHireResult(result)
+    || isFindCapableAgentResult(result)
+    || isToolCatalogResult(result)
+    || isTeamListResult(result)
+  ) {
+    return result;
+  }
+  return undefined;
+}
+
+function classifyToolDenial(ok: boolean, result: unknown, message: string): ToolDenial | undefined {
+  if (!ok) {
+    return {
+      kind: 'execution-failed',
+      reasonCode: 'tool_execution_failed',
+      message,
+    };
+  }
+
+  if (!result || typeof result !== 'object') return undefined;
+  const payload = result as Record<string, unknown>;
+
+  const status = typeof payload.status === 'string' ? payload.status : undefined;
+  const permissionDenied = status === 'permission_denied';
+  const access = payload.access;
+  const accessDenied = Boolean(
+    access &&
+      typeof access === 'object' &&
+      'allowed' in access &&
+      (access as Record<string, unknown>).allowed === false,
+  );
+
+  if (!permissionDenied && !accessDenied) return undefined;
+
+  const rawAltContexts = extractAlternativeContexts(payload);
+
+  return {
+    kind: 'policy-denied',
+    reasonCode: permissionDenied ? 'permission_denied' : 'access_denied',
+    message: typeof payload.message === 'string' ? payload.message : 'Tool call denied by policy.',
+    blockedPaths: extractBlockedPaths(payload),
+    alternativeContexts: rawAltContexts,
+    handoffRecommendation: {
+      possible: rawAltContexts.length > 0,
+      requiresUserApproval: true,
+      contexts: rawAltContexts,
+    },
+  };
+}
+
+function extractAlternativeContexts(payload: Record<string, unknown>): Array<{ contextId: string; allowedPaths: string[] }> {
+  const direct = payload.alternativeContexts;
+  const access = payload.access;
+  const accessAlternatives =
+    access && typeof access === 'object'
+      ? (access as Record<string, unknown>).alternativeContexts
+      : undefined;
+
+  const candidates = [direct, accessAlternatives];
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue;
+    return candidate
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map((item) => ({
+        contextId: typeof item.contextId === 'string' ? item.contextId : '',
+        allowedPaths: Array.isArray(item.allowedPaths)
+          ? item.allowedPaths.filter((p): p is string => typeof p === 'string')
+          : [],
+      }))
+      .filter((item) => item.contextId.length > 0);
+  }
+
+  return [];
+}
+
+function extractBlockedPaths(payload: Record<string, unknown>): string[] {
+  const blockedFiles = payload.blockedFiles;
+  if (!Array.isArray(blockedFiles)) return [];
+
+  return blockedFiles
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map((item) => (typeof item.filePath === 'string' ? item.filePath : ''))
+    .filter((p) => p.length > 0);
 }
 
 // ── History persistence ───────────────────────────────────────────────────────
@@ -186,15 +339,226 @@ async function appendToolHistory(
   toolName: string,
   output: string,
 ): Promise<void> {
+  const prepared = await prepareToolOutputForHistory(ctx, toolName, output);
+  const content = prepared.filtered && prepared.label
+    ? `[tool:${toolName}] [filtered:${prepared.label}] ${prepared.output}`
+    : `[tool:${toolName}] ${prepared.output}`;
+
   await ctx.sessionManager.appendMessage(ctx.sessionId, {
     from: ctx.agent.id,
-    content: `[tool:${toolName}] ${output}`,
+    content,
     timestamp: new Date().toISOString(),
     isHuman: false,
   });
 }
 
-// ── apply_code_edit proposal ──────────────────────────────────────────────────
+async function prepareToolOutputForHistory(
+  ctx: OrchestratorContext,
+  toolName: string,
+  output: string,
+): Promise<PreparedHistoryOutput> {
+  const latestUserText = getLatestHumanMessageText(ctx);
+  const intent = parseToolHistoryIntent(latestUserText);
+  const deterministic = applyDeterministicFilters(output, intent);
+
+  if (intent.mode) {
+    const llmTransformed = await applyLlmTransform(ctx, toolName, deterministic.output, intent.mode);
+    if (llmTransformed) {
+      return {
+        output: llmTransformed,
+        filtered: true,
+        label: `${intent.mode},${deterministic.label}`,
+      };
+    }
+  }
+
+  return {
+    output: deterministic.output,
+    filtered: deterministic.changed,
+    label: deterministic.label,
+  };
+}
+
+function getLatestHumanMessageText(ctx: OrchestratorContext): string {
+  for (let i = ctx.history.length - 1; i >= 0; i -= 1) {
+    const msg = ctx.history[i];
+    if (msg.isHuman || msg.from === 'human') {
+      return msg.content || '';
+    }
+  }
+  return '';
+}
+
+function parseToolHistoryIntent(input: string): ToolHistoryIntent {
+  const intent: ToolHistoryIntent = {};
+
+  if (/\b(summarize|summary|most important|key points|tldr|tl;dr)\b/i.test(input)) {
+    intent.mode = 'summary';
+  }
+  if (/\b(analyze|analysis|implications|risks|action items|next steps)\b/i.test(input)) {
+    intent.mode = 'analysis';
+  }
+
+  const lineRange = /lines?\s+(\d+)\s*[-:]\s*(\d+)/i.exec(input);
+  if (lineRange) {
+    intent.lineStart = Number(lineRange[1]);
+    intent.lineEnd = Number(lineRange[2]);
+  }
+
+  const firstLines = /first\s+(\d+)\s+lines?/i.exec(input);
+  if (firstLines) intent.firstLines = Number(firstLines[1]);
+
+  const lastLines = /last\s+(\d+)\s+lines?/i.exec(input);
+  if (lastLines) intent.lastLines = Number(lastLines[1]);
+
+  const maxChars = /(?:max|limit)\s+(\d+)\s*(?:chars?|characters?)/i.exec(input);
+  if (maxChars) intent.maxChars = Number(maxChars[1]);
+
+  const regexLiteral = /regex\s*[:=]\s*\/(.+)\/([gimsuy]*)/i.exec(input);
+  if (regexLiteral) {
+    intent.regex = regexLiteral[1];
+    intent.regexFlags = regexLiteral[2] || 'i';
+  } else {
+    const regexLoose = /regex\s*[:=]\s*([^\n]+)/i.exec(input);
+    if (regexLoose) {
+      intent.regex = regexLoose[1].trim();
+      intent.regexFlags = 'i';
+    }
+  }
+
+  const quotedSearch = /search(?:\s+for)?\s+"([^"]+)"/i.exec(input);
+  if (quotedSearch) {
+    intent.search = quotedSearch[1];
+  } else {
+    const bareSearch = /search(?:\s+for)?\s+([^\n]+)/i.exec(input);
+    if (bareSearch) intent.search = bareSearch[1].trim();
+  }
+
+  return intent;
+}
+
+function applyDeterministicFilters(output: string, intent: ToolHistoryIntent): { output: string; changed: boolean; label: string } {
+  const DEFAULT_MAX_LINES = 120;
+  const DEFAULT_MAX_CHARS = 6000;
+  const LARGE_OUTPUT_CHARS = 8000;
+  const LARGE_OUTPUT_LINES = 200;
+
+  let text = output.replaceAll(/\r\n?/g, '\n');
+  const labels: string[] = [];
+  const original = text;
+  const jsonDocument = isLikelyJsonDocument(original);
+
+  if (intent.search) {
+    const needle = intent.search.toLowerCase();
+    text = text
+      .split('\n')
+      .filter((line) => line.toLowerCase().includes(needle))
+      .join('\n');
+    labels.push('search');
+  }
+
+  if (intent.regex) {
+    try {
+      const re = new RegExp(intent.regex, intent.regexFlags || 'i');
+      text = text
+        .split('\n')
+        .filter((line) => re.test(line))
+        .join('\n');
+      labels.push('regex');
+    } catch {
+      labels.push('regex-invalid');
+    }
+  }
+
+  let lines = text.split('\n');
+  const lineFilter = applyLineWindow(lines, intent);
+  lines = lineFilter.lines;
+  if (lineFilter.label) labels.push(lineFilter.label);
+
+  const isLarge = lines.length > LARGE_OUTPUT_LINES || original.length > LARGE_OUTPUT_CHARS;
+  if (!jsonDocument && isLarge && lines.length > DEFAULT_MAX_LINES) {
+    lines = lines.slice(0, DEFAULT_MAX_LINES);
+    labels.push('auto-max-lines');
+  }
+
+  text = lines.join('\n');
+
+  const maxChars = intent.maxChars ?? (!jsonDocument && isLarge ? DEFAULT_MAX_CHARS : undefined);
+  if (maxChars !== undefined && text.length > maxChars) {
+    text = `${text.slice(0, maxChars)}\n…[history-truncated at ${maxChars} chars]`;
+    labels.push(intent.maxChars ? 'max-chars' : 'auto-max-chars');
+  }
+
+  const changed = text !== original;
+  return {
+    output: changed ? text : output,
+    changed,
+    label: labels.length > 0 ? labels.join(',') : 'none',
+  };
+}
+
+function applyLineWindow(lines: string[], intent: ToolHistoryIntent): { lines: string[]; label?: string } {
+  if (intent.lineStart !== undefined && intent.lineEnd !== undefined) {
+    const start = Math.max(1, Math.min(intent.lineStart, lines.length || 1));
+    const end = Math.max(start, Math.min(intent.lineEnd, lines.length || start));
+    return {
+      lines: lines.slice(start - 1, end),
+      label: 'line-range',
+    };
+  }
+
+  if (intent.firstLines !== undefined) {
+    return {
+      lines: lines.slice(0, Math.max(1, intent.firstLines)),
+      label: 'first-lines',
+    };
+  }
+
+  if (intent.lastLines !== undefined) {
+    return {
+      lines: lines.slice(Math.max(0, lines.length - Math.max(1, intent.lastLines))),
+      label: 'last-lines',
+    };
+  }
+
+  return { lines };
+}
+
+async function applyLlmTransform(
+  ctx: OrchestratorContext,
+  toolName: string,
+  input: string,
+  mode: 'summary' | 'analysis',
+): Promise<string | undefined> {
+  const llm = ctx.llmService as {
+    rawChat?: (
+      systemPrompt: string,
+      messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
+      options?: { maxTokens?: number; temperature?: number },
+    ) => Promise<string>;
+  };
+
+  if (typeof llm.rawChat !== 'function') return undefined;
+  if (!input.trim()) return input;
+
+  const clipped = input.length > 20_000 ? `${input.slice(0, 20_000)}\n...[input clipped]` : input;
+  const systemPrompt = mode === 'summary'
+    ? 'Summarize tool output faithfully and concisely. Keep key facts, counts, errors, and URLs. Do not invent details. Max 12 bullets.'
+    : 'Analyze tool output concisely. Return: key findings, risks/issues, and actionable next steps. Do not invent details.';
+
+  try {
+    const transformed = await llm.rawChat(
+      systemPrompt,
+      [{ role: 'user', content: `Tool: ${toolName}\n\n${clipped}` }],
+      { maxTokens: 450, temperature: 0.1 },
+    );
+    return transformed.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+// ── fs_apply_patch proposal ──────────────────────────────────────────────────
 
 async function persistCodeEditProposal(
   result: unknown,
@@ -243,129 +607,60 @@ async function persistCodeEditProposal(
   });
 }
 
-// ── Question tool routing ─────────────────────────────────────────────────────
-
-import { requestInput, requestSelect, requestPassword, requestChecklist } from './question-io.js';
-
-interface QuestionArgs {
-  question: string;
-  questionType?: 'input' | 'confirm' | 'select' | 'checklist' | 'password';
-  context?: string;
-  choices?: Array<{ name: string; value: string }>;
-  default?: unknown;
-  allowEmpty?: boolean;
-  mask?: string;
-}
-
-function parseQuestionArgs(args: unknown): { ok: true; value: QuestionArgs } | { ok: false; error: string } {
-  if (!args || typeof args !== 'object') {
-    return { ok: false, error: 'ask_human expects an object payload.' };
-  }
-  const raw = args as Record<string, unknown>;
-  const question = typeof raw.question === 'string' ? raw.question.trim() : '';
-  if (!question) return { ok: false, error: 'ask_human requires a non-empty question field.' };
-
-  const type = typeof raw.questionType === 'string' ? raw.questionType : 'input';
-  const validTypes = ['input', 'confirm', 'select', 'checklist', 'password'] as const;
-  if (!validTypes.includes(type as typeof validTypes[number])) {
-    return { ok: false, error: `Unsupported questionType '${type}'.` };
-  }
-
-  const choices = Array.isArray(raw.choices)
-    ? raw.choices
-        .filter(e => e && typeof e === 'object')
-        .map(e => {
-          const r = e as Record<string, unknown>;
-          return typeof r.name === 'string' && typeof r.value === 'string'
-            ? { name: r.name, value: r.value }
-            : undefined;
-        })
-        .filter((e): e is { name: string; value: string } => Boolean(e))
-    : undefined;
-
-  if ((type === 'select' || type === 'checklist') && (!choices || choices.length === 0)) {
-    return { ok: false, error: `questionType '${type}' requires a non-empty choices array.` };
-  }
-
-  return {
-    ok: true,
-    value: {
-      question,
-      questionType: type as QuestionArgs['questionType'],
-      context: typeof raw.context === 'string' ? raw.context : undefined,
-      choices,
-      default: raw.default,
-      allowEmpty: typeof raw.allowEmpty === 'boolean' ? raw.allowEmpty : undefined,
-      mask: typeof raw.mask === 'string' ? raw.mask : undefined,
-    },
-  };
-}
-
-async function executeQuestionTool(
-  toolName: string,
-  args: unknown,
-  ctx: OrchestratorContext,
-): Promise<{ ok: true; result: unknown } | { ok: false; error: string }> {
-  const parsed = parseQuestionArgs(args);
-  if (!parsed.ok) return { ok: false, error: parsed.error };
-
-  const { question, questionType = 'input', context, choices, default: def, allowEmpty, mask } = parsed.value;
-  const message = context ? `${question}\n\nContext: ${context}` : question;
-
-  try {
-    switch (questionType) {
-      case 'confirm': {
-        const answer = await requestConfirm(ctx.hooks, {
-          message,
-          default: typeof def === 'boolean' ? def : false,
-        });
-        return { ok: true, result: { question, questionType, answer } };
-      }
-      case 'select': {
-        const answer = await requestSelect(ctx.hooks, {
-          message,
-          choices: choices!,
-        });
-        return { ok: true, result: { question, questionType, answer } };
-      }
-      case 'checklist': {
-        const answer = await requestChecklist(ctx.hooks, {
-          message,
-          choices: choices!,
-        });
-        return { ok: true, result: { question, questionType, answer } };
-      }
-      case 'password': {
-        const answer = await requestPassword(ctx.hooks, {
-          message,
-          mask,
-        });
-        return { ok: true, result: { question, questionType, answer } };
-      }
-      default: {
-        const answer = await requestInput(ctx.hooks, {
-          message,
-          validate: allowEmpty
-            ? undefined
-            : (v: string) => v.trim().length > 0 || 'Please provide a non-empty value.',
-        });
-        return { ok: true, result: { question, questionType, answer } };
-      }
-    }
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function formatArgs(args: unknown): string {
-  if (!args || typeof args !== 'object') return String(args ?? '');
+  if (args == null) return '';
+  if (typeof args === 'string') return args;
+  if (typeof args === 'number' || typeof args === 'boolean' || typeof args === 'bigint') {
+    return `${args}`;
+  }
+  if (typeof args === 'symbol') {
+    return args.description ? `Symbol(${args.description})` : 'Symbol()';
+  }
+  if (typeof args === 'function') return '[function]';
   try {
     const s = JSON.stringify(args);
     return s.length > 120 ? s.slice(0, 120) + '…' : s;
   } catch {
     return '[unparseable]';
+  }
+}
+
+function formatToolResultPreview(outputText: string): string {
+  const trimmed = outputText.trim();
+  if (!trimmed) {
+    return 'Completed';
+  }
+
+  // Preserve complete JSON payloads in tool events so downstream consumers
+  // receive structurally intact data rather than clipped previews.
+  if (isLikelyJsonDocument(trimmed)) {
+    return trimmed;
+  }
+
+  const collapsed = outputText.replaceAll(/\s+/g, ' ').trim();
+
+  const MAX_LEN = 220;
+  if (collapsed.length <= MAX_LEN) {
+    return collapsed;
+  }
+
+  return `${collapsed.slice(0, MAX_LEN - 1)}…`;
+}
+
+function isLikelyJsonDocument(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (!((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']')))) {
+    return false;
+  }
+
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
   }
 }
 

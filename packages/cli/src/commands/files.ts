@@ -3,14 +3,13 @@
  */
 
 import chalk from 'chalk';
+import { confirm, input } from '@inquirer/prompts';
 import { type FileTreeNode, type AnnotatedFile, AgentManager, ContextManager, createAccessEngine, loadAgentAccessPatterns, loadTeamConfig } from '@ai-team/core';
 import {
   findWorkspaceRoot,
   getFileTreeCommand,
   allowPathCommand,
   disallowPathCommand,
-  agentAllowPathCommand,
-  agentDisallowPathCommand,
 } from '@ai-team/service';
 
 interface FilesOptions {
@@ -217,19 +216,45 @@ export interface AllowOptions {
   agent?: string;
   write?: boolean;
   mode?: string;
+  requestedBy?: string;
+  approvedByUser?: boolean;
 }
 
 export async function filesAllowCommand(filePath: string, options: AllowOptions = {}): Promise<void> {
   const workspaceRoot = findWorkspaceRoot();
   const mode = resolvePathMode(options);
   if (options.agent) {
-    const result = await agentAllowPathCommand(workspaceRoot, options.agent, filePath, mode);
+    const requestedBy = options.requestedBy?.trim() || await input({
+      message: 'Requested by (must be CEO/HR):',
+      validate: (value) => value.trim().length > 0 || 'requestedBy is required',
+    });
+
+    const approvedByUser = typeof options.approvedByUser === 'boolean'
+      ? options.approvedByUser
+      : await confirm({
+        message: `Approve access_allow by ${requestedBy} for agent '${options.agent}', mode '${mode}', path '${filePath}'?`,
+        default: false,
+      });
+
+    const governedModule = await import('@ai-team/service/src/commands/file-tree.js') as {
+      accessAllowCommand: (
+        workspaceRoot: string,
+        agentQuery: string,
+        filePath: string,
+        governance: { requestedBy: string; confirmUserApproval: (message: string) => Promise<boolean> },
+        mode: PathMode,
+      ) => Promise<{ agent: { id: string }; paths: string[] }>;
+    };
+    const result = await governedModule.accessAllowCommand(workspaceRoot, options.agent, filePath, {
+      requestedBy,
+      confirmUserApproval: async () => approvedByUser,
+    }, mode);
     console.log(chalk.green(`  ✔ ${filePath} added to agent ${result.agent.id} ${mode} permissions`));
     console.log(chalk.dim(`  ${mode}: ${result.paths.join(', ') || '(none)'}`));
-        const agentLabel = `${chalk.cyan(agent.name)} ${chalk.dim(`(${agent.id})`)}`;
-        console.log(chalk.bold(`\n  Agent: ${agentLabel}`));
+  } else {
+    const next = await allowPathCommand(workspaceRoot, filePath, mode);
     console.log(chalk.green(`  ✔ ${filePath} added to global ${mode} permissions`));
-    console.log(chalk.dim(`  .ai-team/config.json fileTree.${mode === 'write' ? 'writePaths' : 'readPaths'} (${next.length} path${next.length === 1 ? '' : 's'})`));
+    console.log(chalk.dim(`  .ai-team/config.json fileTree.${mode}Paths (${next.length} path${next.length === 1 ? '' : 's'})`));
   }
 }
 
@@ -237,7 +262,31 @@ export async function filesDisallowCommand(filePath: string, options: AllowOptio
   const workspaceRoot = findWorkspaceRoot();
   const mode = resolvePathMode(options);
   if (options.agent) {
-    const result = await agentDisallowPathCommand(workspaceRoot, options.agent, filePath, mode);
+    const requestedBy = options.requestedBy?.trim() || await input({
+      message: 'Requested by (must be CEO/HR):',
+      validate: (value) => value.trim().length > 0 || 'requestedBy is required',
+    });
+
+    const approvedByUser = typeof options.approvedByUser === 'boolean'
+      ? options.approvedByUser
+      : await confirm({
+        message: `Approve access_deny by ${requestedBy} for agent '${options.agent}', mode '${mode}', path '${filePath}'?`,
+        default: false,
+      });
+
+    const governedModule = await import('@ai-team/service/src/commands/file-tree.js') as {
+      accessDenyCommand: (
+        workspaceRoot: string,
+        agentQuery: string,
+        filePath: string,
+        governance: { requestedBy: string; confirmUserApproval: (message: string) => Promise<boolean> },
+        mode: PathMode,
+      ) => Promise<{ agent: { id: string }; paths: string[] }>;
+    };
+    const result = await governedModule.accessDenyCommand(workspaceRoot, options.agent, filePath, {
+      requestedBy,
+      confirmUserApproval: async () => approvedByUser,
+    }, mode);
     console.log(chalk.green(`  ✔ ${filePath} removed from agent ${result.agent.id} ${mode} permissions`));
     console.log(chalk.dim(`  ${mode}: ${result.paths.join(', ') || '(none)'}`));
   } else {

@@ -29,14 +29,11 @@ skills:
       Own AST analysis, structured editing, and code-aware backend intelligence
       features.
 tools:
-  - read_file
-  - file_search
-  - semantic_search
+  - search_semantic
   - fetch_webpage
   - vscode-websearchforcopilot_webSearch
   - aitk-get_ai_model_guidance
-  - apply_code_edit
-  - get_errors
+  - tool_get_errors
 availableFor:
   - provider-integration
   - backend-intelligence

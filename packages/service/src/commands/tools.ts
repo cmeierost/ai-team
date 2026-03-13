@@ -10,6 +10,12 @@ import {
 } from '../contracts.js';
 import { createContainer, TOKENS } from '../container/index.js';
 import { resolveAgentForOperation } from '../utils/agent-resolution.js';
+import {
+  type GovernanceRequest,
+  assertDefaultGovernancePolicy,
+  requireUserApproval,
+  resolveGovernanceActor,
+} from './governance.js';
 
 function buildCatalogEntry(toolManager: { toSchema: (toolName: string) => { parameters?: Record<string, unknown> } | undefined }, tool: AgentTool) {
   return {
@@ -114,6 +120,24 @@ export async function allowToolCommand(
   };
 }
 
+/**
+ * Alias for allowToolCommand using governance naming.
+ */
+export async function toolAllowCommand(
+  workspaceRoot: string,
+  options: UpdateAgentToolOptions,
+  governance: GovernanceRequest,
+): Promise<UpdateAgentToolResponse> {
+  const actor = await resolveGovernanceActor(workspaceRoot, governance.requestedBy, 'tool_allow');
+  assertDefaultGovernancePolicy(actor);
+  await requireUserApproval(
+    governance,
+    `Approve tool_allow by ${actor.name} (${actor.id}) for target agent '${options.agent}' and tool '${options.tool}'?`,
+  );
+
+  return allowToolCommand(workspaceRoot, options);
+}
+
 export async function disallowToolCommand(
   workspaceRoot: string,
   options: UpdateAgentToolOptions,
@@ -151,4 +175,22 @@ export async function disallowToolCommand(
     tools: updatedAgent.tools ?? nextTools,
     changed,
   };
+}
+
+/**
+ * Alias for disallowToolCommand using governance naming.
+ */
+export async function toolDenyCommand(
+  workspaceRoot: string,
+  options: UpdateAgentToolOptions,
+  governance: GovernanceRequest,
+): Promise<UpdateAgentToolResponse> {
+  const actor = await resolveGovernanceActor(workspaceRoot, governance.requestedBy, 'tool_deny');
+  assertDefaultGovernancePolicy(actor);
+  await requireUserApproval(
+    governance,
+    `Approve tool_deny by ${actor.name} (${actor.id}) for target agent '${options.agent}' and tool '${options.tool}'?`,
+  );
+
+  return disallowToolCommand(workspaceRoot, options);
 }

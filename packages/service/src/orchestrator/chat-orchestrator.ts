@@ -14,8 +14,10 @@
  */
 
 import { emitStatus, emitLog } from './stream-events.js';
+import { resolvePreLlmIntent } from '../tools/pre-llm-intents.js';
 import { sendTurn } from './send-turn.js';
 import { executeHandoff, tryNlForward } from './handoff.js';
+import { dispatchToolCall } from './tool-dispatch.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
 
@@ -35,8 +37,8 @@ export interface RunOptions {
 
 export class ChatOrchestrator {
   constructor(
-    private ctx: OrchestratorContext,
-    private plugins: ResolvedPlugins,
+    private readonly ctx: OrchestratorContext,
+    private readonly plugins: ResolvedPlugins,
   ) {}
 
   /**
@@ -49,23 +51,8 @@ export class ChatOrchestrator {
   async run(options: RunOptions): Promise<string> {
     const { message, maxHops = 10 } = options;
 
-    // ── Slash command intercept ─────────────────────────────────────────────
-    const slashResult = await this.trySlashCommand(message);
-    if (slashResult !== null) return slashResult;
-
-    // ── Natural-language forward detection ──────────────────────────────────
-    const nlResult = await tryNlForward(message, this.ctx);
-    if (nlResult !== null) {
-      if (nlResult === 'forwarded') {
-        // Handoff succeeded — auto-run a turn so the new agent reacts to
-        // the briefing and asks the developer how to proceed.
-        const autoMsg = `[Handoff received] You have just been handed this conversation. `
-          + `Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.`;
-        const result = await sendTurn(autoMsg, this.plugins, this.ctx, { skipPersist: true });
-        return result.text;
-      }
-      return nlResult;
-    }
+    const preTurnResult = await this.tryPreTurnInterceptors(message, options.contextFiles);
+    if (preTurnResult !== undefined) return preTurnResult;
 
     // ── Turn loop (handles handoff chains) ──────────────────────────────────
     let currentMessage = message;
@@ -132,6 +119,34 @@ export class ChatOrchestrator {
     return lastText;
   }
 
+  private async tryPreTurnInterceptors(
+    message: string,
+    contextFiles?: string[],
+  ): Promise<string | undefined> {
+    // ── Slash command intercept ─────────────────────────────────────────────
+    const slashResult = await this.trySlashCommand(message);
+    if (slashResult !== null) return slashResult;
+
+    // ── Deterministic regex tool intents (pre-LLM) ─────────────────────────
+    const regexIntentResult = await this.tryRegexToolIntent(message, contextFiles);
+    if (regexIntentResult !== null) return regexIntentResult;
+
+    // ── Natural-language forward detection ──────────────────────────────────
+    const nlResult = await tryNlForward(message, this.ctx);
+    if (nlResult === null) return undefined;
+
+    if (nlResult === 'forwarded') {
+      // Handoff succeeded — auto-run a turn so the new agent reacts to
+      // the briefing and asks the developer how to proceed.
+      const autoMsg = `[Handoff received] You have just been handed this conversation. `
+        + `Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.`;
+      await sendTurn(autoMsg, this.plugins, this.ctx, { skipPersist: true });
+      return '';
+    }
+
+    return nlResult;
+  }
+
   // ── Slash command handling ──────────────────────────────────────────────────
 
   /**
@@ -142,17 +157,54 @@ export class ChatOrchestrator {
     if (!trimmed.startsWith('/')) return null;
 
     const [rawKey, ...rest] = trimmed.slice(1).split(/\s+/);
-    const key = rawKey.toLowerCase();
+    const key = (rawKey ?? '').toLowerCase();
+    if (!key) {
+      emitLog(this.ctx.hooks, 'warn', 'Please enter a slash command name. Try /help.');
+      return '';
+    }
     const rawArgs = rest.join(' ');
 
     const command = this.plugins.slashCommands.find(
       c => c.key === key || c.aliases?.includes(key),
     );
 
-    if (!command) return null;
+    if (!command) {
+      emitLog(this.ctx.hooks, 'warn', `Unknown command: /${key}. Try /help.`);
+      return '';
+    }
 
     await command.execute(rawArgs, this.ctx);
     return '';   // Slash commands handle their own output via hooks / stdout.
+  }
+
+  /**
+   * Deterministic tool intent layer checked before LLM turn execution.
+   *
+   * IMPORTANT: tool execution is routed through dispatchToolCall(), which
+   * preserves policy enforcement and dangerous-tool confirmation prompts.
+   */
+  private async tryRegexToolIntent(message: string, contextFiles?: string[]): Promise<string | null> {
+    const intent = resolvePreLlmIntent(message);
+    if (!intent) return null;
+
+    await this.executeRegexToolIntent(intent.toolName, intent.args, contextFiles);
+    return '';
+  }
+
+  private async executeRegexToolIntent(
+    toolName: string,
+    args: unknown,
+    contextFiles?: string[],
+  ): Promise<void> {
+    await dispatchToolCall(
+      {
+        toolCallId: `regex-intent-${Date.now()}`,
+        toolName,
+        args,
+      },
+      this.ctx,
+      contextFiles,
+    );
   }
 
 }

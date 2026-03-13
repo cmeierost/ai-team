@@ -1,11 +1,7 @@
 import type { AiTeamClient, ChatOptions } from '@ai-team/api-client';
 import type {
   MediatorContext,
-  QuestionChecklistRequest,
   QuestionConfirmRequest,
-  QuestionInputRequest,
-  QuestionPasswordRequest,
-  QuestionSelectRequest,
 } from '@ai-team/api-client';
 import { generateAgentColor, parseHslHue } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/ide-interface';
@@ -71,26 +67,9 @@ async function askLine(message: string, signal?: AbortSignal): Promise<string> {
 
 function createChatQuestionResponders(signal: AbortSignal): Pick<
   MediatorContext,
-  'questionInput' | 'questionConfirm' | 'questionSelect' | 'questionPassword' | 'questionChecklist'
+  'questionConfirm'
 > {
   return {
-    questionInput: async (request: QuestionInputRequest) => {
-      while (true) {
-        const value = await askLine(request.message, signal);
-        if (!request.validate) {
-          return value;
-        }
-
-        const validation = await request.validate(value);
-        if (validation === true || validation === undefined) {
-          return value;
-        }
-
-        if (typeof validation === 'string' && validation.trim().length > 0) {
-          process.stderr.write(`${validation}\n`);
-        }
-      }
-    },
     questionConfirm: async (request: QuestionConfirmRequest) => {
       const defaultValue = request.default ?? false;
       const suffix = defaultValue ? '[Y/n]' : '[y/N]';
@@ -107,51 +86,6 @@ function createChatQuestionResponders(signal: AbortSignal): Pick<
           return false;
         }
         process.stderr.write('Please answer yes or no.\n');
-      }
-    },
-    questionSelect: async (request: QuestionSelectRequest) => {
-      process.stdout.write(`${request.message}\n`);
-      request.choices.forEach((choice, index) => {
-        process.stdout.write(`  ${index + 1}) ${choice.name}\n`);
-      });
-
-      while (true) {
-        const answer = await askLine('Select a number:', signal);
-        const selectedIndex = Number.parseInt(answer, 10) - 1;
-        if (Number.isInteger(selectedIndex) && selectedIndex >= 0 && selectedIndex < request.choices.length) {
-          return request.choices[selectedIndex]!.value;
-        }
-        process.stderr.write('Invalid selection.\n');
-      }
-    },
-    questionPassword: async (request: QuestionPasswordRequest) => {
-      return askLine(request.message, signal);
-    },
-    questionChecklist: async (request: QuestionChecklistRequest) => {
-      process.stdout.write(`${request.message}\n`);
-      request.choices.forEach((choice, index) => {
-        process.stdout.write(`  ${index + 1}) ${choice.name}\n`);
-      });
-
-      while (true) {
-        const answer = await askLine('Select numbers separated by comma (or empty for none):', signal);
-        if (!answer) {
-          return [];
-        }
-
-        const indices = answer
-          .split(',')
-          .map(part => Number.parseInt(part.trim(), 10) - 1)
-          .filter(index => Number.isInteger(index));
-
-        const inRange = indices.every(index => index >= 0 && index < request.choices.length);
-        if (!inRange) {
-          process.stderr.write('Invalid checklist selection.\n');
-          continue;
-        }
-
-        const values = [...new Set(indices)].map(index => request.choices[index]!.value);
-        return values;
       }
     },
   };
@@ -173,7 +107,8 @@ function handleOneShotEvent(
 
   if (event.kind === 'tool') {
     const phase = event.toolPhase || 'event';
-    const suffix = event.message ? ' — ' + event.message : '';
+    const formatted = formatToolEventMessage(event as Record<string, unknown>);
+    const suffix = formatted ? ` — ${formatted}` : '';
     writeStderrLine(chalk.cyan(`[backend:tool:${phase}] ${event.toolName}${suffix}`));
     return;
   }
@@ -183,13 +118,102 @@ function handleOneShotEvent(
   }
 }
 
-function isEssentialInteractiveInfo(message: string): boolean {
-  const normalized = message.trim();
-  if (!normalized) {
-    return false;
+interface FileTreeNodeLike {
+  isDirectory?: boolean;
+  children?: FileTreeNodeLike[];
+}
+
+interface FileTreePayloadLike {
+  path?: string;
+  tree?: FileTreeNodeLike;
+}
+
+interface WhoShouldPayloadLike {
+  type?: string;
+  task?: string;
+  matches?: Array<{ agentId?: string; agentName?: string; agentRole?: string }>;
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function toPayloadRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object') {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value === 'string') {
+    return parseJsonObject(value);
+  }
+  return null;
+}
+
+function countTreeNodes(node?: FileTreeNodeLike): { files: number; directories: number } {
+  if (!node) return { files: 0, directories: 0 };
+  let files = node.isDirectory ? 0 : 1;
+  let directories = node.isDirectory ? 1 : 0;
+
+  for (const child of node.children ?? []) {
+    const nested = countTreeNodes(child);
+    files += nested.files;
+    directories += nested.directories;
   }
 
-  return /^(loading |validating |initializing |connecting to |connected to |chat with |switched to |type "\/help"|type "exit"|\(\d+ previous messages loaded\)|goodbye!|session: |new session started: )/i.test(normalized);
+  return { files, directories };
+}
+
+function formatToolEventMessage(event: Record<string, unknown>): string | undefined {
+  const toolName = typeof event.toolName === 'string' ? event.toolName : undefined;
+  const message = typeof event.message === 'string' ? event.message : undefined;
+  const toolResult = toPayloadRecord((event as { toolResult?: unknown }).toolResult);
+  const resultPayload = toolResult ? (toolResult as { result?: unknown }).result : undefined;
+  const payload = toPayloadRecord(resultPayload) ?? toPayloadRecord(message);
+
+  if (toolName === 'fs_tree') {
+    if (payload && 'tree' in payload) {
+      const fileTree = payload as FileTreePayloadLike;
+      const counts = countTreeNodes(fileTree.tree);
+      return `${fileTree.path ?? '.'} · ${counts.directories} dirs · ${counts.files} files`;
+    }
+  }
+
+  if (toolName === 'fs_who_should' && payload) {
+    const who = payload as WhoShouldPayloadLike;
+    const matches = Array.isArray(who.matches) ? who.matches : [];
+    const top = matches.slice(0, 3).map((m) => m.agentName || m.agentId || 'unknown').join(', ');
+    if (matches.length > 0) {
+      return `matches: ${matches.length}${top ? ` (${top})` : ''}`;
+    }
+  }
+
+  if (payload) {
+    return summarizeGenericJsonPayload(payload);
+  }
+
+  return message;
+}
+
+function summarizeGenericJsonPayload(payload: Record<string, unknown>): string {
+  if (Array.isArray(payload)) {
+    return `json array (${payload.length} items)`;
+  }
+
+  const entries = Object.entries(payload);
+  const keys = entries.map(([key]) => key);
+  const preview = keys.slice(0, 5).join(', ');
+
+  // Common shape: { entries: [...] }
+  const entriesField = payload.entries;
+  if (Array.isArray(entriesField)) {
+    return `json object keys: ${preview || 'none'} · entries: ${entriesField.length}`;
+  }
+
+  return `json object keys: ${preview || 'none'}`;
 }
 
 async function handleCodeEditProposal(
@@ -379,7 +403,8 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
 
       if (event.kind === 'tool') {
         const phase = event.toolPhase || 'event';
-        const suffix = event.message ? chalk.gray(` — ${event.message}`) : '';
+        const formatted = formatToolEventMessage(event as unknown as Record<string, unknown>);
+        const suffix = formatted ? chalk.gray(` — ${formatted}`) : '';
         writeStderrLine(`${chalk.cyan(`[backend:tool:${phase}]`)} ${chalk.white(event.toolName)}${suffix}`);
         continue;
       }
@@ -427,9 +452,7 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
         } else if (event.level === 'warn') {
           process.stderr.write(chalk.yellow(line));
         } else {
-          if (mediatorLoggerEnabled || options.oneShot || isEssentialInteractiveInfo(event.message)) {
-            streamOut.write(chalk.dim(line));
-          }
+          streamOut.write(chalk.dim(line));
         }
         continue;
       }

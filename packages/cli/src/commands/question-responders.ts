@@ -12,7 +12,37 @@ export function createQuestionResponders(): Pick<
   MediatorContext,
   'questionInput' | 'questionConfirm' | 'questionSelect' | 'questionPassword' | 'questionChecklist'
 > {
-  const normalizeSelectChoices = (rawChoices: unknown): Array<{ name: string; value: string }> => {
+  const readTrimmedString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+  const parseChoice = (item: unknown): { name: string; value: string; description?: string } | undefined => {
+    if (typeof item === 'string') {
+      const value = readTrimmedString(item);
+      return value ? { name: value, value } : undefined;
+    }
+
+    if (!item || typeof item !== 'object') {
+      return undefined;
+    }
+
+    const nameValue = readTrimmedString((item as { name?: unknown }).name);
+    const rawValue = readTrimmedString((item as { value?: unknown }).value);
+    const value = rawValue || nameValue;
+    const name = nameValue || value;
+    if (!name || !value) {
+      return undefined;
+    }
+
+    const description = readTrimmedString((item as { description?: unknown }).description);
+    const recommended = Boolean((item as { recommended?: unknown }).recommended);
+
+    return {
+      name: recommended ? `${name} ★` : name,
+      value,
+      description: description || undefined,
+    };
+  };
+
+  const normalizeSelectChoices = (rawChoices: unknown): Array<{ name: string; value: string; description?: string }> => {
     let source: unknown = rawChoices;
 
     if (typeof source === 'string') {
@@ -27,31 +57,9 @@ export function createQuestionResponders(): Pick<
       return [];
     }
 
-    const normalized: Array<{ name: string; value: string }> = [];
-    for (const item of source) {
-      if (typeof item === 'string') {
-        const value = item.trim();
-        if (value) {
-          normalized.push({ name: value, value });
-        }
-        continue;
-      }
-
-      if (!item || typeof item !== 'object') {
-        continue;
-      }
-
-      const nameValue = 'name' in item ? String((item as { name?: unknown }).name ?? '').trim() : '';
-      const rawValue = 'value' in item ? String((item as { value?: unknown }).value ?? '').trim() : '';
-      const value = rawValue || nameValue;
-      const name = nameValue || value;
-      if (!name || !value) {
-        continue;
-      }
-      normalized.push({ name, value });
-    }
-
-    return normalized;
+    return source
+      .map(parseChoice)
+      .filter((entry): entry is { name: string; value: string; description?: string } => Boolean(entry));
   };
 
   return {
@@ -82,12 +90,15 @@ export function createQuestionResponders(): Pick<
       if (choices.length === 0) {
         throw new Error('Select question has no valid choices.');
       }
+
+      const defaultValue = typeof request.default === 'string' ? request.default : undefined;
       const answer = await inquirer.prompt<{ value: string }>([
         {
           type: 'select',
           name: 'value',
           message: request.message,
           choices,
+          default: defaultValue,
         },
       ]);
       return answer.value;
@@ -104,12 +115,16 @@ export function createQuestionResponders(): Pick<
       return answer.value;
     },
     questionChecklist: async (request: QuestionChecklistRequest) => {
+      const defaultValues = Array.isArray(request.default)
+        ? request.default.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        : undefined;
       const answer = await inquirer.prompt<{ value: string[] }>([
         {
           type: 'checkbox',
           name: 'value',
           message: request.message,
           choices: request.choices,
+          default: defaultValues,
         },
       ]);
       return answer.value;

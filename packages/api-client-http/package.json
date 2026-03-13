@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@ai-team/core": "workspace:*",
+    "@ai-team/ide-interface": "workspace:*",
     "@ai-team/service": "workspace:*"
   },
   "devDependencies": {

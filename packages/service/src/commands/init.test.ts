@@ -11,11 +11,14 @@ const coreApi = vi.hoisted(() => ({
   resolveEffectiveLlmSettings: vi.fn(),
   saveTeamConfig: vi.fn(),
   saveEnvFile: vi.fn(),
+  saveAgentAccessPatterns: vi.fn(),
+  saveAgent: vi.fn(),
   loadAgent: vi.fn(),
   loadSkill: vi.fn(),
   testLlmConnection: vi.fn(),
   fetchGitHubModels: vi.fn(),
   loadEnvFile: vi.fn(),
+  buildAgentMarkdown: vi.fn(),
 }));
 
 const listApi = vi.hoisted(() => ({
@@ -95,6 +98,49 @@ describe('initCommand', () => {
     coreApi.loadTeamConfig.mockResolvedValue(undefined);
     coreApi.resolveEffectiveLlmSettings.mockReturnValue(undefined);
     coreApi.loadEnvFile.mockResolvedValue({});
+    coreApi.saveAgent.mockResolvedValue(undefined);
+    coreApi.saveAgentAccessPatterns.mockImplementation(async (
+      root: string,
+      agentId: string,
+      patterns: { read?: string[]; write?: string[] },
+    ) => {
+      const filePath = path.join(root, '.ai-team', 'agents', `${agentId}.access`);
+      const lines = [
+        '# Migrated from .agent.yml permissions',
+        '[read]',
+        ...(patterns.read ?? []),
+        '',
+        '[write]',
+        ...(patterns.write ?? []),
+        '',
+      ];
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, lines.join('\n'), 'utf-8');
+    });
+    coreApi.buildAgentMarkdown.mockImplementation(({ introduction = '', personalityProfile = [] }: {
+      introduction?: string;
+      personalityProfile?: string[];
+    }) => {
+      const profile = personalityProfile.length > 0
+        ? `\n## Personality Profile\n${personalityProfile.map(line => `- ${line}`).join('\n')}`
+        : '';
+      return `## Introduction\n${introduction}${profile}`;
+    });
+    coreApi.loadAgent.mockImplementation(async (filePath: string) => {
+      const id = path.basename(filePath).replace(/\.agent\.md$/, '');
+      return {
+        id,
+        name: id,
+        role: id,
+        type: 'executive',
+        contextLevel: 'organization',
+        filePath,
+        skillPath: path.join(workspaceRoot, '.ai-team', 'roles', `${id}.md`),
+        createdAt: new Date().toISOString(),
+        permissions: { read: ['**/*'], write: ['.ai-team/**/*'] },
+        avatar: { type: 'ai-generated' },
+      };
+    });
     listApi.listEmployeesCommand.mockResolvedValue([]);
     chatApi.chatCommand.mockResolvedValue(undefined);
   });
@@ -500,6 +546,56 @@ describe('initCommand', () => {
       expect(skillContent).toContain('name: agent-authoring');
       expect(skillContent).toContain('Use this skill when the task is to create or improve:');
       expect(skillContent).toContain('`.ai-team/agents/*.md`');
+    });
+
+    it('creates founding agent .access files during onboarding setup', async () => {
+      const questionConfirm = vi
+        .fn()
+        // Reuse existing LLM config
+        .mockResolvedValueOnce(true)
+        // Use guided onboarding mode
+        .mockResolvedValueOnce(true);
+
+      const questionSelect = vi
+        .fn()
+        // CEO name
+        .mockResolvedValueOnce('John Smith')
+        // HR name
+        .mockResolvedValueOnce('Emily Davis')
+        // Guided business mode
+        .mockResolvedValueOnce('greenfield');
+
+      const questionChecklist = vi
+        .fn()
+        // Guided business priorities
+        .mockResolvedValueOnce(['time-to-market', 'reliability'])
+        // Guided business constraints
+        .mockResolvedValueOnce(['small-team'])
+        // Guided must-have hiring roles
+        .mockResolvedValueOnce(['chief-architect']);
+
+      const questionInput = vi.fn().mockRejectedValue(new Error('abort-after-access-seed'));
+
+      await expect(initCommand(workspaceRoot, { force: true }, {
+        questionConfirm,
+        questionSelect,
+        questionChecklist,
+        questionInput,
+      })).rejects.toThrow('abort-after-access-seed');
+
+      const ceoAccessPath = path.join(workspaceRoot, '.ai-team', 'agents', 'john-smith.access');
+      const hrAccessPath = path.join(workspaceRoot, '.ai-team', 'agents', 'emily-davis.access');
+
+      const ceoAccess = await fs.readFile(ceoAccessPath, 'utf-8');
+      const hrAccess = await fs.readFile(hrAccessPath, 'utf-8');
+
+      expect(ceoAccess).toContain('[read]');
+      expect(ceoAccess).toContain('[write]');
+      expect(ceoAccess).toContain('.ai-team/**/*');
+
+      expect(hrAccess).toContain('[read]');
+      expect(hrAccess).toContain('[write]');
+      expect(hrAccess).toContain('.ai-team/skills-catalog/**/*');
     });
   });
 });

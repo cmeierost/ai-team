@@ -7,9 +7,11 @@ import {
   agentAllowPathCommand,
   agentDisallowPathCommand,
 } from '@ai-team/service';
+import { accessAllowCommand, accessDenyCommand } from '@ai-team/service/src/commands/file-tree.js';
 
 type PathMode = 'read' | 'write' | 'create' | 'delete';
 type PathMutationBody = { path?: string; mode?: PathMode };
+type GovernedPathMutationBody = PathMutationBody & { requestedBy?: string; approvedByUser?: boolean };
 
 /**
  * @openapi
@@ -317,6 +319,62 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
         return res.status(400).json({ error: '"mode" must be one of "read", "write", "create", "delete" when provided' });
       }
       const result = await agentDisallowPathCommand(workspaceRoot, req.params.agentId, filePath, resolvedMode);
+      res.json({ agent: result.agent, paths: result.paths, mode: resolvedMode });
+    } catch (error) {
+      const msg = String(error);
+      if (msg.includes('not found')) return res.status(404).json({ error: msg });
+      if (msg.includes('Ambiguous')) return res.status(409).json({ error: msg });
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  router.post('/agents/:agentId/access_allow', async (req: Request, res: Response) => {
+    try {
+      const { path: filePath, mode, requestedBy, approvedByUser } = req.body as GovernedPathMutationBody;
+      if (!filePath) return res.status(400).json({ error: '"path" is required' });
+      if (!requestedBy || typeof requestedBy !== 'string' || requestedBy.trim().length === 0) {
+        return res.status(400).json({ error: '"requestedBy" is required and must be a non-empty string' });
+      }
+      if (typeof approvedByUser !== 'boolean') {
+        return res.status(400).json({ error: '"approvedByUser" is required and must be a boolean' });
+      }
+      const resolvedMode = mode ?? 'read';
+      if (resolvedMode !== 'read' && resolvedMode !== 'write' && resolvedMode !== 'create' && resolvedMode !== 'delete') {
+        return res.status(400).json({ error: '"mode" must be one of "read", "write", "create", "delete" when provided' });
+      }
+
+      const result = await accessAllowCommand(workspaceRoot, req.params.agentId, filePath, {
+        requestedBy: requestedBy.trim(),
+        confirmUserApproval: async () => approvedByUser,
+      }, resolvedMode);
+      res.json({ agent: result.agent, paths: result.paths, mode: resolvedMode });
+    } catch (error) {
+      const msg = String(error);
+      if (msg.includes('not found')) return res.status(404).json({ error: msg });
+      if (msg.includes('Ambiguous')) return res.status(409).json({ error: msg });
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  router.post('/agents/:agentId/access_deny', async (req: Request, res: Response) => {
+    try {
+      const { path: filePath, mode, requestedBy, approvedByUser } = req.body as GovernedPathMutationBody;
+      if (!filePath) return res.status(400).json({ error: '"path" is required' });
+      if (!requestedBy || typeof requestedBy !== 'string' || requestedBy.trim().length === 0) {
+        return res.status(400).json({ error: '"requestedBy" is required and must be a non-empty string' });
+      }
+      if (typeof approvedByUser !== 'boolean') {
+        return res.status(400).json({ error: '"approvedByUser" is required and must be a boolean' });
+      }
+      const resolvedMode = mode ?? 'read';
+      if (resolvedMode !== 'read' && resolvedMode !== 'write' && resolvedMode !== 'create' && resolvedMode !== 'delete') {
+        return res.status(400).json({ error: '"mode" must be one of "read", "write", "create", "delete" when provided' });
+      }
+
+      const result = await accessDenyCommand(workspaceRoot, req.params.agentId, filePath, {
+        requestedBy: requestedBy.trim(),
+        confirmUserApproval: async () => approvedByUser,
+      }, resolvedMode);
       res.json({ agent: result.agent, paths: result.paths, mode: resolvedMode });
     } catch (error) {
       const msg = String(error);

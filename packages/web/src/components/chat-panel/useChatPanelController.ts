@@ -4,22 +4,43 @@ import { useMatch, useNavigate, useParams } from 'react-router-dom';
 import { API_BASE, useTeam } from '../../context/TeamContext';
 import { contextPanelQueryKeys } from '../../hooks/contextPanelQueryKeys';
 import type { ChatMessage, SessionActivatedTool } from '../../types';
+import type { IdeEditStatusResponse } from '@ai-team/api-client-http';
 import {
   buildSummaryMarkdown,
   extractSessionActivatedTools,
   findMatchingMessage,
   GRAPH_ROUTE,
   normalizeChatErrorMessage,
+  resolveRouteAgent,
   SESSION_ROUTE,
 } from './chatPanelUtils';
 import type {
   ChecklistQuestionRequest,
   ConfirmQuestionRequest,
+  FormQuestionRequest,
   InputQuestionRequest,
   PasswordQuestionRequest,
   PendingQuestion,
   SelectQuestionRequest,
 } from './chatPanelTypes';
+
+interface CodeEditProposalFile {
+  filePath: string;
+  oldContent?: string;
+  newContent?: string;
+}
+
+interface CodeEditProposalEvent {
+  kind: 'code_edit_proposal';
+  proposalId?: string;
+  agentName?: string;
+  description?: string;
+  files?: CodeEditProposalFile[];
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 interface UseChatPanelControllerResult {
   routeAgentId?: string;
@@ -42,6 +63,7 @@ interface UseChatPanelControllerResult {
   pendingConfirmAnswer: boolean;
   pendingSelectAnswer: string;
   pendingChecklistAnswer: string[];
+  pendingFormAnswer: Record<string, string>;
   isRecording: boolean;
   recognition: any;
   messagesEndRef: RefObject<HTMLDivElement | null>;
@@ -63,11 +85,13 @@ interface UseChatPanelControllerResult {
   handleToggleArchive: (index: number, currentlyArchived: boolean) => Promise<void>;
   handleDeleteMessage: (index: number) => Promise<void>;
   handleHandoffClick: (targetAgentId: string, existingSessionId?: string | null) => Promise<void>;
+  handleSuggestedToolHandoff: (targetAgentId: string, task?: string) => Promise<void>;
   setPendingInputAnswer: (value: string) => void;
   setPendingPasswordAnswer: (value: string) => void;
   setPendingConfirmAnswer: (value: boolean) => void;
   setPendingSelectAnswer: (value: string) => void;
   togglePendingChecklistValue: (choiceValue: string, checked: boolean) => void;
+  setPendingFormFieldValue: (fieldId: string, value: string) => void;
   handlePendingQuestionSubmit: (event: { preventDefault(): void }) => void;
   handleInputChange: (value: string) => void;
   handleInputKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -106,6 +130,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const [pendingConfirmAnswer, setPendingConfirmAnswer] = useState(false);
   const [pendingSelectAnswer, setPendingSelectAnswer] = useState('');
   const [pendingChecklistAnswer, setPendingChecklistAnswer] = useState<string[]>([]);
+  const [pendingFormAnswer, setPendingFormAnswer] = useState<Record<string, string>>({});
   const [scrollToHandoffId, setScrollToHandoffId] = useState<string | null>(null);
   const [isEphemeral, setIsEphemeral] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -292,6 +317,22 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
     let cancelled = false;
     const loadSession = async () => {
+      const resolvedRouteAgent = resolveRouteAgent(agents, agentId);
+      const targetAgentId = resolvedRouteAgent?.id ?? agentId;
+
+      setCurrentAgentId(targetAgentId);
+
+      if (resolvedRouteAgent && agentId !== targetAgentId) {
+        const canonicalPath = graphSessionId
+          ? `/chat/${targetAgentId}/session/${graphSessionId}/thread`
+          : urlSessionId
+            ? `/chat/${targetAgentId}/session/${urlSessionId}`
+            : `/chat/${targetAgentId}`;
+        navigate(canonicalPath, { replace: true });
+        setLoading(false);
+        return;
+      }
+
       if (urlSessionId && urlSessionId === skipNextSessionLoadRef.current) {
         skipNextSessionLoadRef.current = null;
         setLoading(false);
@@ -300,12 +341,12 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
       setLoading(true);
       try {
-        await loadPersistedSession(agentId, urlSessionId, cancelled);
+        await loadPersistedSession(targetAgentId, urlSessionId, cancelled);
       } catch (error) {
         console.error('Failed to load session:', error);
         if (!cancelled) {
-          resetSessionState(agentId);
-          await loadGreeting(agentId);
+          resetSessionState(targetAgentId);
+          await loadGreeting(targetAgentId);
         }
       } finally {
         if (!cancelled) {
@@ -318,7 +359,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     return () => {
       cancelled = true;
     };
-  }, [agentId, navigate, urlSessionId]);
+  }, [agentId, agents, graphSessionId, navigate, urlSessionId]);
 
   const isAtBottom = () => {
     const container = messagesContainerRef.current;
@@ -361,6 +402,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     setPendingConfirmAnswer(false);
     setPendingSelectAnswer('');
     setPendingChecklistAnswer([]);
+    setPendingFormAnswer({});
   };
 
   const rejectAndClearPendingQuestion = (reason: Error) => {
@@ -381,6 +423,12 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       setPendingSelectAnswer(question.choices[0]?.value ?? '');
     } else if (question.kind === 'checklist') {
       setPendingChecklistAnswer([]);
+    } else if (question.kind === 'form') {
+      const initialValues = question.fields.reduce<Record<string, string>>((accumulator, field) => {
+        accumulator[field.id] = field.default ?? '';
+        return accumulator;
+      }, {});
+      setPendingFormAnswer(initialValues);
     }
 
     setPendingQuestion(question);
@@ -393,12 +441,38 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const askInputQuestion = async (request: InputQuestionRequest): Promise<string> => beginPendingQuestion<string>({ kind: 'input', message: request.message });
   const askConfirmQuestion = async (request: ConfirmQuestionRequest): Promise<boolean> => beginPendingQuestion<boolean>({ kind: 'confirm', message: request.message, defaultValue: request.default ?? false });
-  const askSelectQuestion = async (request: SelectQuestionRequest): Promise<string> => beginPendingQuestion<string>({ kind: 'select', message: request.message, choices: request.choices });
+  const askSelectQuestion = async (request: SelectQuestionRequest): Promise<string> => beginPendingQuestion<string>({
+    kind: 'select',
+    message: request.message,
+    choices: request.choices,
+    allowOther: request.allowOther,
+    otherLabel: request.otherLabel,
+    otherPrompt: request.otherPrompt,
+  });
   const askPasswordQuestion = async (request: PasswordQuestionRequest): Promise<string> => beginPendingQuestion<string>({ kind: 'password', message: request.message });
-  const askChecklistQuestion = async (request: ChecklistQuestionRequest): Promise<string[]> => beginPendingQuestion<string[]>({ kind: 'checklist', message: request.message, choices: request.choices });
+  const askChecklistQuestion = async (request: ChecklistQuestionRequest): Promise<string[]> => beginPendingQuestion<string[]>({
+    kind: 'checklist',
+    message: request.message,
+    choices: request.choices,
+    allowOther: request.allowOther,
+    otherLabel: request.otherLabel,
+    otherPrompt: request.otherPrompt,
+  });
+  const askFormQuestion = async (request: FormQuestionRequest): Promise<Record<string, string>> => beginPendingQuestion<Record<string, string>>({
+    kind: 'form',
+    message: request.message,
+    fields: request.fields,
+  });
 
   const togglePendingChecklistValue = (choiceValue: string, checked: boolean) => {
     setPendingChecklistAnswer((previous) => (checked ? [...previous, choiceValue] : previous.filter((value) => value !== choiceValue)));
+  };
+
+  const setPendingFormFieldValue = (fieldId: string, value: string) => {
+    setPendingFormAnswer((previous) => ({
+      ...previous,
+      [fieldId]: value,
+    }));
   };
 
   const handlePendingQuestionSubmit = (event: { preventDefault(): void }) => {
@@ -417,6 +491,8 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       pendingQuestionResolveRef.current(pendingSelectAnswer);
     } else if (pendingQuestion.kind === 'checklist') {
       pendingQuestionResolveRef.current(pendingChecklistAnswer);
+    } else if (pendingQuestion.kind === 'form') {
+      pendingQuestionResolveRef.current(pendingFormAnswer);
     }
 
     clearPendingQuestion();
@@ -544,6 +620,81 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     return true;
   };
 
+  const forwardCodeEditProposalToIde = async (event: CodeEditProposalEvent) => {
+    const files = Array.isArray(event.files) ? event.files : [];
+    if (files.length === 0) {
+      return;
+    }
+
+    for (const [index, file] of files.entries()) {
+      if (!file?.filePath || typeof file.filePath !== 'string') {
+        continue;
+      }
+
+      try {
+        const openResult = await client.ideOpenDiff({
+          operationId: `${event.proposalId ?? 'code-edit'}:${index}`,
+          filePath: file.filePath,
+          originalContent: file.oldContent ?? '',
+          editType: 'modify',
+          agentName: event.agentName ?? currentAgentId ?? 'AI Team',
+          description: event.description ?? 'Code edit proposal',
+        });
+
+        await client.ideUpdateEdit({
+          sessionId: openResult.sessionId,
+          content: file.newContent ?? '',
+          isFinal: true,
+        });
+
+        void observeIdeLifecycleOutcome(openResult.sessionId, file.filePath, event.agentName ?? currentAgentId);
+      } catch (error) {
+        console.warn('Failed to forward code edit proposal to IDE lifecycle API:', error);
+      }
+    }
+  };
+
+  const observeIdeLifecycleOutcome = async (
+    sessionId: string,
+    filePath: string,
+    agentName?: string,
+  ) => {
+    const maxAttempts = 30;
+    const pollIntervalMs = 1000;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        const status: IdeEditStatusResponse = await client.ideEditStatus(sessionId);
+
+        const terminal = status.terminalState;
+        const isCommitted = status.state === 'committed' || terminal === 'committed';
+        const isReverted = status.state === 'reverted' || terminal === 'reverted';
+
+        if (!isCommitted && !isReverted) {
+          await delay(pollIntervalMs);
+          continue;
+        }
+
+        const actionLabel = isCommitted ? 'Kept' : 'Reverted';
+        const agentSuffix = agentName ? ` · ${agentName}` : '';
+
+        const toolEvent: SessionActivatedTool = {
+          toolName: isCommitted ? 'ide.keep' : 'ide.revert',
+          toolPhase: 'result',
+          message: `${actionLabel} ${filePath}${agentSuffix}`,
+          timestamp: status.lastUpdatedAt || new Date().toISOString(),
+        };
+
+        setActivatedTools((previous) => [...previous, toolEvent].slice(-40));
+        return;
+      } catch {
+        // Session may not be available yet; keep polling for a bounded interval.
+      }
+
+      await delay(pollIntervalMs);
+    }
+  };
+
   const consumeStream = async (stream: AsyncIterable<any>, activeSessionId: string | null) => {
     let accumulator = '';
     let handoffDetected = false;
@@ -561,11 +712,18 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         continue;
       }
 
+      if (event.kind === 'code_edit_proposal') {
+        void forwardCodeEditProposalToIde(event as CodeEditProposalEvent);
+        continue;
+      }
+
       if (event.kind === 'tool') {
         const toolEvent: SessionActivatedTool = {
           toolName: event.toolName,
           toolPhase: event.toolPhase,
           message: event.message,
+          toolResult: event.toolResult,
+          toolDenial: event.toolDenial,
           timestamp: event.timestamp || new Date().toISOString(),
         };
         setActivatedTools((previous) => [...previous, toolEvent].slice(-40));
@@ -580,12 +738,13 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     return { accumulator, handoffDetected };
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || sending) {
+  const handleSend = async (messageOverride?: string) => {
+    const composedMessage = messageOverride ?? input;
+    if (!composedMessage.trim() || sending) {
       return;
     }
 
-    const messageContent = input.trim();
+    const messageContent = composedMessage.trim();
     const pendingIntroductionContent = isEphemeral ? messages[0]?.content : undefined;
     const userMessage: ChatMessage = {
       from: 'human',
@@ -594,9 +753,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     };
 
     setMessages((previous) => [...previous, userMessage]);
-    setInput('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+    if (messageOverride === undefined) {
+      setInput('');
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
     }
     setIsUserScrolledUp(false);
     setSending(true);
@@ -638,6 +799,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         questionSelect: askSelectQuestion,
         questionPassword: askPasswordQuestion,
         questionChecklist: askChecklistQuestion,
+        questionForm: askFormQuestion,
       });
 
       const { accumulator, handoffDetected } = await consumeStream(stream, sessionId);
@@ -672,6 +834,14 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       setStreaming(false);
       abortControllerRef.current = null;
     }
+  };
+
+  const handleSuggestedToolHandoff = async (targetAgentId: string, task?: string) => {
+    const trimmedTask = task?.trim();
+    const handoffPrompt = trimmedTask
+      ? `forward me to ${targetAgentId} about ${trimmedTask}`
+      : `forward me to ${targetAgentId}`;
+    await handleSend(handoffPrompt);
   };
 
   const handleInputChange = (value: string) => {
@@ -874,8 +1044,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const handleSwitchSession = async (sessionId: string) => {
-    const currentAgent = agentId || currentAgentId;
-    navigate(`/chat/${currentAgent}/session/${sessionId}`);
+    navigate(`/chat/${currentAgentId}/session/${sessionId}`);
   };
 
   const handleSplitSession = async (atIndex: number) => {
@@ -937,7 +1106,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       setCurrentSessionId(null);
       setMessages([]);
       setArtifactsInContext([]);
-      navigate(`/chat/${agentId || currentAgentId}`);
+      navigate(`/chat/${currentAgentId}`);
     }
   };
 
@@ -992,10 +1161,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const handleOpenSessionGraph = (sessionId: string) => {
-    const currentAgent = agentId || currentAgentId;
-    if (currentAgent) {
-      navigate(`/chat/${currentAgent}/session/${sessionId}/thread`);
-    }
+    navigate(`/chat/${currentAgentId}/session/${sessionId}/thread`);
   };
 
   const handleSelectSessionFromGraph = (targetSessionId: string, targetAgentId: string, handoffId?: string) => {
@@ -1034,7 +1200,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const handleGraphBack = () => {
-    navigate(`/chat/${agentId || currentAgentId}/session/${currentSessionId ?? ''}`.replace(/\/session\/$/, ''));
+    navigate(`/chat/${currentAgentId}/session/${currentSessionId ?? ''}`.replace(/\/session\/$/, ''));
   };
 
   return {
@@ -1058,6 +1224,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     pendingConfirmAnswer,
     pendingSelectAnswer,
     pendingChecklistAnswer,
+    pendingFormAnswer,
     isRecording,
     recognition,
     messagesEndRef,
@@ -1079,11 +1246,13 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     handleToggleArchive,
     handleDeleteMessage,
     handleHandoffClick,
+    handleSuggestedToolHandoff,
     setPendingInputAnswer,
     setPendingPasswordAnswer,
     setPendingConfirmAnswer,
     setPendingSelectAnswer,
     togglePendingChecklistValue,
+    setPendingFormFieldValue,
     handlePendingQuestionSubmit,
     handleInputChange,
     handleInputKeyDown,

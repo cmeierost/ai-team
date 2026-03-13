@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { IdeLocalServer } from './ide-local-server';
 import { ConnectionStatusProvider } from './views/connection-status-provider';
 import { PendingChangesProvider, ProposalItem } from './views/pending-changes-provider';
@@ -84,6 +84,18 @@ async function activateFull(
   connectionProvider: ConnectionStatusProvider,
   pendingChangesProvider: PendingChangesProvider,
 ): Promise<void> {
+  const diffContentProvider = new (class implements vscode.TextDocumentContentProvider {
+    provideTextDocumentContent(uri: vscode.Uri): string {
+      return Buffer.from(uri.query, 'base64').toString('utf-8');
+    }
+  })();
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(
+      CodeEditDecorationManager.DIFF_URI_SCHEME,
+      diffContentProvider,
+    ),
+  );
+
   // Start local WS server
   const server = new IdeLocalServer(workspaceRoot);
   await server.start();
@@ -97,7 +109,7 @@ async function activateFull(
   context.subscriptions.push(decoratorManager);
 
   function refreshPendingTree(): void {
-    pendingChangesProvider.setProposals(decoratorManager.getPendingEntries());
+    pendingChangesProvider.setProposals(decoratorManager.getPendingProposals());
     PendingChangesPanel.refresh(decoratorManager.getPendingProposals());
   }
 
@@ -156,14 +168,8 @@ async function activateFull(
     }),
 
     // Tree row click / inline diff button — receives primitives to avoid circular JSON
-    vscode.commands.registerCommand('ai-team.showFileDiff', async (filePath: string, _proposalId: string, tmpDir: string) => {
-      if (!tmpDir) return;
-      const tmpFile = path.join(tmpDir, path.basename(filePath) + '.orig');
-      if (!fs.existsSync(tmpFile)) return;
-      const origUri = vscode.Uri.file(tmpFile);
-      const newUri = vscode.Uri.file(filePath);
-      await vscode.commands.executeCommand('vscode.diff', origUri, newUri,
-        `AI Team · ${path.basename(filePath)}`, { preview: true });
+    vscode.commands.registerCommand('ai-team.showFileDiff', async (filePath: string, proposalId: string) => {
+      await decoratorManager.openDiffForFile(proposalId, filePath);
     }),
 
     vscode.commands.registerCommand('ai-team.showPendingChanges', () => {

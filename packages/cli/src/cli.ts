@@ -34,6 +34,7 @@ import { testConnectionCommand } from './commands/test-connection.js';
 import { providerAddCommand, providerConfigureCommand, providerSetCommand } from './commands/provider.js';
 import { providerListCommand, providerModelsCommand, providerModelsRefreshCommand } from './commands/models.js';
 import { orgCommand } from './commands/org.js';
+import { serveCommand } from './commands/serve.js';
 import { CLI_COMMAND_REGISTRY, getCliCommandMetadata } from './commands/registry.js';
 import { dbStatusCommand, dbMigrateCommand } from './commands/db.js';
 
@@ -175,7 +176,7 @@ program
 // Files / file tree command
 const files = program
   .command('files')
-  .description('Preview the workspace file tree with gitignore awareness')
+  .description('Preview the workspace file tree with gitignore awareness and optional agent-scoped filtering')
   .option('-d, --depth <number>', 'Max recursion depth (default: 4)')
   .option('-a, --all', 'Include hidden files and directories')
   .option('--no-gitignore', 'Ignore .gitignore rules and show all files')
@@ -186,21 +187,25 @@ const files = program
 
 files
   .command('allow <path>')
-  .description('Allow a gitignored path to appear in the file tree (saves to .ai-team/config.json)')
+  .description('Allow a path in file visibility (global config) or agent access rules (governed when --agent is used)')
   .option('--agent <id>', 'Scope to a specific agent (updates their .md permissions)')
+  .option('--requested-by <agent>', 'Governance actor requesting the change (default policy typically allows CEO or HR Director)')
+  .option('--approved-by-user', 'Mark user approval as granted and skip interactive confirmation prompt')
   .option('--write', 'Affect write permissions instead of read (default: read)')
   .option('--mode <mode>', 'Permission mode: read | write | create | delete')
-  .action(withCliErrorHandling((p: string, options: { agent?: string; write?: boolean; mode?: string }) =>
+  .action(withCliErrorHandling((p: string, options: { agent?: string; requestedBy?: string; approvedByUser?: boolean; write?: boolean; mode?: string }) =>
     filesAllowCommand(p, options)
   ));
 
 files
   .command('disallow <path>')
-  .description('Remove a path from the gitignore allow list')
+  .description('Disallow a path from file visibility (global config) or agent access rules (governed when --agent is used)')
   .option('--agent <id>', 'Scope to a specific agent (updates their .md permissions)')
+  .option('--requested-by <agent>', 'Governance actor requesting the change (default policy typically allows CEO or HR Director)')
+  .option('--approved-by-user', 'Mark user approval as granted and skip interactive confirmation prompt')
   .option('--write', 'Affect write permissions instead of read (default: read)')
   .option('--mode <mode>', 'Permission mode: read | write | create | delete')
-  .action(withCliErrorHandling((p: string, options: { agent?: string; write?: boolean; mode?: string }) =>
+  .action(withCliErrorHandling((p: string, options: { agent?: string; requestedBy?: string; approvedByUser?: boolean; write?: boolean; mode?: string }) =>
     filesDisallowCommand(p, options)
   ));
 
@@ -230,11 +235,11 @@ applyCommandMetadata(access.command(accessCanMeta.command), accessCanMeta)
 
 const toolsAllowMeta = getCliCommandMetadata('tools.allow');
 applyCommandMetadata(tools.command(toolsAllowMeta.command).alias('add'), toolsAllowMeta)
-  .action(withCliErrorHandling((options: { agent?: string; tool?: string; json?: boolean }) => toolsAllowCommand(client, options)));
+  .action(withCliErrorHandling((options: { agent?: string; tool?: string; requestedBy?: string; approvedByUser?: boolean; json?: boolean }) => toolsAllowCommand(client, options)));
 
 const toolsDisallowMeta = getCliCommandMetadata('tools.disallow');
 applyCommandMetadata(tools.command(toolsDisallowMeta.command).alias('remove'), toolsDisallowMeta)
-  .action(withCliErrorHandling((options: { agent?: string; tool?: string; json?: boolean }) => toolsDisallowCommand(client, options)));
+  .action(withCliErrorHandling((options: { agent?: string; tool?: string; requestedBy?: string; approvedByUser?: boolean; json?: boolean }) => toolsDisallowCommand(client, options)));
 
 const skillsMeta = getCliCommandMetadata('skills');
 const skills = applyCommandMetadata(program.command(skillsMeta.command), skillsMeta)
@@ -256,6 +261,9 @@ applyCommandMetadata(hh.command(hhRefreshMeta.command), hhRefreshMeta).action(wi
 
 const testConnectionMeta = getCliCommandMetadata('test-connection');
 applyCommandMetadata(program.command(testConnectionMeta.command), testConnectionMeta).action(withCliErrorHandling((options) => testConnectionCommand(client, options)));
+
+const serveMeta = getCliCommandMetadata('serve');
+applyCommandMetadata(program.command(serveMeta.command), serveMeta).action(withCliErrorHandling((options) => serveCommand(options)));
 
 const providerMeta = getCliCommandMetadata('provider');
 const provider = applyCommandMetadata(program.command(providerMeta.command), providerMeta);

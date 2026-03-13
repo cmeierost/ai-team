@@ -16,25 +16,13 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
   // -- File tools --
 
   engine.registerTool({
-    name: 'read_file',
+    name: 'fs_read',
     pathParams: [{ paramName: 'filePath', right: 'read' }],
     description: 'Read file contents',
   });
 
   engine.registerTool({
-    name: 'write_file',
-    pathParams: [{ paramName: 'filePath', right: 'write' }],
-    description: 'Write or modify file contents',
-  });
-
-  engine.registerTool({
-    name: 'file_search',
-    pathParams: [],
-    description: 'Search for files by glob (results filtered by read access)',
-  });
-
-  engine.registerTool({
-    name: 'semantic_search',
+    name: 'search_semantic',
     pathParams: [],
     description: 'Semantic code search (results filtered by read access)',
   });
@@ -42,7 +30,7 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
   // -- fs_* tools --
 
   engine.registerTool({
-    name: 'fs_read_file',
+    name: 'fs_read',
     pathParams: [{ paramName: 'filePath', right: FS_TOOL_REQUIRED_RIGHT.fs_read_file }],
     description: 'Read file contents with fs contract rights',
   });
@@ -60,7 +48,7 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
   });
 
   engine.registerTool({
-    name: 'fs_create_file',
+    name: 'fs_create',
     pathParams: [{ paramName: 'filePath', right: FS_TOOL_REQUIRED_RIGHT.fs_create_file }],
     description: 'Create file with fs contract rights',
   });
@@ -114,13 +102,13 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
   });
 
   engine.registerTool({
-    name: 'who_has_access',
+    name: 'fs_who_can',
     pathParams: [{ paramName: 'path', right: 'list' }],
     description: 'Show which contexts can access a path (default right: list)',
   });
 
   engine.registerTool({
-    name: 'do_i_have_access',
+    name: 'tool_can_i',
     pathParams: [{ paramName: 'path', right: 'list' }],
     description: 'Check whether a context has access to a path (default right: list)',
   });
@@ -140,13 +128,7 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
   });
 
   engine.registerTool({
-    name: 'find_pattern',
-    pathParams: [],
-    description: 'Find code patterns (results filtered by read access)',
-  });
-
-  engine.registerTool({
-    name: 'grep_code',
+    name: 'search_grep',
     pathParams: [],
     description: 'Grep-style text search (results filtered by read access)',
   });
@@ -160,7 +142,7 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
   // -- Code edit tools --
 
   engine.registerTool({
-    name: 'apply_code_edit',
+    name: 'fs_apply_patch',
     pathParams: [],
     description: 'Propose code edits (write-checks done against changes[].filePath)',
   });
@@ -168,7 +150,7 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
   // -- CLI compound tool --
 
   engine.registerTool({
-    name: 'run_cli_tool',
+    name: 'tool_run',
     pathParams: [],
     shellParam: 'command',
     description: 'Execute a shell command — delegated to command registry',
@@ -177,16 +159,21 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
   // -- Non-file tools (registered so they are not denied by default policy) --
 
   for (const name of [
-    'delegate_to_agent',
-    'ask_human',
-    'ask_question',
-    'register_cli_tool',
-    'update_employee_llm',
-    'get_errors',
-    'create_agent',
-    'archive_agent',
-    'assess_performance',
-    'add_picture',
+    'com_delegate',
+    'com_ask',
+    'tool_register_cli',
+    'hr_update_llm',
+    'tool_get_errors',
+    'http_fetch',
+    'http_crawl',
+    'hr_hire',
+    'hr_archive',
+    'analyze_performance',
+    'hr_avatar',
+    'com_handoff',
+    'tool_list',
+    'team_list',
+    'fs_who_should',
   ]) {
     engine.registerTool({
       name,

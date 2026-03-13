@@ -36,13 +36,33 @@ import type {
   TestConnectionOptions,
 } from '@ai-team/service';
 import type { AgentStatus, AgentConfig, AnnotatedFile, ContextLevel, GraphData, MarkdownSection, RoleType, ViewMode } from '@ai-team/core';
+import type {
+  IdeCommitEditResponse,
+  IdeEditStatusResponse,
+  IdeOpenDiffRequest,
+  IdeOpenDiffResponse,
+  IdeResetEditResponse,
+  IdeRevertEditResponse,
+  IdeSessionAckActionRequest,
+  IdeSessionActionRequest,
+  IdeUpdateEditRequest,
+  IdeUpdateEditResponse,
+} from '@ai-team/ide-interface';
 import { streamViaWebSocket } from './websocket.js';
+
+export interface GovernanceMutationOptions {
+  requestedBy: string;
+  approvedByUser: boolean;
+}
 
 function getFallbackQuestionAnswer(question: any): any {
   if (question?.kind === 'confirm') {
     return false;
   }
-  if (question?.kind === 'checklist') {
+  if (question?.kind === 'form') {
+    return {};
+  }
+  if (question?.kind === 'checklist' || question?.kind === 'multiselect') {
     return [];
   }
   if (question?.kind === 'select') {
@@ -103,6 +123,10 @@ export interface AiTeamHttpClient {
   listTools(options?: ListToolsOptions): Promise<ListToolsResponse>;
   allowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
   disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
+  toolAllow(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
+  toolDeny(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
+  accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
+  accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   /** Get the full handoff session thread for any session in the chain */
@@ -124,6 +148,14 @@ export interface AiTeamHttpClient {
   providerModels(options: ProviderModelsOptions): Promise<void>;
   providerModelsRefresh(options: RefreshProviderModelsOptions): Promise<void>;
   testConnection(options?: TestConnectionOptions): Promise<void>;
+  ideOpenDiff(request: IdeOpenDiffRequest): Promise<IdeOpenDiffResponse>;
+  ideUpdateEdit(request: IdeUpdateEditRequest): Promise<IdeUpdateEditResponse>;
+  ideCommitEdit(request: IdeSessionActionRequest): Promise<IdeCommitEditResponse>;
+  ideKeepEdit(request: IdeSessionAckActionRequest): Promise<IdeCommitEditResponse>;
+  ideRevertEdit(request: IdeSessionActionRequest): Promise<IdeRevertEditResponse>;
+  ideUndoEdit(request: IdeSessionAckActionRequest): Promise<IdeRevertEditResponse>;
+  ideResetEdit(request: IdeSessionActionRequest): Promise<IdeResetEditResponse>;
+  ideEditStatus(sessionId: string): Promise<IdeEditStatusResponse>;
 }
 
 class HttpAiTeamClient implements AiTeamHttpClient {
@@ -180,8 +212,11 @@ class HttpAiTeamClient implements AiTeamHttpClient {
         if (question.kind === 'password' && context.questionPassword) {
           return context.questionPassword(question);
         }
-        if (question.kind === 'checklist' && context.questionChecklist) {
+        if ((question.kind === 'checklist' || question.kind === 'multiselect') && context.questionChecklist) {
           return context.questionChecklist(question);
+        }
+        if (question.kind === 'form' && context.questionForm) {
+          return context.questionForm(question);
         }
 
         return getFallbackQuestionAnswer(question);
@@ -190,7 +225,7 @@ class HttpAiTeamClient implements AiTeamHttpClient {
       yield* streamViaWebSocket<TCommand>(agentId, message, {
         url: this.wsUrl,
         onQuestion,
-        disableQuestions: true,
+        disableQuestions: false,
         signal: context?.signal,
         sessionId: payload.options?.sessionId,
         messageOptions: payload.options,
@@ -362,6 +397,42 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     return response.json();
   }
 
+  async accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const response = await fetch(`${this.baseUrl}/api/files/agents/${encodeURIComponent(options.agent)}/access_allow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: options.path,
+        mode,
+        requestedBy: governance.requestedBy,
+        approvedByUser: governance.approvedByUser,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to allow governed agent path');
+    }
+    return response.json();
+  }
+
+  async accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const response = await fetch(`${this.baseUrl}/api/files/agents/${encodeURIComponent(options.agent)}/access_deny`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: options.path,
+        mode,
+        requestedBy: governance.requestedBy,
+        approvedByUser: governance.approvedByUser,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to deny governed agent path');
+    }
+    return response.json();
+  }
+
   async listTools(options: ListToolsOptions = {}): Promise<ListToolsResponse> {
     const params = new URLSearchParams();
     if (options.agent) {
@@ -443,6 +514,42 @@ class HttpAiTeamClient implements AiTeamHttpClient {
       tools: updated.tools ?? nextTools,
       changed,
     };
+  }
+
+  async toolAllow(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse> {
+    const response = await fetch(`${this.baseUrl}/api/tools/tool_allow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...options,
+        requestedBy: governance.requestedBy,
+        approvedByUser: governance.approvedByUser,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to allow governed tool');
+    }
+
+    return response.json();
+  }
+
+  async toolDeny(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse> {
+    const response = await fetch(`${this.baseUrl}/api/tools/tool_deny`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...options,
+        requestedBy: governance.requestedBy,
+        approvedByUser: governance.approvedByUser,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to deny governed tool');
+    }
+
+    return response.json();
   }
 
   async addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
@@ -630,6 +737,100 @@ class HttpAiTeamClient implements AiTeamHttpClient {
   async testConnection(options?: TestConnectionOptions): Promise<void> {
     throw new Error('Test connection not supported via HTTP client');
   }
+
+  async ideOpenDiff(request: IdeOpenDiffRequest): Promise<IdeOpenDiffResponse> {
+    const response = await fetch(`${this.baseUrl}/api/ide/v1/edit/open-diff`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to open IDE edit diff session');
+    }
+    return response.json();
+  }
+
+  async ideUpdateEdit(request: IdeUpdateEditRequest): Promise<IdeUpdateEditResponse> {
+    const response = await fetch(`${this.baseUrl}/api/ide/v1/edit/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update IDE edit session');
+    }
+    return response.json();
+  }
+
+  async ideCommitEdit(request: IdeSessionActionRequest): Promise<IdeCommitEditResponse> {
+    const response = await fetch(`${this.baseUrl}/api/ide/v1/edit/commit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to commit IDE edit session');
+    }
+    return response.json();
+  }
+
+  async ideKeepEdit(request: IdeSessionAckActionRequest): Promise<IdeCommitEditResponse> {
+    const response = await fetch(`${this.baseUrl}/api/ide/v1/edit/keep`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to keep IDE edit session');
+    }
+    return response.json();
+  }
+
+  async ideRevertEdit(request: IdeSessionActionRequest): Promise<IdeRevertEditResponse> {
+    const response = await fetch(`${this.baseUrl}/api/ide/v1/edit/revert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to revert IDE edit session');
+    }
+    return response.json();
+  }
+
+  async ideUndoEdit(request: IdeSessionAckActionRequest): Promise<IdeRevertEditResponse> {
+    const response = await fetch(`${this.baseUrl}/api/ide/v1/edit/undo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to undo IDE edit session');
+    }
+    return response.json();
+  }
+
+  async ideResetEdit(request: IdeSessionActionRequest): Promise<IdeResetEditResponse> {
+    const response = await fetch(`${this.baseUrl}/api/ide/v1/edit/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to reset IDE edit session');
+    }
+    return response.json();
+  }
+
+  async ideEditStatus(sessionId: string): Promise<IdeEditStatusResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/api/ide/v1/edit/status?sessionId=${encodeURIComponent(sessionId)}`,
+    );
+    if (!response.ok) {
+      throw new Error('Failed to fetch IDE edit session status');
+    }
+    return response.json();
+  }
 }
 
 export function createHttpAiTeamClient(config: HttpClientConfig): AiTeamHttpClient {
@@ -647,6 +848,18 @@ export type {
 } from '@ai-team/service';
 
 export type { GraphData, ViewMode, Agent, AgentConfig, AnnotatedFile, MarkdownSection } from '@ai-team/core';
+export type {
+  IdeOpenDiffRequest,
+  IdeOpenDiffResponse,
+  IdeUpdateEditRequest,
+  IdeUpdateEditResponse,
+  IdeSessionActionRequest,
+  IdeSessionAckActionRequest,
+  IdeCommitEditResponse,
+  IdeRevertEditResponse,
+  IdeResetEditResponse,
+  IdeEditStatusResponse,
+} from '@ai-team/ide-interface';
 
 // Inline browser-safe session types (mirrors packages/web/src/types.ts)
 export interface ChatMessage {
@@ -667,6 +880,35 @@ export interface SessionActivatedTool {
   toolName: string;
   toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
   message?: string;
+  toolResult?: {
+    toolName: string;
+    outcome: 'result' | 'error' | 'denied';
+    result?: unknown;
+    denial?: {
+      kind: 'user-denied' | 'policy-denied' | 'execution-failed';
+      reasonCode: string;
+      message: string;
+      blockedPaths?: string[];
+      alternativeContexts?: Array<{ contextId: string; allowedPaths: string[] }>;
+      handoffRecommendation?: {
+        possible: boolean;
+        requiresUserApproval: true;
+        contexts: Array<{ contextId: string; allowedPaths: string[] }>;
+      };
+    };
+  };
+  toolDenial?: {
+    kind: 'user-denied' | 'policy-denied' | 'execution-failed';
+    reasonCode: string;
+    message: string;
+    blockedPaths?: string[];
+    alternativeContexts?: Array<{ contextId: string; allowedPaths: string[] }>;
+    handoffRecommendation?: {
+      possible: boolean;
+      requiresUserApproval: true;
+      contexts: Array<{ contextId: string; allowedPaths: string[] }>;
+    };
+  };
   timestamp: string;
 }
 

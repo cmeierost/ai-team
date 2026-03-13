@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
-import type { IdeCodeEditProposal, IdeCodeEditFile } from '@ai-team/ide-interface';
+import * as path from 'node:path';
+import type { IdeCodeEditProposal, IdeFileChange } from '@ai-team/ide-interface';
 
 // ─── Tree node types ───────────────────────────────────────────────────────
 
@@ -21,9 +21,9 @@ export class ProposalItem extends vscode.TreeItem {
 
 export class PendingFileItem extends vscode.TreeItem {
   constructor(
-    public readonly file: IdeCodeEditFile,
+    public readonly file: IdeFileChange,
     public readonly proposalId: string,
-    public readonly proposalTmpDir: string,
+    public readonly agentName: string,
   ) {
     super(path.basename(file.filePath), vscode.TreeItemCollapsibleState.None);
 
@@ -31,8 +31,8 @@ export class PendingFileItem extends vscode.TreeItem {
       ? path.relative(vscode.workspace.workspaceFolders[0].uri.fsPath, path.dirname(file.filePath))
       : path.dirname(file.filePath);
 
-    this.description = `${rel}   +${file.additions ?? 0} -${file.deletions ?? 0}`;
-    this.tooltip = file.filePath;
+    this.description = `${rel}   +${file.additions ?? 0} -${file.deletions ?? 0}   ·   ${agentName}`;
+    this.tooltip = `${file.filePath}\nAgent: ${agentName}`;
     this.contextValue = 'pendingFile';
     this.iconPath = new vscode.ThemeIcon('file');
     this.resourceUri = vscode.Uri.file(file.filePath);
@@ -41,7 +41,7 @@ export class PendingFileItem extends vscode.TreeItem {
     this.command = {
       command: 'ai-team.showFileDiff',
       title: 'Show Diff',
-      arguments: [file.filePath, proposalId, proposalTmpDir],
+      arguments: [file.filePath, proposalId],
     };
   }
 }
@@ -51,14 +51,14 @@ type TreeNode = ProposalItem | PendingFileItem;
 // ─── Provider ──────────────────────────────────────────────────────────────
 
 export class PendingChangesProvider implements vscode.TreeDataProvider<TreeNode> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<TreeNode | undefined | void>();
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<TreeNode | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  /** proposal id → { proposal, tmpDir } so we can open diffs */
-  private proposals: Map<string, { proposal: IdeCodeEditProposal; tmpDir: string }> = new Map();
+  /** proposal id → proposal */
+  private proposals: Map<string, IdeCodeEditProposal> = new Map();
 
-  setProposals(entries: Array<{ proposal: IdeCodeEditProposal; tmpDir: string }>): void {
-    this.proposals = new Map(entries.map(e => [e.proposal.proposalId, e]));
+  setProposals(proposals: IdeCodeEditProposal[]): void {
+    this.proposals = new Map(proposals.map((proposal) => [proposal.proposalId, proposal]));
     this._onDidChangeTreeData.fire();
   }
 
@@ -73,19 +73,15 @@ export class PendingChangesProvider implements vscode.TreeDataProvider<TreeNode>
   getChildren(element?: TreeNode): TreeNode[] {
     if (!element) {
       // Root: one ProposalItem per pending proposal
-      return Array.from(this.proposals.values()).map(e => new ProposalItem(e.proposal));
+      return Array.from(this.proposals.values()).map(proposal => new ProposalItem(proposal));
     }
     if (element instanceof ProposalItem) {
-      const entry = this.proposals.get(element.proposal.proposalId);
-      if (!entry) return [];
-      return entry.proposal.files.map(
-        f => new PendingFileItem(f, entry.proposal.proposalId, entry.tmpDir),
+      const proposal = this.proposals.get(element.proposal.proposalId);
+      if (!proposal) return [];
+      return proposal.files.map(
+        f => new PendingFileItem(f, proposal.proposalId, proposal.agentName),
       );
     }
     return [];
-  }
-
-  getTmpDir(proposalId: string): string | undefined {
-    return this.proposals.get(proposalId)?.tmpDir;
   }
 }

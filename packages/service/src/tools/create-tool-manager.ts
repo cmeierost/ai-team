@@ -3,7 +3,7 @@
  *
  * This is a SERVICE-LAYER concern — it knows about all tools across all layers:
  *   core domain tools  (file, search, agent, hr intrinsics)
- *   service orchestration tools (handoff, hire, find_capable_agent, list_tools)
+ *   service orchestration tools (com_handoff, hr_hire, fs_who_should, tool_list, team_list)
  *
  * Orchestration tools receive their dependencies at construction time via
  * OrchestrationDeps — Dependency Inversion keeps tools testable in isolation.
@@ -21,7 +21,7 @@ import {
   type OrchestrationDeps,
 } from './orchestration-tools.js';
 
-export type { OrchestrationDeps };
+export type { OrchestrationDeps } from './orchestration-tools.js';
 
 /**
  * Create a ToolManager seeded with all built-in tools.
@@ -32,8 +32,12 @@ export type { OrchestrationDeps };
  *                       agents, tools). These are narrow interfaces — any compatible
  *                       implementation (e.g. a mock) can be used.
  */
-export function createToolManager(workspaceRoot: string, deps: OrchestrationDeps): ToolManager {
-  const manager = new ToolManager(workspaceRoot);
+export function createToolManager(
+  workspaceRoot: string,
+  deps: OrchestrationDeps,
+  accessEngine?: ConstructorParameters<typeof ToolManager>[1],
+): ToolManager {
+  const manager = new ToolManager(workspaceRoot, accessEngine);
 
   // 1. Core domain tools (file, search, code-analysis, agent, hr intrinsics)
   for (const tool of Object.values(ALL_TOOLS)) {

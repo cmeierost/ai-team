@@ -11,12 +11,46 @@
  */
 
 import { withAbortSignal, isHandoffRequest, isHireResult } from '@ai-team/core';
-import type { ChatMessage } from '@ai-team/core';
+import type { AgentTool, ChatMessage, Skill, Agent } from '@ai-team/core';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
 import { dispatchToolCall, type ToolCallResponse } from './tool-dispatch.js';
 import { extractStreamDeltaText, emitStatus } from './stream-events.js';
 import { stripHandoffDirective, parseHandoffDirective } from '../commands/chat/index.js';
+
+const TOOL_SCHEMA_CACHE = new WeakMap<object, Map<string, import('@ai-team/core').LlmToolDefinition>>();
+
+function getCachedToolSchema(
+  ctx: OrchestratorContext,
+  toolName: string,
+): import('@ai-team/core').LlmToolDefinition | undefined {
+  const managerKey = ctx.toolManager as unknown as object;
+  const cacheForManager = TOOL_SCHEMA_CACHE.get(managerKey) ?? new Map<string, import('@ai-team/core').LlmToolDefinition>();
+  if (!TOOL_SCHEMA_CACHE.has(managerKey)) {
+    TOOL_SCHEMA_CACHE.set(managerKey, cacheForManager);
+  }
+
+  const cached = cacheForManager.get(toolName);
+  if (cached) return cached;
+
+  const schema = ctx.toolManager.toSchema(toolName);
+  if (schema) {
+    cacheForManager.set(toolName, schema);
+  }
+  return schema;
+}
+
+function buildToolDefinitions(
+  ctx: OrchestratorContext,
+  tools: AgentTool[],
+): import('@ai-team/core').LlmToolDefinition[] {
+  const defs: import('@ai-team/core').LlmToolDefinition[] = [];
+  for (const tool of tools) {
+    const schema = getCachedToolSchema(ctx, tool.name);
+    if (schema) defs.push(schema);
+  }
+  return defs;
+}
 
 export interface SendTurnOptions {
   /**
@@ -74,18 +108,36 @@ export async function sendTurn(
   }
 
   // ── 5. Configure LLM + collect tools ──────────────────────────────────────
-  const skill       = ctx.skillManager.getSkill(ctx.agent.role ?? ctx.agent.id);
-  const teamRoster  = ctx.agentManager.getAllAgents();
-  const tools       = await plugins.toolResolver.resolve(ctx);
-  const mcpTools    = await plugins.mcpGateway.discover();
+  const skillGetter = (ctx.skillManager as { getSkill?: (id: string) => Skill }).getSkill;
+  const skill       = typeof skillGetter === 'function'
+    ? skillGetter.call(ctx.skillManager, ctx.agent.role ?? ctx.agent.id)
+    : undefined;
+  const rosterGetter = (ctx.agentManager as { getAllAgents?: () => Agent[] }).getAllAgents;
+  const teamRoster  = typeof rosterGetter === 'function'
+    ? rosterGetter.call(ctx.agentManager)
+    : [] as Agent[];
+  const discoverMcpTools = (plugins.mcpGateway as { discover?: () => Promise<AgentTool[]> }).discover;
+  const [tools, mcpTools] = await Promise.all([
+    plugins.toolResolver.resolve(ctx),
+    typeof discoverMcpTools === 'function'
+      ? discoverMcpTools.call(plugins.mcpGateway)
+      : Promise.resolve([] as AgentTool[]),
+  ]);
   const allTools    = [...tools, ...mcpTools];
 
   // Select model (may mutate agent's llmOptions in place)
   await plugins.llmSelector.select(ctx);
 
-  const toolDefs = allTools.map(t => ctx.toolManager.toSchema(t.name)).filter(Boolean);
+  const toolDefs = buildToolDefinitions(ctx, allTools);
 
   // ── 6. Build tool-use policy system message ────────────────────────────────
+  const questionNotation =
+    'When you need developer input (a decision, preference, or missing information), ' +
+    'write your question inline in your response using a JSONC fence with a comment marker: ' +
+    '```jsonc\n// ai-team:question\n{"question":"...","questionType":"select","choices":[{"name":"A","value":"a"},{"name":"B","value":"b"}]}\n``` ' +
+    'Supported questionType values: input, confirm, select, password, checklist. ' +
+    'Do not ask when the next step is already clear from context; avoid repetitive clarifications.';
+
   let workingMessages = [...messages];
   if (toolDefs.length > 0) {
     workingMessages = [
@@ -94,7 +146,17 @@ export async function sendTurn(
         content:
           `Tool-calling is available. Registered tools: ${allTools.map(t => t.name).join(', ')}. ` +
           'Do not invent tool names. ' +
-          'If ask_human or ask_question is available, use it for required developer input.',
+          'If the developer asks about what tools you can use, what files you can read/write, or access/permissions, call a relevant introspection tool (for example tool_list, tool_can_i, fs_who_can) before answering. ' +
+          'If the developer asks to list or show visible/readable files (or file tree), call fs_tree on path "." (or requested path) first, then explain results. ' +
+          questionNotation,
+      },
+      ...messages,
+    ];
+  } else {
+    workingMessages = [
+      {
+        role: 'system',
+        content: questionNotation,
       },
       ...messages,
     ];
@@ -118,7 +180,7 @@ export async function sendTurn(
   // path (process.stdout is patched by AiTeamService.invoke() to emit token
   // events through the runtime event queue).
   const HANDOFF_LINE_RE = /^\s*(?:HANDOFF|FORWARD_TO):/i;
-  const DIRECTIVE_MAX_LEN = 12; // length of 'FORWARD_TO:' + 1
+  const DIRECTIVE_HEADERS = ['HANDOFF:', 'FORWARD_TO:'] as const;
 
   let _lineBuf  = '';    // chars held while we are still deciding about the current line
   let _lineSafe = false; // true = line is confirmed not a directive; emit freely
@@ -147,8 +209,17 @@ export async function sendTurn(
           _lineSafe = false;
         } else {
           _lineBuf += ch;
-          // Once we have enough content to rule out a directive, switch to safe.
-          if (_lineBuf.trimStart().length >= DIRECTIVE_MAX_LEN) {
+          const trimmedUpper = _lineBuf.trimStart().toUpperCase();
+          const startsWithDirective = DIRECTIVE_HEADERS.some((header) => trimmedUpper.startsWith(header));
+          const couldBecomeDirective = DIRECTIVE_HEADERS.some((header) => header.startsWith(trimmedUpper));
+
+          // Confirmed directive line start: keep buffering until newline, then drop.
+          if (startsWithDirective) {
+            continue;
+          }
+
+          // Once this line can no longer become a directive prefix, switch to safe mode.
+          if (trimmedUpper.length > 0 && !couldBecomeDirective) {
             _lineSafe = true;
             process.stdout.write(_lineBuf);
             _lineBuf = '';
@@ -254,7 +325,7 @@ export async function sendTurn(
   // ── 9. Surface structured results to the caller ───────────────────────────
   //
   // Handoff can come from two sources:
-  //   a) A tool call (structuredResults) — e.g. handoff_to_agent tool
+  //   a) A tool call (structuredResults) — e.g. com_handoff tool
   //   b) A text directive in fullResponse — HANDOFF: <agentId> | <note>
   //      (Paths 1, 2, 4 from the spec: agent writes a HANDOFF: line in text)
   //
@@ -263,22 +334,62 @@ export async function sendTurn(
   const hireResult  = structuredResults.find(isHireResult);
 
   if (handoffReq && isHandoffRequest(handoffReq)) {
+    const getAgent = (ctx.agentManager as { getAgent?: (query: string) => Agent | undefined }).getAgent;
+    const resolveAgent = (ctx.agentManager as { resolveAgent?: (query: string) => Agent[] }).resolveAgent;
+    const exactStructuredTarget = typeof getAgent === 'function'
+      ? getAgent.call(ctx.agentManager, handoffReq.targetAgentId)
+      : undefined;
+    const resolvedStructuredTarget = (exactStructuredTarget && exactStructuredTarget.id !== ctx.agent.id
+      ? exactStructuredTarget
+      : undefined)
+      ?? (typeof resolveAgent === 'function'
+        ? resolveAgent.call(ctx.agentManager, handoffReq.targetAgentId).find((candidate) => candidate.id !== ctx.agent.id)
+        : undefined);
+
+    if (!resolvedStructuredTarget) {
+      return {
+        text: persistedContent,
+        done: false,
+      };
+    }
+
     return {
       text: persistedContent,
       done: false,
       handedOff: true,
-      handoffTargetId: handoffReq.targetAgentId,
+      handoffTargetId: resolvedStructuredTarget.id,
       handoffTargetSessionId: handoffReq.targetSessionId,
       handoffNote: handoffReq.briefingNote,
     };
   }
 
   if (textHandoff) {
+    const getAgent = (ctx.agentManager as { getAgent?: (query: string) => Agent | undefined }).getAgent;
+    const resolveAgent = (ctx.agentManager as { resolveAgent?: (query: string) => Agent[] }).resolveAgent;
+    const exactTarget = typeof getAgent === 'function'
+      ? getAgent.call(ctx.agentManager, textHandoff.targetAgentId)
+      : undefined;
+    const resolvedTarget = (exactTarget && exactTarget.id !== ctx.agent.id
+      ? exactTarget
+      : undefined)
+      ?? (typeof resolveAgent === 'function'
+        ? resolveAgent.call(ctx.agentManager, textHandoff.targetAgentId).find((candidate) => candidate.id !== ctx.agent.id)
+        : undefined);
+
+    // Ignore invalid or self-targeting handoff directives. This prevents
+    // noisy "unknown agent" warnings and self-handoff loops.
+    if (!resolvedTarget) {
+      return {
+        text: persistedContent,
+        done: false,
+      };
+    }
+
     return {
       text: persistedContent,
       done: false,
       handedOff: true,
-      handoffTargetId: textHandoff.targetAgentId,
+      handoffTargetId: resolvedTarget.id,
       handoffNote: textHandoff.note || undefined,
     };
   }

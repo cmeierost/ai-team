@@ -6,10 +6,11 @@
  * to trigger orchestration side-effects (session switch, agent creation, etc.).
  *
  * Result types produced by factory-injected orchestration tools:
- *   HandoffRequest           — handoff_to_agent (orchestrator switches active agent)
- *   HireResult               — hire_agent        (agent was created; orchestrator notifies surface)
- *   FindCapableAgentResult   — find_capable_agent (actual matches, not a deferred request)
- *   ToolCatalogResult        — list_tools         (actual catalog snapshot, not a deferred request)
+ *   HandoffRequest           — com_handoff   (orchestrator switches active agent)
+ *   HireResult               — hr_hire       (agent was created; orchestrator notifies surface)
+ *   FindCapableAgentResult   — fs_who_should (actual matches, not a deferred request)
+ *   ToolCatalogResult        — tool_list     (actual catalog snapshot, not a deferred request)
+ *   TeamListResult           — team_list     (actual team roster snapshot)
  */
 
 // ── Shared introspection types ──────────────────────────────────────────────
@@ -29,7 +30,7 @@ export interface HandoffRequest {
   type: 'handoff';
   targetAgentId: string;
   briefingNote: string;
-  /** Pre-resolved by handoff_to_agent via ISessionGateway — skips a redundant lookup in tool-dispatch. */
+  /** Pre-resolved by com_handoff via ISessionGateway — skips a redundant lookup in tool-dispatch. */
   targetSessionId?: string;
   timestamp: string;
 }
@@ -56,7 +57,7 @@ export interface AgentMatch {
 }
 
 export interface FindCapableAgentResult {
-  type: 'find_capable_agent_result';
+  type: 'fs_who_should_result';
   task: string;
   matches: AgentMatch[];
   timestamp: string;
@@ -65,8 +66,22 @@ export interface FindCapableAgentResult {
 // ── Tool catalog snapshot ─────────────────────────────────────────────────────
 
 export interface ToolCatalogResult {
-  type: 'list_tools_result';
+  type: 'tool_list_result';
   entries: ToolCatalogEntry[];
+  timestamp: string;
+}
+
+// ── Team roster snapshot ─────────────────────────────────────────────────────
+
+export interface TeamListMember {
+  agentId: string;
+  agentName: string;
+  agentRole: string;
+}
+
+export interface TeamListResult {
+  type: 'team_list_result';
+  members: TeamListMember[];
   timestamp: string;
 }
 
@@ -77,7 +92,8 @@ export type StructuredToolResult =
   | HandoffRequest
   | HireResult
   | FindCapableAgentResult
-  | ToolCatalogResult;
+  | ToolCatalogResult
+  | TeamListResult;
 
 export function isHandoffRequest(value: unknown): value is HandoffRequest {
   return typeof value === 'object' && value !== null && (value as any).type === 'handoff';
@@ -88,11 +104,15 @@ export function isHireResult(value: unknown): value is HireResult {
 }
 
 export function isFindCapableAgentResult(value: unknown): value is FindCapableAgentResult {
-  return typeof value === 'object' && value !== null && (value as any).type === 'find_capable_agent_result';
+  return typeof value === 'object' && value !== null && (value as any).type === 'fs_who_should_result';
 }
 
 export function isToolCatalogResult(value: unknown): value is ToolCatalogResult {
-  return typeof value === 'object' && value !== null && (value as any).type === 'list_tools_result';
+  return typeof value === 'object' && value !== null && (value as any).type === 'tool_list_result';
+}
+
+export function isTeamListResult(value: unknown): value is TeamListResult {
+  return typeof value === 'object' && value !== null && (value as any).type === 'team_list_result';
 }
 
 export function isStructuredToolResult(value: unknown): value is StructuredToolResult {
@@ -100,6 +120,7 @@ export function isStructuredToolResult(value: unknown): value is StructuredToolR
     isHandoffRequest(value) ||
     isHireResult(value) ||
     isFindCapableAgentResult(value) ||
-    isToolCatalogResult(value)
+    isToolCatalogResult(value) ||
+    isTeamListResult(value)
   );
 }

@@ -1,14 +1,10 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as path from 'node:path';
 import type { IdeCodeEditProposal } from '@ai-team/ide-interface';
 import type { IdeLocalServer } from '../ide-local-server';
 
 interface PendingProposal {
   proposal: IdeCodeEditProposal;
-  /** tmp dir holding .orig files for each changed file */
-  tmpDir: string;
   /** original content keyed by absolute filePath, for undo */
   originals: Map<string, string>;
 }
@@ -25,17 +21,19 @@ interface PendingProposal {
  *     On Undo: restore original content, delete tmp files, broadcast ack.
  */
 export class CodeEditDecorationManager implements vscode.Disposable {
-  private pending = new Map<string, PendingProposal>();
-  private disposables: vscode.Disposable[] = [];
-  private server: IdeLocalServer;
-  /** proposalIds currently being applied — suppress change-event clearing during this window */
-  private _applying = new Set<string>();
+  static readonly DIFF_URI_SCHEME = 'ai-team-diff';
 
-  private lenses = new Map<string, vscode.CodeLens[]>(); // uri → lenses
-  private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
+  private readonly pending = new Map<string, PendingProposal>();
+  private readonly disposables: vscode.Disposable[] = [];
+  private readonly server: IdeLocalServer;
+  /** proposalIds currently being applied — suppress change-event clearing during this window */
+  private readonly _applying = new Set<string>();
+
+  private readonly lenses = new Map<string, vscode.CodeLens[]>(); // uri → lenses
+  private readonly _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
 
   /** Fires after any proposal is accepted, rejected, or auto-cleared by manual edit. */
-  private _onProposalResolved = new vscode.EventEmitter<void>();
+  private readonly _onProposalResolved = new vscode.EventEmitter<void>();
   readonly onProposalResolved = this._onProposalResolved.event;
 
   constructor(context: vscode.ExtensionContext, server: IdeLocalServer) {
@@ -47,15 +45,12 @@ export class CodeEditDecorationManager implements vscode.Disposable {
         this.lenses.get(document.uri.toString()) ?? [],
     };
 
-    this.disposables.push(
-      vscode.languages.registerCodeLensProvider({ pattern: '**/*' }, codeLensProvider),
-    );
+    const codeLensDisposable = vscode.languages.registerCodeLensProvider({ pattern: '**/*' }, codeLensProvider);
 
     // If the user manually edits a proposed file, clear its pending proposal.
     // Guard: skip when the change was caused by a disk reload (document not dirty),
     // or while we are in the middle of applyProposal (file just written by the agent).
-    this.disposables.push(
-      vscode.workspace.onDidChangeTextDocument((e) => {
+    const textChangeDisposable = vscode.workspace.onDidChangeTextDocument((e) => {
         // A disk reload makes the document clean. User edits make it dirty.
         if (!e.document.isDirty) return;
         const uriStr = e.document.uri.toString();
@@ -67,8 +62,9 @@ export class CodeEditDecorationManager implements vscode.Disposable {
             break;
           }
         }
-      }),
-    );
+      });
+
+    this.disposables.push(codeLensDisposable, textChangeDisposable);
 
     context.subscriptions.push(this);
   }
@@ -83,34 +79,24 @@ export class CodeEditDecorationManager implements vscode.Disposable {
     // Guard against onDidChangeTextDocument clearing us during the apply window
     this._applying.add(proposal.proposalId);
 
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `ai-team-${proposal.proposalId}-`));
     const originals = new Map<string, string>();
 
     for (const file of proposal.files) {
       // Use oldContent from proposal for undo source.
       // Do NOT read from disk: on replay the file already has newContent on disk.
-      // Do NOT write newContent to disk: already written by the service layer.
       originals.set(file.filePath, file.oldContent);
 
-      // Write OLD content to a temp file — used as the left side of the diff editor
-      const tmpFile = path.join(tmpDir, path.basename(file.filePath) + '.orig');
-      fs.writeFileSync(tmpFile, file.oldContent, 'utf8');
+      await this.replaceFileContent(file.filePath, file.newContent);
     }
 
-    const pending: PendingProposal = { proposal, tmpDir, originals };
+    const pending: PendingProposal = { proposal, originals };
     this.pending.set(proposal.proposalId, pending);
 
     // Open diff editor for each file and add CodeLens to the modified (right) side
     for (const file of proposal.files) {
-      const tmpFile = path.join(tmpDir, path.basename(file.filePath) + '.orig');
-      const origUri = vscode.Uri.file(tmpFile);
-      const newUri = vscode.Uri.file(file.filePath);
-      const title = `AI Team · ${path.basename(file.filePath)}  (${proposal.agentName})`;
+      await this.openDiffForFile(proposal.proposalId, file.filePath);
 
-      await vscode.commands.executeCommand('vscode.diff', origUri, newUri, title, {
-        preview: true,
-        preserveFocus: false,
-      });
+      const newUri = vscode.Uri.file(file.filePath);
 
       // Add CodeLens to the actual (right-side, modified) file
       this.lenses.set(newUri.toString(), [
@@ -133,6 +119,23 @@ export class CodeEditDecorationManager implements vscode.Disposable {
     setTimeout(() => this._applying.delete(proposal.proposalId), 2000);
   }
 
+  async openDiffForFile(proposalId: string, filePath: string): Promise<void> {
+    const pending = this.pending.get(proposalId);
+    if (!pending) return;
+
+    const originalContent = pending.originals.get(filePath);
+    if (originalContent === undefined) return;
+
+    const newUri = vscode.Uri.file(filePath);
+    const leftUri = this.createVirtualOriginalUri(filePath, originalContent);
+    const title = `AI Team · ${path.basename(filePath)}  (${pending.proposal.agentName})`;
+
+    await vscode.commands.executeCommand('vscode.diff', leftUri, newUri, title, {
+      preview: true,
+      preserveFocus: false,
+    });
+  }
+
   acceptProposal(proposalId: string): void {
     // New content is already on disk — just clean up temp files and ack
     this._clearPending(proposalId);
@@ -144,29 +147,29 @@ export class CodeEditDecorationManager implements vscode.Disposable {
     const p = this.pending.get(proposalId);
     if (!p) return;
 
-    // Restore the original content
-    for (const [filePath, original] of p.originals) {
-      try { fs.writeFileSync(filePath, original, 'utf8'); } catch { /* best-effort */ }
-    }
+    void (async () => {
+      // Restore the original content using VS Code editor APIs
+      for (const [filePath, original] of p.originals) {
+        try {
+          await this.replaceFileContent(filePath, original);
+        } catch {
+          // best-effort
+        }
+      }
 
-    this._clearPending(proposalId);
-    this.server.broadcastAck(proposalId, 'reject');
-    this._onProposalResolved.fire();
+      this._clearPending(proposalId);
+      this.server.broadcastAck(proposalId, 'reject');
+      this._onProposalResolved.fire();
+    })();
   }
 
   getPendingProposals(): IdeCodeEditProposal[] {
     return Array.from(this.pending.values()).map(p => p.proposal);
   }
 
-  getPendingEntries(): Array<{ proposal: IdeCodeEditProposal; tmpDir: string }> {
-    return Array.from(this.pending.values()).map(p => ({ proposal: p.proposal, tmpDir: p.tmpDir }));
-  }
-
   private _clearPending(proposalId: string): void {
     const p = this.pending.get(proposalId);
     if (!p) return;
-
-    try { fs.rmdirSync(p.tmpDir, { recursive: true }); } catch { /* ok */ }
 
     // Remove CodeLens for all files in this proposal
     for (const file of p.proposal.files) {
@@ -178,11 +181,29 @@ export class CodeEditDecorationManager implements vscode.Disposable {
   }
 
   dispose(): void {
-    for (const p of this.pending.values()) {
-      try { fs.rmdirSync(p.tmpDir, { recursive: true }); } catch { /* ok */ }
-    }
     this._onProposalResolved.dispose();
     this._onDidChangeCodeLenses.dispose();
     this.disposables.forEach(d => d.dispose());
+  }
+
+  private createVirtualOriginalUri(filePath: string, originalContent: string): vscode.Uri {
+    const fileName = path.basename(filePath);
+    return vscode.Uri.parse(`${CodeEditDecorationManager.DIFF_URI_SCHEME}:${fileName}`).with({
+      query: Buffer.from(originalContent).toString('base64'),
+    });
+  }
+
+  private async replaceFileContent(filePath: string, content: string): Promise<void> {
+    const uri = vscode.Uri.file(filePath);
+    const document = await vscode.workspace.openTextDocument(uri);
+    const fullRange = new vscode.Range(
+      document.positionAt(0),
+      document.positionAt(document.getText().length),
+    );
+
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(uri, fullRange, content);
+    await vscode.workspace.applyEdit(edit);
+    await document.save();
   }
 }

@@ -43,15 +43,11 @@ skills:
       clearly structured, human-readable Markdown briefings and summaries the
       team can skim quickly.
 tools:
-  - read_file
-  - file_search
-  - semantic_search
-  - write_file
+  - search_semantic
   - fetch_webpage
   - vscode-websearchforcopilot_webSearch
   - mcp_microsoft_mar_convert_to_markdown
-  - apply_code_edit
-  - get_errors
+  - tool_get_errors
 availableFor:
   - orchestrator-benchmarking
   - ai-coding-assistant-comparison

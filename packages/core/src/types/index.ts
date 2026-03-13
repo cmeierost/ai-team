@@ -706,6 +706,8 @@ export const TeamConfigSchema = z.object({
   providers: z.record(z.string(), LlmProviderConfigSchema).optional(),
   llmProviders: z.record(z.string(), LlmProviderConfigSchema).optional(),
   defaultLlmProvider: z.string().min(1).optional(),
+  /** Default skill source URLs used by HR/headhunter scouting workflows */
+  skillSources: z.array(z.string().url()).optional(),
   allowedCliTools: z.array(z.string().min(1)).optional(),
   avatarStyle: z.enum(['professional-headshot', 'avatar', 'illustrated']).optional(),
   randomAvatarUrls: z.array(z.string().url()).optional().default([]),

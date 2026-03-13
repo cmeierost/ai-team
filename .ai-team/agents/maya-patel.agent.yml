@@ -25,11 +25,8 @@ skills:
       Own session, message, note, task, and workflow persistence behavior in the
       backend.
 tools:
-  - read_file
-  - file_search
-  - semantic_search
-  - apply_code_edit
-  - get_errors
+  - search_semantic
+  - tool_get_errors
 availableFor:
   - backend-storage
   - session-persistence

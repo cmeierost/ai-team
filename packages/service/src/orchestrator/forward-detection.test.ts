@@ -32,6 +32,7 @@ function makeAgentManager(agents: Agent[]): AgentManager {
         a =>
           a.name.toLowerCase() === q ||
           a.id.toLowerCase() === q ||
+          a.role.toLowerCase() === q ||
           a.name.toLowerCase().startsWith(q),
       );
     },
@@ -41,6 +42,7 @@ function makeAgentManager(agents: Agent[]): AgentManager {
 
 const SARAH   = makeAgent('sarah-morgan',   'Sarah Morgan',   'frontend-developer');
 const MICHAEL = makeAgent('michael-brown',  'Michael Brown',  'backend-developer');
+const CHRIS   = makeAgent('chris-lane',     'Chris Lane',     'cto');
 const currentAgentId = MICHAEL.id;
 
 // ---------------------------------------------------------------------------
@@ -79,6 +81,20 @@ describe('detectForwardRequestWithFallback', () => {
     );
 
     expect(result.resolved).toBe(SARAH);
+    expect(result.looksLikeForward).toBe(true);
+    expect(llm.chat).not.toHaveBeenCalled();
+  });
+
+  it('resolves title alias "ceo" to a cto-role agent', async () => {
+    const agentManager = makeAgentManager([SARAH, MICHAEL, CHRIS]);
+    const llm = { chat: vi.fn() } as any;
+
+    const result = await detectForwardRequestWithFallback(
+      'forward me to the ceo',
+      agentManager, currentAgentId, llm, MICHAEL,
+    );
+
+    expect(result.resolved).toBe(CHRIS);
     expect(result.looksLikeForward).toBe(true);
     expect(llm.chat).not.toHaveBeenCalled();
   });

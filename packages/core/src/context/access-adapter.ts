@@ -24,6 +24,43 @@ export const GLOBAL_CONTEXT_ID = '__global__';
  */
 export function agentToAccessContext(agent: Agent): AccessContext {
   const rules: AccessRule[] = [];
+  const permissions = agent.permissions;
+  const readPaths = permissions?.read ?? [];
+  const writePaths = permissions?.write ?? [];
+  const createPaths = permissions?.create ?? [];
+  const deletePaths = permissions?.delete ?? [];
+  const readSet = new Set<string>(readPaths);
+  const listSet = new Set<string>();
+
+  for (const pattern of readPaths) {
+    rules.push({ right: 'read', effect: 'allow', pathPattern: pattern });
+    if (!listSet.has(pattern)) {
+      rules.push({ right: 'list', effect: 'allow', pathPattern: pattern });
+      listSet.add(pattern);
+    }
+  }
+
+  for (const pattern of writePaths) {
+    rules.push({ right: 'write', effect: 'allow', pathPattern: pattern });
+
+    if (!readSet.has(pattern)) {
+      rules.push({ right: 'read', effect: 'allow', pathPattern: pattern });
+      readSet.add(pattern);
+    }
+
+    if (!listSet.has(pattern)) {
+      rules.push({ right: 'list', effect: 'allow', pathPattern: pattern });
+      listSet.add(pattern);
+    }
+  }
+
+  for (const pattern of createPaths) {
+    rules.push({ right: 'create', effect: 'allow', pathPattern: pattern });
+  }
+
+  for (const pattern of deletePaths) {
+    rules.push({ right: 'delete', effect: 'allow', pathPattern: pattern });
+  }
 
   return {
     id: agent.id,
@@ -31,7 +68,7 @@ export function agentToAccessContext(agent: Agent): AccessContext {
     rules,
     metadata: {
       contextLevel: agent.contextLevel,
-      manage_agents: agent.contextLevel === 'organization',
+      manage_agents: permissions?.manage_agents ?? agent.contextLevel === 'organization',
     },
   };
 }

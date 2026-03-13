@@ -4,7 +4,7 @@ export interface WebSocketStreamOptions {
   url: string;
   reconnectAttempts?: number;
   reconnectDelay?: number;
-  onQuestion?: (question: any) => Promise<any>;
+  onQuestion?: (question: Record<string, unknown>) => Promise<any>;
   disableQuestions?: boolean;
   signal?: AbortSignal;
   sessionId?: string;
@@ -23,7 +23,7 @@ interface WebSocketMessage {
 
 interface WebSocketEvent {
   type: string;
-  data: any;
+  data: unknown;
 }
 
 export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
@@ -53,13 +53,14 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
     try {
       const wsEvent: WebSocketEvent = JSON.parse(event.data);
       
-      if (wsEvent.type === 'status' && wsEvent.data?.status === 'ready') {
+      if (wsEvent.type === 'status' && (wsEvent.data as { status?: string } | null)?.status === 'ready') {
         // Server is ready, signal that we can send
         readyResolve?.();
         return;
       }
 
       if (wsEvent.type === 'question') {
+        const question = wsEvent.data as Record<string, unknown>;
         if (options.disableQuestions) {
           if (ws.readyState === WebSocket.OPEN) {
             const cancelPayload: WebSocketMessage = { type: 'cancel' };
@@ -70,38 +71,28 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
           return;
         }
 
-        const sendAnswer = (value: any) => {
+        const sendAnswer = (value: unknown) => {
           const answerPayload: WebSocketMessage = {
             type: 'answer',
             answer: {
-              questionId: wsEvent.data.questionId,
-              value,
+              questionId: (question as any).questionId,
+              value: value as any,
             },
           };
           ws.send(JSON.stringify(answerPayload));
         };
 
         if (options.onQuestion) {
-          options.onQuestion(wsEvent.data)
+          options.onQuestion(question)
             .then((answer) => {
               sendAnswer(answer);
             })
             .catch((err) => {
               console.error('Failed to get answer for question:', err);
-              const fallback = wsEvent.data?.kind === 'confirm'
-                ? false
-                : wsEvent.data?.kind === 'checklist'
-                  ? []
-                  : '';
-              sendAnswer(fallback);
+              sendAnswer(false);
             });
         } else {
-          const fallback = wsEvent.data?.kind === 'confirm'
-            ? false
-            : wsEvent.data?.kind === 'checklist'
-              ? []
-              : '';
-          sendAnswer(fallback);
+          sendAnswer(false);
         }
         return;
       }
@@ -157,7 +148,7 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
       type: 'message',
       content: message,
       options: {
-        ...(options.messageOptions || {}),
+        ...(options.messageOptions ?? undefined),
       },
     };
     if (messagePayload.options && 'message' in messagePayload.options) {

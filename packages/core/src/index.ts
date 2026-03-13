@@ -17,6 +17,10 @@ export * from './context/index.js';
 export * from './context/access-adapter.js';
 export * from './chat/index.js';
 export * from './tools/index.js';
+export {
+	FS_TREE_PRE_LLM_PATTERNS,
+	matchesFsTreePreLlmIntent,
+} from './tools/fs-tools.js';
 export * from './tools/tool-descriptors.js';
 export * from './storage/index.js';
 export * from './llm/index.js';

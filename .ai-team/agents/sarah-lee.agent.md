@@ -1,8 +1,9 @@
 ---
 name: Sarah Lee
-description: Chief Architect responsible for repository-wide architecture, boundaries, and technical coherence.
+description: >-
+  Chief Architect responsible for repository-wide architecture, boundaries, and
+  technical coherence.
 ---
-
 
 # Sarah Lee
 

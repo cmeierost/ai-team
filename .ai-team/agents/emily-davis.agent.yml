@@ -19,9 +19,5 @@ personality:
   expertise_level: executive
   mentoring: true
 tools:
-  - read_file
-  - file_search
-  - semantic_search
-  - write_file
-  - apply_code_edit
-  - get_errors
+  - search_semantic
+  - tool_get_errors

@@ -81,6 +81,11 @@ import {
 } from '@ai-team/service';
 import { SearchAgentsRequest, SearchAgentsResponse } from '@ai-team/service/src/contracts';
 
+export interface GovernanceMutationOptions {
+  requestedBy: string;
+  approvedByUser: boolean;
+}
+
 /** Response shape for agent file-tree listing with read/write annotations */
 export interface AgentFilesResponse {
   agent: string;
@@ -128,6 +133,10 @@ export interface AiTeamClient {
   listTools(options?: ListToolsOptions): Promise<ListToolsResponse>;
   allowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
   disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
+  toolAllow(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
+  toolDeny(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
+  accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
+  accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
   whoHasAccess(options: WhoHasAccessOptions): Promise<WhoHasAccessResponse>;
   doIHaveAccess(options: DoIHaveAccessOptions): Promise<DoIHaveAccessResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
@@ -333,6 +342,20 @@ class InProcessAiTeamClient implements AiTeamClient {
     };
   }
 
+  async accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+    const governed = this.service as AiTeamService & {
+      accessAllow: (options: UpdateAgentPathOptions, governance: GovernanceMutationOptions) => Promise<UpdateAgentPathResponse>;
+    };
+    return governed.accessAllow(options, governance);
+  }
+
+  async accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+    const governed = this.service as AiTeamService & {
+      accessDeny: (options: UpdateAgentPathOptions, governance: GovernanceMutationOptions) => Promise<UpdateAgentPathResponse>;
+    };
+    return governed.accessDeny(options, governance);
+  }
+
   async addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
     return this.service.addSkill(options);
   }
@@ -351,6 +374,20 @@ class InProcessAiTeamClient implements AiTeamClient {
 
   async disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse> {
     return this.service.disallowTool(options);
+  }
+
+  async toolAllow(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse> {
+    const governed = this.service as AiTeamService & {
+      toolAllow: (options: UpdateAgentToolOptions, governance: GovernanceMutationOptions) => Promise<UpdateAgentToolResponse>;
+    };
+    return governed.toolAllow(options, governance);
+  }
+
+  async toolDeny(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse> {
+    const governed = this.service as AiTeamService & {
+      toolDeny: (options: UpdateAgentToolOptions, governance: GovernanceMutationOptions) => Promise<UpdateAgentToolResponse>;
+    };
+    return governed.toolDeny(options, governance);
   }
 
   async whoHasAccess(options: WhoHasAccessOptions): Promise<WhoHasAccessResponse> {

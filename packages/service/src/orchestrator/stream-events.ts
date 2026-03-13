@@ -7,6 +7,8 @@
 
 import type { MediatorRuntimeEvent } from '../contracts.js';
 import type { ChatRuntimeHooks } from '../contracts.js';
+import type { ToolDenialEvent } from '../contracts.js';
+import type { ToolRuntimePayloadEvent } from '../contracts.js';
 
 // ── Delta extraction ──────────────────────────────────────────────────────────
 
@@ -62,6 +64,13 @@ export function emitLog(
   message: string,
 ): void {
   emitEvent(hooks, { kind: 'log', level, message });
+  if (!hooks?.emit) {
+    if (level === 'error') {
+      process.stderr.write(`${message}\n`);
+    } else {
+      process.stdout.write(`${message}\n`);
+    }
+  }
 }
 
 export function emitStatus(
@@ -77,6 +86,8 @@ export function emitToolEvent(
   toolName: string,
   toolPhase: 'start' | 'result' | 'error' | 'denied',
   message?: string,
+  toolDenial?: ToolDenialEvent,
+  toolResult?: ToolRuntimePayloadEvent,
 ): void {
-  emitEvent(hooks, { kind: 'tool', toolName, toolPhase, message });
+  emitEvent(hooks, { kind: 'tool', toolName, toolPhase, message, toolDenial, toolResult });
 }

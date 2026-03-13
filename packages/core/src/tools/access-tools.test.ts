@@ -22,12 +22,12 @@ function makeAgent(id: string, readPatterns: string[] = ['**']): Agent {
       create: [],
       delete: [],
     },
-    tools: ['who_has_access', 'do_i_have_access'],
+    tools: ['fs_who_can', 'tool_can_i'],
   };
 }
 
 describe('access introspection tools', () => {
-  it('who_has_access defaults to list right', async () => {
+  it('fs_who_can defaults to list right', async () => {
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-core-access-tools-'));
     try {
       const a = makeAgent('a', ['src/**']);
@@ -37,7 +37,7 @@ describe('access introspection tools', () => {
       const manager = new ToolManager(workspaceRoot, engine);
       for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-      const result = await manager.execute(a, 'who_has_access', { path: 'src/file.ts' }, { workspaceRoot });
+      const result = await manager.execute(a, 'fs_who_can', { path: 'src/file.ts' }, { workspaceRoot });
       expect(result.ok).toBe(true);
       const payload = result.result as any;
       expect(payload.right).toBe('list');
@@ -47,7 +47,7 @@ describe('access introspection tools', () => {
     }
   });
 
-  it('do_i_have_access supports agent override', async () => {
+  it('tool_can_i supports agent override', async () => {
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-core-access-tools-'));
     try {
       const a = makeAgent('a', ['src/**']);
@@ -57,11 +57,11 @@ describe('access introspection tools', () => {
       const manager = new ToolManager(workspaceRoot, engine);
       for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-      const denied = await manager.execute(a, 'do_i_have_access', { path: 'docs/readme.md' }, { workspaceRoot });
+      const denied = await manager.execute(a, 'tool_can_i', { path: 'docs/readme.md' }, { workspaceRoot });
       expect(denied.ok).toBe(true);
       expect((denied.result as any).allowed).toBe(false);
 
-      const allowed = await manager.execute(a, 'do_i_have_access', { path: 'docs/readme.md', agentId: 'b' }, { workspaceRoot });
+      const allowed = await manager.execute(a, 'tool_can_i', { path: 'docs/readme.md', agentId: 'b' }, { workspaceRoot });
       expect(allowed.ok).toBe(true);
       expect((allowed.result as any).allowed).toBe(true);
       expect((allowed.result as any).contextId).toBe('b');

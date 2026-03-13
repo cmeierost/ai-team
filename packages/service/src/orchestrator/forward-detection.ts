@@ -18,12 +18,49 @@ const FORWARD_PATTERNS = [
   /(?:can (?:you|i)|please)\s+(?:forward|transfer|connect|switch|redirect)\s+(?:me\s+)?(?:to|with)\s+(.+)/i,
   /(?:put me through|patch me through|hand me off)\s+(?:to)\s+(.+)/i,
   /(?:i (?:want|need) to (?:talk|speak|chat) (?:to|with))\s+(.+)/i,
+  /(?:get me)\s+(.+)/i,
+  /(?:i(?:'d| would) rather ask)\s+(.+?)(?:\s+(?:about|on|regarding|with)\b.*)?$/i,
   /(?:can (?:you|i)|please|could you)?\s*brief\s+(.+?)(?:\s+(?:about|on|regarding|with)\b.*)?$/i,
   /(?:tell|inform|update|notify)\s+(.+?)\s+(?:about|on|regarding)\b/i,
   /let\s+(.+?)\s+know\b/i,
   /(?:loop\s+in|bring\s+in|include)\s+(.+)/i,
   /ping\s+(.+?)(?:\s+(?:about|on|regarding)\b.*)?$/i,
 ];
+
+const FORWARD_TARGET_ALIASES: Record<string, string[]> = {
+  ceo: ['ceo', 'cto', 'chief executive officer'],
+  cto: ['cto', 'ceo', 'chief technology officer'],
+  'hr director': ['hr director', 'hr', 'human resources', 'head of human resources'],
+};
+
+function resolveForwardTargetCandidates(
+  target: string,
+  agentManager: AgentManager,
+  currentAgentId: string,
+): Agent[] {
+  const normalized = target.trim().toLowerCase();
+  const queries = new Set<string>([normalized]);
+
+  for (const [aliasKey, aliasValues] of Object.entries(FORWARD_TARGET_ALIASES)) {
+    if (aliasValues.includes(normalized)) {
+      queries.add(aliasKey);
+      for (const alias of aliasValues) queries.add(alias);
+    }
+  }
+
+  const seen = new Set<string>();
+  const resolved: Agent[] = [];
+  for (const query of queries) {
+    const matches = agentManager.resolveAgent(query);
+    for (const candidate of matches) {
+      if (candidate.id === currentAgentId || seen.has(candidate.id)) continue;
+      seen.add(candidate.id);
+      resolved.push(candidate);
+    }
+  }
+
+  return resolved;
+}
 
 function extractForwardTargetName(message: string): string | undefined {
   for (const pattern of FORWARD_PATTERNS) {
@@ -81,9 +118,8 @@ function detectForwardRequest(
 ): Agent | undefined {
   const target = extractForwardTargetName(message);
   if (!target) return undefined;
-  const matches = agentManager.resolveAgent(target);
-  const filtered = matches.filter(a => a.id !== currentAgentId);
-  return filtered.length > 0 ? filtered[0] : undefined;
+  const resolved = resolveForwardTargetCandidates(target, agentManager, currentAgentId);
+  return resolved.length > 0 ? resolved[0] : undefined;
 }
 
 /** Third-person pronouns and vague references that cannot be resolved without context. */
@@ -121,22 +157,6 @@ export async function detectForwardRequestWithFallback(
       const candidate = words.slice(0, len).join(' ');
       const matches = agentManager.resolveAgent(candidate).filter(a => a.id !== currentAgentId);
       if (matches.length > 0) return { resolved: matches[0], looksLikeForward: true };
-    }
-  }
-
-  // Phase 2.5: pronoun resolution from history.
-  // Walk history newest-first; return the first agent whose name appears in any message.
-  // Handles "forward me to him" when the conversation just mentioned "Michael" two turns ago.
-  if (isPronouns && history.length > 0) {
-    const allCandidates = agentManager.getAllAgents().filter(a => a.id !== currentAgentId);
-    for (const msg of [...history].reverse()) {
-      const content = (msg.content ?? '').toLowerCase();
-      for (const candidate of allCandidates) {
-        const nameParts = candidate.name.toLowerCase().split(/\s+/).filter(p => p.length >= 3);
-        if (nameParts.some(p => content.includes(p))) {
-          return { resolved: candidate, looksLikeForward: true };
-        }
-      }
     }
   }
 

@@ -234,7 +234,7 @@ describe('SqliteMessageStorage', () => {
         context: ['src/auth/login.ts', 'src/auth/jwt.ts'],
         tool_calls: [
           {
-            tool: 'read_file',
+            tool: 'fs_read',
             params: { path: 'src/auth/login.ts' },
             result: { content: 'file content' },
           },
@@ -258,7 +258,7 @@ describe('SqliteMessageStorage', () => {
       expect(messages[0].context).toContain('src/auth/login.ts');
       expect(messages[0].context).toContain('src/auth/jwt.ts');
       expect(messages[0].tool_calls).toHaveLength(1);
-      expect(messages[0].tool_calls![0].tool).toBe('read_file');
+      expect(messages[0].tool_calls![0].tool).toBe('fs_read');
       expect(messages[0].suggestions).toHaveLength(1);
       expect(messages[0].suggestions![0].file).toBe('src/auth/jwt.ts');
     });

@@ -81,6 +81,31 @@ describe('parseAccessFile', () => {
     expect(rules.some((r) => r.pathPattern === 'packages/service/**/*' && r.right === 'list' && r.effect === 'allow')).toBe(true);
   });
 
+  it('adds implicit list allow-all when sectioned file has no [list] section', () => {
+    const rules = parseAccessFile([
+      '[read]',
+      'docs/**/*',
+      '[write]',
+      '.ai-team/**/*',
+    ].join('\n'));
+
+    expect(rules.some((r) => r.right === 'list' && r.effect === 'allow' && r.pathPattern === '**')).toBe(true);
+  });
+
+  it('does not add implicit list allow-all when [list] section is present', () => {
+    const rules = parseAccessFile([
+      '[list]',
+      'docs/**/*',
+      '[read]',
+      'docs/architecture/**/*',
+    ].join('\n'));
+
+    const implicitListRules = rules.filter(
+      (r) => r.right === 'list' && r.effect === 'allow' && r.pathPattern === '**' && r.label === 'access-file implicit list fallback',
+    );
+    expect(implicitListRules).toHaveLength(0);
+  });
+
   it('rejects section mode with patterns outside sections', () => {
     expect(() => parseAccessFile([
       'orphan/**',

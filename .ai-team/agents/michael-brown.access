@@ -1,4 +1,7 @@
 # Migrated from .agent.yml permissions
+[list]
+**
+
 [read]
 .ai-team/**/*
 .github/copilot-instructions.md

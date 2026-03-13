@@ -76,6 +76,9 @@ importers:
       '@ai-team/core':
         specifier: workspace:*
         version: link:../core
+      '@ai-team/ide-interface':
+        specifier: workspace:*
+        version: link:../ide-interface
       '@ai-team/service':
         specifier: workspace:*
         version: link:../service

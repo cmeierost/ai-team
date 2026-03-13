@@ -15,10 +15,32 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
   }
 
   type ToolPhase = 'request' | 'start' | 'result' | 'error' | 'denied';
+  interface SessionToolDenial {
+    kind: 'user-denied' | 'policy-denied' | 'execution-failed';
+    reasonCode: string;
+    message: string;
+    blockedPaths?: string[];
+    alternativeContexts?: Array<{ contextId: string; allowedPaths: string[] }>;
+    handoffRecommendation?: {
+      possible: boolean;
+      requiresUserApproval: true;
+      contexts: Array<{ contextId: string; allowedPaths: string[] }>;
+    };
+  }
+
+  interface SessionToolResult {
+    toolName: string;
+    outcome: 'result' | 'error' | 'denied';
+    result?: unknown;
+    denial?: SessionToolDenial;
+  }
+
   interface SessionActivatedTool {
     toolName: string;
     toolPhase?: ToolPhase;
     message?: string;
+    toolResult?: SessionToolResult;
+    toolDenial?: SessionToolDenial;
     timestamp: string;
   }
 

@@ -44,6 +44,7 @@ export interface ContextPanelViewProps {
   onDeleteSession: (event: MouseEvent, sessionId: string) => void;
   onCreateSession?: () => void;
   onOpenSessionGraph?: (sessionId: string) => void;
+  onSuggestedHandoff?: (targetAgentId: string, task?: string) => void;
 }
 
 export function ContextPanelView({
@@ -75,6 +76,7 @@ export function ContextPanelView({
   onDeleteSession,
   onCreateSession,
   onOpenSessionGraph,
+  onSuggestedHandoff,
 }: Readonly<ContextPanelViewProps>) {
   return (
     <div className="context-panel">
@@ -121,6 +123,7 @@ export function ContextPanelView({
           activeToolNames={activeToolNames}
           expandedSection={expandedSection}
           onToggleSection={onToggleSection}
+          onSuggestedHandoff={onSuggestedHandoff}
         />
 
         <TasksSection

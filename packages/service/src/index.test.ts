@@ -133,4 +133,57 @@ describe('createAiTeamService', () => {
     expect(listApi.providerModelsRefreshCommand).toHaveBeenCalledWith('c:/workspace', { provider: 'local' });
     expect(listApi.testConnectionCommand).toHaveBeenCalledWith('c:/workspace', { employee: 'maya' });
   });
+
+  it('streams tool denial metadata through tool events', async () => {
+    listApi.chatCommand.mockImplementation(async (_workspaceRoot, _employeeId, _options, hooks) => {
+      hooks?.emit?.({
+        kind: 'tool',
+        toolName: 'fs_write_file',
+        toolPhase: 'denied',
+        message: 'Denied by policy',
+        toolResult: {
+          toolName: 'fs_write_file',
+          outcome: 'denied',
+          result: 'Denied by policy',
+        },
+        toolDenial: {
+          kind: 'policy-denied',
+          reasonCode: 'permission_denied',
+          message: 'Denied by policy',
+          blockedPaths: ['src/secret.ts'],
+          alternativeContexts: [{ contextId: 'agent-infra', allowedPaths: ['src/secret.ts'] }],
+          handoffRecommendation: {
+            possible: true,
+            requiresUserApproval: true,
+            contexts: [{ contextId: 'agent-infra', allowedPaths: ['src/secret.ts'] }],
+          },
+        },
+      });
+    });
+
+    const service = createAiTeamService('c:/workspace');
+    const events = [] as Array<Record<string, unknown>>;
+    for await (const event of service.stream({ command: 'chat', payload: { employeeId: 'maya', options: { message: 'hello' } } })) {
+      events.push(event as Record<string, unknown>);
+    }
+
+    const toolEvent = events.find((event) => event.kind === 'tool');
+    expect(toolEvent).toBeDefined();
+    expect(toolEvent).toMatchObject({
+      kind: 'tool',
+      toolName: 'fs_write_file',
+      toolPhase: 'denied',
+      message: 'Denied by policy',
+      toolDenial: {
+        kind: 'policy-denied',
+        reasonCode: 'permission_denied',
+        blockedPaths: ['src/secret.ts'],
+      },
+      toolResult: {
+        toolName: 'fs_write_file',
+        outcome: 'denied',
+        result: 'Denied by policy',
+      },
+    });
+  });
 });

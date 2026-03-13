@@ -45,10 +45,10 @@ function makeFullFsAgent(id: string): Agent {
     ...makeAgent(id, ['**']),
     permissions: perms({ read: ['**'], write: ['**'], create: ['**'], delete: ['**'] }),
     tools: [
-      'fs_read_file',
+      'fs_read',
       'fs_read_lines',
       'fs_write_file',
-      'fs_create_file',
+      'fs_create',
       'fs_delete_path',
       'fs_mkdir',
       'fs_list',
@@ -180,7 +180,7 @@ describe('fs_search_* access filtering', () => {
 });
 
 describe('remaining fs tool execution', () => {
-  it('supports fs_read_file and fs_read_lines for allowed paths', async () => {
+  it('supports fs_read and fs_read_lines for allowed paths', async () => {
     const workspaceRoot = await createWorkspace();
     await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'src', 'file.txt'), 'line1\nline2\nline3', 'utf8');
@@ -190,7 +190,7 @@ describe('remaining fs tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const full = await manager.execute(a, 'fs_read_file', { filePath: 'src/file.txt' }, { workspaceRoot });
+    const full = await manager.execute(a, 'fs_read', { filePath: 'src/file.txt' }, { workspaceRoot });
     const lines = await manager.execute(
       a,
       'fs_read_lines',
@@ -204,7 +204,7 @@ describe('remaining fs tool execution', () => {
     expect((lines.result as any).lines).toEqual(['line2', 'line3']);
   });
 
-  it('supports fs_write_file, fs_create_file and fs_mkdir', async () => {
+  it('supports fs_write_file, fs_create and fs_mkdir', async () => {
     const workspaceRoot = await createWorkspace();
     const a = makeFullFsAgent('a');
     const engine = createAccessEngine({ workspaceRoot, agents: [a] });
@@ -214,7 +214,7 @@ describe('remaining fs tool execution', () => {
     const mkdir = await manager.execute(a, 'fs_mkdir', { path: 'tmp/nested' }, { workspaceRoot });
     const created = await manager.execute(
       a,
-      'fs_create_file',
+      'fs_create',
       { filePath: 'tmp/nested/new.txt', content: 'hello', createDirectories: true },
       { workspaceRoot },
     );

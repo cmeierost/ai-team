@@ -29,12 +29,9 @@ skills:
       Own tool authorization, execution boundaries, and safe backend tooling
       behavior.
 tools:
-  - apply_code_edit
-  - file_search
-  - get_errors
-  - handoff_to_agent
-  - read_file
-  - semantic_search
+  - tool_get_errors
+  - com_handoff
+  - search_semantic
 availableFor:
   - backend-platform
   - file-system-abstraction

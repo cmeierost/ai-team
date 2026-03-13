@@ -173,6 +173,11 @@ export interface UpdateAgentToolResponse {
   changed: boolean;
 }
 
+export interface GovernanceMutationOptions {
+  requestedBy: string;
+  approvedByUser: boolean;
+}
+
 export type PathMode = 'read' | 'write' | 'create' | 'delete';
 
 export interface FilePatternCollections {
@@ -313,6 +318,8 @@ export interface ChatOptions {
 export interface QuestionSelectChoice {
   name: string;
   value: string;
+  description?: string;
+  recommended?: boolean;
 }
 
 export interface QuestionWorkflowMetadata {
@@ -343,12 +350,24 @@ export interface QuestionPasswordRequest {
 export interface QuestionSelectRequest {
   message: string;
   choices: QuestionSelectChoice[];
+  default?: string;
+  recommended?: string[];
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPrompt?: string;
   workflow?: QuestionWorkflowMetadata;
 }
 
 export interface QuestionChecklistRequest {
   message: string;
   choices: QuestionSelectChoice[];
+  default?: string[];
+  recommended?: string[];
+  minSelections?: number;
+  maxSelections?: number;
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPrompt?: string;
   workflow?: QuestionWorkflowMetadata;
 }
 
@@ -359,7 +378,7 @@ export type QuestionRequest =
   | ({ kind: 'select' } & QuestionSelectRequest)
   | ({ kind: 'checklist' } & QuestionChecklistRequest);
 
-export type QuestionAnswerValue = string | boolean | string[];
+export type QuestionAnswerValue = string | boolean | number | string[] | Record<string, string>;
 
 export interface WorkflowFrame {
   workflowId: string;
@@ -399,6 +418,26 @@ export interface MediatorContext {
  */
 export type ChatRuntimeHooks = Omit<MediatorContext, 'logger'>;
 
+export interface ToolDenialEvent {
+  kind: 'user-denied' | 'policy-denied' | 'execution-failed';
+  reasonCode: string;
+  message: string;
+  blockedPaths?: string[];
+  alternativeContexts?: Array<{ contextId: string; allowedPaths: string[] }>;
+  handoffRecommendation?: {
+    possible: boolean;
+    requiresUserApproval: true;
+    contexts: Array<{ contextId: string; allowedPaths: string[] }>;
+  };
+}
+
+export interface ToolRuntimePayloadEvent {
+  toolName: string;
+  outcome: 'result' | 'error' | 'denied';
+  result?: unknown;
+  denial?: ToolDenialEvent;
+}
+
 export interface MediatorRuntimeEvent {
   kind: 'status' | 'progress' | 'log' | 'token' | 'tool' | 'question' | 'code_edit_proposal' | 'handoff';
   phase?: string;
@@ -408,8 +447,17 @@ export interface MediatorRuntimeEvent {
   text?: string;
   toolName?: string;
   toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
+  toolDenial?: ToolDenialEvent;
+  toolResult?: ToolRuntimePayloadEvent;
   questionType?: 'confirm' | 'input' | 'select' | 'password' | 'checklist';
   choices?: QuestionSelectChoice[];
+  default?: string | boolean | string[];
+  recommended?: string[];
+  minSelections?: number;
+  maxSelections?: number;
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPrompt?: string;
   // Code edit proposal fields
   proposalId?: string;
   agentName?: string;
@@ -544,6 +592,8 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       toolName: string;
       toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
       message?: string;
+      toolDenial?: ToolDenialEvent;
+      toolResult?: ToolRuntimePayloadEvent;
     }
   | {
       requestId?: string;
@@ -553,6 +603,13 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       questionType?: 'confirm' | 'input' | 'select' | 'password' | 'checklist';
       message: string;
       choices?: QuestionSelectChoice[];
+      default?: string | boolean | string[];
+      recommended?: string[];
+      minSelections?: number;
+      maxSelections?: number;
+      allowOther?: boolean;
+      otherLabel?: string;
+      otherPrompt?: string;
     }
   | {
       requestId?: string;
@@ -612,6 +669,10 @@ export interface AiTeamService extends AiTeamMediator {
   listTools(options?: ListToolsOptions): Promise<ListToolsResponse>;
   allowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
   disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
+  toolAllow(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
+  toolDeny(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
+  accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
+  accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;

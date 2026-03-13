@@ -140,8 +140,8 @@ describe('createAccessEngine', () => {
       agents: [makeAgent('a')],
     });
 
-    // read_file should be registered
-    const verdict = engine.checkToolCall('read_file', { filePath: 'src/foo.ts' }, '/workspace', 'a');
+    // fs_read should be registered
+    const verdict = engine.checkToolCall('fs_read', { filePath: 'src/foo.ts' }, '/workspace', 'a');
     // The tool is registered, so it won't fall back to "unregistered tool denied"
     expect(verdict.explanation).not.toContain('Unregistered tool');
   });

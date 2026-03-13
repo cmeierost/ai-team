@@ -1,7 +1,9 @@
 import type { WebSocket } from 'ws';
 import type { AiTeamClient } from '@ai-team/api-client';
 import type { AgentManager } from '@ai-team/core';
-import type { QuestionInputRequest, QuestionConfirmRequest, QuestionSelectRequest, QuestionPasswordRequest, QuestionChecklistRequest } from '@ai-team/service';
+import type {
+  QuestionConfirmRequest,
+} from '@ai-team/service';
 import { resolveAgentForOperation, SessionManager } from '@ai-team/service';
 import { createIdeAdapter, type IdeAdapter } from '@ai-team/ide-interface';
 
@@ -46,8 +48,8 @@ export interface ChatWebSocketMessage {
   answer?: {
     /** Question ID from the QuestionEvent */
     questionId: string;
-    /** Answer value (string for input/select/password, boolean for confirm, string[] for checklist) */
-    value: string | boolean | string[];
+    /** Answer value (string/bool/number/array/object depending on question type) */
+    value: string | boolean | number | string[] | Record<string, string>;
   };
 }
 
@@ -146,7 +148,7 @@ export function setupChatWebSocket(
   }>();
 
   // Helper to wait for answer from client
-  const askQuestion = async (questionId: string, questionData: any): Promise<any> => {
+  const askQuestion = async (questionId: string, questionData: Record<string, unknown>): Promise<any> => {
     return new Promise((resolve, reject) => {
       pendingQuestions.set(questionId, { resolve, reject });
       
@@ -230,25 +232,9 @@ export function setupChatWebSocket(
             },
             {
               signal: currentAbortController.signal,
-              questionInput: async (request: QuestionInputRequest) => {
-                const questionId = `q${++questionCounter}`;
-                return askQuestion(questionId, { kind: 'input', ...request });
-              },
               questionConfirm: async (request: QuestionConfirmRequest) => {
                 const questionId = `q${++questionCounter}`;
                 return askQuestion(questionId, { kind: 'confirm', ...request });
-              },
-              questionSelect: async (request: QuestionSelectRequest) => {
-                const questionId = `q${++questionCounter}`;
-                return askQuestion(questionId, { kind: 'select', ...request });
-              },
-              questionPassword: async (request: QuestionPasswordRequest) => {
-                const questionId = `q${++questionCounter}`;
-                return askQuestion(questionId, { kind: 'password', ...request });
-              },
-              questionChecklist: async (request: QuestionChecklistRequest) => {
-                const questionId = `q${++questionCounter}`;
-                return askQuestion(questionId, { kind: 'checklist', ...request });
               },
             }
           );

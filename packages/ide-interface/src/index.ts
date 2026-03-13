@@ -43,6 +43,92 @@ export interface IdeServerFile {
 }
 
 // ---------------------------------------------------------------------------
+// IDE edit lifecycle API contracts — shared across adapters/clients
+// ---------------------------------------------------------------------------
+
+export type IdeEditSessionState = 'open' | 'streaming' | 'ready' | 'committed' | 'reverted' | 'closed';
+
+export type IdeEditOrigin = 'vscode' | 'ai-team';
+
+export interface IdeOpenDiffRequest {
+  operationId: string;
+  traceId?: string;
+  filePath: string;
+  originalContent?: string;
+  editType?: 'modify' | 'create';
+  agentName?: string;
+  description?: string;
+}
+
+export interface IdeOpenDiffResponse {
+  ok: boolean;
+  sessionId: string;
+  operationId: string;
+  state: IdeEditSessionState;
+  ideConnected: boolean;
+}
+
+export interface IdeUpdateEditRequest {
+  sessionId: string;
+  content: string;
+  isFinal?: boolean;
+}
+
+export interface IdeUpdateEditResponse {
+  ok: boolean;
+  sessionId: string;
+  state: IdeEditSessionState;
+  additions: number;
+  deletions: number;
+}
+
+export interface IdeSessionActionRequest {
+  sessionId: string;
+}
+
+export interface IdeSessionAckActionRequest extends IdeSessionActionRequest {
+  origin?: IdeEditOrigin;
+  seq?: number;
+}
+
+export interface IdeCommitEditResponse {
+  ok: boolean;
+  sessionId: string;
+  state: IdeEditSessionState;
+  finalContent: string;
+  terminalState: 'committed';
+}
+
+export interface IdeRevertEditResponse {
+  ok: boolean;
+  sessionId: string;
+  state: IdeEditSessionState;
+  terminalState: 'reverted';
+}
+
+export interface IdeResetEditResponse {
+  ok: boolean;
+  sessionId: string;
+  state: 'closed';
+}
+
+export interface IdeEditStatusResponse {
+  sessionId: string;
+  operationId: string;
+  traceId?: string;
+  state: IdeEditSessionState;
+  terminalState?: 'committed' | 'reverted';
+  closedBy?: 'ack-accept' | 'ack-reject' | 'reset';
+  filePath: string;
+  lastOrigin?: IdeEditOrigin;
+  lastSeq?: number;
+  createdAt: string;
+  lastUpdatedAt: string;
+  additions: number;
+  deletions: number;
+}
+
+// ---------------------------------------------------------------------------
 // Protocol messages — Caller (CLI/api-server) → Plugin
 // ---------------------------------------------------------------------------
 

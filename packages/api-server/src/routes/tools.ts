@@ -82,8 +82,52 @@ const UpdateToolBodySchema = {
   },
 };
 
+const GovernedUpdateToolBodySchema = {
+  safeParse(body: unknown) {
+    const base = UpdateToolBodySchema.safeParse(body);
+    if (!base.success) {
+      return base;
+    }
+
+    const payload = body as Record<string, unknown>;
+    const requestedBy = payload.requestedBy;
+    const approvedByUser = payload.approvedByUser;
+
+    if (typeof requestedBy !== 'string' || requestedBy.trim().length === 0) {
+      return {
+        success: false as const,
+        error: {
+          issues: [{ message: 'requestedBy is required and must be a non-empty string' }],
+        },
+      };
+    }
+
+    if (typeof approvedByUser !== 'boolean') {
+      return {
+        success: false as const,
+        error: {
+          issues: [{ message: 'approvedByUser is required and must be a boolean' }],
+        },
+      };
+    }
+
+    return {
+      success: true as const,
+      data: {
+        ...base.data,
+        requestedBy: requestedBy.trim(),
+        approvedByUser,
+      },
+    };
+  },
+};
+
 export function createToolsRouter(client: AiTeamClient): Router {
   const router = express.Router();
+  const governedClient = client as AiTeamClient & {
+    toolAllow: (options: { agent: string; tool: string }, governance: { requestedBy: string; approvedByUser: boolean }) => Promise<unknown>;
+    toolDeny: (options: { agent: string; tool: string }, governance: { requestedBy: string; approvedByUser: boolean }) => Promise<unknown>;
+  };
 
   /**
    * @openapi
@@ -204,6 +248,46 @@ export function createToolsRouter(client: AiTeamClient): Router {
       }
 
       const response = await client.disallowTool(parsed.data);
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/tool_allow', async (req: any, res: any, next: any) => {
+    try {
+      const parsed = GovernedUpdateToolBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: 'Invalid request body',
+          details: parsed.error.issues,
+        });
+      }
+
+      const response = await governedClient.toolAllow(
+        { agent: parsed.data.agent, tool: parsed.data.tool },
+        { requestedBy: parsed.data.requestedBy, approvedByUser: parsed.data.approvedByUser },
+      );
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/tool_deny', async (req: any, res: any, next: any) => {
+    try {
+      const parsed = GovernedUpdateToolBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: 'Invalid request body',
+          details: parsed.error.issues,
+        });
+      }
+
+      const response = await governedClient.toolDeny(
+        { agent: parsed.data.agent, tool: parsed.data.tool },
+        { requestedBy: parsed.data.requestedBy, approvedByUser: parsed.data.approvedByUser },
+      );
       res.json(response);
     } catch (error) {
       next(error);

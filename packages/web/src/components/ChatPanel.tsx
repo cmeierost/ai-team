@@ -27,6 +27,7 @@ export function ChatPanel() {
       pendingConfirmAnswer={controller.pendingConfirmAnswer}
       pendingSelectAnswer={controller.pendingSelectAnswer}
       pendingChecklistAnswer={controller.pendingChecklistAnswer}
+      pendingFormAnswer={controller.pendingFormAnswer}
       input={controller.input}
       isRecording={controller.isRecording}
       recognition={controller.recognition}
@@ -57,6 +58,7 @@ export function ChatPanel() {
       onPendingConfirmAnswerChange={controller.setPendingConfirmAnswer}
       onPendingSelectAnswerChange={controller.setPendingSelectAnswer}
       onTogglePendingChecklistValue={controller.togglePendingChecklistValue}
+      onPendingFormFieldChange={controller.setPendingFormFieldValue}
       onPendingQuestionSubmit={controller.handlePendingQuestionSubmit}
       onInputChange={controller.handleInputChange}
       onInputKeyDown={controller.handleInputKeyDown}
@@ -68,6 +70,7 @@ export function ChatPanel() {
       onDeleteSession={controller.handleDeleteSession}
       onCreateSession={controller.handleCreateSession}
       onOpenSessionGraph={controller.handleOpenSessionGraph}
+      onSuggestedHandoff={controller.handleSuggestedToolHandoff}
     />
   );
 }

@@ -20,6 +20,7 @@ specializations:
 avatar:
   type: url
   url: .ai-team/avatars/daniel-navarro.jpg
+  color: 'hsl(88, 70%, 60%)'
 personality:
   communication_style: collaborative
   expertise_level: senior
@@ -56,11 +57,8 @@ skills:
       Add direct unit coverage for extracted state logic such as stores,
       selectors, reducers, and runtime event appliers.
 tools:
-  - read_file
-  - file_search
-  - semantic_search
-  - apply_code_edit
-  - get_errors
+  - search_semantic
+  - tool_get_errors
 canDelegate: true
 delegatesTo:
   - samuel-ceeses

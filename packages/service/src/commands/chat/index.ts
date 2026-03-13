@@ -7,7 +7,7 @@
  *   hooks.ts            — ChatRuntimeHooks interface (the caller's contract)
  *   async-utils.ts      — withTimeout / withAbortSignal / isAbortError
  *   emit.ts             — emitRuntimeEvent / writeInfo / writeWarn / writeError
- *   questions.ts        — requestInput / requestConfirm / requestSelect / …
+ *   questions.ts        — requestInput / requestSelect
  *   forward-detection.ts — natural-language agent-switch detection
  *   agent-selection.ts  — selectDefaultTopAgent / formatUserPrompt
  */
@@ -18,6 +18,9 @@ import {
   ChatMessage,
   Agent,
   LlmService,
+  ToolManager,
+  createAccessEngine,
+  ContextManager,
   loadSkill,
   loadTeamConfig,
 } from '@ai-team/core';
@@ -30,6 +33,8 @@ import { ChatOrchestrator } from '../../orchestrator/chat-orchestrator.js';
 import { tryIntroduceUser as tryIntroduceUserNew } from '../../orchestrator/introduction.js';
 import { createContainer, resolvePlugins, TOKENS } from '../../container/index.js';
 import type { OrchestratorContext } from '../../orchestrator/pipeline-context.js';
+import { createToolManager } from '../../tools/create-tool-manager.js';
+import type { OrchestrationDeps } from '../../tools/create-tool-manager.js';
 
 // ── Service modules ───────────────────────────────────────────────────────────
 export type { ChatRuntimeHooks } from './hooks.js';
@@ -41,7 +46,7 @@ export {
   writeError,
   printSessionResume,
 } from './emit.js';
-export { requestInput, requestConfirm, requestSelect, requestPassword, requestChecklist } from './questions.js';
+export { requestInput, requestSelect } from './questions.js';
 
 // ── Internal service imports (used by chatCommand but not re-exported) ────────
 import type { ChatRuntimeHooks } from './hooks.js';
@@ -57,7 +62,7 @@ const PREFLIGHT_STEP_TIMEOUT_MS = 15_000;
 
 /** Strip HANDOFF:/FORWARD_TO: directive lines from agent text before persisting. */
 export function stripHandoffDirective(text: string): string {
-  let cleaned = text.replaceAll(/^\s*(?:HANDOFF|FORWARD_TO):\s*[^\n]+$/gim, '');
+  let cleaned = text.replaceAll(/\s*(?:HANDOFF|FORWARD_TO):\s*[^|\n]+(?:\s*\|\s*[^\n]*)?/gim, '');
   cleaned = cleaned.replaceAll(/\n{3,}/g, '\n\n').trim();
   return cleaned;
 }
@@ -74,12 +79,15 @@ export function parseHandoffDirective(
   text: string,
 ): { targetAgentId: string; note: string } | null {
   // Allow spaces in the agent name — LLMs write "Emily Davis", not "emily-davis".
-  const re = /^\s*(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*$/im;
+  const re = /(?:^|\n)\s*(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*(?:$|\n)|\s+(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*$/im;
   const match = re.exec(text);
   if (!match) return null;
+  const target = (match[1] ?? match[3] ?? '').trim();
+  const note = (match[2] ?? match[4] ?? '').trim();
+  if (!target) return null;
   return {
-    targetAgentId: match[1].trim(),
-    note: (match[2] ?? '').trim(),
+    targetAgentId: target,
+    note,
   };
 }
 
@@ -285,7 +293,17 @@ export async function chatCommand(
 
     // Agent introduces themselves on first contact
     if (history.length === 0 && !options.pendingIntroduction) {
-      await tryIntroduceUserNew(llm, agentManager, agent, history, skill, developerName, sessionManager, currentSessionId, hooks);
+      await tryIntroduceUserNew({
+        llm,
+        agentManager,
+        agent,
+        history,
+        skill,
+        developerName,
+        sessionManager,
+        sessionId: currentSessionId,
+        hooks,
+      });
     }
 
     // Persist a web-client-generated introduction (keeps history ordering correct)
@@ -304,7 +322,29 @@ export async function chatCommand(
     }
 
     // ── Build OrchestratorContext + ChatOrchestrator ─────────────────────────
+    const accessEngine = createAccessEngine({
+      workspaceRoot,
+      fileTreeConfig: teamConfig?.fileTree,
+      agents: agentManager.getAllAgents(),
+    });
+
+    let chatToolManager: ToolManager;
+    const toolDeps: OrchestrationDeps = {
+      sessions: sessionManager,
+      agents: agentManager,
+      tools: {
+        whoCanExecute: (toolName, args, agents) => chatToolManager.whoCanExecute(toolName, args, agents),
+        catalog: (agent) => chatToolManager.catalog(agent),
+      },
+    };
+    chatToolManager = createToolManager(workspaceRoot, toolDeps, accessEngine);
+
     const _container = createContainer({ workspaceRoot });
+    _container.registerInstance(TOKENS.AgentManager, agentManager);
+    _container.registerInstance(TOKENS.SessionManager, sessionManager);
+    _container.registerInstance(TOKENS.ToolManager, chatToolManager);
+    _container.registerInstance(TOKENS.ContextManager, new ContextManager(workspaceRoot, undefined, accessEngine));
+
     const _ctx: OrchestratorContext = {
       agent,
       workspaceRoot,

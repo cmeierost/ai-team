@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { confirm, input } from '@inquirer/prompts';
 import type { AiTeamClient, ListToolsResponse } from '@ai-team/api-client';
 
 interface ToolsListOptions {
@@ -9,6 +10,8 @@ interface ToolsListOptions {
 interface ToolsMutationOptions {
   agent?: string;
   tool?: string;
+  requestedBy?: string;
+  approvedByUser?: boolean;
   json?: boolean;
 }
 
@@ -68,7 +71,29 @@ export async function toolsCommand(client: AiTeamClient, options: ToolsListOptio
 export async function toolsAllowCommand(client: AiTeamClient, options: ToolsMutationOptions = {}): Promise<void> {
   const agent = ensureRequiredOption(options.agent, '--agent');
   const tool = ensureRequiredOption(options.tool, '--tool');
-  const result = await client.allowTool({ agent, tool });
+
+  const requestedBy = options.requestedBy?.trim() || await input({
+    message: 'Requested by (must be CEO/HR):',
+    validate: (value) => value.trim().length > 0 || 'requestedBy is required',
+  });
+
+  const approvedByUser = typeof options.approvedByUser === 'boolean'
+    ? options.approvedByUser
+    : await confirm({
+      message: `Approve tool_allow by ${requestedBy} for agent '${agent}' and tool '${tool}'?`,
+      default: false,
+    });
+
+  const governedClient = client as AiTeamClient & {
+    toolAllow?: (
+      payload: { agent: string; tool: string },
+      governance: { requestedBy: string; approvedByUser: boolean },
+    ) => Promise<Awaited<ReturnType<AiTeamClient['allowTool']>>>;
+  };
+
+  const result = governedClient.toolAllow
+    ? await governedClient.toolAllow({ agent, tool }, { requestedBy, approvedByUser })
+    : await client.allowTool({ agent, tool });
 
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
@@ -87,7 +112,29 @@ export async function toolsAllowCommand(client: AiTeamClient, options: ToolsMuta
 export async function toolsDisallowCommand(client: AiTeamClient, options: ToolsMutationOptions = {}): Promise<void> {
   const agent = ensureRequiredOption(options.agent, '--agent');
   const tool = ensureRequiredOption(options.tool, '--tool');
-  const result = await client.disallowTool({ agent, tool });
+
+  const requestedBy = options.requestedBy?.trim() || await input({
+    message: 'Requested by (must be CEO/HR):',
+    validate: (value) => value.trim().length > 0 || 'requestedBy is required',
+  });
+
+  const approvedByUser = typeof options.approvedByUser === 'boolean'
+    ? options.approvedByUser
+    : await confirm({
+      message: `Approve tool_deny by ${requestedBy} for agent '${agent}' and tool '${tool}'?`,
+      default: false,
+    });
+
+  const governedClient = client as AiTeamClient & {
+    toolDeny?: (
+      payload: { agent: string; tool: string },
+      governance: { requestedBy: string; approvedByUser: boolean },
+    ) => Promise<Awaited<ReturnType<AiTeamClient['disallowTool']>>>;
+  };
+
+  const result = governedClient.toolDeny
+    ? await governedClient.toolDeny({ agent, tool }, { requestedBy, approvedByUser })
+    : await client.disallowTool({ agent, tool });
 
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));

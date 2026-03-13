@@ -30,4 +30,20 @@ describe('contextPanel utils', () => {
 
     expect(activeTools).toEqual(['apply_patch']);
   });
+
+  it('uses toolResult.toolName as canonical identity when present', () => {
+    const activeTools = getActiveToolNames([
+      {
+        toolName: 'legacy_alias',
+        toolPhase: 'request',
+        timestamp: '2026-03-09T09:00:00.000Z',
+        toolResult: {
+          toolName: 'fs_tree',
+          outcome: 'result',
+        },
+      },
+    ]);
+
+    expect(activeTools).toEqual(['fs_tree']);
+  });
 });

@@ -23,7 +23,7 @@ import type { AccessEngine, AccessVerdict } from '@ai-team/access';
 import { ContextManager } from '../context/index.js';
 
 // Re-export for convenience so callers only import from 'tools'.
-export type { PermissionDescriptor, PermissionResult, ToolCatalogEntry };
+export type { PermissionDescriptor, PermissionResult, ToolCatalogEntry } from '../types/index.js';
 
 /**
  * Flat tool definition consumed by LlmService.chatWithTools().
@@ -50,6 +50,124 @@ export interface ToolExecutionOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
+
+const ALWAYS_ALLOWED_TOOLS = new Set<string>([
+  'com_ask',
+  'com_delegate',
+  'com_handoff',
+  'tool_list',
+  'team_list',
+  'tool_can_i',
+]);
+
+const TOOL_ROLE_GATED = new Set<string>([
+  'tool_run',
+  'tool_register_cli',
+  'tool_get_errors',
+]);
+
+const ANALYZE_TOOLS = new Set<string>([
+  'analyze_complexity',
+  'analyze_performance',
+]);
+
+const HR_ROLE_TOOLS = new Set<string>([
+  'hr_hire',
+  'hr_archive',
+  'hr_avatar',
+  'hr_update_llm',
+]);
+
+function isHrRole(agent: Agent): boolean {
+  return agent.role.toLowerCase().includes('hr');
+}
+
+function isCeoRole(agent: Agent): boolean {
+  return agent.role.toLowerCase() === 'ceo';
+}
+
+function pushIfMissing(result: AgentTool[], tool: AgentTool): void {
+  if (!result.some(t => t.name === tool.name)) {
+    result.push(tool);
+  }
+}
+
+function isDefaultAllowedTool(
+  agent: Agent,
+  tool: AgentTool,
+  canManageAgents: boolean,
+): boolean {
+  const hasElevatedContext =
+    agent.contextLevel === ContextLevel.ORGANIZATION ||
+    agent.contextLevel === ContextLevel.REPOSITORY;
+  const isHr = isHrRole(agent);
+  const isCeo = isCeoRole(agent);
+
+  if (ALWAYS_ALLOWED_TOOLS.has(tool.name)) return true;
+  if (tool.name.startsWith('fs_') || tool.name.startsWith('search_')) return true;
+  if (ANALYZE_TOOLS.has(tool.name) && isCeo) return true;
+  if ((HR_ROLE_TOOLS.has(tool.name) || tool.tags?.includes('hr')) && (isHr || canManageAgents)) return true;
+  if (TOOL_ROLE_GATED.has(tool.name) && hasElevatedContext) return true;
+
+  return false;
+}
+
+function evaluatePermissionDescriptor(
+  agent: Agent,
+  descriptor: PermissionDescriptor,
+  args: unknown,
+  contextManager: ContextManager,
+): PermissionResult {
+  switch (descriptor.type) {
+    case 'none':
+      return { allowed: true };
+
+    case 'file-read': {
+      const filePath = resolveArgsPath(args, descriptor.argsPath);
+      if (!filePath) return { allowed: true };
+      contextManager.assertCanRead(agent, filePath);
+      return { allowed: true };
+    }
+
+    case 'file-write': {
+      const filePath = resolveArgsPath(args, descriptor.argsPath);
+      if (!filePath) return { allowed: true };
+      contextManager.assertCanWrite(agent, filePath);
+      return { allowed: true };
+    }
+
+    case 'agent-delegation': {
+      const targetId = resolveArgsPath(args, descriptor.argsPath);
+      if (!targetId) return { allowed: true };
+      const canDelegate =
+        agent.delegatesTo?.includes(targetId) ||
+        agent.contextLevel === ContextLevel.ORGANIZATION ||
+        agent.contextLevel === ContextLevel.REPOSITORY;
+      if (!canDelegate) {
+        return {
+          allowed: false,
+          reason: `Agent '${agent.id}' is not allowed to delegate to '${targetId}'.`,
+        };
+      }
+      return { allowed: true };
+    }
+
+    case 'manage-agents': {
+      if (agent.contextLevel !== ContextLevel.ORGANIZATION) {
+        return {
+          allowed: false,
+          reason: `Agent '${agent.id}' does not have organization-level authority.`,
+        };
+      }
+      return { allowed: true };
+    }
+
+    default: {
+      const _exhaustive: never = descriptor;
+      return { allowed: false, reason: `Unknown permission type: ${JSON.stringify(_exhaustive)}` };
+    }
+  }
+}
 
 /**
  * ToolManager is the single source of truth for what tools exist,
@@ -99,21 +217,26 @@ export class ToolManager {
     const canManageAgents = agent.contextLevel === ContextLevel.ORGANIZATION;
 
     for (const tool of this.tools.values()) {
-      // HR tools: require manage_agents permission
-      if (tool.tags?.includes('hr') && !canManageAgents) {
+      // Explicit grants are always included.
+      if (agent.tools?.includes(tool.name)) {
+        pushIfMissing(result, tool);
         continue;
       }
 
-      // Explicitly granted tools are always included
-      if (agent.tools?.includes(tool.name)) {
-        if (!result.find(t => t.name === tool.name)) result.push(tool);
+      if (isDefaultAllowedTool(agent, tool, canManageAgents)) {
+        result.push(tool);
+        continue;
+      }
+
+      // HR tools: require manage_agents permission
+      if (tool.tags?.includes('hr') && !canManageAgents) {
         continue;
       }
 
       // Tools with type 'none' permission and no hr tag are universally available
       const check: PermissionDescriptor = tool.permissionCheck ?? { type: 'none' };
       if (check.type === 'none' && !tool.tags?.includes('hr')) {
-        result.push(tool);
+        pushIfMissing(result, tool);
       }
     }
 
@@ -145,56 +268,7 @@ export class ToolManager {
     const descriptor: PermissionDescriptor = tool.permissionCheck ?? { type: 'none' };
 
     try {
-      switch (descriptor.type) {
-        case 'none':
-          return { allowed: true };
-
-        case 'file-read': {
-          const filePath = resolveArgsPath(args, descriptor.argsPath);
-          if (!filePath) return { allowed: true }; // path not in args yet — let Zod catch it
-          this.contextManager.assertCanRead(agent, filePath);
-          return { allowed: true };
-        }
-
-        case 'file-write': {
-          const filePath = resolveArgsPath(args, descriptor.argsPath);
-          if (!filePath) return { allowed: true };
-          this.contextManager.assertCanWrite(agent, filePath);
-          return { allowed: true };
-        }
-
-        case 'agent-delegation': {
-          const targetId = resolveArgsPath(args, descriptor.argsPath);
-          if (!targetId) return { allowed: true };
-          const canDelegate =
-            agent.delegatesTo?.includes(targetId) ||
-            agent.contextLevel === ContextLevel.ORGANIZATION ||
-            agent.contextLevel === ContextLevel.REPOSITORY;
-          if (!canDelegate) {
-            return {
-              allowed: false,
-              reason: `Agent '${agent.id}' is not allowed to delegate to '${targetId}'.`,
-            };
-          }
-          return { allowed: true };
-        }
-
-        case 'manage-agents': {
-          if (agent.contextLevel !== ContextLevel.ORGANIZATION) {
-            return {
-              allowed: false,
-              reason: `Agent '${agent.id}' does not have organization-level authority.`,
-            };
-          }
-          return { allowed: true };
-        }
-
-        default: {
-          // Exhaustive check helper — TypeScript will error if a case is missing.
-          const _exhaustive: never = descriptor;
-          return { allowed: false, reason: `Unknown permission type: ${JSON.stringify(_exhaustive)}` };
-        }
-      }
+      return evaluatePermissionDescriptor(agent, descriptor, args, this.contextManager);
     } catch (error) {
       return {
         allowed: false,

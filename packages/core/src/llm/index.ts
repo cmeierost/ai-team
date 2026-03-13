@@ -907,6 +907,9 @@ export function buildSystemPrompt(agent: Agent, skill?: Skill, teamRoster?: Agen
   parts.push('');
   parts.push('Stay in character. Respond as this team member would.');
   parts.push('Be concise and helpful. Use your expertise to assist the developer.');
+  parts.push('Be curious and proactive: ask concise clarifying questions when requirements, constraints, or success criteria are ambiguous.');
+  parts.push('Stop asking questions once you have enough information to act; do not ask repetitive or low-value questions.');
+  parts.push('Ask at most one high-impact clarification at a time unless the developer explicitly requests a questionnaire.');
   parts.push('When the user asks to be forwarded or connected to another team member, acknowledge the handoff gracefully.');
   parts.push('Only hand off to people listed in "Your Team". Do not invent names or roles.');
   parts.push('Do not claim someone was hired unless they already exist in "Your Team".');

@@ -50,9 +50,10 @@ interface ResponsiveContextPanelProps {
   onDeleteSession: (deletedSessionId: string) => void;
   onCreateSession: () => Promise<void>;
   onOpenSessionGraph: (sessionId: string) => void;
+  onSuggestedHandoff: (targetAgentId: string, task?: string) => void;
 }
 
-function ResponsiveContextPanel({ isMobileViewport, isMobileContextOpen, onCloseMobileContext, agentId, sessionId, artifacts, allowedTools, activatedTools, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph }: Readonly<ResponsiveContextPanelProps>) {
+function ResponsiveContextPanel({ isMobileViewport, isMobileContextOpen, onCloseMobileContext, agentId, sessionId, artifacts, allowedTools, activatedTools, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, onSuggestedHandoff }: Readonly<ResponsiveContextPanelProps>) {
   const contextPanel = (
     <ContextPanel
       agentId={agentId}
@@ -65,6 +66,7 @@ function ResponsiveContextPanel({ isMobileViewport, isMobileContextOpen, onClose
       onDeleteSession={onDeleteSession}
       onCreateSession={onCreateSession}
       onOpenSessionGraph={onOpenSessionGraph}
+      onSuggestedHandoff={onSuggestedHandoff}
     />
   );
 
@@ -119,6 +121,7 @@ interface ChatPanelViewProps {
   pendingConfirmAnswer: boolean;
   pendingSelectAnswer: string;
   pendingChecklistAnswer: string[];
+  pendingFormAnswer: Record<string, string>;
   input: string;
   isRecording: boolean;
   recognition: any;
@@ -149,6 +152,7 @@ interface ChatPanelViewProps {
   onPendingConfirmAnswerChange: (value: boolean) => void;
   onPendingSelectAnswerChange: (value: string) => void;
   onTogglePendingChecklistValue: (choiceValue: string, checked: boolean) => void;
+  onPendingFormFieldChange: (fieldId: string, value: string) => void;
   onPendingQuestionSubmit: (event: { preventDefault(): void }) => void;
   onInputChange: (value: string) => void;
   onInputKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -160,9 +164,10 @@ interface ChatPanelViewProps {
   onDeleteSession: (deletedSessionId: string) => void;
   onCreateSession: () => Promise<void>;
   onOpenSessionGraph: (sessionId: string) => void;
+  onSuggestedHandoff: (targetAgentId: string, task?: string) => void;
 }
 
-export function ChatPanelView({ agent, agents, developer, routeAgentId, currentAgentId, currentSessionId, graphSessionId, loading, sending, streaming, pendingQuestion, pendingInputAnswer, pendingPasswordAnswer, pendingConfirmAnswer, pendingSelectAnswer, pendingChecklistAnswer, input, isRecording, recognition, messages, editingIndex, editContent, artifactsInContext, allowedTools, activatedTools, messagesEndRef, messagesContainerRef, textareaRef, onNavigatePortfolio, onGraphBack, onSelectSessionFromGraph, onScrollMessages, onSummarize, onSplitSession, onEditContentChange, onEditMessage, onCancelEdit, onCopyMessage, onToggleArchive, onDeleteMessage, onHandoffClick, onPendingInputAnswerChange, onPendingPasswordAnswerChange, onPendingConfirmAnswerChange, onPendingSelectAnswerChange, onTogglePendingChecklistValue, onPendingQuestionSubmit, onInputChange, onInputKeyDown, onStartRecording, onSend, onInterrupt, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph }: Readonly<ChatPanelViewProps>) {
+export function ChatPanelView({ agent, agents, developer, routeAgentId, currentAgentId, currentSessionId, graphSessionId, loading, sending, streaming, pendingQuestion, pendingInputAnswer, pendingPasswordAnswer, pendingConfirmAnswer, pendingSelectAnswer, pendingChecklistAnswer, pendingFormAnswer, input, isRecording, recognition, messages, editingIndex, editContent, artifactsInContext, allowedTools, activatedTools, messagesEndRef, messagesContainerRef, textareaRef, onNavigatePortfolio, onGraphBack, onSelectSessionFromGraph, onScrollMessages, onSummarize, onSplitSession, onEditContentChange, onEditMessage, onCancelEdit, onCopyMessage, onToggleArchive, onDeleteMessage, onHandoffClick, onPendingInputAnswerChange, onPendingPasswordAnswerChange, onPendingConfirmAnswerChange, onPendingSelectAnswerChange, onTogglePendingChecklistValue, onPendingFormFieldChange, onPendingQuestionSubmit, onInputChange, onInputKeyDown, onStartRecording, onSend, onInterrupt, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, onSuggestedHandoff }: Readonly<ChatPanelViewProps>) {
   const isMobileViewport = useIsMobileViewport();
   const [isMobileContextOpen, setIsMobileContextOpen] = useState(false);
 
@@ -294,11 +299,13 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
               pendingConfirmAnswer={pendingConfirmAnswer}
               pendingSelectAnswer={pendingSelectAnswer}
               pendingChecklistAnswer={pendingChecklistAnswer}
+              pendingFormAnswer={pendingFormAnswer}
               onPendingInputAnswerChange={onPendingInputAnswerChange}
               onPendingPasswordAnswerChange={onPendingPasswordAnswerChange}
               onPendingConfirmAnswerChange={onPendingConfirmAnswerChange}
               onPendingSelectAnswerChange={onPendingSelectAnswerChange}
               onTogglePendingChecklistValue={onTogglePendingChecklistValue}
+              onPendingFormFieldChange={onPendingFormFieldChange}
               onSubmit={onPendingQuestionSubmit}
             />
           ) : (
@@ -364,6 +371,7 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
         onDeleteSession={onDeleteSession}
         onCreateSession={handleCreateSession}
         onOpenSessionGraph={handleOpenSessionGraph}
+        onSuggestedHandoff={onSuggestedHandoff}
       />
     </div>
   );

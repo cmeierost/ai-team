@@ -96,6 +96,7 @@ function parseAccessFileWithoutSections(lines: string[]): AccessRule[] {
 function parseAccessFileWithSections(lines: string[]): AccessRule[] {
   const rules: AccessRule[] = [];
   let currentSection: SectionSpec | null = null;
+  let hasExplicitListSection = false;
 
   for (const line of lines) {
     if (isCommentOrEmpty(line)) continue;
@@ -103,6 +104,9 @@ function parseAccessFileWithSections(lines: string[]): AccessRule[] {
     const headerMatch = ACCESS_SECTION_HEADER_RE.exec(line);
     if (headerMatch) {
       currentSection = parseSectionHeader(headerMatch[1]);
+      if (currentSection.rights.includes('list')) {
+        hasExplicitListSection = true;
+      }
       continue;
     }
 
@@ -132,6 +136,17 @@ function parseAccessFileWithSections(lines: string[]): AccessRule[] {
         });
       }
     }
+  }
+
+  // When using sectioned access files, list visibility defaults to all files
+  // (subject to ignore rules) unless a [list] section is explicitly present.
+  if (!hasExplicitListSection) {
+    rules.push({
+      right: 'list',
+      effect: 'allow',
+      pathPattern: '**',
+      label: 'access-file implicit list fallback',
+    });
   }
 
   return rules;

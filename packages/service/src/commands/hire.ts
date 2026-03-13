@@ -30,7 +30,7 @@ function getPersonalityForHire(role: string, roleType: RoleType) {
       expertise_level: roleType === RoleType.LEADERSHIP ? 'senior' as const : 'mid-level' as const,
       mentoring: true,
       profile: [
-        'Friendly, chatty, and people-oriented',
+        'Friendly and people-oriented',
         'Strong at understanding motivation and fit',
         'Keeps momentum while staying empathetic',
       ],

@@ -62,13 +62,15 @@ import {
   WorkflowFrame,
   WorkflowStateSnapshot,
   TestConnectionOptions,
+  GovernanceMutationOptions,
 } from './contracts.js';
 import { doIHaveAccessCommand, whoHasAccessCommand } from './commands/access.js';
 import { GraphData, ViewMode } from '@ai-team/core';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { providerListCommand, providerModelsCommand, providerModelsRefreshCommand } from './commands/models.js';
 import { testConnectionCommand } from './commands/test-connection.js';
-import { allowToolCommand, disallowToolCommand, listToolsCommand } from './commands/tools.js';
+import { allowToolCommand, disallowToolCommand, listToolsCommand, toolAllowCommand, toolDenyCommand } from './commands/tools.js';
+import { accessAllowCommand, accessDenyCommand } from './commands/file-tree.js';
 import { addSkillCommand, removeSkillCommand, searchSkillsCommand } from './commands/skills.js';
 import { createCommand } from './commands/create.js';
 import { chatCommand } from './commands/chat/index.js';
@@ -563,6 +565,8 @@ class CoreAiTeamService implements AiTeamService {
           toolName: runtimeEvent.toolName,
           toolPhase: runtimeEvent.toolPhase,
           message: runtimeEvent.message,
+          toolDenial: runtimeEvent.toolDenial,
+          toolResult: runtimeEvent.toolResult,
         });
       }
 
@@ -683,6 +687,56 @@ class CoreAiTeamService implements AiTeamService {
 
   async disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse> {
     return disallowToolCommand(this.workspaceRoot, options);
+  }
+
+  async toolAllow(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse> {
+    return toolAllowCommand(this.workspaceRoot, options, {
+      requestedBy: governance.requestedBy,
+      confirmUserApproval: async () => governance.approvedByUser,
+    });
+  }
+
+  async toolDeny(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse> {
+    return toolDenyCommand(this.workspaceRoot, options, {
+      requestedBy: governance.requestedBy,
+      confirmUserApproval: async () => governance.approvedByUser,
+    });
+  }
+
+  async accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const result = await accessAllowCommand(this.workspaceRoot, options.agent, options.path, {
+      requestedBy: governance.requestedBy,
+      confirmUserApproval: async () => governance.approvedByUser,
+    }, mode);
+
+    return {
+      agent: {
+        id: result.agent.id,
+        name: result.agent.name,
+        role: result.agent.role,
+      },
+      mode,
+      paths: result.paths,
+    };
+  }
+
+  async accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+    const mode: PathMode = options.mode ?? 'read';
+    const result = await accessDenyCommand(this.workspaceRoot, options.agent, options.path, {
+      requestedBy: governance.requestedBy,
+      confirmUserApproval: async () => governance.approvedByUser,
+    }, mode);
+
+    return {
+      agent: {
+        id: result.agent.id,
+        name: result.agent.name,
+        role: result.agent.role,
+      },
+      mode,
+      paths: result.paths,
+    };
   }
 
   async getTeamGraph(mode: ViewMode = 'hierarchy'): Promise<GraphData> {
@@ -813,6 +867,7 @@ export type {
   WorkflowFrame,
   WorkflowStateSnapshot,
   TestConnectionOptions,
+  GovernanceMutationOptions,
   AccessRight,
   WhoHasAccessOptions,
   WhoHasAccessResponse,
@@ -833,10 +888,13 @@ export {
   disallowPathCommand,
   agentAllowPathCommand,
   agentDisallowPathCommand,
+  accessAllowCommand,
+  accessDenyCommand,
   type AgentPathResult,
 } from './commands/file-tree.js';
 
 export { generateIntroduction } from './orchestrator/introduction.js';
+export { serveApiCommand, type ServeApiOptions } from './commands/serve.js';
 
 // Storage abstraction layer
 export {

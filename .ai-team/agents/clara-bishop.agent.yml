@@ -27,14 +27,11 @@ skills:
       Set up Storybook, run Playwright-style and browser-driven checks, and
       report frontend quality issues clearly.
 tools:
-  - read_file
-  - file_search
-  - semantic_search
+  - search_semantic
   - open_browser_page
   - mcp_microsoft_pla_browser_run_code
   - mcp_microsoft_pla_browser_console_messages
-  - apply_code_edit
-  - get_errors
+  - tool_get_errors
 availableFor:
   - frontend-quality
   - storybook-setup

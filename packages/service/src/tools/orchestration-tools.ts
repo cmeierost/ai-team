@@ -7,7 +7,7 @@
  * any compatible implementation without touching this file (Open/Closed).
  *
  * Tools that produce real results (hire, find, list) do the work at execute-time
- * using injected deps, not inside the orchestrator. handoff_to_agent pre-validates
+ * using injected deps, not inside the orchestrator. com_handoff pre-validates
  * the target and resolves the existing session so tool-dispatch has all context
  * without a second lookup.
  *
@@ -20,19 +20,24 @@
  */
 
 import { z } from 'zod';
-import { ContextLevel } from '@ai-team/core';
-import type { Agent, AgentConfig, AgentTool, ToolCatalogEntry, ToolContext } from '@ai-team/core';
-import type {
+import {
+  ContextLevel,
+  type Agent,
+  type AgentConfig,
+  type AgentTool,
+  type ToolCatalogEntry,
+  type ToolContext,
   HandoffRequest,
   HireResult,
   FindCapableAgentResult,
+  TeamListResult,
   ToolCatalogResult,
 } from '@ai-team/core';
 
 // ── DI contracts — each tool depends only on what it needs ───────────────────
 
 /**
- * Minimal session access needed by handoff_to_agent.
+ * Minimal session access needed by com_handoff.
  * SessionManager satisfies this structurally — no explicit implements needed.
  */
 export interface ISessionGateway {
@@ -50,7 +55,7 @@ export interface IAgentRegistry {
 }
 
 /**
- * Minimal tool catalog access needed by find_capable_agent and list_tools.
+ * Minimal tool catalog access needed by fs_who_should and tool_list.
  * ToolManager satisfies this structurally.
  */
 export interface IToolCatalog {
@@ -68,7 +73,7 @@ export interface OrchestrationDeps {
 // ── Factory functions — one per tool ─────────────────────────────────────────
 
 /**
- * handoff_to_agent
+ * com_handoff
  *
  * Validates the target agent exists and pre-resolves its latest session.
  * Returns a HandoffRequest — the orchestrator's tool-dispatch does the actual
@@ -78,7 +83,7 @@ export function createHandoffTool(
   deps: Pick<OrchestrationDeps, 'agents' | 'sessions'>,
 ): AgentTool {
   return {
-    name: 'handoff_to_agent',
+    name: 'com_handoff',
     description:
       'Transfer the current conversation to another agent who is better suited ' +
       'to handle the request. Use when a task is outside your area of responsibility. ' +
@@ -92,29 +97,42 @@ export function createHandoffTool(
     }),
     tags: ['orchestration'],
     examples: [
-      'handoff_to_agent({ targetAgentId: "alice", briefingNote: "User wants to refactor auth. Context: ..." })',
+      'com_handoff({ targetAgentId: "alice", briefingNote: "User wants to refactor auth. Context: ..." })',
     ],
-    async execute(params: unknown): Promise<HandoffRequest> {
+    async execute(params: unknown, context: ToolContext): Promise<HandoffRequest> {
       const { targetAgentId, briefingNote } = params as {
         targetAgentId: string;
         briefingNote: string;
       };
 
-      const target = deps.agents.getAgent(targetAgentId);
+      const target = deps.agents.getAgent(targetAgentId)
+        ?? deps.agents
+          .getAllAgents()
+          .find((candidate) => {
+            const query = targetAgentId.trim().toLowerCase();
+            return candidate.id.toLowerCase() === query
+              || candidate.name.toLowerCase() === query
+              || candidate.role.toLowerCase() === query;
+          });
+
       if (!target) {
         throw new Error(
           `Agent not found: "${targetAgentId}". ` +
-            'Use find_capable_agent to discover valid agent IDs.',
+            'Use fs_who_should to discover valid agent IDs.',
         );
+      }
+
+      if (target.id === context.agent.id) {
+        throw new Error('Cannot hand off to yourself. Choose another agent.');
       }
 
       // Pre-resolve target session — tool-dispatch uses this directly without
       // an extra lookup, keeping the hot path free of redundant I/O.
-      const existingSession = await deps.sessions.getLatestSession(targetAgentId);
+      const existingSession = await deps.sessions.getLatestSession(target.id);
 
       return {
         type: 'handoff',
-        targetAgentId,
+        targetAgentId: target.id,
         briefingNote,
         targetSessionId: existingSession?.id,
         timestamp: new Date().toISOString(),
@@ -124,14 +142,14 @@ export function createHandoffTool(
 }
 
 /**
- * hire_agent
+ * hr_hire
  *
  * Actually creates the agent via AgentManager at execute-time so the LLM
  * gets immediate confirmation (the new agent's ID) rather than a deferred marker.
  */
 export function createHireTool(deps: Pick<OrchestrationDeps, 'agents'>): AgentTool {
   return {
-    name: 'hire_agent',
+    name: 'hr_hire',
     description:
       'Create a new virtual team member with a defined role. Requires manage_agents permission.',
     permissionCheck: { type: 'manage-agents' },
@@ -143,7 +161,7 @@ export function createHireTool(deps: Pick<OrchestrationDeps, 'agents'>): AgentTo
     }),
     tags: ['orchestration', 'hr'],
     examples: [
-      'hire_agent({ name: "Bob Smith", role: "Senior Developer", specializations: ["Rust"] })',
+      'hr_hire({ name: "Bob Smith", role: "Senior Developer", specializations: ["Rust"] })',
     ],
     async execute(params: unknown, context: ToolContext): Promise<HireResult> {
       const {
@@ -182,20 +200,20 @@ export function createHireTool(deps: Pick<OrchestrationDeps, 'agents'>): AgentTo
 }
 
 /**
- * find_capable_agent
+ * fs_who_should
  *
  * Queries the live agent list and ToolManager.whoCanExecute() at execute-time
  * and returns actual matches — not a deferred request. The LLM gets a concrete
- * list it can immediately use as input for handoff_to_agent.
+ * list it can immediately use as input for com_handoff.
  */
 export function createFindCapableTool(
   deps: Pick<OrchestrationDeps, 'agents' | 'tools'>,
 ): AgentTool {
   return {
-    name: 'find_capable_agent',
+    name: 'fs_who_should',
     description:
       'Discover which team members are authorized to perform a specific action. ' +
-      'Call this before handoff_to_agent to ensure you delegate to the right person.',
+      'Call this before com_handoff to ensure you delegate to the right person.',
     permissionCheck: { type: 'none' },
     parameters: z.object({
       task: z.string().min(1).describe('Natural language description of the task'),
@@ -209,7 +227,7 @@ export function createFindCapableTool(
         .describe('Arguments for requiredTool — used for permission checking'),
     }),
     tags: ['orchestration'],
-    examples: ['find_capable_agent({ task: "write to src/auth/", requiredTool: "write_file" })'],
+    examples: ['fs_who_should({ task: "write to src/auth/", requiredTool: "fs_write_file" })'],
     async execute(params: unknown): Promise<FindCapableAgentResult> {
       const { task, requiredTool, requiredArgs } = params as {
         task: string;
@@ -224,7 +242,7 @@ export function createFindCapableTool(
         : allAgents;
 
       return {
-        type: 'find_capable_agent_result',
+        type: 'fs_who_should_result',
         task,
         matches: matched.map(a => ({ agentId: a.id, agentName: a.name, agentRole: a.role })),
         timestamp: new Date().toISOString(),
@@ -233,15 +251,28 @@ export function createFindCapableTool(
   };
 }
 
+// Keep pre-LLM regexes right above the tool they trigger.
+export const TOOL_LIST_PRE_LLM_PATTERNS: readonly RegExp[] = [
+  /\b(what|which|list|show)\b.*\b(tool|tools)\b/i,
+  /\bwhat can you use\b/i,
+  /\bavailable tools\b/i,
+];
+
+export function matchesToolListPreLlmIntent(message: string): boolean {
+  const text = message.trim();
+  if (!text) return false;
+  return TOOL_LIST_PRE_LLM_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 /**
- * list_tools
+ * tool_list
  *
  * Returns the ToolCatalog for the calling agent at execute-time, optionally
  * filtered by tag. The LLM gets real, up-to-date entries.
  */
 export function createListToolsTool(deps: Pick<OrchestrationDeps, 'tools'>): AgentTool {
   return {
-    name: 'list_tools',
+    name: 'tool_list',
     description:
       'Show all tools currently available to you, including name, description, and parameters.',
     permissionCheck: { type: 'none' },
@@ -249,7 +280,7 @@ export function createListToolsTool(deps: Pick<OrchestrationDeps, 'tools'>): Age
       tag: z.string().optional().describe('Filter by tag (e.g. "file", "orchestration", "hr")'),
     }),
     tags: ['orchestration'],
-    examples: ['list_tools({})', 'list_tools({ tag: "file" })'],
+    examples: ['tool_list({})', 'tool_list({ tag: "file" })'],
     async execute(params: unknown, context: ToolContext): Promise<ToolCatalogResult> {
       const { tag } = params as { tag?: string };
 
@@ -259,8 +290,55 @@ export function createListToolsTool(deps: Pick<OrchestrationDeps, 'tools'>): Age
       }
 
       return {
-        type: 'list_tools_result',
+        type: 'tool_list_result',
         entries,
+        timestamp: new Date().toISOString(),
+      };
+    },
+  };
+}
+
+// Keep pre-LLM regexes right above the tool they trigger.
+export const TEAM_LIST_PRE_LLM_PATTERNS: readonly RegExp[] = [
+  /\b(what|which|list|show)\b.*\b(employee|employees|agent|agents|team|teammates|team members)\b/i,
+  /\bwho\b.*\b(employee|employees|agent|agents|team|teammates|team members)\b/i,
+  /\bwho\s+is\s+on\s+the\s+team\b/i,
+  /\bshow\s+all\s+(agents|employees|team members)\b/i,
+  /\blist\s+(all\s+)?(agents|employees|team members)\b/i,
+];
+
+export function matchesTeamListPreLlmIntent(message: string): boolean {
+  const text = message.trim();
+  if (!text) return false;
+  return TEAM_LIST_PRE_LLM_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
+ * team_list
+ *
+ * Returns all known team members as a structured snapshot.
+ */
+export function createTeamListTool(
+  deps: Pick<OrchestrationDeps, 'agents'>,
+): AgentTool {
+  return {
+    name: 'team_list',
+    description:
+      'List all team members with their IDs, names, and roles.',
+    permissionCheck: { type: 'none' },
+    parameters: z.object({}),
+    tags: ['orchestration'],
+    examples: ['team_list({})'],
+    async execute(): Promise<TeamListResult> {
+      const members = deps.agents.getAllAgents();
+
+      return {
+        type: 'team_list_result',
+        members: members.map((agent) => ({
+          agentId: agent.id,
+          agentName: agent.name,
+          agentRole: agent.role,
+        })),
         timestamp: new Date().toISOString(),
       };
     },
@@ -276,5 +354,6 @@ export function createOrchestrationTools(deps: OrchestrationDeps): AgentTool[] {
     createHireTool(deps),
     createFindCapableTool(deps),
     createListToolsTool(deps),
+    createTeamListTool(deps),
   ];
 }

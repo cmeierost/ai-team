@@ -44,15 +44,16 @@ export function getToolPhaseClass(phase?: SessionActivatedTool['toolPhase']): st
 export function getActiveToolNames(activatedTools: SessionActivatedTool[]): string[] {
   const latestByTool = new Map<string, SessionActivatedTool>();
   for (const event of activatedTools) {
-    const prev = latestByTool.get(event.toolName);
+    const identity = event.toolResult?.toolName || event.toolName;
+    const prev = latestByTool.get(identity);
     if (!prev || new Date(event.timestamp).getTime() >= new Date(prev.timestamp).getTime()) {
-      latestByTool.set(event.toolName, event);
+      latestByTool.set(identity, event);
     }
   }
 
   return Array.from(latestByTool.values())
     .filter((entry) => entry.toolPhase === 'request' || entry.toolPhase === 'start')
-    .map((entry) => entry.toolName)
+    .map((entry) => entry.toolResult?.toolName || entry.toolName)
     .sort((a, b) => a.localeCompare(b));
 }
 

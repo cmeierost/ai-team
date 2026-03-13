@@ -27,9 +27,10 @@ interface ContextPanelProps {
   onDeleteSession?: (sessionId: string) => void;
   onCreateSession?: () => void;
   onOpenSessionGraph?: (sessionId: string) => void;
+  onSuggestedHandoff?: (targetAgentId: string, task?: string) => void;
 }
 
-export function ContextPanel({ agentId, sessionId, artifacts, allowedTools, activatedTools, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph }: Readonly<ContextPanelProps>) {
+export function ContextPanel({ agentId, sessionId, artifacts, allowedTools, activatedTools, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, onSuggestedHandoff }: Readonly<ContextPanelProps>) {
   const [notesDraft, setNotesDraft] = useState('');
   const [expandedSection, setExpandedSection] = useState<ContextSection | null>('sessions');
   const [panelWidth, setPanelWidth] = useState(() => {
@@ -205,6 +206,7 @@ export function ContextPanel({ agentId, sessionId, artifacts, allowedTools, acti
         onDeleteSession={handleDeleteSession}
         onCreateSession={onCreateSession}
         onOpenSessionGraph={onOpenSessionGraph}
+        onSuggestedHandoff={onSuggestedHandoff}
       />
     </div>
   );

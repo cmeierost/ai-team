@@ -84,6 +84,55 @@ export function resolveNavigateAgent(message: ChatMessage, agents: Agent[], curr
   return null;
 }
 
+function normalizeIdentity(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function toNameSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function pickUniqueMatch(agents: Agent[], predicate: (agent: Agent) => boolean): Agent | null {
+  const matches = agents.filter(predicate);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/**
+ * Resolve a route agent query (id/role/name/name-slug) to an exact agent.
+ * Returns null when no unique match exists.
+ */
+export function resolveRouteAgent(agents: Agent[], query?: string | null): Agent | null {
+  if (!query) {
+    return null;
+  }
+
+  const normalized = normalizeIdentity(query);
+  if (!normalized) {
+    return null;
+  }
+
+  const byId = pickUniqueMatch(agents, (agent) => normalizeIdentity(agent.id) === normalized);
+  if (byId) {
+    return byId;
+  }
+
+  const byRole = pickUniqueMatch(agents, (agent) => normalizeIdentity(agent.role) === normalized);
+  if (byRole) {
+    return byRole;
+  }
+
+  const byName = pickUniqueMatch(agents, (agent) => normalizeIdentity(agent.name) === normalized);
+  if (byName) {
+    return byName;
+  }
+
+  return pickUniqueMatch(agents, (agent) => toNameSlug(agent.name) === normalized);
+}
+
 export function normalizeChatErrorMessage(rawMessage: string): string {
   return /question timeout|did not receive a response in time/i.test(rawMessage)
     ? 'The request could not be completed. Please try again.'

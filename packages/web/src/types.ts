@@ -177,6 +177,35 @@ export interface SessionActivatedTool {
   toolName: string;
   toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
   message?: string;
+  toolResult?: {
+    toolName: string;
+    outcome: 'result' | 'error' | 'denied';
+    result?: unknown;
+    denial?: {
+      kind: 'user-denied' | 'policy-denied' | 'execution-failed';
+      reasonCode: string;
+      message: string;
+      blockedPaths?: string[];
+      alternativeContexts?: Array<{ contextId: string; allowedPaths: string[] }>;
+      handoffRecommendation?: {
+        possible: boolean;
+        requiresUserApproval: true;
+        contexts: Array<{ contextId: string; allowedPaths: string[] }>;
+      };
+    };
+  };
+  toolDenial?: {
+    kind: 'user-denied' | 'policy-denied' | 'execution-failed';
+    reasonCode: string;
+    message: string;
+    blockedPaths?: string[];
+    alternativeContexts?: Array<{ contextId: string; allowedPaths: string[] }>;
+    handoffRecommendation?: {
+      possible: boolean;
+      requiresUserApproval: true;
+      contexts: Array<{ contextId: string; allowedPaths: string[] }>;
+    };
+  };
   timestamp: string;
 }
 

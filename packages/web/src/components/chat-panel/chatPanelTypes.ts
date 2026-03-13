@@ -18,6 +18,9 @@ export interface ConfirmQuestionRequest {
 export interface SelectQuestionRequest {
   message: string;
   choices: QuestionChoice[];
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPrompt?: string;
 }
 
 export interface PasswordQuestionRequest {
@@ -27,6 +30,23 @@ export interface PasswordQuestionRequest {
 export interface ChecklistQuestionRequest {
   message: string;
   choices: QuestionChoice[];
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPrompt?: string;
+}
+
+export interface FormQuestionField {
+  id: string;
+  label: string;
+  placeholder?: string;
+  required?: boolean;
+  multiline?: boolean;
+  default?: string;
+}
+
+export interface FormQuestionRequest {
+  message: string;
+  fields: FormQuestionField[];
 }
 
 export type PendingQuestion =
@@ -47,11 +67,22 @@ export type PendingQuestion =
       kind: 'select';
       message: string;
       choices: QuestionChoice[];
+      allowOther?: boolean;
+      otherLabel?: string;
+      otherPrompt?: string;
     }
   | {
       kind: 'checklist';
       message: string;
       choices: QuestionChoice[];
+      allowOther?: boolean;
+      otherLabel?: string;
+      otherPrompt?: string;
+    }
+  | {
+      kind: 'form';
+      message: string;
+      fields: FormQuestionField[];
     };
 
 export interface NavigateAgentTarget {

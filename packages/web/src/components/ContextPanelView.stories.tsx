@@ -108,6 +108,52 @@ const recentToolEvents: SessionActivatedTool[] = [
   },
 ];
 
+const questionToolEvents: SessionActivatedTool[] = [
+  {
+    toolName: 'com_ask',
+    toolPhase: 'result',
+    message: 'Question answered',
+    timestamp: '2026-03-09T08:58:30.000Z',
+    toolResult: {
+      toolName: 'com_ask',
+      outcome: 'result',
+      result: {
+        request: {
+          question: 'Who should own the context panel orchestration flow?',
+          questionType: 'select',
+          choices: [
+            { name: 'Daniel Navarro', value: 'daniel-navarro' },
+            { name: 'Leah Brooks', value: 'leah-brooks' },
+            { name: 'Marcus Vale', value: 'marcus-vale' },
+          ],
+        },
+        response: {
+          question: 'Who should own the context panel orchestration flow?',
+          questionType: 'select',
+          answer: 'daniel-navarro',
+        },
+      },
+    },
+  },
+  {
+    toolName: 'com_ask',
+    toolPhase: 'error',
+    message: 'questionType "select" requires a non-empty choices array.',
+    timestamp: '2026-03-09T08:59:00.000Z',
+    toolResult: {
+      toolName: 'com_ask',
+      outcome: 'error',
+      result: {
+        request: {
+          question: 'Pick a teammate',
+          questionType: 'select',
+        },
+        error: 'questionType "select" requires a non-empty choices array.',
+      },
+    },
+  },
+];
+
 type DemoArgs = ComponentProps<typeof ContextPanelView>;
 
 function ContextPanelStory(args: DemoArgs) {
@@ -192,5 +238,14 @@ export const NotesFocused: Story = {
 export const ToolsAndArtifacts: Story = {
   args: {
     expandedSection: 'tools',
+  },
+};
+
+export const QuestionToolStructuredResults: Story = {
+  args: {
+    expandedSection: 'tools',
+    allowedTools: ['com_ask', 'read_file', 'apply_patch'],
+    recentToolEvents: questionToolEvents,
+    activeToolNames: [],
   },
 };

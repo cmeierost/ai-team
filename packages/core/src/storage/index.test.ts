@@ -66,7 +66,7 @@ describe('storage agent discovery', () => {
         'contextLevel: organization',
         'reportsTo: michael-brown',
         'tools:',
-        '  - read_file',
+        '  - fs_read',
       ].join('\n')
     );
 
@@ -79,7 +79,7 @@ describe('storage agent discovery', () => {
     expect(agent.description).toBe('Warm HR director and agent architect.');
     expect(agent.role).toBe('hr-director');
     expect(agent.reportsTo).toBe('michael-brown');
-    expect(agent.tools).toEqual(['read_file']);
+    expect(agent.tools).toEqual(['fs_read']);
     expect(agent.markdown).toContain('Portfolio body.');
   });
 
@@ -97,7 +97,7 @@ describe('storage agent discovery', () => {
       type: RoleType.EXECUTIVE,
       contextLevel: ContextLevel.ORGANIZATION,
       reportsTo: 'michael-brown',
-      tools: ['read_file'],
+      tools: ['fs_read'],
       description: 'Warm HR director and agent architect.',
       markdown: '# Emily Davis\n\nPortfolio body.',
     });

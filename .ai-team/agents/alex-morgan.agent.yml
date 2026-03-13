@@ -16,16 +16,14 @@ specializations:
 avatar:
   type: url
   url: .ai-team/avatars/alex-morgan.jpg
+  color: 'hsl(66, 70%, 60%)'
 personality:
   communication_style: collaborative
   expertise_level: senior
   mentoring: true
 tools:
-  - read_file
-  - file_search
-  - semantic_search
-  - apply_code_edit
-  - get_errors
+  - search_semantic
+  - tool_get_errors
 canDelegate: true
 delegatesTo:
   - leah-brooks
