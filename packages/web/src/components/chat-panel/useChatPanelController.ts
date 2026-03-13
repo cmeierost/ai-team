@@ -17,7 +17,6 @@ import {
 import type {
   ChecklistQuestionRequest,
   ConfirmQuestionRequest,
-  FormQuestionRequest,
   InputQuestionRequest,
   PasswordQuestionRequest,
   PendingQuestion,
@@ -458,12 +457,6 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     otherLabel: request.otherLabel,
     otherPrompt: request.otherPrompt,
   });
-  const askFormQuestion = async (request: FormQuestionRequest): Promise<Record<string, string>> => beginPendingQuestion<Record<string, string>>({
-    kind: 'form',
-    message: request.message,
-    fields: request.fields,
-  });
-
   const togglePendingChecklistValue = (choiceValue: string, checked: boolean) => {
     setPendingChecklistAnswer((previous) => (checked ? [...previous, choiceValue] : previous.filter((value) => value !== choiceValue)));
   };
@@ -799,7 +792,6 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         questionSelect: askSelectQuestion,
         questionPassword: askPasswordQuestion,
         questionChecklist: askChecklistQuestion,
-        questionForm: askFormQuestion,
       });
 
       const { accumulator, handoffDetected } = await consumeStream(stream, sessionId);

@@ -254,15 +254,6 @@ class CoreAiTeamService implements AiTeamService {
             questionConfirm: context.questionConfirm
               ? (request) => runWithoutStdoutCapture(() => context.questionConfirm!(request))
               : undefined,
-            questionSelect: context.questionSelect
-              ? (request) => runWithoutStdoutCapture(() => context.questionSelect!(request))
-              : undefined,
-            questionPassword: context.questionPassword
-              ? (request) => runWithoutStdoutCapture(() => context.questionPassword!(request))
-              : undefined,
-            questionChecklist: context.questionChecklist
-              ? (request) => runWithoutStdoutCapture(() => context.questionChecklist!(request))
-              : undefined,
             workflowState: context.workflowState || persistedWorkflowState,
             onWorkflowFrame: (frame) => {
               workflowStateStore.handleFrame('chat', frame);

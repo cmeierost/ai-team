@@ -13,12 +13,19 @@ import type {
   AgentManager,
   ChatMessage,
   ContextManager,
+  InstructionFile,
   LlmService,
   SkillManager,
 } from '@ai-team/core';
 import type { SessionManager } from '../session-manager.js';
 import type { ChatRuntimeHooks } from '../contracts.js';
 import type { ToolManager } from '@ai-team/core';
+
+export interface NavStackEntry {
+  agentId: string;
+  sessionId: string;
+  agentName: string;
+}
 
 export interface OrchestratorContext {
   /** The agent currently handling the user's message. Updated on handoff. */
@@ -33,6 +40,9 @@ export interface OrchestratorContext {
   /** Surface-provided hooks: abort signal, event emitter, question bridges, workflow state. */
   hooks: ChatRuntimeHooks;
 
+  /** Navigation stack for /back — tracks agents we came from. */
+  navStack?: NavStackEntry[];
+
   // ── Managers (injected at construction, shared across the whole session) ──
   toolManager: ToolManager;
   sessionManager: SessionManager;
@@ -43,4 +53,7 @@ export interface OrchestratorContext {
 
   /** Message history for the current agent session. */
   history: ChatMessage[];
+
+  /** Workspace instruction files loaded from `.ai-team/instructions/`. */
+  instructions?: InstructionFile[];
 }

@@ -201,6 +201,9 @@ export function setupChatWebSocket(
           return;
         }
 
+        // Acknowledge receipt immediately so the client can show activity
+        ws.send(JSON.stringify({ type: 'status', data: { status: 'received' } }));
+
         // Cancel any existing operation
         if (currentAbortController) {
           currentAbortController.abort();

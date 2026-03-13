@@ -8,7 +8,7 @@ import {
 } from '@ai-team/core';
 import type { HireOptions } from '../contracts.js';
 
-function getPersonalityForHire(role: string, roleType: RoleType) {
+export function getPersonalityForHire(role: string, roleType: RoleType) {
   const r = role.toLowerCase();
 
   if (/architect|cto/.test(r) || roleType === RoleType.EXECUTIVE) {

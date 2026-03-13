@@ -1,4 +1,4 @@
-import Parser from 'web-tree-sitter';
+import { Parser, Language, Tree } from 'web-tree-sitter';
 
 /**
  * Language configuration for tree-sitter
@@ -18,7 +18,7 @@ export interface LanguageConfig {
 export class TreeSitterManager {
   private static instance: TreeSitterManager | null = null;
   private parser: Parser | null = null;
-  private languages: Map<string, Parser.Language> = new Map();
+  private languages: Map<string, Language> = new Map();
   private languageConfigs: Map<string, LanguageConfig> = new Map();
   private initialized = false;
 
@@ -71,7 +71,7 @@ export class TreeSitterManager {
       throw new Error(`Language '${languageName}' not registered. Call registerLanguage() first.`);
     }
 
-    const language = await Parser.Language.load(config.wasmPath);
+    const language = await Language.load(config.wasmPath);
     this.languages.set(languageName, language);
   }
 
@@ -100,9 +100,14 @@ export class TreeSitterManager {
   /**
    * Parse source code and return the syntax tree
    */
-  async parse(sourceCode: string, languageName: string): Promise<Parser.Tree> {
+  async parse(sourceCode: string, languageName: string): Promise<Tree> {
     const parser = await this.getParser(languageName);
-    return parser.parse(sourceCode);
+    const tree = parser.parse(sourceCode);
+    if (!tree) {
+      throw new Error('Tree-sitter failed to parse source code. Ensure a language is loaded.');
+    }
+
+    return tree;
   }
 
   /**

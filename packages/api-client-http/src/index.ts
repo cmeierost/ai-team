@@ -59,15 +59,6 @@ function getFallbackQuestionAnswer(question: any): any {
   if (question?.kind === 'confirm') {
     return false;
   }
-  if (question?.kind === 'form') {
-    return {};
-  }
-  if (question?.kind === 'checklist' || question?.kind === 'multiselect') {
-    return [];
-  }
-  if (question?.kind === 'select') {
-    return question?.choices?.[0]?.value ?? '';
-  }
   return '';
 }
 
@@ -200,23 +191,8 @@ class HttpAiTeamClient implements AiTeamHttpClient {
           return getFallbackQuestionAnswer(question);
         }
 
-        if (question.kind === 'input' && context.questionInput) {
-          return context.questionInput(question);
-        }
         if (question.kind === 'confirm' && context.questionConfirm) {
           return context.questionConfirm(question);
-        }
-        if (question.kind === 'select' && context.questionSelect) {
-          return context.questionSelect(question);
-        }
-        if (question.kind === 'password' && context.questionPassword) {
-          return context.questionPassword(question);
-        }
-        if ((question.kind === 'checklist' || question.kind === 'multiselect') && context.questionChecklist) {
-          return context.questionChecklist(question);
-        }
-        if (question.kind === 'form' && context.questionForm) {
-          return context.questionForm(question);
         }
 
         return getFallbackQuestionAnswer(question);

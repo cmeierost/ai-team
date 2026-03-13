@@ -52,7 +52,6 @@ export interface ToolExecutionOptions {
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 const ALWAYS_ALLOWED_TOOLS = new Set<string>([
-  'com_ask',
   'com_delegate',
   'com_handoff',
   'tool_list',

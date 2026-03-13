@@ -22,11 +22,11 @@
   "license": "MIT",
   "dependencies": {
     "chokidar": "^5.0.0",
-    "minimatch": "^10.2.1"
+    "minimatch": "^10.2.4"
   },
   "devDependencies": {
-    "@types/node": "^25.2.3",
+    "@types/node": "^25.5.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   }
 }

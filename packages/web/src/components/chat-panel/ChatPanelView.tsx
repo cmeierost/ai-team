@@ -288,6 +288,7 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
           onToggleArchive={onToggleArchive}
           onDeleteMessage={onDeleteMessage}
           onHandoffClick={onHandoffClick}
+          streaming={streaming}
         />
 
         <div className="chat-input-area">

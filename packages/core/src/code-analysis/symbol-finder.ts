@@ -1,4 +1,4 @@
-import Parser from 'web-tree-sitter';
+import { Parser, Language, Node as SyntaxNode } from 'web-tree-sitter';
 import { readFile } from 'fs/promises';
 
 /**
@@ -21,7 +21,7 @@ export interface SymbolLocation {
  */
 export class SymbolFinder {
   private parser: Parser | null = null;
-  private languages: Map<string, Parser.Language> = new Map();
+  private languages: Map<string, Language> = new Map();
 
   /**
    * Initialize tree-sitter parser with language support
@@ -39,7 +39,7 @@ export class SymbolFinder {
       throw new Error('Parser not initialized. Call initialize() first.');
     }
 
-    const language = await Parser.Language.load(wasmPath);
+    const language = await Language.load(wasmPath);
     this.languages.set(languageName, language);
   }
 
@@ -60,6 +60,9 @@ export class SymbolFinder {
 
     const sourceCode = await readFile(filePath, 'utf-8');
     const tree = this.parser.parse(sourceCode);
+    if (!tree) {
+      throw new Error('Tree-sitter failed to parse source code. Ensure a language is loaded.');
+    }
 
     const symbols: SymbolLocation[] = [];
     const lines = sourceCode.split('\n');
@@ -109,7 +112,7 @@ export class SymbolFinder {
    * Traverse the syntax tree and extract symbol information
    */
   private traverseTree(
-    node: Parser.SyntaxNode,
+    node: SyntaxNode,
     filePath: string,
     lines: string[],
     symbols: SymbolLocation[],
@@ -175,7 +178,7 @@ export class SymbolFinder {
    * Create a SymbolLocation from a tree-sitter node
    */
   private createSymbolLocation(
-    node: Parser.SyntaxNode,
+    node: SyntaxNode,
     kind: SymbolLocation['kind'],
     filePath: string,
     lines: string[],

@@ -7,7 +7,7 @@ import {
   agentAllowPathCommand,
   agentDisallowPathCommand,
 } from '@ai-team/service';
-import { accessAllowCommand, accessDenyCommand } from '@ai-team/service/src/commands/file-tree.js';
+import { accessAllowCommand, accessDenyCommand } from '@ai-team/service';
 
 type PathMode = 'read' | 'write' | 'create' | 'delete';
 type PathMutationBody = { path?: string; mode?: PathMode };

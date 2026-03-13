@@ -21,7 +21,7 @@ import fs from 'fs/promises';
 import OpenAI from 'openai';
 import type { ChatCompletionChunk, ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
 import path from 'path';
-import type { LlmConfig, Agent, Skill, ChatMessage, TeamConfig, LlmGenerationParams } from '../types/index.js';
+import type { LlmConfig, Agent, Skill, InstructionFile, ChatMessage, TeamConfig, LlmGenerationParams } from '../types/index.js';
 import { loadTeamConfig, loadEnvFile } from '../storage/index.js';
 
 export type { ChatCompletionMessageParam };
@@ -304,10 +304,11 @@ export class LlmService {
     teamRoster?: Agent[],
     maxToolRounds: number = 8,
     onToken?: (token: string) => void,
+    instructions?: InstructionFile[],
   ): Promise<LlmToolChatResult> {
     this.assertReady();
 
-    const systemPrompt = buildSystemPrompt(agent, skill, teamRoster);
+    const systemPrompt = buildSystemPrompt(agent, skill, teamRoster, instructions);
     const allMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       ...messages,
@@ -784,8 +785,9 @@ export class LlmService {
  *  - Skill instructions (from the roles/*.md markdown body)
  *  - Agent's own markdown bio
  *  - Team roster (other agents in the workspace)
+ *  - Workspace instruction files (.instructions.md)
  */
-export function buildSystemPrompt(agent: Agent, skill?: Skill, teamRoster?: Agent[]): string {
+export function buildSystemPrompt(agent: Agent, skill?: Skill, teamRoster?: Agent[], instructions?: InstructionFile[]): string {
   const parts: string[] = [];
 
   // Identity
@@ -854,6 +856,18 @@ export function buildSystemPrompt(agent: Agent, skill?: Skill, teamRoster?: Agen
     parts.push('');
     parts.push('## About You');
     parts.push(agent.markdown.trim());
+  }
+
+  // Workspace instruction files (.instructions.md)
+  if (instructions && instructions.length > 0) {
+    parts.push('');
+    parts.push('## Workspace Instructions');
+    for (const inst of instructions) {
+      if (inst.instructions.trim()) {
+        parts.push('');
+        parts.push(inst.instructions);
+      }
+    }
   }
 
   // Specializations

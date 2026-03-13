@@ -279,66 +279,6 @@ describe('sendTurn — no directive (normal turn)', () => {
   });
 });
 
-describe('sendTurn — markdown JSON question fallback', () => {
-  it('dispatches com_ask from a jsonc fenced block with first-line marker comment', async () => {
-    const llmResponse = [
-      'Please choose one option:',
-      '',
-      '```jsonc',
-      '// ai-team:question',
-      '{',
-      '  "interaction": "question",',
-      '  "question": "Pick one",',
-      '  "questionType": "select",',
-      '  "choices": [',
-      '    { "name": "One", "value": "1" },',
-      '    { "name": "Two", "value": "2" }',
-      '  ]',
-      '}',
-      '```',
-    ].join('\n');
-
-    const { ctx, appendMessage } = makeCtx(llmResponse);
-    const questionSelect = vi.fn().mockResolvedValue('2');
-    (ctx.hooks as any).questionSelect = questionSelect;
-
-    const result = await sendTurn('help me choose', makePlugins(), ctx);
-
-    expect(questionSelect).toHaveBeenCalledOnce();
-
-    const persistedMsg: ChatMessage = appendMessage.mock.calls.find(
-      ([_sessionId, msg]: [string, ChatMessage]) => !msg.isHuman,
-    )?.[1];
-    if (!persistedMsg) {
-      throw new Error('Expected persisted agent message to be defined.');
-    }
-
-    expect(persistedMsg.content).not.toContain('```jsonc');
-    expect(persistedMsg.content).not.toContain('ai-team:question');
-    expect(result.text).not.toContain('```jsonc');
-    expect(result.text).not.toContain('ai-team:question');
-  });
-
-  it('ignores non-question json fences', async () => {
-    const llmResponse = [
-      'Here is plain metadata:',
-      '',
-      '```json',
-      '{ "kind": "note", "message": "No interaction" }',
-      '```',
-    ].join('\n');
-
-    const { ctx } = makeCtx(llmResponse);
-    const questionSelect = vi.fn().mockResolvedValue('ignored');
-    (ctx.hooks as any).questionSelect = questionSelect;
-
-    const result = await sendTurn('show metadata', makePlugins(), ctx);
-
-    expect(questionSelect).not.toHaveBeenCalled();
-    expect(result.text).toContain('```json');
-  });
-});
-
 // ────────────────────────────────────────────────────────────────────────────
 // sendTurn — spec path 3 (tool-calling path)
 //

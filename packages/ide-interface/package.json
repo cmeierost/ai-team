@@ -11,12 +11,12 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "ws": "^8.16.0"
+    "ws": "^8.19.0"
   },
   "devDependencies": {
-    "@types/node": "^20.11.16",
-    "@types/ws": "^8.5.10",
-    "rimraf": "^5.0.5",
-    "typescript": "^5.3.3"
+    "@types/node": "^25.5.0",
+    "@types/ws": "^8.18.1",
+    "rimraf": "^6.1.3",
+    "typescript": "^5.9.3"
   }
 }

@@ -39,10 +39,28 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
   const events: MediatorEvent<TCommand>[] = [];
   let error: Error | null = null;
   let done = false;
+  let eventWaiter: (() => void) | null = null;
   let abortHandler: (() => void) | null = null;
   let readyResolve: (() => void) | null = null;
   const readyPromise = new Promise<void>((resolve) => {
     readyResolve = resolve;
+  });
+
+  const wakeEventWaiter = () => {
+    const waiter = eventWaiter;
+    eventWaiter = null;
+    waiter?.();
+  };
+
+  const waitForNextEvent = () => new Promise<void>((resolve) => {
+    eventWaiter = () => {
+      eventWaiter = null;
+      resolve();
+    };
+
+    if (events.length > 0 || done || error) {
+      wakeEventWaiter();
+    }
   });
 
   ws.onopen = () => {
@@ -100,24 +118,29 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
       if (wsEvent.type === 'done') {
         done = true;
         ws.close();
+        wakeEventWaiter();
         return;
       }
 
       // Convert WebSocket event to MediatorEvent
       const mediatorEvent = wsEvent.data as MediatorEvent<TCommand>;
       events.push(mediatorEvent);
+      wakeEventWaiter();
     } catch (err) {
       error = err instanceof Error ? err : new Error('Failed to parse WebSocket message');
+      wakeEventWaiter();
     }
   };
 
   ws.onerror = (event) => {
     error = new Error('WebSocket error');
     done = true;
+    wakeEventWaiter();
   };
 
   ws.onclose = () => {
     done = true;
+    wakeEventWaiter();
   };
 
   try {
@@ -129,6 +152,7 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
         }
       } finally {
         done = true;
+        wakeEventWaiter();
       }
     };
 
@@ -169,8 +193,7 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
         const event = events.shift()!;
         yield event;
       } else if (!done) {
-        // Wait a bit for more events
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await waitForNextEvent();
       }
     }
   } finally {

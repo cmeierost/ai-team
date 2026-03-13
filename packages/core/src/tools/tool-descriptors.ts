@@ -160,7 +160,6 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
 
   for (const name of [
     'com_delegate',
-    'com_ask',
     'tool_register_cli',
     'hr_update_llm',
     'tool_get_errors',

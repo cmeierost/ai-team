@@ -1,4 +1,4 @@
-import Parser from 'web-tree-sitter';
+import { Parser, Language, Node as SyntaxNode, Query } from 'web-tree-sitter';
 import { readFile } from 'fs/promises';
 
 /**
@@ -31,7 +31,7 @@ export type PatternType =
  */
 export class PatternMatcher {
   private parser: Parser | null = null;
-  private languages: Map<string, Parser.Language> = new Map();
+  private languages: Map<string, Language> = new Map();
 
   async initialize(): Promise<void> {
     await Parser.init();
@@ -43,7 +43,7 @@ export class PatternMatcher {
       throw new Error('Parser not initialized. Call initialize() first.');
     }
 
-    const language = await Parser.Language.load(wasmPath);
+    const language = await Language.load(wasmPath);
     this.languages.set(languageName, language);
   }
 
@@ -69,6 +69,9 @@ export class PatternMatcher {
 
     const sourceCode = await readFile(filePath, 'utf-8');
     const tree = this.parser.parse(sourceCode);
+    if (!tree) {
+      throw new Error('Tree-sitter failed to parse source code. Ensure a language is loaded.');
+    }
     const lines = sourceCode.split('\n');
 
     const matches: PatternMatch[] = [];
@@ -123,7 +126,7 @@ export class PatternMatcher {
    * Find async functions that don't use await
    */
   private findAsyncWithoutAwait(
-    node: Parser.SyntaxNode,
+    node: SyntaxNode,
     filePath: string,
     lines: string[],
     matches: PatternMatch[]
@@ -146,7 +149,7 @@ export class PatternMatcher {
   /**
    * Check if a node contains an await expression
    */
-  private containsAwait(node: Parser.SyntaxNode): boolean {
+  private containsAwait(node: SyntaxNode): boolean {
     if (node.type === 'await_expression') {
       return true;
     }
@@ -164,7 +167,7 @@ export class PatternMatcher {
    * Find console.log statements
    */
   private findConsoleLogs(
-    node: Parser.SyntaxNode,
+    node: SyntaxNode,
     filePath: string,
     lines: string[],
     matches: PatternMatch[]
@@ -194,7 +197,7 @@ export class PatternMatcher {
    * Find TODO/FIXME comments
    */
   private findTodoComments(
-    node: Parser.SyntaxNode,
+    node: SyntaxNode,
     filePath: string,
     lines: string[],
     matches: PatternMatch[]
@@ -215,7 +218,7 @@ export class PatternMatcher {
    * Find empty catch blocks
    */
   private findEmptyCatchBlocks(
-    node: Parser.SyntaxNode,
+    node: SyntaxNode,
     filePath: string,
     lines: string[],
     matches: PatternMatch[]
@@ -240,20 +243,22 @@ export class PatternMatcher {
    * Find custom pattern using tree-sitter query syntax
    */
   private findCustomPattern(
-    node: Parser.SyntaxNode,
+    node: SyntaxNode,
     queryString: string,
     filePath: string,
     lines: string[],
     matches: PatternMatch[],
-    language: Parser.Language
+    language: Language
   ): void {
     try {
-      const query = language.query(queryString);
+      const query = new Query(language, queryString);
       const captures = query.captures(node);
 
       for (const capture of captures) {
         matches.push(this.createMatch(capture.node, filePath, lines));
       }
+
+      query.delete();
     } catch (error) {
       console.warn(`Failed to execute custom query: ${error}`);
     }
@@ -263,7 +268,7 @@ export class PatternMatcher {
    * Create a PatternMatch from a tree-sitter node
    */
   private createMatch(
-    node: Parser.SyntaxNode,
+    node: SyntaxNode,
     filePath: string,
     lines: string[]
   ): PatternMatch {

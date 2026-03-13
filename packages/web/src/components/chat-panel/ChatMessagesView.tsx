@@ -62,9 +62,10 @@ interface ChatMessagesViewProps {
   onToggleArchive: (index: number, currentlyArchived: boolean) => void;
   onDeleteMessage: (index: number) => void;
   onHandoffClick: (targetAgentId: string, existingSessionId?: string | null) => void;
+  streaming?: boolean;
 }
 
-export function ChatMessagesView({ agent, agents, developer, currentAgentId, routeAgentId, currentSessionId, graphSessionId, messages, editingIndex, editContent, messagesContainerRef, messagesEndRef, onScroll, onGraphBack, onSelectSessionFromGraph, onSummarize, onSplitSession, onEditContentChange, onEditMessage, onCancelEdit, onCopyMessage, onToggleArchive, onDeleteMessage, onHandoffClick }: Readonly<ChatMessagesViewProps>) {
+export function ChatMessagesView({ agent, agents, developer, currentAgentId, routeAgentId, currentSessionId, graphSessionId, messages, editingIndex, editContent, messagesContainerRef, messagesEndRef, onScroll, onGraphBack, onSelectSessionFromGraph, onSummarize, onSplitSession, onEditContentChange, onEditMessage, onCancelEdit, onCopyMessage, onToggleArchive, onDeleteMessage, onHandoffClick, streaming }: Readonly<ChatMessagesViewProps>) {
   if (graphSessionId) {
     return (
       <>
@@ -187,7 +188,13 @@ export function ChatMessagesView({ agent, agents, developer, currentAgentId, rou
                     </div>
                   ) : (
                     <div className="message-content-body">
-                      <MarkdownMessage content={message.content} />
+                      {!human && !message.content && streaming && index === messages.length - 1 ? (
+                        <span className="typing-indicator" aria-label="Agent is thinking">
+                          <span /><span /><span />
+                        </span>
+                      ) : (
+                        <MarkdownMessage content={message.content} />
+                      )}
                       {navigateTarget && (
                         <button
                           onClick={() => onHandoffClick(navigateTarget.agent.id, navigateTarget.sessionId)}

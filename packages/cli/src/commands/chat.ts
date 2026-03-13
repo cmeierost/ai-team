@@ -2,6 +2,7 @@ import type { AiTeamClient, ChatOptions } from '@ai-team/api-client';
 import type {
   MediatorContext,
   QuestionConfirmRequest,
+  QuestionInputRequest,
 } from '@ai-team/api-client';
 import { generateAgentColor, parseHslHue } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/ide-interface';
@@ -67,9 +68,22 @@ async function askLine(message: string, signal?: AbortSignal): Promise<string> {
 
 function createChatQuestionResponders(signal: AbortSignal): Pick<
   MediatorContext,
-  'questionConfirm'
+  'questionInput' | 'questionConfirm'
 > {
   return {
+    questionInput: async (request: QuestionInputRequest) => {
+      while (true) {
+        const answer = await askLine(request.message, signal);
+        if (request.validate) {
+          const result = request.validate(answer);
+          if (result !== true) {
+            process.stderr.write(`${result}\n`);
+            continue;
+          }
+        }
+        return answer;
+      }
+    },
     questionConfirm: async (request: QuestionConfirmRequest) => {
       const defaultValue = request.default ?? false;
       const suffix = defaultValue ? '[Y/n]' : '[y/N]';

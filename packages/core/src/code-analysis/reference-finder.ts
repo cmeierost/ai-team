@@ -1,4 +1,4 @@
-import Parser from 'web-tree-sitter';
+import { Parser, Language, Node as SyntaxNode } from 'web-tree-sitter';
 import { readFile } from 'fs/promises';
 
 /**
@@ -19,7 +19,7 @@ export interface SymbolReference {
  */
 export class ReferenceFinder {
   private parser: Parser | null = null;
-  private languages: Map<string, Parser.Language> = new Map();
+  private languages: Map<string, Language> = new Map();
 
   async initialize(): Promise<void> {
     await Parser.init();
@@ -31,7 +31,7 @@ export class ReferenceFinder {
       throw new Error('Parser not initialized. Call initialize() first.');
     }
 
-    const language = await Parser.Language.load(wasmPath);
+    const language = await Language.load(wasmPath);
     this.languages.set(languageName, language);
   }
 
@@ -56,6 +56,9 @@ export class ReferenceFinder {
 
     const sourceCode = await readFile(filePath, 'utf-8');
     const tree = this.parser.parse(sourceCode);
+    if (!tree) {
+      throw new Error('Tree-sitter failed to parse source code. Ensure a language is loaded.');
+    }
     const lines = sourceCode.split('\n');
 
     const references: SymbolReference[] = [];
@@ -90,7 +93,7 @@ export class ReferenceFinder {
    * Traverse tree and find identifier nodes matching the symbol name
    */
   private traverseForReferences(
-    node: Parser.SyntaxNode,
+    node: SyntaxNode,
     symbolName: string,
     filePath: string,
     lines: string[],
@@ -128,7 +131,7 @@ export class ReferenceFinder {
   /**
    * Determine the type of reference based on the node's context
    */
-  private determineReferenceType(node: Parser.SyntaxNode): SymbolReference['referenceType'] {
+  private determineReferenceType(node: SyntaxNode): SymbolReference['referenceType'] {
     let parent = node.parent;
 
     while (parent) {

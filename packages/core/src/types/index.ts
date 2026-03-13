@@ -244,6 +244,15 @@ export interface Skill extends SkillConfig {
 }
 
 /**
+ * InstructionFile represents a .instructions.md file with applyTo glob pattern
+ */
+export interface InstructionFile {
+  filePath: string;
+  applyTo: string;     // Comma-separated glob patterns (e.g. "packages/core/**/*,packages/service/**/*")
+  instructions: string; // Markdown content (body after frontmatter)
+}
+
+/**
  * Feature represents a product feature with assigned team
  */
 export interface Feature extends FeatureConfig {}

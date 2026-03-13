@@ -443,7 +443,7 @@ export interface MediatorRuntimeEvent {
   phase?: string;
   message?: string;
   percent?: number;
-  level?: 'info' | 'warn' | 'error';
+  level?: 'info' | 'warn' | 'error' | 'debug';
   text?: string;
   toolName?: string;
   toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
@@ -574,7 +574,7 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       command: TCommand;
       kind: 'log';
       timestamp: string;
-      level?: 'info' | 'warn' | 'error';
+      level?: 'info' | 'warn' | 'error' | 'debug';
       message: string;
     }
   | {

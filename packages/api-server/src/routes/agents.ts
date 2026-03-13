@@ -620,7 +620,7 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
       const agent = await resolveAgentOrFail(req.params.id, res);
       if (!agent) return;
 
-      const maxDepth = req.query.depth ? Number.parseInt(req.query.depth, 10) : 6;
+      const maxDepth = req.query.depth ? Number.parseInt(req.query.depth, 10) : undefined;
       const includeAll = req.query.all === 'true' || req.query.all === '1';
 
       // Build file tree respecting global allowPaths

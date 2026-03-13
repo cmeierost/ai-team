@@ -2,18 +2,16 @@ import { describe, expect, it } from 'vitest';
 
 import {
   requestInput,
-  requestConfirm,
   stripHandoffDirective,
 } from './chat/index.js';
 import type { ChatRuntimeHooks } from './chat/index.js';
 
 // ---------------------------------------------------------------------------
-// requestInput / requestConfirm — event ordering
+// requestInput — setImmediate ordering
 // ---------------------------------------------------------------------------
-// Regression guard: log events emitted to hooks.emit must be observable
-// *before* hooks.questionInput is called (i.e. before readline writes the
-// prompt). This broke when only Promise.resolve() (one microtask) was used;
-// fixed by switching to setImmediate (full event-loop tick).
+// Regression guard: requestInput uses setImmediate so any pending event-loop
+// work drains before the readline prompt fires (e.g. CLI for-await loop
+// draining runtimeQueue).
 // ---------------------------------------------------------------------------
 
 function makeHooks(answer: string): {
@@ -23,34 +21,16 @@ function makeHooks(answer: string): {
   const order: string[] = [];
 
   const hooks: ChatRuntimeHooks = {
-    emit(event: Parameters<NonNullable<ChatRuntimeHooks['emit']>>[0]) {
-      order.push(`emit:${event.kind}`);
-    },
     async questionInput(_req: Parameters<NonNullable<ChatRuntimeHooks['questionInput']>>[0]) {
       order.push('questionInput');
       return answer;
-    },
-    async questionConfirm(_req: Parameters<NonNullable<ChatRuntimeHooks['questionConfirm']>>[0]) {
-      order.push('questionConfirm');
-      return true;
     },
   };
 
   return { hooks, order };
 }
 
-describe('requestInput — event-ordering (setImmediate fix)', () => {
-  it('emits question event before calling questionInput', async () => {
-    const { hooks, order } = makeHooks('hello');
-
-    await requestInput(hooks, { message: 'Prompt:' });
-
-    const emitIdx = order.indexOf('emit:question');
-    const inputIdx = order.indexOf('questionInput');
-    expect(emitIdx).toBeGreaterThanOrEqual(0);
-    expect(inputIdx).toBeGreaterThan(emitIdx);
-  });
-
+describe('requestInput — setImmediate ordering', () => {
   it('any setImmediate-scheduled work runs before questionInput', async () => {
     const { hooks, order } = makeHooks('hi');
 
@@ -73,42 +53,10 @@ describe('requestInput — event-ordering (setImmediate fix)', () => {
   });
 
   it('throws when no questionInput handler is provided', async () => {
-    const hooks: ChatRuntimeHooks = { emit: () => {} };
+    const hooks: ChatRuntimeHooks = {};
     await expect(requestInput(hooks, { message: 'Q:' })).rejects.toThrow(
       'Input question requested but no client questionInput responder is available.',
     );
-  });
-});
-
-describe('requestConfirm — event-ordering (setImmediate fix)', () => {
-  it('emits question event before calling questionConfirm', async () => {
-    const { hooks, order } = makeHooks('');
-
-    await requestConfirm(hooks, { message: 'Continue?' });
-
-    const emitIdx = order.indexOf('emit:question');
-    const confirmIdx = order.indexOf('questionConfirm');
-    expect(emitIdx).toBeGreaterThanOrEqual(0);
-    expect(confirmIdx).toBeGreaterThan(emitIdx);
-  });
-
-  it('any setImmediate-scheduled work runs before questionConfirm', async () => {
-    const { hooks, order } = makeHooks('');
-
-    setImmediate(() => order.push('consumer:drained'));
-
-    await requestConfirm(hooks, { message: 'Continue?' });
-
-    const drainIdx = order.indexOf('consumer:drained');
-    const confirmIdx = order.indexOf('questionConfirm');
-    expect(drainIdx).toBeGreaterThanOrEqual(0);
-    expect(confirmIdx).toBeGreaterThan(drainIdx);
-  });
-
-  it('returns the boolean from questionConfirm', async () => {
-    const { hooks } = makeHooks('');
-    const result = await requestConfirm(hooks, { message: 'Q?' });
-    expect(result).toBe(true);
   });
 });
 

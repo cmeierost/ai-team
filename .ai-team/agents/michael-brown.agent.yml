@@ -4,15 +4,16 @@ role: ceo
 type: executive
 contextLevel: organization
 specializations:
-  - business-definition
-  - executive-direction
-  - prioritization
-  - delegation
-  - staffing-direction
-  - roster-awareness
   - business-alignment-review
   - business-clarity
+  - business-definition
+  - cto
+  - delegation
   - doctrine
+  - executive-direction
+  - prioritization
+  - roster-awareness
+  - staffing-direction
 avatar:
   type: url
   url: .ai-team/avatars/michael-brown.jpg

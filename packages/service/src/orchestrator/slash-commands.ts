@@ -8,7 +8,7 @@
 import { promisify } from 'util';
 import { exec } from 'child_process';
 import type { ISlashCommand } from './pipeline.js';
-import type { OrchestratorContext } from './pipeline-context.js';
+import type { OrchestratorContext, NavStackEntry } from './pipeline-context.js';
 import { emitLog } from './stream-events.js';
 import { requestConfirm } from './question-io.js';
 import { developerNameToId } from '../utils/git.js';
@@ -399,6 +399,31 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
         write(ctx, `\nTool result (${toolName}):\n${pretty}`);
       },
     },
+    // ── Navigation ──────────────────────────────────────────────────────────────
+    {
+      key: 'back',
+      description: 'Return to previous agent in handoff chain',
+      llmCallable: false,
+      execute: async (_args, ctx) => {
+        const navStack: NavStackEntry[] = ctx.navStack ?? [];
+        if (navStack.length === 0) {
+          write(ctx, 'No previous agent to return to.');
+          return;
+        }
+        const prev = navStack.pop()!;
+        const prevAgent = ctx.agentManager.getAgent(prev.agentId);
+        if (!prevAgent) {
+          emitLog(ctx.hooks, 'warn', `Previous agent ${prev.agentId} no longer found.`);
+          return;
+        }
+        const prevHistory = await ctx.sessionManager.getSessionMessages(prev.sessionId);
+        ctx.agent = prevAgent;
+        ctx.sessionId = prev.sessionId;
+        ctx.history = prevHistory;
+        write(ctx, `\n← Returned to ${prevAgent.name} (${prevAgent.role})\n`);
+      },
+    },
+
   ];
 }
 
@@ -419,8 +444,6 @@ export function buildChatCommandRegistry(): ChatCommandRegistryEntry[] {
     llmCallable: c.llmCallable ?? false,
     aliases: c.aliases,
   }));
-  // /back is handled by the CLI chat loop (needs navStack), not the orchestrator
-  entries.push({ key: 'back', usage: '/back', description: 'Return to previous agent in handoff chain', llmCallable: false });
   return entries;
 }
 

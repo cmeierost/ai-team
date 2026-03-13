@@ -83,8 +83,16 @@ export interface FlatFileEntry {
 // Constants
 // ============================================================================
 
-const ALWAYS_EXCLUDED = new Set(['.git']);
-const DEFAULT_MAX_DEPTH = 6;
+const ALWAYS_EXCLUDED = new Set([
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  '.next',
+  '.turbo',
+  '.pnpm-store',
+]);
+const DEFAULT_MAX_DEPTH = 4;
 
 // ============================================================================
 // Gitignore parsing
@@ -436,17 +444,23 @@ async function collectFlat(
 
   const ruleSets = ctx.ignoreGitignore ? [] : await collectRules(workspaceRoot, absolutePath);
 
-  for (const entry of filteredEntries) {
-    const childAbs = path.join(absolutePath, entry.name);
-    const childRel = toRelativePath(workspaceRoot, childAbs);
-    const { include, gitignored } = await resolveGitignored(childRel, entry.isDirectory, ruleSets, ctx);
-    if (!include) continue;
+  const nested = await Promise.all(
+    filteredEntries.map(async (entry) => {
+      const childAbs = path.join(absolutePath, entry.name);
+      const childRel = toRelativePath(workspaceRoot, childAbs);
+      const { include, gitignored } = await resolveGitignored(childRel, entry.isDirectory, ruleSets, ctx);
+      if (!include) return [];
 
-    const childResults = await collectFlat(childAbs, workspaceRoot, depth + 1, maxDepth, ctx);
-    if (gitignored && childResults.length > 0) {
-      childResults[0].gitignored = true;
-    }
-    results.push(...childResults);
+      const childResults = await collectFlat(childAbs, workspaceRoot, depth + 1, maxDepth, ctx);
+      if (gitignored && childResults.length > 0) {
+        childResults[0].gitignored = true;
+      }
+      return childResults;
+    })
+  );
+
+  for (const chunk of nested) {
+    results.push(...chunk);
   }
 
   return results;

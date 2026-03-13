@@ -39,7 +39,7 @@ class MockWebSocket {
 describe('streamViaWebSocket', () => {
   it('cancels immediately when disableQuestions is enabled', async () => {
     const wsInstances: MockWebSocket[] = [];
-    const WebSocketMock = vi.fn((url: string) => {
+    const WebSocketMock = vi.fn(function (this: unknown, url: string) {
       const instance = new MockWebSocket(url);
       wsInstances.push(instance);
       return instance;
@@ -89,7 +89,7 @@ describe('streamViaWebSocket', () => {
 
   it('requests an answer and continues when questions are enabled', async () => {
     const wsInstances: MockWebSocket[] = [];
-    const WebSocketMock = vi.fn((url: string) => {
+    const WebSocketMock = vi.fn(function (this: unknown, url: string) {
       const instance = new MockWebSocket(url);
       wsInstances.push(instance);
       return instance;

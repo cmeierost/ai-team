@@ -23,6 +23,7 @@ import {
   ContextManager,
   loadSkill,
   loadTeamConfig,
+  loadAllInstructionFiles,
 } from '@ai-team/core';
 import type { ChatOptions } from '../../contracts.js';
 import { getGitUserName, developerNameToId } from '../../utils/git.js';
@@ -274,8 +275,15 @@ export async function chatCommand(
     let skill;
     try {
       skill = await loadSkill(agent.skillPath);
+      writeInfo(hooks, `Loaded skill: ${skill.name} (${agent.skillPath})`);
     } catch {
-      // Skill file may not exist — that's fine, agent bio is still used
+      writeInfo(hooks, `No skill file found for ${agent.role}, using agent portfolio only`);
+    }
+
+    // Load workspace instruction files
+    const instructions = await loadAllInstructionFiles(workspaceRoot);
+    if (instructions.length > 0) {
+      writeInfo(hooks, `Loaded ${instructions.length} instruction file(s)`);
     }
 
     writeInfo(hooks, `\nChat with ${agent.name} (${agent.role})`);
@@ -357,6 +365,7 @@ export async function chatCommand(
       llmService: llm,
       contextManager: _container.resolve(TOKENS.ContextManager),
       history,
+      instructions,
     };
     const _plugins = resolvePlugins(_container);
     const _orchestrator = new ChatOrchestrator(_ctx, _plugins);
@@ -374,7 +383,8 @@ export async function chatCommand(
       if (options.oneShot) return;
     }
 
-    // Interactive chat loop — delegates to ChatOrchestrator
+    // Interactive chat loop — CLI only; exit if no terminal input hook is available
+    if (!hooks.questionInput) return;
     while (true) {
       throwIfAborted(hooks.signal, 'Chat request aborted by user.');
 

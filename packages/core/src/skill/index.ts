@@ -37,6 +37,7 @@ export class SkillManager {
       try {
         const skill = await loadSkill(filePath);
         this.skills.set(skill.name, skill);
+        console.log(`Loaded skill: ${skill.name} (${filePath})`);
       } catch (error) {
         console.error(`Failed to load skill from ${filePath}:`, error);
       }

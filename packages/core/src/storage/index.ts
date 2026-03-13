@@ -10,6 +10,7 @@ import { glob } from 'glob';
 import {
   Agent,
   Skill,
+  InstructionFile,
   AgentSchema,
   SkillSchema,
   AgentConfig,
@@ -437,6 +438,56 @@ export async function findSkillFiles(workspaceRoot: string): Promise<string[]> {
     ignore: ['**/node_modules/**', '**/.git/**'],
   });
   return files;
+}
+
+/**
+ * Find all instruction files in workspace
+ * @param workspaceRoot - Root directory to search
+ * @returns Array of absolute file paths
+ */
+export async function findInstructionFiles(workspaceRoot: string): Promise<string[]> {
+  const pattern = '.ai-team/instructions/*.instructions.md';
+  const files = await glob(pattern, {
+    cwd: workspaceRoot,
+    absolute: true,
+    ignore: ['**/node_modules/**', '**/.git/**'],
+  });
+  return files;
+}
+
+/**
+ * Load an instruction file, parsing YAML frontmatter for applyTo
+ * @param filePath - Absolute path to the .instructions.md file
+ * @returns Parsed instruction file data
+ */
+export async function loadInstructionFile(filePath: string): Promise<InstructionFile> {
+  const content = await fs.readFile(filePath, 'utf-8');
+  const { data, content: markdown } = matter(content);
+  const applyTo = typeof data.applyTo === 'string' ? data.applyTo : '**';
+  return {
+    filePath,
+    applyTo,
+    instructions: markdown.trim(),
+  };
+}
+
+/**
+ * Load all instruction files from the workspace
+ * @param workspaceRoot - Workspace root directory
+ * @returns Array of parsed instruction files
+ */
+export async function loadAllInstructionFiles(workspaceRoot: string): Promise<InstructionFile[]> {
+  const filePaths = await findInstructionFiles(workspaceRoot);
+  const results: InstructionFile[] = [];
+  for (const fp of filePaths) {
+    try {
+      const inst = await loadInstructionFile(fp);
+      results.push(inst);
+    } catch (error) {
+      console.error(`Failed to load instruction file ${fp}:`, error);
+    }
+  }
+  return results;
 }
 
 /**

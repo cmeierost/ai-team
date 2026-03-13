@@ -25,22 +25,22 @@
     "@ai-team/fs": "workspace:*",
     "@typescript-eslint/typescript-estree": "^8.56.0",
     "chokidar": "^5.0.0",
-    "diff": "^7.0.0",
-    "glob": "^13.0.5",
+    "diff": "^8.0.3",
+    "glob": "^13.0.6",
     "gray-matter": "^4.0.3",
-    "minimatch": "^10.2.1",
-    "openai": "^6.22.0",
+    "minimatch": "^10.2.4",
+    "openai": "^6.27.0",
     "parse-diff": "^0.11.1",
-    "sharp": "^0.33.5",
-    "web-tree-sitter": "^0.23.2",
+    "sharp": "^0.34.5",
+    "web-tree-sitter": "^0.26.6",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^25.2.3",
-    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@types/node": "^25.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.0",
     "@typescript-eslint/parser": "^8.56.0",
-    "eslint": "^10.0.0",
+    "eslint": "^10.0.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   }
 }

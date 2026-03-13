@@ -131,13 +131,6 @@ export async function sendTurn(
   const toolDefs = buildToolDefinitions(ctx, allTools);
 
   // ── 6. Build tool-use policy system message ────────────────────────────────
-  const questionNotation =
-    'When you need developer input (a decision, preference, or missing information), ' +
-    'write your question inline in your response using a JSONC fence with a comment marker: ' +
-    '```jsonc\n// ai-team:question\n{"question":"...","questionType":"select","choices":[{"name":"A","value":"a"},{"name":"B","value":"b"}]}\n``` ' +
-    'Supported questionType values: input, confirm, select, password, checklist. ' +
-    'Do not ask when the next step is already clear from context; avoid repetitive clarifications.';
-
   let workingMessages = [...messages];
   if (toolDefs.length > 0) {
     workingMessages = [
@@ -147,16 +140,7 @@ export async function sendTurn(
           `Tool-calling is available. Registered tools: ${allTools.map(t => t.name).join(', ')}. ` +
           'Do not invent tool names. ' +
           'If the developer asks about what tools you can use, what files you can read/write, or access/permissions, call a relevant introspection tool (for example tool_list, tool_can_i, fs_who_can) before answering. ' +
-          'If the developer asks to list or show visible/readable files (or file tree), call fs_tree on path "." (or requested path) first, then explain results. ' +
-          questionNotation,
-      },
-      ...messages,
-    ];
-  } else {
-    workingMessages = [
-      {
-        role: 'system',
-        content: questionNotation,
+          'If the developer asks to list or show visible/readable files (or file tree), call fs_tree on path "." (or requested path) first, then explain results.',
       },
       ...messages,
     ];
@@ -286,6 +270,7 @@ export async function sendTurn(
               fullResponse += delta;
             }
           },
+          ctx.instructions,
         ),
         hooks?.signal,
         'Chat aborted.',
