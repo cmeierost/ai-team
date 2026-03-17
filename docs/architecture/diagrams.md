@@ -98,6 +98,61 @@ flowchart TD
   HANDOFF --> ORCH
 ```
 
+## After a message reaches the server (WebSocket path)
+
+This sequence focuses on what happens immediately after the browser sends a chat message.
+
+```mermaid
+sequenceDiagram
+  participant Browser as Browser client
+  participant WSH as api-server/ws/chat-handler.ts
+  participant Service as CoreAiTeamService.stream()
+  participant Chat as chatCommand()
+  participant Orch as ChatOrchestrator
+  participant Turn as sendTurn()
+  participant Dispatch as tool-dispatch.ts
+
+  Browser->>WSH: { type: "message", content }
+  WSH-->>Browser: status(received)
+  WSH->>Service: stream(chat payload)
+  Service->>Chat: chatCommand(...)
+  Chat->>Orch: run(message)
+  Orch->>Turn: sendTurn(...)
+  loop token/event streaming
+    Turn-->>Service: hooks.emit(runtime event)
+    Service-->>WSH: stream event
+    WSH-->>Browser: { type, data }
+  end
+  opt tool call requested by model
+    Turn->>Dispatch: dispatchToolCall(...)
+    Dispatch-->>Turn: result/denial/structured outcome
+  end
+  opt handoff requested
+    Orch->>Orch: executeHandoff(...)
+    Orch-->>Browser: handoff event in stream
+  end
+  WSH-->>Browser: done
+```
+
+## Question/answer round-trip during a turn
+
+When a tool or workflow requires confirmation/input, the server pauses for a client answer.
+
+```mermaid
+sequenceDiagram
+  participant Browser as Browser client
+  participant WSH as ws/chat-handler
+  participant Service as service stream
+  participant Hooks as ChatRuntimeHooks
+
+  Service->>Hooks: questionConfirm(request)
+  Hooks->>WSH: emit question event
+  WSH-->>Browser: { type: "question", data: { questionId, ... } }
+  Browser->>WSH: { type: "answer", answer: { questionId, value } }
+  WSH-->>Hooks: resolve pending question
+  Hooks-->>Service: continue turn
+```
+
 ## Mediator event bridge
 
 This diagram shows how service runtime activity becomes adapter-facing stream events.

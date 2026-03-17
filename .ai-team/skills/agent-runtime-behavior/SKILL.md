@@ -1,6 +1,13 @@
 ---
 name: agent-runtime-behavior
 description: 'Use when working on agent chat behavior, system prompt construction, handoffs, context injection, or runtime behavior across packages/core and packages/service.'
+triggers:
+  - "\\bsystem.?prompt\\b"
+  - "\\bhandoff\\b"
+  - "\\borchestrat\\b"
+  - "\\bcontext.?inject\\b"
+  - "send-turn"
+  - "\\bagent.*runtime\\b"
 ---
 
 # Agent runtime behavior

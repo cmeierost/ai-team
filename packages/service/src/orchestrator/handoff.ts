@@ -44,7 +44,7 @@ export async function tryNlForward(
   if (resolved) {
     // Persist the user's message before the handoff — sendTurn never runs
     // on this path, so this is the only place to record the human input.
-    const userMsg: import('@ai-team/core').ChatMessage = {
+    const userMsg: ChatMessage = {
       timestamp: new Date().toISOString(),
       from: 'human',
       to: ctx.agent.id,

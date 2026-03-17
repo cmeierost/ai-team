@@ -2,7 +2,7 @@
  * send-turn.test.ts
  *
  * Tests for spec paths 1, 2 and 4 (text-directive handoffs) plus
- * parseHandoffDirective / stripHandoffDirective behaviour.
+ * parseHandoffDirective / stripHandoffDirective behavior.
  *
  * Spec reference: docs/implementation/handoff-system.md
  *   Path 1  — agent directive in LLM response (HANDOFF: line)
@@ -20,6 +20,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { parseHandoffDirective, stripHandoffDirective } from '../commands/chat/index.js';
 import { sendTurn } from './send-turn.js';
+import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
+import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import type { Agent, ChatMessage } from '@ai-team/core';
@@ -131,6 +133,7 @@ function makeCtx(llmResponse: string): { ctx: OrchestratorContext; appendMessage
     } as any,
     agentManager: {
       recordInteraction: vi.fn().mockResolvedValue(undefined),
+      getAllAgents: vi.fn(() => knownAgents),
       getAgent: vi.fn((id: string) => knownAgents.find((candidate) => candidate.id === id)),
       resolveAgent: vi.fn((query: string) => {
         const normalized = query.trim().toLowerCase();
@@ -140,7 +143,14 @@ function makeCtx(llmResponse: string): { ctx: OrchestratorContext; appendMessage
         );
       }),
     } as any,
-    skillManager: {} as any,
+    skillManager: {
+      resolveSkillsForAgent: vi.fn(() => ({
+        roleSkill: undefined,
+        specializationSkills: [],
+        skills: [],
+        missingSkillNames: [],
+      })),
+    } as any,
     contextManager: {} as any,
     llmService: {
       // send-turn uses streamChat (async generator, no tools path)
@@ -170,6 +180,8 @@ function makePlugins(): ResolvedPlugins {
       handle: async (_result: any, _ctx: any) => {},
     } as any,
     slashCommands: [],
+    hookPlugins: buildDefaultHookPlugins(),
+    turnResultParsers: buildDefaultTurnResultParsers(),
   };
 }
 
@@ -233,13 +245,77 @@ describe('sendTurn — spec path 2 (FORWARD_TO: text directive)', () => {
 
     await sendTurn('can sarah help?', makePlugins(), ctx);
 
-    const persistedMsg: ChatMessage = appendMessage.mock.calls.find(
-      ([_sessionId, msg]: [string, ChatMessage]) => !msg.isHuman,
-    )?.[1];
+    const persistedMsg = appendMessage.mock.calls.find(
+      (call: unknown[]) => !(call[1] as ChatMessage | undefined)?.isHuman,
+    )?.[1] as ChatMessage | undefined;
     if (!persistedMsg) {
       throw new Error('Expected persisted agent message to be defined.');
     }
     expect(persistedMsg.content).not.toContain('FORWARD_TO:');
+  });
+
+  it('emits info events when role/specialization skills are loaded', async () => {
+    const { ctx } = makeCtx('Hello there!');
+    (ctx.skillManager as any).resolveSkillsForAgent = vi.fn(() => ({
+      roleSkill: { name: 'assistant' },
+      specializationSkills: [{ name: 'frontend-web-delivery' }],
+      skills: [{ name: 'assistant' }, { name: 'frontend-web-delivery' }],
+      missingSkillNames: [],
+    }));
+
+    await sendTurn('hello', makePlugins(), ctx);
+
+    const emit = (ctx.hooks.emit as ReturnType<typeof vi.fn>);
+    expect(
+      emit.mock.calls.some(([event]) =>
+        (event as { kind?: string; level?: string; message?: string }).kind === 'log'
+        && (event as { kind?: string; level?: string; message?: string }).level === 'info'
+        && (event as { kind?: string; level?: string; message?: string }).message?.includes('Loaded role skill: assistant'),
+      ),
+    ).toBe(true);
+    expect(
+      emit.mock.calls.some(([event]) =>
+        (event as { kind?: string; level?: string; message?: string }).kind === 'log'
+        && (event as { kind?: string; level?: string; message?: string }).level === 'info'
+        && (event as { kind?: string; level?: string; message?: string }).message?.includes('Loaded specialization skill: frontend-web-delivery'),
+      ),
+    ).toBe(true);
+  });
+
+  it('supports one plugin hooking multiple lifecycle hooks', async () => {
+    const { ctx, appendMessage } = makeCtx('Hello plugin world');
+    const onTurnStart = vi.fn(async () => {});
+    const onMessagesPrepared = vi.fn(async () => {});
+    const onBeforePersistAssistantMessage = vi.fn(async (payload: { persistedContent: string }) => `${payload.persistedContent} [filtered-by-plugin]`);
+    const onTurnCompleted = vi.fn(async () => {});
+
+    const plugins = {
+      ...makePlugins(),
+      hookPlugins: [{
+        name: 'multi-hook-plugin',
+        onTurnStart,
+        onMessagesPrepared,
+        onBeforePersistAssistantMessage,
+        onTurnCompleted,
+      }],
+    };
+
+    const result = await sendTurn('hello', plugins, ctx);
+
+    expect(onTurnStart).toHaveBeenCalledOnce();
+    expect(onMessagesPrepared).toHaveBeenCalledOnce();
+    expect(onBeforePersistAssistantMessage).toHaveBeenCalledOnce();
+    expect(onTurnCompleted).toHaveBeenCalledOnce();
+    expect(result.text).toContain('[filtered-by-plugin]');
+
+    const persistedMsg = appendMessage.mock.calls.find(
+      (call: unknown[]) => {
+        const msg = call[1] as ChatMessage | undefined;
+        return !!msg && !msg.isHuman && msg.to === 'human';
+      },
+    )?.[1] as ChatMessage | undefined;
+
+    expect(persistedMsg?.content).toContain('[filtered-by-plugin]');
   });
 });
 
@@ -359,8 +435,18 @@ function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
       appendMessage,
       getSession: vi.fn().mockResolvedValue({ id: 'sess-victor-1', developerId: 'clemens' }),
     } as any,
-    agentManager: { recordInteraction: vi.fn().mockResolvedValue(undefined) } as any,
-    skillManager:   {} as any,
+    agentManager: {
+      recordInteraction: vi.fn().mockResolvedValue(undefined),
+      getAllAgents: vi.fn(() => [agent]),
+    } as any,
+    skillManager: {
+      resolveSkillsForAgent: vi.fn(() => ({
+        roleSkill: undefined,
+        specializationSkills: [],
+        skills: [],
+        missingSkillNames: [],
+      })),
+    } as any,
     contextManager: {} as any,
     llmService: {
       chatWithTools: chatWithToolsMock,
@@ -384,6 +470,8 @@ function makePluginsWithTools(): ResolvedPlugins {
     llmSelector:    { select: vi.fn().mockResolvedValue(undefined) } as any,
     outputHandler:  { handle: async () => {} } as any,
     slashCommands:  [],
+    hookPlugins:    buildDefaultHookPlugins(),
+    turnResultParsers: [],
   };
 }
 
@@ -466,9 +554,12 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
     expect(result.handedOff).toBeFalsy();
 
     // Agent reply persisted with the final LLM text (no directives to strip)
-    const agentMsg: ChatMessage = appendMessage.mock.calls.find(
-      ([_sessionId, msg]: [string, ChatMessage]) => !msg.isHuman && msg.to === 'human',
-    )?.[1];
+    const agentMsg = appendMessage.mock.calls.find(
+      (call: unknown[]) => {
+        const msg = call[1] as ChatMessage | undefined;
+        return !!msg && !msg.isHuman && msg.to === 'human';
+      },
+    )?.[1] as ChatMessage | undefined;
     expect(agentMsg).toBeDefined();
     if (!agentMsg) {
       throw new Error('Expected persisted agent reply message to be defined.');
@@ -485,7 +576,7 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
     await sendTurn('first turn', makePluginsWithTools(), ctx);
     await sendTurn('second turn', makePluginsWithTools(), ctx);
 
-    const toSchema = (ctx.toolManager as { toSchema: ReturnType<typeof vi.fn> }).toSchema;
+    const toSchema = (ctx.toolManager as unknown as { toSchema: ReturnType<typeof vi.fn> }).toSchema;
     expect(toSchema).toHaveBeenCalledTimes(2);
     expect(toSchema).toHaveBeenNthCalledWith(1, 'fs_read');
     expect(toSchema).toHaveBeenNthCalledWith(2, 'fs_apply_patch');

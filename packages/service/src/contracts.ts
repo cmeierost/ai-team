@@ -558,6 +558,7 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       kind: 'status';
       timestamp: string;
       phase?: string;
+      agentName?: string;
       message?: string;
     }
   | {

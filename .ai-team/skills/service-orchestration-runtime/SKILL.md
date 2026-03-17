@@ -1,6 +1,12 @@
 ---
 name: service-orchestration-runtime
 description: 'Use when working on command dispatch, mediator flow, runtime events, workflow state, dependency wiring, or orchestration behavior in packages/service.'
+triggers:
+  - "\\bmediator\\b"
+  - "\\bcommand.?dispatch\\b"
+  - "\\bworkflow.?state\\b"
+  - "\\bdependency.?wir\\b"
+  - "packages/service.*orchestrat"
 ---
 
 # Service orchestration runtime

@@ -5,8 +5,7 @@
  * NOT for com_ask-style user questions (those are now inline notation).
  */
 
-import type { ChatRuntimeHooks } from '../contracts.js';
-import type { QuestionConfirmRequest } from '../contracts.js';
+import type { ChatRuntimeHooks, QuestionConfirmRequest } from '../contracts.js';
 
 // ── Tick helper — drains pending log events before prompting ─────────────────
 

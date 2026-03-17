@@ -3,17 +3,7 @@ id: michael-brown
 role: ceo
 type: executive
 contextLevel: organization
-specializations:
-  - business-alignment-review
-  - business-clarity
-  - business-definition
-  - cto
-  - delegation
-  - doctrine
-  - executive-direction
-  - prioritization
-  - roster-awareness
-  - staffing-direction
+specializations: []
 avatar:
   type: url
   url: .ai-team/avatars/michael-brown.jpg

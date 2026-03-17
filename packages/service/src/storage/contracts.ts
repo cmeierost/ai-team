@@ -23,6 +23,18 @@ export interface Note {
 }
 
 /**
+ * A skill file that has been loaded into a session.
+ * Only the path is stored; content is read from disk on demand.
+ */
+export interface SessionSkill {
+  sessionId: string;
+  /** Workspace-relative path, e.g. `.ai-team/skills/frontend-web-delivery/SKILL.md` */
+  skillPath: string;
+  loadedAt: string;  // ISO timestamp
+  paused: boolean;
+}
+
+/**
  * Filter options for querying messages
  */
 export interface MessageFilter {
@@ -209,6 +221,30 @@ export interface IMessageStorage {
    * @param agentId Optional: limit search to specific agent
    */
   searchNotes(query: string, agentId?: string): Promise<Note[]>;
+
+  // ========== Session Skills ==========
+
+  /**
+   * Mark a skill file path as loaded for a session.
+   * Idempotent — safe to call if already present (updates loaded_at).
+   */
+  addSessionSkill(sessionId: string, skillPath: string): Promise<void>;
+
+  /**
+   * Return all skill records for a session (both active and paused).
+   */
+  getSessionSkills(sessionId: string): Promise<SessionSkill[]>;
+
+  /**
+   * Set the paused flag for a session skill.
+   * Paused skills are not injected into LLM context even when their triggers match.
+   */
+  setSessionSkillPaused(sessionId: string, skillPath: string, paused: boolean): Promise<void>;
+
+  /**
+   * Remove a skill from a session entirely.
+   */
+  removeSessionSkill(sessionId: string, skillPath: string): Promise<void>;
 }
 
 /**

@@ -138,6 +138,57 @@ The shared chat behavior lives in `@ai-team/service`, not in the adapters.
 
 That shared service-level orchestration keeps CLI and remote chat behavior aligned.
 
+## What happens after you send a message to the server
+
+This is the practical end-to-end flow for the **remote browser path** (`web -> api-server -> service`).
+
+1. The web client sends a WebSocket message (`type: "message"`) to `/ws/chat/:agentId`.
+2. The API server acknowledges receipt with a quick status event (`status: received`).
+3. The WebSocket handler starts a streaming `chat` command via `client.stream(...)`.
+4. `chatCommand()` builds an `OrchestratorContext` and calls `ChatOrchestrator.run(...)`.
+5. `ChatOrchestrator` checks pre-turn interceptors (slash commands, regex intents, NL forward).
+6. For a normal turn, `sendTurn(...)` builds context, resolves tools, and invokes the model.
+7. Tool calls are executed through `dispatchToolCall(...)` (confirmation, policy, execution, structured outcomes).
+8. Runtime events (`status`, `token`, `tool`, `question`, `handoff`, `log`) are emitted and streamed back over WebSocket.
+9. Session/history persistence happens in the service layer (`SessionManager`) during turn execution.
+10. The server emits `done` when the turn stream completes.
+
+### Remote server message lifecycle (WebSocket)
+
+```mermaid
+sequenceDiagram
+  participant UI as Web UI
+  participant WS as api-server/ws/chat-handler
+  participant Client as @ai-team/api-client
+  participant Cmd as chatCommand()
+  participant Orch as ChatOrchestrator.run()
+  participant Turn as sendTurn()
+  participant Tools as dispatchToolCall()
+  participant Store as SessionManager
+
+  UI->>WS: { type: "message", content, options }
+  WS-->>UI: { type: "status", data: { status: "received" } }
+  WS->>Client: stream({ command: "chat", payload })
+  Client->>Cmd: chat(...hooks)
+  Cmd->>Orch: run(message)
+  Orch->>Turn: sendTurn(...)
+  Turn->>Store: append user/assistant messages
+  opt Model requests tool
+    Turn->>Tools: dispatchToolCall(...)
+    Tools-->>Turn: tool result / structured handoff/hire
+  end
+  Turn-->>WS: runtime events via hooks.emit
+  WS-->>UI: token/status/tool/question/handoff/log
+  WS-->>UI: { type: "done" }
+```
+
+### Runtime event mapping at the server boundary
+
+- Internal mediator event kinds from service: `status`, `progress`, `log`, `token`, `tool`, `question`, `code_edit_proposal`, `handoff`
+- WebSocket event envelope from API server: `type` + `data`
+  - common `type` values sent to browser: `status`, `token`, `tool`, `question`, `error`, `done`
+  - for rich runtime events, `data.kind` preserves the original service event kind
+
 ## Current frontend state reality
 
 `packages/web` is currently a **hybrid** architecture rather than the fully migrated target state.
@@ -170,5 +221,6 @@ In short: the architecture direction is clear, but the frontend is still mid-mig
 
 - Canonical architecture and boundaries: [ARCHITECTURE.md](../../ARCHITECTURE.md)
 - Mermaid diagrams: [docs/architecture/diagrams.md](./diagrams.md)
+- Orchestrator one-page brief: [docs/architecture/orchestrator-overview.md](./orchestrator-overview.md)
 - Web state guidance: [docs/implementation/web-state-architecture.md](../implementation/web-state-architecture.md)
 - Tactical implementation hotspots: [COPILOT-CONTEXT.md](../../COPILOT-CONTEXT.md)

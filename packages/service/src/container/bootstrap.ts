@@ -38,6 +38,8 @@ import { DefaultToolResolver } from '../orchestrator/defaults/tool-resolver.js';
 import { NoOpMcpGateway } from '../orchestrator/defaults/mcp-gateway.js';
 import { DefaultLlmSelector } from '../orchestrator/defaults/llm-selector.js';
 import { DefaultOutputHandler } from '../orchestrator/defaults/output-handler.js';
+import { buildDefaultHookPlugins } from '../orchestrator/defaults/hook-plugins.js';
+import { buildDefaultTurnResultParsers } from '../orchestrator/defaults/turn-result-parsers.js';
 import { buildDefaultSlashCommands } from '../orchestrator/slash-commands.js';
 import { ServiceContainer } from './container.js';
 import { TOKENS } from './tokens.js';
@@ -129,8 +131,10 @@ export function createContainer(config: BootstrapConfig): ServiceContainer {
   c.registerSingleton(TOKENS.ToolResolver,  () => new DefaultToolResolver());
   c.registerSingleton(TOKENS.McpGateway,    () => new NoOpMcpGateway());
   c.registerSingleton(TOKENS.LlmSelector,   () => new DefaultLlmSelector());
-  c.registerSingleton(TOKENS.OutputHandler, () => new DefaultOutputHandler());
-  c.registerSingleton(TOKENS.SlashCommands, () => buildDefaultSlashCommands());
+  c.registerSingleton(TOKENS.OutputHandler,     () => new DefaultOutputHandler());
+  c.registerSingleton(TOKENS.SlashCommands,     () => buildDefaultSlashCommands());
+  c.registerSingleton(TOKENS.TurnResultParsers, () => buildDefaultTurnResultParsers());
+  c.registerSingleton(TOKENS.HookPlugins,       () => buildDefaultHookPlugins());
 
   return c;
 }

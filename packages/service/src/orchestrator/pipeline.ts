@@ -12,7 +12,14 @@
  * is always fully-wired — even before a feature is built.
  */
 
-import type { AgentTool, ChatCompletionMessageParam, ChatMessage } from '@ai-team/core';
+import type {
+  AgentTool,
+  ChatCompletionMessageParam,
+  ChatMessage,
+  LlmToolDefinition,
+  Skill,
+  StructuredToolResult,
+} from '@ai-team/core';
 import type { OrchestratorContext } from './pipeline-context.js';
 
 // ── 1. Context Compression ────────────────────────────────────────────────────
@@ -137,7 +144,31 @@ export interface IOutputHandler {
   handle(result: TurnResult, ctx: OrchestratorContext): Promise<void>;
 }
 
-// ── 9. Slash Command ──────────────────────────────────────────────────────────
+// ── 9. Turn Result Parser ───────────────────────────────────────────────────
+
+/**
+ * Interprets the raw outputs of a completed LLM turn (structured tool results
+ * and the full response text) into a concrete TurnResult override.
+ *
+ * Parsers are checked in registration order; the first non-null return wins.
+ * This makes it straightforward to register new structured result types
+ * (e.g. a new tool that signals a deploy event) without touching send-turn.ts.
+ *
+ * Default parsers (in priority order):
+ *   1. HandoffToolResultParser — tool-originated handoff (com_handoff)
+ *   2. TextHandoffParser       — text directive (HANDOFF: / FORWARD_TO:)
+ *   3. HireResultParser        — tool-originated hire (hire_agent)
+ */
+export interface ITurnResultParser {
+  parse(
+    structuredResults: StructuredToolResult[],
+    fullResponse: string,
+    persistedContent: string,
+    ctx: OrchestratorContext,
+  ): Partial<TurnResult> | null;
+}
+
+// ── 10. Slash Command ─────────────────────────────────────────────────────────
 
 /**
  * A single in-chat slash command (e.g. /who, /history, /switch).
@@ -155,6 +186,71 @@ export interface ISlashCommand {
   /** When true, the LLM may invoke this command on behalf of the developer. */
   readonly llmCallable?: boolean;
   execute(rawArgs: string, ctx: OrchestratorContext): Promise<void>;
+}
+
+// ── 11. Hook Plugins (multi-hook extension points) ──────────────────────────
+
+export interface TurnStartHookPayload {
+  userMessage: string;
+  options?: { skipPersist?: boolean };
+  ctx: OrchestratorContext;
+}
+
+export interface MessagesPreparedHookPayload {
+  messages: ChatCompletionMessageParam[];
+  ctx: OrchestratorContext;
+}
+
+export interface SkillsResolvedHookPayload {
+  skills: Skill[];
+  missingSkillNames: string[];
+  ctx: OrchestratorContext;
+}
+
+export interface ToolsResolvedHookPayload {
+  tools: AgentTool[];
+  toolDefs: LlmToolDefinition[];
+  ctx: OrchestratorContext;
+}
+
+export interface BeforePersistAssistantMessageHookPayload {
+  fullResponse: string;
+  persistedContent: string;
+  ctx: OrchestratorContext;
+}
+
+export interface AfterPersistAssistantMessageHookPayload {
+  fullResponse: string;
+  persistedContent: string;
+  persistedMessage: ChatMessage;
+  ctx: OrchestratorContext;
+}
+
+export interface TurnCompletedHookPayload {
+  fullResponse: string;
+  persistedContent: string;
+  structuredResults: StructuredToolResult[];
+  turnResult: TurnResult;
+  ctx: OrchestratorContext;
+}
+
+/**
+ * Hook plugin contract: one plugin can participate in multiple lifecycle hooks.
+ * All methods are optional, so each plugin only implements what it needs.
+ */
+export interface IOrchestratorHookPlugin {
+  readonly name: string;
+  onTurnStart?(payload: TurnStartHookPayload): Promise<void> | void;
+  onMessagesPrepared?(payload: MessagesPreparedHookPayload): Promise<void> | void;
+  onSkillsResolved?(payload: SkillsResolvedHookPayload): Promise<void> | void;
+  onToolsResolved?(payload: ToolsResolvedHookPayload): Promise<void> | void;
+  onBeforePersistAssistantMessage?(
+    payload: BeforePersistAssistantMessageHookPayload,
+  ): Promise<string | void> | string | void;
+  onAfterPersistAssistantMessage?(
+    payload: AfterPersistAssistantMessageHookPayload,
+  ): Promise<void> | void;
+  onTurnCompleted?(payload: TurnCompletedHookPayload): Promise<void> | void;
 }
 
 // ── Plugin bundle ─────────────────────────────────────────────────────────────
@@ -178,6 +274,10 @@ export interface OrchestratorPlugins {
   outputHandler?: IOutputHandler;
   /** Additional slash commands merged with the built-in set. */
   slashCommands?: ISlashCommand[];
+  /** Turn-result parsers replacing the built-in set when provided. */
+  turnResultParsers?: ITurnResultParser[];
+  /** Hook plugins merged with the built-in set. */
+  hookPlugins?: IOrchestratorHookPlugin[];
 }
 
 /**
@@ -195,6 +295,9 @@ export interface ResolvedPlugins {
   llmSelector: ILlmSelector;
   outputHandler: IOutputHandler;
   slashCommands: ISlashCommand[];
+  turnResultParsers: ITurnResultParser[];
+  /** Optional for backward compatibility in tests; default resolves to []. */
+  hookPlugins?: IOrchestratorHookPlugin[];
 }
 
 // ── Shared result types ────────────────────────────────────────────────────────

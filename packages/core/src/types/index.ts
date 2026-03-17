@@ -116,6 +116,14 @@ export const AgentSkillSchema = z.object({
   examples: z.array(z.string()).optional(),
 });
 
+// Frontmatter schema for .ai-team/skills/<id>/SKILL.md files
+export const AgentSkillFileSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  // Regex patterns (as strings) — any match against a user message loads this skill
+  triggers: z.array(z.string()).optional(),
+});
+
 // A2A AgentCard-aligned capabilities
 export const AgentCapabilitiesSchema = z.object({
   streaming: z.boolean().optional(),
@@ -219,6 +227,7 @@ export type LlmProviderConfig = z.infer<typeof LlmProviderConfigSchema>;
 export type AgentConfig = z.infer<typeof AgentSchema>;
 export type SkillConfig = z.infer<typeof SkillSchema>;
 export type FeatureConfig = z.infer<typeof FeatureSchema>;
+export type AgentSkillFileConfig = z.infer<typeof AgentSkillFileSchema>;
 
 /**
  * Agent represents a virtual AI team member
@@ -241,6 +250,19 @@ export interface Agent extends AgentConfig {
 export interface Skill extends SkillConfig {
   filePath: string;
   instructions: string;  // Markdown content
+}
+
+/**
+ * AgentSkillFile represents a .ai-team/skills/<id>/SKILL.md capability file.
+ * Lightweight — only frontmatter metadata + instruction body. No role-template schema.
+ */
+export interface AgentSkillFile {
+  filePath: string;
+  name: string;
+  description?: string;
+  /** Regex patterns as strings. Any match against a user message activates this skill. */
+  triggers?: string[];
+  instructions: string;
 }
 
 /**

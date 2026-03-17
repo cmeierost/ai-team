@@ -407,10 +407,19 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
 
       if (event.kind === 'status' && event.message) {
         if (event.phase === 'agent_info') {
-          currentAgentName = event.message.trim() || currentAgentName;
+          const statusAgentName = (event as { agentName?: string }).agentName;
+          currentAgentName = statusAgentName?.trim() || event.message.trim() || currentAgentName;
         }
         if (options.oneShot || mediatorLoggerEnabled) {
           writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
+        }
+        continue;
+      }
+
+      if (event.kind === 'status') {
+        if (event.phase === 'agent_info') {
+          const statusAgentName = (event as { agentName?: string }).agentName;
+          currentAgentName = statusAgentName?.trim() || currentAgentName;
         }
         continue;
       }

@@ -12,6 +12,7 @@ export type {
   MessageInsertResult,
   MessageStorageFactory,
   Note,
+  SessionSkill,
 } from './contracts.js';
 
 // SQLite implementation

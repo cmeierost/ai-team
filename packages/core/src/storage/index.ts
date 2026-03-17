@@ -13,6 +13,8 @@ import {
   InstructionFile,
   AgentSchema,
   SkillSchema,
+  AgentSkillFileSchema,
+  AgentSkillFile,
   AgentConfig,
   SkillConfig,
   TeamConfig,
@@ -438,6 +440,41 @@ export async function findSkillFiles(workspaceRoot: string): Promise<string[]> {
     ignore: ['**/node_modules/**', '**/.git/**'],
   });
   return files;
+}
+
+/**
+ * Resolve the absolute path for a .ai-team/skills/<id>/SKILL.md file.
+ * Returns the path whether or not the file exists (caller checks).
+ */
+export function resolveAgentSkillFilePath(workspaceRoot: string, skillId: string): string {
+  return path.join(workspaceRoot, '.ai-team', 'skills', skillId, 'SKILL.md');
+}
+
+/**
+ * Load a .ai-team/skills/<id>/SKILL.md capability file.
+ * Parses lightweight frontmatter (name, description, triggers) and returns the body as instructions.
+ */
+export async function loadAgentSkillFile(filePath: string): Promise<AgentSkillFile> {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    const { data, content: markdown } = matter(content);
+    const config = AgentSkillFileSchema.parse(data);
+    return {
+      filePath,
+      name: config.name,
+      description: config.description,
+      triggers: config.triggers,
+      instructions: markdown.trim(),
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new FileNotFoundError(filePath);
+    }
+    if (error instanceof Error && error.name === 'ZodError') {
+      throw new ValidationError(`Invalid skill file configuration in ${filePath}`, error);
+    }
+    throw error;
+  }
 }
 
 /**

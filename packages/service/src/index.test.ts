@@ -186,4 +186,28 @@ describe('createAiTeamService', () => {
       },
     });
   });
+
+  it('preserves status agentName in streamed chat events', async () => {
+    listApi.chatCommand.mockImplementation(async (_workspaceRoot, _employeeId, _options, hooks) => {
+      hooks?.emit?.({
+        kind: 'status',
+        phase: 'agent_info',
+        agentName: 'Maya Patel',
+      });
+    });
+
+    const service = createAiTeamService('c:/workspace');
+    const events = [] as Array<Record<string, unknown>>;
+    for await (const event of service.stream({ command: 'chat', payload: { employeeId: 'maya', options: { message: 'hello' } } })) {
+      events.push(event as Record<string, unknown>);
+    }
+
+    const statusEvent = events.find((event) => event.kind === 'status' && event.phase === 'agent_info');
+    expect(statusEvent).toBeDefined();
+    expect(statusEvent).toMatchObject({
+      kind: 'status',
+      phase: 'agent_info',
+      agentName: 'Maya Patel',
+    });
+  });
 });

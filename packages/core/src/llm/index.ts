@@ -177,7 +177,7 @@ export class LlmService {
    * @param agent - The agent whose persona is used as system prompt
    * @param messages - Conversation messages (user / assistant turns)
    * @param options - Optional overrides (model, maxTokens, temperature)
-   * @param skill - Optional skill with role instructions
+   * @param skills - Optional skills with role/specialization instructions
    * @param teamRoster - Optional list of all agents (injected into system prompt)
    * @returns The assistant's reply text
    */
@@ -185,18 +185,18 @@ export class LlmService {
     agent: Agent,
     messages: ChatCompletionMessageParam[],
     options?: LlmChatOptions,
-    skill?: Skill,
+    skills?: Skill[],
     teamRoster?: Agent[],
   ): Promise<string> {
     this.assertReady();
 
-    const systemPrompt = buildSystemPrompt(agent, skill, teamRoster);
+    const systemPrompt = buildSystemPrompt(agent, skills, teamRoster);
     const allMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       ...messages,
     ];
     const start = Date.now();
-    const logBase = this.buildLogBase('chat', agent, allMessages, options, skill, teamRoster);
+    const logBase = this.buildLogBase('chat', agent, allMessages, options, skills, teamRoster);
 
     try {
       const response = await withTimeout(
@@ -245,7 +245,7 @@ export class LlmService {
    * @param agent - The agent whose persona is used as system prompt
    * @param messages - Conversation messages
    * @param options - Optional overrides
-   * @param skill - Optional skill with role instructions
+   * @param skills - Optional skills with role/specialization instructions
    * @param teamRoster - Optional list of all agents (injected into system prompt)
    * @returns An async iterable of content chunks
    */
@@ -253,18 +253,18 @@ export class LlmService {
     agent: Agent,
     messages: ChatCompletionMessageParam[],
     options?: LlmChatOptions,
-    skill?: Skill,
+    skills?: Skill[],
     teamRoster?: Agent[],
   ) {
     this.assertReady();
 
-    const systemPrompt = buildSystemPrompt(agent, skill, teamRoster);
+    const systemPrompt = buildSystemPrompt(agent, skills, teamRoster);
     const allMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       ...messages,
     ];
     const start = Date.now();
-    const logBase = this.buildLogBase('stream', agent, allMessages, options, skill, teamRoster);
+    const logBase = this.buildLogBase('stream', agent, allMessages, options, skills, teamRoster);
 
     try {
       const stream = await withTimeout(
@@ -300,7 +300,7 @@ export class LlmService {
     tools: LlmToolDefinition[],
     executeTool: (toolCall: LlmToolCall) => Promise<LlmToolResult>,
     options?: LlmChatOptions,
-    skill?: Skill,
+    skills?: Skill[],
     teamRoster?: Agent[],
     maxToolRounds: number = 8,
     onToken?: (token: string) => void,
@@ -308,13 +308,13 @@ export class LlmService {
   ): Promise<LlmToolChatResult> {
     this.assertReady();
 
-    const systemPrompt = buildSystemPrompt(agent, skill, teamRoster, instructions);
+    const systemPrompt = buildSystemPrompt(agent, skills, teamRoster, instructions);
     const allMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       ...messages,
     ];
 
-    const logBase = this.buildLogBase('chat', agent, allMessages, options, skill, teamRoster);
+    const logBase = this.buildLogBase('chat', agent, allMessages, options, skills, teamRoster);
     const start = Date.now();
     const collectedResults: LlmToolResult[] = [];
 
@@ -637,7 +637,7 @@ export class LlmService {
     agent: Agent,
     messages: ChatCompletionMessageParam[],
     options?: LlmChatOptions,
-    skill?: Skill,
+    skills?: Skill[],
     teamRoster?: Agent[],
   ): LlmLogBase {
     return {
@@ -654,12 +654,10 @@ export class LlmService {
       request: {
         messages: this.cloneMessages(messages),
         options: options ? safeJsonClone(options) : undefined,
-        skill: skill
-          ? {
-            name: skill.name,
-            filePath: skill.filePath,
-          }
-          : undefined,
+        skills: skills?.map(s => ({
+          name: s.name,
+          filePath: s.filePath,
+        })),
         teamRoster: teamRoster?.map(a => ({
           id: a.id,
           name: a.name,
@@ -777,7 +775,7 @@ export class LlmService {
 // ============================================================================
 
 /**
- * Build a system prompt from an agent's persona and (optional) skill instructions.
+ * Build a system prompt from an agent's persona and (optional) role/specialization instructions.
  *
  * The prompt combines:
  *  - Agent identity (name, role)
@@ -787,7 +785,7 @@ export class LlmService {
  *  - Team roster (other agents in the workspace)
  *  - Workspace instruction files (.instructions.md)
  */
-export function buildSystemPrompt(agent: Agent, skill?: Skill, teamRoster?: Agent[], instructions?: InstructionFile[]): string {
+export function buildSystemPrompt(agent: Agent, skills?: Skill[], teamRoster?: Agent[], instructions?: InstructionFile[]): string {
   const parts: string[] = [];
 
   // Identity
@@ -844,11 +842,14 @@ export function buildSystemPrompt(agent: Agent, skill?: Skill, teamRoster?: Agen
     }
   }
 
-  // Skill instructions (from roles/*.md)
-  if (skill?.instructions) {
+  // Skill instructions (role + specializations from roles/*.md)
+  const skillsWithInstructions = skills?.filter(s => s.instructions) ?? [];
+  if (skillsWithInstructions.length > 0) {
     parts.push('');
     parts.push('## Role Instructions');
-    parts.push(skill.instructions);
+    for (const skill of skillsWithInstructions) {
+      parts.push(skill.instructions);
+    }
   }
 
   // Agent's own bio / notes (from agents/*.md markdown body)
@@ -868,12 +869,6 @@ export function buildSystemPrompt(agent: Agent, skill?: Skill, teamRoster?: Agen
         parts.push(inst.instructions);
       }
     }
-  }
-
-  // Specializations
-  if (agent.specializations && agent.specializations.length > 0) {
-    parts.push('');
-    parts.push(`Specializations: ${agent.specializations.join(', ')}`);
   }
 
   // Team roster — so the agent knows who else is on the team
@@ -1238,10 +1233,10 @@ interface LlmLogBase {
   request: {
     messages: ChatCompletionMessageParam[];
     options?: LlmChatOptions;
-    skill?: {
+    skills?: {
       name: string;
       filePath: string;
-    };
+    }[];
     teamRoster?: {
       id: string;
       name: string;

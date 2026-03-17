@@ -13,6 +13,11 @@ type PathMode = 'read' | 'write' | 'create' | 'delete';
 type PathMutationBody = { path?: string; mode?: PathMode };
 type GovernedPathMutationBody = PathMutationBody & { requestedBy?: string; approvedByUser?: boolean };
 
+function normalizeRouteParam(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
 /**
  * @openapi
  * tags:
@@ -257,12 +262,14 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
   router.post('/agents/:agentId/allow', async (req: Request, res: Response) => {
     try {
       const { path: filePath, mode } = req.body as PathMutationBody;
+      const agentId = normalizeRouteParam(req.params.agentId);
+      if (!agentId) return res.status(400).json({ error: '"agentId" is required' });
       if (!filePath) return res.status(400).json({ error: '"path" is required' });
       const resolvedMode = mode ?? 'read';
       if (resolvedMode !== 'read' && resolvedMode !== 'write' && resolvedMode !== 'create' && resolvedMode !== 'delete') {
         return res.status(400).json({ error: '"mode" must be one of "read", "write", "create", "delete" when provided' });
       }
-      const result = await agentAllowPathCommand(workspaceRoot, req.params.agentId, filePath, resolvedMode);
+      const result = await agentAllowPathCommand(workspaceRoot, agentId, filePath, resolvedMode);
       res.json({ agent: result.agent, paths: result.paths, mode: resolvedMode });
     } catch (error) {
       const msg = String(error);
@@ -313,12 +320,14 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
   router.delete('/agents/:agentId/allow', async (req: Request, res: Response) => {
     try {
       const { path: filePath, mode } = req.body as PathMutationBody;
+      const agentId = normalizeRouteParam(req.params.agentId);
+      if (!agentId) return res.status(400).json({ error: '"agentId" is required' });
       if (!filePath) return res.status(400).json({ error: '"path" is required' });
       const resolvedMode = mode ?? 'read';
       if (resolvedMode !== 'read' && resolvedMode !== 'write' && resolvedMode !== 'create' && resolvedMode !== 'delete') {
         return res.status(400).json({ error: '"mode" must be one of "read", "write", "create", "delete" when provided' });
       }
-      const result = await agentDisallowPathCommand(workspaceRoot, req.params.agentId, filePath, resolvedMode);
+      const result = await agentDisallowPathCommand(workspaceRoot, agentId, filePath, resolvedMode);
       res.json({ agent: result.agent, paths: result.paths, mode: resolvedMode });
     } catch (error) {
       const msg = String(error);
@@ -331,6 +340,8 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
   router.post('/agents/:agentId/access_allow', async (req: Request, res: Response) => {
     try {
       const { path: filePath, mode, requestedBy, approvedByUser } = req.body as GovernedPathMutationBody;
+      const agentId = normalizeRouteParam(req.params.agentId);
+      if (!agentId) return res.status(400).json({ error: '"agentId" is required' });
       if (!filePath) return res.status(400).json({ error: '"path" is required' });
       if (!requestedBy || typeof requestedBy !== 'string' || requestedBy.trim().length === 0) {
         return res.status(400).json({ error: '"requestedBy" is required and must be a non-empty string' });
@@ -343,7 +354,7 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
         return res.status(400).json({ error: '"mode" must be one of "read", "write", "create", "delete" when provided' });
       }
 
-      const result = await accessAllowCommand(workspaceRoot, req.params.agentId, filePath, {
+      const result = await accessAllowCommand(workspaceRoot, agentId, filePath, {
         requestedBy: requestedBy.trim(),
         confirmUserApproval: async () => approvedByUser,
       }, resolvedMode);
@@ -359,6 +370,8 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
   router.post('/agents/:agentId/access_deny', async (req: Request, res: Response) => {
     try {
       const { path: filePath, mode, requestedBy, approvedByUser } = req.body as GovernedPathMutationBody;
+      const agentId = normalizeRouteParam(req.params.agentId);
+      if (!agentId) return res.status(400).json({ error: '"agentId" is required' });
       if (!filePath) return res.status(400).json({ error: '"path" is required' });
       if (!requestedBy || typeof requestedBy !== 'string' || requestedBy.trim().length === 0) {
         return res.status(400).json({ error: '"requestedBy" is required and must be a non-empty string' });
@@ -371,7 +384,7 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
         return res.status(400).json({ error: '"mode" must be one of "read", "write", "create", "delete" when provided' });
       }
 
-      const result = await accessDenyCommand(workspaceRoot, req.params.agentId, filePath, {
+      const result = await accessDenyCommand(workspaceRoot, agentId, filePath, {
         requestedBy: requestedBy.trim(),
         confirmUserApproval: async () => approvedByUser,
       }, resolvedMode);

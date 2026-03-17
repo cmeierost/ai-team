@@ -15,11 +15,11 @@ import type {
   ContextManager,
   InstructionFile,
   LlmService,
+  ToolManager,
   SkillManager,
 } from '@ai-team/core';
 import type { SessionManager } from '../session-manager.js';
 import type { ChatRuntimeHooks } from '../contracts.js';
-import type { ToolManager } from '@ai-team/core';
 
 export interface NavStackEntry {
   agentId: string;

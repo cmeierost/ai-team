@@ -233,7 +233,8 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
       app.use(express.static(webDistPath));
       
       // SPA fallback - serve index.html for all non-API routes
-      app.get('*', (req, res, next) => {
+      // Express 5 / path-to-regexp v8 requires named wildcards.
+      app.get('/{*splat}', (req, res, next) => {
         if (req.path.startsWith('/api') || req.path.startsWith('/ws')) {
           return next();
         }

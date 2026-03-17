@@ -239,6 +239,23 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_messages_importance ON messages(importance) WHERE importance IS NOT NULL;
     `,
   },
+  {
+    version: 6,
+    name: 'add_session_skills',
+    up: `
+      -- Session skills — tracks which .ai-team/skills/<id>/SKILL.md files have been
+      -- loaded for a session (by path). Content is never stored; loaded from disk each turn.
+      CREATE TABLE IF NOT EXISTS session_skills (
+        session_id TEXT NOT NULL,
+        skill_path TEXT NOT NULL,
+        loaded_at TEXT NOT NULL,
+        paused INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (session_id, skill_path),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_skills_session ON session_skills(session_id);
+    `,
+  },
 ];
 
 /**

@@ -39,5 +39,6 @@
     "chat.agentSessionProjection.enabled": true,
     "chat.agentFilesLocations": {
         ".ai-team/agents": true
-    }
+    },
+    "cSpell.language": "en"
 }

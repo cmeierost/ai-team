@@ -1,6 +1,13 @@
 ---
 name: session-and-message-storage
 description: 'Use when working on SQLite-backed sessions, messages, notes, tasks, storage contracts, migrations, serialization, or persistence behavior in packages/service.'
+triggers:
+  - "\\bsqlite\\b"
+  - "\\bmigration\\b"
+  - "\\bsession.?skill\\b"
+  - "\\bpersist\\b"
+  - "packages/service.*storage"
+  - "storage.*contract"
 ---
 
 # Session and message storage

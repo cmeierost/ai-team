@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { ChatMessage, ChatSession, Artifact, type AgentManager } from '@ai-team/core';
 import { resolveAgentForOperation } from './utils/agent-resolution.js';
-import type { IMessageStorage } from './storage/contracts.js';
+import type { IMessageStorage, SessionSkill } from './storage/contracts.js';
 
 export class SessionManager {
   private workspaceRoot: string;
@@ -621,5 +621,19 @@ ${summary}
    */
   async deleteSession(sessionId: string): Promise<void> {
     await this.storage.deleteSession(sessionId);
+  }
+
+  // ========== Session Skills ==========
+
+  async addSessionSkill(sessionId: string, skillPath: string): Promise<void> {
+    await this.storage.addSessionSkill(sessionId, skillPath);
+  }
+
+  async getSessionSkills(sessionId: string): Promise<SessionSkill[]> {
+    return this.storage.getSessionSkills(sessionId);
+  }
+
+  async setSessionSkillPaused(sessionId: string, skillPath: string, paused: boolean): Promise<void> {
+    await this.storage.setSessionSkillPaused(sessionId, skillPath, paused);
   }
 }

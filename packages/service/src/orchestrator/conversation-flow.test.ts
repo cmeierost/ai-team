@@ -21,6 +21,8 @@ import { ChatOrchestrator } from './chat-orchestrator.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import type { MediatorRuntimeEvent } from '../contracts.js';
+import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
+import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
 
 // ── Agent fixtures ──────────────────────────────────────────────────────────
 
@@ -29,14 +31,14 @@ const EMILY: Agent = {
   name: 'Emily Davis',
   role: 'frontend-developer',
   systemPrompt: 'You are Emily Davis, a frontend developer.',
-} as Agent;
+} as unknown as Agent;
 
 const MICHAEL: Agent = {
   id: 'michael-brown',
   name: 'Michael Brown',
   role: 'ceo',
   systemPrompt: 'You are Michael Brown, the CEO.',
-} as Agent;
+} as unknown as Agent;
 
 const ALL_AGENTS = [EMILY, MICHAEL];
 
@@ -251,7 +253,10 @@ function buildContext(opts: {
     toolManager: { toSchema: vi.fn(() => null), getToolsForAgent: vi.fn(() => []) } as any,
     sessionManager: opts.sessionManager as any,
     agentManager: opts.agentManager as any,
-    skillManager: { getSkill: vi.fn(() => null) } as any,
+    skillManager: {
+      getSkill: vi.fn(() => null),
+      resolveSkillsForAgent: vi.fn(() => ({ roleSkill: undefined, specializationSkills: [], skills: [], missingSkillNames: [] })),
+    } as any,
     llmService: opts.llmService as any,
     contextManager: {} as any,
   };
@@ -269,7 +274,9 @@ function buildPlugins(): ResolvedPlugins {
     mcpGateway:     { discover: vi.fn(async () => []) } as any,
     llmSelector:    { select: vi.fn(async () => {}) } as any,
     outputHandler:  { handle: vi.fn(async () => {}) } as any,
-    slashCommands:  [],
+    slashCommands:      [],
+    turnResultParsers:  buildDefaultTurnResultParsers(),
+    hookPlugins:        buildDefaultHookPlugins(),
   };
 }
 

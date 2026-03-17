@@ -28,6 +28,8 @@ import type {
   IRagProvider,
   ISlashCommand,
   IToolResolver,
+  IOrchestratorHookPlugin,
+  ITurnResultParser,
 } from '../orchestrator/pipeline.js';
 import { Token } from './token.js';
 
@@ -54,4 +56,8 @@ export const TOKENS = {
   OutputHandler:     new Token<IOutputHandler>('IOutputHandler'),
   /** Array of slash commands; each command registers itself. */
   SlashCommands:     new Token<ISlashCommand[]>('ISlashCommand[]'),
+  /** Ordered array of turn-result parsers; first non-null return wins. */
+  TurnResultParsers: new Token<ITurnResultParser[]>('ITurnResultParser[]'),
+  /** Ordered array of hook plugins; each plugin may implement multiple hooks. */
+  HookPlugins:      new Token<IOrchestratorHookPlugin[]>('IOrchestratorHookPlugin[]'),
 } as const;

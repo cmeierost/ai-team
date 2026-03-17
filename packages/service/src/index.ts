@@ -510,6 +510,7 @@ class CoreAiTeamService implements AiTeamService {
           kind: 'status',
           timestamp: timestamp(),
           phase: runtimeEvent.phase,
+          agentName: runtimeEvent.agentName,
           message: runtimeEvent.message,
         });
       }

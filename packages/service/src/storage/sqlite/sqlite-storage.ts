@@ -6,6 +6,7 @@ import type {
   StorageStats,
   MessageInsertResult,
   Note,
+  SessionSkill,
 } from '../contracts.js';
 import { SqliteConnection } from './connection.js';
 import { MigrationManager } from './migrations.js';
@@ -947,5 +948,48 @@ export class SqliteMessageStorage implements IMessageStorage {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
+  }
+
+  // ========== Session Skills ==========
+
+  async addSessionSkill(sessionId: string, skillPath: string): Promise<void> {
+    const now = new Date().toISOString();
+    await this.connection.run(
+      `INSERT INTO session_skills (session_id, skill_path, loaded_at, paused)
+       VALUES (?, ?, ?, 0)
+       ON CONFLICT(session_id, skill_path) DO UPDATE SET loaded_at = excluded.loaded_at`,
+      [sessionId, skillPath, now]
+    );
+  }
+
+  async getSessionSkills(sessionId: string): Promise<SessionSkill[]> {
+    const rows = await this.connection.all<{
+      skill_path: string;
+      loaded_at: string;
+      paused: number;
+    }>(
+      'SELECT skill_path, loaded_at, paused FROM session_skills WHERE session_id = ? ORDER BY loaded_at ASC',
+      [sessionId]
+    );
+    return rows.map(r => ({
+      sessionId,
+      skillPath: r.skill_path,
+      loadedAt: r.loaded_at,
+      paused: r.paused === 1,
+    }));
+  }
+
+  async setSessionSkillPaused(sessionId: string, skillPath: string, paused: boolean): Promise<void> {
+    await this.connection.run(
+      'UPDATE session_skills SET paused = ? WHERE session_id = ? AND skill_path = ?',
+      [paused ? 1 : 0, sessionId, skillPath]
+    );
+  }
+
+  async removeSessionSkill(sessionId: string, skillPath: string): Promise<void> {
+    await this.connection.run(
+      'DELETE FROM session_skills WHERE session_id = ? AND skill_path = ?',
+      [sessionId, skillPath]
+    );
   }
 }

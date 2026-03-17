@@ -81,9 +81,32 @@ Swagger UI provides:
 ### WebSocket Chat
 - **Endpoint**: `ws://localhost:3002/ws`
 - **Purpose**: Real-time bidirectional chat communication
-- **Events**:
-  - Client → Server: `chat_message`
-  - Server → Client: `agent_response`, `agent_thinking`, `tool_use`, `handoff`
+- **Client → Server message types**:
+  - `message` — send a new chat message
+  - `answer` — answer a pending server question (`questionId`, `value`)
+  - `cancel` — abort the active turn
+- **Server → Client envelope**:
+  - `{ type, data }` for runtime events, plus terminal `done`
+- **Common server event types**:
+  - `status`, `token`, `tool`, `question`, `error`, `done`
+- **Runtime detail**:
+  - `data.kind` mirrors service runtime events (for example: `status`, `token`, `tool`, `question`, `handoff`, `log`, `code_edit_proposal`)
+
+```mermaid
+sequenceDiagram
+  participant Client as Web client
+  participant WS as API server WS handler
+  participant Svc as Service chat stream
+
+  Client->>WS: { type: "message", content }
+  WS-->>Client: { type: "status", data: { status: "received" } }
+  WS->>Svc: start streamed chat
+  loop stream runtime events
+    Svc-->>WS: runtime event
+    WS-->>Client: { type, data }
+  end
+  WS-->>Client: { type: "done" }
+```
 
 ## Sessions API
 

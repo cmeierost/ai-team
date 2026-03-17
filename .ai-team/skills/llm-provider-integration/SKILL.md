@@ -1,6 +1,13 @@
 ---
 name: llm-provider-integration
 description: 'Use when working on GitHub Copilot, OpenAI-compatible providers, model discovery, connection testing, provider config, env resolution, streaming behavior, or model fallback logic.'
+triggers:
+  - "\\bllm\\b"
+  - "\\bprovider\\b"
+  - "\\bmodel.*config\\b"
+  - "\\bstreaming\\b"
+  - "\\bopenai\\b"
+  - "\\bcopilot.*provid\\b"
 ---
 
 # LLM provider integration

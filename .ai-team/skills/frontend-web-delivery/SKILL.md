@@ -1,6 +1,12 @@
 ---
 name: frontend-web-delivery
 description: 'Work on the React web package when the task touches `packages/web`, component boundaries, state and logic separation, or frontend team ownership while keeping styling, testing, and architecture responsibilities cleanly separated.'
+triggers:
+  - "\\breact\\b"
+  - "packages/web"
+  - "\\bcomponent\\b"
+  - "\\bfrontend\\b"
+  - "\\bui\\b"
 ---
 
 # Frontend Web Delivery

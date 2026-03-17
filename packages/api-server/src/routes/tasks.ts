@@ -2,6 +2,11 @@ import express, { Request, Response } from "express";
 import { TaskManager, TaskFilter } from "@ai-team/service";
 import { TaskStatus, TaskPriority, TaskType, type AgentManager } from "@ai-team/core";
 
+function normalizeRouteParam(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
 export function createTaskRoutes(workspaceRoot: string, agentManager?: AgentManager): express.Router {
   const router = express.Router();
   const taskManager = new TaskManager(workspaceRoot, agentManager);
@@ -198,7 +203,11 @@ export function createTaskRoutes(workspaceRoot: string, agentManager?: AgentMana
    */
   router.get("/:taskId", async (req: Request, res: Response) => {
     try {
-      const { taskId } = req.params;
+      const taskId = normalizeRouteParam(req.params.taskId);
+      if (!taskId) {
+        res.status(400).json({ error: "Task ID is required" });
+        return;
+      }
       const task = await taskManager.getTask(taskId);
 
       if (!task) {
@@ -238,7 +247,11 @@ export function createTaskRoutes(workspaceRoot: string, agentManager?: AgentMana
    */
   router.get("/:taskId/hierarchy", async (req: Request, res: Response) => {
     try {
-      const { taskId } = req.params;
+      const taskId = normalizeRouteParam(req.params.taskId);
+      if (!taskId) {
+        res.status(400).json({ error: "Task ID is required" });
+        return;
+      }
       const hierarchy = await taskManager.getTaskHierarchy(taskId);
       res.json(hierarchy);
     } catch (error) {
@@ -439,7 +452,11 @@ export function createTaskRoutes(workspaceRoot: string, agentManager?: AgentMana
    */
   router.patch("/:taskId", async (req: Request, res: Response) => {
     try {
-      const { taskId } = req.params;
+      const taskId = normalizeRouteParam(req.params.taskId);
+      if (!taskId) {
+        res.status(400).json({ error: "Task ID is required" });
+        return;
+      }
       const updates = req.body;
 
       const task = await taskManager.updateTask(taskId, updates);
@@ -491,7 +508,11 @@ export function createTaskRoutes(workspaceRoot: string, agentManager?: AgentMana
    */
   router.post("/:taskId/split", async (req: Request, res: Response) => {
     try {
-      const { taskId } = req.params;
+      const taskId = normalizeRouteParam(req.params.taskId);
+      if (!taskId) {
+        res.status(400).json({ error: "Task ID is required" });
+        return;
+      }
       const { subtasks } = req.body;
 
       if (!Array.isArray(subtasks) || subtasks.length === 0) {
@@ -556,7 +577,11 @@ export function createTaskRoutes(workspaceRoot: string, agentManager?: AgentMana
    */
   router.post("/:taskId/delegate", async (req: Request, res: Response) => {
     try {
-      const { taskId } = req.params;
+      const taskId = normalizeRouteParam(req.params.taskId);
+      if (!taskId) {
+        res.status(400).json({ error: "Task ID is required" });
+        return;
+      }
       const { fromAgentId, toAgentId, reason } = req.body;
 
       if (!fromAgentId || !toAgentId) {
@@ -621,7 +646,11 @@ export function createTaskRoutes(workspaceRoot: string, agentManager?: AgentMana
    */
   router.post("/:taskId/time", async (req: Request, res: Response) => {
     try {
-      const { taskId } = req.params;
+      const taskId = normalizeRouteParam(req.params.taskId);
+      if (!taskId) {
+        res.status(400).json({ error: "Task ID is required" });
+        return;
+      }
       const { agentId, durationMinutes, description } = req.body;
 
       if (!agentId || !durationMinutes) {

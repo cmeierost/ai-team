@@ -36,6 +36,7 @@ function makePlugins(): ResolvedPlugins {
     llmSelector: { select: vi.fn(async () => {}) } as any,
     outputHandler: { handle: vi.fn(async () => {}) } as any,
     slashCommands: [],
+    turnResultParsers: [],
   };
 }
 
