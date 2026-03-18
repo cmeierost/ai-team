@@ -133,7 +133,7 @@ A test agent for integration testing.
     let readyEventReceived: any = null;
     ws.on('message', (data) => {
       const event = JSON.parse(data.toString());
-      if (event.type === 'status' && event.data?.status === 'ready') {
+      if (event.type === 'ready') {
         readyEventReceived = event;
       }
       if (event.type === 'error') {
@@ -168,7 +168,7 @@ A test agent for integration testing.
     });
     
     expect(readyEventReceived).toBeDefined();
-    expect(readyEventReceived.type).toBe('status');
+    expect(readyEventReceived.type).toBe('ready');
     
     // Note: Sending a message would trigger the chat command which requires
     // a full LLM setup. For this test, we'll just verify the session was created

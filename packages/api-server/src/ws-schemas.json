@@ -70,19 +70,19 @@
     "type": "object",
     "properties": {
       "type": {
-        "description": "Event type: 'token' = streaming text, 'status' = status update, 'tool' = tool execution, 'question' = agent question, 'error' = error occurred, 'done' = response complete",
+        "description": "Event type discriminator for client parsing",
         "enum": [
-          "done",
+          "ack",
+          "cancelled",
           "error",
+          "mediator",
           "question",
-          "status",
-          "token",
-          "tool"
+          "ready"
         ],
         "type": "string"
       },
       "data": {
-        "description": "Event payload (structure varies by event type)"
+        "description": "Event payload (shape depends on event type)"
       }
     },
     "required": [
@@ -90,5 +90,5 @@
     ],
     "$schema": "http://json-schema.org/draft-07/schema#"
   },
-  "generatedAt": "2026-03-17T12:14:19.679Z"
+  "generatedAt": "2026-03-18T13:14:59.441Z"
 }

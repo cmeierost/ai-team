@@ -23,7 +23,7 @@ interface WebSocketMessage {
 
 interface WebSocketEvent {
   type: string;
-  data: unknown;
+  data?: unknown;
 }
 
 export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
@@ -71,8 +71,30 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
     try {
       const wsEvent: WebSocketEvent = JSON.parse(event.data);
       
-      if (wsEvent.type === 'status' && (wsEvent.data as { status?: string } | null)?.status === 'ready') {
+      if (wsEvent.type === 'ready') {
         // Server is ready, signal that we can send
+        readyResolve?.();
+        return;
+      }
+
+      if (wsEvent.type === 'ack' || wsEvent.type === 'cancelled') {
+        if (wsEvent.type === 'cancelled') {
+          done = true;
+          wakeEventWaiter();
+        }
+        return;
+      }
+
+      if (wsEvent.type === 'error') {
+        const message = (wsEvent.data as { error?: string } | undefined)?.error;
+        error = new Error(message || 'WebSocket stream error');
+        done = true;
+        wakeEventWaiter();
+        return;
+      }
+
+      // Backward-compat: older server used { type: 'status', data: { status: 'ready' } }
+      if (wsEvent.type === 'status' && (wsEvent.data as { status?: string } | null)?.status === 'ready') {
         readyResolve?.();
         return;
       }
@@ -115,6 +137,24 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
         return;
       }
 
+      if (wsEvent.type === 'mediator') {
+        const mediatorEvent = wsEvent.data as MediatorEvent<TCommand>;
+        if (mediatorEvent.kind === 'done') {
+          done = true;
+          ws.close();
+          wakeEventWaiter();
+          return;
+        }
+
+        events.push(mediatorEvent);
+        if (mediatorEvent.kind === 'aborted' || mediatorEvent.kind === 'error') {
+          done = true;
+        }
+        wakeEventWaiter();
+        return;
+      }
+
+      // Backward-compat: older server sent direct mediator kind as top-level type
       if (wsEvent.type === 'done') {
         done = true;
         ws.close();
@@ -122,10 +162,11 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
         return;
       }
 
-      // Convert WebSocket event to MediatorEvent
-      const mediatorEvent = wsEvent.data as MediatorEvent<TCommand>;
-      events.push(mediatorEvent);
-      wakeEventWaiter();
+      if (wsEvent.data) {
+        const mediatorEvent = wsEvent.data as MediatorEvent<TCommand>;
+        events.push(mediatorEvent);
+        wakeEventWaiter();
+      }
     } catch (err) {
       error = err instanceof Error ? err : new Error('Failed to parse WebSocket message');
       wakeEventWaiter();

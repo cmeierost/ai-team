@@ -406,20 +406,16 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
       }
 
       if (event.kind === 'status' && event.message) {
-        if (event.phase === 'agent_info') {
-          const statusAgentName = (event as { agentName?: string }).agentName;
-          currentAgentName = statusAgentName?.trim() || event.message.trim() || currentAgentName;
-        }
         if (options.oneShot || mediatorLoggerEnabled) {
           writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
         }
         continue;
       }
 
-      if (event.kind === 'status') {
-        if (event.phase === 'agent_info') {
-          const statusAgentName = (event as { agentName?: string }).agentName;
-          currentAgentName = statusAgentName?.trim() || currentAgentName;
+      if (event.kind === 'agent_info') {
+        currentAgentName = event.agentName.trim() || currentAgentName;
+        if ((options.oneShot || mediatorLoggerEnabled) && event.message) {
+          writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
         }
         continue;
       }
@@ -433,14 +429,14 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
       }
 
       // Handle code edit proposals
-      if ('kind' in event && (event as any).kind === 'code_edit_proposal') {
-        await handleCodeEditProposal(event as any, writeStderrLine, options.oneShot || false, workspaceRoot);
+      if (event.kind === 'code_edit_proposal') {
+        await handleCodeEditProposal(event, writeStderrLine, options.oneShot || false, workspaceRoot);
         continue;
       }
 
       // Handle agent handoff — print a single clean transition line
-      if ('kind' in event && (event as any).kind === 'handoff') {
-        const e = event as any;
+      if (event.kind === 'handoff') {
+        const e = event;
         const from = e.fromAgentName || e.fromAgentId;
         const to = e.toAgentName || e.toAgentId;
         currentAgentId = e.toAgentId || currentAgentId;

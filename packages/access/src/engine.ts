@@ -10,7 +10,8 @@ import type {
   WorkAssignment,
 } from './types.js';
 import { readFile } from 'node:fs/promises';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import type { Dirent } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import chokidar from 'chokidar';
 import type { FSWatcher } from 'chokidar';
@@ -54,6 +55,17 @@ const IGNORE_CONVENTION_FILE_NAMES = new Set([
   '.claudeignore',
   '.cursorignore',
   '.aiderignore',
+]);
+
+const CONVENTION_SCAN_SKIPPED_DIR_NAMES = new Set([
+  '.git',
+  'node_modules',
+  '.pnpm-store',
+  '.yarn',
+  '.next',
+  'dist',
+  'build',
+  'coverage',
 ]);
 
 const CONTEXT_CONVENTION_RE = /^\.?(.+)\.access$/;
@@ -713,34 +725,7 @@ export class AccessEngine {
     const strictContextIds = new Set<string>();
     const ignorePatterns: string[] = [];
 
-    const files = this.listFilesRecursively(this.workspaceRoot);
-    for (const filePath of files) {
-      const fileName = basename(filePath);
-
-      if (!this.isConventionFileName(fileName)) {
-        continue;
-      }
-
-      if (this.isContextConventionFileName(fileName)) {
-        this.collectContextConventionRules(filePath, fileName, contextRules);
-        const contextId = this.getContextIdFromConventionFile(fileName);
-        if (contextId) {
-          strictContextIds.add(contextId);
-        }
-      }
-
-      if (IGNORE_CONVENTION_FILE_NAMES.has(fileName)) {
-        this.collectIgnoreConventionPatterns(filePath, ignorePatterns);
-      }
-    }
-
-    return { contextRules, strictContextIds, ignorePatterns };
-  }
-
-  private listFilesRecursively(rootDir: string): string[] {
-    const files: string[] = [];
-    const stack = [rootDir];
-
+    const stack = [this.workspaceRoot];
     while (stack.length > 0) {
       const current = stack.pop();
       if (!current) {
@@ -751,32 +736,45 @@ export class AccessEngine {
       if (!entries) continue;
 
       for (const entry of entries) {
-        this.processRecursiveEntry(current, entry, stack, files);
+        const fullPath = join(current, entry.name);
+
+        if (entry.isDirectory()) {
+          if (this.shouldSkipConventionScanDirectory(entry.name)) {
+            continue;
+          }
+
+          stack.push(fullPath);
+          continue;
+        }
+
+        if (!entry.isFile()) {
+          continue;
+        }
+
+        const fileName = entry.name;
+        if (!this.isConventionFileName(fileName)) {
+          continue;
+        }
+
+        if (this.isContextConventionFileName(fileName)) {
+          this.collectContextConventionRules(fullPath, fileName, contextRules);
+          const contextId = this.getContextIdFromConventionFile(fileName);
+          if (contextId) {
+            strictContextIds.add(contextId);
+          }
+        }
+
+        if (IGNORE_CONVENTION_FILE_NAMES.has(fileName)) {
+          this.collectIgnoreConventionPatterns(fullPath, ignorePatterns);
+        }
       }
     }
 
-    return files;
+    return { contextRules, strictContextIds, ignorePatterns };
   }
 
-  private processRecursiveEntry(
-    current: string,
-    entry: string,
-    stack: string[],
-    files: string[],
-  ): void {
-    const fullPath = join(current, entry);
-
-    const stats = this.statSafe(fullPath);
-    if (!stats) return;
-
-    if (stats.isDirectory()) {
-      stack.push(fullPath);
-      return;
-    }
-
-    if (stats.isFile()) {
-      files.push(fullPath);
-    }
+  private shouldSkipConventionScanDirectory(dirName: string): boolean {
+    return CONVENTION_SCAN_SKIPPED_DIR_NAMES.has(dirName);
   }
 
   private findBestCoverageContext(
@@ -879,17 +877,9 @@ export class AccessEngine {
     }
   }
 
-  private readDirSafe(dirPath: string): string[] | null {
+  private readDirSafe(dirPath: string): Dirent[] | null {
     try {
-      return readdirSync(dirPath);
-    } catch {
-      return null;
-    }
-  }
-
-  private statSafe(filePath: string): ReturnType<typeof statSync> | null {
-    try {
-      return statSync(filePath);
+      return readdirSync(dirPath, { withFileTypes: true });
     } catch {
       return null;
     }

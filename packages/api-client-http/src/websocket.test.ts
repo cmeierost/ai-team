@@ -18,7 +18,7 @@ class MockWebSocket {
     queueMicrotask(() => {
       this.readyState = MockWebSocket.OPEN;
       this.onopen?.();
-      this.emit({ type: 'status', data: { status: 'ready' } });
+      this.emit({ type: 'ready' });
     });
   }
 
@@ -137,7 +137,7 @@ describe('streamViaWebSocket', () => {
     });
 
     ws.emit({
-      type: 'tool',
+      type: 'mediator',
       data: {
         kind: 'tool',
         command: 'chat',
@@ -146,7 +146,14 @@ describe('streamViaWebSocket', () => {
       },
     });
 
-    ws.emit({ type: 'done', data: {} });
+    ws.emit({
+      type: 'mediator',
+      data: {
+        kind: 'done',
+        command: 'chat',
+        timestamp: new Date().toISOString(),
+      },
+    });
 
     const events = await consumePromise;
     expect(events).toHaveLength(1);

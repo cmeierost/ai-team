@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CLI: Debug (dist)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build:cli",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/packages/cli/dist/cli.js",
+      "args": ["chat"],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "CLI: CPU Profile (dist)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build:cli",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": [
+        "--cpu-prof",
+        "--cpu-prof-dir=${workspaceFolder}/.profiles",
+        "--cpu-prof-name=cli.cpuprofile"
+      ],
+      "program": "${workspaceFolder}/packages/cli/dist/cli.js",
+      "args": ["--help"],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}

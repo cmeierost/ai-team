@@ -154,15 +154,7 @@ export class SqliteMessageStorage implements IMessageStorage {
     `;
     
     const rows = await this.connection.all<any>(sql, [sessionId]);
-    
-    // Load related data for each message
-    const messages: ChatMessage[] = [];
-    for (const row of rows) {
-      const message = await this.rowToMessage(row);
-      messages.push(message);
-    }
-    
-    return messages;
+    return this.rowsToMessages(rows);
   }
   
   async queryMessages(filter: MessageFilter): Promise<ChatMessage[]> {
@@ -235,14 +227,7 @@ export class SqliteMessageStorage implements IMessageStorage {
     `;
     
     const rows = await this.connection.all<any>(sql, params);
-    
-    const messages: ChatMessage[] = [];
-    for (const row of rows) {
-      const message = await this.rowToMessage(row);
-      messages.push(message);
-    }
-    
-    return messages;
+    return this.rowsToMessages(rows);
   }
   
   async archiveMessage(sessionId: string, messageTimestamp: string): Promise<boolean> {
@@ -313,14 +298,7 @@ export class SqliteMessageStorage implements IMessageStorage {
     `;
     
     const rows = await this.connection.all<any>(sql, params);
-    
-    const messages: ChatMessage[] = [];
-    for (const row of rows) {
-      const message = await this.rowToMessage(row);
-      messages.push(message);
-    }
-    
-    return messages;
+    return this.rowsToMessages(rows);
   }
   
   // ========== Sessions ==========
@@ -734,6 +712,117 @@ export class SqliteMessageStorage implements IMessageStorage {
       handoffId: row.handoff_id || undefined,
       importance: (row.importance as 'low' | 'normal' | 'high' | null) || undefined,
     };
+  }
+
+  /**
+   * Convert multiple database rows to ChatMessage objects using batched lookups
+   * for related tables to avoid N+1 queries on large histories.
+   */
+  private async rowsToMessages(rows: any[]): Promise<ChatMessage[]> {
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const messageIds = rows.map(row => row.id as number);
+    const placeholders = messageIds.map(() => '?').join(', ');
+
+    const [contextRows, toolCallRows, suggestionRows] = await Promise.all([
+      this.connection.all<{ message_id: number; file_path: string }>(
+        `SELECT message_id, file_path FROM message_files WHERE message_id IN (${placeholders})`,
+        messageIds,
+      ),
+      this.connection.all<{
+        message_id: number;
+        tool_name: string;
+        params_json: string;
+        result_json: string | null;
+      }>(
+        `SELECT message_id, tool_name, params_json, result_json
+         FROM message_tool_calls
+         WHERE message_id IN (${placeholders})`,
+        messageIds,
+      ),
+      this.connection.all<{
+        message_id: number;
+        suggestion_type: string;
+        file_path: string;
+        line_number: number | null;
+        description: string;
+        code: string | null;
+      }>(
+        `SELECT message_id, suggestion_type, file_path, line_number, description, code
+         FROM message_suggestions
+         WHERE message_id IN (${placeholders})`,
+        messageIds,
+      ),
+    ]);
+
+    const contextByMessage = new Map<number, string[]>();
+    for (const row of contextRows) {
+      const existing = contextByMessage.get(row.message_id);
+      if (existing) {
+        existing.push(row.file_path);
+      } else {
+        contextByMessage.set(row.message_id, [row.file_path]);
+      }
+    }
+
+    const toolCallsByMessage = new Map<number, Array<{ tool: string; params: unknown; result?: unknown }>>();
+    for (const row of toolCallRows) {
+      const parsed = {
+        tool: row.tool_name,
+        params: JSON.parse(row.params_json),
+        result: row.result_json ? JSON.parse(row.result_json) : undefined,
+      };
+      const existing = toolCallsByMessage.get(row.message_id);
+      if (existing) {
+        existing.push(parsed);
+      } else {
+        toolCallsByMessage.set(row.message_id, [parsed]);
+      }
+    }
+
+    const suggestionsByMessage = new Map<number, Array<{ type: any; file: string; line?: number; description: string; code?: string }>>();
+    for (const row of suggestionRows) {
+      const parsed = {
+        type: row.suggestion_type as any,
+        file: row.file_path,
+        line: row.line_number || undefined,
+        description: row.description,
+        code: row.code || undefined,
+      };
+      const existing = suggestionsByMessage.get(row.message_id);
+      if (existing) {
+        existing.push(parsed);
+      } else {
+        suggestionsByMessage.set(row.message_id, [parsed]);
+      }
+    }
+
+    return rows.map((row) => {
+      const messageId = row.id as number;
+      const context = contextByMessage.get(messageId);
+      const tool_calls = toolCallsByMessage.get(messageId);
+      const suggestions = suggestionsByMessage.get(messageId);
+
+      return {
+        timestamp: row.timestamp,
+        from: row.from_id,
+        to: row.to_id || undefined,
+        isHuman: row.is_human === 1,
+        content: row.content,
+        context: context && context.length > 0 ? context : undefined,
+        tool_calls: tool_calls && tool_calls.length > 0 ? tool_calls : undefined,
+        suggestions: suggestions && suggestions.length > 0 ? suggestions : undefined,
+        archived: row.archived === 1 || undefined,
+        handoffType: row.handoff_type || undefined,
+        targetAgentId: row.target_agent_id || undefined,
+        handoffFromSessionId: row.handoff_from_session_id || undefined,
+        handoffToSessionId: row.handoff_to_session_id || undefined,
+        handoffId: row.handoff_id || undefined,
+        importance: (row.importance as 'low' | 'normal' | 'high' | null) || undefined,
+      } as ChatMessage;
+    });
   }
   
   /**

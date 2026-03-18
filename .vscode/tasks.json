@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build:cli",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["--filter", "@ai-team/cli", "build"],
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    }
+  ]
+}

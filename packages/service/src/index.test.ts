@@ -187,11 +187,10 @@ describe('createAiTeamService', () => {
     });
   });
 
-  it('preserves status agentName in streamed chat events', async () => {
+  it('preserves agent_info in streamed chat events', async () => {
     listApi.chatCommand.mockImplementation(async (_workspaceRoot, _employeeId, _options, hooks) => {
       hooks?.emit?.({
-        kind: 'status',
-        phase: 'agent_info',
+        kind: 'agent_info',
         agentName: 'Maya Patel',
       });
     });
@@ -202,11 +201,10 @@ describe('createAiTeamService', () => {
       events.push(event as Record<string, unknown>);
     }
 
-    const statusEvent = events.find((event) => event.kind === 'status' && event.phase === 'agent_info');
-    expect(statusEvent).toBeDefined();
-    expect(statusEvent).toMatchObject({
-      kind: 'status',
-      phase: 'agent_info',
+    const agentInfoEvent = events.find((event) => event.kind === 'agent_info');
+    expect(agentInfoEvent).toBeDefined();
+    expect(agentInfoEvent).toMatchObject({
+      kind: 'agent_info',
       agentName: 'Maya Patel',
     });
   });

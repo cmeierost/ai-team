@@ -1,5 +1,6 @@
 import type { WebSocket } from 'ws';
 import type { AiTeamClient } from '@ai-team/api-client';
+import type { MediatorEvent } from '@ai-team/api-client';
 import type { AgentManager } from '@ai-team/core';
 import type {
   QuestionConfirmRequest,
@@ -100,11 +101,13 @@ export interface ChatWebSocketMessage {
  * ```
  */
 export interface ChatWebSocketEvent {
-  /** Event type: 'token' = streaming text, 'status' = status update, 'tool' = tool execution, 'question' = agent question, 'error' = error occurred, 'done' = response complete */
-  type: 'token' | 'status' | 'tool' | 'question' | 'error' | 'done';
-  /** Event payload (structure varies by event type) */
-  data?: any;
+  /** Event type discriminator for client parsing */
+  type: 'ready' | 'ack' | 'cancelled' | 'question' | 'mediator' | 'error';
+  /** Event payload (shape depends on event type) */
+  data?: unknown;
 }
+
+type ChatMediatorEvent = MediatorEvent<'chat'>;
 
 export function setupChatWebSocket(
   ws: WebSocket,
@@ -191,7 +194,7 @@ export function setupChatWebSocket(
         // Cancel all pending questions
         pendingQuestions.forEach(({ reject }) => reject(new Error('Cancelled')));
         pendingQuestions.clear();
-        ws.send(JSON.stringify({ type: 'status', data: { status: 'cancelled' } }));
+        ws.send(JSON.stringify({ type: 'cancelled' }));
         return;
       }
 
@@ -202,7 +205,7 @@ export function setupChatWebSocket(
         }
 
         // Acknowledge receipt immediately so the client can show activity
-        ws.send(JSON.stringify({ type: 'status', data: { status: 'received' } }));
+        ws.send(JSON.stringify({ type: 'ack' }));
 
         // Cancel any existing operation
         if (currentAbortController) {
@@ -249,13 +252,13 @@ export function setupChatWebSocket(
             }
 
             // Forward code-edit proposals to VS Code plugin
-            if ((event.kind as string) === 'code_edit_proposal' && ideAdapter) {
-              const e = event as any;
+            if (event.kind === 'code_edit_proposal' && ideAdapter) {
+              const e = event;
               ideAdapter.notifyCodeEditProposal({
                 proposalId: e.proposalId ?? '',
                 agentName: e.agentName ?? agentId,
                 description: e.description ?? '',
-                files: (e.files ?? []).map((f: any) => ({
+                files: (e.files ?? []).map((f) => ({
                   filePath: f.filePath,
                   oldContent: f.oldContent ?? '',
                   newContent: f.newContent ?? '',
@@ -265,27 +268,20 @@ export function setupChatWebSocket(
               }).catch(() => { /* best-effort */ });
             }
 
-            // Send event to client
+            // Send typed mediator event envelope to client
             const wsEvent: ChatWebSocketEvent = {
-              type: event.kind as any,
-              data: event,
+              type: 'mediator',
+              data: event as ChatMediatorEvent,
             };
             ws.send(JSON.stringify(wsEvent));
-          }
-
-          // Send done event
-          if (!currentAbortController.signal.aborted) {
-            ws.send(JSON.stringify({ type: 'done' }));
           }
         } catch (error: any) {
           // Check if it was an abort
           if (error.name === 'AbortError' || currentAbortController?.signal.aborted) {
-            ws.send(JSON.stringify({ type: 'status', data: { status: 'cancelled' } }));
+            ws.send(JSON.stringify({ type: 'cancelled' }));
           } else {
             ws.send(JSON.stringify({ type: 'error', data: { error: error.message } }));
           }
-          // Always send done event to signal completion, even after errors
-          ws.send(JSON.stringify({ type: 'done' }));
         } finally {
           currentAbortController = null;
         }
@@ -319,5 +315,5 @@ export function setupChatWebSocket(
   });
 
   // Send ready event
-  ws.send(JSON.stringify({ type: 'status', data: { status: 'ready' } }));
+  ws.send(JSON.stringify({ type: 'ready' }));
 }

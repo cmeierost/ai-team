@@ -438,47 +438,79 @@ export interface ToolRuntimePayloadEvent {
   denial?: ToolDenialEvent;
 }
 
-export interface MediatorRuntimeEvent {
-  kind: 'status' | 'progress' | 'log' | 'token' | 'tool' | 'question' | 'code_edit_proposal' | 'handoff';
-  phase?: string;
-  message?: string;
-  percent?: number;
-  level?: 'info' | 'warn' | 'error' | 'debug';
-  text?: string;
-  toolName?: string;
-  toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
-  toolDenial?: ToolDenialEvent;
-  toolResult?: ToolRuntimePayloadEvent;
-  questionType?: 'confirm' | 'input' | 'select' | 'password' | 'checklist';
-  choices?: QuestionSelectChoice[];
-  default?: string | boolean | string[];
-  recommended?: string[];
-  minSelections?: number;
-  maxSelections?: number;
-  allowOther?: boolean;
-  otherLabel?: string;
-  otherPrompt?: string;
-  // Code edit proposal fields
-  proposalId?: string;
-  agentName?: string;
-  description?: string;
-  filesChanged?: number;
-  additions?: number;
-  deletions?: number;
-  warnings?: string[];
-  /** Full file changes — present when kind === 'code_edit_proposal' */
-  files?: Array<{ filePath: string; oldContent: string; newContent: string; additions?: number; deletions?: number }>;
-  // Handoff fields
-  fromAgentId?: string;
-  fromAgentName?: string;
-  fromSessionId?: string;
-  toAgentId?: string;
-  toAgentName?: string;
-  toSessionId?: string;
-  handoffNote?: string;
-  /** LLM-generated briefing written in the FROM agent's voice */
-  briefingContent?: string;
-}
+export type MediatorRuntimeEvent =
+  | {
+      kind: 'status';
+      phase?: string;
+      message?: string;
+    }
+  | {
+      kind: 'agent_info';
+      agentName: string;
+      message?: string;
+    }
+  | {
+      kind: 'progress';
+      phase?: string;
+      percent?: number;
+      message?: string;
+    }
+  | {
+      kind: 'log';
+      level?: 'info' | 'warn' | 'error' | 'debug';
+      message?: string;
+    }
+  | {
+      kind: 'token';
+      text?: string;
+    }
+  | {
+      kind: 'tool';
+      toolName?: string;
+      toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
+      message?: string;
+      toolDenial?: ToolDenialEvent;
+      toolResult?: ToolRuntimePayloadEvent;
+    }
+  | {
+      kind: 'question';
+      message?: string;
+      questionType?: 'confirm' | 'input' | 'select' | 'password' | 'checklist';
+      choices?: QuestionSelectChoice[];
+      default?: string | boolean | string[];
+      recommended?: string[];
+      minSelections?: number;
+      maxSelections?: number;
+      allowOther?: boolean;
+      otherLabel?: string;
+      otherPrompt?: string;
+    }
+  | {
+      kind: 'code_edit_proposal';
+      message?: string;
+      proposalId?: string;
+      agentName?: string;
+      description?: string;
+      filesChanged?: number;
+      additions?: number;
+      deletions?: number;
+      warnings?: string[];
+      /** Full file changes — present when kind === 'code_edit_proposal' */
+      files?: Array<{ filePath: string; oldContent: string; newContent: string; additions?: number; deletions?: number }>;
+    }
+  | {
+      kind: 'handoff';
+      message?: string;
+      fromAgentId?: string;
+      fromAgentName?: string;
+      fromSessionId?: string;
+      toAgentId?: string;
+      toAgentName?: string;
+      toSessionId?: string;
+      handoffNote?: string;
+      /** LLM-generated briefing written in the FROM agent's voice */
+      briefingContent?: string;
+    };
 
 export type AiTeamCommandName =
   | 'listEmployees'
@@ -558,7 +590,14 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       kind: 'status';
       timestamp: string;
       phase?: string;
-      agentName?: string;
+      message?: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'agent_info';
+      timestamp: string;
+      agentName: string;
       message?: string;
     }
   | {
@@ -625,6 +664,21 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       toSessionId?: string;
       handoffNote?: string;
       briefingContent?: string;
+      message?: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'code_edit_proposal';
+      timestamp: string;
+      proposalId?: string;
+      agentName?: string;
+      description?: string;
+      filesChanged?: number;
+      additions?: number;
+      deletions?: number;
+      warnings?: string[];
+      files?: Array<{ filePath: string; oldContent: string; newContent: string; additions?: number; deletions?: number }>;
       message?: string;
     }
   | {

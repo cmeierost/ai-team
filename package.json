@@ -5,6 +5,7 @@
   "description": "AI Team - AI supported software engineering without losing control",
   "scripts": {
     "build": "pnpm -r build",
+    "debug:cli": "pnpm --filter @ai-team/cli build && node --inspect-brk packages/cli/dist/cli.js chat",
     "dev": "pnpm api:kill && pnpm dev:web",
     "dev:web": "pnpm --filter @ai-team/api-server --filter @ai-team/web --parallel dev",
     "dev:api": "pnpm --filter @ai-team/api-server dev",

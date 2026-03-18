@@ -40,5 +40,8 @@
     "chat.agentFilesLocations": {
         ".ai-team/agents": true
     },
-    "cSpell.language": "en"
+    "cSpell.language": "en",
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnPaste": true,
+    "editor.formatOnSave": true
 }

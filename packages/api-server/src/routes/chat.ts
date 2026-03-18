@@ -161,14 +161,14 @@ export function createChatRouter(client: AiTeamClient, workspaceRoot: string, ag
       });
 
       let agentReply = '';
-      let handoffEvent: any = null;
+      let handoffEvent: Extract<Awaited<ReturnType<AiTeamClient['stream']>> extends AsyncIterable<infer TEvent> ? TEvent : never, { kind: 'handoff' }> | null = null;
       for await (const event of stream) {
         if (event.kind === 'token') {
-          agentReply += (event as any).text;
+          agentReply += event.text;
         } else if (event.kind === 'handoff') {
           handoffEvent = event;
         } else if (event.kind === 'error') {
-          return res.status(500).json({ error: (event as any).message });
+          return res.status(500).json({ error: event.message });
         }
       }
 

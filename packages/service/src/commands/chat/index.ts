@@ -151,10 +151,18 @@ export async function chatCommand(
     sessionManager = new SessionManager(workspaceRoot, createSqliteStorage(workspaceRoot), agentManager);
     await sessionManager.initialize();
 
+    const loadSessionMessagesWithTiming = async (sessionId: string, reason: 'startup' | 'back-nav'): Promise<ChatMessage[]> => {
+      const startedAt = Date.now();
+      const messages = await sessionManager.getSessionMessages(sessionId);
+      const elapsedMs = Date.now() - startedAt;
+      writeInfo(hooks, `[perf] loaded ${messages.length} message(s) for session ${sessionId} in ${elapsedMs}ms (${reason})`);
+      return messages;
+    };
+
     const loadHistory = async (currentAgentId: string): Promise<ChatMessage[]> => {
       if (options.sessionId) {
         currentSessionId = options.sessionId;
-        return sessionManager.getSessionMessages(options.sessionId);
+        return loadSessionMessagesWithTiming(options.sessionId, 'startup');
       }
       if (options.createNewSession) {
         const developerId = developerNameToId(developerName || 'developer');
@@ -165,7 +173,7 @@ export async function chatCommand(
       const latestSession = await sessionManager.getLatestSession(currentAgentId);
       if (latestSession) {
         currentSessionId = latestSession.id;
-        return sessionManager.getSessionMessages(latestSession.id);
+        return loadSessionMessagesWithTiming(latestSession.id, 'startup');
       }
       const developerId = developerNameToId(developerName || 'developer');
       const newSession = await sessionManager.createSession(currentAgentId, developerId);
@@ -287,7 +295,7 @@ export async function chatCommand(
     }
 
     writeInfo(hooks, `\nChat with ${agent.name} (${agent.role})`);
-    emitRuntimeEvent(hooks, { kind: 'status', phase: 'agent_info', agentName: agent.name });
+    emitRuntimeEvent(hooks, { kind: 'agent_info', agentName: agent.name });
     writeInfo(hooks, 'Type "exit" to end the conversation');
     writeInfo(hooks, 'Type "/help" to see available in-chat commands');
     writeInfo(hooks, 'Ask to be forwarded or type "/chat <name>" to switch agents');
@@ -413,7 +421,7 @@ export async function chatCommand(
           if (!prevAgent) {
             writeError(hooks, `Previous agent ${prev.agentId} no longer found.`);
           } else {
-            const prevHistory = await sessionManager.getSessionMessages(prev.sessionId);
+            const prevHistory = await loadSessionMessagesWithTiming(prev.sessionId, 'back-nav');
             (_ctx as any).agent     = prevAgent;
             (_ctx as any).sessionId = prev.sessionId;
             (_ctx as any).history   = prevHistory;
