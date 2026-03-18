@@ -404,8 +404,7 @@ export class ContextManager {
    * Used internally by canRead/canWrite/canCreate/canDelete when an engine is present.
    */
   private checkViaEngine(agent: Agent, filePath: string, right: 'read' | 'write' | 'create' | 'delete'): boolean {
-    const verdict = this.engine!.checkPath(filePath, right, this.workspaceRoot, agent.id);
-    return verdict.allowed;
+    return this.engine!.isPathAllowed(filePath, right, this.workspaceRoot, agent.id);
   }
 
   /**

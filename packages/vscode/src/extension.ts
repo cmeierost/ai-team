@@ -75,6 +75,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // ── Full activation ────────────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ai-team.initWorkspace', () => {
+      vscode.window.showInformationMessage('Workspace is already initialized.');
+    }),
+  );
+
   await activateFull(context, workspaceRoot, connectionProvider, pendingChangesProvider);
 }
 
@@ -84,18 +90,6 @@ async function activateFull(
   connectionProvider: ConnectionStatusProvider,
   pendingChangesProvider: PendingChangesProvider,
 ): Promise<void> {
-  const diffContentProvider = new (class implements vscode.TextDocumentContentProvider {
-    provideTextDocumentContent(uri: vscode.Uri): string {
-      return Buffer.from(uri.query, 'base64').toString('utf-8');
-    }
-  })();
-  context.subscriptions.push(
-    vscode.workspace.registerTextDocumentContentProvider(
-      CodeEditDecorationManager.DIFF_URI_SCHEME,
-      diffContentProvider,
-    ),
-  );
-
   // Start local WS server
   const server = new IdeLocalServer(workspaceRoot);
   await server.start();
@@ -104,8 +98,20 @@ async function activateFull(
   // Wire connection status tree
   connectionProvider.setServer(server);
 
-  // Code-edit decoration manager
+  // Code-edit decoration manager — created before the content provider so the provider
+  // can read from its originalContentMap (avoids base64/URL-decode corruption in URIs).
   const decoratorManager = new CodeEditDecorationManager(context, server);
+
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(
+      CodeEditDecorationManager.DIFF_URI_SCHEME,
+      {
+        provideTextDocumentContent(uri: vscode.Uri): string {
+          return decoratorManager.getOriginalContent(uri.path) ?? '';
+        },
+      },
+    ),
+  );
   context.subscriptions.push(decoratorManager);
 
   function refreshPendingTree(): void {
@@ -138,17 +144,10 @@ async function activateFull(
   });
 
   // ── Commands ──────────────────────────────────────────────────────────────
+  // Note: ai-team.openWebApp and ai-team.initWorkspace are registered in activate()
+  // before the guard, so they must not be re-registered here.
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('ai-team.initWorkspace', () => {
-      vscode.window.showInformationMessage('Workspace is already initialized.');
-    }),
-
-    vscode.commands.registerCommand('ai-team.openWebApp', () => {
-      const url = getWebAppUrl(workspaceRoot);
-      vscode.env.openExternal(vscode.Uri.parse(url));
-    }),
-
     // CodeLens keep/undo (called with proposalId string) — refresh via onProposalResolved event
     vscode.commands.registerCommand('ai-team.acceptChange', (proposalId: string) => {
       decoratorManager.acceptProposal(proposalId);

@@ -303,12 +303,13 @@ program
 program.addCommand(dbStatusCommand(process.cwd()));
 program.addCommand(dbMigrateCommand(process.cwd()));
 
-// Patch: replace a single line in a file and push through the proposal pipeline
+// Patch: replace one or more lines in a file and push through the proposal pipeline
+// Usage: ait patch <file> <line> <content> [<line2> <content2> ...]
 program
-  .command('patch <file> <line> <content>')
-  .description('Replace a single line in a file and send a code-edit proposal to VS Code')
-  .action(withCliErrorHandling((file: string, line: string, content: string) =>
-    patchCommand(file, line, content)
+  .command('patch <file> <line> <content> [rest...]')
+  .description('Replace one or more lines in a file and send a code-edit proposal to VS Code')
+  .action(withCliErrorHandling((file: string, line: string, content: string, rest: string[]) =>
+    patchCommand(file, line, content, rest)
   ));
 
 program.parse();

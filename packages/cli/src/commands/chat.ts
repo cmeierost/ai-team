@@ -8,7 +8,6 @@ import { generateAgentColor, parseHslHue } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/ide-interface';
 import { findWorkspaceRoot } from '@ai-team/service';
 import chalk from 'chalk';
-import ora, { type Ora } from 'ora';
 import { execSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
@@ -347,16 +346,35 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
   let developerDisplayName = resolveDeveloperDisplayName(process.env);
   let tokenBurstOpen = false;
 
-  let spinner: Ora | undefined;
-  const startSpinner = () => {
-    if (options.oneShot) return;
-    spinner?.stop();
-    const agentLabel = currentAgentName || currentAgentId || 'Agent';
-    spinner = ora({ text: chalk.dim(`${agentLabel} is thinking…`), stream: process.stderr }).start();
+  let spinnerActive = false;
+  let spinnerTimer: ReturnType<typeof setInterval> | undefined;
+  let spinnerText = '';
+  let spinnerFrame = 0;
+  const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+  const startSpinner = (text?: string) => {
+    if (options.oneShot || !process.stdout.isTTY) return;
+    stopSpinner();
+    spinnerText = text ?? `${currentAgentName || currentAgentId || 'Agent'} is thinking…`;
+    spinnerActive = true;
+    spinnerFrame = 0;
+    const tick = () => {
+      if (!spinnerActive) return;
+      process.stdout.write(`\r${spinnerFrames[spinnerFrame % spinnerFrames.length]} ${chalk.dim(spinnerText)}`);
+      spinnerFrame++;
+    };
+    tick();
+    spinnerTimer = setInterval(tick, 80);
   };
   const stopSpinner = () => {
-    spinner?.stop();
-    spinner = undefined;
+    spinnerActive = false;
+    if (spinnerTimer !== undefined) {
+      clearInterval(spinnerTimer);
+      spinnerTimer = undefined;
+    }
+    if (process.stdout.isTTY) {
+      process.stdout.write('\r\x1b[K');
+    }
   };
 
   function resolveAgentIdentity(id?: string, name?: string) {
@@ -400,6 +418,7 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
   }
 
   try {
+    startSpinner();
     for await (const event of client.stream({
       command: 'chat',
       payload: {
@@ -443,9 +462,9 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
       }
 
       tokenBurstOpen = false;
-      stopSpinner();
 
       if (event.kind === 'aborted') {
+        stopSpinner();
         writeStderrLine(chalk.yellow('Chat aborted.'));
         process.exitCode = 130;
         return;
@@ -465,6 +484,10 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
         if (event.developerName?.trim()) {
           developerDisplayName = event.developerName.trim();
         }
+        // Update spinner text now that we know the agent's name
+        if (spinnerActive) {
+          spinnerText = `${currentAgentName || currentAgentId || 'Agent'} is thinking…`;
+        }
         if ((options.oneShot || mediatorLoggerEnabled) && event.message) {
           writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
         }
@@ -472,6 +495,7 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
       }
 
       if (event.kind === 'tool') {
+        stopSpinner();
         const phase = event.toolPhase || 'event';
         const formatted = formatToolEventMessage(event as unknown as Record<string, unknown>);
         const suffix = formatted ? chalk.gray(` — ${formatted}`) : '';
@@ -481,12 +505,14 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
 
       // Handle code edit proposals
       if (event.kind === 'code_edit_proposal') {
+        stopSpinner();
         await handleCodeEditProposal(event, writeStderrLine, options.oneShot || false, workspaceRoot);
         continue;
       }
 
       // Handle agent handoff — print a single clean transition line
       if (event.kind === 'handoff') {
+        stopSpinner();
         const e = event;
         const from = e.fromAgentName || e.fromAgentId;
         const to = e.toAgentName || e.toAgentId;
@@ -517,6 +543,7 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
       }
 
       if (event.kind === 'log') {
+        stopSpinner();
         const line = `${event.message}\n`;
         if (event.level === 'error') {
           process.stderr.write(chalk.red(line));
@@ -529,6 +556,7 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
       }
 
       if (event.kind === 'error') {
+        stopSpinner();
         if (abortControl.wasAborted() || isAbortLikeError(event.message)) {
           writeStderrLine(chalk.yellow('Chat aborted.'));
           process.exitCode = 130;

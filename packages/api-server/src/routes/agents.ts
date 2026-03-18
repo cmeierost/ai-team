@@ -638,11 +638,14 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
       });
       const allFiles = entries.map((entry) => entry.relativePath);
 
-      // Annotate with permissions
+      // Annotate with permissions.
+      // Skip workspace convention scanning (autoLoadWorkspaceConventions: false) —
+      // agent permissions come from YAML config, not from on-disk .access files.
       const engine = createAccessEngine({
         workspaceRoot: agentManager.workspaceRoot,
         fileTreeConfig: config?.fileTree,
         agents: agentManager.getAllAgents(),
+        autoLoadWorkspaceConventions: false,
       });
       const ctx = ContextManager.fromConfig(agentManager.workspaceRoot, config?.fileTree, engine);
       const annotated = ctx.getAnnotatedFiles(agent, allFiles);

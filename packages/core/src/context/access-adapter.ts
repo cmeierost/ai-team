@@ -125,6 +125,8 @@ export interface CreateAccessEngineOptions {
   agents?: Agent[];
   defaultCommandPolicy?: 'deny' | 'allow';
   defaultToolPolicy?: 'deny' | 'allow';
+  /** Whether to scan the workspace for convention files (.gitignore, .access, etc.). Default: true. */
+  autoLoadWorkspaceConventions?: boolean;
 }
 
 /**
@@ -138,6 +140,7 @@ export function createAccessEngine(options: CreateAccessEngineOptions): AccessEn
     workspaceRoot: options.workspaceRoot,
     defaultCommandPolicy: options.defaultCommandPolicy ?? 'deny',
     defaultToolPolicy: options.defaultToolPolicy ?? 'deny',
+    autoLoadWorkspaceConventions: options.autoLoadWorkspaceConventions,
   });
 
   // Global context from FileTreeConfig

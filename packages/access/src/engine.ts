@@ -89,11 +89,14 @@ export class AccessEngine {
   /** Global ignore patterns (from ignore files, applied to all contexts). */
   private ignorePatterns: string[] = [];
   private discoveredIgnorePatterns: string[] = [];
+  private effectiveIgnorePatternsCache: string[] | null = null;
   private discoveredContextRules = new Map<string, AccessRule[]>();
   private discoveredStrictContextIds = new Set<string>();
   private readonly explicitContextRules = new Map<string, AccessRule[]>();
   private conventionWatcher: FSWatcher | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
+  /** Per-call cache for isPathAllowed bulk-annotation workloads. Keyed as "path\0right\0contextId". */
+  private readonly isPathAllowedCache = new Map<string, boolean>();
 
   constructor(options: AccessEngineOptions) {
     this.workspaceRoot = options.workspaceRoot.replaceAll('\\', '/');
@@ -162,10 +165,12 @@ export class AccessEngine {
 
   setIgnorePatterns(patterns: string[]): void {
     this.ignorePatterns = [...patterns];
+    this.invalidateEffectiveIgnorePatterns();
   }
 
   addIgnorePatterns(patterns: string[]): void {
     this.ignorePatterns.push(...patterns);
+    this.invalidateEffectiveIgnorePatterns();
   }
 
   getIgnorePatterns(): readonly string[] {
@@ -228,6 +233,8 @@ export class AccessEngine {
     this.discoveredContextRules = discovered.contextRules;
     this.discoveredStrictContextIds = discovered.strictContextIds;
     this.discoveredIgnorePatterns = discovered.ignorePatterns;
+    this.invalidateEffectiveIgnorePatterns();
+    this.isPathAllowedCache.clear();
 
     for (const contextId of this.contexts.ids()) {
       this.applyDiscoveredRulesToContext(contextId);
@@ -287,6 +294,27 @@ export class AccessEngine {
     const pv = this.evaluatePath(wsRel, right, contextId);
     const alternatives = pv.allowed ? [] : this.findAlternativesForPaths([wsRel], right);
     return this.buildVerdict([pv], alternatives);
+  }
+
+  /**
+   * Fast boolean path check — skips alternative-context computation.
+   * Use this instead of checkPath when only the allowed/denied result is needed
+   * (e.g. bulk annotation over many files).
+   * Results are memoized within each engine instance for calling in tight loops.
+   */
+  isPathAllowed(
+    filePath: string,
+    right: Right,
+    cwd: string,
+    contextId?: string,
+  ): boolean {
+    const wsRel = resolveAndNormalize(filePath, cwd, this.workspaceRoot);
+    const cacheKey = `${wsRel}\0${right}\0${contextId ?? ''}`;
+    const cached = this.isPathAllowedCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+    const result = this.evaluatePath(wsRel, right, contextId).allowed;
+    this.isPathAllowedCache.set(cacheKey, result);
+    return result;
   }
 
   // ── Core check: shell command ──────────────────────────────────
@@ -693,7 +721,14 @@ export class AccessEngine {
   }
 
   private getEffectiveIgnorePatterns(): string[] {
-    return [...this.ignorePatterns, ...this.discoveredIgnorePatterns];
+    if (!this.effectiveIgnorePatternsCache) {
+      this.effectiveIgnorePatternsCache = [...this.ignorePatterns, ...this.discoveredIgnorePatterns];
+    }
+    return this.effectiveIgnorePatternsCache;
+  }
+
+  private invalidateEffectiveIgnorePatterns(): void {
+    this.effectiveIgnorePatternsCache = null;
   }
 
   private applyDiscoveredRulesToContext(contextId: string): void {

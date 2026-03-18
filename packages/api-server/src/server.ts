@@ -10,7 +10,7 @@ import { swaggerSpec } from './swagger-auto.js';
 import { generateAsyncApiSpec } from './asyncapi.js';
 import { createLocalAiTeamClient } from '@ai-team/api-client';
 import { AgentManager } from '@ai-team/core';
-import { SessionManager, createSqliteStorage, findWorkspaceRoot, getSystemInfo } from '@ai-team/service';
+import { SessionManager, createSqliteStorage, findWorkspaceRoot, getSystemInfo, getFileTreeCommand } from '@ai-team/service';
 import { createAgentsRouter } from './routes/agents.js';
 import { createTeamRouter } from './routes/team.js';
 import { createChatRouter } from './routes/chat.js';
@@ -65,6 +65,10 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   const storage = createSqliteStorage(workspaceRoot);
   const sessionManager = new SessionManager(workspaceRoot, storage, agentManager);
   await sessionManager.initialize();
+
+  // Pre-warm the file tree cache in the background so the first web request
+  // gets a cache hit instead of waiting for a full directory walk.
+  getFileTreeCommand(workspaceRoot).catch(() => { /* best-effort */ });
 
   // Create Express app
   const app = express();
