@@ -99,13 +99,16 @@ export async function allowToolCommand(
   }
 
   const currentTools = agent.tools ?? [];
-  const changed = !currentTools.includes(options.tool);
-  const nextTools = changed
-    ? [...currentTools, options.tool].sort((a, b) => a.localeCompare(b))
-    : [...currentTools];
+  const currentDenied = agent.disallowedTools ?? [];
+  const toolAllowed = currentTools.includes(options.tool);
+  const toolDenied = currentDenied.includes(options.tool);
+
+  const nextTools = toolAllowed ? currentTools : [...currentTools, options.tool].sort((a, b) => a.localeCompare(b));
+  const nextDenied = currentDenied.filter(t => t !== options.tool);
+  const changed = !toolAllowed || toolDenied;
 
   const updatedAgent = changed
-    ? await agentManager.updateAgent(agent.id, { tools: nextTools })
+    ? await agentManager.updateAgent(agent.id, { tools: nextTools, disallowedTools: nextDenied.length > 0 ? nextDenied : undefined })
     : agent;
 
   return {
@@ -158,11 +161,16 @@ export async function disallowToolCommand(
   }
 
   const currentTools = agent.tools ?? [];
-  const nextTools = currentTools.filter(tool => tool !== options.tool);
-  const changed = nextTools.length !== currentTools.length;
+  const currentDenied = agent.disallowedTools ?? [];
+  const nextTools = currentTools.filter(t => t !== options.tool);
+  const alreadyDenied = currentDenied.includes(options.tool);
+  const nextDenied = alreadyDenied
+    ? currentDenied
+    : [...currentDenied, options.tool].sort((a, b) => a.localeCompare(b));
+  const changed = nextTools.length !== currentTools.length || !alreadyDenied;
 
   const updatedAgent = changed
-    ? await agentManager.updateAgent(agent.id, { tools: nextTools })
+    ? await agentManager.updateAgent(agent.id, { tools: nextTools.length > 0 ? nextTools : undefined, disallowedTools: nextDenied })
     : agent;
 
   return {

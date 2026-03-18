@@ -32,6 +32,12 @@ tools:
   - mcp_microsoft_pla_browser_run_code
   - mcp_microsoft_pla_browser_console_messages
   - tool_get_errors
+disallowedTools:
+  - analyze_complexity
+  - analyze_performance
+  - hr_archive
+  - hr_avatar
+  - hr_update_llm
 availableFor:
   - frontend-quality
   - storybook-setup

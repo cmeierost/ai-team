@@ -214,8 +214,14 @@ export class ToolManager {
   getForAgent(agent: Agent): AgentTool[] {
     const result: AgentTool[] = [];
     const canManageAgents = agent.contextLevel === ContextLevel.ORGANIZATION;
+    const denied = new Set<string>(agent.disallowedTools ?? []);
 
     for (const tool of this.tools.values()) {
+      // Explicit deny list takes precedence over any allow.
+      if (denied.has(tool.name)) {
+        continue;
+      }
+
       // Explicit grants are always included.
       if (agent.tools?.includes(tool.name)) {
         pushIfMissing(result, tool);

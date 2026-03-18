@@ -183,6 +183,7 @@ export const AgentSchema = z.object({
   
   // Capabilities — tools & delegation
   tools: z.array(z.string()).optional(),
+  disallowedTools: z.array(z.string()).optional(),
   cliTools: z.array(z.string()).optional(),
   canDelegate: z.boolean().optional(),
   delegatesTo: z.array(z.string()).optional(),
