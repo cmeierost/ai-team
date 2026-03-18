@@ -191,7 +191,9 @@ describe('createAiTeamService', () => {
     listApi.chatCommand.mockImplementation(async (_workspaceRoot, _employeeId, _options, hooks) => {
       hooks?.emit?.({
         kind: 'agent_info',
+        agentId: 'maya-patel',
         agentName: 'Maya Patel',
+        agentRole: 'backend-engineer',
       });
     });
 
@@ -205,7 +207,9 @@ describe('createAiTeamService', () => {
     expect(agentInfoEvent).toBeDefined();
     expect(agentInfoEvent).toMatchObject({
       kind: 'agent_info',
+      agentId: 'maya-patel',
       agentName: 'Maya Patel',
+      agentRole: 'backend-engineer',
     });
   });
 });

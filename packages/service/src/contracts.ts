@@ -446,7 +446,10 @@ export type MediatorRuntimeEvent =
     }
   | {
       kind: 'agent_info';
+      agentId?: string;
       agentName: string;
+      agentRole?: string;      
+      developerName?: string;      
       message?: string;
     }
   | {
@@ -503,9 +506,11 @@ export type MediatorRuntimeEvent =
       message?: string;
       fromAgentId?: string;
       fromAgentName?: string;
+      fromAgentRole?: string;
       fromSessionId?: string;
       toAgentId?: string;
       toAgentName?: string;
+      toAgentRole?: string;
       toSessionId?: string;
       handoffNote?: string;
       /** LLM-generated briefing written in the FROM agent's voice */
@@ -597,7 +602,10 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       command: TCommand;
       kind: 'agent_info';
       timestamp: string;
+      agentId?: string;
       agentName: string;
+      agentRole?: string;
+      developerName?: string;
       message?: string;
     }
   | {
@@ -658,9 +666,11 @@ export type MediatorEvent<TCommand extends AiTeamCommandName = AiTeamCommandName
       timestamp: string;
       fromAgentId: string;
       fromAgentName?: string;
+      fromAgentRole?: string;
       fromSessionId?: string;
       toAgentId: string;
       toAgentName?: string;
+      toAgentRole?: string;
       toSessionId?: string;
       handoffNote?: string;
       briefingContent?: string;

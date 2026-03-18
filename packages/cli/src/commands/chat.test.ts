@@ -14,6 +14,7 @@ const client = {
 describe('chat command', () => {
   const originalMediatorLog = process.env.AI_TEAM_MEDIATOR_LOG;
   const originalFrontendFileLog = process.env.AI_TEAM_FRONTEND_FILE_LOG;
+  const originalUserName = process.env.AI_TEAM_USER_NAME;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -44,6 +45,11 @@ describe('chat command', () => {
     } else {
       process.env.AI_TEAM_FRONTEND_FILE_LOG = originalFrontendFileLog;
     }
+    if (originalUserName === undefined) {
+      delete process.env.AI_TEAM_USER_NAME;
+    } else {
+      process.env.AI_TEAM_USER_NAME = originalUserName;
+    }
     vi.restoreAllMocks();
   });
 
@@ -62,7 +68,6 @@ describe('chat command', () => {
         logger: undefined,
         questionInput: expect.any(Function),
         questionConfirm: expect.any(Function),
-        questionSelect: expect.any(Function),
       }),
     );
   });
@@ -82,7 +87,6 @@ describe('chat command', () => {
         logger: expect.any(Function),
         questionInput: expect.any(Function),
         questionConfirm: expect.any(Function),
-        questionSelect: expect.any(Function),
       }),
     );
   });
@@ -203,6 +207,39 @@ describe('chat command', () => {
     await chatCommand(client, 'maya', { message: 'ask user', oneShot: true });
 
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('com_ask'));
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('question (select) answered: alex-morgan'));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('json object keys: request, response'));
+  });
+
+  it('prints assistant reply header as Agent (role) → Developer before streamed tokens', async () => {
+    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
+    clientApi.stream.mockReturnValue((async function* () {
+      yield {
+        kind: 'agent_info',
+        command: 'chat',
+        timestamp: new Date().toISOString(),
+        agentId: 'michael-brown',
+        agentName: 'Michael Brown',
+        agentRole: 'ceo',
+      };
+      yield {
+        kind: 'token',
+        command: 'chat',
+        timestamp: new Date().toISOString(),
+        text: 'Hello.',
+      };
+      yield {
+        kind: 'done',
+        command: 'chat',
+        timestamp: new Date().toISOString(),
+      };
+    })());
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await chatCommand(client, 'michael-brown', { message: 'hello', oneShot: true });
+
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Michael Brown (ceo)'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('→ Clemens Meier: '));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Hello.'));
   });
 });

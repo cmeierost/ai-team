@@ -251,6 +251,11 @@ export function setupChatWebSocket(
               break;
             }
 
+            // Internal debug events — not useful for web clients
+            if (event.kind === 'log') {
+              continue;
+            }
+
             // Forward code-edit proposals to VS Code plugin
             if (event.kind === 'code_edit_proposal' && ideAdapter) {
               const e = event;

@@ -356,10 +356,13 @@ export class CoreAiTeamService implements AiTeamService {
       ? createStreamPerfTracker(this.workspaceRoot, request.command, request.requestId, perfSlowMs)
       : null;
 
-    // Provide a default logger that writes to console if none is supplied
-    const logger = context.logger || ((entry) => {
-      console.log(`[${entry.channel}]`, JSON.stringify(entry.event, null, 2));
-    });
+    // No-op default logger: calling console.log here would trigger a feedback loop
+    // because invoke() patches console.log to emit {kind:'log'} runtime events.
+    // Each event through passThrough → logger → patched console.log → new log event
+    // → passThrough → logger → ... causes the message to grow exponentially via
+    // JSON escaping until JSON.stringify throws "Invalid string length" (~5s).
+    // Callers that need debug output should pass context.logger explicitly.
+    const logger = context.logger ?? (() => {});
 
     const runtimeQueue: MediatorRuntimeEvent[] = [];
     let runtimeWaiter: (() => void) | undefined;

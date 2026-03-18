@@ -702,6 +702,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       if (event.kind === 'token') {
         accumulator += event.text;
         updateAssistantMessageContent(accumulator);
+        // Yield to the macrotask queue so React can render this token before
+        // the next one arrives. Without this, React 18 automatic batching
+        // suppresses all intermediate renders (the whole stream drains as
+        // microtasks before React gets a chance to paint).
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
         continue;
       }
 
@@ -757,15 +762,19 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     setStreaming(true);
     abortControllerRef.current = new AbortController();
 
-    assistantIndexRef.current = messages.length + 1;
-    setMessages((previous) => [
-      ...previous,
-      {
-        from: currentAgentId || 'agent',
-        content: '',
-        timestamp: new Date().toISOString(),
-      },
-    ]);
+    setMessages((previous) => {
+      // Use the functional updater so assistantIndexRef is based on the actual
+      // current length (not the stale closure value from `messages`).
+      assistantIndexRef.current = previous.length;
+      return [
+        ...previous,
+        {
+          from: currentAgentId || 'agent',
+          content: '',
+          timestamp: new Date().toISOString(),
+        },
+      ];
+    });
 
     try {
       const sessionId = await ensureSessionForSend(pendingIntroductionContent);

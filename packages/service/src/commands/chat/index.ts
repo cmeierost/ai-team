@@ -295,7 +295,13 @@ export async function chatCommand(
     }
 
     writeInfo(hooks, `\nChat with ${agent.name} (${agent.role})`);
-    emitRuntimeEvent(hooks, { kind: 'agent_info', agentName: agent.name });
+    emitRuntimeEvent(hooks, {
+      kind: 'agent_info',
+      agentId: agent.id,
+      agentName: agent.name,
+      agentRole: agent.role,
+      developerName: developerName ?? undefined,
+    });
     writeInfo(hooks, 'Type "exit" to end the conversation');
     writeInfo(hooks, 'Type "/help" to see available in-chat commands');
     writeInfo(hooks, 'Ask to be forwarded or type "/chat <name>" to switch agents');

@@ -195,6 +195,22 @@ class HttpAiTeamClient implements AiTeamHttpClient {
           return context.questionConfirm(question);
         }
 
+        if (question.kind === 'input' && context.questionInput) {
+          return context.questionInput(question);
+        }
+
+        if (question.kind === 'password' && context.questionPassword) {
+          return context.questionPassword(question);
+        }
+
+        if (question.kind === 'select' && context.questionSelect) {
+          return context.questionSelect(question);
+        }
+
+        if (question.kind === 'checklist' && context.questionChecklist) {
+          return context.questionChecklist(question);
+        }
+
         return getFallbackQuestionAnswer(question);
       };
 

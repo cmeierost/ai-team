@@ -8,6 +8,8 @@ import { generateAgentColor, parseHslHue } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/ide-interface';
 import { findWorkspaceRoot } from '@ai-team/service';
 import chalk from 'chalk';
+import ora, { type Ora } from 'ora';
+import { execSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { isFrontendFileLogEnabled, writeFrontendDebugLog } from './debug-log.js';
@@ -66,7 +68,7 @@ async function askLine(message: string, signal?: AbortSignal): Promise<string> {
   }
 }
 
-function createChatQuestionResponders(signal: AbortSignal): Pick<
+function createChatQuestionResponders(signal: AbortSignal, onAnswered?: () => void): Pick<
   MediatorContext,
   'questionInput' | 'questionConfirm'
 > {
@@ -81,6 +83,7 @@ function createChatQuestionResponders(signal: AbortSignal): Pick<
             continue;
           }
         }
+        onAnswered?.();
         return answer;
       }
     },
@@ -91,12 +94,15 @@ function createChatQuestionResponders(signal: AbortSignal): Pick<
       while (true) {
         const raw = (await askLine(`${request.message} ${suffix}`, signal)).toLowerCase();
         if (!raw) {
+          onAnswered?.();
           return defaultValue;
         }
         if (raw === 'y' || raw === 'yes') {
+          onAnswered?.();
           return true;
         }
         if (raw === 'n' || raw === 'no') {
+          onAnswered?.();
           return false;
         }
         process.stderr.write('Please answer yes or no.\n');
@@ -165,6 +171,20 @@ function toPayloadRecord(value: unknown): Record<string, unknown> | null {
     return parseJsonObject(value);
   }
   return null;
+}
+
+function resolveDeveloperDisplayName(env: NodeJS.ProcessEnv): string {
+  const fromEnv = env.AI_TEAM_USER_NAME?.trim()
+    || env.AI_TEAM_USER?.trim()
+    || env.AI_TEAM_DEVELOPER?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const gitName = execSync('git config user.name', { encoding: 'utf-8' }).trim();
+    if (gitName) return gitName;
+  } catch {
+    // git not available or not configured
+  }
+  return 'You';
 }
 
 function countTreeNodes(node?: FileTreeNodeLike): { files: number; directories: number } {
@@ -323,6 +343,21 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
   // The current agent identity is updated from status (agent_info) and handoff events.
   let currentAgentId: string | undefined = agentId;
   let currentAgentName: string | undefined;
+  let currentAgentRole: string | undefined;
+  let developerDisplayName = resolveDeveloperDisplayName(process.env);
+  let tokenBurstOpen = false;
+
+  let spinner: Ora | undefined;
+  const startSpinner = () => {
+    if (options.oneShot) return;
+    spinner?.stop();
+    const agentLabel = currentAgentName || currentAgentId || 'Agent';
+    spinner = ora({ text: chalk.dim(`${agentLabel} is thinking…`), stream: process.stderr }).start();
+  };
+  const stopSpinner = () => {
+    spinner?.stop();
+    spinner = undefined;
+  };
 
   function resolveAgentIdentity(id?: string, name?: string) {
     return {
@@ -372,7 +407,7 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
         options,
       },
     }, {
-      ...createChatQuestionResponders(abortControl.signal),
+      ...createChatQuestionResponders(abortControl.signal, startSpinner),
       signal: abortControl.signal,
       logger: mediatorLoggerEnabled || frontendFileLogEnabled
         ? (entry) => {
@@ -392,12 +427,23 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
         : undefined,
     })) {
       if (event.kind === 'token') {
+        if (!tokenBurstOpen) {
+          stopSpinner();
+          const agentName = currentAgentName || currentAgentId || 'Agent';
+          const title = currentAgentRole ? `${agentName} (${currentAgentRole})` : agentName;
+          const styledTitle = agentChalk(currentAgentId, currentAgentName).bold(title);
+          process.stdout.write(`\n${styledTitle}${chalk.dim(' → ')}${developerDisplayName}: `);
+          tokenBurstOpen = true;
+        }
         // Always write tokens to stdout — same stream as readline's prompt,
         // guaranteeing correct ordering on Windows (ConPTY merges stdout/stderr
         // but they may flush in non-deterministic order).
         process.stdout.write(colorize(event.text, currentAgentId, currentAgentName));
         continue;
       }
+
+      tokenBurstOpen = false;
+      stopSpinner();
 
       if (event.kind === 'aborted') {
         writeStderrLine(chalk.yellow('Chat aborted.'));
@@ -413,7 +459,12 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
       }
 
       if (event.kind === 'agent_info') {
+        currentAgentId = event.agentId || currentAgentId;
         currentAgentName = event.agentName.trim() || currentAgentName;
+        currentAgentRole = event.agentRole?.trim() || currentAgentRole;
+        if (event.developerName?.trim()) {
+          developerDisplayName = event.developerName.trim();
+        }
         if ((options.oneShot || mediatorLoggerEnabled) && event.message) {
           writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
         }
@@ -441,6 +492,7 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
         const to = e.toAgentName || e.toAgentId;
         currentAgentId = e.toAgentId || currentAgentId;
         currentAgentName = e.toAgentName || e.toAgentId || currentAgentName;
+        currentAgentRole = e.toAgentRole || currentAgentRole;
         const note = e.handoffNote ? `: ${e.handoffNote}` : '';
         const fromStyled = agentChalk(e.fromAgentId, e.fromAgentName).bold(String(from));
         const toStyled = agentChalk(e.toAgentId, e.toAgentName).bold(String(to));
@@ -497,6 +549,7 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
     }
     throw error;
   } finally {
+    stopSpinner();
     abortControl.dispose();
   }
 }

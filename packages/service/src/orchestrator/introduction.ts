@@ -96,9 +96,7 @@ export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promis
     hooks,
   } = request;
 
-  if (hooks.emit) {
-    hooks.emit({ kind: 'token', text: `\n${agent.name} (${agent.role}): ` });
-  } else {
+  if (!hooks.emit) {
     process.stdout.write(`\n${agent.name} (${agent.role}): `);
   }
 
