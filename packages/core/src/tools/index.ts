@@ -23,6 +23,9 @@ import {
 import { ContextManager } from '../context/index.js';
 import { loadAgent, loadTeamConfig, saveAgent } from '../storage/index.js';
 import { AgentManager } from '../agent/index.js';
+import { Ripgrep } from '../file/ripgrep.js';
+import { FileTime } from '../file/time.js';
+import { Truncate } from './truncation.js';
 import {
   downloadRandomAvatar,
   generateAvatarWithAI,
@@ -123,7 +126,8 @@ function toFsPathAccessEnvelope(
     | 'fs_list'
     | 'fs_tree'
     | 'fs_search_content'
-    | 'fs_search_metadata',
+    | 'fs_search_metadata'
+    | 'fs_edit',
   targetPath: string,
 ): FsPathAccessEnvelope {
   if (!context.accessEngine) {
@@ -139,6 +143,7 @@ function toFsPathAccessEnvelope(
     || toolName === 'fs_read_lines'
     || toolName === 'fs_write_file'
     || toolName === 'fs_create'
+    || toolName === 'fs_edit'
       ? { filePath: targetPath }
       : { path: targetPath };
 
@@ -591,14 +596,28 @@ export const fsInfoTool: AgentTool = {
  */
 export const fsReadFileTool: AgentTool = {
   name: 'fs_read',
-  description: 'Read a file through @ai-team/access with structured access metadata.',
+  description: [
+    'Read a file through @ai-team/access with structured access metadata.',
+    'Supports pagination via `offset` (1-based start line) and `limit` (max lines to return).',
+    'Output lines are prefixed with their 1-based line number, e.g. "42: content".',
+    'If the path is a directory a file listing is returned instead of content.',
+    'Binary files are detected and a notice is returned instead of raw bytes.',
+    'Tracking: records read time so fs_edit can validate staleness.',
+  ].join(' '),
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
     encoding: z.enum(['utf8']).optional().describe('Text encoding (default utf8)'),
+    offset:   z.number().int().min(1).optional().describe('1-based line to start from (default 1)'),
+    limit:    z.number().int().min(1).optional().describe('Max lines to return (default 2000)'),
   }),
   async execute(params, context: ToolContext) {
     const engineCheck = getAccessEngineOrDeny(context);
-    const { filePath, encoding = 'utf8' } = params as { filePath: string; encoding?: BufferEncoding };
+    const {
+      filePath,
+      encoding = 'utf8',
+      offset = 1,
+      limit  = 2000,
+    } = params as { filePath: string; encoding?: BufferEncoding; offset?: number; limit?: number };
     const absolutePath = resolveFsAbsolutePath(context, filePath);
 
     if (!absolutePath) {
@@ -633,10 +652,58 @@ export const fsReadFileTool: AgentTool = {
     }
 
     try {
-      const content = await fs.readFile(absolutePath, encoding);
+      // Directory fallback — return listing instead of content
+      const stat = await fs.stat(absolutePath);
+      if (stat.isDirectory()) {
+        const entries = await fs.readdir(absolutePath, { withFileTypes: true });
+        const listing = entries
+          .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+          .sort((a, b) => a.localeCompare(b))
+          .join('\n');
+        return {
+          path: pathMeta,
+          content: null,
+          directory: true,
+          listing,
+          access,
+        };
+      }
+
+      // Binary detection — check first 8 KB for null bytes
+      const BINARY_PROBE = 8192;
+      const probe = Buffer.alloc(Math.min(BINARY_PROBE, stat.size));
+      const fd = await fs.open(absolutePath, 'r');
+      try { await fd.read(probe, 0, probe.length, 0); }
+      finally { await fd.close(); }
+      if (probe.includes(0)) {
+        return {
+          path: pathMeta,
+          content: null,
+          binary: true,
+          sizeBytes: stat.size,
+          access,
+        };
+      }
+
+      const raw = await fs.readFile(absolutePath, encoding);
+
+      // Record read time for FileTime staleness guard (used by fs_edit)
+      FileTime.record(context.agent.id, absolutePath);
+
+      const allLines = raw.split('\n');
+      const totalLines = allLines.length;
+      const startIdx = offset - 1;                             // convert to 0-based
+      const slice    = allLines.slice(startIdx, startIdx + limit);
+      const numbered = slice.map((l, i) => `${startIdx + i + 1}: ${l}`).join('\n');
+      const content  = Truncate.output(numbered, { maxLines: limit, maxBytes: 50_000 });
+
       return {
         path: pathMeta,
         content,
+        totalLines,
+        offset,
+        limit,
+        hasMore: startIdx + limit < totalLines,
         access,
       };
     } catch (error) {
@@ -704,11 +771,12 @@ export const fsReadLinesTool: AgentTool = {
     try {
       const content = await fs.readFile(absolutePath, 'utf8');
       const lines = content.split(/\r?\n/).slice(startLine - 1, endLine);
+      const numbered = lines.map((l, i) => `${startLine + i}: ${l}`);
       return {
         path: pathMeta,
         startLine,
         endLine,
-        lines,
+        lines: numbered,
         access,
       };
     } catch (error) {
@@ -1979,47 +2047,38 @@ export const findPatternTool: AgentTool = {
  */
 export const grepCodeTool: AgentTool = {
   name: 'search_grep',
-  description: 'Fast regex-based text search in files. More efficient than tree-sitter for simple text searches. Requires read permission.',
+  description: 'Fast regex or literal text search in workspace files, powered by ripgrep. Returns structured match objects with file path, line number, and matched content. Requires read permission.',
   parameters: z.object({
-    pattern: z.string().describe('Text pattern or regex to search for'),
-    filePatterns: z.array(z.string()).describe('Glob patterns for files to search'),
-    caseInsensitive: z.boolean().optional().describe('Case-insensitive search'),
-    wholeWord: z.boolean().optional().describe('Match whole words only'),
-    maxMatchesPerFile: z.number().optional().describe('Limit matches per file'),
+    pattern:       z.string().describe('Regex or literal text to search for'),
+    filePatterns:  z.array(z.string()).optional().describe('Glob patterns to restrict files (e.g. ["**/*.ts"])'),
+    caseSensitive: z.boolean().optional().describe('Force case-sensitive match (default: ripgrep smart-case)'),
+    limit:         z.number().int().min(1).optional().describe('Max matches to return per file (default: unlimited)'),
   }),
   async execute(params, context: ToolContext) {
-    const { GrepSearch } = await import('../code-analysis/index.js');
-    const { pattern, filePatterns, caseInsensitive, wholeWord, maxMatchesPerFile } = params as any;
-    
-    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.accessEngine);
-    const grep = new GrepSearch();
-    
-    // Find all files matching the patterns
-    const allFiles: string[] = [];
-    for (const filePattern of filePatterns) {
-      const files = await glob(filePattern, {
-        cwd: context.workspaceRoot,
-        absolute: true,
-        ignore: ['**/node_modules/**', '**/.git/**'],
-      });
-      allFiles.push(...files);
-    }
-    
-    // Filter to only files the agent can read
-    const readableFiles = contextManager.getReadableFiles(context.agent, allFiles);
-    
-    // Search
-    const matches = await grep.searchFiles(readableFiles, pattern, {
-      caseInsensitive,
-      wholeWord,
-      maxMatchesPerFile,
+    const { pattern, filePatterns, limit } = params as {
+      pattern: string;
+      filePatterns?: string[];
+      limit?: number;
+    };
+
+    const matches = await Ripgrep.search({
+      cwd:     context.workspaceRoot,
+      pattern,
+      glob:    filePatterns,
+      limit,
+      follow:  false,
     });
-    
+
     return {
       pattern,
       matchCount: matches.length,
-      fileCount: new Set(matches.map(m => m.filePath)).size,
-      matches: matches.slice(0, 100), // Limit to first 100 matches in response
+      fileCount:  new Set(matches.map((m) => m.path.text)).size,
+      matches: matches.slice(0, 200).map((m) => ({
+        filePath:   m.path.text,
+        lineNumber: m.line_number,
+        line:       m.lines.text.trimEnd(),
+        submatches: m.submatches.map((s) => s.match.text),
+      })),
     };
   },
 };
@@ -2624,6 +2683,152 @@ function enqueueCrawlLinks(
 }
 
 // ============================================================================
+// Surgical file edit tool (requires prior fs_read in the same session)
+// ============================================================================
+
+/**
+ * Surgical string-replacement edit that guards against stale edits.
+ *
+ * Before calling this tool the agent MUST have read the file with `fs_read`
+ * in the current session. FileTime.assert() will reject the edit if the file
+ * has been modified on disk since it was read.
+ */
+export const fsEditTool: AgentTool = {
+  name: 'fs_edit',
+  description: [
+    'Perform a surgical in-place edit of a file by replacing an exact string.',
+    'REQUIRES the file to have been read first with fs_read in the same session.',
+    'The edit will fail if the file has been modified on disk since the last read.',
+    'Use `replaceAll: true` to replace every occurrence; default replaces only the first.',
+    'Always read the file with `fs_read` immediately before calling this tool.',
+  ].join(' '),
+  parameters: z.object({
+    filePath:   z.string().describe('Relative or absolute path to the file to edit'),
+    oldString:  z.string().min(1).describe('Exact string to find and replace (must be unique unless replaceAll is true)'),
+    newString:  z.string().describe('Replacement string'),
+    replaceAll: z.boolean().optional().describe('Replace all occurrences (default: false — first only)'),
+  }),
+  async execute(params, context: ToolContext) {
+    const engineCheck = getAccessEngineOrDeny(context);
+    const { filePath, oldString, newString, replaceAll = false } = params as {
+      filePath:   string;
+      oldString:  string;
+      newString:  string;
+      replaceAll?: boolean;
+    };
+
+    const absolutePath = resolveFsAbsolutePath(context, filePath);
+    if (!absolutePath) {
+      return {
+        path: { input: filePath, absolute: '', relative: '' },
+        edited: false,
+        access: { allowed: false, explanation: 'Path is outside workspace root.', alternativeContexts: [] },
+      };
+    }
+
+    const pathMeta = toFsPathMeta(context, filePath, absolutePath);
+    if (!engineCheck.ok) {
+      return {
+        path: pathMeta,
+        edited: false,
+        access: { allowed: false, explanation: engineCheck.reason, alternativeContexts: [] },
+      };
+    }
+
+    const access = toFsPathAccessEnvelope(context, 'fs_edit', filePath);
+    if (!access.allowed) {
+      return {
+        path: pathMeta,
+        edited: false,
+        access,
+        delegation: {
+          possible: access.alternativeContexts.length > 0,
+          contexts: access.alternativeContexts,
+          unassignable: access.alternativeContexts.length === 0,
+        },
+      };
+    }
+
+    return FileTime.withLock(absolutePath, async () => {
+      // Assert the file was read and hasn't changed since then
+      try {
+        FileTime.assert(context.agent.id, absolutePath);
+      } catch (assertErr) {
+        return {
+          path: pathMeta,
+          edited: false,
+          error: assertErr instanceof Error ? assertErr.message : String(assertErr),
+          hint: 'Call fs_read on this file before calling fs_edit.',
+          access,
+        };
+      }
+
+      let content: string;
+      try {
+        content = await fs.readFile(absolutePath, 'utf8');
+      } catch (readErr) {
+        return {
+          path: pathMeta,
+          edited: false,
+          error: readErr instanceof Error ? readErr.message : String(readErr),
+          access,
+        };
+      }
+
+      const occurrences = content.split(oldString).length - 1;
+      if (occurrences === 0) {
+        return {
+          path: pathMeta,
+          edited: false,
+          error: `oldString not found in ${pathMeta.relative}`,
+          hint:  'Use fs_read to verify the current content of the file before calling fs_edit.',
+          access,
+        };
+      }
+
+      if (!replaceAll && occurrences > 1) {
+        return {
+          path: pathMeta,
+          edited: false,
+          error: `oldString appears ${occurrences} times in ${pathMeta.relative}. Provide a more unique string or set replaceAll: true.`,
+          access,
+        };
+      }
+
+      const updated = replaceAll
+        ? content.split(oldString).join(newString)
+        : content.replace(oldString, newString);
+
+      try {
+        await fs.writeFile(absolutePath, updated, 'utf8');
+      } catch (writeErr) {
+        return {
+          path: pathMeta,
+          edited: false,
+          error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+          access,
+        };
+      }
+
+      // Refresh read time so subsequent edits in same session don't fail
+      FileTime.record(context.agent.id, absolutePath);
+
+      const addedLines   = (newString.split('\n').length - oldString.split('\n').length);
+      const totalBefore  = content.split('\n').length;
+
+      return {
+        path: pathMeta,
+        edited: true,
+        replacements: replaceAll ? occurrences : 1,
+        linesChanged: addedLines,
+        totalLines:   totalBefore + addedLines,
+        access,
+      };
+    });
+  },
+};
+
+// ============================================================================
 // Tool Registry
 // ============================================================================
 
@@ -2656,6 +2861,7 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   analyze_complexity: analyzeComplexityTool,
   analyze_performance: assessPerformanceTool,
   fs_apply_patch: applyCodeEditTool,
+  fs_edit: fsEditTool,
 };
 
 export const HR_TOOLS: Record<string, AgentTool> = {

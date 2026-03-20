@@ -60,5 +60,3 @@ readTheseFilesFirst:
   - COPILOT-CONTEXT.md
   - README.md
   - docs/**/*
-llm:
-  modelKey: gpt-5.1

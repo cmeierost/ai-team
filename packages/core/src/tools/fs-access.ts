@@ -66,7 +66,8 @@ export function toFsPathAccessEnvelope(
     | 'fs_list'
     | 'fs_tree'
     | 'fs_search_content'
-    | 'fs_search_metadata',
+    | 'fs_search_metadata'
+    | 'fs_edit',
   targetPath: string,
 ): FsPathAccessEnvelope {
   if (!context.accessEngine) {
@@ -82,6 +83,7 @@ export function toFsPathAccessEnvelope(
     || toolName === 'fs_read_lines'
     || toolName === 'fs_write_file'
     || toolName === 'fs_create'
+    || toolName === 'fs_edit'
       ? { filePath: targetPath }
       : { path: targetPath };
 

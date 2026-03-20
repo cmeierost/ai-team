@@ -21,6 +21,8 @@ export const FS_TOOL_NAMES = [
   'fs_tree',
   'fs_search_content',
   'fs_search_metadata',
+  'fs_edit',
+  'bash',
 ] as const;
 
 export type FsToolName = (typeof FS_TOOL_NAMES)[number];
@@ -45,6 +47,8 @@ export const FS_TOOL_REQUIRED_RIGHT: Record<FsToolName, FsAccessRight> = {
   fs_tree: 'list',
   fs_search_content: 'list',
   fs_search_metadata: 'list',
+  fs_edit: 'write',
+  bash: 'write',
 };
 
 export const FS_LIST_RIGHT_TOOLS: readonly FsToolName[] = FS_TOOL_NAMES.filter(
