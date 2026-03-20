@@ -6,10 +6,7 @@ contextLevel: feature
 reportsTo: alex-morgan
 specializations:
   - llm-provider-integration
-  - code-intelligence
-  - structured-editing
-  - model-behavior
-  - provider-doc-research
+  - code-intelligence-and-editing
 avatar:
   type: url
   url: .ai-team/avatars/victor-alvarez.jpg
@@ -17,17 +14,6 @@ personality:
   communication_style: analytical
   expertise_level: senior
   mentoring: true
-skills:
-  - id: llm-provider-integration
-    name: LLM Provider Integration
-    description: >-
-      Own provider setup, model discovery, connection behavior, and runtime
-      provider logic.
-  - id: code-intelligence-and-editing
-    name: Code Intelligence and Editing
-    description: >-
-      Own AST analysis, structured editing, and code-aware backend intelligence
-      features.
 tools:
   - search_semantic
   - fetch_webpage

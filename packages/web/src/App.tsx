@@ -8,6 +8,7 @@ import { NotFound } from './components/NotFound';
 import { Sidebar } from './components/Sidebar';
 import { SessionGraphPreview } from './components/SessionGraphPreview';
 import { TeamProvider } from './context/TeamContext';
+import { SettingsPage } from './pages/SettingsPage';
 import './App.css';
 
 export function App() {
@@ -23,6 +24,7 @@ export function App() {
             <Route path="/chat/:agentId/*" element={<ChatPanel />} />
             <Route path="/portfolio/:agentId" element={<Portfolio />} />
             <Route path="/dev/session-graph" element={<SessionGraphPreview />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>

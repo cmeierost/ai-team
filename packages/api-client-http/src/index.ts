@@ -35,7 +35,7 @@ import type {
   UpdateGlobalPathResponse,
   TestConnectionOptions,
 } from '@ai-team/service';
-import type { AgentStatus, AgentConfig, AnnotatedFile, ContextLevel, GraphData, MarkdownSection, RoleType, ViewMode } from '@ai-team/core';
+import type { AgentStatus, AgentConfig, AnnotatedFile, ContextLevel, GraphData, MarkdownSection, RoleType, TeamConfig, DeveloperConfig, ViewMode } from '@ai-team/core';
 import type {
   IdeCommitEditResponse,
   IdeEditStatusResponse,
@@ -147,6 +147,15 @@ export interface AiTeamHttpClient {
   ideUndoEdit(request: IdeSessionAckActionRequest): Promise<IdeRevertEditResponse>;
   ideResetEdit(request: IdeSessionActionRequest): Promise<IdeResetEditResponse>;
   ideEditStatus(sessionId: string): Promise<IdeEditStatusResponse>;
+  getConfig(): Promise<TeamConfig>;
+  updateConfig(partial: Partial<TeamConfig>): Promise<TeamConfig>;
+  refreshProviderModels(providerRef: string): Promise<Array<{ name: string; contextWindow?: number }>>;
+  getAgentModelKeys(): Promise<{ usedKeys: string[]; keysByAgent: Record<string, string> }>;
+  getDeveloperConfig(): Promise<DeveloperConfig>;
+  saveDeveloperConfig(partial: Partial<DeveloperConfig>): Promise<DeveloperConfig>;
+  testProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
+  getEnvStatus(): Promise<Record<string, boolean>>;
+  setEnvVar(key: string, value: string): Promise<void>;
 }
 
 class HttpAiTeamClient implements AiTeamHttpClient {
@@ -822,6 +831,77 @@ class HttpAiTeamClient implements AiTeamHttpClient {
       throw new Error('Failed to fetch IDE edit session status');
     }
     return response.json();
+  }
+
+  async getConfig(): Promise<TeamConfig> {
+    const response = await fetch(`${this.baseUrl}/api/config`);
+    if (!response.ok) throw new Error('Failed to load config');
+    return response.json();
+  }
+
+  async updateConfig(partial: Partial<TeamConfig>): Promise<TeamConfig> {
+    const response = await fetch(`${this.baseUrl}/api/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(partial),
+    });
+    if (!response.ok) throw new Error('Failed to save config');
+    return response.json();
+  }
+
+  async refreshProviderModels(providerRef: string): Promise<Array<{ name: string; contextWindow?: number }>> {
+    const response = await fetch(
+      `${this.baseUrl}/api/config/providers/${encodeURIComponent(providerRef)}/models/refresh`,
+      { method: 'POST' },
+    );
+    if (!response.ok) throw new Error('Failed to refresh models');
+    return response.json();
+  }
+
+  async getAgentModelKeys(): Promise<{ usedKeys: string[]; keysByAgent: Record<string, string> }> {
+    const response = await fetch(`${this.baseUrl}/api/config/agent-model-keys`);
+    if (!response.ok) throw new Error('Failed to load agent model keys');
+    return response.json();
+  }
+
+  async getDeveloperConfig(): Promise<DeveloperConfig> {
+    const response = await fetch(`${this.baseUrl}/api/config/developer-config`);
+    if (!response.ok) throw new Error('Failed to load developer config');
+    return response.json();
+  }
+
+  async saveDeveloperConfig(partial: Partial<DeveloperConfig>): Promise<DeveloperConfig> {
+    const response = await fetch(`${this.baseUrl}/api/config/developer-config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(partial),
+    });
+    if (!response.ok) throw new Error('Failed to save developer config');
+    return response.json();
+  }
+
+  async testProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
+    const response = await fetch(
+      `${this.baseUrl}/api/config/developer-config/providers/${encodeURIComponent(providerRef)}/test`,
+      { method: 'POST' },
+    );
+    if (!response.ok) throw new Error('Failed to test provider connection');
+    return response.json();
+  }
+
+  async getEnvStatus(): Promise<Record<string, boolean>> {
+    const response = await fetch(`${this.baseUrl}/api/config/env-status`);
+    if (!response.ok) throw new Error('Failed to load env status');
+    return response.json();
+  }
+
+  async setEnvVar(key: string, value: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/config/env-key`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value }),
+    });
+    if (!response.ok) throw new Error('Failed to set env var');
   }
 }
 

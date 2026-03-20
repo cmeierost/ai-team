@@ -5,11 +5,8 @@ type: leadership
 contextLevel: organization
 reportsTo: emily-davis
 specializations:
-  - talent-acquisition
-  - skill-assessment
-  - role-matching
-  - skill-sourcing
-  - skill-import
+  - skill-scout
+  - skill-creator-ai-team
 personality:
   communication_style: collaborative
   expertise_level: senior

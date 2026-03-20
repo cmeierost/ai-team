@@ -138,16 +138,8 @@ function parseAccessFileWithSections(lines: string[]): AccessRule[] {
     }
   }
 
-  // When using sectioned access files, list visibility defaults to all files
-  // (subject to ignore rules) unless a [list] section is explicitly present.
-  if (!hasExplicitListSection) {
-    rules.push({
-      right: 'list',
-      effect: 'allow',
-      pathPattern: '**',
-      label: 'access-file implicit list fallback',
-    });
-  }
+  // No implicit list fallback is added. List rights are derived from [read] sections
+  // via the read=>list implication above. An explicit [list] section overrides this.
 
   return rules;
 }

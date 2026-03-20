@@ -145,8 +145,8 @@ async function askProviderSetup(
     const providerConfig: LlmProviderConfig = {
       kind: 'github-copilot',
       model,
-      defaultModelKey: toModelKey(model),
-      models: { [toModelKey(model)]: model },
+      defaultModel: model,
+      models: [{ name: model }],
     };
 
     return {
@@ -227,7 +227,7 @@ async function askProviderSetup(
 
   if (needsKey) {
     const envVars = await loadEnvFile(workspaceRoot);
-    const existingRefConfig = (existing?.providers || existing?.llmProviders || {})[providerRef];
+    const existingRefConfig = (existing?.providers || {})[providerRef];
     const defaultEnvVar = existingRefConfig?.apiKeyEnvVar || `${providerRef.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`;
 
     apiKeyEnvVar = await input({
@@ -266,12 +266,11 @@ async function askProviderSetup(
     }
   }
 
-  const modelKey = model ? toModelKey(model) : undefined;
   const providerConfig: LlmProviderConfig = {
     kind: 'openai-compatible',
     baseUrl,
     ...(model ? { model } : {}),
-    ...(modelKey ? { defaultModelKey: modelKey, models: { [modelKey]: model } } : {}),
+    ...(model ? { defaultModel: model, models: [{ name: model }] } : {}),
     ...(apiKeyEnvVar ? { apiKeyEnvVar } : {}),
   };
 
@@ -293,7 +292,7 @@ async function askProviderSetup(
 function resolveCurrentDefaultProvider(
   config: TeamConfig | undefined,
 ): { ref: string; config: LlmProviderConfig } | undefined {
-  const registry = config?.providers || config?.llmProviders;
+  const registry = config?.providers;
   if (!registry || Object.keys(registry).length === 0) {
     return undefined;
   }
@@ -331,7 +330,7 @@ function buildProviderRef(llm: LlmConfig, existing?: TeamConfig): string {
     const sanitized = host.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     const baseRef = sanitized || 'openai-compatible';
 
-    const existingRefs = new Set(Object.keys(existing?.providers || existing?.llmProviders || {}));
+    const existingRefs = new Set(Object.keys(existing?.providers || {}));
     if (!existingRefs.has(baseRef)) {
       return baseRef;
     }
@@ -357,9 +356,3 @@ function validateProviderRef(value: string): true | string {
   return true;
 }
 
-function toModelKey(model: string): string {
-  return model
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'default';
-}

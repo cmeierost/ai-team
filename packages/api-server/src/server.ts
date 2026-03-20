@@ -1,10 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
-import { createServer } from 'http';
-import { join, resolve, dirname } from 'path';
-import { existsSync } from 'fs';
-import { fileURLToPath } from 'url';
+import { createServer } from 'node:http';
+import { join, resolve, dirname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './swagger-auto.js';
 import { generateAsyncApiSpec } from './asyncapi.js';
@@ -21,6 +21,8 @@ import { createFileTreeRouter } from './routes/file-tree.js';
 import { createIdeRouter } from './routes/ide.js';
 import { createSkillsRouter } from './routes/skills.js';
 import { createToolsRouter } from './routes/tools.js';
+import { createConfigRouter } from './routes/config.js';
+import { createMetaRouter } from './routes/meta.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { setupChatWebSocket } from './ws/chat-handler.js';
 
@@ -35,7 +37,7 @@ export interface ServerOptions {
 }
 
 export async function startServer(options: ServerOptions = {}): Promise<any> {
-  const port = options.port ?? parseInt(process.env.PORT || '3002', 10);
+  const port = options.port ?? Number.parseInt(process.env.PORT || '3002', 10);
   const workspaceRoot = options.workspaceRoot || process.env.AI_TEAM_WORKSPACE || findWorkspaceRoot();
   const serveStaticFiles = options.serveStaticFiles ?? process.env.NODE_ENV === 'production';
 
@@ -89,6 +91,8 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   app.use('/api/ide', createIdeRouter(workspaceRoot));
   app.use('/api/skills', createSkillsRouter(client));
   app.use('/api/tools', createToolsRouter(client));
+  app.use('/api/config', createConfigRouter(workspaceRoot));
+  app.use('/api/meta', createMetaRouter(workspaceRoot, agentManager));
 
   // System info endpoint
   /**
@@ -320,8 +324,10 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
 
 // Start server if this file is run directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  startServer().catch((error) => {
+  try {
+    await startServer();
+  } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
-  });
+  }
 }

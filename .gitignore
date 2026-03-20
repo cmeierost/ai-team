@@ -49,6 +49,7 @@ pnpm-debug.log*
 .ai-team/proposals/
 .ai-team/**/*.jsonl
 .ai-team/logs/
+.ai-team/config.developer.json
 
 # Temporary files
 tmp/

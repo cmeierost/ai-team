@@ -81,7 +81,6 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
       features?: string[];
       specializations?: string[];
       pronouns?: string;
-      timezone?: string;
       llm?: undefined;
       cliTools?: string[];
     } = {
@@ -125,7 +124,6 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
           features: config.features,
           specializations: config.specializations,
           pronouns: config.pronouns,
-          timezone: config.timezone,
           personality: {
             communication_style: personalityPreset.communication_style,
             expertise_level: personalityPreset.expertise_level,

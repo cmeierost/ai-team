@@ -186,7 +186,7 @@ export async function chatCommand(
       'Loading team configuration...',
       () => loadTeamConfig(workspaceRoot),
     );
-    const registry = teamConfig?.providers || teamConfig?.llmProviders;
+    const registry = teamConfig?.providers;
     const defaultProviderRef = registry
       ? (Object.entries(registry).find(([, cfg]) => cfg.isDefault)?.[0]
         || teamConfig?.defaultLlmProvider

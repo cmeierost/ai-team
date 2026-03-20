@@ -6,10 +6,7 @@ contextLevel: feature
 reportsTo: alex-morgan
 specializations:
   - agent-runtime-behavior
-  - chat-orchestration
-  - handoff-flows
-  - workflow-runtime
-  - api-server-delivery
+  - service-orchestration-runtime
 avatar:
   type: url
   url: .ai-team/avatars/leah-brooks.jpg
@@ -17,17 +14,6 @@ personality:
   communication_style: analytical
   expertise_level: senior
   mentoring: true
-skills:
-  - id: agent-runtime-behavior
-    name: Agent Runtime Behavior
-    description: >-
-      Improve agent runtime behavior, handoffs, and context flow across core and
-      service.
-  - id: service-orchestration-runtime
-    name: Service Orchestration Runtime
-    description: >-
-      Improve command dispatch, workflow state, and runtime event flow in the
-      service layer.
 tools:
   - search_semantic
   - tool_get_errors

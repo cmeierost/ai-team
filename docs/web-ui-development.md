@@ -206,7 +206,7 @@ Use Swagger UI to:
 
 ### API Server Endpoints Used by Web UI
 - `GET /api/team/graph?mode=hierarchy` - Team hierarchy with resolved roles
-- `GET /api/agents` - List all agents (legacy, prefer team/graph)
+- `GET /api/agents` - List all agents
 - `GET /api/agents/:id` - Get specific agent
 - `POST /api/chat/:agentId` - Send chat message
 - `WS /ws` - WebSocket for real-time chat

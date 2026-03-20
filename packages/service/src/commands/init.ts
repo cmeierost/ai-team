@@ -3,8 +3,10 @@ import path from 'node:path';
 import ora from 'ora';
 import {
   ensureAiTeamDirectory,
+  DeveloperConfig,
   loadTeamConfig,
   resolveEffectiveLlmSettings,
+  saveDeveloperConfig,
   saveTeamConfig,
   saveEnvFile,
   saveAgentAccessPatterns,
@@ -111,6 +113,63 @@ const FORCE_KEEP = new Set(['config.json', '.env']);
 const DEFAULT_SKILL_SOURCES = [
   'https://github.com/anthropics/skills',
 ];
+
+function inferDefaultProviderRef(setup: LlmSetupResult): string {
+  if (setup.provider === 'github-copilot') {
+    return 'copilot';
+  }
+
+  const baseUrl = setup.baseUrl?.toLowerCase() ?? '';
+  if (baseUrl.includes('api.openai.com')) {
+    return 'openai';
+  }
+
+  if (baseUrl.includes('localhost')) {
+    return 'local';
+  }
+
+  return 'personal-openai';
+}
+
+function buildDeveloperConfigFromInit(setup: LlmSetupResult): DeveloperConfig {
+  const gitDeveloperName = getGitUserName();
+  const providerRef = inferDefaultProviderRef(setup);
+
+  const providerEntry = setup.provider === 'github-copilot'
+    ? {
+        kind: 'github-copilot' as const,
+        isDefault: true,
+        ...(setup.model ? { model: setup.model } : {}),
+        ...(setup.model ? { defaultModel: setup.model } : {}),
+        ...(setup.model ? { models: [{ name: setup.model }] } : {}),
+      }
+    : {
+        kind: 'openai-compatible' as const,
+        isDefault: true,
+        ...(setup.baseUrl ? { baseUrl: setup.baseUrl } : {}),
+        ...(setup.model ? { model: setup.model } : {}),
+        ...(setup.model ? { defaultModel: setup.model } : {}),
+        ...(setup.model ? { models: [{ name: setup.model }] } : {}),
+        ...(setup.apiKey ? { apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY' } : {}),
+      };
+
+  return {
+    ...(gitDeveloperName
+      ? {
+          developer: {
+            id: developerNameToId(gitDeveloperName),
+            name: gitDeveloperName,
+          },
+        }
+      : {}),
+    llm: {
+      defaultLlmProvider: providerRef,
+      providers: {
+        [providerRef]: providerEntry,
+      },
+    },
+  };
+}
 
 async function clearAiTeamDirectory(workspaceRoot: string, hooks?: InitRuntimeHooks) {
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
@@ -236,6 +295,8 @@ export async function initCommand(workspaceRoot: string, options: InitOptions, h
     if (apiKey && !reusedExistingLlm) {
       await saveEnvFile(workspaceRoot, { AI_TEAM_LLM_API_KEY: apiKey });
     }
+
+    await saveDeveloperConfig(workspaceRoot, buildDeveloperConfigFromInit(llmConfig));
     spinner.text = 'Saved LLM configuration';
 
     await updateWorkspaceSettings(workspaceRoot);

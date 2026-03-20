@@ -61,7 +61,7 @@ flowchart TD
 canRead(agent: Agent, filePath: string): AccessVerdict {
   return this.engine
     ? this.engine.evaluate(agent.id, 'read', filePath)
-    : this.legacyGlobCheck(agent, filePath);
+    : this.globCheck(agent, filePath);
 }
 ```
 

@@ -1,4 +1,5 @@
 import type { Agent, Skill } from '@ai-team/core';
+import { parseMarkdownSections, replaceOrAppendMarkdownSection } from '@ai-team/core';
 import {
   type SearchSkillsOptions,
   type SearchSkillsResponse,
@@ -7,6 +8,28 @@ import {
 } from '../contracts.js';
 import { createContainer, TOKENS } from '../container/index.js';
 import { resolveAgentForOperation } from '../utils/agent-resolution.js';
+
+const SKILLS_LINE_RE = /^\*\*Skills:\*\*.*$/gm;
+
+/**
+ * Sync the `**Skills:** id · id` line inside the "Scope of Responsibility"
+ * markdown section to match the given skill list.
+ * When `skills` is empty the line is removed entirely.
+ */
+function syncSkillsLineInMarkdown(markdown: string, skills: string[]): string {
+  const sections = parseMarkdownSections(markdown);
+  const scopeIdx = sections.findIndex(s => s.heading === 'Scope of Responsibility');
+  if (scopeIdx < 0 && skills.length === 0) return markdown;
+
+  const currentContent = scopeIdx >= 0 ? sections[scopeIdx].content : '';
+  const stripped = currentContent.replaceAll(SKILLS_LINE_RE, '').replaceAll(/\n{3,}/g, '\n\n').trimEnd();
+
+  const newContent = skills.length > 0
+    ? `${stripped}\n\n**Skills:** ${skills.join(' · ')}`
+    : stripped;
+
+  return replaceOrAppendMarkdownSection(markdown, 'Scope of Responsibility', newContent);
+}
 
 function toSkillEntry(skill: Skill) {
   return {
@@ -19,7 +42,7 @@ function toSkillEntry(skill: Skill) {
 }
 
 function filterSkills(skills: Skill[], query?: string): Skill[] {
-  if (!query || !query.trim()) {
+  if (!query?.trim()) {
     return skills;
   }
 
@@ -131,7 +154,10 @@ export async function addSkillCommand(
     : [...current];
 
   const updated = changed
-    ? await agentManager.updateAgent(agent.id, { specializations: nextSkills })
+    ? await agentManager.updateAgent(agent.id, {
+        specializations: nextSkills,
+        markdown: syncSkillsLineInMarkdown(agent.markdown ?? '', nextSkills),
+      })
     : agent;
 
   return {
@@ -163,7 +189,10 @@ export async function removeSkillCommand(
   const changed = nextSkills.length !== current.length;
 
   const updated = changed
-    ? await agentManager.updateAgent(agent.id, { specializations: nextSkills })
+    ? await agentManager.updateAgent(agent.id, {
+        specializations: nextSkills,
+        markdown: syncSkillsLineInMarkdown(agent.markdown ?? '', nextSkills),
+      })
     : agent;
 
   return {

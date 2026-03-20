@@ -24,7 +24,6 @@ const sampleAgent: Agent = {
   contextLevel: 'feature',
   status: 'available',
   pronouns: 'he/him',
-  timezone: 'Europe/Berlin',
   goal: 'Keep the web package maintainable as the UI surface grows.',
   backstory: 'Leads frontend architecture with a bias for dumb views and testable state seams.',
   markdown: '## About\n\nBuilds maintainable React features, keeps views dumb, and partners closely with Storybook quality workflows.',
@@ -150,14 +149,8 @@ export const Header: Story = {
   render: () => (
     <PortfolioHeader
       agent={sampleAgent}
-      isEditing={false}
-      saving={false}
-      onDraftNameChange={() => undefined}
-      onDraftRoleChange={() => undefined}
       onOpenChat={() => undefined}
-      onStartEdit={() => undefined}
-      onSave={() => undefined}
-      onCancel={() => undefined}
+      onSave={() => Promise.resolve()}
       onBack={() => undefined}
     />
   ),
@@ -169,36 +162,32 @@ export const IdentitySection: Story = {
       type={sampleAgent.type}
       contextLevel={sampleAgent.contextLevel}
       pronouns={sampleAgent.pronouns}
-      timezone={sampleAgent.timezone}
-      onTypeChange={() => undefined}
-      onContextLevelChange={() => undefined}
-      onPronounsChange={() => undefined}
-      onTimezoneChange={() => undefined}
+      onSave={() => Promise.resolve()}
     />
   ),
 };
 
 export const AboutSection: Story = {
-  render: () => <PortfolioAboutSection isEditing={false} markdown={sampleAgent.markdown} />, 
+  render: () => <PortfolioAboutSection markdown={sampleAgent.markdown} onSave={() => Promise.resolve()} />,
 };
 
 export const GoalBackstorySection: Story = {
-  render: () => <PortfolioGoalBackstorySection isEditing={false} goal={sampleAgent.goal} backstory={sampleAgent.backstory} />,
+  render: () => <PortfolioGoalBackstorySection goal={sampleAgent.goal} backstory={sampleAgent.backstory} onSave={() => Promise.resolve()} />,
 };
 
 export const PersonalitySection: Story = {
-  render: () => <PortfolioPersonalitySection isEditing={false} personality={sampleAgent.personality} />,
+  render: () => <PortfolioPersonalitySection agentId="story-agent" client={null as any} personality={sampleAgent.personality} onSave={() => Promise.resolve()} />,
 };
 
 export const HierarchySection: Story = {
   render: () => (
     <PortfolioHierarchySection
       agentId={sampleAgent.id}
-      isEditing={false}
       manager={manager}
       directReports={directReports}
       reportsTo={sampleAgent.reportsTo}
       selectableAgents={[manager, ...directReports, sampleAgent]}
+      onSave={() => Promise.resolve()}
     />
   ),
 };
@@ -206,15 +195,15 @@ export const HierarchySection: Story = {
 export const SkillsFeaturesSection: Story = {
   render: () => (
     <PortfolioSkillsFeaturesSection
-      isEditing={false}
       specializations={sampleAgent.specializations ?? []}
       features={sampleAgent.features ?? []}
+      onSave={() => Promise.resolve()}
     />
   ),
 };
 
 export const AgentSkillsSection: Story = {
-  render: () => <PortfolioAgentSkillsSection isEditing={false} skills={sampleAgentSkills} />, 
+  render: () => <PortfolioAgentSkillsSection skills={sampleAgentSkills} onSave={() => Promise.resolve()} />,
 };
 
 export const SkillAssignmentsSection: Story = {
@@ -230,7 +219,7 @@ export const SkillAssignmentsSection: Story = {
 };
 
 export const AgentCapabilitiesSection: Story = {
-  render: () => <PortfolioAgentCapabilitiesSection isEditing={false} capabilities={sampleCapabilities} />, 
+  render: () => <PortfolioAgentCapabilitiesSection capabilities={sampleCapabilities} onSave={() => Promise.resolve()} />,
 };
 
 export const ToolsPermissionsSection: Story = {
@@ -246,18 +235,16 @@ export const ToolsPermissionsSection: Story = {
 };
 
 export const CapabilitiesSection: Story = {
-  render: () => <PortfolioCapabilitiesSection isEditing={false} capabilities={sampleCapabilities} />, 
+  render: () => <PortfolioCapabilitiesSection capabilities={sampleCapabilities} onSave={() => Promise.resolve()} />,
 };
 
 export const LlmSection: Story = {
-  render: () => <PortfolioLlmSection llm={sampleLlm} />, 
+  render: () => <PortfolioLlmSection llm={sampleLlm} onSave={() => Promise.resolve()} />,
 };
 
 export const FileAccessSection: Story = {
   render: () => (
-    <PortfolioFileAccessSection>
-      <div className="text-muted">Storybook placeholder for file-tree content.</div>
-    </PortfolioFileAccessSection>
+    <PortfolioFileAccessSection agentId="story-agent" />
   ),
 };
 

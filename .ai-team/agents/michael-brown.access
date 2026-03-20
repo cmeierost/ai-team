@@ -1,17 +1,18 @@
-# Migrated from .agent.yml permissions
-[list]
-**
+# Managed by AI Team. Edit with care.
+# Section names map to permission modes: [read], [write], [create], [delete].
 
 [read]
 .ai-team/**/*
 .github/copilot-instructions.md
 AGENTS.md
-README.md
 docs/**/*
+README.md
+tools/export-md-pdf.mjs
+
 
 [write]
 .ai-team/**/*
 .ai-team/ai-team-way.md
-docs/**/*
-AGENTS.md
 .github/copilot-instructions.md
+AGENTS.md
+docs/**/*

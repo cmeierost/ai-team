@@ -74,8 +74,8 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, wri
         <span className="ft-summary-item ft-summary-write">
           <i className="codicon codicon-edit" /> {writeCount} writable
         </span>
-        {patternsOpen ? (
-          <details className="ft-patterns">
+        {patternsOpen || editMode ? (
+          <details className="ft-patterns" open>
             <summary>Patterns</summary>
             <div className="ft-pattern-list">
               {visiblePatternGroups.map((group) => (

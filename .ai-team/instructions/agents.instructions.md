@@ -45,10 +45,11 @@ If you need to edit ai-team runtime metadata, use the `.agent.yml` instruction f
 - Include collaboration patterns when they materially define the role, such as who this person consults, who they hand work to, and how they speak with teammates or developers.
 - Use clear sections such as:
   - who the agent is
-  - what to use the agent for
+  - **Scope of Responsibility** — what the agent owns and which skills it applies (replaces the old "Use This Agent For" heading); this section is the primary discovery surface for other agents and for the agent itself to know what to do
   - what files to read first
   - working rules
   - successful outcome
+- In the "Scope of Responsibility" section, list the responsibility areas AND the assigned skills (from `specializations` in the `.agent.yml`), so both humans and other agents can understand scope at a glance.
 - Prefer structured sections over long narrative sprawl.
 - Keep workflows that are procedural in skills, not buried inside the agent file.
 

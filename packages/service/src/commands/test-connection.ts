@@ -179,7 +179,7 @@ async function testAllConfiguredModels(
   env: Record<string, string>,
   providerFilter?: string,
 ): Promise<void> {
-  const registry = config.providers || config.llmProviders;
+  const registry = config.providers;
   if (!registry || Object.keys(registry).length === 0) {
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
   }
@@ -195,14 +195,14 @@ async function testAllConfiguredModels(
   const allTargets: { providerRef: string; modelKey: string; modelId: string }[] = [];
   for (const [providerRef, providerConfig] of providerEntries) {
     if (!providerConfig) continue;
-    const modelMap = providerConfig.models || {};
-    for (const [modelKey, modelId] of Object.entries(modelMap)) {
-      allTargets.push({ providerRef, modelKey, modelId });
+    const models = providerConfig.models || [];
+    for (const model of models) {
+      allTargets.push({ providerRef, modelKey: model.name, modelId: model.name });
     }
   }
 
   if (allTargets.length === 0) {
-    throw new Error('No models found in provider dictionaries. Run `ait provider models refresh` first.');
+    throw new Error('No models found in provider lists. Run `ait provider models refresh` first.');
   }
 
   let passed = 0;

@@ -1,8 +1,10 @@
 import {
   fetchGitHubModels,
-  fetchOpenAICompatibleModels,
+  loadDeveloperConfig,
+  fetchOpenAICompatibleModelsDetailed,
   loadEnvFile,
   loadTeamConfig,
+  saveDeveloperConfig,
   saveTeamConfig,
 } from '@ai-team/core';
 
@@ -10,24 +12,25 @@ import { ProviderListOptions, ProviderModelsOptions, RefreshProviderModelsOption
 
 export async function providerListCommand(workspaceRoot: string, options: ProviderListOptions = {}): Promise<void> {
   const config = await loadTeamConfig(workspaceRoot);
+  const developerConfig = await loadDeveloperConfig(workspaceRoot);
 
-  if (!config) {
+  if (!config && !developerConfig) {
     throw new Error('No LLM configured. Run ait init first.');
   }
 
-  const registry = config.providers || config.llmProviders;
+  const registry = developerConfig?.llm?.providers || config?.providers;
   if (!registry || Object.keys(registry).length === 0) {
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
   }
 
-  const defaultProviderRef = resolveProviderRef(registry, config.defaultLlmProvider);
+  const defaultProviderRef = resolveProviderRef(registry, developerConfig?.llm?.defaultLlmProvider || config?.defaultLlmProvider);
   const providerEntries = Object.entries(registry).map(([providerRef, providerConfig]) => ({
     providerRef,
     kind: providerConfig.kind,
     isDefault: providerRef === defaultProviderRef,
     baseUrl: providerConfig.kind === 'openai-compatible' ? providerConfig.baseUrl : undefined,
-    defaultModelKey: providerConfig.defaultModelKey,
-    modelsCount: Object.keys(providerConfig.models || {}).length,
+    defaultModel: providerConfig.defaultModel || providerConfig.model,
+    modelsCount: providerConfig.models?.length || 0,
   }));
 
   if (options.json) {
@@ -42,38 +45,38 @@ export async function providerListCommand(workspaceRoot: string, options: Provid
   for (const provider of providerEntries) {
     const marker = provider.isDefault ? '*' : ' ';
     const base = provider.baseUrl ? `, baseUrl=${provider.baseUrl}` : '';
-    const defaultModel = provider.defaultModelKey ? `, defaultModelKey=${provider.defaultModelKey}` : '';
+    const defaultModel = provider.defaultModel ? `, defaultModel=${provider.defaultModel}` : '';
     console.log(`${marker} ${provider.providerRef} (${provider.kind}, models=${provider.modelsCount}${defaultModel}${base})`);
   }
 }
 
 export async function providerModelsCommand(workspaceRoot: string, options: ProviderModelsOptions): Promise<void> {
   const config = await loadTeamConfig(workspaceRoot);
+  const developerConfig = await loadDeveloperConfig(workspaceRoot);
 
-  if (!config) {
+  if (!config && !developerConfig) {
     throw new Error('No LLM configured. Run ait init first.');
   }
 
-  const registry = config.providers || config.llmProviders;
+  const registry = developerConfig?.llm?.providers || config?.providers;
   if (!registry || Object.keys(registry).length === 0) {
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
   }
 
-  const defaultProviderRef = resolveProviderRef(registry, config.defaultLlmProvider);
+  const defaultProviderRef = resolveProviderRef(registry, developerConfig?.llm?.defaultLlmProvider || config?.defaultLlmProvider);
   const providerRefs = options.provider
-    ? [resolveProviderRef(registry, config.defaultLlmProvider, options.provider)]
+    ? [resolveProviderRef(registry, config?.defaultLlmProvider, options.provider)]
     : Object.keys(registry);
 
   const providerEntries = providerRefs.map(providerRef => {
     const providerConfig = registry[providerRef];
-    const defaultModelKey = providerConfig.defaultModelKey;
-    const models = providerConfig.models || {};
+    const models = providerConfig.models || [];
+    const defaultModel = providerConfig.defaultModel || providerConfig.model;
     return {
       providerRef,
       kind: providerConfig.kind,
       isDefault: providerRef === defaultProviderRef,
-      defaultModelKey,
-      defaultModel: defaultModelKey ? models[defaultModelKey] : undefined,
+      defaultModel,
       models,
     };
   });
@@ -84,7 +87,6 @@ export async function providerModelsCommand(workspaceRoot: string, options: Prov
       console.log(JSON.stringify({
         providerRef: provider.providerRef,
         kind: provider.kind,
-        defaultModelKey: provider.defaultModelKey,
         defaultModel: provider.defaultModel,
         models: provider.models,
       }, null, 2));
@@ -106,50 +108,64 @@ export async function providerModelsCommand(workspaceRoot: string, options: Prov
     console.log(`Provider: ${provider.providerRef}${provider.isDefault ? ' (default)' : ''}`);
     console.log(`Kind: ${provider.kind}`);
 
-    const modelEntries = Object.entries(provider.models);
+    const modelEntries = provider.models.map((m) => m.name);
     if (modelEntries.length === 0) {
-      console.log('No model dictionary found for this provider.');
+      console.log('No model list found for this provider.');
       console.log('Run `ait provider models refresh --provider <providerRef>` to fetch and persist available models.');
       continue;
     }
 
-    if (provider.defaultModelKey && provider.defaultModel) {
-      console.log(`Default: ${provider.defaultModelKey} -> ${provider.defaultModel}`);
+    if (provider.defaultModel) {
+      console.log(`Default: ${provider.defaultModel}`);
     }
 
     console.log('Models:');
-    for (const [modelKey, modelId] of modelEntries) {
-      const marker = modelKey === provider.defaultModelKey ? '*' : ' ';
-      console.log(`${marker} ${modelKey} -> ${modelId}`);
+    for (const modelName of modelEntries) {
+      const marker = modelName === provider.defaultModel ? '*' : ' ';
+      console.log(`${marker} ${modelName}`);
     }
   }
 }
 
 export async function providerModelsRefreshCommand(workspaceRoot: string, options: RefreshProviderModelsOptions): Promise<void> {
   const config = await loadTeamConfig(workspaceRoot);
+  const developerConfig = await loadDeveloperConfig(workspaceRoot);
 
-  if (!config) {
+  if (!config && !developerConfig) {
     throw new Error('No LLM configured. Run ait init first.');
   }
 
-  const registry = { ...(config.providers || config.llmProviders || {}) };
+  const registrySource = developerConfig?.llm?.providers || config?.providers;
+  const registry = registrySource ? { ...registrySource } : {};
   if (Object.keys(registry).length === 0) {
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
   }
 
   let providerRef: string;
   try {
-    providerRef = resolveProviderRef(registry, config.defaultLlmProvider, options.provider);
+    providerRef = resolveProviderRef(registry, developerConfig?.llm?.defaultLlmProvider || config?.defaultLlmProvider, options.provider);
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : 'Invalid provider reference.');
   }
   const providerConfig = registry[providerRef];
 
-  let modelIds: string[] = [];
+  let models: Array<{
+    name: string;
+    contextWindow?: number;
+    maxPromptTokens?: number;
+    maxContextWindowTokens?: number;
+    maxOutputTokens?: number;
+  }> = [];
 
   if (providerConfig.kind === 'github-copilot') {
-    const models = await fetchGitHubModels();
-    modelIds = models.map(model => model.id);
+    const discovered = await fetchGitHubModels();
+    models = discovered.map(model => ({
+      name: model.id,
+      contextWindow: model.contextWindow,
+      maxPromptTokens: model.maxPromptTokens,
+      maxContextWindowTokens: model.maxContextWindowTokens,
+      maxOutputTokens: model.maxOutputTokens,
+    }));
   } else if (providerConfig.kind === 'openai-compatible') {
     if (!providerConfig.baseUrl) {
       throw new Error(`Provider '${providerRef}' is openai-compatible but has no baseUrl.`);
@@ -158,33 +174,44 @@ export async function providerModelsRefreshCommand(workspaceRoot: string, option
     const env = await loadEnvFile(workspaceRoot);
     const apiKeyName = providerConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
     const apiKey = env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
-    modelIds = await fetchOpenAICompatibleModels(providerConfig.baseUrl, apiKey);
+    const discovered = await fetchOpenAICompatibleModelsDetailed(providerConfig.baseUrl, apiKey);
+    models = discovered.map(model => ({
+      name: model.id,
+      contextWindow: model.contextWindow,
+      maxPromptTokens: model.maxPromptTokens,
+      maxContextWindowTokens: model.maxContextWindowTokens,
+      maxOutputTokens: model.maxOutputTokens,
+    }));
   }
 
-  if (modelIds.length === 0) {
+  if (models.length === 0) {
     throw new Error('No models returned from provider endpoint.');
   }
 
-  const models = buildModelDictionary(modelIds);
-  let defaultModelKey = providerConfig.defaultModelKey;
-  if (!defaultModelKey || !models[defaultModelKey]) {
-    defaultModelKey = Object.keys(models)[0];
-  }
+  models = buildModelsList(models);
+  const defaultModel = providerConfig.defaultModel && models.some((m) => m.name === providerConfig.defaultModel)
+    ? providerConfig.defaultModel
+    : models[0]?.name;
 
   registry[providerRef] = {
     ...providerConfig,
     models,
-    defaultModelKey,
+    defaultModel,
   };
 
-  const nextConfig = {
-    ...config,
-    providers: registry,
-    llmProviders: registry,
-    defaultLlmProvider: providerRef,
-  };
+  if (config) {
+    const nextConfig = {
+      ...config,
+      providers: registry,
+      defaultLlmProvider: providerRef,
+    };
+    await saveTeamConfig(workspaceRoot, nextConfig);
+  }
 
-  await saveTeamConfig(workspaceRoot, nextConfig);
+  const llmPatch = developerConfig?.llm ? { ...developerConfig.llm } : {};
+  llmPatch.providers = registry;
+  llmPatch.defaultLlmProvider = providerRef;
+  await saveDeveloperConfig(workspaceRoot, { llm: llmPatch });
 }
 
 function resolveProviderRef(
@@ -212,27 +239,34 @@ function resolveProviderRef(
   return Object.keys(registry)[0];
 }
 
-function buildModelDictionary(modelIds: string[]): Record<string, string> {
-  const dictionary: Record<string, string> = {};
+function buildModelsList(models: Array<{
+  name: string;
+  contextWindow?: number;
+  maxPromptTokens?: number;
+  maxContextWindowTokens?: number;
+  maxOutputTokens?: number;
+}>): Array<{
+  name: string;
+  contextWindow?: number;
+  maxPromptTokens?: number;
+  maxContextWindowTokens?: number;
+  maxOutputTokens?: number;
+}> {
+  const seen = new Set<string>();
+  const result: Array<{
+    name: string;
+    contextWindow?: number;
+    maxPromptTokens?: number;
+    maxContextWindowTokens?: number;
+    maxOutputTokens?: number;
+  }> = [];
 
-  for (const modelId of modelIds) {
-    const baseKey = toModelKey(modelId);
-    let key = baseKey;
-    let counter = 2;
-    while (dictionary[key]) {
-      key = `${baseKey}-${counter}`;
-      counter += 1;
-    }
-    dictionary[key] = modelId;
+  for (const model of models) {
+    const modelId = model.name;
+    if (seen.has(modelId)) continue;
+    seen.add(modelId);
+    result.push(model);
   }
 
-  return dictionary;
-}
-
-function toModelKey(modelId: string): string {
-  return modelId
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    || 'model';
+  return result;
 }

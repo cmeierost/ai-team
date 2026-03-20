@@ -29,6 +29,25 @@ export type { ChatCompletionMessageParam };
 const GITHUB_COPILOT_API_URL = 'https://api.individual.githubcopilot.com';
 const GITHUB_COPILOT_MODELS_URL = 'https://api.individual.githubcopilot.com/models';
 const DEFAULT_COPILOT_MODEL = 'gpt-4o';
+const COPILOT_MODEL_FALLBACK: Array<{
+  id: string;
+  name: string;
+  contextWindow?: number;
+  maxPromptTokens?: number;
+  maxContextWindowTokens?: number;
+  maxOutputTokens?: number;
+}> = [
+  { id: 'gpt-4o', name: 'GPT-4o', contextWindow: 68_000, maxPromptTokens: 68_000 },
+  { id: 'gpt-4o-mini', name: 'GPT-4o mini', contextWindow: 68_000, maxPromptTokens: 68_000 },
+  { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', contextWindow: 128_000, maxPromptTokens: 128_000 },
+  { id: 'claude-3.7-sonnet', name: 'Claude 3.7 Sonnet', contextWindow: 128_000, maxPromptTokens: 128_000 },
+  { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', contextWindow: 144_000, maxPromptTokens: 144_000 },
+  { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6', contextWindow: 160_000, maxPromptTokens: 160_000 },
+  { id: 'o1', name: 'o1', contextWindow: 128_000, maxPromptTokens: 128_000 },
+  { id: 'o1-mini', name: 'o1-mini', contextWindow: 128_000, maxPromptTokens: 128_000 },
+  { id: 'o3-mini', name: 'o3-mini', contextWindow: 128_000, maxPromptTokens: 128_000 },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', contextWindow: 173_000, maxPromptTokens: 173_000 },
+].sort((a, b) => a.name.localeCompare(b.name));
 const GITHUB_TOKEN_TIMEOUT_MS = 15_000;
 const MODEL_FETCH_TIMEOUT_MS = 15_000;
 const TEST_CONNECTION_TIMEOUT_MS = 20_000;
@@ -942,6 +961,7 @@ export interface ResolvedLlmSettings {
   options: LlmChatOptions;
   providerRef?: string;
   apiKeyEnvVar?: string;
+  contextWindow?: number;
 }
 
 const llmProviderAdapters = new Map<string, LlmProviderAdapter>();
@@ -1018,6 +1038,44 @@ function profileToOptions(params?: LlmGenerationParams): LlmChatOptions {
   };
 }
 
+function getProviderModels(
+  provider: {
+    models?: Array<{ name: string; contextWindow?: number }>;
+  } | undefined,
+): Array<{ name: string; contextWindow?: number }> {
+  if (!provider) return [];
+
+  const out: Array<{ name: string; contextWindow?: number }> = [];
+  const seen = new Set<string>();
+
+  for (const model of provider.models ?? []) {
+    if (!model?.name || seen.has(model.name)) continue;
+    seen.add(model.name);
+    out.push({ name: model.name, contextWindow: model.contextWindow });
+  }
+
+  return out;
+}
+
+function resolveProviderDefaultModel(
+  provider:
+    | {
+      model?: string;
+      defaultModel?: string;
+      models?: Array<{ name: string; contextWindow?: number }>;
+    }
+    | undefined,
+): string | undefined {
+  if (!provider) return undefined;
+
+  const byName = provider.defaultModel;
+  if (byName) return byName;
+
+  if (provider.model) return provider.model;
+
+  return getProviderModels(provider)[0]?.name;
+}
+
 function applyProfile(
   config: LlmConfig,
   profile: { provider?: string; modelKey?: string; model?: string; baseUrl?: string; params?: LlmGenerationParams } | undefined,
@@ -1037,12 +1095,9 @@ function applyProfile(
     if (providerFromRegistry) {
       providerRef = profile.provider;
       apiKeyEnvVar = providerFromRegistry.apiKeyEnvVar;
-      const defaultModelFromKey = providerFromRegistry.defaultModelKey
-        ? providerFromRegistry.models?.[providerFromRegistry.defaultModelKey]
-        : undefined;
       nextConfig = {
         provider: providerFromRegistry.kind,
-        model: defaultModelFromKey || providerFromRegistry.model,
+        model: resolveProviderDefaultModel(providerFromRegistry),
         baseUrl: providerFromRegistry.baseUrl,
         params: providerFromRegistry.params,
       };
@@ -1052,13 +1107,33 @@ function applyProfile(
   }
 
   if (profile.modelKey !== undefined) {
-    const selectedProviderRef = providerRef || findDefaultProviderRef(teamConfig);
-    const selectedProvider = selectedProviderRef ? registry?.[selectedProviderRef] : undefined;
-    const resolvedModel = selectedProvider?.models?.[profile.modelKey];
-    if (!resolvedModel) {
-      throw new Error(`Model key '${profile.modelKey}' was not found in provider '${selectedProviderRef || 'default'}' models dictionary.`);
+    const modelKeyEntry = teamConfig?.modelKeys?.[profile.modelKey];
+    const mappedProviderRef = modelKeyEntry?.provider;
+    const mappedProvider = mappedProviderRef ? registry?.[mappedProviderRef] : undefined;
+    const explicitProviderMatchesMapping = !providerRef || providerRef === mappedProviderRef;
+
+    if (modelKeyEntry && mappedProvider && explicitProviderMatchesMapping) {
+      providerRef = mappedProviderRef;
+      apiKeyEnvVar = mappedProvider.apiKeyEnvVar;
+      nextConfig = {
+        provider: mappedProvider.kind,
+        model: modelKeyEntry.model,
+        baseUrl: mappedProvider.baseUrl,
+        params: mappedProvider.params,
+      };
+    } else {
+      const selectedProviderRef = providerRef || findDefaultProviderRef(teamConfig);
+      const selectedProvider = selectedProviderRef ? registry?.[selectedProviderRef] : undefined;
+      const resolvedModel = getProviderModels(selectedProvider).find((m) => m.name === profile.modelKey)?.name;
+      if (resolvedModel) {
+        nextConfig.model = resolvedModel;
+      } else {
+        const fallbackModel = resolveProviderDefaultModel(selectedProvider);
+        if (fallbackModel) {
+          nextConfig.model = fallbackModel;
+        }
+      }
     }
-    nextConfig.model = resolvedModel;
   }
 
   if (profile.model !== undefined) {
@@ -1075,7 +1150,30 @@ function applyProfile(
 }
 
 function getProviderRegistry(teamConfig?: TeamConfig) {
-  return teamConfig?.providers || teamConfig?.llmProviders;
+  return teamConfig?.providers;
+}
+
+function findModelKeyForModel(
+  provider: { models?: Array<{ name: string; contextWindow?: number }> } | undefined,
+  modelId: string,
+): string | undefined {
+  if (!provider?.models) return undefined;
+  return provider.models.find((m) => m.name === modelId)?.name;
+}
+
+export function getEffectiveContextWindow(
+  providerConfig: {
+    contextWindow?: number;
+    models?: Array<{ name: string; contextWindow?: number }>;
+  } | undefined,
+  modelKey?: string,
+): number | undefined {
+  if (!providerConfig) return undefined;
+  if (modelKey) {
+    const arrayModelContext = providerConfig.models?.find((m) => m.name === modelKey)?.contextWindow;
+    if (arrayModelContext !== undefined) return arrayModelContext;
+  }
+  return providerConfig.contextWindow;
 }
 
 function findDefaultProviderRef(teamConfig?: TeamConfig): string | undefined {
@@ -1112,12 +1210,9 @@ export function resolveEffectiveLlmSettings(
     const providerConfig = registry[defaultProviderRef];
     providerRef = defaultProviderRef;
     apiKeyEnvVar = providerConfig.apiKeyEnvVar;
-    const defaultModelFromKey = providerConfig.defaultModelKey
-      ? providerConfig.models?.[providerConfig.defaultModelKey]
-      : undefined;
     baseConfig = {
       provider: providerConfig.kind,
-      model: defaultModelFromKey || providerConfig.model,
+      model: resolveProviderDefaultModel(providerConfig),
       baseUrl: providerConfig.baseUrl,
       params: providerConfig.params,
     };
@@ -1149,12 +1244,28 @@ export function resolveEffectiveLlmSettings(
     ...(runtimeOverrides || {}),
   };
 
+  const finalProvider = providerRef ? registry?.[providerRef] : undefined;
+  const effectiveModelKey = findModelKeyForModel(finalProvider, merged.config.model || '');
+  const contextWindow = getEffectiveContextWindow(finalProvider, effectiveModelKey);
+
   return {
     config: merged.config,
     options,
     providerRef,
     apiKeyEnvVar,
+    contextWindow,
   };
+}
+
+export function resolveSystemLlmSettings(
+  teamConfig: TeamConfig,
+  purposeKey: string,
+): ResolvedLlmSettings {
+  const profile = teamConfig.systemModels?.[purposeKey];
+  const agent = profile
+    ? { llm: { provider: profile.provider, modelKey: profile.modelKey } }
+    : undefined;
+  return resolveEffectiveLlmSettings(teamConfig, agent as any);
 }
 
 /**
@@ -1574,12 +1685,51 @@ interface CopilotModel {
   capabilities: {
     family: string;
     type: string;
+    limits?: {
+      max_context_window_tokens?: number;
+      max_prompt_tokens?: number;
+      max_output_tokens?: number;
+    };
   };
 }
 
 interface OpenAiCompatibleModel {
   id: string;
   object?: string;
+  context_window?: number;
+  input_token_limit?: number;
+  output_token_limit?: number;
+  max_context_window_tokens?: number;
+  max_prompt_tokens?: number;
+  max_output_tokens?: number;
+  capabilities?: {
+    limits?: {
+      max_context_window_tokens?: number;
+      max_prompt_tokens?: number;
+      max_output_tokens?: number;
+    };
+  };
+  context_length?: number;
+  max_input_tokens?: number;
+  max_tokens?: number;
+  max_completion_tokens?: number;
+  token_limits?: {
+    context_window?: number;
+    max_context_window_tokens?: number;
+    max_prompt_tokens?: number;
+    max_output_tokens?: number;
+    max_input_tokens?: number;
+    max_completion_tokens?: number;
+  };
+}
+
+export interface DiscoveredProviderModel {
+  id: string;
+  name: string;
+  contextWindow?: number;
+  maxPromptTokens?: number;
+  maxContextWindowTokens?: number;
+  maxOutputTokens?: number;
 }
 
 /**
@@ -1587,14 +1737,20 @@ interface OpenAiCompatibleModel {
  *
  * Uses `GET https://api.individual.githubcopilot.com/models` which returns
  * the same models shown in the VS Code Copilot model picker.
- * Deduplicates by family (e.g. multiple gpt-4o versions → one entry).
  *
  * @returns Array of `{ id, name }` sorted by name.
  *          Returns an empty array on any network / auth error so callers can
  *          fall back to a hardcoded list.
  */
 export async function fetchGitHubModels(): Promise<
-  { id: string; name: string }[]
+  {
+    id: string;
+    name: string;
+    contextWindow?: number;
+    maxPromptTokens?: number;
+    maxContextWindowTokens?: number;
+    maxOutputTokens?: number;
+  }[]
 > {
   try {
     const token = getGitHubToken();
@@ -1607,28 +1763,48 @@ export async function fetchGitHubModels(): Promise<
       },
       signal: controller.signal,
     }).finally(() => clearTimeout(timer));
-    if (!res.ok) return [];
+    if (!res.ok) return COPILOT_MODEL_FALLBACK;
 
     const body = await res.json() as { data: CopilotModel[] };
     const models = body.data || [];
 
-    // Keep only chat models, deduplicate by family (keep shortest id per family)
-    const familyMap = new Map<string, { id: string; name: string }>();
+    // Keep chat models and preserve variants so UI can expose the full picker.
+    const unique = new Map<string, {
+      id: string;
+      name: string;
+      contextWindow?: number;
+      maxPromptTokens?: number;
+      maxContextWindowTokens?: number;
+      maxOutputTokens?: number;
+    }>();
     for (const m of models) {
       if (m.capabilities?.type !== 'chat') continue;
       // Skip internal/auto models
       if (m.capabilities.family.startsWith('goldeneye')) continue;
 
-      const existing = familyMap.get(m.capabilities.family);
-      if (!existing || m.id.length < existing.id.length) {
-        familyMap.set(m.capabilities.family, { id: m.id, name: m.name });
+      const maxPromptTokens = m.capabilities?.limits?.max_prompt_tokens;
+      const maxContextWindowTokens = m.capabilities?.limits?.max_context_window_tokens;
+      const maxOutputTokens = m.capabilities?.limits?.max_output_tokens;
+      const contextWindow = maxPromptTokens ?? maxContextWindowTokens;
+
+      if (!unique.has(m.id)) {
+        unique.set(m.id, {
+          id: m.id,
+          name: m.name,
+          contextWindow,
+          maxPromptTokens,
+          maxContextWindowTokens,
+          maxOutputTokens,
+        });
       }
     }
 
-    return [...familyMap.values()]
+    const resolved = [...unique.values()]
       .sort((a, b) => a.name.localeCompare(b.name));
+
+    return resolved.length > 0 ? resolved : COPILOT_MODEL_FALLBACK;
   } catch {
-    return [];
+    return COPILOT_MODEL_FALLBACK;
   }
 }
 
@@ -1642,8 +1818,29 @@ export async function fetchOpenAICompatibleModels(
   baseUrl: string,
   apiKey?: string,
 ): Promise<string[]> {
+  const detailed = await fetchOpenAICompatibleModelsDetailed(baseUrl, apiKey);
+  return detailed.map((m) => m.id);
+}
+
+/**
+ * Fetch available models and best-effort limit metadata from an OpenAI-compatible endpoint.
+ *
+ * This function primarily calls `GET {baseUrl}/models`. Some providers include
+ * token limits in list responses; for providers that don't, it optionally tries
+ * `GET {baseUrl}/models/{id}` for a subset of chat-oriented models.
+ */
+export async function fetchOpenAICompatibleModelsDetailed(
+  baseUrl: string,
+  apiKey?: string,
+): Promise<DiscoveredProviderModel[]> {
   const normalized = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-  const url = `${normalized}/models`;
+
+  const stripped = normalized
+    .replace(/\/?chat\/completions$/i, '')
+    .replace(/\/?responses$/i, '')
+    .replace(/\/?completions$/i, '');
+
+  const endpointCandidates = getOpenAiModelsEndpointCandidates(stripped);
 
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -1653,31 +1850,189 @@ export async function fetchOpenAICompatibleModels(
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), MODEL_FETCH_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      return [];
+  const tryExtractModel = (model: OpenAiCompatibleModel): DiscoveredProviderModel | undefined => {
+    if (typeof model.id !== 'string' || model.id.trim().length === 0) {
+      return undefined;
     }
 
-    const body = await res.json() as { data?: OpenAiCompatibleModel[] };
-    const ids = (body.data || [])
-      .map(model => (typeof model.id === 'string' ? model.id.trim() : ''))
-      .filter((id): id is string => id.length > 0);
+    const id = model.id.trim();
+    const extracted = extractOpenAiLimitMetadata(model);
 
-    return [...new Set(ids)].sort((a, b) => a.localeCompare(b));
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
+    return {
+      id,
+      name: id,
+      contextWindow: extracted.contextWindow,
+      maxPromptTokens: extracted.maxPromptTokens,
+      maxContextWindowTokens: extracted.maxContextWindowTokens,
+      maxOutputTokens: extracted.maxOutputTokens,
+    };
+  };
+
+  for (const url of endpointCandidates) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), MODEL_FETCH_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        continue;
+      }
+
+      const body = await res.json() as { data?: OpenAiCompatibleModel[] };
+      const listed = (body.data || [])
+        .map((model) => tryExtractModel(model))
+        .filter((model): model is DiscoveredProviderModel => Boolean(model));
+
+      if (listed.length > 0) {
+        const enriched = await enrichOpenAiModelLimits(url, listed, headers);
+        return [...enriched].sort((a, b) => a.name.localeCompare(b.name));
+      }
+    } catch {
+      // try next candidate endpoint
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  return [];
+}
+
+function toPositiveInt(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+  const normalized = Math.trunc(value);
+  return normalized > 0 ? normalized : undefined;
+}
+
+function getOpenAiModelsEndpointCandidates(strippedBaseUrl: string): string[] {
+  const endpointCandidates: string[] = [];
+  const pushCandidate = (url: string) => {
+    if (!endpointCandidates.includes(url)) {
+      endpointCandidates.push(url);
+    }
+  };
+
+  pushCandidate(`${strippedBaseUrl}/models`);
+
+  try {
+    const parsed = new URL(strippedBaseUrl);
+    pushCandidate(`${parsed.origin}/v1/models`);
+    pushCandidate(`${parsed.origin}/models`);
+  } catch {
+    // ignore invalid URL parsing here; fetch attempts below will fail safely
+  }
+
+  return endpointCandidates;
+}
+
+async function enrichOpenAiModelLimits(
+  listEndpoint: string,
+  listedModels: DiscoveredProviderModel[],
+  headers: Record<string, string>,
+): Promise<DiscoveredProviderModel[]> {
+  const withLimits = listedModels.filter((m) => m.maxPromptTokens || m.maxContextWindowTokens || m.maxOutputTokens);
+  if (withLimits.length > 0) {
+    return listedModels;
+  }
+
+  const detailCandidates = listedModels
+    .filter((m) => /^(gpt|o\d|chatgpt)/i.test(m.id))
+    .slice(0, 30);
+
+  if (detailCandidates.length === 0) {
+    return listedModels;
+  }
+
+  const base = listEndpoint.endsWith('/models') ? listEndpoint : `${listEndpoint.replace(/\/$/, '')}/models`;
+  const out = new Map(listedModels.map((m) => [m.id, { ...m }]));
+
+  await Promise.all(detailCandidates.map(async (model) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.min(MODEL_FETCH_TIMEOUT_MS, 5_000));
+    try {
+      const response = await fetch(`${base}/${encodeURIComponent(model.id)}`, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        return;
+      }
+
+      const details = await response.json() as OpenAiCompatibleModel;
+      const extracted = extractOpenAiLimitMetadata(details);
+      const maxPromptTokens = extracted.maxPromptTokens;
+      const maxContextWindowTokens = extracted.maxContextWindowTokens;
+      const maxOutputTokens = extracted.maxOutputTokens;
+
+      if (!maxPromptTokens && !maxContextWindowTokens && !maxOutputTokens) {
+        return;
+      }
+
+      out.set(model.id, {
+        ...model,
+        contextWindow: extracted.contextWindow ?? model.contextWindow,
+        maxPromptTokens: maxPromptTokens ?? model.maxPromptTokens,
+        maxContextWindowTokens: maxContextWindowTokens ?? model.maxContextWindowTokens,
+        maxOutputTokens: maxOutputTokens ?? model.maxOutputTokens,
+      });
+    } catch {
+      // best-effort only
+    } finally {
+      clearTimeout(timer);
+    }
+  }));
+
+  return [...out.values()];
+}
+
+function extractOpenAiLimitMetadata(model: OpenAiCompatibleModel): {
+  contextWindow?: number;
+  maxPromptTokens?: number;
+  maxContextWindowTokens?: number;
+  maxOutputTokens?: number;
+} {
+  const modelRecord = model as unknown as Record<string, unknown>;
+  const tokenLimits = (modelRecord.token_limits as Record<string, unknown> | undefined);
+  const capabilities = (modelRecord.capabilities as Record<string, unknown> | undefined);
+  const capabilitiesLimits = (capabilities?.limits as Record<string, unknown> | undefined);
+
+  const maxPromptTokens =
+    toPositiveInt(modelRecord.max_prompt_tokens)
+    ?? toPositiveInt(modelRecord.input_token_limit)
+    ?? toPositiveInt(modelRecord.max_input_tokens)
+    ?? toPositiveInt(tokenLimits?.max_prompt_tokens)
+    ?? toPositiveInt(tokenLimits?.max_input_tokens)
+    ?? toPositiveInt(capabilitiesLimits?.max_prompt_tokens);
+
+  const maxContextWindowTokens =
+    toPositiveInt(modelRecord.max_context_window_tokens)
+    ?? toPositiveInt(modelRecord.context_window)
+    ?? toPositiveInt(modelRecord.context_length)
+    ?? toPositiveInt(tokenLimits?.max_context_window_tokens)
+    ?? toPositiveInt(tokenLimits?.context_window)
+    ?? toPositiveInt(capabilitiesLimits?.max_context_window_tokens);
+
+  const maxOutputTokens =
+    toPositiveInt(modelRecord.max_output_tokens)
+    ?? toPositiveInt(modelRecord.output_token_limit)
+    ?? toPositiveInt(modelRecord.max_completion_tokens)
+    ?? toPositiveInt(tokenLimits?.max_output_tokens)
+    ?? toPositiveInt(tokenLimits?.max_completion_tokens)
+    ?? toPositiveInt(capabilitiesLimits?.max_output_tokens);
+
+  return {
+    contextWindow: maxPromptTokens ?? maxContextWindowTokens,
+    maxPromptTokens,
+    maxContextWindowTokens,
+    maxOutputTokens,
+  };
 }
 
 // ============================================================================

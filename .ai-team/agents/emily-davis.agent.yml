@@ -5,11 +5,9 @@ type: executive
 contextLevel: organization
 reportsTo: michael-brown
 specializations:
-  - agent-architecture
-  - agent-shaping
-  - org-design
-  - role-definition
-  - copilot-customization
+  - agent-authoring
+  - agent-shaper
+  - workspace-bootstrap-architect
 avatar:
   type: url
   url: .ai-team/avatars/emily-davis.jpg

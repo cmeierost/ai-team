@@ -303,9 +303,9 @@ To add new fields or tables:
 4. Test migration on copy of production data
 5. Deploy - migrations auto-apply on next `initialize()`
 
-### Backward Compatibility
+### Migration Strategy
 
-- Current design supports only forward migrations
+- Current design uses forward migrations
 - For production use, consider adding:
   - Migration rollback command (`db:rollback`)
   - Data transformation migrations (not just DDL)

@@ -80,7 +80,6 @@ function buildSearchCollections(agent: Agent, reportsToName?: string) {
     agent.markdown ?? '',
     agent.status ?? '',
     agent.pronouns ?? '',
-    agent.timezone ?? '',
     agent.workHours ?? '',
     agent.personality?.communication_style ?? '',
     agent.personality?.expertise_level ?? '',

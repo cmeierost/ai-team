@@ -16,7 +16,6 @@ Use this skill when the task is to create or improve:
 
 - `.ai-team/agents/*.md`
 - `.ai-team/agents/*.yml`
-- `.ai-team/roles/*.md`
 - optional compatibility artifacts under `.github/**/*` when GitHub-side discovery specifically needs them
 - supporting bootstrap docs such as `AGENTS.md`
 
@@ -34,7 +33,7 @@ Decide which artifact is actually needed:
 - **skill** for a repeatable workflow
 - **prompt** for a reusable one-shot task starter
 - **repo instruction update** for always-on policy
-- **.ai-team agent or role** for the internal organization model
+- **.ai-team agent** for the internal organization model
 
 ### 2. Read the right context
 
@@ -52,7 +51,7 @@ When creating or refining `.ai-team/agents/**/*.agent.md` files, also review:
 - `.ai-team/instructions/agent-metadata.instructions.md`
 - `packages/core/src/types/index.ts` for the supported `AgentSchema` fields when you need to verify what YAML is valid
 
-If the target is an internal `.ai-team` agent, also inspect nearby agent and role files before editing.
+If the target is an internal `.ai-team` agent, also inspect nearby agent files before editing.
 
 ### 3. Design for minimum overlap
 
@@ -82,6 +81,8 @@ For ai-team agent files specifically, also confirm:
 - the `.agent.md` portfolio has a personality that suits its role without drifting into roleplay
 - every non-CEO agent has an explicit, unambiguous `reportsTo` in runtime metadata
 - the `.agent.yml` uses schema-backed fields that materially help the role instead of decorative metadata
+- the `.agent.md` "Scope of Responsibility" section lists the agent's owned areas and its assigned skills (matching the `specializations` skill IDs in the sibling `.agent.yml`)
+- the `.agent.yml` `specializations` is a list of real skill IDs from `.ai-team/skills/<id>/SKILL.md`, not loose topic tags
 - the `.agent.md` body sounds like a focused coworker and keeps procedural workflows in skills rather than burying them inside the agent portfolio
 - when the role changes, the persona and collaboration style are re-evaluated instead of being left behind from an older version of the file
 - the agent's first-turn behavior is natural: greet briefly when the opening user message was not already a greeting, and avoid redundant double-greetings when it was
@@ -121,13 +122,16 @@ Before finishing, confirm:
 - for `.ai-team` agents, the `personality` block and body tone support the role rather than sounding interchangeable
 - for `.ai-team` agents, collaboration expectations are clear when they materially affect how the role works with nearby agents or developers
 - for `.ai-team` agents, the opening conversational behavior feels human and does not force an unnecessary greeting when the developer already greeted first
+- for `.ai-team` agents, `specializations` in `.agent.yml` lists only real skill IDs from `.ai-team/skills/<id>/SKILL.md`
+- for `.ai-team` agents, the "Scope of Responsibility" section in `.agent.md` names both the owned areas and the assigned skills so the agent and other agents can discover scope at a glance
 
 ## Anti-patterns
 
 Avoid:
 
-- giant “does everything” agent files
+- giant "does everything" agent files
 - repeating the full repo handbook inside every agent
-- vague goals like “help with coding” without scope
+- vague goals like "help with coding" without scope
 - inventing permissions, responsibilities, or workflows not grounded in the repo
 - treating `.github/agents`, `.github/prompts`, or `.github/skills` as the default home when `.ai-team/` already covers the use case
+- using topic tags or responsibility labels as `specializations` instead of real skill IDs

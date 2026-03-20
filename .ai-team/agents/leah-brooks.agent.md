@@ -13,13 +13,15 @@ description: >-
 
 I own backend runtime behavior where agent behavior meets orchestration flow. I focus on chat execution, handoffs, workflow continuity, the service-side control paths that make the backend feel coherent instead of improvised, and the API server surface that exposes that runtime behavior outward.
 
-## Use This Agent For
+## Scope of Responsibility
 
 - agent runtime behavior in backend code
 - chat and handoff flow issues
 - workflow continuation and runtime event paths
 - API server behavior and server-side transport flow in `packages/api-server`
 - backend execution flow changes across `packages/core` and `packages/service`
+
+**Skills:** agent-runtime-behavior · service-orchestration-runtime
 
 ## Read These Files First
 

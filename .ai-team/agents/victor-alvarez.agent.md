@@ -13,7 +13,7 @@ description: >-
 
 I own the intelligent backend surfaces: provider integration, model behavior, code-aware analysis, and structured editing systems. I focus on making the backend smart without making it unpredictable.
 
-## Use This Agent For
+## Scope of Responsibility
 
 - GitHub Copilot and OpenAI-compatible provider integration
 - model discovery and connection behavior
@@ -21,6 +21,8 @@ I own the intelligent backend surfaces: provider integration, model behavior, co
 - code intelligence, AST analysis, and tree-sitter-backed capabilities
 - structured diff and edit proposal behavior
 - backend intelligence features that cross provider and code-aware systems
+
+**Skills:** llm-provider-integration · code-intelligence-and-editing
 
 ## Read These Files First
 

@@ -87,6 +87,16 @@ export const LlmGenerationParamsSchema = z.object({
   stop: z.array(z.string()).max(8).optional(),
 });
 
+export const ProviderModelSchema = z.object({
+  name: z.string().min(1),
+  contextWindow: z.number().int().positive().optional(),
+  maxPromptTokens: z.number().int().positive().optional(),
+  maxContextWindowTokens: z.number().int().positive().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+});
+
+export type ProviderModel = z.infer<typeof ProviderModelSchema>;
+
 export const LlmProfileSchema = z.object({
   provider: z.string().min(1).optional(),
   modelKey: z.string().min(1).optional(),
@@ -99,13 +109,87 @@ export const LlmProviderConfigSchema = z.object({
   kind: LlmProviderSchema,
   isDefault: z.boolean().optional(),
   model: z.string().optional(),
-  defaultModelKey: z.string().min(1).optional(),
-  models: z.record(z.string(), z.string()).optional(),
+  defaultModel: z.string().min(1).optional(),
+  models: z.array(ProviderModelSchema).optional(),
   imageModels: z.record(z.string(), z.string()).optional(),
   baseUrl: z.string().url().optional(),
   apiKeyEnvVar: z.string().min(1).optional(),
   params: LlmGenerationParamsSchema.optional(),
+  contextWindow: z.number().int().positive().optional(),
 });
+
+/**
+ * Clean provider connection definition stored in config.developer.json (personal, git-ignored).
+ * Contains only connection info — no model key assignments.
+ */
+export const ProviderConfigSchema = z.object({
+  kind: LlmProviderSchema,
+  isDefault: z.boolean().optional(),
+  model: z.string().optional(),
+  defaultModel: z.string().min(1).optional(),
+  models: z.array(ProviderModelSchema).optional(),
+  imageModels: z.record(z.string(), z.string()).optional(),
+  baseUrl: z.string().url().optional(),
+  apiKeyEnvVar: z.string().min(1).optional(),
+  contextWindow: z.number().int().positive().optional(),
+  params: LlmGenerationParamsSchema.optional(),
+});
+
+export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
+
+/**
+ * A named model key assignment stored in config.json (team-shared).
+ * Maps a stable key like "fast" to a specific provider + model ID.
+ */
+export const ModelKeyEntrySchema = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  contextWindow: z.number().int().positive().optional(),
+  params: LlmGenerationParamsSchema.optional(),
+});
+
+export type ModelKeyEntry = z.infer<typeof ModelKeyEntrySchema>;
+
+/**
+ * Personal developer configuration stored in .ai-team/config.developer.json.
+ * Git-ignored — each developer maintains their own copy.
+ * Identity fields are optional since file may only contain providers.
+ */
+export const DeveloperProfileSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().optional(),
+  email: z.string().optional(),
+  avatar: z.string().optional(),
+  portfolioUrl: z.string().optional(),
+});
+
+export type DeveloperProfile = z.infer<typeof DeveloperProfileSchema>;
+
+export const DeveloperLlmConfigSchema = z.object({
+  defaultLlmProvider: z.string().min(1).optional(),
+  providers: z.record(z.string(), ProviderConfigSchema).optional(),
+  modelKeys: z.record(z.string(), ModelKeyEntrySchema).optional(),
+  systemModels: z.record(
+    z.string(),
+    z.object({
+      provider: z.string().min(1).optional(),
+      modelKey: z.string().min(1).optional(),
+      model: z.string().min(1).optional(),
+      contextWindow: z.number().int().positive().optional(),
+    }),
+  ).optional(),
+});
+
+export type DeveloperLlmConfig = z.infer<typeof DeveloperLlmConfigSchema>;
+
+export const DeveloperConfigSchema = z.object({
+  /** Preferred nested personal profile section */
+  developer: DeveloperProfileSchema.optional(),
+  /** Preferred nested personal LLM section */
+  llm: DeveloperLlmConfigSchema.optional(),
+});
+
+export type DeveloperConfig = z.infer<typeof DeveloperConfigSchema>;
 
 // A2A AgentCard-aligned skill definition
 export const AgentSkillSchema = z.object({
@@ -132,6 +216,13 @@ export const AgentCapabilitiesSchema = z.object({
   reasoning: z.boolean().optional(),
 });
 
+export const CollaborationEntrySchema = z.object({
+  agentId: z.string(),
+  comment: z.string().optional(),
+});
+
+export type CollaborationEntry = z.infer<typeof CollaborationEntrySchema>;
+
 export const AgentSchema = z.object({
   // Legacy ai-team aliases kept for compatibility with older files
   aiTeamName: z.string().optional(),
@@ -153,7 +244,6 @@ export const AgentSchema = z.object({
   avatar: AvatarConfigSchema.optional(),
   personality: PersonalityConfigSchema.optional(),
   pronouns: z.string().optional(),
-  timezone: z.string().optional(),
   workHours: z.string().optional(),
   
   // Discovery (A2A AgentCard aligned)
@@ -189,6 +279,12 @@ export const AgentSchema = z.object({
   delegatesTo: z.array(z.string()).optional(),
   availableFor: z.array(z.string()).optional(),
   llm: LlmProfileSchema.optional(),
+
+  // Collaboration — YAML-backed, replaces md "Key Collaborations" section
+  collaborations: z.array(CollaborationEntrySchema).optional(),
+
+  // Priority file reading list — YAML-backed, replaces md "Read These Files First" section
+  readTheseFilesFirst: z.array(z.string()).optional(),
 });
 
 export const SkillSchema = z.object({
@@ -736,7 +832,6 @@ export const TeamConfigSchema = z.object({
   version: z.string(),
   llm: LlmConfigSchema.optional(),
   providers: z.record(z.string(), LlmProviderConfigSchema).optional(),
-  llmProviders: z.record(z.string(), LlmProviderConfigSchema).optional(),
   defaultLlmProvider: z.string().min(1).optional(),
   /** Default skill source URLs used by HR/headhunter scouting workflows */
   skillSources: z.array(z.string().url()).optional(),
@@ -745,9 +840,20 @@ export const TeamConfigSchema = z.object({
   randomAvatarUrls: z.array(z.string().url()).optional().default([]),
   /** File tree behaviour for the agent portfolio permission editor */
   fileTree: FileTreeConfigSchema.optional(),
+  /** Global named model key assignments: { "fast": { provider: "openai", model: "gpt-4o-mini" } } */
+  modelKeys: z.record(z.string(), ModelKeyEntrySchema).optional(),
+  /** Model assignments for system-level LLM calls not tied to an agent */
+  systemModels: z.record(z.string(), z.object({ provider: z.string().min(1).optional(), modelKey: z.string().min(1).optional() })).optional(),
 });
 
 export type TeamConfig = z.infer<typeof TeamConfigSchema>;
+
+export const SYSTEM_MODEL_KEYS = {
+  summarize: 'summarize',
+  title: 'title',
+} as const;
+
+export type SystemModelKey = keyof typeof SYSTEM_MODEL_KEYS;
 
 // ============================================================================
 // Errors

@@ -27,6 +27,7 @@ export function Sidebar() {
     { path: '/employees', icon: 'person', label: 'Employees' },
     { path: chatPath ?? '/chat', icon: 'comment', label: 'Chat', disabled: chatPath === null, matchPrefix: '/chat/' },
     { path: '/tasks', icon: 'checklist', label: 'Tasks', disabled: true },
+    { path: '/settings', icon: 'settings-gear', label: 'Settings' },
   ];
 
   return (

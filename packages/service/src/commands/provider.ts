@@ -1,18 +1,21 @@
 import {
+  loadDeveloperConfig,
   loadEnvFile,
   loadTeamConfig,
   resolveEffectiveLlmSettings,
+  saveDeveloperConfig,
   saveEnvFile,
   saveTeamConfig,
   testLlmConnection,
 } from '@ai-team/core';
-import type { LlmProviderConfig, TeamConfig } from '@ai-team/core';
+import type { DeveloperConfig, LlmProviderConfig, TeamConfig } from '@ai-team/core';
 import type { AddProviderOptions, ConfigureProviderOptions, ProviderSetupInput, SetProviderOptions } from '../contracts.js';
 
 type ProviderSetupResult = ProviderSetupInput;
 
 export async function providerConfigureCommand(workspaceRoot: string, options: ConfigureProviderOptions = {}) {
   const existing = await loadTeamConfig(workspaceRoot);
+  const existingDeveloperConfig = await loadDeveloperConfig(workspaceRoot);
 
   const currentDefault = resolveCurrentDefaultProvider(existing);
   if (currentDefault && options.keepCurrentDefault) {
@@ -28,13 +31,16 @@ export async function providerConfigureCommand(workspaceRoot: string, options: C
 
   const setup = options.setup;
   const next = applyProviderConfiguration(existing, setup, true);
+  const nextDeveloperConfig = applyProviderConfigurationToDeveloperConfig(existingDeveloperConfig, setup, true);
   await saveTeamConfig(workspaceRoot, next);
+  await saveDeveloperConfig(workspaceRoot, nextDeveloperConfig);
   await persistApiKeyIfProvided(workspaceRoot, setup);
   await testConfiguredProvider(workspaceRoot, next, setup.providerRef, setup.apiKey);
 }
 
 export async function providerAddCommand(workspaceRoot: string, options: AddProviderOptions = {}) {
   const existing = await loadTeamConfig(workspaceRoot);
+  const existingDeveloperConfig = await loadDeveloperConfig(workspaceRoot);
 
   if (!options.setup) {
     throw new Error('Provider add requires client-provided setup payload.');
@@ -44,7 +50,9 @@ export async function providerAddCommand(workspaceRoot: string, options: AddProv
   const makeDefault = Boolean(options.makeDefault);
 
   const next = applyProviderConfiguration(existing, setup, makeDefault);
+  const nextDeveloperConfig = applyProviderConfigurationToDeveloperConfig(existingDeveloperConfig, setup, makeDefault);
   await saveTeamConfig(workspaceRoot, next);
+  await saveDeveloperConfig(workspaceRoot, nextDeveloperConfig);
   await persistApiKeyIfProvided(workspaceRoot, setup);
 
   await testConfiguredProvider(workspaceRoot, next, setup.providerRef, setup.apiKey);
@@ -60,7 +68,11 @@ function applyProviderConfiguration(
   makeDefault: boolean,
 ): TeamConfig {
   const base: TeamConfig = existing ? { ...existing } : { version: '0.1.0', randomAvatarUrls: [] };
-  const registry = { ...(base.providers || base.llmProviders || {}) };
+  const registry: Record<string, LlmProviderConfig> = {};
+  const existingRegistry = base.providers;
+  if (existingRegistry) {
+    Object.assign(registry, existingRegistry);
+  }
 
   if (makeDefault) {
     for (const key of Object.keys(registry)) {
@@ -77,11 +89,41 @@ function applyProviderConfiguration(
   const next: TeamConfig = {
     ...base,
     providers: registry,
-    llmProviders: registry,
     ...(makeDefault ? { defaultLlmProvider: setup.providerRef, llm: setup.legacyLlm } : {}),
   };
 
   return next;
+}
+
+function applyProviderConfigurationToDeveloperConfig(
+  existing: DeveloperConfig | undefined,
+  setup: ProviderSetupResult,
+  makeDefault: boolean,
+): DeveloperConfig {
+  const base = existing ? { ...existing } : {};
+  const existingRegistry = base.llm?.providers;
+  const registry = existingRegistry ? { ...existingRegistry } : {};
+
+  if (makeDefault) {
+    for (const key of Object.keys(registry)) {
+      registry[key] = { ...registry[key], isDefault: false };
+    }
+  }
+
+  registry[setup.providerRef] = {
+    ...registry[setup.providerRef],
+    ...setup.providerConfig,
+    ...(makeDefault ? { isDefault: true } : { isDefault: registry[setup.providerRef]?.isDefault }),
+  };
+
+  return {
+    ...base,
+    llm: {
+      ...(base.llm ? base.llm : {}),
+      providers: registry,
+      ...(makeDefault ? { defaultLlmProvider: setup.providerRef } : {}),
+    },
+  };
 }
 
 async function persistApiKeyIfProvided(workspaceRoot: string, setup: ProviderSetupResult): Promise<void> {
@@ -105,7 +147,7 @@ async function testConfiguredProvider(
   }
 
   try {
-    const registry = config.providers || config.llmProviders || {};
+    const registry = config.providers || {};
     const tempRegistry: Record<string, LlmProviderConfig> = {};
     for (const [ref, provider] of Object.entries(registry)) {
       tempRegistry[ref] = {
@@ -117,7 +159,6 @@ async function testConfiguredProvider(
     const tempConfig: TeamConfig = {
       ...config,
       providers: tempRegistry,
-      llmProviders: tempRegistry,
       defaultLlmProvider: providerRef,
     };
 
@@ -134,7 +175,7 @@ async function testConfiguredProvider(
 function resolveCurrentDefaultProvider(
   config: TeamConfig | undefined,
 ): { ref: string; config: LlmProviderConfig } | undefined {
-  const registry = config?.providers || config?.llmProviders;
+  const registry = config?.providers;
   if (!registry || Object.keys(registry).length === 0) {
     return undefined;
   }

@@ -81,7 +81,7 @@ describe('parseAccessFile', () => {
     expect(rules.some((r) => r.pathPattern === 'packages/service/**/*' && r.right === 'list' && r.effect === 'allow')).toBe(true);
   });
 
-  it('adds implicit list allow-all when sectioned file has no [list] section', () => {
+  it('derives list rights from [read] section when no [list] section is present', () => {
     const rules = parseAccessFile([
       '[read]',
       'docs/**/*',
@@ -89,7 +89,10 @@ describe('parseAccessFile', () => {
       '.ai-team/**/*',
     ].join('\n'));
 
-    expect(rules.some((r) => r.right === 'list' && r.effect === 'allow' && r.pathPattern === '**')).toBe(true);
+    // List is allowed only where read is allowed
+    expect(rules.some((r) => r.right === 'list' && r.effect === 'allow' && r.pathPattern === 'docs/**/*')).toBe(true);
+    // No catch-all list fallback
+    expect(rules.some((r) => r.right === 'list' && r.effect === 'allow' && r.pathPattern === '**')).toBe(false);
   });
 
   it('does not add implicit list allow-all when [list] section is present', () => {

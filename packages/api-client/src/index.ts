@@ -11,6 +11,14 @@ import {
   listCachedWorkspaceFiles,
   loadAgentAccessPatterns,
   loadTeamConfig,
+  saveTeamConfig,
+  loadDeveloperConfig,
+  saveDeveloperConfig,
+  loadEnvFile,
+  saveEnvFile,
+  TeamConfig,
+  TeamConfigSchema,
+  DeveloperConfig,
   parseMarkdownSections,
   replaceOrAppendMarkdownSection,
 } from '@ai-team/core';
@@ -154,6 +162,15 @@ export interface AiTeamClient {
   providerModels(options: ProviderModelsOptions): Promise<void>;
   providerModelsRefresh(options: RefreshProviderModelsOptions): Promise<void>;
   testConnection(options?: TestConnectionOptions): Promise<void>;
+  getConfig(): Promise<TeamConfig>;
+  updateConfig(partial: Partial<TeamConfig>): Promise<TeamConfig>;
+  refreshProviderModels(providerRef: string): Promise<Array<{ name: string; contextWindow?: number }>>;
+  getAgentModelKeys(): Promise<{ usedKeys: string[]; keysByAgent: Record<string, string> }>;
+  getDeveloperConfig(): Promise<DeveloperConfig>;
+  saveDeveloperConfig(partial: Partial<DeveloperConfig>): Promise<DeveloperConfig>;
+  testProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
+  getEnvStatus(): Promise<Record<string, boolean>>;
+  setEnvVar(key: string, value: string): Promise<void>;
 }
 
 class InProcessAiTeamClient implements AiTeamClient {
@@ -456,6 +473,94 @@ class InProcessAiTeamClient implements AiTeamClient {
 
   async testConnection(options: TestConnectionOptions = {}): Promise<void> {
     return this.service.testConnection(options);
+  }
+
+  async getConfig(): Promise<TeamConfig> {
+    const config = await loadTeamConfig(this.service.workspaceRoot);
+    return config ?? TeamConfigSchema.parse({ version: '1' });
+  }
+
+  async updateConfig(partial: Partial<TeamConfig>): Promise<TeamConfig> {
+    const existing = await loadTeamConfig(this.service.workspaceRoot) ?? TeamConfigSchema.parse({ version: '1' });
+    const merged = { ...existing, ...partial } as TeamConfig;
+    await saveTeamConfig(this.service.workspaceRoot, merged);
+    return merged;
+  }
+
+  async refreshProviderModels(providerRef: string): Promise<Array<{ name: string; contextWindow?: number }>> {
+    const config = await loadTeamConfig(this.service.workspaceRoot);
+    const registry = config?.providers;
+    return registry?.[providerRef]?.models ?? [];
+  }
+
+  async getAgentModelKeys(): Promise<{ usedKeys: string[]; keysByAgent: Record<string, string> }> {
+    const mgr = new AgentManager(this.service.workspaceRoot);
+    await mgr.loadAllAgents();
+    const agents = mgr.getAllAgents();
+    const keysByAgent: Record<string, string> = {};
+    const usedKeySet = new Set<string>();
+    for (const agent of agents) {
+      if (agent.llm?.modelKey) {
+        keysByAgent[agent.id] = agent.llm.modelKey;
+        usedKeySet.add(agent.llm.modelKey);
+      }
+    }
+    return { usedKeys: [...usedKeySet], keysByAgent };
+  }
+
+  async getDeveloperConfig(): Promise<DeveloperConfig> {
+    return (await loadDeveloperConfig(this.service.workspaceRoot)) ?? {};
+  }
+
+  async saveDeveloperConfig(partial: Partial<DeveloperConfig>): Promise<DeveloperConfig> {
+    return saveDeveloperConfig(this.service.workspaceRoot, partial);
+  }
+
+  async testProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
+    // In-process: not currently supported — return an informative error
+    return { ok: false, error: `testProviderConnection not supported in-process for '${providerRef}'` };
+  }
+
+  async getEnvStatus(): Promise<Record<string, boolean>> {
+    const envVars = await loadEnvFile(this.service.workspaceRoot);
+    const teamConfig = await loadTeamConfig(this.service.workspaceRoot);
+    const devConfig = await loadDeveloperConfig(this.service.workspaceRoot);
+    const allProviders: Record<string, { kind?: string; apiKeyEnvVar?: string }> = {};
+    const teamProviders = teamConfig?.providers;
+    const developerProviders = devConfig?.llm?.providers;
+    if (teamProviders) {
+      Object.assign(allProviders, teamProviders);
+    }
+    if (developerProviders) {
+      Object.assign(allProviders, developerProviders);
+    }
+    const status: Record<string, boolean> = {};
+    for (const provider of Object.values(allProviders)) {
+      if (provider.kind === 'github-copilot') {
+        continue;
+      }
+
+      if (provider.kind === 'openai-compatible') {
+        const candidates = provider.apiKeyEnvVar
+          ? [provider.apiKeyEnvVar, 'AI_TEAM_LLM_API_KEY', 'LLM_API_KEY', 'OPENAI_API_KEY']
+          : ['AI_TEAM_LLM_API_KEY', 'LLM_API_KEY', 'OPENAI_API_KEY'];
+        const primary = candidates[0];
+        status[primary] = candidates.some((keyName) => Boolean(envVars[keyName] || process.env[keyName]));
+        continue;
+      }
+
+      if (provider.apiKeyEnvVar) {
+        const keyName = provider.apiKeyEnvVar;
+        status[keyName] = !!(envVars[keyName] || process.env[keyName]);
+      }
+    }
+    return status;
+  }
+
+  async setEnvVar(key: string, value: string): Promise<void> {
+    const existing = await loadEnvFile(this.service.workspaceRoot);
+    existing[key] = value;
+    await saveEnvFile(this.service.workspaceRoot, existing);
   }
 }
 

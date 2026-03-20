@@ -1,23 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
-import { Agent, AgentPersonality, AgentCapabilities } from '../types';
-import { FileTree } from './FileTree';
 import { PortfolioHeader } from './portfolio/PortfolioHeader';
 import { PortfolioIdentitySection } from './portfolio/PortfolioIdentitySection';
-import { PortfolioAboutSection } from './portfolio/PortfolioAboutSection';
-import { PortfolioGoalBackstorySection } from './portfolio/PortfolioGoalBackstorySection';
 import { PortfolioPersonalitySection } from './portfolio/PortfolioPersonalitySection';
-import { PortfolioHierarchySection } from './portfolio/PortfolioHierarchySection';
-import { PortfolioSkillsFeaturesSection } from './portfolio/PortfolioSkillsFeaturesSection';
-import { PortfolioAgentSkillsSection } from './portfolio/PortfolioAgentSkillsSection';
-import { PortfolioSkillAssignmentsSection } from './portfolio/PortfolioSkillAssignmentsSection';
-import { PortfolioAgentCapabilitiesSection } from './portfolio/PortfolioAgentCapabilitiesSection';
-import { PortfolioToolsPermissionsSection } from './portfolio/PortfolioToolsPermissionsSection';
-import { PortfolioCapabilitiesSection } from './portfolio/PortfolioCapabilitiesSection';
 import { PortfolioLlmSection } from './portfolio/PortfolioLlmSection';
+import { PortfolioMarkdownSections } from './portfolio/PortfolioMarkdownSections';
+import { PortfolioCollaborationsSection } from './portfolio/PortfolioCollaborationsSection';
+import { PortfolioReadFilesSection } from './portfolio/PortfolioReadFilesSection';
+import { PortfolioSkillAssignmentsSection } from './portfolio/PortfolioSkillAssignmentsSection';
+import { PortfolioHierarchySection } from './portfolio/PortfolioHierarchySection';
+import { PortfolioToolsPermissionsSection } from './portfolio/PortfolioToolsPermissionsSection';
 import { PortfolioFileAccessSection } from './portfolio/PortfolioFileAccessSection';
 import { PortfolioActivitySection } from './portfolio/PortfolioActivitySection';
+import { PortfolioContextWindowSection } from './portfolio/PortfolioContextWindowSection';
 import './Portfolio.css';
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -31,11 +27,7 @@ export function Portfolio() {
   const directReports = agents.filter((a) => a.reportsTo === agentId);
   const manager = agents.find((a) => a.id === agent?.reportsTo);
 
-  // ── Edit state ──
-  const [isEditing, setIsEditing] = useState(false);
-  const [draft, setDraft] = useState<Partial<Agent>>({});
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  // ── Tools & skills state ──
   const [toolEntries, setToolEntries] = useState<Array<{ name: string; description: string; allowedForAgent?: boolean }>>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolActionPending, setToolActionPending] = useState<string | null>(null);
@@ -45,8 +37,10 @@ export function Portfolio() {
   const [skillActionPending, setSkillActionPending] = useState<string | null>(null);
   const [skillsError, setSkillsError] = useState<string | null>(null);
 
-  const loadTools = async (targetAgentId: string) => {
-    setToolsLoading(true);
+  const loadTools = async (targetAgentId: string, options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setToolsLoading(true);
+    }
     setToolsError(null);
     try {
       const response = await client.listTools({ agent: targetAgentId });
@@ -63,7 +57,9 @@ export function Portfolio() {
       setToolsError(e?.message || 'Failed to load tools');
       setToolEntries([]);
     } finally {
-      setToolsLoading(false);
+      if (!options?.silent) {
+        setToolsLoading(false);
+      }
     }
   };
 
@@ -94,12 +90,6 @@ export function Portfolio() {
   }, [agent, agentId, loading, navigate]);
 
   useEffect(() => {
-    setIsEditing(false);
-    setDraft({});
-    setSaveError(null);
-  }, [agentId]);
-
-  useEffect(() => {
     if (!agentId) return;
     void loadTools(agentId);
     void loadSkills(agentId);
@@ -109,38 +99,23 @@ export function Portfolio() {
   if (error) return <div className="portfolio-error">Error: {error.message}</div>;
   if (!agentId || !agent) return null;
 
-  // ── Edit helpers ──
-  const startEdit = () => { setDraft({ ...agent }); setSaveError(null); setIsEditing(true); };
-  const cancelEdit = () => { setDraft({}); setSaveError(null); setIsEditing(false); };
-
-  const saveEdit = async () => {
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const { markdown: draftMarkdown, id: _id, filePath: _fp, skillPath: _sp, createdAt: _ca,
-        lastInteraction: _li, conversationCount: _cc, status: _st, tools: _tools, ...editableFields } = draft as any;
-      await client.updateAgentFrontmatter(agent.id, editableFields);
-      if (draftMarkdown !== undefined && draftMarkdown !== agent.markdown) {
-        await client.updateAgentMarkdown(agent.id, draftMarkdown);
-      }
-      await refresh();
-      setIsEditing(false);
-      setDraft({});
-    } catch (e: any) {
-      setSaveError(e?.message || 'Save failed');
-    } finally {
-      setSaving(false);
-    }
+  // ── Save helpers ──
+  const saveAgentFields = async (fields: Record<string, unknown>) => {
+    await client.updateAgentFrontmatter(agent.id, fields as any);
+    await refresh();
   };
-
-  const patchDraft = (fields: Partial<Agent>) => setDraft((d) => ({ ...d, ...fields }));
-  const patchPersonality = (fields: Partial<AgentPersonality>) =>
-    setDraft((d) => ({ ...d, personality: { ...d.personality, ...fields } }));
-  const patchCapabilities = (fields: Partial<AgentCapabilities>) =>
-    setDraft((d) => ({ ...d, capabilities: { ...d.capabilities, ...fields } }));
 
   const handleToggleTool = async (toolName: string, currentlyAllowed: boolean) => {
     if (!agentId || toolActionPending) return;
+    const previousEntries = [...toolEntries];
+
+    setToolEntries((prev) =>
+      prev.map((entry) =>
+        entry.name === toolName
+          ? { ...entry, allowedForAgent: !currentlyAllowed }
+          : entry,
+      ),
+    );
     setToolActionPending(toolName);
     setToolsError(null);
     try {
@@ -149,8 +124,9 @@ export function Portfolio() {
       } else {
         await client.allowTool({ agent: agentId, tool: toolName });
       }
-      await Promise.all([refresh(), loadTools(agentId)]);
+      await loadTools(agentId, { silent: true });
     } catch (e: any) {
+      setToolEntries(previousEntries);
       setToolsError(e?.message || `Failed to ${currentlyAllowed ? 'disallow' : 'allow'} tool`);
     } finally {
       setToolActionPending(null);
@@ -175,110 +151,74 @@ export function Portfolio() {
     }
   };
 
-  // In edit mode, draft overrides agent for display
-  const v: Agent = isEditing ? { ...agent, ...draft } : agent;
-  const currentMarkdown = draft.markdown ?? agent.markdown;
-  const currentPersonality = draft.personality ?? agent.personality;
-  const currentCapabilities = draft.capabilities ?? agent.capabilities;
-  const currentLlm = v.llm;
-  const shouldShowGoalBackstory = isEditing || Boolean(v.goal || v.backstory);
-  const shouldShowPersonality = isEditing || Boolean(v.personality);
-  const shouldShowSkillsFeatures = isEditing || Boolean((v.specializations?.length ?? 0) > 0 || (v.features?.length ?? 0) > 0);
-  const shouldShowAgentSkills = isEditing || Boolean((v.skills?.length ?? 0) > 0);
-  const shouldShowCapabilities = isEditing || Boolean(v.capabilities);
-  const shouldShowLlm = !isEditing && Boolean(currentLlm?.provider || currentLlm?.model || currentLlm?.modelKey);
-  const shouldShowActivity = !isEditing && Boolean(v.conversationCount !== undefined || v.lastInteraction || v.createdAt);
-
   return (
-    <div className={`portfolio ${isEditing ? 'portfolio-edit-mode' : ''}`}>
+    <div key={agentId} className="portfolio">
       <PortfolioHeader
-        agent={v}
-        isEditing={isEditing}
-        saving={saving}
-        draftName={draft.name}
-        draftRole={draft.role}
-        onDraftNameChange={(value) => patchDraft({ name: value })}
-        onDraftRoleChange={(value) => patchDraft({ role: value })}
+        agent={agent}
         onOpenChat={() => navigate(`/chat/${agent.id}`)}
-        onStartEdit={startEdit}
-        onSave={saveEdit}
-        onCancel={cancelEdit}
+        onSave={({ role, avatar }) =>
+          saveAgentFields({ role, ...(avatar ? { avatar } : {}) })
+        }
         onBack={() => navigate('/employees')}
       />
 
-      {saveError && (
-        <div className="portfolio-save-error">
-          <i className="codicon codicon-error" /> {saveError}
-        </div>
-      )}
-
       <div className="portfolio-content">
-        {isEditing && (
-          <PortfolioIdentitySection
-            type={draft.type ?? agent.type}
-            contextLevel={draft.contextLevel ?? agent.contextLevel}
-            pronouns={draft.pronouns ?? agent.pronouns}
-            timezone={draft.timezone ?? agent.timezone}
-            onTypeChange={(value) => patchDraft({ type: value })}
-            onContextLevelChange={(value) => patchDraft({ contextLevel: value })}
-            onPronounsChange={(value) => patchDraft({ pronouns: value })}
-            onTimezoneChange={(value) => patchDraft({ timezone: value })}
-          />
-        )}
-
-        <PortfolioAboutSection
-          isEditing={isEditing}
-          markdown={currentMarkdown}
-          onMarkdownChange={(value) => patchDraft({ markdown: value })}
+        <PortfolioIdentitySection
+          type={agent.type}
+          contextLevel={agent.contextLevel}
+          pronouns={agent.pronouns}
+          onSave={(fields) => saveAgentFields(fields as Record<string, unknown>)}
         />
 
-        {shouldShowGoalBackstory ? (
-          <PortfolioGoalBackstorySection
-            isEditing={isEditing}
-            goal={draft.goal ?? agent.goal}
-            backstory={draft.backstory ?? agent.backstory}
-            onGoalChange={(value) => patchDraft({ goal: value })}
-            onBackstoryChange={(value) => patchDraft({ backstory: value })}
-          />
-        ) : null}
+        <PortfolioMarkdownSections
+          agentId={agent.id}
+          specializations={agent.specializations ?? []}
+          client={client}
+          onUpdated={refresh}
+          onlyHeadings={['Introduction']}
+        />
 
-        {shouldShowPersonality ? (
-          <PortfolioPersonalitySection
-            isEditing={isEditing}
-            personality={currentPersonality}
-            onCommunicationStyleChange={(value) => patchPersonality({ communication_style: value })}
-            onExpertiseLevelChange={(value) => patchPersonality({ expertise_level: value })}
-            onMentoringChange={(value) => patchPersonality({ mentoring: value })}
-          />
-        ) : null}
+        <PortfolioPersonalitySection
+          personality={agent.personality}
+          agentId={agent.id}
+          client={client}
+          onSave={(personality) => saveAgentFields({ personality })}
+        />
+
+        <PortfolioLlmSection
+          llm={agent.llm}
+          onSave={(llm) => saveAgentFields({ llm })}
+        />
+
+        <PortfolioMarkdownSections
+          agentId={agent.id}
+          specializations={agent.specializations ?? []}
+          client={client}
+          onUpdated={refresh}
+          excludeHeadings={['Introduction']}
+        />
 
         <PortfolioHierarchySection
           agentId={agent.id}
-          isEditing={isEditing}
           manager={manager}
           directReports={directReports}
-          reportsTo={draft.reportsTo ?? agent.reportsTo}
+          reportsTo={agent.reportsTo}
           selectableAgents={agents}
-          onReportsToChange={(value) => patchDraft({ reportsTo: value })}
+          onSave={(reportsTo) => saveAgentFields({ reportsTo })}
         />
 
-        {shouldShowSkillsFeatures ? (
-          <PortfolioSkillsFeaturesSection
-            isEditing={isEditing}
-            specializations={draft.specializations ?? agent.specializations ?? []}
-            features={draft.features ?? agent.features ?? []}
-            onSpecializationsChange={(values) => patchDraft({ specializations: values })}
-            onFeaturesChange={(values) => patchDraft({ features: values })}
-          />
-        ) : null}
+        <PortfolioCollaborationsSection
+          collaborations={agent.collaborations ?? []}
+          allAgents={agents}
+          onSave={(collaborations) => saveAgentFields({ collaborations })}
+        />
 
-        {shouldShowAgentSkills ? (
-          <PortfolioAgentSkillsSection
-            isEditing={isEditing}
-            skills={draft.skills ?? agent.skills ?? []}
-            onSkillsChange={(skills) => patchDraft({ skills })}
-          />
-        ) : null}
+        <PortfolioReadFilesSection
+          agentId={agent.id}
+          readTheseFilesFirst={agent.readTheseFilesFirst ?? []}
+          client={client}
+          onSave={(readTheseFilesFirst) => saveAgentFields({ readTheseFilesFirst })}
+        />
 
         <PortfolioSkillAssignmentsSection
           loading={skillsLoading}
@@ -288,14 +228,6 @@ export function Portfolio() {
           onToggleSkill={handleToggleSkill}
         />
 
-        {shouldShowCapabilities ? (
-          <PortfolioAgentCapabilitiesSection
-            isEditing={isEditing}
-            capabilities={currentCapabilities}
-            onCapabilityChange={patchCapabilities}
-          />
-        ) : null}
-
         <PortfolioToolsPermissionsSection
           loading={toolsLoading}
           error={toolsError}
@@ -304,25 +236,15 @@ export function Portfolio() {
           onToggleTool={handleToggleTool}
         />
 
-        {shouldShowCapabilities ? (
-          <PortfolioCapabilitiesSection
-            isEditing={isEditing}
-            capabilities={currentCapabilities}
-            onCapabilityChange={patchCapabilities}
-          />
-        ) : null}
+        <PortfolioFileAccessSection agentId={agent.id} />
 
-        {shouldShowLlm && currentLlm ? <PortfolioLlmSection llm={currentLlm} /> : null}
+        <PortfolioContextWindowSection agent={agent} />
 
-        <PortfolioFileAccessSection>
-          <FileTree agentId={agent.id} editMode={isEditing} />
-        </PortfolioFileAccessSection>
-
-        {shouldShowActivity ? (
+        {(agent.conversationCount !== undefined || agent.lastInteraction || agent.createdAt) ? (
           <PortfolioActivitySection
-            conversationCount={v.conversationCount}
-            lastInteraction={v.lastInteraction}
-            createdAt={v.createdAt}
+            conversationCount={agent.conversationCount}
+            lastInteraction={agent.lastInteraction}
+            createdAt={agent.createdAt}
           />
         ) : null}
       </div>

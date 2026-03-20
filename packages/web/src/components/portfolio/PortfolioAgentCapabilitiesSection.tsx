@@ -1,30 +1,54 @@
+import { useState } from 'react';
 import type { AgentCapabilities } from '../../types';
 import { PortfolioSectionCard } from './portfolioShared';
 
 interface PortfolioAgentCapabilitiesSectionProps {
-  isEditing: boolean;
   capabilities?: AgentCapabilities;
-  onCapabilityChange?: (patch: Partial<AgentCapabilities>) => void;
+  onSave: (capabilities: AgentCapabilities) => Promise<void>;
 }
 
-const agentCapabilities = [
+const AGENT_CAPABILITY_LABELS: Array<[keyof AgentCapabilities, string]> = [
   ['streaming', 'Streaming'],
   ['multimodal', 'Multimodal'],
   ['codeExecution', 'Code Execution'],
   ['reasoning', 'Reasoning'],
-] as const;
+];
 
-export function PortfolioAgentCapabilitiesSection({ isEditing, capabilities, onCapabilityChange }: Readonly<PortfolioAgentCapabilitiesSectionProps>) {
+export function PortfolioAgentCapabilitiesSection({ capabilities, onSave }: Readonly<PortfolioAgentCapabilitiesSectionProps>) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState<AgentCapabilities>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const startEdit = () => { setDraft({ ...capabilities }); setSaveError(null); setIsEditing(true); };
+  const cancel = () => { setIsEditing(false); setSaveError(null); };
+
+  const save = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSave(draft);
+      setIsEditing(false);
+    } catch (e: any) {
+      setSaveError(e?.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cap = isEditing ? draft : (capabilities ?? {});
+
   return (
-    <PortfolioSectionCard title="Agent Capabilities" icon="⚙️">
+    <PortfolioSectionCard title="Agent Capabilities" icon="⚙️" onEdit={startEdit} isEditing={isEditing} saving={saving} onSave={save} onCancel={cancel}>
+      {saveError ? <p className="portfolio-section-error">{saveError}</p> : null}
       {isEditing ? (
         <div className="portfolio-form-grid">
-          {agentCapabilities.map(([capability, label]) => (
-            <label key={capability} className="portfolio-checkbox-label">
+          {AGENT_CAPABILITY_LABELS.map(([key, label]) => (
+            <label key={key} className="portfolio-checkbox-label">
               <input
                 type="checkbox"
-                checked={capabilities?.[capability] ?? false}
-                onChange={(event) => onCapabilityChange?.({ [capability]: event.target.checked })}
+                checked={cap[key] ?? false}
+                onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.checked }))}
               />
               <span>{label}</span>
             </label>
@@ -32,9 +56,9 @@ export function PortfolioAgentCapabilitiesSection({ isEditing, capabilities, onC
         </div>
       ) : (
         <div className="capabilities-grid">
-          {agentCapabilities.map(([capability, label]) => (
-            <div key={capability} className="capability-item">
-              <span className={`capability-icon ${capabilities?.[capability] ? 'capability-enabled' : ''}`}>{capabilities?.[capability] ? '✓' : '—'}</span>
+          {AGENT_CAPABILITY_LABELS.map(([key, label]) => (
+            <div key={key} className="capability-item">
+              <span className={`capability-icon ${cap[key] ? 'capability-enabled' : ''}`}>{cap[key] ? '✓' : '—'}</span>
               <span>{label}</span>
             </div>
           ))}
@@ -43,3 +67,12 @@ export function PortfolioAgentCapabilitiesSection({ isEditing, capabilities, onC
     </PortfolioSectionCard>
   );
 }
+
+
+const agentCapabilities = [
+  ['streaming', 'Streaming'],
+  ['multimodal', 'Multimodal'],
+  ['codeExecution', 'Code Execution'],
+  ['reasoning', 'Reasoning'],
+] as const;
+

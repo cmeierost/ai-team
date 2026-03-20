@@ -68,10 +68,16 @@ export interface AgentPersonality {
   mentoring?: boolean;
 }
 
+export interface AgentLlmParams {
+  temperature?: number;
+  maxTokens?: number;
+}
+
 export interface AgentLlm {
   provider?: string;
   modelKey?: string;
   model?: string;
+  params?: AgentLlmParams;
 }
 
 export interface AgentSkill {
@@ -87,6 +93,11 @@ export interface AgentCapabilities {
   multimodal?: boolean;
   codeExecution?: boolean;
   reasoning?: boolean;
+}
+
+export interface CollaborationEntry {
+  agentId: string;
+  comment?: string;
 }
 
 export interface Agent {
@@ -108,7 +119,6 @@ export interface Agent {
   avatar?: AvatarConfig;
   personality?: AgentPersonality;
   pronouns?: string;
-  timezone?: string;
   workHours?: string;
   goal?: string;
   backstory?: string;
@@ -120,6 +130,8 @@ export interface Agent {
   createdAt?: string;
   lastInteraction?: string;
   conversationCount?: number;
+  collaborations?: CollaborationEntry[];
+  readTheseFilesFirst?: string[];
 }
 
 export type EdgeType =

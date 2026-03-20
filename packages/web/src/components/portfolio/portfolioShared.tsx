@@ -183,19 +183,64 @@ export function SkillEditor({ skills, onChange }: Readonly<SkillEditorProps>) {
   );
 }
 
+interface RenderCardControlsArgs {
+  isEditing: boolean;
+  saving: boolean;
+  onSave?: () => void;
+  saveLabel?: string;
+  onCancel?: () => void;
+  onEdit?: () => void;
+}
+
+function renderCardControls({ isEditing, saving, onSave, saveLabel, onCancel, onEdit }: RenderCardControlsArgs) {
+  if (isEditing) {
+    return (
+      <div className="portfolio-card-edit-actions">
+        {onSave ? (
+          <button type="button" className="btn-section-save" onClick={onSave} disabled={saving}>
+            <i className="codicon codicon-check" /> {saving ? 'Saving…' : (saveLabel ?? 'Save')}
+          </button>
+        ) : null}
+        {onCancel ? (
+          <button type="button" className="btn-section-cancel" title="Cancel" onClick={onCancel} disabled={saving}>
+            <i className="codicon codicon-close" />
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+  if (onEdit) {
+    return (
+      <button type="button" className="btn-section-edit" onClick={onEdit} title="Edit">
+        <i className="codicon codicon-edit" />
+      </button>
+    );
+  }
+  return null;
+}
+
 interface PortfolioSectionCardProps {
   title: string;
   icon?: string;
   children: ReactNode;
+  onEdit?: () => void;
+  isEditing?: boolean;
+  saving?: boolean;
+  onSave?: () => void;
+  saveLabel?: string;
+  onCancel?: () => void;
 }
 
-export function PortfolioSectionCard({ title, icon, children }: Readonly<PortfolioSectionCardProps>) {
+export function PortfolioSectionCard({ title, icon, children, onEdit, isEditing, saving, onSave, saveLabel, onCancel }: Readonly<PortfolioSectionCardProps>) {
   return (
-    <section className="portfolio-card">
-      <h3 className="portfolio-card-title">
-        {icon ? <span className="portfolio-card-icon">{icon}</span> : null}
-        {title}
-      </h3>
+    <section className={`portfolio-card${isEditing ? ' portfolio-card-editing' : ''}`}>
+      <div className="portfolio-card-header">
+        <h3 className="portfolio-card-title">
+          {icon ? <span className="portfolio-card-icon">{icon}</span> : null}
+          {title}
+        </h3>
+        {renderCardControls({ isEditing: isEditing ?? false, saving: saving ?? false, onSave, saveLabel, onCancel, onEdit })}
+      </div>
       {children}
     </section>
   );

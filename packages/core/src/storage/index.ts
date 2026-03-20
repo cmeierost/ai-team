@@ -19,6 +19,8 @@ import {
   SkillConfig,
   TeamConfig,
   TeamConfigSchema,
+  DeveloperConfig,
+  DeveloperConfigSchema,
   FileNotFoundError,
   ValidationError,
 } from '../types/index.js';
@@ -712,6 +714,136 @@ export async function saveTeamConfig(workspaceRoot: string, config: TeamConfig):
   const configPath = getConfigPath(workspaceRoot);
   await fs.mkdir(path.dirname(configPath), { recursive: true });
   await fs.writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+}
+
+// ============================================================================
+// Developer config (.ai-team/config.developer.json) — personal, git-ignored
+// ============================================================================
+
+/**
+ * Get the developer config file path for a workspace
+ */
+export function getDeveloperConfigPath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, '.ai-team', 'config.developer.json');
+}
+
+function normalizeDeveloperConfig(input: unknown): DeveloperConfig {
+  if (!input || typeof input !== 'object') {
+    return {};
+  }
+
+  const raw = input as DeveloperConfig & {
+    developer?: NonNullable<DeveloperConfig['developer']>;
+    llm?: NonNullable<DeveloperConfig['llm']>;
+  };
+
+  const developer: NonNullable<DeveloperConfig['developer']> = {};
+  if (raw.developer) {
+    Object.assign(developer, raw.developer);
+  }
+
+  const llm: NonNullable<DeveloperConfig['llm']> = {};
+  if (raw.llm) {
+    Object.assign(llm, raw.llm);
+  }
+
+  return DeveloperConfigSchema.parse({
+    ...(Object.keys(developer).length > 0 ? { developer } : {}),
+    ...(Object.keys(llm).length > 0 ? { llm } : {}),
+  });
+}
+
+/**
+ * Load personal developer configuration from .ai-team/config.developer.json.
+ * Returns undefined if the file does not exist.
+ */
+export async function loadDeveloperConfig(workspaceRoot: string): Promise<DeveloperConfig | undefined> {
+  const configPath = getDeveloperConfigPath(workspaceRoot);
+  try {
+    const content = await fs.readFile(configPath, 'utf-8');
+    const data = JSON.parse(content);
+    return normalizeDeveloperConfig(data);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+    return undefined;
+  }
+}
+
+/**
+ * Save personal developer configuration to .ai-team/config.developer.json.
+ * Merges the provided partial config over the existing file content.
+ */
+export async function saveDeveloperConfig(workspaceRoot: string, config: DeveloperConfig): Promise<DeveloperConfig> {
+  const configPath = getDeveloperConfigPath(workspaceRoot);
+  const existing = normalizeDeveloperConfig((await loadDeveloperConfig(workspaceRoot)) ?? {});
+  const incoming = normalizeDeveloperConfig(config);
+
+  let mergedDeveloper: NonNullable<DeveloperConfig['developer']> | undefined;
+  if (existing.developer || incoming.developer) {
+    mergedDeveloper = {};
+    if (existing.developer) {
+      Object.assign(mergedDeveloper, existing.developer);
+    }
+    if (incoming.developer) {
+      Object.assign(mergedDeveloper, incoming.developer);
+    }
+  }
+
+  let mergedLlm: NonNullable<DeveloperConfig['llm']> | undefined;
+  if (existing.llm || incoming.llm) {
+    mergedLlm = {};
+    if (existing.llm) {
+      Object.assign(mergedLlm, existing.llm);
+    }
+    if (incoming.llm) {
+      Object.assign(mergedLlm, incoming.llm);
+    }
+
+    if (existing.llm?.providers || incoming.llm?.providers) {
+      const providers: Record<string, NonNullable<NonNullable<DeveloperConfig['llm']>['providers']>[string]> = {};
+      if (existing.llm?.providers) {
+        Object.assign(providers, existing.llm.providers);
+      }
+      if (incoming.llm?.providers) {
+        Object.assign(providers, incoming.llm.providers);
+      }
+      mergedLlm.providers = providers;
+    }
+
+    if (existing.llm?.modelKeys || incoming.llm?.modelKeys) {
+      const modelKeys: Record<string, NonNullable<NonNullable<DeveloperConfig['llm']>['modelKeys']>[string]> = {};
+      if (existing.llm?.modelKeys) {
+        Object.assign(modelKeys, existing.llm.modelKeys);
+      }
+      if (incoming.llm?.modelKeys) {
+        Object.assign(modelKeys, incoming.llm.modelKeys);
+      }
+      mergedLlm.modelKeys = modelKeys;
+    }
+
+    if (existing.llm?.systemModels || incoming.llm?.systemModels) {
+      const systemModels: Record<string, NonNullable<NonNullable<DeveloperConfig['llm']>['systemModels']>[string]> = {};
+      if (existing.llm?.systemModels) {
+        Object.assign(systemModels, existing.llm.systemModels);
+      }
+      if (incoming.llm?.systemModels) {
+        Object.assign(systemModels, incoming.llm.systemModels);
+      }
+      mergedLlm.systemModels = systemModels;
+    }
+  }
+
+  const merged: DeveloperConfig = {
+    ...(mergedDeveloper ? { developer: mergedDeveloper } : {}),
+    ...(mergedLlm ? { llm: mergedLlm } : {}),
+  };
+
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(configPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
+
+  return merged;
 }
 
 // ============================================================================

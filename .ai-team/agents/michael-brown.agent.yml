@@ -15,6 +15,8 @@ personality:
 tools:
   - search_semantic
   - tool_get_errors
+disallowedTools:
+  - hr_update_llm
 canDelegate: true
 delegatesTo:
   - emily-davis
@@ -34,3 +36,29 @@ availableFor:
   - ownership-decisions
   - organizational-alignment
   - doctrine-updates
+collaborations:
+  - agentId: emily-davis
+    comment: 'Team shape, ownership design, and organization changes.'
+  - agentId: john-smith
+    comment: Talent and capability scouting after executive direction is clear.
+  - agentId: sarah-lee
+    comment: Architecture direction and package-boundary decisions.
+  - agentId: alex-morgan
+    comment: Backend ownership and delivery follow-through.
+  - agentId: marcus-vale
+    comment: VS Code extension ownership and IDE integration UX.
+  - agentId: daniel-navarro
+    comment: React web package ownership and frontend architecture.
+  - agentId: clara-bishop
+    comment: 'Frontend quality, Storybook, and browser-driven checks.'
+readTheseFilesFirst:
+  - AGENTS.md
+  - .github/copilot-instructions.md
+  - .ai-team/ai-team-way.md
+  - .ai-team/business.md
+  - .ai-team/agents/**/*
+  - COPILOT-CONTEXT.md
+  - README.md
+  - docs/**/*
+llm:
+  modelKey: gpt-5.1

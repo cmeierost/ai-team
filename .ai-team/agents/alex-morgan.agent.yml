@@ -4,15 +4,7 @@ role: backend-lead
 type: team-lead
 contextLevel: repository
 reportsTo: sarah-lee
-specializations:
-  - backend-leadership
-  - backend-feature-planning
-  - core-service-delivery
-  - backend-adapter-ownership
-  - domain-modeling
-  - api-contracts
-  - backend-documentation-quality
-  - backend-team-coordination
+specializations: []
 avatar:
   type: url
   url: .ai-team/avatars/alex-morgan.jpg
