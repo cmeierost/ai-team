@@ -26,6 +26,7 @@ import { AgentManager } from '../agent/index.js';
 import { Ripgrep } from '../file/ripgrep.js';
 import { FileTime } from '../file/time.js';
 import { Truncate } from './truncation.js';
+import { Patch } from '../patch/index.js';
 import {
   downloadRandomAvatar,
   generateAvatarWithAI,
@@ -127,7 +128,9 @@ function toFsPathAccessEnvelope(
     | 'fs_tree'
     | 'fs_search_content'
     | 'fs_search_metadata'
-    | 'fs_edit',
+    | 'fs_edit'
+    | 'apply_patch'
+    | 'multiedit',
   targetPath: string,
 ): FsPathAccessEnvelope {
   if (!context.accessEngine) {
@@ -2683,6 +2686,251 @@ function enqueueCrawlLinks(
 }
 
 // ============================================================================
+// apply_patch — apply a standard unified diff to one or more files
+// ============================================================================
+
+export const applyPatchTool: AgentTool = {
+  name: 'apply_patch',
+  description: [
+    'Apply a standard unified diff (--- / +++ / @@ format) to one or more files.',
+    'Each changed file is access-checked individually.',
+    'Existing files MUST have been read with fs_read in the current session.',
+    'New files (add hunks) do not require a prior read.',
+  ].join(' '),
+  parameters: z.object({
+    patchText: z.string().min(1).describe(
+      'Standard unified diff string. Must start with --- / +++ file headers and @@ hunk markers.',
+    ),
+  }),
+  async execute(params, context: ToolContext) {
+    const engineCheck = getAccessEngineOrDeny(context);
+    if (!engineCheck.ok) {
+      return { applied: [], denied: [], error: engineCheck.reason };
+    }
+
+    let fileDiffs: ReturnType<typeof Patch.parse>;
+    try {
+      fileDiffs = Patch.parse((params as { patchText: string }).patchText);
+    } catch (parseErr) {
+      return {
+        applied: [],
+        denied: [],
+        error: `Failed to parse unified diff: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+      };
+    }
+
+    if (fileDiffs.length === 0) {
+      return { applied: [], denied: [], error: 'No file changes found in the provided patch.' };
+    }
+
+    // -------------------------------------------------------------------------
+    // Pass 1: resolve paths + access checks for every file
+    // -------------------------------------------------------------------------
+    const denied: Array<{ path: string; reason: string }> = [];
+    const approved: Array<{
+      diff: (typeof fileDiffs)[number];
+      absolutePath: string;
+      newAbsolutePath?: string;
+    }> = [];
+
+    for (const diff of fileDiffs) {
+      const targetRelative = diff.type === 'add' ? diff.newPath : diff.oldPath;
+      const absolutePath = resolveFsAbsolutePath(context, targetRelative);
+      if (!absolutePath) {
+        denied.push({ path: targetRelative, reason: 'Path is outside workspace root.' });
+        continue;
+      }
+
+      const toolName = diff.type === 'delete' ? 'fs_delete_path' : 'fs_write_file';
+      const access = toFsPathAccessEnvelope(context, toolName, targetRelative);
+      if (!access.allowed) {
+        denied.push({ path: targetRelative, reason: access.explanation });
+        continue;
+      }
+
+      let newAbsolutePath: string | undefined;
+      if (diff.type === 'move') {
+        newAbsolutePath = resolveFsAbsolutePath(context, diff.newPath) ?? undefined;
+        if (!newAbsolutePath) {
+          denied.push({ path: diff.newPath, reason: 'Move destination is outside workspace root.' });
+          continue;
+        }
+      }
+
+      approved.push({ diff, absolutePath, newAbsolutePath });
+    }
+
+    if (denied.length > 0) {
+      return {
+        applied: [],
+        denied,
+        error: `Access denied for ${denied.length} file(s). No changes were written.`,
+      };
+    }
+
+    // -------------------------------------------------------------------------
+    // Pass 2: apply changes
+    // -------------------------------------------------------------------------
+    const applied: Array<{
+      type: string;
+      path: string;
+      additions: number;
+      deletions: number;
+    }> = [];
+
+    for (const { diff, absolutePath, newAbsolutePath } of approved) {
+      try {
+        if (diff.type === 'delete') {
+          await fs.unlink(absolutePath);
+          applied.push({ type: 'delete', path: diff.oldPath, additions: 0, deletions: diff.deletions });
+
+        } else if (diff.type === 'add') {
+          await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+          const content = Patch.applyFileDiff('', diff.hunks);
+          await fs.writeFile(absolutePath, content, 'utf8');
+          FileTime.record(context.agent.id, absolutePath);
+          applied.push({ type: 'add', path: diff.newPath, additions: diff.additions, deletions: 0 });
+
+        } else if (diff.type === 'update') {
+          // Assert file was read first (same guard as fs_edit)
+          try {
+            FileTime.assert(context.agent.id, absolutePath);
+          } catch (assertErr) {
+            return {
+              applied,
+              denied,
+              error: `${assertErr instanceof Error ? assertErr.message : String(assertErr)} — call fs_read on '${diff.oldPath}' before apply_patch.`,
+            };
+          }
+          const original = await fs.readFile(absolutePath, 'utf8');
+          const updated = Patch.applyFileDiff(original, diff.hunks);
+          await fs.writeFile(absolutePath, updated, 'utf8');
+          FileTime.record(context.agent.id, absolutePath);
+          applied.push({ type: 'update', path: diff.oldPath, additions: diff.additions, deletions: diff.deletions });
+
+        } else if (diff.type === 'move') {
+          // Assert old file was read first
+          try {
+            FileTime.assert(context.agent.id, absolutePath);
+          } catch (assertErr) {
+            return {
+              applied,
+              denied,
+              error: `${assertErr instanceof Error ? assertErr.message : String(assertErr)} — call fs_read on '${diff.oldPath}' before apply_patch.`,
+            };
+          }
+          const original = await fs.readFile(absolutePath, 'utf8');
+          const updated = diff.hunks.length > 0
+            ? Patch.applyFileDiff(original, diff.hunks)
+            : original;
+          await fs.mkdir(path.dirname(newAbsolutePath!), { recursive: true });
+          await fs.writeFile(newAbsolutePath!, updated, 'utf8');
+          await fs.unlink(absolutePath);
+          FileTime.record(context.agent.id, newAbsolutePath!);
+          applied.push({
+            type: 'move',
+            path: `${diff.oldPath} → ${diff.newPath}`,
+            additions: diff.additions,
+            deletions: diff.deletions,
+          });
+        }
+      } catch (applyErr) {
+        return {
+          applied,
+          denied,
+          error: `Failed to apply patch to '${diff.oldPath}': ${applyErr instanceof Error ? applyErr.message : String(applyErr)}`,
+        };
+      }
+    }
+
+    const totalAdditions = applied.reduce((s, f) => s + f.additions, 0);
+    const totalDeletions = applied.reduce((s, f) => s + f.deletions, 0);
+    return { applied, denied, totalFiles: applied.length, totalAdditions, totalDeletions };
+  },
+};
+
+// ============================================================================
+// multiedit — batch sequential string replacements on a single file
+// ============================================================================
+
+export const multiEditTool: AgentTool = {
+  name: 'multiedit',
+  description: [
+    'Apply multiple oldString→newString replacements to a single file in one call.',
+    'Edits are applied sequentially; the file MUST have been read with fs_read first.',
+    'Stops on the first failed edit and returns partial results with the error index.',
+  ].join(' '),
+  parameters: z.object({
+    filePath: z.string().describe('Relative or absolute path to the file to edit'),
+    edits: z.array(
+      z.object({
+        oldString:  z.string().min(1).describe('Exact string to replace'),
+        newString:  z.string().describe('Replacement string'),
+        replaceAll: z.boolean().optional().describe('Replace all occurrences (default: false)'),
+      }),
+    ).min(1).describe('Ordered list of edits to apply sequentially'),
+  }),
+  async execute(params, context: ToolContext) {
+    const { filePath, edits } = params as {
+      filePath: string;
+      edits: Array<{ oldString: string; newString: string; replaceAll?: boolean }>;
+    };
+
+    const engineCheck = getAccessEngineOrDeny(context);
+    if (!engineCheck.ok) {
+      return { path: filePath, succeeded: 0, totalEdits: edits.length, results: [], error: engineCheck.reason };
+    }
+
+    // Single upfront access check.
+    const access = toFsPathAccessEnvelope(context, 'fs_edit', filePath);
+    if (!access.allowed) {
+      return {
+        path: filePath,
+        succeeded: 0,
+        totalEdits: edits.length,
+        results: [],
+        access,
+        delegation: {
+          possible: access.alternativeContexts.length > 0,
+          contexts: access.alternativeContexts,
+        },
+      };
+    }
+
+    // Delegate each edit sequentially to fsEditTool.
+    // fsEditTool.execute() handles its own FileTime.assert + withLock
+    // and refreshes FileTime.record after each write, so the next
+    // assert in the loop will pass on the just-written file.
+    const results: Array<{ index: number; result: unknown }> = [];
+    let succeeded = 0;
+
+    for (let i = 0; i < edits.length; i++) {
+      const edit = edits[i]!;
+      const result = await fsEditTool.execute(
+        { filePath, oldString: edit.oldString, newString: edit.newString, replaceAll: edit.replaceAll },
+        context,
+      );
+      results.push({ index: i, result });
+
+      const r = result as { edited?: boolean; error?: string };
+      if (!r.edited) {
+        return {
+          path: filePath,
+          succeeded,
+          totalEdits: edits.length,
+          failedAtIndex: i,
+          error: r.error ?? 'Edit failed',
+          results,
+        };
+      }
+      succeeded++;
+    }
+
+    return { path: filePath, succeeded, totalEdits: edits.length, results };
+  },
+};
+
+// ============================================================================
 // Surgical file edit tool (requires prior fs_read in the same session)
 // ============================================================================
 
@@ -2862,6 +3110,8 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   analyze_performance: assessPerformanceTool,
   fs_apply_patch: applyCodeEditTool,
   fs_edit: fsEditTool,
+  apply_patch: applyPatchTool,
+  multiedit: multiEditTool,
 };
 
 export const HR_TOOLS: Record<string, AgentTool> = {
