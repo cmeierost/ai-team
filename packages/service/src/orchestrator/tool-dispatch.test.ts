@@ -357,3 +357,194 @@ describe('dispatchToolCall denial metadata', () => {
     expect(persisted).toContain('key point A');
   });
 });
+
+describe('code_edit_proposal emission', () => {
+  it('emits code_edit_proposal when tool result contains _fileChanges', async () => {
+    const toolManager = {
+      execute: vi.fn(async () => ({
+        ok: true,
+        result: {
+          edited: true,
+          _fileChanges: [
+            { filePath: '/ws/app.ts', oldContent: 'const x = 1;', newContent: 'const x = 42;' },
+          ],
+        },
+      })),
+    } as any;
+
+    const ctx = makeContext({ toolManager });
+
+    await dispatchToolCall(
+      { toolCallId: 'tc-diff-1', toolName: 'fs_edit', args: {} },
+      ctx,
+    );
+
+    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    const events = emit.mock.calls.map((c: any[]) => c[0]);
+    const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
+
+    expect(proposal).toBeDefined();
+    expect(proposal.proposalId).toBe('fs_edit-tc-diff-1');
+    expect(proposal.agentName).toBe('Agent A');
+    expect(proposal.filesChanged).toBe(1);
+    expect(proposal.files).toEqual([
+      { filePath: '/ws/app.ts', oldContent: 'const x = 1;', newContent: 'const x = 42;' },
+    ]);
+  });
+
+  it('emits code_edit_proposal with multiple files', async () => {
+    const toolManager = {
+      execute: vi.fn(async () => ({
+        ok: true,
+        result: {
+          edited: true,
+          _fileChanges: [
+            { filePath: '/ws/a.ts', oldContent: 'a1', newContent: 'a2' },
+            { filePath: '/ws/b.ts', oldContent: 'b1', newContent: 'b2' },
+          ],
+        },
+      })),
+    } as any;
+
+    const ctx = makeContext({ toolManager });
+
+    await dispatchToolCall(
+      { toolCallId: 'tc-diff-multi', toolName: 'multiedit', args: {} },
+      ctx,
+    );
+
+    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    const events = emit.mock.calls.map((c: any[]) => c[0]);
+    const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
+
+    expect(proposal).toBeDefined();
+    expect(proposal.filesChanged).toBe(2);
+    expect(proposal.files).toHaveLength(2);
+  });
+
+  it('does NOT emit code_edit_proposal when result has no _fileChanges', async () => {
+    const toolManager = {
+      execute: vi.fn(async () => ({
+        ok: true,
+        result: { edited: true, message: 'done' },
+      })),
+    } as any;
+
+    const ctx = makeContext({ toolManager });
+
+    await dispatchToolCall(
+      { toolCallId: 'tc-no-diff', toolName: 'fs_edit', args: {} },
+      ctx,
+    );
+
+    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    const events = emit.mock.calls.map((c: any[]) => c[0]);
+    const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
+
+    expect(proposal).toBeUndefined();
+  });
+
+  it('does NOT emit code_edit_proposal when _fileChanges is empty', async () => {
+    const toolManager = {
+      execute: vi.fn(async () => ({
+        ok: true,
+        result: { edited: true, _fileChanges: [] },
+      })),
+    } as any;
+
+    const ctx = makeContext({ toolManager });
+
+    await dispatchToolCall(
+      { toolCallId: 'tc-empty-diff', toolName: 'fs_edit', args: {} },
+      ctx,
+    );
+
+    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    const events = emit.mock.calls.map((c: any[]) => c[0]);
+    const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
+
+    expect(proposal).toBeUndefined();
+  });
+
+  it('strips _fileChanges from the result returned to the caller', async () => {
+    const toolManager = {
+      execute: vi.fn(async () => ({
+        ok: true,
+        result: {
+          edited: true,
+          summary: 'replaced text',
+          _fileChanges: [
+            { filePath: '/ws/c.ts', oldContent: 'old', newContent: 'new' },
+          ],
+        },
+      })),
+    } as any;
+
+    const ctx = makeContext({ toolManager });
+
+    const response = await dispatchToolCall(
+      { toolCallId: 'tc-strip', toolName: 'fs_edit', args: {} },
+      ctx,
+    );
+
+    expect(response.result).not.toHaveProperty('_fileChanges');
+    expect((response.result as any).edited).toBe(true);
+    expect((response.result as any).summary).toBe('replaced text');
+  });
+
+  it('strips _fileChanges from persisted tool history', async () => {
+    const toolManager = {
+      execute: vi.fn(async () => ({
+        ok: true,
+        result: {
+          edited: true,
+          _fileChanges: [
+            { filePath: '/ws/d.ts', oldContent: 'old', newContent: 'new' },
+          ],
+        },
+      })),
+    } as any;
+
+    const appendMessage = vi.fn(async () => undefined);
+    const ctx = makeContext({
+      toolManager,
+      sessionManager: { appendMessage } as any,
+      history: [
+        {
+          timestamp: new Date().toISOString(),
+          from: 'human',
+          isHuman: true,
+          content: 'edit the file',
+        } as any,
+      ],
+    });
+
+    await dispatchToolCall(
+      { toolCallId: 'tc-hist', toolName: 'fs_edit', args: {} },
+      ctx,
+    );
+
+    const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
+    const persisted = (firstCall[1]?.content ?? '') as string;
+    expect(persisted).not.toContain('_fileChanges');
+  });
+
+  it('does NOT emit code_edit_proposal on execution failure', async () => {
+    const toolManager = {
+      execute: vi.fn(async () => ({ ok: false, error: 'write failed' })),
+    } as any;
+
+    const ctx = makeContext({ toolManager });
+
+    await dispatchToolCall(
+      { toolCallId: 'tc-fail', toolName: 'fs_edit', args: {} },
+      ctx,
+    );
+
+    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    const events = emit.mock.calls.map((c: any[]) => c[0]);
+    const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
+
+    expect(proposal).toBeUndefined();
+  });
+});

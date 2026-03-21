@@ -35,24 +35,45 @@ export function canListViaAccessEngine(context: ToolContext, targetPath: string)
   ).allowed;
 }
 
-export function filterTreeByListAccess(context: ToolContext, node: FileTreeNode): FileTreeNode | null {
+/** Count leaf (file) nodes in a tree. */
+export function countTreeLeaves(node: FileTreeNode): number {
+  if (!node.children || node.children.length === 0) return 1;
+  return node.children.reduce((sum, child) => sum + countTreeLeaves(child), 0);
+}
+
+export interface FilterTreeResult {
+  tree: FileTreeNode | null;
+  /** Number of leaf nodes that were removed by access filtering. */
+  denied: number;
+}
+
+export function filterTreeByListAccess(context: ToolContext, node: FileTreeNode): FilterTreeResult {
   const nodePath = node.relativePath || '.';
-  if (!canListViaAccessEngine(context, nodePath)) {
-    return null;
-  }
+  const nodeAllowed = canListViaAccessEngine(context, nodePath);
 
+  // Leaf node (file): return based on direct access only
   if (!node.children || node.children.length === 0) {
-    return node;
+    return nodeAllowed ? { tree: node, denied: 0 } : { tree: null, denied: 1 };
   }
 
-  const filteredChildren = node.children
-    .map((child) => filterTreeByListAccess(context, child))
-    .filter((child): child is FileTreeNode => child !== null);
+  // Directory: recurse into children first
+  let totalDenied = 0;
+  const filteredChildren: FileTreeNode[] = [];
+  for (const child of node.children) {
+    const result = filterTreeByListAccess(context, child);
+    totalDenied += result.denied;
+    if (result.tree) filteredChildren.push(result.tree);
+  }
 
-  return {
-    ...node,
-    children: filteredChildren,
-  };
+  // Keep the directory if it's directly accessible or has accessible descendants
+  if (nodeAllowed || filteredChildren.length > 0) {
+    return {
+      tree: { ...node, children: filteredChildren },
+      denied: totalDenied,
+    };
+  }
+
+  return { tree: null, denied: totalDenied };
 }
 
 export function toFsPathAccessEnvelope(

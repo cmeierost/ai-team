@@ -264,7 +264,7 @@ async function handleCodeEditProposal(
   writeStderrLine(`${chalk.bold('ID:')} ${proposalId}`);
   writeStderrLine(`${chalk.bold('Description:')} ${description}`);
   writeStderrLine(`${chalk.bold('Files:')} ${filesChanged}`);
-  writeStderrLine(`${chalk.bold('Changes:')} ${chalk.green(`+${additions}`)} ${chalk.red(`-${deletions}`)}`);
+  writeStderrLine(`${chalk.bold('Changes:')} ${chalk.green(`+${additions ?? 0}`)} ${chalk.red(`-${deletions ?? 0}`)}`);
   
   if (warnings && warnings.length > 0) {
     writeStderrLine('');

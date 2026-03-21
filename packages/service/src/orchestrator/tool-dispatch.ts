@@ -199,12 +199,28 @@ export async function dispatchToolCall(
   // ── 6. Forward file changes to IDE for diff display ───────────────────────
 
   if (fileChanges.length > 0) {
+    let additions = 0;
+    let deletions = 0;
+    for (const fc of fileChanges) {
+      const oldLines = (fc.oldContent ?? '').split('\n');
+      const newLines = (fc.newContent ?? '').split('\n');
+      // Simple line-count diff: count added and removed lines
+      const maxLen = Math.max(oldLines.length, newLines.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i >= oldLines.length) { additions++; continue; }
+        if (i >= newLines.length) { deletions++; continue; }
+        if (oldLines[i] !== newLines[i]) { additions++; deletions++; }
+      }
+    }
+
     emitEvent(ctx.hooks, {
       kind: 'code_edit_proposal',
       proposalId: `${toolName}-${toolCallId}`,
       agentName: ctx.agent.name,
       description: `${ctx.agent.name} edited ${fileChanges.length} file(s) via ${toolName}`,
       filesChanged: fileChanges.length,
+      additions,
+      deletions,
       files: fileChanges.map(fc => ({
         filePath: fc.filePath,
         oldContent: fc.oldContent,
@@ -618,14 +634,29 @@ async function persistCodeEditProposal(
     files: resolvedFiles,
   });
 
+  let additions = typeof r.additions === 'number' ? r.additions : 0;
+  let deletions = typeof r.deletions === 'number' ? r.deletions : 0;
+  if (additions === 0 && deletions === 0) {
+    for (const f of resolvedFiles) {
+      const oldLines = (f.oldContent ?? '').split('\n');
+      const newLines = (f.newContent ?? '').split('\n');
+      const maxLen = Math.max(oldLines.length, newLines.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i >= oldLines.length) { additions++; continue; }
+        if (i >= newLines.length) { deletions++; continue; }
+        if (oldLines[i] !== newLines[i]) { additions++; deletions++; }
+      }
+    }
+  }
+
   emitEvent(ctx.hooks, {
     kind: 'code_edit_proposal',
     proposalId,
     agentName: ctx.agent.name,
     description: r.description as string,
     filesChanged: resolvedFiles.length,
-    additions: r.additions as number,
-    deletions: r.deletions as number,
+    additions,
+    deletions,
     warnings: r.warnings as string[],
     files: resolvedFiles,
   });

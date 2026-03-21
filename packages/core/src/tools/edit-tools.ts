@@ -12,6 +12,43 @@ import {
 import { collectPostWriteDiagnostics } from './diagnostics-helper.js';
 
 // ============================================================================
+// Shared helper — detect + strip fs_read line-number prefixes
+// ============================================================================
+
+const LINE_NUM_RE = /^(\d+): /;
+
+/**
+ * Detect and strip `fs_read`-style line-number prefixes (`N: `) from text.
+ *
+ * Only strips when the pattern is unambiguous: ≥ 80 % of lines match and
+ * the detected numbers are strictly sequential — matching `fs_read` output.
+ */
+export function stripLineNumberPrefixes(text: string): { text: string; stripped: boolean } {
+  const lines = text.split('\n');
+  if (lines.length < 2) return { text, stripped: false };
+
+  const matches: Array<{ index: number; num: number }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(LINE_NUM_RE);
+    if (m) matches.push({ index: i, num: parseInt(m[1], 10) });
+  }
+
+  if (matches.length / lines.length < 0.8) return { text, stripped: false };
+
+  for (let i = 1; i < matches.length; i++) {
+    if (matches[i].num !== matches[i - 1].num + 1) return { text, stripped: false };
+  }
+
+  const cleaned = lines
+    .map((line) => {
+      const m = line.match(LINE_NUM_RE);
+      return m ? line.slice(m[0].length) : line;
+    })
+    .join('\n');
+  return { text: cleaned, stripped: true };
+}
+
+// ============================================================================
 // apply_patch — apply a standard unified diff to one or more files
 // ============================================================================
 
@@ -318,12 +355,19 @@ export const fsEditTool: AgentTool = {
   }),
   async execute(params, context: ToolContext) {
     const engineCheck = getAccessEngineOrDeny(context);
-    const { filePath, oldString, newString, replaceAll = false } = params as {
+    const { filePath, replaceAll = false } = params as {
       filePath:   string;
       oldString:  string;
       newString:  string;
       replaceAll?: boolean;
     };
+
+    // Strip accidental fs_read line-number prefixes ("42: ...") from both
+    // strings so the LLM doesn't write numbered content into the file.
+    const cleanOld = stripLineNumberPrefixes((params as { oldString: string }).oldString);
+    const cleanNew = stripLineNumberPrefixes((params as { newString: string }).newString);
+    const oldString = cleanOld.text;
+    const newString = cleanNew.text;
 
     const absolutePath = resolveFsAbsolutePath(context, filePath);
     if (!absolutePath) {

@@ -7,6 +7,11 @@ import { createAccessEngine } from '../context/access-adapter.js';
 import { ToolManager } from './tool-manager.js';
 import { ALL_TOOLS } from './index.js';
 
+/** Build the context object expected by ToolManager.execute(). */
+function ctx(agent: Agent, ws: string) {
+  return { agentId: agent.id, workspaceRoot: ws };
+}
+
 const workspaces: string[] = [];
 
 function perms(p: { read?: string[]; write?: string[]; create?: string[]; delete?: string[]; manage_agents?: boolean }): PermissionConfig {
@@ -37,6 +42,13 @@ function makeSearchAgent(id: string, readPatterns: string[]): Agent {
   return {
     ...makeAgent(id, readPatterns),
     tools: ['fs_search_content', 'fs_search_metadata'],
+  };
+}
+
+function makeTreeAgent(id: string, readPatterns: string[]): Agent {
+  return {
+    ...makeAgent(id, readPatterns),
+    tools: ['fs_tree', 'fs_list'],
   };
 }
 
@@ -79,7 +91,7 @@ describe('fs_exists/fs_info tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_exists', { path: 'docs/readme.md' }, { workspaceRoot });
+    const result = await manager.execute(a, 'fs_exists', { path: 'docs/readme.md' }, ctx(a, workspaceRoot));
 
     expect(result.ok).toBe(true);
     const payload = result.result as any;
@@ -100,7 +112,7 @@ describe('fs_exists/fs_info tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_info', { path: 'src/app.ts' }, { workspaceRoot });
+    const result = await manager.execute(a, 'fs_info', { path: 'src/app.ts' }, ctx(a, workspaceRoot));
 
     expect(result.ok).toBe(true);
     const payload = result.result as any;
@@ -134,7 +146,7 @@ describe('fs_search_* access filtering', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_search_content', { path: '.', query: 'needle' }, { workspaceRoot });
+    const result = await manager.execute(a, 'fs_search_content', { path: '.', query: 'needle' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
@@ -168,7 +180,7 @@ describe('fs_search_* access filtering', () => {
       a,
       'fs_search_metadata',
       { pattern: '**/needle-zone/**' },
-      { workspaceRoot },
+      ctx(a, workspaceRoot),
     );
     expect(result.ok).toBe(true);
 
@@ -190,12 +202,12 @@ describe('remaining fs tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const full = await manager.execute(a, 'fs_read', { filePath: 'src/file.txt' }, { workspaceRoot });
+    const full = await manager.execute(a, 'fs_read', { filePath: 'src/file.txt' }, ctx(a, workspaceRoot));
     const lines = await manager.execute(
       a,
       'fs_read_lines',
       { filePath: 'src/file.txt', startLine: 2, endLine: 3 },
-      { workspaceRoot },
+      ctx(a, workspaceRoot),
     );
 
     expect(full.ok).toBe(true);
@@ -211,18 +223,18 @@ describe('remaining fs tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const mkdir = await manager.execute(a, 'fs_mkdir', { path: 'tmp/nested' }, { workspaceRoot });
+    const mkdir = await manager.execute(a, 'fs_mkdir', { path: 'tmp/nested' }, ctx(a, workspaceRoot));
     const created = await manager.execute(
       a,
       'fs_create',
       { filePath: 'tmp/nested/new.txt', content: 'hello', createDirectories: true },
-      { workspaceRoot },
+      ctx(a, workspaceRoot),
     );
     const written = await manager.execute(
       a,
       'fs_write_file',
       { filePath: 'tmp/nested/new.txt', content: 'updated' },
-      { workspaceRoot },
+      ctx(a, workspaceRoot),
     );
 
     expect(mkdir.ok).toBe(true);
@@ -246,12 +258,244 @@ describe('remaining fs tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const listed = await manager.execute(a, 'fs_list', { path: 'tmp' }, { workspaceRoot });
+    const listed = await manager.execute(a, 'fs_list', { path: 'tmp' }, ctx(a, workspaceRoot));
     expect(listed.ok).toBe(true);
     expect((listed.result as any).entries.some((e: { name: string }) => e.name === 'dir')).toBe(true);
 
-    const deleted = await manager.execute(a, 'fs_delete_path', { path: 'tmp/dir', recursive: true }, { workspaceRoot });
+    const deleted = await manager.execute(a, 'fs_delete_path', { path: 'tmp/dir', recursive: true }, ctx(a, workspaceRoot));
     expect(deleted.ok).toBe(true);
     expect((deleted.result as any).deleted).toBe(true);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Agent with subtree-only access can still use listing/search tools from root
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('fs_tree with subtree-only access', () => {
+  it('returns accessible subtree files when called from root without root-level list access', async () => {
+    const workspaceRoot = await createWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'src', 'app.ts'), 'export const x = 1;', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'docs', 'readme.md'), '# Docs', 'utf8');
+
+    // Agent only has read (→ list) on src/**
+    const a = makeTreeAgent('subtree-a', ['src/**']);
+    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const manager = new ToolManager(workspaceRoot, engine);
+    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+
+    const result = await manager.execute(a, 'fs_tree', { path: '.' }, ctx(a, workspaceRoot));
+    expect(result.ok).toBe(true);
+
+    const payload = result.result as any;
+    expect(payload.access.allowed).toBe(true);
+    expect(payload.tree).not.toBeNull();
+
+    // src subtree should be visible
+    const srcNode = payload.tree.children?.find((c: any) => c.name === 'src');
+    expect(srcNode).toBeTruthy();
+    expect(srcNode.children?.some((c: any) => c.name === 'app.ts')).toBe(true);
+
+    // docs should NOT be visible (no list access)
+    const docsNode = payload.tree.children?.find((c: any) => c.name === 'docs');
+    expect(docsNode).toBeFalsy();
+
+    // denied count should reflect the inaccessible file(s)
+    expect(payload.denied).toBeGreaterThan(0);
+    expect(payload.access.explanation).toContain('hidden due to access restrictions');
+  });
+
+  it('returns null tree when agent has no accessible files', async () => {
+    const workspaceRoot = await createWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'src', 'app.ts'), 'export const x = 1;', 'utf8');
+
+    // Agent has no read patterns at all
+    const a = makeTreeAgent('no-access', []);
+    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const manager = new ToolManager(workspaceRoot, engine);
+    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+
+    const result = await manager.execute(a, 'fs_tree', { path: '.' }, ctx(a, workspaceRoot));
+    expect(result.ok).toBe(true);
+
+    const payload = result.result as any;
+    expect(payload.tree).toBeNull();
+    expect(payload.access.allowed).toBe(false);
+    // file(s) exist but agent has no access — message should say so
+    expect(payload.denied).toBeGreaterThan(0);
+    expect(payload.access.explanation).toContain('not accessible with your current permissions');
+    expect(payload.access.explanation).toContain('delegating');
+  });
+
+  it('returns full tree when agent has broad read access', async () => {
+    const workspaceRoot = await createWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'src', 'app.ts'), 'x', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'docs', 'readme.md'), 'y', 'utf8');
+
+    const a = makeTreeAgent('full-access', ['**']);
+    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const manager = new ToolManager(workspaceRoot, engine);
+    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+
+    const result = await manager.execute(a, 'fs_tree', { path: '.' }, ctx(a, workspaceRoot));
+    expect(result.ok).toBe(true);
+
+    const payload = result.result as any;
+    expect(payload.access.allowed).toBe(true);
+    expect(payload.tree).not.toBeNull();
+    expect(payload.tree.children?.find((c: any) => c.name === 'src')).toBeTruthy();
+    expect(payload.tree.children?.find((c: any) => c.name === 'docs')).toBeTruthy();
+    expect(payload.denied).toBe(0);
+  });
+});
+
+describe('fs_list with subtree-only access', () => {
+  it('lists only accessible entries when listing root without root-level list access', async () => {
+    const workspaceRoot = await createWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, 'allowed-dir'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'blocked-dir'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'allowed-dir', 'a.ts'), 'x', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'blocked-dir', 'b.ts'), 'y', 'utf8');
+
+    // Agent only has list on allowed-dir/**
+    const a = makeTreeAgent('list-subtree', ['allowed-dir/**']);
+    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const manager = new ToolManager(workspaceRoot, engine);
+    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+
+    const result = await manager.execute(a, 'fs_list', { path: '.' }, ctx(a, workspaceRoot));
+    expect(result.ok).toBe(true);
+
+    const payload = result.result as any;
+    // allowed-dir should be listed
+    expect(payload.entries.some((e: any) => e.name === 'allowed-dir')).toBe(true);
+    // blocked-dir should NOT be listed
+    expect(payload.entries.some((e: any) => e.name === 'blocked-dir')).toBe(false);
+    // denied count should reflect the blocked entry
+    expect(payload.denied).toBeGreaterThan(0);
+    expect(payload.access.explanation).toContain('hidden due to access restrictions');
+  });
+
+  it('returns empty entries with allowed=false when no entries are accessible', async () => {
+    const workspaceRoot = await createWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, 'private'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'private', 'secret.txt'), 'x', 'utf8');
+
+    const a = makeTreeAgent('no-list', []);
+    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const manager = new ToolManager(workspaceRoot, engine);
+    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+
+    const result = await manager.execute(a, 'fs_list', { path: '.' }, ctx(a, workspaceRoot));
+    expect(result.ok).toBe(true);
+
+    const payload = result.result as any;
+    expect(payload.entries).toEqual([]);
+    expect(payload.access.allowed).toBe(false);
+    // directory has entries but agent has no access
+    expect(payload.denied).toBeGreaterThan(0);
+    expect(payload.access.explanation).toContain('not accessible with your current permissions');
+    expect(payload.access.explanation).toContain('delegating');
+  });
+});
+
+describe('fs_search_content with subtree-only access', () => {
+  it('finds matches in accessible files when searching from root without root-level access', async () => {
+    const workspaceRoot = await createWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'secret'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'src', 'app.ts'), 'const PORT = 290420;', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'secret', 'config.ts'), 'const PORT = 290420;', 'utf8');
+
+    const a = makeSearchAgent('search-subtree', ['src/**']);
+    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const manager = new ToolManager(workspaceRoot, engine);
+    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+
+    const result = await manager.execute(a, 'fs_search_content', { path: '.', query: '290420' }, ctx(a, workspaceRoot));
+    expect(result.ok).toBe(true);
+
+    const payload = result.result as any;
+    expect(payload.access.allowed).toBe(true);
+    expect(payload.matches.length).toBeGreaterThan(0);
+    expect(payload.matches.some((m: any) => m.path === 'src/app.ts')).toBe(true);
+    expect(payload.matches.some((m: any) => m.path === 'secret/config.ts')).toBe(false);
+    // denied count should reflect the inaccessible match
+    expect(payload.denied).toBeGreaterThan(0);
+    expect(payload.access.explanation).toContain('hidden due to access restrictions');
+  });
+
+  it('reports denied matches when no accessible files contain the query', async () => {
+    const workspaceRoot = await createWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, 'secret'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'secret', 'config.ts'), 'const PORT = 290420;', 'utf8');
+
+    const a = makeSearchAgent('search-denied', ['src/**']);
+    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const manager = new ToolManager(workspaceRoot, engine);
+    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+
+    const result = await manager.execute(a, 'fs_search_content', { path: '.', query: '290420' }, ctx(a, workspaceRoot));
+    expect(result.ok).toBe(true);
+
+    const payload = result.result as any;
+    expect(payload.access.allowed).toBe(false);
+    expect(payload.matches).toEqual([]);
+    // matches exist but agent can't see them
+    expect(payload.denied).toBeGreaterThan(0);
+    expect(payload.access.explanation).toContain('not accessible with your current permissions');
+    expect(payload.access.explanation).toContain('delegating');
+  });
+});
+
+describe('fs_search_metadata with subtree-only access', () => {
+  it('finds files matching glob in accessible paths only', async () => {
+    const workspaceRoot = await createWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'private'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'src', 'app.ts'), 'x', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'private', 'hidden.ts'), 'y', 'utf8');
+
+    const a = makeSearchAgent('meta-subtree', ['src/**']);
+    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const manager = new ToolManager(workspaceRoot, engine);
+    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+
+    const result = await manager.execute(a, 'fs_search_metadata', { pattern: '**/*.ts' }, ctx(a, workspaceRoot));
+    expect(result.ok).toBe(true);
+
+    const payload = result.result as any;
+    expect(payload.access.allowed).toBe(true);
+    expect(payload.matches.some((m: any) => m.path === 'src/app.ts')).toBe(true);
+    expect(payload.matches.some((m: any) => m.path === 'private/hidden.ts')).toBe(false);
+    // denied count should reflect the inaccessible file
+    expect(payload.denied).toBeGreaterThan(0);
+    expect(payload.access.explanation).toContain('hidden due to access restrictions');
+  });
+
+  it('reports denied files when no accessible files match the glob', async () => {
+    const workspaceRoot = await createWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, 'private'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'private', 'hidden.ts'), 'y', 'utf8');
+
+    const a = makeSearchAgent('meta-denied', ['src/**']);
+    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const manager = new ToolManager(workspaceRoot, engine);
+    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+
+    const result = await manager.execute(a, 'fs_search_metadata', { pattern: '**/*.ts' }, ctx(a, workspaceRoot));
+    expect(result.ok).toBe(true);
+
+    const payload = result.result as any;
+    expect(payload.access.allowed).toBe(false);
+    expect(payload.matches).toEqual([]);
+    expect(payload.denied).toBeGreaterThan(0);
+    expect(payload.access.explanation).toContain('not accessible with your current permissions');
+    expect(payload.access.explanation).toContain('delegating');
   });
 });

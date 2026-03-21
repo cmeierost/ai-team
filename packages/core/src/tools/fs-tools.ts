@@ -677,20 +677,6 @@ export const fsListTool: AgentTool = {
       };
     }
 
-    const rootAccess = toFsPathAccessEnvelope(context, 'fs_list', targetPath);
-    if (!rootAccess.allowed) {
-      return {
-        path: targetPath,
-        entries: [],
-        access: rootAccess,
-        delegation: {
-          possible: rootAccess.alternativeContexts.length > 0,
-          contexts: rootAccess.alternativeContexts,
-          unassignable: rootAccess.alternativeContexts.length === 0,
-        },
-      };
-    }
-
     const tree = await getFileTree(context.workspaceRoot, {
       rootSubPath: targetPath,
       maxDepth: 1,
@@ -698,8 +684,17 @@ export const fsListTool: AgentTool = {
     });
     const children = tree.children ?? [];
 
+    const totalChildren = children.length;
     const entries = children
-      .filter((child) => canListViaAccessEngine(context, child.relativePath || '.'))
+      .filter((child) => {
+        const childPath = child.relativePath || '.';
+        if (canListViaAccessEngine(context, childPath)) return true;
+        // For directories, check if any descendant would be accessible
+        // by testing `childPath/probe` — if the pattern is `childPath/**` the child itself
+        // doesn't match but its contents would.
+        if (child.isDirectory && canListViaAccessEngine(context, childPath + '/probe')) return true;
+        return false;
+      })
       .map((child) => ({
         path: child.relativePath,
         name: child.name,
@@ -708,15 +703,18 @@ export const fsListTool: AgentTool = {
         modified: child.modified,
       }));
 
+    const denied = totalChildren - entries.length;
+    const explanation = entries.length === 0 && denied > 0
+      ? `${denied} entry/entries exist under this path but are not accessible with your current permissions. Consider delegating to a teammate with broader access.`
+      : denied > 0
+        ? `Filtered by per-entry list access. ${denied} additional entry/entries were hidden due to access restrictions.`
+        : 'Filtered by per-entry list access.';
+
     return {
       path: targetPath,
       entries,
-      access: rootAccess,
-      delegation: {
-        possible: false,
-        contexts: [],
-        unassignable: false,
-      },
+      denied,
+      access: { allowed: entries.length > 0, explanation, alternativeContexts: [] },
     };
   },
 };
@@ -762,35 +760,35 @@ export const fsTreeTool: AgentTool = {
       };
     }
 
-    const rootAccess = toFsPathAccessEnvelope(context, 'fs_tree', targetPath);
-    if (!rootAccess.allowed) {
-      return {
-        path: targetPath,
-        tree: null,
-        access: rootAccess,
-        delegation: {
-          possible: rootAccess.alternativeContexts.length > 0,
-          contexts: rootAccess.alternativeContexts,
-          unassignable: rootAccess.alternativeContexts.length === 0,
-        },
-      };
-    }
-
     const rawTree = await getFileTree(context.workspaceRoot, {
       rootSubPath: targetPath,
       maxDepth,
       includeHidden,
     });
-    const filteredTree = filterTreeByListAccess(context, rawTree);
+    const { tree: filteredTree, denied } = filterTreeByListAccess(context, rawTree);
+
+    if (!filteredTree || (filteredTree.children && filteredTree.children.length === 0)) {
+      const explanation = denied > 0
+        ? `${denied} file(s) exist under this path but are not accessible with your current permissions. Consider delegating to a teammate with broader access.`
+        : 'No files found under the requested path.';
+      return {
+        path: targetPath,
+        tree: null,
+        denied,
+        access: { allowed: false, explanation, alternativeContexts: [] },
+      };
+    }
 
     return {
       path: targetPath,
       tree: filteredTree,
-      access: rootAccess,
-      delegation: {
-        possible: false,
-        contexts: [],
-        unassignable: false,
+      denied,
+      access: {
+        allowed: true,
+        explanation: denied > 0
+          ? `Filtered by per-node list access. ${denied} additional file(s) were hidden due to access restrictions.`
+          : 'Filtered by per-node list access.',
+        alternativeContexts: [],
       },
     };
   },
@@ -826,20 +824,6 @@ export const fsSearchContentTool: AgentTool = {
       };
     }
 
-    const rootAccess = toFsPathAccessEnvelope(context, 'fs_search_content', targetPath);
-    if (!rootAccess.allowed) {
-      return {
-        path: targetPath,
-        matches: [],
-        access: rootAccess,
-        delegation: {
-          possible: rootAccess.alternativeContexts.length > 0,
-          contexts: rootAccess.alternativeContexts,
-          unassignable: rootAccess.alternativeContexts.length === 0,
-        },
-      };
-    }
-
     const files = await listWorkspaceFiles(context.workspaceRoot, {
       rootSubPath: targetPath,
       filesOnly: true,
@@ -855,9 +839,13 @@ export const fsSearchContentTool: AgentTool = {
     });
 
     const matches: Array<{ path: string; line: number; content: string }> = [];
+    let denied = 0;
     for (const match of rawMatches) {
       const relativePath = path.relative(context.workspaceRoot, match.filePath).replaceAll('\\', '/');
-      if (!canListViaAccessEngine(context, relativePath)) continue;
+      if (!canListViaAccessEngine(context, relativePath)) {
+        denied++;
+        continue;
+      }
 
       matches.push({
         path: relativePath,
@@ -868,16 +856,18 @@ export const fsSearchContentTool: AgentTool = {
       if (matches.length >= maxResults) break;
     }
 
+    const explanation = matches.length === 0 && denied > 0
+      ? `${denied} match(es) were found but are not accessible with your current permissions. Consider delegating to a teammate with broader access.`
+      : denied > 0
+        ? `Filtered by per-file list access. ${denied} additional match(es) were hidden due to access restrictions.`
+        : 'Filtered by per-file list access.';
+
     return {
       path: targetPath,
       query,
       matches,
-      access: rootAccess,
-      delegation: {
-        possible: false,
-        contexts: [],
-        unassignable: false,
-      },
+      denied,
+      access: { allowed: matches.length > 0, explanation, alternativeContexts: [] },
     };
   },
 };
@@ -909,32 +899,21 @@ export const fsSearchMetadataTool: AgentTool = {
       };
     }
 
-    const rootAccess = toFsPathAccessEnvelope(context, 'fs_search_metadata', targetPath);
-    if (!rootAccess.allowed) {
-      return {
-        pattern,
-        path: targetPath,
-        matches: [],
-        access: rootAccess,
-        delegation: {
-          possible: rootAccess.alternativeContexts.length > 0,
-          contexts: rootAccess.alternativeContexts,
-          unassignable: rootAccess.alternativeContexts.length === 0,
-        },
-      };
-    }
-
     const { Ripgrep } = await import('@ai-team/fs');
     const cwd = path.resolve(context.workspaceRoot, targetPath);
 
     const matches: Array<{ path: string; size: number; mtime: string }> = [];
+    let denied = 0;
 
     for await (const relFile of Ripgrep.files({ cwd, glob: [pattern] })) {
       const relFromRoot = targetPath === '.'
         ? relFile.replaceAll('\\', '/')
         : (targetPath + '/' + relFile).replaceAll('\\', '/');
 
-      if (!canListViaAccessEngine(context, relFromRoot)) continue;
+      if (!canListViaAccessEngine(context, relFromRoot)) {
+        denied++;
+        continue;
+      }
 
       const abs = path.resolve(cwd, relFile);
       let size = 0;
@@ -952,13 +931,20 @@ export const fsSearchMetadataTool: AgentTool = {
       if (matches.length >= maxResults) break;
     }
 
+    const explanation = matches.length === 0 && denied > 0
+      ? `${denied} file(s) matched the pattern but are not accessible with your current permissions. Consider delegating to a teammate with broader access.`
+      : denied > 0
+        ? `Filtered by per-file list access. ${denied} additional file(s) were hidden due to access restrictions.`
+        : 'Filtered by per-file list access.';
+
     return {
       pattern,
       path: targetPath,
       matches,
+      denied,
       numMatches: matches.length,
       truncated: matches.length >= maxResults,
-      access: rootAccess,
+      access: { allowed: matches.length > 0, explanation, alternativeContexts: [] },
     };
   },
 };
