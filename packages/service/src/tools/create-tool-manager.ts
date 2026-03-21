@@ -16,12 +16,18 @@
  */
 
 import { ToolManager, ALL_TOOLS } from '@ai-team/core';
+import type { LspProvider } from '@ai-team/ide-interface';
 import {
   createOrchestrationTools,
   type OrchestrationDeps,
 } from './orchestration-tools.js';
 
 export type { OrchestrationDeps } from './orchestration-tools.js';
+
+export interface CreateToolManagerOptions {
+  accessEngine?: ConstructorParameters<typeof ToolManager>[1];
+  lsp?: LspProvider;
+}
 
 /**
  * Create a ToolManager seeded with all built-in tools.
@@ -35,9 +41,18 @@ export type { OrchestrationDeps } from './orchestration-tools.js';
 export function createToolManager(
   workspaceRoot: string,
   deps: OrchestrationDeps,
-  accessEngine?: ConstructorParameters<typeof ToolManager>[1],
+  accessEngineOrOptions?: ConstructorParameters<typeof ToolManager>[1] | CreateToolManagerOptions,
 ): ToolManager {
-  const manager = new ToolManager(workspaceRoot, accessEngine);
+  // Backward compat: accept bare AccessEngine or options object
+  const opts: CreateToolManagerOptions = accessEngineOrOptions && typeof accessEngineOrOptions === 'object' && 'lsp' in accessEngineOrOptions
+    ? accessEngineOrOptions
+    : { accessEngine: accessEngineOrOptions as any };
+
+  const manager = new ToolManager(workspaceRoot, opts.accessEngine);
+
+  if (opts.lsp) {
+    manager.setLspProvider(opts.lsp);
+  }
 
   // 1. Core domain tools (file, search, code-analysis, agent, hr intrinsics)
   for (const tool of Object.values(ALL_TOOLS)) {

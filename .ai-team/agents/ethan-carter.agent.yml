@@ -10,11 +10,11 @@ specializations:
 avatar:
   type: url
   url: .ai-team/avatars/ethan-carter.jpg
+  color: 'hsl(193, 70%, 60%)'
 personality:
   communication_style: analytical
   expertise_level: senior
   mentoring: true
-
 tools:
   - tool_get_errors
   - com_handoff

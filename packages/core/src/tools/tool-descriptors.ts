@@ -142,9 +142,35 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
   // -- Code edit tools --
 
   engine.registerTool({
+    name: 'fs_edit',
+    pathParams: [{ paramName: 'filePath', right: FS_TOOL_REQUIRED_RIGHT.fs_edit }],
+    description: 'Surgical string-replacement edit (write-right on filePath)',
+  });
+
+  engine.registerTool({
     name: 'fs_apply_patch',
     pathParams: [],
     description: 'Propose code edits (write-checks done against changes[].filePath)',
+  });
+
+  engine.registerTool({
+    name: 'apply_patch',
+    pathParams: [],
+    description: 'Apply unified diff patch (write-checks done per affected file)',
+  });
+
+  engine.registerTool({
+    name: 'multiedit',
+    pathParams: [{ paramName: 'filePath', right: 'write' }],
+    description: 'Multiple edits on a single file (write-right on filePath)',
+  });
+
+  // -- Code intelligence tools (read-only) --
+
+  engine.registerTool({
+    name: 'lsp',
+    pathParams: [{ paramName: 'filePath', right: 'read' }],
+    description: 'Execute LSP operation on a file (read-right on filePath)',
   });
 
   // -- CLI compound tool --

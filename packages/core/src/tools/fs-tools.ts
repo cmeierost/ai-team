@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { getFileTree, listWorkspaceFiles, FileTime, Truncate } from '@ai-team/fs';
-import type { AgentTool } from '../types/index.js';
+import type { AgentTool, ToolContext } from '../types/index.js';
 import {
   canListViaAccessEngine,
   filterTreeByListAccess,
@@ -11,6 +11,7 @@ import {
   toFsPathAccessEnvelope,
   toFsPathMeta,
 } from './fs-access.js';
+import { collectPostWriteDiagnostics } from './diagnostics-helper.js';
 
 export const fsExistsTool: AgentTool = {
   name: 'fs_exists',
@@ -443,11 +444,13 @@ export const fsWriteFileTool: AgentTool = {
         await fs.mkdir(path.dirname(absolutePath), { recursive: true });
       }
       await fs.writeFile(absolutePath, content, 'utf8');
+      const diagnostics = await collectPostWriteDiagnostics(context as ToolContext, [absolutePath]);
       return {
         path: pathMeta,
         written: true,
         bytes: Buffer.byteLength(content, 'utf8'),
         access,
+        ...(diagnostics ? { diagnostics } : {}),
       };
     } catch (error) {
       return {

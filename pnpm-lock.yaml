@@ -238,6 +238,9 @@ importers:
       '@ai-team/fs':
         specifier: workspace:*
         version: link:../fs
+      '@ai-team/ide-interface':
+        specifier: workspace:*
+        version: link:../ide-interface
       '@typescript-eslint/typescript-estree':
         specifier: ^8.56.0
         version: 8.56.0(typescript@5.9.3)
@@ -383,6 +386,9 @@ importers:
       '@ai-team/core':
         specifier: workspace:*
         version: link:../core
+      '@ai-team/ide-interface':
+        specifier: workspace:*
+        version: link:../ide-interface
       gray-matter:
         specifier: ^4.0.3
         version: 4.0.3

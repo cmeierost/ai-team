@@ -19,6 +19,7 @@ import {
   ToolContext,
 } from '../types/index.js';
 import type { AccessEngine, AccessVerdict, PermissionDescriptor } from '@ai-team/access';
+import type { LspProvider } from '@ai-team/ide-interface';
 import { ContextManager } from '../context/index.js';
 
 // Re-export for convenience so callers only import from 'tools'.
@@ -176,10 +177,17 @@ export class ToolManager {
   private readonly contextManager: ContextManager;
   /** Optional AccessEngine for richer verdicts and delegation support. */
   readonly accessEngine?: AccessEngine;
+  /** Optional LSP provider injected into tool context. */
+  private _lsp?: LspProvider;
 
   constructor(workspaceRoot: string, engine?: AccessEngine) {
     this.contextManager = new ContextManager(workspaceRoot, undefined, engine);
     this.accessEngine = engine;
+  }
+
+  /** Set the LSP provider that tools will receive in their context. */
+  setLspProvider(lsp: LspProvider): void {
+    this._lsp = lsp;
   }
 
   // ── Registration ─────────────────────────────────────────────────────────
@@ -324,7 +332,7 @@ export class ToolManager {
     }
 
     // Execution with timeout
-    const toolContext: ToolContext = { ...context, agent, agentId: agent.id, accessEngine: this.accessEngine };
+    const toolContext: ToolContext = { ...context, agent, agentId: agent.id, accessEngine: this.accessEngine, lsp: this._lsp };
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     try {

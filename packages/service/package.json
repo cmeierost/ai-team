@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@ai-team/core": "workspace:*",
+    "@ai-team/ide-interface": "workspace:*",
     "gray-matter": "^4.0.3",
     "ora": "^9.3.0",
     "sqlite3": "^6.0.1",

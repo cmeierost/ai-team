@@ -108,6 +108,7 @@ const SILENT_TOOL_NAMES = new Set([
   'fs_tree',
   'fs_search_content',
   'fs_search_metadata',
+  'lsp',
 ]);
 
 function requiresConfirmation(toolName: string): boolean {
@@ -145,16 +146,22 @@ export async function dispatchToolCall(
     ctx.agent,
     toolName,
     args,
-    { workspaceRoot: ctx.workspaceRoot, currentFiles: contextFiles },
+    { agentId: ctx.agent.id, workspaceRoot: ctx.workspaceRoot, currentFiles: contextFiles },
   );
 
+  // ── Strip _fileChanges early — before serialisation, history, and events ──
+  const fileChanges = execResult.ok ? extractFileChanges(execResult.result) : [];
+  const strippedResult = fileChanges.length > 0
+    ? stripFileChanges(execResult.result)
+    : execResult.result;
+
   const outputText = execResult.ok
-    ? serialise(execResult.result)
+    ? serialise(strippedResult)
     : (execResult.error ?? 'Tool execution failed');
 
   await appendToolHistory(ctx, toolName, outputText);
 
-  const denial = classifyToolDenial(execResult.ok, execResult.result, outputText);
+  const denial = classifyToolDenial(execResult.ok, strippedResult, outputText);
 
   const toolPhase = denial?.kind === 'policy-denied'
     ? 'denied'
@@ -166,7 +173,7 @@ export async function dispatchToolCall(
   const toolEventPayload = buildToolRuntimePayload(
     toolName,
     denial ? 'denied' : (execResult.ok ? 'result' : 'error'),
-    execResult.ok ? execResult.result : outputText,
+    execResult.ok ? strippedResult : outputText,
     denial,
   );
 
@@ -179,7 +186,7 @@ export async function dispatchToolCall(
     toolEventPayload,
   );
 
-  const structured = execResult.ok ? asStructuredToolResult(execResult.result) : undefined;
+  const structured = execResult.ok ? asStructuredToolResult(strippedResult) : undefined;
 
   // ── 5. fs_apply_patch proposal persistence ────────────────────────────────
 
@@ -189,10 +196,27 @@ export async function dispatchToolCall(
     );
   }
 
+  // ── 6. Forward file changes to IDE for diff display ───────────────────────
+
+  if (fileChanges.length > 0) {
+    emitEvent(ctx.hooks, {
+      kind: 'code_edit_proposal',
+      proposalId: `${toolName}-${toolCallId}`,
+      agentName: ctx.agent.name,
+      description: `${ctx.agent.name} edited ${fileChanges.length} file(s) via ${toolName}`,
+      filesChanged: fileChanges.length,
+      files: fileChanges.map(fc => ({
+        filePath: fc.filePath,
+        oldContent: fc.oldContent,
+        newContent: fc.newContent,
+      })),
+    });
+  }
+
   return {
     toolCallId,
     toolName,
-    result: execResult.ok ? execResult.result : outputText,
+    result: execResult.ok ? strippedResult : outputText,
     isError: !execResult.ok,
     structured,
     denial,
@@ -671,4 +695,27 @@ function serialise(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+// ── File-change detection helpers ─────────────────────────────────────────────
+
+interface FileChange {
+  filePath: string;
+  oldContent: string;
+  newContent: string;
+}
+
+function extractFileChanges(result: unknown): FileChange[] {
+  if (result == null || typeof result !== 'object') return [];
+  const r = result as Record<string, unknown>;
+  if (!Array.isArray(r._fileChanges)) return [];
+  return r._fileChanges as FileChange[];
+}
+
+function stripFileChanges(result: unknown): unknown {
+  if (result == null || typeof result !== 'object') return result;
+  const r = result as Record<string, unknown>;
+  if (!('_fileChanges' in r)) return result;
+  const { _fileChanges: _, ...rest } = r;
+  return rest;
 }

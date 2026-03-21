@@ -129,6 +129,99 @@ export interface IdeEditStatusResponse {
 }
 
 // ---------------------------------------------------------------------------
+// LSP — code intelligence types
+// ---------------------------------------------------------------------------
+
+export type LspOperation =
+  | 'goToDefinition'
+  | 'findReferences'
+  | 'hover'
+  | 'documentSymbol'
+  | 'workspaceSymbol'
+  | 'goToImplementation'
+  | 'prepareCallHierarchy'
+  | 'incomingCalls'
+  | 'outgoingCalls'
+  | 'getDiagnostics';
+
+export interface LspLocation {
+  path: string;
+  line: number;
+  character: number;
+  endLine?: number;
+  endCharacter?: number;
+  preview?: string;
+}
+
+export interface LspSymbol {
+  name: string;
+  kind: string;
+  path: string;
+  line: number;
+  character: number;
+  endLine: number;
+  endCharacter: number;
+  children?: LspSymbol[];
+}
+
+export interface LspHoverResult {
+  contents: string;
+}
+
+export interface LspCallHierarchyItem {
+  name: string;
+  kind: string;
+  path: string;
+  line: number;
+  character: number;
+  fromRanges?: Array<{ line: number; character: number; endLine: number; endCharacter: number }>;
+}
+
+export interface LspDiagnostic {
+  path: string;
+  line: number;
+  character: number;
+  endLine: number;
+  endCharacter: number;
+  severity: 'error' | 'warning' | 'info' | 'hint';
+  message: string;
+  source?: string;
+  code?: string | number;
+}
+
+export type LspResult =
+  | { kind: 'locations'; locations: LspLocation[] }
+  | { kind: 'symbols';   symbols: LspSymbol[] }
+  | { kind: 'hover';     hover: LspHoverResult }
+  | { kind: 'callItems'; items: LspCallHierarchyItem[] }
+  | { kind: 'diagnostics'; diagnostics: LspDiagnostic[] };
+
+export interface LspParams {
+  filePath: string;
+  line?: number;
+  character?: number;
+  query?: string;
+}
+
+// ---------------------------------------------------------------------------
+// LspProvider interface
+// ---------------------------------------------------------------------------
+
+export interface LspProvider {
+  execute(operation: LspOperation, params: LspParams): Promise<LspResult>;
+  isAvailable(): boolean;
+}
+
+export class NoopLspProvider implements LspProvider {
+  async execute(_operation: LspOperation, _params: LspParams): Promise<LspResult> {
+    return { kind: 'locations', locations: [] };
+  }
+  isAvailable(): boolean {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Protocol messages — Caller (CLI/api-server) → Plugin
 // ---------------------------------------------------------------------------
 
@@ -136,6 +229,7 @@ export type IdeCallerMessage =
   | { type: 'register'; workspaceRoot: string; kind: 'cli' | 'web' }
   | { type: 'openFile'; filePath: string; line?: number }
   | { type: 'codeEditProposal'; proposal: IdeCodeEditProposal }
+  | { type: 'lspRequest'; requestId: string; operation: LspOperation; params: LspParams }
   | { type: 'ping' };
 
 // ---------------------------------------------------------------------------
@@ -147,6 +241,7 @@ export type IdePluginMessage =
   | { type: 'rejected'; reason: string }
   | { type: 'ack'; proposalId: string; action: 'accept' | 'reject' }
   | { type: 'clientsChanged'; clients: IdeClientInfo[] }
+  | { type: 'lspResponse'; requestId: string; ok: boolean; result?: LspResult; error?: string }
   | { type: 'pong' };
 
 // ---------------------------------------------------------------------------
@@ -165,6 +260,8 @@ export interface IdeAdapter {
    * Called for every ack message received from the plugin.
    */
   onAck(handler: (proposalId: string, action: 'accept' | 'reject') => void): void;
+  /** LSP code-intelligence provider routed through the connected IDE. */
+  readonly lsp: LspProvider;
   /** Disconnect and clean up. */
   dispose(): void;
 }
@@ -174,6 +271,8 @@ export interface IdeAdapter {
 // ---------------------------------------------------------------------------
 
 export class NoopIdeAdapter implements IdeAdapter {
+  readonly lsp: LspProvider = new NoopLspProvider();
+
   openFile(_filePath: string, _line?: number): Promise<void> {
     return Promise.resolve();
   }
@@ -199,16 +298,44 @@ export class LocalWsIdeAdapter implements IdeAdapter {
   private ws: WebSocket;
   private ackHandlers: Array<(proposalId: string, action: 'accept' | 'reject') => void> = [];
   private _connected = false;
+  private lspPendingRequests = new Map<string, {
+    resolve: (result: LspResult) => void;
+    reject: (err: Error) => void;
+  }>();
+  private _lspRequestCounter = 0;
+
+  readonly lsp: LspProvider;
 
   constructor(ws: WebSocket) {
     this.ws = ws;
     this._connected = ws.readyState === WebSocket.OPEN;
+
+    // Create WsLspProvider bound to this adapter
+    const adapter = this;
+    this.lsp = {
+      async execute(operation: LspOperation, params: LspParams): Promise<LspResult> {
+        return adapter.executeLsp(operation, params);
+      },
+      isAvailable(): boolean {
+        return adapter._connected && adapter.ws.readyState === WebSocket.OPEN;
+      },
+    };
 
     ws.on('message', (data: Buffer) => {
       try {
         const msg: IdePluginMessage = JSON.parse(data.toString());
         if (msg.type === 'ack') {
           this.ackHandlers.forEach(h => h(msg.proposalId, msg.action));
+        } else if (msg.type === 'lspResponse') {
+          const pending = this.lspPendingRequests.get(msg.requestId);
+          if (pending) {
+            this.lspPendingRequests.delete(msg.requestId);
+            if (msg.ok && msg.result) {
+              pending.resolve(msg.result);
+            } else {
+              pending.reject(new Error(msg.error ?? 'LSP request failed'));
+            }
+          }
         }
       } catch {
         // ignore malformed messages
@@ -217,10 +344,12 @@ export class LocalWsIdeAdapter implements IdeAdapter {
 
     ws.on('close', () => {
       this._connected = false;
+      this.rejectPendingLsp('IDE connection closed');
     });
 
     ws.on('error', () => {
       this._connected = false;
+      this.rejectPendingLsp('IDE connection error');
     });
   }
 
@@ -231,6 +360,43 @@ export class LocalWsIdeAdapter implements IdeAdapter {
       }
       this.ws.send(JSON.stringify(msg), err => (err ? reject(err) : resolve()));
     });
+  }
+
+  private executeLsp(operation: LspOperation, params: LspParams): Promise<LspResult> {
+    if (!this._connected || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('No IDE connected'));
+    }
+
+    const requestId = `lsp-${++this._lspRequestCounter}`;
+    const LSP_TIMEOUT_MS = 15_000;
+
+    return new Promise<LspResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.lspPendingRequests.delete(requestId);
+        reject(new Error(`LSP ${operation} timed out after ${LSP_TIMEOUT_MS}ms`));
+      }, LSP_TIMEOUT_MS);
+
+      this.lspPendingRequests.set(requestId, {
+        resolve: (result) => { clearTimeout(timer); resolve(result); },
+        reject:  (err)    => { clearTimeout(timer); reject(err); },
+      });
+
+      const msg: IdeCallerMessage = { type: 'lspRequest', requestId, operation, params };
+      this.ws.send(JSON.stringify(msg), (err) => {
+        if (err) {
+          clearTimeout(timer);
+          this.lspPendingRequests.delete(requestId);
+          reject(err);
+        }
+      });
+    });
+  }
+
+  private rejectPendingLsp(reason: string): void {
+    for (const [id, pending] of this.lspPendingRequests) {
+      pending.reject(new Error(reason));
+    }
+    this.lspPendingRequests.clear();
   }
 
   openFile(filePath: string, line?: number): Promise<void> {
@@ -251,6 +417,7 @@ export class LocalWsIdeAdapter implements IdeAdapter {
 
   dispose(): void {
     this._connected = false;
+    this.rejectPendingLsp('Adapter disposed');
     if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
       this.ws.close();
     }

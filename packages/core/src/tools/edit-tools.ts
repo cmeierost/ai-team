@@ -9,6 +9,7 @@ import {
   toFsPathAccessEnvelope,
   toFsPathMeta,
 } from './fs-access.js';
+import { collectPostWriteDiagnostics } from './diagnostics-helper.js';
 
 // ============================================================================
 // apply_patch — apply a standard unified diff to one or more files
@@ -102,6 +103,7 @@ export const applyPatchTool: AgentTool = {
       additions: number;
       deletions: number;
     }> = [];
+    const fileChanges: Array<{ filePath: string; oldContent: string; newContent: string }> = [];
 
     for (const { diff, absolutePath, newAbsolutePath } of approved) {
       try {
@@ -115,6 +117,7 @@ export const applyPatchTool: AgentTool = {
           await fs.writeFile(absolutePath, content, 'utf8');
           FileTime.record(context.agent.id, absolutePath);
           applied.push({ type: 'add', path: diff.newPath, additions: diff.additions, deletions: 0 });
+          fileChanges.push({ filePath: absolutePath, oldContent: '', newContent: content });
 
         } else if (diff.type === 'update') {
           // Assert file was read first (same guard as fs_edit)
@@ -132,6 +135,7 @@ export const applyPatchTool: AgentTool = {
           await fs.writeFile(absolutePath, updated, 'utf8');
           FileTime.record(context.agent.id, absolutePath);
           applied.push({ type: 'update', path: diff.oldPath, additions: diff.additions, deletions: diff.deletions });
+          fileChanges.push({ filePath: absolutePath, oldContent: original, newContent: updated });
 
         } else if (diff.type === 'move') {
           // Assert old file was read first
@@ -158,6 +162,7 @@ export const applyPatchTool: AgentTool = {
             additions: diff.additions,
             deletions: diff.deletions,
           });
+          fileChanges.push({ filePath: newAbsolutePath!, oldContent: original, newContent: updated });
         }
       } catch (applyErr) {
         return {
@@ -170,7 +175,20 @@ export const applyPatchTool: AgentTool = {
 
     const totalAdditions = applied.reduce((s, f) => s + f.additions, 0);
     const totalDeletions = applied.reduce((s, f) => s + f.deletions, 0);
-    return { applied, denied, totalFiles: applied.length, totalAdditions, totalDeletions };
+    const appliedPaths = applied
+      .filter(f => f.type !== 'delete')
+      .map(f => {
+        const rel = f.path.includes(' → ') ? f.path.split(' → ')[1]! : f.path;
+        return path.isAbsolute(rel) ? rel : path.join(context.workspaceRoot, rel);
+      });
+    const diagnostics = appliedPaths.length > 0
+      ? await collectPostWriteDiagnostics(context, appliedPaths)
+      : undefined;
+    return {
+      applied, denied, totalFiles: applied.length, totalAdditions, totalDeletions,
+      ...(diagnostics ? { diagnostics } : {}),
+      _fileChanges: fileChanges,
+    };
   },
 };
 
@@ -228,16 +246,26 @@ export const multiEditTool: AgentTool = {
     // assert in the loop will pass on the just-written file.
     const results: Array<{ index: number; result: unknown }> = [];
     let succeeded = 0;
+    let firstOldContent: string | undefined;
+    let lastNewContent: string | undefined;
 
     for (let i = 0; i < edits.length; i++) {
       const edit = edits[i]!;
-      const result = await fsEditTool.execute(
+      const rawResult = await fsEditTool.execute(
         { filePath, oldString: edit.oldString, newString: edit.newString, replaceAll: edit.replaceAll },
         context,
       );
-      results.push({ index: i, result });
 
-      const r = result as { edited?: boolean; error?: string };
+      const r = rawResult as { edited?: boolean; error?: string; _fileChanges?: Array<{ oldContent: string; newContent: string }> };
+      // Track first old / last new for aggregated _fileChanges
+      if (r._fileChanges?.[0]) {
+        if (firstOldContent === undefined) firstOldContent = r._fileChanges[0].oldContent;
+        lastNewContent = r._fileChanges[0].newContent;
+      }
+      // Strip _fileChanges from sub-result — only the aggregated top-level one is kept
+      const { _fileChanges: _fc, ...cleanResult } = rawResult as Record<string, unknown>;
+      results.push({ index: i, result: cleanResult });
+
       if (!r.edited) {
         return {
           path: filePath,
@@ -251,7 +279,14 @@ export const multiEditTool: AgentTool = {
       succeeded++;
     }
 
-    return { path: filePath, succeeded, totalEdits: edits.length, results };
+    const absolutePath = resolveFsAbsolutePath(context, filePath);
+    const diagnostics = absolutePath
+      ? await collectPostWriteDiagnostics(context, [absolutePath])
+      : undefined;
+    const _fileChanges = absolutePath && firstOldContent !== undefined && lastNewContent !== undefined
+      ? [{ filePath: absolutePath, oldContent: firstOldContent, newContent: lastNewContent }]
+      : undefined;
+    return { path: filePath, succeeded, totalEdits: edits.length, results, ...(diagnostics ? { diagnostics } : {}), ...(_fileChanges ? { _fileChanges } : {}) };
   },
 };
 
@@ -389,6 +424,7 @@ export const fsEditTool: AgentTool = {
       const addedLines   = (newString.split('\n').length - oldString.split('\n').length);
       const totalBefore  = content.split('\n').length;
 
+      const diagnostics = await collectPostWriteDiagnostics(context, [absolutePath]);
       return {
         path: pathMeta,
         edited: true,
@@ -396,6 +432,8 @@ export const fsEditTool: AgentTool = {
         linesChanged: addedLines,
         totalLines:   totalBefore + addedLines,
         access,
+        ...(diagnostics ? { diagnostics } : {}),
+        _fileChanges: [{ filePath: absolutePath, oldContent: content, newContent: updated }],
       };
     });
   },

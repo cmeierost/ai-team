@@ -148,15 +148,20 @@ export class CodeEditDecorationManager implements vscode.Disposable {
   }
 
   acceptProposal(proposalId: string): void {
-    // New content is already on disk — just clean up temp files and ack
+    const p = this.pending.get(proposalId);
+    // New content is already on disk — close diff tabs, clean up, and ack
+    const filePaths = p ? p.proposal.files.map(f => f.filePath) : [];
     this._clearPending(proposalId);
     this.server.broadcastAck(proposalId, 'accept');
     this._onProposalResolved.fire();
+    void this._closeDiffTabs(proposalId, filePaths);
   }
 
   rejectProposal(proposalId: string): void {
     const p = this.pending.get(proposalId);
     if (!p) return;
+
+    const filePaths = p.proposal.files.map(f => f.filePath);
 
     for (const [filePath, original] of p.originals) {
       try {
@@ -169,6 +174,7 @@ export class CodeEditDecorationManager implements vscode.Disposable {
     this._clearPending(proposalId);
     this.server.broadcastAck(proposalId, 'reject');
     this._onProposalResolved.fire();
+    void this._closeDiffTabs(proposalId, filePaths);
   }
 
   getPendingProposals(): IdeCodeEditProposal[] {
@@ -185,6 +191,37 @@ export class CodeEditDecorationManager implements vscode.Disposable {
     }
 
     this.pending.delete(proposalId);
+  }
+
+  /**
+   * Close any diff editor tabs opened for this proposal, then re-open the
+   * actual file so the user lands on the final content in a normal editor.
+   */
+  private async _closeDiffTabs(proposalId: string, filePaths: string[]): Promise<void> {
+    const diffScheme = CodeEditDecorationManager.DIFF_URI_SCHEME;
+
+    // Walk all tab groups and close tabs whose input references our diff scheme + proposalId
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input;
+        // vscode.diff creates a TabInputTextDiff with original/modified URIs
+        if (input instanceof vscode.TabInputTextDiff) {
+          if (input.original.scheme === diffScheme && input.original.path.startsWith(`/${proposalId}/`)) {
+            await vscode.window.tabGroups.close(tab).then(undefined, () => {});
+          }
+        }
+      }
+    }
+
+    // Re-open the actual file(s) so the user sees the final content
+    for (const filePath of filePaths) {
+      try {
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+        await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false });
+      } catch {
+        // file may have been deleted (e.g. revert of a new-file add) — ignore
+      }
+    }
   }
 
   dispose(): void {

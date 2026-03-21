@@ -120,6 +120,8 @@ export interface ToolContext {
   agentId: string;
   workspaceRoot: string;
   accessEngine?: AccessEngine;
+  /** LSP code-intelligence provider (injected by ToolManager when available). */
+  lsp?: { execute(operation: string, params: unknown): Promise<unknown>; isAvailable(): boolean };
 }
 
 /**

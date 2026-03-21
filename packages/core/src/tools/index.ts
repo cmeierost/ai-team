@@ -51,7 +51,7 @@ export {
 export {
   findSymbolTool,
   findReferencesTool,
-  findPatternTool,
+  lspTool,
   grepCodeTool,
   analyzeComplexityTool,
   applyCodeEditTool,
@@ -97,6 +97,7 @@ import {
 import {
   findSymbolTool,
   findReferencesTool,
+  lspTool,
   grepCodeTool,
   analyzeComplexityTool,
   applyCodeEditTool,
@@ -153,6 +154,7 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   com_delegate: delegateToAgentTool,
   find_symbol: findSymbolTool,
   find_references: findReferencesTool,
+  lsp: lspTool,
   search_grep: grepCodeTool,
   http_fetch: httpFetchTool,
   http_crawl: httpCrawlTool,

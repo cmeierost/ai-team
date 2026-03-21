@@ -23,6 +23,7 @@
   "dependencies": {
     "@ai-team/access": "workspace:*",
     "@ai-team/fs": "workspace:*",
+    "@ai-team/ide-interface": "workspace:*",
     "@typescript-eslint/typescript-estree": "^8.56.0",
     "chokidar": "^5.0.0",
     "diff": "^8.0.3",

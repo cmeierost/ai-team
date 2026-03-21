@@ -97,7 +97,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           ctx.agent,
           'team_list',
           {},
-          { workspaceRoot: ctx.workspaceRoot },
+          { agentId: ctx.agent.id, workspaceRoot: ctx.workspaceRoot },
         );
 
         if (!result.ok) {
@@ -384,7 +384,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           ctx.agent,
           toolName,
           parsedArgs,
-          { workspaceRoot: ctx.workspaceRoot },
+          { agentId: ctx.agent.id, workspaceRoot: ctx.workspaceRoot },
         );
 
         if (!result.ok) {

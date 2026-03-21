@@ -8,6 +8,7 @@ package.json
 pnpm-workspace.yaml
 tsconfig.json
 .vscode/settings.json
+tmp-diagnostics-test.ts
 packages/core/src/storage/**/*
 packages/core/src/context/**/*
 packages/core/src/tools/**/*
@@ -24,6 +25,7 @@ packages/cli/**/*
 [write]
 .gitignore
 .vscode/settings.json
+tmp-diagnostics-test.ts
 packages/core/src/storage/**/*
 packages/core/src/context/**/*
 packages/core/src/tools/**/*
