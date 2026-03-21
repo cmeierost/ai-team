@@ -174,14 +174,12 @@ export class PatternMatcher {
   ): void {
     if (node.type === 'call_expression') {
       const functionNode = node.childForFieldName('function');
-      if (functionNode && functionNode.type === 'member_expression') {
+      if (functionNode?.type === 'member_expression') {
         const objectNode = functionNode.childForFieldName('object');
         const propertyNode = functionNode.childForFieldName('property');
         if (
-          objectNode &&
-          objectNode.text === 'console' &&
-          propertyNode &&
-          propertyNode.text === 'log'
+          objectNode?.text === 'console' &&
+          propertyNode?.text === 'log'
         ) {
           matches.push(this.createMatch(node, filePath, lines));
         }
@@ -225,10 +223,10 @@ export class PatternMatcher {
   ): void {
     if (node.type === 'catch_clause') {
       const bodyNode = node.childForFieldName('body');
-      if (bodyNode && bodyNode.type === 'statement_block') {
+      if (bodyNode?.type === 'statement_block') {
         // Check if block is empty (only contains braces)
         const bodyText = bodyNode.text.trim();
-        if (bodyText === '{}' || bodyText.replace(/\s/g, '') === '{}') {
+        if (bodyText === '{}' || bodyText.replaceAll(/\s/g, '') === '{}') {
           matches.push(this.createMatch(node, filePath, lines));
         }
       }

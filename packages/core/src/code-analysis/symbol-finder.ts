@@ -1,5 +1,5 @@
 import { Parser, Language, Node as SyntaxNode } from 'web-tree-sitter';
-import { readFile } from 'fs/promises';
+import { readFile } from 'node:fs/promises';
 
 /**
  * Symbol information found in code

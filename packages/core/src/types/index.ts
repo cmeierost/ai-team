@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import type { AccessEngine } from '@ai-team/access';
+import type { ToolContext as BaseToolContext, AgentTool as BaseAgentTool } from '@ai-team/access';
 
 // Structured tool result shapes (pure data — no orchestrator dependency)
 export * from './tool-results.js';
@@ -718,24 +718,19 @@ export interface TaskStatistics {
 // Tool System
 // ============================================================================
 
-export interface ToolContext {
+export interface ToolContext extends BaseToolContext {
   agent: Agent;
-  workspaceRoot: string;
   currentFiles?: string[];
-  accessEngine?: AccessEngine;
 }
 
 /**
  * Declarative permission descriptor attached to each tool.
  * ToolManager reads this to call ContextManager once in canExecute()
  * rather than having each tool do its own permission check internally.
+ *
+ * @deprecated Import from `@ai-team/access` instead.
  */
-export type PermissionDescriptor =
-  | { type: 'none' }
-  | { type: 'file-read';        argsPath: string }
-  | { type: 'file-write';       argsPath: string }
-  | { type: 'agent-delegation'; argsPath: string }
-  | { type: 'manage-agents' };
+// PermissionDescriptor re-exported above from @ai-team/access
 
 /** Result of a ToolManager.canExecute() check. */
 export interface PermissionResult {
@@ -743,21 +738,7 @@ export interface PermissionResult {
   reason?: string;
 }
 
-export interface AgentTool {
-  name: string;
-  description: string;
-  parameters: z.ZodSchema;
-  /**
-   * Declarative permission requirements for this tool.
-   * When omitted the ToolManager falls back to { type: 'none' }.
-   */
-  permissionCheck?: PermissionDescriptor;
-  /** Optional usage examples shown in catalog() output. */
-  examples?: string[];
-  /** Optional tags for filtering and documentation. */
-  tags?: string[];
-  execute(params: unknown, context: ToolContext): Promise<unknown>;
-}
+export interface AgentTool extends BaseAgentTool<ToolContext> {}
 
 // ============================================================================
 // HR & Team Management

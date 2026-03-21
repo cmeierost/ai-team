@@ -22,7 +22,8 @@
   "license": "MIT",
   "dependencies": {
     "chokidar": "^5.0.0",
-    "minimatch": "^10.2.4"
+    "minimatch": "^10.2.4",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

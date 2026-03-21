@@ -17,6 +17,13 @@ import {
   resolveInsideWorkspace,
   toWorkspaceRelativePath,
 } from './path-safety.js';
+import {
+  ALWAYS_EXCLUDED_DIRS,
+  type IgnoreRule,
+  clearGitignoreCache,
+  collectGitignoreRules,
+  isIgnoredByRules,
+} from './ignore.js';
 
 // ============================================================================
 // Types
@@ -83,86 +90,11 @@ export interface FlatFileEntry {
 // Constants
 // ============================================================================
 
-const ALWAYS_EXCLUDED = new Set([
-  '.git',
-  'node_modules',
-  'dist',
-  'build',
-  '.next',
-  '.turbo',
-  '.pnpm-store',
-]);
 const DEFAULT_MAX_DEPTH = 4;
 
 // ============================================================================
-// Gitignore parsing
+// Allow-path matching
 // ============================================================================
-
-interface IgnoreRule {
-  negate: boolean;
-  dirOnly: boolean;
-  /** Normalised minimatch pattern */
-  normalized: string;
-}
-
-function parseGitignoreContent(content: string): IgnoreRule[] {
-  return content
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0 && !l.startsWith('#'))
-    .map((l): IgnoreRule => {
-      const negate = l.startsWith('!');
-      let pat = negate ? l.slice(1) : l;
-
-      const dirOnly = pat.endsWith('/');
-      if (dirOnly) pat = pat.slice(0, -1);
-
-      // A pattern without an internal slash matches anywhere in the tree
-      const normalized = pat.includes('/') ? pat : `**/${pat}`;
-      return { negate, dirOnly, normalized };
-    });
-}
-
-/** Per-run cache so we don't re-read the same .gitignore for every child entry */
-const gitignoreCache = new Map<string, IgnoreRule[]>();
-
-async function readDirGitignore(dir: string): Promise<IgnoreRule[]> {
-  if (gitignoreCache.has(dir)) return gitignoreCache.get(dir)!;
-  try {
-    const content = await fs.readFile(path.join(dir, '.gitignore'), 'utf-8');
-    const rules = parseGitignoreContent(content);
-    gitignoreCache.set(dir, rules);
-    return rules;
-  } catch {
-    gitignoreCache.set(dir, []);
-    return [];
-  }
-}
-
-/**
- * Collect all applicable gitignore rule-sets for a directory.
- * Walks from workspace root down to dirPath so outer rules apply first.
- */
-async function collectRules(workspaceRoot: string, dirPath: string): Promise<IgnoreRule[][]> {
-  const rel = path.relative(workspaceRoot, dirPath);
-  const parts = rel ? rel.split(path.sep) : [];
-  const dirs = [workspaceRoot];
-  for (const p of parts) dirs.push(path.join(dirs.at(-1)!, p));
-  return Promise.all(dirs.map(readDirGitignore));
-}
-
-function isIgnoredByRules(relPath: string, isDirectory: boolean, ruleSets: IgnoreRule[][]): boolean {
-  let ignored = false;
-  for (const rules of ruleSets) {
-    for (const rule of rules) {
-      if (rule.dirOnly && !isDirectory) continue;
-      if (minimatch(relPath, rule.normalized, { dot: true })) {
-        ignored = !rule.negate;
-      }
-    }
-  }
-  return ignored;
-}
 
 /**
  * Returns true if relPath matches any pattern from the user's allowPaths config.
@@ -194,7 +126,7 @@ export async function getFileTree(
   workspaceRoot: string,
   options: GetFileTreeOptions = {}
 ): Promise<FileTreeNode> {
-  gitignoreCache.clear();
+  clearGitignoreCache();
 
   const normalizedWorkspaceRoot = path.resolve(workspaceRoot);
 
@@ -207,7 +139,7 @@ export async function getFileTree(
     allowPaths = [],
   } = options;
 
-  const excluded = new Set([...ALWAYS_EXCLUDED, ...excludeDirs]);
+  const excluded = new Set([...ALWAYS_EXCLUDED_DIRS, ...excludeDirs]);
   const startPath = rootSubPath
     ? resolveInsideWorkspace(normalizedWorkspaceRoot, rootSubPath)
     : normalizedWorkspaceRoot;
@@ -231,7 +163,7 @@ export async function listWorkspaceFiles(
   workspaceRoot: string,
   options: ListWorkspaceFilesOptions = {}
 ): Promise<FlatFileEntry[]> {
-  gitignoreCache.clear();
+  clearGitignoreCache();
 
   const normalizedWorkspaceRoot = path.resolve(workspaceRoot);
 
@@ -246,7 +178,7 @@ export async function listWorkspaceFiles(
     allowPaths = [],
   } = options;
 
-  const excluded = new Set([...ALWAYS_EXCLUDED, ...excludeDirs]);
+  const excluded = new Set([...ALWAYS_EXCLUDED_DIRS, ...excludeDirs]);
   const startPath = rootSubPath
     ? resolveInsideWorkspace(normalizedWorkspaceRoot, rootSubPath)
     : normalizedWorkspaceRoot;
@@ -365,7 +297,7 @@ async function buildNode(
     return { ...node, children: [] };
   }
 
-  const ruleSets = ctx.ignoreGitignore ? [] : await collectRules(workspaceRoot, absolutePath);
+  const ruleSets = ctx.ignoreGitignore ? [] : await collectGitignoreRules(workspaceRoot, absolutePath);
 
   const childNodes = await Promise.all(
     filteredEntries
@@ -442,7 +374,7 @@ async function collectFlat(
     return results;
   }
 
-  const ruleSets = ctx.ignoreGitignore ? [] : await collectRules(workspaceRoot, absolutePath);
+  const ruleSets = ctx.ignoreGitignore ? [] : await collectGitignoreRules(workspaceRoot, absolutePath);
 
   const nested = await Promise.all(
     filteredEntries.map(async (entry) => {

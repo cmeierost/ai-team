@@ -1,6 +1,5 @@
-import { parse } from '@typescript-eslint/typescript-estree';
-import { AST_NODE_TYPES, TSESTree } from '@typescript-eslint/typescript-estree';
-import { readFile } from 'fs/promises';
+import { parse , AST_NODE_TYPES, TSESTree } from '@typescript-eslint/typescript-estree';
+import { readFile } from 'node:fs/promises';
 
 /**
  * Complexity metrics for a function or method
@@ -153,7 +152,7 @@ export class TypeScriptAnalyzer {
       const hasUnusedIdentifiers = importInfo.imports.some((importedName) => {
         // Simple check: see if the imported name appears anywhere in the code
         // (excluding the import statement itself)
-        const regex = new RegExp(`\\b${importedName}\\b`, 'g');
+        const regex = new RegExp(String.raw`\b${importedName}\b`, 'g');
         const matches = sourceCode.match(regex) || [];
         // If it appears only once (the import itself), it's unused
         return matches.length <= 1;

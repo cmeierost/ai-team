@@ -18,8 +18,8 @@ export interface LanguageConfig {
 export class TreeSitterManager {
   private static instance: TreeSitterManager | null = null;
   private parser: Parser | null = null;
-  private languages: Map<string, Language> = new Map();
-  private languageConfigs: Map<string, LanguageConfig> = new Map();
+  private readonly languages: Map<string, Language> = new Map();
+  private readonly languageConfigs: Map<string, LanguageConfig> = new Map();
   private initialized = false;
 
   private constructor() {}
@@ -28,9 +28,7 @@ export class TreeSitterManager {
    * Get the singleton instance
    */
   static getInstance(): TreeSitterManager {
-    if (!TreeSitterManager.instance) {
-      TreeSitterManager.instance = new TreeSitterManager();
-    }
+    TreeSitterManager.instance ??= new TreeSitterManager();
     return TreeSitterManager.instance;
   }
 

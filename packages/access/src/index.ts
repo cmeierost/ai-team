@@ -15,6 +15,9 @@ export type {
   ContextRanking,
   GapAnalysis,
   WorkAssignment,
+  ToolContext,
+  PermissionDescriptor,
+  AgentTool,
 } from './types.js';
 
 export {

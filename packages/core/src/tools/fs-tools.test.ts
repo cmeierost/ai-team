@@ -167,7 +167,7 @@ describe('fs_search_* access filtering', () => {
     const result = await manager.execute(
       a,
       'fs_search_metadata',
-      { path: '.', query: 'needle-zone', includeDirectories: true },
+      { pattern: '**/needle-zone/**' },
       { workspaceRoot },
     );
     expect(result.ok).toBe(true);
@@ -201,7 +201,7 @@ describe('remaining fs tool execution', () => {
     expect(full.ok).toBe(true);
     expect((full.result as any).content).toContain('line1');
     expect(lines.ok).toBe(true);
-    expect((lines.result as any).lines).toEqual(['line2', 'line3']);
+    expect((lines.result as any).lines).toEqual(['2: line2', '3: line3']);
   });
 
   it('supports fs_write_file, fs_create and fs_mkdir', async () => {

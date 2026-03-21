@@ -2,9 +2,9 @@ import chokidar from 'chokidar';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { FSWatcher } from 'chokidar';
-import { minimatch } from 'minimatch';
 import type { FileTreeNode, FlatFileEntry, GetFileTreeOptions, ListWorkspaceFilesOptions } from './file-tree.js';
 import { getFileTree, listWorkspaceFiles } from './file-tree.js';
+import { type IgnoreRule, parseGitignoreContent, isIgnoredByRules } from './ignore.js';
 
 interface CacheEntry<T> {
   value: T;
@@ -17,12 +17,6 @@ interface WorkspaceFileTreeCache {
   watcher: FSWatcher | null;
   initPromise: Promise<void> | null;
   gitignoreMatcher: WatchGitignoreMatcher;
-}
-
-interface IgnoreRule {
-  negate: boolean;
-  dirOnly: boolean;
-  normalized: string;
 }
 
 const MAX_CACHE_ENTRIES = 32;
@@ -81,23 +75,6 @@ function clearWorkspaceCache(cache: WorkspaceFileTreeCache): void {
   cache.flat.clear();
 }
 
-function parseGitignoreContent(content: string): IgnoreRule[] {
-  return content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith('#'))
-    .map((line): IgnoreRule => {
-      const negate = line.startsWith('!');
-      let pattern = negate ? line.slice(1) : line;
-
-      const dirOnly = pattern.endsWith('/');
-      if (dirOnly) pattern = pattern.slice(0, -1);
-
-      const normalized = pattern.includes('/') ? pattern : `**/${pattern}`;
-      return { negate, dirOnly, normalized };
-    });
-}
-
 class WatchGitignoreMatcher {
   private readonly workspaceRoot: string;
   private readonly cache = new Map<string, IgnoreRule[]>();
@@ -118,13 +95,13 @@ class WatchGitignoreMatcher {
     const normalizedTarget = relative.replaceAll('\\', '/');
     const ruleSets = this.collectRules(path.dirname(absoluteTarget));
 
-    if (this.isIgnoredByRules(normalizedTarget, isDirectory, ruleSets)) return true;
+    if (isIgnoredByRules(normalizedTarget, isDirectory, ruleSets)) return true;
 
     if (isDirectory) return false;
 
     let ancestor = path.posix.dirname(normalizedTarget);
     while (ancestor && ancestor !== '.') {
-      if (this.isIgnoredByRules(ancestor, true, ruleSets)) return true;
+      if (isIgnoredByRules(ancestor, true, ruleSets)) return true;
       const next = path.posix.dirname(ancestor);
       if (next === ancestor) break;
       ancestor = next;
@@ -158,19 +135,6 @@ class WatchGitignoreMatcher {
       dirs.push(path.join(parent, part));
     }
     return dirs.map((dir) => this.readDirGitignore(dir));
-  }
-
-  private isIgnoredByRules(relPath: string, isDirectory: boolean, ruleSets: IgnoreRule[][]): boolean {
-    let ignored = false;
-    for (const rules of ruleSets) {
-      for (const rule of rules) {
-        if (rule.dirOnly && !isDirectory) continue;
-        if (minimatch(relPath, rule.normalized, { dot: true })) {
-          ignored = !rule.negate;
-        }
-      }
-    }
-    return ignored;
   }
 }
 

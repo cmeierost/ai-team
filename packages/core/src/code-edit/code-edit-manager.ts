@@ -15,9 +15,9 @@ import {
  * Manages code edit proposals and their lifecycle
  */
 export class CodeEditManager {
-  private diffBuilder: DiffBuilder;
-  private validator: ProposalValidator;
-  private proposals: Map<string, CodeEditProposal> = new Map();
+  private readonly diffBuilder: DiffBuilder;
+  private readonly validator: ProposalValidator;
+  private readonly proposals: Map<string, CodeEditProposal> = new Map();
 
   constructor() {
     this.diffBuilder = new DiffBuilder();

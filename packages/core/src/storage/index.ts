@@ -3,8 +3,8 @@
  * All files use YAML frontmatter + Markdown body format
  */
 
-import fs from 'fs/promises';
-import path from 'path';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import matter from 'gray-matter';
 import { glob } from 'glob';
 import {
@@ -435,7 +435,7 @@ export async function findAgentFiles(workspaceRoot: string): Promise<string[]> {
  * @returns Array of absolute file paths
  */
 export async function findSkillFiles(workspaceRoot: string): Promise<string[]> {
-  const pattern = '.ai-team/roles/*.md';
+  const pattern = '.ai-team/**/SKILL.md';
   const files = await glob(pattern, {
     cwd: workspaceRoot,
     absolute: true,
@@ -1071,7 +1071,3 @@ export function buildAgentMarkdown(parts: AgentMarkdownParts): string {
 
   return sectionsToMarkdown(sections);
 }
-
-// File tree utilities — re-export for convenience
-export * from './file-tree.js';
-export * from './file-tree-cache.js';

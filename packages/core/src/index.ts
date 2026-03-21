@@ -9,6 +9,9 @@
 export * from './types/index.js';
 export { withAbortSignal, isAbortError } from './utils/async.js';
 
+// Re-export fs-level types/functions that downstream packages import from core
+export { getCachedFileTree, type FileTreeNode, type GetFileTreeOptions } from '@ai-team/fs';
+
 // Core modules
 export * from './agent/index.js';
 export * from './skill/index.js';

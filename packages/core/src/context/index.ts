@@ -11,7 +11,7 @@ import {
   PermissionConfig,
   PermissionError,
 } from '../types/index.js';
-import { normalizeWorkspaceRelativePath, toWorkspaceRelativePath } from '../storage/path-safety.js';
+import { normalizeWorkspaceRelativePath, toWorkspaceRelativePath } from '@ai-team/fs';
 
 /** A file annotated with its read/write permission state for a specific agent */
 export interface AnnotatedFile {

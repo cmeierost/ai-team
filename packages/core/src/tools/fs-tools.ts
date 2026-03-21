@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { getFileTree, listWorkspaceFiles } from '@ai-team/fs';
+import { getFileTree, listWorkspaceFiles, FileTime, Truncate } from '@ai-team/fs';
 import type { AgentTool } from '../types/index.js';
 import {
   canListViaAccessEngine,
@@ -199,14 +199,28 @@ export const fsInfoTool: AgentTool = {
 
 export const fsReadFileTool: AgentTool = {
   name: 'fs_read',
-  description: 'Read a file through @ai-team/access with structured access metadata.',
+  description: [
+    'Read a file through @ai-team/access with structured access metadata.',
+    'Supports pagination via `offset` (1-based start line) and `limit` (max lines to return).',
+    'Output lines are prefixed with their 1-based line number, e.g. "42: content".',
+    'If the path is a directory a file listing is returned instead of content.',
+    'Binary files are detected and a notice is returned instead of raw bytes.',
+    'Tracking: records read time so fs_edit can validate staleness.',
+  ].join(' '),
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
     encoding: z.enum(['utf8']).optional().describe('Text encoding (default utf8)'),
+    offset:   z.number().int().min(1).optional().describe('1-based line to start from (default 1)'),
+    limit:    z.number().int().min(1).optional().describe('Max lines to return (default 2000)'),
   }),
   async execute(params, context) {
     const engineCheck = getAccessEngineOrDeny(context);
-    const { filePath, encoding = 'utf8' } = params as { filePath: string; encoding?: BufferEncoding };
+    const {
+      filePath,
+      encoding = 'utf8',
+      offset = 1,
+      limit  = 2000,
+    } = params as { filePath: string; encoding?: BufferEncoding; offset?: number; limit?: number };
     const absolutePath = resolveFsAbsolutePath(context, filePath);
 
     if (!absolutePath) {
@@ -241,10 +255,58 @@ export const fsReadFileTool: AgentTool = {
     }
 
     try {
-      const content = await fs.readFile(absolutePath, encoding);
+      // Directory fallback — return listing instead of content
+      const stat = await fs.stat(absolutePath);
+      if (stat.isDirectory()) {
+        const entries = await fs.readdir(absolutePath, { withFileTypes: true });
+        const listing = entries
+          .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+          .sort((a, b) => a.localeCompare(b))
+          .join('\n');
+        return {
+          path: pathMeta,
+          content: null,
+          directory: true,
+          listing,
+          access,
+        };
+      }
+
+      // Binary detection — check first 8 KB for null bytes
+      const BINARY_PROBE = 8192;
+      const probe = Buffer.alloc(Math.min(BINARY_PROBE, stat.size));
+      const fd = await fs.open(absolutePath, 'r');
+      try { await fd.read(probe, 0, probe.length, 0); }
+      finally { await fd.close(); }
+      if (probe.includes(0)) {
+        return {
+          path: pathMeta,
+          content: null,
+          binary: true,
+          sizeBytes: stat.size,
+          access,
+        };
+      }
+
+      const raw = await fs.readFile(absolutePath, encoding);
+
+      // Record read time for FileTime staleness guard (used by fs_edit)
+      FileTime.record(context.agent.id, absolutePath);
+
+      const allLines = raw.split('\n');
+      const totalLines = allLines.length;
+      const startIdx = offset - 1;                             // convert to 0-based
+      const slice    = allLines.slice(startIdx, startIdx + limit);
+      const numbered = slice.map((l, i) => `${startIdx + i + 1}: ${l}`).join('\n');
+      const content  = Truncate.output(numbered, { maxLines: limit, maxBytes: 50_000 });
+
       return {
         path: pathMeta,
         content,
+        totalLines,
+        offset,
+        limit,
+        hasMore: startIdx + limit < totalLines,
         access,
       };
     } catch (error) {
@@ -309,11 +371,12 @@ export const fsReadLinesTool: AgentTool = {
     try {
       const content = await fs.readFile(absolutePath, 'utf8');
       const lines = content.split(/\r?\n/).slice(startLine - 1, endLine);
+      const numbered = lines.map((l, i) => `${startLine + i}: ${l}`);
       return {
         path: pathMeta,
         startLine,
         endLine,
-        lines,
+        lines: numbered,
         access,
       };
     } catch (error) {
@@ -780,7 +843,7 @@ export const fsSearchContentTool: AgentTool = {
       maxDepth: 20,
     });
 
-    const { GrepSearch } = await import('../code-analysis/index.js');
+    const { GrepSearch } = await import('@ai-team/fs');
     const grep = new GrepSearch();
     const allFilePaths = files.map((file) => file.path);
 
@@ -818,37 +881,35 @@ export const fsSearchContentTool: AgentTool = {
 
 export const fsSearchMetadataTool: AgentTool = {
   name: 'fs_search_metadata',
-  description: 'Search file metadata/path names under a path with @ai-team/access checks for all candidates.',
+  description:
+    'Fast glob-pattern file search backed by ripgrep. Returns matching paths with size and mtime. ' +
+    'Respects .gitignore by default. Use glob patterns like "**/*.ts" or "src/**/*.test.*".',
   parameters: z.object({
+    pattern: z.string().min(1).describe('Glob pattern to match (e.g. "**/*.ts", "src/**/*.test.*")'),
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
-    query: z.string().min(1).describe('Substring to match in file/directory names or paths'),
-    maxResults: z.number().int().min(1).max(1000).optional().describe('Maximum number of matches to return'),
-    includeDirectories: z.boolean().optional().describe('Include directory entries in results (default true)'),
+    maxResults: z.number().int().min(1).max(1000).optional().describe('Maximum number of matches (default 200)'),
   }),
   async execute(params, context) {
     const engineCheck = getAccessEngineOrDeny(context);
     const {
+      pattern,
       path: targetPath = '.',
-      query,
       maxResults = 200,
-      includeDirectories = true,
-    } = params as { path?: string; query: string; maxResults?: number; includeDirectories?: boolean };
+    } = params as { pattern: string; path?: string; maxResults?: number };
 
     if (!engineCheck.ok) {
       return {
+        pattern,
         path: targetPath,
         matches: [],
-        access: {
-          allowed: false,
-          explanation: engineCheck.reason,
-          alternativeContexts: [],
-        },
+        access: { allowed: false, explanation: engineCheck.reason, alternativeContexts: [] },
       };
     }
 
     const rootAccess = toFsPathAccessEnvelope(context, 'fs_search_metadata', targetPath);
     if (!rootAccess.allowed) {
       return {
+        pattern,
         path: targetPath,
         matches: [],
         access: rootAccess,
@@ -860,43 +921,41 @@ export const fsSearchMetadataTool: AgentTool = {
       };
     }
 
-    const entries = await listWorkspaceFiles(context.workspaceRoot, {
-      rootSubPath: targetPath,
-      filesOnly: !includeDirectories,
-      maxDepth: 20,
-    });
+    const { Ripgrep } = await import('@ai-team/fs');
+    const cwd = path.resolve(context.workspaceRoot, targetPath);
 
-    const needle = query.toLowerCase();
-    const prefiltered = entries.filter((entry) => {
-      const name = entry.name.toLowerCase();
-      const rel = entry.relativePath.toLowerCase();
-      return name.includes(needle) || rel.includes(needle);
-    });
+    const matches: Array<{ path: string; size: number; mtime: string }> = [];
 
-    const matches: Array<{ path: string; name: string; isDirectory: boolean; size?: number }> = [];
-    for (const entry of prefiltered) {
-      if (!canListViaAccessEngine(context, entry.relativePath)) continue;
+    for await (const relFile of Ripgrep.files({ cwd, glob: [pattern] })) {
+      const relFromRoot = targetPath === '.'
+        ? relFile.replaceAll('\\', '/')
+        : (targetPath + '/' + relFile).replaceAll('\\', '/');
 
-      matches.push({
-        path: entry.relativePath,
-        name: entry.name,
-        isDirectory: entry.isDirectory,
-        size: entry.size,
-      });
+      if (!canListViaAccessEngine(context, relFromRoot)) continue;
 
+      const abs = path.resolve(cwd, relFile);
+      let size = 0;
+      let mtime = '';
+      try {
+        const st = await fs.stat(abs);
+        size = st.size;
+        mtime = st.mtime.toISOString();
+      } catch {
+        // file vanished between listing and stat — skip
+        continue;
+      }
+
+      matches.push({ path: relFromRoot, size, mtime });
       if (matches.length >= maxResults) break;
     }
 
     return {
+      pattern,
       path: targetPath,
-      query,
       matches,
+      numMatches: matches.length,
+      truncated: matches.length >= maxResults,
       access: rootAccess,
-      delegation: {
-        possible: false,
-        contexts: [],
-        unassignable: false,
-      },
     };
   },
 };

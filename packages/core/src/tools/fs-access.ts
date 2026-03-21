@@ -1,7 +1,10 @@
-import path from 'node:path';
 import { z } from 'zod';
+import {
+  resolveInsideWorkspace,
+  toWorkspaceRelativePath,
+  type FileTreeNode,
+} from '@ai-team/fs';
 import type { ToolContext } from '../types/index.js';
-import type { FileTreeNode } from '@ai-team/fs';
 
 export interface FsPathAccessEnvelope {
   allowed: boolean;
@@ -67,7 +70,9 @@ export function toFsPathAccessEnvelope(
     | 'fs_tree'
     | 'fs_search_content'
     | 'fs_search_metadata'
-    | 'fs_edit',
+    | 'fs_edit'
+    | 'apply_patch'
+    | 'multiedit',
   targetPath: string,
 ): FsPathAccessEnvelope {
   if (!context.accessEngine) {
@@ -110,18 +115,7 @@ export function toFsPathAccessEnvelope(
 }
 
 export function resolveFsAbsolutePath(context: ToolContext, targetPath: string): string | null {
-  const absolutePath = path.isAbsolute(targetPath)
-    ? targetPath
-    : path.join(context.workspaceRoot, targetPath);
-
-  const normalizedWorkspace = path.resolve(context.workspaceRoot);
-  const normalizedAbsolute = path.resolve(absolutePath);
-
-  if (normalizedAbsolute === normalizedWorkspace || normalizedAbsolute.startsWith(`${normalizedWorkspace}${path.sep}`)) {
-    return normalizedAbsolute;
-  }
-
-  return null;
+  return resolveInsideWorkspace(context.workspaceRoot, targetPath);
 }
 
 export function toFsPathMeta(context: ToolContext, inputPath: string, absolutePath: string): {
@@ -129,7 +123,7 @@ export function toFsPathMeta(context: ToolContext, inputPath: string, absolutePa
   absolute: string;
   relative: string;
 } {
-  const relativePath = path.relative(context.workspaceRoot, absolutePath).replaceAll('\\', '/');
+  const relativePath = toWorkspaceRelativePath(context.workspaceRoot, absolutePath) ?? '';
   return {
     input: inputPath,
     absolute: absolutePath,

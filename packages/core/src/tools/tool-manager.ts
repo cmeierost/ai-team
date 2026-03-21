@@ -14,16 +14,15 @@ import {
   Agent,
   AgentTool,
   ContextLevel,
-  PermissionDescriptor,
   PermissionResult,
   ToolCatalogEntry,
   ToolContext,
 } from '../types/index.js';
-import type { AccessEngine, AccessVerdict } from '@ai-team/access';
+import type { AccessEngine, AccessVerdict, PermissionDescriptor } from '@ai-team/access';
 import { ContextManager } from '../context/index.js';
 
 // Re-export for convenience so callers only import from 'tools'.
-export type { PermissionDescriptor, PermissionResult, ToolCatalogEntry } from '../types/index.js';
+export type {  PermissionResult, ToolCatalogEntry } from '../types/index.js';
 
 /**
  * Flat tool definition consumed by LlmService.chatWithTools().
@@ -325,7 +324,7 @@ export class ToolManager {
     }
 
     // Execution with timeout
-    const toolContext: ToolContext = { ...context, agent, accessEngine: this.accessEngine };
+    const toolContext: ToolContext = { ...context, agent, agentId: agent.id, accessEngine: this.accessEngine };
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     try {
