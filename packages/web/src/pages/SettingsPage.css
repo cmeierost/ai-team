@@ -23,6 +23,12 @@
   gap: 0.5rem;
 }
 
+.settings-saving-indicator {
+  font-size: 0.8rem;
+  color: var(--vscode-descriptionForeground, #a6adc8);
+  opacity: 0.75;
+}
+
 .settings-tabs {
   display: inline-flex;
   align-items: center;
@@ -407,6 +413,12 @@
   padding: 0.35rem 0.5rem;
   border-bottom: 1px solid var(--vscode-panel-border, #1e1e2e);
   vertical-align: middle;
+}
+
+.fixed-key {
+  font-size: 0.85rem;
+  color: var(--vscode-descriptionForeground, #a6adc8);
+  user-select: none;
 }
 
 .models-table tr:last-child td {

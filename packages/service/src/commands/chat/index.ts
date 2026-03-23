@@ -188,9 +188,10 @@ export async function chatCommand(
     );
     const registry = teamConfig?.providers;
     const defaultProviderRef = registry
-      ? (Object.entries(registry).find(([, cfg]) => cfg.isDefault)?.[0]
-        || teamConfig?.defaultLlmProvider
-        || Object.keys(registry)[0])
+      ? (teamConfig?.defaultModel?.provider && registry[teamConfig.defaultModel.provider]
+          ? teamConfig.defaultModel.provider
+          : Object.entries(registry).find(([, cfg]) => cfg.defaultModel)?.[0]
+            ?? Object.keys(registry)[0])
       : undefined;
     const defaultProviderKind = defaultProviderRef ? registry?.[defaultProviderRef]?.kind : undefined;
     const requiresApiKey = defaultProviderKind

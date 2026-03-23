@@ -1,10 +1,10 @@
 import {
   fetchGitHubModels,
-  loadDeveloperConfig,
+  loadUserConfig,
   fetchOpenAICompatibleModelsDetailed,
   loadEnvFile,
   loadTeamConfig,
-  saveDeveloperConfig,
+  saveUserConfig,
   saveTeamConfig,
 } from '@ai-team/core';
 
@@ -12,24 +12,24 @@ import { ProviderListOptions, ProviderModelsOptions, RefreshProviderModelsOption
 
 export async function providerListCommand(workspaceRoot: string, options: ProviderListOptions = {}): Promise<void> {
   const config = await loadTeamConfig(workspaceRoot);
-  const developerConfig = await loadDeveloperConfig(workspaceRoot);
+  const developerConfig = await loadUserConfig(workspaceRoot);
 
   if (!config && !developerConfig) {
     throw new Error('No LLM configured. Run ait init first.');
   }
 
-  const registry = developerConfig?.llm?.providers || config?.providers;
+  const registry = developerConfig?.providers || config?.providers;
   if (!registry || Object.keys(registry).length === 0) {
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
   }
 
-  const defaultProviderRef = resolveProviderRef(registry, developerConfig?.llm?.defaultLlmProvider || config?.defaultLlmProvider);
+  const defaultProviderRef = resolveProviderRef(registry, developerConfig?.defaultModel?.provider || config?.defaultModel?.provider);
   const providerEntries = Object.entries(registry).map(([providerRef, providerConfig]) => ({
     providerRef,
     kind: providerConfig.kind,
     isDefault: providerRef === defaultProviderRef,
     baseUrl: providerConfig.kind === 'openai-compatible' ? providerConfig.baseUrl : undefined,
-    defaultModel: providerConfig.defaultModel || providerConfig.model,
+    defaultModel: providerConfig.defaultModel,
     modelsCount: providerConfig.models?.length || 0,
   }));
 
@@ -52,26 +52,26 @@ export async function providerListCommand(workspaceRoot: string, options: Provid
 
 export async function providerModelsCommand(workspaceRoot: string, options: ProviderModelsOptions): Promise<void> {
   const config = await loadTeamConfig(workspaceRoot);
-  const developerConfig = await loadDeveloperConfig(workspaceRoot);
+  const developerConfig = await loadUserConfig(workspaceRoot);
 
   if (!config && !developerConfig) {
     throw new Error('No LLM configured. Run ait init first.');
   }
 
-  const registry = developerConfig?.llm?.providers || config?.providers;
+  const registry = developerConfig?.providers || config?.providers;
   if (!registry || Object.keys(registry).length === 0) {
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
   }
 
-  const defaultProviderRef = resolveProviderRef(registry, developerConfig?.llm?.defaultLlmProvider || config?.defaultLlmProvider);
+  const defaultProviderRef = resolveProviderRef(registry, developerConfig?.defaultModel?.provider || config?.defaultModel?.provider);
   const providerRefs = options.provider
-    ? [resolveProviderRef(registry, config?.defaultLlmProvider, options.provider)]
+    ? [resolveProviderRef(registry, config?.defaultModel?.provider, options.provider)]
     : Object.keys(registry);
 
   const providerEntries = providerRefs.map(providerRef => {
     const providerConfig = registry[providerRef];
     const models = providerConfig.models || [];
-    const defaultModel = providerConfig.defaultModel || providerConfig.model;
+    const defaultModel = providerConfig.defaultModel;
     return {
       providerRef,
       kind: providerConfig.kind,
@@ -129,13 +129,13 @@ export async function providerModelsCommand(workspaceRoot: string, options: Prov
 
 export async function providerModelsRefreshCommand(workspaceRoot: string, options: RefreshProviderModelsOptions): Promise<void> {
   const config = await loadTeamConfig(workspaceRoot);
-  const developerConfig = await loadDeveloperConfig(workspaceRoot);
+  const developerConfig = await loadUserConfig(workspaceRoot);
 
   if (!config && !developerConfig) {
     throw new Error('No LLM configured. Run ait init first.');
   }
 
-  const registrySource = developerConfig?.llm?.providers || config?.providers;
+  const registrySource = developerConfig?.providers || config?.providers;
   const registry = registrySource ? { ...registrySource } : {};
   if (Object.keys(registry).length === 0) {
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
@@ -143,7 +143,7 @@ export async function providerModelsRefreshCommand(workspaceRoot: string, option
 
   let providerRef: string;
   try {
-    providerRef = resolveProviderRef(registry, developerConfig?.llm?.defaultLlmProvider || config?.defaultLlmProvider, options.provider);
+    providerRef = resolveProviderRef(registry, developerConfig?.defaultModel?.provider || config?.defaultModel?.provider, options.provider);
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : 'Invalid provider reference.');
   }
@@ -203,20 +203,17 @@ export async function providerModelsRefreshCommand(workspaceRoot: string, option
     const nextConfig = {
       ...config,
       providers: registry,
-      defaultLlmProvider: providerRef,
+      defaultModel: { provider: providerRef, model: defaultModel },
     };
     await saveTeamConfig(workspaceRoot, nextConfig);
   }
 
-  const llmPatch = developerConfig?.llm ? { ...developerConfig.llm } : {};
-  llmPatch.providers = registry;
-  llmPatch.defaultLlmProvider = providerRef;
-  await saveDeveloperConfig(workspaceRoot, { llm: llmPatch });
+  await saveUserConfig(workspaceRoot, { providers: registry, defaultModel: { provider: providerRef, model: defaultModel } });
 }
 
 function resolveProviderRef(
-  registry: Record<string, { isDefault?: boolean }>,
-  defaultLlmProvider: string | undefined,
+  registry: Record<string, unknown>,
+  defaultModelProvider: string | undefined,
   requested?: string,
 ): string {
   if (requested && registry[requested]) {
@@ -227,13 +224,8 @@ function resolveProviderRef(
     throw new Error(`Unknown provider '${requested}'. Available: ${Object.keys(registry).join(', ')}`);
   }
 
-  const defaultByFlag = Object.entries(registry).find(([, cfg]) => cfg.isDefault)?.[0];
-  if (defaultByFlag) {
-    return defaultByFlag;
-  }
-
-  if (defaultLlmProvider && registry[defaultLlmProvider]) {
-    return defaultLlmProvider;
+  if (defaultModelProvider && registry[defaultModelProvider]) {
+    return defaultModelProvider;
   }
 
   return Object.keys(registry)[0];

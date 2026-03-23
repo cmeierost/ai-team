@@ -35,7 +35,7 @@ import type {
   UpdateGlobalPathResponse,
   TestConnectionOptions,
 } from '@ai-team/service';
-import type { AgentStatus, AgentConfig, AnnotatedFile, ContextLevel, GraphData, MarkdownSection, RoleType, TeamConfig, DeveloperConfig, ViewMode } from '@ai-team/core';
+import type { AgentStatus, AgentConfig, AnnotatedFile, ContextLevel, GraphData, MarkdownSection, RoleType, TeamConfig, UserConfig, ViewMode } from '@ai-team/core';
 import type {
   IdeCommitEditResponse,
   IdeEditStatusResponse,
@@ -151,8 +151,8 @@ export interface AiTeamHttpClient {
   updateConfig(partial: Partial<TeamConfig>): Promise<TeamConfig>;
   refreshProviderModels(providerRef: string): Promise<Array<{ name: string; contextWindow?: number }>>;
   getAgentModelKeys(): Promise<{ usedKeys: string[]; keysByAgent: Record<string, string> }>;
-  getDeveloperConfig(): Promise<DeveloperConfig>;
-  saveDeveloperConfig(partial: Partial<DeveloperConfig>): Promise<DeveloperConfig>;
+  getUserConfig(): Promise<UserConfig>;
+  saveUserConfig(partial: Partial<UserConfig>): Promise<UserConfig>;
   testProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
   getEnvStatus(): Promise<Record<string, boolean>>;
   setEnvVar(key: string, value: string): Promise<void>;
@@ -864,25 +864,25 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     return response.json();
   }
 
-  async getDeveloperConfig(): Promise<DeveloperConfig> {
-    const response = await fetch(`${this.baseUrl}/api/config/developer-config`);
-    if (!response.ok) throw new Error('Failed to load developer config');
+  async getUserConfig(): Promise<UserConfig> {
+    const response = await fetch(`${this.baseUrl}/api/config/user-config`);
+    if (!response.ok) throw new Error('Failed to load user config');
     return response.json();
   }
 
-  async saveDeveloperConfig(partial: Partial<DeveloperConfig>): Promise<DeveloperConfig> {
-    const response = await fetch(`${this.baseUrl}/api/config/developer-config`, {
+  async saveUserConfig(partial: Partial<UserConfig>): Promise<UserConfig> {
+    const response = await fetch(`${this.baseUrl}/api/config/user-config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(partial),
     });
-    if (!response.ok) throw new Error('Failed to save developer config');
+    if (!response.ok) throw new Error('Failed to save user config');
     return response.json();
   }
 
   async testProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
     const response = await fetch(
-      `${this.baseUrl}/api/config/developer-config/providers/${encodeURIComponent(providerRef)}/test`,
+      `${this.baseUrl}/api/config/user-config/providers/${encodeURIComponent(providerRef)}/test`,
       { method: 'POST' },
     );
     if (!response.ok) throw new Error('Failed to test provider connection');

@@ -2,12 +2,12 @@
 name: agent-authoring
 description: Use when creating, restructuring, or refining agent files, skill files, prompt files, or repository instruction files.
 triggers:
-  - "\.agent\.yml"
-  - "\.agent\.md"
-  - "SKILL\\.md"
-  - "\\bagent.*author\\b"
-  - "\\bskill.*creat\\b"
-  - "\.ai-team/agents"
+  - '\.agent\.yml'
+  - '\.agent\.md'
+  - 'SKILL\.md'
+  - '\bagent.*author\b'
+  - '\bskill.*creat\b'
+  - '\.ai-team/agents'
 ---
 
 # Agent authoring skill

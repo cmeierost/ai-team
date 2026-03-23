@@ -63,8 +63,8 @@ function resolveContextWindow(agent: Agent | undefined, config: TeamConfig | und
   const modelKeys = config?.modelKeys ?? {};
   const providerKey =
     agent?.llm?.provider ??
-    config?.defaultLlmProvider ??
-    Object.keys(providers).find((k) => providers[k].isDefault) ??
+    config?.defaultModel?.provider ??
+    Object.keys(providers).find((k) => providers[k].defaultModel) ??
     Object.keys(providers)[0];
   const providerCfg = providerKey ? providers[providerKey] : undefined;
   const modelKey = agent?.llm?.modelKey;
@@ -133,7 +133,7 @@ export function ContextWindowSection({
       section="context-window"
       expandedSection={expandedSection}
       onToggleSection={onToggleSection}
-      title={<span>🧠 Context Window</span>}
+      title={<span><i className="codicon codicon-dashboard" /> Context Window</span>}
       count={ctxLabel}
     >
       {isLoading ? (

@@ -1,52 +1,19 @@
 import express, { type Router } from 'express';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
 import {
   AgentManager,
   TeamConfigSchema,
   loadTeamConfig,
   saveTeamConfig,
+  loadUserConfig,
+  saveUserConfig,
   loadEnvFile,
   saveEnvFile,
   fetchGitHubModels,
   fetchOpenAICompatibleModels,
   fetchOpenAICompatibleModelsDetailed,
+  type UserConfig,
+  type ProviderConfig,
 } from '@ai-team/core';
-
-interface DeveloperProviderConfig {
-  kind: string;
-  isDefault?: boolean;
-  model?: string;
-  defaultModel?: string;
-  models?: Array<{
-    name: string;
-    contextWindow?: number;
-    maxPromptTokens?: number;
-    maxContextWindowTokens?: number;
-    maxOutputTokens?: number;
-  }>;
-  baseUrl?: string;
-  apiKeyEnvVar?: string;
-  contextWindow?: number;
-  modelDiscovery?: {
-    lastRefreshedAt?: string;
-    lastRefreshStatus?: 'ok' | 'error';
-    lastRefreshError?: string;
-  };
-}
-
-interface DeveloperModelKeyEntry {
-  provider: string;
-  model: string;
-  contextWindow?: number;
-}
-
-interface DeveloperSystemModelEntry {
-  provider?: string;
-  modelKey?: string;
-  model?: string;
-  contextWindow?: number;
-}
 
 const OPENAI_KEY_FALLBACKS = ['AI_TEAM_LLM_API_KEY', 'LLM_API_KEY', 'OPENAI_API_KEY'] as const;
 
@@ -72,106 +39,6 @@ function resolveOpenAiApiKey(
     keyName: candidates[0],
     value: undefined,
   };
-}
-
-interface DeveloperConfig {
-  developer?: {
-    id?: string;
-    name?: string;
-    email?: string;
-    avatar?: string;
-    portfolioUrl?: string;
-  };
-  llm?: {
-    defaultLlmProvider?: string;
-    providers?: Record<string, DeveloperProviderConfig>;
-    modelKeys?: Record<string, DeveloperModelKeyEntry>;
-    systemModels?: Record<string, DeveloperSystemModelEntry>;
-  };
-}
-
-function getDeveloperConfigPath(workspaceRoot: string): string {
-  return join(workspaceRoot, '.ai-team', 'config.developer.json');
-}
-
-function normalizeDeveloperConfig(raw: DeveloperConfig): DeveloperConfig {
-  const developer: NonNullable<DeveloperConfig['developer']> = {};
-  if (raw.developer) {
-    Object.assign(developer, raw.developer);
-  }
-
-  const llm: NonNullable<DeveloperConfig['llm']> = {};
-  if (raw.llm) {
-    Object.assign(llm, raw.llm);
-  }
-
-  return {
-    ...(Object.keys(developer).length > 0 ? { developer } : {}),
-    ...(Object.keys(llm).length > 0 ? { llm } : {}),
-  };
-}
-
-async function loadDeveloperConfigLocal(workspaceRoot: string): Promise<DeveloperConfig | undefined> {
-  const configPath = getDeveloperConfigPath(workspaceRoot);
-  try {
-    const content = await readFile(configPath, 'utf-8');
-    return normalizeDeveloperConfig(JSON.parse(content) as DeveloperConfig);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return undefined;
-    }
-    throw error;
-  }
-}
-
-async function saveDeveloperConfigLocal(workspaceRoot: string, partial: DeveloperConfig): Promise<DeveloperConfig> {
-  const existing = normalizeDeveloperConfig((await loadDeveloperConfigLocal(workspaceRoot)) ?? {});
-  const incoming = normalizeDeveloperConfig(partial);
-
-  let mergedProviders: Record<string, DeveloperProviderConfig> | undefined;
-  if (existing.llm?.providers || incoming.llm?.providers) {
-    mergedProviders = {};
-    if (existing.llm?.providers) {
-      Object.assign(mergedProviders, existing.llm.providers);
-    }
-    if (incoming.llm?.providers) {
-      Object.assign(mergedProviders, incoming.llm.providers);
-    }
-  }
-
-  let mergedDeveloper: NonNullable<DeveloperConfig['developer']> | undefined;
-  if (existing.developer || incoming.developer) {
-    mergedDeveloper = {};
-    if (existing.developer) {
-      Object.assign(mergedDeveloper, existing.developer);
-    }
-    if (incoming.developer) {
-      Object.assign(mergedDeveloper, incoming.developer);
-    }
-  }
-
-  let mergedLlm: NonNullable<DeveloperConfig['llm']> | undefined;
-  if (existing.llm || incoming.llm) {
-    mergedLlm = {};
-    if (existing.llm) {
-      Object.assign(mergedLlm, existing.llm);
-    }
-    if (incoming.llm) {
-      Object.assign(mergedLlm, incoming.llm);
-    }
-    if (mergedProviders) {
-      mergedLlm.providers = mergedProviders;
-    }
-  }
-
-  const merged: DeveloperConfig = {
-    ...(mergedDeveloper ? { developer: mergedDeveloper } : {}),
-    ...(mergedLlm ? { llm: mergedLlm } : {}),
-  };
-  const configPath = getDeveloperConfigPath(workspaceRoot);
-  await mkdir(dirname(configPath), { recursive: true });
-  await writeFile(configPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
-  return merged;
 }
 
 export function createConfigRouter(workspaceRoot: string): Router {
@@ -245,7 +112,6 @@ export function createConfigRouter(workspaceRoot: string): Router {
         return;
       }
 
-      // Build result: existing models preserved, fetched models update/add entries.
       const existingModels = providerConfig.models ?? [];
       const mergedByName = new Map<string, {
         name: string;
@@ -277,7 +143,6 @@ export function createConfigRouter(workspaceRoot: string): Router {
       }
 
       const newModels = [...mergedByName.values()];
-
       res.json(newModels);
     } catch (err) {
       next(err);
@@ -305,35 +170,34 @@ export function createConfigRouter(workspaceRoot: string): Router {
     }
   });
 
-  // ── Developer config (.ai-team/config.developer.json) ─────────────────────
+  // ── User config (.ai-team/config.user.json) ─────────────────────────────────
 
-  router.get('/developer-config', async (req: any, res: any, next: any) => {
+  router.get('/user-config', async (req: any, res: any, next: any) => {
     try {
-      const config = await loadDeveloperConfigLocal(workspaceRoot);
+      const config = await loadUserConfig(workspaceRoot);
       res.json(config ?? {});
     } catch (err) {
       next(err);
     }
   });
 
-  router.put('/developer-config', async (req: any, res: any, next: any) => {
+  router.put('/user-config', async (req: any, res: any, next: any) => {
     try {
-      const partial = (req.body ?? {}) as DeveloperConfig;
-      const saved = await saveDeveloperConfigLocal(workspaceRoot, partial);
+      const partial = (req.body ?? {}) as UserConfig;
+      const saved = await saveUserConfig(workspaceRoot, partial);
       res.json(saved);
     } catch (err) {
       next(err);
     }
   });
 
-  // Test connection for a provider in config.developer.json
-  router.post('/developer-config/providers/:providerRef/test', async (req: any, res: any, next: any) => {
+  router.post('/user-config/providers/:providerRef/test', async (req: any, res: any, next: any) => {
     try {
       const { providerRef } = req.params;
-      const devConfig = await loadDeveloperConfigLocal(workspaceRoot);
-      const providerConfig = devConfig?.llm?.providers?.[providerRef];
+      const devConfig = await loadUserConfig(workspaceRoot);
+      const providerConfig = devConfig?.providers?.[providerRef];
       if (!providerConfig) {
-        res.status(404).json({ error: `Provider '${providerRef}' not found in developer config` });
+        res.status(404).json({ error: `Provider '${providerRef}' not found in user config` });
         return;
       }
 
@@ -358,14 +222,13 @@ export function createConfigRouter(workspaceRoot: string): Router {
     }
   });
 
-  // Refresh available models for a provider in config.developer.json
-  router.post('/developer-config/providers/:providerRef/models/refresh', async (req: any, res: any, next: any) => {
+  router.post('/user-config/providers/:providerRef/models/refresh', async (req: any, res: any, next: any) => {
     try {
       const { providerRef } = req.params;
-      const devConfig = await loadDeveloperConfigLocal(workspaceRoot);
-      const providerConfig = devConfig?.llm?.providers?.[providerRef];
+      const devConfig = await loadUserConfig(workspaceRoot);
+      const providerConfig = devConfig?.providers?.[providerRef];
       if (!providerConfig) {
-        res.status(404).json({ error: `Provider '${providerRef}' not found in developer config` });
+        res.status(404).json({ error: `Provider '${providerRef}' not found in user config` });
         return;
       }
 
@@ -405,13 +268,9 @@ export function createConfigRouter(workspaceRoot: string): Router {
       }
 
       if (fetchedModels.length === 0) {
-        const llmPatch: NonNullable<DeveloperConfig['llm']> = {};
-        if (devConfig?.llm) {
-          Object.assign(llmPatch, devConfig.llm);
-        }
-        const providerPatch: Record<string, DeveloperProviderConfig> = {};
-        if (devConfig?.llm?.providers) {
-          Object.assign(providerPatch, devConfig.llm.providers);
+        const providerPatch: Record<string, ProviderConfig> = {};
+        if (devConfig?.providers) {
+          Object.assign(providerPatch, devConfig.providers);
         }
         providerPatch[providerRef] = {
           ...providerConfig,
@@ -422,8 +281,7 @@ export function createConfigRouter(workspaceRoot: string): Router {
             lastRefreshError: `No models returned from provider '${providerRef}'. Check baseUrl and API key configuration.`,
           },
         };
-        llmPatch.providers = providerPatch;
-        await saveDeveloperConfigLocal(workspaceRoot, { llm: llmPatch });
+        await saveUserConfig(workspaceRoot, { providers: providerPatch });
 
         res.status(502).json({
           error: `No models returned from provider '${providerRef}'. Check baseUrl and API key configuration.`,
@@ -463,18 +321,14 @@ export function createConfigRouter(workspaceRoot: string): Router {
 
       const mergedModels = [...mergedByName.values()];
 
-      const llmPatch: NonNullable<DeveloperConfig['llm']> = {};
-      if (devConfig?.llm) {
-        Object.assign(llmPatch, devConfig.llm);
-      }
-      const providerPatch: Record<string, DeveloperProviderConfig> = {};
-      if (devConfig?.llm?.providers) {
-        Object.assign(providerPatch, devConfig.llm.providers);
+      const providerPatch: Record<string, ProviderConfig> = {};
+      if (devConfig?.providers) {
+        Object.assign(providerPatch, devConfig.providers);
       }
       providerPatch[providerRef] = {
         ...providerConfig,
         models: mergedModels,
-        defaultModel: providerConfig.defaultModel ?? providerConfig.model ?? mergedModels[0]?.name,
+        defaultModel: providerConfig.defaultModel ?? mergedModels[0]?.name,
         modelDiscovery: {
           ...(providerConfig.modelDiscovery ?? {}),
           lastRefreshedAt: new Date().toISOString(),
@@ -482,9 +336,8 @@ export function createConfigRouter(workspaceRoot: string): Router {
           lastRefreshError: undefined,
         },
       };
-      llmPatch.providers = providerPatch;
 
-      await saveDeveloperConfigLocal(workspaceRoot, { llm: llmPatch });
+      await saveUserConfig(workspaceRoot, { providers: providerPatch });
 
       res.json({ models: mergedModels });
     } catch (err) {
@@ -494,16 +347,15 @@ export function createConfigRouter(workspaceRoot: string): Router {
 
   // ── Environment variable management ────────────────────────────────────────
 
-  // Returns which env var keys are set (without exposing values)
   router.get('/env-status', async (req: any, res: any, next: any) => {
     try {
       const envVars = await loadEnvFile(workspaceRoot);
       const teamConfig = await loadTeamConfig(workspaceRoot);
-      const devConfig = await loadDeveloperConfigLocal(workspaceRoot);
+      const devConfig = await loadUserConfig(workspaceRoot);
 
       const allProviders: Array<{ kind?: string; apiKeyEnvVar?: string }> = [
         ...Object.values(teamConfig?.providers ?? {}),
-        ...Object.values(devConfig?.llm?.providers ?? {}),
+        ...Object.values(devConfig?.providers ?? {}),
       ];
 
       const status: Record<string, boolean> = {};
@@ -531,7 +383,6 @@ export function createConfigRouter(workspaceRoot: string): Router {
     }
   });
 
-  // Set (or update) a single env var in .ai-team/.env
   router.put('/env-key', async (req: any, res: any, next: any) => {
     try {
       const { key, value } = req.body as { key: string; value: string };

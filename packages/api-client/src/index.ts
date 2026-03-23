@@ -12,13 +12,13 @@ import {
   loadAgentAccessPatterns,
   loadTeamConfig,
   saveTeamConfig,
-  loadDeveloperConfig,
-  saveDeveloperConfig,
+  loadUserConfig,
+  saveUserConfig,
   loadEnvFile,
   saveEnvFile,
   TeamConfig,
   TeamConfigSchema,
-  DeveloperConfig,
+  UserConfig,
   parseMarkdownSections,
   replaceOrAppendMarkdownSection,
 } from '@ai-team/core';
@@ -166,8 +166,8 @@ export interface AiTeamClient {
   updateConfig(partial: Partial<TeamConfig>): Promise<TeamConfig>;
   refreshProviderModels(providerRef: string): Promise<Array<{ name: string; contextWindow?: number }>>;
   getAgentModelKeys(): Promise<{ usedKeys: string[]; keysByAgent: Record<string, string> }>;
-  getDeveloperConfig(): Promise<DeveloperConfig>;
-  saveDeveloperConfig(partial: Partial<DeveloperConfig>): Promise<DeveloperConfig>;
+  getUserConfig(): Promise<UserConfig>;
+  saveUserConfig(partial: Partial<UserConfig>): Promise<UserConfig>;
   testProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
   getEnvStatus(): Promise<Record<string, boolean>>;
   setEnvVar(key: string, value: string): Promise<void>;
@@ -508,12 +508,12 @@ class InProcessAiTeamClient implements AiTeamClient {
     return { usedKeys: [...usedKeySet], keysByAgent };
   }
 
-  async getDeveloperConfig(): Promise<DeveloperConfig> {
-    return (await loadDeveloperConfig(this.service.workspaceRoot)) ?? {};
+  async getUserConfig(): Promise<UserConfig> {
+    return (await loadUserConfig(this.service.workspaceRoot)) ?? {};
   }
 
-  async saveDeveloperConfig(partial: Partial<DeveloperConfig>): Promise<DeveloperConfig> {
-    return saveDeveloperConfig(this.service.workspaceRoot, partial);
+  async saveUserConfig(partial: Partial<UserConfig>): Promise<UserConfig> {
+    return saveUserConfig(this.service.workspaceRoot, partial);
   }
 
   async testProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
@@ -524,15 +524,15 @@ class InProcessAiTeamClient implements AiTeamClient {
   async getEnvStatus(): Promise<Record<string, boolean>> {
     const envVars = await loadEnvFile(this.service.workspaceRoot);
     const teamConfig = await loadTeamConfig(this.service.workspaceRoot);
-    const devConfig = await loadDeveloperConfig(this.service.workspaceRoot);
+    const devConfig = await loadUserConfig(this.service.workspaceRoot);
     const allProviders: Record<string, { kind?: string; apiKeyEnvVar?: string }> = {};
     const teamProviders = teamConfig?.providers;
-    const developerProviders = devConfig?.llm?.providers;
+    const userProviders = devConfig?.providers;
     if (teamProviders) {
       Object.assign(allProviders, teamProviders);
     }
-    if (developerProviders) {
-      Object.assign(allProviders, developerProviders);
+    if (userProviders) {
+      Object.assign(allProviders, userProviders);
     }
     const status: Record<string, boolean> = {};
     for (const provider of Object.values(allProviders)) {

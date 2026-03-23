@@ -640,6 +640,24 @@ export class LlmService {
   }
 
   /**
+   * Generate a short title (≤5 words) for a conversation.
+   * Requires `initialize()` to have been called first.
+   */
+  async generateTitle(messages: ChatMessage[]): Promise<string> {
+    this.assertReady();
+    const conversationMessages: ChatCompletionMessageParam[] = messages.map((m) => ({
+      role: m.from === 'human' ? ('user' as const) : ('assistant' as const),
+      content: m.content,
+    }));
+    const raw = await this.rawChat(
+      'Generate a short title (5 words or fewer) for this conversation. Reply with only the title text, no quotes, no punctuation at the end.',
+      conversationMessages,
+      { maxTokens: 20, temperature: 0.3 },
+    );
+    return raw.replace(/^["'\u201C\u201D]|["'\u201C\u201D]$/g, '').trim();
+  }
+
+  /**
    * Initialize from explicit config + apiKey (for use during init when
    * config.json may not exist yet).
    */
@@ -1071,8 +1089,6 @@ function resolveProviderDefaultModel(
   const byName = provider.defaultModel;
   if (byName) return byName;
 
-  if (provider.model) return provider.model;
-
   return getProviderModels(provider)[0]?.name;
 }
 
@@ -1182,15 +1198,18 @@ function findDefaultProviderRef(teamConfig?: TeamConfig): string | undefined {
     return undefined;
   }
 
-  const defaultFromFlag = Object.entries(registry).find(([, cfg]) => cfg.isDefault)?.[0];
-  if (defaultFromFlag) {
-    return defaultFromFlag;
+  // 1. Explicit defaultModel.provider
+  if (teamConfig?.defaultModel?.provider && registry[teamConfig.defaultModel.provider]) {
+    return teamConfig.defaultModel.provider;
   }
 
-  if (teamConfig?.defaultLlmProvider && registry[teamConfig.defaultLlmProvider]) {
-    return teamConfig.defaultLlmProvider;
+  // 2. First provider that has a defaultModel set
+  const withDefault = Object.entries(registry).find(([, cfg]) => cfg.defaultModel);
+  if (withDefault) {
+    return withDefault[0];
   }
 
+  // 3. First provider in registry
   return Object.keys(registry)[0];
 }
 
@@ -1212,14 +1231,14 @@ export function resolveEffectiveLlmSettings(
     apiKeyEnvVar = providerConfig.apiKeyEnvVar;
     baseConfig = {
       provider: providerConfig.kind,
-      model: resolveProviderDefaultModel(providerConfig),
+      model: teamConfig.defaultModel?.model ?? resolveProviderDefaultModel(providerConfig),
       baseUrl: providerConfig.baseUrl,
       params: providerConfig.params,
     };
   }
 
   if (!baseConfig) {
-    throw new Error('No effective LLM configuration found. Set `providers` (with one `isDefault: true`) or `llm` in .ai-team/config.json');
+    throw new Error('No effective LLM configuration found. Set `defaultModel` or `providers` in .ai-team/config.json');
   }
 
   let merged = applyProfile(baseConfig, skill?.llm, teamConfig);
@@ -1246,7 +1265,7 @@ export function resolveEffectiveLlmSettings(
 
   const finalProvider = providerRef ? registry?.[providerRef] : undefined;
   const effectiveModelKey = findModelKeyForModel(finalProvider, merged.config.model || '');
-  const contextWindow = getEffectiveContextWindow(finalProvider, effectiveModelKey);
+  const contextWindow = teamConfig.defaultModel?.contextWindow ?? getEffectiveContextWindow(finalProvider, effectiveModelKey);
 
   return {
     config: merged.config,

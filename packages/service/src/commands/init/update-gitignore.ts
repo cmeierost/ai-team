@@ -6,7 +6,7 @@ const GITIGNORE_ADDITIONS = `
 .ai-team/private/
 .ai-team/logs/
 .ai-team/.env
-.ai-team/config.developer.json
+.ai-team/config.user.json
 **/*.jsonl
 `;
 

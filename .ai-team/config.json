@@ -4,64 +4,6 @@
     "https://i.pravatar.cc/150",
     "https://robohash.org/{name}?size=150x150"
   ],
-  "llm": {
-    "provider": "openai-compatible",
-    "model": "gpt-5.1",
-    "baseUrl": "https://api.openai.com/v1"
-  },
-  "providers": {
-    "api-llmhub-infs-ai": {
-      "kind": "openai-compatible",
-      "defaultModel": "best-chat",
-      "models": [
-        { "name": "apertus-70b-instruct-2509-qx64-mlx" },
-        { "name": "best-chat" },
-        { "name": "best-code" },
-        { "name": "best-embedding" },
-        { "name": "best-vision" },
-        { "name": "gemma-3-27b-it" },
-        { "name": "granite-docling-258m-mlx" },
-        { "name": "intfloat/multilingual-e5-large-instruct" },
-        { "name": "mlx-community/qwen3.5-397b-a17b" },
-        { "name": "nomic-ai/nomic-embed-text-v1.5" },
-        { "name": "openai/gpt-oss-120b" },
-        { "name": "openai/gpt-oss-20b" },
-        { "name": "openai/whisper-large-v3" },
-        { "name": "qwen/qwen3-coder-30b" },
-        { "name": "Qwen/Qwen3-Coder-Next" },
-        { "name": "qwen/qwen3-vl-30b" },
-        { "name": "qwen3-vl-30b-a3b-thinking" },
-        { "name": "text-embedding-bge-reranker-v2-m3" },
-        { "name": "vibethinker-1.5b-mlx" },
-        { "name": "zai-org/glm-4.7-flash" }
-      ],
-      "baseUrl": "https://api.llmhub.infs.ai/v1"
-    },
-    "copilot": {
-      "kind": "github-copilot",
-      "model": "claude-haiku-4.5",
-      "defaultModel": "claude-haiku-4.5",
-      "models": [
-        { "name": "claude-haiku-4.5" }
-      ]
-    },
-    "openai": {
-      "kind": "openai-compatible",
-      "isDefault": true,
-      "model": "gpt-5.1",
-      "defaultModel": "gpt-5.1",
-      "models": [
-        { "name": "gpt-5.1" }
-      ],
-      "imageModels": {
-        "avatar": "dall-e-3",
-        "hd": "dall-e-3"
-      },
-      "baseUrl": "https://api.openai.com/v1",
-      "apiKeyEnvVar": "OPENAI_API_KEY"
-    }
-  },
-  "defaultLlmProvider": "openai",
   "allowedCliTools": [
     "git",
     "pnpm",

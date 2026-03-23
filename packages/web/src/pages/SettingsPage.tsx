@@ -1,25 +1,25 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import {
   useConfig, useSaveConfig, useAgentModelKeys,
-  useDeveloperConfig, useSaveDeveloperConfig,
+  useUserConfig, useSaveUserConfig,
   useTestProviderConnection, useEnvStatus, useSetEnvVar,
   useRefreshDevProviderModels,
 } from '../hooks/useConfig';
-import type { TeamConfig, DeveloperConfig, ProviderConfig, ModelKeyEntry } from '../hooks/useConfig';
+import type { TeamConfig, UserConfig, ProviderConfig, ModelKeyEntry } from '../hooks/useConfig';
 import { SYSTEM_MODEL_KEY_LABELS } from './settingsConstants';
 import './SettingsPage.css';
 
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Developer Settings — reads/writes config.developer.json + .ai-team/.env
+// User Settings — reads/writes config.user.json + .ai-team/.env
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getDeveloperProviders(config: DeveloperConfig): Record<string, ProviderConfig> {
-  return config.llm?.providers ?? {};
+function getUserProviders(config: UserConfig): Record<string, ProviderConfig> {
+  return config.providers ?? {};
 }
 
-function getDeveloperProfile(config: DeveloperConfig): NonNullable<DeveloperConfig['developer']> {
+function getUserProfile(config: UserConfig): NonNullable<UserConfig['developer']> {
   return {
     id: config.developer?.id,
     name: config.developer?.name,
@@ -29,84 +29,49 @@ function getDeveloperProfile(config: DeveloperConfig): NonNullable<DeveloperConf
   };
 }
 
-function getDeveloperModelKeys(config: DeveloperConfig): Record<string, ModelKeyEntry> {
-  return config.llm?.modelKeys ?? {};
+function getUserModelKeys(config: UserConfig): Record<string, ModelKeyEntry> {
+  return config.modelKeys ?? {};
 }
 
-function getDeveloperSystemModels(config: DeveloperConfig): Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }> {
-  return config.llm?.systemModels ?? {};
+function getUserSystemModels(config: UserConfig): Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }> {
+  return config.systemModels ?? {};
 }
 
-function getDefaultProviderRef(config: DeveloperConfig, providers: Record<string, ProviderConfig>): string | undefined {
-  const fromLlm = config.llm?.defaultLlmProvider;
-  if (fromLlm && providers[fromLlm]) {
-    return fromLlm;
-  }
-
-  const fromFlag = Object.entries(providers).find(([, p]) => p.isDefault)?.[0];
-  if (fromFlag) {
-    return fromFlag;
-  }
-
-  return Object.keys(providers)[0];
-}
-
-function setDeveloperProviders(config: DeveloperConfig, providers: Record<string, ProviderConfig>): DeveloperConfig {
-  const nextLlm = config.llm ? { ...config.llm } : {};
-  nextLlm.providers = providers;
+function setUserProviders(config: UserConfig, providers: Record<string, ProviderConfig>): UserConfig {
   return {
     ...config,
-    llm: nextLlm,
+    providers,
   };
 }
 
-function setDeveloperProfile(config: DeveloperConfig, profile: NonNullable<DeveloperConfig['developer']>): DeveloperConfig {
+function setUserProfile(config: UserConfig, profile: NonNullable<UserConfig['developer']>): UserConfig {
   return {
     ...config,
     developer: profile,
   };
 }
 
-function setDeveloperModelKeys(config: DeveloperConfig, modelKeys: Record<string, ModelKeyEntry>): DeveloperConfig {
-  const nextLlm = config.llm ? { ...config.llm } : {};
-  nextLlm.modelKeys = modelKeys;
+function setUserModelKeys(config: UserConfig, modelKeys: Record<string, ModelKeyEntry>): UserConfig {
   return {
     ...config,
-    llm: nextLlm,
+    modelKeys,
   };
 }
 
-function setDeveloperSystemModels(
-  config: DeveloperConfig,
+function setUserSystemModels(
+  config: UserConfig,
   systemModels: Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }>,
-): DeveloperConfig {
-  const nextLlm = config.llm ? { ...config.llm } : {};
-  nextLlm.systemModels = systemModels;
+): UserConfig {
   return {
     ...config,
-    llm: nextLlm,
+    systemModels,
   };
 }
 
-function setDeveloperDefaultProvider(config: DeveloperConfig, defaultLlmProvider?: string): DeveloperConfig {
-  const nextLlm = config.llm ? { ...config.llm } : {};
-  nextLlm.defaultLlmProvider = defaultLlmProvider;
-
-  const providers = getDeveloperProviders(config);
-  if (Object.keys(providers).length > 0) {
-    const nextProviders: Record<string, ProviderConfig> = {};
-    for (const [ref, provider] of Object.entries(providers)) {
-      nextProviders[ref] = {
-        ...provider,
-        isDefault: defaultLlmProvider ? ref === defaultLlmProvider : provider.isDefault,
-      };
-    }
-    nextLlm.providers = nextProviders;
-  }
-
+function setUserDefaultProvider(config: UserConfig, providerRef?: string, modelId?: string, contextWindow?: number): UserConfig {
   return {
     ...config,
-    llm: nextLlm,
+    defaultModel: providerRef ? { provider: providerRef, model: modelId ?? '', ...(contextWindow ? { contextWindow } : {}) } : undefined,
   };
 }
 
@@ -144,12 +109,6 @@ function getProviderModels(provider: ProviderConfig | undefined): Array<{
     });
   }
 
-  if (provider.model && !seen.has(provider.model)) {
-    normalized.push({
-      name: provider.model,
-    });
-  }
-
   return normalized;
 }
 
@@ -167,13 +126,6 @@ function setProviderModels(
     ...provider,
     models,
   };
-}
-
-function getProviderModelOptions(provider: ProviderConfig | undefined): Array<{ name: string; modelId: string }> {
-  return getProviderModels(provider).map((model) => ({
-    name: model.name,
-    modelId: model.name,
-  }));
 }
 
 function formatTokens(value: number | undefined): string | undefined {
@@ -197,15 +149,15 @@ function formatDateTime(value: string | undefined): string {
 }
 
 function setDefaultModelForProvider(
-  config: DeveloperConfig,
+  config: UserConfig,
   providerRef: string | undefined,
   modelId: string | undefined,
-): DeveloperConfig {
+): UserConfig {
   if (!providerRef || !modelId) {
     return config;
   }
 
-  const providers = getDeveloperProviders(config);
+  const providers = getUserProviders(config);
   const provider = providers[providerRef];
   if (!provider) {
     return config;
@@ -217,11 +169,10 @@ function setDefaultModelForProvider(
     models.push({ name: modelId });
   }
 
-  return setDeveloperProviders(config, {
+  return setUserProviders(config, {
     ...providers,
     [providerRef]: {
       ...setProviderModels(provider, models),
-      model: modelId,
       defaultModel: modelId,
     },
   });
@@ -381,7 +332,6 @@ function DevProviderCard({ providerRef, provider, envStatus, onChange, onSave }:
 
     onChange({
       ...setProviderModels(provider, models),
-      model: provider.model === modelId ? undefined : provider.model,
       defaultModel: provider.defaultModel === modelId ? undefined : provider.defaultModel,
     });
   };
@@ -404,7 +354,6 @@ function DevProviderCard({ providerRef, provider, envStatus, onChange, onSave }:
           <span>
             {providerRef}
             <span className="provider-badge">{provider.kind}</span>
-            {provider.isDefault && <span className="provider-badge provider-badge-default">default</span>}
           </span>
           <span className="provider-card-chevron" aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
         </button>
@@ -555,30 +504,30 @@ function DevProviderCard({ providerRef, provider, envStatus, onChange, onSave }:
   );
 }
 
-interface DeveloperProvidersSectionProps {
-  devDraft: DeveloperConfig;
+interface UserProvidersSectionProps {
+  devDraft: UserConfig;
   envStatus: Record<string, boolean>;
-  onChange: (d: DeveloperConfig) => void;
+  onChange: (d: UserConfig) => void;
   onRefreshEnv: () => void;
 }
 
-function DeveloperProvidersSection({ devDraft, envStatus, onChange, onRefreshEnv }: Readonly<DeveloperProvidersSectionProps>) {
+function UserProvidersSection({ devDraft, envStatus, onChange, onRefreshEnv }: Readonly<UserProvidersSectionProps>) {
   const [newRef, setNewRef] = useState('');
 
   const addProvider = () => {
     const ref = newRef.trim();
     if (!ref) return;
-    const providers = getDeveloperProviders(devDraft);
-    onChange(setDeveloperProviders(devDraft, { ...providers, [ref]: { kind: 'openai-compatible' } }));
+    const providers = getUserProviders(devDraft);
+    onChange(setUserProviders(devDraft, { ...providers, [ref]: { kind: 'openai-compatible' } }));
     setNewRef('');
   };
 
-  const providers = getDeveloperProviders(devDraft);
+  const providers = getUserProviders(devDraft);
 
   return (
     <CollapsibleSection
       title="My Providers"
-      meta="config.developer.json · git-ignored"
+      meta="config.user.json · git-ignored"
     >
         {Object.entries(providers).map(([ref, provider]) => (
           <DevProviderCard
@@ -586,7 +535,7 @@ function DeveloperProvidersSection({ devDraft, envStatus, onChange, onRefreshEnv
             providerRef={ref}
             provider={provider}
             envStatus={envStatus}
-            onChange={(p) => onChange(setDeveloperProviders(devDraft, { ...providers, [ref]: p }))}
+            onChange={(p) => onChange(setUserProviders(devDraft, { ...providers, [ref]: p }))}
             onSave={onRefreshEnv}
           />
         ))}
@@ -612,21 +561,21 @@ function DeveloperProvidersSection({ devDraft, envStatus, onChange, onRefreshEnv
 }
 
 interface UserProfileSectionProps {
-  devDraft: DeveloperConfig;
-  onChange: (d: DeveloperConfig) => void;
+  devDraft: UserConfig;
+  onChange: (d: UserConfig) => void;
 }
 
 function UserProfileSection({ devDraft, onChange }: Readonly<UserProfileSectionProps>) {
-  const profile = getDeveloperProfile(devDraft);
+  const profile = getUserProfile(devDraft);
 
-  const patch = (key: keyof NonNullable<DeveloperConfig['developer']>, value: string) => {
-    onChange(setDeveloperProfile(devDraft, { ...profile, [key]: value || undefined }));
+  const patch = (key: keyof NonNullable<UserConfig['developer']>, value: string) => {
+    onChange(setUserProfile(devDraft, { ...profile, [key]: value || undefined }));
   };
 
   return (
     <CollapsibleSection
       title="My Profile"
-      meta="config.developer.json · git-ignored"
+      meta="config.user.json · git-ignored"
     >
         <div className="user-profile-grid">
           <label className="provider-field-row">
@@ -652,85 +601,272 @@ function UserProfileSection({ devDraft, onChange }: Readonly<UserProfileSectionP
   );
 }
 
-interface UserDefaultsSectionProps {
-  devDraft: DeveloperConfig;
-  onChange: (d: DeveloperConfig) => void;
+interface UnifiedModelSectionProps {
+  devDraft: UserConfig;
+  providerRefs: string[];
+  providerAvailableModels: Record<string, string[]>;
+  providerConfigs: Record<string, ProviderConfig>;
+  usedKeys: Set<string>;
+  onChange: (d: UserConfig) => void;
 }
 
-function UserDefaultsSection({ devDraft, onChange }: Readonly<UserDefaultsSectionProps>) {
-  const providers = getDeveloperProviders(devDraft);
-  const providerRefs = Object.keys(providers);
-  const defaultProviderRef = getDefaultProviderRef(devDraft, providers) ?? '';
-  const defaultProvider = defaultProviderRef ? providers[defaultProviderRef] : undefined;
-  const modelOptions = getProviderModelOptions(defaultProvider);
-  const currentModel = defaultProvider?.model
-    ?? defaultProvider?.defaultModel
-    ?? '';
+function UnifiedModelSection({
+  devDraft,
+  providerRefs,
+  providerAvailableModels,
+  providerConfigs,
+  usedKeys,
+  onChange,
+}: Readonly<UnifiedModelSectionProps>) {
+  const systemModelKeys = [
+    ...Object.keys(SYSTEM_MODEL_KEY_LABELS),
+    ...Object.keys(devDraft.systemModels ?? {}).filter((k) => !(k in SYSTEM_MODEL_KEY_LABELS)),
+  ];
+
+  const [rows, setRows] = useState<ModelKeyRow[]>(() => rowsFromModelKeys(getUserModelKeys(devDraft)));
+
+  useEffect(() => {
+    const incomingModelKeys = getUserModelKeys(devDraft);
+    const currentProjection = canonicalModelKeys(rowsToModelKeys(rows, providerConfigs));
+    const incomingProjection = canonicalModelKeys(incomingModelKeys);
+    if (currentProjection !== incomingProjection) {
+      setRows(rowsFromModelKeys(incomingModelKeys));
+    }
+  }, [devDraft, providerConfigs, rows]);
+
+  const storedDefaultProvider = devDraft.defaultModel?.provider;
+  const defaultProviderRef = (storedDefaultProvider && providerRefs.includes(storedDefaultProvider)) ? storedDefaultProvider : '';
+  const defaultProviderConfig = defaultProviderRef ? providerConfigs[defaultProviderRef] : undefined;
+  const defaultModelList = defaultProviderRef ? (providerAvailableModels[defaultProviderRef] ?? []) : [];
+  const currentDefaultModel = devDraft.defaultModel?.model ?? defaultProviderConfig?.defaultModel ?? '';
+  const defaultContextWindow = devDraft.defaultModel?.contextWindow;
+  const defaultFallbackContext = getProviderContextWindow(defaultProviderConfig, currentDefaultModel);
+
+  const updateDefaultProvider = (providerRef: string) => {
+    onChange(setUserDefaultProvider(devDraft, providerRef || undefined, undefined, undefined));
+  };
+
+  const updateDefaultModel = (modelId: string) => {
+    const withDefault = setUserDefaultProvider(devDraft, defaultProviderRef || undefined, modelId || undefined, defaultContextWindow);
+    onChange(setDefaultModelForProvider(withDefault, defaultProviderRef || undefined, modelId || undefined));
+  };
+
+  const updateDefaultContextWindow = (value: string) => {
+    const parsed = Number.parseInt(value, 10);
+    const cw = Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed;
+    onChange(setUserDefaultProvider(devDraft, defaultProviderRef || undefined, currentDefaultModel || undefined, cw));
+  };
+
+  const systemModels = getUserSystemModels(devDraft);
+
+  const updateSystemModel = (purposeKey: string, patch: Partial<{ provider?: string; model?: string; contextWindow?: number }>) => {
+    const existing = systemModels[purposeKey] ?? {};
+    onChange(setUserSystemModels(devDraft, { ...systemModels, [purposeKey]: { ...existing, ...patch } }));
+  };
+
+  const updateRow = (i: number, patch: Partial<ModelKeyRow>) => {
+    const next = rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
+    setRows(next);
+    onChange(setUserModelKeys(devDraft, rowsToModelKeys(next, providerConfigs)));
+  };
+
+  const deleteRow = (i: number) => {
+    const next = rows.filter((_, idx) => idx !== i);
+    setRows(next);
+    onChange(setUserModelKeys(devDraft, rowsToModelKeys(next, providerConfigs)));
+  };
+
+  const addRow = () => setRows([...rows, { id: createModelKeyRowId(), keyName: '', provider: '', model: '', contextWindow: '' }]);
 
   return (
-    <CollapsibleSection
-      title="Defaults"
-      meta="config.developer.json · git-ignored"
-    >
-        <div className="settings-help-text">Set your personal default provider and model used as primary fallback.</div>
-        <div className="user-defaults-grid">
-          <label className="provider-field-row">
-            <span>Default provider</span>
-            <select
-              value={defaultProviderRef}
-              onChange={(e) => onChange(setDeveloperDefaultProvider(devDraft, e.target.value || undefined))}
-              aria-label="Default provider"
-              title="Select default provider"
-            >
-              <option value="">(none)</option>
-              {providerRefs.map((ref) => <option key={ref} value={ref}>{ref}</option>)}
-            </select>
-          </label>
-
-          {modelOptions.length > 0 ? (
-            <label className="provider-field-row">
-              <span>Default model</span>
+    <CollapsibleSection title="Models" meta="config.user.json · git-ignored">
+      <table className="models-table">
+        <thead>
+          <tr>
+            <th>Key</th>
+            <th>Provider</th>
+            <th>Model</th>
+            <th>Context window</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span className="fixed-key" title="Default model key">default</span></td>
+            <td>
               <select
-                value={currentModel}
-                onChange={(e) => {
-                  const nextModel = e.target.value || undefined;
-                  const withProvider = setDeveloperDefaultProvider(devDraft, defaultProviderRef || undefined);
-                  onChange(setDefaultModelForProvider(withProvider, defaultProviderRef || undefined, nextModel));
-                }}
-                aria-label="Default model"
-                title="Select default model"
-                disabled={!defaultProviderRef}
+                value={defaultProviderRef}
+                onChange={(e) => updateDefaultProvider(e.target.value)}
+                aria-label="Provider for default model"
+                title="Select default provider"
               >
                 <option value="">(none)</option>
-                {modelOptions.map(({ name, modelId }) => (
-                  <option key={`${name}:${modelId}`} value={modelId}>{name}</option>
-                ))}
+                {providerRefs.map((ref) => <option key={ref} value={ref}>{ref}</option>)}
               </select>
-            </label>
-          ) : (
-            <label className="provider-field-row">
-              <span>Default model</span>
+            </td>
+            <td>
+              {defaultModelList.length > 0 ? (
+                <select
+                  value={currentDefaultModel}
+                  onChange={(e) => updateDefaultModel(e.target.value)}
+                  disabled={!defaultProviderRef}
+                  aria-label="Default model"
+                  title="Select default model"
+                >
+                  <option value="">(none)</option>
+                  {defaultModelList.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={currentDefaultModel}
+                  onChange={(e) => updateDefaultModel(e.target.value)}
+                  disabled={!defaultProviderRef}
+                  placeholder="e.g. gpt-4.1"
+                />
+              )}
+            </td>
+            <td>
               <input
-                type="text"
-                value={currentModel}
-                onChange={(e) => {
-                  const nextModel = e.target.value.trim() || undefined;
-                  const withProvider = setDeveloperDefaultProvider(devDraft, defaultProviderRef || undefined);
-                  onChange(setDefaultModelForProvider(withProvider, defaultProviderRef || undefined, nextModel));
-                }}
-                placeholder="e.g. gpt-4.1"
-                disabled={!defaultProviderRef}
+                type="number"
+                min={1}
+                value={defaultContextWindow ?? ''}
+                onChange={(e) => updateDefaultContextWindow(e.target.value)}
+                placeholder={String(defaultFallbackContext)}
+                aria-label="Context window for default model"
+                title="Context window for default model"
               />
-            </label>
-          )}
-        </div>
+            </td>
+            <td />
+          </tr>
+          {systemModelKeys.map((purposeKey) => {
+            const entry = systemModels[purposeKey];
+            const label = SYSTEM_MODEL_KEY_LABELS[purposeKey] ?? purposeKey;
+            const providerRef = entry?.provider ?? '';
+            const availableModels = providerRef ? (providerAvailableModels[providerRef] ?? []) : [];
+            const fallbackContext = getProviderContextWindow(providerConfigs[providerRef], entry?.model);
+            return (
+              <tr key={purposeKey}>
+                <td><span className="fixed-key" title={purposeKey}>{label}</span></td>
+                <td>
+                  <select
+                    value={providerRef}
+                    onChange={(e) => updateSystemModel(purposeKey, { provider: e.target.value || undefined, model: undefined })}
+                    aria-label={`Provider for ${label}`}
+                    title={`Select provider for ${label}`}
+                  >
+                    <option value="">(default provider)</option>
+                    {providerRefs.map((ref) => <option key={ref} value={ref}>{ref}</option>)}
+                  </select>
+                </td>
+                <td>
+                  {availableModels.length > 0 ? (
+                    <select
+                      value={entry?.model ?? ''}
+                      onChange={(e) => updateSystemModel(purposeKey, {
+                        model: e.target.value || undefined,
+                        contextWindow: e.target.value
+                          ? getProviderContextWindow(providerConfigs[providerRef], e.target.value)
+                          : undefined,
+                      })}
+                      aria-label={`Model for ${label}`}
+                      title={`Select model for ${label}`}
+                    >
+                      <option value="">(default model)</option>
+                      {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={entry?.model ?? ''}
+                      onChange={(e) => updateSystemModel(purposeKey, { model: e.target.value || undefined })}
+                      placeholder="e.g. gpt-4.1"
+                    />
+                  )}
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    min={1}
+                    value={entry?.contextWindow ?? ''}
+                    onChange={(e) => {
+                      const parsed = Number.parseInt(e.target.value, 10);
+                      updateSystemModel(purposeKey, { contextWindow: Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed });
+                    }}
+                    placeholder={String(fallbackContext)}
+                    aria-label={`Context window for ${label}`}
+                    title={`Context window for ${label}`}
+                  />
+                </td>
+                <td />
+              </tr>
+            );
+          })}
+          {rows.map((row, i) => {
+            const availableModels = row.provider ? (providerAvailableModels[row.provider] ?? []) : [];
+            return (
+              <tr key={row.id}>
+                <td>
+                  <input
+                    type="text"
+                    value={row.keyName}
+                    onChange={(e) => updateRow(i, { keyName: e.target.value })}
+                    placeholder="e.g. fast"
+                  />
+                  {usedKeys.has(row.keyName) && <span className="in-use-badge" title="Used by an agent">in use</span>}
+                </td>
+                <td>
+                  <select
+                    value={row.provider}
+                    onChange={(e) => updateRow(i, { provider: e.target.value, model: '' })}
+                    aria-label="Provider for model key row"
+                    title="Select provider"
+                  >
+                    <option value="">(select provider)</option>
+                    {providerRefs.map((ref) => <option key={ref} value={ref}>{ref}</option>)}
+                  </select>
+                </td>
+                <td>
+                  {availableModels.length > 0 ? (
+                    <select
+                      value={row.model}
+                      onChange={(e) => updateRow(i, { model: e.target.value })}
+                      aria-label="Model for model key row"
+                      title="Select model"
+                    >
+                      <option value="">(select model)</option>
+                      {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={row.model}
+                      onChange={(e) => updateRow(i, { model: e.target.value })}
+                      placeholder="e.g. gpt-4o"
+                    />
+                  )}
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    value={row.contextWindow}
+                    onChange={(e) => updateRow(i, { contextWindow: e.target.value })}
+                    placeholder="provider default"
+                    min={1}
+                  />
+                </td>
+                <td>
+                  <button type="button" className="btn-icon" onClick={() => deleteRow(i)} title="Remove">✕</button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <button type="button" className="btn-add" onClick={addRow}>+ Add model key</button>
     </CollapsibleSection>
   );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Team Settings — reads/writes config.json
-// ─────────────────────────────────────────────────────────────────────────────
 
 interface ModelKeyRow {
   id: string;
@@ -782,226 +918,11 @@ function canonicalModelKeys(modelKeys: Record<string, ModelKeyEntry>): string {
   );
 }
 
-interface ModelKeysSectionProps {
-  title?: string;
-  meta?: string;
-  modelKeys: Record<string, ModelKeyEntry>;
-  providerConfigs: Record<string, ProviderConfig>;
-  providerRefs: string[];
-  providerAvailableModels: Record<string, string[]>;
-  usedKeys: Set<string>;
-  onChange: (modelKeys: Record<string, ModelKeyEntry>) => void;
-}
 
-function ModelKeysSection({
-  title = 'Model Keys',
-  meta,
-  modelKeys,
-  providerConfigs,
-  providerRefs,
-  providerAvailableModels,
-  usedKeys,
-  onChange,
-}: Readonly<ModelKeysSectionProps>) {
-  const [rows, setRows] = useState<ModelKeyRow[]>(() => rowsFromModelKeys(modelKeys));
 
-  useEffect(() => {
-    const currentProjection = canonicalModelKeys(rowsToModelKeys(rows, providerConfigs));
-    const incomingProjection = canonicalModelKeys(modelKeys);
-    if (currentProjection !== incomingProjection) {
-      setRows(rowsFromModelKeys(modelKeys));
-    }
-  }, [modelKeys, providerConfigs, rows]);
 
-  const updateRow = (i: number, patch: Partial<ModelKeyRow>) => {
-    const next = rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
-    setRows(next);
-    onChange(rowsToModelKeys(next, providerConfigs));
-  };
 
-  const deleteRow = (i: number) => {
-    const next = rows.filter((_, idx) => idx !== i);
-    setRows(next);
-    onChange(rowsToModelKeys(next, providerConfigs));
-  };
 
-  const addRow = () => setRows([...rows, { id: createModelKeyRowId(), keyName: '', provider: '', model: '', contextWindow: '' }]);
-
-  return (
-    <CollapsibleSection title={title} meta={meta}>
-        <div className="settings-help-text">
-          Define named keys like <code>fast</code> or <code>best</code>. Each key maps to a provider and a specific model ID.
-        </div>
-        <table className="models-table">
-          <thead>
-            <tr>
-              <th>Key name</th>
-              <th>Provider</th>
-              <th>Model ID</th>
-              <th>Context window</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => {
-              const availableModels = row.provider ? (providerAvailableModels[row.provider] ?? []) : [];
-              return (
-                <tr key={row.id}>
-                  <td>
-                    <input
-                      type="text"
-                      value={row.keyName}
-                      onChange={(e) => updateRow(i, { keyName: e.target.value })}
-                      placeholder="e.g. fast"
-                    />
-                    {usedKeys.has(row.keyName) && <span className="in-use-badge" title="Used by an agent">in use</span>}
-                  </td>
-                  <td>
-                    <select
-                      value={row.provider}
-                      onChange={(e) => updateRow(i, { provider: e.target.value, model: '' })}
-                      aria-label="Provider for model key row"
-                      title="Select provider"
-                    >
-                      <option value="">(select provider)</option>
-                      {providerRefs.map((ref) => <option key={ref} value={ref}>{ref}</option>)}
-                    </select>
-                  </td>
-                  <td>
-                    {availableModels.length > 0 ? (
-                      <select
-                        value={row.model}
-                        onChange={(e) => updateRow(i, { model: e.target.value })}
-                        aria-label="Model for model key row"
-                        title="Select model"
-                      >
-                        <option value="">(select model)</option>
-                        {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        value={row.model}
-                        onChange={(e) => updateRow(i, { model: e.target.value })}
-                        placeholder="e.g. gpt-4o"
-                      />
-                    )}
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      value={row.contextWindow}
-                      onChange={(e) => updateRow(i, { contextWindow: e.target.value })}
-                      placeholder="provider default"
-                      min={1}
-                    />
-                  </td>
-                  <td>
-                    <button type="button" className="btn-icon" onClick={() => deleteRow(i)} title="Remove">✕</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <button type="button" className="btn-add" onClick={addRow}>+ Add model key</button>
-    </CollapsibleSection>
-  );
-}
-
-interface SystemModelsSectionProps {
-  title?: string;
-  meta?: string;
-  systemModels: Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }>;
-  providerRefs: string[];
-  providerAvailableModels: Record<string, string[]>;
-  providerConfigs: Record<string, ProviderConfig>;
-  onChange: (sm: Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }>) => void;
-}
-
-function SystemModelsSection({
-  title = 'System Models',
-  meta,
-  systemModels,
-  providerRefs,
-  providerAvailableModels,
-  providerConfigs,
-  onChange,
-}: Readonly<SystemModelsSectionProps>) {
-  const allKeys = [
-    ...Object.keys(SYSTEM_MODEL_KEY_LABELS),
-    ...Object.keys(systemModels).filter((k) => !(k in SYSTEM_MODEL_KEY_LABELS)),
-  ];
-
-  const update = (purposeKey: string, patch: Partial<{ provider?: string; modelKey?: string; model?: string; contextWindow?: number }>) => {
-    const existing = systemModels[purposeKey] ?? {};
-    onChange({ ...systemModels, [purposeKey]: { ...existing, ...patch } });
-  };
-
-  return (
-    <CollapsibleSection title={title} meta={meta}>
-        <div className="settings-help-text">
-          Choose direct provider/model assignments for internal operations. Context window falls back to provider defaults.
-        </div>
-        {allKeys.map((purposeKey) => {
-          const entry = systemModels[purposeKey];
-          const label = SYSTEM_MODEL_KEY_LABELS[purposeKey] ?? purposeKey;
-          const providerRef = entry?.provider ?? '';
-          const availableModels = providerRef ? (providerAvailableModels[providerRef] ?? []) : [];
-          const fallbackContext = getProviderContextWindow(providerConfigs[providerRef], entry?.model);
-          return (
-            <div className="system-model-row" key={purposeKey}>
-              <span className="system-model-label" title={purposeKey}>{label}</span>
-              <select
-                value={providerRef}
-                onChange={(e) => update(purposeKey, { provider: e.target.value || undefined, model: undefined })}
-                aria-label={`Provider for ${label}`}
-                title={`Select provider for ${label}`}
-              >
-                <option value="">(default provider)</option>
-                {providerRefs.map((ref) => <option key={ref} value={ref}>{ref}</option>)}
-              </select>
-              {availableModels.length > 0 ? (
-                <select
-                  value={entry?.model ?? ''}
-                  onChange={(e) => update(purposeKey, {
-                    model: e.target.value || undefined,
-                    contextWindow: e.target.value
-                      ? getProviderContextWindow(providerConfigs[providerRef], e.target.value)
-                      : undefined,
-                  })}
-                  aria-label={`Model for ${label}`}
-                  title={`Select model for ${label}`}
-                >
-                  <option value="">(default model)</option>
-                  {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={entry?.model ?? ''}
-                  onChange={(e) => update(purposeKey, { model: e.target.value || undefined })}
-                  placeholder="e.g. gpt-4.1"
-                />
-              )}
-              <input
-                type="number"
-                min={1}
-                value={entry?.contextWindow ?? ''}
-                onChange={(e) => {
-                  const parsed = Number.parseInt(e.target.value, 10);
-                  update(purposeKey, { contextWindow: Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed });
-                }}
-                placeholder={String(fallbackContext)}
-                aria-label={`Context window for ${label}`}
-                title={`Context window for ${label}`}
-              />
-            </div>
-          );
-        })}
-    </CollapsibleSection>
-  );
-}
 
 interface TagListSectionProps {
   title: string;
@@ -1055,15 +976,15 @@ type SettingsTab = 'user' | 'team';
 
 export function SettingsPage() {
   const { data: config, isLoading: configLoading, error: configError } = useConfig();
-  const { data: devConfig, isLoading: devLoading } = useDeveloperConfig();
+  const { data: devConfig, isLoading: devLoading } = useUserConfig();
   const { data: envStatus = {} } = useEnvStatus();
   const { data: agentModelKeys } = useAgentModelKeys();
   const { mutate: saveConfig, isPending: savingConfig } = useSaveConfig();
-  const { mutate: saveDevConfig, isPending: savingDev } = useSaveDeveloperConfig();
+  const { mutate: saveDevConfig, isPending: savingDev } = useSaveUserConfig();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('user');
   const [teamDraft, setTeamDraft] = useState<TeamConfig | null>(null);
-  const [devDraft, setDevDraft] = useState<DeveloperConfig | null>(null);
+  const [devDraft, setDevDraft] = useState<UserConfig | null>(null);
   const [teamDirty, setTeamDirty] = useState(false);
   const [devDirty, setDevDirty] = useState(false);
 
@@ -1075,6 +996,27 @@ export function SettingsPage() {
     if (devConfig && !devDirty) setDevDraft(devConfig);
   }, [devConfig, devDirty]);
 
+  const saveDevConfigRef = useRef(saveDevConfig);
+  saveDevConfigRef.current = saveDevConfig;
+  const saveConfigRef = useRef(saveConfig);
+  saveConfigRef.current = saveConfig;
+
+  useEffect(() => {
+    if (!devDirty || !devDraft) return;
+    const timer = setTimeout(() => {
+      saveDevConfigRef.current(devDraft, { onSuccess: () => setDevDirty(false) });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [devDraft, devDirty]);
+
+  useEffect(() => {
+    if (!teamDirty || !teamDraft) return;
+    const timer = setTimeout(() => {
+      saveConfigRef.current(teamDraft, { onSuccess: () => setTeamDirty(false) });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [teamDraft, teamDirty]);
+
   if (configLoading || devLoading) return <div className="settings-loading">Loading settings…</div>;
   if (configError) return <div className="settings-error">Failed to load settings: {(configError as Error).message}</div>;
   if (!teamDraft || !devDraft) return null;
@@ -1084,30 +1026,14 @@ export function SettingsPage() {
     setTeamDirty(true);
   };
 
-  const patchDev = (updater: DeveloperConfig) => {
+  const patchDev = (updater: UserConfig) => {
     setDevDraft(updater);
     setDevDirty(true);
   };
 
-  const handleSave = () => {
-    if (activeTab === 'team' && teamDirty) {
-      saveConfig(teamDraft, { onSuccess: () => setTeamDirty(false) });
-    } else if (activeTab === 'user' && devDirty) {
-      saveDevConfig(devDraft, { onSuccess: () => setDevDirty(false) });
-    }
-  };
-
-  const handleReset = () => {
-    if (activeTab === 'team' && config) { setTeamDraft(config); setTeamDirty(false); }
-    if (activeTab === 'user' && devConfig) { setDevDraft(devConfig); setDevDirty(false); }
-  };
-
-  const isDirty = activeTab === 'team' ? teamDirty : devDirty;
-  const isSaving = activeTab === 'team' ? savingConfig : savingDev;
-
   // Build merged provider refs for model key dropdowns
   const teamProviders = teamDraft.providers ?? {};
-  const devProviders = getDeveloperProviders(devDraft);
+  const devProviders = getUserProviders(devDraft);
   const allProviderRefs = [...new Set([...Object.keys(teamProviders), ...Object.keys(devProviders)])];
   const providerAvailableModels: Record<string, string[]> = {};
   for (const [ref, p] of Object.entries(devProviders)) {
@@ -1115,21 +1041,13 @@ export function SettingsPage() {
     if (ids.length) providerAvailableModels[ref] = ids;
   }
 
-  const userModelKeys = getDeveloperModelKeys(devDraft);
   const usedKeys = new Set(agentModelKeys?.usedKeys ?? []);
 
   return (
     <div className="settings-page">
       <div className="settings-header">
         <h1>Settings</h1>
-        <div className="settings-actions">
-          <button type="button" className="btn-secondary" onClick={handleReset} disabled={!isDirty}>
-            Reset
-          </button>
-          <button type="button" className="btn-primary" onClick={handleSave} disabled={!isDirty || isSaving}>
-            {isSaving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+        {(savingDev || savingConfig) && <span className="settings-saving-indicator">Saving…</span>}
       </div>
 
       <div className="settings-tabs">
@@ -1153,42 +1071,25 @@ export function SettingsPage() {
 
       {activeTab === 'user' && (
         <>
-          <UserDefaultsSection
-            devDraft={devDraft}
-            onChange={patchDev}
-          />
-
           <UserProfileSection
             devDraft={devDraft}
             onChange={patchDev}
           />
 
-          <DeveloperProvidersSection
+          <UserProvidersSection
             devDraft={devDraft}
             envStatus={envStatus}
             onChange={patchDev}
             onRefreshEnv={() => {}}
           />
 
-          <ModelKeysSection
-            title="My Model Keys"
-            meta="config.developer.json · git-ignored"
-            modelKeys={userModelKeys}
-            providerConfigs={devProviders}
+          <UnifiedModelSection
+            devDraft={devDraft}
             providerRefs={allProviderRefs}
             providerAvailableModels={providerAvailableModels}
+            providerConfigs={devProviders}
             usedKeys={usedKeys}
-            onChange={(mk) => patchDev(setDeveloperModelKeys(devDraft, mk))}
-          />
-
-          <SystemModelsSection
-            title="System Models"
-            meta="config.developer.json · git-ignored"
-            systemModels={getDeveloperSystemModels(devDraft)}
-            providerRefs={allProviderRefs}
-            providerAvailableModels={providerAvailableModels}
-            providerConfigs={devProviders}
-            onChange={(sm) => patchDev(setDeveloperSystemModels(devDraft, sm))}
+            onChange={patchDev}
           />
         </>
       )}

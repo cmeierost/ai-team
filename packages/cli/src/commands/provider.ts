@@ -144,8 +144,6 @@ async function askProviderSetup(
 
     const providerConfig: LlmProviderConfig = {
       kind: 'github-copilot',
-      model,
-      defaultModel: model,
       models: [{ name: model }],
     };
 
@@ -269,7 +267,6 @@ async function askProviderSetup(
   const providerConfig: LlmProviderConfig = {
     kind: 'openai-compatible',
     baseUrl,
-    ...(model ? { model } : {}),
     ...(model ? { defaultModel: model, models: [{ name: model }] } : {}),
     ...(apiKeyEnvVar ? { apiKeyEnvVar } : {}),
   };
@@ -297,16 +294,13 @@ function resolveCurrentDefaultProvider(
     return undefined;
   }
 
-  const byFlag = Object.entries(registry).find(([, provider]) => provider.isDefault);
-  if (byFlag) {
-    return { ref: byFlag[0], config: byFlag[1] };
+  if (config?.defaultModel?.provider && registry[config.defaultModel.provider]) {
+    return { ref: config.defaultModel.provider, config: registry[config.defaultModel.provider] };
   }
 
-  if (config?.defaultLlmProvider && registry[config.defaultLlmProvider]) {
-    return {
-      ref: config.defaultLlmProvider,
-      config: registry[config.defaultLlmProvider],
-    };
+  const byDefaultModel = Object.entries(registry).find(([, provider]) => provider.defaultModel);
+  if (byDefaultModel) {
+    return { ref: byDefaultModel[0], config: byDefaultModel[1] };
   }
 
   const first = Object.keys(registry)[0];

@@ -70,7 +70,7 @@ export function PortfolioContextWindowSection({ agent }: Readonly<Props>) {
   if (!estimate || estimate.totalChars === 0) return null;
 
   // Resolve context window for this agent's configured provider/model
-  const providerKey = agent.llm?.provider ?? config?.defaultLlmProvider;
+  const providerKey = agent.llm?.provider ?? config?.defaultModel?.provider;
   const allProviders = config?.providers ?? {};
   const providerCfg = providerKey ? allProviders[providerKey] : undefined;
   const modelKey = agent.llm?.modelKey;

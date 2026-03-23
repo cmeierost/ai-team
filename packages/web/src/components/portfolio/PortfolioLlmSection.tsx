@@ -31,8 +31,8 @@ interface LlmEditFormProps {
 
 function findDefaultProviderKey(config: TeamConfig | undefined): string | undefined {
   const providers = config?.providers ?? {};
-  return config?.defaultLlmProvider
-    ?? Object.keys(providers).find((k) => providers[k].isDefault)
+  return config?.defaultModel?.provider
+    ?? Object.keys(providers).find((k) => providers[k].defaultModel)
     ?? Object.keys(providers)[0];
 }
 
@@ -140,7 +140,7 @@ function LlmEditForm({ draft, onChange }: Readonly<LlmEditFormProps>) {
 function DefaultLlmView({ providers, config }: Readonly<{ providers: Record<string, LlmProviderConfig>; config: TeamConfig | undefined }>) {
   const defaultProviderKey = findDefaultProviderKey(config);
   const defaultProvider = defaultProviderKey ? providers[defaultProviderKey] : undefined;
-  const defaultModel = defaultProvider?.model ?? defaultProvider?.defaultModel;
+  const defaultModel = defaultProvider?.defaultModel;
   const defaultContextWindow = defaultProvider?.contextWindow;
   const hasDefault = Boolean(defaultProviderKey ?? defaultModel);
 

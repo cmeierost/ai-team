@@ -1,6 +1,7 @@
 import express, { Router } from 'express';
 import { SessionManager, createSqliteStorage } from '@ai-team/service';
 import type { AgentManager } from '@ai-team/core';
+import { LlmService } from '@ai-team/core';
 
 export function createSessionsRouter(workspaceRoot: string, agentManager?: AgentManager, sharedSessionManager?: SessionManager): Router {
   const router = express.Router();
@@ -588,6 +589,22 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
    *       400:
    *         description: Invalid request
    */
+  router.post('/:sessionId/generate-title', async (req: any, res: any, next: any) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await sessionManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      const llm = new LlmService(workspaceRoot);
+      await llm.initialize();
+      const title = await sessionManager.generateTitle(sessionId, llm);
+      res.json({ title });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.post('/:sessionId/summarize', async (req: any, res: any, next: any) => {
     try {
       const { sessionId } = req.params;
@@ -725,7 +742,7 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
   router.patch('/:sessionId', async (req: any, res: any, next: any) => {
     try {
       const { sessionId } = req.params;
-      const { artifacts, activatedTools, notes } = req.body;
+      const { artifacts, activatedTools, notes, title } = req.body;
 
       if (artifacts !== undefined && !Array.isArray(artifacts)) {
         return res.status(400).json({
@@ -748,10 +765,10 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
         });
       }
 
-      if (artifacts === undefined && activatedTools === undefined && notes === undefined) {
+      if (artifacts === undefined && activatedTools === undefined && notes === undefined && title === undefined) {
         return res.status(400).json({
           error: 'Invalid request',
-          details: 'at least one of artifacts, activatedTools, or notes must be provided',
+          details: 'at least one of artifacts, activatedTools, notes, or title must be provided',
         });
       }
 
@@ -762,6 +779,10 @@ export function createSessionsRouter(workspaceRoot: string, agentManager?: Agent
 
       if (artifacts !== undefined) {
         session.artifacts = artifacts;
+      }
+
+      if (title !== undefined) {
+        session.title = title;
       }
 
       if (activatedTools !== undefined || notes !== undefined) {

@@ -19,8 +19,8 @@ import {
   SkillConfig,
   TeamConfig,
   TeamConfigSchema,
-  DeveloperConfig,
-  DeveloperConfigSchema,
+  UserConfig,
+  UserConfigSchema,
   FileNotFoundError,
   ValidationError,
   type LlmProviderConfig,
@@ -380,6 +380,9 @@ export async function loadSkill(filePath: string): Promise<Skill> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new FileNotFoundError(filePath);
     }
+    if (error instanceof Error && error.name === 'YAMLException') {
+      throw new ValidationError(`Invalid YAML frontmatter in ${filePath}: ${error.message}`, error);
+    }
     if (error instanceof Error && error.name === 'ZodError') {
       throw new ValidationError(`Invalid skill configuration in ${filePath}`, error);
     }
@@ -473,6 +476,9 @@ export async function loadAgentSkillFile(filePath: string): Promise<AgentSkillFi
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new FileNotFoundError(filePath);
+    }
+    if (error instanceof Error && error.name === 'YAMLException') {
+      throw new ValidationError(`Invalid YAML frontmatter in ${filePath}: ${error.message}`, error);
     }
     if (error instanceof Error && error.name === 'ZodError') {
       throw new ValidationError(`Invalid skill file configuration in ${filePath}`, error);
@@ -719,52 +725,49 @@ export async function saveTeamConfig(workspaceRoot: string, config: TeamConfig):
 }
 
 // ============================================================================
-// Developer config (.ai-team/config.developer.json) — personal, git-ignored
+// User config (.ai-team/config.user.json) — personal, git-ignored
 // ============================================================================
 
 /**
- * Get the developer config file path for a workspace
+ * Get the user config file path for a workspace
  */
-export function getDeveloperConfigPath(workspaceRoot: string): string {
-  return path.join(workspaceRoot, '.ai-team', 'config.developer.json');
+export function getUserConfigPath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, '.ai-team', 'config.user.json');
 }
 
-function normalizeDeveloperConfig(input: unknown): DeveloperConfig {
+function normalizeUserConfig(input: unknown): UserConfig {
   if (!input || typeof input !== 'object') {
     return {};
   }
+  const raw = input as Record<string, unknown>;
 
-  const raw = input as DeveloperConfig & {
-    developer?: NonNullable<DeveloperConfig['developer']>;
-    llm?: NonNullable<DeveloperConfig['llm']>;
-  };
-
-  const developer: NonNullable<DeveloperConfig['developer']> = {};
-  if (raw.developer) {
-    Object.assign(developer, raw.developer);
+  // Backward compat: flatten old nested llm structure to top level
+  const llmObj = raw.llm;
+  if (llmObj && typeof llmObj === 'object') {
+    const llm = llmObj as Record<string, unknown>;
+    const hasOldNesting = 'providers' in llm || 'modelKeys' in llm || 'systemModels' in llm;
+    if (hasOldNesting) {
+      const flattened = { ...raw };
+      if (llm.providers && !raw.providers) flattened.providers = llm.providers
+      if (llm.systemModels && !raw.systemModels) flattened.systemModels = llm.systemModels;
+      delete flattened.llm;
+      return UserConfigSchema.parse(flattened);
+    }
   }
 
-  const llm: NonNullable<DeveloperConfig['llm']> = {};
-  if (raw.llm) {
-    Object.assign(llm, raw.llm);
-  }
-
-  return DeveloperConfigSchema.parse({
-    ...(Object.keys(developer).length > 0 ? { developer } : {}),
-    ...(Object.keys(llm).length > 0 ? { llm } : {}),
-  });
+  return UserConfigSchema.parse(raw);
 }
 
 /**
- * Load personal developer configuration from .ai-team/config.developer.json.
+ * Load personal user configuration from .ai-team/config.user.json.
  * Returns undefined if the file does not exist.
  */
-export async function loadDeveloperConfig(workspaceRoot: string): Promise<DeveloperConfig | undefined> {
-  const configPath = getDeveloperConfigPath(workspaceRoot);
+export async function loadUserConfig(workspaceRoot: string): Promise<UserConfig | undefined> {
+  const configPath = getUserConfigPath(workspaceRoot);
   try {
     const content = await fs.readFile(configPath, 'utf-8');
     const data = JSON.parse(content);
-    return normalizeDeveloperConfig(data);
+    return normalizeUserConfig(data);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw error;
@@ -774,72 +777,30 @@ export async function loadDeveloperConfig(workspaceRoot: string): Promise<Develo
 }
 
 /**
- * Save personal developer configuration to .ai-team/config.developer.json.
+ * Save personal user configuration to .ai-team/config.user.json.
  * Merges the provided partial config over the existing file content.
  */
-export async function saveDeveloperConfig(workspaceRoot: string, config: DeveloperConfig): Promise<DeveloperConfig> {
-  const configPath = getDeveloperConfigPath(workspaceRoot);
-  const existing = normalizeDeveloperConfig((await loadDeveloperConfig(workspaceRoot)) ?? {});
-  const incoming = normalizeDeveloperConfig(config);
+export async function saveUserConfig(workspaceRoot: string, config: UserConfig): Promise<UserConfig> {
+  const configPath = getUserConfigPath(workspaceRoot);
+  const existing = normalizeUserConfig((await loadUserConfig(workspaceRoot)) ?? {});
+  const incoming = normalizeUserConfig(config);
 
-  let mergedDeveloper: NonNullable<DeveloperConfig['developer']> | undefined;
-  if (existing.developer || incoming.developer) {
-    mergedDeveloper = {};
-    if (existing.developer) {
-      Object.assign(mergedDeveloper, existing.developer);
-    }
-    if (incoming.developer) {
-      Object.assign(mergedDeveloper, incoming.developer);
-    }
-  }
-
-  let mergedLlm: NonNullable<DeveloperConfig['llm']> | undefined;
-  if (existing.llm || incoming.llm) {
-    mergedLlm = {};
-    if (existing.llm) {
-      Object.assign(mergedLlm, existing.llm);
-    }
-    if (incoming.llm) {
-      Object.assign(mergedLlm, incoming.llm);
-    }
-
-    if (existing.llm?.providers || incoming.llm?.providers) {
-      const providers: Record<string, NonNullable<NonNullable<DeveloperConfig['llm']>['providers']>[string]> = {};
-      if (existing.llm?.providers) {
-        Object.assign(providers, existing.llm.providers);
-      }
-      if (incoming.llm?.providers) {
-        Object.assign(providers, incoming.llm.providers);
-      }
-      mergedLlm.providers = providers;
-    }
-
-    if (existing.llm?.modelKeys || incoming.llm?.modelKeys) {
-      const modelKeys: Record<string, NonNullable<NonNullable<DeveloperConfig['llm']>['modelKeys']>[string]> = {};
-      if (existing.llm?.modelKeys) {
-        Object.assign(modelKeys, existing.llm.modelKeys);
-      }
-      if (incoming.llm?.modelKeys) {
-        Object.assign(modelKeys, incoming.llm.modelKeys);
-      }
-      mergedLlm.modelKeys = modelKeys;
-    }
-
-    if (existing.llm?.systemModels || incoming.llm?.systemModels) {
-      const systemModels: Record<string, NonNullable<NonNullable<DeveloperConfig['llm']>['systemModels']>[string]> = {};
-      if (existing.llm?.systemModels) {
-        Object.assign(systemModels, existing.llm.systemModels);
-      }
-      if (incoming.llm?.systemModels) {
-        Object.assign(systemModels, incoming.llm.systemModels);
-      }
-      mergedLlm.systemModels = systemModels;
-    }
-  }
-
-  const merged: DeveloperConfig = {
-    ...(mergedDeveloper ? { developer: mergedDeveloper } : {}),
-    ...(mergedLlm ? { llm: mergedLlm } : {}),
+  const merged: UserConfig = {
+    ...existing,
+    ...incoming,
+    // Deep-merge record fields: incoming entries overlay existing
+    ...(existing.developer || incoming.developer
+      ? { developer: { ...existing.developer, ...incoming.developer } }
+      : {}),
+    ...(existing.providers || incoming.providers
+      ? { providers: { ...existing.providers, ...incoming.providers } }
+      : {}),
+    ...(existing.modelKeys || incoming.modelKeys
+      ? { modelKeys: { ...existing.modelKeys, ...incoming.modelKeys } }
+      : {}),
+    ...(existing.systemModels || incoming.systemModels
+      ? { systemModels: { ...existing.systemModels, ...incoming.systemModels } }
+      : {}),
   };
 
   await fs.mkdir(path.dirname(configPath), { recursive: true });
@@ -854,60 +815,70 @@ export async function saveDeveloperConfig(workspaceRoot: string, config: Develop
 
 /**
  * Overlay developer provider overrides on top of team provider registry.
- * Only updates fields explicitly set in the developer config.
+ * Updates fields explicitly set in the developer config and adds new
+ * providers that only exist in the developer config.
  */
 function mergeProviderRegistries(
   team?: Record<string, LlmProviderConfig>,
   dev?: Record<string, ProviderConfig>,
 ): Record<string, LlmProviderConfig> | undefined {
   if (!dev) return team;
-  if (!team) return undefined;
-  const merged = { ...team };
+  if (!team && !dev) return undefined;
+  const merged: Record<string, LlmProviderConfig> = { ...(team ?? {}) };
   for (const [key, devProvider] of Object.entries(dev)) {
     if (merged[key]) {
       merged[key] = {
         ...merged[key],
-        ...(devProvider.model !== undefined ? { model: devProvider.model } : {}),
         ...(devProvider.defaultModel !== undefined ? { defaultModel: devProvider.defaultModel } : {}),
-        ...(devProvider.contextWindow !== undefined ? { contextWindow: devProvider.contextWindow } : {}),
         ...(devProvider.baseUrl !== undefined ? { baseUrl: devProvider.baseUrl } : {}),
         ...(devProvider.apiKeyEnvVar !== undefined ? { apiKeyEnvVar: devProvider.apiKeyEnvVar } : {}),
         ...(devProvider.models !== undefined ? { models: devProvider.models } : {}),
       };
+    } else {
+      // New provider from user config — promote to full LlmProviderConfig
+      merged[key] = {
+        kind: devProvider.kind,
+        ...(devProvider.defaultModel !== undefined ? { defaultModel: devProvider.defaultModel } : {}),
+        ...(devProvider.models !== undefined ? { models: devProvider.models } : {}),
+        ...(devProvider.baseUrl !== undefined ? { baseUrl: devProvider.baseUrl } : {}),
+        ...(devProvider.apiKeyEnvVar !== undefined ? { apiKeyEnvVar: devProvider.apiKeyEnvVar } : {}),
+        ...(devProvider.params !== undefined ? { params: devProvider.params } : {}),
+        ...(devProvider.contextWindow !== undefined ? { contextWindow: devProvider.contextWindow } : {}),
+      };
     }
   }
-  return merged;
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 /**
- * Load the effective configuration by merging team config with developer
+ * Load the effective configuration by merging team config with user
  * overrides.  The result has the same TeamConfig shape so every downstream
  * consumer (LLM resolution, API routes, etc.) can use it transparently.
  *
  * Merge rules:
- *  - providers: developer entries overlay matching team entries field-by-field
- *  - defaultLlmProvider: developer value wins when set
- *  - modelKeys: developer entries overlay matching team entries
- *  - systemModels: developer entries overlay matching team entries
+ *  - providers: user entries overlay matching team entries field-by-field
+ *  - defaultModel: user value wins when set
+ *  - modelKeys: user entries overlay matching team entries
+ *  - systemModels: user entries overlay mat
+ *  - modelKeys: user entries overlay matching team entries
+ *  - systemModels: user entries overlay matching team entries
  */
 export async function loadEffectiveConfig(workspaceRoot: string): Promise<TeamConfig | undefined> {
   const teamConfig = await loadTeamConfig(workspaceRoot);
   if (!teamConfig) return undefined;
 
-  const devConfig = await loadDeveloperConfig(workspaceRoot);
-  if (!devConfig?.llm) return teamConfig;
-
-  const devLlm = devConfig.llm;
+  const userConfig = await loadUserConfig(workspaceRoot);
+  if (!userConfig) return teamConfig;
 
   return {
     ...teamConfig,
-    providers: mergeProviderRegistries(teamConfig.providers, devLlm.providers),
-    defaultLlmProvider: devLlm.defaultLlmProvider ?? teamConfig.defaultLlmProvider,
-    modelKeys: devLlm.modelKeys
-      ? { ...teamConfig.modelKeys, ...devLlm.modelKeys }
+    providers: mergeProviderRegistries(teamConfig.providers, userConfig.providers),
+    defaultModel: userConfig.defaultModel ?? teamConfig.defaultModel,
+    modelKeys: userConfig.modelKeys
+      ? { ...teamConfig.modelKeys, ...userConfig.modelKeys }
       : teamConfig.modelKeys,
-    systemModels: devLlm.systemModels
-      ? { ...teamConfig.systemModels, ...devLlm.systemModels }
+    systemModels: userConfig.systemModels
+      ? { ...teamConfig.systemModels, ...userConfig.systemModels }
       : teamConfig.systemModels,
   };
 }

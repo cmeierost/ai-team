@@ -3,8 +3,6 @@ import { API_BASE } from '../context/TeamContext';
 
 export interface LlmProviderConfig {
   kind: string;
-  isDefault?: boolean;
-  model?: string;
   defaultModel?: string;
   models?: Array<{
     name: string;
@@ -24,11 +22,9 @@ export interface LlmProviderConfig {
   };
 }
 
-/** Clean provider connection info stored in config.developer.json */
+/** Clean provider connection info stored in config.user.json */
 export interface ProviderConfig {
   kind: string;
-  isDefault?: boolean;
-  model?: string;
   defaultModel?: string;
   models?: Array<{
     name: string;
@@ -63,8 +59,9 @@ export interface ModelKeyEntry {
   contextWindow?: number;
 }
 
-/** Personal developer config stored in .ai-team/config.developer.json (git-ignored) */
-export interface DeveloperConfig {
+/** Personal user config stored in .ai-team/config.user.json (git-ignored) */
+export interface UserConfig {
+  version?: string;
   developer?: {
     id?: string;
     name?: string;
@@ -72,18 +69,18 @@ export interface DeveloperConfig {
     avatar?: string;
     portfolioUrl?: string;
   };
-  llm?: {
-    defaultLlmProvider?: string;
-    providers?: Record<string, ProviderConfig>;
-    modelKeys?: Record<string, ModelKeyEntry>;
-    systemModels?: Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }>;
-  };
+  providers?: Record<string, ProviderConfig>;
+  /** Explicit default provider + model selection */
+  defaultModel?: { provider: string; model: string; contextWindow?: number };
+  modelKeys?: Record<string, ModelKeyEntry>;
+  systemModels?: Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }>;
 }
 
 export interface TeamConfig {
   version: string;
   providers?: Record<string, LlmProviderConfig>;
-  defaultLlmProvider?: string;
+  /** Explicit default provider + model selection */
+  defaultModel?: { provider: string; model: string; contextWindow?: number };
   skillSources?: string[];
   allowedCliTools?: string[];
   /** Global named model key assignments */
@@ -100,7 +97,7 @@ export interface TeamConfig {
 export const configQueryKeys = {
   config: ['config'] as const,
   agentModelKeys: ['config', 'agent-model-keys'] as const,
-  developerConfig: ['developer-config'] as const,
+  userConfig: ['user-config'] as const,
   envStatus: ['env-status'] as const,
 };
 
@@ -141,25 +138,25 @@ async function postRefreshProviderModels(providerRef: string): Promise<Array<{
   return response.json();
 }
 
-async function fetchDeveloperConfig(): Promise<DeveloperConfig> {
-  const response = await fetch(`${API_BASE}/api/config/developer-config`);
-  if (!response.ok) throw new Error(`Failed to load developer config: ${response.statusText}`);
+async function fetchUserConfig(): Promise<UserConfig> {
+  const response = await fetch(`${API_BASE}/api/config/user-config`);
+  if (!response.ok) throw new Error(`Failed to load user config: ${response.statusText}`);
   return response.json();
 }
 
-async function putDeveloperConfig(partial: Partial<DeveloperConfig>): Promise<DeveloperConfig> {
-  const response = await fetch(`${API_BASE}/api/config/developer-config`, {
+async function putUserConfig(partial: Partial<UserConfig>): Promise<UserConfig> {
+  const response = await fetch(`${API_BASE}/api/config/user-config`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(partial),
   });
-  if (!response.ok) throw new Error(`Failed to save developer config: ${response.statusText}`);
+  if (!response.ok) throw new Error(`Failed to save user config: ${response.statusText}`);
   return response.json();
 }
 
 async function postTestProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
   const response = await fetch(
-    `${API_BASE}/api/config/developer-config/providers/${encodeURIComponent(providerRef)}/test`,
+    `${API_BASE}/api/config/user-config/providers/${encodeURIComponent(providerRef)}/test`,
     { method: 'POST' },
   );
   if (!response.ok) throw new Error(`Failed to test provider: ${response.statusText}`);
@@ -189,7 +186,7 @@ async function postRefreshDevProviderModels(providerRef: string): Promise<{ mode
   maxOutputTokens?: number;
 }> }> {
   const response = await fetch(
-    `${API_BASE}/api/config/developer-config/providers/${encodeURIComponent(providerRef)}/models/refresh`,
+    `${API_BASE}/api/config/user-config/providers/${encodeURIComponent(providerRef)}/models/refresh`,
     { method: 'POST' },
   );
   if (!response.ok) throw new Error(`Failed to refresh developer provider models: ${response.statusText}`);
@@ -230,19 +227,19 @@ export function useRefreshProviderModels() {
   });
 }
 
-export function useDeveloperConfig() {
+export function useUserConfig() {
   return useQuery({
-    queryKey: configQueryKeys.developerConfig,
-    queryFn: fetchDeveloperConfig,
+    queryKey: configQueryKeys.userConfig,
+    queryFn: fetchUserConfig,
   });
 }
 
-export function useSaveDeveloperConfig() {
+export function useSaveUserConfig() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: putDeveloperConfig,
+    mutationFn: putUserConfig,
     onSuccess: (data) => {
-      queryClient.setQueryData(configQueryKeys.developerConfig, data);
+      queryClient.setQueryData(configQueryKeys.userConfig, data);
     },
   });
 }
@@ -275,7 +272,7 @@ export function useRefreshDevProviderModels() {
   return useMutation({
     mutationFn: postRefreshDevProviderModels,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: configQueryKeys.developerConfig });
+      queryClient.invalidateQueries({ queryKey: configQueryKeys.userConfig });
     },
   });
 }

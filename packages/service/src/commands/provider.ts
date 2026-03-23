@@ -1,21 +1,21 @@
 import {
-  loadDeveloperConfig,
+  loadUserConfig,
   loadEnvFile,
   loadTeamConfig,
   resolveEffectiveLlmSettings,
-  saveDeveloperConfig,
+  saveUserConfig,
   saveEnvFile,
   saveTeamConfig,
   testLlmConnection,
 } from '@ai-team/core';
-import type { DeveloperConfig, LlmProviderConfig, TeamConfig } from '@ai-team/core';
+import type { UserConfig, LlmProviderConfig, TeamConfig } from '@ai-team/core';
 import type { AddProviderOptions, ConfigureProviderOptions, ProviderSetupInput, SetProviderOptions } from '../contracts.js';
 
 type ProviderSetupResult = ProviderSetupInput;
 
 export async function providerConfigureCommand(workspaceRoot: string, options: ConfigureProviderOptions = {}) {
   const existing = await loadTeamConfig(workspaceRoot);
-  const existingDeveloperConfig = await loadDeveloperConfig(workspaceRoot);
+  const existingUserConfig = await loadUserConfig(workspaceRoot);
 
   const currentDefault = resolveCurrentDefaultProvider(existing);
   if (currentDefault && options.keepCurrentDefault) {
@@ -31,16 +31,16 @@ export async function providerConfigureCommand(workspaceRoot: string, options: C
 
   const setup = options.setup;
   const next = applyProviderConfiguration(existing, setup, true);
-  const nextDeveloperConfig = applyProviderConfigurationToDeveloperConfig(existingDeveloperConfig, setup, true);
+  const nextUserConfig = applyProviderConfigurationToUserConfig(existingUserConfig, setup, true);
   await saveTeamConfig(workspaceRoot, next);
-  await saveDeveloperConfig(workspaceRoot, nextDeveloperConfig);
+  await saveUserConfig(workspaceRoot, nextUserConfig);
   await persistApiKeyIfProvided(workspaceRoot, setup);
   await testConfiguredProvider(workspaceRoot, next, setup.providerRef, setup.apiKey);
 }
 
 export async function providerAddCommand(workspaceRoot: string, options: AddProviderOptions = {}) {
   const existing = await loadTeamConfig(workspaceRoot);
-  const existingDeveloperConfig = await loadDeveloperConfig(workspaceRoot);
+  const existingUserConfig = await loadUserConfig(workspaceRoot);
 
   if (!options.setup) {
     throw new Error('Provider add requires client-provided setup payload.');
@@ -50,9 +50,9 @@ export async function providerAddCommand(workspaceRoot: string, options: AddProv
   const makeDefault = Boolean(options.makeDefault);
 
   const next = applyProviderConfiguration(existing, setup, makeDefault);
-  const nextDeveloperConfig = applyProviderConfigurationToDeveloperConfig(existingDeveloperConfig, setup, makeDefault);
+  const nextUserConfig = applyProviderConfigurationToUserConfig(existingUserConfig, setup, makeDefault);
   await saveTeamConfig(workspaceRoot, next);
-  await saveDeveloperConfig(workspaceRoot, nextDeveloperConfig);
+  await saveUserConfig(workspaceRoot, nextUserConfig);
   await persistApiKeyIfProvided(workspaceRoot, setup);
 
   await testConfiguredProvider(workspaceRoot, next, setup.providerRef, setup.apiKey);
@@ -74,55 +74,47 @@ function applyProviderConfiguration(
     Object.assign(registry, existingRegistry);
   }
 
-  if (makeDefault) {
-    for (const key of Object.keys(registry)) {
-      registry[key] = { ...registry[key], isDefault: false };
-    }
-  }
-
   registry[setup.providerRef] = {
     ...registry[setup.providerRef],
     ...setup.providerConfig,
-    ...(makeDefault ? { isDefault: true } : { isDefault: registry[setup.providerRef]?.isDefault }),
   };
+
+  const defaultModel = makeDefault && setup.providerConfig.defaultModel
+    ? { provider: setup.providerRef, model: setup.providerConfig.defaultModel }
+    : base.defaultModel;
 
   const next: TeamConfig = {
     ...base,
     providers: registry,
-    ...(makeDefault ? { defaultLlmProvider: setup.providerRef, llm: setup.legacyLlm } : {}),
+    ...(defaultModel ? { defaultModel } : {}),
+    ...(makeDefault ? { llm: setup.legacyLlm } : {}),
   };
 
   return next;
 }
 
-function applyProviderConfigurationToDeveloperConfig(
-  existing: DeveloperConfig | undefined,
+function applyProviderConfigurationToUserConfig(
+  existing: UserConfig | undefined,
   setup: ProviderSetupResult,
   makeDefault: boolean,
-): DeveloperConfig {
+): UserConfig {
   const base = existing ? { ...existing } : {};
-  const existingRegistry = base.llm?.providers;
+  const existingRegistry = base.providers;
   const registry = existingRegistry ? { ...existingRegistry } : {};
-
-  if (makeDefault) {
-    for (const key of Object.keys(registry)) {
-      registry[key] = { ...registry[key], isDefault: false };
-    }
-  }
 
   registry[setup.providerRef] = {
     ...registry[setup.providerRef],
     ...setup.providerConfig,
-    ...(makeDefault ? { isDefault: true } : { isDefault: registry[setup.providerRef]?.isDefault }),
   };
+
+  const defaultModel = makeDefault && setup.providerConfig.defaultModel
+    ? { provider: setup.providerRef, model: setup.providerConfig.defaultModel }
+    : base.defaultModel;
 
   return {
     ...base,
-    llm: {
-      ...(base.llm ? base.llm : {}),
-      providers: registry,
-      ...(makeDefault ? { defaultLlmProvider: setup.providerRef } : {}),
-    },
+    providers: registry,
+    ...(defaultModel ? { defaultModel } : {}),
   };
 }
 
@@ -148,18 +140,13 @@ async function testConfiguredProvider(
 
   try {
     const registry = config.providers || {};
-    const tempRegistry: Record<string, LlmProviderConfig> = {};
-    for (const [ref, provider] of Object.entries(registry)) {
-      tempRegistry[ref] = {
-        ...provider,
-        isDefault: ref === providerRef,
-      };
-    }
+    const providerConfig = registry[providerRef];
+    const model = providerConfig?.defaultModel;
 
     const tempConfig: TeamConfig = {
       ...config,
-      providers: tempRegistry,
-      defaultLlmProvider: providerRef,
+      providers: registry,
+      defaultModel: model ? { provider: providerRef, model } : config.defaultModel,
     };
 
     const resolved = resolveEffectiveLlmSettings(tempConfig, undefined, undefined, { model: undefined });
@@ -180,18 +167,21 @@ function resolveCurrentDefaultProvider(
     return undefined;
   }
 
-  const byFlag = Object.entries(registry).find(([, provider]) => provider.isDefault);
-  if (byFlag) {
-    return { ref: byFlag[0], config: byFlag[1] };
-  }
-
-  if (config?.defaultLlmProvider && registry[config.defaultLlmProvider]) {
+  // 1. Explicit defaultModel.provider
+  if (config?.defaultModel?.provider && registry[config.defaultModel.provider]) {
     return {
-      ref: config.defaultLlmProvider,
-      config: registry[config.defaultLlmProvider],
+      ref: config.defaultModel.provider,
+      config: registry[config.defaultModel.provider],
     };
   }
 
+  // 2. First provider with a defaultModel
+  const withDefault = Object.entries(registry).find(([, provider]) => provider.defaultModel);
+  if (withDefault) {
+    return { ref: withDefault[0], config: withDefault[1] };
+  }
+
+  // 3. First provider
   const first = Object.keys(registry)[0];
   return {
     ref: first,

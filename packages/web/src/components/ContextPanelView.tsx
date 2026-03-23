@@ -81,22 +81,22 @@ export function ContextPanelView({
 }: Readonly<ContextPanelViewProps>) {
   return (
     <div className="context-panel">
+      <SessionsSection
+        sessions={sessions}
+        sessionId={sessionId}
+        expandedSection={expandedSection}
+        onToggleSection={onToggleSection}
+        onSwitchSession={onSwitchSession}
+        onDeleteSession={onDeleteSession}
+        onCreateSession={onCreateSession}
+        onOpenSessionGraph={onOpenSessionGraph}
+      />
+
       <div className="context-panel-header">
         <h3>Context</h3>
       </div>
 
       <div className="context-sections">
-        <SessionsSection
-          sessions={sessions}
-          sessionId={sessionId}
-          expandedSection={expandedSection}
-          onToggleSection={onToggleSection}
-          onSwitchSession={onSwitchSession}
-          onDeleteSession={onDeleteSession}
-          onCreateSession={onCreateSession}
-          onOpenSessionGraph={onOpenSessionGraph}
-        />
-
         <ContextWindowSection
           agentId={agentId}
           expandedSection={expandedSection}

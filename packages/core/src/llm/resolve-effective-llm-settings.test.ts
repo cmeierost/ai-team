@@ -8,8 +8,6 @@ describe('resolveEffectiveLlmSettings', () => {
       providers: {
         copilot: {
           kind: 'github-copilot',
-          isDefault: true,
-          defaultModel: 'gpt-4o',
           models: [
             { name: 'gpt-4o-mini' },
             { name: 'gpt-4o' },
@@ -78,7 +76,6 @@ describe('resolveEffectiveLlmSettings', () => {
       providers: {
         copilot: {
           kind: 'github-copilot',
-          isDefault: true,
           defaultModel: 'gpt-4o-mini',
           models: [
             { name: 'gpt-4o-mini' },
@@ -103,7 +100,6 @@ describe('resolveEffectiveLlmSettings', () => {
       providers: {
         copilot: {
           kind: 'github-copilot',
-          isDefault: true,
           defaultModel: 'gpt-4o-mini',
           models: [{ name: 'gpt-4o-mini' }],
         },
@@ -143,7 +139,6 @@ describe('resolveEffectiveLlmSettings', () => {
       providers: {
         copilot: {
           kind: 'github-copilot',
-          isDefault: true,
           defaultModel: 'gpt-4o',
           models: [{ name: 'gpt-4o-mini' }, { name: 'gpt-4o' }],
         },

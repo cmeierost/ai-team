@@ -82,6 +82,7 @@ export function formatSessionTime(isoString: string): string {
 }
 
 export function getSessionTitle(session: ChatSession): string {
+  if (session.title) return session.title;
   const date = new Date(session.startedAt);
   return `Session ${date.toLocaleDateString()} ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
 }

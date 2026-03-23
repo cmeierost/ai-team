@@ -12,8 +12,8 @@
     "server:start": "pnpm --filter @ai-team/api-server dev",
     "web:start": "pnpm --filter @ai-team/web dev",
     "server:kill": "kill-port 3002",
-    "web:kill": "kill-port 3000",
-    "api:kill": "kill-port 3002 3000",
+    "kill:web": "kill-port 3000",
+    "kill:api": "kill-port 3002",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "docs:pdf": "node tools/export-md-pdf.mjs",
@@ -23,14 +23,14 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "eslint": "^10.0.3",
+    "eslint": "^10.1.0",
     "kill-port": "^2.0.1",
-    "marked": "^17.0.4",
+    "marked": "^17.0.5",
     "mermaid": "^11.13.0",
     "prettier": "^3.8.1",
     "highlight.js": "^11.11.1",
-    "puppeteer-core": "^24.39.1",
-    "typescript": "^5.9.3"
+    "puppeteer-core": "^24.40.0",
+    "typescript": "^6.0.2"
   },
   "packageManager": "pnpm@8.15.0",
   "engines": {

@@ -144,6 +144,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const skipNextSessionLoadRef = useRef<string | null>(null);
   const skipNewSessionRef = useRef(false);
   const lastPersistedToolStateRef = useRef('');
+  const greetingCancelRef = useRef<{ value: boolean }>({ value: false });
 
   const graphRouteMatch = useMatch(GRAPH_ROUTE);
   const sessionRouteMatch = useMatch(SESSION_ROUTE);
@@ -200,6 +201,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     setArtifactsInContext(sessionWithMessages.artifacts || []);
     setActivatedTools(extractSessionActivatedTools(sessionWithMessages.notes));
     setCurrentAgentId(targetAgentId);
+    setIsEphemeral(false);
   };
 
   const loadGreetingFallback = async (targetAgentId: string, cancelled: boolean) => {
@@ -345,6 +347,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         return;
       }
 
+      greetingCancelRef.current.value = true;
       setLoading(true);
       try {
         await loadPersistedSession(targetAgentId, urlSessionId, cancelled);
@@ -817,7 +820,16 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       if (sessionId && !handoffDetected) {
-        await syncSessionState(sessionId, currentAgentId);
+        const syncedSession = await syncSessionState(sessionId, currentAgentId);
+        if (
+          syncedSession &&
+          !syncedSession.title &&
+          (syncedSession.messages ?? []).filter((m: any) => m.isHuman).length >= 2
+        ) {
+          fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/generate-title`, { method: 'POST' })
+            .then(() => queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot }))
+            .catch(() => {});
+        }
       }
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -1052,6 +1064,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const handleSwitchSession = async (sessionId: string) => {
+    greetingCancelRef.current.value = true;
     navigate(`/chat/${currentAgentId}/session/${sessionId}`);
   };
 
@@ -1125,8 +1138,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     setMessages([]);
     setIsEphemeral(false);
     skipNewSessionRef.current = true;
+    greetingCancelRef.current.value = true;
+    const cancelToken = { value: false };
+    greetingCancelRef.current = cancelToken;
     navigate(`/chat/${currentAgentId}`);
-    await loadGreeting(currentAgentId);
+    await loadGreeting(currentAgentId, cancelToken);
   };
 
   const handleHandoffClick = async (targetAgentId: string, existingSessionId?: string | null) => {

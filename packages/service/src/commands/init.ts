@@ -3,10 +3,9 @@ import path from 'node:path';
 import ora from 'ora';
 import {
   ensureAiTeamDirectory,
-  DeveloperConfig,
   loadTeamConfig,
   resolveEffectiveLlmSettings,
-  saveDeveloperConfig,
+  saveUserConfig,
   saveTeamConfig,
   saveEnvFile,
   saveAgentAccessPatterns,
@@ -21,7 +20,7 @@ import {
   ContextLevel,
   RoleType,
 } from '@ai-team/core';
-import type { TeamConfig, Agent, ChatMessage, ChatCompletionMessageParam } from '@ai-team/core';
+import type { UserConfig, TeamConfig, Agent, ChatMessage, ChatCompletionMessageParam } from '@ai-team/core';
 import { getPersonalityForHire } from './hire.js';
 import type {
   InitOptions,
@@ -131,23 +130,19 @@ function inferDefaultProviderRef(setup: LlmSetupResult): string {
   return 'personal-openai';
 }
 
-function buildDeveloperConfigFromInit(setup: LlmSetupResult): DeveloperConfig {
+function buildUserConfigFromInit(setup: LlmSetupResult): UserConfig {
   const gitDeveloperName = getGitUserName();
   const providerRef = inferDefaultProviderRef(setup);
 
   const providerEntry = setup.provider === 'github-copilot'
     ? {
         kind: 'github-copilot' as const,
-        isDefault: true,
-        ...(setup.model ? { model: setup.model } : {}),
         ...(setup.model ? { defaultModel: setup.model } : {}),
         ...(setup.model ? { models: [{ name: setup.model }] } : {}),
       }
     : {
         kind: 'openai-compatible' as const,
-        isDefault: true,
         ...(setup.baseUrl ? { baseUrl: setup.baseUrl } : {}),
-        ...(setup.model ? { model: setup.model } : {}),
         ...(setup.model ? { defaultModel: setup.model } : {}),
         ...(setup.model ? { models: [{ name: setup.model }] } : {}),
         ...(setup.apiKey ? { apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY' } : {}),
@@ -162,11 +157,11 @@ function buildDeveloperConfigFromInit(setup: LlmSetupResult): DeveloperConfig {
           },
         }
       : {}),
-    llm: {
-      defaultLlmProvider: providerRef,
-      providers: {
-        [providerRef]: providerEntry,
-      },
+    defaultModel: setup.model
+      ? { provider: providerRef, model: setup.model }
+      : undefined,
+    providers: {
+      [providerRef]: providerEntry,
     },
   };
 }
@@ -296,7 +291,7 @@ export async function initCommand(workspaceRoot: string, options: InitOptions, h
       await saveEnvFile(workspaceRoot, { AI_TEAM_LLM_API_KEY: apiKey });
     }
 
-    await saveDeveloperConfig(workspaceRoot, buildDeveloperConfigFromInit(llmConfig));
+    await saveUserConfig(workspaceRoot, buildUserConfigFromInit(llmConfig));
     spinner.text = 'Saved LLM configuration';
 
     await updateWorkspaceSettings(workspaceRoot);
