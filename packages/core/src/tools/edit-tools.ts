@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { FileTime, Patch } from '@ai-team/fs';
+import { FileTime, Patch, fuzzyReplace } from '@ai-team/fs';
 import type { AgentTool, ToolContext } from '../types/index.js';
 import {
   getAccessEngineOrDeny,
@@ -427,8 +427,21 @@ export const fsEditTool: AgentTool = {
         };
       }
 
-      const occurrences = content.split(oldString).length - 1;
-      if (occurrences === 0) {
+      // --- Fuzzy-aware replace pipeline ---
+      // Pre-check: exact ambiguity should give specific error
+      const exactCount = content.split(oldString).length - 1;
+      if (!replaceAll && exactCount > 1) {
+        return {
+          path: pathMeta,
+          edited: false,
+          error: `oldString appears ${exactCount} times in ${pathMeta.relative}. Provide a more unique string or set replaceAll: true.`,
+          access,
+        };
+      }
+
+      const fuzzyResult = fuzzyReplace(content, oldString, newString, replaceAll);
+
+      if (!fuzzyResult) {
         return {
           path: pathMeta,
           edited: false,
@@ -438,18 +451,7 @@ export const fsEditTool: AgentTool = {
         };
       }
 
-      if (!replaceAll && occurrences > 1) {
-        return {
-          path: pathMeta,
-          edited: false,
-          error: `oldString appears ${occurrences} times in ${pathMeta.relative}. Provide a more unique string or set replaceAll: true.`,
-          access,
-        };
-      }
-
-      const updated = replaceAll
-        ? content.split(oldString).join(newString)
-        : content.replace(oldString, newString);
+      const updated = fuzzyResult.content;
 
       try {
         await fs.writeFile(absolutePath, updated, 'utf8');
@@ -472,7 +474,8 @@ export const fsEditTool: AgentTool = {
       return {
         path: pathMeta,
         edited: true,
-        replacements: replaceAll ? occurrences : 1,
+        replacements: fuzzyResult.replacements,
+        ...(fuzzyResult.stage !== 'exact' ? { matchStage: fuzzyResult.stage } : {}),
         linesChanged: addedLines,
         totalLines:   totalBefore + addedLines,
         access,

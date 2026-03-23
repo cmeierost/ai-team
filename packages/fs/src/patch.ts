@@ -52,6 +52,47 @@ export interface FileDiff {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/** Normalize CRLF → LF throughout a text block. */
+function normalizeCrlf(text: string): string {
+  return text.indexOf('\r') !== -1 ? text.replace(/\r\n/g, '\n').replace(/\r/g, '\n') : text;
+}
+
+/**
+ * Strip heredoc wrapper (`cat <<'EOF' ... EOF`) that LLMs sometimes wrap
+ * patches in.  Supports quoting variants: `<<'EOF'`, `<<"EOF"`, `<<EOF`.
+ * Returns the original text unchanged if no wrapper is detected.
+ */
+function stripHeredoc(text: string): string {
+  const lines = text.split('\n');
+  // Scan for a `cat <<` line near the top (allow a few blank/comment lines before it)
+  let startIdx = -1;
+  for (let i = 0; i < Math.min(lines.length, 5); i++) {
+    if (/^\s*cat\s+<<['"]?\w+['"]?\s*$/.test(lines[i]!)) {
+      startIdx = i;
+      break;
+    }
+  }
+  if (startIdx === -1) return text;
+
+  // Extract the tag name (e.g. EOF, PATCH)
+  const tagMatch = lines[startIdx]!.match(/<<['"]?(\w+)['"]?/);
+  if (!tagMatch) return text;
+  const tag = tagMatch[1]!;
+
+  // Find the closing tag from the bottom
+  let endIdx = -1;
+  for (let i = lines.length - 1; i > startIdx; i--) {
+    if (lines[i]!.trim() === tag) {
+      endIdx = i;
+      break;
+    }
+  }
+  if (endIdx === -1) return text;
+
+  // Return only the content between the heredoc delimiters
+  return lines.slice(startIdx + 1, endIdx).join('\n');
+}
+
 function stripPrefix(p: string): string {
   return p.replace(/^[ab]\//, '');
 }
@@ -127,13 +168,21 @@ function seekSequence(
   if (trim !== -1) return trim;
 
   // Pass 4: unicode-normalised + trim
-  return tryMatch(
+  const uni = tryMatch(
     lines,
     pattern,
     startIndex,
     (a, b) => normalizeUnicode(a.trim()) === normalizeUnicode(b.trim()),
     eof,
   );
+  if (uni !== -1) return uni;
+
+  // Pass 5: retry without trailing empty line (LLMs sometimes add one)
+  if (pattern.length > 1 && pattern[pattern.length - 1]!.trim() === '') {
+    return seekSequence(lines, pattern.slice(0, -1), startIndex, eof);
+  }
+
+  return -1;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +201,8 @@ export namespace Patch {
    * - otherwise             → `update`
    */
   export function parse(patchText: string): FileDiff[] {
-    const files = parseDiff(patchText);
+    const cleaned = normalizeCrlf(stripHeredoc(patchText));
+    const files = parseDiff(cleaned);
     const result: FileDiff[] = [];
 
     for (const file of files) {
@@ -228,8 +278,11 @@ export namespace Patch {
   export function applyFileDiff(fileContent: string, hunks: ParsedHunk[]): string {
     if (hunks.length === 0) return fileContent;
 
+    // Normalize CRLF so hunk matching works on Windows.
+    const normalized = normalizeCrlf(fileContent);
+
     // For new files the content is empty and we just want the added lines.
-    if (fileContent === '') {
+    if (normalized === '') {
       const allNewLines: string[] = [];
       for (const hunk of hunks) {
         allNewLines.push(...hunk.newLines);
@@ -237,7 +290,7 @@ export namespace Patch {
       return allNewLines.join('\n');
     }
 
-    const lines = fileContent.split('\n');
+    const lines = normalized.split('\n');
     let cursor = 0;    // next search start (0-based index into `lines`)
     const patches: Array<{ at: number; deleteCount: number; insert: string[] }> = [];
 

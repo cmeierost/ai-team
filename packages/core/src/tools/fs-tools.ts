@@ -1,7 +1,12 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { getFileTree, listWorkspaceFiles, FileTime, Truncate } from '@ai-team/fs';
+import {
+  getFileTree, listWorkspaceFiles, FileTime,
+  READ_DEFAULT_LIMIT, safeStat,
+  readFile, existsPath, getPathInfo,
+  createFile, writeFile, deletePath, createDirectory,
+} from '@ai-team/fs';
+import type { ReadFileResult } from '@ai-team/fs';
 import type { AgentTool, ToolContext } from '../types/index.js';
 import {
   canListViaAccessEngine,
@@ -11,7 +16,65 @@ import {
   toFsPathAccessEnvelope,
   toFsPathMeta,
 } from './fs-access.js';
-import { collectPostWriteDiagnostics } from './diagnostics-helper.js';
+
+// ─── Shared access-gate helpers ───────────────────────────────────────────────
+
+/** Result of the standard three-step access gate (engine → resolve → envelope). */
+interface AccessGate {
+  absolutePath: string;
+  pathMeta: ReturnType<typeof toFsPathMeta>;
+  access: ReturnType<typeof toFsPathAccessEnvelope>;
+}
+
+/** Run the engine check, path resolution, and access envelope. Returns null + early-return payload when denied. */
+function accessGate(
+  context: ToolContext,
+  toolName: Parameters<typeof toFsPathAccessEnvelope>[1],
+  filePath: string,
+  resultKey: string,
+): { ok: true; gate: AccessGate } | { ok: false; denied: Record<string, unknown> } {
+  const engineCheck = getAccessEngineOrDeny(context);
+  const absolutePath = resolveFsAbsolutePath(context, filePath);
+
+  if (!absolutePath) {
+    return {
+      ok: false,
+      denied: {
+        path: { input: filePath, absolute: '', relative: '' },
+        [resultKey]: false,
+        access: { allowed: false, explanation: 'Path is outside workspace root.', alternativeContexts: [] },
+      },
+    };
+  }
+
+  const pathMeta = toFsPathMeta(context, filePath, absolutePath);
+
+  if (!engineCheck.ok) {
+    return {
+      ok: false,
+      denied: { path: pathMeta, [resultKey]: false, access: { allowed: false, explanation: engineCheck.reason, alternativeContexts: [] } },
+    };
+  }
+
+  const access = toFsPathAccessEnvelope(context, toolName, filePath);
+  if (!access.allowed) {
+    return {
+      ok: false,
+      denied: {
+        path: pathMeta, [resultKey]: false, access,
+        delegation: {
+          possible: access.alternativeContexts.length > 0,
+          contexts: access.alternativeContexts,
+          unassignable: access.alternativeContexts.length === 0,
+        },
+      },
+    };
+  }
+
+  return { ok: true, gate: { absolutePath, pathMeta, access } };
+}
+
+// ─── fs_exists ────────────────────────────────────────────────────────────────
 
 export const fsExistsTool: AgentTool = {
   name: 'fs_exists',
@@ -20,86 +83,16 @@ export const fsExistsTool: AgentTool = {
     path: z.string().describe('Relative or absolute file/directory path'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
     const { path: targetPath } = params as { path: string };
-    const absolutePath = path.isAbsolute(targetPath)
-      ? targetPath
-      : path.join(context.workspaceRoot, targetPath);
-    const relativePath = path.relative(context.workspaceRoot, absolutePath).replaceAll('\\', '/');
-
-    if (!engineCheck.ok) {
-      return {
-        path: {
-          input: targetPath,
-          absolute: absolutePath,
-          relative: relativePath,
-        },
-        exists: false,
-        access: {
-          allowed: false,
-          explanation: engineCheck.reason,
-          alternativeContexts: [],
-        },
-        delegation: {
-          possible: false,
-          contexts: [],
-          unassignable: true,
-        },
-      };
-    }
-
-    const access = toFsPathAccessEnvelope(context, 'fs_exists', targetPath);
-    if (!access.allowed) {
-      return {
-        path: {
-          input: targetPath,
-          absolute: absolutePath,
-          relative: relativePath,
-        },
-        exists: false,
-        access,
-        delegation: {
-          possible: access.alternativeContexts.length > 0,
-          contexts: access.alternativeContexts,
-          unassignable: access.alternativeContexts.length === 0,
-        },
-      };
-    }
-
-    try {
-      await fs.stat(absolutePath);
-      return {
-        path: {
-          input: targetPath,
-          absolute: absolutePath,
-          relative: relativePath,
-        },
-        exists: true,
-        access,
-        delegation: {
-          possible: false,
-          contexts: [],
-          unassignable: false,
-        },
-      };
-    } catch {
-      return {
-        path: {
-          input: targetPath,
-          absolute: absolutePath,
-          relative: relativePath,
-        },
-        exists: false,
-        access,
-        delegation: {
-          possible: false,
-          contexts: [],
-          unassignable: false,
-        },
-      };
-    }
+    const check = accessGate(context, 'fs_exists', targetPath, 'exists');
+    if (!check.ok) return check.denied;
+    const { absolutePath, pathMeta, access } = check.gate;
+    const exists = await existsPath(absolutePath);
+    return { path: pathMeta, exists, access };
   },
 };
+
+// ─── fs_info ──────────────────────────────────────────────────────────────────
 
 export const fsInfoTool: AgentTool = {
   name: 'fs_info',
@@ -108,360 +101,125 @@ export const fsInfoTool: AgentTool = {
     path: z.string().describe('Relative or absolute file/directory path'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
     const { path: targetPath } = params as { path: string };
-    const absolutePath = path.isAbsolute(targetPath)
-      ? targetPath
-      : path.join(context.workspaceRoot, targetPath);
-    const relativePath = path.relative(context.workspaceRoot, absolutePath).replaceAll('\\', '/');
-
-    if (!engineCheck.ok) {
-      return {
-        path: {
-          input: targetPath,
-          absolute: absolutePath,
-          relative: relativePath,
-        },
-        exists: false,
-        info: null,
-        access: {
-          allowed: false,
-          explanation: engineCheck.reason,
-          alternativeContexts: [],
-        },
-        delegation: {
-          possible: false,
-          contexts: [],
-          unassignable: true,
-        },
-      };
-    }
-
-    const access = toFsPathAccessEnvelope(context, 'fs_info', targetPath);
-    if (!access.allowed) {
-      return {
-        path: {
-          input: targetPath,
-          absolute: absolutePath,
-          relative: relativePath,
-        },
-        exists: false,
-        info: null,
-        access,
-        delegation: {
-          possible: access.alternativeContexts.length > 0,
-          contexts: access.alternativeContexts,
-          unassignable: access.alternativeContexts.length === 0,
-        },
-      };
-    }
-
-    try {
-      const stats = await fs.stat(absolutePath);
-      return {
-        path: {
-          input: targetPath,
-          absolute: absolutePath,
-          relative: relativePath,
-        },
-        exists: true,
-        info: {
-          type: stats.isDirectory() ? 'directory' : stats.isFile() ? 'file' : 'other',
-          size: stats.size,
-          modifiedAt: stats.mtime.toISOString(),
-          createdAt: stats.birthtime.toISOString(),
-        },
-        access,
-        delegation: {
-          possible: false,
-          contexts: [],
-          unassignable: false,
-        },
-      };
-    } catch {
-      return {
-        path: {
-          input: targetPath,
-          absolute: absolutePath,
-          relative: relativePath,
-        },
-        exists: false,
-        info: null,
-        access,
-        delegation: {
-          possible: false,
-          contexts: [],
-          unassignable: false,
-        },
-      };
-    }
+    const check = accessGate(context, 'fs_info', targetPath, 'exists');
+    if (!check.ok) return check.denied;
+    const { absolutePath, pathMeta, access } = check.gate;
+    const info = await getPathInfo(absolutePath);
+    return { path: pathMeta, exists: info !== null, info, access };
   },
 };
+
+// ─── fs_read ──────────────────────────────────────────────────────────────────
+
+/** Filter similar-name suggestions through the access layer. */
+function accessFilteredSuggestions(suggestions: string[], context: ToolContext): string[] {
+  const allowed: string[] = [];
+  for (const rel of suggestions) {
+    if (toFsPathAccessEnvelope(context, 'fs_read', rel).allowed) allowed.push(rel);
+    if (allowed.length >= 3) break;
+  }
+  return allowed;
+}
+
+/** Map a ReadFileResult to the tool-level response shape, injecting access metadata. */
+function mapReadResult(
+  result: ReadFileResult,
+  pathMeta: ReturnType<typeof toFsPathMeta>,
+  access: ReturnType<typeof toFsPathAccessEnvelope>,
+  context: ToolContext,
+  absolutePath: string,
+): Record<string, unknown> {
+  switch (result.kind) {
+    case 'not-found': {
+      const filtered = accessFilteredSuggestions(result.suggestions, context);
+      const msg = filtered.length > 0
+        ? `File not found: ${pathMeta.input}\n\nDid you mean one of these?\n${filtered.join('\n')}`
+        : `File not found: ${pathMeta.input}`;
+      return { path: pathMeta, content: null, access, error: msg };
+    }
+    case 'directory':
+      return {
+        path: pathMeta, content: null, directory: true,
+        listing: result.entries.join('\n'), totalEntries: result.totalEntries,
+        offset: result.offset, limit: result.limit, hasMore: result.hasMore, access,
+      };
+    case 'media': {
+      const label = result.mimeType.startsWith('image/') ? 'Image read successfully' : 'PDF read successfully';
+      return { path: pathMeta, content: label, mimeType: result.mimeType, base64: result.base64, sizeBytes: result.sizeBytes, access };
+    }
+    case 'binary':
+      return { path: pathMeta, content: null, binary: true, sizeBytes: result.sizeBytes, access };
+    case 'offset-out-of-range': {
+      const s = result.totalLines === 1 ? '' : 's';
+      return { path: pathMeta, content: null, access, error: `Offset ${result.offset} is out of range — file has ${result.totalLines} line${s}.` };
+    }
+    case 'text': {
+      FileTime.record(context.agent.id, absolutePath);
+      return {
+        path: pathMeta, content: result.content, totalLines: result.totalLines,
+        offset: result.offset, limit: result.limit, hasMore: result.hasMore,
+        ...(result.truncatedByBytes && { truncatedByBytes: true, nextOffset: result.nextOffset }),
+        ...(!result.truncatedByBytes && result.hasMore && { nextOffset: result.nextOffset }),
+        access,
+      };
+    }
+  }
+}
 
 export const fsReadFileTool: AgentTool = {
   name: 'fs_read',
   description: [
     'Read a file through @ai-team/access with structured access metadata.',
-    'Supports pagination via `offset` (1-based start line) and `limit` (max lines to return).',
+    'Streams the file line-by-line (never buffers the whole file).',
+    'Supports pagination via `offset` (1-based start line) and `limit` (max lines).',
     'Output lines are prefixed with their 1-based line number, e.g. "42: content".',
-    'If the path is a directory a file listing is returned instead of content.',
+    'Lines longer than 2000 chars are truncated; output is capped at 50 KB.',
+    'If the file is not found, suggests similar filenames the agent can access.',
+    'If the path is a directory, returns a paginated listing (supports offset/limit).',
+    'Image files and PDFs are returned as base64 data with their MIME type.',
     'Binary files are detected and a notice is returned instead of raw bytes.',
     'Tracking: records read time so fs_edit can validate staleness.',
   ].join(' '),
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
-    encoding: z.enum(['utf8']).optional().describe('Text encoding (default utf8)'),
     offset:   z.number().int().min(1).optional().describe('1-based line to start from (default 1)'),
     limit:    z.number().int().min(1).optional().describe('Max lines to return (default 2000)'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
-    const {
-      filePath,
-      encoding = 'utf8',
-      offset = 1,
-      limit  = 2000,
-    } = params as { filePath: string; encoding?: BufferEncoding; offset?: number; limit?: number };
-    const absolutePath = resolveFsAbsolutePath(context, filePath);
-
-    if (!absolutePath) {
-      return {
-        path: { input: filePath, absolute: '', relative: '' },
-        content: null,
-        access: { allowed: false, explanation: 'Path is outside workspace root.', alternativeContexts: [] },
-      };
-    }
-
-    const pathMeta = toFsPathMeta(context, filePath, absolutePath);
-    if (!engineCheck.ok) {
-      return {
-        path: pathMeta,
-        content: null,
-        access: { allowed: false, explanation: engineCheck.reason, alternativeContexts: [] },
-      };
-    }
-
-    const access = toFsPathAccessEnvelope(context, 'fs_read', filePath);
-    if (!access.allowed) {
-      return {
-        path: pathMeta,
-        content: null,
-        access,
-        delegation: {
-          possible: access.alternativeContexts.length > 0,
-          contexts: access.alternativeContexts,
-          unassignable: access.alternativeContexts.length === 0,
-        },
-      };
-    }
+    const { filePath, offset = 1, limit = READ_DEFAULT_LIMIT } = params as { filePath: string; offset?: number; limit?: number };
+    const check = accessGate(context, 'fs_read', filePath, 'content');
+    if (!check.ok) return check.denied;
 
     try {
-      // Directory fallback — return listing instead of content
-      const stat = await fs.stat(absolutePath);
-      if (stat.isDirectory()) {
-        const entries = await fs.readdir(absolutePath, { withFileTypes: true });
-        const listing = entries
-          .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
-          .sort((a, b) => a.localeCompare(b))
-          .join('\n');
-        return {
-          path: pathMeta,
-          content: null,
-          directory: true,
-          listing,
-          access,
-        };
-      }
-
-      // Binary detection — check first 8 KB for null bytes
-      const BINARY_PROBE = 8192;
-      const probe = Buffer.alloc(Math.min(BINARY_PROBE, stat.size));
-      const fd = await fs.open(absolutePath, 'r');
-      try { await fd.read(probe, 0, probe.length, 0); }
-      finally { await fd.close(); }
-      if (probe.includes(0)) {
-        return {
-          path: pathMeta,
-          content: null,
-          binary: true,
-          sizeBytes: stat.size,
-          access,
-        };
-      }
-
-      const raw = await fs.readFile(absolutePath, encoding);
-
-      // Record read time for FileTime staleness guard (used by fs_edit)
-      FileTime.record(context.agent.id, absolutePath);
-
-      const allLines = raw.split('\n');
-      const totalLines = allLines.length;
-      const startIdx = offset - 1;                             // convert to 0-based
-      const slice    = allLines.slice(startIdx, startIdx + limit);
-      const numbered = slice.map((l, i) => `${startIdx + i + 1}: ${l}`).join('\n');
-      const content  = Truncate.output(numbered, { maxLines: limit, maxBytes: 50_000 });
-
-      return {
-        path: pathMeta,
-        content,
-        totalLines,
-        offset,
-        limit,
-        hasMore: startIdx + limit < totalLines,
-        access,
-      };
+      const result = await readFile(check.gate.absolutePath, { offset, limit, workspaceRoot: context.workspaceRoot });
+      return mapReadResult(result, check.gate.pathMeta, check.gate.access, context, check.gate.absolutePath);
     } catch (error) {
-      return {
-        path: pathMeta,
-        content: null,
-        access,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      return { path: check.gate.pathMeta, content: null, access: check.gate.access, error: error instanceof Error ? error.message : String(error) };
     }
   },
 };
+
+// ─── fs_read_lines ────────────────────────────────────────────────────────────
 
 export const fsReadLinesTool: AgentTool = {
   name: 'fs_read_lines',
-  description: 'Read specific lines from a file through @ai-team/access.',
+  description: 'Read a range of lines from a file. Legacy compat — delegates to the streaming reader.',
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
-    startLine: z.number().int().min(1).describe('1-based start line'),
-    endLine: z.number().int().min(1).describe('1-based end line (inclusive)'),
+    startLine: z.number().int().min(1).describe('1-based first line'),
+    endLine: z.number().int().min(1).describe('1-based last line (inclusive)'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
-    const { filePath, startLine, endLine } = params as {
-      filePath: string;
-      startLine: number;
-      endLine: number;
-    };
-    const absolutePath = resolveFsAbsolutePath(context, filePath);
-
-    if (!absolutePath) {
-      return {
-        path: { input: filePath, absolute: '', relative: '' },
-        lines: [],
-        access: { allowed: false, explanation: 'Path is outside workspace root.', alternativeContexts: [] },
-      };
-    }
-
-    const pathMeta = toFsPathMeta(context, filePath, absolutePath);
-    if (!engineCheck.ok) {
-      return {
-        path: pathMeta,
-        lines: [],
-        access: { allowed: false, explanation: engineCheck.reason, alternativeContexts: [] },
-      };
-    }
-
-    const access = toFsPathAccessEnvelope(context, 'fs_read_lines', filePath);
-    if (!access.allowed) {
-      return {
-        path: pathMeta,
-        lines: [],
-        access,
-        delegation: {
-          possible: access.alternativeContexts.length > 0,
-          contexts: access.alternativeContexts,
-          unassignable: access.alternativeContexts.length === 0,
-        },
-      };
-    }
-
-    try {
-      const content = await fs.readFile(absolutePath, 'utf8');
-      const lines = content.split(/\r?\n/).slice(startLine - 1, endLine);
-      const numbered = lines.map((l, i) => `${startLine + i}: ${l}`);
-      return {
-        path: pathMeta,
-        startLine,
-        endLine,
-        lines: numbered,
-        access,
-      };
-    } catch (error) {
-      return {
-        path: pathMeta,
-        lines: [],
-        access,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    const { filePath, startLine, endLine } = params as { filePath: string; startLine: number; endLine: number };
+    const result = await fsReadFileTool.execute({ filePath, offset: startLine, limit: endLine - startLine + 1 }, context) as Record<string, unknown>;
+    if (result.error || !result.content) return result;
+    const lines = (result.content as string).split('\n');
+    return { ...result, lines };
   },
 };
 
-export const fsWriteFileTool: AgentTool = {
-  name: 'fs_write_file',
-  description: 'Write file contents through @ai-team/access.',
-  parameters: z.object({
-    filePath: z.string().describe('Relative or absolute file path'),
-    content: z.string().describe('File content to write'),
-    createDirectories: z.boolean().optional().describe('Create parent directories if needed'),
-  }),
-  async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
-    const { filePath, content, createDirectories = false } = params as {
-      filePath: string;
-      content: string;
-      createDirectories?: boolean;
-    };
-    const absolutePath = resolveFsAbsolutePath(context, filePath);
-
-    if (!absolutePath) {
-      return {
-        path: { input: filePath, absolute: '', relative: '' },
-        written: false,
-        access: { allowed: false, explanation: 'Path is outside workspace root.', alternativeContexts: [] },
-      };
-    }
-
-    const pathMeta = toFsPathMeta(context, filePath, absolutePath);
-    if (!engineCheck.ok) {
-      return {
-        path: pathMeta,
-        written: false,
-        access: { allowed: false, explanation: engineCheck.reason, alternativeContexts: [] },
-      };
-    }
-
-    const access = toFsPathAccessEnvelope(context, 'fs_write_file', filePath);
-    if (!access.allowed) {
-      return {
-        path: pathMeta,
-        written: false,
-        access,
-        delegation: {
-          possible: access.alternativeContexts.length > 0,
-          contexts: access.alternativeContexts,
-          unassignable: access.alternativeContexts.length === 0,
-        },
-      };
-    }
-
-    try {
-      if (createDirectories) {
-        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-      }
-      await fs.writeFile(absolutePath, content, 'utf8');
-      const diagnostics = await collectPostWriteDiagnostics(context as ToolContext, [absolutePath]);
-      return {
-        path: pathMeta,
-        written: true,
-        bytes: Buffer.byteLength(content, 'utf8'),
-        access,
-        ...(diagnostics ? { diagnostics } : {}),
-      };
-    } catch (error) {
-      return {
-        path: pathMeta,
-        written: false,
-        access,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  },
-};
+// ─── fs_create ────────────────────────────────────────────────────────────────
 
 export const fsCreateFileTool: AgentTool = {
   name: 'fs_create',
@@ -472,66 +230,43 @@ export const fsCreateFileTool: AgentTool = {
     createDirectories: z.boolean().optional().describe('Create parent directories if needed'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
-    const { filePath, content = '', createDirectories = false } = params as {
-      filePath: string;
-      content?: string;
-      createDirectories?: boolean;
-    };
-    const absolutePath = resolveFsAbsolutePath(context, filePath);
-
-    if (!absolutePath) {
-      return {
-        path: { input: filePath, absolute: '', relative: '' },
-        created: false,
-        access: { allowed: false, explanation: 'Path is outside workspace root.', alternativeContexts: [] },
-      };
-    }
-
-    const pathMeta = toFsPathMeta(context, filePath, absolutePath);
-    if (!engineCheck.ok) {
-      return {
-        path: pathMeta,
-        created: false,
-        access: { allowed: false, explanation: engineCheck.reason, alternativeContexts: [] },
-      };
-    }
-
-    const access = toFsPathAccessEnvelope(context, 'fs_create', filePath);
-    if (!access.allowed) {
-      return {
-        path: pathMeta,
-        created: false,
-        access,
-        delegation: {
-          possible: access.alternativeContexts.length > 0,
-          contexts: access.alternativeContexts,
-          unassignable: access.alternativeContexts.length === 0,
-        },
-      };
-    }
+    const { filePath, content = '', createDirectories = false } = params as { filePath: string; content?: string; createDirectories?: boolean };
+    const check = accessGate(context, 'fs_create', filePath, 'created');
+    if (!check.ok) return check.denied;
 
     try {
-      if (createDirectories) {
-        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-      }
-      await fs.writeFile(absolutePath, content, { encoding: 'utf8', flag: 'wx' });
-      return {
-        path: pathMeta,
-        created: true,
-        bytes: Buffer.byteLength(content, 'utf8'),
-        access,
-      };
+      const { bytes } = await createFile(check.gate.absolutePath, content, { createDirectories });
+      return { path: check.gate.pathMeta, created: true, bytes, access: check.gate.access };
     } catch (error) {
-      return {
-        path: pathMeta,
-        created: false,
-        access,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      return { path: check.gate.pathMeta, created: false, access: check.gate.access, error: error instanceof Error ? error.message : String(error) };
     }
   },
 };
+
+// ─── fs_write_file ────────────────────────────────────────────────────────────
+
+export const fsWriteFileTool: AgentTool = {
+  name: 'fs_write_file',
+  description: 'Write (overwrite) a file through @ai-team/access.',
+  parameters: z.object({
+    filePath: z.string().describe('Relative or absolute file path'),
+    content: z.string().describe('Content to write'),
+  }),
+  async execute(params, context) {
+    const { filePath, content } = params as { filePath: string; content: string };
+    const check = accessGate(context, 'fs_write_file', filePath, 'written');
+    if (!check.ok) return check.denied;
+
+    try {
+      const { bytes } = await writeFile(check.gate.absolutePath, content);
+      return { path: check.gate.pathMeta, written: true, bytes, access: check.gate.access };
+    } catch (error) {
+      return { path: check.gate.pathMeta, written: false, access: check.gate.access, error: error instanceof Error ? error.message : String(error) };
+    }
+  },
+};
+
+// ─── fs_delete_path ───────────────────────────────────────────────────────────
 
 export const fsDeletePathTool: AgentTool = {
   name: 'fs_delete_path',
@@ -541,58 +276,20 @@ export const fsDeletePathTool: AgentTool = {
     recursive: z.boolean().optional().describe('Recursively delete directories'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
     const { path: targetPath, recursive = true } = params as { path: string; recursive?: boolean };
-    const absolutePath = resolveFsAbsolutePath(context, targetPath);
-
-    if (!absolutePath) {
-      return {
-        path: { input: targetPath, absolute: '', relative: '' },
-        deleted: false,
-        access: { allowed: false, explanation: 'Path is outside workspace root.', alternativeContexts: [] },
-      };
-    }
-
-    const pathMeta = toFsPathMeta(context, targetPath, absolutePath);
-    if (!engineCheck.ok) {
-      return {
-        path: pathMeta,
-        deleted: false,
-        access: { allowed: false, explanation: engineCheck.reason, alternativeContexts: [] },
-      };
-    }
-
-    const access = toFsPathAccessEnvelope(context, 'fs_delete_path', targetPath);
-    if (!access.allowed) {
-      return {
-        path: pathMeta,
-        deleted: false,
-        access,
-        delegation: {
-          possible: access.alternativeContexts.length > 0,
-          contexts: access.alternativeContexts,
-          unassignable: access.alternativeContexts.length === 0,
-        },
-      };
-    }
+    const check = accessGate(context, 'fs_delete_path', targetPath, 'deleted');
+    if (!check.ok) return check.denied;
 
     try {
-      await fs.rm(absolutePath, { recursive, force: false });
-      return {
-        path: pathMeta,
-        deleted: true,
-        access,
-      };
+      await deletePath(check.gate.absolutePath, { recursive });
+      return { path: check.gate.pathMeta, deleted: true, access: check.gate.access };
     } catch (error) {
-      return {
-        path: pathMeta,
-        deleted: false,
-        access,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      return { path: check.gate.pathMeta, deleted: false, access: check.gate.access, error: error instanceof Error ? error.message : String(error) };
     }
   },
 };
+
+// ─── fs_mkdir ─────────────────────────────────────────────────────────────────
 
 export const fsMkdirTool: AgentTool = {
   name: 'fs_mkdir',
@@ -602,58 +299,20 @@ export const fsMkdirTool: AgentTool = {
     recursive: z.boolean().optional().describe('Create parent directories recursively'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
     const { path: targetPath, recursive = true } = params as { path: string; recursive?: boolean };
-    const absolutePath = resolveFsAbsolutePath(context, targetPath);
-
-    if (!absolutePath) {
-      return {
-        path: { input: targetPath, absolute: '', relative: '' },
-        created: false,
-        access: { allowed: false, explanation: 'Path is outside workspace root.', alternativeContexts: [] },
-      };
-    }
-
-    const pathMeta = toFsPathMeta(context, targetPath, absolutePath);
-    if (!engineCheck.ok) {
-      return {
-        path: pathMeta,
-        created: false,
-        access: { allowed: false, explanation: engineCheck.reason, alternativeContexts: [] },
-      };
-    }
-
-    const access = toFsPathAccessEnvelope(context, 'fs_mkdir', targetPath);
-    if (!access.allowed) {
-      return {
-        path: pathMeta,
-        created: false,
-        access,
-        delegation: {
-          possible: access.alternativeContexts.length > 0,
-          contexts: access.alternativeContexts,
-          unassignable: access.alternativeContexts.length === 0,
-        },
-      };
-    }
+    const check = accessGate(context, 'fs_mkdir', targetPath, 'created');
+    if (!check.ok) return check.denied;
 
     try {
-      await fs.mkdir(absolutePath, { recursive });
-      return {
-        path: pathMeta,
-        created: true,
-        access,
-      };
+      await createDirectory(check.gate.absolutePath, { recursive });
+      return { path: check.gate.pathMeta, created: true, access: check.gate.access };
     } catch (error) {
-      return {
-        path: pathMeta,
-        created: false,
-        access,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      return { path: check.gate.pathMeta, created: false, access: check.gate.access, error: error instanceof Error ? error.message : String(error) };
     }
   },
 };
+
+// ─── fs_list ──────────────────────────────────────────────────────────────────
 
 export const fsListTool: AgentTool = {
   name: 'fs_list',
@@ -916,16 +575,10 @@ export const fsSearchMetadataTool: AgentTool = {
       }
 
       const abs = path.resolve(cwd, relFile);
-      let size = 0;
-      let mtime = '';
-      try {
-        const st = await fs.stat(abs);
-        size = st.size;
-        mtime = st.mtime.toISOString();
-      } catch {
-        // file vanished between listing and stat — skip
-        continue;
-      }
+      const st = await safeStat(abs);
+      if (!st) continue; // file vanished between listing and stat
+      const size = st.size;
+      const mtime = st.mtime.toISOString();
 
       matches.push({ path: relFromRoot, size, mtime });
       if (matches.length >= maxResults) break;

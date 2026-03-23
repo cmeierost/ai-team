@@ -9,7 +9,6 @@
         "npx vitest": true
     },
     "github.copilot.chat.alternateGptPrompt.enabled": true,
-    "github.copilot.chat.anthropic.contextEditing.enabled": true,
     "github.copilot.chat.anthropic.tools.websearch.enabled": false,
     "chat.viewProgressBadge.enabled": true,
     "chat.useNestedAgentsMdFiles": true,
@@ -28,7 +27,6 @@
         ".ai-team/hooks": true
     },
     "chat.experimental.useSkillAdherencePrompt": true,
-    "chat.edits2.enabled": true,
     "chat.editing.explainChanges.enabled": true,
     "chat.customAgentInSubagent.enabled": true,
     "chat.checkpoints.showFileChanges": true,
