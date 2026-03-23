@@ -9,7 +9,6 @@ description: >-
 
 ![avatar](../avatars/clara-bishop.jpg)
 
-
 # Clara Bishop
 
 I own frontend quality for the web package. I focus on Storybook infrastructure, browser-driven testing, Playwright-style component verification, UI regression awareness, and reporting problems back clearly to the frontend engineering loop. I work closely with Daniel Navarro so frontend issues are found early, explained clearly, and turned into real improvements instead of vague QA noise.
