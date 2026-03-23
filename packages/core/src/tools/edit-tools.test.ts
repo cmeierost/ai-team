@@ -405,6 +405,51 @@ describe('fs_edit', () => {
     expect(payload.replacements).toBe(2);
     expect(await fs.readFile(path.join(ws, 'multi.ts'), 'utf8')).toBe('ccc\nbbb\nccc\n');
   });
+
+  it('succeeds via fuzzy matching when oldString has trailing whitespace differences', async () => {
+    const ws = await createWorkspace();
+    const agent = makeEditAgent('ethan');
+    const { manager } = setupManager(ws, agent);
+
+    // File has trailing spaces on line 1, but oldString does not
+    await fs.writeFile(path.join(ws, 'fuzzy.ts'), 'const x = 1;  \nconst y = 2;\n', 'utf8');
+    await manager.execute(agent, 'fs_read', { filePath: 'fuzzy.ts' }, ctx(ws, agent));
+
+    const result = await manager.execute(
+      agent,
+      'fs_edit',
+      { filePath: 'fuzzy.ts', oldString: 'const x = 1;\nconst y = 2;', newString: 'const x = 42;\nconst y = 2;' },
+      ctx(ws, agent),
+    );
+
+    const payload = result.result as any;
+    expect(payload.edited).toBe(true);
+    expect(payload.replacements).toBe(1);
+    expect(payload.matchStage).toBe('trimmed-lines');
+
+    const disk = await fs.readFile(path.join(ws, 'fuzzy.ts'), 'utf8');
+    expect(disk).toContain('const x = 42;');
+  });
+
+  it('includes no matchStage field for exact matches', async () => {
+    const ws = await createWorkspace();
+    const agent = makeEditAgent('ethan');
+    const { manager } = setupManager(ws, agent);
+
+    await fs.writeFile(path.join(ws, 'exact.ts'), 'const a = 1;\n', 'utf8');
+    await manager.execute(agent, 'fs_read', { filePath: 'exact.ts' }, ctx(ws, agent));
+
+    const result = await manager.execute(
+      agent,
+      'fs_edit',
+      { filePath: 'exact.ts', oldString: 'const a = 1;', newString: 'const a = 99;' },
+      ctx(ws, agent),
+    );
+
+    const payload = result.result as any;
+    expect(payload.edited).toBe(true);
+    expect(payload.matchStage).toBeUndefined();
+  });
 });
 
 // ============================================================================

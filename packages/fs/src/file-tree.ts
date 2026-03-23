@@ -251,7 +251,8 @@ async function buildNode(
   workspaceRoot: string,
   depth: number,
   maxDepth: number,
-  ctx: TraversalContext
+  ctx: TraversalContext,
+  parentRuleSets?: IgnoreRule[][],
 ): Promise<FileTreeNode> {
   const name = path.basename(absolutePath);
   const relativePath = toRelativePath(workspaceRoot, absolutePath);
@@ -297,7 +298,7 @@ async function buildNode(
     return { ...node, children: [] };
   }
 
-  const ruleSets = ctx.ignoreGitignore ? [] : await collectGitignoreRules(workspaceRoot, absolutePath);
+  const ruleSets = await collectGitignoreRules(workspaceRoot, absolutePath, parentRuleSets);
 
   const childNodes = await Promise.all(
     filteredEntries
@@ -306,7 +307,7 @@ async function buildNode(
         const childRel = toRelativePath(workspaceRoot, childAbs);
         const { include, gitignored } = await resolveGitignored(childRel, entry.isDirectory, ruleSets, ctx);
         if (!include) return null;
-        const child = await buildNode(childAbs, workspaceRoot, depth + 1, maxDepth, ctx);
+        const child = await buildNode(childAbs, workspaceRoot, depth + 1, maxDepth, ctx, ruleSets);
         if (gitignored) child.gitignored = true;
         return child;
       })
@@ -325,7 +326,8 @@ async function collectFlat(
   workspaceRoot: string,
   depth: number,
   maxDepth: number,
-  ctx: TraversalContext
+  ctx: TraversalContext,
+  parentRuleSets?: IgnoreRule[][],
 ): Promise<FlatFileEntry[]> {
   const results: FlatFileEntry[] = [];
 
@@ -373,8 +375,7 @@ async function collectFlat(
   } catch {
     return results;
   }
-
-  const ruleSets = ctx.ignoreGitignore ? [] : await collectGitignoreRules(workspaceRoot, absolutePath);
+await collectGitignoreRules(workspaceRoot, absolutePath, parentRuleSets);
 
   const nested = await Promise.all(
     filteredEntries.map(async (entry) => {
@@ -383,6 +384,7 @@ async function collectFlat(
       const { include, gitignored } = await resolveGitignored(childRel, entry.isDirectory, ruleSets, ctx);
       if (!include) return [];
 
+      const childResults = await collectFlat(childAbs, workspaceRoot, depth + 1, maxDepth, ctx, ruleSets
       const childResults = await collectFlat(childAbs, workspaceRoot, depth + 1, maxDepth, ctx);
       if (gitignored && childResults.length > 0) {
         childResults[0].gitignored = true;

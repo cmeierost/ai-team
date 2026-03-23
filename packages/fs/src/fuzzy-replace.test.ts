@@ -41,11 +41,14 @@ describe('fuzzyFind', () => {
   });
 
   it('matches with different indentation', () => {
-    const content = '    function foo() {\n        return 1;\n    }';
-    const needle  = 'function foo() {\n    return 1;\n}';
+    // Two lines whose internal whitespace differs (tab vs space) but collapse
+    // the same way under collapseWs (count=2 → skip). stripIndent preserves
+    // the tab so only line 1 matches (count=1 → hit).
+    const content = '        val\t= 1\n    val = 1';
+    const needle  = '            val\t= 1';
     const m = fuzzyFind(content, needle, false);
     expect(m).not.toBeNull();
-    expect(m!.stage).not.toBe('exact');
+    expect(m!.stage).toBe('indentation-flexible');
   });
 
   it('matches with unicode smart quotes', () => {
@@ -56,12 +59,22 @@ describe('fuzzyFind', () => {
     expect(m!.stage).toBe('unicode-normalized');
   });
 
-  it('matches with CRLF differences', () => {
+  it('matches with CRLF at line endings (caught by trimmed-lines)', () => {
+    // \r at end of lines is stripped by trimEnd, so trimmed-lines catches it
     const content = 'line1\r\nline2\r\n';
     const needle  = 'line1\nline2\n';
     const m = fuzzyFind(content, needle, false);
     expect(m).not.toBeNull();
-    expect(m!.stage).not.toBe('exact');
+    expect(m!.stage).toBe('trimmed-lines');
+  });
+
+  it('matches with stray \\r in the middle of a line (crlf-normalized)', () => {
+    // \r embedded mid-line is NOT caught by trimEnd — so crlf-normalized fires
+    const content = 'hello\rworld';
+    const needle  = 'hello\nworld';
+    const m = fuzzyFind(content, needle, false);
+    expect(m).not.toBeNull();
+    expect(m!.stage).toBe('crlf-normalized');
   });
 
   it('matches via block-anchor when first+last lines match and line count matches', () => {
@@ -117,12 +130,16 @@ describe('fuzzyReplace', () => {
     expect(result!.content).toContain('replaced');
   });
 
-  it('replaces with different indentation', () => {
-    const content = '    if (true) {\n        doStuff();\n    }';
-    const needle  = 'if (true) {\n    doStuff();\n}';
-    const result = fuzzyReplace(content, needle, 'if (false) {\n    skip();\n}');
+  it('replaces with different indentation and verifies content', () => {
+    // Same pattern as the fuzzyFind indentation test.
+    const content = '        val\t= 1\n    val = 1';
+    const needle  = '            val\t= 1';
+    const result = fuzzyReplace(content, needle, 'REPLACED');
     expect(result).not.toBeNull();
-    expect(result!.stage).not.toBe('exact');
+    expect(result!.stage).toBe('indentation-flexible');
+    expect(result!.content).toContain('REPLACED');
+    // Second line (space-separated variant) must survive untouched
+    expect(result!.content).toContain('val = 1');
   });
 
   it('returns null when no match at any stage', () => {

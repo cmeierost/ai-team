@@ -83,7 +83,14 @@ export async function readDirGitignore(dir: string): Promise<IgnoreRule[]> {
 export async function collectGitignoreRules(
   workspaceRoot: string,
   dirPath: string,
+  parentRuleSets?: IgnoreRule[][],
 ): Promise<IgnoreRule[][]> {
+  if (parentRuleSets) {
+    const newRules = await readDirGitignore(dirPath);
+    return newRules.length > 0 ? [...parentRuleSets, newRules] : parentRuleSets;
+  }
+
+  // Fallback to full traversal if parent rules aren't provided
   const rel = path.relative(workspaceRoot, dirPath);
   const parts = rel ? rel.split(path.sep) : [];
   const dirs = [workspaceRoot];
