@@ -1,4 +1,5 @@
 export { ArtifactsSection } from './ArtifactsSection';
+export { ContextWindowSection } from './ContextWindowSection';
 export { FilesSection } from './FilesSection';
 export { NotesSection } from './NotesSection';
 export { SessionsSection } from './SessionsSection';

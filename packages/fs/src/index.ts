@@ -12,3 +12,6 @@ export * from './patch.js';
 export * from './fuzzy-replace.js';
 export * from './truncation.js';
 export * from './grep-search.js';
+export * from './file-events.js';
+export * from './which.js';
+export * from './format.js';

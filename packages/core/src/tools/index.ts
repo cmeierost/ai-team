@@ -59,6 +59,8 @@ export {
 
 export { httpFetchTool, httpCrawlTool } from './http-tools.js';
 
+export { codeSearchTool } from './codesearch-tool.js';
+
 export { applyPatchTool, multiEditTool, fsEditTool } from './edit-tools.js';
 
 export { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './tool-utils.js';
@@ -103,6 +105,7 @@ import {
   applyCodeEditTool,
 } from './code-tools.js';
 import { httpFetchTool, httpCrawlTool } from './http-tools.js';
+import { codeSearchTool } from './codesearch-tool.js';
 import { applyPatchTool, multiEditTool, fsEditTool } from './edit-tools.js';
 
 // ---------------------------------------------------------------------------
@@ -158,6 +161,7 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   search_grep: grepCodeTool,
   http_fetch: httpFetchTool,
   http_crawl: httpCrawlTool,
+  codesearch: codeSearchTool,
   analyze_complexity: analyzeComplexityTool,
   analyze_performance: assessPerformanceTool,
   fs_apply_patch: applyCodeEditTool,

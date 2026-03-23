@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { FileTime, Patch, fuzzyReplace } from '@ai-team/fs';
+import { FileTime, Patch, fuzzyReplace, emitFileEdited, emitFileCreated } from '@ai-team/fs';
 import type { AgentTool, ToolContext } from '../types/index.js';
 import {
   getAccessEngineOrDeny,
@@ -153,6 +153,7 @@ export const applyPatchTool: AgentTool = {
           const content = Patch.applyFileDiff('', diff.hunks);
           await fs.writeFile(absolutePath, content, 'utf8');
           FileTime.record(context.agent.id, absolutePath);
+          emitFileCreated(absolutePath);
           applied.push({ type: 'add', path: diff.newPath, additions: diff.additions, deletions: 0 });
           fileChanges.push({ filePath: absolutePath, oldContent: '', newContent: content });
 
@@ -171,6 +172,7 @@ export const applyPatchTool: AgentTool = {
           const updated = Patch.applyFileDiff(original, diff.hunks);
           await fs.writeFile(absolutePath, updated, 'utf8');
           FileTime.record(context.agent.id, absolutePath);
+          emitFileEdited(absolutePath);
           applied.push({ type: 'update', path: diff.oldPath, additions: diff.additions, deletions: diff.deletions });
           fileChanges.push({ filePath: absolutePath, oldContent: original, newContent: updated });
 
@@ -193,6 +195,7 @@ export const applyPatchTool: AgentTool = {
           await fs.writeFile(newAbsolutePath!, updated, 'utf8');
           await fs.unlink(absolutePath);
           FileTime.record(context.agent.id, newAbsolutePath!);
+          emitFileEdited(newAbsolutePath!);
           applied.push({
             type: 'move',
             path: `${diff.oldPath} → ${diff.newPath}`,
@@ -466,6 +469,7 @@ export const fsEditTool: AgentTool = {
 
       // Refresh read time so subsequent edits in same session don't fail
       FileTime.record(context.agent.id, absolutePath);
+      emitFileEdited(absolutePath);
 
       const addedLines   = (newString.split('\n').length - oldString.split('\n').length);
       const totalBefore  = content.split('\n').length;

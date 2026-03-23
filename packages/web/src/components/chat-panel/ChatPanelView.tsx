@@ -5,6 +5,87 @@ import { ContextPanel } from '../ContextPanel';
 import { ChatMessagesView } from './ChatMessagesView';
 import { PendingQuestionForm } from './PendingQuestionForm';
 import type { PendingQuestion } from './chatPanelTypes';
+import { useConfig } from '../../hooks/useConfig';
+import type { TeamConfig } from '../../hooks/useConfig';
+
+function resolveAgentLlmInfo(agent: Agent, config: TeamConfig | undefined) {
+  const providers = config?.providers ?? {};
+  const modelKeys = config?.modelKeys ?? {};
+  const llm = agent.llm;
+  const hasExplicit = Boolean(llm?.provider || llm?.model || llm?.modelKey);
+
+  if (!hasExplicit) {
+    const defaultProviderKey =
+      config?.defaultLlmProvider ??
+      Object.keys(providers).find((k) => providers[k].isDefault) ??
+      Object.keys(providers)[0];
+    const defaultProvider = defaultProviderKey ? providers[defaultProviderKey] : undefined;
+    return {
+      modelKey: undefined as string | undefined,
+      isDefault: true,
+      providerKey: defaultProviderKey,
+      model: defaultProvider?.model ?? defaultProvider?.defaultModel,
+      contextWindow: defaultProvider?.contextWindow,
+    };
+  }
+
+  const modelKey = llm?.modelKey;
+  const mappedEntry = modelKey ? modelKeys[modelKey] : undefined;
+  let providerKey: string | undefined = mappedEntry?.provider ?? llm?.provider;
+  if (!providerKey) {
+    const defaultProviderKey =
+      config?.defaultLlmProvider ??
+      Object.keys(providers).find((k) => providers[k].isDefault) ??
+      Object.keys(providers)[0];
+    if (
+      modelKey &&
+      defaultProviderKey &&
+      providers[defaultProviderKey]?.models?.some((m) => m.name === modelKey)
+    ) {
+      providerKey = defaultProviderKey;
+    }
+  }
+  const selectedProvider = providerKey ? providers[providerKey] : undefined;
+  const resolvedModel =
+    mappedEntry?.model ??
+    (modelKey ? selectedProvider?.models?.find((m) => m.name === modelKey)?.name : undefined) ??
+    llm?.model ??
+    '';
+  const contextWindow = modelKey
+    ? (selectedProvider?.models?.find((m) => m.name === (mappedEntry?.model ?? modelKey))
+        ?.contextWindow ?? selectedProvider?.contextWindow)
+    : selectedProvider?.contextWindow;
+
+  return { modelKey, isDefault: false, providerKey, model: resolvedModel, contextWindow };
+}
+
+function ChatHeaderModelInfo({ agent }: Readonly<{ agent: Agent }>) {
+  const { data: config } = useConfig();
+  const info = resolveAgentLlmInfo(agent, config);
+  const ctxLabel =
+    info.contextWindow !== undefined
+      ? `${(info.contextWindow / 1000).toFixed(0)}k ctx`
+      : null;
+
+  return (
+    <div className="chat-header-model">
+      {info.isDefault ? (
+        <span className="chat-header-model-key">default-model</span>
+      ) : info.modelKey ? (
+        <span className="chat-header-model-key">{info.modelKey}</span>
+      ) : null}
+      {info.providerKey ? (
+        <span className="chat-header-model-detail">
+          {info.providerKey}
+          {info.model ? ` / ${info.model}` : ''}
+        </span>
+      ) : info.model ? (
+        <span className="chat-header-model-detail">{info.model}</span>
+      ) : null}
+      {ctxLabel ? <span className="chat-header-model-ctx">{ctxLabel}</span> : null}
+    </div>
+  );
+}
 
 const MOBILE_CONTEXT_MEDIA_QUERY = '(max-width: 900px)';
 
@@ -223,6 +304,7 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
           <div className="chat-header-info">
             <h2>Chat with {agent.name}</h2>
             <p className="agent-role">{agent.role}</p>
+            <ChatHeaderModelInfo agent={agent} />
           </div>
         </div>
         <div className="chat-messages">
@@ -243,6 +325,7 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
             <div className="chat-header-info">
               <h2>Chat with {agent.name}</h2>
               <p className="agent-role">{agent.role}</p>
+              <ChatHeaderModelInfo agent={agent} />
             </div>
             {streaming ? <span className="streaming-indicator">●</span> : null}
           </div>

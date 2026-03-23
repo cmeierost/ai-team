@@ -298,7 +298,7 @@ async function buildNode(
     return { ...node, children: [] };
   }
 
-  const ruleSets = await collectGitignoreRules(workspaceRoot, absolutePath, parentRuleSets);
+  const ruleSets = ctx.ignoreGitignore ? [] : await collectGitignoreRules(workspaceRoot, absolutePath, parentRuleSets);
 
   const childNodes = await Promise.all(
     filteredEntries
@@ -375,7 +375,8 @@ async function collectFlat(
   } catch {
     return results;
   }
-await collectGitignoreRules(workspaceRoot, absolutePath, parentRuleSets);
+
+  const ruleSets = ctx.ignoreGitignore ? [] : await collectGitignoreRules(workspaceRoot, absolutePath, parentRuleSets);
 
   const nested = await Promise.all(
     filteredEntries.map(async (entry) => {
@@ -384,8 +385,7 @@ await collectGitignoreRules(workspaceRoot, absolutePath, parentRuleSets);
       const { include, gitignored } = await resolveGitignored(childRel, entry.isDirectory, ruleSets, ctx);
       if (!include) return [];
 
-      const childResults = await collectFlat(childAbs, workspaceRoot, depth + 1, maxDepth, ctx, ruleSets
-      const childResults = await collectFlat(childAbs, workspaceRoot, depth + 1, maxDepth, ctx);
+      const childResults = await collectFlat(childAbs, workspaceRoot, depth + 1, maxDepth, ctx, ruleSets);
       if (gitignored && childResults.length > 0) {
         childResults[0].gitignored = true;
       }

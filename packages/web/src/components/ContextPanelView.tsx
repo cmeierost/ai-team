@@ -3,6 +3,7 @@ import type { Artifact, ChatSession, SessionActivatedTool, Task } from '../types
 import type { SkillEntry } from '../hooks/useSkillsForAgent';
 import {
   ArtifactsSection,
+  ContextWindowSection,
   FilesSection,
   NotesSection,
   SessionsSection,
@@ -94,6 +95,12 @@ export function ContextPanelView({
           onDeleteSession={onDeleteSession}
           onCreateSession={onCreateSession}
           onOpenSessionGraph={onOpenSessionGraph}
+        />
+
+        <ContextWindowSection
+          agentId={agentId}
+          expandedSection={expandedSection}
+          onToggleSection={onToggleSection}
         />
 
         <NotesSection

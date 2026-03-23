@@ -5,6 +5,7 @@ import type { FSWatcher } from 'chokidar';
 import type { FileTreeNode, FlatFileEntry, GetFileTreeOptions, ListWorkspaceFilesOptions } from './file-tree.js';
 import { getFileTree, listWorkspaceFiles } from './file-tree.js';
 import { type IgnoreRule, parseGitignoreContent, isIgnoredByRules } from './ignore.js';
+import { emitFileWatcherEvent } from './file-events.js';
 
 interface CacheEntry<T> {
   value: T;
@@ -162,23 +163,25 @@ async function ensureWatcher(workspaceRoot: string, cache: WorkspaceFileTreeCach
       },
     });
 
-    const invalidate = (watchPath: string, isDirectory: boolean) => {
+    const invalidate = (watchPath: string, isDirectory: boolean, kind: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir') => {
       if (path.basename(watchPath) === '.gitignore') {
         cache.gitignoreMatcher.clear();
         clearWorkspaceCache(cache);
+        emitFileWatcherEvent(watchPath, kind);
         return;
       }
 
       if (isAlwaysIgnoredWatchPath(watchPath)) return;
       if (cache.gitignoreMatcher.isIgnored(watchPath, isDirectory)) return;
       clearWorkspaceCache(cache);
+      emitFileWatcherEvent(watchPath, kind);
     };
 
-    watcher.on('add', (watchPath) => invalidate(watchPath, false));
-    watcher.on('change', (watchPath) => invalidate(watchPath, false));
-    watcher.on('unlink', (watchPath) => invalidate(watchPath, false));
-    watcher.on('addDir', (watchPath) => invalidate(watchPath, true));
-    watcher.on('unlinkDir', (watchPath) => invalidate(watchPath, true));
+    watcher.on('add', (watchPath) => invalidate(watchPath, false, 'add'));
+    watcher.on('change', (watchPath) => invalidate(watchPath, false, 'change'));
+    watcher.on('unlink', (watchPath) => invalidate(watchPath, false, 'unlink'));
+    watcher.on('addDir', (watchPath) => invalidate(watchPath, true, 'addDir'));
+    watcher.on('unlinkDir', (watchPath) => invalidate(watchPath, true, 'unlinkDir'));
 
     watcher.on('error', () => {
       clearWorkspaceCache(cache);

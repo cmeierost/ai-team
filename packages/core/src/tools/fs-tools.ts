@@ -5,6 +5,7 @@ import {
   READ_DEFAULT_LIMIT, safeStat,
   readFile, existsPath, getPathInfo,
   createFile, writeFile, deletePath, createDirectory,
+  emitFileEdited, emitFileCreated,
 } from '@ai-team/fs';
 import type { ReadFileResult } from '@ai-team/fs';
 import type { AgentTool, ToolContext } from '../types/index.js';
@@ -236,6 +237,7 @@ export const fsCreateFileTool: AgentTool = {
 
     try {
       const { bytes } = await createFile(check.gate.absolutePath, content, { createDirectories });
+      emitFileCreated(check.gate.absolutePath);
       return { path: check.gate.pathMeta, created: true, bytes, access: check.gate.access };
     } catch (error) {
       return { path: check.gate.pathMeta, created: false, access: check.gate.access, error: error instanceof Error ? error.message : String(error) };
@@ -259,6 +261,7 @@ export const fsWriteFileTool: AgentTool = {
 
     try {
       const { bytes } = await writeFile(check.gate.absolutePath, content);
+      emitFileEdited(check.gate.absolutePath);
       return { path: check.gate.pathMeta, written: true, bytes, access: check.gate.access };
     } catch (error) {
       return { path: check.gate.pathMeta, written: false, access: check.gate.access, error: error instanceof Error ? error.message : String(error) };
