@@ -289,16 +289,17 @@ export const AgentSchema = z.object({
 
 export const SkillSchema = z.object({
   name: z.string(),
-  type: z.nativeEnum(RoleType),
+  type: z.nativeEnum(RoleType).optional(),
   description: z.string(),
-  contextLevel: z.nativeEnum(ContextLevel),
-  
-  responsibilities: z.array(z.string()),
-  tools: z.array(z.string()),
-  permissions: PermissionConfigSchema,
-  
+  contextLevel: z.nativeEnum(ContextLevel).optional(),
+
+  responsibilities: z.array(z.string()).default([]),
+  tools: z.array(z.string()).default([]),
+  permissions: PermissionConfigSchema.optional(),
+
   canDelegate: z.boolean().optional(),
   llm: LlmProfileSchema.optional(),
+  triggers: z.array(z.string()).optional(),
 });
 
 export const FeatureSchema = z.object({
@@ -339,6 +340,13 @@ export interface Agent extends AgentConfig {
   lastInteraction?: string;
   conversationCount?: number;
   status?: AgentStatus;
+  /** Effective LLM settings after merging agent.yml → developer config → team config */
+  resolvedLlm?: {
+    providerRef?: string;
+    model?: string;
+    contextWindow?: number;
+    isDefault: boolean;
+  };
 }
 
 /**

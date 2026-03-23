@@ -985,6 +985,96 @@
   }
 }
 
+/* ─── Inline tool call blocks ──────────────────────────────────────────────── */
+
+.tool-call-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0 4px 48px;
+}
+
+.tool-call-block {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.03));
+  color: var(--color-text-secondary, #aaa);
+  max-width: fit-content;
+  text-align: left;
+  cursor: default;
+}
+
+.tool-call-block--clickable {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.tool-call-block--clickable:hover {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.06));
+  border-color: var(--color-border, rgba(255, 255, 255, 0.12));
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+.tool-call-block--running {
+  border-color: rgba(255, 167, 38, 0.2);
+  background: rgba(255, 167, 38, 0.04);
+}
+
+.tool-call-block--completed {
+  border-color: rgba(102, 187, 106, 0.2);
+  background: rgba(102, 187, 106, 0.03);
+}
+
+.tool-call-block--failed {
+  border-color: rgba(244, 67, 54, 0.2);
+  background: rgba(244, 67, 54, 0.03);
+}
+
+.tool-call-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ffcc80;
+  flex-shrink: 0;
+  animation: tool-call-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes tool-call-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.tool-call-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.tool-call-name {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+.tool-call-inline-msg {
+  font-size: 11px;
+  color: #ef9a9a;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-call-open-hint {
+  font-size: 10px;
+  color: var(--color-text-tertiary, #888);
+  margin-left: 2px;
+}
+
 @media (max-width: 900px) {
   .chat-panel-container {
     height: 100%;

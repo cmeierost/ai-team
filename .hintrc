@@ -12,6 +12,7 @@
           "user-select"
         ]
       }
-    ]
+    ],
+    "axe/aria": "off"
   }
 }

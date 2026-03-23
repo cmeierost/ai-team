@@ -186,6 +186,7 @@ export async function dispatchToolCall(
     denial ? 'denied' : (execResult.ok ? 'result' : 'error'),
     execResult.ok ? strippedResult : outputText,
     denial,
+    execResult.ok && tool?.formatForLlm ? llmResult : undefined,
   );
 
   emitToolEvent(
@@ -286,11 +287,13 @@ function buildToolRuntimePayload(
   outcome: ToolRuntimePayloadEvent['outcome'],
   result: unknown,
   denial?: ToolDenial,
+  resultLlm?: unknown,
 ): ToolRuntimePayloadEvent {
   return {
     toolName,
     outcome,
     result,
+    resultLlm,
     denial: denial ? toToolDenialEvent(denial) : undefined,
   };
 }

@@ -142,6 +142,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const pendingQuestionRejectRef = useRef<((reason?: unknown) => void) | null>(null);
   const assistantIndexRef = useRef(-1);
   const skipNextSessionLoadRef = useRef<string | null>(null);
+  const skipNewSessionRef = useRef(false);
   const lastPersistedToolStateRef = useRef('');
 
   const graphRouteMatch = useMatch(GRAPH_ROUTE);
@@ -334,6 +335,12 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
       if (urlSessionId && urlSessionId === skipNextSessionLoadRef.current) {
         skipNextSessionLoadRef.current = null;
+        setLoading(false);
+        return;
+      }
+
+      if (skipNewSessionRef.current) {
+        skipNewSessionRef.current = false;
         setLoading(false);
         return;
       }
@@ -1117,6 +1124,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     setActivatedTools([]);
     setMessages([]);
     setIsEphemeral(false);
+    skipNewSessionRef.current = true;
     navigate(`/chat/${currentAgentId}`);
     await loadGreeting(currentAgentId);
   };

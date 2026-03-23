@@ -59,11 +59,17 @@ export function TeamProvider({
       const loadedGraphData = await client.getTeamGraph('hierarchy');
       setGraphData(loadedGraphData);
       
-      // Derive agents array from graph nodes for backward compatibility
-      const agentNodes = loadedGraphData.nodes
-        .filter(node => node.type === 'agent' && node.data.agent)
-        .map(node => node.data.agent!);
-      setAgents(agentNodes);
+      // Load agents from dedicated endpoint (includes resolvedLlm)
+      try {
+        const agentsData = await client.listEmployees({});
+        setAgents(agentsData as Agent[]);
+      } catch {
+        // Fallback: derive from graph nodes
+        const agentNodes = loadedGraphData.nodes
+          .filter(node => node.type === 'agent' && node.data.agent)
+          .map(node => node.data.agent!);
+        setAgents(agentNodes);
+      }
 
       // Load developer profile
       try {

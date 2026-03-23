@@ -26,6 +26,8 @@ disallowedTools:
   - hr_archive
   - hr_avatar
   - hr_update_llm
+cliTools:
+  - pnpm
 availableFor:
   - frontend-quality
   - storybook-setup

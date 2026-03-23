@@ -9,9 +9,11 @@ import {
   LlmService,
   loadAgentAccessPatterns,
   listCachedWorkspaceFiles,
+  loadEffectiveConfig,
   loadTeamConfig,
   parseMarkdownSections,
   replaceOrAppendMarkdownSection,
+  resolveEffectiveLlmSettings,
 } from '@ai-team/core';
 import { generateIntroduction } from '@ai-team/service';
 
@@ -57,7 +59,26 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
   router.get('/', async (req: any, res: any, next: any) => {
     try {
       const agents = await client.listEmployees({});
-      res.json(agents);
+      const effectiveConfig = await loadEffectiveConfig(agentManager.workspaceRoot);
+      const hydrated = agents.map((agent) => {
+        if (!effectiveConfig) return agent;
+        try {
+          const resolved = resolveEffectiveLlmSettings(effectiveConfig, agent);
+          const hasExplicit = Boolean(agent.llm?.provider || agent.llm?.model || agent.llm?.modelKey);
+          return {
+            ...agent,
+            resolvedLlm: {
+              providerRef: resolved.providerRef,
+              model: resolved.config.model,
+              contextWindow: resolved.contextWindow,
+              isDefault: !hasExplicit,
+            },
+          };
+        } catch {
+          return agent;
+        }
+      });
+      res.json(hydrated);
     } catch (error) {
       next(error);
     }

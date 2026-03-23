@@ -22,7 +22,7 @@ import {
   createAccessEngine,
   ContextManager,
   loadSkill,
-  loadTeamConfig,
+  loadEffectiveConfig,
   loadAllInstructionFiles,
 } from '@ai-team/core';
 import type { ChatOptions } from '../../contracts.js';
@@ -184,7 +184,7 @@ export async function chatCommand(
     const teamConfig = await runPreflightStep(
       hooks,
       'Loading team configuration...',
-      () => loadTeamConfig(workspaceRoot),
+      () => loadEffectiveConfig(workspaceRoot),
     );
     const registry = teamConfig?.providers;
     const defaultProviderRef = registry

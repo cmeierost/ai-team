@@ -22,7 +22,7 @@ import OpenAI from 'openai';
 import type { ChatCompletionChunk, ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
 import path from 'path';
 import type { LlmConfig, Agent, Skill, InstructionFile, ChatMessage, TeamConfig, LlmGenerationParams } from '../types/index.js';
-import { loadTeamConfig, loadEnvFile } from '../storage/index.js';
+import { loadEffectiveConfig, loadEnvFile } from '../storage/index.js';
 
 export type { ChatCompletionMessageParam };
 
@@ -140,7 +140,7 @@ export class LlmService {
     skill?: Pick<Skill, 'llm'>,
     runtimeOverrides?: LlmChatOptions,
   ): Promise<LlmChatOptions> {
-    const teamConfig = await loadTeamConfig(this.workspaceRoot);
+    const teamConfig = await loadEffectiveConfig(this.workspaceRoot);
     if (!teamConfig) {
       throw new Error(
         'No LLM configuration found. Run "ait init" to configure a provider.'

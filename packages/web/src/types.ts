@@ -127,6 +127,12 @@ export interface Agent {
   memory?: boolean;
   maxIterations?: number;
   llm?: AgentLlm;
+  resolvedLlm?: {
+    providerRef?: string;
+    model?: string;
+    contextWindow?: number;
+    isDefault: boolean;
+  };
   createdAt?: string;
   lastInteraction?: string;
   conversationCount?: number;
@@ -193,6 +199,8 @@ export interface SessionActivatedTool {
     toolName: string;
     outcome: 'result' | 'error' | 'denied';
     result?: unknown;
+    /** LLM-formatted representation — what was injected into the model's context window. */
+    resultLlm?: unknown;
     denial?: {
       kind: 'user-denied' | 'policy-denied' | 'execution-failed';
       reasonCode: string;

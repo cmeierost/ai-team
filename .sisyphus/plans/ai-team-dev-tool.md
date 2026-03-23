@@ -30,6 +30,10 @@
 - The current web UI is graph/settings-centric.
 - The first-class execution surface should be a **task command center**.
 - The first workflow should be **route + track**: create tasks, delegate them, and track execution end-to-end.
+- Each session should maintain per-agent task lists under one shared delegated task graph.
+- Higher-level agents primarily plan, define contracts, and delegate; lower-level agents execute bounded tasks.
+- Agent knowledge boundaries are enforced through `.access` files.
+- The primary UI must support both equal views: per-agent inboxes and delegated task tree.
 
 ### Metis Review (gaps addressed)
 
@@ -65,17 +69,20 @@ Turn ai-team into an org-native developer tool whose primary UX is a task comman
 - All task modules have clear ownership and boundaries.
 - The plan explicitly excludes IDE/git/PR/diff/review responsibilities.
 - The MVP includes a usable route-and-track task lifecycle: create, assign, start, block, escalate, complete, inspect outcome.
+- The MVP includes session-scoped per-agent task lists and a parent/child delegation tree over the same task graph.
 - Web UI work is anchored in current `packages/web` patterns and identifies what to reuse.
 - Every task below has executable acceptance criteria and QA scenarios.
 
 ### Must Have
 
 - Task command center as primary surface
+- Dual primary views: per-agent inboxes and delegated task tree
 - Conway-aligned module ownership
 - Explicit routing and delegation semantics
 - Execution state visibility
 - Audit/event history
 - Governance/RBAC boundaries
+- `.access`-driven knowledge boundaries
 
 ### Must NOT Have
 
@@ -188,7 +195,7 @@ Wave 3: governance + rollout + verification
 
 - [ ] 2. Define the task domain model
 
-  **What to do**: Specify the MVP domain entities and relationships: Task, Route, Stage, Actor, Assignment, Outcome, Event, EscalationPolicy, ArtifactLink.
+  **What to do**: Specify the MVP domain entities and relationships: SessionTaskGraph, AgentTaskList, Task, Route, Stage, Actor, Assignment, Outcome, Event, EscalationPolicy, ArtifactLink.
   **Must NOT do**: Add code-editing entities or repository diff abstractions.
 
   **Recommended Agent Profile**:
@@ -205,6 +212,7 @@ Wave 3: governance + rollout + verification
 
   **Acceptance Criteria**:
   - [ ] The plan defines each MVP entity with purpose and minimum fields.
+  - [ ] The model explains how per-agent task lists derive from a shared session task graph.
   - [ ] Route and stage semantics are explicit enough to support sequential and parallel delegation.
   - [ ] Event history is included as a first-class element.
 
@@ -213,8 +221,8 @@ Wave 3: governance + rollout + verification
   ```
   Scenario: Domain model completeness
     Tool: Read
-    Steps: Read the task domain section and check for Task, Route, Stage, Actor, Assignment, Outcome, Event.
-    Expected: All entities appear with non-overlapping responsibilities.
+    Steps: Read the task domain section and check for SessionTaskGraph, AgentTaskList, Task, Route, Stage, Actor, Assignment, Outcome, Event.
+    Expected: All entities appear with non-overlapping responsibilities and AgentTaskList is derived from SessionTaskGraph.
     Evidence: .sisyphus/evidence/task-2-domain.md
 
   Scenario: Model drift into coding scope
@@ -348,7 +356,7 @@ Wave 3: governance + rollout + verification
 
 - [ ] 6. Redesign the web UI around a task command center
 
-  **What to do**: Define the target web IA and primary screens for the MVP: task inbox, route board, execution detail, escalation queue, outcome inspector. Reuse existing graph/settings assets where they support command-center visibility.
+  **What to do**: Define the target web IA and primary screens for the MVP: per-agent inboxes, delegated task tree, execution detail, escalation queue, outcome inspector. Reuse existing graph/settings assets where they support command-center visibility.
   **Must NOT do**: Build a chat-first UI or code workbench as the primary MVP surface.
 
   **Recommended Agent Profile**:
@@ -367,6 +375,7 @@ Wave 3: governance + rollout + verification
 
   **Acceptance Criteria**:
   - [ ] The MVP UI defines a primary task-command-center navigation model.
+  - [ ] Per-agent inboxes and delegated task tree are treated as equal primary views over the same underlying session task graph.
   - [ ] Existing graph/settings surfaces are either reused or deliberately demoted with rationale.
   - [ ] The UI plan explains how maintainability/scalability remain visible in the surface.
 
@@ -376,7 +385,7 @@ Wave 3: governance + rollout + verification
   Scenario: UI shift is explicit
     Tool: Read
     Steps: Read the web UI section and list primary MVP screens.
-    Expected: Task inbox, route board, execution detail, escalation queue, outcome inspector are present.
+    Expected: Per-agent inboxes, delegated task tree, execution detail, escalation queue, outcome inspector are present.
     Evidence: .sisyphus/evidence/task-6-web-ui.md
 
   Scenario: Old UI bias remains primary
@@ -390,7 +399,7 @@ Wave 3: governance + rollout + verification
 
 - [ ] 7. Define agent directory and capability routing
 
-  **What to do**: Specify how the command center discovers available actors, capabilities, role boundaries, and preferred routing targets.
+  **What to do**: Specify how the command center discovers available actors, capabilities, role boundaries, preferred routing targets, and `.access`-based knowledge visibility.
   **Must NOT do**: Assume all agents are interchangeable executors.
 
   **Recommended Agent Profile**:
@@ -409,6 +418,7 @@ Wave 3: governance + rollout + verification
   - [ ] Capability routing uses role boundaries and specialization, not flat agent selection.
   - [ ] Availability/fallback semantics are included.
   - [ ] Human and agent actors can both exist in the model if needed.
+  - [ ] The plan explains how `.access` boundaries constrain what each agent can know about session tasks and context.
 
   **QA Scenarios**:
 

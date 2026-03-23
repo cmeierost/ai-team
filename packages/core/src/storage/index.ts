@@ -23,6 +23,8 @@ import {
   DeveloperConfigSchema,
   FileNotFoundError,
   ValidationError,
+  type LlmProviderConfig,
+  type ProviderConfig,
 } from '../types/index.js';
 import { generateAgentColor } from '../avatar/index.js';
 import {
@@ -844,6 +846,70 @@ export async function saveDeveloperConfig(workspaceRoot: string, config: Develop
   await fs.writeFile(configPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
 
   return merged;
+}
+
+// ============================================================================
+// Effective (merged) configuration
+// ============================================================================
+
+/**
+ * Overlay developer provider overrides on top of team provider registry.
+ * Only updates fields explicitly set in the developer config.
+ */
+function mergeProviderRegistries(
+  team?: Record<string, LlmProviderConfig>,
+  dev?: Record<string, ProviderConfig>,
+): Record<string, LlmProviderConfig> | undefined {
+  if (!dev) return team;
+  if (!team) return undefined;
+  const merged = { ...team };
+  for (const [key, devProvider] of Object.entries(dev)) {
+    if (merged[key]) {
+      merged[key] = {
+        ...merged[key],
+        ...(devProvider.model !== undefined ? { model: devProvider.model } : {}),
+        ...(devProvider.defaultModel !== undefined ? { defaultModel: devProvider.defaultModel } : {}),
+        ...(devProvider.contextWindow !== undefined ? { contextWindow: devProvider.contextWindow } : {}),
+        ...(devProvider.baseUrl !== undefined ? { baseUrl: devProvider.baseUrl } : {}),
+        ...(devProvider.apiKeyEnvVar !== undefined ? { apiKeyEnvVar: devProvider.apiKeyEnvVar } : {}),
+        ...(devProvider.models !== undefined ? { models: devProvider.models } : {}),
+      };
+    }
+  }
+  return merged;
+}
+
+/**
+ * Load the effective configuration by merging team config with developer
+ * overrides.  The result has the same TeamConfig shape so every downstream
+ * consumer (LLM resolution, API routes, etc.) can use it transparently.
+ *
+ * Merge rules:
+ *  - providers: developer entries overlay matching team entries field-by-field
+ *  - defaultLlmProvider: developer value wins when set
+ *  - modelKeys: developer entries overlay matching team entries
+ *  - systemModels: developer entries overlay matching team entries
+ */
+export async function loadEffectiveConfig(workspaceRoot: string): Promise<TeamConfig | undefined> {
+  const teamConfig = await loadTeamConfig(workspaceRoot);
+  if (!teamConfig) return undefined;
+
+  const devConfig = await loadDeveloperConfig(workspaceRoot);
+  if (!devConfig?.llm) return teamConfig;
+
+  const devLlm = devConfig.llm;
+
+  return {
+    ...teamConfig,
+    providers: mergeProviderRegistries(teamConfig.providers, devLlm.providers),
+    defaultLlmProvider: devLlm.defaultLlmProvider ?? teamConfig.defaultLlmProvider,
+    modelKeys: devLlm.modelKeys
+      ? { ...teamConfig.modelKeys, ...devLlm.modelKeys }
+      : teamConfig.modelKeys,
+    systemModels: devLlm.systemModels
+      ? { ...teamConfig.systemModels, ...devLlm.systemModels }
+      : teamConfig.systemModels,
+  };
 }
 
 // ============================================================================

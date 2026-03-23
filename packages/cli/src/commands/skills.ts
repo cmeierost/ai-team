@@ -37,9 +37,11 @@ function printSkills(response: SearchSkillsResponse): void {
 
     console.log(`\n${chalk.cyan(skill.name)}${assignedBadge}`);
     console.log(chalk.dim(`  ${skill.description}`));
-    console.log(chalk.dim(`  type: ${skill.type} | context: ${skill.contextLevel}`));
-    if (skill.tools.length > 0) {
-      console.log(chalk.dim(`  tools: ${skill.tools.join(', ')}`));
+    if (skill.type || skill.contextLevel) {
+      console.log(chalk.dim(`  type: ${skill.type ?? '—'} | context: ${skill.contextLevel ?? '—'}`));
+    }
+    if ((skill.tools?.length ?? 0) > 0) {
+      console.log(chalk.dim(`  tools: ${skill.tools?.join(', ')}`));
     }
   }
 

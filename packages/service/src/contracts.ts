@@ -103,8 +103,8 @@ export interface SearchSkillsOptions {
 export interface SkillCatalogEntry {
   name: string;
   description: string;
-  type: string;
-  contextLevel: string;
+  type?: string;
+  contextLevel?: string;
   tools: string[];
 }
 
@@ -435,6 +435,8 @@ export interface ToolRuntimePayloadEvent {
   toolName: string;
   outcome: 'result' | 'error' | 'denied';
   result?: unknown;
+  /** LLM-formatted representation of result — what was injected into the model's context window. */
+  resultLlm?: unknown;
   denial?: ToolDenialEvent;
 }
 

@@ -1,5 +1,5 @@
-import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
-import type { Agent, ChatMessage, Developer } from '../../types';
+import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from 'react';
+import type { Agent, ChatMessage, Developer, SessionActivatedTool } from '../../types';
 import { getAgentColor } from '../../utils/color';
 import { Avatar } from '../Avatar';
 import { MarkdownMessage } from '../MarkdownMessage';
@@ -7,6 +7,8 @@ import { RelativeTime } from '../RelativeTime';
 import { SessionGraphLoader } from '../SessionGraph';
 import { MessageDivider } from './MessageDivider';
 import { formatDeveloperName, getMessageDisplayName, isHumanMessage, resolveNavigateAgent } from './chatPanelUtils';
+import { groupToolEventsForMessage } from '../../utils/toolCallGrouping';
+import { ToolCallBlock } from './ToolCallBlock';
 
 interface MessageShellProps {
   className: string;
@@ -62,10 +64,11 @@ interface ChatMessagesViewProps {
   onToggleArchive: (index: number, currentlyArchived: boolean) => void;
   onDeleteMessage: (index: number) => void;
   onHandoffClick: (targetAgentId: string, existingSessionId?: string | null) => void;
+  activatedTools: SessionActivatedTool[];
   streaming?: boolean;
 }
 
-export function ChatMessagesView({ agent, agents, developer, currentAgentId, routeAgentId, currentSessionId, graphSessionId, messages, editingIndex, editContent, messagesContainerRef, messagesEndRef, onScroll, onGraphBack, onSelectSessionFromGraph, onSummarize, onSplitSession, onEditContentChange, onEditMessage, onCancelEdit, onCopyMessage, onToggleArchive, onDeleteMessage, onHandoffClick, streaming }: Readonly<ChatMessagesViewProps>) {
+export function ChatMessagesView({ agent, agents, developer, currentAgentId, routeAgentId, currentSessionId, graphSessionId, messages, editingIndex, editContent, messagesContainerRef, messagesEndRef, onScroll, onGraphBack, onSelectSessionFromGraph, onSummarize, onSplitSession, onEditContentChange, onEditMessage, onCancelEdit, onCopyMessage, onToggleArchive, onDeleteMessage, onHandoffClick, activatedTools, streaming }: Readonly<ChatMessagesViewProps>) {
   if (graphSessionId) {
     return (
       <>
@@ -125,6 +128,11 @@ export function ChatMessagesView({ agent, agents, developer, currentAgentId, rou
     );
   };
 
+  const toolEventsByMessage = useMemo(
+    () => groupToolEventsForMessage(messages, activatedTools),
+    [messages, activatedTools],
+  );
+
   return (
     <div className="chat-messages" ref={messagesContainerRef} onScroll={onScroll}>
       {messages.length === 0 ? (
@@ -146,6 +154,61 @@ export function ChatMessagesView({ agent, agents, developer, currentAgentId, rou
         const isEditingMessage = editingIndex === index;
         const messageClassName = `message message-${human ? 'user' : 'assistant'}${message.archived ? ' message-archived' : ''}`;
         const messageColor = human ? undefined : senderAgent ? getAgentColor(senderAgent) : undefined;
+
+        // Tool-result messages (e.g. "[tool:tool_list] {...}") are internal LLM-context
+        // records. The message only exists because appendToolHistory() ran after the
+        // tool returned — so the tool definitely completed. Use the best event from
+        // activatedTools if it has a terminal phase; otherwise synthesize a "result"
+        // event from the message content so the chip always shows the correct status.
+        const isToolResultMessage = !human && message.content.startsWith('[tool:');
+        if (isToolResultMessage) {
+          const toolNameMatch = message.content.match(/^\[tool:([^\]]+)\]/);
+          const extractedToolName = toolNameMatch?.[1] ?? 'unknown';
+
+          // Best event from the grouping (already deduped to highest phase per tool).
+          const groupedEvents = toolEventsByMessage.get(index) ?? [];
+          const matchingEvent = groupedEvents.find(
+            (e) => (e.toolResult?.toolName ?? e.toolName) === extractedToolName,
+          );
+
+          // If we already have a terminal-phase event (result/error/denied), use it
+          // as-is — it carries the full toolResult payload for the overlay viewer.
+          if (matchingEvent && matchingEvent.toolPhase !== 'start' && matchingEvent.toolPhase !== 'request') {
+            return (
+              <div key={messageKey} className="tool-call-list">
+                <ToolCallBlock key={`${extractedToolName}-${message.timestamp}`} event={matchingEvent} />
+              </div>
+            );
+          }
+
+          // No terminal event available — synthesize from message content.
+          let rawContent = message.content.replace(/^\[tool:[^\]]+\]\s*/, '');
+          rawContent = rawContent.replace(/^\[filtered:[^\]]+\]\s*/, '');
+
+          let parsedResult: unknown;
+          try {
+            parsedResult = JSON.parse(rawContent);
+          } catch {
+            parsedResult = rawContent || undefined;
+          }
+
+          const syntheticEvent: SessionActivatedTool = {
+            toolName: extractedToolName,
+            toolPhase: 'result',
+            timestamp: message.timestamp,
+            toolResult: {
+              toolName: extractedToolName,
+              outcome: 'result',
+              result: parsedResult,
+            },
+          };
+
+          return (
+            <div key={messageKey} className="tool-call-list">
+              <ToolCallBlock key={`${extractedToolName}-${message.timestamp}`} event={syntheticEvent} />
+            </div>
+          );
+        }
 
         return (
           <div key={messageKey} className="message-block">
@@ -230,6 +293,16 @@ export function ChatMessagesView({ agent, agents, developer, currentAgentId, rou
                 )}
               </div>
             </MessageShell>
+            {!human && (toolEventsByMessage.get(index)?.length ?? 0) > 0 && (
+              <div className="tool-call-list">
+                {(toolEventsByMessage.get(index) ?? []).map((toolEvent, i) => (
+                  <ToolCallBlock
+                    key={`${toolEvent.toolName}-${toolEvent.timestamp}-${i}`}
+                    event={toolEvent}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
