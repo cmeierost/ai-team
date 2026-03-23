@@ -222,6 +222,34 @@ export function toRelativePath(workspaceRoot: string, absolutePath: string): str
   return relativePath;
 }
 
+/**
+ * Renders a FileTreeNode as a compact ASCII tree string using box-drawing characters.
+ * Directories are suffixed with '/'. The root node name appears on the first line.
+ *
+ * Example output:
+ *   src/
+ *   ├── components/
+ *   │   └── Button.tsx
+ *   └── index.ts
+ */
+export function renderAsciiTree(node: FileTreeNode): string {
+  const lines: string[] = [];
+  lines.push(node.isDirectory ? `${node.name}/` : node.name);
+  renderAsciiChildren(node.children ?? [], '', lines);
+  return lines.join('\n');
+}
+
+function renderAsciiChildren(nodes: FileTreeNode[], prefix: string, lines: string[]): void {
+  for (let i = 0; i < nodes.length; i++) {
+    const child = nodes[i];
+    const isLast = i === nodes.length - 1;
+    lines.push(`${prefix}${isLast ? '└── ' : '├── '}${child.name}${child.isDirectory ? '/' : ''}`);
+    if (child.children && child.children.length > 0) {
+      renderAsciiChildren(child.children, prefix + (isLast ? '    ' : '│   '), lines);
+    }
+  }
+}
+
 // ============================================================================
 // Internal helpers
 // ============================================================================

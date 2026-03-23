@@ -487,6 +487,8 @@ export interface ToolCall {
   tool: string;
   params: Record<string, unknown>;
   result?: unknown;
+  /** LLM-formatted result produced by AgentTool.formatForLlm; undefined when no formatter ran. */
+  resultLlm?: unknown;
 }
 
 export interface CodeSuggestion {

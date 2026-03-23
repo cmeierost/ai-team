@@ -155,11 +155,22 @@ export async function dispatchToolCall(
     ? stripFileChanges(execResult.result)
     : execResult.result;
 
+  // ── Apply per-tool LLM formatting if defined ──────────────────────────────
+  const tool = ctx.toolManager.get(toolName);
+  const llmResult = execResult.ok && tool?.formatForLlm
+    ? tool.formatForLlm(strippedResult)
+    : strippedResult;
+
   const outputText = execResult.ok
-    ? serialise(strippedResult)
+    ? serialise(llmResult)
     : (execResult.error ?? 'Tool execution failed');
 
-  await appendToolHistory(ctx, toolName, outputText);
+  await appendToolHistory(
+    ctx, toolName, outputText,
+    execResult.ok ? strippedResult : undefined,
+    execResult.ok && tool?.formatForLlm ? llmResult : undefined,
+    args,
+  );
 
   const denial = classifyToolDenial(execResult.ok, strippedResult, outputText);
 
@@ -378,17 +389,30 @@ async function appendToolHistory(
   ctx: OrchestratorContext,
   toolName: string,
   output: string,
+  rawResult?: unknown,
+  llmResult?: unknown,
+  callArgs?: unknown,
 ): Promise<void> {
   const prepared = await prepareToolOutputForHistory(ctx, toolName, output);
   const content = prepared.filtered && prepared.label
     ? `[tool:${toolName}] [filtered:${prepared.label}] ${prepared.output}`
     : `[tool:${toolName}] ${prepared.output}`;
 
+  const toolCall = rawResult !== undefined
+    ? {
+        tool: toolName,
+        params: (callArgs ?? {}) as Record<string, unknown>,
+        result: rawResult,
+        ...(llmResult !== undefined ? { resultLlm: llmResult } : {}),
+      }
+    : undefined;
+
   await ctx.sessionManager.appendMessage(ctx.sessionId, {
     from: ctx.agent.id,
     content,
     timestamp: new Date().toISOString(),
     isHuman: false,
+    tool_calls: toolCall ? [toolCall] : undefined,
   });
 }
 

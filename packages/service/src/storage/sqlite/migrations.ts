@@ -256,6 +256,13 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_session_skills_session ON session_skills(session_id);
     `,
   },
+  {
+    version: 7,
+    name: 'add_tool_call_llm_result',
+    up: `
+      ALTER TABLE message_tool_calls ADD COLUMN result_llm_json TEXT;
+    `,
+  },
 ];
 
 /**

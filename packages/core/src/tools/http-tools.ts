@@ -225,6 +225,12 @@ async function fetchUrlText(url: string, timeoutMs: number): Promise<{
 export const httpFetchTool: AgentTool = {
   name: 'http_fetch',
   description: 'Fetch a URL and return filtered chunks (lines, regex/search, length) for safe LLM context usage.',
+  formatForLlm(result: unknown): unknown {
+    const r = result as { url: string; status: number; chunks: string[]; truncated: boolean; lineCount: number; charCount: number };
+    if (!r.chunks?.length) return `${r.url} (HTTP ${r.status}) — no content`;
+    const header = `${r.url} (HTTP ${r.status}, ${r.lineCount} lines, ${r.charCount} chars${r.truncated ? ', truncated' : ''})`;
+    return `${header}\n\n${r.chunks.join('\n\n')}`;
+  },
   parameters: z.object({
     url: z.string().min(1).describe('Absolute URL to fetch').refine((value) => {
       try {
@@ -286,6 +292,13 @@ export const httpFetchTool: AgentTool = {
 export const httpCrawlTool: AgentTool = {
   name: 'http_crawl',
   description: 'Crawl links from a starting URL with depth/page limits and return filtered text chunks.',
+  formatForLlm(result: unknown): unknown {
+    const r = result as { url: string; crawled: boolean; visitedCount: number; chunks: string[] };
+    if (!r.crawled) return `${r.url}: crawling disabled (set crawlEnabled=true)`;
+    const header = `${r.url}  ${r.visitedCount} page(s) crawled`;
+    if (!r.chunks?.length) return header;
+    return `${header}\n\n${r.chunks.join('\n\n')}`;
+  },
   parameters: z.object({
     url: z.string().min(1).describe('Start URL').refine((value) => {
       try {

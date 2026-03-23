@@ -60,6 +60,26 @@ export const applyPatchTool: AgentTool = {
     'Existing files MUST have been read with fs_read in the current session.',
     'New files (add hunks) do not require a prior read.',
   ].join(' '),
+  formatForLlm(result: unknown): unknown {
+    const r = result as {
+      applied?: Array<{ type: string; path: string; additions: number; deletions: number }>;
+      denied?: Array<{ path: string; reason: string }>;
+      totalFiles?: number;
+      totalAdditions?: number;
+      totalDeletions?: number;
+      error?: string;
+    };
+    if (r.error && !r.applied?.length) return `Error: ${r.error}`;
+    const lines: string[] = [];
+    if (r.totalFiles) lines.push(`${r.totalFiles} file(s): +${r.totalAdditions} -${r.totalDeletions}`);
+    for (const f of r.applied ?? []) lines.push(`  ${f.type}  ${f.path}  +${f.additions}/-${f.deletions}`);
+    if (r.denied?.length) {
+      lines.push(`Denied (${r.denied.length}):`);
+      for (const d of r.denied) lines.push(`  ${d.path}: ${d.reason}`);
+    }
+    if (r.error) lines.push(`Error: ${r.error}`);
+    return lines.join('\n') || 'No changes.';
+  },
   parameters: z.object({
     patchText: z.string().min(1).describe(
       'Standard unified diff string. Must start with --- / +++ file headers and @@ hunk markers.',
@@ -243,6 +263,12 @@ export const multiEditTool: AgentTool = {
     'Edits are applied sequentially; the file MUST have been read with fs_read first.',
     'Stops on the first failed edit and returns partial results with the error index.',
   ].join(' '),
+  formatForLlm(result: unknown): unknown {
+    const r = result as { path: string; succeeded: number; totalEdits: number; failedAtIndex?: number; error?: string };
+    if (r.error && r.succeeded === 0) return `Error in ${r.path}: ${r.error}`;
+    if (r.succeeded === r.totalEdits) return `${r.succeeded}/${r.totalEdits} edits applied to ${r.path}`;
+    return `${r.succeeded}/${r.totalEdits} edits applied to ${r.path} (failed at #${(r.failedAtIndex ?? r.succeeded) + 1}: ${r.error ?? 'unknown'})`;
+  },
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute path to the file to edit'),
     edits: z.array(
@@ -350,6 +376,12 @@ export const fsEditTool: AgentTool = {
     'Use `replaceAll: true` to replace every occurrence; default replaces only the first.',
     'Always read the file with `fs_read` immediately before calling this tool.',
   ].join(' '),
+  formatForLlm(result: unknown): unknown {
+    const r = result as { path?: { relative?: string }; edited: boolean; error?: string };
+    const filePath = (r.path as Record<string, string> | undefined)?.relative ?? '';
+    if (r.edited) return `Edited: ${filePath}`;
+    return `Not edited: ${filePath}${r.error ? ' — ' + r.error : ''}`;
+  },
   parameters: z.object({
     filePath:   z.string().describe('Relative or absolute path to the file to edit'),
     oldString:  z.string().min(1).describe('Exact string to find and replace (must be unique unless replaceAll is true)'),

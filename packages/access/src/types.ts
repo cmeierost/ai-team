@@ -149,5 +149,11 @@ export interface AgentTool<Ctx extends ToolContext = ToolContext> {
   permissionCheck?: PermissionDescriptor;
   examples?: string[];
   tags?: string[];
+  /**
+   * Optional formatter applied to the raw tool result before it is sent to the LLM.
+   * When defined, the LLM receives the formatted value rather than the raw JSON.
+   * The raw result is still persisted separately.
+   */
+  formatForLlm?(result: unknown): unknown;
   execute(params: unknown, context: Ctx): Promise<unknown>;
 }

@@ -212,6 +212,13 @@ export const updateEmployeeLlmTool: AgentTool = {
 export const runCliTool: AgentTool = {
   name: 'tool_run',
   description: 'Execute an allowed command-line tool with args. Command must be registered first via tool_register_cli.',
+  formatForLlm(result: unknown): unknown {
+    const r = result as { command: string; args: string[]; stdout: string; stderr?: string };
+    const cmd = `$ ${r.command}${r.args?.length ? ' ' + r.args.join(' ') : ''}`;
+    const out = r.stdout?.trim() || '(no output)';
+    const err = r.stderr?.trim();
+    return err ? `${cmd}\n\n${out}\n\nstderr:\n${err}` : `${cmd}\n\n${out}`;
+  },
   parameters: z.object({
     command: z.string().min(1).describe('Executable name, for example git'),
     args: z.array(z.string()).optional().describe('Command arguments as array, for example ["status", "--short"]'),

@@ -55,6 +55,12 @@ export const codeSearchTool: AgentTool = {
     'Search external libraries, APIs, and SDK documentation for code examples and reference material. ' +
     'Use this when you need context about a third-party library, framework API, or programming concept ' +
     'that is not part of the local codebase. Returns relevant code snippets and documentation.',
+  formatForLlm(result: unknown): unknown {
+    const r = result as { query: string; result: string | null; error?: string };
+    if (r.error) return `codesearch error: ${r.error}`;
+    if (!r.result) return `No results for: ${r.query}`;
+    return r.result;
+  },
   parameters: z.object({
     query: z
       .string()

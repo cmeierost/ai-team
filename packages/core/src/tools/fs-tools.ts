@@ -6,8 +6,9 @@ import {
   readFile, existsPath, getPathInfo,
   createFile, writeFile, deletePath, createDirectory,
   emitFileEdited, emitFileCreated,
+  renderAsciiTree,
 } from '@ai-team/fs';
-import type { ReadFileResult } from '@ai-team/fs';
+import type { ReadFileResult, FileTreeNode } from '@ai-team/fs';
 import type { AgentTool, ToolContext } from '../types/index.js';
 import {
   canListViaAccessEngine,
@@ -320,6 +321,13 @@ export const fsMkdirTool: AgentTool = {
 export const fsListTool: AgentTool = {
   name: 'fs_list',
   description: 'List directory entries through @ai-team/access.',
+  formatForLlm(result: unknown): unknown {
+    const r = result as { path: string; entries: Array<{ name: string; isDirectory: boolean }>; denied: number };
+    if (!r.entries?.length) return `${r.path}: (empty or not accessible)`;
+    const lines = r.entries.map(e => e.isDirectory ? `${e.name}/` : e.name);
+    const header = `${r.path}  (${r.entries.length} entries${r.denied > 0 ? `, ${r.denied} denied` : ''})`;
+    return `${header}\n\n${lines.join('\n')}`;
+  },
   parameters: z.object({
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
     includeHidden: z.boolean().optional().describe('Include hidden entries'),
@@ -454,6 +462,16 @@ export const fsTreeTool: AgentTool = {
       },
     };
   },
+  formatForLlm(result: unknown): unknown {
+    const r = result as { path: string; tree: FileTreeNode | null; denied: number; access: unknown };
+    if (!r.tree) return result;
+    return {
+      path: r.path,
+      tree_ascii: renderAsciiTree(r.tree),
+      denied: r.denied,
+      access: r.access,
+    };
+  },
 };
 
 export const fsSearchContentTool: AgentTool = {
@@ -544,6 +562,13 @@ export const fsSearchMetadataTool: AgentTool = {
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
     maxResults: z.number().int().min(1).max(1000).optional().describe('Maximum number of matches (default 200)'),
   }),
+  formatForLlm(result: unknown): unknown {
+    const r = result as { pattern: string; path: string; numMatches: number; truncated: boolean; denied: number; matches: Array<{ path: string; size: number; mtime: string }> };
+    const header = `pattern: ${r.pattern}  root: ${r.path}\n${r.numMatches} files${r.truncated ? ' (truncated)' : ''}${r.denied ? `, ${r.denied} denied` : ''}`;
+    if (!r.matches?.length) return header;
+    const lines = r.matches.map(m => `${m.path}  ${m.size}B  ${m.mtime}`);
+    return `${header}\n\n${lines.join('\n')}`;
+  },
   async execute(params, context) {
     const engineCheck = getAccessEngineOrDeny(context);
     const {

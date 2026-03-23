@@ -82,12 +82,13 @@ export class SqliteMessageStorage implements IMessageStorage {
     if (message.tool_calls && message.tool_calls.length > 0) {
       for (const toolCall of message.tool_calls) {
         statements.push({
-          sql: 'INSERT INTO message_tool_calls (message_id, tool_name, params_json, result_json) VALUES (?, ?, ?, ?)',
+          sql: 'INSERT INTO message_tool_calls (message_id, tool_name, params_json, result_json, result_llm_json) VALUES (?, ?, ?, ?, ?)',
           params: [
             messageId,
             toolCall.tool,
             JSON.stringify(toolCall.params),
-            toolCall.result ? JSON.stringify(toolCall.result) : null,
+            toolCall.result !== undefined ? JSON.stringify(toolCall.result) : null,
+            toolCall.resultLlm !== undefined ? JSON.stringify(toolCall.resultLlm) : null,
           ],
         });
       }
@@ -673,13 +674,14 @@ export class SqliteMessageStorage implements IMessageStorage {
     
     // Load tool calls
     const toolCallRows = await this.connection.all<any>(
-      'SELECT tool_name, params_json, result_json FROM message_tool_calls WHERE message_id = ?',
+      'SELECT tool_name, params_json, result_json, result_llm_json FROM message_tool_calls WHERE message_id = ?',
       [messageId]
     );
     const tool_calls = toolCallRows.map(r => ({
       tool: r.tool_name,
       params: JSON.parse(r.params_json),
       result: r.result_json ? JSON.parse(r.result_json) : undefined,
+      resultLlm: r.result_llm_json ? JSON.parse(r.result_llm_json) : undefined,
     }));
     
     // Load suggestions
@@ -736,8 +738,9 @@ export class SqliteMessageStorage implements IMessageStorage {
         tool_name: string;
         params_json: string;
         result_json: string | null;
+        result_llm_json: string | null;
       }>(
-        `SELECT message_id, tool_name, params_json, result_json
+        `SELECT message_id, tool_name, params_json, result_json, result_llm_json
          FROM message_tool_calls
          WHERE message_id IN (${placeholders})`,
         messageIds,
@@ -767,12 +770,13 @@ export class SqliteMessageStorage implements IMessageStorage {
       }
     }
 
-    const toolCallsByMessage = new Map<number, Array<{ tool: string; params: unknown; result?: unknown }>>();
+    const toolCallsByMessage = new Map<number, Array<{ tool: string; params: unknown; result?: unknown; resultLlm?: unknown }>>();
     for (const row of toolCallRows) {
       const parsed = {
         tool: row.tool_name,
         params: JSON.parse(row.params_json),
         result: row.result_json ? JSON.parse(row.result_json) : undefined,
+        resultLlm: row.result_llm_json ? JSON.parse(row.result_llm_json) : undefined,
       };
       const existing = toolCallsByMessage.get(row.message_id);
       if (existing) {

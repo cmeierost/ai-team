@@ -22,6 +22,12 @@ export const semanticSearchTool: AgentTool = {
     query: z.string().describe('Natural language search query'),
     maxResults: z.number().optional().describe('Maximum number of results'),
   }),
+  formatForLlm(result: unknown): unknown {
+    const r = result as { query: string; results: Array<{ filePath: string; score: number; snippet: string }> };
+    if (!r.results?.length) return `query: ${r.query}\n\nNo results found.`;
+    const parts = r.results.map(e => `${e.filePath} (score=${e.score}):\n${e.snippet}`);
+    return `query: ${r.query}\n${r.results.length} results\n\n${parts.join('\n\n---\n\n')}`;
+  },
   async execute(params, context) {
     const { query, maxResults = 10 } = params as { query: string; maxResults?: number };
 
@@ -105,6 +111,11 @@ export const semanticSearchTool: AgentTool = {
 export const getErrorsTool: AgentTool = {
   name: 'tool_get_errors',
   description: 'Get compile or lint errors for specified files.',
+  formatForLlm(result: unknown): unknown {
+    const r = result as { errors: string[] };
+    if (!r.errors?.length) return 'No errors found.';
+    return `${r.errors.length} error(s):\n\n${r.errors.join('\n')}`;
+  },
   parameters: z.object({
     filePaths: z.array(z.string()).optional().describe('Files to check (omit for all files)'),
   }),

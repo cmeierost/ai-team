@@ -43,6 +43,7 @@ function formatLspResult(result: LspResult): Record<string, unknown> {
 export const findSymbolTool: AgentTool = {
   name: 'find_symbol',
   description: 'Find symbol definitions (functions, classes, variables) via the connected IDE language server. Requires read permission.',
+  formatForLlm(result: unknown): unknown { return formatLspForLlm(result as LspFormatInput); },
   parameters: z.object({
     symbolName: z.string().describe('Name of the symbol to find'),
     filePath: z.string().optional().describe('File to search in (omit for workspace-wide search)'),
@@ -111,6 +112,7 @@ function filterSymbolsByName(symbols: any[], name: string): any[] {
 export const findReferencesTool: AgentTool = {
   name: 'find_references',
   description: 'Find all references/usages of a symbol via the connected IDE language server. Position the cursor on a symbol usage to find all other references. Requires read permission.',
+  formatForLlm(result: unknown): unknown { return formatLspForLlm(result as LspFormatInput); },
   parameters: z.object({
     filePath: z.string().describe('File containing the symbol'),
     line: z.number().int().describe('1-based line number of the symbol'),
@@ -148,6 +150,7 @@ export const findReferencesTool: AgentTool = {
 export const lspTool: AgentTool = {
   name: 'lsp',
   description: 'Execute a language server operation (goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, prepareCallHierarchy, incomingCalls, outgoingCalls, getDiagnostics) via the connected IDE. Lines are 1-based.',
+  formatForLlm(result: unknown): unknown { return formatLspForLlm(result as LspFormatInput); },
   parameters: z.object({
     operation: z.enum([
       'goToDefinition',
@@ -194,6 +197,44 @@ export const lspTool: AgentTool = {
   },
 };
 
+// ── LSP formatter helpers ────────────────────────────────────────────────
+
+type LspFormatInput = Record<string, unknown>;
+
+function flattenSymbols(syms: Array<{ name: string; kind: string; path: string; line: number; children?: unknown[] }>, indent = ''): string[] {
+  const out: string[] = [];
+  for (const s of syms) {
+    out.push(`${indent}${s.path}:${s.line} — ${s.name} (${s.kind})`);
+    if (s.children?.length) out.push(...flattenSymbols(s.children as typeof syms, indent + '  '));
+  }
+  return out;
+}
+
+function formatLspForLlm(r: LspFormatInput): unknown {
+  const locs = r['locations'] as Array<{ path: string; line: number; character: number; preview?: string }> | undefined;
+  const syms = r['symbols'] as Array<{ name: string; kind: string; path: string; line: number; children?: unknown[] }> | undefined;
+  const items = r['items'] as Array<{ name: string; kind: string; path: string; line: number }> | undefined;
+  const diags = r['diagnostics'] as Array<{ path: string; line: number; severity: string; message: string }> | undefined;
+  const op = r['operation'] ? `operation: ${r['operation']}\n` : '';
+  if (locs) {
+    const lines = locs.map(l => `${l.path}:${l.line}:${l.character}${l.preview ? ` — ${l.preview.trim()}` : ''}`);
+    return `${op}${locs.length} locations\n\n${lines.join('\n')}`;
+  }
+  if (syms) {
+    return `${op}${syms.length} symbols\n\n${flattenSymbols(syms).join('\n')}`;
+  }
+  if (items) {
+    const lines = items.map(i => `${i.path}:${i.line} — ${i.name} (${i.kind})`);
+    return `${op}${items.length} call items\n\n${lines.join('\n')}`;
+  }
+  if (diags) {
+    const lines = diags.map(d => `${d.path}:${d.line} [${d.severity}] ${d.message}`);
+    return `${op}${diags.length} diagnostics\n\n${lines.join('\n')}`;
+  }
+  // hover / error / message passthrough
+  return r;
+}
+
 /**
  * Fast grep-style text search
  */
@@ -206,6 +247,13 @@ export const grepCodeTool: AgentTool = {
     caseSensitive: z.boolean().optional().describe('Force case-sensitive match (default: ripgrep smart-case)'),
     limit:         z.number().int().min(1).optional().describe('Max matches to return per file (default: unlimited)'),
   }),
+  formatForLlm(result: unknown): unknown {
+    const r = result as { pattern: string; matchCount: number; fileCount: number; matches: Array<{ filePath: string; lineNumber: number; line: string }> };
+    const header = `pattern: ${r.pattern}\n${r.matchCount} matches in ${r.fileCount} files`;
+    if (!r.matches?.length) return header;
+    const lines = r.matches.map(m => `${m.filePath}:${m.lineNumber}: ${m.line}`);
+    return `${header}\n\n${lines.join('\n')}`;
+  },
   async execute(params, context: ToolContext) {
     const { pattern, filePatterns, limit } = params as {
       pattern: string;
@@ -241,6 +289,27 @@ export const grepCodeTool: AgentTool = {
 export const analyzeComplexityTool: AgentTool = {
   name: 'analyze_complexity',
   description: 'Analyze code complexity metrics (cyclomatic complexity, LOC, etc.) for TypeScript/JavaScript files. Requires read permission.',
+  formatForLlm(result: unknown): unknown {
+    const r = result as {
+      filePath: string;
+      functionName?: string;
+      complexity?: { cyclomaticComplexity: number; linesOfCode: number; parameters: number; nestedDepth: number };
+      functions?: Array<{ name: string; startLine: number; isAsync: boolean; isExported: boolean; complexity: { cyclomaticComplexity: number; linesOfCode: number; parameters: number; nestedDepth: number } }>;
+    };
+    if (r.functionName && r.complexity) {
+      const c = r.complexity;
+      return `${r.filePath} — ${r.functionName}\ncyclo=${c.cyclomaticComplexity}  loc=${c.linesOfCode}  params=${c.parameters}  depth=${c.nestedDepth}`;
+    }
+    if (r.functions) {
+      const lines = r.functions.map(f => {
+        const c = f.complexity;
+        const flags = [f.isAsync ? 'async' : '', f.isExported ? 'export' : ''].filter(Boolean).join(' ');
+        return `L${f.startLine}  ${f.name}${flags ? ` (${flags})` : ''}  cyclo=${c.cyclomaticComplexity}  loc=${c.linesOfCode}  depth=${c.nestedDepth}`;
+      });
+      return `${r.filePath}  ${r.functions.length} functions\n\n${lines.join('\n')}`;
+    }
+    return result;
+  },
   parameters: z.object({
     filePath: z.string().describe('File path to analyze'),
     functionName: z.string().optional().describe('Specific function to analyze (omit for all functions)'),
