@@ -36,6 +36,7 @@ availableFor:
   - ownership-decisions
   - organizational-alignment
   - doctrine-updates
+llm: {}
 collaborations:
   - agentId: emily-davis
     comment: 'Team shape, ownership design, and organization changes.'

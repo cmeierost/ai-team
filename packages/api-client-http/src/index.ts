@@ -116,8 +116,8 @@ export interface AiTeamHttpClient {
   disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
   toolAllow(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
   toolDeny(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
-  accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
-  accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
+  permissionAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
+  permissionDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   /** Get the full handoff session thread for any session in the chain */
@@ -398,7 +398,7 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     return response.json();
   }
 
-  async accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+  async permissionAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
     const mode: PathMode = options.mode ?? 'read';
     const response = await fetch(`${this.baseUrl}/api/files/agents/${encodeURIComponent(options.agent)}/access_allow`, {
       method: 'POST',
@@ -416,7 +416,7 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     return response.json();
   }
 
-  async accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+  async permissionDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
     const mode: PathMode = options.mode ?? 'read';
     const response = await fetch(`${this.baseUrl}/api/files/agents/${encodeURIComponent(options.agent)}/access_deny`, {
       method: 'POST',

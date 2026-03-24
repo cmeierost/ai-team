@@ -18,7 +18,7 @@ import {
   ToolCatalogEntry,
   ToolContext,
 } from '../types/index.js';
-import type { AccessEngine, AccessVerdict, PermissionDescriptor } from '@ai-team/access';
+import type { PermissionEngine, AccessVerdict, PermissionDescriptor } from '@ai-team/permission';
 import type { LspProvider } from '@ai-team/ide-interface';
 import { ContextManager } from '../context/index.js';
 
@@ -175,14 +175,14 @@ function evaluatePermissionDescriptor(
 export class ToolManager {
   private readonly tools = new Map<string, AgentTool>();
   private readonly contextManager: ContextManager;
-  /** Optional AccessEngine for richer verdicts and delegation support. */
-  readonly accessEngine?: AccessEngine;
+  /** Optional PermissionEngine for richer verdicts and delegation support. */
+  readonly permissionEngine?: PermissionEngine;
   /** Optional LSP provider injected into tool context. */
   private _lsp?: LspProvider;
 
-  constructor(workspaceRoot: string, engine?: AccessEngine) {
+  constructor(workspaceRoot: string, engine?: PermissionEngine) {
     this.contextManager = new ContextManager(workspaceRoot, undefined, engine);
-    this.accessEngine = engine;
+    this.permissionEngine = engine;
   }
 
   /** Set the LSP provider that tools will receive in their context. */
@@ -332,7 +332,7 @@ export class ToolManager {
     }
 
     // Execution with timeout
-    const toolContext: ToolContext = { ...context, agent, agentId: agent.id, accessEngine: this.accessEngine, lsp: this._lsp };
+    const toolContext: ToolContext = { ...context, agent, agentId: agent.id, permissionEngine: this.permissionEngine, lsp: this._lsp };
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     try {
@@ -382,13 +382,13 @@ export class ToolManager {
     return results;
   }
 
-  // ── AccessEngine integration ──────────────────────────────────────────────
+  // ── PermissionEngine integration ──────────────────────────────────────────────
 
   /**
-   * Check a tool call via the AccessEngine, returning a full AccessVerdict
+   * Check a tool call via the PermissionEngine, returning a full AccessVerdict
    * with per-path breakdown and alternative contexts.
    *
-   * Returns undefined when no AccessEngine is configured.
+   * Returns undefined when no PermissionEngine is configured.
    */
   checkToolCallAccess(
     agent: Agent,
@@ -396,8 +396,8 @@ export class ToolManager {
     args: Record<string, unknown>,
     cwd: string,
   ): AccessVerdict | undefined {
-    if (!this.accessEngine) return undefined;
-    return this.accessEngine.checkToolCall(toolName, args, cwd, agent.id);
+    if (!this.permissionEngine) return undefined;
+    return this.permissionEngine.checkToolCall(toolName, args, cwd, agent.id);
   }
 
   // ── Introspection ─────────────────────────────────────────────────────────

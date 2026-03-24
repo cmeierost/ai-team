@@ -40,7 +40,7 @@ The authoritative ai-team customization layer lives under `.ai-team/`. Use `.git
 - Install dependencies with `pnpm install`.
 - Build all packages with `pnpm -r build` when shared contracts or multiple packages change.
 - Targeted checks:
-  - `packages/access/**`: `pnpm --filter @ai-team/access build` and `pnpm --filter @ai-team/access exec vitest run`
+  - `packages/permission/**`: `pnpm --filter @ai-team/permission build` and `pnpm --filter @ai-team/permission exec vitest run`
   - `packages/core/**`: `pnpm --filter @ai-team/core build` and `pnpm --filter @ai-team/core exec -- vitest run`
   - `packages/cli/**`: `pnpm --filter @ai-team/cli build` and `pnpm --filter @ai-team/cli exec vitest run`
   - `packages/vscode/**`: `pnpm --filter @ai-team/vscode build`

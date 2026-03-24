@@ -34,7 +34,7 @@ describe('/tool slash command', () => {
       ctx.agent,
       'tool_can_i',
       { path: 'docs/readme.md' },
-      { workspaceRoot: '/workspace' },
+      { agentId: 'hr-director', workspaceRoot: '/workspace' },
     );
 
     expect(emit).toHaveBeenCalledWith(
@@ -85,7 +85,7 @@ describe('/list slash command', () => {
       ctx.agent,
       'team_list',
       {},
-      { workspaceRoot: '/workspace' },
+      { agentId: 'michael-brown', workspaceRoot: '/workspace' },
     );
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'log', level: 'info' }),

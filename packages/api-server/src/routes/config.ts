@@ -3,6 +3,7 @@ import {
   AgentManager,
   TeamConfigSchema,
   loadTeamConfig,
+  loadEffectiveConfig,
   saveTeamConfig,
   loadUserConfig,
   saveUserConfig,
@@ -46,7 +47,7 @@ export function createConfigRouter(workspaceRoot: string): Router {
 
   router.get('/', async (req: any, res: any, next: any) => {
     try {
-      const config = await loadTeamConfig(workspaceRoot);
+      const config = await loadEffectiveConfig(workspaceRoot);
       res.json(config ?? { version: '1' });
     } catch (err) {
       next(err);
@@ -59,7 +60,8 @@ export function createConfigRouter(workspaceRoot: string): Router {
       const merged = { ...existing, ...req.body };
       const validated = TeamConfigSchema.parse(merged);
       await saveTeamConfig(workspaceRoot, validated);
-      res.json(validated);
+      const effective = await loadEffectiveConfig(workspaceRoot);
+      res.json(effective ?? validated);
     } catch (err) {
       next(err);
     }

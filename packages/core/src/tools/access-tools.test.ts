@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ToolManager } from './tool-manager.js';
 import { ALL_TOOLS } from './index.js';
-import { createAccessEngine } from '../context/access-adapter.js';
+import { createPermissionEngine } from '../context/permission-adapter.js';
 import { ContextLevel, type Agent } from '../types/index.js';
 
 function makeAgent(id: string, readPatterns: string[] = ['**']): Agent {
@@ -32,7 +32,7 @@ describe('access introspection tools', () => {
     try {
       const a = makeAgent('a', ['src/**']);
       const b = makeAgent('b', ['docs/**']);
-      const engine = createAccessEngine({ workspaceRoot, agents: [a, b] });
+      const engine = createPermissionEngine({ workspaceRoot, agents: [a, b] });
 
       const manager = new ToolManager(workspaceRoot, engine);
       for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
@@ -52,7 +52,7 @@ describe('access introspection tools', () => {
     try {
       const a = makeAgent('a', ['src/**']);
       const b = makeAgent('b', ['docs/**']);
-      const engine = createAccessEngine({ workspaceRoot, agents: [a, b] });
+      const engine = createPermissionEngine({ workspaceRoot, agents: [a, b] });
 
       const manager = new ToolManager(workspaceRoot, engine);
       for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);

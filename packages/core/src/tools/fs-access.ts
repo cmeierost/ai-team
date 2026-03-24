@@ -17,17 +17,17 @@ export interface FsPathAccessEnvelope {
 export const accessRightSchema = z.enum(['read', 'write', 'create', 'delete', 'list']);
 export type AccessRight = z.infer<typeof accessRightSchema>;
 
-export function getAccessEngineOrDeny(context: ToolContext): { ok: true } | { ok: false; reason: string } {
-  if (context.accessEngine) return { ok: true };
+export function getPermissionEngineOrDeny(context: ToolContext): { ok: true } | { ok: false; reason: string } {
+  if (context.permissionEngine) return { ok: true };
   return {
     ok: false,
-    reason: 'AccessEngine is required for fs_* tools so all access patterns are evaluated by @ai-team/access.',
+    reason: 'PermissionEngine is required for fs_* tools so all access patterns are evaluated by @ai-team/permission.',
   };
 }
 
-export function canListViaAccessEngine(context: ToolContext, targetPath: string): boolean {
-  if (!context.accessEngine) return false;
-  return context.accessEngine.checkPath(
+export function canListViaPermissionEngine(context: ToolContext, targetPath: string): boolean {
+  if (!context.permissionEngine) return false;
+  return context.permissionEngine.checkPath(
     targetPath,
     'list',
     context.workspaceRoot,
@@ -49,7 +49,7 @@ export interface FilterTreeResult {
 
 export function filterTreeByListAccess(context: ToolContext, node: FileTreeNode): FilterTreeResult {
   const nodePath = node.relativePath || '.';
-  const nodeAllowed = canListViaAccessEngine(context, nodePath);
+  const nodeAllowed = canListViaPermissionEngine(context, nodePath);
 
   // Leaf node (file): return based on direct access only
   if (!node.children || node.children.length === 0) {
@@ -96,10 +96,10 @@ export function toFsPathAccessEnvelope(
     | 'multiedit',
   targetPath: string,
 ): FsPathAccessEnvelope {
-  if (!context.accessEngine) {
+  if (!context.permissionEngine) {
     return {
       allowed: false,
-      explanation: 'AccessEngine is required for fs_* tools so all access patterns are evaluated by @ai-team/access.',
+      explanation: 'PermissionEngine is required for fs_* tools so all access patterns are evaluated by @ai-team/permission.',
       alternativeContexts: [],
     };
   }
@@ -113,7 +113,7 @@ export function toFsPathAccessEnvelope(
       ? { filePath: targetPath }
       : { path: targetPath };
 
-  const verdict = context.accessEngine.checkToolCall(toolName, args, context.workspaceRoot, context.agent.id);
+  const verdict = context.permissionEngine.checkToolCall(toolName, args, context.workspaceRoot, context.agent.id);
 
   const blockedByPatterns = Array.from(
     new Set(

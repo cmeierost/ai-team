@@ -1,8 +1,8 @@
 import {
   getCachedFileTree,
-  loadAgentAccessPatterns,
+  loadAgentAccessPatterns as loadAgentPermissionPatterns,
   loadTeamConfig,
-  saveAgentAccessPatterns,
+  saveAgentAccessPatterns as saveAgentPermissionPatterns,
   saveTeamConfig,
   AgentManager,
   type Agent,
@@ -129,7 +129,7 @@ async function syncAgentFrontmatterPermissions(
 /**
  * Add a path to an agent's access pattern file.
  */
-export async function agentAllowPathCommand(
+export async function agentPermissionPathCommand(
   workspaceRoot: string,
   agentQuery: string,
   filePath: string,
@@ -137,23 +137,23 @@ export async function agentAllowPathCommand(
 ): Promise<AgentPathResult> {
   const agent = await resolveOneAgent(workspaceRoot, agentQuery);
 
-  const accessPatterns = await loadAgentAccessPatterns(workspaceRoot, agent.id);
-  const current = accessPatterns[mode] ?? [];
+  const permissionPatterns = await loadAgentPermissionPatterns(workspaceRoot, agent.id);
+  const current = permissionPatterns[mode] ?? [];
 
   const nextPatterns = current.includes(filePath)
-    ? accessPatterns
-    : { ...accessPatterns, [mode]: [...current, filePath] };
+    ? permissionPatterns
+    : { ...permissionPatterns, [mode]: [...current, filePath] };
 
-  await saveAgentAccessPatterns(workspaceRoot, agent.id, nextPatterns);
+  await saveAgentPermissionPatterns(workspaceRoot, agent.id, nextPatterns);
   const updated = await syncAgentFrontmatterPermissions(agent);
 
   return { agent: updated, paths: nextPatterns[mode] };
 }
 
 /**
- * Alias for agentAllowPathCommand using governance naming.
+ * Alias for agentPermissionPathCommand using governance naming.
  */
-export async function accessAllowCommand(
+export async function permissionAllowCommand(
   workspaceRoot: string,
   agentQuery: string,
   filePath: string,
@@ -167,7 +167,7 @@ export async function accessAllowCommand(
     `Approve access_allow by ${actor.name} (${actor.id}) for target agent '${agentQuery}', mode '${mode}', path '${filePath}'?`,
   );
 
-  return agentAllowPathCommand(workspaceRoot, agentQuery, filePath, mode);
+  return agentPermissionPathCommand(workspaceRoot, agentQuery, filePath, mode);
 }
 
 /**
@@ -181,7 +181,7 @@ export async function agentDisallowPathCommand(
 ): Promise<AgentPathResult> {
   const agent = await resolveOneAgent(workspaceRoot, agentQuery);
 
-  const accessPatterns = await loadAgentAccessPatterns(workspaceRoot, agent.id);
+  const accessPatterns = await loadAgentPermissionPatterns(workspaceRoot, agent.id);
   const current = accessPatterns[mode] ?? [];
   const next = current.filter((p) => p !== filePath);
 
@@ -189,7 +189,7 @@ export async function agentDisallowPathCommand(
     ? accessPatterns
     : { ...accessPatterns, [mode]: next };
 
-  await saveAgentAccessPatterns(workspaceRoot, agent.id, nextPatterns);
+  await saveAgentPermissionPatterns(workspaceRoot, agent.id, nextPatterns);
   const updated = await syncAgentFrontmatterPermissions(agent);
 
   return { agent: updated, paths: nextPatterns[mode] };
@@ -198,7 +198,7 @@ export async function agentDisallowPathCommand(
 /**
  * Alias for agentDisallowPathCommand using governance naming.
  */
-export async function accessDenyCommand(
+export async function permissionDenyCommand(
   workspaceRoot: string,
   agentQuery: string,
   filePath: string,

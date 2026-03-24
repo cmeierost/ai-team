@@ -37,20 +37,20 @@ Editor-local workflows use a dedicated IDE bridge:
 
 ## Main package responsibilities
 
-### `@ai-team/access`
+### `@ai-team/permission`
 
-- standalone file-path access rights policy engine
+- standalone file-path permission rights policy engine
 - layered contexts with deny-before-allow semantics
 - operation-aware: shell command and tool call path extraction
 - structured verdicts with alternative-context suggestions for delegation
-- powers per-agent `.ai-team/agents/<agent-id>.access` path policies
+- powers per-agent `.ai-team/agents/<agent-id>.perm` path policies
 
 ### `@ai-team/core`
 
 - UI-free domain logic and shared types
 - workspace-backed file/domain operations
 - agent, team, skill, context, and tool primitives
-- adapter layer bridging Agent/FileTreeConfig types to `@ai-team/access`
+- adapter layer bridging Agent/FileTreeConfig types to `@ai-team/permission`
 
 ### `@ai-team/service`
 
@@ -99,7 +99,7 @@ flowchart LR
     IDE[@ai-team/ide-interface]
     SERVICE[@ai-team/service]
     CORE[@ai-team/core]
-    ACCESS[@ai-team/access]
+    ACCESS[@ai-team/permission]
   end
 
   STATE[.ai-team/* runtime state]
@@ -209,8 +209,8 @@ In short: the architecture direction is clear, but the frontend is still mid-mig
 
 ## Access and file-system model (current)
 
-- File-path rights are evaluated by the `@ai-team/access` engine via the core access adapter.
-- Agent-specific path rules live in `.ai-team/agents/<agent-id>.access`.
+- File-path rights are evaluated by the `@ai-team/permission` engine via the core permission adapter.
+- Agent-specific path rules live in `.ai-team/agents/<agent-id>.perm`.
 - `.agent.yml` files are runtime metadata sidecars and should not carry file-path access globs.
 - Rights inheritance:
   - `write => read + list`

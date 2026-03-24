@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ContextLevel, type Agent, type PermissionConfig } from '../types/index.js';
-import { createAccessEngine } from '../context/access-adapter.js';
+import { createPermissionEngine } from '../context/permission-adapter.js';
 import { ToolManager } from './tool-manager.js';
 import { ALL_TOOLS } from './index.js';
 import { stripLineNumberPrefixes } from './edit-tools.js';
@@ -240,7 +240,7 @@ async function createWorkspace(): Promise<string> {
 }
 
 function setupManager(workspaceRoot: string, agent: Agent) {
-  const engine = createAccessEngine({ workspaceRoot, agents: [agent] });
+  const engine = createPermissionEngine({ workspaceRoot, agents: [agent] });
   const manager = new ToolManager(workspaceRoot, engine);
   for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
   return { engine, manager };

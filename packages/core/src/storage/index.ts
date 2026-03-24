@@ -32,7 +32,7 @@ import {
   parseAccessFile,
   serializePatternSetToAccessFile,
   type AccessPatternSet,
-} from '@ai-team/access';
+} from '@ai-team/permission';
 
 function normalizeText(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -573,7 +573,7 @@ export async function ensureAiTeamDirectory(workspaceRoot: string): Promise<void
 }
 
 // ============================================================================
-// Agent access files (.ai-team/agents/<agentId>.access)
+// Agent permission files (.ai-team/agents/<agentId>.perm)
 // ============================================================================
 
 const EMPTY_AGENT_ACCESS_PATTERNS: AccessPatternSet = {
@@ -584,18 +584,18 @@ const EMPTY_AGENT_ACCESS_PATTERNS: AccessPatternSet = {
 };
 
 /**
- * Get the canonical access file path for an agent.
+ * Get the canonical permission file path for an agent.
  */
 export function getAgentAccessFilePath(workspaceRoot: string, agentId: string): string {
-  return path.join(workspaceRoot, '.ai-team', 'agents', `${agentId}.access`);
+  return path.join(workspaceRoot, '.ai-team', 'agents', `${agentId}.perm`);
 }
 
 function getLegacyAgentAccessFilePath(workspaceRoot: string, agentId: string): string {
-  return path.join(workspaceRoot, '.ai-team', 'agents', `.${agentId}.access`);
+  return path.join(workspaceRoot, '.ai-team', 'agents', `.${agentId}.perm`);
 }
 
 /**
- * Load per-agent access patterns from `.ai-team/agents/<agentId>.access`.
+ * Load per-agent access patterns from `.ai-team/agents/<agentId>.perm`.
  * Returns empty arrays when the file does not exist.
  */
 export async function loadAgentAccessPatterns(workspaceRoot: string, agentId: string): Promise<AccessPatternSet> {
@@ -639,7 +639,7 @@ export async function loadAgentAccessPatterns(workspaceRoot: string, agentId: st
 }
 
 /**
- * Persist per-agent access patterns to `.ai-team/agents/<agentId>.access`.
+ * Persist per-agent access patterns to `.ai-team/agents/<agentId>.perm`.
  * If every mode is empty, the file is removed when present.
  */
 export async function saveAgentAccessPatterns(

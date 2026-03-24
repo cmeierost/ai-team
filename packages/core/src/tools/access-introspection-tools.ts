@@ -3,7 +3,7 @@ import type { AgentTool } from '../types/index.js';
 import {
   accessRightSchema,
   type AccessRight,
-  getAccessEngineOrDeny,
+  getPermissionEngineOrDeny,
   resolveFsAbsolutePath,
   toFsPathMeta,
 } from './fs-access.js';
@@ -16,7 +16,7 @@ export const whoHasAccessTool: AgentTool = {
     right: accessRightSchema.optional().describe('Access right to evaluate (default: list)'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
+    const engineCheck = getPermissionEngineOrDeny(context);
     const { path: targetPath, right = 'list' } = params as { path: string; right?: AccessRight };
     const absolutePath = resolveFsAbsolutePath(context, targetPath);
 
@@ -41,10 +41,10 @@ export const whoHasAccessTool: AgentTool = {
       };
     }
 
-    const contextIds = context.accessEngine!.whoCanAccess(targetPath, right, context.workspaceRoot);
+    const contextIds = context.permissionEngine!.whoCanAccess(targetPath, right, context.workspaceRoot);
     const contexts = contextIds.map((contextId) => ({
       contextId,
-      label: context.accessEngine!.getContext(contextId)?.label,
+      label: context.permissionEngine!.getContext(contextId)?.label,
     }));
 
     return {
@@ -68,7 +68,7 @@ export const doIHaveAccessTool: AgentTool = {
     agentId: z.string().optional().describe('Optional context/agent ID override (defaults to current agent)'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
+    const engineCheck = getPermissionEngineOrDeny(context);
     const {
       path: targetPath,
       right = 'list',
@@ -100,15 +100,15 @@ export const doIHaveAccessTool: AgentTool = {
     }
 
     const targetContextId = agentId || context.agent.id;
-    const allRightsMap = context.accessEngine!.whatCanContextDo(targetContextId, [targetPath], context.workspaceRoot);
+    const allRightsMap = context.permissionEngine!.whatCanContextDo(targetContextId, [targetPath], context.workspaceRoot);
     const allRights = [...(allRightsMap.get(pathMeta.relative) ?? new Set<AccessRight>())];
-    const verdict = context.accessEngine!.checkPath(targetPath, right, context.workspaceRoot, targetContextId);
+    const verdict = context.permissionEngine!.checkPath(targetPath, right, context.workspaceRoot, targetContextId);
 
     return {
       path: pathMeta,
       right,
       contextId: targetContextId,
-      contextLabel: context.accessEngine!.getContext(targetContextId)?.label,
+      contextLabel: context.permissionEngine!.getContext(targetContextId)?.label,
       allowed: verdict.allowed,
       allRights,
       explanation: verdict.explanation,

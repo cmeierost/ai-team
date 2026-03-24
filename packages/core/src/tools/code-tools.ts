@@ -322,7 +322,7 @@ export const analyzeComplexityTool: AgentTool = {
       ? filePath
       : path.join(context.workspaceRoot, filePath);
     
-    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.accessEngine);
+    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.permissionEngine);
     contextManager.assertCanRead(context.agent, absolutePath);
     
     const analyzer = new TypeScriptAnalyzer();
@@ -355,7 +355,7 @@ export const applyCodeEditTool: AgentTool = {
     const { CodeEditManager } = await import('../code-edit/index.js');
     const { description, changes } = params as any;
     
-    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.accessEngine);
+    const contextManager = new ContextManager(context.workspaceRoot, undefined, context.permissionEngine);
     const editManager = new CodeEditManager();
     
     // Convert paths to absolute

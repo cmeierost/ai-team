@@ -69,11 +69,11 @@ export type {
   WorkflowStateSnapshot,
   TestConnectionOptions,
   GovernanceMutationOptions,
-  AccessRight,
-  WhoHasAccessOptions,
-  WhoHasAccessResponse,
-  DoIHaveAccessOptions,
-  DoIHaveAccessResponse,
+  FilePermission,
+  WhoHasPermissionOptions,
+  WhoHasPermissionResponse,
+  DoIHavePermissionOptions,
+  DoIHavePermissionResponse,
 } from './contracts.js';
 
 export { ServiceDomainError, AmbiguousAgentQueryError, type ServiceErrorCode, type ServiceErrorInputRequest } from './errors.js';
@@ -87,10 +87,10 @@ export {
   getFileTreeCommand,
   allowPathCommand,
   disallowPathCommand,
-  agentAllowPathCommand,
+  agentPermissionPathCommand,
   agentDisallowPathCommand,
-  accessAllowCommand,
-  accessDenyCommand,
+  permissionAllowCommand,
+  permissionDenyCommand,
   type AgentPathResult,
 } from './commands/file-tree.js';
 

@@ -19,6 +19,7 @@ import {
   isToolCatalogResult,
   isTeamListResult,
   type StructuredToolResult,
+  type FsPathAccessEnvelope,
 } from '@ai-team/core';
 import { ProposalStore } from '../storage/proposal-store.js';
 import type { OrchestratorContext } from './pipeline-context.js';
@@ -311,6 +312,15 @@ function asStructuredToolResult(result: unknown): StructuredToolResult | undefin
   return undefined;
 }
 
+function isAccessEnvelope(v: unknown): v is FsPathAccessEnvelope {
+  return (
+    !!v &&
+    typeof v === 'object' &&
+    'allowed' in v &&
+    'alternativeContexts' in v
+  );
+}
+
 function classifyToolDenial(ok: boolean, result: unknown, message: string): ToolDenial | undefined {
   if (!ok) {
     return {
@@ -326,12 +336,7 @@ function classifyToolDenial(ok: boolean, result: unknown, message: string): Tool
   const status = typeof payload.status === 'string' ? payload.status : undefined;
   const permissionDenied = status === 'permission_denied';
   const access = payload.access;
-  const accessDenied = Boolean(
-    access &&
-      typeof access === 'object' &&
-      'allowed' in access &&
-      (access as Record<string, unknown>).allowed === false,
-  );
+  const accessDenied = isAccessEnvelope(access) && !access.allowed;
 
   if (!permissionDenied && !accessDenied) return undefined;
 
@@ -354,10 +359,7 @@ function classifyToolDenial(ok: boolean, result: unknown, message: string): Tool
 function extractAlternativeContexts(payload: Record<string, unknown>): Array<{ contextId: string; allowedPaths: string[] }> {
   const direct = payload.alternativeContexts;
   const access = payload.access;
-  const accessAlternatives =
-    access && typeof access === 'object'
-      ? (access as Record<string, unknown>).alternativeContexts
-      : undefined;
+  const accessAlternatives = isAccessEnvelope(access) ? access.alternativeContexts : undefined;
 
   const candidates = [direct, accessAlternatives];
   for (const candidate of candidates) {

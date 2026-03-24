@@ -42,7 +42,7 @@ describe('HttpAiTeamClient governed permission mutations', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const client = createHttpAiTeamClient({ baseUrl: 'http://localhost:3000' });
-    await client.accessAllow(
+    await client.permissionAllow(
       { agent: 'alex-morgan', path: 'src/**', mode: 'write' },
       { requestedBy: 'emily-davis', approvedByUser: true },
     );

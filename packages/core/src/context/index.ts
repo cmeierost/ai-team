@@ -3,7 +3,7 @@
  */
 
 import { minimatch } from 'minimatch';
-import type { AccessEngine, AccessVerdict } from '@ai-team/access';
+import type { PermissionEngine, AccessVerdict } from '@ai-team/permission';
 import {
   Agent,
   ContextLevel,
@@ -37,18 +37,18 @@ export class ContextManager {
   private readonly patternMatchCache = new Map<string, boolean>();
 
   /**
-   * Optional AccessEngine. When provided, canRead/canWrite/canCreate/canDelete
+   * Optional PermissionEngine. When provided, canRead/canWrite/canCreate/canDelete
    * delegate to the engine for richer verdicts and delegation support.
    */
-  readonly engine?: AccessEngine;
+  readonly engine?: PermissionEngine;
 
   /**
    * @param workspaceRoot - Absolute workspace root
    * @param globalPerms - Optional global read/write patterns from config.json fileTree.
    *                       When provided, these patterns are merged with every agent's permissions.
-   * @param engine - Optional AccessEngine for delegated evaluation.
+   * @param engine - Optional PermissionEngine for delegated evaluation.
    */
-  constructor(workspaceRoot: string, globalPerms?: GlobalPermissions, engine?: AccessEngine) {
+  constructor(workspaceRoot: string, globalPerms?: GlobalPermissions, engine?: PermissionEngine) {
     this.workspaceRoot = workspaceRoot;
     this.globalPerms = globalPerms ?? {
       readPaths: [],
@@ -65,7 +65,7 @@ export class ContextManager {
   static fromConfig(
     workspaceRoot: string,
     fileTreeConfig?: FileTreeConfig,
-    engine?: AccessEngine,
+    engine?: PermissionEngine,
   ): ContextManager {
     return new ContextManager(
       workspaceRoot,
@@ -397,10 +397,10 @@ export class ContextManager {
     }
   }
 
-  // ── AccessEngine delegation ────────────────────────────────────
+  // ── PermissionEngine delegation ────────────────────────────────────
 
   /**
-   * Delegate a single-path permission check to the AccessEngine.
+   * Delegate a single-path permission check to the PermissionEngine.
    * Used internally by canRead/canWrite/canCreate/canDelete when an engine is present.
    */
   private checkViaEngine(agent: Agent, filePath: string, right: 'read' | 'write' | 'create' | 'delete'): boolean {

@@ -13,6 +13,7 @@ function makeContext(overrides?: Partial<OrchestratorContext>): OrchestratorCont
       questionConfirm: vi.fn(async () => true),
     },
     toolManager: {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({ ok: true, result: { ok: true } })),
     } as any,
     sessionManager: {
@@ -30,6 +31,7 @@ function makeContext(overrides?: Partial<OrchestratorContext>): OrchestratorCont
 describe('dispatchToolCall denial metadata', () => {
   it('emits tool result event with a preview of successful output', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({
         ok: true,
         result: {
@@ -68,6 +70,7 @@ describe('dispatchToolCall denial metadata', () => {
   it('truncates long successful tool result previews', async () => {
     const longText = 'x'.repeat(400);
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({ ok: true, result: longText })),
     } as any;
 
@@ -99,6 +102,7 @@ describe('dispatchToolCall denial metadata', () => {
     };
 
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({ ok: true, result: payload })),
     } as any;
 
@@ -124,6 +128,7 @@ describe('dispatchToolCall denial metadata', () => {
 
   it('returns user-denied metadata when confirmation is rejected', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({ ok: true, result: { never: 'called' } })),
     } as any;
 
@@ -166,6 +171,7 @@ describe('dispatchToolCall denial metadata', () => {
 
   it('returns policy-denied metadata from permission_denied tool result', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({
         ok: true,
         result: {
@@ -221,6 +227,7 @@ describe('dispatchToolCall denial metadata', () => {
 
   it('returns execution-failed metadata when tool execution fails', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({ ok: false, error: 'Boom' })),
     } as any;
 
@@ -244,6 +251,7 @@ describe('dispatchToolCall denial metadata', () => {
   it('auto-trims very large tool output before persisting history', async () => {
     const large = Array.from({ length: 260 }, (_, idx) => `line-${idx + 1}`).join('\n');
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({ ok: true, result: large })),
     } as any;
 
@@ -286,6 +294,7 @@ describe('dispatchToolCall denial metadata', () => {
     };
 
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({ ok: true, result: largeJson })),
     } as any;
 
@@ -321,6 +330,7 @@ describe('dispatchToolCall denial metadata', () => {
 
   it('uses llm summary transform when summary intent is present', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({ ok: true, result: 'alpha\nbeta\ngamma' })),
     } as any;
 
@@ -361,6 +371,7 @@ describe('dispatchToolCall denial metadata', () => {
 describe('code_edit_proposal emission', () => {
   it('emits code_edit_proposal when tool result contains _fileChanges', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({
         ok: true,
         result: {
@@ -394,6 +405,7 @@ describe('code_edit_proposal emission', () => {
 
   it('emits code_edit_proposal with multiple files', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({
         ok: true,
         result: {
@@ -424,6 +436,7 @@ describe('code_edit_proposal emission', () => {
 
   it('does NOT emit code_edit_proposal when result has no _fileChanges', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({
         ok: true,
         result: { edited: true, message: 'done' },
@@ -446,6 +459,7 @@ describe('code_edit_proposal emission', () => {
 
   it('does NOT emit code_edit_proposal when _fileChanges is empty', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({
         ok: true,
         result: { edited: true, _fileChanges: [] },
@@ -468,6 +482,7 @@ describe('code_edit_proposal emission', () => {
 
   it('strips _fileChanges from the result returned to the caller', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({
         ok: true,
         result: {
@@ -494,6 +509,7 @@ describe('code_edit_proposal emission', () => {
 
   it('strips _fileChanges from persisted tool history', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({
         ok: true,
         result: {
@@ -531,6 +547,7 @@ describe('code_edit_proposal emission', () => {
 
   it('does NOT emit code_edit_proposal on execution failure', async () => {
     const toolManager = {
+      get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({ ok: false, error: 'write failed' })),
     } as any;
 

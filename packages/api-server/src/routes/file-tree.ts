@@ -4,10 +4,11 @@ import {
   getFileTreeCommand,
   allowPathCommand,
   disallowPathCommand,
-  agentAllowPathCommand,
+  agentPermissionPathCommand,
   agentDisallowPathCommand,
+  permissionAllowCommand,
+  permissionDenyCommand,
 } from '@ai-team/service';
-import { accessAllowCommand, accessDenyCommand } from '@ai-team/service';
 
 type PathMode = 'read' | 'write' | 'create' | 'delete';
 type PathMutationBody = { path?: string; mode?: PathMode };
@@ -269,7 +270,7 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
       if (resolvedMode !== 'read' && resolvedMode !== 'write' && resolvedMode !== 'create' && resolvedMode !== 'delete') {
         return res.status(400).json({ error: '"mode" must be one of "read", "write", "create", "delete" when provided' });
       }
-      const result = await agentAllowPathCommand(workspaceRoot, agentId, filePath, resolvedMode);
+      const result = await agentPermissionPathCommand(workspaceRoot, agentId, filePath, resolvedMode);
       res.json({ agent: result.agent, paths: result.paths, mode: resolvedMode });
     } catch (error) {
       const msg = String(error);
@@ -354,7 +355,7 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
         return res.status(400).json({ error: '"mode" must be one of "read", "write", "create", "delete" when provided' });
       }
 
-      const result = await accessAllowCommand(workspaceRoot, agentId, filePath, {
+      const result = await permissionAllowCommand(workspaceRoot, agentId, filePath, {
         requestedBy: requestedBy.trim(),
         confirmUserApproval: async () => approvedByUser,
       }, resolvedMode);
@@ -384,7 +385,7 @@ export function createFileTreeRouter(workspaceRoot: string): express.Router {
         return res.status(400).json({ error: '"mode" must be one of "read", "write", "create", "delete" when provided' });
       }
 
-      const result = await accessDenyCommand(workspaceRoot, agentId, filePath, {
+      const result = await permissionDenyCommand(workspaceRoot, agentId, filePath, {
         requestedBy: requestedBy.trim(),
         confirmUserApproval: async () => approvedByUser,
       }, resolvedMode);

@@ -6,7 +6,8 @@
         "pnpm": true,
         "Test-Path": true,
         "sqlite3": true,
-        "npx vitest": true
+        "npx vitest": true,
+        "reads": true
     },
     "github.copilot.chat.alternateGptPrompt.enabled": true,
     "github.copilot.chat.anthropic.tools.websearch.enabled": false,

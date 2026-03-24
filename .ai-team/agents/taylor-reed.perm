@@ -1,0 +1,17 @@
+# Migrated from .agent.yml permissions
+[read]
+AGENTS.md
+analysis/**/*
+requirements/**/*
+
+[write]
+ARCHITECTURE.md
+COPILOT-CONTEXT.md
+README.md
+docs/**/*
+packages/*/README.md
+todo/**/*
+.ai-team/tasks/**/*
+.ai-team/skills/documentation-quality-audit/**/*
+.ai-team/agents/taylor-reed.agent.md
+.ai-team/agents/taylor-reed.agent.yml

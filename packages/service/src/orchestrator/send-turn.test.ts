@@ -430,6 +430,7 @@ function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
         parameters: { type: 'object', properties: {} },
       })),
       execute: executeToolMock,
+      get: vi.fn().mockReturnValue(undefined),
     } as any,
     sessionManager: {
       appendMessage,

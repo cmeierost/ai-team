@@ -1,0 +1,15 @@
+# Migrated from .agent.yml permissions
+[read]
+ARCHITECTURE.md
+COPILOT-CONTEXT.md
+.github/copilot-instructions.md
+
+[write]
+packages/core/src/llm/**/*
+packages/core/src/code-analysis/**/*
+packages/core/src/code-edit/**/*
+packages/service/src/commands/**/*
+.ai-team/skills/llm-provider-integration/**/*
+.ai-team/skills/code-intelligence-and-editing/**/*
+.ai-team/agents/victor-alvarez.agent.md
+.ai-team/agents/victor-alvarez.agent.yml

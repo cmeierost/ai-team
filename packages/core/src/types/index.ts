@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import type { ToolContext as BaseToolContext, AgentTool as BaseAgentTool } from '@ai-team/access';
+import type { ToolContext as BaseToolContext, AgentTool as BaseAgentTool } from '@ai-team/permission';
 
 // Structured tool result shapes (pure data — no orchestrator dependency)
 export * from './tool-results.js';
@@ -715,9 +715,9 @@ export interface ToolContext extends BaseToolContext {
  * ToolManager reads this to call ContextManager once in canExecute()
  * rather than having each tool do its own permission check internally.
  *
- * @deprecated Import from `@ai-team/access` instead.
+ * @deprecated Import from `@ai-team/permission` instead.
  */
-// PermissionDescriptor re-exported above from @ai-team/access
+// PermissionDescriptor re-exported above from @ai-team/permission
 
 /** Result of a ToolManager.canExecute() check. */
 export interface PermissionResult {

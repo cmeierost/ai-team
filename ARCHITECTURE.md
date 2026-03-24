@@ -43,9 +43,9 @@ Use this as a “where should I change code?” index.
 | API server transport assembly | [packages/api-server/src/server.ts](packages/api-server/src/server.ts) |
 | API server HTTP routes | [packages/api-server/src/routes/](packages/api-server/src/routes/) |
 | API server WebSocket chat bridge | [packages/api-server/src/ws/chat-handler.ts](packages/api-server/src/ws/chat-handler.ts) |
-| File-path access rights policy engine | [packages/access/](packages/access/) |
+| File-path permission rights policy engine | [packages/permission/](packages/permission/) |
 | Core tools and question primitives | [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts) |
-| Access adapter: Agent/FileTreeConfig → AccessEngine bridge | [packages/core/src/context/access-adapter.ts](packages/core/src/context/access-adapter.ts) |
+| Permission adapter: Agent/FileTreeConfig → PermissionEngine bridge | [packages/core/src/context/permission-adapter.ts](packages/core/src/context/permission-adapter.ts) |
 | Model-facing command metadata | [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts) |
 | IDE bridge contracts and discovery file | [packages/ide-interface/src/index.ts](packages/ide-interface/src/index.ts) |
 | VS Code extension activation and IDE-local server | [packages/vscode/src/extension.ts](packages/vscode/src/extension.ts), [packages/vscode/src/ide-local-server.ts](packages/vscode/src/ide-local-server.ts) |
@@ -81,7 +81,7 @@ UI-free domain + workspace logic
   └─ @ai-team/core
 
 Standalone policy engine
-  └─ @ai-team/access
+  └─ @ai-team/permission
 
 Runtime state + external integrations
   ├─ .ai-team/*
@@ -96,13 +96,13 @@ Runtime state + external integrations
 
 ## Package Responsibilities
 
-### `@ai-team/access`
+### `@ai-team/permission`
 
-- Standalone file-path access rights policy engine.
+- Standalone file-path permission rights policy engine.
 - Provides layered, context-based access control with deny-before-allow semantics.
 - Operation-aware: understands shell command and tool call path extraction via `CommandRegistry` and `ToolRegistry`.
 - Returns structured verdicts with per-path breakdown, alternative-context suggestions, and delegation support.
-- Used by `@ai-team/core` through an opt-in adapter layer (`access-adapter.ts`) that bridges `Agent`, `FileTreeConfig`, and built-in tool/command definitions.
+- Used by `@ai-team/core` through an opt-in adapter layer (`permission-adapter.ts`) that bridges `Agent`, `FileTreeConfig`, and built-in tool/command definitions.
 
 ### `@ai-team/core`
 
@@ -173,7 +173,7 @@ All durable runtime state lives under `.ai-team/` in the workspace.
 - `.ai-team/.env` - secrets and provider tokens.
 - `.ai-team/agents/*.agent.md` - Copilot-facing agent portfolio files.
 - `.ai-team/agents/*.agent.yml` - ai-team runtime metadata sidecars for those agent portfolios.
-- `.ai-team/agents/*.access` - per-agent file-path access policy files (read/write/create/delete + optional deny via `!pattern`).
+- `.ai-team/agents/*.perm` - per-agent file-path access policy files (read/write/create/delete + optional deny via `!pattern`).
 - `.ai-team/private/ai-team.db` - SQLite database for sessions, messages, and related metadata.
 - `.ai-team/proposals/` - persisted code-edit proposals used by review/replay flows.
 - `.ai-team/.ide-server.json` - discovery file for the active IDE-local server when the VS Code extension is running.
@@ -182,10 +182,10 @@ Compatibility/bootstrap artifacts may also exist under `.github/`, but `.ai-team
 
 ## File-System Access Model
 
-The current file-path access model is centered on `@ai-team/access` and per-agent `.access` files.
+The current file-path access model is centered on `@ai-team/permission` and per-agent `.perm` files.
 
 - Agent metadata (`.agent.yml`) no longer carries file-path read/write/create/delete rules.
-- Per-agent path policy lives in `.ai-team/agents/<agent-id>.access`.
+- Per-agent path policy lives in `.ai-team/agents/<agent-id>.perm`.
 - Global file-tree defaults still come from `.ai-team/config.json` (`fileTree.readPaths`, `writePaths`, `createPaths`, `deletePaths`).
 - Effective evaluation is engine-based across CLI/service/API paths.
 - Rights inheritance is enforced as:

@@ -1,10 +1,10 @@
-import { AccessEngine } from "./packages/access/dist/engine.js";
+import { PermissionEngine } from "./packages/permission/dist/engine.js";
 import { performance } from "node:perf_hooks";
 
 const runs = [];
 for (let i = 0; i < 5; i++) {
   const t0 = performance.now();
-  const engine = new AccessEngine({ workspaceRoot: process.cwd(), autoLoadWorkspaceConventions: true });
+  const engine = new PermissionEngine({ workspaceRoot: process.cwd(), autoLoadWorkspaceConventions: true });
   const t1 = performance.now();
   runs.push(t1 - t0);
   if (!engine) throw new Error('engine not created');

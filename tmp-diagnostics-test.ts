@@ -1,7 +1,7 @@
 // Temporary file for testing post-edit LSP diagnostics
 
 // 1. Type error: string assigned to number
-const count: number = 240281;
+const count: number = 290420;
 
 // 2. Unused variable (warning)
 const unused = 42;

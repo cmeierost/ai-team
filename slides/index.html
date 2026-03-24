@@ -27,74 +27,151 @@
 </head>
 
 <body>
-  <div class="reveal" data-organization="Departement I / Institut für Software (IFS)" data-speaker="Clemens Meier"
+  <div class="reveal" data-organization="Departement I / Institut f&#252;r Software (IFS)" data-speaker="Clemens Meier"
     data-email="clemens.meier@ost.ch" data-date="March 13, 2026" data-module="AI Interest Group">
     <div class="slides">
-      <!--
-        =============================================
-        TITLE SLIDE
-        =============================================
-        Shows the hero layout that is generated purely by CSS.
-        -->
+
+      <!-- =============================================
+           TITLE SLIDE
+           ============================================= -->
       <section data-slide-type="title" data-background-image="images/saentis.jpg" data-background-size="cover">
         <h1>AI-TEAM</h1>
         <h2>Using Coding Agents - Without Losing Control</h2>
-        <h3>Conway’s Law Applied to Agentic Software Engineering</h3>
+        <h3>Conway's Law Applied to Agentic Software Engineering</h3>
       </section>
 
-      <!--
-        =============================================
-        CHAPTER SLIDE
-        =============================================
-        Highlights the dedicated layout for topic breaks.
-        -->
-      <section data-slide-type="chapter" data-background-image="images/rappi.jpg" data-background-size="cover">
-        <h1>Conway’s Law - Applied to AI</h1>
-        <h2>Organisation prägt Architektur</h2>
-
-      </section>
-
-
-      <section>
-        <h1>Conway’s Law</h1>
-        <div class="content">
-          <p>
-            Systeme spiegeln die Kommunikationsstruktur ihrer Organisation.
-          </p>
-          <ul>
-            <li>klare Struktur → klare Software</li>
-            <li>chaotische Struktur → chaotischer Code</li>
-          </ul>
-          <div class="r-vstack fragment">
-            <p>&nbsp;</p>
-            <div class="r-hstack">
-
-              <p>
-              <h1>🤔</h1>
-              </p>
-            </div>
-            <div class="r-hstack">
-              <p>
-                Gilt das auch für Coding Agents?
-              </p>
-            </div>
-          </div>
-          <div class="r-stretch"></div>
-
-        </div>
+      <!-- =============================================
+           CHAPTER 1: Agentic Workflows
+           ============================================= -->
+      <section data-slide-type="chapter" data-background-image="images/stgallen.jpg" data-background-size="cover">
+        <h1>Agentic Workflows</h1>
+        <h2>Wie Coding Agents arbeiten</h2>
       </section>
 
       <section>
         <h1>Beispiele heutiger Coding Agents</h1>
-        <div class="content">
+        <div class="content r-stretch">
           <div class="logo-grid">
-            <div class="logo-item"><img src="images/logo-copilot.png" alt="Copilot"><p>Copilot</p></div>
-            <div class="logo-item"><img src="images/logo-claude-code.png" alt="Claude Code"><p>Claude Code</p></div>
-            <div class="logo-item"><img src="images/logo-cline.png" alt="Cline"><p>Cline</p></div>
-            <div class="logo-item"><img src="images/logo-opencode.png" alt="OpenCode"><p>OpenCode</p></div>
-            <div class="logo-item"><img src="images/logo-codex.png" alt="Codex"><p>Codex</p></div>
-            <div class="logo-item"><img src="images/logo-cursor.png" alt="Cursor"><p>Cursor</p></div>
+            <a class="logo-item" href="https://github.com/features/copilot" target="_blank"><img src="images/logo-copilot.png" alt="Copilot"><p>Copilot</p></a>
+            <a class="logo-item" href="https://www.anthropic.com/claude-code" target="_blank"><img src="images/logo-claude-code.png" alt="Claude Code"><p>Claude Code</p></a>
+            <a class="logo-item" href="https://cline.bot" target="_blank"><img src="images/logo-cline.png" alt="Cline"><p>Cline</p></a>
+            <a class="logo-item" href="https://opencode.ai" target="_blank"><img src="images/logo-opencode.png" alt="OpenCode"><p>OpenCode</p></a>
+            <a class="logo-item" href="https://openai.com/codex" target="_blank"><img src="images/logo-codex.png" alt="Codex"><p>Codex</p></a>
+            <a class="logo-item" href="https://www.cursor.com" target="_blank"><img src="images/logo-cursor.png" alt="Cursor"><p>Cursor</p></a>
           </div>
+        </div>
+      </section>
+
+      <section>
+        <h1>Tool Use Pattern</h1>
+        <div class="content">
+          <img src="images/tool-use.png" alt="Tool Use Pattern" style="max-height: 640px;">
+        </div>
+      </section>
+
+      <section>
+        <h1>Reason and Act (ReAct)</h1>
+        <div class="content">
+          <img src="images/react.webp" alt="Reason and Act Pattern" style="max-height: 640px;">
+        </div>
+      </section>
+
+      <section>
+        <h1>Planning Pattern</h1>
+        <div class="content">
+          <img src="images/plan.webp" alt="Planning Pattern" style="max-height: 640px;">
+        </div>
+      </section>
+
+      <section>
+        <h1>Context Window</h1>
+        <div class="content">
+          <img src="images/context-window.svg" alt="Context Window" style="max-height: 640px;">
+        </div>
+      </section>
+      
+      <section>
+        <h1>Gr&#246;sseres Context Window = besser?</h1>
+        <div class="content r-stretch" style="display: flex; gap: 1.2em; align-items: stretch; font-size: 1.2em;">
+          <div class="fragment" style="flex: 1; border: 3px solid #db4437; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
+            <h3 style="color: #db4437; margin: 0 0 0.3em; font-size: 1em;">Überforderung</h3>
+            <p style="font-size: 0.65em; margin: 0;">Zu viel Kontext &#252;berfordert das Modell &ndash; der Fokus geht verloren, die Antwortzeit steigt.</p>
+          </div>
+          <div class="fragment" style="flex: 1; border: 3px solid #f4b400; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
+            <h3 style="color: #f4b400; margin: 0 0 0.3em; font-size: 1em;">Lost in the Middle</h3>
+            <p style="font-size: 0.65em; margin: 0;">Das Modell gewichtet Anfang und Ende st&#228;rker &ndash; relevante Inhalte in der Mitte werden &#252;bersehen.</p>
+          </div>
+          <div class="fragment" style="flex: 1; border: 3px solid #0f9d58; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
+            <h3 style="color: #0f9d58; margin: 0 0 0.3em; font-size: 1em;">Rauschen</h3>
+            <p style="font-size: 0.65em; margin: 0;">Mehr Kontext f&#252;hrt zu Redundanz, Widerspr&#252;chen und verzerrten Schlussfolgerungen.</p>
+          </div>
+          <div class="fragment" style="flex: 1; border: 3px solid #4285f4; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
+            <h3 style="color: #4285f4; margin: 0 0 0.3em; font-size: 1em;">Weite Distanzen</h3>
+            <p style="font-size: 0.65em; margin: 0;">Mit wachsendem Kontext f&#228;llt es dem Modell schwerer, weit auseinanderliegende Informationen zu verkn&#252;pfen.</p>
+          </div>
+        </div>
+      </section>
+      <section>
+        <h1>Context Window</h1>
+        <div class="content">
+          <img src="images/context-window.webp" alt="Context Window" style="max-height: 640px;">
+        </div>
+      </section>
+      <section>
+        <h1>Das Problem</h1>
+        <div class="content">
+          <ul>
+            <li>Ein Agent &#8594; ein Context Window</li>
+            <li>Ganzes Projekt in ein Context Window? Opus kann alles! ;)</li>
+            <li class="fragment">Subagents?</li>
+            <li class="fragment">Lazy RAG?</li>
+            <li class="fragment">Context Compression?</li>
+          </ul>
+          <div class="r-vstack fragment">
+            <p>&nbsp;</p>
+            <div class="r-hstack">
+              <h1>&#129300;</h1>
+            </div>
+            <div class="r-hstack">
+              <p>Wie schaffen wir fokussierte Agents?</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h1>Multi-Agent Pattern?</h1>
+        <div class="content">
+          <img src="images/multi-agent.png" alt="Multi-Agent Pattern" style="max-height: 640px;">
+        </div>
+      </section>
+
+      <!-- =============================================
+           CHAPTER 3: Conway's Law
+           ============================================= -->
+      <section data-slide-type="chapter" data-background-image="images/organization.webp" data-background-size="cover">
+        <h1>Conway's Law &#8211; Applied to AI</h1>
+        <h2>Organisation pr&#228;gt Architektur</h2>
+      </section>
+
+      <section>
+        <h1>Conway's Law</h1>
+        <div class="content">
+          <p>Systeme spiegeln die Kommunikationsstruktur ihrer Organisation.</p>
+          <ul>
+            <li>klare Struktur &#8594; klare Software</li>
+            <li>chaotische Struktur &#8594; chaotischer Code</li>
+          </ul>
+          <div class="r-vstack fragment">
+            <p>&nbsp;</p>
+            <div class="r-hstack">
+              <h1>&#129300;</h1>
+            </div>
+            <div class="r-hstack">
+              <p>Gilt das auch f&#252;r Coding Agents?</p>
+            </div>
+          </div>
+          <div class="r-stretch"></div>
         </div>
       </section>
 
@@ -102,16 +179,16 @@
         <h1>Klare Verantwortung in Organisationen</h1>
         <div class="content">
           <ul>
-            <li>Fokus statt Überladung</li>
-            <li>klare Zuständigkeiten</li>
+            <li>Fokus statt &#220;berladung</li>
+            <li>klare Zust&#228;ndigkeiten</li>
             <li>bessere Kommunikation</li>
-            <li>höhere Qualität</li>
+            <li>h&#246;here Qualit&#228;t</li>
           </ul>
         </div>
-        <h1 class="fragment" data-fragment-index="1">AI Team erschafft eine geeignete Team Struktur</h1>
+        <h1 class="fragment" data-fragment-index="1">AI Team erschafft eine geeignete Agent Struktur</h1>
         <div class="content fragment" data-fragment-index="1">
           <ul>
-            <li>klare Grenzen im Team</li>
+            <li>klare Grenzen im virtuellen Team</li>
             <li>klare Grenzen im Code</li>
             <li>jeder Agent kennt seinen Scope</li>
           </ul>
@@ -119,10 +196,10 @@
       </section>
 
       <section>
-        <h1>Veränderung und Optimierung</h1>
+        <h1>Ver&#228;nderung und Optimierung</h1>
         <div class="content">
           <ul>
-            <li>Prioritäten verändern sich</li>
+            <li>Priorit&#228;ten ver&#228;ndern sich</li>
             <li>erfolgreiche Teams optimieren ihre Struktur laufend</li>
           </ul>
         </div>
@@ -130,16 +207,35 @@
         <div class="content fragment" data-fragment-index="1">
           <ul>
             <li>berechnet Verantwortlichkeiten</li>
-            <li>misst Effektivität der Agenten</li>
-            <li>schlägt bessere Strukturen vor</li>
+            <li>misst Effektivit&#228;t der Agenten</li>
+            <li>schl&#228;gt bessere Strukturen vor</li>
             <li>erstellt neue Agenten bei Bedarf</li>
           </ul>
         </div>
-        
       </section>
 
       <section>
-        <h1>Setup ist mühsam</h1>
+        <h1>Onboarding &amp; Pair Programming</h1>
+        <div class="content">
+          <ul>
+            <li>Neue Entwickler (menschliche) brauchen Orientierung.</li>
+            <li>Wer kennt sich wo aus?</li>
+            <li>Welche Tools passen zu meiner Aufgabe?</li>
+          </ul>
+        </div>
+        <h1 class="fragment" data-fragment-index="1">AI-Team als Navigator</h1>
+        <div class="content fragment" data-fragment-index="1">
+          <ul>
+            <li>CSS-Spezialist bekommt automatisch Playwright &amp; Storybook</li>
+            <li>Backend-Dev bekommt DB-Tools &amp; Testrunner</li>
+            <li>Passender Pair Programmer wird automatisch zugewiesen</li>
+            <li>Entwickler finden sich sofort zurecht</li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <h1>Setup ist m&#252;hsam</h1>
         <div class="content">
           <ul>
             <li>Prompts</li>
@@ -152,11 +248,11 @@
         <h1 class="fragment" data-fragment-index="1">AI-Team macht es menschlich</h1>
         <div class="content fragment" data-fragment-index="1">
           <ul>
-            <li>„hire react specialist“</li>
-            <li>„hire db expert“</li>
-            <li>„hire backend lead“</li>
+            <li>&#8222;hire react specialist&#8220;</li>
+            <li>&#8222;hire db expert&#8220;</li>
+            <li>&#8222;hire backend lead&#8220;</li>
           </ul>
-          <p>Die Komplexität bleibt unter der Haube.</p>
+          <p>Die Komplexit&#228;t bleibt unter der Haube.</p>
         </div>
       </section>
 
@@ -164,50 +260,33 @@
         <h1>Copilot oder Claude Code sind Datenkraken</h1>
         <div>
           <ul>
-            <li>laden Unmengen an code in die cloud</li>
-            <li>verlangen viel Geld für token</li>
-            <li>verursachen durch Verträge Vendor-Lockin</li>
+            <li>laden Unmengen an Code in die Cloud</li>
+            <li>verlangen viel Geld f&#252;r Token</li>
+            <li>verursachen durch Vertr&#228;ge Vendor-Lockin</li>
           </ul>
         </div>
         <h1 class="fragment" data-fragment-index="1">AI-Team:</h1>
         <div class="content fragment" data-fragment-index="1">
           <ul>
-            <li>open source</li>
-            <li>bring your own model</li>
-            <li>bring your own provider</li>
-            <li>bestehende Subscriptions nutzbar</li>
+            <li>Open Source</li>
+            <li>Bring Your Own Model</li>
+            <li>Bring Your Own Provider</li>
+            <li>Bestehende Subscriptions nutzbar</li>
           </ul>
         </div>
       </section>
 
       <section>
-        <h1>Onboarding &amp; Pair Programming</h1>
+        <h1>These</h1>
         <div class="content">
           <ul>
-            <li>neue Entwickler (menschliche) brauchen Orientierung</li>
-            <li>wer kennt sich wo aus?</li>
-            <li>welche Tools passen zu meiner Aufgabe?</li>
-          </ul>
-        </div>
-        <h1 class="fragment" data-fragment-index="1">AI-Team als Navigator</h1>
-        <div class="content fragment" data-fragment-index="1">
-          <ul>
-            <li>CSS-Spezialist bekommt automatisch Playwright &amp; Storybook</li>
-            <li>Backend-Dev bekommt DB-Tools &amp; Testrunner</li>
-            <li>passender Pair Programmer wird automatisch zugewiesen</li>
-            <li>Entwickler finden sich sofort zurecht</li>
-          </ul>
-        </div>
-      </section>
-
-      <section>
-        <h1>Fazit</h1>
-        <div class="content">
-          <ul>
-            <li>heutige Agents sind mächtig – aber flach</li>
-            <li>Struktur schafft Qualität</li>
-            <li>Conway's Law gilt auch für KI</li>
-            <li>AI-Team bringt Struktur in die Agentenlandschaft</li>
+            <li>heutige Agents sind m&#228;chtig &#8211; aber schlecht organisiert</li>
+            <li>Context Pollution wird nicht weniger, wenn man dem LLM 100 Agenten und 1000 Skills zur Verfügung stellt</li>
+            <li>Kontext aufräumen ist nur dann nötig, wenn er nicht von Anfang an aufgeräumt ist.</li>
+            <li>Wir müssen Struktur in die Agentenlandschaft bringen</li>
+            <li>Struktur schafft Qualit&#228;t</li>
+            <li>Gut organisierte Agenten bewirken eine gute Softwarearchitektur</li>
+            <li>Conway's Law gilt auch f&#252;r KI</li>
           </ul>
         </div>
       </section>

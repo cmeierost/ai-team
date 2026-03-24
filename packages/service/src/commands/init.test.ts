@@ -19,6 +19,7 @@ const coreApi = vi.hoisted(() => ({
   fetchGitHubModels: vi.fn(),
   loadEnvFile: vi.fn(),
   buildAgentMarkdown: vi.fn(),
+  saveUserConfig: vi.fn(),
 }));
 
 const listApi = vi.hoisted(() => ({
@@ -104,7 +105,7 @@ describe('initCommand', () => {
       agentId: string,
       patterns: { read?: string[]; write?: string[] },
     ) => {
-      const filePath = path.join(root, '.ai-team', 'agents', `${agentId}.access`);
+      const filePath = path.join(root, '.ai-team', 'agents', `${agentId}.perm`);
       const lines = [
         '# Migrated from .agent.yml permissions',
         '[read]',
@@ -548,7 +549,7 @@ describe('initCommand', () => {
       expect(skillContent).toContain('`.ai-team/agents/*.md`');
     });
 
-    it('creates founding agent .access files during onboarding setup', async () => {
+    it('creates founding agent .perm files during onboarding setup', async () => {
       const questionConfirm = vi
         .fn()
         // Reuse existing LLM config
@@ -583,8 +584,8 @@ describe('initCommand', () => {
         questionInput,
       })).rejects.toThrow('abort-after-access-seed');
 
-      const ceoAccessPath = path.join(workspaceRoot, '.ai-team', 'agents', 'john-smith.access');
-      const hrAccessPath = path.join(workspaceRoot, '.ai-team', 'agents', 'emily-davis.access');
+      const ceoAccessPath = path.join(workspaceRoot, '.ai-team', 'agents', 'john-smith.perm');
+      const hrAccessPath = path.join(workspaceRoot, '.ai-team', 'agents', 'emily-davis.perm');
 
       const ceoAccess = await fs.readFile(ceoAccessPath, 'utf-8');
       const hrAccess = await fs.readFile(hrAccessPath, 'utf-8');

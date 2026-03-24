@@ -25,7 +25,7 @@ import {
 export type { OrchestrationDeps } from './orchestration-tools.js';
 
 export interface CreateToolManagerOptions {
-  accessEngine?: ConstructorParameters<typeof ToolManager>[1];
+  permissionEngine?: ConstructorParameters<typeof ToolManager>[1];
   lsp?: LspProvider;
 }
 
@@ -41,14 +41,14 @@ export interface CreateToolManagerOptions {
 export function createToolManager(
   workspaceRoot: string,
   deps: OrchestrationDeps,
-  accessEngineOrOptions?: ConstructorParameters<typeof ToolManager>[1] | CreateToolManagerOptions,
+  permissionEngineOrOptions?: ConstructorParameters<typeof ToolManager>[1] | CreateToolManagerOptions,
 ): ToolManager {
-  // Backward compat: accept bare AccessEngine or options object
-  const opts: CreateToolManagerOptions = accessEngineOrOptions && typeof accessEngineOrOptions === 'object' && 'lsp' in accessEngineOrOptions
-    ? accessEngineOrOptions
-    : { accessEngine: accessEngineOrOptions as any };
+  // Backward compat: accept bare PermissionEngine or options object
+  const opts: CreateToolManagerOptions = permissionEngineOrOptions && typeof permissionEngineOrOptions === 'object' && 'lsp' in permissionEngineOrOptions
+    ? permissionEngineOrOptions
+    : { permissionEngine: permissionEngineOrOptions as any };
 
-  const manager = new ToolManager(workspaceRoot, opts.accessEngine);
+  const manager = new ToolManager(workspaceRoot, opts.permissionEngine);
 
   if (opts.lsp) {
     manager.setLspProvider(opts.lsp);

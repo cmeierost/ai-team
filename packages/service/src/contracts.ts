@@ -47,48 +47,48 @@ export interface TestConnectionOptions {
   employee?: string;
 }
 
-export type AccessRight = 'read' | 'write' | 'create' | 'delete' | 'list';
+export type FilePermission = 'read' | 'write' | 'create' | 'delete' | 'list';
 
-export interface WhoHasAccessOptions {
+export interface WhoHasPermissionOptions {
   path: string;
-  right?: AccessRight;
+  right?: FilePermission;
 }
 
-export interface AccessContextCandidate {
+export interface PermissionContextCandidate {
   contextId: string;
   label?: string;
 }
 
-export interface WhoHasAccessResponse {
+export interface WhoHasPermissionResponse {
   path: {
     input: string;
     absolute: string;
     relative: string;
   };
-  right: AccessRight;
+  right: FilePermission;
   contextIds: string[];
-  contexts: AccessContextCandidate[];
+  contexts: PermissionContextCandidate[];
   explanation: string;
 }
 
-export interface DoIHaveAccessOptions {
+export interface DoIHavePermissionOptions {
   path: string;
-  right?: AccessRight;
+  right?: FilePermission;
   agent?: string;
 }
 
-export interface DoIHaveAccessResponse {
+export interface DoIHavePermissionResponse {
   path: {
     input: string;
     absolute: string;
     relative: string;
   };
-  right: AccessRight;
+  right: FilePermission;
   contextId: string;
   contextLabel?: string;
   selectedBy: 'explicit' | 'default-first-agent';
   allowed: boolean;
-  allRights: AccessRight[];
+  allRights: FilePermission[];
   explanation: string;
   alternativeContexts: Array<{ contextId: string; allowedPaths: string[] }>;
   deniedByIgnore: boolean;
@@ -738,8 +738,8 @@ export interface AiTeamService extends AiTeamMediator {
   disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
   toolAllow(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
   toolDeny(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
-  accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
-  accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
+  permissionAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
+  permissionDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;
@@ -755,6 +755,6 @@ export interface AiTeamService extends AiTeamMediator {
   providerModels(options: ProviderModelsOptions): Promise<void>;
   providerModelsRefresh(options: RefreshProviderModelsOptions): Promise<void>;
   testConnection(options?: TestConnectionOptions): Promise<void>;
-  whoHasAccess(options: WhoHasAccessOptions): Promise<WhoHasAccessResponse>;
-  doIHaveAccess(options: DoIHaveAccessOptions): Promise<DoIHaveAccessResponse>;
+  whoHasPermission(options: WhoHasPermissionOptions): Promise<WhoHasPermissionResponse>;
+  doIHavePermission(options: DoIHavePermissionOptions): Promise<DoIHavePermissionResponse>;
 }

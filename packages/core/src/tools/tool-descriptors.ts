@@ -1,18 +1,18 @@
 /**
- * Built-in tool and shell command descriptors for the AccessEngine.
+ * Built-in tool and shell command descriptors for the PermissionEngine.
  *
  * These declarations tell the engine how each tool/command touches files,
  * so that checkToolCall() and checkCommand() can evaluate access rights.
  */
 
-import type { AccessEngine } from '@ai-team/access';
+import type { PermissionEngine } from '@ai-team/permission';
 import { FS_TOOL_REQUIRED_RIGHT } from '@ai-team/fs';
 
 /**
  * Register ToolDescriptors for every built-in AI Team tool
  * that performs file operations.
  */
-export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
+export function registerBuiltInToolDescriptors(engine: PermissionEngine): void {
   // -- File tools --
 
   engine.registerTool({
@@ -212,7 +212,7 @@ export function registerBuiltInToolDescriptors(engine: AccessEngine): void {
  * Register CommandDescriptors for common CLI tools agents may invoke
  * via run_cli_tool.
  */
-export function registerCommonCommandDescriptors(engine: AccessEngine): void {
+export function registerCommonCommandDescriptors(engine: PermissionEngine): void {
   // cat / type — read a file
   engine.registerCommand({
     names: ['cat', 'type'],

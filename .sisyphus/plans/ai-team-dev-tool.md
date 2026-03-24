@@ -32,7 +32,7 @@
 - The first workflow should be **route + track**: create tasks, delegate them, and track execution end-to-end.
 - Each session should maintain per-agent task lists under one shared delegated task graph.
 - Higher-level agents primarily plan, define contracts, and delegate; lower-level agents execute bounded tasks.
-- Agent knowledge boundaries are enforced through `.access` files.
+- Agent knowledge boundaries are enforced through `.perm` files.
 - The primary UI must support both equal views: per-agent inboxes and delegated task tree.
 
 ### Metis Review (gaps addressed)
@@ -82,7 +82,7 @@ Turn ai-team into an org-native developer tool whose primary UX is a task comman
 - Execution state visibility
 - Audit/event history
 - Governance/RBAC boundaries
-- `.access`-driven knowledge boundaries
+- `.perm`-driven knowledge boundaries
 
 ### Must NOT Have
 
@@ -249,7 +249,7 @@ Wave 3: governance + rollout + verification
   **References**:
   - `.ai-team/agents/` — organizational source of truth
   - `AGENTS.md` — executive routing context
-  - `packages/core/src/context/access-adapter.ts` — policy/access boundary pattern
+  - `packages/core/src/context/permission-adapter.ts` — policy/access boundary pattern
   - `packages/service/src/index.ts` — shared service surface
 
   **Acceptance Criteria**:
@@ -399,7 +399,7 @@ Wave 3: governance + rollout + verification
 
 - [ ] 7. Define agent directory and capability routing
 
-  **What to do**: Specify how the command center discovers available actors, capabilities, role boundaries, preferred routing targets, and `.access`-based knowledge visibility.
+  **What to do**: Specify how the command center discovers available actors, capabilities, role boundaries, preferred routing targets, and `.perm`-based knowledge visibility.
   **Must NOT do**: Assume all agents are interchangeable executors.
 
   **Recommended Agent Profile**:
@@ -418,7 +418,7 @@ Wave 3: governance + rollout + verification
   - [ ] Capability routing uses role boundaries and specialization, not flat agent selection.
   - [ ] Availability/fallback semantics are included.
   - [ ] Human and agent actors can both exist in the model if needed.
-  - [ ] The plan explains how `.access` boundaries constrain what each agent can know about session tasks and context.
+  - [ ] The plan explains how `.perm` boundaries constrain what each agent can know about session tasks and context.
 
   **QA Scenarios**:
 
@@ -490,8 +490,8 @@ Wave 3: governance + rollout + verification
   **Parallelization**: Can Parallel: YES | Wave 3 | Blocks: T12 | Blocked By: T1,T3
 
   **References**:
-  - `packages/core/src/context/access-adapter.ts` — access-policy pattern
-  - `.ai-team/agents/*.access` — current access boundary concept
+  - `packages/core/src/context/permission-adapter.ts` — access-policy pattern
+  - `.ai-team/agents/*.perm` — current access boundary concept
 
   **Acceptance Criteria**:
   - [ ] RBAC roles and permissions are named.

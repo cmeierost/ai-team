@@ -32,6 +32,8 @@ export {
   matchesFsTreePreLlmIntent,
 } from './fs-tools.js';
 
+export { type FsPathAccessEnvelope, toFsPathAccessEnvelope } from './fs-access.js';
+
 export { semanticSearchTool, getErrorsTool } from './search-tools.js';
 
 export {

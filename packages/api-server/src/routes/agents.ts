@@ -5,7 +5,7 @@ import {
   AgentManager,
   AgentSchema,
   ContextManager,
-  createAccessEngine,
+  createPermissionEngine,
   LlmService,
   loadAgentAccessPatterns,
   listCachedWorkspaceFiles,
@@ -660,13 +660,12 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
       const allFiles = entries.map((entry) => entry.relativePath);
 
       // Annotate with permissions.
-      // Skip workspace convention scanning (autoLoadWorkspaceConventions: false) —
-      // agent permissions come from YAML config, not from on-disk .access files.
-      const engine = createAccessEngine({
+      // autoLoadWorkspaceConventions: true (default) lets the engine pick up
+      // each agent's .perm file from .ai-team/agents/ automatically.
+      const engine = createPermissionEngine({
         workspaceRoot: agentManager.workspaceRoot,
         fileTreeConfig: config?.fileTree,
         agents: agentManager.getAllAgents(),
-        autoLoadWorkspaceConventions: false,
       });
       const ctx = ContextManager.fromConfig(agentManager.workspaceRoot, config?.fileTree, engine);
       const annotated = ctx.getAnnotatedFiles(agent, allFiles);

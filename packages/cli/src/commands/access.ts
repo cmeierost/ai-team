@@ -1,15 +1,15 @@
 import chalk from 'chalk';
-import type { AccessRight, AiTeamClient } from '@ai-team/api-client';
+import type { FilePermission, AiTeamClient } from '@ai-team/api-client';
 
 interface AccessWhoOptions {
   path?: string;
-  right?: AccessRight;
+  right?: FilePermission;
   json?: boolean;
 }
 
 interface AccessCanOptions {
   path?: string;
-  right?: AccessRight;
+  right?: FilePermission;
   agent?: string;
   json?: boolean;
 }
@@ -24,7 +24,7 @@ function ensurePath(value: string | undefined): string {
 export async function accessWhoCommand(client: AiTeamClient, options: AccessWhoOptions = {}): Promise<void> {
   const path = ensurePath(options.path);
   const right = options.right ?? 'list';
-  const response = await client.whoHasAccess({ path, right });
+  const response = await client.whoHasPermission({ path, right });
 
   if (options.json) {
     console.log(JSON.stringify(response, null, 2));
@@ -48,7 +48,7 @@ export async function accessWhoCommand(client: AiTeamClient, options: AccessWhoO
 export async function accessCanCommand(client: AiTeamClient, options: AccessCanOptions = {}): Promise<void> {
   const path = ensurePath(options.path);
   const right = options.right ?? 'list';
-  const response = await client.doIHaveAccess({
+  const response = await client.doIHavePermission({
     path,
     right,
     agent: options.agent,

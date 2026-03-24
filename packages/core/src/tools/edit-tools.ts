@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { FileTime, Patch, fuzzyReplace, emitFileEdited, emitFileCreated } from '@ai-team/fs';
 import type { AgentTool, ToolContext } from '../types/index.js';
 import {
-  getAccessEngineOrDeny,
+  getPermissionEngineOrDeny,
   resolveFsAbsolutePath,
   toFsPathAccessEnvelope,
   toFsPathMeta,
@@ -86,7 +86,7 @@ export const applyPatchTool: AgentTool = {
     ),
   }),
   async execute(params, context: ToolContext) {
-    const engineCheck = getAccessEngineOrDeny(context);
+    const engineCheck = getPermissionEngineOrDeny(context);
     if (!engineCheck.ok) {
       return { applied: [], denied: [], error: engineCheck.reason };
     }
@@ -285,7 +285,7 @@ export const multiEditTool: AgentTool = {
       edits: Array<{ oldString: string; newString: string; replaceAll?: boolean }>;
     };
 
-    const engineCheck = getAccessEngineOrDeny(context);
+    const engineCheck = getPermissionEngineOrDeny(context);
     if (!engineCheck.ok) {
       return { path: filePath, succeeded: 0, totalEdits: edits.length, results: [], error: engineCheck.reason };
     }
@@ -389,7 +389,7 @@ export const fsEditTool: AgentTool = {
     replaceAll: z.boolean().optional().describe('Replace all occurrences (default: false — first only)'),
   }),
   async execute(params, context: ToolContext) {
-    const engineCheck = getAccessEngineOrDeny(context);
+    const engineCheck = getPermissionEngineOrDeny(context);
     const { filePath, replaceAll = false } = params as {
       filePath:   string;
       oldString:  string;

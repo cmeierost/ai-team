@@ -24,7 +24,7 @@ flowchart LR
     IDE[@ai-team/ide-interface\nIDE bridge contracts]
     SERVICE[@ai-team/service\nMediator, orchestration, runtime events]
     CORE[@ai-team/core\nUI-free domain logic]
-    ACCESS[@ai-team/access\nFile-path access rights policy engine]
+    ACCESS[@ai-team/permission\nFile-path permission rights policy engine]
   end
 
   STATE[.ai-team/*\nRuntime state]
@@ -202,15 +202,15 @@ flowchart LR
 
 ## File-system access evaluation flow
 
-This diagram shows how global file-tree defaults and per-agent `.access` rules combine into effective rights.
+This diagram shows how global file-tree defaults and per-agent `.perm` rules combine into effective rights.
 
 ```mermaid
 flowchart TD
-  REQUEST[Path + right request\nread/write/create/delete/list] --> ENGINE[@ai-team/access AccessEngine]
+  REQUEST[Path + right request\nread/write/create/delete/list] --> ENGINE[@ai-team/permission PermissionEngine]
 
   GLOBAL[.ai-team/config.json\nfileTree.read/write/create/delete paths] --> ENGINE
-  AGENTCFG[.ai-team/agents/*.agent.yml\nidentity/tools/delegation metadata] --> ADAPTER[core access adapter]
-  AGENTACCESS[.ai-team/agents/<agent-id>.access\nper-agent path policies] --> ADAPTER
+  AGENTCFG[.ai-team/agents/*.agent.yml\nidentity/tools/delegation metadata] --> ADAPTER[core permission adapter]
+  AGENTACCESS[.ai-team/agents/<agent-id>.perm\nper-agent path policies] --> ADAPTER
   ADAPTER --> ENGINE
 
   ENGINE --> INHERIT[Rights inheritance\nwrite => read + list\nread => list]

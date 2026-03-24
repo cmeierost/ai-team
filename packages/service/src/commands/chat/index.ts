@@ -19,7 +19,7 @@ import {
   Agent,
   LlmService,
   ToolManager,
-  createAccessEngine,
+  createPermissionEngine,
   ContextManager,
   loadSkill,
   loadEffectiveConfig,
@@ -345,7 +345,7 @@ export async function chatCommand(
     }
 
     // ── Build OrchestratorContext + ChatOrchestrator ─────────────────────────
-    const accessEngine = createAccessEngine({
+    const permissionEngine = createPermissionEngine({
       workspaceRoot,
       fileTreeConfig: teamConfig?.fileTree,
       agents: agentManager.getAllAgents(),
@@ -360,13 +360,13 @@ export async function chatCommand(
         catalog: (agent) => chatToolManager.catalog(agent),
       },
     };
-    chatToolManager = createToolManager(workspaceRoot, toolDeps, accessEngine);
+    chatToolManager = createToolManager(workspaceRoot, toolDeps, permissionEngine);
 
     const _container = createContainer({ workspaceRoot });
     _container.registerInstance(TOKENS.AgentManager, agentManager);
     _container.registerInstance(TOKENS.SessionManager, sessionManager);
     _container.registerInstance(TOKENS.ToolManager, chatToolManager);
-    _container.registerInstance(TOKENS.ContextManager, new ContextManager(workspaceRoot, undefined, accessEngine));
+    _container.registerInstance(TOKENS.ContextManager, new ContextManager(workspaceRoot, undefined, permissionEngine));
 
     const _ctx: OrchestratorContext = {
       agent,

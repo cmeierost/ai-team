@@ -4,7 +4,7 @@ import { accessCanCommand, accessWhoCommand } from './access.js';
 describe('access cli commands', () => {
   it('accessWhoCommand uses list as default right', async () => {
     const client = {
-      whoHasAccess: vi.fn().mockResolvedValue({
+      whoHasPermission: vi.fn().mockResolvedValue({
         path: { input: 'docs/readme.md', absolute: '/ws/docs/readme.md', relative: 'docs/readme.md' },
         right: 'list',
         contextIds: ['a'],
@@ -16,7 +16,7 @@ describe('access cli commands', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       await accessWhoCommand(client, { path: 'docs/readme.md' });
-      expect(client.whoHasAccess).toHaveBeenCalledWith({ path: 'docs/readme.md', right: 'list' });
+      expect(client.whoHasPermission).toHaveBeenCalledWith({ path: 'docs/readme.md', right: 'list' });
     } finally {
       logSpy.mockRestore();
     }
@@ -24,7 +24,7 @@ describe('access cli commands', () => {
 
   it('accessCanCommand passes optional agent override', async () => {
     const client = {
-      doIHaveAccess: vi.fn().mockResolvedValue({
+      doIHavePermission: vi.fn().mockResolvedValue({
         path: { input: 'docs/readme.md', absolute: '/ws/docs/readme.md', relative: 'docs/readme.md' },
         right: 'list',
         contextId: 'agent-b',
@@ -41,7 +41,7 @@ describe('access cli commands', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       await accessCanCommand(client, { path: 'docs/readme.md', agent: 'agent-b' });
-      expect(client.doIHaveAccess).toHaveBeenCalledWith({
+      expect(client.doIHavePermission).toHaveBeenCalledWith({
         path: 'docs/readme.md',
         right: 'list',
         agent: 'agent-b',

@@ -39,7 +39,7 @@ Write ai-team runtime agent metadata sidecars the ai-team way.
 ## Path-access location (important)
 
 - Do **not** store file-path read/write/create/delete globs in `.agent.yml`.
-- Per-agent file-system access now lives in `.ai-team/agents/<agent-id>.access`.
+- Per-agent file-system access now lives in `.ai-team/agents/<agent-id>.perm`.
 - Keep `.agent.yml` focused on runtime identity, org structure, tools, delegation, and related metadata.
 
 ## Rules

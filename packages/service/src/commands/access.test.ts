@@ -5,7 +5,7 @@ const coreApi = vi.hoisted(() => ({
   getAllAgents: vi.fn(),
   resolveAgent: vi.fn(),
   loadTeamConfig: vi.fn(),
-  createAccessEngine: vi.fn(),
+  createPermissionEngine: vi.fn(),
 }));
 
 vi.mock('@ai-team/core', () => {
@@ -19,7 +19,7 @@ vi.mock('@ai-team/core', () => {
   return {
     AgentManager,
     loadTeamConfig: coreApi.loadTeamConfig,
-    createAccessEngine: coreApi.createAccessEngine,
+    createPermissionEngine: coreApi.createPermissionEngine,
   };
 });
 
@@ -41,7 +41,7 @@ describe('access command handlers', () => {
       return [];
     });
 
-    coreApi.createAccessEngine.mockReturnValue({
+    coreApi.createPermissionEngine.mockReturnValue({
       whoCanAccess: vi.fn().mockReturnValue(['agent-a']),
       getContext: vi.fn().mockImplementation((id: string) => ({ id, label: id.toUpperCase() })),
       checkPath: vi.fn().mockReturnValue({

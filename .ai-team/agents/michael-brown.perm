@@ -1,0 +1,14 @@
+# Managed by AI Team. Edit with care.
+# Section names map to permission modes: [read], [write], [create], [delete].
+
+[read]
+README.md
+tools/export-md-pdf.mjs
+
+
+[write]
+.ai-team/**/*
+.ai-team/ai-team-way.md
+.github/copilot-instructions.md
+AGENTS.md
+docs/**/*

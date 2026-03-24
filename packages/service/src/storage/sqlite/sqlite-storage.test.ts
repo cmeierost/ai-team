@@ -513,6 +513,7 @@ describe('SqliteMessageStorage', () => {
         tags: ['tag1'],
       });
 
+      await new Promise((r) => setTimeout(r, 5));
       await storage.updateNote(note.id, {
         title: 'Updated Title',
         content: 'Updated content with more details',
@@ -692,7 +693,7 @@ describe('SqliteMessageStorage', () => {
       const stats = await storage.getStats();
       expect(stats.totalSessions).toBe(2);
       expect(stats.totalMessages).toBe(3);
-      expect(stats.schemaVersion).toBe(5);
+      expect(stats.schemaVersion).toBe(7);
       expect(stats.storageSize).toBeGreaterThan(0);
     });
 

@@ -20,10 +20,10 @@ import {
   HireOptions,
   InitOptions,
   ListEmployeesRequest,
-  WhoHasAccessOptions,
-  WhoHasAccessResponse,
-  DoIHaveAccessOptions,
-  DoIHaveAccessResponse,
+  WhoHasPermissionOptions,
+  WhoHasPermissionResponse,
+  DoIHavePermissionOptions,
+  DoIHavePermissionResponse,
   SearchAgentsRequest,
   SearchAgentsResponse,
   SearchSkillsOptions,
@@ -49,7 +49,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { providerListCommand, providerModelsCommand, providerModelsRefreshCommand } from './commands/models.js';
 import { testConnectionCommand } from './commands/test-connection.js';
 import { allowToolCommand, disallowToolCommand, listToolsCommand, toolAllowCommand, toolDenyCommand } from './commands/tools.js';
-import { accessAllowCommand, accessDenyCommand } from './commands/file-tree.js';
+import { permissionAllowCommand, permissionDenyCommand } from './commands/file-tree.js';
 import { addSkillCommand, removeSkillCommand, searchSkillsCommand } from './commands/skills.js';
 import { createCommand } from './commands/create.js';
 import { chatCommand } from './commands/chat/index.js';
@@ -546,9 +546,9 @@ export class CoreAiTeamService implements AiTeamService {
     });
   }
 
-  async accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+  async permissionAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
     const mode: PathMode = options.mode ?? 'read';
-    const result = await accessAllowCommand(this.workspaceRoot, options.agent, options.path, {
+    const result = await permissionAllowCommand(this.workspaceRoot, options.agent, options.path, {
       requestedBy: governance.requestedBy,
       confirmUserApproval: async () => governance.approvedByUser,
     }, mode);
@@ -564,9 +564,9 @@ export class CoreAiTeamService implements AiTeamService {
     };
   }
 
-  async accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+  async permissionDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
     const mode: PathMode = options.mode ?? 'read';
-    const result = await accessDenyCommand(this.workspaceRoot, options.agent, options.path, {
+    const result = await permissionDenyCommand(this.workspaceRoot, options.agent, options.path, {
       requestedBy: governance.requestedBy,
       confirmUserApproval: async () => governance.approvedByUser,
     }, mode);
@@ -642,11 +642,11 @@ export class CoreAiTeamService implements AiTeamService {
     return testConnectionCommand(this.workspaceRoot, options);
   }
 
-  async whoHasAccess(options: WhoHasAccessOptions): Promise<WhoHasAccessResponse> {
+  async whoHasPermission(options: WhoHasPermissionOptions): Promise<WhoHasPermissionResponse> {
     return whoHasAccessCommand(this.workspaceRoot, options);
   }
 
-  async doIHaveAccess(options: DoIHaveAccessOptions): Promise<DoIHaveAccessResponse> {
+  async doIHavePermission(options: DoIHavePermissionOptions): Promise<DoIHavePermissionResponse> {
     return doIHaveAccessCommand(this.workspaceRoot, options);
   }
 }

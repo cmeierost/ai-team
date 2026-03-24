@@ -5,8 +5,8 @@
  * /back is intentionally NOT here — it needs the navStack maintained in chat.ts.
  */
 
-import { promisify } from 'util';
-import { exec } from 'child_process';
+import { promisify } from 'node:util';
+import { exec } from 'node:child_process';
 import type { ISlashCommand } from './pipeline.js';
 import type { OrchestratorContext, NavStackEntry } from './pipeline-context.js';
 import { emitLog } from './stream-events.js';

@@ -5,7 +5,7 @@
 Monorepo packages currently present:
 
 - `packages/core` - UI-free domain logic, shared types, tools, workspace-backed operations.
-- `packages/access` - standalone file-path access rights policy engine (layered contexts, operation-aware, structured verdicts with delegation).
+- `packages/permission` - standalone file-path permission rights policy engine (layered contexts, operation-aware, structured verdicts with delegation).
 - `packages/service` - application orchestration, mediator contracts, chat runtime, workflow/session/task state.
 - `packages/api-client` - typed local in-process client façade.
 - `packages/api-client-http` - browser-safe remote HTTP/WebSocket client.
@@ -46,15 +46,15 @@ For customization layout, treat `.ai-team/` as the durable source of truth and `
 - `.ai-team/.env` - secrets.
 - `.ai-team/agents/*.agent.md` - Copilot-facing agent portfolio files.
 - `.ai-team/agents/*.agent.yml` - ai-team runtime metadata sidecars.
-- `.ai-team/agents/*.access` - per-agent file-path access policy files.
+- `.ai-team/agents/*.perm` - per-agent file-path access policy files.
 - `.ai-team/private/ai-team.db` - SQLite database for chat sessions, messages, and metadata.
 - `.ai-team/proposals/` - persisted code-edit proposals for review/replay flows.
 - `.ai-team/.ide-server.json` - active IDE-local server discovery file when the VS Code extension is running.
 
 ### Access and file-tree model (current)
 
-- File-path rights are evaluated by `@ai-team/access` through the core access adapter/engine.
-- Keep file-path rules in `.ai-team/agents/<agent-id>.access` (not in `.agent.yml`).
+- File-path rights are evaluated by `@ai-team/permission` through the core permission adapter/engine.
+- Keep file-path rules in `.ai-team/agents/<agent-id>.perm` (not in `.agent.yml`).
 - Rights inheritance is:
   - `write => read + list`
   - `read => list`
@@ -69,7 +69,7 @@ For customization layout, treat `.ai-team/` as the durable source of truth and `
 - [docs/api/contracts.md](docs/api/contracts.md) - transport-facing API docs for the API server surface.
 - [docs/implementation/web-state-architecture.md](docs/implementation/web-state-architecture.md) - frontend state boundaries and migration target.
 - [packages/core/README.md](packages/core/README.md)
-- [packages/access/README.md](packages/access/README.md)
+- [packages/permission/README.md](packages/permission/README.md)
 - [packages/api-server/README.md](packages/api-server/README.md)
 - [packages/web/README.md](packages/web/README.md)
 
@@ -85,9 +85,9 @@ For customization layout, treat `.ai-team/` as the durable source of truth and `
 - [packages/service/src/task-manager.ts](packages/service/src/task-manager.ts) - task lifecycle and state.
 - [packages/service/src/storage/proposal-store.ts](packages/service/src/storage/proposal-store.ts) - persisted code-edit proposal storage.
 - [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts) - tool registry + question tools.
-- [packages/core/src/tools/tool-descriptors.ts](packages/core/src/tools/tool-descriptors.ts) - built-in tool and command descriptors for AccessEngine.
-- [packages/core/src/context/access-adapter.ts](packages/core/src/context/access-adapter.ts) - Agent/FileTreeConfig → AccessEngine bridge.
-- [packages/access/src/engine.ts](packages/access/src/engine.ts) - AccessEngine — core policy evaluation.
+- [packages/core/src/tools/tool-descriptors.ts](packages/core/src/tools/tool-descriptors.ts) - built-in tool and command descriptors for PermissionEngine.
+- [packages/core/src/context/permission-adapter.ts](packages/core/src/context/permission-adapter.ts) - Agent/FileTreeConfig → PermissionEngine bridge.
+- [packages/permission/src/engine.ts](packages/permission/src/engine.ts) - PermissionEngine — core policy evaluation.
 - [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts) - command metadata for model-facing guidance.
 - [packages/api-client/src/index.ts](packages/api-client/src/index.ts) - local typed client and in-process wiring.
 - [packages/api-client-http/src/index.ts](packages/api-client-http/src/index.ts) - remote browser client.

@@ -4,7 +4,7 @@
 
 import chalk from 'chalk';
 import { confirm, input } from '@inquirer/prompts';
-import { type FileTreeNode, type AnnotatedFile, AgentManager, ContextManager, createAccessEngine, loadAgentAccessPatterns, loadTeamConfig } from '@ai-team/core';
+import { type FileTreeNode, type AnnotatedFile, AgentManager, ContextManager, createPermissionEngine, loadAgentAccessPatterns, loadTeamConfig } from '@ai-team/core';
 import {
   findWorkspaceRoot,
   getFileTreeCommand,
@@ -77,7 +77,7 @@ export async function filesCommand(options: FilesOptions = {}): Promise<void> {
 
     const allFiles = flattenFiles(tree);
     const config = await loadTeamConfig(workspaceRoot);
-    const engine = createAccessEngine({
+    const engine = createPermissionEngine({
       workspaceRoot,
       fileTreeConfig: config?.fileTree,
       agents: agentManager.getAllAgents(),
@@ -237,7 +237,7 @@ export async function filesAllowCommand(filePath: string, options: AllowOptions 
       });
 
     const governedModule = await import('@ai-team/service/src/commands/file-tree.js') as {
-      accessAllowCommand: (
+      permissionAllowCommand: (
         workspaceRoot: string,
         agentQuery: string,
         filePath: string,
@@ -245,7 +245,7 @@ export async function filesAllowCommand(filePath: string, options: AllowOptions 
         mode: PathMode,
       ) => Promise<{ agent: { id: string }; paths: string[] }>;
     };
-    const result = await governedModule.accessAllowCommand(workspaceRoot, options.agent, filePath, {
+    const result = await governedModule.permissionAllowCommand(workspaceRoot, options.agent, filePath, {
       requestedBy,
       confirmUserApproval: async () => approvedByUser,
     }, mode);
@@ -275,7 +275,7 @@ export async function filesDisallowCommand(filePath: string, options: AllowOptio
       });
 
     const governedModule = await import('@ai-team/service/src/commands/file-tree.js') as {
-      accessDenyCommand: (
+      permissionDenyCommand: (
         workspaceRoot: string,
         agentQuery: string,
         filePath: string,
@@ -283,7 +283,7 @@ export async function filesDisallowCommand(filePath: string, options: AllowOptio
         mode: PathMode,
       ) => Promise<{ agent: { id: string }; paths: string[] }>;
     };
-    const result = await governedModule.accessDenyCommand(workspaceRoot, options.agent, filePath, {
+    const result = await governedModule.permissionDenyCommand(workspaceRoot, options.agent, filePath, {
       requestedBy,
       confirmUserApproval: async () => approvedByUser,
     }, mode);
@@ -340,7 +340,7 @@ export async function filesPatternsCommand(options: { agent?: string; json?: boo
   }
 
   console.log(chalk.bold(`\n  Agent file patterns (${agent.name} / ${agent.id})`));
-  console.log(chalk.dim(`  Source: .ai-team/agents/${agent.id}.access`));
+  console.log(chalk.dim(`  Source: .ai-team/agents/${agent.id}.perm`));
   (Object.entries(patterns) as Array<[PathMode, string[]]>).forEach(([mode, values]) => {
     console.log(chalk.dim(`  ${mode}: ${values.join(', ') || '(none)'}`));
   });

@@ -1,11 +1,11 @@
 import path from 'node:path';
-import { AgentManager, createAccessEngine, loadTeamConfig } from '@ai-team/core';
+import { AgentManager, createPermissionEngine, loadTeamConfig } from '@ai-team/core';
 import type {
-  AccessRight,
-  DoIHaveAccessOptions,
-  DoIHaveAccessResponse,
-  WhoHasAccessOptions,
-  WhoHasAccessResponse,
+  FilePermission,
+  DoIHavePermissionOptions,
+  DoIHavePermissionResponse,
+  WhoHasPermissionOptions,
+  WhoHasPermissionResponse,
 } from '../contracts.js';
 import { resolveAgentForOperation } from '../utils/agent-resolution.js';
 
@@ -28,7 +28,7 @@ function resolvePathMeta(workspaceRoot: string, inputPath: string): {
   };
 }
 
-async function buildAccessEngine(workspaceRoot: string) {
+async function buildPermissionEngine(workspaceRoot: string) {
   const [config, agentManager] = await Promise.all([
     loadTeamConfig(workspaceRoot),
     (async () => {
@@ -39,7 +39,7 @@ async function buildAccessEngine(workspaceRoot: string) {
   ]);
 
   const agents = agentManager.getAllAgents();
-  const engine = createAccessEngine({
+  const engine = createPermissionEngine({
     workspaceRoot,
     fileTreeConfig: config?.fileTree,
     agents,
@@ -54,9 +54,9 @@ async function buildAccessEngine(workspaceRoot: string) {
 
 export async function whoHasAccessCommand(
   workspaceRoot: string,
-  options: WhoHasAccessOptions,
-): Promise<WhoHasAccessResponse> {
-  const right: AccessRight = options.right ?? 'list';
+  options: WhoHasPermissionOptions,
+): Promise<WhoHasPermissionResponse> {
+  const right: FilePermission = options.right ?? 'list';
   const pathMeta = resolvePathMeta(workspaceRoot, options.path);
 
   if (!pathMeta.insideWorkspace) {
@@ -73,7 +73,7 @@ export async function whoHasAccessCommand(
     };
   }
 
-  const { engine } = await buildAccessEngine(workspaceRoot);
+  const { engine } = await buildPermissionEngine(workspaceRoot);
   const contextIds = engine.whoCanAccess(options.path, right, workspaceRoot);
   const contexts = contextIds.map((contextId) => ({
     contextId,
@@ -97,9 +97,9 @@ export async function whoHasAccessCommand(
 
 export async function doIHaveAccessCommand(
   workspaceRoot: string,
-  options: DoIHaveAccessOptions,
-): Promise<DoIHaveAccessResponse> {
-  const right: AccessRight = options.right ?? 'list';
+  options: DoIHavePermissionOptions,
+): Promise<DoIHavePermissionResponse> {
+  const right: FilePermission = options.right ?? 'list';
   const pathMeta = resolvePathMeta(workspaceRoot, options.path);
 
   if (!pathMeta.insideWorkspace) {
@@ -121,10 +121,10 @@ export async function doIHaveAccessCommand(
     };
   }
 
-  const { engine, agentManager, agents } = await buildAccessEngine(workspaceRoot);
+  const { engine, agentManager, agents } = await buildPermissionEngine(workspaceRoot);
 
   let contextId = '';
-  let selectedBy: DoIHaveAccessResponse['selectedBy'];
+  let selectedBy: DoIHavePermissionResponse['selectedBy'];
   if (options.agent && options.agent.trim().length > 0) {
     contextId = resolveAgentForOperation(agentManager, options.agent, 'check access').id;
     selectedBy = 'explicit';
@@ -139,7 +139,7 @@ export async function doIHaveAccessCommand(
 
   const verdict = engine.checkPath(options.path, right, workspaceRoot, contextId);
   const allRightsMap = engine.whatCanContextDo(contextId, [options.path], workspaceRoot);
-  const allRights = [...(allRightsMap.get(pathMeta.relative) ?? new Set<AccessRight>())];
+  const allRights = [...(allRightsMap.get(pathMeta.relative) ?? new Set<FilePermission>())];
 
   return {
     path: {

@@ -10,6 +10,7 @@ specializations:
 avatar:
   type: url
   url: .ai-team/avatars/leah-brooks.jpg
+  color: 'hsl(40, 70%, 60%)'
 personality:
   communication_style: analytical
   expertise_level: senior
@@ -23,3 +24,5 @@ availableFor:
   - chat-flow-fixes
   - service-orchestration
   - api-server
+cliTools:
+  - pnpm

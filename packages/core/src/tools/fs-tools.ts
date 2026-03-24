@@ -11,9 +11,9 @@ import {
 import type { ReadFileResult, FileTreeNode } from '@ai-team/fs';
 import type { AgentTool, ToolContext } from '../types/index.js';
 import {
-  canListViaAccessEngine,
+  canListViaPermissionEngine,
   filterTreeByListAccess,
-  getAccessEngineOrDeny,
+  getPermissionEngineOrDeny,
   resolveFsAbsolutePath,
   toFsPathAccessEnvelope,
   toFsPathMeta,
@@ -35,7 +35,7 @@ function accessGate(
   filePath: string,
   resultKey: string,
 ): { ok: true; gate: AccessGate } | { ok: false; denied: Record<string, unknown> } {
-  const engineCheck = getAccessEngineOrDeny(context);
+  const engineCheck = getPermissionEngineOrDeny(context);
   const absolutePath = resolveFsAbsolutePath(context, filePath);
 
   if (!absolutePath) {
@@ -172,7 +172,7 @@ function mapReadResult(
 export const fsReadFileTool: AgentTool = {
   name: 'fs_read',
   description: [
-    'Read a file through @ai-team/access with structured access metadata.',
+    'Read a file through @ai-team/permission with structured access metadata.',
     'Streams the file line-by-line (never buffers the whole file).',
     'Supports pagination via `offset` (1-based start line) and `limit` (max lines).',
     'Output lines are prefixed with their 1-based line number, e.g. "42: content".',
@@ -225,7 +225,7 @@ export const fsReadLinesTool: AgentTool = {
 
 export const fsCreateFileTool: AgentTool = {
   name: 'fs_create',
-  description: 'Create a new file through @ai-team/access.',
+  description: 'Create a new file through @ai-team/permission.',
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
     content: z.string().optional().describe('Optional initial content'),
@@ -250,7 +250,7 @@ export const fsCreateFileTool: AgentTool = {
 
 export const fsWriteFileTool: AgentTool = {
   name: 'fs_write_file',
-  description: 'Write (overwrite) a file through @ai-team/access.',
+  description: 'Write (overwrite) a file through @ai-team/permission.',
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
     content: z.string().describe('Content to write'),
@@ -274,7 +274,7 @@ export const fsWriteFileTool: AgentTool = {
 
 export const fsDeletePathTool: AgentTool = {
   name: 'fs_delete_path',
-  description: 'Delete a file or directory through @ai-team/access.',
+  description: 'Delete a file or directory through @ai-team/permission.',
   parameters: z.object({
     path: z.string().describe('Relative or absolute path'),
     recursive: z.boolean().optional().describe('Recursively delete directories'),
@@ -297,7 +297,7 @@ export const fsDeletePathTool: AgentTool = {
 
 export const fsMkdirTool: AgentTool = {
   name: 'fs_mkdir',
-  description: 'Create a directory through @ai-team/access.',
+  description: 'Create a directory through @ai-team/permission.',
   parameters: z.object({
     path: z.string().describe('Relative or absolute directory path'),
     recursive: z.boolean().optional().describe('Create parent directories recursively'),
@@ -320,7 +320,7 @@ export const fsMkdirTool: AgentTool = {
 
 export const fsListTool: AgentTool = {
   name: 'fs_list',
-  description: 'List directory entries through @ai-team/access.',
+  description: 'List directory entries through @ai-team/permission.',
   formatForLlm(result: unknown): unknown {
     const r = result as { path: string; entries: Array<{ name: string; isDirectory: boolean }>; denied: number };
     if (!r.entries?.length) return `${r.path}: (empty or not accessible)`;
@@ -333,7 +333,7 @@ export const fsListTool: AgentTool = {
     includeHidden: z.boolean().optional().describe('Include hidden entries'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
+    const engineCheck = getPermissionEngineOrDeny(context);
     const { path: targetPath = '.', includeHidden = false } = params as {
       path?: string;
       includeHidden?: boolean;
@@ -358,11 +358,11 @@ export const fsListTool: AgentTool = {
     const entries = children
       .filter((child) => {
         const childPath = child.relativePath || '.';
-        if (canListViaAccessEngine(context, childPath)) return true;
+        if (canListViaPermissionEngine(context, childPath)) return true;
         // For directories, check if any descendant would be accessible
         // by testing `childPath/probe` — if the pattern is `childPath/**` the child itself
         // doesn't match but its contents would.
-        if (child.isDirectory && canListViaAccessEngine(context, childPath + '/probe')) return true;
+        if (child.isDirectory && canListViaPermissionEngine(context, childPath + '/probe')) return true;
         return false;
       })
       .map((child) => ({
@@ -404,14 +404,14 @@ export function matchesFsTreePreLlmIntent(message: string): boolean {
 
 export const fsTreeTool: AgentTool = {
   name: 'fs_tree',
-  description: 'Build directory tree with access checks enforced by @ai-team/access for all returned nodes.',
+  description: 'Build directory tree with access checks enforced by @ai-team/permission for all returned nodes.',
   parameters: z.object({
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
     maxDepth: z.number().int().min(0).max(64).optional().describe('Maximum recursion depth (default 6)'),
     includeHidden: z.boolean().optional().describe('Include hidden files and directories'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
+    const engineCheck = getPermissionEngineOrDeny(context);
     const { path: targetPath = '.', maxDepth = 6, includeHidden = false } = params as {
       path?: string;
       maxDepth?: number;
@@ -476,7 +476,7 @@ export const fsTreeTool: AgentTool = {
 
 export const fsSearchContentTool: AgentTool = {
   name: 'fs_search_content',
-  description: 'Search file contents under a path. Every candidate path is checked through @ai-team/access.',
+  description: 'Search file contents under a path. Every candidate path is checked through @ai-team/permission.',
   parameters: z.object({
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
     query: z.string().min(1).describe('Text to search for'),
@@ -484,7 +484,7 @@ export const fsSearchContentTool: AgentTool = {
     caseSensitive: z.boolean().optional().describe('Case-sensitive search (default false)'),
   }),
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
+    const engineCheck = getPermissionEngineOrDeny(context);
     const {
       path: targetPath = '.',
       query,
@@ -522,7 +522,7 @@ export const fsSearchContentTool: AgentTool = {
     let denied = 0;
     for (const match of rawMatches) {
       const relativePath = path.relative(context.workspaceRoot, match.filePath).replaceAll('\\', '/');
-      if (!canListViaAccessEngine(context, relativePath)) {
+      if (!canListViaPermissionEngine(context, relativePath)) {
         denied++;
         continue;
       }
@@ -570,7 +570,7 @@ export const fsSearchMetadataTool: AgentTool = {
     return `${header}\n\n${lines.join('\n')}`;
   },
   async execute(params, context) {
-    const engineCheck = getAccessEngineOrDeny(context);
+    const engineCheck = getPermissionEngineOrDeny(context);
     const {
       pattern,
       path: targetPath = '.',
@@ -597,7 +597,7 @@ export const fsSearchMetadataTool: AgentTool = {
         ? relFile.replaceAll('\\', '/')
         : (targetPath + '/' + relFile).replaceAll('\\', '/');
 
-      if (!canListViaAccessEngine(context, relFromRoot)) {
+      if (!canListViaPermissionEngine(context, relFromRoot)) {
         denied++;
         continue;
       }

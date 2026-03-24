@@ -1,6 +1,6 @@
 ## Plan: File-access rights library
 
-Create a standalone package `@ai-team/access` at `packages/access` that answers one question: **is this operation allowed on these files in this context?**
+Create a standalone package `@ai-team/permission` at `packages/permission` that answers one question: **is this operation allowed on these files in this context?**
 
 The library does not touch the filesystem. It is a policy engine for file-path access rights. Callers register shell commands and tool definitions with descriptors that say which file-access rights each command/tool needs and how to extract the target file paths from its arguments. The library then evaluates any incoming command or tool call against the active layered access context, resolves relative paths against the working directory, and returns a structured verdict that includes not just allowed/denied but also **who is allowed** — enabling delegation and context switching.
 
@@ -10,7 +10,7 @@ A second package for file read/write abstraction will follow later.
 
 **Steps**
 
-1. **Package boundary.** Create `packages/access` with `package.json` (`@ai-team/access`), `tsconfig.json`, `src/index.ts`, and README. Zero dependencies on AI Team agent/session concepts. Only generic path and access abstractions. This phase blocks all others.
+1. **Package boundary.** Create `packages/permission` with `package.json` (`@ai-team/permission`), `tsconfig.json`, `src/index.ts`, and README. Zero dependencies on AI Team agent/session concepts. Only generic path and access abstractions. This phase blocks all others.
 
 2. **Domain contracts — rights and rules.** Define rights: `read`, `write`, `create`, `delete`, `list`. A rule binds a right to a path pattern (glob, workspace-relative) and an optional file-name pattern (e.g. `*.md`), with an `allow` or `deny` effect. Rules are composable: a context carries an ordered list. Model resources as normalized workspace-relative paths with explicit kind (`file` | `directory`). Cross-platform: normalize Windows backslashes and drive letters to POSIX-style workspace-relative form. Depends on step 1.
 
@@ -65,24 +65,24 @@ A second package for file read/write abstraction will follow later.
    - `listRules(contextId?) → rules with patterns` — cross-context pattern introspection for delegation discovery
    These are the building blocks for AI Team's delegation logic: "who should handle this?", "split this work", and "who do I ask for help?" Depends on steps 5–8.
 
-10. **Map existing AI Team code onto the library.** Replace `ContextManager`'s permission logic with an adapter that converts AI Team agent/config data into `@ai-team/access` contexts and registered operations. Keep AI Team-specific concepts (`ContextLevel`, agent defaults, team config) in `@ai-team/core` or `@ai-team/service`. Wire tool execution and shell-command gating through `checkToolCall` / `checkCommand`. Depends on steps 1–9.
+10. **Map existing AI Team code onto the library.** Replace `ContextManager`'s permission logic with an adapter that converts AI Team agent/config data into `@ai-team/permission` contexts and registered operations. Keep AI Team-specific concepts (`ContextLevel`, agent defaults, team config) in `@ai-team/core` or `@ai-team/service`. Wire tool execution and shell-command gating through `checkToolCall` / `checkCommand`. Depends on steps 1–9.
 
-11. **Tests.** Unit tests in `packages/access`: rule precedence, layered evaluation, deny-before-allow, path normalization (Windows backslash input), context switching, command parsing + path extraction, tool-call extraction, cwd resolution, ignore-file loading, introspection queries, delegation ranking, compound command handling (e.g. `run_in_terminal` wrapping `cat`). Integration tests: denied operation returns alternative contexts, switching context changes results immediately, unrecognized command respects default policy. Depends on all implementation steps.
+11. **Tests.** Unit tests in `packages/permission`: rule precedence, layered evaluation, deny-before-allow, path normalization (Windows backslash input), context switching, command parsing + path extraction, tool-call extraction, cwd resolution, ignore-file loading, introspection queries, delegation ranking, compound command handling (e.g. `run_in_terminal` wrapping `cat`). Integration tests: denied operation returns alternative contexts, switching context changes results immediately, unrecognized command respects default policy. Depends on all implementation steps.
 
-12. **Documentation.** Document `@ai-team/access` as the canonical operation-level access control library. Update architecture docs, explain the operation registry concept, show examples of registering shell commands and tools, and document the migration path from the old `ContextManager`. Depends on final design outcome.
+12. **Documentation.** Document `@ai-team/permission` as the canonical operation-level access control library. Update architecture docs, explain the operation registry concept, show examples of registering shell commands and tools, and document the migration path from the old `ContextManager`. Depends on final design outcome.
 
 **Relevant files**
-- `packages/access/package.json` — new standalone package manifest.
-- `packages/access/tsconfig.json` — TypeScript build config.
-- `packages/access/src/index.ts` — public barrel.
-- `packages/access/src/rights.ts` — right types, rule types, effect types.
-- `packages/access/src/context/` — access-context contracts, registry, layering, switching.
-- `packages/access/src/policy/` — deny/allow evaluation, matcher compilation, structured verdicts.
-- `packages/access/src/operations/` — operation descriptors, shell-command registry, tool-call registry, path extraction.
-- `packages/access/src/introspection/` — whoCanAccess, rankContexts, findGaps, whatCanContextDo, listRules.
-- `packages/access/src/ignore/` — gitignore-style pattern loading and policy input.
-- `packages/access/src/paths.ts` — path normalization, cwd resolution, workspace-relative conversion.
-- `packages/core/src/context/index.ts` — current `ContextManager`; shrinks to adapter over `@ai-team/access`.
+- `packages/permission/package.json` — new standalone package manifest.
+- `packages/permission/tsconfig.json` — TypeScript build config.
+- `packages/permission/src/index.ts` — public barrel.
+- `packages/permission/src/rights.ts` — right types, rule types, effect types.
+- `packages/permission/src/context/` — access-context contracts, registry, layering, switching.
+- `packages/permission/src/policy/` — deny/allow evaluation, matcher compilation, structured verdicts.
+- `packages/permission/src/operations/` — operation descriptors, shell-command registry, tool-call registry, path extraction.
+- `packages/permission/src/introspection/` — whoCanAccess, rankContexts, findGaps, whatCanContextDo, listRules.
+- `packages/permission/src/ignore/` — gitignore-style pattern loading and policy input.
+- `packages/permission/src/paths.ts` — path normalization, cwd resolution, workspace-relative conversion.
+- `packages/core/src/context/index.ts` — current `ContextManager`; shrinks to adapter over `@ai-team/permission`.
 - `packages/core/src/tools/index.ts` — permission checks that should call `checkToolCall`.
 - `packages/core/src/types/index.ts` — AI Team permission types to slim after extraction.
 - `packages/service/src/commands/file-tree.ts` — becomes a library consumer instead of policy owner.
@@ -90,7 +90,7 @@ A second package for file read/write abstraction will follow later.
 - `COPILOT-CONTEXT.md` — update implementation hotspots.
 
 **Verification**
-1. Build `packages/access` and affected dependents; verify clean compilation.
+1. Build `packages/permission` and affected dependents; verify clean compilation.
 2. Unit tests for rule precedence, layered deny/allow, context switching, path normalization on Windows.
 3. Unit tests for shell-command path extraction: `cat file.txt`, `cp src dest`, `mkdir -p foo/bar`, `grep -r pattern dir/`, piped commands.
 4. Unit tests for tool-call path extraction: simple tool params, compound tools (`run_in_terminal` wrapping shell commands).
@@ -99,7 +99,7 @@ A second package for file read/write abstraction will follow later.
 7. Introspection tests: rankContexts returns correct order; findGaps identifies blocked paths and alternatives; whoCanAccess lists correct context IDs; distributeWork assigns each path to exactly one context with access; batch filterPaths/annotatePaths return correct results for mixed-access file sets.
 
 **Decisions**
-- Package: `packages/access`, name `@ai-team/access`.
+- Package: `packages/permission`, name `@ai-team/permission`.
 - Library-first: no AI Team agent/session/config dependencies.
 - Does not touch the filesystem. Does not wrap `node:fs`. Does not execute commands. It only answers "is this allowed?" and "who can?".
 - Layered contexts: global + active, deny-before-allow, runtime switching by ID.

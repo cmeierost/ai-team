@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ContextLevel, type Agent, type PermissionConfig } from '../types/index.js';
-import { createAccessEngine } from '../context/access-adapter.js';
+import { createPermissionEngine } from '../context/permission-adapter.js';
 import { ToolManager } from './tool-manager.js';
 import { ALL_TOOLS } from './index.js';
 
@@ -87,7 +87,7 @@ describe('fs_exists/fs_info tool execution', () => {
     const a = makeAgent('a', ['src/**/*']);
     const b = makeAgent('b', ['docs/**/*']);
 
-    const engine = createAccessEngine({ workspaceRoot, agents: [a, b] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a, b] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -107,7 +107,7 @@ describe('fs_exists/fs_info tool execution', () => {
     await fs.writeFile(path.join(workspaceRoot, 'src', 'app.ts'), 'export const x = 1;', 'utf8');
 
     const a = makeAgent('a', ['src/**/*']);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
 
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
@@ -125,7 +125,7 @@ describe('fs_exists/fs_info tool execution', () => {
 });
 
 describe('fs_search_* access filtering', () => {
-  it('searches broadly then filters fs_search_content matches via @ai-team/access', async () => {
+  it('searches broadly then filters fs_search_content matches via @ai-team/permission', async () => {
     const workspaceRoot = await createWorkspace();
     await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, 'docs'), { recursive: true });
@@ -133,7 +133,7 @@ describe('fs_search_* access filtering', () => {
     await fs.writeFile(path.join(workspaceRoot, 'docs', 'blocked.md'), 'needle in blocked docs', 'utf8');
 
     const a = makeSearchAgent('a', ['**']);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const existing = engine.getContext('a');
     if (!existing) throw new Error('Expected context for agent a');
     engine.updateContext('a', {
@@ -155,7 +155,7 @@ describe('fs_search_* access filtering', () => {
     expect(payload.matches.some((m: { path: string }) => m.path.includes('docs/blocked.md'))).toBe(false);
   });
 
-  it('filters fs_search_metadata matches via @ai-team/access before returning', async () => {
+  it('filters fs_search_metadata matches via @ai-team/permission before returning', async () => {
     const workspaceRoot = await createWorkspace();
     await fs.mkdir(path.join(workspaceRoot, 'src', 'needle-zone'), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, 'docs', 'needle-zone'), { recursive: true });
@@ -163,7 +163,7 @@ describe('fs_search_* access filtering', () => {
     await fs.writeFile(path.join(workspaceRoot, 'docs', 'needle-zone', 'b.md'), 'x', 'utf8');
 
     const a = makeSearchAgent('a', ['**']);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const existing = engine.getContext('a');
     if (!existing) throw new Error('Expected context for agent a');
     engine.updateContext('a', {
@@ -198,7 +198,7 @@ describe('remaining fs tool execution', () => {
     await fs.writeFile(path.join(workspaceRoot, 'src', 'file.txt'), 'line1\nline2\nline3', 'utf8');
 
     const a = makeFullFsAgent('a');
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -219,7 +219,7 @@ describe('remaining fs tool execution', () => {
   it('supports fs_write_file, fs_create and fs_mkdir', async () => {
     const workspaceRoot = await createWorkspace();
     const a = makeFullFsAgent('a');
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -254,7 +254,7 @@ describe('remaining fs tool execution', () => {
     await fs.writeFile(path.join(workspaceRoot, 'tmp', 'dir', 'a.txt'), 'a', 'utf8');
 
     const a = makeFullFsAgent('a');
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -282,7 +282,7 @@ describe('fs_tree with subtree-only access', () => {
 
     // Agent only has read (→ list) on src/**
     const a = makeTreeAgent('subtree-a', ['src/**']);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -314,7 +314,7 @@ describe('fs_tree with subtree-only access', () => {
 
     // Agent has no read patterns at all
     const a = makeTreeAgent('no-access', []);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -338,7 +338,7 @@ describe('fs_tree with subtree-only access', () => {
     await fs.writeFile(path.join(workspaceRoot, 'docs', 'readme.md'), 'y', 'utf8');
 
     const a = makeTreeAgent('full-access', ['**']);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -364,7 +364,7 @@ describe('fs_list with subtree-only access', () => {
 
     // Agent only has list on allowed-dir/**
     const a = makeTreeAgent('list-subtree', ['allowed-dir/**']);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -387,7 +387,7 @@ describe('fs_list with subtree-only access', () => {
     await fs.writeFile(path.join(workspaceRoot, 'private', 'secret.txt'), 'x', 'utf8');
 
     const a = makeTreeAgent('no-list', []);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -413,7 +413,7 @@ describe('fs_search_content with subtree-only access', () => {
     await fs.writeFile(path.join(workspaceRoot, 'secret', 'config.ts'), 'const PORT = 290420;', 'utf8');
 
     const a = makeSearchAgent('search-subtree', ['src/**']);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -436,7 +436,7 @@ describe('fs_search_content with subtree-only access', () => {
     await fs.writeFile(path.join(workspaceRoot, 'secret', 'config.ts'), 'const PORT = 290420;', 'utf8');
 
     const a = makeSearchAgent('search-denied', ['src/**']);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -462,7 +462,7 @@ describe('fs_search_metadata with subtree-only access', () => {
     await fs.writeFile(path.join(workspaceRoot, 'private', 'hidden.ts'), 'y', 'utf8');
 
     const a = makeSearchAgent('meta-subtree', ['src/**']);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
@@ -484,7 +484,7 @@ describe('fs_search_metadata with subtree-only access', () => {
     await fs.writeFile(path.join(workspaceRoot, 'private', 'hidden.ts'), 'y', 'utf8');
 
     const a = makeSearchAgent('meta-denied', ['src/**']);
-    const engine = createAccessEngine({ workspaceRoot, agents: [a] });
+    const engine = createPermissionEngine({ workspaceRoot, agents: [a] });
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 

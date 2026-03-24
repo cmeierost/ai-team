@@ -7,7 +7,7 @@ import {
   MarkdownSection,
   AgentManager,
   ContextManager,
-  createAccessEngine,
+  createPermissionEngine,
   listCachedWorkspaceFiles,
   loadAgentAccessPatterns,
   loadTeamConfig,
@@ -72,11 +72,11 @@ import {
   UpdateAgentPathResponse,
   UpdateGlobalPathOptions,
   UpdateGlobalPathResponse,
-  AccessRight,
-  WhoHasAccessOptions,
-  WhoHasAccessResponse,
-  DoIHaveAccessOptions,
-  DoIHaveAccessResponse,
+  FilePermission,
+  WhoHasPermissionOptions,
+  WhoHasPermissionResponse,
+  DoIHavePermissionOptions,
+  DoIHavePermissionResponse,
   WorkflowFrame,
   WorkflowStateSnapshot,
   type ServiceErrorCode,
@@ -84,7 +84,7 @@ import {
   TestConnectionOptions,
   allowPathCommand,
   disallowPathCommand,
-  agentAllowPathCommand,
+  agentPermissionPathCommand,
   agentDisallowPathCommand,
 } from '@ai-team/service';
 import { SearchAgentsRequest, SearchAgentsResponse } from '@ai-team/service/src/contracts';
@@ -143,10 +143,10 @@ export interface AiTeamClient {
   disallowTool(options: UpdateAgentToolOptions): Promise<UpdateAgentToolResponse>;
   toolAllow(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
   toolDeny(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
-  accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
-  accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
-  whoHasAccess(options: WhoHasAccessOptions): Promise<WhoHasAccessResponse>;
-  doIHaveAccess(options: DoIHaveAccessOptions): Promise<DoIHaveAccessResponse>;
+  permissionAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
+  permissionDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
+  whoHasPermission(options: WhoHasPermissionOptions): Promise<WhoHasPermissionResponse>;
+  doIHavePermission(options: DoIHavePermissionOptions): Promise<DoIHavePermissionResponse>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;
@@ -253,7 +253,7 @@ class InProcessAiTeamClient implements AiTeamClient {
     const config = await loadTeamConfig(ws);
     const manager = new AgentManager(ws);
     await manager.initialize();
-    const engine = createAccessEngine({
+    const engine = createPermissionEngine({
       workspaceRoot: ws,
       fileTreeConfig: config?.fileTree,
       agents: manager.getAllAgents(),
@@ -333,7 +333,7 @@ class InProcessAiTeamClient implements AiTeamClient {
 
   async allowAgentPath(options: UpdateAgentPathOptions): Promise<UpdateAgentPathResponse> {
     const mode: PathMode = options.mode ?? 'read';
-    const result = await agentAllowPathCommand(this.service.workspaceRoot, options.agent, options.path, mode);
+    const result = await agentPermissionPathCommand(this.service.workspaceRoot, options.agent, options.path, mode);
     return {
       agent: {
         id: result.agent.id,
@@ -359,18 +359,18 @@ class InProcessAiTeamClient implements AiTeamClient {
     };
   }
 
-  async accessAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+  async permissionAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
     const governed = this.service as AiTeamService & {
-      accessAllow: (options: UpdateAgentPathOptions, governance: GovernanceMutationOptions) => Promise<UpdateAgentPathResponse>;
+      permissionAllow: (options: UpdateAgentPathOptions, governance: GovernanceMutationOptions) => Promise<UpdateAgentPathResponse>;
     };
-    return governed.accessAllow(options, governance);
+    return governed.permissionAllow(options, governance);
   }
 
-  async accessDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
+  async permissionDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse> {
     const governed = this.service as AiTeamService & {
-      accessDeny: (options: UpdateAgentPathOptions, governance: GovernanceMutationOptions) => Promise<UpdateAgentPathResponse>;
+      permissionDeny: (options: UpdateAgentPathOptions, governance: GovernanceMutationOptions) => Promise<UpdateAgentPathResponse>;
     };
-    return governed.accessDeny(options, governance);
+    return governed.permissionDeny(options, governance);
   }
 
   async addSkill(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
@@ -407,12 +407,12 @@ class InProcessAiTeamClient implements AiTeamClient {
     return governed.toolDeny(options, governance);
   }
 
-  async whoHasAccess(options: WhoHasAccessOptions): Promise<WhoHasAccessResponse> {
-    return this.service.whoHasAccess(options);
+  async whoHasPermission(options: WhoHasPermissionOptions): Promise<WhoHasPermissionResponse> {
+    return this.service.whoHasPermission(options);
   }
 
-  async doIHaveAccess(options: DoIHaveAccessOptions): Promise<DoIHaveAccessResponse> {
-    return this.service.doIHaveAccess(options);
+  async doIHavePermission(options: DoIHavePermissionOptions): Promise<DoIHavePermissionResponse> {
+    return this.service.doIHavePermission(options);
   }
 
   async getTeamGraph(mode?: ViewMode): Promise<GraphData> {
@@ -615,11 +615,11 @@ export type {
   UpdateAgentSkillResponse,
   UpdateAgentToolOptions,
   UpdateAgentToolResponse,
-  AccessRight,
-  WhoHasAccessOptions,
-  WhoHasAccessResponse,
-  DoIHaveAccessOptions,
-  DoIHaveAccessResponse,
+  FilePermission,
+  WhoHasPermissionOptions,
+  WhoHasPermissionResponse,
+  DoIHavePermissionOptions,
+  DoIHavePermissionResponse,
   WorkflowFrame,
   WorkflowStateSnapshot,
   ServiceErrorCode,

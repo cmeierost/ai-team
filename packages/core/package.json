@@ -21,7 +21,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@ai-team/access": "workspace:*",
+    "@ai-team/permission": "workspace:*",
     "@ai-team/fs": "workspace:*",
     "@ai-team/ide-interface": "workspace:*",
     "@typescript-eslint/typescript-estree": "^8.56.0",
