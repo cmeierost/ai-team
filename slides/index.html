@@ -28,7 +28,7 @@
 
 <body>
   <div class="reveal" data-organization="Departement I / Institut f&#252;r Software (IFS)" data-speaker="Clemens Meier"
-    data-email="clemens.meier@ost.ch" data-date="March 13, 2026" data-module="AI Interest Group">
+    data-email="clemens.meier@ost.ch" data-date="24. März 2026" data-module="Software Crafters">
     <div class="slides">
 
       <!-- =============================================
@@ -43,21 +43,45 @@
       <!-- =============================================
            CHAPTER 1: Agentic Workflows
            ============================================= -->
-      <section data-slide-type="chapter" data-background-image="images/stgallen.jpg" data-background-size="cover">
+      <section data-slide-type="chapter" data-background-image="images/rappi2.jpeg" data-background-size="cover">
         <h1>Agentic Workflows</h1>
         <h2>Wie Coding Agents arbeiten</h2>
+      </section>
+
+      <section>
+        <h1>LLMs vs Agents</h1>
+        <div class="content">
+          <img src="images/agents.webp" alt="LLMs vs Agents" style="max-height: 640px;">
+        </div>
       </section>
 
       <section>
         <h1>Beispiele heutiger Coding Agents</h1>
         <div class="content r-stretch">
           <div class="logo-grid">
-            <a class="logo-item" href="https://github.com/features/copilot" target="_blank"><img src="images/logo-copilot.png" alt="Copilot"><p>Copilot</p></a>
-            <a class="logo-item" href="https://www.anthropic.com/claude-code" target="_blank"><img src="images/logo-claude-code.png" alt="Claude Code"><p>Claude Code</p></a>
-            <a class="logo-item" href="https://cline.bot" target="_blank"><img src="images/logo-cline.png" alt="Cline"><p>Cline</p></a>
-            <a class="logo-item" href="https://opencode.ai" target="_blank"><img src="images/logo-opencode.png" alt="OpenCode"><p>OpenCode</p></a>
-            <a class="logo-item" href="https://openai.com/codex" target="_blank"><img src="images/logo-codex.png" alt="Codex"><p>Codex</p></a>
-            <a class="logo-item" href="https://www.cursor.com" target="_blank"><img src="images/logo-cursor.png" alt="Cursor"><p>Cursor</p></a>
+            <a class="logo-item" href="https://github.com/features/copilot" target="_blank"><img
+                src="images/logo-copilot.png" alt="Copilot">
+              <p>GitHub Copilot</p>
+            </a>
+            <a class="logo-item" href="https://www.anthropic.com/claude-code" target="_blank"><img
+                src="images/logo-claude-code.png" alt="Claude Code">
+              <p>Claude Code</p>
+            </a>
+            <a class="logo-item" href="https://cline.bot" target="_blank"><img src="images/logo-cline.png" alt="Cline">
+              <p>Cline (Open Source)</p>
+            </a>
+            <a class="logo-item" href="https://opencode.ai" target="_blank"><img src="images/logo-opencode.png"
+                alt="OpenCode">
+              <p>OpenCode (Open Source)</p>
+            </a>
+            <a class="logo-item" href="https://openai.com/codex" target="_blank"><img src="images/logo-codex.png"
+                alt="Codex">
+              <p>Codex</p>
+            </a>
+            <a class="logo-item" href="https://www.cursor.com" target="_blank"><img src="images/logo-cursor.png"
+                alt="Cursor">
+              <p>Cursor</p>
+            </a>
           </div>
         </div>
       </section>
@@ -84,30 +108,52 @@
       </section>
 
       <section>
+        <h1>Agent in Action</h1>
+        <div class="content">
+          <img src="images/copilot-tools.png" alt="How It Works" style="max-height: 640px;">
+        </div>
+      </section>
+
+      <section>
+        <h1>Skills</h1>
+        <div class="content">
+          <img src="images/typical-agent-loop.png" alt="Agent Loop" style="max-height: 640px;">
+        </div>
+      </section>
+
+      <section>
         <h1>Context Window</h1>
         <div class="content">
           <img src="images/context-window.svg" alt="Context Window" style="max-height: 640px;">
         </div>
       </section>
-      
+
       <section>
         <h1>Gr&#246;sseres Context Window = besser?</h1>
         <div class="content r-stretch" style="display: flex; gap: 1.2em; align-items: stretch; font-size: 1.2em;">
-          <div class="fragment" style="flex: 1; border: 3px solid #db4437; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
+          <div class="fragment"
+            style="flex: 1; border: 3px solid #db4437; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
             <h3 style="color: #db4437; margin: 0 0 0.3em; font-size: 1em;">Überforderung</h3>
-            <p style="font-size: 0.65em; margin: 0;">Zu viel Kontext &#252;berfordert das Modell &ndash; der Fokus geht verloren, die Antwortzeit steigt.</p>
+            <p style="font-size: 0.65em; margin: 0;">Zu viel Kontext &#252;berfordert das Modell &ndash; der Fokus geht
+              verloren, die Antwortzeit steigt.</p>
           </div>
-          <div class="fragment" style="flex: 1; border: 3px solid #f4b400; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
+          <div class="fragment"
+            style="flex: 1; border: 3px solid #f4b400; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
             <h3 style="color: #f4b400; margin: 0 0 0.3em; font-size: 1em;">Lost in the Middle</h3>
-            <p style="font-size: 0.65em; margin: 0;">Das Modell gewichtet Anfang und Ende st&#228;rker &ndash; relevante Inhalte in der Mitte werden &#252;bersehen.</p>
+            <p style="font-size: 0.65em; margin: 0;">Das Modell gewichtet Anfang und Ende st&#228;rker &ndash; relevante
+              Inhalte in der Mitte werden &#252;bersehen.</p>
           </div>
-          <div class="fragment" style="flex: 1; border: 3px solid #0f9d58; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
+          <div class="fragment"
+            style="flex: 1; border: 3px solid #0f9d58; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
             <h3 style="color: #0f9d58; margin: 0 0 0.3em; font-size: 1em;">Rauschen</h3>
-            <p style="font-size: 0.65em; margin: 0;">Mehr Kontext f&#252;hrt zu Redundanz, Widerspr&#252;chen und verzerrten Schlussfolgerungen.</p>
+            <p style="font-size: 0.65em; margin: 0;">Mehr Kontext f&#252;hrt zu Redundanz, Widerspr&#252;chen und
+              verzerrten Schlussfolgerungen.</p>
           </div>
-          <div class="fragment" style="flex: 1; border: 3px solid #4285f4; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
+          <div class="fragment"
+            style="flex: 1; border: 3px solid #4285f4; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
             <h3 style="color: #4285f4; margin: 0 0 0.3em; font-size: 1em;">Weite Distanzen</h3>
-            <p style="font-size: 0.65em; margin: 0;">Mit wachsendem Kontext f&#228;llt es dem Modell schwerer, weit auseinanderliegende Informationen zu verkn&#252;pfen.</p>
+            <p style="font-size: 0.65em; margin: 0;">Mit wachsendem Kontext f&#228;llt es dem Modell schwerer, weit
+              auseinanderliegende Informationen zu verkn&#252;pfen.</p>
           </div>
         </div>
       </section>
@@ -176,6 +222,14 @@
       </section>
 
       <section>
+        <h1>AI-Team Organigramm</h1>
+        <div class="content">
+          <img src="images/organigramm.png" alt="AI-Team Organigramm" style="max-height: 640px;">
+          <p>Die Organisation des AI-Teams (Virtuelles Team das an AI-Team arbeitet!)</p>
+        </div>
+      </section>
+
+      <section>
         <h1>Klare Verantwortung in Organisationen</h1>
         <div class="content">
           <ul>
@@ -192,6 +246,20 @@
             <li>klare Grenzen im Code</li>
             <li>jeder Agent kennt seinen Scope</li>
           </ul>
+        </div>
+      </section>
+
+      <section>
+        <h1>AI-Team Team</h1>
+        <div class="content">
+          <img src="images/team.png" alt="AI-Team Team" style="max-height: 640px;">
+        </div>
+      </section>
+
+      <section>
+        <h1>AI-Team Chat</h1>
+        <div class="content">
+          <img src="images/chat.png" alt="AI-Team Chat" style="max-height: 640px;">
         </div>
       </section>
 
@@ -229,7 +297,7 @@
             <li>CSS-Spezialist bekommt automatisch Playwright &amp; Storybook</li>
             <li>Backend-Dev bekommt DB-Tools &amp; Testrunner</li>
             <li>Passender Pair Programmer wird automatisch zugewiesen</li>
-            <li>Entwickler finden sich sofort zurecht</li>
+            <li>Entwickler finden sich sofort zurecht, da sie automatisch mit den Spezialisten verbunden werden.</li>
           </ul>
         </div>
       </section>
@@ -253,6 +321,20 @@
             <li>&#8222;hire backend lead&#8220;</li>
           </ul>
           <p>Die Komplexit&#228;t bleibt unter der Haube.</p>
+        </div>
+      </section>
+
+      <section>
+        <h1>AI-Team Portfolio</h1>
+        <div class="content">
+          <img src="images/portofolio.png" alt="AI-Team Portfolio" style="max-height: 640px;">
+        </div>
+      </section>
+
+      <section>
+        <h1>AI-Team Settings</h1>
+        <div class="content">
+          <img src="images/settings.png" alt="AI-Team Settings" style="max-height: 640px;">
         </div>
       </section>
 
@@ -281,7 +363,8 @@
         <div class="content">
           <ul>
             <li>heutige Agents sind m&#228;chtig &#8211; aber schlecht organisiert</li>
-            <li>Context Pollution wird nicht weniger, wenn man dem LLM 100 Agenten und 1000 Skills zur Verfügung stellt</li>
+            <li>Context Pollution wird nicht weniger, wenn man dem LLM 100 Agenten und 1000 Skills zur Verfügung stellt
+            </li>
             <li>Kontext aufräumen ist nur dann nötig, wenn er nicht von Anfang an aufgeräumt ist.</li>
             <li>Wir müssen Struktur in die Agentenlandschaft bringen</li>
             <li>Struktur schafft Qualit&#228;t</li>
@@ -290,6 +373,41 @@
           </ul>
         </div>
       </section>
+
+      <section>
+        <h1>AI-Team CLI</h1>
+        <div class="content">
+          <img src="images/chat-cli.png" alt="AI-Team Chat CLI" style="max-height: 640px;">
+        </div>
+      </section>
+      <section>
+        <h1>Links</h1>
+        <div class="content">
+          <h2>Code:</h2>
+          <ul>
+            <li>
+              <a href="https://gitlab.ost.ch/clemens.meier/ai-team" target="_blank">AI Gitlab-OST
+                Repository</a>&nbsp;(OST intern)
+              <br />Achtung! Heavy Development and Vibe Coding Chaos ;) Es werden noch keine Pull Requests angenommen.
+              Aber Ideen sind herzlich willkommen!
+            </li>
+          </ul>
+          <h2>Workshops zu Copilot:</h2>
+          <ul>
+            <li>
+              <a href="https://copilot-dev-days.github.io/" target="_blank">Copilot Dev Days Online Workshop</a>
+              <br />Sehr zu empfehlen für diejenigen die tiefer in die Funktionsweise von Copilot eintauchen möchten. Es
+              werden viele praktische Übungen und Beispiele geboten, um die Fähigkeiten von Copilot optimal zu
+              nutzen.<br />
+              Eine GitHub Academic License (gratis für Studenten der OST mit eingescannter Legi) ist erforderlich um
+              alle Übungen zu lösen, aber es lohnt sich auf
+              jeden Fall!
+            </li>
+            <li> <a href="https://alexop.dev/posts/vs-code-copilot-workshop/" target="_blank">Next Level GitHub
+                Copilot</a> (interessante Webseite)
+            </li>
+          </ul>
+        </div>
     </div>
   </div>
 
