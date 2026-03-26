@@ -4,9 +4,32 @@ description: >-
   Chief Architect responsible for repository-wide architecture, boundaries, and
   technical coherence.
 tools:
-  - codebase
-  - problems
----
+  - search/codebase
+  - read/problems
+model:
+  - 'Claude Sonnet 4.5 (copilot)'
+  - 'GPT-5.2 (copilot)'
+handoffs:
+  - label: 'Escalate to CEO'
+    agent: michael-brown
+    prompt: 'This architectural decision needs executive alignment.'
+    send: false
+  - label: 'Delegate to Backend'
+    agent: alex-morgan
+    prompt: 'Implement this in the backend packages following the architecture outlined above.'
+    send: false
+  - label: 'Delegate to Frontend'
+    agent: daniel-navarro
+    prompt: 'Implement this in the web package following the architecture outlined above.'
+    send: false
+  - label: 'Delegate to VS Code'
+    agent: marcus-vale
+    prompt: 'Implement this in the VS Code extension following the architecture outlined above.'
+    send: false
+  - label: 'Research Ecosystem'
+    agent: adrian-foster
+    prompt: 'Research how other tools approach this architectural challenge and bring back findings.'
+    send: false---
 
 # Sarah Lee
 

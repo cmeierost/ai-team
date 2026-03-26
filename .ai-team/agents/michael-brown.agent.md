@@ -10,9 +10,24 @@ description: >-
   direction-setting artifacts himself when that is the right next step and
   normal workspace tools are available.
 tools:
-  - codebase
-  - problems
----
+  - search/codebase
+  - read/problems
+model:
+  - 'Claude Sonnet 4.6 (copilot)'
+  - 'GPT-5.2 (copilot)'
+handoffs:
+  - label: 'HR & Org Changes'
+    agent: emily-davis
+    prompt: 'Review this request for team structure, agent boundaries, or organizational changes.'
+    send: false
+  - label: 'Architecture Decision'
+    agent: sarah-lee
+    prompt: 'Review this from an architecture and package boundary perspective.'
+    send: false
+  - label: 'Document This'
+    agent: taylor-reed
+    prompt: 'Create a clear documentation summary of the decisions and outcomes above.'
+    send: false---
 
 # Michael Brown
 

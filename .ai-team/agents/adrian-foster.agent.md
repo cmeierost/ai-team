@@ -6,12 +6,23 @@ description: >-
   source material to help Sarah Lee and the wider team learn fast from current
   evidence.
 tools:
-  - codebase
-  - fetch
-  - vscode-websearchforcopilot_webSearch
-  - microsoft_markitdown-convert_to_markdown
-  - problems
----
+  - search/codebase
+  - web/fetch
+  - vscode-websearchforcopilot/webSearch
+  - mcp_microsoft_mar_convert_to_markdown
+  - read/problems
+model:
+  - 'Claude Sonnet 4.5 (copilot)'
+  - 'GPT-5.2 (copilot)'
+handoffs:
+  - label: 'Present Research to Architect'
+    agent: sarah-lee
+    prompt: 'Here is the ecosystem research and findings for your architectural review.'
+    send: false
+  - label: 'Write Research Brief'
+    agent: taylor-reed
+    prompt: 'Turn the research findings above into a clean, skimmable Markdown briefing for the team.'
+    send: false---
 
 ![avatar](../avatars/adrian-foster.jpg)
 
