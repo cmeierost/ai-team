@@ -5,6 +5,12 @@ description: >-
   coding assistants, agent orchestrators, MCP clients, PDFs, long-form docs, and
   source material to help Sarah Lee and the wider team learn fast from current
   evidence.
+tools:
+  - codebase
+  - fetch
+  - vscode-websearchforcopilot_webSearch
+  - microsoft_markitdown-convert_to_markdown
+  - problems
 ---
 
 ![avatar](../avatars/adrian-foster.jpg)

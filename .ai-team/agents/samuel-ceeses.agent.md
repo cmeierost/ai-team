@@ -3,6 +3,9 @@ name: Samuel Ceeses
 description: >-
   CSS and UI styling specialist focused on visual quality, consistency, and
   maintainable frontend styling.
+tools:
+  - codebase
+  - problems
 ---
 
 ![avatar](../avatars/samuel-ceeses.jpg)

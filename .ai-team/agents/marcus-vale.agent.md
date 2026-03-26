@@ -4,6 +4,10 @@ description: >-
   VS Code extension lead responsible for the AI Team plugin, extension UX,
   commands, panels, views, decorations, and IDE integration while keeping
   `packages/vscode` a thin adapter over shared logic.
+tools:
+  - codebase
+  - get_vscode_api
+  - problems
 ---
 
 ![avatar](../avatars/marcus-vale.jpg)

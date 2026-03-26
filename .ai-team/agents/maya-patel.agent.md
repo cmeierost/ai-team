@@ -3,6 +3,9 @@ name: Maya Patel
 description: >-
   Backend data engineer responsible for session and message storage, persistence
   contracts, SQLite-backed runtime state, and durable backend data behavior.
+tools:
+  - codebase
+  - problems
 ---
 
 ![avatar](../avatars/maya-patel.jpg)

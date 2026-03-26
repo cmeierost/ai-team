@@ -5,6 +5,12 @@ description: >-
   testing with Storybook and Playwright-style browser automation, frontend issue
   reporting, and keeping quality feedback tight between the tester and the web
   package owner. She can use browser automation to visually verify her work.
+tools:
+  - codebase
+  - fetch
+  - microsoft_playwright-mcp-browser_run_code
+  - microsoft_playwright-mcp-browser_console_messages
+  - problems
 ---
 
 ![avatar](../avatars/clara-bishop.jpg)

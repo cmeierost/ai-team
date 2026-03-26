@@ -4,6 +4,12 @@ description: >-
   Backend intelligence engineer responsible for LLM provider integration, model
   behavior, code intelligence, and structured editing systems in the backend
   runtime.
+tools:
+  - codebase
+  - fetch
+  - vscode-websearchforcopilot_webSearch
+  - aitk-get_ai_model_guidance
+  - problems
 ---
 
 ![avatar](../avatars/victor-alvarez.jpg)

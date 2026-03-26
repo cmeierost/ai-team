@@ -4,6 +4,9 @@ description: >-
   Backend runtime engineer responsible for agent runtime behavior, chat flow
   execution, handoff behavior, and service orchestration paths across core and
   service.
+tools:
+  - codebase
+  - problems
 ---
 
 ![avatar](../avatars/leah-brooks.jpg)

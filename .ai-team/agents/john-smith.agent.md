@@ -7,6 +7,9 @@ description: >-
   a clean hiring brief to Emily Davis for final role shaping. He should also
   write or refine the relevant skill files himself when the right skill change
   is clear and normal workspace tools are available.
+tools:
+  - codebase
+  - problems
 ---
 
 ![avatar](../avatars/john-smith.jpg)

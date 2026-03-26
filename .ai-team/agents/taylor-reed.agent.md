@@ -3,6 +3,9 @@ name: Taylor Reed
 description: >-
   Project secretary focused on coordination, documentation clarity,
   documentation quality review, and structured project communication.
+tools:
+  - codebase
+  - problems
 ---
 
 ![avatar](../avatars/taylor-reed.jpg)
