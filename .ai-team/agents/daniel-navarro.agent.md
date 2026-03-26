@@ -6,7 +6,25 @@ description: >-
   focused on visual appearance and frontend quality work routed through Clara
   Bishop, including Zustand-based client-state architecture and dumb
   Storybook-friendly component boundaries.
----
+tools:
+  - search/codebase
+  - read/problems
+model:
+  - 'Claude Sonnet 4.5 (copilot)'
+  - 'GPT-5.1 (copilot)'
+handoffs:
+  - label: 'Escalate to Architect'
+    agent: sarah-lee
+    prompt: 'This frontend decision requires architectural review or affects package boundaries.'
+    send: false
+  - label: 'CSS & Styling'
+    agent: samuel-ceeses
+    prompt: 'Handle the visual styling and CSS polish for the work above.'
+    send: false
+  - label: 'Quality & Storybook'
+    agent: clara-bishop
+    prompt: 'Set up Storybook coverage and browser-driven quality checks for the components above.'
+    send: false---
 
 ![avatar](../avatars/daniel-navarro.jpg)
 

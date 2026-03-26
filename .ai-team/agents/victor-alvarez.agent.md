@@ -4,7 +4,20 @@ description: >-
   Backend intelligence engineer responsible for LLM provider integration, model
   behavior, code intelligence, and structured editing systems in the backend
   runtime.
----
+tools:
+  - search/codebase
+  - web/fetch
+  - vscode-websearchforcopilot/webSearch
+  - aitk-get_ai_model_guidance
+  - read/problems
+model:
+  - 'Claude Haiku 4.5 (copilot)'
+  - 'GPT-5.1 (copilot)'
+handoffs:
+  - label: 'Report to Backend Lead'
+    agent: alex-morgan
+    prompt: 'The intelligence and provider work above is complete; review and coordinate the next step.'
+    send: false---
 
 ![avatar](../avatars/victor-alvarez.jpg)
 
