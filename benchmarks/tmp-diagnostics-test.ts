@@ -7,7 +7,7 @@ const count: number = 290420;
 const unused = 42;
 
 // 3. Missing import
-import { NonExistent } from './packages/core/src/index.js';
+import { NonExistent } from '../packages/core/src/index.js';
 
 // 4. Property access on wrong type
 const obj: { name: string } = { name: 'test' };

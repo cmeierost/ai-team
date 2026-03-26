@@ -1,4 +1,4 @@
-import { getFileTree } from "./packages/fs/dist/file-tree.js";
+import { getFileTree } from "../packages/fs/dist/file-tree.js";
 import { performance } from "node:perf_hooks";
 
 const runs = [];

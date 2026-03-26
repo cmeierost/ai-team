@@ -1,4 +1,4 @@
-import { PermissionEngine } from "./packages/permission/dist/engine.js";
+import { PermissionEngine } from "../packages/permission/dist/engine.js";
 import { performance } from "node:perf_hooks";
 
 const runs = [];
