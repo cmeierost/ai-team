@@ -9,7 +9,8 @@ import {
 } from './fs-access.js';
 
 export const whoHasAccessTool: AgentTool = {
-  name: 'fs_who_can',
+  name: 'who_can',
+  group: 'access',
   description: 'Show which contexts/agents can access a path for a given right.',
   parameters: z.object({
     path: z.string().describe('Relative or absolute workspace path to check'),
@@ -60,7 +61,8 @@ export const whoHasAccessTool: AgentTool = {
 };
 
 export const doIHaveAccessTool: AgentTool = {
-  name: 'tool_can_i',
+  name: 'can_i',
+  group: 'access',
   description: 'Check whether the current context (or an explicit context) has access to a path/right.',
   parameters: z.object({
     path: z.string().describe('Relative or absolute workspace path to check'),

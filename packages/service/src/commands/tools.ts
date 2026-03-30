@@ -21,6 +21,7 @@ function buildCatalogEntry(toolManager: { toSchema: (toolName: string) => { para
   return {
     name: tool.name,
     description: tool.description,
+    group: tool.group,
     schema: toolManager.toSchema(tool.name)?.parameters ?? {},
     tags: tool.tags,
     examples: tool.examples,

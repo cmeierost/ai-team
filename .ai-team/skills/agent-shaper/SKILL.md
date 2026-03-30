@@ -16,7 +16,7 @@ This includes:
 - shaping new agents
 - restructuring existing agents
 - reviewing whether an agent should exist at all
-- deciding what belongs in `.agent.md` versus `.agent.yml`
+- deciding what belongs in YAML frontmatter versus the Markdown body
 - deciding supporting skills, prompts, and instructions
 - validating personality, reporting lines, and collaboration patterns
 - directly updating the relevant files when normal workspace tools are available
@@ -71,8 +71,7 @@ Write the personality so it supports the job instead of becoming decoration.
 
 Design:
 
-- the Copilot-facing `.agent.md` portfolio
-- the ai-team runtime `.agent.yml` sidecar
+- the `.agent.md` file (YAML frontmatter + Markdown body)
 - identity fields
 - role and context level
 - explicit `reportsTo`

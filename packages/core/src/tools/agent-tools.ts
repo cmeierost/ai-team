@@ -13,7 +13,8 @@ const execFileAsync = promisify(execFile);
  * Delegate task to another agent
  */
 export const delegateToAgentTool: AgentTool = {
-  name: 'com_delegate',
+  name: 'delegate',
+  group: 'com',
   description: 'Delegate a task to another agent. Checks delegation permissions.',
   parameters: z.object({
     agentId: z.string().describe('Target agent ID'),
@@ -41,7 +42,8 @@ export const delegateToAgentTool: AgentTool = {
  * Register a CLI command for an employee so it can be executed via run_cli_tool.
  */
 export const registerCliTool: AgentTool = {
-  name: 'tool_register_cli',
+  name: 'register_cli',
+  group: 'tool',
   description: 'Allow this employee to run a command-line tool by executable name (e.g. git, pnpm, node).',
   parameters: z.object({
     command: z.string().min(1).describe('Executable name to allow (no args, e.g. git)'),
@@ -112,7 +114,8 @@ export const registerCliTool: AgentTool = {
  * Update an employee-specific LLM profile (provider/model/params).
  */
 export const updateEmployeeLlmTool: AgentTool = {
-  name: 'hr_update_llm',
+  name: 'update_llm',
+  group: 'hr',
   description: 'Update another employee\'s LLM profile (model, provider, and generation params).',
   parameters: z.object({
     employee: z.string().min(1).describe('Target employee name/id/role'),
@@ -210,8 +213,9 @@ export const updateEmployeeLlmTool: AgentTool = {
  * Run a CLI tool that was previously allowed for this employee.
  */
 export const runCliTool: AgentTool = {
-  name: 'tool_run',
-  description: 'Execute an allowed command-line tool with args. Command must be registered first via tool_register_cli.',
+  name: 'run',
+  group: 'tool',
+  description: 'Execute an allowed command-line tool with args. Command must be registered first via register_cli.',
   formatForLlm(result: unknown): unknown {
     const r = result as { command: string; args: string[]; stdout: string; stderr?: string };
     const cmd = `$ ${r.command}${r.args?.length ? ' ' + r.args.join(' ') : ''}`;
@@ -233,7 +237,7 @@ export const runCliTool: AgentTool = {
 
     const allowed = new Set((context.agent.cliTools || []).map(entry => normalizeExecutableName(entry)).filter(Boolean) as string[]);
     if (!allowed.has(normalized)) {
-      throw new Error(`Command '${normalized}' is not allowed for ${context.agent.name}. Register it first with tool_register_cli.`);
+      throw new Error(`Command '${normalized}' is not allowed for ${context.agent.name}. Register it first with register_cli.`);
     }
 
     const execCwd = cwd

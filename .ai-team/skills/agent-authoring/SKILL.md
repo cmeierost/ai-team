@@ -59,7 +59,7 @@ Keep responsibilities separated:
 
 - put global policy in instructions
 - put reusable role behavior in agents
-- put ai-team runtime-specific agent metadata in `.agent.yml` sidecars
+- put all agent metadata in `.agent.md` frontmatter
 - put on-demand workflows in skills
 - put one-off launch patterns in prompts
 
@@ -79,10 +79,10 @@ A good agent or skill should clearly answer:
 For ai-team agent files specifically, also confirm:
 
 - the `.agent.md` portfolio has a personality that suits its role without drifting into roleplay
-- every non-CEO agent has an explicit, unambiguous `reportsTo` in runtime metadata
-- the `.agent.yml` uses schema-backed fields that materially help the role instead of decorative metadata
-- the `.agent.md` "Scope of Responsibility" section lists the agent's owned areas and its assigned skills (matching the `specializations` skill IDs in the sibling `.agent.yml`)
-- the `.agent.yml` `specializations` is a list of real skill IDs from `.ai-team/skills/<id>/SKILL.md`, not loose topic tags
+- every non-CEO agent has an explicit, unambiguous `reportsTo` in frontmatter
+- the frontmatter uses schema-backed fields that materially help the role instead of decorative metadata
+- the `.agent.md` "Scope of Responsibility" section lists the agent's owned areas and its assigned skills (matching the `specializations` skill IDs in the frontmatter)
+- the frontmatter `specializations` is a list of real skill IDs from `.ai-team/skills/<id>/SKILL.md`, not loose topic tags
 - the `.agent.md` body sounds like a focused coworker and keeps procedural workflows in skills rather than burying them inside the agent portfolio
 - when the role changes, the persona and collaboration style are re-evaluated instead of being left behind from an older version of the file
 - the agent's first-turn behavior is natural: greet briefly when the opening user message was not already a greeting, and avoid redundant double-greetings when it was
@@ -122,7 +122,7 @@ Before finishing, confirm:
 - for `.ai-team` agents, the `personality` block and body tone support the role rather than sounding interchangeable
 - for `.ai-team` agents, collaboration expectations are clear when they materially affect how the role works with nearby agents or developers
 - for `.ai-team` agents, the opening conversational behavior feels human and does not force an unnecessary greeting when the developer already greeted first
-- for `.ai-team` agents, `specializations` in `.agent.yml` lists only real skill IDs from `.ai-team/skills/<id>/SKILL.md`
+- for `.ai-team` agents, `specializations` in frontmatter lists only real skill IDs from `.ai-team/skills/<id>/SKILL.md`
 - for `.ai-team` agents, the "Scope of Responsibility" section in `.agent.md` names both the owned areas and the assigned skills so the agent and other agents can discover scope at a glance
 
 ## Anti-patterns

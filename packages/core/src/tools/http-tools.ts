@@ -223,7 +223,8 @@ async function fetchUrlText(url: string, timeoutMs: number): Promise<{
 // ============================================================================
 
 export const httpFetchTool: AgentTool = {
-  name: 'http_fetch',
+  name: 'fetch',
+  group: 'http',
   description: 'Fetch a URL and return filtered chunks (lines, regex/search, length) for safe LLM context usage.',
   formatForLlm(result: unknown): unknown {
     const r = result as { url: string; status: number; chunks: string[]; truncated: boolean; lineCount: number; charCount: number };
@@ -290,7 +291,8 @@ export const httpFetchTool: AgentTool = {
 };
 
 export const httpCrawlTool: AgentTool = {
-  name: 'http_crawl',
+  name: 'crawl',
+  group: 'http',
   description: 'Crawl links from a starting URL with depth/page limits and return filtered text chunks.',
   formatForLlm(result: unknown): unknown {
     const r = result as { url: string; crawled: boolean; visitedCount: number; chunks: string[] };

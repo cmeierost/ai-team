@@ -42,6 +42,7 @@ function formatLspResult(result: LspResult): Record<string, unknown> {
  */
 export const findSymbolTool: AgentTool = {
   name: 'find_symbol',
+  group: 'code',
   description: 'Find symbol definitions (functions, classes, variables) via the connected IDE language server. Requires read permission.',
   formatForLlm(result: unknown): unknown { return formatLspForLlm(result as LspFormatInput); },
   parameters: z.object({
@@ -111,6 +112,7 @@ function filterSymbolsByName(symbols: any[], name: string): any[] {
  */
 export const findReferencesTool: AgentTool = {
   name: 'find_references',
+  group: 'code',
   description: 'Find all references/usages of a symbol via the connected IDE language server. Position the cursor on a symbol usage to find all other references. Requires read permission.',
   formatForLlm(result: unknown): unknown { return formatLspForLlm(result as LspFormatInput); },
   parameters: z.object({
@@ -149,6 +151,7 @@ export const findReferencesTool: AgentTool = {
  */
 export const lspTool: AgentTool = {
   name: 'lsp',
+  group: 'code',
   description: 'Execute a language server operation (goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, prepareCallHierarchy, incomingCalls, outgoingCalls, getDiagnostics) via the connected IDE. Lines are 1-based.',
   formatForLlm(result: unknown): unknown { return formatLspForLlm(result as LspFormatInput); },
   parameters: z.object({
@@ -239,7 +242,8 @@ function formatLspForLlm(r: LspFormatInput): unknown {
  * Fast grep-style text search
  */
 export const grepCodeTool: AgentTool = {
-  name: 'search_grep',
+  name: 'grep',
+  group: 'search',
   description: 'Fast regex or literal text search in workspace files, powered by ripgrep. Returns structured match objects with file path, line number, and matched content. Requires read permission.',
   parameters: z.object({
     pattern:       z.string().describe('Regex or literal text to search for'),
@@ -287,7 +291,8 @@ export const grepCodeTool: AgentTool = {
  * Analyze TypeScript/JavaScript code complexity
  */
 export const analyzeComplexityTool: AgentTool = {
-  name: 'analyze_complexity',
+  name: 'complexity',
+  group: 'code',
   description: 'Analyze code complexity metrics (cyclomatic complexity, LOC, etc.) for TypeScript/JavaScript files. Requires read permission.',
   formatForLlm(result: unknown): unknown {
     const r = result as {
@@ -341,7 +346,8 @@ export const analyzeComplexityTool: AgentTool = {
  * Propose code edits for user approval
  */
 export const applyCodeEditTool: AgentTool = {
-  name: 'fs_apply_patch',
+  name: 'apply_patch',
+  group: 'fs',
   description: 'Propose code changes to one or more files. Changes must be approved by the user before being applied. Requires write permission for all files.',
   parameters: z.object({
     description: z.string().describe('Clear description of what changes are being made and why'),

@@ -79,7 +79,8 @@ function accessGate(
 // ─── fs_exists ────────────────────────────────────────────────────────────────
 
 export const fsExistsTool: AgentTool = {
-  name: 'fs_exists',
+  name: 'exists',
+  group: 'fs',
   description: 'Check whether a file or directory exists. Access-gated as a list operation.',
   parameters: z.object({
     path: z.string().describe('Relative or absolute file/directory path'),
@@ -97,7 +98,8 @@ export const fsExistsTool: AgentTool = {
 // ─── fs_info ──────────────────────────────────────────────────────────────────
 
 export const fsInfoTool: AgentTool = {
-  name: 'fs_info',
+  name: 'info',
+  group: 'fs',
   description: 'Get file/directory metadata and access envelope. Access-gated as a list operation.',
   parameters: z.object({
     path: z.string().describe('Relative or absolute file/directory path'),
@@ -170,7 +172,8 @@ function mapReadResult(
 }
 
 export const fsReadFileTool: AgentTool = {
-  name: 'fs_read',
+  name: 'read',
+  group: 'fs',
   description: [
     'Read a file through @ai-team/permission with structured access metadata.',
     'Streams the file line-by-line (never buffers the whole file).',
@@ -205,7 +208,8 @@ export const fsReadFileTool: AgentTool = {
 // ─── fs_read_lines ────────────────────────────────────────────────────────────
 
 export const fsReadLinesTool: AgentTool = {
-  name: 'fs_read_lines',
+  name: 'read_lines',
+  group: 'fs',
   description: 'Read a range of lines from a file. Legacy compat — delegates to the streaming reader.',
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
@@ -224,7 +228,8 @@ export const fsReadLinesTool: AgentTool = {
 // ─── fs_create ────────────────────────────────────────────────────────────────
 
 export const fsCreateFileTool: AgentTool = {
-  name: 'fs_create',
+  name: 'create',
+  group: 'fs',
   description: 'Create a new file through @ai-team/permission.',
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
@@ -249,7 +254,8 @@ export const fsCreateFileTool: AgentTool = {
 // ─── fs_write_file ────────────────────────────────────────────────────────────
 
 export const fsWriteFileTool: AgentTool = {
-  name: 'fs_write_file',
+  name: 'write_file',
+  group: 'fs',
   description: 'Write (overwrite) a file through @ai-team/permission.',
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
@@ -273,7 +279,8 @@ export const fsWriteFileTool: AgentTool = {
 // ─── fs_delete_path ───────────────────────────────────────────────────────────
 
 export const fsDeletePathTool: AgentTool = {
-  name: 'fs_delete_path',
+  name: 'delete_path',
+  group: 'fs',
   description: 'Delete a file or directory through @ai-team/permission.',
   parameters: z.object({
     path: z.string().describe('Relative or absolute path'),
@@ -296,7 +303,8 @@ export const fsDeletePathTool: AgentTool = {
 // ─── fs_mkdir ─────────────────────────────────────────────────────────────────
 
 export const fsMkdirTool: AgentTool = {
-  name: 'fs_mkdir',
+  name: 'mkdir',
+  group: 'fs',
   description: 'Create a directory through @ai-team/permission.',
   parameters: z.object({
     path: z.string().describe('Relative or absolute directory path'),
@@ -319,7 +327,8 @@ export const fsMkdirTool: AgentTool = {
 // ─── fs_list ──────────────────────────────────────────────────────────────────
 
 export const fsListTool: AgentTool = {
-  name: 'fs_list',
+  name: 'list',
+  group: 'fs',
   description: 'List directory entries through @ai-team/permission.',
   formatForLlm(result: unknown): unknown {
     const r = result as { path: string; entries: Array<{ name: string; isDirectory: boolean }>; denied: number };
@@ -403,7 +412,8 @@ export function matchesFsTreePreLlmIntent(message: string): boolean {
 }
 
 export const fsTreeTool: AgentTool = {
-  name: 'fs_tree',
+  name: 'tree',
+  group: 'fs',
   description: 'Build directory tree with access checks enforced by @ai-team/permission for all returned nodes.',
   parameters: z.object({
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
@@ -475,7 +485,8 @@ export const fsTreeTool: AgentTool = {
 };
 
 export const fsSearchContentTool: AgentTool = {
-  name: 'fs_search_content',
+  name: 'search_content',
+  group: 'fs',
   description: 'Search file contents under a path. Every candidate path is checked through @ai-team/permission.',
   parameters: z.object({
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
@@ -553,7 +564,8 @@ export const fsSearchContentTool: AgentTool = {
 };
 
 export const fsSearchMetadataTool: AgentTool = {
-  name: 'fs_search_metadata',
+  name: 'search_metadata',
+  group: 'fs',
   description:
     'Fast glob-pattern file search backed by ripgrep. Returns matching paths with size and mtime. ' +
     'Respects .gitignore by default. Use glob patterns like "**/*.ts" or "src/**/*.test.*".',

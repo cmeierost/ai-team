@@ -16,7 +16,7 @@ Use this file as the high-level bridge into the repository's ai-team customizati
 
 - `.ai-team/` is the durable home for agents, skills, prompts, instructions, and doctrine.
 - `.github/` is the thin compatibility layer for Copilot discovery.
-- In `.ai-team/agents/`, prefer `.agent.md` for Copilot-facing portfolio content and `.agent.yml` for ai-team runtime metadata.
+- In `.ai-team/agents/`, each agent is a single `.agent.md` file with YAML frontmatter for all metadata and a Markdown body for the portfolio.
 
 ## How to route work
 

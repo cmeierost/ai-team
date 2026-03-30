@@ -211,7 +211,7 @@ In short: the architecture direction is clear, but the frontend is still mid-mig
 
 - File-path rights are evaluated by the `@ai-team/permission` engine via the core permission adapter.
 - Agent-specific path rules live in `.ai-team/agents/<agent-id>.perm`.
-- `.agent.yml` files are runtime metadata sidecars and should not carry file-path access globs.
+- Agent frontmatter should not carry file-path access globs.
 - Rights inheritance:
   - `write => read + list`
   - `read => list`

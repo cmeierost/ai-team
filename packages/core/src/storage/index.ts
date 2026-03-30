@@ -170,25 +170,6 @@ async function readMarkdownAgentFile(filePath: string): Promise<{ data: Record<s
   };
 }
 
-function extractPortfolioFrontmatter(agent: Agent): Record<string, unknown> {
-  const frontmatter: Record<string, unknown> = {};
-
-  if (agent.name) frontmatter.name = agent.name;
-  if (agent.description) frontmatter.description = agent.description;
-
-  return frontmatter;
-}
-
-function extractMetadataFrontmatter(frontmatter: Record<string, unknown>): Record<string, unknown> {
-  const {
-    description: _description,
-    aiTeamName: _aiTeamName,
-    aiTeamId: _aiTeamId,
-    ...metadata
-  } = frontmatter;
-  return metadata;
-}
-
 function humanizeId(id: string): string {
   return id
     .split(/[-_\s]+/)
@@ -303,7 +284,7 @@ export async function loadAgent(filePath: string): Promise<Agent> {
 export async function saveAgent(agent: Agent): Promise<void> {
   // Validate before saving
   AgentSchema.parse(agent);
-  
+
   // Separate frontmatter from file-specific and content fields
   const {
     filePath: _filePath,
@@ -315,45 +296,36 @@ export async function saveAgent(agent: Agent): Promise<void> {
     markdown,
     ...frontmatter
   } = agent;
-  
+
   // Strip undefined values — js-yaml cannot serialize them
   const cleanFrontmatter = Object.fromEntries(
     Object.entries(frontmatter).filter(([, v]) => v !== undefined)
   );
 
-  const defaultMetadataPath = isAiTeamAgentPath(agent.filePath) && (isDotAgentFile(agent.filePath) || isAgentMdFile(agent.filePath))
-    ? getMetadataSidecarCandidates(agent.filePath)[0]
-    : undefined;
-  const existingMetadataPath = await firstExistingPath(getMetadataSidecarCandidates(agent.filePath));
-  const metadataPath = isYamlAgentFile(agent.filePath)
-    ? agent.filePath
-    : (existingMetadataPath || defaultMetadataPath);
-  const markdownPath = isYamlAgentFile(agent.filePath)
-    ? (getMarkdownSidecarCandidates(agent.filePath)[0] || agent.filePath)
+  // We are deprecating .agent.yml sidecars. Always target the .agent.md file.
+  const targetFilePath = isYamlAgentFile(agent.filePath)
+    ? (getMarkdownSidecarCandidates(agent.filePath)[0] || agent.filePath.replace(/\.ya?ml$/, '.md'))
     : agent.filePath;
 
   // Use markdown body if present, otherwise empty
   const body = (markdown || '').trim();
 
-  if (metadataPath) {
-    const portfolioFrontmatter = extractPortfolioFrontmatter(agent);
-    const metadataFrontmatter = extractMetadataFrontmatter(cleanFrontmatter);
-    const markdownContent = matter.stringify(body ? '\n' + body + '\n' : '', portfolioFrontmatter);
-    const metadataContent = stringifyYamlSidecar(metadataFrontmatter);
-
-    await fs.mkdir(path.dirname(markdownPath), { recursive: true });
-    await fs.mkdir(path.dirname(metadataPath), { recursive: true });
-    await fs.writeFile(markdownPath, markdownContent, 'utf-8');
-    await fs.writeFile(metadataPath, metadataContent, 'utf-8');
-    return;
-  }
-
   const content = matter.stringify(body ? '\n' + body + '\n' : '', cleanFrontmatter);
 
   // Ensure directory exists
-  await fs.mkdir(path.dirname(agent.filePath), { recursive: true });
+  await fs.mkdir(path.dirname(targetFilePath), { recursive: true });
 
-  await fs.writeFile(agent.filePath, content, 'utf-8');
+  await fs.writeFile(targetFilePath, content, 'utf-8');
+
+  // Clean up legacy sidecars if they exist to prevent split-brain duplicates
+  const sidecars = getMetadataSidecarCandidates(targetFilePath);
+  for (const sidecar of sidecars) {
+    try {
+      await fs.unlink(sidecar);
+    } catch {
+      // Ignore missing files
+    }
+  }
 }
 
 /**

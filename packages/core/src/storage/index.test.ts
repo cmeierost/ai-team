@@ -19,6 +19,10 @@ async function writeFile(root: string, relativePath: string, content = 'x'): Pro
   await fs.writeFile(absolutePath, content, 'utf-8');
 }
 
+async function fileExists(filePath: string): Promise<boolean> {
+  try { await fs.access(filePath); return true; } catch { return false; }
+}
+
 afterEach(async () => {
   await Promise.all(
     createdDirs.splice(0, createdDirs.length).map((dir) => fs.rm(dir, { recursive: true, force: true }))
@@ -47,7 +51,7 @@ describe('storage agent discovery', () => {
     ]);
   });
 
-  it('loads ai-team runtime metadata from a sidecar yml file', async () => {
+  it('loads ai-team runtime metadata from a legacy sidecar yml file', async () => {
     const workspaceRoot = await createWorkspace();
 
     await writeFile(
@@ -74,8 +78,6 @@ describe('storage agent discovery', () => {
 
     expect(agent.id).toBe('emily-davis');
     expect(agent.name).toBe('Emily Davis');
-    expect(agent.aiTeamId).toBe('emily-davis');
-    expect(agent.aiTeamName).toBe('Emily Davis');
     expect(agent.description).toBe('Warm HR director and agent architect.');
     expect(agent.role).toBe('hr-director');
     expect(agent.reportsTo).toBe('michael-brown');
@@ -83,7 +85,7 @@ describe('storage agent discovery', () => {
     expect(agent.markdown).toContain('Portfolio body.');
   });
 
-  it('saves ai-team agents as paired markdown and yml files', async () => {
+  it('saves all agent data into a single .agent.md file (no yml sidecar)', async () => {
     const workspaceRoot = await createWorkspace();
     const filePath = path.join(workspaceRoot, '.ai-team/agents/emily-davis.agent.md');
 
@@ -103,17 +105,103 @@ describe('storage agent discovery', () => {
     });
 
     const markdown = await fs.readFile(filePath, 'utf-8');
-    const metadata = await fs.readFile(path.join(workspaceRoot, '.ai-team/agents/emily-davis.agent.yml'), 'utf-8');
 
+    // Everything should be in the single .agent.md
     expect(markdown).toContain('name: Emily Davis');
     expect(markdown).toContain('description: Warm HR director and agent architect.');
-    expect(markdown).not.toContain('tools:');
-    expect(metadata).toContain('tools:');
-    expect(metadata).toContain('id: emily-davis');
-    expect(metadata).toContain('name: Emily Davis');
-    expect(metadata).toContain('reportsTo: michael-brown');
-    expect(metadata).not.toContain('description: Warm HR director and agent architect.');
-    expect(metadata).not.toContain('aiTeamId:');
-    expect(metadata).not.toContain('aiTeamName:');
+    expect(markdown).toContain('tools:');
+    expect(markdown).toContain('reportsTo: michael-brown');
+    expect(markdown).toContain('id: emily-davis');
+    expect(markdown).toContain('Portfolio body.');
+
+    // No yml sidecar should exist
+    const ymlPath = path.join(workspaceRoot, '.ai-team/agents/emily-davis.agent.yml');
+    expect(await fileExists(ymlPath)).toBe(false);
+  });
+
+  it('removes existing yml sidecar when saving an agent', async () => {
+    const workspaceRoot = await createWorkspace();
+    const filePath = path.join(workspaceRoot, '.ai-team/agents/emily-davis.agent.md');
+    const ymlPath = path.join(workspaceRoot, '.ai-team/agents/emily-davis.agent.yml');
+
+    // Pre-create a legacy sidecar
+    await writeFile(workspaceRoot, '.ai-team/agents/emily-davis.agent.yml', 'role: hr-director\ncontextLevel: organization');
+
+    expect(await fileExists(ymlPath)).toBe(true);
+
+    await saveAgent({
+      id: 'emily-davis',
+      name: 'Emily Davis',
+      filePath,
+      skillPath: path.join(workspaceRoot, '.ai-team/roles/hr-director.md'),
+      createdAt: new Date().toISOString(),
+      role: 'hr-director',
+      type: RoleType.EXECUTIVE,
+      contextLevel: ContextLevel.ORGANIZATION,
+      description: 'Warm HR director.',
+      markdown: '# Emily Davis',
+    });
+
+    // Sidecar should be gone now
+    expect(await fileExists(ymlPath)).toBe(false);
+
+    // All data in md file
+    const markdown = await fs.readFile(filePath, 'utf-8');
+    expect(markdown).toContain('role: hr-director');
+    expect(markdown).toContain('contextLevel: organization');
+  });
+
+  it('round-trips all Copilot-native fields through save and load', async () => {
+    const workspaceRoot = await createWorkspace();
+    const filePath = path.join(workspaceRoot, '.ai-team/agents/emily-davis.agent.md');
+
+    await saveAgent({
+      id: 'emily-davis',
+      name: 'Emily Davis',
+      filePath,
+      skillPath: path.join(workspaceRoot, '.ai-team/roles/hr-director.md'),
+      createdAt: new Date().toISOString(),
+      role: 'hr-director',
+      type: RoleType.EXECUTIVE,
+      contextLevel: ContextLevel.ORGANIZATION,
+      description: 'HR director.',
+      tools: ['search/codebase', 'web/fetch'],
+      model: ['Claude Sonnet 4.5 (copilot)', 'GPT-5.2 (copilot)'],
+      handoffs: [
+        { label: 'Talk to Boss', agent: 'michael-brown', prompt: 'Here is my report.' },
+      ],
+      markdown: '# Emily Davis',
+    });
+
+    const reloaded = await loadAgent(filePath);
+    expect(reloaded.tools).toEqual(['search/codebase', 'web/fetch']);
+    expect(reloaded.model).toEqual(['Claude Sonnet 4.5 (copilot)', 'GPT-5.2 (copilot)']);
+    expect(reloaded.handoffs).toEqual([
+      { label: 'Talk to Boss', agent: 'michael-brown', prompt: 'Here is my report.' },
+    ]);
+  });
+
+  it('preserves unknown passthrough fields across save/load', async () => {
+    const workspaceRoot = await createWorkspace();
+    const filePath = path.join(workspaceRoot, '.ai-team/agents/test.agent.md');
+
+    // Write a file with a field ai-team doesn't know about
+    await writeFile(
+      workspaceRoot,
+      '.ai-team/agents/test.agent.md',
+      [
+        '---',
+        'name: Test Agent',
+        'role: tester',
+        'contextLevel: repository',
+        'custom-field: hello',
+        '---',
+        '',
+        '# Test Agent',
+      ].join('\n')
+    );
+
+    const agent = await loadAgent(filePath);
+    expect((agent as any)['custom-field']).toBe('hello');
   });
 });

@@ -8,8 +8,7 @@ Write agent portfolio markdown files the ai-team way.
 
 ## Purpose
 
-- `.agent.md` is the Copilot-facing portfolio file for an agent.
-- In `.ai-team/agents/`, keep ai-team runtime-specific metadata in a sibling `.agent.yml` sidecar when one exists.
+- `.agent.md` is the single source of truth for an agent: YAML frontmatter for all metadata and a Markdown body for the portfolio.
 - Agents are reusable specialist teammates with a stable role, clear ownership, and a recognizable working style.
 - An agent should feel like a person we are talking to: personal, communicative, and focused on the task.
 - Do **not** make agents into giant containers for every workflow, repo rule, or implementation detail.
@@ -17,9 +16,8 @@ Write agent portfolio markdown files the ai-team way.
 ## Frontmatter rules
 
 - Preserve YAML frontmatter and Markdown body structure.
-- In `.ai-team/agents/**/*.agent.md`, keep frontmatter focused on Copilot-facing discovery and presentation.
-- Put ai-team runtime-specific metadata such as tools, delegation, and other operational fields in the sibling `.agent.yml` sidecar instead of the Markdown portfolio.
-- Keep file-path access rules out of `.agent.md` and `.agent.yml`; store path rules in `.ai-team/agents/<agent-id>.perm`.
+- All agent metadata — identity, organization, tools, delegation, handoffs, LLM config — belongs in the YAML frontmatter.
+- Keep file-path access rules out of `.agent.md`; store path rules in `.ai-team/agents/<agent-id>.perm`.
 - Keep discovery-facing fields sharp and intentional, especially:
   - `name`
   - `description`
@@ -29,7 +27,7 @@ Write agent portfolio markdown files the ai-team way.
 - `description` is the main discovery surface. Make it explicit, concrete, and trigger-rich.
 - In `description`, state what the agent is for, when to use it, and the kinds of requests it should own.
 
-If you need to edit ai-team runtime metadata, use the `.agent.yml` instruction file instead of stuffing operational detail into the Markdown portfolio.
+If you need guidance on which fields belong in frontmatter, see the `.ai-team/instructions/agent-metadata.instructions.md` file.
 
 ## Body rules
 
@@ -49,7 +47,7 @@ If you need to edit ai-team runtime metadata, use the `.agent.yml` instruction f
   - what files to read first
   - working rules
   - successful outcome
-- In the "Scope of Responsibility" section, list the responsibility areas AND the assigned skills (from `specializations` in the `.agent.yml`), so both humans and other agents can understand scope at a glance.
+- In the "Scope of Responsibility" section, list the responsibility areas AND the assigned skills (from `specializations` in the frontmatter), so both humans and other agents can understand scope at a glance.
 - Prefer structured sections over long narrative sprawl.
 - Keep workflows that are procedural in skills, not buried inside the agent file.
 
@@ -63,13 +61,13 @@ If you need to edit ai-team runtime metadata, use the `.agent.yml` instruction f
 - Keep reporting lines explicit so the org chart stays understandable at a glance.
 - Keep the Markdown body personal and communicative, while using frontmatter and section structure for efficient discovery.
 - Preserve `.ai-team/` as the default source of truth; only introduce `.github/agents/*.agent.md` when explicit GitHub-side compatibility is needed.
-- In `.ai-team/agents/`, prefer a paired structure:
-  - `.agent.md` = Copilot-facing portfolio and discovery copy
-  - `.agent.yml` = ai-team runtime metadata
+- In `.ai-team/agents/`, each agent is a single `.agent.md` file:
+  - YAML frontmatter = all metadata (identity, org, tools, handoffs, LLM config)
+  - Markdown body = portfolio and discovery copy
 - When a task involves matching agents to skills, prompts, or instructions, optimize for the smallest coherent role rather than a vague do-everything agent.
 - When a task involves hiring or introducing a new person, make sure the proposed agent has a role-fit personality, an explicit reporting line, and clear collaboration behavior with adjacent teammates.
 - When shaping an agent, optimize not only for clarity and personality but also for execution efficiency: the agent should be able to perform the work it owns without unnecessary friction.
 
 ## Successful outcome
 
-A good agent portfolio markdown file is discoverable, trustworthy, human in tone, role-appropriate in personality, clear in ownership, and cleanly separated from ai-team runtime metadata.
+A good agent portfolio markdown file is discoverable, trustworthy, human in tone, role-appropriate in personality, clear in ownership, and self-contained in a single `.agent.md` file.

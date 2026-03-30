@@ -95,9 +95,12 @@ export interface AgentCapabilities {
   reasoning?: boolean;
 }
 
-export interface CollaborationEntry {
-  agentId: string;
-  comment?: string;
+export interface AgentHandoff {
+  label: string;
+  agent: string;
+  prompt?: string;
+  send?: boolean;
+  model?: string;
 }
 
 export interface Agent {
@@ -136,7 +139,7 @@ export interface Agent {
   createdAt?: string;
   lastInteraction?: string;
   conversationCount?: number;
-  collaborations?: CollaborationEntry[];
+  handoffs?: AgentHandoff[];
   readTheseFilesFirst?: string[];
 }
 

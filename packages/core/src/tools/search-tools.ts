@@ -16,7 +16,8 @@ const MAX_SEMANTIC_FILE_SIZE_BYTES = 200_000;
  * Semantic search across codebase (placeholder - would integrate with vector DB)
  */
 export const semanticSearchTool: AgentTool = {
-  name: 'search_semantic',
+  name: 'semantic',
+  group: 'search',
   description: 'Search codebase semantically for relevant code and documentation.',
   parameters: z.object({
     query: z.string().describe('Natural language search query'),
@@ -109,7 +110,8 @@ export const semanticSearchTool: AgentTool = {
  * Get compiler/linter errors
  */
 export const getErrorsTool: AgentTool = {
-  name: 'tool_get_errors',
+  name: 'get_errors',
+  group: 'tool',
   description: 'Get compile or lint errors for specified files.',
   formatForLlm(result: unknown): unknown {
     const r = result as { errors: string[] };

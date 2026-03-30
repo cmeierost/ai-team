@@ -35,22 +35,40 @@ function printToolList(response: ListToolsResponse): void {
     console.log(chalk.bold('\nAll Registered Tools'));
   }
 
+  // Group entries by tool.group (fallback 'other')
+  const grouped = new Map<string, typeof response.entries>();
   for (const entry of response.entries) {
-    const allowedBadge = typeof entry.allowedForAgent === 'boolean'
-      ? entry.allowedForAgent
-        ? chalk.green(' [allowed]')
-        : chalk.red(' [denied]')
-      : '';
+    const key = (entry as any).group ?? 'other';
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(entry);
+  }
 
-    console.log(`\n${chalk.cyan(entry.name)}${allowedBadge}`);
-    console.log(chalk.dim(`  ${entry.description}`));
+  // Sort groups alphabetically, 'other' last
+  const sortedGroups = [...grouped.keys()].sort((a, b) => {
+    if (a === 'other') return 1;
+    if (b === 'other') return -1;
+    return a.localeCompare(b);
+  });
 
-    if (entry.tags && entry.tags.length > 0) {
-      console.log(chalk.dim(`  tags: ${entry.tags.join(', ')}`));
-    }
+  for (const group of sortedGroups) {
+    console.log(chalk.bold(`\n  ${group}`));
+    for (const entry of grouped.get(group)!) {
+      const allowedBadge = typeof entry.allowedForAgent === 'boolean'
+        ? entry.allowedForAgent
+          ? chalk.green(' [allowed]')
+          : chalk.red(' [denied]')
+        : '';
 
-    if (entry.deniedReason) {
-      console.log(chalk.red(`  reason: ${entry.deniedReason}`));
+      console.log(`    ${chalk.cyan(entry.name)}${allowedBadge}`);
+      console.log(chalk.dim(`      ${entry.description}`));
+
+      if (entry.tags && entry.tags.length > 0) {
+        console.log(chalk.dim(`      tags: ${entry.tags.join(', ')}`));
+      }
+
+      if (entry.deniedReason) {
+        console.log(chalk.red(`      reason: ${entry.deniedReason}`));
+      }
     }
   }
 

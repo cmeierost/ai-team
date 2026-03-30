@@ -6,7 +6,7 @@ import { PortfolioIdentitySection } from './portfolio/PortfolioIdentitySection';
 import { PortfolioPersonalitySection } from './portfolio/PortfolioPersonalitySection';
 import { PortfolioLlmSection } from './portfolio/PortfolioLlmSection';
 import { PortfolioMarkdownSections } from './portfolio/PortfolioMarkdownSections';
-import { PortfolioCollaborationsSection } from './portfolio/PortfolioCollaborationsSection';
+import { PortfolioHandoffsSection } from './portfolio/PortfolioCollaborationsSection';
 import { PortfolioReadFilesSection } from './portfolio/PortfolioReadFilesSection';
 import { PortfolioSkillAssignmentsSection } from './portfolio/PortfolioSkillAssignmentsSection';
 import { PortfolioHierarchySection } from './portfolio/PortfolioHierarchySection';
@@ -207,10 +207,9 @@ export function Portfolio() {
           onSave={(reportsTo) => saveAgentFields({ reportsTo })}
         />
 
-        <PortfolioCollaborationsSection
-          collaborations={agent.collaborations ?? []}
+        <PortfolioHandoffsSection
+          handoffs={agent.handoffs ?? []}
           allAgents={agents}
-          onSave={(collaborations) => saveAgentFields({ collaborations })}
         />
 
         <PortfolioReadFilesSection

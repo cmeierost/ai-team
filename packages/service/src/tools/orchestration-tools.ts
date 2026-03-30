@@ -83,7 +83,8 @@ export function createHandoffTool(
   deps: Pick<OrchestrationDeps, 'agents' | 'sessions'>,
 ): AgentTool {
   return {
-    name: 'com_handoff',
+    name: 'handoff',
+    group: 'com',
     description:
       'Transfer the current conversation to another agent who is better suited ' +
       'to handle the request. Use when a task is outside your area of responsibility. ' +
@@ -118,7 +119,7 @@ export function createHandoffTool(
       if (!target) {
         throw new Error(
           `Agent not found: "${targetAgentId}". ` +
-            'Use fs_who_should to discover valid agent IDs.',
+            'Use who_should to discover valid agent IDs.',
         );
       }
 
@@ -149,7 +150,8 @@ export function createHandoffTool(
  */
 export function createHireTool(deps: Pick<OrchestrationDeps, 'agents'>): AgentTool {
   return {
-    name: 'hr_hire',
+    name: 'hire',
+    group: 'hr',
     description:
       'Create a new virtual team member with a defined role. Requires manage_agents permission.',
     permissionCheck: { type: 'manage-agents' },
@@ -210,7 +212,8 @@ export function createFindCapableTool(
   deps: Pick<OrchestrationDeps, 'agents' | 'tools'>,
 ): AgentTool {
   return {
-    name: 'fs_who_should',
+    name: 'who_should',
+    group: 'access',
     description:
       'Discover which team members are authorized to perform a specific action. ' +
       'Call this before com_handoff to ensure you delegate to the right person.',
@@ -272,7 +275,8 @@ export function matchesToolListPreLlmIntent(message: string): boolean {
  */
 export function createListToolsTool(deps: Pick<OrchestrationDeps, 'tools'>): AgentTool {
   return {
-    name: 'tool_list',
+    name: 'list_tools',
+    group: 'tool',
     description:
       'Show all tools currently available to you, including name, description, and parameters.',
     permissionCheck: { type: 'none' },
@@ -322,7 +326,8 @@ export function createTeamListTool(
   deps: Pick<OrchestrationDeps, 'agents'>,
 ): AgentTool {
   return {
-    name: 'team_list',
+    name: 'list_team',
+    group: 'team',
     description:
       'List all team members with their IDs, names, and roles.',
     permissionCheck: { type: 'none' },

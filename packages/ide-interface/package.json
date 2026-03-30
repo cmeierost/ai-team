@@ -2,6 +2,7 @@
   "name": "@ai-team/ide-interface",
   "version": "0.1.0",
   "description": "IDE adapter interface and client for AI Team — no runtime or IDE dependencies",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

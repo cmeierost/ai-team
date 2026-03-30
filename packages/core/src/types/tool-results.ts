@@ -19,6 +19,8 @@
 export interface ToolCatalogEntry {
   name: string;
   description: string;
+  /** Logical group this tool belongs to (e.g. 'fs', 'search', 'hr', 'com'). */
+  group?: string;
   schema: Record<string, unknown>;
   tags?: string[];
   examples?: string[];

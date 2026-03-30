@@ -171,8 +171,7 @@ All durable runtime state lives under `.ai-team/` in the workspace.
 
 - `.ai-team/config.json` - non-secret provider/model/configuration state.
 - `.ai-team/.env` - secrets and provider tokens.
-- `.ai-team/agents/*.agent.md` - Copilot-facing agent portfolio files.
-- `.ai-team/agents/*.agent.yml` - ai-team runtime metadata sidecars for those agent portfolios.
+- `.ai-team/agents/*.agent.md` - Agent files with YAML frontmatter for all metadata and Markdown body for the portfolio.
 - `.ai-team/agents/*.perm` - per-agent file-path access policy files (read/write/create/delete + optional deny via `!pattern`).
 - `.ai-team/private/ai-team.db` - SQLite database for sessions, messages, and related metadata.
 - `.ai-team/proposals/` - persisted code-edit proposals used by review/replay flows.
@@ -184,7 +183,7 @@ Compatibility/bootstrap artifacts may also exist under `.github/`, but `.ai-team
 
 The current file-path access model is centered on `@ai-team/permission` and per-agent `.perm` files.
 
-- Agent metadata (`.agent.yml`) no longer carries file-path read/write/create/delete rules.
+- Agent frontmatter no longer carries file-path read/write/create/delete rules.
 - Per-agent path policy lives in `.ai-team/agents/<agent-id>.perm`.
 - Global file-tree defaults still come from `.ai-team/config.json` (`fileTree.readPaths`, `writePaths`, `createPaths`, `deletePaths`).
 - Effective evaluation is engine-based across CLI/service/API paths.

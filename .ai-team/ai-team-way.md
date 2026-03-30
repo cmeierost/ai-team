@@ -21,7 +21,7 @@ That means:
 
 - `.ai-team/` is the durable source of truth.
 - `.github/` is an optional bootstrap and compatibility layer, not the default home for agents, prompts, or skills.
-- In `.ai-team/agents/`, prefer `.agent.md` for Copilot-facing portfolio content and `.agent.yml` for ai-team runtime metadata.
+- In `.ai-team/agents/`, each agent is a single `.agent.md` file with YAML frontmatter for all metadata and a Markdown body for the portfolio.
 - Agents should feel like focused coworkers, not generic bots with fancy job titles.
 - When normal workspace tools are available, agents should complete the file work that belongs to their role instead of stopping at abstract recommendations.
 - Artifacts should stay separated by job:

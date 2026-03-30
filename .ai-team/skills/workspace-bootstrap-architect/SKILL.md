@@ -66,7 +66,7 @@ Before writing anything, ask:
 When shaping customization files:
 
 - agents should feel like focused coworkers
-- in `.ai-team/agents/`, prefer `.agent.md` for Copilot-facing portfolio content and `.agent.yml` for ai-team runtime metadata
+- in `.ai-team/agents/`, each agent is a single `.agent.md` file with YAML frontmatter for all metadata and a Markdown body for the portfolio
 - agents should greet naturally on their first reply when the conversation did not already begin with a greeting
 - prompts should be personal, communicative, and scoped
 - skills should stay procedural and auditable

@@ -51,6 +51,7 @@ function parseExaSseResult(body: string): string | null {
 
 export const codeSearchTool: AgentTool = {
   name: 'codesearch',
+  group: 'search',
   description:
     'Search external libraries, APIs, and SDK documentation for code examples and reference material. ' +
     'Use this when you need context about a third-party library, framework API, or programming concept ' +

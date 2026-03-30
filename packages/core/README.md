@@ -8,7 +8,7 @@ Pure TypeScript library for managing AI agent teams. This package contains all b
 - **File-Based**: All state stored in `.ai-team/` folder
 - **Fully Testable**: Can be tested without any IDE or UI
 - **Cross-Platform**: Works on Windows, macOS, Linux
-- **Runtime Source of Truth**: Core runtime state comes from `.ai-team/*`, with agent portfolios in `.agent.md` files and ai-team-specific metadata in sibling `.agent.yml` files
+- **Runtime Source of Truth**: Core runtime state comes from `.ai-team/*`, with each agent in a single `.agent.md` file (YAML frontmatter for all metadata, Markdown body for the portfolio)
 
 ## Architecture
 

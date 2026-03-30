@@ -16,7 +16,7 @@ The authoritative ai-team customization layer lives under `.ai-team/`. Use `.git
 
 - `.ai-team/` is the durable source of truth for agents, skills, prompts, instructions, and doctrine.
 - `.github/` is an optional Copilot compatibility layer, not the default home for agents, prompts, or skills.
-- In `.ai-team/agents/`, prefer `.agent.md` for Copilot-facing portfolio content and `.agent.yml` for ai-team runtime metadata.
+- In `.ai-team/agents/`, each agent is a single `.agent.md` file with YAML frontmatter for all metadata and a Markdown body for the portfolio.
 
 ## Working defaults
 

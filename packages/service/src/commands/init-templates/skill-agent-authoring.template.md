@@ -8,7 +8,6 @@ description: Use when creating, restructuring, or refining agent files, skill fi
 Use this skill when the task is to create or improve:
 
 - `.ai-team/agents/*.md`
-- `.ai-team/agents/*.yml`
 - `.ai-team/roles/*.md`
 - optional compatibility artifacts under `.github/**/*` when GitHub-side discovery specifically needs them
 - supporting bootstrap docs such as `AGENTS.md`
@@ -53,7 +52,7 @@ Keep responsibilities separated:
 
 - put global policy in instructions
 - put reusable role behavior in agents
-- put ai-team runtime-specific agent metadata in `.agent.yml` sidecars
+- put all agent metadata in `.agent.md` frontmatter
 - put on-demand workflows in skills
 - put one-off launch patterns in prompts
 
@@ -75,8 +74,8 @@ When shaping prompts or agent communication behavior, prefer concise-by-default 
 For ai-team agent files specifically, also confirm:
 
 - the `.agent.md` portfolio has a personality that suits its role without drifting into roleplay
-- every non-CEO agent has an explicit, unambiguous `reportsTo` in runtime metadata
-- the `.agent.yml` uses schema-backed fields that materially help the role instead of decorative metadata
+- every non-CEO agent has an explicit, unambiguous `reportsTo` in frontmatter
+- the frontmatter uses schema-backed fields that materially help the role instead of decorative metadata
 - the `.agent.md` body sounds like a focused coworker and keeps procedural workflows in skills rather than burying them inside the agent portfolio
 - when the role changes, the persona and collaboration style are re-evaluated instead of being left behind from an older version of the file
 - the agent's first-turn behavior is natural: greet briefly when the opening user message was not already a greeting, and avoid redundant double-greetings when it was

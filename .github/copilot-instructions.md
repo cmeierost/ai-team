@@ -1,53 +1,43 @@
 # AI Team Copilot bootstrap instructions
 
-This file is a **thin compatibility bridge** for Copilot discovery.
+Thin compatibility bridge for Copilot. Authoritative customization lives under `.ai-team/`.
 
-The authoritative ai-team customization layer lives under `.ai-team/`. Use `.github/` as bootstrap metadata, not as the long-lived source of truth.
-
-## Read these first
+## Read first
 
 1. `AGENTS.md`
 2. `.ai-team/ai-team-way.md`
 3. `ARCHITECTURE.md`
 4. `COPILOT-CONTEXT.md`
-5. `.ai-team/instructions/**/*.instructions.md`
 
-## Repository snapshot
+## Core rules
 
-- TypeScript monorepo with CLI, VS Code, and Web surfaces
-- Main runtime path: adapters -> `@ai-team/api-client` / `@ai-team/api-client-http` -> `@ai-team/service` -> `@ai-team/core` -> `.ai-team/*`
-- Keep `packages/core` UI-free
-- Prefer reusable business logic in `packages/core/src/**` and thin adapters in `packages/cli`, `packages/vscode`, and `packages/web`
-- In `packages/web`, prefer TanStack Query for server state, Zustand for shared live runtime client state, and prop-driven Storybook-friendly views where practical
+- `.ai-team/` is source of truth; `.github/` is compatibility/bootstrap only.
+- Main runtime path: adapters -> `@ai-team/api-client` / `@ai-team/api-client-http` -> `@ai-team/service` -> `@ai-team/core` -> `.ai-team/*`.
+- Keep `packages/core` UI-free.
+- Prefer reusable business logic in `packages/core/src/**` and thin adapters in `packages/cli`, `packages/vscode`, and `packages/web`.
+- In `packages/web`, use TanStack Query for server state and Zustand for shared live runtime state.
 
-## Source-of-truth rules
+## Tooling defaults (important)
 
-- `.ai-team/` is the durable source of truth for agents, skills, prompts, instructions, and doctrine.
-- `.github/` is an optional Copilot compatibility layer, not the default home for agents, prompts, or skills.
-- In `.ai-team/agents/`, prefer `.agent.md` for Copilot-facing portfolio content and `.agent.yml` for ai-team runtime metadata.
-- When detailed guidance exists in `.ai-team/`, follow that instead of duplicating policy here.
+- Use `pnpm` for dependency and script commands.
+- Do NOT use `npm` or `yarn` unless explicitly requested.
+- Prefer: `pnpm`, `git`, `eslint`, `prettier`, `tsc`, `vitest`.
 
 ## Coding guardrails
 
-- Validate external or untrusted input with `zod`.
+- Validate external/untrusted input with `zod`.
 - Use `async`/`await` in command and service flows.
-- Use typed/domain errors in core; adapters should translate failures into user-friendly output.
+- Use typed/domain errors in core; adapters translate to user-friendly output.
 - Do not create new runtime storage locations when `.ai-team/` already covers the use case.
-- Preserve YAML frontmatter + Markdown body structure when editing agent files.
 
-## Verification entry points
+## Verification
 
 - Install dependencies with `pnpm install`.
-- Build all packages with `pnpm -r build` when shared contracts or multiple packages change.
-- Targeted checks:
-  - `packages/permission/**`: `pnpm --filter @ai-team/permission build` and `pnpm --filter @ai-team/permission exec vitest run`
-  - `packages/core/**`: `pnpm --filter @ai-team/core build` and `pnpm --filter @ai-team/core exec -- vitest run`
-  - `packages/cli/**`: `pnpm --filter @ai-team/cli build` and `pnpm --filter @ai-team/cli exec vitest run`
-  - `packages/vscode/**`: `pnpm --filter @ai-team/vscode build`
-  - `packages/web/**`: `pnpm --filter @ai-team/web build` or manual `pnpm dev:web` verification for UI work
+- Build shared or multi-package changes with `pnpm -r build`.
+- Use targeted package checks when scope is local (`pnpm --filter <pkg> build` and package tests).
 
 ## Change policy
 
-- Prefer the smallest change set that preserves existing behavior.
-- Avoid dependency upgrades, broad renames, and cross-package refactors unless required.
-- If architecture, package boundaries, runtime storage, or verification commands change, update `ARCHITECTURE.md`, `COPILOT-CONTEXT.md`, this file, and affected package `README.md` files in the same change.
+- Prefer the smallest safe change set.
+- Avoid broad refactors or dependency upgrades unless required.
+- If architecture, boundaries, runtime storage, or verification flow changes, update `ARCHITECTURE.md`, `COPILOT-CONTEXT.md`, this file, and affected package `README.md` files in the same change.

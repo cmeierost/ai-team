@@ -53,7 +53,8 @@ export function stripLineNumberPrefixes(text: string): { text: string; stripped:
 // ============================================================================
 
 export const applyPatchTool: AgentTool = {
-  name: 'apply_patch',
+  name: 'patch',
+  group: 'edit',
   description: [
     'Apply a standard unified diff (--- / +++ / @@ format) to one or more files.',
     'Each changed file is access-checked individually.',
@@ -258,6 +259,7 @@ export const applyPatchTool: AgentTool = {
 
 export const multiEditTool: AgentTool = {
   name: 'multiedit',
+  group: 'edit',
   description: [
     'Apply multiple oldString→newString replacements to a single file in one call.',
     'Edits are applied sequentially; the file MUST have been read with fs_read first.',
@@ -368,7 +370,8 @@ export const multiEditTool: AgentTool = {
  * has been modified on disk since it was read.
  */
 export const fsEditTool: AgentTool = {
-  name: 'fs_edit',
+  name: 'edit',
+  group: 'fs',
   description: [
     'Perform a surgical in-place edit of a file by replacing an exact string.',
     'REQUIRES the file to have been read first with fs_read in the same session.',

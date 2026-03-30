@@ -52,29 +52,29 @@ export interface ToolExecutionOptions {
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 const ALWAYS_ALLOWED_TOOLS = new Set<string>([
-  'com_delegate',
-  'com_handoff',
-  'tool_list',
-  'team_list',
-  'tool_can_i',
+  'delegate',
+  'handoff',
+  'list_tools',
+  'list_team',
+  'can_i',
 ]);
 
 const TOOL_ROLE_GATED = new Set<string>([
-  'tool_run',
-  'tool_register_cli',
-  'tool_get_errors',
+  'run',
+  'register_cli',
+  'get_errors',
 ]);
 
 const ANALYZE_TOOLS = new Set<string>([
-  'analyze_complexity',
-  'analyze_performance',
+  'complexity',
+  'performance',
 ]);
 
 const HR_ROLE_TOOLS = new Set<string>([
-  'hr_hire',
-  'hr_archive',
-  'hr_avatar',
-  'hr_update_llm',
+  'hire',
+  'archive',
+  'avatar',
+  'update_llm',
 ]);
 
 function isHrRole(agent: Agent): boolean {
@@ -103,7 +103,7 @@ function isDefaultAllowedTool(
   const isCeo = isCeoRole(agent);
 
   if (ALWAYS_ALLOWED_TOOLS.has(tool.name)) return true;
-  if (tool.name.startsWith('fs_') || tool.name.startsWith('search_')) return true;
+  if (tool.group === 'fs' || tool.group === 'search') return true;
   if (ANALYZE_TOOLS.has(tool.name) && isCeo) return true;
   if ((HR_ROLE_TOOLS.has(tool.name) || tool.tags?.includes('hr')) && (isHr || canManageAgents)) return true;
   if (TOOL_ROLE_GATED.has(tool.name) && hasElevatedContext) return true;
@@ -411,6 +411,7 @@ export class ToolManager {
     return this.getForAgent(agent).map(tool => ({
       name: tool.name,
       description: tool.description,
+      group: tool.group,
       schema: this.toSchema(tool.name)?.parameters ?? {},
       tags: tool.tags,
       examples: tool.examples,

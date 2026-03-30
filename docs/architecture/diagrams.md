@@ -209,7 +209,8 @@ flowchart TD
   REQUEST[Path + right request\nread/write/create/delete/list] --> ENGINE[@ai-team/permission PermissionEngine]
 
   GLOBAL[.ai-team/config.json\nfileTree.read/write/create/delete paths] --> ENGINE
-  AGENTCFG[.ai-team/agents/*.agent.yml\nidentity/tools/delegation metadata] --> ADAPTER[core permission adapter]
+  AGENTCFG[.ai-team/agents/*.agent.md
+frontmatter: identity/tools/delegation metadata] --> ADAPTER[core permission adapter]
   AGENTACCESS[.ai-team/agents/<agent-id>.perm\nper-agent path policies] --> ADAPTER
   ADAPTER --> ENGINE
 

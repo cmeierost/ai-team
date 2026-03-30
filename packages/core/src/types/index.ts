@@ -193,12 +193,13 @@ export const AgentCapabilitiesSchema = z.object({
   reasoning: z.boolean().optional(),
 });
 
-export const CollaborationEntrySchema = z.object({
-  agentId: z.string(),
-  comment: z.string().optional(),
+export const AgentHandoffSchema = z.object({
+  label: z.string(),
+  agent: z.string(),
+  prompt: z.string().optional(),
+  send: z.boolean().optional(),
+  model: z.string().optional(),
 });
-
-export type CollaborationEntry = z.infer<typeof CollaborationEntrySchema>;
 
 export const AgentSchema = z.object({
   // Legacy ai-team aliases kept for compatibility with older files
@@ -256,13 +257,21 @@ export const AgentSchema = z.object({
   delegatesTo: z.array(z.string()).optional(),
   availableFor: z.array(z.string()).optional(),
   llm: LlmProfileSchema.optional(),
-
-  // Collaboration — YAML-backed, replaces md "Key Collaborations" section
-  collaborations: z.array(CollaborationEntrySchema).optional(),
+  
+  // Copilot-native properties (.agent.md fields)
+  'argument-hint': z.string().optional(),
+  agents: z.array(z.string()).optional(),
+  model: z.union([z.string(), z.array(z.string())]).optional(),
+  'user-invocable': z.boolean().optional(),
+  'disable-model-invocation': z.boolean().optional(),
+  target: z.enum(['vscode', 'github-copilot']).optional(),
+  'mcp-servers': z.record(z.string(), z.unknown()).optional(), // mcp tools config
+  handoffs: z.array(AgentHandoffSchema).optional(),
+  hooks: z.record(z.string(), z.unknown()).optional(),
 
   // Priority file reading list — YAML-backed, replaces md "Read These Files First" section
   readTheseFilesFirst: z.array(z.string()).optional(),
-});
+}).passthrough(); // allows but ignores undefined keys
 
 export const SkillSchema = z.object({
   name: z.string(),
@@ -317,7 +326,7 @@ export interface Agent extends AgentConfig {
   lastInteraction?: string;
   conversationCount?: number;
   status?: AgentStatus;
-  /** Effective LLM settings after merging agent.yml → developer config → team config */
+  /** Effective LLM settings after merging agent frontmatter → developer config → team config */
   resolvedLlm?: {
     providerRef?: string;
     model?: string;

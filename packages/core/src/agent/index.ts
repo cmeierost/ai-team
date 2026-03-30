@@ -32,6 +32,67 @@ export class AgentManager {
     this.workspaceRoot = workspaceRoot;
   }
 
+  // -------------------------------------------------------------------------
+  // Auto-handoff generation — keeps Copilot handoffs in sync with hierarchy
+  // -------------------------------------------------------------------------
+
+  private static readonly AUTO_HANDOFF_TAG = '[auto]';
+
+  /**
+   * Ensure an agent's `handoffs` array contains auto-generated entries for:
+   *   1. Upward — a handoff **to** the agent's boss (via `reportsTo`)
+   *   2. Downward — a handoff **to** each direct report
+   *
+   * Handoffs that were created manually (no `[auto]` tag in the label) are
+   * never touched, even if they point to the same target agent.
+   */
+  private syncHandoffs(agent: Agent): void {
+    const tag = AgentManager.AUTO_HANDOFF_TAG;
+
+    // Start from the current handoffs, dropping stale auto-generated ones
+    const manualHandoffs = (agent.handoffs ?? []).filter(
+      h => !h.label.startsWith(tag),
+    );
+
+    const autoHandoffs: typeof manualHandoffs = [];
+
+    // 1. Upward handoff → boss
+    if (agent.reportsTo) {
+      const boss = this.agents.get(agent.reportsTo);
+      const bossLabel = boss?.name ?? agent.reportsTo;
+      autoHandoffs.push({
+        label: `${tag} Report to ${bossLabel}`,
+        agent: agent.reportsTo,
+        prompt: `Reporting back with my findings and progress.`,
+      });
+    }
+
+    // 2. Downward handoffs → direct reports
+    for (const [, other] of this.agents) {
+      if (other.reportsTo === agent.id) {
+        autoHandoffs.push({
+          label: `${tag} Delegate to ${other.name}`,
+          agent: other.id,
+          prompt: `Please take this on within your area of responsibility.`,
+        });
+      }
+    }
+
+    agent.handoffs = [...manualHandoffs, ...autoHandoffs];
+  }
+
+  /**
+   * Resync handoffs for a boss agent after a subordinate's reportsTo changed.
+   * Skips silently if bossId is undefined or unknown.
+   */
+  private async resyncBossHandoffs(bossId: string | undefined): Promise<void> {
+    if (!bossId) return;
+    const boss = this.agents.get(bossId);
+    if (!boss) return;
+    this.syncHandoffs(boss);
+    await saveAgent(boss);
+  }
+
   private toAgentId(config: AgentConfig): string {
     const raw = config.id ?? config.aiTeamId ?? config.name ?? config.aiTeamName;
     const normalized = raw
@@ -89,6 +150,11 @@ export class AgentManager {
       } catch (error) {
         console.error(`Failed to load agent from ${filePath}:`, error);
       }
+    }
+
+    // After all agents are loaded, sync auto-generated handoffs for every agent
+    for (const [, agent] of this.agents) {
+      this.syncHandoffs(agent);
     }
   }
 
@@ -213,6 +279,7 @@ export class AgentManager {
       ...(opts.markdown !== undefined ? { markdown: opts.markdown } : {}),
     };
 
+    this.syncHandoffs(agent);
     await saveAgent(agent);
     this.agents.set(id, agent);
     this.indexAgent(agent);
@@ -237,10 +304,18 @@ export class AgentManager {
       lastInteraction: new Date().toISOString(),
     };
 
+    this.syncHandoffs(updatedAgent);
     await saveAgent(updatedAgent);
     this.deindexAgent(oldAgent);
     this.agents.set(id, updatedAgent);
     this.indexAgent(updatedAgent);
+
+    // If reportsTo changed, resync the old and new bosses so their
+    // downward [auto] handoffs stay consistent.
+    if (oldAgent.reportsTo !== updatedAgent.reportsTo) {
+      await this.resyncBossHandoffs(oldAgent.reportsTo);
+      await this.resyncBossHandoffs(updatedAgent.reportsTo);
+    }
 
     return updatedAgent;
   }
@@ -258,16 +333,13 @@ export class AgentManager {
     await fs.mkdir(path.dirname(archivedPath), { recursive: true });
     await fs.rename(agent.filePath, archivedPath);
 
+    // Clean up legacy .yml/.yaml sidecars instead of archiving them
     const metadataCandidates = agent.filePath.toLowerCase().endsWith('.agent.md')
       ? [agent.filePath.slice(0, -3) + 'yml', agent.filePath.slice(0, -3) + 'yaml']
       : [];
     for (const candidate of metadataCandidates) {
       try {
-        await fs.access(candidate);
-        const archivedMetadataPath = path.join(path.dirname(candidate), 'archived', path.basename(candidate));
-        await fs.mkdir(path.dirname(archivedMetadataPath), { recursive: true });
-        await fs.rename(candidate, archivedMetadataPath);
-        break;
+        await fs.unlink(candidate);
       } catch {
         // Ignore missing sidecars
       }

@@ -16,6 +16,7 @@ import {
  */
 export const createAgentTool: AgentTool = {
   name: 'create_agent',
+  group: 'hr',
   description: 'Create a new virtual team member. Requires manage_agents permission.',
   parameters: z.object({
     name: z.string(),
@@ -42,7 +43,8 @@ export const createAgentTool: AgentTool = {
  * Archive an agent
  */
 export const archiveAgentTool: AgentTool = {
-  name: 'hr_archive',
+  name: 'archive',
+  group: 'hr',
   description: 'Archive (offboard) a virtual team member. Requires manage_agents permission.',
   parameters: z.object({
     agentId: z.string().describe('Agent ID to archive'),
@@ -65,7 +67,8 @@ export const archiveAgentTool: AgentTool = {
  * Assess agent performance
  */
 export const assessPerformanceTool: AgentTool = {
-  name: 'analyze_performance',
+  name: 'performance',
+  group: 'hr',
   description: 'Analyze agent activity and performance metrics. Requires manage_agents permission.',
   parameters: z.object({
     agentId: z.string().optional().describe('Specific agent (omit for all)'),
@@ -86,7 +89,8 @@ export const assessPerformanceTool: AgentTool = {
 };
 
 export const addPictureTool: AgentTool = {
-  name: 'hr_avatar',
+  name: 'avatar',
+  group: 'hr',
   description: 'Download and set an avatar picture for an agent. Requires manage_agents permission. Can use random source or AI generation.',
   parameters: z.object({
     agentName: z.string().describe('Name or ID of the agent'),

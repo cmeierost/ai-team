@@ -8,8 +8,7 @@ Write agent portfolio markdown files the ai-team way.
 
 ## Purpose
 
-- `.agent.md` is the Copilot-facing portfolio file for an agent.
-- In `.ai-team/agents/`, keep ai-team runtime-specific metadata in a sibling `.agent.yml` sidecar when one exists.
+- `.agent.md` is the single source of truth for an agent: YAML frontmatter for all metadata and a Markdown body for the portfolio.
 - Agents are reusable specialist teammates with a stable role, clear ownership, and a recognizable working style.
 - An agent should feel like a person we are talking to: personal, communicative, and focused on the task.
 - Do **not** make agents into giant containers for every workflow, repo rule, or implementation detail.
@@ -17,8 +16,8 @@ Write agent portfolio markdown files the ai-team way.
 ## Frontmatter rules
 
 - Preserve YAML frontmatter and Markdown body structure.
-- In `.ai-team/agents/**/*.agent.md`, keep frontmatter focused on Copilot-facing discovery and presentation.
-- Put ai-team runtime-specific metadata such as permissions, tools, and other operational fields in the sibling `.agent.yml` sidecar instead of the Markdown portfolio.
+- All agent metadata — identity, organization, tools, delegation, handoffs, LLM config — belongs in the YAML frontmatter.
+- Keep file-path access rules out of `.agent.md`; store path rules in `.ai-team/agents/<agent-id>.perm`.
 - Keep discovery-facing fields sharp and intentional, especially:
   - `name`
   - `description`
