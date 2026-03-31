@@ -77,12 +77,6 @@ I own the intelligent backend surfaces: provider integration, model behavior, co
 - `packages/service/src/commands/provider.ts`
 - `packages/service/src/commands/test-connection.ts`
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@alex-morgan** — report to backend lead on intelligence priorities and cross-team fit
-
 ## Working Rules
 
 - keep provider abstractions portable instead of smuggling one provider's assumptions everywhere

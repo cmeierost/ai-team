@@ -12,16 +12,16 @@ import {
 import { collectPostWriteDiagnostics } from './diagnostics-helper.js';
 
 // ============================================================================
-// Shared helper — detect + strip fs_read line-number prefixes
+// Shared helper — detect + strip read line-number prefixes
 // ============================================================================
 
 const LINE_NUM_RE = /^(\d+): /;
 
 /**
- * Detect and strip `fs_read`-style line-number prefixes (`N: `) from text.
+ * Detect and strip `read`-style line-number prefixes (`N: `) from text.
  *
  * Only strips when the pattern is unambiguous: ≥ 80 % of lines match and
- * the detected numbers are strictly sequential — matching `fs_read` output.
+ * the detected numbers are strictly sequential — matching `read` output.
  */
 export function stripLineNumberPrefixes(text: string): { text: string; stripped: boolean } {
   const lines = text.split('\n');
@@ -58,7 +58,7 @@ export const applyPatchTool: AgentTool = {
   description: [
     'Apply a standard unified diff (--- / +++ / @@ format) to one or more files.',
     'Each changed file is access-checked individually.',
-    'Existing files MUST have been read with fs_read in the current session.',
+    'Existing files MUST have been read with read in the current session.',
     'New files (add hunks) do not require a prior read.',
   ].join(' '),
   formatForLlm(result: unknown): unknown {
@@ -125,7 +125,7 @@ export const applyPatchTool: AgentTool = {
         continue;
       }
 
-      const toolName = diff.type === 'delete' ? 'fs_delete_path' : 'fs_write_file';
+      const toolName = diff.type === 'delete' ? 'delete_path' : 'write_file';
       const access = toFsPathAccessEnvelope(context, toolName, targetRelative);
       if (!access.allowed) {
         denied.push({ path: targetRelative, reason: access.explanation });
@@ -179,14 +179,14 @@ export const applyPatchTool: AgentTool = {
           fileChanges.push({ filePath: absolutePath, oldContent: '', newContent: content });
 
         } else if (diff.type === 'update') {
-          // Assert file was read first (same guard as fs_edit)
+          // Assert file was read first (same guard as edit)
           try {
             FileTime.assert(context.agent.id, absolutePath);
           } catch (assertErr) {
             return {
               applied,
               denied,
-              error: `${assertErr instanceof Error ? assertErr.message : String(assertErr)} — call fs_read on '${diff.oldPath}' before apply_patch.`,
+              error: `${assertErr instanceof Error ? assertErr.message : String(assertErr)} — call read on '${diff.oldPath}' before patch.`,
             };
           }
           const original = await fs.readFile(absolutePath, 'utf8');
@@ -205,7 +205,7 @@ export const applyPatchTool: AgentTool = {
             return {
               applied,
               denied,
-              error: `${assertErr instanceof Error ? assertErr.message : String(assertErr)} — call fs_read on '${diff.oldPath}' before apply_patch.`,
+              error: `${assertErr instanceof Error ? assertErr.message : String(assertErr)} — call read on '${diff.oldPath}' before patch.`,
             };
           }
           const original = await fs.readFile(absolutePath, 'utf8');
@@ -262,7 +262,7 @@ export const multiEditTool: AgentTool = {
   group: 'edit',
   description: [
     'Apply multiple oldString→newString replacements to a single file in one call.',
-    'Edits are applied sequentially; the file MUST have been read with fs_read first.',
+    'Edits are applied sequentially; the file MUST have been read with read first.',
     'Stops on the first failed edit and returns partial results with the error index.',
   ].join(' '),
   formatForLlm(result: unknown): unknown {
@@ -293,7 +293,7 @@ export const multiEditTool: AgentTool = {
     }
 
     // Single upfront access check.
-    const access = toFsPathAccessEnvelope(context, 'fs_edit', filePath);
+    const access = toFsPathAccessEnvelope(context, 'edit', filePath);
     if (!access.allowed) {
       return {
         path: filePath,
@@ -359,13 +359,13 @@ export const multiEditTool: AgentTool = {
 };
 
 // ============================================================================
-// Surgical file edit tool (requires prior fs_read in the same session)
+// Surgical file edit tool (requires prior read in the same session)
 // ============================================================================
 
 /**
  * Surgical string-replacement edit that guards against stale edits.
  *
- * Before calling this tool the agent MUST have read the file with `fs_read`
+ * Before calling this tool the agent MUST have read the file with `read`
  * in the current session. FileTime.assert() will reject the edit if the file
  * has been modified on disk since it was read.
  */
@@ -374,10 +374,10 @@ export const fsEditTool: AgentTool = {
   group: 'fs',
   description: [
     'Perform a surgical in-place edit of a file by replacing an exact string.',
-    'REQUIRES the file to have been read first with fs_read in the same session.',
+    'REQUIRES the file to have been read first with read in the same session.',
     'The edit will fail if the file has been modified on disk since the last read.',
     'Use `replaceAll: true` to replace every occurrence; default replaces only the first.',
-    'Always read the file with `fs_read` immediately before calling this tool.',
+    'Always read the file with `read` immediately before calling this tool.',
   ].join(' '),
   formatForLlm(result: unknown): unknown {
     const r = result as { path?: { relative?: string }; edited: boolean; error?: string };
@@ -400,7 +400,7 @@ export const fsEditTool: AgentTool = {
       replaceAll?: boolean;
     };
 
-    // Strip accidental fs_read line-number prefixes ("42: ...") from both
+    // Strip accidental read line-number prefixes ("42: ...") from both
     // strings so the LLM doesn't write numbered content into the file.
     const cleanOld = stripLineNumberPrefixes((params as { oldString: string }).oldString);
     const cleanNew = stripLineNumberPrefixes((params as { newString: string }).newString);
@@ -425,7 +425,7 @@ export const fsEditTool: AgentTool = {
       };
     }
 
-    const access = toFsPathAccessEnvelope(context, 'fs_edit', filePath);
+    const access = toFsPathAccessEnvelope(context, 'edit', filePath);
     if (!access.allowed) {
       return {
         path: pathMeta,
@@ -448,7 +448,7 @@ export const fsEditTool: AgentTool = {
           path: pathMeta,
           edited: false,
           error: assertErr instanceof Error ? assertErr.message : String(assertErr),
-          hint: 'Call fs_read on this file before calling fs_edit.',
+          hint: 'Call read on this file before calling edit.',
           access,
         };
       }
@@ -484,7 +484,7 @@ export const fsEditTool: AgentTool = {
           path: pathMeta,
           edited: false,
           error: `oldString not found in ${pathMeta.relative}`,
-          hint:  'Use fs_read to verify the current content of the file before calling fs_edit.',
+          hint:  'Use read to verify the current content of the file before calling edit.',
           access,
         };
       }

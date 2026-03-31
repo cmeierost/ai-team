@@ -74,12 +74,6 @@ I also check whether the documentation itself is doing its job: what is missing,
 - `todo/**/*`
 - `.ai-team/tasks/**/*`
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@michael-brown** — present documentation summaries and project status to CEO
-
 ## Working Rules
 
 - audit before rewriting: identify whether the real problem is missing content, stale content, bad structure, duplicated content, or weak source-of-truth routing

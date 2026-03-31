@@ -87,7 +87,7 @@ export const fsExistsTool: AgentTool = {
   }),
   async execute(params, context) {
     const { path: targetPath } = params as { path: string };
-    const check = accessGate(context, 'fs_exists', targetPath, 'exists');
+    const check = accessGate(context, 'exists', targetPath, 'exists');
     if (!check.ok) return check.denied;
     const { absolutePath, pathMeta, access } = check.gate;
     const exists = await existsPath(absolutePath);
@@ -106,7 +106,7 @@ export const fsInfoTool: AgentTool = {
   }),
   async execute(params, context) {
     const { path: targetPath } = params as { path: string };
-    const check = accessGate(context, 'fs_info', targetPath, 'exists');
+    const check = accessGate(context, 'info', targetPath, 'exists');
     if (!check.ok) return check.denied;
     const { absolutePath, pathMeta, access } = check.gate;
     const info = await getPathInfo(absolutePath);
@@ -120,7 +120,7 @@ export const fsInfoTool: AgentTool = {
 function accessFilteredSuggestions(suggestions: string[], context: ToolContext): string[] {
   const allowed: string[] = [];
   for (const rel of suggestions) {
-    if (toFsPathAccessEnvelope(context, 'fs_read', rel).allowed) allowed.push(rel);
+    if (toFsPathAccessEnvelope(context, 'read', rel).allowed) allowed.push(rel);
     if (allowed.length >= 3) break;
   }
   return allowed;
@@ -193,7 +193,7 @@ export const fsReadFileTool: AgentTool = {
   }),
   async execute(params, context) {
     const { filePath, offset = 1, limit = READ_DEFAULT_LIMIT } = params as { filePath: string; offset?: number; limit?: number };
-    const check = accessGate(context, 'fs_read', filePath, 'content');
+    const check = accessGate(context, 'read', filePath, 'content');
     if (!check.ok) return check.denied;
 
     try {
@@ -238,7 +238,7 @@ export const fsCreateFileTool: AgentTool = {
   }),
   async execute(params, context) {
     const { filePath, content = '', createDirectories = false } = params as { filePath: string; content?: string; createDirectories?: boolean };
-    const check = accessGate(context, 'fs_create', filePath, 'created');
+    const check = accessGate(context, 'create', filePath, 'created');
     if (!check.ok) return check.denied;
 
     try {
@@ -263,7 +263,7 @@ export const fsWriteFileTool: AgentTool = {
   }),
   async execute(params, context) {
     const { filePath, content } = params as { filePath: string; content: string };
-    const check = accessGate(context, 'fs_write_file', filePath, 'written');
+    const check = accessGate(context, 'write_file', filePath, 'written');
     if (!check.ok) return check.denied;
 
     try {
@@ -288,7 +288,7 @@ export const fsDeletePathTool: AgentTool = {
   }),
   async execute(params, context) {
     const { path: targetPath, recursive = true } = params as { path: string; recursive?: boolean };
-    const check = accessGate(context, 'fs_delete_path', targetPath, 'deleted');
+    const check = accessGate(context, 'delete_path', targetPath, 'deleted');
     if (!check.ok) return check.denied;
 
     try {
@@ -312,7 +312,7 @@ export const fsMkdirTool: AgentTool = {
   }),
   async execute(params, context) {
     const { path: targetPath, recursive = true } = params as { path: string; recursive?: boolean };
-    const check = accessGate(context, 'fs_mkdir', targetPath, 'created');
+    const check = accessGate(context, 'mkdir', targetPath, 'created');
     if (!check.ok) return check.denied;
 
     try {

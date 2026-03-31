@@ -9,6 +9,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest",
+    "test:coverage": "vitest run --coverage",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },
@@ -25,8 +26,9 @@
     "@types/sqlite3": "^5.1.0",
     "@typescript-eslint/eslint-plugin": "^8.57.2",
     "@typescript-eslint/parser": "^8.57.2",
+    "@vitest/coverage-v8": "^4.1.2",
     "eslint": "^10.1.0",
     "typescript": "^6.0.2",
-    "vitest": "^4.1.1"
+    "vitest": "^4.1.2"
   }
 }

@@ -22,7 +22,7 @@ function makeAgent(id: string, readPatterns: string[] = ['**']): Agent {
       create: [],
       delete: [],
     },
-    tools: ['fs_who_can', 'tool_can_i'],
+    tools: ['who_can', 'can_i'],
   };
 }
 
@@ -37,7 +37,7 @@ describe('access introspection tools', () => {
       const manager = new ToolManager(workspaceRoot, engine);
       for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-      const result = await manager.execute(a, 'fs_who_can', { path: 'src/file.ts' }, { workspaceRoot });
+      const result = await manager.execute(a, 'who_can', { path: 'src/file.ts' }, { workspaceRoot });
       expect(result.ok).toBe(true);
       const payload = result.result as any;
       expect(payload.right).toBe('list');
@@ -57,11 +57,11 @@ describe('access introspection tools', () => {
       const manager = new ToolManager(workspaceRoot, engine);
       for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-      const denied = await manager.execute(a, 'tool_can_i', { path: 'docs/readme.md' }, { workspaceRoot });
+      const denied = await manager.execute(a, 'can_i', { path: 'docs/readme.md' }, { workspaceRoot });
       expect(denied.ok).toBe(true);
       expect((denied.result as any).allowed).toBe(false);
 
-      const allowed = await manager.execute(a, 'tool_can_i', { path: 'docs/readme.md', agentId: 'b' }, { workspaceRoot });
+      const allowed = await manager.execute(a, 'can_i', { path: 'docs/readme.md', agentId: 'b' }, { workspaceRoot });
       expect(allowed.ok).toBe(true);
       expect((allowed.result as any).allowed).toBe(true);
       expect((allowed.result as any).contextId).toBe('b');

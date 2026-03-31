@@ -19,7 +19,7 @@ function makeAgent(): Agent {
     skillPath: '.ai-team/agents/http-tool-tester',
     createdAt: new Date().toISOString(),
     permissions: { read: ['**'], write: [], create: [], delete: [] },
-    tools: ['http_fetch', 'http_crawl'],
+    tools: ['fetch', 'crawl'],
   };
 }
 
@@ -78,7 +78,7 @@ describe('http tools', () => {
     try {
       const result = await manager.execute(
         agent,
-        'http_fetch',
+        'fetch',
         {
           url: `${srv.baseUrl}/article`,
           regex: 'keyword',
@@ -133,7 +133,7 @@ describe('http tools', () => {
     try {
       const result = await manager.execute(
         agent,
-        'http_crawl',
+        'crawl',
         {
           url: `${srv.baseUrl}/root`,
           crawlEnabled: true,

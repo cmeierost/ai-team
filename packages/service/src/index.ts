@@ -8,6 +8,7 @@ export {
   getCliCommandMetadata,
   getLlmCallableCliCommands,
 } from './command-registry.js';
+export type { ChatCommandRegistryEntry } from './command-registry.js';
 
 export function createAiTeamService(workspaceRoot: string): AiTeamService {
   return new CoreAiTeamService(workspaceRoot);

@@ -1,9 +1,11 @@
 import { useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
 import type { Agent, ChatMessage, Developer, SessionActivatedTool } from '../../types';
+import type { ChatCommandRegistryEntry } from '@ai-team/api-client-http';
 import { Avatar } from '../Avatar';
 import { ContextPanel } from '../ContextPanel';
 import { ChatMessagesView } from './ChatMessagesView';
 import { PendingQuestionForm } from './PendingQuestionForm';
+import { SlashCommandDropdown } from './SlashCommandDropdown';
 import type { PendingQuestion } from './chatPanelTypes';
 
 function ChatHeaderModelInfo({ agent }: Readonly<{ agent: Agent }>) {
@@ -192,9 +194,14 @@ interface ChatPanelViewProps {
   onCreateSession: () => Promise<void>;
   onOpenSessionGraph: (sessionId: string) => void;
   onSuggestedHandoff: (targetAgentId: string, task?: string) => void;
+  /** Slash-command autocomplete */
+  slashSuggestions: ChatCommandRegistryEntry[];
+  slashSelectedIndex: number;
+  slashIsOpen: boolean;
+  onSlashSelect: (index: number) => void;
 }
 
-export function ChatPanelView({ agent, agents, developer, routeAgentId, currentAgentId, currentSessionId, graphSessionId, loading, sending, streaming, pendingQuestion, pendingInputAnswer, pendingPasswordAnswer, pendingConfirmAnswer, pendingSelectAnswer, pendingChecklistAnswer, pendingFormAnswer, input, isRecording, recognition, messages, editingIndex, editContent, artifactsInContext, allowedTools, activatedTools, messagesEndRef, messagesContainerRef, textareaRef, onNavigatePortfolio, onGraphBack, onSelectSessionFromGraph, onScrollMessages, onSummarize, onSplitSession, onEditContentChange, onEditMessage, onCancelEdit, onCopyMessage, onToggleArchive, onDeleteMessage, onHandoffClick, onPendingInputAnswerChange, onPendingPasswordAnswerChange, onPendingConfirmAnswerChange, onPendingSelectAnswerChange, onTogglePendingChecklistValue, onPendingFormFieldChange, onPendingQuestionSubmit, onInputChange, onInputKeyDown, onStartRecording, onSend, onInterrupt, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, onSuggestedHandoff }: Readonly<ChatPanelViewProps>) {
+export function ChatPanelView({ agent, agents, developer, routeAgentId, currentAgentId, currentSessionId, graphSessionId, loading, sending, streaming, pendingQuestion, pendingInputAnswer, pendingPasswordAnswer, pendingConfirmAnswer, pendingSelectAnswer, pendingChecklistAnswer, pendingFormAnswer, input, isRecording, recognition, messages, editingIndex, editContent, artifactsInContext, allowedTools, activatedTools, messagesEndRef, messagesContainerRef, textareaRef, onNavigatePortfolio, onGraphBack, onSelectSessionFromGraph, onScrollMessages, onSummarize, onSplitSession, onEditContentChange, onEditMessage, onCancelEdit, onCopyMessage, onToggleArchive, onDeleteMessage, onHandoffClick, onPendingInputAnswerChange, onPendingPasswordAnswerChange, onPendingConfirmAnswerChange, onPendingSelectAnswerChange, onTogglePendingChecklistValue, onPendingFormFieldChange, onPendingQuestionSubmit, onInputChange, onInputKeyDown, onStartRecording, onSend, onInterrupt, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, onSuggestedHandoff, slashSuggestions, slashSelectedIndex, slashIsOpen, onSlashSelect }: Readonly<ChatPanelViewProps>) {
   const isMobileViewport = useIsMobileViewport();
   const [isMobileContextOpen, setIsMobileContextOpen] = useState(false);
 
@@ -341,6 +348,13 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
             />
           ) : (
             <div className="chat-input-container">
+              {slashIsOpen && (
+                <SlashCommandDropdown
+                  suggestions={slashSuggestions}
+                  selectedIndex={slashSelectedIndex}
+                  onSelect={onSlashSelect}
+                />
+              )}
               <textarea
                 ref={textareaRef}
                 className="chat-input-textarea"

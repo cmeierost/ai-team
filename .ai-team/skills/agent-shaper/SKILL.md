@@ -1,6 +1,6 @@
 ---
 name: agent-shaper
-description: 'Shape or review ai-team agents from a hiring brief into a clear final portfolio. Use when Emily Davis or another agent needs to turn a role idea into a strong agent with the right personality, reporting line, runtime metadata, collaboration behavior, and supporting skills.'
+description: 'Shape or review ai-team agents from a hiring brief into a clear final portfolio. Use when Emily Davis or another agent needs to turn a role idea into a strong agent with the right personality, reporting line, handoffs, runtime metadata, and supporting skills.'
 ---
 
 # Agent Shaper
@@ -18,7 +18,7 @@ This includes:
 - reviewing whether an agent should exist at all
 - deciding what belongs in YAML frontmatter versus the Markdown body
 - deciding supporting skills, prompts, and instructions
-- validating personality, reporting lines, and collaboration patterns
+- validating personality, reporting lines, handoffs, and `.perm` path rules
 - directly updating the relevant files when normal workspace tools are available
 
 ## Read These Sources First
@@ -26,11 +26,12 @@ This includes:
 1. `.ai-team/ai-team-way.md`
 2. `.ai-team/instructions/agents.instructions.md`
 3. `.ai-team/instructions/agent-metadata.instructions.md`
-4. `packages/core/src/types/index.ts`
-5. Existing agent files in `.ai-team/agents/**/*`
+4. `packages/core/src/types/index.ts` — `AgentSchema`, `AgentHandoffSchema`
+5. Existing agent files in `.ai-team/agents/**/*.agent.md`
 6. Related skills in `.ai-team/skills/**/*`
-7. `templates/john-to-emily-hiring-brief.md`
-8. `references/good-agent-examples.md`
+7. Skill-local assets:
+   - `templates/john-to-emily-hiring-brief.md`
+   - `references/good-agent-examples.md`
 
 ## Workflow
 
@@ -67,58 +68,108 @@ Decide deliberately:
 
 Write the personality so it supports the job instead of becoming decoration.
 
-### 4. Shape the structure
+### 4. Shape the frontmatter
 
-Design:
+Every agent is a single `.agent.md` file: YAML frontmatter for all metadata, Markdown body for the portfolio.
 
-- the `.agent.md` file (YAML frontmatter + Markdown body)
-- identity fields
-- role and context level
-- explicit `reportsTo`
-- specializations
-- personality
-- permissions and tools
-- supporting skills, prompts, or instructions
+**Required fields:**
 
-Only add YAML fields that materially help the role.
+- `role` — the agent's job function
+- `contextLevel` — `organization`, `project`, `feature`, or `task`
+- `reportsTo` — explicit manager ID (every non-CEO agent needs this)
 
-Shape the agent so it can do the job efficiently in practice, not just look correct in theory.
+**Identity overrides (usually omitted):**
 
-Check whether it has:
+- `name` — only needed when the display name should differ from the filename-derived default
+- `aiTeamId` / `id` — only needed when the internal ID should differ from the filename slug
+- `aiTeamName` — legacy alias for `name`; same override rule applies
 
-- the right scope
-- enough permissions to act
-- the right tools
-- the right supporting skills, prompts, or instructions
-- clear collaboration paths for handoffs or consultation
+Most agents omit `name`, `id`, `aiTeamId`, and `aiTeamName` entirely because the runtime derives them from the filename.
 
-### 5. Check collaboration boundaries
+**Common optional fields:**
+
+- `type` — `executive`, `manager`, `individual-contributor`
+- `specializations` — list of real skill IDs from `.ai-team/skills/<id>/SKILL.md`; keep narrow
+- `description` — main discovery surface for Copilot routing; make it explicit, concrete, and trigger-rich
+- `personality` — `communication_style`, `expertise_level`, `mentoring`
+- `avatar` — `type`, `url`, `color`
+- `tools`, `disallowedTools`, `cliTools`
+- `canDelegate`, `delegatesTo`, `availableFor`
+- `model` — Copilot model preference
+
+**Handoffs:**
+
+- `handoffs` — array of `{ label, agent, prompt?, send?, model? }` for Copilot-native agent-to-agent routing
+- The runtime auto-syncs `[auto]` handoffs from `reportsTo` and `delegatesTo` relationships via `syncHandoffs()`; these do not need to be written manually
+- Manually authored handoffs (without the `[auto]` tag in the label) are preserved by the sync and should be added when a specific routing prompt or cross-team handoff is needed
+
+**Do not put in frontmatter:**
+
+- file-path read/write/create/delete globs — those live in `.ai-team/agents/<agent-id>.perm`
+- long narrative text — that belongs in the Markdown body
+
+Only add YAML fields that materially help the role. Keep frontmatter compact and auditable.
+
+### 5. Shape the body
+
+The Markdown body is the agent's portfolio. It should sound human and confident.
+
+**Standard sections:**
+
+- who the agent is (short intro paragraph)
+- **Scope of Responsibility** — what the agent owns and which skills it uses; list both owned areas and the `specializations` skill IDs from frontmatter
+- what files to read first (or use the `readTheseFilesFirst` frontmatter field)
+- working rules
+- successful outcome
+
+**Body guidelines:**
+
+- keep it personal and role-appropriate; an executive sounds strategic, a recruiter sounds evaluative
+- keep procedural workflows in skills, not buried in the agent body
+- first-turn greeting: greet briefly on the first reply unless the developer already opened with a greeting; avoid double-greeting
+- make direct action the default when workspace tools are available
+
+### 6. Shape the `.perm` file
+
+Every agent that touches files needs a `.perm` file at `.ai-team/agents/<agent-id>.perm`.
+
+- define read/write/create/delete glob rules appropriate to the agent's scope
+- keep path access as narrow as the role allows
+- do not put path globs in frontmatter
+
+### 7. Check handoffs and delegation
 
 Confirm:
 
-- who this agent consults
-- who they hand work to
+- who this agent hands work to (via `handoffs` or `delegatesTo`)
+- who hands work to this agent
+- whether the `[auto]` handoffs from `reportsTo` and `delegatesTo` are sufficient or manual handoffs are needed
 - whether John scouts for them
 - whether Emily owns final design decisions
 - whether the role overlaps an existing agent too much
 
-### 6. Review quality before finalizing
+### 8. Review quality before finalizing
 
 Before finishing, confirm:
 
-- the role is clear
-- the personality is distinct
+- the role is clear and the scope is narrow enough
+- the personality is distinct and role-appropriate
 - the body sounds like the intended person
 - the reporting line is explicit
-- the first-turn greeting behavior is natural
+- handoffs are correct (auto-synced from org relationships, plus any manual additions)
+- the `.perm` file gives appropriate path access
+- the `specializations` list contains only real skill IDs
+- the `description` is trigger-rich for Copilot discovery
+- first-turn greeting behavior is natural
 - the agent is not secretly a workflow or policy doc in disguise
-- the agent can do its real job efficiently with the tools, permissions, and supporting assets it has been given
+- the agent can do its real job efficiently with the tools, permissions, and supporting assets it has
 
-### 7. Act instead of only advising
+### 9. Act instead of only advising
 
 When the environment provides normal workspace tools for reading and editing files, use them.
 
 - update the agent file directly when the needed change is clear
+- create or update the `.perm` file when path access needs to change
 - create supporting skills, prompts, or instruction files when they are part of the solution
 - avoid stopping at a recommendation unless the user explicitly asked for advice only
 
@@ -130,8 +181,8 @@ When shaping or reviewing an agent, summarize the result as:
 - **Why this person exists**
 - **Personality fit**
 - **Reports to**
-- **Key collaborations**
-- **Supporting assets**
+- **Handoffs** — auto-synced relationships and any manual handoffs
+- **Supporting assets** — skills, prompts, instructions, `.perm` file
 - **Risks to watch**
 
 ## Working Rules
@@ -139,9 +190,10 @@ When shaping or reviewing an agent, summarize the result as:
 - keep the agent human, but not theatrical
 - prefer the smallest believable role
 - keep `.ai-team/` as the source of truth
-- use `.github/agents/` only when explicit GitHub-side compatibility is needed, not as the default home for agents
+- use `.github/agents/` only when explicit GitHub-side compatibility is needed
 - treat personality as design, not garnish
-- make collaboration and delegation obvious
+- make handoffs and delegation obvious
+- omit `name`, `id`, `aiTeamId`, `aiTeamName` when the filename-derived defaults are correct
 - when file tools are available, use them to complete the shaping work instead of only describing the work
 - do not ship an agent that sounds good but is under-equipped to do its actual job
 
@@ -149,5 +201,5 @@ When shaping or reviewing an agent, summarize the result as:
 
 - the new or updated agent feels like a real coworker
 - the role is easy to understand and easy to route work to
-- personality, reporting line, and collaboration style are all clear
+- personality, reporting line, handoffs, and `.perm` path access are all clear
 - surrounding skills, prompts, and instructions stay cleanly separated

@@ -141,7 +141,7 @@ describe('createPermissionEngine', () => {
     });
 
     // fs_read should be registered
-    const verdict = engine.checkToolCall('fs_read', { filePath: 'src/foo.ts' }, '/workspace', 'a');
+    const verdict = engine.checkToolCall('read', { filePath: 'src/foo.ts' }, '/workspace', 'a');
     // The tool is registered, so it won't fall back to "unregistered tool denied"
     expect(verdict.explanation).not.toContain('Unregistered tool');
   });
@@ -154,10 +154,10 @@ describe('createPermissionEngine', () => {
       })],
     });
 
-    const existsAllowed = engine.checkToolCall('fs_exists', { path: 'src/foo.ts' }, '/workspace', 'a');
-    const existsDenied = engine.checkToolCall('fs_exists', { path: 'docs/readme.md' }, '/workspace', 'a');
-    const infoAllowed = engine.checkToolCall('fs_info', { path: 'src/foo.ts' }, '/workspace', 'a');
-    const infoDenied = engine.checkToolCall('fs_info', { path: 'docs/readme.md' }, '/workspace', 'a');
+    const existsAllowed = engine.checkToolCall('exists', { path: 'src/foo.ts' }, '/workspace', 'a');
+    const existsDenied = engine.checkToolCall('exists', { path: 'docs/readme.md' }, '/workspace', 'a');
+    const infoAllowed = engine.checkToolCall('info', { path: 'src/foo.ts' }, '/workspace', 'a');
+    const infoDenied = engine.checkToolCall('info', { path: 'docs/readme.md' }, '/workspace', 'a');
 
     expect(existsAllowed.allowed).toBe(true);
     expect(existsDenied.allowed).toBe(false);

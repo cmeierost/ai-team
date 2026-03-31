@@ -5,6 +5,8 @@ import { API_BASE, useTeam } from '../../context/TeamContext';
 import { contextPanelQueryKeys } from '../../hooks/contextPanelQueryKeys';
 import type { ChatMessage, SessionActivatedTool } from '../../types';
 import type { IdeEditStatusResponse } from '@ai-team/api-client-http';
+import type { ChatCommandRegistryEntry } from '@ai-team/api-client-http';
+import { useSlashCommandSuggestions } from '../../hooks/useSlashCommandSuggestions';
 import {
   buildSummaryMarkdown,
   extractSessionActivatedTools,
@@ -102,6 +104,11 @@ interface UseChatPanelControllerResult {
   handleDeleteSession: (deletedSessionId: string) => void;
   handleCreateSession: () => Promise<void>;
   handleOpenSessionGraph: (sessionId: string) => void;
+  /** Slash-command autocomplete state */
+  slashSuggestions: ChatCommandRegistryEntry[];
+  slashSelectedIndex: number;
+  slashIsOpen: boolean;
+  handleSlashSelect: (index: number) => void;
 }
 
 export function useChatPanelController(): UseChatPanelControllerResult {
@@ -869,7 +876,46 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     requestAnimationFrame(autoResizeTextarea);
   };
 
+  const {
+    suggestions: slashSuggestions,
+    selectedIndex: slashSelectedIndex,
+    isOpen: slashIsOpen,
+    navigate: slashNavigate,
+    select: slashSelectUsage,
+    dismiss: slashDismiss,
+  } = useSlashCommandSuggestions(input);
+
+  const handleSlashSelect = (index: number) => {
+    const usage = slashSelectUsage(index);
+    setInput(usage);
+    requestAnimationFrame(autoResizeTextarea);
+    textareaRef.current?.focus();
+  };
+
   const handleInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashIsOpen) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        slashNavigate(1);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        slashNavigate(-1);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        const idx = slashSelectedIndex >= 0 ? slashSelectedIndex : 0;
+        event.preventDefault();
+        handleSlashSelect(idx);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        slashDismiss();
+        return;
+      }
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       void handleSend();
@@ -1289,5 +1335,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     handleDeleteSession,
     handleCreateSession,
     handleOpenSessionGraph,
+    slashSuggestions,
+    slashSelectedIndex,
+    slashIsOpen,
+    handleSlashSelect,
   };
 }

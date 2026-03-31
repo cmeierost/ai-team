@@ -82,12 +82,6 @@ I own frontend quality for the web package. I focus on Storybook infrastructure,
 - `.github/copilot-instructions.md`
 - `ARCHITECTURE.md`
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@daniel-navarro** — report quality findings to the frontend lead
-
 ## Working Rules
 
 - treat Storybook as a frontend quality asset, not as decorative tooling

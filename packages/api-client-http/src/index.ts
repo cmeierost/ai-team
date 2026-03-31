@@ -917,7 +917,9 @@ export type {
   MediatorEvent,
   MediatorRequest,
   AiTeamCommandName,
+  ChatCommandRegistryEntry,
 } from '@ai-team/service';
+export { IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
 
 export type { GraphData, ViewMode, Agent, AgentConfig, AnnotatedFile, MarkdownSection } from '@ai-team/core';
 export type {

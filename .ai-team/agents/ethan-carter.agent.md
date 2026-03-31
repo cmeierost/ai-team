@@ -83,12 +83,6 @@ I own the backend platform surface where workspace structure, path permissions, 
 - `packages/ide-interface/src/**/*`
 - `packages/cli/src/**/*`
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@alex-morgan** — report to backend lead on platform priorities and scope
-
 ## Working Rules
 
 - keep file access and tool execution rules explicit, narrow, and auditable

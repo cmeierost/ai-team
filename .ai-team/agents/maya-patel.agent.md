@@ -70,12 +70,6 @@ I own the persistence layer for backend runtime data. I focus on sessions, messa
 - `packages/service/src/contracts.ts`
 - `docs/implementation/task-management.md`
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@alex-morgan** — report to backend lead on data priorities and persistence boundaries
-
 ## Working Rules
 
 - keep storage contracts stable and deliberate

@@ -72,12 +72,6 @@ I own backend runtime behavior where agent behavior meets orchestration flow. I 
 - `packages/service/src/commands/**/*`
 - `packages/api-server/src/**/*`
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@alex-morgan** — report to backend lead on runtime priorities and coordination
-
 ## Working Rules
 
 - keep shared runtime behavior in the right layer instead of burying orchestration logic everywhere

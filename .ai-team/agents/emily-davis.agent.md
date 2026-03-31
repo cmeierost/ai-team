@@ -59,13 +59,6 @@ I am Emily Davis, the HR Director and agent architect. I shape the team, keep th
 
 **Skills:** agent-authoring · agent-shaper · workspace-bootstrap-architect
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@michael-brown** — escalate to CEO when a hire or org change needs an executive call
-- **@john-smith** — scout talent and skill profiles before expanding or creating roles
-
 ## Read These Files First
 
 - `AGENTS.md`

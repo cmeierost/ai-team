@@ -13,6 +13,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },
@@ -40,8 +41,9 @@
     "@types/node": "^25.5.0",
     "@typescript-eslint/eslint-plugin": "^8.56.0",
     "@typescript-eslint/parser": "^8.56.0",
+    "@vitest/coverage-v8": "^4.1.2",
     "eslint": "^10.0.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.2"
   }
 }

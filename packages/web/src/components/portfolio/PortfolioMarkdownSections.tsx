@@ -15,7 +15,6 @@ const STANDARD_ORDER = [
 
 // Sections moved to YAML or removed — never rendered as markdown cards.
 const EXCLUDED_SECTIONS = new Set([
-  'Key Collaborations',
   'Read These Files First',
   'Routing Defaults',
   'Do Not Use This Agent For',

@@ -15,6 +15,7 @@
     "kill:web": "kill-port 3000",
     "kill:api": "kill-port 3002",
     "test": "pnpm -r test",
+    "test:coverage": "pnpm -r test:coverage",
     "lint": "pnpm -r lint",
     "docs:pdf": "node tools/export-md-pdf.mjs",
     "docs:orchestrator:pdf": "node tools/export-md-pdf.mjs docs/architecture/orchestrator-overview.md docs/architecture/orchestrator-overview.pdf",

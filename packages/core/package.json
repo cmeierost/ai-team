@@ -9,6 +9,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest",
+    "test:coverage": "vitest run --coverage",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },
@@ -21,9 +22,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@ai-team/permission": "workspace:*",
     "@ai-team/fs": "workspace:*",
     "@ai-team/ide-interface": "workspace:*",
+    "@ai-team/permission": "workspace:*",
     "@typescript-eslint/typescript-estree": "^8.56.0",
     "chokidar": "^5.0.0",
     "diff": "^8.0.3",
@@ -54,9 +55,10 @@
     "@types/node": "^25.5.0",
     "@typescript-eslint/eslint-plugin": "^8.57.0",
     "@typescript-eslint/parser": "^8.56.0",
+    "@vitest/coverage-v8": "^4.1.2",
     "eslint": "^10.0.3",
     "typescript": "^5.9.3",
-    "vscode-languageserver-types": "3.17.5",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.2",
+    "vscode-languageserver-types": "3.17.5"
   }
 }

@@ -73,13 +73,6 @@ I am Sarah Lee's ecosystem strategy researcher. I track AI coding assistants, ag
 
 **Skills:** orchestrator-ecosystem-research · document-research-briefing · knowledge-brief-writing
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@sarah-lee** — present research findings to the architect
-- **@taylor-reed** — hand off research for documentation and briefing writeup
-
 ## Read These Files First
 
 - `analysis/ai-team-context-strategy.md`

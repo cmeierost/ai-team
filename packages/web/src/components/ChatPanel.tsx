@@ -71,6 +71,10 @@ export function ChatPanel() {
       onCreateSession={controller.handleCreateSession}
       onOpenSessionGraph={controller.handleOpenSessionGraph}
       onSuggestedHandoff={controller.handleSuggestedToolHandoff}
+      slashSuggestions={controller.slashSuggestions}
+      slashSelectedIndex={controller.slashSelectedIndex}
+      slashIsOpen={controller.slashIsOpen}
+      onSlashSelect={controller.handleSlashSelect}
     />
   );
 }

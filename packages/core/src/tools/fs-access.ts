@@ -79,20 +79,20 @@ export function filterTreeByListAccess(context: ToolContext, node: FileTreeNode)
 export function toFsPathAccessEnvelope(
   context: ToolContext,
   toolName:
-    | 'fs_read'
-    | 'fs_read_lines'
-    | 'fs_write_file'
-    | 'fs_create'
-    | 'fs_delete_path'
-    | 'fs_mkdir'
-    | 'fs_exists'
-    | 'fs_info'
-    | 'fs_list'
-    | 'fs_tree'
-    | 'fs_search_content'
-    | 'fs_search_metadata'
-    | 'fs_edit'
-    | 'apply_patch'
+    | 'read'
+    | 'read_lines'
+    | 'write_file'
+    | 'create'
+    | 'delete_path'
+    | 'mkdir'
+    | 'exists'
+    | 'info'
+    | 'list'
+    | 'tree'
+    | 'search_content'
+    | 'search_metadata'
+    | 'edit'
+    | 'patch'
     | 'multiedit',
   targetPath: string,
 ): FsPathAccessEnvelope {
@@ -105,11 +105,11 @@ export function toFsPathAccessEnvelope(
   }
 
   const args =
-    toolName === 'fs_read'
-    || toolName === 'fs_read_lines'
-    || toolName === 'fs_write_file'
-    || toolName === 'fs_create'
-    || toolName === 'fs_edit'
+    toolName === 'read'
+    || toolName === 'read_lines'
+    || toolName === 'write_file'
+    || toolName === 'create'
+    || toolName === 'edit'
       ? { filePath: targetPath }
       : { path: targetPath };
 

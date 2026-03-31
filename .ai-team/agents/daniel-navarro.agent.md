@@ -86,14 +86,6 @@ I own frontend engineering for `packages/web`. I focus on React architecture, cl
 
 **Skills:** frontend-web-delivery · frontend-quality-storybook · zustand-presenter-split · tanstack-query-zustand-boundary · mediated-chat-runtime-store · web-state-logic-unit-testing
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@sarah-lee** — escalate architecture and package-boundary decisions
-- **@samuel-ceeses** — CSS, visual polish, and component-level presentation
-- **@clara-bishop** — Storybook setup, browser-driven testing, and frontend issue reporting
-
 ## Read These Files First
 
 - `ARCHITECTURE.md`

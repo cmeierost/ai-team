@@ -229,7 +229,7 @@ function makeEditAgent(id: string): Agent {
     skillPath: `.ai-team/agents/${id}`,
     createdAt: new Date().toISOString(),
     permissions: perms({ read: ['**'], write: ['**'], create: ['**'], delete: ['**'] }),
-    tools: ['fs_read', 'fs_edit', 'apply_patch', 'multiedit'],
+    tools: ['read', 'edit', 'patch', 'multiedit'],
   };
 }
 
@@ -259,7 +259,7 @@ afterEach(async () => {
 // fs_edit
 // ============================================================================
 
-describe('fs_edit', () => {
+describe('edit', () => {
   it('performs a single replacement and returns _fileChanges', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
@@ -269,11 +269,11 @@ describe('fs_edit', () => {
     await fs.writeFile(filePath, 'const x = 1;\nconst y = 2;\n', 'utf8');
 
     // fs_edit requires a prior fs_read
-    await manager.execute(agent, 'fs_read', { filePath: 'app.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'app.ts' }, ctx(ws, agent));
 
     const result = await manager.execute(
       agent,
-      'fs_edit',
+      'edit',
       { filePath: 'app.ts', oldString: 'const x = 1;', newString: 'const x = 42;' },
       ctx(ws, agent),
     );
@@ -300,12 +300,12 @@ describe('fs_edit', () => {
     const filePath = path.join(ws, 'demo.ts');
     await fs.writeFile(filePath, 'function demo(): string {\n  return "done";\n  console.log("unreachable");\n}\n', 'utf8');
 
-    await manager.execute(agent, 'fs_read', { filePath: 'demo.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'demo.ts' }, ctx(ws, agent));
 
     // Simulate LLM pasting fs_read output with line numbers into both old and new
     const result = await manager.execute(
       agent,
-      'fs_edit',
+      'edit',
       {
         filePath: 'demo.ts',
         oldString: '1: function demo(): string {\n2:   return "done";\n3:   console.log("unreachable");\n4: }',
@@ -330,11 +330,11 @@ describe('fs_edit', () => {
     const { manager } = setupManager(ws, agent);
 
     await fs.writeFile(path.join(ws, 'file.ts'), 'const a = 1;\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'file.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'file.ts' }, ctx(ws, agent));
 
     const result = await manager.execute(
       agent,
-      'fs_edit',
+      'edit',
       { filePath: 'file.ts', oldString: 'not in file', newString: 'whatever' },
       ctx(ws, agent),
     );
@@ -354,7 +354,7 @@ describe('fs_edit', () => {
 
     const result = await manager.execute(
       agent,
-      'fs_edit',
+      'edit',
       { filePath: 'unread.ts', oldString: 'content', newString: 'replaced' },
       ctx(ws, agent),
     );
@@ -362,7 +362,7 @@ describe('fs_edit', () => {
     expect(result.ok).toBe(true);
     const payload = result.result as any;
     expect(payload.edited).toBe(false);
-    expect(payload.hint).toContain('fs_read');
+    expect(payload.hint).toContain('read');
   });
 
   it('rejects ambiguous oldString with multiple matches', async () => {
@@ -371,11 +371,11 @@ describe('fs_edit', () => {
     const { manager } = setupManager(ws, agent);
 
     await fs.writeFile(path.join(ws, 'dup.ts'), 'aaa\nbbb\naaa\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'dup.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'dup.ts' }, ctx(ws, agent));
 
     const result = await manager.execute(
       agent,
-      'fs_edit',
+      'edit',
       { filePath: 'dup.ts', oldString: 'aaa', newString: 'ccc' },
       ctx(ws, agent),
     );
@@ -391,11 +391,11 @@ describe('fs_edit', () => {
     const { manager } = setupManager(ws, agent);
 
     await fs.writeFile(path.join(ws, 'multi.ts'), 'aaa\nbbb\naaa\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'multi.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'multi.ts' }, ctx(ws, agent));
 
     const result = await manager.execute(
       agent,
-      'fs_edit',
+      'edit',
       { filePath: 'multi.ts', oldString: 'aaa', newString: 'ccc', replaceAll: true },
       ctx(ws, agent),
     );
@@ -413,11 +413,11 @@ describe('fs_edit', () => {
 
     // File has trailing spaces on line 1, but oldString does not
     await fs.writeFile(path.join(ws, 'fuzzy.ts'), 'const x = 1;  \nconst y = 2;\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'fuzzy.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'fuzzy.ts' }, ctx(ws, agent));
 
     const result = await manager.execute(
       agent,
-      'fs_edit',
+      'edit',
       { filePath: 'fuzzy.ts', oldString: 'const x = 1;\nconst y = 2;', newString: 'const x = 42;\nconst y = 2;' },
       ctx(ws, agent),
     );
@@ -437,11 +437,11 @@ describe('fs_edit', () => {
     const { manager } = setupManager(ws, agent);
 
     await fs.writeFile(path.join(ws, 'exact.ts'), 'const a = 1;\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'exact.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'exact.ts' }, ctx(ws, agent));
 
     const result = await manager.execute(
       agent,
-      'fs_edit',
+      'edit',
       { filePath: 'exact.ts', oldString: 'const a = 1;', newString: 'const a = 99;' },
       ctx(ws, agent),
     );
@@ -456,7 +456,7 @@ describe('fs_edit', () => {
 // apply_patch
 // ============================================================================
 
-describe('apply_patch', () => {
+describe('patch', () => {
   it('applies a unified diff to update a file', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
@@ -464,7 +464,7 @@ describe('apply_patch', () => {
 
     const filePath = path.join(ws, 'hello.ts');
     await fs.writeFile(filePath, 'function greet() {\n  return "hello";\n}\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'hello.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'hello.ts' }, ctx(ws, agent));
 
     const patchText = [
       '--- hello.ts',
@@ -478,7 +478,7 @@ describe('apply_patch', () => {
 
     const result = await manager.execute(
       agent,
-      'apply_patch',
+      'patch',
       { patchText },
       ctx(ws, agent),
     );
@@ -510,7 +510,7 @@ describe('apply_patch', () => {
 
     const result = await manager.execute(
       agent,
-      'apply_patch',
+      'patch',
       { patchText },
       ctx(ws, agent),
     );
@@ -530,7 +530,7 @@ describe('apply_patch', () => {
 
     const result = await manager.execute(
       agent,
-      'apply_patch',
+      'patch',
       { patchText: 'this is not a valid patch at all' },
       ctx(ws, agent),
     );
@@ -553,7 +553,7 @@ describe('multiedit', () => {
 
     const filePath = path.join(ws, 'multi.ts');
     await fs.writeFile(filePath, 'const a = 1;\nconst b = 2;\nconst c = 3;\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'multi.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'multi.ts' }, ctx(ws, agent));
 
     const result = await manager.execute(
       agent,
@@ -584,7 +584,7 @@ describe('multiedit', () => {
 
     const original = 'let x = 1;\nlet y = 2;\n';
     await fs.writeFile(path.join(ws, 'agg.ts'), original, 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'agg.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'agg.ts' }, ctx(ws, agent));
 
     const result = await manager.execute(
       agent,
@@ -613,7 +613,7 @@ describe('multiedit', () => {
     const { manager } = setupManager(ws, agent);
 
     await fs.writeFile(path.join(ws, 'sub.ts'), 'aaa\nbbb\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'sub.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'sub.ts' }, ctx(ws, agent));
 
     const result = await manager.execute(
       agent,
@@ -637,7 +637,7 @@ describe('multiedit', () => {
     const { manager } = setupManager(ws, agent);
 
     await fs.writeFile(path.join(ws, 'fail.ts'), 'line1\nline2\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'fail.ts' }, ctx(ws, agent));
+    await manager.execute(agent, 'read', { filePath: 'fail.ts' }, ctx(ws, agent));
 
     const result = await manager.execute(
       agent,

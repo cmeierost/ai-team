@@ -114,5 +114,8 @@
     },
     "[html]": {
         "editor.defaultFormatter": "vscode.html-language-features"
-    }
+    },
+    "vitest.enable": true,
+    "jestrunner.jestCommand": "pnpm vitest run",
+    "jestrunner.isMonorepo": true
 }

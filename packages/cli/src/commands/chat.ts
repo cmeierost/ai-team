@@ -6,12 +6,13 @@ import type {
 } from '@ai-team/api-client';
 import { generateAgentColor, parseHslHue } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/ide-interface';
-import { findWorkspaceRoot } from '@ai-team/service';
+import { findWorkspaceRoot, IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { isFrontendFileLogEnabled, writeFrontendDebugLog } from './debug-log.js';
+import { askWithSlashSuggestions } from '../utils/slash-prompt.js';
 
 function setupAbortController(writeStderrLine: (text: string) => void) {
   const controller = new AbortController();
@@ -58,8 +59,22 @@ function isAbortLikeError(error: unknown): boolean {
   return /aborted|abort/i.test(message);
 }
 
+/**
+ * Tab-completion for the chat REPL.
+ * When the line starts with `/`, suggests matching slash commands (key + trailing space).
+ */
+function slashCompleter(line: string): [string[], string] {
+  if (!line.startsWith('/')) return [[], line];
+  const fragment = line.slice(1).toLowerCase();
+  const hits = IN_CHAT_COMMAND_REGISTRY
+    .flatMap(cmd => [cmd.key, ...(cmd.aliases ?? [])])
+    .filter(key => key.startsWith(fragment))
+    .map(key => `/${key} `);
+  return [hits.length ? hits : [], line];
+}
+
 async function askLine(message: string, signal?: AbortSignal): Promise<string> {
-  const rl = createInterface({ input, output });
+  const rl = createInterface({ input, output, completer: slashCompleter });
   try {
     return (await rl.question(`${message} `, { signal })).trim();
   } finally {
@@ -74,7 +89,7 @@ function createChatQuestionResponders(signal: AbortSignal, onAnswered?: () => vo
   return {
     questionInput: async (request: QuestionInputRequest) => {
       while (true) {
-        const answer = await askLine(request.message, signal);
+        const answer = await askWithSlashSuggestions(request.message, signal);
         if (request.validate) {
           const result = request.validate(answer);
           if (result !== true) {

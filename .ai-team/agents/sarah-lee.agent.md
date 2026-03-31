@@ -72,16 +72,6 @@ I own repository-wide architecture and package-boundary decisions. I optimize fo
 - deciding where new logic should live
 - validating changes that touch shared contracts or orchestration paths
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@michael-brown** — escalate to CEO for executive direction
-- **@alex-morgan** — backend ownership, feature planning, and core/service delivery
-- **@daniel-navarro** — React web package, frontend architecture, and state/logic separation
-- **@marcus-vale** — VS Code extension, IDE integration UX, and adapter behavior
-- **@adrian-foster** — ecosystem research, orchestrator comparisons, and strategic gap briefings
-
 ## Read These Files First
 
 - `ARCHITECTURE.md`

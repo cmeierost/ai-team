@@ -76,12 +76,6 @@ I own the VS Code extension as a first-class product surface. I focus on editor-
 - `packages/vscode/src/decorations/**/*`
 - `packages/ide-interface/src/**/*`
 
-## Key Collaborations
-
-Derived from the `handoffs` configuration:
-
-- **@sarah-lee** — escalate architecture and package-boundary decisions
-
 ## Working Rules
 
 - keep `packages/vscode` a thin adapter over shared logic in `core`, `service`, and `ide-interface`

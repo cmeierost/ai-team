@@ -34,21 +34,21 @@ function makeAgent(id: string, readPatterns: string[]): Agent {
     skillPath: `.ai-team/agents/${id}`,
     createdAt: new Date().toISOString(),
     permissions: perms({ read: readPatterns }),
-    tools: ['fs_exists', 'fs_info'],
+    tools: ['exists', 'info'],
   };
 }
 
 function makeSearchAgent(id: string, readPatterns: string[]): Agent {
   return {
     ...makeAgent(id, readPatterns),
-    tools: ['fs_search_content', 'fs_search_metadata'],
+    tools: ['search_content', 'search_metadata'],
   };
 }
 
 function makeTreeAgent(id: string, readPatterns: string[]): Agent {
   return {
     ...makeAgent(id, readPatterns),
-    tools: ['fs_tree', 'fs_list'],
+    tools: ['tree', 'list'],
   };
 }
 
@@ -57,13 +57,13 @@ function makeFullFsAgent(id: string): Agent {
     ...makeAgent(id, ['**']),
     permissions: perms({ read: ['**'], write: ['**'], create: ['**'], delete: ['**'] }),
     tools: [
-      'fs_read',
-      'fs_read_lines',
-      'fs_write_file',
-      'fs_create',
-      'fs_delete_path',
-      'fs_mkdir',
-      'fs_list',
+      'read',
+      'read_lines',
+      'write_file',
+      'create',
+      'delete_path',
+      'mkdir',
+      'list',
     ],
   };
 }
@@ -91,7 +91,7 @@ describe('fs_exists/fs_info tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_exists', { path: 'docs/readme.md' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'exists', { path: 'docs/readme.md' }, ctx(a, workspaceRoot));
 
     expect(result.ok).toBe(true);
     const payload = result.result as any;
@@ -112,7 +112,7 @@ describe('fs_exists/fs_info tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_info', { path: 'src/app.ts' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'info', { path: 'src/app.ts' }, ctx(a, workspaceRoot));
 
     expect(result.ok).toBe(true);
     const payload = result.result as any;
@@ -146,7 +146,7 @@ describe('fs_search_* access filtering', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_search_content', { path: '.', query: 'needle' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'search_content', { path: '.', query: 'needle' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
@@ -178,7 +178,7 @@ describe('fs_search_* access filtering', () => {
 
     const result = await manager.execute(
       a,
-      'fs_search_metadata',
+      'search_metadata',
       { pattern: '**/needle-zone/**' },
       ctx(a, workspaceRoot),
     );
@@ -202,10 +202,10 @@ describe('remaining fs tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const full = await manager.execute(a, 'fs_read', { filePath: 'src/file.txt' }, ctx(a, workspaceRoot));
+    const full = await manager.execute(a, 'read', { filePath: 'src/file.txt' }, ctx(a, workspaceRoot));
     const lines = await manager.execute(
       a,
-      'fs_read_lines',
+      'read_lines',
       { filePath: 'src/file.txt', startLine: 2, endLine: 3 },
       ctx(a, workspaceRoot),
     );
@@ -223,16 +223,16 @@ describe('remaining fs tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const mkdir = await manager.execute(a, 'fs_mkdir', { path: 'tmp/nested' }, ctx(a, workspaceRoot));
+    const mkdir = await manager.execute(a, 'mkdir', { path: 'tmp/nested' }, ctx(a, workspaceRoot));
     const created = await manager.execute(
       a,
-      'fs_create',
+      'create',
       { filePath: 'tmp/nested/new.txt', content: 'hello', createDirectories: true },
       ctx(a, workspaceRoot),
     );
     const written = await manager.execute(
       a,
-      'fs_write_file',
+      'write_file',
       { filePath: 'tmp/nested/new.txt', content: 'updated' },
       ctx(a, workspaceRoot),
     );
@@ -258,11 +258,11 @@ describe('remaining fs tool execution', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const listed = await manager.execute(a, 'fs_list', { path: 'tmp' }, ctx(a, workspaceRoot));
+    const listed = await manager.execute(a, 'list', { path: 'tmp' }, ctx(a, workspaceRoot));
     expect(listed.ok).toBe(true);
     expect((listed.result as any).entries.some((e: { name: string }) => e.name === 'dir')).toBe(true);
 
-    const deleted = await manager.execute(a, 'fs_delete_path', { path: 'tmp/dir', recursive: true }, ctx(a, workspaceRoot));
+    const deleted = await manager.execute(a, 'delete_path', { path: 'tmp/dir', recursive: true }, ctx(a, workspaceRoot));
     expect(deleted.ok).toBe(true);
     expect((deleted.result as any).deleted).toBe(true);
   });
@@ -286,7 +286,7 @@ describe('fs_tree with subtree-only access', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_tree', { path: '.' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'tree', { path: '.' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
@@ -318,7 +318,7 @@ describe('fs_tree with subtree-only access', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_tree', { path: '.' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'tree', { path: '.' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
@@ -342,7 +342,7 @@ describe('fs_tree with subtree-only access', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_tree', { path: '.' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'tree', { path: '.' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
@@ -368,7 +368,7 @@ describe('fs_list with subtree-only access', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_list', { path: '.' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'list', { path: '.' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
@@ -391,7 +391,7 @@ describe('fs_list with subtree-only access', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_list', { path: '.' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'list', { path: '.' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
@@ -417,7 +417,7 @@ describe('fs_search_content with subtree-only access', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_search_content', { path: '.', query: '290420' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'search_content', { path: '.', query: '290420' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
@@ -440,7 +440,7 @@ describe('fs_search_content with subtree-only access', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_search_content', { path: '.', query: '290420' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'search_content', { path: '.', query: '290420' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
@@ -466,7 +466,7 @@ describe('fs_search_metadata with subtree-only access', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_search_metadata', { pattern: '**/*.ts' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'search_metadata', { pattern: '**/*.ts' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
@@ -488,7 +488,7 @@ describe('fs_search_metadata with subtree-only access', () => {
     const manager = new ToolManager(workspaceRoot, engine);
     for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
 
-    const result = await manager.execute(a, 'fs_search_metadata', { pattern: '**/*.ts' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(a, 'search_metadata', { pattern: '**/*.ts' }, ctx(a, workspaceRoot));
     expect(result.ok).toBe(true);
 
     const payload = result.result as any;
