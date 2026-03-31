@@ -96,7 +96,7 @@ export {
 } from './commands/file-tree.js';
 
 export { generateIntroduction } from './orchestrator/introduction.js';
-i export { generateDefaultHandoffPrompt } from './orchestrator/generate-handoff-prompt.js';
+export { generateDefaultHandoffPrompt } from './orchestrator/generate-handoff-prompt.js';
 export { serveApiCommand, type ServeApiOptions } from './commands/serve.js';
 
 // Storage abstraction layer

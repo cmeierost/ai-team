@@ -421,6 +421,173 @@
   gap: 2px;
 }
 
+.direct-reports-handoff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.handoff-report-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--color-bg-subtle, rgba(128,128,128,0.05));
+}
+
+.handoff-report-row--custom {
+  border-left: 2px solid var(--color-text-muted);
+}
+
+.handoff-custom-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.handoff-custom-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.handoff-entry-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.handoff-prompt-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.handoff-prompt-field {
+  flex: 1;
+  resize: none;
+  overflow: hidden;
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1.4;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: text;
+  transition: border-color 0.15s, background 0.15s;
+  min-height: 22px;
+}
+
+.handoff-prompt-field:focus,
+.handoff-prompt-field--active {
+  border-color: var(--color-border-primary);
+  background: var(--color-bg-input, rgba(0,0,0,0.2));
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.handoff-prompt-field--empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.handoff-prompt-field:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-generate-handoff {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.btn-generate-handoff:hover:not(:disabled) {
+  background: var(--color-bg-hover, rgba(128,128,128,0.1));
+  color: var(--color-text-primary);
+  border-color: var(--color-text-muted);
+}
+
+.btn-generate-handoff:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-add-handoff {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  border: 1px dashed var(--color-border-primary);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  align-self: flex-start;
+}
+
+.btn-add-handoff:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-text-muted);
+}
+
+.handoff-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  background: var(--color-bg-subtle, rgba(128,128,128,0.05));
+}
+
+.handoff-add-form select,
+.handoff-add-form input {
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  padding: 4px 8px;
+  font-size: 12px;
+  width: 100%;
+}
+
+.handoff-add-form-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.hierarchy-handoffs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hierarchy-row-reports,
+.hierarchy-row-other-handoffs {
+  align-items: flex-start;
+}
+
 /* ── Skills & Tags ──────────────────────────────────────────────────────── */
 
 .skill-tags,
@@ -974,40 +1141,6 @@
   font-style: italic;
   padding-left: 8px;
   border-left: 2px solid var(--color-border-primary);
-}
-
-.collab-view-prompt {
-  font-size: 11px;
-  color: var(--color-text-secondary);
-  margin: 4px 0 0;
-  padding-left: 8px;
-  border-left: 2px solid var(--color-border-accent, var(--color-border-primary));
-  opacity: 0.8;
-}
-
-.btn-generate-handoff {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 6px;
-  padding: 2px 8px;
-  font-size: 11px;
-  border: 1px solid var(--color-border-primary);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.btn-generate-handoff:hover:not(:disabled) {
-  background: var(--color-bg-hover, rgba(128, 128, 128, 0.1));
-  color: var(--color-text-primary);
-}
-
-.btn-generate-handoff:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .collab-comment-input {

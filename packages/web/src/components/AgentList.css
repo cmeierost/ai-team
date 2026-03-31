@@ -109,6 +109,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  cursor: pointer;
   background: color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 18%, var(--color-bg-secondary));
   border: 1px solid color-mix(in srgb, var(--agent-color, var(--color-accent-primary)) 30%, var(--color-border));
   border-radius: var(--radius-lg);

@@ -88,11 +88,23 @@ handoffs:
   - label: '[auto] Delegate to Emily Davis'
     agent: emily-davis
     prompt: Please take this on within your area of responsibility.
+  - label: '[auto] Delegate to John Smith'
+    agent: john-smith
+    prompt: Please take this on within your area of responsibility.
   - label: '[auto] Delegate to Sarah Lee'
     agent: sarah-lee
     prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to Taylor Reed'
-    agent: taylor-reed
+  - label: '[auto] Delegate to Alex Morgan'
+    agent: alex-morgan
+    prompt: Please take this on within your area of responsibility.
+  - label: '[auto] Delegate to Marcus Vale'
+    agent: marcus-vale
+    prompt: Please take this on within your area of responsibility.
+  - label: '[auto] Delegate to Daniel Navarro'
+    agent: daniel-navarro
+    prompt: Please take this on within your area of responsibility.
+  - label: '[auto] Delegate to Clara Bishop'
+    agent: clara-bishop
     prompt: Please take this on within your area of responsibility.
 readTheseFilesFirst:
   - AGENTS.md

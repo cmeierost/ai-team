@@ -19,8 +19,9 @@ description: >-
   delivery, and coordinating the backend team across runtime, platform, data,
   and intelligence engineering.
 tools:
-  - semantic
   - get_errors
+  - hire
+  - semantic
 canDelegate: true
 delegatesTo:
   - leah-brooks
@@ -63,12 +64,12 @@ handoffs:
     send: false
   - label: '[auto] Report to Sarah Lee'
     agent: sarah-lee
-    prompt: Reporting back with my findings and progress.
-  - label: '[auto] Delegate to Ethan Carter'
-    agent: ethan-carter
     prompt: Please take this on within your area of responsibility.
   - label: '[auto] Delegate to Leah Brooks'
     agent: leah-brooks
+    prompt: Please take this on within your area of responsibility.
+  - label: '[auto] Delegate to Ethan Carter'
+    agent: ethan-carter
     prompt: Please take this on within your area of responsibility.
   - label: '[auto] Delegate to Maya Patel'
     agent: maya-patel

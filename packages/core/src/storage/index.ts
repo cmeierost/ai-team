@@ -291,9 +291,10 @@ export async function saveAgent(agent: Agent): Promise<void> {
     id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   const manualHandoffs = (agent.handoffs || []).filter(h => !h.label.startsWith('[auto]'));
+  const manualTargetAgents = new Set(manualHandoffs.map(h => h.agent));
   const autoHandoffs: NonNullable<Agent['handoffs']> = [];
 
-  if (agent.reportsTo) {
+  if (agent.reportsTo && !manualTargetAgents.has(agent.reportsTo)) {
     autoHandoffs.push({
       label: `[auto] Report to ${idToName(agent.reportsTo)}`,
       agent: agent.reportsTo,
@@ -302,11 +303,13 @@ export async function saveAgent(agent: Agent): Promise<void> {
   }
 
   for (const delegatee of (agent.delegatesTo || [])) {
-    autoHandoffs.push({
-      label: `[auto] Delegate to ${idToName(delegatee)}`,
-      agent: delegatee,
-      prompt: 'Please take this on within your area of responsibility.',
-    });
+    if (!manualTargetAgents.has(delegatee)) {
+      autoHandoffs.push({
+        label: `[auto] Delegate to ${idToName(delegatee)}`,
+        agent: delegatee,
+        prompt: 'Please take this on within your area of responsibility.',
+      });
+    }
   }
 
   const syncedAgent: Agent = {

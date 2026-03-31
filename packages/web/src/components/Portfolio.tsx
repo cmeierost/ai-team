@@ -6,10 +6,9 @@ import { PortfolioIdentitySection } from './portfolio/PortfolioIdentitySection';
 import { PortfolioPersonalitySection } from './portfolio/PortfolioPersonalitySection';
 import { PortfolioLlmSection } from './portfolio/PortfolioLlmSection';
 import { PortfolioMarkdownSections } from './portfolio/PortfolioMarkdownSections';
-import { PortfolioHandoffsSection } from './portfolio/PortfolioCollaborationsSection';
+import { PortfolioHierarchyHandoffsSection } from './portfolio/PortfolioHierarchyHandoffsSection';
 import { PortfolioReadFilesSection } from './portfolio/PortfolioReadFilesSection';
 import { PortfolioSkillAssignmentsSection } from './portfolio/PortfolioSkillAssignmentsSection';
-import { PortfolioHierarchySection } from './portfolio/PortfolioHierarchySection';
 import { PortfolioToolsPermissionsSection } from './portfolio/PortfolioToolsPermissionsSection';
 import { PortfolioFileAccessSection } from './portfolio/PortfolioFileAccessSection';
 import { PortfolioActivitySection } from './portfolio/PortfolioActivitySection';
@@ -195,24 +194,20 @@ export function Portfolio() {
           specializations={agent.specializations ?? []}
           client={client}
           onUpdated={refresh}
-          excludeHeadings={['Introduction']}
+          excludeHeadings={['Introduction', 'Handoffs']}
         />
 
-        <PortfolioHierarchySection
+        <PortfolioHierarchyHandoffsSection
           agentId={agent.id}
           manager={manager}
           directReports={directReports}
           reportsTo={agent.reportsTo}
           selectableAgents={agents}
-          onSave={(reportsTo) => saveAgentFields({ reportsTo })}
-        />
-
-        <PortfolioHandoffsSection
-          agentId={agent.id}
           handoffs={agent.handoffs ?? []}
           allAgents={agents}
           client={client}
-          onSave={(handoffs) => saveAgentFields({ handoffs })}
+          onSaveReportsTo={(reportsTo) => saveAgentFields({ reportsTo })}
+          onSaveHandoffs={(handoffs) => saveAgentFields({ handoffs })}
         />
 
         <PortfolioReadFilesSection

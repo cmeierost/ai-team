@@ -21,8 +21,12 @@
   gap: 12px;
   flex-wrap: wrap;
   padding: 16px;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%), #1e1e1e;
-  border-bottom: 1px solid var(--color-border);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--agent-color, #667eed) 28%, #1e1e1e) 0%,
+    color-mix(in srgb, var(--agent-color, #7b4ba2) 16%, #1e1e1e) 100%
+  );
+  border-bottom: 1px solid color-mix(in srgb, var(--agent-color, var(--color-border)) 40%, var(--color-border));
 }
 
 .chat-header-main {
@@ -37,7 +41,7 @@
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #ffffff;
 }
 
 .chat-header-info {
@@ -48,11 +52,17 @@
   flex: 1 1 auto;
 }
 
-.chat-header-info h2,
+.chat-header-info h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-header-info .agent-role {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .chat-header-actions {
@@ -156,10 +166,10 @@
 
 .btn-header-action {
   padding: 6px 12px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--color-border);
+  background-color: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 4px;
-  color: var(--color-text-secondary);
+  color: rgba(255, 255, 255, 0.9);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
@@ -174,13 +184,13 @@
 }
 
 .btn-header-action:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-color: var(--color-text-tertiary);
-  color: var(--color-text-primary);
+  background-color: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #ffffff;
 }
 
 .streaming-indicator {
-  color: #4ec9b0;
+  color: rgba(255, 255, 255, 0.9);
   font-size: 20px;
   line-height: 1;
   animation: pulse 1.5s ease-in-out infinite;

@@ -73,6 +73,7 @@ export function AgentList() {
             key={agent.id} 
             className="agent-card"
             style={{ '--agent-color': getAgentColor(agent) } as React.CSSProperties}
+            onClick={() => navigate(`/portfolio/${agent.id}`)}
           >
             <div className="agent-card-avatar">
               <Avatar agent={agent} size="large" />
@@ -109,15 +110,6 @@ export function AgentList() {
               )}
             </div>
             <div className="agent-card-footer">
-              <button 
-                className="btn btn-secondary"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/portfolio/${agent.id}`);
-                }}
-              >
-                <i className="codicon codicon-book" /> Portfolio
-              </button>
               <button 
                 className="btn btn-primary"
                 onClick={(e) => {
