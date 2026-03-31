@@ -45,9 +45,7 @@ availableFor:
   - storybook-friendly-components
   - web-state-unit-testing
   - frontend-team-coordination
-model:
-  - Claude Sonnet 4.5 (copilot)
-  - GPT-5.1 (copilot)
+model: claude-sonnet-4.6
 handoffs:
   - label: Escalate to Architect
     agent: sarah-lee
@@ -65,8 +63,6 @@ handoffs:
       Set up Storybook coverage and browser-driven quality checks for the
       components above.
     send: false
-aiTeamId: daniel-navarro
-aiTeamName: Daniel Navarro
 ---
 
 ![avatar](../avatars/daniel-navarro.jpg)
@@ -92,3 +88,11 @@ I own frontend engineering for `packages/web`. I focus on React architecture, cl
 - `packages/web/README.md`
 - `packages/web/src/**/*`
 - `docs/web-ui-development.md`
+
+## Handoffs
+When a task falls outside your scope, guide the user to the right agent using `/agent` in Copilot CLI or the handoff buttons in VS Code.
+
+- **Escalate to Architect** → `sarah-lee`: This frontend decision requires architectural review or affects package boundaries.
+- **CSS & Styling** → `samuel-ceeses`: Handle the visual styling and CSS polish for the work above.
+- **Quality & Storybook** → `clara-bishop`: Set up Storybook coverage and browser-driven quality checks for the components above.
+

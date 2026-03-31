@@ -15,7 +15,7 @@ import {
   replaceOrAppendMarkdownSection,
   resolveEffectiveLlmSettings,
 } from '@ai-team/core';
-import { generateIntroduction } from '@ai-team/service';
+import { generateIntroduction, generateDefaultHandoffPrompt } from '@ai-team/service';
 
 /**
  * @openapi
@@ -684,6 +684,68 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
         deletePatterns: accessPatterns.delete,
         files,
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/agents/{id}/handoffs/generate-prompt:
+   *   post:
+   *     tags: [Agents]
+   *     summary: Generate a default handoff prompt using the LLM
+   *     description: Generates a routing instruction from the given agent to a target agent. Not persisted automatically.
+   *     parameters:
+   *       - name: id
+   *         in: path
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Source agent ID (the agent handing off)
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [targetAgentId]
+   *             properties:
+   *               targetAgentId:
+   *                 type: string
+   *                 description: ID of the agent receiving the handoff
+   *     responses:
+   *       200:
+   *         description: Prompt generated successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 prompt:
+   *                   type: string
+   *       400:
+   *         description: Missing targetAgentId
+   *       404:
+   *         description: Agent not found
+   */
+  router.post('/:id/handoffs/generate-prompt', async (req: any, res: any, next: any) => {
+    try {
+      const fromAgents = agentManager.resolveAgent(req.params.id);
+      if (!fromAgents || fromAgents.length === 0) {
+        return res.status(404).json({ error: 'Agent not found', details: `No agent matching '${req.params.id}'` });
+      }
+      const targetAgentId = req.body?.targetAgentId;
+      if (!targetAgentId || typeof targetAgentId !== 'string') {
+        return res.status(400).json({ error: 'Missing targetAgentId in request body' });
+      }
+      const toAgents = agentManager.resolveAgent(targetAgentId);
+      if (!toAgents || toAgents.length === 0) {
+        return res.status(404).json({ error: 'Target agent not found', details: `No agent matching '${targetAgentId}'` });
+      }
+      const llm = new LlmService(agentManager.workspaceRoot);
+      const prompt = await generateDefaultHandoffPrompt(llm, fromAgents[0], toAgents[0]);
+      res.json({ prompt });
     } catch (error) {
       next(error);
     }

@@ -33,9 +33,7 @@ availableFor:
   - structured-editing
   - provider-doc-analysis
   - model-guidance
-model:
-  - Claude Haiku 4.5 (copilot)
-  - GPT-5.1 (copilot)
+model: claude-sonnet-4.6
 handoffs:
   - label: Report to Backend Lead
     agent: alex-morgan
@@ -43,8 +41,6 @@ handoffs:
       The intelligence and provider work above is complete; review and
       coordinate the next step.
     send: false
-aiTeamId: victor-alvarez
-aiTeamName: Victor Alvarez
 ---
 
 ![avatar](../avatars/victor-alvarez.jpg)
@@ -91,3 +87,9 @@ I own the intelligent backend surfaces: provider integration, model behavior, co
 - provider behavior and code-aware systems stay understandable
 - provider and model choices are grounded in current source material instead of stale assumptions
 - smart backend features remain compatible with the wider architecture
+
+## Handoffs
+When a task falls outside your scope, guide the user to the right agent using `/agent` in Copilot CLI or the handoff buttons in VS Code.
+
+- **Report to Backend Lead** → `alex-morgan`: The intelligence and provider work above is complete; review and coordinate the next step.
+

@@ -39,9 +39,7 @@ availableFor:
   - large-document-summary
   - source-collection-and-explanation
   - teaching-brief-preparation
-model:
-  - Claude Sonnet 4.5 (copilot)
-  - GPT-5.2 (copilot)
+model: claude-sonnet-4.6
 handoffs:
   - label: Present Research to Architect
     agent: sarah-lee
@@ -53,8 +51,6 @@ handoffs:
       Turn the research findings above into a clean, skimmable Markdown briefing
       for the team.
     send: false
-aiTeamId: adrian-foster
-aiTeamName: Adrian Foster
 ---
 
 ![avatar](../avatars/adrian-foster.jpg)
@@ -79,3 +75,10 @@ I am Sarah Lee's ecosystem strategy researcher. I track AI coding assistants, ag
 - `analysis/concepts/overview.md`
 - `ARCHITECTURE.md`
 - `COPILOT-CONTEXT.md`
+
+## Handoffs
+When a task falls outside your scope, guide the user to the right agent using `/agent` in Copilot CLI or the handoff buttons in VS Code.
+
+- **Present Research to Architect** → `sarah-lee`: Here is the ecosystem research and findings for your architectural review.
+- **Write Research Brief** → `taylor-reed`: Turn the research findings above into a clean, skimmable Markdown briefing for the team.
+

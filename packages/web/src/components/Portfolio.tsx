@@ -208,8 +208,11 @@ export function Portfolio() {
         />
 
         <PortfolioHandoffsSection
+          agentId={agent.id}
           handoffs={agent.handoffs ?? []}
           allAgents={agents}
+          client={client}
+          onSave={(handoffs) => saveAgentFields({ handoffs })}
         />
 
         <PortfolioReadFilesSection

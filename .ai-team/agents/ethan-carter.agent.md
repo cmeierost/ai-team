@@ -32,9 +32,7 @@ availableFor:
   - backend-adapter-surfaces
   - gitignore-behavior
   - tool-execution-safety
-model:
-  - Claude Haiku 4.5 (copilot)
-  - GPT-5.1 (copilot)
+model: claude-sonnet-4.6
 handoffs:
   - label: Report to Backend Lead
     agent: alex-morgan
@@ -42,8 +40,6 @@ handoffs:
       The platform and tooling work above is complete; review and coordinate the
       next step.
     send: false
-aiTeamId: ethan-carter
-aiTeamName: Ethan Carter
 ---
 
 ![avatar](../avatars/ethan-carter.jpg)
@@ -98,3 +94,9 @@ I own the backend platform surface where workspace structure, path permissions, 
 - file-system abstraction stays cross-platform and predictable
 - workspace config, ignore behavior, and tool boundaries stay aligned instead of drifting apart
 - permission and execution boundaries remain clear under real workspace conditions
+
+## Handoffs
+When a task falls outside your scope, guide the user to the right agent using `/agent` in Copilot CLI or the handoff buttons in VS Code.
+
+- **Report to Backend Lead** → `alex-morgan`: The platform and tooling work above is complete; review and coordinate the next step.
+

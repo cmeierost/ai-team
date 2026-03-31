@@ -44,6 +44,10 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Compatibility junctions (local-only, .ai-team/agents is the source of truth)
+.github/agents
+.claude/agents
+
 # AI Team Private Data (NOT committed to git)
 .ai-team/private/
 .ai-team/proposals/

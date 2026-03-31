@@ -156,6 +156,8 @@ export interface AiTeamHttpClient {
   testProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
   getEnvStatus(): Promise<Record<string, boolean>>;
   setEnvVar(key: string, value: string): Promise<void>;
+  /** Generate a default handoff routing prompt from one agent to another via LLM. Not persisted. */
+  generateHandoffPrompt(agentId: string, targetAgentId: string): Promise<{ prompt: string }>;
 }
 
 class HttpAiTeamClient implements AiTeamHttpClient {
@@ -902,6 +904,19 @@ class HttpAiTeamClient implements AiTeamHttpClient {
       body: JSON.stringify({ key, value }),
     });
     if (!response.ok) throw new Error('Failed to set env var');
+  }
+
+  async generateHandoffPrompt(agentId: string, targetAgentId: string): Promise<{ prompt: string }> {
+    const response = await fetch(
+      `${this.baseUrl}/api/agents/${encodeURIComponent(agentId)}/handoffs/generate-prompt`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetAgentId }),
+      },
+    );
+    if (!response.ok) throw new Error(`Failed to generate handoff prompt from "${agentId}" to "${targetAgentId}"`);
+    return response.json();
   }
 }
 

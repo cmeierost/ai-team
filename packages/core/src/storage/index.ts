@@ -285,6 +285,35 @@ export async function saveAgent(agent: Agent): Promise<void> {
   // Validate before saving
   AgentSchema.parse(agent);
 
+  // Auto-sync structural [auto] handoffs from reportsTo / delegatesTo so that
+  // changing either field automatically updates routing without manual edits.
+  const idToName = (id: string) =>
+    id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+  const manualHandoffs = (agent.handoffs || []).filter(h => !h.label.startsWith('[auto]'));
+  const autoHandoffs: NonNullable<Agent['handoffs']> = [];
+
+  if (agent.reportsTo) {
+    autoHandoffs.push({
+      label: `[auto] Report to ${idToName(agent.reportsTo)}`,
+      agent: agent.reportsTo,
+      prompt: 'Please take this on within your area of responsibility.',
+    });
+  }
+
+  for (const delegatee of (agent.delegatesTo || [])) {
+    autoHandoffs.push({
+      label: `[auto] Delegate to ${idToName(delegatee)}`,
+      agent: delegatee,
+      prompt: 'Please take this on within your area of responsibility.',
+    });
+  }
+
+  const syncedAgent: Agent = {
+    ...agent,
+    handoffs: [...manualHandoffs, ...autoHandoffs],
+  };
+
   // Separate frontmatter from file-specific and content fields
   const {
     filePath: _filePath,
@@ -295,11 +324,17 @@ export async function saveAgent(agent: Agent): Promise<void> {
     status: _status,
     markdown,
     ...frontmatter
-  } = agent;
+  } = syncedAgent;
 
   // Strip undefined values — js-yaml cannot serialize them
+  // Also strip aiTeamId/aiTeamName when they duplicate id/name (redundant tokens)
   const cleanFrontmatter = Object.fromEntries(
-    Object.entries(frontmatter).filter(([, v]) => v !== undefined)
+    Object.entries(frontmatter).filter(([k, v]) => {
+      if (v === undefined) return false;
+      if (k === 'aiTeamId' && v === frontmatter.id) return false;
+      if (k === 'aiTeamName' && v === frontmatter.name) return false;
+      return true;
+    })
   );
 
   // We are deprecating .agent.yml sidecars. Always target the .agent.md file.
@@ -310,7 +345,31 @@ export async function saveAgent(agent: Agent): Promise<void> {
   // Use markdown body if present, otherwise empty
   const body = (markdown || '').trim();
 
-  const content = matter.stringify(body ? '\n' + body + '\n' : '', cleanFrontmatter);
+  // Auto-sync the ## Handoffs section with the frontmatter handoffs array so
+  // tools that don't support the handoffs YAML property (e.g. Copilot CLI)
+  // still get routing instructions from the markdown body.
+  let syncedBody = body;
+  if (agent.handoffs && agent.handoffs.length > 0) {
+    const handoffLines = agent.handoffs.map(h => {
+      const promptSuffix = h.prompt ? `: ${h.prompt.trim()}` : '';
+      return `- **${h.label}** → \`${h.agent}\`${promptSuffix}`;
+    });
+    const handoffContent = [
+      'When a task falls outside your scope, guide the user to the right agent using `/agent` in Copilot CLI or the handoff buttons in VS Code.',
+      '',
+      ...handoffLines,
+    ].join('\n');
+    syncedBody = replaceOrAppendMarkdownSection(syncedBody, 'Handoffs', handoffContent);
+  } else {
+    // Remove stale Handoffs section when frontmatter has no handoffs
+    const sections = parseMarkdownSections(syncedBody);
+    const filtered = sections.filter(s => s.heading !== 'Handoffs');
+    if (filtered.length !== sections.length) {
+      syncedBody = sectionsToMarkdown(filtered);
+    }
+  }
+
+  const content = matter.stringify(syncedBody ? '\n' + syncedBody + '\n' : '', cleanFrontmatter);
 
   // Ensure directory exists
   await fs.mkdir(path.dirname(targetFilePath), { recursive: true });

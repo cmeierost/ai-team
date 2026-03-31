@@ -31,16 +31,12 @@ availableFor:
   - chat-flow-fixes
   - service-orchestration
   - api-server
-model:
-  - Claude Haiku 4.5 (copilot)
-  - GPT-5.1 (copilot)
+model: claude-sonnet-4.6
 handoffs:
   - label: Report to Backend Lead
     agent: alex-morgan
     prompt: The runtime work above is complete; review and coordinate the next step.
     send: false
-aiTeamId: leah-brooks
-aiTeamName: Leah Brooks
 ---
 
 ![avatar](../avatars/leah-brooks.jpg)
@@ -85,3 +81,9 @@ I own backend runtime behavior where agent behavior meets orchestration flow. I 
 - backend runtime behavior becomes easier to reason about
 - agent flow, handoffs, and workflow continuation improve without architectural drift
 - service orchestration paths stay coherent under real usage
+
+## Handoffs
+When a task falls outside your scope, guide the user to the right agent using `/agent` in Copilot CLI or the handoff buttons in VS Code.
+
+- **Report to Backend Lead** → `alex-morgan`: The runtime work above is complete; review and coordinate the next step.
+
