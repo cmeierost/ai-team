@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { analyzeWorkspacePermissionOverlap } from '../context/perm-overlap.js';
 import type { AgentTool } from '../types/index.js';
 import {
   accessRightSchema,
@@ -122,5 +123,38 @@ export const doIHaveAccessTool: AgentTool = {
           .map((pv) => pv.deniedBy!.pathPattern),
       )),
     };
+  },
+};
+
+export const analyzePermissionOverlapTool: AgentTool = {
+  name: 'analyze_permission_overlap',
+  group: 'access',
+  description: 'Analyze workspace permission overlap by files or patterns, optionally focused on one agent.',
+  parameters: z.object({
+    mode: z.enum(['files', 'patterns']).optional().describe('Analysis mode (default: files)'),
+    agentId: z.string().optional().describe('Optional exact agent id for focused overlap reporting'),
+    maxDepth: z.number().int().min(0).optional().describe('Optional max workspace traversal depth for file mode'),
+  }),
+  async execute(params, context) {
+    const engineCheck = getPermissionEngineOrDeny(context);
+    if (!engineCheck.ok) {
+      throw new Error(engineCheck.reason);
+    }
+
+    const {
+      mode = 'files',
+      agentId,
+      maxDepth,
+    } = params as {
+      mode?: 'files' | 'patterns';
+      agentId?: string;
+      maxDepth?: number;
+    };
+
+    return analyzeWorkspacePermissionOverlap(context.workspaceRoot, {
+      mode,
+      agentId,
+      maxDepth,
+    });
   },
 };

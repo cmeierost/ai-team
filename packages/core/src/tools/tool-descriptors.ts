@@ -113,6 +113,12 @@ export function registerBuiltInToolDescriptors(engine: PermissionEngine): void {
     description: 'Check whether a context has access to a path (default right: list)',
   });
 
+  engine.registerTool({
+    name: 'analyze_permission_overlap',
+    pathParams: [],
+    description: 'Analyze overlap in workspace permission ownership across agents',
+  });
+
   // -- Code intelligence tools --
 
   engine.registerTool({

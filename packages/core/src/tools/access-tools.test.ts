@@ -22,7 +22,7 @@ function makeAgent(id: string, readPatterns: string[] = ['**']): Agent {
       create: [],
       delete: [],
     },
-    tools: ['who_can', 'can_i'],
+    tools: ['who_can', 'can_i', 'analyze_permission_overlap'],
   };
 }
 
@@ -65,6 +65,43 @@ describe('access introspection tools', () => {
       expect(allowed.ok).toBe(true);
       expect((allowed.result as any).allowed).toBe(true);
       expect((allowed.result as any).contextId).toBe('b');
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('analyze_permission_overlap returns file-based ownership data', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-core-access-tools-'));
+    try {
+      await fs.mkdir(path.join(workspaceRoot, '.ai-team', 'agents'), { recursive: true });
+      await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
+      await fs.writeFile(
+        path.join(workspaceRoot, '.ai-team', 'agents', 'a.agent.md'),
+        '---\nid: a\nname: Agent A\nrole: developer\ncontextLevel: module\ntools:\n  - analyze_permission_overlap\n---\n',
+        'utf8',
+      );
+      await fs.writeFile(
+        path.join(workspaceRoot, '.ai-team', 'agents', 'b.agent.md'),
+        '---\nid: b\nname: Agent B\nrole: developer\ncontextLevel: module\ntools:\n  - analyze_permission_overlap\n---\n',
+        'utf8',
+      );
+      await fs.writeFile(path.join(workspaceRoot, '.ai-team', 'agents', 'a.perm'), '[write]\nsrc/**/*.ts\n', 'utf8');
+      await fs.writeFile(path.join(workspaceRoot, '.ai-team', 'agents', 'b.perm'), '[write]\nsrc/shared.ts\n', 'utf8');
+      await fs.writeFile(path.join(workspaceRoot, 'src', 'shared.ts'), 'one\ntwo\n', 'utf8');
+      await fs.writeFile(path.join(workspaceRoot, 'src', 'solo.ts'), 'solo\n', 'utf8');
+
+      const a = makeAgent('a', ['src/**']);
+      const b = makeAgent('b', ['src/**']);
+      const engine = createPermissionEngine({ workspaceRoot, agents: [a, b] });
+
+      const manager = new ToolManager(workspaceRoot, engine);
+      for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+
+      const result = await manager.execute(a, 'analyze_permission_overlap', { mode: 'files', agentId: 'a' }, { workspaceRoot });
+      expect(result.ok).toBe(true);
+      expect((result.result as any).kind).toBe('files');
+      expect((result.result as any).agentFocus.agentId).toBe('a');
+      expect((result.result as any).rights.write.overlappingFiles.some((file: { path: string }) => file.path === 'src/shared.ts')).toBe(true);
     } finally {
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }

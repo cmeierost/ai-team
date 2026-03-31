@@ -13,7 +13,7 @@ import { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './tool-utils.js';
 // Sub-module re-exports (every exported tool is available to consumers)
 // ---------------------------------------------------------------------------
 
-export { whoHasAccessTool, doIHaveAccessTool } from './access-introspection-tools.js';
+export { whoHasAccessTool, doIHaveAccessTool, analyzePermissionOverlapTool } from './access-introspection-tools.js';
 
 export {
   fsExistsTool,
@@ -71,7 +71,7 @@ export { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './tool-utils.js';
 // Internal imports (used only by the registries below)
 // ---------------------------------------------------------------------------
 
-import { whoHasAccessTool, doIHaveAccessTool } from './access-introspection-tools.js';
+import { whoHasAccessTool, doIHaveAccessTool, analyzePermissionOverlapTool } from './access-introspection-tools.js';
 import {
   fsExistsTool,
   fsInfoTool,
@@ -151,6 +151,7 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   search_metadata: fsSearchMetadataTool,
   who_can: whoHasAccessTool,
   can_i: doIHaveAccessTool,
+  analyze_permission_overlap: analyzePermissionOverlapTool,
   semantic: semanticSearchTool,
   get_errors: getErrorsTool,
   register_cli: registerCliTool,
