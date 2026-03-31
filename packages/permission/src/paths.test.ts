@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { normalizePath, resolveAndNormalize, fileName } from '../paths.js';
+import { normalizePath, resolveAndNormalize, fileName } from './paths.js';
 
 const ROOT = '/workspace/project';
 

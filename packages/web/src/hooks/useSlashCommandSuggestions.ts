@@ -1,5 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
-import { IN_CHAT_COMMAND_REGISTRY, type ChatCommandRegistryEntry } from '@ai-team/api-client-http';
+import { useQuery } from '@tanstack/react-query';
+import { type ChatCommandRegistryEntry } from '@ai-team/api-client-http';
+import { useTeam } from '../context/TeamContext';
 
 export interface SlashCommandSuggestionsState {
   /** Filtered commands matching the current input fragment. Empty when not active. */
@@ -25,6 +27,13 @@ export interface SlashCommandSuggestionsState {
 export function useSlashCommandSuggestions(input: string): SlashCommandSuggestionsState {
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [dismissed, setDismissed] = useState(false);
+  const { client } = useTeam();
+
+  const { data: registry = [] } = useQuery({
+    queryKey: ['slashCommands'],
+    queryFn: () => client.getSlashCommands(),
+    staleTime: Infinity,
+  });
 
   const fragment = useMemo((): string | null => {
     const trimmed = input.trimStart();
@@ -34,7 +43,7 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
 
   const suggestions = useMemo((): ChatCommandRegistryEntry[] => {
     if (fragment === null) return [];
-    return IN_CHAT_COMMAND_REGISTRY.filter(cmd => {
+    return registry.filter(cmd => {
       const keys = [cmd.key, ...(cmd.aliases ?? [])];
       return keys.some(k => k.startsWith(fragment));
     });

@@ -66,6 +66,18 @@ export const CLI_COMMAND_REGISTRY: CliCommandMetadata[] = [
     ],
   },
   {
+    key: 'access.overlap',
+    command: 'overlap',
+    parentKey: 'access',
+    description: 'Analyze overlap between agent .perm file responsibilities by right',
+    llmCallable: true,
+    options: [
+      { flags: '--right <right>', description: 'Optional right filter (read, write, create, delete, list)' },
+      { flags: '--agent <agent>', description: 'Optional exact agent id filter' },
+      { flags: '--json', description: 'Output as JSON' },
+    ],
+  },
+  {
     key: 'tools.allow',
     command: 'allow',
     parentKey: 'tools',

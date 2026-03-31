@@ -75,10 +75,10 @@ importers:
       '@ai-team/ide-interface':
         specifier: workspace:*
         version: link:../ide-interface
+    devDependencies:
       '@ai-team/service':
         specifier: workspace:*
         version: link:../service
-    devDependencies:
       '@types/node':
         specifier: ^25.5.0
         version: 25.5.0

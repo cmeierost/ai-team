@@ -22,7 +22,8 @@ src/
 ├── policy.ts         # CompiledRuleSet — glob-based rule evaluation
 ├── operations.ts     # CommandRegistry, ToolRegistry, path extraction
 ├── paths.ts          # Path normalization and resolution utilities
-└── __tests__/        # Test suite (66 tests)
+├── overlap.ts        # Pattern-overlap analysis for agent .perm files
+└── *.test.ts         # Colocated Vitest suites
 ```
 
 ## Usage

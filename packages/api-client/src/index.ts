@@ -8,6 +8,7 @@ import {
   AgentManager,
   ContextManager,
   createPermissionEngine,
+  analyzeWorkspacePermissionOverlap,
   listCachedWorkspaceFiles,
   loadAgentAccessPatterns,
   loadTeamConfig,
@@ -19,6 +20,7 @@ import {
   TeamConfig,
   TeamConfigSchema,
   UserConfig,
+  type PermissionOverlapReport,
   parseMarkdownSections,
   replaceOrAppendMarkdownSection,
 } from '@ai-team/core';
@@ -147,6 +149,7 @@ export interface AiTeamClient {
   permissionDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
   whoHasPermission(options: WhoHasPermissionOptions): Promise<WhoHasPermissionResponse>;
   doIHavePermission(options: DoIHavePermissionOptions): Promise<DoIHavePermissionResponse>;
+  analyzePermissionOverlap(): Promise<PermissionOverlapReport>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;
@@ -415,6 +418,10 @@ class InProcessAiTeamClient implements AiTeamClient {
     return this.service.doIHavePermission(options);
   }
 
+  async analyzePermissionOverlap(): Promise<PermissionOverlapReport> {
+    return analyzeWorkspacePermissionOverlap(this.service.workspaceRoot);
+  }
+
   async getTeamGraph(mode?: ViewMode): Promise<GraphData> {
     return this.service.getTeamGraph(mode);
   }
@@ -636,3 +643,11 @@ export {
   ServiceDomainError,
   MissingUserInputError,
 } from '@ai-team/service';
+
+export type {
+  PermissionOverlapReport,
+  SharedPatternOverlap,
+  AgentRightSummary,
+  PairwiseAgentOverlap,
+  RightOverlapSummary,
+} from '@ai-team/core';

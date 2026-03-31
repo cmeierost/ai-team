@@ -17,6 +17,7 @@
     "test": "pnpm -r test",
     "test:coverage": "pnpm -r test:coverage",
     "lint": "pnpm -r lint",
+    "analyze:perms": "pnpm --filter @ai-team/permission build && pnpm --filter @ai-team/core build && pnpm --filter @ai-team/api-client build && pnpm --filter @ai-team/service build && pnpm --filter @ai-team/cli build && node packages/cli/dist/cli.js access overlap --json",
     "docs:pdf": "node tools/export-md-pdf.mjs",
     "docs:orchestrator:pdf": "node tools/export-md-pdf.mjs docs/architecture/orchestrator-overview.md docs/architecture/orchestrator-overview.pdf",
     "clean": "pnpm -r clean && rm -rf node_modules",

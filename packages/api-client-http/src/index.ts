@@ -5,6 +5,7 @@ import type {
   MediatorEvent,
   MediatorRequest,
   ChatOptions,
+  ChatCommandRegistryEntry,
   AddProviderOptions,
   ConfigureProviderOptions,
   SetProviderOptions,
@@ -158,6 +159,8 @@ export interface AiTeamHttpClient {
   setEnvVar(key: string, value: string): Promise<void>;
   /** Generate a default handoff routing prompt from one agent to another via LLM. Not persisted. */
   generateHandoffPrompt(agentId: string, targetAgentId: string): Promise<{ prompt: string }>;
+  /** Get the list of available slash commands from the server. */
+  getSlashCommands(): Promise<ChatCommandRegistryEntry[]>;
 }
 
 class HttpAiTeamClient implements AiTeamHttpClient {
@@ -918,6 +921,12 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     if (!response.ok) throw new Error(`Failed to generate handoff prompt from "${agentId}" to "${targetAgentId}"`);
     return response.json();
   }
+
+  async getSlashCommands(): Promise<ChatCommandRegistryEntry[]> {
+    const response = await fetch(`${this.baseUrl}/api/commands`);
+    if (!response.ok) throw new Error('Failed to fetch slash commands');
+    return response.json();
+  }
 }
 
 export function createHttpAiTeamClient(config: HttpClientConfig): AiTeamHttpClient {
@@ -934,7 +943,6 @@ export type {
   AiTeamCommandName,
   ChatCommandRegistryEntry,
 } from '@ai-team/service';
-export { IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
 
 export type { GraphData, ViewMode, Agent, AgentConfig, AnnotatedFile, MarkdownSection } from '@ai-team/core';
 export type {

@@ -23,6 +23,7 @@ import { createSkillsRouter } from './routes/skills.js';
 import { createToolsRouter } from './routes/tools.js';
 import { createConfigRouter } from './routes/config.js';
 import { createMetaRouter } from './routes/meta.js';
+import { createCommandsRouter } from './routes/commands.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { setupChatWebSocket } from './ws/chat-handler.js';
 
@@ -93,6 +94,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   app.use('/api/tools', createToolsRouter(client));
   app.use('/api/config', createConfigRouter(workspaceRoot));
   app.use('/api/meta', createMetaRouter(workspaceRoot, agentManager));
+  app.use('/api/commands', createCommandsRouter());
 
   // System info endpoint
   /**

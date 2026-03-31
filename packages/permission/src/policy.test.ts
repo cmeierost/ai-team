@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CompiledRuleSet, matchesIgnorePatterns } from '../policy.js';
-import type { AccessRule } from '../rights.js';
+import { CompiledRuleSet, matchesIgnorePatterns } from './policy.js';
+import type { AccessRule } from './rights.js';
 
 describe('CompiledRuleSet', () => {
   it('allows when an allow rule matches', () => {

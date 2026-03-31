@@ -17,6 +17,7 @@ export * from './agent/index.js';
 export * from './skill/index.js';
 export * from './team/index.js';
 export * from './context/index.js';
+export * from './context/perm-overlap.js';
 export * from './context/permission-adapter.js';
 export * from './chat/index.js';
 export * from './tools/index.js';

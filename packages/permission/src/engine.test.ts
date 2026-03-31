@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { PermissionEngine } from '../engine.js';
-import type { AccessContext } from '../types.js';
+import { PermissionEngine } from './engine.js';
+import type { AccessContext } from './types.js';
 
 const WORKSPACE = '/workspace/project';
 const CWD = '/workspace/project';

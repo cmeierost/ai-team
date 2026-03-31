@@ -15,10 +15,10 @@
   },
   "dependencies": {
     "@ai-team/core": "workspace:*",
-    "@ai-team/ide-interface": "workspace:*",
-    "@ai-team/service": "workspace:*"
+    "@ai-team/ide-interface": "workspace:*"
   },
   "devDependencies": {
+    "@ai-team/service": "workspace:*",
     "@types/node": "^25.5.0",
     "@vitest/coverage-v8": "^4.1.2",
     "rimraf": "^6.1.3",

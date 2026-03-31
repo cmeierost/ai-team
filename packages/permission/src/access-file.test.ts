@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { accessRulesToPatternSet, parseAccessFile, serializePatternSetToAccessFile } from '../access-file.js';
-import { PermissionEngine } from '../engine.js';
+import { accessRulesToPatternSet, parseAccessFile, serializePatternSetToAccessFile } from './access-file.js';
+import { PermissionEngine } from './engine.js';
 
 const WORKSPACE = '/workspace/project';
 const CWD = '/workspace/project';

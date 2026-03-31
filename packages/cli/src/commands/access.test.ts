@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { accessCanCommand, accessWhoCommand } from './access.js';
+import { accessCanCommand, accessOverlapCommand, accessWhoCommand } from './access.js';
 
 describe('access cli commands', () => {
   it('accessWhoCommand uses list as default right', async () => {
@@ -46,6 +46,38 @@ describe('access cli commands', () => {
         right: 'list',
         agent: 'agent-b',
       });
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('accessOverlapCommand calls the client overlap analyzer', async () => {
+    const client = {
+      analyzePermissionOverlap: vi.fn().mockResolvedValue({
+        generatedAt: '2026-03-31T00:00:00.000Z',
+        agentIds: ['alex-morgan', 'ethan-carter'],
+        rights: {
+          read: {
+            right: 'read',
+            totalDistinctAllowPatterns: 1,
+            totalDistinctDenyPatterns: 0,
+            sharedAllowPatterns: [{ pattern: 'packages/core/**/*', agentIds: ['alex-morgan', 'ethan-carter'], agentCount: 2 }],
+            sharedDenyPatterns: [],
+            agents: [],
+            pairs: [],
+          },
+          list: { right: 'list', totalDistinctAllowPatterns: 0, totalDistinctDenyPatterns: 0, sharedAllowPatterns: [], sharedDenyPatterns: [], agents: [], pairs: [] },
+          write: { right: 'write', totalDistinctAllowPatterns: 0, totalDistinctDenyPatterns: 0, sharedAllowPatterns: [], sharedDenyPatterns: [], agents: [], pairs: [] },
+          create: { right: 'create', totalDistinctAllowPatterns: 0, totalDistinctDenyPatterns: 0, sharedAllowPatterns: [], sharedDenyPatterns: [], agents: [], pairs: [] },
+          delete: { right: 'delete', totalDistinctAllowPatterns: 0, totalDistinctDenyPatterns: 0, sharedAllowPatterns: [], sharedDenyPatterns: [], agents: [], pairs: [] },
+        },
+      }),
+    } as any;
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await accessOverlapCommand(client, { right: 'read', agent: 'alex-morgan' });
+      expect(client.analyzePermissionOverlap).toHaveBeenCalledTimes(1);
     } finally {
       logSpy.mockRestore();
     }

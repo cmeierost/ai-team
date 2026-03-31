@@ -26,7 +26,7 @@ import { codeEditCommand } from './commands/code-edit.js';
 import { avatarCommand } from './commands/avatar.js';
 import { patchCommand } from './commands/patch.js';
 import { filesCommand, filesAllowCommand, filesDisallowCommand, filesPatternsCommand } from './commands/files.js';
-import { accessCanCommand, accessWhoCommand } from './commands/access.js';
+import { accessCanCommand, accessOverlapCommand, accessWhoCommand } from './commands/access.js';
 import { toolsAllowCommand, toolsCommand, toolsDisallowCommand } from './commands/tools.js';
 import { skillsAddCommand, skillsCommand, skillsRemoveCommand } from './commands/skills.js';
 
@@ -232,6 +232,10 @@ applyCommandMetadata(access.command(accessWhoMeta.command), accessWhoMeta)
 const accessCanMeta = getCliCommandMetadata('access.can');
 applyCommandMetadata(access.command(accessCanMeta.command), accessCanMeta)
   .action(withCliErrorHandling((options: { path?: string; right?: 'read' | 'write' | 'create' | 'delete' | 'list'; agent?: string; json?: boolean }) => accessCanCommand(client, options)));
+
+const accessOverlapMeta = getCliCommandMetadata('access.overlap');
+applyCommandMetadata(access.command(accessOverlapMeta.command), accessOverlapMeta)
+  .action(withCliErrorHandling((options: { right?: 'read' | 'write' | 'create' | 'delete' | 'list'; agent?: string; json?: boolean }) => accessOverlapCommand(client, options)));
 
 const toolsAllowMeta = getCliCommandMetadata('tools.allow');
 applyCommandMetadata(tools.command(toolsAllowMeta.command).alias('add'), toolsAllowMeta)

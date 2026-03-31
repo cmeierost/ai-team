@@ -5,6 +5,17 @@ export type { PermissionEngineOptions } from './engine.js';
 
 export type { Right, Effect, ResourceKind, AccessRule } from './rights.js';
 export { ALL_RIGHTS } from './rights.js';
+export {
+  analyzePermOverlap,
+} from './overlap.js';
+export type {
+  AgentRuleMap,
+  SharedPatternOverlap,
+  AgentRightSummary,
+  PairwiseAgentOverlap,
+  RightOverlapSummary,
+  PermissionOverlapReport,
+} from './overlap.js';
 
 export type {
   AccessContext,

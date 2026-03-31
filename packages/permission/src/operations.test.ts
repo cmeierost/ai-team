@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { tokenizeCommand, extractPaths, CommandRegistry, ToolRegistry } from '../operations.js';
-import type { CommandDescriptor, ToolDescriptor } from '../operations.js';
+import { tokenizeCommand, extractPaths, CommandRegistry, ToolRegistry } from './operations.js';
+import type { CommandDescriptor, ToolDescriptor } from './operations.js';
 
 describe('tokenizeCommand', () => {
   it('splits basic command', () => {
