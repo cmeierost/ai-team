@@ -47,7 +47,7 @@ export function TeamProvider({
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [agents, setAgents] = useState<Agent[]>(initialAgents || []);
   const [developer, setDeveloper] = useState<Developer | null>(null);
-  const [loading, setLoading] = useState(initialLoading);
+  const [loading, setLoading] = useState(initialLoading || initialAgents === undefined);
   const [error, setError] = useState<Error | null>(initialError);
 
   const refresh = async () => {

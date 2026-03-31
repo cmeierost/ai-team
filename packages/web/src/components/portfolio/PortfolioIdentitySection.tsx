@@ -40,7 +40,7 @@ export function PortfolioIdentitySection({ type, contextLevel, pronouns, onSave 
   const v = isEditing ? draft : { type, contextLevel, pronouns };
 
   return (
-    <PortfolioSectionCard title="Identity" icon="🪦" onEdit={startEdit} isEditing={isEditing} saving={saving} onSave={save} onCancel={cancel}>
+    <PortfolioSectionCard title="Identity" icon="🪪" onEdit={startEdit} isEditing={isEditing} saving={saving} onSave={save} onCancel={cancel}>
       {saveError ? <p className="portfolio-section-error">{saveError}</p> : null}
       {isEditing ? (
         <div className="portfolio-form-grid">

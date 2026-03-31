@@ -2,7 +2,7 @@ import { useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
 import type { Agent, ChatMessage, Developer, SessionActivatedTool } from '../../types';
 import type { ChatCommandRegistryEntry } from '@ai-team/api-client-http';
 import { Avatar } from '../Avatar';
-import { getAgentColor } from '../../utils/color';
+import { getAgentHue } from '../../utils/color';
 import { ContextPanel } from '../ContextPanel';
 import { ChatMessagesView } from './ChatMessagesView';
 import { PendingQuestionForm } from './PendingQuestionForm';
@@ -253,7 +253,7 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
   if (loading) {
     return (
       <div className="chat-panel">
-        <div className="chat-header" style={{ '--agent-color': getAgentColor(agent) } as React.CSSProperties}>
+        <div className="chat-header" style={{ '--agent-hue': getAgentHue(agent) } as React.CSSProperties}>
           <Avatar agent={agent} size="medium" />
           <div className="chat-header-info">
             <h2>Chat with {agent.name}</h2>
@@ -273,7 +273,7 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
   return (
     <div className="chat-panel-container">
       <div className="chat-panel">
-        <div className="chat-header" style={{ '--agent-color': getAgentColor(agent) } as React.CSSProperties}>
+        <div className="chat-header" style={{ '--agent-hue': getAgentHue(agent) } as React.CSSProperties}>
           <div className="chat-header-main">
             <Avatar agent={agent} size="medium" />
             <div className="chat-header-info">

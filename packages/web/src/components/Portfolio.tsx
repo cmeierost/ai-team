@@ -27,7 +27,7 @@ export function Portfolio() {
   const manager = agents.find((a) => a.id === agent?.reportsTo);
 
   // ── Tools & skills state ──
-  const [toolEntries, setToolEntries] = useState<Array<{ name: string; description: string; allowedForAgent?: boolean }>>([]);
+  const [toolEntries, setToolEntries] = useState<Array<{ name: string; description: string; group?: string; allowedForAgent?: boolean }>>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolActionPending, setToolActionPending] = useState<string | null>(null);
   const [toolsError, setToolsError] = useState<string | null>(null);
@@ -48,6 +48,7 @@ export function Portfolio() {
           .map((entry) => ({
             name: entry.name,
             description: entry.description,
+            group: entry.group,
             allowedForAgent: entry.allowedForAgent,
           }))
           .sort((a, b) => a.name.localeCompare(b.name)),
@@ -94,7 +95,7 @@ export function Portfolio() {
     void loadSkills(agentId);
   }, [agentId]);
 
-  if (loading) return <div className="portfolio-loading"><i className="codicon codicon-loading codicon-modifier-spin" /> Loading portfolio…</div>;
+  if (loading && !agent) return <div className="portfolio-loading"><i className="codicon codicon-loading codicon-modifier-spin" /> Loading portfolio…</div>;
   if (error) return <div className="portfolio-error">Error: {error.message}</div>;
   if (!agentId || !agent) return null;
 

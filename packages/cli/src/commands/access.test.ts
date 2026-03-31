@@ -54,22 +54,40 @@ describe('access cli commands', () => {
   it('accessOverlapCommand calls the client overlap analyzer', async () => {
     const client = {
       analyzePermissionOverlap: vi.fn().mockResolvedValue({
+        kind: 'files',
         generatedAt: '2026-03-31T00:00:00.000Z',
         agentIds: ['alex-morgan', 'ethan-carter'],
+        workspaceFileCount: 2,
         rights: {
           read: {
             right: 'read',
-            totalDistinctAllowPatterns: 1,
-            totalDistinctDenyPatterns: 0,
-            sharedAllowPatterns: [{ pattern: 'packages/core/**/*', agentIds: ['alex-morgan', 'ethan-carter'], agentCount: 2 }],
-            sharedDenyPatterns: [],
-            agents: [],
+            totalFiles: 2,
+            uncoveredFiles: [],
+            singlyOwnedFiles: [],
+            overlappingFiles: [{ path: 'packages/core/src/index.ts', extension: '.ts', lineCount: 20, agentIds: ['alex-morgan', 'ethan-carter'] }],
+            agentResponsibilities: [],
             pairs: [],
           },
-          list: { right: 'list', totalDistinctAllowPatterns: 0, totalDistinctDenyPatterns: 0, sharedAllowPatterns: [], sharedDenyPatterns: [], agents: [], pairs: [] },
-          write: { right: 'write', totalDistinctAllowPatterns: 0, totalDistinctDenyPatterns: 0, sharedAllowPatterns: [], sharedDenyPatterns: [], agents: [], pairs: [] },
-          create: { right: 'create', totalDistinctAllowPatterns: 0, totalDistinctDenyPatterns: 0, sharedAllowPatterns: [], sharedDenyPatterns: [], agents: [], pairs: [] },
-          delete: { right: 'delete', totalDistinctAllowPatterns: 0, totalDistinctDenyPatterns: 0, sharedAllowPatterns: [], sharedDenyPatterns: [], agents: [], pairs: [] },
+          list: { right: 'list', totalFiles: 2, uncoveredFiles: [], singlyOwnedFiles: [], overlappingFiles: [], agentResponsibilities: [], pairs: [] },
+          write: { right: 'write', totalFiles: 2, uncoveredFiles: [], singlyOwnedFiles: [], overlappingFiles: [], agentResponsibilities: [], pairs: [] },
+          create: { right: 'create', totalFiles: 2, uncoveredFiles: [], singlyOwnedFiles: [], overlappingFiles: [], agentResponsibilities: [], pairs: [] },
+          delete: { right: 'delete', totalFiles: 2, uncoveredFiles: [], singlyOwnedFiles: [], overlappingFiles: [], agentResponsibilities: [], pairs: [] },
+        },
+        agentFocus: {
+          agentId: 'alex-morgan',
+          rights: {
+            read: {
+              right: 'read',
+              responsibility: { agentId: 'alex-morgan', fileCount: 1, lineCount: 20, byExtension: [{ extension: '.ts', fileCount: 1, lineCount: 20 }] },
+              overlapsWith: [],
+              uniqueFiles: [],
+              globallyUncoveredFiles: [],
+            },
+            list: { right: 'list', responsibility: { agentId: 'alex-morgan', fileCount: 0, lineCount: 0, byExtension: [] }, overlapsWith: [], uniqueFiles: [], globallyUncoveredFiles: [] },
+            write: { right: 'write', responsibility: { agentId: 'alex-morgan', fileCount: 0, lineCount: 0, byExtension: [] }, overlapsWith: [], uniqueFiles: [], globallyUncoveredFiles: [] },
+            create: { right: 'create', responsibility: { agentId: 'alex-morgan', fileCount: 0, lineCount: 0, byExtension: [] }, overlapsWith: [], uniqueFiles: [], globallyUncoveredFiles: [] },
+            delete: { right: 'delete', responsibility: { agentId: 'alex-morgan', fileCount: 0, lineCount: 0, byExtension: [] }, overlapsWith: [], uniqueFiles: [], globallyUncoveredFiles: [] },
+          },
         },
       }),
     } as any;
@@ -77,7 +95,10 @@ describe('access cli commands', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       await accessOverlapCommand(client, { right: 'read', agent: 'alex-morgan' });
-      expect(client.analyzePermissionOverlap).toHaveBeenCalledTimes(1);
+      expect(client.analyzePermissionOverlap).toHaveBeenCalledWith({
+        mode: 'files',
+        agentId: 'alex-morgan',
+      });
     } finally {
       logSpy.mockRestore();
     }

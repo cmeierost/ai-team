@@ -22,6 +22,7 @@
   --color-border-secondary: #2d2d30;
   --color-border-focus: #007acc;
   --color-border-hover: #007acc;
+  --color-border: #3e3e42;
 
   /* Colors - Text */
   --color-text-primary: #cccccc;
@@ -29,6 +30,7 @@
   --color-text-muted: #888888;
   --color-text-bright: #e0e0e0;
   --color-text-link: #3794ff;
+  --color-text-tertiary: #666666;
 
   /* Colors - Accents */
   --color-accent-primary: #007acc;

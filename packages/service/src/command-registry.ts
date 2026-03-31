@@ -72,6 +72,7 @@ export const CLI_COMMAND_REGISTRY: CliCommandMetadata[] = [
     description: 'Analyze overlap between agent .perm file responsibilities by right',
     llmCallable: true,
     options: [
+      { flags: '--mode <mode>', description: 'Analysis mode: files | patterns', defaultValue: 'files' },
       { flags: '--right <right>', description: 'Optional right filter (read, write, create, delete, list)' },
       { flags: '--agent <agent>', description: 'Optional exact agent id filter' },
       { flags: '--json', description: 'Output as JSON' },

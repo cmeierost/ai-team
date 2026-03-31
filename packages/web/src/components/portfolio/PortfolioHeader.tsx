@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import type React from 'react';
 import type { Agent, AvatarConfig } from '../../types';
 import { Avatar } from '../Avatar';
+import { getAgentHue } from '../../utils/color';
 import { CONTEXT_LABELS, TYPE_LABELS } from './portfolioShared';
 import '../Portfolio.css';
 
@@ -49,7 +51,7 @@ export function PortfolioHeader({ agent, onOpenChat, onSave, onBack }: Readonly<
   };
 
   return (
-    <div className="portfolio-header">
+    <div className="portfolio-header" style={{ '--agent-hue': getAgentHue(agent) } as React.CSSProperties}>
       <Avatar agent={agent} size="large" />
       <div className="portfolio-header-info">
         <h2>{agent.name}</h2>

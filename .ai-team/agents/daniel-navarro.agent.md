@@ -29,6 +29,9 @@ description: >-
 tools:
   - semantic
   - get_errors
+  - open_browser_page
+  - mcp_microsoft_pla_browser_run_code
+  - mcp_microsoft_pla_browser_console_messages
 canDelegate: true
 delegatesTo:
   - samuel-ceeses

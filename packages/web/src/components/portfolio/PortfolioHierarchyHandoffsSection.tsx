@@ -343,6 +343,7 @@ export function PortfolioHierarchyHandoffsSection({
                   <div className="handoff-add-form">
                     {addError && <p className="portfolio-section-error">{addError}</p>}
                     <select
+                      title="Choose agent to delegate to"
                       value={newAgentId}
                       onChange={(e) => {
                         const id = e.target.value;

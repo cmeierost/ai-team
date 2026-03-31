@@ -1,5 +1,12 @@
 import chalk from 'chalk';
-import type { FilePermission, AiTeamClient, PermissionOverlapReport, RightOverlapSummary } from '@ai-team/api-client';
+import type {
+  FilePermission,
+  AiTeamClient,
+  PermissionOverlapReport,
+  RightOverlapSummary,
+  FilePermissionOverlapReport,
+  PatternOverlapReport,
+} from '@ai-team/api-client';
 
 interface AccessWhoOptions {
   path?: string;
@@ -15,6 +22,7 @@ interface AccessCanOptions {
 }
 
 interface AccessOverlapOptions {
+  mode?: 'files' | 'patterns';
   right?: FilePermission;
   agent?: string;
   json?: boolean;
@@ -113,6 +121,10 @@ function filterRightSummary(summary: RightOverlapSummary, agentId?: string): Rig
 }
 
 function filterOverlapReport(report: PermissionOverlapReport, options: AccessOverlapOptions): PermissionOverlapReport {
+  if (report.kind === 'files') {
+    return report;
+  }
+
   const requestedRights = options.right
     ? [options.right]
     : (['read', 'list', 'write', 'create', 'delete'] as const);
@@ -176,20 +188,15 @@ function formatSharedPatternLines(label: string, entries: Array<{ pattern: strin
   return lines;
 }
 
-export async function accessOverlapCommand(client: AiTeamClient, options: AccessOverlapOptions = {}): Promise<void> {
-  const report = await client.analyzePermissionOverlap();
+function renderPatternOverlapReport(report: PatternOverlapReport, options: AccessOverlapOptions): void {
   if (options.agent && !report.agentIds.includes(options.agent)) {
     throw new Error(`Unknown agent id '${options.agent}' in permission overlap report`);
   }
 
-  const filtered = filterOverlapReport(report, options);
-
-  if (options.json) {
-    console.log(JSON.stringify(filtered, null, 2));
-    return;
-  }
+  const filtered = filterOverlapReport(report, options) as PatternOverlapReport;
 
   console.log(chalk.bold(`\nPermission overlap across ${chalk.cyan(String(filtered.agentIds.length))} agent(s)`));
+  console.log(chalk.dim(`Mode: patterns`));
   console.log(chalk.dim(`Generated at ${filtered.generatedAt}`));
 
   const rightsToShow = options.right
@@ -232,4 +239,132 @@ export async function accessOverlapCommand(client: AiTeamClient, options: Access
   }
 
   console.log();
+}
+
+function formatOwnershipLines(entries: Array<{ path: string; agentIds: string[]; lineCount: number }>, limit = 8): string[] {
+  const lines = entries.slice(0, limit).map((entry) =>
+    `- ${chalk.cyan(entry.path)} ${chalk.dim(`[${entry.agentIds.join(', ')} | ${entry.lineCount} lines]`)}`,
+  );
+
+  if (entries.length > limit) {
+    lines.push(chalk.dim(`...and ${entries.length - limit} more`));
+  }
+
+  return lines;
+}
+
+function formatExtensionLines(entries: Array<{ extension: string; fileCount: number; lineCount: number }>, limit = 8): string[] {
+  const lines = entries.slice(0, limit).map((entry) =>
+    `- ${chalk.cyan(entry.extension)}: ${entry.fileCount} files, ${entry.lineCount} lines`,
+  );
+
+  if (entries.length > limit) {
+    lines.push(chalk.dim(`...and ${entries.length - limit} more`));
+  }
+
+  return lines;
+}
+
+function renderFileOverlapReport(report: FilePermissionOverlapReport, options: AccessOverlapOptions): void {
+  console.log(chalk.bold(`\nWorkspace permission overlap across ${chalk.cyan(String(report.agentIds.length))} agent(s)`));
+  console.log(chalk.dim(`Mode: files`));
+  console.log(chalk.dim(`Generated at ${report.generatedAt}`));
+  console.log(chalk.dim(`Workspace files analyzed: ${report.workspaceFileCount}`));
+
+  const rightsToShow = options.right
+    ? [options.right]
+    : (['read', 'list', 'write', 'create', 'delete'] as const);
+
+  for (const right of rightsToShow) {
+    const summary = report.rights[right];
+    console.log(chalk.bold(`\n${right.toUpperCase()}`));
+    console.log(chalk.dim(
+      `Total: ${summary.totalFiles}; uncovered: ${summary.uncoveredFiles.length}; `
+      + `single-owner: ${summary.singlyOwnedFiles.length}; overlapping: ${summary.overlappingFiles.length}`,
+    ));
+
+    if (options.agent && report.agentFocus) {
+      const focused = report.agentFocus.rights[right];
+      console.log(chalk.yellow(`Responsibility for ${options.agent}:`));
+      for (const line of formatExtensionLines(focused.responsibility.byExtension)) {
+        console.log(line);
+      }
+
+      if (focused.overlapsWith.length > 0) {
+        console.log(chalk.yellow('Overlapping agents:'));
+        for (const overlap of focused.overlapsWith.slice(0, 8)) {
+          console.log(
+            `- ${chalk.cyan(overlap.otherAgentId)}: `
+            + `${overlap.sharedFileCount} shared files, ${overlap.sharedLineCount} shared lines, `
+            + `${(overlap.overlapRatio * 100).toFixed(1)}% overlap`,
+          );
+        }
+      }
+
+      if (focused.uniqueFiles.length > 0) {
+        console.log(chalk.yellow('Files unique to selected agent:'));
+        for (const line of formatOwnershipLines(focused.uniqueFiles)) {
+          console.log(line);
+        }
+      }
+    } else {
+      const topResponsibility = summary.agentResponsibilities.slice(0, 5);
+      if (topResponsibility.length > 0) {
+        console.log(chalk.yellow('Top agent responsibility:'));
+        for (const responsibility of topResponsibility) {
+          console.log(
+            `- ${chalk.cyan(responsibility.agentId)}: `
+            + `${responsibility.fileCount} files, ${responsibility.lineCount} lines`,
+          );
+        }
+      }
+
+      const topPairs = summary.pairs.filter((pair) => pair.sharedFileCount > 0).slice(0, 5);
+      if (topPairs.length > 0) {
+        console.log(chalk.yellow('Closest overlapping pairs:'));
+        for (const pair of topPairs) {
+          console.log(
+            `- ${chalk.cyan(pair.agentA)} <> ${chalk.cyan(pair.agentB)}: `
+            + `${pair.sharedFileCount} shared files, ${pair.sharedLineCount} shared lines, `
+            + `${(pair.overlapRatio * 100).toFixed(1)}% overlap`,
+          );
+        }
+      }
+    }
+
+    if (summary.overlappingFiles.length > 0) {
+      console.log(chalk.yellow('Top overlapping files:'));
+      for (const line of formatOwnershipLines(summary.overlappingFiles)) {
+        console.log(line);
+      }
+    }
+
+    if (summary.uncoveredFiles.length > 0) {
+      console.log(chalk.yellow('Top uncovered files:'));
+      for (const line of formatOwnershipLines(summary.uncoveredFiles)) {
+        console.log(line);
+      }
+    }
+  }
+
+  console.log();
+}
+
+export async function accessOverlapCommand(client: AiTeamClient, options: AccessOverlapOptions = {}): Promise<void> {
+  const report = await client.analyzePermissionOverlap({
+    mode: options.mode ?? 'files',
+    agentId: options.agent,
+  });
+
+  if (options.json) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+
+  if (report.kind === 'patterns') {
+    renderPatternOverlapReport(report, options);
+    return;
+  }
+
+  renderFileOverlapReport(report, options);
 }

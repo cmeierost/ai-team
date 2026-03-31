@@ -235,7 +235,7 @@ applyCommandMetadata(access.command(accessCanMeta.command), accessCanMeta)
 
 const accessOverlapMeta = getCliCommandMetadata('access.overlap');
 applyCommandMetadata(access.command(accessOverlapMeta.command), accessOverlapMeta)
-  .action(withCliErrorHandling((options: { right?: 'read' | 'write' | 'create' | 'delete' | 'list'; agent?: string; json?: boolean }) => accessOverlapCommand(client, options)));
+  .action(withCliErrorHandling((options: { mode?: 'files' | 'patterns'; right?: 'read' | 'write' | 'create' | 'delete' | 'list'; agent?: string; json?: boolean }) => accessOverlapCommand(client, options)));
 
 const toolsAllowMeta = getCliCommandMetadata('tools.allow');
 applyCommandMetadata(tools.command(toolsAllowMeta.command).alias('add'), toolsAllowMeta)

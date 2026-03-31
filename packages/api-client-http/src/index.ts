@@ -35,8 +35,26 @@ import type {
   UpdateGlobalPathOptions,
   UpdateGlobalPathResponse,
   TestConnectionOptions,
+  FilePermission,
+  WhoHasPermissionOptions,
+  WhoHasPermissionResponse,
+  DoIHavePermissionOptions,
+  DoIHavePermissionResponse,
 } from '@ai-team/service';
-import type { AgentStatus, AgentConfig, AnnotatedFile, ContextLevel, GraphData, MarkdownSection, RoleType, TeamConfig, UserConfig, ViewMode } from '@ai-team/core';
+import type {
+  AgentStatus,
+  AgentConfig,
+  AnalyzePermissionOverlapOptions,
+  AnnotatedFile,
+  ContextLevel,
+  GraphData,
+  MarkdownSection,
+  PermissionOverlapReport,
+  RoleType,
+  TeamConfig,
+  UserConfig,
+  ViewMode,
+} from '@ai-team/core';
 import type {
   IdeCommitEditResponse,
   IdeEditStatusResponse,
@@ -119,6 +137,9 @@ export interface AiTeamHttpClient {
   toolDeny(options: UpdateAgentToolOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentToolResponse>;
   permissionAllow(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
   permissionDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
+  whoHasPermission(options: WhoHasPermissionOptions): Promise<WhoHasPermissionResponse>;
+  doIHavePermission(options: DoIHavePermissionOptions): Promise<DoIHavePermissionResponse>;
+  analyzePermissionOverlap(options?: AnalyzePermissionOverlapOptions): Promise<PermissionOverlapReport>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   /** Get the full handoff session thread for any session in the chain */
@@ -435,6 +456,58 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     });
     if (!response.ok) {
       throw new Error('Failed to deny governed agent path');
+    }
+    return response.json();
+  }
+
+  async whoHasPermission(options: WhoHasPermissionOptions): Promise<WhoHasPermissionResponse> {
+    const params = new URLSearchParams({ path: options.path });
+    if (options.right) {
+      params.set('right', options.right);
+    }
+
+    const response = await fetch(`${this.baseUrl}/api/access/who?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch access candidates');
+    }
+    return response.json();
+  }
+
+  async doIHavePermission(options: DoIHavePermissionOptions): Promise<DoIHavePermissionResponse> {
+    const params = new URLSearchParams({ path: options.path });
+    if (options.right) {
+      params.set('right', options.right);
+    }
+    if (options.agent) {
+      params.set('agent', options.agent);
+    }
+
+    const response = await fetch(`${this.baseUrl}/api/access/can?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error('Failed to evaluate access');
+    }
+    return response.json();
+  }
+
+  async analyzePermissionOverlap(options: AnalyzePermissionOverlapOptions = {}): Promise<PermissionOverlapReport> {
+    const params = new URLSearchParams();
+    if (options.mode) {
+      params.set('mode', options.mode);
+    }
+    if (options.agentId) {
+      params.set('agent', options.agentId);
+    }
+    if (options.maxDepth !== undefined) {
+      params.set('maxDepth', String(options.maxDepth));
+    }
+
+    const query = params.toString();
+    const url = query
+      ? `${this.baseUrl}/api/access/overlap?${query}`
+      : `${this.baseUrl}/api/access/overlap`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error('Failed to analyze permission overlap');
     }
     return response.json();
   }

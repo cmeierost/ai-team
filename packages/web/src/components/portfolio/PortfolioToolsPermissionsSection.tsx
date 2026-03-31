@@ -111,7 +111,9 @@ export function PortfolioToolsPermissionsSection({
         ) : (
           [...groups.entries()].map(([group, tools]) => (
             <div key={group} className="tool-group">
-              <span className="tool-group-name">{group}</span>
+              <div className="tool-group-header">
+                <span className="tool-group-name">{group}</span>
+              </div>
               <div className="tool-active-chips">
                 {tools.map((t) => (
                   <span key={t.name} title={t.description} className="tool-tag tool-tag-active">{t.name}</span>

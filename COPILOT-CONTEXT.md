@@ -62,6 +62,16 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 - `packages/vscode/src/extension.ts`
 - `packages/web/src/components/ChatPanel.tsx`
 
+## UI Verification
+
+For any change affecting `packages/web`, use the **Chrome / browser MCP tools** to visually inspect the result in the running app before marking the task done:
+
+- `open_browser_page` — open the app or a specific route
+- `mcp_microsoft_pla_browser_run_code` — run JS in the browser context
+- `mcp_microsoft_pla_browser_console_messages` — read console errors and warnings
+
+Do not rely on a successful build alone for UI work. Open the browser, navigate to the affected screen, and confirm visually.
+
 ## Change rule
 
 If architecture/boundaries/runtime storage changes, update:

@@ -85,6 +85,11 @@ handoffs:
     agent: taylor-reed
     prompt: Create a clear documentation summary of the decisions and outcomes above.
     send: false
+  - label: Css Specialist
+    agent: samuel-ceeses
+    prompt: >-
+      Please take this on within your area of responsibility as Samuel Ceeses
+      (css-specialist).
   - label: '[auto] Delegate to Emily Davis'
     agent: emily-davis
     prompt: Please take this on within your area of responsibility.
@@ -150,6 +155,7 @@ When a task falls outside your scope, guide the user to the right agent using `/
 - **Frontend Web** → `daniel-navarro`: Own React web package delivery and frontend architecture for this work.
 - **Frontend Quality** → `clara-bishop`: Run Storybook and browser-driven quality checks on this frontend work.
 - **Document This** → `taylor-reed`: Create a clear documentation summary of the decisions and outcomes above.
+- **Css Specialist** → `samuel-ceeses`: Please take this on within your area of responsibility as Samuel Ceeses (css-specialist).
 - **[auto] Delegate to Emily Davis** → `emily-davis`: Please take this on within your area of responsibility.
 - **[auto] Delegate to Sarah Lee** → `sarah-lee`: Please take this on within your area of responsibility.
 - **[auto] Delegate to Taylor Reed** → `taylor-reed`: Please take this on within your area of responsibility.

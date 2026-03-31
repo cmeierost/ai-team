@@ -35,6 +35,7 @@ Thin compatibility bridge for Copilot. Authoritative customization lives under `
 - Install dependencies with `pnpm install`.
 - Build shared or multi-package changes with `pnpm -r build`.
 - Use targeted package checks when scope is local (`pnpm --filter <pkg> build` and package tests).
+- **For UI changes in `packages/web`, use the Chrome / browser MCP tools to visually inspect the result in the live app.** Use `open_browser_page`, `mcp_microsoft_pla_browser_run_code`, and `mcp_microsoft_pla_browser_console_messages` to open the page, interact with it, and check for visual regressions or console errors before considering the task done.
 
 ## Change policy
 

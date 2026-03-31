@@ -20,7 +20,16 @@ import {
   TeamConfig,
   TeamConfigSchema,
   UserConfig,
+  type AnalyzePermissionOverlapOptions,
   type PermissionOverlapReport,
+  type FilePermissionOverlapReport,
+  type PatternOverlapReport,
+  type FileRightCoverageSummary,
+  type FileRightAgentResponsibility,
+  type FileAgentPairOverlap,
+  type AgentFocusedOverlapSummary,
+  type FileResponsibilityByExtension,
+  type FileOwnershipEntry,
   parseMarkdownSections,
   replaceOrAppendMarkdownSection,
 } from '@ai-team/core';
@@ -149,7 +158,7 @@ export interface AiTeamClient {
   permissionDeny(options: UpdateAgentPathOptions, governance: GovernanceMutationOptions): Promise<UpdateAgentPathResponse>;
   whoHasPermission(options: WhoHasPermissionOptions): Promise<WhoHasPermissionResponse>;
   doIHavePermission(options: DoIHavePermissionOptions): Promise<DoIHavePermissionResponse>;
-  analyzePermissionOverlap(): Promise<PermissionOverlapReport>;
+  analyzePermissionOverlap(options?: AnalyzePermissionOverlapOptions): Promise<PermissionOverlapReport>;
   getTeamGraph(mode?: ViewMode): Promise<GraphData>;
   getOrganizationGraph(): Promise<GraphData>;
   create(type: string, options: CreateOptions): Promise<void>;
@@ -418,8 +427,8 @@ class InProcessAiTeamClient implements AiTeamClient {
     return this.service.doIHavePermission(options);
   }
 
-  async analyzePermissionOverlap(): Promise<PermissionOverlapReport> {
-    return analyzeWorkspacePermissionOverlap(this.service.workspaceRoot);
+  async analyzePermissionOverlap(options: AnalyzePermissionOverlapOptions = {}): Promise<PermissionOverlapReport> {
+    return analyzeWorkspacePermissionOverlap(this.service.workspaceRoot, options);
   }
 
   async getTeamGraph(mode?: ViewMode): Promise<GraphData> {
@@ -645,7 +654,16 @@ export {
 } from '@ai-team/service';
 
 export type {
+  AnalyzePermissionOverlapOptions,
   PermissionOverlapReport,
+  FilePermissionOverlapReport,
+  PatternOverlapReport,
+  FileRightCoverageSummary,
+  FileRightAgentResponsibility,
+  FileAgentPairOverlap,
+  AgentFocusedOverlapSummary,
+  FileResponsibilityByExtension,
+  FileOwnershipEntry,
   SharedPatternOverlap,
   AgentRightSummary,
   PairwiseAgentOverlap,

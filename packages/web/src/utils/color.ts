@@ -19,3 +19,12 @@ export function getAgentColor(agent: Agent): string {
   const hue = hashStringToHue(colorSeed);
   return `hsl(${hue}, 70%, 60%)`;
 }
+
+/**
+ * Get just the hue number for an agent (0–359).
+ * Useful for building CSS hsl() values without color-mix().
+ */
+export function getAgentHue(agent: Agent): number {
+  const colorSeed = agent.avatar?.seed || agent.name;
+  return hashStringToHue(colorSeed);
+}

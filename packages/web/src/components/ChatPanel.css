@@ -23,10 +23,10 @@
   padding: 16px;
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--agent-color, #667eed) 28%, #1e1e1e) 0%,
-    color-mix(in srgb, var(--agent-color, #7b4ba2) 16%, #1e1e1e) 100%
-  );
-  border-bottom: 1px solid color-mix(in srgb, var(--agent-color, var(--color-border)) 40%, var(--color-border));
+    hsl(var(--agent-hue, 240) 65% 30% / 0.55) 0%,
+    hsl(var(--agent-hue, 240) 55% 20% / 0.35) 100%
+  ), #1e1e1e;
+  border-bottom: 1px solid hsl(var(--agent-hue, 240) 60% 50% / 0.3);
 }
 
 .chat-header-main {
@@ -164,7 +164,7 @@
   color: var(--color-text-primary);
 }
 
-.btn-header-action {
+.chat-header-actions .btn-header-action {
   padding: 6px 12px;
   background-color: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.25);
@@ -183,7 +183,7 @@
   display: none;
 }
 
-.btn-header-action:hover {
+.chat-header-actions .btn-header-action:hover {
   background-color: rgba(255, 255, 255, 0.22);
   border-color: rgba(255, 255, 255, 0.5);
   color: #ffffff;
