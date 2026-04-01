@@ -19,6 +19,8 @@ export interface AnnotatedFile {
   path: string;
   /** Whether the agent can read this file */
   readable: boolean;
+  /** Whether the agent can list/discover this file path */
+  listable: boolean;
   /** Whether the agent can write this file */
   writable: boolean;
 }
@@ -147,6 +149,16 @@ export class ContextManager {
     return false;
   }
 
+  canList(agent: Agent, filePath: string): boolean {
+    if (this.engine) {
+      return this.checkViaEngine(agent, filePath, 'list');
+    }
+
+    // Without the permission engine, list rules are not tracked separately.
+    // Fall back to read visibility to preserve legacy behavior.
+    return this.canRead(agent, filePath);
+  }
+
   /**
    * Assert that an agent has read permission (throws if not)
    * @param agent - Agent to check
@@ -201,6 +213,7 @@ export class ContextManager {
     return allFiles.map(filePath => ({
       path: filePath,
       readable: this.canRead(agent, filePath),
+      listable: this.canList(agent, filePath),
       writable: this.canWrite(agent, filePath),
     }));
   }
@@ -403,7 +416,7 @@ export class ContextManager {
    * Delegate a single-path permission check to the PermissionEngine.
    * Used internally by canRead/canWrite/canCreate/canDelete when an engine is present.
    */
-  private checkViaEngine(agent: Agent, filePath: string, right: 'read' | 'write' | 'create' | 'delete'): boolean {
+  private checkViaEngine(agent: Agent, filePath: string, right: 'read' | 'write' | 'create' | 'delete' | 'list'): boolean {
     return this.engine!.isPathAllowed(filePath, right, this.workspaceRoot, agent.id);
   }
 

@@ -364,6 +364,33 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
     }
   });
 
+  router.post('/:id/avatar', async (req: any, res: any, next: any) => {
+    try {
+      const existing = await resolveAgentOrFail(req.params.id, res);
+      if (!existing) return;
+
+      const { data, ext } = req.body as { data?: string; ext?: string };
+      if (!data || !ext) return res.status(400).json({ error: 'data and ext are required' });
+      if (!/^[a-z0-9]+$/i.test(ext)) return res.status(400).json({ error: 'invalid ext' });
+
+      const { mkdirSync, writeFileSync } = await import('fs');
+      const { join } = await import('path');
+
+      const avatarsDir = join(agentManager.workspaceRoot, '.ai-team', 'avatars');
+      mkdirSync(avatarsDir, { recursive: true });
+
+      const filename = `${existing.id}.${ext}`;
+      writeFileSync(join(avatarsDir, filename), Buffer.from(data, 'base64'));
+
+      const updated = await agentManager.updateAgent(existing.id, {
+        avatar: { ...existing.avatar, type: 'url', url: `.ai-team/avatars/${filename}` },
+      });
+      res.json(updated);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   /**
    * @openapi
    * /api/agents/{id}/sections:
@@ -631,7 +658,9 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
    *                         type: string
    *                       readable:
    *                         type: boolean
-   *                       writable:
+    *                       listable:
+    *                         type: boolean
+    *                       writable:
    *                         type: boolean
    *       404:
    *         description: Agent not found
@@ -672,7 +701,7 @@ export function createAgentsRouter(client: AiTeamClient, agentManager: AgentMana
 
       const files = includeAll
         ? annotated
-        : annotated.filter(f => f.readable || f.writable);
+        : annotated.filter(f => f.readable || f.listable || f.writable);
 
       const accessPatterns = await loadAgentAccessPatterns(agentManager.workspaceRoot, agent.id);
 

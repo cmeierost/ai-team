@@ -13,6 +13,7 @@ import { PortfolioToolsPermissionsSection } from './portfolio/PortfolioToolsPerm
 import { PortfolioFileAccessSection } from './portfolio/PortfolioFileAccessSection';
 import { PortfolioActivitySection } from './portfolio/PortfolioActivitySection';
 import { PortfolioContextWindowSection } from './portfolio/PortfolioContextWindowSection';
+import { PortfolioOverlapSection } from './portfolio/PortfolioOverlapSection';
 import './Portfolio.css';
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -156,9 +157,13 @@ export function Portfolio() {
       <PortfolioHeader
         agent={agent}
         onOpenChat={() => navigate(`/chat/${agent.id}`)}
-        onSave={({ role, avatar }) =>
-          saveAgentFields({ role, ...(avatar ? { avatar } : {}) })
+        onSave={({ role, color }) =>
+          saveAgentFields({ role, ...(color !== undefined ? { avatar: { ...agent.avatar, color } } : {}) })
         }
+        onUploadAvatar={async (data, ext) => {
+          await client.uploadAgentAvatar(agent.id, data, ext);
+          await refresh();
+        }}
         onBack={() => navigate('/employees')}
       />
 
@@ -210,6 +215,8 @@ export function Portfolio() {
           onSaveReportsTo={(reportsTo) => saveAgentFields({ reportsTo })}
           onSaveHandoffs={(handoffs) => saveAgentFields({ handoffs })}
         />
+
+        <PortfolioOverlapSection agent={agent} allAgents={agents} />
 
         <PortfolioReadFilesSection
           agentId={agent.id}

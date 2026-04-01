@@ -103,4 +103,62 @@ describe('permission overlap workspace loading', () => {
       }),
     ]);
   });
+
+  it('excludes generated and gitignored files from overlap analysis inputs', async () => {
+    const workspaceRoot = await createWorkspaceFixture();
+    await writeAgentMd(workspaceRoot, 'ethan-carter', 'name: Ethan Carter\nrole: platform\ncontextLevel: feature');
+    await writeAgentMd(workspaceRoot, 'alex-morgan', 'name: Alex Morgan\nrole: backend\ncontextLevel: feature');
+    await writeFile(path.join(workspaceRoot, '.gitignore'), 'src/generated.js\n', 'utf8');
+    await writeFile(
+      path.join(workspaceRoot, '.ai-team', 'agents', 'ethan-carter.perm'),
+      '[write]\nsrc/**/*\n',
+      'utf8',
+    );
+    await writeFile(
+      path.join(workspaceRoot, '.ai-team', 'agents', 'alex-morgan.perm'),
+      '[write]\nsrc/**/*\n',
+      'utf8',
+    );
+    await mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
+    await mkdir(path.join(workspaceRoot, 'packages', 'web', 'storybook-static', 'assets'), { recursive: true });
+    await writeFile(path.join(workspaceRoot, 'src', 'keep.ts'), 'const x = 1;\n', 'utf8');
+    await writeFile(path.join(workspaceRoot, 'src', 'generated.js'), 'console.log("ignore");\n', 'utf8');
+    await writeFile(path.join(workspaceRoot, 'packages', 'web', 'storybook-static', 'assets', 'bundle.js'), 'console.log("bundle");\n', 'utf8');
+
+    const report = await analyzeWorkspacePermissionOverlap(workspaceRoot);
+    expect(report.kind).toBe('files');
+    expect(report.workspaceFileCount).toBe(5);
+    expect(report.rights.write.overlappingFiles.some((file) => file.path.endsWith('generated.js'))).toBe(false);
+    expect(report.rights.write.overlappingFiles.some((file) => file.path.includes('storybook-static'))).toBe(false);
+    expect(report.rights.write.overlappingFiles.some((file) => file.path.endsWith('keep.ts'))).toBe(true);
+  });
+
+  it('ignores organization fallback when computing overlap coverage', async () => {
+    const workspaceRoot = await createWorkspaceFixture();
+    await writeAgentMd(workspaceRoot, 'emily-davis', 'name: Emily Davis\nrole: hr\ncontextLevel: organization');
+    await writeFile(
+      path.join(workspaceRoot, '.ai-team', 'agents', 'emily-davis.perm'),
+      '[write]\n.ai-team/**/*\ndocs/**/*\n',
+      'utf8',
+    );
+    await mkdir(path.join(workspaceRoot, '.ai-team', 'notes'), { recursive: true });
+    await mkdir(path.join(workspaceRoot, 'docs'), { recursive: true });
+    await mkdir(path.join(workspaceRoot, 'packages', 'core'), { recursive: true });
+    await writeFile(path.join(workspaceRoot, '.ai-team', 'notes', 'policy.md'), 'policy\n', 'utf8');
+    await writeFile(path.join(workspaceRoot, 'docs', 'guide.md'), 'guide\n', 'utf8');
+    await writeFile(path.join(workspaceRoot, 'packages', 'core', 'index.ts'), 'export {};\n', 'utf8');
+
+    const report = await analyzeWorkspacePermissionOverlap(workspaceRoot, { agentId: 'emily-davis' });
+    expect(report.kind).toBe('files');
+
+    const emilyWrite = report.rights.write.agentResponsibilities.find((entry) => entry.agentId === 'emily-davis');
+    expect(emilyWrite).toBeDefined();
+    const emilyWritePaths = new Set(report.rights.write.singlyOwnedFiles
+      .filter((file) => file.agentIds.includes('emily-davis'))
+      .map((file) => file.path));
+    expect(emilyWritePaths.has('.ai-team/notes/policy.md')).toBe(true);
+    expect(emilyWritePaths.has('docs/guide.md')).toBe(true);
+    expect(emilyWritePaths.has('packages/core/index.ts')).toBe(false);
+    expect(report.rights.write.uncoveredFiles.some((file) => file.path === 'packages/core/index.ts')).toBe(true);
+  });
 });

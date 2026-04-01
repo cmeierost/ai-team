@@ -8,7 +8,7 @@ reportsTo: michael-brown
 avatar:
   type: url
   url: .ai-team/avatars/sarah-lee.jpg
-  color: 'hsl(223, 70%, 60%)'
+  color: '#98fbef'
 personality:
   communication_style: strategic
   expertise_level: senior
@@ -105,4 +105,9 @@ When a task falls outside your scope, guide the user to the right agent using `/
 - **Delegate to Frontend** → `daniel-navarro`: Implement this in the web package following the architecture outlined above.
 - **Delegate to VS Code** → `marcus-vale`: Implement this in the VS Code extension following the architecture outlined above.
 - **Research Ecosystem** → `adrian-foster`: Research how other tools approach this architectural challenge and bring back findings.
+- **[auto] Report to Michael Brown** → `michael-brown`: Reporting back with my findings and progress.
+- **[auto] Delegate to Adrian Foster** → `adrian-foster`: Please take this on within your area of responsibility.
+- **[auto] Delegate to Alex Morgan** → `alex-morgan`: Please take this on within your area of responsibility.
+- **[auto] Delegate to Daniel Navarro** → `daniel-navarro`: Please take this on within your area of responsibility.
+- **[auto] Delegate to Marcus Vale** → `marcus-vale`: Please take this on within your area of responsibility.
 

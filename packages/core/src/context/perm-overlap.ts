@@ -68,6 +68,17 @@ export interface FileRightCoverageSummary {
   pairs: FileAgentPairOverlap[];
 }
 
+export interface OutsideDefaultContextRightSummary {
+  fileCount: number;
+  lineCount: number;
+  files: FileOwnershipEntry[];
+}
+
+export interface AgentOutsideDefaultContextSummary {
+  agentId: string;
+  rights: Record<Right, OutsideDefaultContextRightSummary>;
+}
+
 export interface AgentFocusedOverlapRightSummary {
   right: Right;
   responsibility: FileRightAgentResponsibility;
@@ -94,6 +105,7 @@ export interface FilePermissionOverlapReport {
   agentIds: string[];
   workspaceFileCount: number;
   rights: Record<Right, FileRightCoverageSummary>;
+  outsideDefaultContextByAgent: AgentOutsideDefaultContextSummary[];
   agentFocus?: AgentFocusedOverlapSummary;
 }
 
@@ -122,6 +134,28 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 const LINE_COUNT_CONCURRENCY = 32;
+const EXCLUDED_ANALYSIS_DIR_SEGMENTS = new Set([
+  'storybook-static',
+  'coverage',
+  '.nyc_output',
+  '.cache',
+  '.output',
+  'out',
+]);
+
+function shouldExcludeFromFileOverlap(relativePath: string, gitignored?: boolean): boolean {
+  if (gitignored) {
+    return true;
+  }
+
+  const normalized = relativePath.replaceAll('\\', '/');
+  const segments = normalized.split('/').filter((segment) => segment.length > 0);
+  if (segments.some((segment) => EXCLUDED_ANALYSIS_DIR_SEGMENTS.has(segment))) {
+    return true;
+  }
+
+  return false;
+}
 
 function normalizePermPattern(pattern: string): string {
   return pattern.replaceAll('\\', '/').trim();
@@ -241,9 +275,10 @@ async function mergeAgentAccessPatterns(
 
 async function toFileRecords(entries: FlatFileEntry[]): Promise<FileRecord[]> {
   const records: FileRecord[] = [];
+  const filteredEntries = entries.filter((entry) => !shouldExcludeFromFileOverlap(entry.relativePath, entry.gitignored));
 
-  for (let index = 0; index < entries.length; index += LINE_COUNT_CONCURRENCY) {
-    const batch = entries.slice(index, index + LINE_COUNT_CONCURRENCY);
+  for (let index = 0; index < filteredEntries.length; index += LINE_COUNT_CONCURRENCY) {
+    const batch = filteredEntries.slice(index, index + LINE_COUNT_CONCURRENCY);
     const batchRecords = await Promise.all(batch.map(async (entry) => {
       const extension = normalizeExtension(entry.relativePath, entry.extension);
       return {
@@ -417,6 +452,33 @@ function buildFileRightCoverageSummary(
   };
 }
 
+function buildOutsideDefaultContextByAgent(
+  agentIds: readonly string[],
+  files: readonly FileRecord[],
+  rightsByAgent: Map<string, Map<string, Set<Right>>>,
+): AgentOutsideDefaultContextSummary[] {
+  const defaultReadPathSet = new Set(files.map((file) => file.path));
+  return agentIds.map((agentId) => ({
+    agentId,
+    rights: createRightRecord((right) => {
+      const agentRights = rightsByAgent.get(agentId) ?? new Map<string, Set<Right>>();
+      const outsideFiles = files
+        .filter((file) => {
+          const agentAllowed = agentRights.get(file.path)?.has(right) ?? false;
+          const defaultAllowed = defaultReadPathSet.has(file.path);
+          return agentAllowed && !defaultAllowed;
+        })
+        .map((file) => toOwnershipEntry(file, [agentId]));
+
+      return {
+        fileCount: outsideFiles.length,
+        lineCount: outsideFiles.reduce((sum, file) => sum + file.lineCount, 0),
+        files: outsideFiles,
+      };
+    }),
+  }));
+}
+
 export async function loadAgentPermissionRules(workspaceRoot: string): Promise<AgentRuleMap> {
   const agentsDir = path.join(workspaceRoot, '.ai-team', 'agents');
   let entries: Dirent<string>[];
@@ -473,7 +535,6 @@ export async function analyzeWorkspacePermissionOverlap(
 
   const entries = await listWorkspaceFiles(workspaceRoot, {
     maxDepth: options.maxDepth ?? 20,
-    allowPaths: buildAllowPaths(config),
     filesOnly: true,
   });
   const files = await toFileRecords(entries);
@@ -481,8 +542,23 @@ export async function analyzeWorkspacePermissionOverlap(
 
   const rightsByAgent = new Map<string, Map<string, Set<Right>>>();
   for (const agent of agents) {
-    rightsByAgent.set(agent.id, engine.whatCanContextDo(agent.id, filePaths, workspaceRoot));
+    rightsByAgent.set(
+      agent.id,
+      engine.whatCanContextDo(agent.id, filePaths, workspaceRoot, { disableOrganizationFallback: true }),
+    );
   }
+  const rightsByAgentAllFiles = new Map<string, Map<string, Set<Right>>>();
+  for (const agentId of agentIds) {
+    rightsByAgentAllFiles.set(
+      agentId,
+      engine.whatCanContextDo(agentId, filePaths, workspaceRoot, { disableOrganizationFallback: true }),
+    );
+  }
+  const outsideDefaultContextByAgent = buildOutsideDefaultContextByAgent(
+    agentIds,
+    files,
+    rightsByAgentAllFiles,
+  );
 
   const rights = createRightRecord((right) => {
     const ownershipByPath = new Map<string, string[]>();
@@ -501,6 +577,7 @@ export async function analyzeWorkspacePermissionOverlap(
     agentIds,
     workspaceFileCount: files.length,
     rights,
+    outsideDefaultContextByAgent,
   };
 
   if (options.agentId) {

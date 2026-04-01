@@ -7,6 +7,7 @@ interface FileTreeNodeRowProps {
   node: TreeNode;
   depth: number;
   editMode: boolean;
+  highlightedPaths?: ReadonlySet<string>;
   pendingPaths: Set<string>;
   onToggle: (path: string, mode: PatternMode, current: boolean) => void;
 }
@@ -16,6 +17,7 @@ interface FilePermissionsProps {
   editMode: boolean;
   isPending: boolean;
   readable: boolean;
+  listable: boolean;
   writable: boolean;
   onToggle: (path: string, mode: PatternMode, current: boolean) => void;
 }
@@ -77,11 +79,12 @@ function FileTreeRowName({ node, isDirectory, editMode }: Readonly<{ node: TreeN
   );
 }
 
-function FilePermissions({ path, editMode, isPending, readable, writable, onToggle }: Readonly<FilePermissionsProps>) {
+function FilePermissions({ path, editMode, isPending, readable, listable, writable, onToggle }: Readonly<FilePermissionsProps>) {
   if (!editMode) {
     return (
       <div className="ft-perms">
         {readable ? <span className="ft-badge ft-badge-read" title="Readable">R</span> : null}
+        {listable ? <span className="ft-badge ft-badge-list" title="Listable">L</span> : null}
         {writable ? <span className="ft-badge ft-badge-write" title="Writable">W</span> : null}
       </div>
     );
@@ -111,18 +114,20 @@ function FilePermissions({ path, editMode, isPending, readable, writable, onTogg
   );
 }
 
-export function FileTreeNodeRow({ node, depth, editMode, pendingPaths, onToggle }: Readonly<FileTreeNodeRowProps>) {
+export function FileTreeNodeRow({ node, depth, editMode, highlightedPaths, pendingPaths, onToggle }: Readonly<FileTreeNodeRowProps>) {
   const [open, setOpen] = useState(depth < 2);
   const file = node.file;
   const isDirectory = node.isDir;
   const readable = file?.readable ?? false;
+  const listable = file?.listable ?? false;
   const writable = file?.writable ?? false;
+  const isHighlighted = !isDirectory && Boolean(file && highlightedPaths?.has(file.path));
   const isPending = pendingPaths.has(node.path);
 
   return (
     <>
       <div
-        className={`ft-row ft-depth-${Math.min(depth, 8)} ${isDirectory ? 'ft-dir' : 'ft-file'} ${isPending ? 'ft-pending' : ''}`}
+        className={`ft-row ft-depth-${Math.min(depth, 8)} ${isDirectory ? 'ft-dir' : 'ft-file'} ${isPending ? 'ft-pending' : ''} ${isHighlighted ? 'ft-shared' : ''}`}
       >
         <FileTreeRowAction
           node={node}
@@ -141,6 +146,7 @@ export function FileTreeNodeRow({ node, depth, editMode, pendingPaths, onToggle 
             editMode={editMode}
             isPending={isPending}
             readable={readable}
+            listable={listable}
             writable={writable}
             onToggle={onToggle}
           />
@@ -154,6 +160,7 @@ export function FileTreeNodeRow({ node, depth, editMode, pendingPaths, onToggle 
               node={child}
               depth={depth + 1}
               editMode={editMode}
+              highlightedPaths={highlightedPaths}
               pendingPaths={pendingPaths}
               onToggle={onToggle}
             />

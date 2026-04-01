@@ -54,6 +54,7 @@
 }
 
 .ft-summary-read  { color: #4fc3f7; }
+.ft-summary-list  { color: #f7c26d; }
 .ft-summary-write { color: #81c784; }
 
 .ft-patterns {
@@ -248,6 +249,9 @@
 .ft-depth-8 { padding-left: 120px; }
 
 .ft-row:hover { background: var(--color-bg-hover); }
+.ft-shared {
+  box-shadow: inset 3px 0 0 rgba(224, 108, 117, 0.72);
+}
 
 .ft-dir { font-weight: 500; }
 
@@ -338,6 +342,7 @@
 }
 
 .ft-badge-read  { background: rgba(79,195,247,0.16); border-color: rgba(79,195,247,0.38); color: #d8f4ff; }
+.ft-badge-list  { background: rgba(240,164,67,0.16); border-color: rgba(240,164,67,0.4); color: #ffe1ad; }
 .ft-badge-write { background: rgba(129,199,132,0.16); border-color: rgba(129,199,132,0.38); color: #e3f7e5; }
 
 /* Edit-mode toggle buttons */

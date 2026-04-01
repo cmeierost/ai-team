@@ -6,4 +6,6 @@ export const contextPanelQueryKeys = {
   sessions: (agentId: string) => ['context-panel', 'sessions', agentId] as const,
   tasks: (agentId: string) => ['context-panel', 'tasks', agentId] as const,
   skills: (agentId: string) => ['context-panel', 'skills', agentId] as const,
+  permissionAnalysis: () => ['context-panel', 'permissions-analysis'] as const,
+  agentOverlap: (agentId: string) => ['context-panel', 'permissions-analysis', 'agent', agentId] as const,
 };

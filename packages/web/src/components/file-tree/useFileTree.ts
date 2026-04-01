@@ -18,6 +18,7 @@ export interface UseFileTreeResult {
   search: string;
   tree: ReturnType<typeof buildTree>;
   readCount: number;
+  listCount: number;
   writeCount: number;
   visiblePatternGroups: ReturnType<typeof getVisiblePatternGroups>;
   load: () => Promise<void>;
@@ -99,6 +100,7 @@ export function useFileTree(agentId: string): UseFileTreeResult {
             return {
               ...file,
               readable: mode === 'read' ? !current : file.readable,
+              listable: file.listable,
               writable: mode === 'write' ? !current : file.writable,
             };
           }),
@@ -173,7 +175,7 @@ export function useFileTree(agentId: string): UseFileTreeResult {
 
   const filteredFiles = useMemo(() => filterFiles(data?.files ?? [], filter, search), [data?.files, filter, search]);
   const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);
-  const { readCount, writeCount } = useMemo(() => getAccessCounts(data?.files ?? []), [data?.files]);
+  const { readCount, listCount, writeCount } = useMemo(() => getAccessCounts(data?.files ?? []), [data?.files]);
   const visiblePatternGroups = useMemo(() => getVisiblePatternGroups(data, patterns), [data, patterns]);
 
   return {
@@ -190,6 +192,7 @@ export function useFileTree(agentId: string): UseFileTreeResult {
     search,
     tree,
     readCount,
+    listCount,
     writeCount,
     visiblePatternGroups,
     load,

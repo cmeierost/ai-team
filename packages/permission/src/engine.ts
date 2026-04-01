@@ -41,6 +41,11 @@ export interface PermissionEngineOptions {
   autoLoadWorkspaceConventions?: boolean;
 }
 
+interface EvaluationOptions {
+  /** When true, disable implicit organization-level allow fallback. */
+  disableOrganizationFallback?: boolean;
+}
+
 interface DiscoveredConventions {
   contextRules: Map<string, AccessRule[]>;
   strictContextIds: Set<string>;
@@ -473,13 +478,14 @@ export class PermissionEngine {
     contextId: string,
     paths: string[],
     cwd: string,
+    options: EvaluationOptions = {},
   ): Map<string, Set<Right>> {
     const result = new Map<string, Set<Right>>();
     for (const p of paths) {
       const wsRel = resolveAndNormalize(p, cwd, this.workspaceRoot);
       const rights = new Set<Right>();
       for (const r of (['read', 'write', 'create', 'delete', 'list'] as const)) {
-        if (this.evaluatePath(wsRel, r, contextId).allowed) {
+        if (this.evaluatePath(wsRel, r, contextId, options).allowed) {
           rights.add(r);
         }
       }
@@ -573,8 +579,13 @@ export class PermissionEngine {
    * Evaluate a single workspace-relative path against the layered policy.
    * If contextId is omitted, uses the active context (if set).
    */
-  private evaluatePath(wsRelPath: string, right: Right, contextId?: string): PathVerdict {
-    const baseVerdict = this.evaluatePathBase(wsRelPath, right, contextId);
+  private evaluatePath(
+    wsRelPath: string,
+    right: Right,
+    contextId?: string,
+    options: EvaluationOptions = {},
+  ): PathVerdict {
+    const baseVerdict = this.evaluatePathBase(wsRelPath, right, contextId, options);
     if (baseVerdict.allowed) return baseVerdict;
 
     // Respect explicit denies/ignore denies for the requested right.
@@ -585,7 +596,7 @@ export class PermissionEngine {
 
     const impliedRights = this.getImpliedRights(right);
     for (const impliedRight of impliedRights) {
-      const impliedVerdict = this.evaluatePathBase(wsRelPath, impliedRight, contextId);
+      const impliedVerdict = this.evaluatePathBase(wsRelPath, impliedRight, contextId, options);
       if (impliedVerdict.allowed) {
         return {
           path: wsRelPath,
@@ -599,7 +610,12 @@ export class PermissionEngine {
     return baseVerdict;
   }
 
-  private evaluatePathBase(wsRelPath: string, right: Right, contextId?: string): PathVerdict {
+  private evaluatePathBase(
+    wsRelPath: string,
+    right: Right,
+    contextId?: string,
+    options: EvaluationOptions = {},
+  ): PathVerdict {
     const effectiveIgnorePatterns = this.getEffectiveIgnorePatterns();
 
     // Check ignore patterns first — ignored = invisible
@@ -634,7 +650,7 @@ export class PermissionEngine {
     const allowedByGlobal = this.evaluateAllowedByContext(globalId, wsRelPath, right);
     if (allowedByGlobal) return allowedByGlobal;
 
-    if (this.shouldAllowByOrganizationFallback(activeId, isStrictContext)) {
+    if (this.shouldAllowByOrganizationFallback(activeId, isStrictContext, options)) {
       return { path: wsRelPath, right, allowed: true };
     }
 
@@ -645,14 +661,16 @@ export class PermissionEngine {
   private getImpliedRights(right: Right): Right[] {
     if (right === 'read') return ['write'];
     if (right === 'list') return ['read', 'write'];
+    if (right === 'create' || right === 'delete') return ['write'];
     return [];
   }
 
   private shouldAllowByOrganizationFallback(
     activeContextId: string | null,
     isStrictContext: boolean,
+    options: EvaluationOptions,
   ): boolean {
-    if (!activeContextId || isStrictContext) {
+    if (!activeContextId || isStrictContext || options.disableOrganizationFallback) {
       return false;
     }
 

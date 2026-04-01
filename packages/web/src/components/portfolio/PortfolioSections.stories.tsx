@@ -15,6 +15,7 @@ import { PortfolioCapabilitiesSection } from './PortfolioCapabilitiesSection';
 import { PortfolioLlmSection } from './PortfolioLlmSection';
 import { PortfolioFileAccessSection } from './PortfolioFileAccessSection';
 import { PortfolioActivitySection } from './PortfolioActivitySection';
+import { PortfolioOverlapView } from './PortfolioOverlapView';
 
 const sampleAgent: Agent = {
   id: 'daniel-navarro',
@@ -151,6 +152,7 @@ export const Header: Story = {
       agent={sampleAgent}
       onOpenChat={() => undefined}
       onSave={() => Promise.resolve()}
+      onUploadAvatar={() => Promise.resolve()}
       onBack={() => undefined}
     />
   ),
@@ -254,6 +256,66 @@ export const ActivitySection: Story = {
       conversationCount={sampleAgent.conversationCount}
       lastInteraction={sampleAgent.lastInteraction}
       createdAt={sampleAgent.createdAt}
+    />
+  ),
+};
+
+export const OverlapSection: Story = {
+  render: () => (
+    <PortfolioOverlapView
+      focusAgent={sampleAgent}
+      agents={[sampleAgent, manager, ...directReports]}
+      selectedRight="write"
+      onSelectedRightChange={() => undefined}
+      suggestions={[
+        {
+          id: 'story-suggestion-1',
+          title: 'Reduce write overlap with Clara Bishop',
+          rationale: 'Nine writable files overlap in frontend portfolio components. Consider narrowing ownership or separating tests from implementation files.',
+          severity: 'high',
+        },
+      ]}
+      regions={[
+        {
+          id: 'daniel-navarro::clara-bishop',
+          label: 'Daniel Navarro + Clara Bishop',
+          focusAgentId: 'daniel-navarro',
+          peerAgentIds: ['clara-bishop'],
+          totalFiles: 18,
+          totalLines: 1320,
+          overlapRatio: 0.42,
+          sharedRights: ['read', 'write'],
+          rightFileCounts: { read: 18, write: 9, create: 0, delete: 0, list: 18 },
+          rightLineCounts: { read: 1320, write: 740, create: 0, delete: 0, list: 1320 },
+          rightOverlapRatio: { read: 0.42, write: 0.31, create: 0, delete: 0, list: 0.42 },
+          rightSharedFiles: {
+            write: [
+              { path: 'packages/web/src/components/Portfolio.tsx', extension: '.tsx', lineCount: 220, agentIds: ['daniel-navarro', 'clara-bishop'] },
+            ],
+          },
+          rightFileEndingSummary: {
+            write: [{ extension: '.tsx', fileCount: 1, lineCount: 220, category: 'code' }],
+          },
+          rightFileTypeSummary: {
+            write: [{ category: 'code', fileCount: 1, lineCount: 220, extensions: ['.tsx'] }],
+          },
+          fileEndingSummary: [
+            { extension: '.tsx', fileCount: 8, lineCount: 620, category: 'code' },
+            { extension: '.ts', fileCount: 6, lineCount: 430, category: 'code' },
+            { extension: '.md', fileCount: 4, lineCount: 270, category: 'documentation' },
+          ],
+          fileTypeSummary: [
+            { category: 'code', fileCount: 14, lineCount: 1050, extensions: ['.ts', '.tsx'] },
+            { category: 'documentation', fileCount: 4, lineCount: 270, extensions: ['.md'] },
+          ],
+          sharedFiles: [
+            { path: 'packages/web/src/components/Portfolio.tsx', extension: '.tsx', lineCount: 220, agentIds: ['daniel-navarro', 'clara-bishop'] },
+            { path: 'packages/web/src/components/portfolio/PortfolioOverlapView.tsx', extension: '.tsx', lineCount: 180, agentIds: ['daniel-navarro', 'clara-bishop'] },
+          ],
+        },
+      ]}
+      selectedRegionId="daniel-navarro::clara-bishop"
+      onSelectRegion={() => undefined}
     />
   ),
 };

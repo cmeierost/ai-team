@@ -201,7 +201,7 @@ function renderPatternOverlapReport(report: PatternOverlapReport, options: Acces
 
   const rightsToShow = options.right
     ? [options.right]
-    : (['read', 'list', 'write', 'create', 'delete'] as const);
+    : (['read', 'list', 'write'] as const);
 
   let printedAny = false;
   for (const right of rightsToShow) {
@@ -273,7 +273,7 @@ function renderFileOverlapReport(report: FilePermissionOverlapReport, options: A
 
   const rightsToShow = options.right
     ? [options.right]
-    : (['read', 'list', 'write', 'create', 'delete'] as const);
+    : (['read', 'list', 'write'] as const);
 
   for (const right of rightsToShow) {
     const summary = report.rights[right];

@@ -86,7 +86,7 @@ export interface HttpClientConfig {
   wsUrl?: string;
 }
 
-/** Response shape for GET /api/agents/:id/files */
+/** Response shape for GET /api/agents/:id/files (read/list/write annotations) */
 export interface AgentFilesResponse {
   agent: string;
   readPatterns: string[];
@@ -113,6 +113,8 @@ export interface AiTeamHttpClient {
   getAgentFrontmatter(query: string): Promise<Employee>;
   /** Partially update agent frontmatter fields (fuzzy query) */
   updateAgentFrontmatter(query: string, data: Partial<AgentConfig>): Promise<Employee>;
+  /** Upload an avatar image for an agent (base64-encoded data + file extension) */
+  uploadAgentAvatar(query: string, data: string, ext: string): Promise<Employee>;
   /** Get agent markdown body parsed into sections (fuzzy query) */
   getAgentSections(query: string): Promise<MarkdownSection[]>;
   /** Update or create a markdown section by heading (fuzzy query) */
@@ -298,6 +300,18 @@ class HttpAiTeamClient implements AiTeamHttpClient {
     });
     if (!response.ok) {
       throw new Error(`Failed to update agent frontmatter for "${query}"`);
+    }
+    return response.json();
+  }
+
+  async uploadAgentAvatar(query: string, data: string, ext: string): Promise<Employee> {
+    const response = await fetch(`${this.baseUrl}/api/agents/${encodeURIComponent(query)}/avatar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data, ext }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to upload avatar for "${query}"`);
     }
     return response.json();
   }
@@ -507,7 +521,18 @@ class HttpAiTeamClient implements AiTeamHttpClient {
       : `${this.baseUrl}/api/access/overlap`;
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error('Failed to analyze permission overlap');
+      let message = `Failed to analyze permission overlap (${response.status})`;
+      try {
+        const error = await response.json();
+        if (typeof error?.error === 'string' && error.error.length > 0) {
+          message = error.error;
+        } else if (typeof error?.message === 'string' && error.message.length > 0) {
+          message = error.message;
+        }
+      } catch {
+        // Ignore non-JSON error bodies and keep the status-based message.
+      }
+      throw new Error(message);
     }
     return response.json();
   }

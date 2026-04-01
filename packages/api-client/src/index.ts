@@ -105,7 +105,7 @@ export interface GovernanceMutationOptions {
   approvedByUser: boolean;
 }
 
-/** Response shape for agent file-tree listing with read/write annotations */
+/** Response shape for agent file-tree listing with read/list/write annotations */
 export interface AgentFilesResponse {
   agent: string;
   readPatterns: string[];
@@ -132,6 +132,8 @@ export interface AiTeamClient {
   getAgentFrontmatter(query: string): Promise<Agent>;
   /** Partially update agent frontmatter fields (fuzzy query) */
   updateAgentFrontmatter(query: string, data: Partial<AgentConfig>): Promise<Agent>;
+  /** Upload an avatar image for an agent (base64-encoded data + file extension) */
+  uploadAgentAvatar(query: string, data: string, ext: string): Promise<Agent>;
   /** Get agent markdown body parsed into sections (fuzzy query) */
   getAgentSections(query: string): Promise<MarkdownSection[]>;
   /** Update or create a markdown section by heading (fuzzy query) */
@@ -233,6 +235,23 @@ class InProcessAiTeamClient implements AiTeamClient {
     return mgr.updateAgent(agent.id, data);
   }
 
+  async uploadAgentAvatar(query: string, data: string, ext: string): Promise<Agent> {
+    const agents = await this.service.resolveEmployees(query);
+    if (agents.length === 0) throw new Error(`No agent matching "${query}"`);
+    const agent = agents[0] as unknown as Agent;
+    const { mkdirSync, writeFileSync } = await import('fs');
+    const { join } = await import('path');
+    const avatarsDir = join(this.service.workspaceRoot, '.ai-team', 'avatars');
+    mkdirSync(avatarsDir, { recursive: true });
+    const filename = `${agent.id}.${ext}`;
+    writeFileSync(join(avatarsDir, filename), Buffer.from(data, 'base64'));
+    const mgr = new AgentManager(this.service.workspaceRoot);
+    await mgr.initialize();
+    return mgr.updateAgent(agent.id, {
+      avatar: { ...(agent.avatar as any), type: 'url', url: `.ai-team/avatars/${filename}` },
+    });
+  }
+
   async getAgentSections(query: string): Promise<MarkdownSection[]> {
     const agent = await this.getAgentFrontmatter(query);
     return parseMarkdownSections(agent.markdown || '');
@@ -284,7 +303,7 @@ class InProcessAiTeamClient implements AiTeamClient {
     const allFiles = entries.map((entry) => entry.relativePath);
     const ctx = ContextManager.fromConfig(ws, config?.fileTree, engine);
     const annotated = ctx.getAnnotatedFiles(agent, allFiles);
-    const files = options?.all ? annotated : annotated.filter(f => f.readable || f.writable);
+    const files = options?.all ? annotated : annotated.filter(f => f.readable || f.listable || f.writable);
     const accessPatterns = await loadAgentAccessPatterns(ws, agent.id);
     return {
       agent: agent.id,

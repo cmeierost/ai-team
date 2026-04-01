@@ -3,6 +3,7 @@ import type { AgentFilesResponse, FilePatternsResponse } from '../../types';
 export interface FlatFile {
   path: string;
   readable: boolean;
+  listable: boolean;
   writable: boolean;
 }
 
@@ -14,9 +15,9 @@ export interface TreeNode {
   file?: FlatFile;
 }
 
-export type FileAccessFilter = 'all' | 'read' | 'write';
+export type FileAccessFilter = 'all' | 'read' | 'list' | 'write';
 export type PatternScope = 'agent' | 'global';
-export type PatternMode = 'read' | 'write' | 'create' | 'delete';
+export type PatternMode = 'read' | 'write';
 
 export interface PatternGroup {
   label: string;

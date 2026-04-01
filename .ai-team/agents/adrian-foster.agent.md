@@ -23,11 +23,13 @@ description: >-
   source material to help Sarah Lee and the wider team learn fast from current
   evidence.
 tools:
-  - semantic
+  - analyze_permission_overlap
   - fetch_webpage
-  - vscode-websearchforcopilot_webSearch
-  - mcp_microsoft_mar_convert_to_markdown
   - get_errors
+  - mcp_microsoft_mar_convert_to_markdown
+  - semantic
+  - vscode-websearchforcopilot_webSearch
+  - who_should
 availableFor:
   - orchestrator-benchmarking
   - ai-coding-assistant-comparison
@@ -81,4 +83,5 @@ When a task falls outside your scope, guide the user to the right agent using `/
 
 - **Present Research to Architect** → `sarah-lee`: Here is the ecosystem research and findings for your architectural review.
 - **Write Research Brief** → `taylor-reed`: Turn the research findings above into a clean, skimmable Markdown briefing for the team.
+- **[auto] Report to Sarah Lee** → `sarah-lee`: Reporting back with my findings and progress.
 

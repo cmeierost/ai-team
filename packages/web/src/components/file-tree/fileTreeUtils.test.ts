@@ -3,9 +3,9 @@ import type { AgentFilesResponse, FilePatternsResponse } from '../../types';
 import { buildTree, fileIcon, filterFiles, getAccessCounts, getVisiblePatternGroups } from './fileTreeUtils';
 
 const files: AgentFilesResponse['files'] = [
-  { path: 'src/components/FileTree.tsx', readable: true, writable: true },
-  { path: 'src/components/ContextPanel.tsx', readable: true, writable: false },
-  { path: 'README.md', readable: true, writable: false },
+  { path: 'src/components/FileTree.tsx', readable: true, listable: true, writable: true },
+  { path: 'src/components/ContextPanel.tsx', readable: true, listable: true, writable: false },
+  { path: 'README.md', readable: true, listable: false, writable: false },
 ];
 
 describe('fileTreeUtils', () => {
@@ -19,6 +19,10 @@ describe('fileTreeUtils', () => {
 
   it('filters files by permission and search', () => {
     expect(filterFiles(files, 'read', '').length).toBe(3);
+    expect(filterFiles(files, 'list', '').map((file) => file.path)).toEqual([
+      'src/components/FileTree.tsx',
+      'src/components/ContextPanel.tsx',
+    ]);
     expect(filterFiles(files, 'write', '').map((file) => file.path)).toEqual(['src/components/FileTree.tsx']);
     expect(filterFiles(files, 'all', 'context').map((file) => file.path)).toEqual(['src/components/ContextPanel.tsx']);
   });
@@ -26,7 +30,7 @@ describe('fileTreeUtils', () => {
   it('returns icons, counts, and visible pattern groups', () => {
     expect(fileIcon('folder', true)).toBe('📁');
     expect(fileIcon('component.tsx', false)).toBe('⚛');
-    expect(getAccessCounts(files)).toEqual({ readCount: 3, writeCount: 1 });
+    expect(getAccessCounts(files)).toEqual({ readCount: 3, listCount: 2, writeCount: 1 });
 
     const patterns: FilePatternsResponse = {
       global: { allowPaths: [], readPaths: ['docs/**'], writePaths: [], createPaths: [], deletePaths: [] },

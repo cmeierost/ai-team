@@ -1,6 +1,6 @@
 /**
- * FileTree component — shows workspace files annotated with an agent's read/write
- * permissions. In view mode, shows which files are readable/writable. In edit mode,
+ * FileTree component — shows workspace files annotated with an agent's read/list/write
+ * permissions. In view mode, shows which files are readable/listable/writable. In edit mode,
  * allows toggling read and write access per file.
  */
 import { FileTreeView } from './file-tree/FileTreeView';
@@ -10,9 +10,10 @@ import './FileTree.css';
 interface FileTreeProps {
   agentId: string;
   editMode: boolean;
+  highlightedPaths?: ReadonlySet<string>;
 }
 
-export function FileTree({ agentId, editMode }: Readonly<FileTreeProps>) {
+export function FileTree({ agentId, editMode, highlightedPaths }: Readonly<FileTreeProps>) {
   const {
     data,
     loading,
@@ -26,6 +27,7 @@ export function FileTree({ agentId, editMode }: Readonly<FileTreeProps>) {
     search,
     tree,
     readCount,
+    listCount,
     writeCount,
     visiblePatternGroups,
     load,
@@ -46,6 +48,7 @@ export function FileTree({ agentId, editMode }: Readonly<FileTreeProps>) {
       error={error}
       hasData={Boolean(data)}
       readCount={readCount}
+      listCount={listCount}
       writeCount={writeCount}
       patternsOpen={visiblePatternGroups.length > 0}
       visiblePatternGroups={visiblePatternGroups}
@@ -56,6 +59,7 @@ export function FileTree({ agentId, editMode }: Readonly<FileTreeProps>) {
       filter={filter}
       search={search}
       tree={tree}
+      highlightedPaths={highlightedPaths}
       pendingPaths={pendingPaths}
       onRetry={() => {
         void load();

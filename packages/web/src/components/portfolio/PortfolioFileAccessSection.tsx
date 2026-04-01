@@ -4,21 +4,24 @@ import { PortfolioSectionCard } from './portfolioShared';
 
 interface PortfolioFileAccessSectionProps {
   agentId: string;
+  forceEditMode?: boolean;
+  highlightedPaths?: ReadonlySet<string>;
 }
 
-export function PortfolioFileAccessSection({ agentId }: Readonly<PortfolioFileAccessSectionProps>) {
+export function PortfolioFileAccessSection({ agentId, forceEditMode = false, highlightedPaths }: Readonly<PortfolioFileAccessSectionProps>) {
   const [isEditing, setIsEditing] = useState(false);
+  const effectiveEditMode = forceEditMode || isEditing;
 
   return (
     <PortfolioSectionCard
       title="File Access"
       icon="📂"
-      isEditing={isEditing}
+      isEditing={effectiveEditMode}
       onEdit={() => setIsEditing(true)}
-      saveLabel="Done"
-      onSave={() => setIsEditing(false)}
+      saveLabel={forceEditMode ? undefined : 'Done'}
+      onSave={forceEditMode ? undefined : () => setIsEditing(false)}
     >
-      <FileTree agentId={agentId} editMode={isEditing} />
+      <FileTree agentId={agentId} editMode={effectiveEditMode} highlightedPaths={highlightedPaths} />
     </PortfolioSectionCard>
   );
 }

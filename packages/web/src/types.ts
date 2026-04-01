@@ -18,6 +18,7 @@ export interface FileTreeNode {
 export interface AnnotatedFile {
   path: string;
   readable: boolean;
+  listable: boolean;
   writable: boolean;
 }
 
@@ -52,6 +53,7 @@ export interface AvatarConfig {
   url?: string;
   style?: 'professional-headshot' | 'avatar' | 'illustrated';
   seed?: string;
+  color?: string;
 }
 
 export interface Developer {
@@ -177,6 +179,198 @@ export interface GraphEdge {
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+}
+
+export type PermissionRight = 'read' | 'write' | 'create' | 'delete' | 'list';
+
+export interface PermissionOverlapByExtension {
+  extension: string;
+  fileCount: number;
+  lineCount: number;
+}
+
+export interface PermissionOverlapFileOwnershipEntry {
+  path: string;
+  extension: string;
+  lineCount: number;
+  agentIds: string[];
+}
+
+export interface PermissionOverlapAgentResponsibility {
+  agentId: string;
+  fileCount: number;
+  lineCount: number;
+  byExtension: PermissionOverlapByExtension[];
+}
+
+export interface PermissionOverlapPairEntry {
+  agentA: string;
+  agentB: string;
+  sharedFileCount: number;
+  sharedLineCount: number;
+  unionFileCount: number;
+  overlapRatio: number;
+  sharedFiles: PermissionOverlapFileOwnershipEntry[];
+  byExtension: PermissionOverlapByExtension[];
+}
+
+export interface PermissionOverlapRightSummary {
+  right: PermissionRight;
+  totalFiles: number;
+  uncoveredFiles: PermissionOverlapFileOwnershipEntry[];
+  singlyOwnedFiles: PermissionOverlapFileOwnershipEntry[];
+  overlappingFiles: PermissionOverlapFileOwnershipEntry[];
+  agentResponsibilities: PermissionOverlapAgentResponsibility[];
+  pairs: PermissionOverlapPairEntry[];
+}
+
+export interface OutsideDefaultContextRightSummary {
+  fileCount: number;
+  lineCount: number;
+  files: PermissionOverlapFileOwnershipEntry[];
+}
+
+export interface AgentOutsideDefaultContextSummary {
+  agentId: string;
+  rights: Record<PermissionRight, OutsideDefaultContextRightSummary>;
+}
+
+export interface AgentFocusedOverlapPeerSummary {
+  otherAgentId: string;
+  sharedFileCount: number;
+  sharedLineCount: number;
+  overlapRatio: number;
+  sharedFiles: PermissionOverlapFileOwnershipEntry[];
+  byExtension: PermissionOverlapByExtension[];
+}
+
+export interface AgentFocusedOverlapRightSummary {
+  right: PermissionRight;
+  responsibility: PermissionOverlapAgentResponsibility;
+  overlapsWith: AgentFocusedOverlapPeerSummary[];
+  uniqueFiles: PermissionOverlapFileOwnershipEntry[];
+  globallyUncoveredFiles: PermissionOverlapFileOwnershipEntry[];
+}
+
+export interface AgentFocusedOverlapSummary {
+  agentId: string;
+  rights: Record<PermissionRight, AgentFocusedOverlapRightSummary>;
+}
+
+export interface FilePermissionOverlapReport {
+  kind: 'files';
+  generatedAt: string;
+  agentIds: string[];
+  workspaceFileCount: number;
+  rights: Record<PermissionRight, PermissionOverlapRightSummary>;
+  outsideDefaultContextByAgent: AgentOutsideDefaultContextSummary[];
+  agentFocus?: AgentFocusedOverlapSummary;
+}
+
+export interface PatternPermissionOverlapReport {
+  kind: 'patterns';
+  generatedAt: string;
+  agentIds: string[];
+}
+
+export type PermissionOverlapReport = FilePermissionOverlapReport | PatternPermissionOverlapReport;
+
+export type FileTypeCategory = 'code' | 'documentation' | 'configuration' | 'tests' | 'assets' | 'other';
+
+export interface FileTypeSummary {
+  category: FileTypeCategory;
+  fileCount: number;
+  lineCount: number;
+  extensions: string[];
+}
+
+export interface FileEndingSummary {
+  extension: string;
+  fileCount: number;
+  lineCount: number;
+  category: FileTypeCategory;
+}
+
+export interface PermissionOverlapRegion {
+  id: string;
+  label: string;
+  focusAgentId: string;
+  peerAgentIds: string[];
+  totalFiles: number;
+  totalLines: number;
+  overlapRatio: number;
+  sharedRights: PermissionRight[];
+  rightFileCounts: Record<PermissionRight, number>;
+  rightLineCounts: Record<PermissionRight, number>;
+  rightFolderCounts?: Partial<Record<PermissionRight, number>>;
+  rightOverlapRatio?: Record<PermissionRight, number>;
+  rightSharedFiles?: Partial<Record<PermissionRight, PermissionOverlapFileOwnershipEntry[]>>;
+  rightFileEndingSummary?: Partial<Record<PermissionRight, FileEndingSummary[]>>;
+  rightFileTypeSummary?: Partial<Record<PermissionRight, FileTypeSummary[]>>;
+  fileEndingSummary: FileEndingSummary[];
+  fileTypeSummary: FileTypeSummary[];
+  sharedFiles: PermissionOverlapFileOwnershipEntry[];
+}
+
+export interface PermissionSuggestion {
+  id: string;
+  title: string;
+  severity: 'high' | 'medium' | 'low';
+  rationale: string;
+  affectedAgentIds: string[];
+  affectedRights: PermissionRight[];
+  fileScope: string[];
+  fileTypeSummary: FileTypeSummary[];
+}
+
+export interface PermissionAgentResponsibilitySummary {
+  rightFileCounts: Record<PermissionRight, number>;
+  rightLineCounts: Record<PermissionRight, number>;
+  rightFolderCounts?: Partial<Record<PermissionRight, number>>;
+}
+
+export interface PermissionRightUncoveredSummary {
+  fileCount: number;
+  lineCount: number;
+  folderCount: number;
+}
+
+export interface PermissionAnalysisSummary {
+  totalAgents: number;
+  totalOverlappingPairs: number;
+  totalGloballyUncoveredFiles: number;
+  totalMultiWriteFiles: number;
+  strongestOverlapRegionId?: string;
+}
+
+export interface PermissionAnalysisView {
+  generatedAt: string;
+  workspaceFileCount: number;
+  workspaceUncoveredFileCount: number;
+  workspaceCodeFileCount: number;
+  workspaceCodeLineCount: number;
+  workspaceCodeUncoveredFileCount: number;
+  workspaceCodeUncoveredByRight: Record<PermissionRight, number>;
+  workspaceDocumentationFileCount: number;
+  workspaceDocumentationUncoveredFileCount: number;
+  workspaceDocumentationUncoveredByRight: Record<PermissionRight, number>;
+  workspaceBinaryFileCount: number;
+  workspaceBinaryUncoveredFileCount: number;
+  workspaceBinaryUncoveredByRight: Record<PermissionRight, number>;
+  agentIds: string[];
+  defaultContextByRight: Record<PermissionRight, number>;
+  defaultReadContextFileCount: number;
+  defaultReadContextLineCount: number;
+  totalAgentContextByRight: Record<PermissionRight, number>;
+  globallyUncoveredFiles: PermissionOverlapFileOwnershipEntry[];
+  uncoveredFileEndings: FileEndingSummary[];
+  uncoveredFileTypes: FileTypeSummary[];
+  rightUncovered: Record<PermissionRight, PermissionRightUncoveredSummary>;
+  agentResponsibilities: Record<string, PermissionAgentResponsibilitySummary>;
+  outsideDefaultContextByAgent: Record<string, Record<PermissionRight, OutsideDefaultContextRightSummary>>;
+  regions: PermissionOverlapRegion[];
+  suggestions: PermissionSuggestion[];
+  summary: PermissionAnalysisSummary;
 }
 
 export interface ChatMessage {

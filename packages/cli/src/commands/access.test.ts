@@ -73,6 +73,7 @@ describe('access cli commands', () => {
           create: { right: 'create', totalFiles: 2, uncoveredFiles: [], singlyOwnedFiles: [], overlappingFiles: [], agentResponsibilities: [], pairs: [] },
           delete: { right: 'delete', totalFiles: 2, uncoveredFiles: [], singlyOwnedFiles: [], overlappingFiles: [], agentResponsibilities: [], pairs: [] },
         },
+        outsideDefaultContextByAgent: [],
         agentFocus: {
           agentId: 'alex-morgan',
           rights: {

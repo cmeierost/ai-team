@@ -14,6 +14,7 @@ interface FileTreeViewProps {
   error: string | null;
   hasData: boolean;
   readCount: number;
+  listCount: number;
   writeCount: number;
   patternsOpen: boolean;
   visiblePatternGroups: PatternGroup[];
@@ -24,6 +25,7 @@ interface FileTreeViewProps {
   filter: FileAccessFilter;
   search: string;
   tree: TreeNode[];
+  highlightedPaths?: ReadonlySet<string>;
   pendingPaths: Set<string>;
   onRetry: () => void;
   onPatternScopeChange: (scope: PatternScope) => void;
@@ -36,12 +38,10 @@ interface FileTreeViewProps {
   onTogglePermission: (path: string, mode: PatternMode, current: boolean) => void;
 }
 
-export function FileTreeView({ editMode, loading, error, hasData, readCount, writeCount, patternsOpen, visiblePatternGroups, pendingPatternKey, patternScope, patternMode, patternInput, filter, search, tree, pendingPaths, onRetry, onPatternScopeChange, onPatternModeChange, onPatternInputChange, onAddPattern, onRemovePattern, onSearchChange, onFilterChange, onTogglePermission }: Readonly<FileTreeViewProps>) {
+export function FileTreeView({ editMode, loading, error, hasData, readCount, listCount, writeCount, patternsOpen, visiblePatternGroups, pendingPatternKey, patternScope, patternMode, patternInput, filter, search, tree, highlightedPaths, pendingPaths, onRetry, onPatternScopeChange, onPatternModeChange, onPatternInputChange, onAddPattern, onRemovePattern, onSearchChange, onFilterChange, onTogglePermission }: Readonly<FileTreeViewProps>) {
   const patternClassName = (mode: PatternMode): string => {
     if (mode === 'read') return 'ft-pattern-read';
-    if (mode === 'write') return 'ft-pattern-write';
-    if (mode === 'create') return 'ft-pattern-create';
-    return 'ft-pattern-delete';
+    return 'ft-pattern-write';
   };
 
   if (loading) {
@@ -70,6 +70,9 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, wri
       <div className="ft-summary">
         <span className="ft-summary-item ft-summary-read">
           <i className="codicon codicon-eye" /> {readCount} readable
+        </span>
+        <span className="ft-summary-item ft-summary-list">
+          <i className="codicon codicon-list-tree" /> {listCount} listable
         </span>
         <span className="ft-summary-item ft-summary-write">
           <i className="codicon codicon-edit" /> {writeCount} writable
@@ -126,8 +129,6 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, wri
             >
               <option value="read">Read</option>
               <option value="write">Write</option>
-              <option value="create">Create</option>
-              <option value="delete">Delete</option>
             </select>
             <input
               className="ft-pattern-input"
@@ -161,7 +162,7 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, wri
           onChange={(event) => onSearchChange(event.target.value)}
         />
         <div className="ft-filter-group">
-          {(['all', 'read', 'write'] as const).map((value) => (
+          {(['all', 'read', 'list', 'write'] as const).map((value) => (
             <button
               key={value}
               type="button"
@@ -172,6 +173,8 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, wri
                 ? 'All'
                 : value === 'read'
                   ? <><i className="codicon codicon-eye" /> Read</>
+                  : value === 'list'
+                    ? <><i className="codicon codicon-list-tree" /> List</>
                   : <><i className="codicon codicon-edit" /> Write</>}
             </button>
           ))}
@@ -192,6 +195,7 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, wri
               node={node}
               depth={0}
               editMode={editMode}
+              highlightedPaths={highlightedPaths}
               pendingPaths={pendingPaths}
               onToggle={onTogglePermission}
             />
