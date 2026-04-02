@@ -1,0 +1,635 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/analyzed-data.schema.json",
+  "title": "AnalyzedCodeData",
+  "description": "Analysis results produced by the @aspect/engine orchestrator after running all calculators over collected code data.",
+  "type": "object",
+  "required": ["summary", "timing"],
+  "additionalProperties": false,
+  "properties": {
+    "complexity": { "$ref": "#/definitions/ComplexityResults" },
+    "coupling": { "$ref": "#/definitions/CouplingSection" },
+    "graph": { "$ref": "#/definitions/GraphMetricsResult" },
+    "cohesion": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Lcom4Result" },
+      "description": "Per-entity LCOM4 cohesion results."
+    },
+    "solid": { "$ref": "#/definitions/SolidResults" },
+    "duplication": { "$ref": "#/definitions/DuplicationResults" },
+    "moduleMetrics": { "$ref": "#/definitions/ModuleMetricsSummary" },
+    "summary": { "$ref": "#/definitions/AnalysisSummary" },
+    "timing": { "$ref": "#/definitions/Timing" }
+  },
+  "definitions": {
+
+    "ComplexityResults": {
+      "type": "object",
+      "description": "Per-entity cyclomatic, cognitive, and Halstead complexity plus file-level summaries.",
+      "required": ["cyclomatic", "cognitive", "halstead", "fileSummaries"],
+      "additionalProperties": false,
+      "properties": {
+        "cyclomatic": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CyclomaticResult" }
+        },
+        "cognitive": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CognitiveResult" }
+        },
+        "halstead": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/HalsteadResult" }
+        },
+        "fileSummaries": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/FileComplexitySummary" }
+        }
+      }
+    },
+
+    "CyclomaticResult": {
+      "type": "object",
+      "required": ["entityId", "cyclomaticComplexity"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "cyclomaticComplexity": { "type": "number" }
+      }
+    },
+
+    "CognitiveResult": {
+      "type": "object",
+      "required": ["entityId", "cognitiveComplexity"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "cognitiveComplexity": { "type": "number" }
+      }
+    },
+
+    "HalsteadResult": {
+      "type": "object",
+      "required": ["entityId", "halstead"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "halstead": { "$ref": "#/definitions/HalsteadMetrics" }
+      }
+    },
+
+    "HalsteadMetrics": {
+      "type": "object",
+      "required": ["vocabulary", "length", "volume", "difficulty", "effort", "time", "estimatedBugs"],
+      "additionalProperties": false,
+      "properties": {
+        "vocabulary": { "type": "number" },
+        "length": { "type": "number" },
+        "volume": { "type": "number" },
+        "difficulty": { "type": "number" },
+        "effort": { "type": "number" },
+        "time": { "type": "number" },
+        "estimatedBugs": { "type": "number" }
+      }
+    },
+
+    "FileComplexitySummary": {
+      "type": "object",
+      "required": ["filePath", "maxCyclomatic", "avgCyclomatic", "totalCyclomatic", "maxCognitive", "avgCognitive", "totalCognitive", "functionCount"],
+      "additionalProperties": false,
+      "properties": {
+        "filePath": { "type": "string" },
+        "maxCyclomatic": { "type": "number" },
+        "avgCyclomatic": { "type": "number" },
+        "totalCyclomatic": { "type": "number" },
+        "maxCognitive": { "type": "number" },
+        "avgCognitive": { "type": "number" },
+        "totalCognitive": { "type": "number" },
+        "functionCount": { "type": "number" }
+      }
+    },
+
+    "CouplingSection": {
+      "type": "object",
+      "description": "Per-entity coupling metrics, module dependency matrix, and module cohesion.",
+      "required": ["entities", "moduleDependencyMatrix", "moduleCohesion"],
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CouplingResult" }
+        },
+        "moduleDependencyMatrix": { "$ref": "#/definitions/ModuleDependencyMatrix" },
+        "moduleCohesion": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ModuleCohesion" }
+        }
+      }
+    },
+
+    "CouplingResult": {
+      "type": "object",
+      "required": ["entityId", "afferentCoupling", "efferentCoupling", "instability", "totalCoupling"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "afferentCoupling": { "type": "number", "description": "Ca: number of incoming dependencies." },
+        "efferentCoupling": { "type": "number", "description": "Ce: number of outgoing dependencies." },
+        "instability": { "type": "number", "description": "Ce / (Ca + Ce), range 0–1." },
+        "totalCoupling": { "type": "number", "description": "Ca + Ce." }
+      }
+    },
+
+    "ModuleDependencyMatrix": {
+      "type": "object",
+      "required": ["moduleIds", "matrix", "crossModuleEdgeCount"],
+      "additionalProperties": false,
+      "properties": {
+        "moduleIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ordered list of module IDs (row/column labels)."
+        },
+        "matrix": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "description": "NxN matrix where matrix[i][j] is the number of edges from moduleIds[i] to moduleIds[j]."
+        },
+        "crossModuleEdgeCount": { "type": "number" }
+      }
+    },
+
+    "ModuleCohesion": {
+      "type": "object",
+      "required": ["moduleId", "internalEdges", "externalEdges", "cohesionRatio"],
+      "additionalProperties": false,
+      "properties": {
+        "moduleId": { "type": "string" },
+        "internalEdges": { "type": "number" },
+        "externalEdges": { "type": "number" },
+        "cohesionRatio": { "type": "number", "description": "internalEdges / (internalEdges + externalEdges), range 0–1." }
+      }
+    },
+
+    "GraphMetricsResult": {
+      "type": "object",
+      "description": "Cycle detection, centrality, PageRank, and community detection results.",
+      "required": ["cycles", "centrality", "pageRank", "communities"],
+      "additionalProperties": false,
+      "properties": {
+        "cycles": { "$ref": "#/definitions/CycleInfo" },
+        "centrality": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CentralityResult" }
+        },
+        "pageRank": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/PageRankResult" }
+        },
+        "communities": { "$ref": "#/definitions/CommunityResult" }
+      }
+    },
+
+    "CycleInfo": {
+      "type": "object",
+      "required": ["cycleCount", "largestCycleSize", "totalEntitiesInCycles", "cycles"],
+      "additionalProperties": false,
+      "properties": {
+        "cycleCount": { "type": "number" },
+        "largestCycleSize": { "type": "number" },
+        "totalEntitiesInCycles": { "type": "number" },
+        "cycles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "entityIds", "size"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "entityIds": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "size": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+
+    "CentralityResult": {
+      "type": "object",
+      "required": ["entityId", "betweennessCentrality"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "betweennessCentrality": { "type": "number" }
+      }
+    },
+
+    "PageRankResult": {
+      "type": "object",
+      "required": ["entityId", "pageRank"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "pageRank": { "type": "number" }
+      }
+    },
+
+    "CommunityResult": {
+      "type": "object",
+      "required": ["communityCount", "communities", "modularity"],
+      "additionalProperties": false,
+      "properties": {
+        "communityCount": { "type": "number" },
+        "communities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "entityIds", "size"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "entityIds": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "size": { "type": "number" }
+            }
+          }
+        },
+        "modularity": { "type": "number" }
+      }
+    },
+
+    "Lcom4Result": {
+      "type": "object",
+      "description": "Per-entity LCOM4 cohesion metric with cohesion group breakdown.",
+      "required": ["entityId", "lcom4", "cohesionGroups"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "lcom4": { "type": "number", "description": "Number of connected components in the method-field graph." },
+        "cohesionGroups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["methods", "sharedFields"],
+            "additionalProperties": false,
+            "properties": {
+              "methods": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "sharedFields": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Fields accessed by two or more methods in this group."
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "SolidResults": {
+      "type": "object",
+      "description": "SOLID principle indicator scores per entity.",
+      "required": ["srp", "ocp", "isp", "dip", "lsp"],
+      "additionalProperties": false,
+      "properties": {
+        "srp": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/SrpIndicator" }
+        },
+        "ocp": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/OcpIndicator" }
+        },
+        "isp": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/IspIndicator" }
+        },
+        "dip": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/DipIndicator" }
+        },
+        "lsp": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/LspIndicator" }
+        }
+      }
+    },
+
+    "SrpIndicator": {
+      "type": "object",
+      "required": ["entityId", "lcom4", "importSourceDiversity", "responsibilityGroupCount", "nameSemanticClusters", "srpScore"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "lcom4": { "type": "number" },
+        "importSourceDiversity": { "type": "number" },
+        "responsibilityGroupCount": { "type": "number" },
+        "nameSemanticClusters": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "srpScore": { "type": "number", "description": "0–1 composite score (lower = worse SRP)." }
+      }
+    },
+
+    "OcpIndicator": {
+      "type": "object",
+      "required": ["entityId", "typeCheckingDensity", "conditionalDispatchCount", "extensionPointRatio", "concreteTargetRatio", "ocpScore"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "typeCheckingDensity": { "type": "number" },
+        "conditionalDispatchCount": { "type": "number" },
+        "extensionPointRatio": { "type": "number" },
+        "concreteTargetRatio": { "type": "number" },
+        "ocpScore": { "type": "number", "description": "0–1 (lower = worse OCP)." }
+      }
+    },
+
+    "IspIndicator": {
+      "type": "object",
+      "required": ["entityId", "avgUsageRatio", "minUsageRatio", "consumerCount", "suggestedSplits", "ispScore"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "avgUsageRatio": { "type": "number" },
+        "minUsageRatio": { "type": "number" },
+        "consumerCount": { "type": "number" },
+        "suggestedSplits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["members", "consumers"],
+            "additionalProperties": false,
+            "properties": {
+              "members": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "consumers": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "ispScore": { "type": "number", "description": "0–1 (lower = fatter interface)." }
+      }
+    },
+
+    "DipIndicator": {
+      "type": "object",
+      "required": ["entityId", "abstractionDependencyRatio", "concreteDependencyCount", "layerViolationCount", "dipScore"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "abstractionDependencyRatio": { "type": "number" },
+        "concreteDependencyCount": { "type": "number" },
+        "layerViolationCount": { "type": "number" },
+        "dipScore": { "type": "number", "description": "0–1 (lower = more concrete deps)." }
+      }
+    },
+
+    "LspIndicator": {
+      "type": "object",
+      "required": ["entityId", "overrideCount", "signatureMismatches", "lspScore"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "overrideCount": { "type": "number" },
+        "signatureMismatches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["methodName", "baseParams", "overrideParams", "baseReturn", "overrideReturn"],
+            "additionalProperties": false,
+            "properties": {
+              "methodName": { "type": "string" },
+              "baseParams": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "overrideParams": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "baseReturn": { "type": ["string", "null"] },
+              "overrideReturn": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "lspScore": { "type": "number", "description": "1.0 minus penalty per mismatch." }
+      }
+    },
+
+    "DuplicationResults": {
+      "type": "object",
+      "description": "Project-level, per-file, cross-module duplication metrics and hotspots.",
+      "required": ["project", "files", "crossModule", "hotspots"],
+      "additionalProperties": false,
+      "properties": {
+        "project": { "$ref": "#/definitions/ProjectDuplicationResult" },
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/FileDuplicationResult" }
+        },
+        "crossModule": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CrossModuleDuplication" }
+        },
+        "hotspots": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/FileDuplicationResult" },
+          "description": "Top N files by duplication percentage."
+        }
+      }
+    },
+
+    "ProjectDuplicationResult": {
+      "type": "object",
+      "required": ["totalLines", "duplicatedLines", "duplicationPercentage", "totalClones"],
+      "additionalProperties": false,
+      "properties": {
+        "totalLines": { "type": "number" },
+        "duplicatedLines": { "type": "number" },
+        "duplicationPercentage": { "type": "number", "description": "0–100 duplication percentage." },
+        "totalClones": { "type": "number" }
+      }
+    },
+
+    "FileDuplicationResult": {
+      "type": "object",
+      "required": ["filePath", "duplicatedLines", "totalLines", "duplicationPercentage", "cloneCount"],
+      "additionalProperties": false,
+      "properties": {
+        "filePath": { "type": "string" },
+        "duplicatedLines": { "type": "number", "description": "Lines involved in at least one clone." },
+        "totalLines": { "type": "number" },
+        "duplicationPercentage": { "type": "number", "description": "0–100 duplication percentage." },
+        "cloneCount": { "type": "number", "description": "Distinct clone pairs involving this file." }
+      }
+    },
+
+    "CrossModuleDuplication": {
+      "type": "object",
+      "required": ["sourceModule", "targetModule", "cloneCount", "totalDuplicatedLines"],
+      "additionalProperties": false,
+      "properties": {
+        "sourceModule": { "type": "string" },
+        "targetModule": { "type": "string" },
+        "cloneCount": { "type": "number" },
+        "totalDuplicatedLines": { "type": "number" }
+      }
+    },
+
+    "ModuleMetricsSummary": {
+      "type": "object",
+      "description": "Per-module abstractness, instability, distance from main sequence, and zone classification.",
+      "required": ["modules", "averageAbstractness", "averageInstability", "averageDistance", "zoneOfPain", "zoneOfUselessness"],
+      "additionalProperties": false,
+      "properties": {
+        "modules": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ModuleMetricsResult" }
+        },
+        "averageAbstractness": { "type": "number" },
+        "averageInstability": { "type": "number" },
+        "averageDistance": { "type": "number" },
+        "zoneOfPain": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Module IDs with low abstractness and low instability."
+        },
+        "zoneOfUselessness": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Module IDs with high abstractness and high instability."
+        }
+      }
+    },
+
+    "ModuleMetricsResult": {
+      "type": "object",
+      "required": ["moduleId", "abstractness", "instability", "distanceFromMainSequence", "size", "afferentCoupling", "efferentCoupling"],
+      "additionalProperties": false,
+      "properties": {
+        "moduleId": { "type": "string" },
+        "abstractness": { "type": "number", "description": "Ratio of abstract/interface entities to total type entities, 0–1." },
+        "instability": { "type": "number", "description": "Ce / (Ca + Ce), range 0–1." },
+        "distanceFromMainSequence": { "type": "number", "description": "|A + I − 1|, 0 means on the main sequence." },
+        "size": { "$ref": "#/definitions/ModuleSize" },
+        "afferentCoupling": { "type": "number", "description": "Ca: incoming edges from other modules." },
+        "efferentCoupling": { "type": "number", "description": "Ce: outgoing edges to other modules." }
+      }
+    },
+
+    "ModuleSize": {
+      "type": "object",
+      "required": ["fileCount", "totalLoc", "entityCount", "classCount", "interfaceCount", "functionCount"],
+      "additionalProperties": false,
+      "properties": {
+        "fileCount": { "type": "number" },
+        "totalLoc": { "type": "number" },
+        "entityCount": { "type": "number" },
+        "classCount": { "type": "number" },
+        "interfaceCount": { "type": "number" },
+        "functionCount": { "type": "number" }
+      }
+    },
+
+    "AnalysisSummary": {
+      "type": "object",
+      "description": "Aggregate statistics and top offenders across all calculators.",
+      "required": [
+        "entityCount", "relationshipCount", "moduleCount",
+        "maxCyclomaticComplexity", "avgCyclomaticComplexity",
+        "cycleCount", "communityCount", "overallDuplicationPercentage",
+        "mostComplexEntities", "mostCoupledEntities", "worstSrpEntities",
+        "modulesInZoneOfPain", "modulesInZoneOfUselessness"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "entityCount": { "type": "number" },
+        "relationshipCount": { "type": "number" },
+        "moduleCount": { "type": "number" },
+        "maxCyclomaticComplexity": { "type": "number" },
+        "avgCyclomaticComplexity": { "type": "number" },
+        "cycleCount": { "type": "number" },
+        "communityCount": { "type": "number" },
+        "overallDuplicationPercentage": { "type": "number" },
+        "mostComplexEntities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entityId", "cyclomatic"],
+            "additionalProperties": false,
+            "properties": {
+              "entityId": { "type": "string" },
+              "cyclomatic": { "type": "number" }
+            }
+          }
+        },
+        "mostCoupledEntities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entityId", "totalCoupling"],
+            "additionalProperties": false,
+            "properties": {
+              "entityId": { "type": "string" },
+              "totalCoupling": { "type": "number" }
+            }
+          }
+        },
+        "worstSrpEntities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entityId", "lcom4"],
+            "additionalProperties": false,
+            "properties": {
+              "entityId": { "type": "string" },
+              "lcom4": { "type": "number" }
+            }
+          }
+        },
+        "modulesInZoneOfPain": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "modulesInZoneOfUselessness": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "Timing": {
+      "type": "object",
+      "description": "Execution timing for the analysis run.",
+      "required": ["totalMs", "perCalculator"],
+      "additionalProperties": false,
+      "properties": {
+        "totalMs": { "type": "number" },
+        "perCalculator": {
+          "type": "object",
+          "description": "Milliseconds spent in each calculator group.",
+          "additionalProperties": { "type": "number" }
+        }
+      }
+    }
+  }
+}

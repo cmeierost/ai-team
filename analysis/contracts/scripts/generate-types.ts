@@ -24,6 +24,7 @@ const SCHEMAS: SchemaEntry[] = [
   { schemaPath: 'signals/coverage.schema.json', outputName: 'coverage' },
   { schemaPath: 'signals/lint.schema.json', outputName: 'lint' },
   { schemaPath: 'collected-data.schema.json', outputName: 'collected-data' },
+  { schemaPath: 'analyzed-data.schema.json', outputName: 'analyzed-data' },
   { schemaPath: 'protocol.schema.json', outputName: 'protocol' },
 ];
 
