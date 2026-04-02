@@ -1,7 +1,7 @@
 {
-  "name": "@aspect/collector-javascript",
+  "name": "@aspect/collector-typescript",
   "version": "0.1.0",
-  "description": "JavaScript/TypeScript code analysis collector — extracts raw facts using dependency-cruiser, jscpd, eslint, and custom AST visitors",
+  "description": "TypeScript/JavaScript code analysis collector — extracts raw facts using dependency-cruiser, jscpd, eslint, and custom AST visitors",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",

@@ -36,7 +36,7 @@ importers:
         specifier: ^6.0.2
         version: 6.0.2
 
-  analysis/collectors/javascript:
+  analysis/collectors/typescript:
     dependencies:
       '@aspect/contracts':
         specifier: workspace:*
