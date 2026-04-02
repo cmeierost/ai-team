@@ -50,6 +50,10 @@ import {
 import type { Grouping, GroupingComparison } from './grouping.js';
 import { classifyCodeRoles } from './code-roles.js';
 import type { CodeRoleResult, CodeRoleOptions } from './code-roles.js';
+import { calculateGroupCoupling } from './group-coupling.js';
+import type { GroupCouplingResult, GroupCouplingOptions } from './group-coupling.js';
+import { generateRecommendations } from './recommendations.js';
+import type { ArchitecturalSummary } from './recommendations.js';
 
 // ── Public input / output types ─────────────────────────────────────────
 
@@ -72,7 +76,9 @@ export type CalculatorGroup =
   | 'module'
   | 'hierarchy'
   | 'coherence'
-  | 'codeRoles';
+  | 'codeRoles'
+  | 'groupCoupling'
+  | 'recommendations';
 
 export interface AnalysisOptions {
   /** Which calculator groups to run (default: all). */
@@ -87,6 +93,8 @@ export interface AnalysisOptions {
   coherence?: CoherenceOptions;
   /** Code role classification options. */
   codeRoles?: CodeRoleOptions;
+  /** Group coupling analysis options. */
+  groupCoupling?: GroupCouplingOptions;
 }
 
 export interface CouplingSection {
@@ -106,6 +114,8 @@ export interface AnalysisResult {
   hierarchy?: HierarchyMetrics;
   coherence?: CoherenceResult;
   codeRoles?: CodeRoleResult;
+  groupCoupling?: GroupCouplingResult;
+  architecturalSummary?: ArchitecturalSummary;
   referenceGrouping?: Grouping;
   directoryGrouping?: Grouping;
   boundaryGrouping?: Grouping;
@@ -146,6 +156,11 @@ export interface AnalysisSummary {
 
   groupingSimilarityScore: number;
   groupingNmi: number;
+
+  healthScore: number;
+  recommendationCount: number;
+  separableGroupCount: number;
+  mergeCandidateCount: number;
 }
 
 // ── Constants ───────────────────────────────────────────────────────────
@@ -161,6 +176,8 @@ const ALL_GROUPS: CalculatorGroup[] = [
   'hierarchy',
   'coherence',
   'codeRoles',
+  'groupCoupling',
+  'recommendations',
 ];
 
 const TOP_N = 5;
@@ -191,6 +208,8 @@ function buildSummary(
   coherenceResult?: CoherenceResult,
   codeRolesResult?: CodeRoleResult,
   groupingComparisonResult?: GroupingComparison,
+  architecturalSummaryResult?: ArchitecturalSummary,
+  groupCouplingResult?: GroupCouplingResult,
 ): AnalysisSummary {
   // Complexity aggregates
   const cyclomatics = complexityResult?.cyclomatic ?? [];
@@ -257,6 +276,12 @@ function buildSummary(
 
     groupingSimilarityScore: groupingComparisonResult?.similarityScore ?? 0,
     groupingNmi: groupingComparisonResult?.nmi ?? 0,
+
+    healthScore: architecturalSummaryResult?.healthScore ?? 0,
+    recommendationCount: architecturalSummaryResult?.recommendations.length ?? 0,
+    separableGroupCount:
+      groupCouplingResult?.profiles.filter((p) => p.separabilityIndex > 0.7).length ?? 0,
+    mergeCandidateCount: groupCouplingResult?.mergeCandidates.length ?? 0,
   };
 }
 
@@ -286,6 +311,8 @@ export async function analyze(
   let hierarchyResult: HierarchyMetrics | undefined;
   let coherenceResult: CoherenceResult | undefined;
   let codeRolesResult: CodeRoleResult | undefined;
+  let groupCouplingResult: GroupCouplingResult | undefined;
+  let architecturalSummaryResult: ArchitecturalSummary | undefined;
 
   // --- Complexity ---
   if (include.has('complexity')) {
@@ -444,6 +471,24 @@ export async function analyze(
   const { refGrouping, dirGrouping, bndGrouping, comparison: groupingComparison } = tGrouping.result;
   timing.grouping = tGrouping.ms;
 
+  // --- Group coupling (requires grouping + code roles) ---
+  if (include.has('groupCoupling')) {
+    const primaryGrouping = bndGrouping ?? refGrouping;
+    const t = timed(() =>
+      calculateGroupCoupling(
+        primaryGrouping,
+        input.entities,
+        input.relationships,
+        {
+          mergeCouplingThreshold: options?.groupCoupling?.mergeCouplingThreshold,
+          codeRoles: codeRolesResult?.classifications,
+        },
+      ),
+    );
+    groupCouplingResult = t.result;
+    timing.groupCoupling = t.ms;
+  }
+
   // --- Build combined result ---
   const couplingSection: CouplingSection | undefined =
     couplingEntities != null
@@ -466,9 +511,11 @@ export async function analyze(
     coherenceResult,
     codeRolesResult,
     groupingComparison,
+    undefined, // architecturalSummary — filled after recommendations
+    groupCouplingResult,
   );
 
-  return {
+  const result: AnalysisResult = {
     complexity: complexityResult,
     coupling: couplingSection,
     graph: graphResult,
@@ -479,6 +526,7 @@ export async function analyze(
     hierarchy: hierarchyResult,
     coherence: coherenceResult,
     codeRoles: codeRolesResult,
+    groupCoupling: groupCouplingResult,
     referenceGrouping: refGrouping,
     directoryGrouping: dirGrouping,
     boundaryGrouping: bndGrouping,
@@ -486,4 +534,21 @@ export async function analyze(
     summary,
     timing: { totalMs: performance.now() - start, perCalculator: timing },
   };
+
+  // --- Recommendations (requires full result) ---
+  if (include.has('recommendations')) {
+    const t = timed(() => generateRecommendations(result, groupCouplingResult));
+    architecturalSummaryResult = t.result;
+    timing.recommendations = t.ms;
+    result.architecturalSummary = architecturalSummaryResult;
+    // Update summary with recommendation-derived fields
+    result.summary = {
+      ...result.summary,
+      healthScore: architecturalSummaryResult.healthScore,
+      recommendationCount: architecturalSummaryResult.recommendations.length,
+    };
+  }
+
+  result.timing = { totalMs: performance.now() - start, perCalculator: timing };
+  return result;
 }

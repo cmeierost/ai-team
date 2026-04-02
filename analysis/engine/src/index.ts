@@ -129,6 +129,23 @@ export {
 } from './grouping.js';
 
 export {
+  calculateGroupCoupling,
+  type GroupPairCoupling,
+  type GroupCouplingProfile,
+  type MergeCandidate,
+  type GroupCouplingResult,
+  type GroupCouplingOptions,
+} from './group-coupling.js';
+
+export {
+  generateRecommendations,
+  type ArchitecturalSummary,
+  type Recommendation,
+  type RecommendationPriority,
+  type RecommendationCategory,
+} from './recommendations.js';
+
+export {
   buildLocationMap,
   type SourceLocation,
 } from './location.js';
