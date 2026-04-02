@@ -39,3 +39,18 @@ export {
   type LspIndicator,
   type SolidResults,
 } from './solid.js';
+
+export {
+  calculateDuplication,
+  type FileDuplicationResult,
+  type ProjectDuplicationResult,
+  type CrossModuleDuplication,
+  type DuplicationResults,
+  type DuplicationOptions,
+} from './duplication.js';
+
+export {
+  calculateModuleMetrics,
+  type ModuleMetricsResult,
+  type ModuleMetricsSummary,
+} from './module-metrics.js';
