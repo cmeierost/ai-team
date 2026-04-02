@@ -3,8 +3,10 @@
  */
 
 import { execFile } from 'node:child_process';
-import { readFile, mkdir, rm } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { readFile, mkdir, rm, access } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Raw jscpd JSON types
@@ -206,13 +208,20 @@ export function normalizeJscpdOutput(
 // ---------------------------------------------------------------------------
 
 function resolveJscpdBin(): string {
-  // Prefer the locally-installed binary
+  // Resolve relative to THIS package's node_modules, not CWD
   try {
-    const resolved = resolve('node_modules', '.bin', 'jscpd');
-    return resolved;
+    const req = createRequire(import.meta.url);
+    const jscpdPkgPath = req.resolve('jscpd/package.json');
+    const jscpdDir = dirname(jscpdPkgPath);
+    const pkg = JSON.parse(readFileSync(jscpdPkgPath, 'utf-8'));
+    const binPath = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin?.jscpd;
+    if (binPath) {
+      return resolve(jscpdDir, binPath);
+    }
   } catch {
-    return 'jscpd'; // fall back to global
+    // fall through
   }
+  return 'jscpd'; // fall back to PATH
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +313,16 @@ export async function runJscpdAdapter(options: JscpdAdapterOptions): Promise<Jsc
   // Read JSON report
   const reportPath = join(outputDir, 'jscpd-report.json');
   let rawOutput: JscpdRawOutput;
+  try {
+    await access(reportPath);
+  } catch {
+    const detail = cliResult.stderr
+      ? `\nCLI stderr: ${cliResult.stderr.trim()}`
+      : '';
+    throw new Error(
+      `jscpd did not produce a report at ${reportPath} (exit code ${cliResult.exitCode}).${detail}`,
+    );
+  }
   try {
     const content = await readFile(reportPath, 'utf-8');
     rawOutput = JSON.parse(content) as JscpdRawOutput;

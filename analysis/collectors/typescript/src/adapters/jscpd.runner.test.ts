@@ -10,10 +10,21 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
   mkdir: vi.fn(),
   rm: vi.fn(),
+  access: vi.fn(),
+}));
+
+vi.mock('node:fs', () => ({
+  readFileSync: vi.fn(),
+}));
+
+vi.mock('node:module', () => ({
+  createRequire: vi.fn(() => ({
+    resolve: vi.fn(() => { throw new Error('not found'); }),
+  })),
 }));
 
 import { execFile } from 'node:child_process';
-import { readFile, mkdir, rm } from 'node:fs/promises';
+import { readFile, mkdir, rm, access } from 'node:fs/promises';
 import { runJscpdAdapter } from './jscpd.js';
 import type { JscpdRawOutput } from './jscpd.js';
 
@@ -21,6 +32,7 @@ const mockExecFile = vi.mocked(execFile);
 const mockReadFile = vi.mocked(readFile);
 const mockMkdir = vi.mocked(mkdir);
 const mockRm = vi.mocked(rm);
+const mockAccess = vi.mocked(access);
 
 function mockExecFileResponses(
   responses: Array<{
@@ -74,6 +86,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockMkdir.mockResolvedValue(undefined as never);
   mockRm.mockResolvedValue(undefined as never);
+  mockAccess.mockResolvedValue(undefined as never);
 });
 
 describe('runJscpdAdapter', () => {
@@ -152,15 +165,37 @@ describe('runJscpdAdapter', () => {
     expect(result.toolRun.warnings).toContain('jscpd warning message');
   });
 
-  it('throws when report cannot be read', async () => {
+  it('throws when report file does not exist', async () => {
     mockExecFileResponses([
       { stdout: '4.0.5\n' },
       {},
     ]);
-    mockReadFile.mockRejectedValueOnce(new Error('ENOENT'));
+    mockAccess.mockRejectedValueOnce(new Error('ENOENT'));
+
+    await expect(runJscpdAdapter({ rootDir: '/project' }))
+      .rejects.toThrow(/jscpd did not produce a report/);
+  });
+
+  it('throws when report file cannot be parsed', async () => {
+    mockExecFileResponses([
+      { stdout: '4.0.5\n' },
+      {},
+    ]);
+    mockReadFile.mockResolvedValueOnce('not json' as never);
 
     await expect(runJscpdAdapter({ rootDir: '/project' }))
       .rejects.toThrow(/Failed to read jscpd report/);
+  });
+
+  it('includes stderr in error when report is missing', async () => {
+    mockExecFileResponses([
+      { stdout: '4.0.5\n' },
+      { stderr: 'Error: cannot find tsconfig\n' },
+    ]);
+    mockAccess.mockRejectedValueOnce(new Error('ENOENT'));
+
+    await expect(runJscpdAdapter({ rootDir: '/project' }))
+      .rejects.toThrow(/cannot find tsconfig/);
   });
 
   it('adds warning when cleanup fails but does not throw', async () => {

@@ -6,6 +6,7 @@
  */
 
 import * as path from 'node:path';
+import { readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 // ── Local types ─────────────────────────────────────────────────────────────
@@ -325,6 +326,25 @@ function getDepCruiserVersion(): string {
   }
 }
 
+// ── File collection ─────────────────────────────────────────────────────────
+
+/**
+ * Recursively collect TypeScript source files from a directory, excluding
+ * test files, declaration files, and build output.
+ */
+export function collectTsFiles(dir: string): string[] {
+  const entries = readdirSync(dir, { recursive: true, encoding: 'utf-8' });
+
+  return entries.filter((entry) => {
+    const normalized = entry.replace(/\\/g, '/');
+    if (!/\.tsx?$/.test(normalized)) return false;
+    if (/\.d\.tsx?$/.test(normalized)) return false;
+    if (/\.(?:test|spec)\.tsx?$/.test(normalized)) return false;
+    if (/(^|\/)(__tests__|__fixtures__|node_modules|dist)(\/|$)/.test(normalized)) return false;
+    return true;
+  });
+}
+
 // ── Runner ──────────────────────────────────────────────────────────────────
 
 /**
@@ -342,10 +362,18 @@ export async function runDepCruiserAdapter(
   // without requiring the dep-cruiser binary to be resolvable.
   const { cruise } = await import('dependency-cruiser');
 
-  const absoluteSrcDirs = srcDirs.map((dir) => path.resolve(rootDir, dir));
+  // Collect actual TypeScript file paths instead of directories.
+  // cruise() expects file paths — passing directories silently returns 0 modules.
+  const filePaths: string[] = [];
+  for (const srcDir of srcDirs) {
+    const absDir = path.resolve(rootDir, srcDir);
+    const tsFiles = collectTsFiles(absDir);
+    filePaths.push(...tsFiles.map((f) => path.join(srcDir, f).replace(/\\/g, '/')));
+  }
 
-  const result = await cruise(absoluteSrcDirs, {
+  const result = await cruise(filePaths, {
     outputType: 'json',
+    baseDir: rootDir,
     ...cruiseOptions,
   });
 

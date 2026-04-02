@@ -14,6 +14,12 @@ vi.mock('node:module', () => ({
   createRequire: vi.fn(() => mockRequireFunc),
 }));
 
+const mockReaddirSync = vi.fn();
+
+vi.mock('node:fs', () => ({
+  readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
+}));
+
 import { runDepCruiserAdapter, type DepCruiserRawOutput } from './dep-cruiser.js';
 
 function createMockRawOutput(overrides?: Partial<DepCruiserRawOutput>): DepCruiserRawOutput {
@@ -52,6 +58,7 @@ function createMockRawOutput(overrides?: Partial<DepCruiserRawOutput>): DepCruis
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockReaddirSync.mockReturnValue(['index.ts', 'service.ts']);
   mockRequireFunc.mockImplementation((specifier: string) => {
     if (specifier === 'dependency-cruiser/package.json') {
       return { version: '16.5.0' };
@@ -76,7 +83,7 @@ describe('runDepCruiserAdapter', () => {
     expect(typeof result.toolRun.duration).toBe('number');
   });
 
-  it('passes custom srcDirs to cruise', async () => {
+  it('passes file paths from custom srcDirs to cruise', async () => {
     mockCruise.mockResolvedValueOnce({
       output: JSON.stringify(createMockRawOutput()),
     });
@@ -87,9 +94,11 @@ describe('runDepCruiserAdapter', () => {
     });
 
     const firstArg = mockCruise.mock.calls[0]![0] as string[];
-    expect(firstArg).toHaveLength(2);
-    expect(firstArg[0]).toMatch(/src$/);
-    expect(firstArg[1]).toMatch(/lib$/);
+    expect(firstArg).toEqual(expect.arrayContaining([
+      'src/index.ts', 'src/service.ts',
+      'lib/index.ts', 'lib/service.ts',
+    ]));
+    expect(firstArg).toHaveLength(4);
   });
 
   it('defaults to ["src"] when no srcDirs specified', async () => {
@@ -100,8 +109,7 @@ describe('runDepCruiserAdapter', () => {
     await runDepCruiserAdapter({ rootDir: '/project' });
 
     const firstArg = mockCruise.mock.calls[0]![0] as string[];
-    expect(firstArg).toHaveLength(1);
-    expect(firstArg[0]).toMatch(/src$/);
+    expect(firstArg).toEqual(['src/index.ts', 'src/service.ts']);
   });
 
   it('forwards cruiseOptions', async () => {
@@ -118,6 +126,7 @@ describe('runDepCruiserAdapter', () => {
       expect.any(Array),
       expect.objectContaining({
         outputType: 'json',
+        baseDir: '/project',
         tsPreCompilationDeps: true,
       }),
     );
