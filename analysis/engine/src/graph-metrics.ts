@@ -2,8 +2,12 @@
 // Builds dependency graphs and computes cycle detection, centrality,
 // PageRank, and community detection using graphology.
 
-import Graph, { UndirectedGraph } from 'graphology';
-import { stronglyConnectedComponents } from 'graphology-components';
+import Graph from 'graphology';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const UndirectedGraph = (Graph as any).UndirectedGraph as typeof Graph;
+type GraphInstance = InstanceType<typeof Graph>;
+import graphologyComponents from 'graphology-components';
+const { stronglyConnectedComponents } = graphologyComponents;
 import betweennessCentrality from 'graphology-metrics/centrality/betweenness.js';
 import pagerank from 'graphology-metrics/centrality/pagerank.js';
 import louvain from 'graphology-communities-louvain';
@@ -54,7 +58,7 @@ export interface CommunityResult {
 export function buildDependencyGraph(
   entities: Entity[],
   relationships: Relationship[],
-): Graph {
+): GraphInstance {
   const graph = new Graph({ type: 'directed', multi: false });
 
   for (const entity of entities) {
@@ -98,7 +102,7 @@ export function buildDependencyGraph(
 
 // ── Cycle detection (Tarjan's SCC) ──────────────────────────────────────
 
-export function detectCycles(graph: Graph): CycleInfo {
+export function detectCycles(graph: GraphInstance): CycleInfo {
   if (graph.order === 0) {
     return { cycleCount: 0, largestCycleSize: 0, totalEntitiesInCycles: 0, cycles: [] };
   }
@@ -127,7 +131,7 @@ export function detectCycles(graph: Graph): CycleInfo {
 
 // ── Betweenness centrality ──────────────────────────────────────────────
 
-export function calculateCentrality(graph: Graph): CentralityResult[] {
+export function calculateCentrality(graph: GraphInstance): CentralityResult[] {
   if (graph.order === 0) return [];
 
   const mapping = betweennessCentrality(graph, { normalized: true });
@@ -142,7 +146,7 @@ export function calculateCentrality(graph: Graph): CentralityResult[] {
 
 // ── PageRank ────────────────────────────────────────────────────────────
 
-export function calculatePageRank(graph: Graph): PageRankResult[] {
+export function calculatePageRank(graph: GraphInstance): PageRankResult[] {
   if (graph.order === 0) return [];
 
   const mapping = pagerank(graph, {
@@ -162,7 +166,7 @@ export function calculatePageRank(graph: Graph): PageRankResult[] {
 
 // ── Community detection (Louvain) ───────────────────────────────────────
 
-export function detectCommunities(graph: Graph): CommunityResult {
+export function detectCommunities(graph: GraphInstance): CommunityResult {
   if (graph.order === 0) {
     return { communityCount: 0, communities: [], modularity: 0 };
   }
@@ -170,11 +174,11 @@ export function detectCommunities(graph: Graph): CommunityResult {
   // Louvain requires an undirected graph — build one by merging edge weights
   const undirected = new UndirectedGraph();
 
-  graph.forEachNode((node, attrs) => {
+  graph.forEachNode((node: string, attrs: Record<string, unknown>) => {
     undirected.addNode(node, attrs);
   });
 
-  graph.forEachEdge((_edge, attrs, source, target) => {
+  graph.forEachEdge((_edge: string, attrs: Record<string, unknown>, source: string, target: string) => {
     if (source === target) return; // skip self-loops
     const w = (attrs.weight as number) ?? 1;
     if (undirected.hasEdge(source, target)) {
@@ -190,7 +194,7 @@ export function detectCommunities(graph: Graph): CommunityResult {
     const nodes = undirected.nodes();
     return {
       communityCount: nodes.length,
-      communities: nodes.map((n, i) => ({
+      communities: nodes.map((n: string, i: number) => ({
         id: `community-${i}`,
         entityIds: [n],
         size: 1,
