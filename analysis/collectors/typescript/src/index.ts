@@ -38,3 +38,16 @@ export type {
   CoverageFile,
   CoverageFileFunction,
 } from './adapters/coverage.js';
+
+export {
+  runAstVisitor,
+  visitSourceFile,
+  normalizePath as normalizeAstPath,
+  tokenizeName,
+} from './adapters/ast-visitor.js';
+
+export type {
+  AstVisitorOptions,
+  AstVisitorResult,
+  AstVisitorToolRun,
+} from './adapters/ast-visitor.js';
