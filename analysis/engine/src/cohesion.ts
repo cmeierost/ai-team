@@ -2,10 +2,13 @@
 // Derives class cohesion metrics from method-field access data.
 // Pure math — no source code access or I/O.
 
+import type { SourceLocation } from './location.js';
+
 // ── Result types ──
 
 export interface Lcom4Result {
   entityId: string;
+  location?: SourceLocation;
   /** Number of connected components in the method-field graph. */
   lcom4: number;
   cohesionGroups: Array<{
@@ -20,9 +23,10 @@ export interface Lcom4Result {
 export function calculateLcom4(
   entityId: string,
   methodFieldAccessMatrix: Array<{ methodName: string; accessedFields: string[] }>,
+  location?: SourceLocation,
 ): Lcom4Result {
   if (methodFieldAccessMatrix.length === 0) {
-    return { entityId, lcom4: 0, cohesionGroups: [] };
+    return { entityId, location, lcom4: 0, cohesionGroups: [] };
   }
 
   const methods = methodFieldAccessMatrix.map(m => m.methodName);
@@ -102,6 +106,7 @@ export function calculateLcom4(
 
   return {
     entityId,
+    location,
     lcom4: components.length,
     cohesionGroups,
   };

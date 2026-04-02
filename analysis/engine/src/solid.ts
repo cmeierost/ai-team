@@ -3,6 +3,7 @@
 // Pure math — no source code access or I/O. Scores are [0, 1] where lower = worse.
 
 import type { Lcom4Result } from './cohesion.js';
+import type { SourceLocation } from './location.js';
 
 // ── Local input shapes (mirrors @aspect/contracts) ──
 
@@ -11,6 +12,7 @@ export interface Entity {
   kind: string;
   name: string;
   filePath: string;
+  sourceRange?: { startLine: number; startColumn: number; endLine: number; endColumn: number } | null;
   classification?: {
     isAbstract: boolean;
     isInterface: boolean;
@@ -65,6 +67,7 @@ export interface ModuleBoundary {
 
 export interface SrpIndicator {
   entityId: string;
+  location?: SourceLocation;
   lcom4: number;
   importSourceDiversity: number;
   responsibilityGroupCount: number;
@@ -75,6 +78,7 @@ export interface SrpIndicator {
 
 export interface OcpIndicator {
   entityId: string;
+  location?: SourceLocation;
   typeCheckingDensity: number;
   conditionalDispatchCount: number;
   extensionPointRatio: number;
@@ -85,6 +89,7 @@ export interface OcpIndicator {
 
 export interface IspIndicator {
   entityId: string;
+  location?: SourceLocation;
   avgUsageRatio: number;
   minUsageRatio: number;
   consumerCount: number;
@@ -98,6 +103,7 @@ export interface IspIndicator {
 
 export interface DipIndicator {
   entityId: string;
+  location?: SourceLocation;
   abstractionDependencyRatio: number;
   concreteDependencyCount: number;
   layerViolationCount: number;
@@ -107,6 +113,7 @@ export interface DipIndicator {
 
 export interface LspIndicator {
   entityId: string;
+  location?: SourceLocation;
   overrideCount: number;
   signatureMismatches: Array<{
     methodName: string;
@@ -195,6 +202,7 @@ function calculateSrp(
   entities: Entity[],
   relationships: Relationship[],
   lcom4Results: Lcom4Result[],
+  locationMap: Map<string, SourceLocation>,
 ): SrpIndicator[] {
   const lcom4Map = new Map(lcom4Results.map(r => [r.entityId, r]));
   const entityMap = new Map(entities.map(e => [e.id, e]));
@@ -232,6 +240,7 @@ function calculateSrp(
 
     results.push({
       entityId: entity.id,
+      location: locationMap.get(entity.id),
       lcom4: lcom4.lcom4,
       importSourceDiversity,
       responsibilityGroupCount: lcom4.lcom4,
@@ -248,6 +257,7 @@ function calculateSrp(
 function calculateOcp(
   entities: Entity[],
   relationships: Relationship[],
+  locationMap: Map<string, SourceLocation>,
 ): OcpIndicator[] {
   const results: OcpIndicator[] = [];
 
@@ -282,6 +292,7 @@ function calculateOcp(
 
     results.push({
       entityId: entity.id,
+      location: locationMap.get(entity.id),
       typeCheckingDensity,
       conditionalDispatchCount,
       extensionPointRatio,
@@ -352,6 +363,7 @@ function clusterMembersByUsage(
 function calculateIsp(
   entities: Entity[],
   relationships: Relationship[],
+  locationMap: Map<string, SourceLocation>,
 ): IspIndicator[] {
   const results: IspIndicator[] = [];
 
@@ -387,6 +399,7 @@ function calculateIsp(
 
     results.push({
       entityId: targetId,
+      location: locationMap.get(targetId),
       avgUsageRatio,
       minUsageRatio,
       consumerCount: consumerRels.length,
@@ -404,6 +417,7 @@ function calculateDip(
   entities: Entity[],
   relationships: Relationship[],
   moduleBoundaries: ModuleBoundary[],
+  locationMap: Map<string, SourceLocation>,
 ): DipIndicator[] {
   // Build file → declared layer map
   const fileLayerMap = new Map<string, number>();
@@ -451,6 +465,7 @@ function calculateDip(
 
     results.push({
       entityId: entity.id,
+      location: locationMap.get(entity.id),
       abstractionDependencyRatio,
       concreteDependencyCount: concreteDeps,
       layerViolationCount,
@@ -466,6 +481,7 @@ function calculateDip(
 function calculateLsp(
   entities: Entity[],
   relationships: Relationship[],
+  locationMap: Map<string, SourceLocation>,
 ): LspIndicator[] {
   const entityMap = new Map(entities.map(e => [e.id, e]));
   const results: LspIndicator[] = [];
@@ -481,6 +497,7 @@ function calculateLsp(
     if (overrides.length === 0) {
       results.push({
         entityId: entity.id,
+        location: locationMap.get(entity.id),
         overrideCount: 0,
         signatureMismatches: [],
         lspScore: 1,
@@ -518,6 +535,7 @@ function calculateLsp(
 
     results.push({
       entityId: entity.id,
+      location: locationMap.get(entity.id),
       overrideCount: overrides.length,
       signatureMismatches: mismatches,
       lspScore,
@@ -535,11 +553,25 @@ export function calculateSolidIndicators(
   moduleBoundaries: ModuleBoundary[],
   lcom4Results: Lcom4Result[],
 ): SolidResults {
+  // Build location lookup once for all sub-calculators
+  const locationMap = new Map<string, SourceLocation>();
+  for (const e of entities) {
+    if (e.filePath && e.sourceRange) {
+      locationMap.set(e.id, {
+        filePath: e.filePath,
+        startLine: e.sourceRange.startLine,
+        startColumn: e.sourceRange.startColumn,
+        endLine: e.sourceRange.endLine,
+        endColumn: e.sourceRange.endColumn,
+      });
+    }
+  }
+
   return {
-    srp: calculateSrp(entities, relationships, lcom4Results),
-    ocp: calculateOcp(entities, relationships),
-    isp: calculateIsp(entities, relationships),
-    dip: calculateDip(entities, relationships, moduleBoundaries),
-    lsp: calculateLsp(entities, relationships),
+    srp: calculateSrp(entities, relationships, lcom4Results, locationMap),
+    ocp: calculateOcp(entities, relationships, locationMap),
+    isp: calculateIsp(entities, relationships, locationMap),
+    dip: calculateDip(entities, relationships, moduleBoundaries, locationMap),
+    lsp: calculateLsp(entities, relationships, locationMap),
   };
 }

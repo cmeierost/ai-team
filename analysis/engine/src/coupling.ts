@@ -1,9 +1,12 @@
 import type { Entity, Relationship, ModuleBoundary } from '@aspect/contracts';
+import type { SourceLocation } from './location.js';
+import { buildLocationMap } from './location.js';
 
 // ── Result types ────────────────────────────────────────────────────────
 
 export interface CouplingResult {
   entityId: string;
+  location?: SourceLocation;
   afferentCoupling: number;
   efferentCoupling: number;
   instability: number;
@@ -82,6 +85,7 @@ export function calculateCoupling(
   options: CouplingOptions = {},
 ): CouplingResult[] {
   const filtered = excludeSelfReferences(applyFilters(relationships, options));
+  const locationMap = buildLocationMap(entities);
 
   const entityIds = new Set(entities.map((e) => e.id));
   const caMap = new Map<string, number>();
@@ -108,6 +112,7 @@ export function calculateCoupling(
     const total = ca + ce;
     results.push({
       entityId: id,
+      location: locationMap.get(id),
       afferentCoupling: ca,
       efferentCoupling: ce,
       instability: total === 0 ? 0 : ce / total,

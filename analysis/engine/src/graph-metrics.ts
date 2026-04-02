@@ -12,6 +12,7 @@ import betweennessCentrality from 'graphology-metrics/centrality/betweenness.js'
 import pagerank from 'graphology-metrics/centrality/pagerank.js';
 import louvain from 'graphology-communities-louvain';
 import type { Entity, Relationship } from '@aspect/contracts';
+import type { SourceLocation } from './location.js';
 
 // ── Result types ────────────────────────────────────────────────────────
 
@@ -35,11 +36,13 @@ export interface CycleInfo {
 
 export interface CentralityResult {
   entityId: string;
+  location?: SourceLocation;
   betweennessCentrality: number;
 }
 
 export interface PageRankResult {
   entityId: string;
+  location?: SourceLocation;
   pageRank: number;
 }
 
@@ -67,6 +70,7 @@ export function buildDependencyGraph(
         kind: entity.kind,
         name: entity.name,
         filePath: entity.filePath,
+        sourceRange: entity.sourceRange ?? null,
       });
     }
   }
@@ -137,10 +141,23 @@ export function calculateCentrality(graph: GraphInstance): CentralityResult[] {
   const mapping = betweennessCentrality(graph, { normalized: true });
 
   return Object.entries(mapping)
-    .map(([entityId, value]) => ({
-      entityId,
-      betweennessCentrality: value,
-    }))
+    .map(([entityId, value]) => {
+      const attrs = graph.hasNode(entityId) ? graph.getNodeAttributes(entityId) : undefined;
+      const location = attrs?.filePath && attrs?.sourceRange
+        ? {
+            filePath: attrs.filePath as string,
+            startLine: (attrs.sourceRange as any).startLine as number,
+            startColumn: (attrs.sourceRange as any).startColumn as number,
+            endLine: (attrs.sourceRange as any).endLine as number,
+            endColumn: (attrs.sourceRange as any).endColumn as number,
+          }
+        : undefined;
+      return {
+        entityId,
+        location,
+        betweennessCentrality: value,
+      };
+    })
     .sort((a, b) => b.betweennessCentrality - a.betweennessCentrality);
 }
 
@@ -157,10 +174,23 @@ export function calculatePageRank(graph: GraphInstance): PageRankResult[] {
   });
 
   return Object.entries(mapping)
-    .map(([entityId, value]) => ({
-      entityId,
-      pageRank: value,
-    }))
+    .map(([entityId, value]) => {
+      const attrs = graph.hasNode(entityId) ? graph.getNodeAttributes(entityId) : undefined;
+      const location = attrs?.filePath && attrs?.sourceRange
+        ? {
+            filePath: attrs.filePath as string,
+            startLine: (attrs.sourceRange as any).startLine as number,
+            startColumn: (attrs.sourceRange as any).startColumn as number,
+            endLine: (attrs.sourceRange as any).endLine as number,
+            endColumn: (attrs.sourceRange as any).endColumn as number,
+          }
+        : undefined;
+      return {
+        entityId,
+        location,
+        pageRank: value,
+      };
+    })
     .sort((a, b) => b.pageRank - a.pageRank);
 }
 

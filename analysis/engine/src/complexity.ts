@@ -1,6 +1,8 @@
 // @aspect/engine — Complexity calculator
 // Derives cyclomatic, cognitive, and Halstead complexity from raw counts.
 
+import type { SourceLocation } from './location.js';
+
 // ── Local entity shape (will migrate to @aspect/contracts later) ──
 
 export interface Entity {
@@ -8,6 +10,7 @@ export interface Entity {
   kind: string;
   name: string;
   filePath: string;
+  sourceRange?: { startLine: number; startColumn: number; endLine: number; endColumn: number } | null;
   rawCounts?: {
     branchPoints?: number | null;
     nestingContributions?: Array<{ depth: number; increment: number }> | null;
@@ -21,11 +24,13 @@ export interface Entity {
 
 export interface CyclomaticResult {
   entityId: string;
+  location?: SourceLocation;
   cyclomaticComplexity: number;
 }
 
 export interface CognitiveResult {
   entityId: string;
+  location?: SourceLocation;
   cognitiveComplexity: number;
 }
 
@@ -41,6 +46,7 @@ export interface HalsteadMetrics {
 
 export interface HalsteadResult {
   entityId: string;
+  location?: SourceLocation;
   halstead: HalsteadMetrics;
 }
 
@@ -190,13 +196,30 @@ export function calculateComplexity(entities: Entity[]): ComplexityResults {
   const cognitive: CognitiveResult[] = [];
   const halstead: HalsteadResult[] = [];
 
+  // Build location lookup from entity sourceRange data
+  const locationMap = new Map<string, SourceLocation>();
+  for (const e of entities) {
+    if (e.filePath && e.sourceRange) {
+      locationMap.set(e.id, {
+        filePath: e.filePath,
+        startLine: e.sourceRange.startLine,
+        startColumn: e.sourceRange.startColumn,
+        endLine: e.sourceRange.endLine,
+        endColumn: e.sourceRange.endColumn,
+      });
+    }
+  }
+
   for (const entity of entities) {
     const raw = entity.rawCounts;
     if (!raw) continue;
 
+    const location = locationMap.get(entity.id);
+
     if (raw.branchPoints != null) {
       cyclomatic.push({
         entityId: entity.id,
+        location,
         cyclomaticComplexity: calculateCyclomatic(raw.branchPoints),
       });
     }
@@ -204,6 +227,7 @@ export function calculateComplexity(entities: Entity[]): ComplexityResults {
     if (raw.nestingContributions != null) {
       cognitive.push({
         entityId: entity.id,
+        location,
         cognitiveComplexity: calculateCognitive(raw.nestingContributions),
       });
     }
@@ -211,6 +235,7 @@ export function calculateComplexity(entities: Entity[]): ComplexityResults {
     if (raw.operators != null && raw.operands != null) {
       halstead.push({
         entityId: entity.id,
+        location,
         halstead: calculateHalstead(raw.operators, raw.operands),
       });
     }

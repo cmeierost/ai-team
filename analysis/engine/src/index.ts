@@ -80,6 +80,60 @@ export {
 } from './module-metrics.js';
 
 export {
+  calculateFolderDistance,
+  calculateHierarchyMetrics,
+  type HierarchyMetrics,
+  type RelationshipDistance,
+  type DistanceDistribution,
+  type UtilityFile,
+  type LongDistanceImport,
+  type HierarchyOptions,
+} from './hierarchy.js';
+
+export {
+  calculateCoherence,
+  type CoherenceResult,
+  type CoherenceOptions,
+  type DirectoryGroup,
+  type CrossReference,
+  type CommunityMapping,
+  type MisplacedFile,
+  type TangledDirectory,
+  type DirectoryCouplingMatrix,
+} from './coherence.js';
+
+export {
+  classifyCodeRoles,
+  type CodeRole,
+  type CodeRoleClassification,
+  type RoleSignal,
+  type CodeRoleResult,
+  type CodeRoleOptions,
+} from './code-roles.js';
+
+export {
+  buildReferenceGrouping,
+  buildDirectoryGrouping,
+  buildBoundaryGrouping,
+  buildCustomGrouping,
+  compareGroupings,
+  matchFileList,
+  type GroupingKind,
+  type Group,
+  type Grouping,
+  type GroupingComparison,
+  type GroupOverlap,
+  type GroupingMismatch,
+  type MoveSuggestion,
+  type FileListMatch,
+} from './grouping.js';
+
+export {
+  buildLocationMap,
+  type SourceLocation,
+} from './location.js';
+
+export {
   toSarif,
   toDot,
   toGraphML,
