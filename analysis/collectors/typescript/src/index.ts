@@ -1,5 +1,13 @@
 // @aspect/collector-typescript — TypeScript/JavaScript code analysis collector
 
+export { collect } from './orchestrator.js';
+
+export type {
+  CollectorOptions,
+  CollectionResult,
+  CollectionAspect,
+} from './orchestrator.js';
+
 export {
   runJscpdAdapter,
   normalizeJscpdOutput,
