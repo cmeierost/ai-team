@@ -22,3 +22,19 @@ export type {
   DuplicationFileRef,
   DuplicationStatistics,
 } from './adapters/jscpd.js';
+
+export {
+  runCoverageAdapter,
+  parseLcov,
+  parseIstanbul,
+} from './adapters/coverage.js';
+
+export type {
+  CoverageAdapterOptions,
+  CoverageResult,
+  CoverageToolRun,
+  CoverageSignal,
+  CoverageSignalSource,
+  CoverageFile,
+  CoverageFileFunction,
+} from './adapters/coverage.js';
