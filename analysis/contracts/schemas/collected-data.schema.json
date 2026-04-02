@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/collected-data.schema.json",
+  "title": "CollectedCodeData",
+  "description": "Technology-agnostic raw facts collected from source code analysis. This is the intermediate representation that collectors produce and the calculation engine consumes.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version for forward compatibility."
+    },
+    "collectedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when collection was performed."
+    },
+    "collector": {
+      "type": "object",
+      "description": "Metadata about the collector that produced this data.",
+      "properties": {
+        "id": { "type": "string", "description": "Collector identifier (e.g. '@aspect/collector-typescript')." },
+        "version": { "type": "string", "description": "Collector version." },
+        "language": { "type": "string", "description": "Primary language this collector targets (e.g. 'typescript', 'csharp')." },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of tools used by this collector (e.g. ['dependency-cruiser', 'jscpd', 'eslint'])."
+        }
+      },
+      "required": ["id", "version", "language", "tools"],
+      "additionalProperties": false
+    },
+    "entities": {
+      "type": "array",
+      "items": { "$ref": "common/entity.schema.json" },
+      "description": "All code entities discovered during collection."
+    },
+    "relationships": {
+      "type": "array",
+      "items": { "$ref": "common/relationship.schema.json" },
+      "description": "All relationships (edges) between entities."
+    },
+    "moduleBoundaries": {
+      "type": "array",
+      "items": { "$ref": "common/module-boundary.schema.json" },
+      "description": "Module boundary definitions for architectural analysis."
+    },
+    "duplicationSignals": {
+      "type": "array",
+      "items": { "$ref": "signals/duplication.schema.json" },
+      "description": "Duplication detection results. Each entry comes from one tool run."
+    },
+    "coverageSignals": {
+      "type": "array",
+      "items": { "$ref": "signals/coverage.schema.json" },
+      "description": "Code coverage data. Each entry comes from one coverage format/tool."
+    },
+    "lintSignals": {
+      "type": "array",
+      "items": { "$ref": "signals/lint.schema.json" },
+      "description": "Lint/static analysis signals. Each entry comes from one linting tool run."
+    },
+    "provenance": {
+      "$ref": "common/provenance.schema.json",
+      "description": "Metadata about the collection process (timing, tool runs, warnings)."
+    }
+  },
+  "required": ["schemaVersion", "collectedAt", "collector", "entities", "relationships", "moduleBoundaries", "provenance"],
+  "additionalProperties": false
+}
