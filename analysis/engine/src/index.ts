@@ -1,6 +1,16 @@
 // @aspect/engine — Technology-agnostic code analysis calculation engine
 
 export {
+  analyze,
+  type AnalysisInput,
+  type AnalysisOptions,
+  type AnalysisResult,
+  type AnalysisSummary,
+  type CalculatorGroup,
+  type CouplingSection,
+} from './orchestrator.js';
+
+export {
   calculateCyclomatic,
   calculateCognitive,
   calculateHalstead,
@@ -24,6 +34,20 @@ export {
   type ModuleCohesion,
   type CouplingOptions,
 } from './coupling.js';
+
+export {
+  calculateGraphMetrics,
+  buildDependencyGraph,
+  detectCycles,
+  calculateCentrality,
+  calculatePageRank,
+  detectCommunities,
+  type GraphMetricsResult,
+  type CycleInfo,
+  type CentralityResult,
+  type PageRankResult,
+  type CommunityResult,
+} from './graph-metrics.js';
 
 export {
   calculateLcom4,

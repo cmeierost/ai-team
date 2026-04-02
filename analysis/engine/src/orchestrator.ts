@@ -1,0 +1,359 @@
+/**
+ * @aspect/engine — Analysis orchestrator
+ *
+ * Main entry point that runs all calculators and produces a combined
+ * analysis result with timing and summary.
+ */
+
+import type {
+  Entity,
+  Relationship,
+  ModuleBoundary,
+  DuplicationSignal,
+  CoverageSignal,
+  LintSignal,
+} from '@aspect/contracts';
+
+import { calculateComplexity } from './complexity.js';
+import type { ComplexityResults } from './complexity.js';
+import {
+  calculateCoupling,
+  calculateModuleDependencyMatrix,
+  calculateModuleCohesion,
+} from './coupling.js';
+import type {
+  CouplingResult,
+  ModuleDependencyMatrix,
+  ModuleCohesion,
+  CouplingOptions,
+} from './coupling.js';
+import { calculateGraphMetrics } from './graph-metrics.js';
+import type { GraphMetricsResult } from './graph-metrics.js';
+import { calculateLcom4 } from './cohesion.js';
+import type { Lcom4Result } from './cohesion.js';
+import { calculateSolidIndicators } from './solid.js';
+import type { SolidResults } from './solid.js';
+import { calculateDuplication } from './duplication.js';
+import type { DuplicationResults } from './duplication.js';
+import { calculateModuleMetrics } from './module-metrics.js';
+import type { ModuleMetricsSummary } from './module-metrics.js';
+
+// ── Public input / output types ─────────────────────────────────────────
+
+export interface AnalysisInput {
+  entities: Entity[];
+  relationships: Relationship[];
+  moduleBoundaries: ModuleBoundary[];
+  duplicationSignals?: DuplicationSignal[];
+  coverageSignals?: CoverageSignal[];
+  lintSignals?: LintSignal[];
+}
+
+export type CalculatorGroup =
+  | 'complexity'
+  | 'coupling'
+  | 'graph'
+  | 'cohesion'
+  | 'solid'
+  | 'duplication'
+  | 'module';
+
+export interface AnalysisOptions {
+  /** Which calculator groups to run (default: all). */
+  include?: CalculatorGroup[];
+  /** Coupling filter options. */
+  couplingOptions?: CouplingOptions;
+  /** Number of duplication hotspots to report (default: 10). */
+  hotspotCount?: number;
+}
+
+export interface CouplingSection {
+  entities: CouplingResult[];
+  moduleDependencyMatrix: ModuleDependencyMatrix;
+  moduleCohesion: ModuleCohesion[];
+}
+
+export interface AnalysisResult {
+  complexity?: ComplexityResults;
+  coupling?: CouplingSection;
+  graph?: GraphMetricsResult;
+  cohesion?: Lcom4Result[];
+  solid?: SolidResults;
+  duplication?: DuplicationResults;
+  moduleMetrics?: ModuleMetricsSummary;
+  summary: AnalysisSummary;
+  timing: { totalMs: number; perCalculator: Record<string, number> };
+}
+
+export interface AnalysisSummary {
+  entityCount: number;
+  relationshipCount: number;
+  moduleCount: number;
+
+  maxCyclomaticComplexity: number;
+  avgCyclomaticComplexity: number;
+  cycleCount: number;
+  communityCount: number;
+  overallDuplicationPercentage: number;
+
+  mostComplexEntities: Array<{ entityId: string; cyclomatic: number }>;
+  mostCoupledEntities: Array<{ entityId: string; totalCoupling: number }>;
+  worstSrpEntities: Array<{ entityId: string; lcom4: number }>;
+
+  modulesInZoneOfPain: string[];
+  modulesInZoneOfUselessness: string[];
+}
+
+// ── Constants ───────────────────────────────────────────────────────────
+
+const ALL_GROUPS: CalculatorGroup[] = [
+  'complexity',
+  'coupling',
+  'graph',
+  'cohesion',
+  'solid',
+  'duplication',
+  'module',
+];
+
+const TOP_N = 5;
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+function timed<T>(fn: () => T): { result: T; ms: number } {
+  const t0 = performance.now();
+  const result = fn();
+  return { result, ms: performance.now() - t0 };
+}
+
+function topN<T>(items: T[], key: (item: T) => number, n: number): T[] {
+  return [...items].sort((a, b) => key(b) - key(a)).slice(0, n);
+}
+
+// ── Summary builder ─────────────────────────────────────────────────────
+
+function buildSummary(
+  input: AnalysisInput,
+  complexityResult?: ComplexityResults,
+  couplingEntities?: CouplingResult[],
+  graphResult?: GraphMetricsResult,
+  cohesionResult?: Lcom4Result[],
+  solidResult?: SolidResults,
+  duplicationResult?: DuplicationResults,
+  moduleResult?: ModuleMetricsSummary,
+): AnalysisSummary {
+  // Complexity aggregates
+  const cyclomatics = complexityResult?.cyclomatic ?? [];
+  const maxCyclomaticComplexity =
+    cyclomatics.length > 0
+      ? Math.max(...cyclomatics.map((c) => c.cyclomaticComplexity))
+      : 0;
+  const avgCyclomaticComplexity =
+    cyclomatics.length > 0
+      ? cyclomatics.reduce((s, c) => s + c.cyclomaticComplexity, 0) /
+        cyclomatics.length
+      : 0;
+
+  // Top 5 most complex
+  const mostComplexEntities = topN(
+    cyclomatics,
+    (c) => c.cyclomaticComplexity,
+    TOP_N,
+  ).map((c) => ({ entityId: c.entityId, cyclomatic: c.cyclomaticComplexity }));
+
+  // Top 5 most coupled
+  const mostCoupledEntities = topN(
+    couplingEntities ?? [],
+    (c) => c.totalCoupling,
+    TOP_N,
+  ).map((c) => ({ entityId: c.entityId, totalCoupling: c.totalCoupling }));
+
+  // Top 5 worst SRP (highest LCOM4)
+  const lcom4ForSummary = cohesionResult ?? [];
+  const worstSrpEntities = topN(lcom4ForSummary, (c) => c.lcom4, TOP_N).map(
+    (c) => ({ entityId: c.entityId, lcom4: c.lcom4 }),
+  );
+
+  return {
+    entityCount: input.entities.length,
+    relationshipCount: input.relationships.length,
+    moduleCount: input.moduleBoundaries.length,
+
+    maxCyclomaticComplexity,
+    avgCyclomaticComplexity,
+    cycleCount: graphResult?.cycles.cycleCount ?? 0,
+    communityCount: graphResult?.communities.communityCount ?? 0,
+    overallDuplicationPercentage:
+      duplicationResult?.project.duplicationPercentage ?? 0,
+
+    mostComplexEntities,
+    mostCoupledEntities,
+    worstSrpEntities,
+
+    modulesInZoneOfPain: moduleResult?.zoneOfPain ?? [],
+    modulesInZoneOfUselessness: moduleResult?.zoneOfUselessness ?? [],
+  };
+}
+
+// ── Main entry point ────────────────────────────────────────────────────
+
+/**
+ * Run all (or selected) analysis calculators over the provided input and
+ * return a combined result with per-calculator timing and a summary.
+ */
+export async function analyze(
+  input: AnalysisInput,
+  options?: AnalysisOptions,
+): Promise<AnalysisResult> {
+  const start = performance.now();
+  const timing: Record<string, number> = {};
+  const include = new Set(options?.include ?? ALL_GROUPS);
+
+  let complexityResult: ComplexityResults | undefined;
+  let couplingEntities: CouplingResult[] | undefined;
+  let couplingMatrix: ModuleDependencyMatrix | undefined;
+  let couplingCohesion: ModuleCohesion[] | undefined;
+  let graphResult: GraphMetricsResult | undefined;
+  let cohesionResult: Lcom4Result[] | undefined;
+  let solidResult: SolidResults | undefined;
+  let duplicationResult: DuplicationResults | undefined;
+  let moduleResult: ModuleMetricsSummary | undefined;
+
+  // --- Complexity ---
+  if (include.has('complexity')) {
+    const t = timed(() => calculateComplexity(input.entities as any));
+    complexityResult = t.result;
+    timing.complexity = t.ms;
+  }
+
+  // --- Coupling ---
+  if (include.has('coupling')) {
+    const couplingOpts = options?.couplingOptions;
+    const tEntities = timed(() =>
+      calculateCoupling(input.entities, input.relationships, couplingOpts),
+    );
+    couplingEntities = tEntities.result;
+
+    const tMatrix = timed(() =>
+      calculateModuleDependencyMatrix(
+        input.relationships,
+        input.moduleBoundaries,
+        input.entities,
+        couplingOpts,
+      ),
+    );
+    couplingMatrix = tMatrix.result;
+
+    const tCohesion = timed(() =>
+      calculateModuleCohesion(
+        input.relationships,
+        input.moduleBoundaries,
+        input.entities,
+        couplingOpts,
+      ),
+    );
+    couplingCohesion = tCohesion.result;
+
+    timing.coupling = tEntities.ms + tMatrix.ms + tCohesion.ms;
+  }
+
+  // --- Graph metrics ---
+  if (include.has('graph')) {
+    const t = timed(() =>
+      calculateGraphMetrics(input.entities, input.relationships),
+    );
+    graphResult = t.result;
+    timing.graph = t.ms;
+  }
+
+  // --- Cohesion (LCOM4) — must run before SOLID ---
+  if (include.has('cohesion') || include.has('solid')) {
+    const t = timed(() => {
+      const results: Lcom4Result[] = [];
+      for (const entity of input.entities) {
+        if (entity.methodFieldAccessMatrix != null) {
+          results.push(
+            calculateLcom4(entity.id, entity.methodFieldAccessMatrix),
+          );
+        }
+      }
+      return results;
+    });
+    cohesionResult = t.result;
+    timing.cohesion = t.ms;
+  }
+
+  // --- SOLID ---
+  if (include.has('solid')) {
+    const t = timed(() =>
+      calculateSolidIndicators(
+        input.entities as any,
+        input.relationships as any,
+        input.moduleBoundaries as any,
+        cohesionResult ?? [],
+      ),
+    );
+    solidResult = t.result;
+    timing.solid = t.ms;
+  }
+
+  // --- Duplication ---
+  if (include.has('duplication')) {
+    const t = timed(() =>
+      calculateDuplication(
+        input.duplicationSignals ?? [],
+        input.entities,
+        input.moduleBoundaries,
+        { hotspotCount: options?.hotspotCount },
+      ),
+    );
+    duplicationResult = t.result;
+    timing.duplication = t.ms;
+  }
+
+  // --- Module metrics ---
+  if (include.has('module')) {
+    const t = timed(() =>
+      calculateModuleMetrics(
+        input.entities,
+        input.relationships,
+        input.moduleBoundaries,
+      ),
+    );
+    moduleResult = t.result;
+    timing.module = t.ms;
+  }
+
+  // --- Build combined result ---
+  const couplingSection: CouplingSection | undefined =
+    couplingEntities != null
+      ? {
+          entities: couplingEntities,
+          moduleDependencyMatrix: couplingMatrix!,
+          moduleCohesion: couplingCohesion!,
+        }
+      : undefined;
+
+  const summary = buildSummary(
+    input,
+    complexityResult,
+    couplingEntities,
+    graphResult,
+    cohesionResult,
+    solidResult,
+    duplicationResult,
+    moduleResult,
+  );
+
+  return {
+    complexity: complexityResult,
+    coupling: couplingSection,
+    graph: graphResult,
+    cohesion: include.has('cohesion') ? cohesionResult : undefined,
+    solid: solidResult,
+    duplication: duplicationResult,
+    moduleMetrics: moduleResult,
+    summary,
+    timing: { totalMs: performance.now() - start, perCalculator: timing },
+  };
+}
