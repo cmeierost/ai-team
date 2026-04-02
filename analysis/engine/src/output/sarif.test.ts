@@ -214,4 +214,146 @@ describe('toSarif', () => {
     expect(sarif.runs[0].tool.driver.name).toBe('my-tool');
     expect(sarif.runs[0].tool.driver.version).toBe('2.0.0');
   });
+
+  // ── Entity-not-found branch coverage ──
+
+  it('produces empty locations when complexity entity is not in map', () => {
+    const result = createMockAnalysisResult({
+      complexity: {
+        cyclomatic: [
+          { entityId: 'nonexistent', cyclomaticComplexity: 20 },
+        ],
+        cognitive: [],
+        halstead: [],
+        fileSummaries: [],
+      },
+    });
+    const sarif = toSarif(result, createMockCollectedData());
+
+    const complexityResults = sarif.runs[0].results.filter(
+      (r) => r.ruleId === 'aspect/high-cyclomatic-complexity',
+    );
+    expect(complexityResults).toHaveLength(1);
+    expect(complexityResults[0].locations).toHaveLength(0);
+  });
+
+  it('produces empty locations when cycle entity is not in map', () => {
+    const result = createMockAnalysisResult({
+      graph: {
+        cycles: {
+          cycleCount: 1,
+          largestCycleSize: 2,
+          totalEntitiesInCycles: 2,
+          cycles: [{ id: 'c1', entityIds: ['ghost1', 'ghost2'], size: 2 }],
+        },
+        centrality: [],
+        pageRank: [],
+        communities: { communityCount: 0, communities: [], modularity: 0 },
+      },
+    });
+    const sarif = toSarif(result, createMockCollectedData());
+
+    const cycleResults = sarif.runs[0].results.filter(
+      (r) => r.ruleId === 'aspect/dependency-cycle',
+    );
+    expect(cycleResults).toHaveLength(1);
+    expect(cycleResults[0].locations).toHaveLength(0);
+  });
+
+  it('produces empty locations when SRP entity is not in map', () => {
+    const result = createMockAnalysisResult({
+      solid: {
+        srp: [{ entityId: 'ghost', lcom4: 5, importSourceDiversity: 1, responsibilityGroupCount: 5, nameSemanticClusters: [], srpScore: 0.1 }],
+        ocp: [],
+        isp: [],
+        dip: [],
+        lsp: [],
+      },
+    });
+    const sarif = toSarif(result, createMockCollectedData());
+
+    const srpResults = sarif.runs[0].results.filter(
+      (r) => r.ruleId === 'aspect/low-srp',
+    );
+    expect(srpResults).toHaveLength(1);
+    expect(srpResults[0].locations).toHaveLength(0);
+  });
+
+  it('produces empty locations when DIP entity is not in map', () => {
+    const result = createMockAnalysisResult({
+      solid: {
+        srp: [],
+        ocp: [],
+        isp: [],
+        dip: [{ entityId: 'ghost', abstractionDependencyRatio: 0, concreteDependencyCount: 10, layerViolationCount: 0, dipScore: 0.1 }],
+        lsp: [],
+      },
+    });
+    const sarif = toSarif(result, createMockCollectedData());
+
+    const dipResults = sarif.runs[0].results.filter(
+      (r) => r.ruleId === 'aspect/low-dip',
+    );
+    expect(dipResults).toHaveLength(1);
+    expect(dipResults[0].locations).toHaveLength(0);
+  });
+
+  it('produces empty locations for zone-of-pain with no matching boundary', () => {
+    const result = createMockAnalysisResult();
+    result.summary.modulesInZoneOfPain = ['nonexistent-module'];
+    const sarif = toSarif(result, {
+      ...createMockCollectedData(),
+      moduleBoundaries: [],
+    });
+
+    const zopResults = sarif.runs[0].results.filter(
+      (r) => r.ruleId === 'aspect/zone-of-pain',
+    );
+    expect(zopResults).toHaveLength(1);
+    expect(zopResults[0].locations).toHaveLength(0);
+  });
+
+  it('produces empty locations when coupling entity is not in map', () => {
+    const result = createMockAnalysisResult({
+      coupling: {
+        entities: [
+          { entityId: 'ghost', afferentCoupling: 5, efferentCoupling: 8, instability: 0.62, totalCoupling: 15 },
+        ],
+        moduleDependencyMatrix: { moduleIds: [], matrix: [], crossModuleEdgeCount: 0 },
+        moduleCohesion: [],
+      },
+    });
+    const sarif = toSarif(result, createMockCollectedData());
+
+    const couplingResults = sarif.runs[0].results.filter(
+      (r) => r.ruleId === 'aspect/high-coupling',
+    );
+    expect(couplingResults).toHaveLength(1);
+    expect(couplingResults[0].locations).toHaveLength(0);
+  });
+
+  it('skips duplication files below threshold', () => {
+    const result = createMockAnalysisResult({
+      duplication: {
+        project: { totalLines: 1000, duplicatedLines: 50, duplicationPercentage: 5, totalClones: 1 },
+        files: [
+          { filePath: 'src/ok.ts', duplicatedLines: 5, totalLines: 200, duplicationPercentage: 2.5, cloneCount: 1 },
+        ],
+        crossModule: [],
+        hotspots: [],
+      },
+    });
+    const sarif = toSarif(result, createMockCollectedData());
+
+    const dupResults = sarif.runs[0].results.filter(
+      (r) => r.ruleId === 'aspect/high-duplication',
+    );
+    expect(dupResults).toHaveLength(0);
+  });
+
+  it('handles absent optional sections without errors', () => {
+    const sarif = toSarif(createEmptyAnalysisResult(), createMockCollectedData());
+
+    expect(sarif.runs[0].results).toHaveLength(0);
+  });
 });

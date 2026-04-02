@@ -155,4 +155,94 @@ describe('toSonarQube', () => {
     expect(dipIssues[0].severity).toBe('MINOR');
     expect(dipIssues[0].type).toBe('CODE_SMELL');
   });
+
+  // ── Entity-not-found branch coverage ──
+
+  it('skips complexity issue when entity is not in collected data', () => {
+    const result = createMockAnalysisResult();
+    result.complexity!.cyclomatic = [
+      { entityId: 'nonexistent', cyclomaticComplexity: 20 },
+    ];
+    const report = toSonarQube(result, createMockCollectedData());
+
+    const complexityIssues = report.issues.filter(
+      (i) => i.ruleId === 'high-cyclomatic-complexity',
+    );
+    expect(complexityIssues).toHaveLength(0);
+  });
+
+  it('skips cycle issue when first entity is not in collected data', () => {
+    const result = createMockAnalysisResult();
+    result.graph!.cycles.cycles = [
+      { id: 'c1', entityIds: ['nonexistent', 'also-nonexistent'], size: 2 },
+    ];
+    const report = toSonarQube(result, createMockCollectedData());
+
+    const cycleIssues = report.issues.filter((i) => i.ruleId === 'dependency-cycle');
+    expect(cycleIssues).toHaveLength(0);
+  });
+
+  it('skips SRP issue when entity is not in collected data', () => {
+    const result = createMockAnalysisResult();
+    result.solid!.srp = [
+      { entityId: 'ghost', lcom4: 5, importSourceDiversity: 1, responsibilityGroupCount: 5, nameSemanticClusters: [], srpScore: 0.1 },
+    ];
+    const report = toSonarQube(result, createMockCollectedData());
+
+    const srpIssues = report.issues.filter((i) => i.ruleId === 'low-srp');
+    expect(srpIssues).toHaveLength(0);
+  });
+
+  it('skips DIP issue when entity is not in collected data', () => {
+    const result = createMockAnalysisResult();
+    result.solid!.dip = [
+      { entityId: 'ghost', abstractionDependencyRatio: 0, concreteDependencyCount: 10, layerViolationCount: 0, dipScore: 0.1 },
+    ];
+    const report = toSonarQube(result, createMockCollectedData());
+
+    const dipIssues = report.issues.filter((i) => i.ruleId === 'low-dip');
+    expect(dipIssues).toHaveLength(0);
+  });
+
+  it('skips duplication files below 20% threshold', () => {
+    const result = createMockAnalysisResult();
+    result.duplication!.files = [
+      { filePath: 'src/clean.ts', duplicatedLines: 5, totalLines: 100, duplicationPercentage: 5, cloneCount: 1 },
+    ];
+    const report = toSonarQube(result, createMockCollectedData());
+
+    const dupIssues = report.issues.filter((i) => i.ruleId === 'high-duplication');
+    expect(dupIssues).toHaveLength(0);
+  });
+
+  it('skips complexity below threshold (<=10)', () => {
+    const result = createMockAnalysisResult();
+    result.complexity!.cyclomatic = [
+      { entityId: 'a', cyclomaticComplexity: 10 },
+      { entityId: 'b', cyclomaticComplexity: 5 },
+    ];
+    const report = toSonarQube(result, createMockCollectedData());
+
+    const complexityIssues = report.issues.filter(
+      (i) => i.ruleId === 'high-cyclomatic-complexity',
+    );
+    expect(complexityIssues).toHaveLength(0);
+  });
+
+  it('handles absent optional result sections', () => {
+    const emptyResult: AnalysisResult = {
+      summary: {
+        entityCount: 0, relationshipCount: 0, moduleCount: 0,
+        maxCyclomaticComplexity: 0, avgCyclomaticComplexity: 0,
+        cycleCount: 0, communityCount: 0, overallDuplicationPercentage: 0,
+        mostComplexEntities: [], mostCoupledEntities: [], worstSrpEntities: [],
+        modulesInZoneOfPain: [], modulesInZoneOfUselessness: [],
+      },
+      timing: { totalMs: 0, perCalculator: {} },
+      // complexity, graph, solid, duplication all undefined
+    };
+
+    const report = toSonarQube(emptyResult, createMockCollectedData());
+    expect(report.issues).toHaveLength(0);
+  });
 });

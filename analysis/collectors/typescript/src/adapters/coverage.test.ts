@@ -59,6 +59,52 @@ end_of_record
     expect(signal.files).toHaveLength(3);
   });
 
+  it('skips FN lines without comma delimiter', () => {
+    const lcov = `SF:/root/src/file.ts
+FN:malformed_no_comma
+DA:1,1
+end_of_record
+`;
+    const signal = parseLcov(lcov, '/root');
+    expect(signal.files[0].functions).toHaveLength(0);
+  });
+
+  it('skips FNDA lines without comma delimiter', () => {
+    const lcov = `SF:/root/src/file.ts
+FN:1,myFunc
+FNDA:malformed_no_comma
+DA:1,1
+end_of_record
+`;
+    const signal = parseLcov(lcov, '/root');
+    expect(signal.files[0].functions[0].executionCount).toBe(0);
+  });
+
+  it('skips DA lines with insufficient parts', () => {
+    const lcov = `SF:/root/src/file.ts
+DA:malformed
+DA:1,3
+end_of_record
+`;
+    const signal = parseLcov(lcov, '/root');
+    expect(signal.files[0].linesTotal).toBe(1);
+  });
+
+  it('defaults function count to 0 when FNDA is missing for a function', () => {
+    const lcov = `SF:/root/src/file.ts
+FN:5,coveredFunc
+FN:10,uncoveredFunc
+FNDA:3,coveredFunc
+DA:5,3
+DA:10,0
+end_of_record
+`;
+    const signal = parseLcov(lcov, '/root');
+    const uncovered = signal.files[0].functions.find(f => f.name === 'uncoveredFunc');
+    expect(uncovered).toBeDefined();
+    expect(uncovered!.executionCount).toBe(0);
+  });
+
   it('extracts correct line coverage counts', async () => {
     const content = await loadLcovFixture();
     const signal = parseLcov(content, ROOT_DIR);
@@ -238,6 +284,30 @@ describe('parseIstanbul', () => {
   it('handles empty Istanbul JSON', () => {
     const signal = parseIstanbul('{}', '/root');
     expect(signal.files).toEqual([]);
+  });
+
+  it('defaults function execution count to 0 when f entry is missing', () => {
+    const istanbul = JSON.stringify({
+      '/root/src/test.ts': {
+        path: '/root/src/test.ts',
+        s: { '0': 1 },
+        b: {},
+        f: {},
+        fnMap: {
+          '0': {
+            name: 'orphanFunc',
+            decl: { start: { line: 1, column: 0 }, end: { line: 1, column: 10 } },
+            loc: { start: { line: 1, column: 0 }, end: { line: 5, column: 1 } },
+          },
+        },
+        statementMap: {
+          '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 10 } },
+        },
+        branchMap: {},
+      },
+    });
+    const signal = parseIstanbul(istanbul, '/root');
+    expect(signal.files[0].functions[0].executionCount).toBe(0);
   });
 });
 

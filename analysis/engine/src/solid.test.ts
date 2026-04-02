@@ -468,3 +468,271 @@ describe('LSP indicator', () => {
     expect(processMismatch.overrideReturn).toBe('string');
   });
 });
+
+// ── SRP Name Clustering Tests (covers jaccard + clusterMethodsByNameTokens) ──
+
+describe('SRP name semantic clustering', () => {
+  it('clusters child methods by name token similarity', () => {
+    const entities: Entity[] = [
+      entity({ id: 'cls1' }),
+      entity({ id: 'getUserData', kind: 'method', nameTokens: ['get', 'user', 'data'] }),
+      entity({ id: 'setUserData', kind: 'method', nameTokens: ['set', 'user', 'data'] }),
+      entity({ id: 'parseConfig', kind: 'method', nameTokens: ['parse', 'config'] }),
+      entity({ id: 'loadConfig', kind: 'method', nameTokens: ['load', 'config'] }),
+    ];
+    const relationships: Relationship[] = [
+      { sourceEntityId: 'cls1', targetEntityId: 'getUserData', kind: 'contain' },
+      { sourceEntityId: 'cls1', targetEntityId: 'setUserData', kind: 'contain' },
+      { sourceEntityId: 'cls1', targetEntityId: 'parseConfig', kind: 'contain' },
+      { sourceEntityId: 'cls1', targetEntityId: 'loadConfig', kind: 'contain' },
+    ];
+    const lcom4Results: Lcom4Result[] = [
+      {
+        entityId: 'cls1',
+        lcom4: 2,
+        cohesionGroups: [
+          { methods: ['getUserData', 'setUserData'], sharedFields: ['user'] },
+          { methods: ['parseConfig', 'loadConfig'], sharedFields: ['config'] },
+        ],
+      },
+    ];
+
+    const result = calculateSolidIndicators(entities, relationships, [], lcom4Results);
+
+    expect(result.srp[0].nameSemanticClusters.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('returns empty clusters when entity has no child methods', () => {
+    const entities: Entity[] = [entity({ id: 'cls1' })];
+    const lcom4Results: Lcom4Result[] = [
+      {
+        entityId: 'cls1',
+        lcom4: 1,
+        cohesionGroups: [{ methods: ['a'], sharedFields: [] }],
+      },
+    ];
+
+    const result = calculateSolidIndicators(entities, [], [], lcom4Results);
+
+    expect(result.srp[0].nameSemanticClusters).toEqual([]);
+  });
+
+  it('puts all methods in one cluster when all share tokens', () => {
+    const entities: Entity[] = [
+      entity({ id: 'cls1' }),
+      entity({ id: 'getUser', kind: 'method', nameTokens: ['get', 'user'] }),
+      entity({ id: 'fetchUser', kind: 'method', nameTokens: ['fetch', 'user'] }),
+      entity({ id: 'loadUser', kind: 'method', nameTokens: ['load', 'user'] }),
+    ];
+    const relationships: Relationship[] = [
+      { sourceEntityId: 'cls1', targetEntityId: 'getUser', kind: 'contain' },
+      { sourceEntityId: 'cls1', targetEntityId: 'fetchUser', kind: 'contain' },
+      { sourceEntityId: 'cls1', targetEntityId: 'loadUser', kind: 'contain' },
+    ];
+    const lcom4Results: Lcom4Result[] = [
+      {
+        entityId: 'cls1',
+        lcom4: 1,
+        cohesionGroups: [{ methods: ['getUser', 'fetchUser', 'loadUser'], sharedFields: ['user'] }],
+      },
+    ];
+
+    const result = calculateSolidIndicators(entities, relationships, [], lcom4Results);
+
+    // All methods share "user" token so jaccard > 0.3 → one cluster
+    expect(result.srp[0].nameSemanticClusters).toHaveLength(1);
+    expect(result.srp[0].nameSemanticClusters[0]).toHaveLength(3);
+  });
+
+  it('separates methods with no shared tokens into individual clusters', () => {
+    const entities: Entity[] = [
+      entity({ id: 'cls1' }),
+      entity({ id: 'alpha', kind: 'method', nameTokens: ['alpha'] }),
+      entity({ id: 'beta', kind: 'method', nameTokens: ['beta'] }),
+      entity({ id: 'gamma', kind: 'method', nameTokens: ['gamma'] }),
+    ];
+    const relationships: Relationship[] = [
+      { sourceEntityId: 'cls1', targetEntityId: 'alpha', kind: 'contain' },
+      { sourceEntityId: 'cls1', targetEntityId: 'beta', kind: 'contain' },
+      { sourceEntityId: 'cls1', targetEntityId: 'gamma', kind: 'contain' },
+    ];
+    const lcom4Results: Lcom4Result[] = [
+      {
+        entityId: 'cls1',
+        lcom4: 3,
+        cohesionGroups: [
+          { methods: ['alpha'], sharedFields: [] },
+          { methods: ['beta'], sharedFields: [] },
+          { methods: ['gamma'], sharedFields: [] },
+        ],
+      },
+    ];
+
+    const result = calculateSolidIndicators(entities, relationships, [], lcom4Results);
+
+    // No shared tokens → each method is its own cluster
+    expect(result.srp[0].nameSemanticClusters).toHaveLength(3);
+  });
+});
+
+// ── OCP Edge Cases ──
+
+describe('OCP edge cases', () => {
+  it('handles zero LOC gracefully (no division by zero)', () => {
+    const entities: Entity[] = [
+      entity({
+        id: 'cls1',
+        rawCounts: {
+          linesOfCode: 0,
+          typeCheckingPatterns: 0,
+          extensionPoints: 0,
+          publicMethodCount: 0,
+        },
+      }),
+    ];
+
+    const result = calculateSolidIndicators(entities, [], [], []);
+
+    expect(result.ocp).toHaveLength(1);
+    expect(result.ocp[0].typeCheckingDensity).toBe(0);
+    // extensionPointRatio = pubMethods > 0 ? extPoints/pubMethods : 1
+    expect(result.ocp[0].extensionPointRatio).toBe(1);
+  });
+
+  it('skips entities without rawCounts', () => {
+    const entities: Entity[] = [entity({ id: 'cls1' })]; // no rawCounts
+
+    const result = calculateSolidIndicators(entities, [], [], []);
+
+    expect(result.ocp).toHaveLength(0);
+  });
+
+  it('computes concreteTargetRatio as 0 when no outgoing deps', () => {
+    const entities: Entity[] = [
+      entity({
+        id: 'cls1',
+        rawCounts: { linesOfCode: 50, typeCheckingPatterns: 0, extensionPoints: 2, publicMethodCount: 4 },
+      }),
+    ];
+
+    const result = calculateSolidIndicators(entities, [], [], []);
+
+    expect(result.ocp[0].concreteTargetRatio).toBe(0);
+  });
+});
+
+// ── DIP Edge Cases ──
+
+describe('DIP edge cases', () => {
+  it('gives dipScore 1 when all deps have unknown targetIsAbstraction', () => {
+    const entities: Entity[] = [
+      entity({ id: 'cls1' }),
+      entity({ id: 'dep1' }),
+    ];
+    const relationships: Relationship[] = [
+      {
+        sourceEntityId: 'cls1',
+        targetEntityId: 'dep1',
+        kind: 'use',
+        // targetIsAbstraction not set (undefined)
+      },
+    ];
+
+    const result = calculateSolidIndicators(entities, relationships, [], []);
+
+    const dip = result.dip.find(d => d.entityId === 'cls1');
+    expect(dip).toBeDefined();
+    // No classified deps → abstractionDependencyRatio = 1
+    expect(dip!.abstractionDependencyRatio).toBe(1);
+    expect(dip!.dipScore).toBe(1);
+  });
+
+  it('skips entities with no outgoing relationships', () => {
+    const entities: Entity[] = [entity({ id: 'cls1' })];
+
+    const result = calculateSolidIndicators(entities, [], [], []);
+
+    expect(result.dip).toHaveLength(0);
+  });
+
+  it('counts no layer violations when source has no declaredLayer', () => {
+    const entities: Entity[] = [
+      entity({ id: 'cls1', filePath: 'src/somewhere.ts' }),
+      entity({ id: 'dep1', filePath: 'src/infra/db.ts' }),
+    ];
+    const relationships: Relationship[] = [
+      { sourceEntityId: 'cls1', targetEntityId: 'dep1', kind: 'use', targetIsAbstraction: false },
+    ];
+    const moduleBoundaries: ModuleBoundary[] = [
+      { moduleId: 'infra', modulePath: 'src/infra', files: ['src/infra/db.ts'], declaredLayer: 1 },
+    ];
+
+    const result = calculateSolidIndicators(entities, relationships, moduleBoundaries, []);
+
+    const dip = result.dip.find(d => d.entityId === 'cls1')!;
+    expect(dip.layerViolationCount).toBe(0);
+  });
+});
+
+// ── LSP Edge Cases ──
+
+describe('LSP edge cases', () => {
+  it('skips entities without an extend relationship', () => {
+    const entities: Entity[] = [entity({ id: 'cls1' })];
+
+    const result = calculateSolidIndicators(entities, [], [], []);
+
+    expect(result.lsp).toHaveLength(0);
+  });
+
+  it('skips override comparison when base method not found', () => {
+    const entities: Entity[] = [
+      entity({
+        id: 'child',
+        rawCounts: {
+          overriddenMethods: [
+            { name: 'unknownMethod', paramTypes: ['string'], returnType: 'void' },
+          ],
+        },
+      }),
+      entity({ id: 'parent', rawCounts: {} }),
+    ];
+    const relationships: Relationship[] = [
+      { sourceEntityId: 'child', targetEntityId: 'parent', kind: 'extend' },
+    ];
+
+    const result = calculateSolidIndicators(entities, relationships, [], []);
+
+    // unknownMethod not in parent → no mismatch detected
+    expect(result.lsp[0].overrideCount).toBe(1);
+    expect(result.lsp[0].signatureMismatches).toHaveLength(0);
+    expect(result.lsp[0].lspScore).toBe(1);
+  });
+
+  it('clamps LSP score at 0 for many mismatches', () => {
+    const overrides = Array.from({ length: 10 }, (_, i) => ({
+      name: `method${i}`,
+      paramTypes: ['number'],
+      returnType: 'string',
+    }));
+    const baseMethods = Array.from({ length: 10 }, (_, i) => ({
+      name: `method${i}`,
+      paramTypes: ['string'],
+      returnType: 'void',
+    }));
+
+    const entities: Entity[] = [
+      entity({ id: 'child', rawCounts: { overriddenMethods: overrides } }),
+      entity({ id: 'parent', rawCounts: { overriddenMethods: baseMethods } }),
+    ];
+    const relationships: Relationship[] = [
+      { sourceEntityId: 'child', targetEntityId: 'parent', kind: 'extend' },
+    ];
+
+    const result = calculateSolidIndicators(entities, relationships, [], []);
+
+    expect(result.lsp[0].signatureMismatches).toHaveLength(10);
+    // 10 × 0.2 = 2.0 penalty → 1 - 2 = -1 → clamped to 0
+    expect(result.lsp[0].lspScore).toBe(0);
+  });
+});

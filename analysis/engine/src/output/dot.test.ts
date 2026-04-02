@@ -210,4 +210,69 @@ describe('toDot', () => {
     expect(dot).toContain('width=');
     expect(dot).toContain('height=');
   });
+
+  it('scales node size by coupling metric', () => {
+    const dot = toDot(createMockResult(), createMockCollectedData(), {
+      sizeByMetric: 'coupling',
+    });
+
+    expect(dot).toContain('width=');
+    expect(dot).toContain('height=');
+  });
+
+  it('scales node size by pageRank metric', () => {
+    const dot = toDot(createMockResult(), createMockCollectedData(), {
+      sizeByMetric: 'pageRank',
+    });
+
+    expect(dot).toContain('width=');
+    expect(dot).toContain('height=');
+  });
+
+  it('skips edges where source or target node is not in entities', () => {
+    const data = createMockCollectedData();
+    data.relationships.push(
+      mockRelationship('nonexistent', 'a'),
+      mockRelationship('b', 'nonexistent'),
+    );
+
+    const dot = toDot(createMockResult(), data, { highlightCycles: false });
+
+    // Only the 3 original edges (between existing nodes) should appear
+    const edgeLines = dot.split('\n').filter((l) => l.includes('->'));
+    expect(edgeLines).toHaveLength(3);
+  });
+
+  it('does not highlight cycles when highlightCycles is false', () => {
+    const dot = toDot(createMockResult(), createMockCollectedData(), {
+      highlightCycles: false,
+    });
+
+    expect(dot).not.toContain('color=red');
+    expect(dot).not.toContain('penwidth=2');
+  });
+
+  it('renders module graph with coupling matrix edges', () => {
+    const dot = toDot(createMockResult(), createMockCollectedData(), {
+      graphType: 'module',
+    });
+
+    // Module graph should have edges from coupling matrix
+    expect(dot).toContain('->');
+    // Matrix has [0,1],[1,0] so mod-a -> mod-b and mod-b -> mod-a
+    const edgeLines = dot.split('\n').filter((l) => l.includes('->'));
+    expect(edgeLines).toHaveLength(2);
+  });
+
+  it('renders empty module graph without coupling data', () => {
+    const result = createMockResult();
+    delete (result as Record<string, unknown>).coupling;
+
+    const dot = toDot(result, createMockCollectedData(), { graphType: 'module' });
+
+    expect(dot).toContain('digraph dependencies {');
+    expect(dot).toContain('}');
+    const edgeLines = dot.split('\n').filter((l) => l.includes('->'));
+    expect(edgeLines).toHaveLength(0);
+  });
 });

@@ -229,6 +229,26 @@ describe('cross-module detection', () => {
     const crossModules = result.relationships.filter((r) => r.crossModule);
     expect(crossModules).toHaveLength(0);
   });
+
+  it('prefers the longest matching boundary when boundaries overlap', () => {
+    // Boundaries ordered with longer path first to test the "shorter match found after longer" branch
+    const overlappingBoundaries = [
+      { moduleId: 'services', modulePath: 'src/services' },
+      { moduleId: 'src', modulePath: 'src' },
+    ];
+    const result = normalizeDepCruiserOutput(fixture, { moduleBoundaries: overlappingBoundaries });
+
+    // user-service is in src/services → should match 'services' module (longer match)
+    // index.ts is in src/ → should match 'src' module
+    // So index→user-service should be cross-module (src → services)
+    const indexToUserService = result.relationships.find(
+      (r) =>
+        r.sourceEntityId === 'file:src/index.ts' &&
+        r.targetEntityId === 'file:src/services/user-service.ts',
+    );
+    expect(indexToUserService).toBeDefined();
+    expect(indexToUserService!.crossModule).toBe(true);
+  });
 });
 
 // ── 7. Cross-package detection ──────────────────────────────────────────────
@@ -309,6 +329,14 @@ describe('tokenizeName', () => {
       'controller',
       'test',
     ]);
+  });
+
+  it('handles double delimiters that produce empty parts', () => {
+    expect(tokenizeName('foo--bar.ts')).toEqual(['foo', 'bar']);
+  });
+
+  it('handles leading/trailing delimiters', () => {
+    expect(tokenizeName('-hello-.ts')).toEqual(['hello']);
   });
 
   it('handles paths (extracts basename)', () => {
