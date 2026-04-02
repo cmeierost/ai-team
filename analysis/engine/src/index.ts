@@ -14,3 +14,13 @@ export {
   type FileComplexitySummary,
   type ComplexityResults,
 } from './complexity.js';
+
+export {
+  calculateCoupling,
+  calculateModuleDependencyMatrix,
+  calculateModuleCohesion,
+  type CouplingResult,
+  type ModuleDependencyMatrix,
+  type ModuleCohesion,
+  type CouplingOptions,
+} from './coupling.js';
