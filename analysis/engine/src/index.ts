@@ -78,3 +78,22 @@ export {
   type ModuleMetricsResult,
   type ModuleMetricsSummary,
 } from './module-metrics.js';
+
+export {
+  toSarif,
+  toDot,
+  toGraphML,
+  toSonarQube,
+  toJson,
+  type SarifOptions,
+  type SarifLog,
+  type SarifRun,
+  type SarifRule,
+  type SarifResult,
+  type SarifLocation,
+  type DotOptions,
+  type SonarQubeReport,
+  type SonarQubeIssue,
+  type JsonExportOptions,
+  type CollectedData,
+} from './output/index.js';
