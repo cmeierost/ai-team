@@ -1,13 +1,18 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { minimatch } from 'minimatch';
 import { useTeam } from '../context/TeamContext';
 import type {
   FileEndingSummary,
   FileTypeCategory,
   FileTypeSummary,
+  FilePermissionOverlapReport,
   PermissionAgentResponsibilitySummary,
   PermissionAnalysisView,
   OutsideDefaultContextRightSummary,
+  PermissionOverlapByExtension,
+  PermissionOverlapPairEntry,
+  PermissionOverlapRightSummary,
   PermissionOverlapFileOwnershipEntry,
   PermissionOverlapRegion,
   PermissionOverlapReport,
@@ -19,6 +24,17 @@ import { contextPanelQueryKeys } from './contextPanelQueryKeys';
 
 const RIGHTS: PermissionRight[] = ['read', 'write', 'list'];
 const CATEGORY_ORDER: FileTypeCategory[] = ['code', 'documentation', 'configuration', 'tests', 'assets', 'other'];
+type FileTypeGroupLike = { label?: string; patterns?: string[]; extensions?: string[] };
+
+const DEFAULT_FILE_TYPE_GROUPS: Record<string, FileTypeGroupLike> = {
+  code: { label: 'Code', patterns: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.mjs', '*.cjs', '*.py', '*.go', '*.rs', '*.java', '*.cs', '*.cpp', '*.c', '*.h', '*.hpp', '*.rb', '*.php', '*.swift', '*.kt', '*.sql', '*.sh', '*.ps1', '*.html', '*.css', '*.scss', '*.sass', '*.less', '*.vue', '*.svelte'] },
+  documentation: { label: 'Documentation', patterns: ['*.md', '*.mdx', '*.txt', '*.rst', '*.adoc'] },
+  configuration: { label: 'Configuration', patterns: ['*.json', '*.jsonc', '*.yaml', '*.yml', '*.toml', '*.ini', '*.env', '*.conf', '*.config', '*.properties', '*.lock'] },
+  tests: { label: 'Tests', patterns: ['*.test.*', '*.spec.*', '**/__tests__/**', '*.snap'] },
+  binaries: { label: 'Binaries', patterns: ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.ico', '*.bmp', '*.svg', '*.pdf', '*.zip', '*.gz', '*.tar', '*.7z', '*.jar', '*.db', '*.sqlite', '*.sqlite3', '*.woff', '*.woff2', '*.ttf', '*.otf', '*.eot', '*.mp3', '*.mp4', '*.mov', '*.avi', '*.wav', '*.exe', '*.dll', '*.so', '*.dylib'] },
+  assets: { label: 'Assets', patterns: ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.ico', '*.bmp', '*.svg', '*.mp3', '*.mp4', '*.mov', '*.avi', '*.wav'] },
+  other: { label: 'Other', patterns: [] },
+};
 
 function createRightCounts(): Record<PermissionRight, number> {
   return {
@@ -148,6 +164,183 @@ function dedupeFiles(files: readonly PermissionOverlapFileOwnershipEntry[]): Per
   }
 
   return [...byPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function summarizeByExtension(files: readonly PermissionOverlapFileOwnershipEntry[]): PermissionOverlapByExtension[] {
+  const map = new Map<string, { fileCount: number; lineCount: number }>();
+  for (const file of files) {
+    const current = map.get(file.extension) ?? { fileCount: 0, lineCount: 0 };
+    current.fileCount += 1;
+    current.lineCount += file.lineCount;
+    map.set(file.extension, current);
+  }
+  return [...map.entries()]
+    .map(([extension, counts]) => ({
+      extension,
+      fileCount: counts.fileCount,
+      lineCount: counts.lineCount,
+    }))
+    .sort((left, right) =>
+      right.lineCount - left.lineCount
+      || right.fileCount - left.fileCount
+      || left.extension.localeCompare(right.extension)
+    );
+}
+
+function buildEffectiveFileTypeGroups(report: Extract<PermissionOverlapReport, { kind: 'files' }>) {
+  const configured: Record<string, FileTypeGroupLike> = report.fileTypeGroups && Object.keys(report.fileTypeGroups).length > 0
+    ? report.fileTypeGroups
+    : DEFAULT_FILE_TYPE_GROUPS;
+  const groups: Array<{ id: string; label: string; patterns: string[] }> = Object.entries(configured)
+    .map(([id, group]) => ({
+      id,
+      label: group.label?.trim() || id,
+      patterns: [...new Set(((group.patterns && group.patterns.length > 0 ? group.patterns : (group.extensions ?? []))
+        .map((pattern: string) => pattern.toLowerCase())
+        .map((pattern: string) => pattern.startsWith('.') ? `*${pattern}` : pattern)))],
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+  return [{ id: 'all', label: 'All files', patterns: [] }, ...groups];
+}
+
+function makeFileMatcher(
+  selectedFileTypeGroupId: string,
+  groups: ReadonlyArray<{ id: string; label: string; patterns: string[] }>,
+): (file: PermissionOverlapFileOwnershipEntry) => boolean {
+  if (selectedFileTypeGroupId === 'all') {
+    return () => true;
+  }
+  const selected = groups.find((group) => group.id === selectedFileTypeGroupId) ?? groups[0];
+  const allBySpecificity = groups
+    .filter((group) => group.id !== 'all')
+    .flatMap((group) => group.patterns.map((pattern) => ({
+      groupId: group.id,
+      pattern,
+      wildcardCount: (pattern.match(/\*/g) ?? []).length,
+      exactLength: pattern.replace(/\*/g, '').length,
+    })))
+    .sort((left, right) =>
+      left.wildcardCount - right.wildcardCount
+      || right.exactLength - left.exactLength
+      || left.pattern.localeCompare(right.pattern)
+    );
+  const selectedExactPatterns = new Set((selected?.patterns ?? []).map((pattern) => pattern.toLowerCase()));
+  return (file) => {
+    const normalizedPath = file.path.replaceAll('\\', '/').toLowerCase();
+    const matching = allBySpecificity.filter((entry) => minimatch(normalizedPath, entry.pattern, { dot: true }));
+    if (matching.length === 0) {
+      return selectedFileTypeGroupId === 'other';
+    }
+    const best = matching[0]!;
+    const bestPattern = best.pattern;
+    if (selectedFileTypeGroupId === 'other') {
+      return matching.some((entry) => entry.groupId === 'other');
+    }
+    return best.groupId === selectedFileTypeGroupId
+      || matching.some(
+        (entry) => entry.groupId === selectedFileTypeGroupId
+          && entry.pattern === bestPattern
+          && selectedExactPatterns.has(entry.pattern),
+      );
+  };
+}
+
+function applyFileTypeFilterToReport(
+  report: Extract<PermissionOverlapReport, { kind: 'files' }>,
+  matcher: (file: PermissionOverlapFileOwnershipEntry) => boolean,
+): Extract<PermissionOverlapReport, { kind: 'files' }> {
+  const filteredRights = RIGHTS.reduce((acc, right) => {
+    const source = report.rights[right];
+    const uncoveredFiles = source.uncoveredFiles.filter(matcher);
+    const singlyOwnedFiles = source.singlyOwnedFiles.filter(matcher);
+    const overlappingFiles = source.overlappingFiles.filter(matcher);
+    const allCovered = [...singlyOwnedFiles, ...overlappingFiles];
+
+    const agentResponsibilities = report.agentIds.map((agentId) => {
+      const owned = allCovered.filter((file) => file.agentIds.includes(agentId));
+      return {
+        agentId,
+        fileCount: owned.length,
+        lineCount: owned.reduce((sum, file) => sum + file.lineCount, 0),
+        byExtension: summarizeByExtension(owned),
+      };
+    }).filter((entry) => entry.fileCount > 0);
+
+    const pairs: PermissionOverlapPairEntry[] = source.pairs
+      .map((pair) => {
+        const sharedFiles = pair.sharedFiles.filter(matcher);
+        return {
+          ...pair,
+          sharedFileCount: sharedFiles.length,
+          sharedLineCount: sharedFiles.reduce((sum, file) => sum + file.lineCount, 0),
+          sharedFiles,
+          byExtension: summarizeByExtension(sharedFiles),
+        };
+      })
+      .filter((pair) => pair.sharedFileCount > 0);
+
+    const totalFiles = dedupeFiles([...uncoveredFiles, ...allCovered]).length;
+    acc[right] = {
+      ...source,
+      totalFiles,
+      uncoveredFiles,
+      singlyOwnedFiles,
+      overlappingFiles,
+      agentResponsibilities,
+      pairs,
+    } satisfies PermissionOverlapRightSummary;
+    return acc;
+  }, {} as Record<PermissionRight, PermissionOverlapRightSummary>);
+
+  const outsideDefaultContextByAgent = report.outsideDefaultContextByAgent.map((entry) => ({
+    ...entry,
+    rights: {
+      ...entry.rights,
+      read: {
+        ...entry.rights.read,
+        files: entry.rights.read.files.filter(matcher),
+        fileCount: entry.rights.read.files.filter(matcher).length,
+        lineCount: entry.rights.read.files.filter(matcher).reduce((sum, file) => sum + file.lineCount, 0),
+      },
+      write: {
+        ...entry.rights.write,
+        files: entry.rights.write.files.filter(matcher),
+        fileCount: entry.rights.write.files.filter(matcher).length,
+        lineCount: entry.rights.write.files.filter(matcher).reduce((sum, file) => sum + file.lineCount, 0),
+      },
+      create: {
+        ...entry.rights.create,
+        files: entry.rights.create.files.filter(matcher),
+        fileCount: entry.rights.create.files.filter(matcher).length,
+        lineCount: entry.rights.create.files.filter(matcher).reduce((sum, file) => sum + file.lineCount, 0),
+      },
+      delete: {
+        ...entry.rights.delete,
+        files: entry.rights.delete.files.filter(matcher),
+        fileCount: entry.rights.delete.files.filter(matcher).length,
+        lineCount: entry.rights.delete.files.filter(matcher).reduce((sum, file) => sum + file.lineCount, 0),
+      },
+      list: {
+        ...entry.rights.list,
+        files: entry.rights.list.files.filter(matcher),
+        fileCount: entry.rights.list.files.filter(matcher).length,
+        lineCount: entry.rights.list.files.filter(matcher).reduce((sum, file) => sum + file.lineCount, 0),
+      },
+    },
+  }));
+
+  const workspaceFileCount = dedupeFiles([
+    ...filteredRights.read.uncoveredFiles,
+    ...filteredRights.read.singlyOwnedFiles,
+    ...filteredRights.read.overlappingFiles,
+  ]).length;
+
+  return {
+    ...report,
+    workspaceFileCount,
+    rights: filteredRights,
+    outsideDefaultContextByAgent,
+  } satisfies FilePermissionOverlapReport;
 }
 
 function intersectGloballyUncoveredFiles(report: Extract<PermissionOverlapReport, { kind: 'files' }>) {
@@ -411,60 +604,71 @@ function buildAgentResponsibilities(report: Extract<PermissionOverlapReport, { k
   return Object.fromEntries(map.entries());
 }
 
-export function buildPermissionAnalysisView(report: PermissionOverlapReport): PermissionAnalysisView {
+export function buildPermissionAnalysisView(report: PermissionOverlapReport, selectedFileTypeGroupId = 'all'): PermissionAnalysisView {
   if (report.kind !== 'files') {
     throw new Error('The permissions analysis UI currently requires file-based overlap data.');
   }
 
-  const globallyUncoveredFiles = intersectGloballyUncoveredFiles(report);
-  const regions = buildRegions(report);
+  const fileTypeGroups = buildEffectiveFileTypeGroups(report);
+  const effectiveSelectedGroup = fileTypeGroups.some((group) => group.id === selectedFileTypeGroupId)
+    ? selectedFileTypeGroupId
+    : 'all';
+  const matcher = makeFileMatcher(effectiveSelectedGroup, fileTypeGroups);
+  const effectiveReport = effectiveSelectedGroup === 'all'
+    ? report
+    : applyFileTypeFilterToReport(report, matcher);
+
+  const globallyUncoveredFiles = intersectGloballyUncoveredFiles(effectiveReport);
+  const regions = buildRegions(effectiveReport);
   const strongest = regions[0];
-  const suggestions = buildSuggestions(report, regions, globallyUncoveredFiles);
-  const rightUncovered = buildRightUncovered(report);
-  const agentResponsibilities = buildAgentResponsibilities(report);
-  const totalAgentContextByRight = buildTotalContextByRight(report);
+  const suggestions = buildSuggestions(effectiveReport, regions, globallyUncoveredFiles);
+  const rightUncovered = buildRightUncovered(effectiveReport);
+  const agentResponsibilities = buildAgentResponsibilities(effectiveReport);
+  const totalAgentContextByRight = buildTotalContextByRight(effectiveReport);
   const defaultContextByRight = {
-    read: report.rights.read.totalFiles - report.rights.read.uncoveredFiles.length,
-    write: report.rights.read.totalFiles - report.rights.read.uncoveredFiles.length,
-    create: report.rights.read.totalFiles - report.rights.read.uncoveredFiles.length,
-    delete: report.rights.read.totalFiles - report.rights.read.uncoveredFiles.length,
-    list: report.rights.read.totalFiles - report.rights.read.uncoveredFiles.length,
+    read: effectiveReport.rights.read.totalFiles - effectiveReport.rights.read.uncoveredFiles.length,
+    write: effectiveReport.rights.read.totalFiles - effectiveReport.rights.read.uncoveredFiles.length,
+    create: effectiveReport.rights.read.totalFiles - effectiveReport.rights.read.uncoveredFiles.length,
+    delete: effectiveReport.rights.read.totalFiles - effectiveReport.rights.read.uncoveredFiles.length,
+    list: effectiveReport.rights.read.totalFiles - effectiveReport.rights.read.uncoveredFiles.length,
   } satisfies Record<PermissionRight, number>;
-  const defaultReadContextFileCount = report.rights.read.totalFiles - report.rights.read.uncoveredFiles.length;
-  const defaultReadContextLineCount = [...report.rights.read.singlyOwnedFiles, ...report.rights.read.overlappingFiles]
+  const defaultReadContextFileCount = effectiveReport.rights.read.totalFiles - effectiveReport.rights.read.uncoveredFiles.length;
+  const defaultReadContextLineCount = [...effectiveReport.rights.read.singlyOwnedFiles, ...effectiveReport.rights.read.overlappingFiles]
     .reduce((sum, file) => sum + file.lineCount, 0);
-  const outsideDefaultContextByAgent = buildOutsideDefaultContextByAgent(report);
+  const outsideDefaultContextByAgent = buildOutsideDefaultContextByAgent(effectiveReport);
   const workspaceReadFiles = dedupeFiles([
-    ...report.rights.read.uncoveredFiles,
-    ...report.rights.read.singlyOwnedFiles,
-    ...report.rights.read.overlappingFiles,
+    ...effectiveReport.rights.read.uncoveredFiles,
+    ...effectiveReport.rights.read.singlyOwnedFiles,
+    ...effectiveReport.rights.read.overlappingFiles,
   ]);
   const workspaceCodeFiles = workspaceReadFiles.filter((file) => inferFileTypeCategory(file.extension, file.path) === 'code');
   const workspaceDocumentationFiles = workspaceReadFiles.filter((file) => inferFileTypeCategory(file.extension, file.path) === 'documentation');
   const workspaceBinaryFiles = workspaceReadFiles.filter((file) => isBinaryExtension(file.extension));
-  const workspaceCodeUncoveredFiles = report.rights.read.uncoveredFiles
+  const workspaceCodeUncoveredFiles = effectiveReport.rights.read.uncoveredFiles
     .filter((file) => inferFileTypeCategory(file.extension, file.path) === 'code');
-  const workspaceDocumentationUncoveredFiles = report.rights.read.uncoveredFiles
+  const workspaceDocumentationUncoveredFiles = effectiveReport.rights.read.uncoveredFiles
     .filter((file) => inferFileTypeCategory(file.extension, file.path) === 'documentation');
-  const workspaceBinaryUncoveredFiles = report.rights.read.uncoveredFiles
+  const workspaceBinaryUncoveredFiles = effectiveReport.rights.read.uncoveredFiles
     .filter((file) => isBinaryExtension(file.extension));
   const workspaceCodeUncoveredByRight = buildUncoveredByRight(
-    report,
+    effectiveReport,
     (file) => inferFileTypeCategory(file.extension, file.path) === 'code',
   );
   const workspaceDocumentationUncoveredByRight = buildUncoveredByRight(
-    report,
+    effectiveReport,
     (file) => inferFileTypeCategory(file.extension, file.path) === 'documentation',
   );
   const workspaceBinaryUncoveredByRight = buildUncoveredByRight(
-    report,
+    effectiveReport,
     (file) => isBinaryExtension(file.extension),
   );
 
   return {
-    generatedAt: report.generatedAt,
-    workspaceFileCount: report.workspaceFileCount,
-    workspaceUncoveredFileCount: report.rights.read.uncoveredFiles.length,
+    generatedAt: effectiveReport.generatedAt,
+    selectedFileTypeGroupId: effectiveSelectedGroup,
+    fileTypeGroups: fileTypeGroups.map((group) => ({ id: group.id, label: group.label })),
+    workspaceFileCount: effectiveReport.workspaceFileCount,
+    workspaceUncoveredFileCount: effectiveReport.rights.read.uncoveredFiles.length,
     workspaceCodeFileCount: workspaceCodeFiles.length,
     workspaceCodeLineCount: workspaceCodeFiles.reduce((sum, file) => sum + file.lineCount, 0),
     workspaceCodeUncoveredFileCount: workspaceCodeUncoveredFiles.length,
@@ -475,7 +679,7 @@ export function buildPermissionAnalysisView(report: PermissionOverlapReport): Pe
     workspaceBinaryFileCount: workspaceBinaryFiles.length,
     workspaceBinaryUncoveredFileCount: workspaceBinaryUncoveredFiles.length,
     workspaceBinaryUncoveredByRight,
-    agentIds: report.agentIds,
+    agentIds: effectiveReport.agentIds,
     defaultContextByRight,
     defaultReadContextFileCount,
     defaultReadContextLineCount,
@@ -492,7 +696,7 @@ export function buildPermissionAnalysisView(report: PermissionOverlapReport): Pe
       totalAgents: report.agentIds.length,
       totalOverlappingPairs: regions.length,
       totalGloballyUncoveredFiles: globallyUncoveredFiles.length,
-      totalMultiWriteFiles: report.rights.write.overlappingFiles.length,
+    totalMultiWriteFiles: effectiveReport.rights.write.overlappingFiles.length,
       strongestOverlapRegionId: strongest?.id,
     },
   };
@@ -500,6 +704,7 @@ export function buildPermissionAnalysisView(report: PermissionOverlapReport): Pe
 
 interface UsePermissionAnalysisOptions {
   enabled?: boolean;
+  selectedFileTypeGroupId?: string;
 }
 
 export function usePermissionAnalysis(options: UsePermissionAnalysisOptions = {}) {
@@ -513,8 +718,8 @@ export function usePermissionAnalysis(options: UsePermissionAnalysisOptions = {}
   });
 
   const view = useMemo(
-    () => (query.data ? buildPermissionAnalysisView(query.data) : undefined),
-    [query.data],
+    () => (query.data ? buildPermissionAnalysisView(query.data, options.selectedFileTypeGroupId ?? 'all') : undefined),
+    [options.selectedFileTypeGroupId, query.data],
   );
 
   return {

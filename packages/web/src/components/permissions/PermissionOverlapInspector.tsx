@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react';
 import type {
   Agent,
   FileTypeSummary,
@@ -7,8 +6,8 @@ import type {
   PermissionRight,
 } from '../../types';
 import { formatRightMetric } from '../../utils/permissionMetrics';
-import { getAgentHue } from '../../utils/color';
 import { Avatar } from '../Avatar';
+import { PermissionAgentContextCard } from './PermissionAgentContextCard';
 
 interface PermissionOverlapInspectorProps {
   region?: PermissionOverlapRegion;
@@ -94,8 +93,6 @@ export function PermissionOverlapInspector({
     };
   });
   const hierarchyDescription = describeHierarchy(focusAgent, peerAgent);
-  const focusHue = focusAgent ? getAgentHue(focusAgent) : 210;
-  const peerHue = peerAgent ? getAgentHue(peerAgent) : 210;
   return (
     <div className="permission-inspector">
       <div className="permission-inspector-header">
@@ -112,97 +109,23 @@ export function PermissionOverlapInspector({
         <h4>Agent contexts</h4>
         <p className="permission-muted">{hierarchyDescription}</p>
         <div className="permission-context-stack">
-          <div
-            className="permission-summary-card permission-agent-context-card"
-            style={{ '--agent-hue': `${focusHue}` } as CSSProperties}
-          >
-            <div className="permission-inspector-agent-row">
-              <Avatar agent={focusAgent} size="small" />
-              <span className="permission-summary-label">{focusAgent?.name ?? region.focusAgentId}</span>
-            </div>
-            <span className="permission-muted">{focusAgent?.role ?? 'agent'}</span>
-            <div className="permission-inline-list">
-              <button type="button" className="permission-context-mini-button" onClick={onOpenFocusPermissionFile}>
-                Open perm
-              </button>
-              <button type="button" className="permission-context-mini-button" onClick={onOpenFocusPortfolio}>
-                Open portfolio
-              </button>
-            </div>
-            <div className="permission-right-grid">
-              {rights.map((right) => (
-                <div key={`focus-${right}`} className={`permission-right-card permission-chip-right-${right}`}>
-                  <span className="permission-right-name">{right}</span>
-                  {(right === 'read' || right === 'write')
-                    ? (
-                        <span>
-                          {(focusResponsibility?.rightLineCounts[right] ?? 0).toLocaleString()} lines
-                        </span>
-                      )
-                    : (
-                        <span>{(focusResponsibility?.rightFileCounts[right] ?? 0).toLocaleString()} files</span>
-                      )}
-                  {(right === 'read' || right === 'write') ? (
-                    <span className="permission-muted">
-                      {(focusResponsibility?.rightFileCounts[right] ?? 0).toLocaleString()} files
-                    </span>
-                  ) : null}
-                  <span className="permission-muted">
-                    {workspaceFileCount > 0
-                      ? `${(((focusResponsibility?.rightFileCounts[right] ?? 0) / workspaceFileCount) * 100).toFixed(1)}% workspace`
-                      : '0.0% workspace'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div
-            className="permission-summary-card permission-agent-context-card"
-            style={{ '--agent-hue': `${peerHue}` } as CSSProperties}
-          >
-            <div className="permission-inspector-agent-row">
-              <Avatar agent={peerAgent} size="small" />
-              <span className="permission-summary-label">{peerAgent?.name ?? region.peerAgentIds[0]}</span>
-            </div>
-            <span className="permission-muted">{peerAgent?.role ?? 'agent'}</span>
-            <div className="permission-inline-list">
-              <button type="button" className="permission-context-mini-button" onClick={onFocusPeerAgent}>
-                Focus
-              </button>
-              <button type="button" className="permission-context-mini-button" onClick={onOpenPeerPermissionFile}>
-                Open perm
-              </button>
-              <button type="button" className="permission-context-mini-button" onClick={onOpenPeerPortfolio}>
-                Open portfolio
-              </button>
-            </div>
-            <div className="permission-right-grid">
-              {rights.map((right) => (
-                <div key={`peer-${right}`} className={`permission-right-card permission-chip-right-${right}`}>
-                  <span className="permission-right-name">{right}</span>
-                  {(right === 'read' || right === 'write')
-                    ? (
-                        <span>
-                          {(peerResponsibility?.rightLineCounts[right] ?? 0).toLocaleString()} lines
-                        </span>
-                      )
-                    : (
-                        <span>{(peerResponsibility?.rightFileCounts[right] ?? 0).toLocaleString()} files</span>
-                      )}
-                  {(right === 'read' || right === 'write') ? (
-                    <span className="permission-muted">
-                      {(peerResponsibility?.rightFileCounts[right] ?? 0).toLocaleString()} files
-                    </span>
-                  ) : null}
-                  <span className="permission-muted">
-                    {workspaceFileCount > 0
-                      ? `${(((peerResponsibility?.rightFileCounts[right] ?? 0) / workspaceFileCount) * 100).toFixed(1)}% workspace`
-                      : '0.0% workspace'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <PermissionAgentContextCard
+            agent={focusAgent}
+            agentId={region.focusAgentId}
+            responsibility={focusResponsibility}
+            workspaceFileCount={workspaceFileCount}
+            onOpenPermissionFile={onOpenFocusPermissionFile}
+            onOpenPortfolio={onOpenFocusPortfolio}
+          />
+          <PermissionAgentContextCard
+            agent={peerAgent}
+            agentId={region.peerAgentIds[0]}
+            responsibility={peerResponsibility}
+            workspaceFileCount={workspaceFileCount}
+            onOpenPermissionFile={onOpenPeerPermissionFile}
+            onOpenPortfolio={onOpenPeerPortfolio}
+            onFocusAgent={onFocusPeerAgent}
+          />
         </div>
       </div>
 

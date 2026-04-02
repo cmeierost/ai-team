@@ -805,6 +805,15 @@ export const FileTreeConfigSchema = z.object({
 
 export type FileTreeConfig = z.infer<typeof FileTreeConfigSchema>;
 
+export const FileTypeGroupConfigSchema = z.object({
+  label: z.string().min(1).optional(),
+  patterns: z.array(z.string().min(1)).optional().default([]),
+  // Backward-compatibility for recent extension-based shape.
+  extensions: z.array(z.string().min(1)).optional(),
+});
+
+export type FileTypeGroupConfig = z.infer<typeof FileTypeGroupConfigSchema>;
+
 export const TeamConfigSchema = z.object({
   version: z.string(),
   llm: LlmConfigSchema.optional(),
@@ -818,6 +827,8 @@ export const TeamConfigSchema = z.object({
   randomAvatarUrls: z.array(z.string().url()).optional().default([]),
   /** File tree behaviour for the agent portfolio permission editor */
   fileTree: FileTreeConfigSchema.optional(),
+  /** Global file-type group definitions used by analysis surfaces. */
+  fileTypeGroups: z.record(z.string().min(1), FileTypeGroupConfigSchema).optional(),
   /** Global named model key assignments: { "fast": { provider: "openai", model: "gpt-4o-mini" } } */
   modelKeys: z.record(z.string(), ModelKeyEntrySchema).optional(),
   /** Model assignments for system-level LLM calls not tied to an agent */

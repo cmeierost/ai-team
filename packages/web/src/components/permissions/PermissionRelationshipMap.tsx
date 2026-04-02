@@ -90,9 +90,26 @@ export function PermissionRelationshipMap({
     const symmetricCoverage = Math.max(coverageAByB, coverageBByA);
     pairCoverage.set(pairKey(a, b), symmetricCoverage);
   }
+  const connectedAgentIds = new Set<string>();
+  for (const [key, coverage] of pairCoverage.entries()) {
+    if (coverage <= 0) {
+      continue;
+    }
+    const [a, b] = key.split('::');
+    if (a) {
+      connectedAgentIds.add(a);
+    }
+    if (b) {
+      connectedAgentIds.add(b);
+    }
+  }
+  const isolatedAgentIds = activeAgentIds.filter((agentId) => !connectedAgentIds.has(agentId));
+  const connectedActiveAgentIds = activeAgentIds.filter((agentId) => connectedAgentIds.has(agentId));
 
-  const nodes: LayoutNode[] = activeAgentIds.map((agentId, index) => {
-    const angle = (-Math.PI / 2) + (index * (Math.PI * 2 / activeAgentIds.length));
+  const nodes: LayoutNode[] = connectedActiveAgentIds.map((agentId, index) => {
+    const angle = connectedActiveAgentIds.length > 0
+      ? (-Math.PI / 2) + (index * (Math.PI * 2 / connectedActiveAgentIds.length))
+      : -Math.PI / 2;
     const metric = getResponsibilityMetricValue(view.agentResponsibilities[agentId], selectedRight);
     const sizeNorm = maxResponsibility > 0 ? Math.sqrt(metric / maxResponsibility) : 0.3;
     const radius = 22 + sizeNorm * 34;
@@ -188,11 +205,18 @@ export function PermissionRelationshipMap({
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
-  for (const node of nodes) {
-    minX = Math.min(minX, node.x - node.radius);
-    maxX = Math.max(maxX, node.x + node.radius);
-    minY = Math.min(minY, node.y - node.radius);
-    maxY = Math.max(maxY, node.y + node.radius);
+  if (nodes.length > 0) {
+    for (const node of nodes) {
+      minX = Math.min(minX, node.x - node.radius);
+      maxX = Math.max(maxX, node.x + node.radius);
+      minY = Math.min(minY, node.y - node.radius);
+      maxY = Math.max(maxY, node.y + node.radius);
+    }
+  } else {
+    minX = centerX - 1;
+    maxX = centerX + 1;
+    minY = centerY - 1;
+    maxY = centerY + 1;
   }
 
   const innerWidth = Math.max(1, maxX - minX);
@@ -203,11 +227,31 @@ export function PermissionRelationshipMap({
   const offsetX = (width - innerWidth * scale) / 2 - minX * scale;
   const offsetY = (targetHeight - innerHeight * scale) / 2 + padding - minY * scale;
 
-  const laidOutNodes = nodes.map((node) => ({
+  const laidOutConnectedNodes = nodes.map((node) => ({
     ...node,
     x: clamp(node.x * scale + offsetX, padding + node.radius, width - padding - node.radius),
     y: clamp(node.y * scale + offsetY, padding + node.radius, mapBottom - node.radius),
   }));
+  const isolatedNodes: LayoutNode[] = isolatedAgentIds.map((agentId) => {
+    const metric = getResponsibilityMetricValue(view.agentResponsibilities[agentId], selectedRight);
+    const sizeNorm = maxResponsibility > 0 ? Math.sqrt(metric / maxResponsibility) : 0.3;
+    return {
+      agentId,
+      metric,
+      radius: 22 + sizeNorm * 34,
+      x: 0,
+      y: 0,
+    };
+  });
+  let currentX = padding;
+  const isolatedY = height - 84;
+  for (const node of isolatedNodes) {
+    currentX += node.radius;
+    node.x = clamp(currentX, padding + node.radius, width - padding - node.radius);
+    node.y = isolatedY;
+    currentX += node.radius + 18;
+  }
+  const laidOutNodes = [...laidOutConnectedNodes, ...isolatedNodes];
 
   const uncoveredMetric = getUncoveredMetricValue(view.rightUncovered[selectedRight], selectedRight);
   const uncoveredRadius = uncoveredMetric > 0
@@ -220,6 +264,9 @@ export function PermissionRelationshipMap({
 
   const handlePointerDown: PointerEventHandler<SVGSVGElement> = (event) => {
     if (event.button !== 0) {
+      return;
+    }
+    if (event.target !== event.currentTarget) {
       return;
     }
     panDragRef.current = {
@@ -420,6 +467,11 @@ export function PermissionRelationshipMap({
           </text>
           <title>{`Uncovered area for ${selectedRight}: ${uncoveredMetric.toLocaleString()}`}</title>
           </g>
+          {isolatedNodes.length > 0 ? (
+            <text x={padding} y={height - 112} className="permission-overlap-peer-metric">
+              no overlap
+            </text>
+          ) : null}
         </g>
       </svg>
     </div>

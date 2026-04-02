@@ -92,6 +92,12 @@ export interface TeamConfig {
     createPaths?: string[];
     deletePaths?: string[];
   };
+  fileTypeGroups?: Record<string, {
+    label?: string;
+    patterns?: string[];
+    /** Backward-compatible field; UI prefers `patterns`. */
+    extensions?: string[];
+  }>;
 }
 
 export const configQueryKeys = {

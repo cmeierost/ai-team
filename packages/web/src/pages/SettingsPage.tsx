@@ -931,6 +931,176 @@ interface TagListSectionProps {
   onChange: (items: string[]) => void;
 }
 
+interface FileTypeGroupEditorSectionProps {
+  groups: Record<string, { label?: string; patterns?: string[]; extensions?: string[] }>;
+  onChange: (groups: Record<string, { label?: string; patterns?: string[]; extensions?: string[] }>) => void;
+}
+
+const DEFAULT_FILE_TYPE_GROUPS: Record<string, { label: string; patterns: string[] }> = {
+  code: { label: 'Code', patterns: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.mjs', '*.cjs', '*.py', '*.go', '*.rs', '*.java', '*.cs', '*.cpp', '*.c', '*.h', '*.hpp', '*.rb', '*.php', '*.swift', '*.kt', '*.sql', '*.sh', '*.ps1', '*.html', '*.css', '*.scss', '*.sass', '*.less', '*.vue', '*.svelte'] },
+  documentation: { label: 'Documentation', patterns: ['*.md', '*.mdx', '*.txt', '*.rst', '*.adoc'] },
+  configuration: { label: 'Configuration', patterns: ['*.json', '*.jsonc', '*.yaml', '*.yml', '*.toml', '*.ini', '*.env', '*.conf', '*.config', '*.properties', '*.lock'] },
+  tests: { label: 'Tests', patterns: ['*.test.*', '*.spec.*', '**/__tests__/**', '*.snap'] },
+  binaries: { label: 'Binaries', patterns: ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.ico', '*.bmp', '*.svg', '*.pdf', '*.zip', '*.gz', '*.tar', '*.7z', '*.jar', '*.db', '*.sqlite', '*.sqlite3', '*.woff', '*.woff2', '*.ttf', '*.otf', '*.eot', '*.mp3', '*.mp4', '*.mov', '*.avi', '*.wav', '*.exe', '*.dll', '*.so', '*.dylib'] },
+  assets: { label: 'Assets', patterns: ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.ico', '*.bmp', '*.svg', '*.mp3', '*.mp4', '*.mov', '*.avi', '*.wav'] },
+  other: { label: 'Other', patterns: [] },
+};
+
+function parsePatternsInput(value: string): string[] {
+  return [...new Set(
+    value
+      .split(',')
+      .map((part) => part.trim().toLowerCase())
+      .filter((part) => part.length > 0),
+  )];
+}
+
+function FileTypeGroupEditorSection({ groups, onChange }: Readonly<FileTypeGroupEditorSectionProps>) {
+  const mergedGroups = Object.fromEntries(
+    [...new Set([...Object.keys(DEFAULT_FILE_TYPE_GROUPS), ...Object.keys(groups)])].map((id) => {
+      const defaults = DEFAULT_FILE_TYPE_GROUPS[id];
+      const configured = groups[id];
+      const configuredPatterns = configured?.patterns && configured.patterns.length > 0
+        ? configured.patterns
+        : (configured?.extensions ?? []);
+      return [
+        id,
+        {
+          label: configured?.label ?? defaults?.label ?? id,
+          patterns: configuredPatterns.length > 0 ? configuredPatterns : (defaults?.patterns ?? []),
+        },
+      ];
+    }),
+  ) as Record<string, { label?: string; patterns?: string[]; extensions?: string[] }>;
+  const missingDefaultIds = Object.keys(DEFAULT_FILE_TYPE_GROUPS).filter((id) => !(id in groups));
+  const [groupId, setGroupId] = useState('');
+  const [groupLabel, setGroupLabel] = useState('');
+  const [groupExtensions, setGroupExtensions] = useState('');
+
+  const addGroup = () => {
+    const id = groupId.trim();
+    if (!id || mergedGroups[id]) {
+      return;
+    }
+    onChange({
+      ...groups,
+      [id]: {
+        label: groupLabel.trim() || id,
+        patterns: parsePatternsInput(groupExtensions),
+      },
+    });
+    setGroupId('');
+    setGroupLabel('');
+    setGroupExtensions('');
+  };
+
+  const removeGroup = (id: string) => {
+    if (id in DEFAULT_FILE_TYPE_GROUPS) {
+      return;
+    }
+    const next = { ...groups };
+    delete next[id];
+    onChange(next);
+  };
+
+  const updateGroup = (id: string, patch: Partial<{ label?: string; patterns?: string[] }>) => {
+    const baseline = mergedGroups[id] ?? { label: id, patterns: [] };
+    onChange({
+      ...groups,
+      [id]: {
+        ...baseline,
+        ...groups[id],
+        ...patch,
+      },
+    });
+  };
+
+  const applyMissingDefaults = () => {
+    const next = { ...groups };
+    for (const id of missingDefaultIds) {
+      next[id] = {
+        label: DEFAULT_FILE_TYPE_GROUPS[id]!.label,
+        patterns: [...DEFAULT_FILE_TYPE_GROUPS[id]!.patterns],
+      };
+    }
+    onChange(next);
+  };
+
+  return (
+    <CollapsibleSection title="File Type Groups" meta={`${Object.keys(mergedGroups).length} groups`}>
+      <p className="settings-help-text">
+        Configure reusable file-type groups with glob patterns (for example: `*.md`, `*.test.*`, `**/docs/**`, `*.agent.md`). “All files” is always available automatically.
+      </p>
+      {missingDefaultIds.length > 0 ? (
+        <div className="settings-filetype-defaults-hint">
+          <span>
+            Missing recommended defaults: {missingDefaultIds.join(', ')}
+          </span>
+          <button type="button" className="btn-secondary" onClick={applyMissingDefaults}>
+            Apply missing defaults
+          </button>
+        </div>
+      ) : null}
+      <div className="settings-filetype-list">
+        {Object.entries(mergedGroups).map(([id, group]) => {
+          const groupValue = group as { label?: string; patterns?: string[]; extensions?: string[] };
+          return (
+          <div key={id} className="settings-filetype-group">
+            <div className="settings-filetype-group-header">
+              <strong>{id}</strong>
+              {id in DEFAULT_FILE_TYPE_GROUPS
+                ? <span className="settings-section-meta">default (not removable)</span>
+                : <button type="button" className="btn-icon" onClick={() => removeGroup(id)} title="Remove group">✕</button>}
+            </div>
+            <div className="tag-add-row">
+              <input
+                type="text"
+                value={groupValue.label ?? ''}
+                onChange={(event) => updateGroup(id, { label: event.target.value })}
+                placeholder="Display label"
+              />
+            </div>
+            <div className="tag-add-row settings-filetype-extensions-row">
+              <input
+                type="text"
+                value={((groupValue.patterns ?? groupValue.extensions ?? [])).join(', ')}
+                onChange={(event) => updateGroup(id, { patterns: parsePatternsInput(event.target.value) })}
+                placeholder="*.ts, *.test.*, **/docs/**, *.agent.md"
+              />
+            </div>
+          </div>
+          );
+        })}
+      </div>
+      <div className="settings-filetype-new-group">
+        <h4>Add group</h4>
+        <div className="tag-add-row">
+          <input
+            type="text"
+            value={groupId}
+            onChange={(event) => setGroupId(event.target.value)}
+            placeholder="Group id (e.g. binaries)"
+          />
+          <input
+            type="text"
+            value={groupLabel}
+            onChange={(event) => setGroupLabel(event.target.value)}
+            placeholder="Label (optional)"
+          />
+          <input
+            type="text"
+            value={groupExtensions}
+            onChange={(event) => setGroupExtensions(event.target.value)}
+            placeholder="Initial globs (comma separated)"
+            className="settings-filetype-extensions-input"
+          />
+          <button type="button" className="btn-secondary" onClick={addGroup}>Add group</button>
+        </div>
+      </div>
+    </CollapsibleSection>
+  );
+}
+
 function TagListSection({ title, items, placeholder, onChange }: Readonly<TagListSectionProps>) {
   const [newValue, setNewValue] = useState('');
 
@@ -1096,6 +1266,10 @@ export function SettingsPage() {
 
       {activeTab === 'team' && (
         <>
+          <FileTypeGroupEditorSection
+            groups={teamDraft.fileTypeGroups ?? {}}
+            onChange={(fileTypeGroups) => patchTeam((d) => ({ ...d, fileTypeGroups }))}
+          />
           <TagListSection
             title="Allowed CLI Tools"
             items={teamDraft.allowedCliTools ?? []}

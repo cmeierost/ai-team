@@ -1,15 +1,739 @@
 {
   "version": "0.1.0",
-  "randomAvatarUrls": [
-    "https://i.pravatar.cc/150",
-    "https://robohash.org/{name}?size=150x150"
-  ],
+  "providers": {
+    "api-llmhub-infs-ai": {
+      "kind": "openai-compatible",
+      "defaultModel": "best-chat",
+      "models": [
+        {
+          "name": "apertus-70b-instruct-2509-qx64-mlx"
+        },
+        {
+          "name": "best-chat",
+          "contextWindow": 128000
+        },
+        {
+          "name": "best-code"
+        },
+        {
+          "name": "best-embedding"
+        },
+        {
+          "name": "best-vision"
+        },
+        {
+          "name": "gemma-3-27b-it"
+        },
+        {
+          "name": "granite-docling-258m-mlx"
+        },
+        {
+          "name": "intfloat/multilingual-e5-large-instruct"
+        },
+        {
+          "name": "mlx-community/qwen3.5-397b-a17b"
+        },
+        {
+          "name": "nomic-ai/nomic-embed-text-v1.5"
+        },
+        {
+          "name": "openai/gpt-oss-120b"
+        },
+        {
+          "name": "openai/gpt-oss-20b"
+        },
+        {
+          "name": "openai/whisper-large-v3"
+        },
+        {
+          "name": "qwen/qwen3-coder-30b"
+        },
+        {
+          "name": "Qwen/Qwen3-Coder-Next"
+        },
+        {
+          "name": "qwen/qwen3-vl-30b"
+        },
+        {
+          "name": "qwen3-vl-30b-a3b-thinking"
+        },
+        {
+          "name": "text-embedding-bge-reranker-v2-m3"
+        },
+        {
+          "name": "vibethinker-1.5b-mlx"
+        },
+        {
+          "name": "zai-org/glm-4.7-flash"
+        },
+        {
+          "name": "Flurin17/whisper-large-v3-turbo-swiss-german"
+        },
+        {
+          "name": "Qwen/Qwen3.5-35B-A3B-GPTQ-Int4"
+        }
+      ],
+      "baseUrl": "https://api.llmhub.infs.ai/v1"
+    },
+    "copilot": {
+      "kind": "github-copilot",
+      "defaultModel": "claude-haiku-4.5",
+      "models": [
+        {
+          "name": "claude-haiku-4.5"
+        },
+        {
+          "name": "claude-3.5-sonnet",
+          "contextWindow": 128000,
+          "maxPromptTokens": 128000
+        },
+        {
+          "name": "claude-3.7-sonnet",
+          "contextWindow": 128000,
+          "maxPromptTokens": 128000
+        },
+        {
+          "name": "claude-sonnet-4",
+          "contextWindow": 144000,
+          "maxPromptTokens": 144000
+        },
+        {
+          "name": "gemini-2.0-flash",
+          "contextWindow": 173000,
+          "maxPromptTokens": 173000
+        },
+        {
+          "name": "gpt-4o",
+          "contextWindow": 68000,
+          "maxPromptTokens": 68000
+        },
+        {
+          "name": "gpt-4o-mini",
+          "contextWindow": 68000,
+          "maxPromptTokens": 68000
+        },
+        {
+          "name": "o1",
+          "contextWindow": 128000,
+          "maxPromptTokens": 128000
+        },
+        {
+          "name": "o1-mini",
+          "contextWindow": 128000,
+          "maxPromptTokens": 128000
+        },
+        {
+          "name": "o3-mini",
+          "contextWindow": 128000,
+          "maxPromptTokens": 128000
+        },
+        {
+          "name": "claude-sonnet-4.6",
+          "contextWindow": 160000,
+          "maxPromptTokens": 160000
+        }
+      ]
+    },
+    "openai": {
+      "kind": "openai-compatible",
+      "defaultModel": "gpt-5.4",
+      "models": [
+        {
+          "name": "gpt-5.1"
+        },
+        {
+          "name": "babbage-002"
+        },
+        {
+          "name": "chatgpt-image-latest"
+        },
+        {
+          "name": "dall-e-2"
+        },
+        {
+          "name": "dall-e-3"
+        },
+        {
+          "name": "davinci-002"
+        },
+        {
+          "name": "gpt-3.5-turbo"
+        },
+        {
+          "name": "gpt-3.5-turbo-0125"
+        },
+        {
+          "name": "gpt-3.5-turbo-1106"
+        },
+        {
+          "name": "gpt-3.5-turbo-16k"
+        },
+        {
+          "name": "gpt-3.5-turbo-instruct"
+        },
+        {
+          "name": "gpt-3.5-turbo-instruct-0914"
+        },
+        {
+          "name": "gpt-4"
+        },
+        {
+          "name": "gpt-4-0125-preview"
+        },
+        {
+          "name": "gpt-4-0613"
+        },
+        {
+          "name": "gpt-4-1106-preview"
+        },
+        {
+          "name": "gpt-4-turbo"
+        },
+        {
+          "name": "gpt-4-turbo-2024-04-09"
+        },
+        {
+          "name": "gpt-4-turbo-preview"
+        },
+        {
+          "name": "gpt-4.1"
+        },
+        {
+          "name": "gpt-4.1-2025-04-14"
+        },
+        {
+          "name": "gpt-4.1-mini"
+        },
+        {
+          "name": "gpt-4.1-mini-2025-04-14"
+        },
+        {
+          "name": "gpt-4.1-nano"
+        },
+        {
+          "name": "gpt-4.1-nano-2025-04-14"
+        },
+        {
+          "name": "gpt-4o"
+        },
+        {
+          "name": "gpt-4o-2024-05-13"
+        },
+        {
+          "name": "gpt-4o-2024-08-06"
+        },
+        {
+          "name": "gpt-4o-2024-11-20"
+        },
+        {
+          "name": "gpt-4o-audio-preview"
+        },
+        {
+          "name": "gpt-4o-audio-preview-2024-12-17"
+        },
+        {
+          "name": "gpt-4o-audio-preview-2025-06-03"
+        },
+        {
+          "name": "gpt-4o-mini"
+        },
+        {
+          "name": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "name": "gpt-4o-mini-audio-preview"
+        },
+        {
+          "name": "gpt-4o-mini-audio-preview-2024-12-17"
+        },
+        {
+          "name": "gpt-4o-mini-realtime-preview"
+        },
+        {
+          "name": "gpt-4o-mini-realtime-preview-2024-12-17"
+        },
+        {
+          "name": "gpt-4o-mini-search-preview"
+        },
+        {
+          "name": "gpt-4o-mini-search-preview-2025-03-11"
+        },
+        {
+          "name": "gpt-4o-mini-transcribe"
+        },
+        {
+          "name": "gpt-4o-mini-transcribe-2025-03-20"
+        },
+        {
+          "name": "gpt-4o-mini-transcribe-2025-12-15"
+        },
+        {
+          "name": "gpt-4o-mini-tts"
+        },
+        {
+          "name": "gpt-4o-mini-tts-2025-03-20"
+        },
+        {
+          "name": "gpt-4o-mini-tts-2025-12-15"
+        },
+        {
+          "name": "gpt-4o-realtime-preview"
+        },
+        {
+          "name": "gpt-4o-realtime-preview-2024-12-17"
+        },
+        {
+          "name": "gpt-4o-realtime-preview-2025-06-03"
+        },
+        {
+          "name": "gpt-4o-search-preview"
+        },
+        {
+          "name": "gpt-4o-search-preview-2025-03-11"
+        },
+        {
+          "name": "gpt-4o-transcribe"
+        },
+        {
+          "name": "gpt-4o-transcribe-diarize"
+        },
+        {
+          "name": "gpt-5"
+        },
+        {
+          "name": "gpt-5-2025-08-07"
+        },
+        {
+          "name": "gpt-5-chat-latest"
+        },
+        {
+          "name": "gpt-5-codex"
+        },
+        {
+          "name": "gpt-5-mini"
+        },
+        {
+          "name": "gpt-5-mini-2025-08-07"
+        },
+        {
+          "name": "gpt-5-nano"
+        },
+        {
+          "name": "gpt-5-nano-2025-08-07"
+        },
+        {
+          "name": "gpt-5-pro"
+        },
+        {
+          "name": "gpt-5-pro-2025-10-06"
+        },
+        {
+          "name": "gpt-5-search-api"
+        },
+        {
+          "name": "gpt-5-search-api-2025-10-14"
+        },
+        {
+          "name": "gpt-5.1-2025-11-13"
+        },
+        {
+          "name": "gpt-5.1-chat-latest"
+        },
+        {
+          "name": "gpt-5.1-codex"
+        },
+        {
+          "name": "gpt-5.1-codex-max"
+        },
+        {
+          "name": "gpt-5.1-codex-mini"
+        },
+        {
+          "name": "gpt-5.2"
+        },
+        {
+          "name": "gpt-5.2-2025-12-11"
+        },
+        {
+          "name": "gpt-5.2-chat-latest"
+        },
+        {
+          "name": "gpt-5.2-codex"
+        },
+        {
+          "name": "gpt-5.2-pro"
+        },
+        {
+          "name": "gpt-5.2-pro-2025-12-11"
+        },
+        {
+          "name": "gpt-5.3-chat-latest"
+        },
+        {
+          "name": "gpt-5.3-codex"
+        },
+        {
+          "name": "gpt-5.4"
+        },
+        {
+          "name": "gpt-5.4-2026-03-05"
+        },
+        {
+          "name": "gpt-5.4-mini"
+        },
+        {
+          "name": "gpt-5.4-mini-2026-03-17"
+        },
+        {
+          "name": "gpt-5.4-nano"
+        },
+        {
+          "name": "gpt-5.4-nano-2026-03-17"
+        },
+        {
+          "name": "gpt-5.4-pro"
+        },
+        {
+          "name": "gpt-5.4-pro-2026-03-05"
+        },
+        {
+          "name": "gpt-audio"
+        },
+        {
+          "name": "gpt-audio-1.5"
+        },
+        {
+          "name": "gpt-audio-2025-08-28"
+        },
+        {
+          "name": "gpt-audio-mini"
+        },
+        {
+          "name": "gpt-audio-mini-2025-10-06"
+        },
+        {
+          "name": "gpt-audio-mini-2025-12-15"
+        },
+        {
+          "name": "gpt-image-1"
+        },
+        {
+          "name": "gpt-image-1-mini"
+        },
+        {
+          "name": "gpt-image-1.5"
+        },
+        {
+          "name": "gpt-realtime"
+        },
+        {
+          "name": "gpt-realtime-1.5"
+        },
+        {
+          "name": "gpt-realtime-2025-08-28"
+        },
+        {
+          "name": "gpt-realtime-mini"
+        },
+        {
+          "name": "gpt-realtime-mini-2025-10-06"
+        },
+        {
+          "name": "gpt-realtime-mini-2025-12-15"
+        },
+        {
+          "name": "o1"
+        },
+        {
+          "name": "o1-2024-12-17"
+        },
+        {
+          "name": "o1-pro"
+        },
+        {
+          "name": "o1-pro-2025-03-19"
+        },
+        {
+          "name": "o3"
+        },
+        {
+          "name": "o3-2025-04-16"
+        },
+        {
+          "name": "o3-mini"
+        },
+        {
+          "name": "o3-mini-2025-01-31"
+        },
+        {
+          "name": "o4-mini"
+        },
+        {
+          "name": "o4-mini-2025-04-16"
+        },
+        {
+          "name": "omni-moderation-2024-09-26"
+        },
+        {
+          "name": "omni-moderation-latest"
+        },
+        {
+          "name": "sora-2"
+        },
+        {
+          "name": "sora-2-pro"
+        },
+        {
+          "name": "text-embedding-3-large"
+        },
+        {
+          "name": "text-embedding-3-small"
+        },
+        {
+          "name": "text-embedding-ada-002"
+        },
+        {
+          "name": "tts-1"
+        },
+        {
+          "name": "tts-1-1106"
+        },
+        {
+          "name": "tts-1-hd"
+        },
+        {
+          "name": "tts-1-hd-1106"
+        },
+        {
+          "name": "whisper-1"
+        },
+        {
+          "name": "computer-use-preview"
+        },
+        {
+          "name": "computer-use-preview-2025-03-11"
+        },
+        {
+          "name": "ft:gpt-4o-2024-08-06:ifs-ost:10ktrain-1keval:BVaug7zw"
+        },
+        {
+          "name": "ft:gpt-4o-2024-08-06:ifs-ost:10ktrain-1keval:BVaugK7x:ckpt-step-770"
+        },
+        {
+          "name": "ft:gpt-4o-mini-2024-07-18:ifs-ost:10ktrain-1keval:BVGqv0te:ckpt-step-770"
+        },
+        {
+          "name": "ft:gpt-4o-mini-2024-07-18:ifs-ost:10ktrain-1keval:BVGqw9hB"
+        },
+        {
+          "name": "ft:gpt-4o-mini-2024-07-18:ifs-ost:entail-en-test1:BVGFo2Xa:ckpt-step-80"
+        },
+        {
+          "name": "ft:gpt-4o-mini-2024-07-18:ifs-ost:entail-en-test1:BVGFojC0"
+        },
+        {
+          "name": "ft:gpt-4o-mini-2024-07-18:ifs-ost:entail-en-test1:BVGFoK36:ckpt-step-90"
+        },
+        {
+          "name": "o3-deep-research"
+        },
+        {
+          "name": "o3-deep-research-2025-06-26"
+        },
+        {
+          "name": "o3-pro"
+        },
+        {
+          "name": "o3-pro-2025-06-10"
+        },
+        {
+          "name": "o4-mini-deep-research"
+        },
+        {
+          "name": "o4-mini-deep-research-2025-06-26"
+        }
+      ],
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnvVar": "OPENAI_API_KEY"
+    }
+  },
+  "defaultModel": {
+    "provider": "openai",
+    "model": "gpt-5.4"
+  },
   "allowedCliTools": [
     "git",
     "pnpm",
     "node"
   ],
+  "randomAvatarUrls": [
+    "https://i.pravatar.cc/150",
+    "https://robohash.org/{name}?size=150x150"
+  ],
   "fileTree": {
-    "allowPaths": []
+    "readPaths": [],
+    "writePaths": [],
+    "createPaths": [],
+    "deletePaths": []
+  },
+  "fileTypeGroups": {
+    "code": {
+      "label": "Code",
+      "extensions": [
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".py",
+        ".go",
+        ".rs",
+        ".java",
+        ".cs",
+        ".cpp",
+        ".c",
+        ".h",
+        ".hpp",
+        ".rb",
+        ".php",
+        ".swift",
+        ".kt",
+        ".sql",
+        ".sh",
+        ".ps1",
+        ".html",
+        ".css",
+        ".scss",
+        ".sass",
+        ".less",
+        ".vue",
+        ".svelte"
+      ]
+    },
+    "documentation": {
+      "label": "Documentation",
+      "extensions": [
+        ".md",
+        ".mdx",
+        ".txt",
+        ".rst",
+        ".adoc"
+      ]
+    },
+    "configuration": {
+      "label": "Configuration",
+      "extensions": [
+        ".json",
+        ".jsonc",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".env",
+        ".conf",
+        ".config",
+        ".properties",
+        ".lock"
+      ]
+    },
+    "tests": {
+      "label": "Tests",
+      "extensions": [
+        ".snap"
+      ]
+    },
+    "binaries": {
+      "label": "Binaries",
+      "extensions": [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".ico",
+        ".bmp",
+        ".svg",
+        ".pdf",
+        ".zip",
+        ".gz",
+        ".tar",
+        ".7z",
+        ".jar",
+        ".db",
+        ".sqlite",
+        ".sqlite3",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".eot",
+        ".mp3",
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".wav",
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib"
+      ]
+    },
+    "assets": {
+      "label": "Assets",
+      "extensions": [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".ico",
+        ".bmp",
+        ".svg",
+        ".mp3",
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".wav"
+      ]
+    },
+    "other": {
+      "label": "Other",
+      "extensions": []
+    }
+  },
+  "modelKeys": {
+    "cheap": {
+      "provider": "api-llmhub-infs-ai",
+      "model": "best-chat",
+      "contextWindow": 20000
+    },
+    "best": {
+      "provider": "copilot",
+      "model": "claude-sonnet-4.6",
+      "contextWindow": 128000
+    },
+    "coding": {
+      "provider": "openai",
+      "model": "gpt-5.3-codex",
+      "contextWindow": 128000
+    },
+    "thinking": {
+      "provider": "openai",
+      "model": "gpt-5.4",
+      "contextWindow": 128000
+    }
+  },
+  "systemModels": {
+    "summarize": {
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "contextWindow": 128000
+    },
+    "title": {
+      "provider": "api-llmhub-infs-ai",
+      "model": "best-chat",
+      "contextWindow": 128000
+    }
   }
 }

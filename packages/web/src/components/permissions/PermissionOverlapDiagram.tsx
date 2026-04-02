@@ -35,6 +35,14 @@ function roleName(agent: Agent | undefined): string {
   return agent.role.replace(/-/g, ' ');
 }
 
+function toDegrees(radians: number): number {
+  return radians * (180 / Math.PI);
+}
+
+function safeIdFragment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+
 export function PermissionOverlapDiagram({
   focusAgent,
   agentsById,
@@ -70,10 +78,41 @@ export function PermissionOverlapDiagram({
   const maxSafeRadiusFromCenter = Math.max(16, maxOrbitRadius - focusRadius - 8);
   const maxSafeRadius = Math.min(maxSafeRadiusBetweenPeers, maxSafeRadiusFromCenter);
   const minRadius = Math.min(20, Math.max(12, maxSafeRadius * 0.45));
+  const focusHue = getAgentHue(focusAgent);
+  const getPeerGeometry = (region: PermissionOverlapRegion, index: number) => {
+    const peerAgentId = region.peerAgentIds[0];
+    const peerMetric = responsibilityMetricByAgentId?.[peerAgentId];
+    const metric = peerMetric ?? getRegionMetricValue(region, selectedRight);
+    const normalized = maxMetric > 0 ? Math.sqrt(metric / maxMetric) : 0.2;
+    const radius = minRadius + (maxSafeRadius - minRadius) * normalized;
+    const sharedFiles = region.rightFileCounts[selectedRight] ?? 0;
+    const peerTotalFiles = responsibilityFileCountByAgentId?.[peerAgentId] ?? 0;
+    const coverage = peerTotalFiles > 0 ? Math.min(1, sharedFiles / peerTotalFiles) : 0;
+    const closeness = Math.pow(coverage, 1.8);
+    const orbitRadius = maxOrbitRadius - (maxOrbitRadius - minOrbitRadius) * closeness;
+    const angle = -Math.PI / 2 + index * angleStep;
+    const cx = centerX + Math.cos(angle) * orbitRadius;
+    const cy = centerY + Math.sin(angle) * orbitRadius;
+    return {
+      peerAgentId,
+      metric,
+      radius,
+      coverage,
+      cx,
+      cy,
+    };
+  };
   const selectedRegion = regions.find((region) => region.id === selectedRegionId) ?? regions[0];
   const selectedSharedFiles = selectedRegion?.rightFileCounts[selectedRight] ?? 0;
   const focusTotalFiles = responsibilityFileCountByAgentId?.[focusAgent.id] ?? 0;
   const selectedFocusCoverage = focusTotalFiles > 0 ? Math.min(1, selectedSharedFiles / focusTotalFiles) : 0;
+  const selectedRegionIndex = Math.max(0, regions.findIndex((region) => region.id === selectedRegion.id));
+  const selectedPeerGeometry = getPeerGeometry(selectedRegion, selectedRegionIndex);
+  const selectedPeerAgent = agentsById.get(selectedPeerGeometry.peerAgentId);
+  const selectedPeerHue = selectedPeerAgent ? getAgentHue(selectedPeerAgent) : focusHue;
+  const focusTintAngle = toDegrees(Math.atan2(selectedPeerGeometry.cy - centerY, selectedPeerGeometry.cx - centerX));
+  const focusTintWidth = (focusRadius * 2) * selectedFocusCoverage;
+  const focusTintStartX = centerX + focusRadius - focusTintWidth;
   const focusBadgeWidth = Math.max(30, focusRadius * 0.9);
   const focusBadgeHeight = Math.max(14, focusRadius * 0.3);
   const focusBadgeX = centerX - (focusBadgeWidth / 2);
@@ -88,8 +127,8 @@ export function PermissionOverlapDiagram({
       <svg viewBox="0 0 420 380" className="permission-overlap-diagram" role="img" aria-label={`Overlap map for ${focusAgent.name}`}>
         <defs>
           <radialGradient id="permission-focus-gradient" cx="50%" cy="50%" r="65%">
-            <stop offset="0%" stopColor={`hsl(${getAgentHue(focusAgent)} 72% 62% / 0.36)`} />
-            <stop offset="100%" stopColor={`hsl(${getAgentHue(focusAgent)} 72% 46% / 0.16)`} />
+            <stop offset="0%" stopColor={`hsl(${focusHue} 72% 62% / 0.36)`} />
+            <stop offset="100%" stopColor={`hsl(${focusHue} 72% 46% / 0.16)`} />
           </radialGradient>
           {(() => {
             const focusAvatar = getAvatarUrl(focusAgent);
@@ -114,6 +153,17 @@ export function PermissionOverlapDiagram({
               </pattern>
             );
           })}
+          <clipPath id="permission-focus-overlap-clip">
+            <circle cx={centerX} cy={centerY} r={focusRadius} />
+          </clipPath>
+          {regions.map((region, index) => {
+            const geometry = getPeerGeometry(region, index);
+            return (
+              <clipPath key={`peer-clip-${region.id}`} id={`permission-peer-overlap-clip-${safeIdFragment(region.id)}`}>
+                <circle cx={geometry.cx} cy={geometry.cy} r={geometry.radius} />
+              </clipPath>
+            );
+          })}
         </defs>
 
         <circle
@@ -122,10 +172,20 @@ export function PermissionOverlapDiagram({
           r={focusRadius}
           className="permission-overlap-focus-circle"
           fill={getAvatarUrl(focusAgent) ? `url(#permission-avatar-focus-${focusAgent.id})` : 'url(#permission-focus-gradient)'}
-          stroke={`hsl(${getAgentHue(focusAgent)} 72% 62% / 0.85)`}
+          stroke={`hsl(${focusHue} 72% 62% / 0.85)`}
           onClick={() => onSelectAgent(focusAgent.id)}
           style={{ cursor: 'pointer' }}
         />
+        <g clipPath="url(#permission-focus-overlap-clip)" transform={`rotate(${focusTintAngle} ${centerX} ${centerY})`}>
+          <rect
+            x={focusTintStartX}
+            y={centerY - focusRadius}
+            width={focusTintWidth}
+            height={focusRadius * 2}
+            className="permission-overlap-directional-tint"
+            fill={`hsl(${selectedPeerHue} 78% 62% / 0.62)`}
+          />
+        </g>
         {!getAvatarUrl(focusAgent) ? (
           <text x={centerX} y={centerY + (focusRadius * 0.08)} textAnchor="middle" className="permission-overlap-focus-initial">
             {shortName(focusAgent.name)}
@@ -155,19 +215,10 @@ export function PermissionOverlapDiagram({
         <title>{focusAgent.name}{roleName(focusAgent) ? ` — ${roleName(focusAgent)}` : ''}</title>
 
         {regions.map((region, index) => {
-          const peerAgentId = region.peerAgentIds[0];
-          const peerMetric = responsibilityMetricByAgentId?.[peerAgentId];
-          const metric = peerMetric ?? getRegionMetricValue(region, selectedRight);
-          const normalized = maxMetric > 0 ? Math.sqrt(metric / maxMetric) : 0.2;
-          const peerRadius = minRadius + (maxSafeRadius - minRadius) * normalized;
-          const sharedFiles = region.rightFileCounts[selectedRight] ?? 0;
-          const peerTotalFiles = responsibilityFileCountByAgentId?.[peerAgentId] ?? 0;
-          const coverage = peerTotalFiles > 0 ? Math.min(1, sharedFiles / peerTotalFiles) : 0;
-          const closeness = Math.pow(coverage, 1.8);
-          const orbitRadius = maxOrbitRadius - (maxOrbitRadius - minOrbitRadius) * closeness;
-          const angle = -Math.PI / 2 + index * angleStep;
-          const cx = centerX + Math.cos(angle) * orbitRadius;
-          const cy = centerY + Math.sin(angle) * orbitRadius;
+          const geometry = getPeerGeometry(region, index);
+          const peerRadius = geometry.radius;
+          const cx = geometry.cx;
+          const cy = geometry.cy;
           const dx = cx - centerX;
           const dy = cy - centerY;
           const distance = Math.max(1, Math.hypot(dx, dy));
@@ -192,20 +243,16 @@ export function PermissionOverlapDiagram({
         })}
 
         {regions.map((region, index) => {
-          const peerAgentId = region.peerAgentIds[0];
+          const geometry = getPeerGeometry(region, index);
+          const peerAgentId = geometry.peerAgentId;
           const peerAgent = agentsById.get(peerAgentId);
-          const angle = -Math.PI / 2 + index * angleStep;
-          const peerMetric = responsibilityMetricByAgentId?.[peerAgentId];
-          const metric = peerMetric ?? getRegionMetricValue(region, selectedRight);
-          const normalized = maxMetric > 0 ? Math.sqrt(metric / maxMetric) : 0.2;
-          const radius = minRadius + (maxSafeRadius - minRadius) * normalized;
-          const sharedFiles = region.rightFileCounts[selectedRight] ?? 0;
-          const peerTotalFiles = responsibilityFileCountByAgentId?.[peerAgentId] ?? 0;
-          const coverage = peerTotalFiles > 0 ? Math.min(1, sharedFiles / peerTotalFiles) : 0;
-          const closeness = Math.pow(coverage, 1.8);
-          const orbitRadius = maxOrbitRadius - (maxOrbitRadius - minOrbitRadius) * closeness;
-          const cx = centerX + Math.cos(angle) * orbitRadius;
-          const cy = centerY + Math.sin(angle) * orbitRadius;
+          const radius = geometry.radius;
+          const coverage = geometry.coverage;
+          const cx = geometry.cx;
+          const cy = geometry.cy;
+          const tintWidth = (radius * 2) * coverage;
+          const tintStartX = cx + radius - tintWidth;
+          const tintAngle = toDegrees(Math.atan2(centerY - cy, centerX - cx));
           const metricBadgeWidth = Math.max(24, radius * 0.84);
           const metricBadgeHeight = Math.max(12, radius * 0.28);
           const metricBadgeX = cx - (metricBadgeWidth / 2);
@@ -237,6 +284,19 @@ export function PermissionOverlapDiagram({
                 stroke={`hsl(${peerHue} 70% 63% / ${isSelected ? '0.95' : '0.72'})`}
                 strokeWidth={isSelected ? 3 : 2}
               />
+              <g
+                clipPath={`url(#permission-peer-overlap-clip-${safeIdFragment(region.id)})`}
+                transform={`rotate(${tintAngle} ${cx} ${cy})`}
+              >
+                <rect
+                  x={tintStartX}
+                  y={cy - radius}
+                  width={tintWidth}
+                  height={radius * 2}
+                  className="permission-overlap-directional-tint"
+                  fill={`hsl(${focusHue} 78% 62% / 0.62)`}
+                />
+              </g>
               {!getAvatarUrl(peerAgent) ? (
                 <text x={cx} y={cy + (radius * 0.12)} textAnchor="middle" className="permission-overlap-peer-initial" style={{ fontSize: `${Math.max(10, radius * 0.55)}px` }}>
                   {shortName(peerAgent?.name ?? peerAgentId)}

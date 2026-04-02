@@ -1,19 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { API_BASE, useTeam } from '../context/TeamContext';
 import { usePermissionAnalysis, filterRegionsForAgent } from '../hooks/usePermissionAnalysis';
 import type { Agent, PermissionOverlapRegion, PermissionRight } from '../types';
 import { PermissionOverlapDiagram } from '../components/permissions/PermissionOverlapDiagram';
 import { PermissionOverlapInspector } from '../components/permissions/PermissionOverlapInspector';
 import { PermissionRelationshipMap } from '../components/permissions/PermissionRelationshipMap';
+import { PermissionAgentInfoCard } from '../components/permissions/PermissionAgentInfoCard';
+import { PermissionAgentContextCard } from '../components/permissions/PermissionAgentContextCard';
 import { formatMetricValue, formatRightMetric, getRegionMetricValue, getResponsibilityMetricValue } from '../utils/permissionMetrics';
 import { PortfolioFileAccessSection } from '../components/portfolio/PortfolioFileAccessSection';
 import '../components/permissions/PermissionsAnalysis.css';
 
-function regionPeerName(region: PermissionOverlapRegion, agentsById: Map<string, Agent>): string {
-  const peerId = region.peerAgentIds[0];
-  return agentsById.get(peerId)?.name ?? peerId;
-}
+const rightOptions: PermissionRight[] = ['read', 'write', 'list'];
 
 async function openPermissionFileInIde(agentId: string): Promise<void> {
   try {
@@ -29,11 +28,15 @@ async function openPermissionFileInIde(agentId: string): Promise<void> {
 
 export function PermissionsAnalysisPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { agents } = useTeam();
   const [requested, setRequested] = useState(false);
   const [selectedRight, setSelectedRight] = useState<PermissionRight>('write');
-  const [mapMode, setMapMode] = useState<'focused' | 'relationship'>('focused');
-  const { view, isLoading, error, analyze, isFetching } = usePermissionAnalysis({ enabled: requested });
+  const [selectedFileTypeGroupId, setSelectedFileTypeGroupId] = useState<string>('all');
+  const { view, isLoading, error, analyze, isFetching } = usePermissionAnalysis({
+    enabled: requested,
+    selectedFileTypeGroupId,
+  });
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [selectedRegionId, setSelectedRegionId] = useState<string | undefined>(undefined);
 
@@ -83,6 +86,13 @@ export function PermissionsAnalysisPage() {
     [selectedAgentId, view],
   );
   const hasOutsideDefaultFiles = selectedOutsideDefaultEntries.some((entry) => entry.files.length > 0);
+  const entryMode = location.pathname.endsWith('/relations')
+    ? 'relations'
+    : location.pathname.endsWith('/overlap')
+      ? 'overlap'
+      : null;
+  const isOverlapPage = entryMode === 'overlap';
+  const isRelationsPage = entryMode === 'relations';
 
   const agentSummaries = useMemo(() => {
     if (!view) {
@@ -101,16 +111,36 @@ export function PermissionsAnalysisPage() {
       };
     });
   }, [view]);
-
   if (!requested) {
     return (
       <div className="permissions-page">
         <section className="permissions-card permission-analysis-gate">
           <h1>Permissions Analysis</h1>
-          <p>This analysis is intentionally on-demand because it is a relatively expensive workspace calculation. Run it when you want the whole-picture optimization view.</p>
-          <button type="button" className="permission-analyze-button" onClick={() => setRequested(true)}>
-            Analyze overlap
-          </button>
+          <p>This analysis is intentionally on-demand because it is a relatively expensive workspace calculation. Choose which view you want to analyze.</p>
+          <div className="permissions-analysis-entry-grid">
+            <button
+              type="button"
+              className="permissions-analysis-entry-card"
+              onClick={() => {
+                void navigate('/analysis/permissions/overlap');
+                setRequested(true);
+              }}
+            >
+              <strong>Overlapping permissions</strong>
+              <span>Focused overlap map and overlap inspector for pair-by-pair permission analysis.</span>
+            </button>
+            <button
+              type="button"
+              className="permissions-analysis-entry-card"
+              onClick={() => {
+                void navigate('/analysis/permissions/relations');
+                setRequested(true);
+              }}
+            >
+              <strong>Relations</strong>
+              <span>Workspace-wide relationship map showing overall overlap strength between agents.</span>
+            </button>
+          </div>
         </section>
       </div>
     );
@@ -147,72 +177,111 @@ export function PermissionsAnalysisPage() {
       <header className="permissions-page-header">
         <div>
           <h1>Permissions Analysis</h1>
-          <p>Explore overlapping file-system rights, uncovered files, and deterministic suggestions for cleaner ownership.</p>
+          <p>
+            {isOverlapPage
+              ? 'Optimization workbench: focus one agent, inspect pair overlap, then edit rights directly.'
+              : isRelationsPage
+                ? 'Global oversight: monitor whole-workspace relationships, hotspots, and cleanup warnings.'
+                : 'Choose a dedicated analysis surface: global relations or direct overlap optimization.'}
+          </p>
         </div>
         <span className="permissions-generated-at">Generated {new Date(view.generatedAt).toLocaleString()}</span>
       </header>
 
-      <section className="permissions-summary-grid">
-        <div className="permission-summary-card">
-          <span className="permission-summary-label">Workspace</span>
-          <strong>{view.workspaceFileCount.toLocaleString()} files</strong>
-          <span className="permission-muted">
-            {view.rightUncovered.read.fileCount.toLocaleString()} / {view.rightUncovered.write.fileCount.toLocaleString()} / {view.rightUncovered.list.fileCount.toLocaleString()} uncovered (R/W/L)
-          </span>
-        </div>
-        <div className="permission-summary-card">
-          <span className="permission-summary-label">Code</span>
-          <strong>{view.workspaceCodeFileCount.toLocaleString()} files</strong>
-          <span className="permission-muted">
-            {view.workspaceCodeLineCount.toLocaleString()} lines
-          </span>
-          <span className="permission-muted">
-            {view.workspaceCodeUncoveredByRight.read.toLocaleString()} / {view.workspaceCodeUncoveredByRight.write.toLocaleString()} / {view.workspaceCodeUncoveredByRight.list.toLocaleString()} uncovered (R/W/L)
-          </span>
-        </div>
-        <div className="permission-summary-card">
-          <span className="permission-summary-label">Documentation</span>
-          <strong>{view.workspaceDocumentationFileCount.toLocaleString()} files</strong>
-          <span className="permission-muted">
-            {view.workspaceDocumentationUncoveredByRight.read.toLocaleString()} / {view.workspaceDocumentationUncoveredByRight.write.toLocaleString()} / {view.workspaceDocumentationUncoveredByRight.list.toLocaleString()} uncovered (R/W/L)
-          </span>
-        </div>
-        <div className="permission-summary-card">
-          <span className="permission-summary-label">Binary</span>
-          <strong>{view.workspaceBinaryFileCount.toLocaleString()} files</strong>
-          <span className="permission-muted">
-            {view.workspaceBinaryUncoveredByRight.read.toLocaleString()} / {view.workspaceBinaryUncoveredByRight.write.toLocaleString()} / {view.workspaceBinaryUncoveredByRight.list.toLocaleString()} uncovered (R/W/L)
-          </span>
-        </div>
-      </section>
-
-      <section className="permissions-card">
-        <div className="permissions-card-header">
-          <div>
-            <h2>Interactive overlap map</h2>
-            <p>
-              {mapMode === 'focused'
-                ? `Focus one agent at a time, then click the overlapping area to inspect ${selectedRight} overlap, file endings, and shared files.`
-                : `Global relationship mode: circle size shows ${selectedRight} responsibility; distance/links show overlap strength. Uncovered area is shown as UNC.`}
-            </p>
+      {entryMode === null ? (
+        <section className="permissions-card permission-analysis-gate">
+          <h2>Choose analysis view</h2>
+          <p>Use dedicated pages for either global relationship guidance or direct overlap optimization.</p>
+          <div className="permissions-analysis-entry-grid">
+            <button
+              type="button"
+              className="permissions-analysis-entry-card"
+              onClick={() => { void navigate('/analysis/permissions/overlap'); }}
+            >
+              <strong>Overlapping permissions</strong>
+              <span>Pair-by-pair overlap inspection and direct rights editing.</span>
+            </button>
+            <button
+              type="button"
+              className="permissions-analysis-entry-card"
+              onClick={() => { void navigate('/analysis/permissions/relations'); }}
+            >
+              <strong>Relations</strong>
+              <span>Global map, hotspots, warnings, and workspace-level optimization guidance.</span>
+            </button>
           </div>
-          <div className="permissions-controls-row">
-            <label className="permissions-select">
-              <span>Focus agent</span>
-              <select value={selectedAgentId} onChange={(event) => setSelectedAgentId(event.target.value)}>
-                {view.agentIds.map((agentId) => (
-                  <option key={agentId} value={agentId}>
-                    {agentsById.get(agentId)?.name ?? agentId}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </div>
+        </section>
+      ) : null}
 
-        <div className="permission-overlap-main">
-          <div className="permission-graph-tile">
-            {mapMode === 'focused' ? (
+      {isRelationsPage ? (
+        <section className="permissions-summary-grid">
+          <div className="permission-summary-card">
+            <span className="permission-summary-label">Workspace</span>
+            <strong>{view.workspaceFileCount.toLocaleString()} files</strong>
+            <span className="permission-muted">
+              {view.rightUncovered.read.fileCount.toLocaleString()} / {view.rightUncovered.write.fileCount.toLocaleString()} / {view.rightUncovered.list.fileCount.toLocaleString()} uncovered (R/W/L)
+            </span>
+          </div>
+          <div className="permission-summary-card">
+            <span className="permission-summary-label">Code</span>
+            <strong>{view.workspaceCodeFileCount.toLocaleString()} files</strong>
+            <span className="permission-muted">
+              {view.workspaceCodeLineCount.toLocaleString()} lines
+            </span>
+            <span className="permission-muted">
+              {view.workspaceCodeUncoveredByRight.read.toLocaleString()} / {view.workspaceCodeUncoveredByRight.write.toLocaleString()} / {view.workspaceCodeUncoveredByRight.list.toLocaleString()} uncovered (R/W/L)
+            </span>
+          </div>
+          <div className="permission-summary-card">
+            <span className="permission-summary-label">Documentation</span>
+            <strong>{view.workspaceDocumentationFileCount.toLocaleString()} files</strong>
+            <span className="permission-muted">
+              {view.workspaceDocumentationUncoveredByRight.read.toLocaleString()} / {view.workspaceDocumentationUncoveredByRight.write.toLocaleString()} / {view.workspaceDocumentationUncoveredByRight.list.toLocaleString()} uncovered (R/W/L)
+            </span>
+          </div>
+          <div className="permission-summary-card">
+            <span className="permission-summary-label">Binary</span>
+            <strong>{view.workspaceBinaryFileCount.toLocaleString()} files</strong>
+            <span className="permission-muted">
+              {view.workspaceBinaryUncoveredByRight.read.toLocaleString()} / {view.workspaceBinaryUncoveredByRight.write.toLocaleString()} / {view.workspaceBinaryUncoveredByRight.list.toLocaleString()} uncovered (R/W/L)
+            </span>
+          </div>
+        </section>
+      ) : null}
+
+      {isOverlapPage ? (
+        <section className="permissions-card permissions-workbench-card">
+          <div className="permissions-card-header">
+            <div>
+              <h2>Overlapping permissions</h2>
+              <p>Focus one agent at a time, then click overlapping peers to inspect shared rights, coverage, file endings, and ownership context.</p>
+            </div>
+            <div className="permissions-controls-row">
+              <label className="permissions-select">
+                <span>Focus agent</span>
+                <select value={selectedAgentId} onChange={(event) => setSelectedAgentId(event.target.value)}>
+                  {view.agentIds.map((agentId) => (
+                    <option key={agentId} value={agentId}>
+                      {agentsById.get(agentId)?.name ?? agentId}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="permissions-select">
+                <span>File type group</span>
+                <select value={selectedFileTypeGroupId} onChange={(event) => setSelectedFileTypeGroupId(event.target.value)}>
+                  {view.fileTypeGroups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div className="permission-overlap-main">
+            <div className="permission-graph-tile">
               <PermissionOverlapDiagram
                 focusAgent={focusAgent}
                 agentsById={agentsById}
@@ -220,130 +289,170 @@ export function PermissionsAnalysisPage() {
                 selectedRight={selectedRight}
                 overlay={(
                   <div className="permission-overlap-inline-controls">
-                    <label className="permissions-select permission-overlap-inline-select">
-                      <span>Map mode</span>
-                      <select value={mapMode} onChange={(event) => setMapMode(event.target.value as 'focused' | 'relationship')}>
-                        <option value="focused">Focused overlap</option>
-                        <option value="relationship">Relationship map</option>
-                      </select>
-                    </label>
-                    <label className="permissions-select permission-overlap-inline-select">
+                    <div className="permissions-right-toggle">
                       <span>Permission type</span>
-                      <select value={selectedRight} onChange={(event) => setSelectedRight(event.target.value as PermissionRight)}>
-                        <option value="write">write</option>
-                        <option value="read">read</option>
-                        <option value="list">list</option>
-                      </select>
-                    </label>
+                      <div className="permission-chip-row">
+                        {rightOptions.map((right) => (
+                          <button
+                            key={`overlap-${right}`}
+                            type="button"
+                            className={`permission-right-toggle-button permission-chip-right-${right} ${selectedRight === right ? 'permission-right-toggle-button-active' : ''}`}
+                            onClick={() => setSelectedRight(right)}
+                          >
+                            {right}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
                 onSelectAgent={(agentId) => {
                   setSelectedAgentId(agentId);
                   void openPermissionFileInIde(agentId);
                 }}
-              responsibilityMetricByAgentId={Object.fromEntries(view.agentIds.map((agentId) => [
-                agentId,
-                getResponsibilityMetricValue(view.agentResponsibilities[agentId], selectedRight),
-              ]))}
-              responsibilityFileCountByAgentId={Object.fromEntries(view.agentIds.map((agentId) => [
-                agentId,
-                view.agentResponsibilities[agentId]?.rightFileCounts[selectedRight] ?? 0,
-              ]))}
-              selectedRegionId={selectedRegion?.id}
-              onSelectRegion={setSelectedRegionId}
-              emptyLabel={`This agent has no ${selectedRight} overlap regions in the current file analysis.`}
-            />
-          ) : (
-            <PermissionRelationshipMap
-              view={view}
-              agentsById={agentsById}
-              selectedRight={selectedRight}
-              overlay={(
-                <div className="permission-overlap-inline-controls">
-                  <label className="permissions-select permission-overlap-inline-select">
-                    <span>Map mode</span>
-                    <select value={mapMode} onChange={(event) => setMapMode(event.target.value as 'focused' | 'relationship')}>
-                      <option value="focused">Focused overlap</option>
-                      <option value="relationship">Relationship map</option>
-                    </select>
-                  </label>
-                  <label className="permissions-select permission-overlap-inline-select">
-                    <span>Permission type</span>
-                    <select value={selectedRight} onChange={(event) => setSelectedRight(event.target.value as PermissionRight)}>
-                      <option value="write">write</option>
-                      <option value="read">read</option>
-                      <option value="list">list</option>
-                    </select>
-                  </label>
-                </div>
-              )}
-              selectedAgentId={selectedAgentId}
-              onSelectAgent={(agentId) => {
-                setSelectedAgentId(agentId);
-                void openPermissionFileInIde(agentId);
-              }}
-              onSelectPairRegion={setSelectedRegionId}
-              onOpenAgentPermissionFile={(agentId) => void openPermissionFileInIde(agentId)}
-            />
-            )}
-          </div>
-          <PermissionOverlapInspector
-              region={selectedRegion}
-              agentsById={agentsById}
-              focusResponsibility={selectedRegion ? view.agentResponsibilities[selectedRegion.focusAgentId] : undefined}
-              peerResponsibility={selectedRegion ? view.agentResponsibilities[selectedRegion.peerAgentIds[0]] : undefined}
-              workspaceFileCount={view.workspaceFileCount}
-              onOpenFocusPermissionFile={selectedRegion ? () => { void openPermissionFileInIde(selectedRegion.focusAgentId); } : undefined}
-              onOpenPeerPermissionFile={selectedRegion ? () => { void openPermissionFileInIde(selectedRegion.peerAgentIds[0]); } : undefined}
-              onOpenFocusPortfolio={selectedRegion ? () => navigate(`/portfolio/${selectedRegion.focusAgentId}`) : undefined}
-              onOpenPeerPortfolio={selectedRegion ? () => navigate(`/portfolio/${selectedRegion.peerAgentIds[0]}`) : undefined}
-              onFocusPeerAgent={selectedRegion ? () => {
-                const peerId = selectedRegion.peerAgentIds[0];
-                setSelectedAgentId(peerId);
-                void openPermissionFileInIde(peerId);
-              } : undefined}
-            />
+                responsibilityMetricByAgentId={Object.fromEntries(view.agentIds.map((agentId) => [
+                  agentId,
+                  getResponsibilityMetricValue(view.agentResponsibilities[agentId], selectedRight),
+                ]))}
+                responsibilityFileCountByAgentId={Object.fromEntries(view.agentIds.map((agentId) => [
+                  agentId,
+                  view.agentResponsibilities[agentId]?.rightFileCounts[selectedRight] ?? 0,
+                ]))}
+                selectedRegionId={selectedRegion?.id}
+                onSelectRegion={setSelectedRegionId}
+                emptyLabel={`This agent has no ${selectedRight} overlap regions in the current file analysis.`}
+              />
+            </div>
+            <PermissionOverlapInspector
+                region={selectedRegion}
+                agentsById={agentsById}
+                focusResponsibility={selectedRegion ? view.agentResponsibilities[selectedRegion.focusAgentId] : undefined}
+                peerResponsibility={selectedRegion ? view.agentResponsibilities[selectedRegion.peerAgentIds[0]] : undefined}
+                workspaceFileCount={view.workspaceFileCount}
+                onOpenFocusPermissionFile={selectedRegion ? () => { void openPermissionFileInIde(selectedRegion.focusAgentId); } : undefined}
+                onOpenPeerPermissionFile={selectedRegion ? () => { void openPermissionFileInIde(selectedRegion.peerAgentIds[0]); } : undefined}
+                onOpenFocusPortfolio={selectedRegion ? () => navigate(`/portfolio/${selectedRegion.focusAgentId}`) : undefined}
+                onOpenPeerPortfolio={selectedRegion ? () => navigate(`/portfolio/${selectedRegion.peerAgentIds[0]}`) : undefined}
+                onFocusPeerAgent={selectedRegion ? () => {
+                  const peerId = selectedRegion.peerAgentIds[0];
+                  setSelectedAgentId(peerId);
+                  void openPermissionFileInIde(peerId);
+                } : undefined}
+              />
           </div>
           {selectedAgentId && hasOutsideDefaultFiles ? (
+              <div className="permission-section-block">
+                <h3>Allowed outside default context</h3>
+                <p>
+                  Files this agent can access that are not included in the default/global context scope.
+                </p>
+                {selectedOutsideDefaultEntries.map(({ right, files }) => {
+                  return (
+                    <div key={right} className="permission-section-block">
+                      <h4>{right}</h4>
+                      <ul className="permission-file-list">
+                        {files.slice(0, 8).map((file) => (
+                          <li key={`${right}:${file.path}`}>
+                            <code>{file.path}</code>
+                            <span>{file.lineCount.toLocaleString()} lines</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
             <div className="permission-section-block">
-              <h3>Allowed outside default context</h3>
-              <p>
-                Files this agent can access that are not included in the default/global context scope.
-              </p>
-              {selectedOutsideDefaultEntries.map(({ right, files }) => {
-                return (
-                  <div key={right} className="permission-section-block">
-                    <h4>{right}</h4>
-                    <ul className="permission-file-list">
-                      {files.slice(0, 8).map((file) => (
-                        <li key={`${right}:${file.path}`}>
-                          <code>{file.path}</code>
-                          <span>{file.lineCount.toLocaleString()} lines</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                );
-              })}
+            <div className="permissions-card-header">
+              <div>
+                <h3>Edit selected agent rights</h3>
+                <p>Click an agent in the map, then edit its file-tree permissions directly here. Shared files with the selected peer are highlighted in the tree.</p>
+              </div>
             </div>
-          ) : null}
-          <div className="permission-section-block">
+            {selectedAgentId ? (
+              <PortfolioFileAccessSection
+                agentId={selectedAgentId}
+                forceEditMode
+                highlightedPaths={sharedPathsWithSelectedRegion}
+              />
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {isRelationsPage ? (
+      <>
+      <section className="permissions-card">
+        <div className="permissions-card-header">
+          <div>
+            <h2>Relations</h2>
+            <p>Global relationship map: node size reflects responsibility and distances/links reflect overlap strength across the full workspace.</p>
+          </div>
+          <label className="permissions-select">
+            <span>File type group</span>
+            <select value={selectedFileTypeGroupId} onChange={(event) => setSelectedFileTypeGroupId(event.target.value)}>
+              {view.fileTypeGroups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <PermissionRelationshipMap
+          view={view}
+          agentsById={agentsById}
+          selectedRight={selectedRight}
+          overlay={(
+            <div className="permission-overlap-inline-controls">
+              <div className="permissions-right-toggle">
+                <span>Permission type</span>
+                <div className="permission-chip-row">
+                  {rightOptions.map((right) => (
+                    <button
+                      key={`relations-${right}`}
+                      type="button"
+                      className={`permission-right-toggle-button permission-chip-right-${right} ${selectedRight === right ? 'permission-right-toggle-button-active' : ''}`}
+                      onClick={() => setSelectedRight(right)}
+                    >
+                      {right}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          selectedAgentId={selectedAgentId}
+          onSelectAgent={(agentId) => {
+            setSelectedAgentId(agentId);
+            void openPermissionFileInIde(agentId);
+          }}
+          onSelectPairRegion={setSelectedRegionId}
+          onOpenAgentPermissionFile={(agentId) => void openPermissionFileInIde(agentId)}
+        />
+      </section>
+      {selectedAgentId ? (
+        <section className="permissions-card">
           <div className="permissions-card-header">
             <div>
-              <h3>Edit selected agent rights</h3>
-              <p>Click an agent in the map, then edit its file-tree permissions directly here. Shared files with the selected peer are highlighted in the tree.</p>
+              <h2>Selected agent context</h2>
+              <p>Responsibility context for the selected agent with read/write/list coverage and quick actions.</p>
             </div>
           </div>
-          {selectedAgentId ? (
-            <PortfolioFileAccessSection
+          <div className="permission-context-stack">
+            <PermissionAgentContextCard
+              agent={agentsById.get(selectedAgentId)}
               agentId={selectedAgentId}
-              forceEditMode
-              highlightedPaths={sharedPathsWithSelectedRegion}
+              responsibility={view.agentResponsibilities[selectedAgentId]}
+              workspaceFileCount={view.workspaceFileCount}
+              onOpenPermissionFile={() => { void openPermissionFileInIde(selectedAgentId); }}
+              onOpenPortfolio={() => navigate(`/portfolio/${selectedAgentId}`)}
             />
-          ) : null}
-        </div>
-      </section>
-
+          </div>
+        </section>
+      ) : null}
       <section className="permissions-card">
         <div className="permissions-card-header">
           <div>
@@ -354,43 +463,17 @@ export function PermissionsAnalysisPage() {
 
         <div className="permissions-agent-grid">
           {agentSummaries.map((summary) => (
-            <button
+            <PermissionAgentInfoCard
               key={summary.agentId}
-              type="button"
-              className={`permissions-agent-card ${summary.agentId === selectedAgentId ? 'permissions-agent-card-active' : ''}`}
-              onClick={() => setSelectedAgentId(summary.agentId)}
-            >
-              <strong>{agentsById.get(summary.agentId)?.name ?? summary.agentId}</strong>
-              <span>{summary.overlapCount} overlapping peer{summary.overlapCount === 1 ? '' : 's'}</span>
-              <span>
-                {summary.topRegion
-                  ? `Top: ${regionPeerName(summary.topRegion, agentsById)} · ${summary.topRegion.totalLines.toLocaleString()} lines`
-                  : 'No overlap'}
-              </span>
-              <span>
-                {summary.topRegion
-                  ? `write: ${formatRightMetric(summary.topRegion, 'write')}`
-                  : 'write: 0'}
-              </span>
-              <div className="permission-inline-list">
-                {(summary.topRegion?.sharedRights ?? []).map((right) => (
-                  <span key={right} className={`permission-chip permission-chip-right permission-chip-right-${right}`}>
-                    {right}
-                  </span>
-                ))}
-              </div>
-              <div className="permission-inline-list">
-                {(summary.topRegion?.rightFileEndingSummary?.write ?? summary.topRegion?.fileEndingSummary ?? []).slice(0, 3).map((entry) => (
-                  <span key={entry.extension} className="permission-mini-pill">
-                    {entry.extension}
-                  </span>
-                ))}
-              </div>
-            </button>
+              summary={summary}
+              agent={agentsById.get(summary.agentId)}
+              agentsById={agentsById}
+              selected={summary.agentId === selectedAgentId}
+              onSelect={setSelectedAgentId}
+            />
           ))}
         </div>
       </section>
-
       <section className="permissions-card">
         <div className="permissions-card-header">
           <div>
@@ -439,7 +522,6 @@ export function PermissionsAnalysisPage() {
           </ul>
         </div>
       </section>
-
       <section className="permissions-card">
         <div className="permissions-card-header">
           <div>
@@ -511,6 +593,8 @@ export function PermissionsAnalysisPage() {
           ))}
         </div>
       </section>
+      </>
+      ) : null}
     </div>
   );
 }

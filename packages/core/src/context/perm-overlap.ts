@@ -14,10 +14,12 @@ import {
   type PairwiseAgentOverlap,
   type RightOverlapSummary,
 } from '@ai-team/permission';
+import { minimatch } from 'minimatch';
 import { ALL_RIGHTS } from '@ai-team/permission';
 import { AgentManager } from '../agent/index.js';
 import { loadAgentAccessPatterns, loadTeamConfig } from '../storage/index.js';
 import { createPermissionEngine } from './permission-adapter.js';
+import type { FileTypeGroupConfig, TeamConfig } from '../types/index.js';
 
 export type PermissionOverlapMode = 'files' | 'patterns';
 
@@ -104,6 +106,7 @@ export interface FilePermissionOverlapReport {
   generatedAt: string;
   agentIds: string[];
   workspaceFileCount: number;
+  fileTypeGroups: Record<string, FileTypeGroupConfig>;
   rights: Record<Right, FileRightCoverageSummary>;
   outsideDefaultContextByAgent: AgentOutsideDefaultContextSummary[];
   agentFocus?: AgentFocusedOverlapSummary;
@@ -142,6 +145,62 @@ const EXCLUDED_ANALYSIS_DIR_SEGMENTS = new Set([
   '.output',
   'out',
 ]);
+
+const DEFAULT_FILE_TYPE_GROUPS: Record<string, FileTypeGroupConfig> = {
+  code: {
+    label: 'Code',
+    patterns: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.mjs', '*.cjs', '*.py', '*.go', '*.rs', '*.java', '*.cs', '*.cpp', '*.c', '*.h', '*.hpp', '*.rb', '*.php', '*.swift', '*.kt', '*.sql', '*.sh', '*.ps1', '*.html', '*.css', '*.scss', '*.sass', '*.less', '*.vue', '*.svelte'],
+  },
+  documentation: {
+    label: 'Documentation',
+    patterns: ['*.md', '*.mdx', '*.txt', '*.rst', '*.adoc'],
+  },
+  configuration: {
+    label: 'Configuration',
+    patterns: ['*.json', '*.jsonc', '*.yaml', '*.yml', '*.toml', '*.ini', '*.env', '*.conf', '*.config', '*.properties', '*.lock'],
+  },
+  tests: {
+    label: 'Tests',
+    patterns: ['*.test.*', '*.spec.*', '**/__tests__/**', '*.snap'],
+  },
+  binaries: {
+    label: 'Binaries',
+    patterns: ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.ico', '*.bmp', '*.svg', '*.pdf', '*.zip', '*.gz', '*.tar', '*.7z', '*.jar', '*.db', '*.sqlite', '*.sqlite3', '*.woff', '*.woff2', '*.ttf', '*.otf', '*.eot', '*.mp3', '*.mp4', '*.mov', '*.avi', '*.wav', '*.exe', '*.dll', '*.so', '*.dylib'],
+  },
+  assets: {
+    label: 'Assets',
+    patterns: ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.ico', '*.bmp', '*.svg', '*.mp3', '*.mp4', '*.mov', '*.avi', '*.wav'],
+  },
+  other: {
+    label: 'Other',
+    patterns: [],
+  },
+};
+
+function normalizeFileTypeGroups(config: TeamConfig | undefined): Record<string, FileTypeGroupConfig> {
+  const configured = config?.fileTypeGroups ?? {};
+  const merged: Record<string, FileTypeGroupConfig> = {};
+  const source = {
+    ...DEFAULT_FILE_TYPE_GROUPS,
+    ...configured,
+  };
+  for (const [id, group] of Object.entries(source)) {
+    const normalizedId = id.trim();
+    if (normalizedId.length === 0) {
+      continue;
+    }
+    merged[normalizedId] = {
+      label: group.label?.trim() || normalizedId,
+      patterns: [...new Set(
+        ((group.patterns && group.patterns.length > 0 ? group.patterns : (group.extensions ?? []))
+          .map((pattern) => pattern.trim().toLowerCase())
+          .filter((pattern) => pattern.length > 0)
+          .map((pattern) => pattern.startsWith('.') ? `*${pattern}` : pattern)),
+      )],
+    };
+  }
+  return merged;
+}
 
 function shouldExcludeFromFileOverlap(relativePath: string, gitignored?: boolean): boolean {
   if (gitignored) {
@@ -521,6 +580,7 @@ export async function analyzeWorkspacePermissionOverlap(
   }
 
   const config = await loadTeamConfig(workspaceRoot);
+  const fileTypeGroups = normalizeFileTypeGroups(config);
   const agentManager = new AgentManager(workspaceRoot);
   await agentManager.initialize();
   const agents = await mergeAgentAccessPatterns(workspaceRoot, agentManager.getAllAgents());
@@ -576,6 +636,7 @@ export async function analyzeWorkspacePermissionOverlap(
     generatedAt: new Date().toISOString(),
     agentIds,
     workspaceFileCount: files.length,
+    fileTypeGroups,
     rights,
     outsideDefaultContextByAgent,
   };

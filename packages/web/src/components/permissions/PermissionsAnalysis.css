@@ -41,13 +41,71 @@
 }
 
 .permission-right-toggle-button-active {
-  border-color: rgba(224, 108, 117, 0.75);
+  font-weight: 700;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22);
+}
+
+.permission-right-toggle-button.permission-chip-right-read.permission-right-toggle-button-active {
+  border-color: rgba(86, 182, 194, 0.95);
+  background: rgba(86, 182, 194, 0.36);
+  color: #c5f2fb;
+}
+
+.permission-right-toggle-button.permission-chip-right-write.permission-right-toggle-button-active {
+  border-color: rgba(224, 108, 117, 0.95);
+  background: rgba(224, 108, 117, 0.36);
+  color: #ffd0d5;
+}
+
+.permission-right-toggle-button.permission-chip-right-list.permission-right-toggle-button-active {
+  border-color: rgba(240, 164, 67, 0.95);
+  background: rgba(240, 164, 67, 0.36);
+  color: #ffe2b0;
+}
+
+.permission-right-toggle-button.permission-chip-right-read {
+  background: rgba(86, 182, 194, 0.16);
+}
+
+.permission-right-toggle-button.permission-chip-right-write {
   background: rgba(224, 108, 117, 0.16);
-  color: #f39aa1;
+}
+
+.permission-right-toggle-button.permission-chip-right-list {
+  background: rgba(240, 164, 67, 0.16);
 }
 
 .permission-analysis-gate {
   align-items: flex-start;
+}
+
+.permissions-workbench-card {
+  border-color: hsl(210 70% 62% / 0.45);
+  box-shadow: inset 0 0 0 1px hsl(210 70% 62% / 0.2);
+}
+
+.permissions-analysis-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.permissions-analysis-entry-card {
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border-radius: 8px;
+  padding: 14px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.permissions-analysis-entry-card:hover {
+  border-color: var(--color-accent-primary);
 }
 
 .permissions-page {
@@ -265,6 +323,10 @@
   fill: rgba(45, 45, 45, 0.72);
   stroke: rgba(255, 255, 255, 0.22);
   stroke-width: 1;
+}
+
+.permission-overlap-directional-tint {
+  pointer-events: none;
 }
 
 .permission-overlap-region {

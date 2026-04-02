@@ -59,7 +59,7 @@ function buildAgentSuggestions(agentId: string, peerRegions: readonly Permission
 }
 
 export function useAgentOverlap(agentId: string | undefined, options: UseAgentOverlapOptions = {}) {
-  const query = usePermissionAnalysis({ enabled: options.enabled });
+  const query = usePermissionAnalysis({ enabled: options.enabled, selectedFileTypeGroupId: 'all' });
 
   const view = useMemo<AgentOverlapView | undefined>(() => {
     if (!agentId || !query.view) {

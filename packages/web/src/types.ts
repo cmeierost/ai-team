@@ -262,6 +262,7 @@ export interface FilePermissionOverlapReport {
   generatedAt: string;
   agentIds: string[];
   workspaceFileCount: number;
+  fileTypeGroups?: Record<string, { label?: string; patterns?: string[]; extensions?: string[] }>;
   rights: Record<PermissionRight, PermissionOverlapRightSummary>;
   outsideDefaultContextByAgent: AgentOutsideDefaultContextSummary[];
   agentFocus?: AgentFocusedOverlapSummary;
@@ -345,6 +346,8 @@ export interface PermissionAnalysisSummary {
 
 export interface PermissionAnalysisView {
   generatedAt: string;
+  selectedFileTypeGroupId: string;
+  fileTypeGroups: Array<{ id: string; label: string }>;
   workspaceFileCount: number;
   workspaceUncoveredFileCount: number;
   workspaceCodeFileCount: number;
