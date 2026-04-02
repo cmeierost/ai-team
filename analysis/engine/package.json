@@ -5,6 +5,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "bin": {
+    "aspect-analyze": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -21,6 +24,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@aspect/collector-typescript": "workspace:*",
     "@aspect/contracts": "workspace:*",
     "graphology": "^0.25.4",
     "graphology-metrics": "^2.4.0",

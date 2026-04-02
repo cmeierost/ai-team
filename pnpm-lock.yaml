@@ -91,6 +91,9 @@ importers:
 
   analysis/engine:
     dependencies:
+      '@aspect/collector-typescript':
+        specifier: workspace:*
+        version: link:../collectors/typescript
       '@aspect/contracts':
         specifier: workspace:*
         version: link:../contracts

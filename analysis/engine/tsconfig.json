@@ -9,7 +9,8 @@
     "composite": true
   },
   "references": [
-    { "path": "../contracts" }
+    { "path": "../contracts" },
+    { "path": "../collectors/typescript" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
