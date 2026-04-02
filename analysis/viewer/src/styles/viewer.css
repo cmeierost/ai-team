@@ -1,0 +1,330 @@
+/* @aspect/viewer — Architecture viewer styles */
+
+.aspect-viewer {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #1e293b;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+/* ── Side panel ──────────────────────────────────────────────────────── */
+
+.aspect-viewer__sidebar {
+  width: 360px;
+  min-width: 320px;
+  max-width: 420px;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.aspect-viewer__sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.aspect-viewer__sidebar-tab {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.aspect-viewer__sidebar-tab:hover {
+  color: #334155;
+  background: #f8fafc;
+}
+
+.aspect-viewer__sidebar-tab--active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.aspect-viewer__sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* ── Graph area ──────────────────────────────────────────────────────── */
+
+.aspect-viewer__graph {
+  flex: 1;
+  position: relative;
+}
+
+.aspect-viewer__toolbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.aspect-viewer__toolbar-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.aspect-viewer__toolbar-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.aspect-viewer__toolbar-btn--active {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+/* ── Health score ────────────────────────────────────────────────────── */
+
+.aspect-health {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.aspect-health__score {
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.aspect-health__score--good { color: #22c55e; }
+.aspect-health__score--warning { color: #f59e0b; }
+.aspect-health__score--critical { color: #ef4444; }
+
+.aspect-health__label {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+/* ── Metric grid ─────────────────────────────────────────────────────── */
+
+.aspect-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.aspect-metric {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.aspect-metric__value {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.aspect-metric__value--warn { color: #f59e0b; }
+.aspect-metric__value--bad { color: #ef4444; }
+
+.aspect-metric__label {
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Role bar ────────────────────────────────────────────────────────── */
+
+.aspect-roles {
+  margin-bottom: 16px;
+}
+
+.aspect-roles__bar {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.aspect-roles__segment {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.aspect-roles__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.aspect-roles__dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 3px;
+}
+
+/* ── Recommendation cards ────────────────────────────────────────────── */
+
+.aspect-rec {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.aspect-rec:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.aspect-rec__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aspect-rec__priority {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.aspect-rec__priority--critical { background: #ef4444; }
+.aspect-rec__priority--high { background: #f97316; }
+.aspect-rec__priority--medium { background: #f59e0b; }
+.aspect-rec__priority--low { background: #3b82f6; }
+
+.aspect-rec__category {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.aspect-rec__title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  flex: 1;
+  line-height: 1.3;
+}
+
+.aspect-rec__desc {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+.aspect-rec__impact {
+  margin-top: 6px;
+  height: 3px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.aspect-rec__impact-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: #3b82f6;
+  transition: width 0.3s ease;
+}
+
+/* ── Detail panel ────────────────────────────────────────────────────── */
+
+.aspect-detail__empty {
+  text-align: center;
+  color: #94a3b8;
+  padding: 40px 20px;
+  font-size: 13px;
+}
+
+.aspect-detail__section {
+  margin-bottom: 16px;
+}
+
+.aspect-detail__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.aspect-detail__subtitle {
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.aspect-detail__row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.aspect-detail__row-label { color: #64748b; }
+.aspect-detail__row-value { font-weight: 500; color: #1e293b; }
+
+.aspect-detail__files {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.aspect-detail__file {
+  padding: 4px 0;
+  font-size: 12px;
+  color: #475569;
+  border-bottom: 1px solid #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aspect-detail__badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 500;
+}
