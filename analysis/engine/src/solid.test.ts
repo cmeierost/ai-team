@@ -356,12 +356,16 @@ describe('DIP indicator', () => {
         modulePath: 'src/domain',
         files: ['src/domain/core.ts'],
         declaredLayer: 3, // core = highest
+        isPackage: false,
+        kind: 'manual',
       },
       {
         moduleId: 'infra',
         modulePath: 'src/infra',
         files: ['src/infra/db.ts', 'src/infra/api.ts'],
         declaredLayer: 1, // infra = lowest
+        isPackage: false,
+        kind: 'manual',
       },
     ];
 
@@ -664,7 +668,7 @@ describe('DIP edge cases', () => {
       { sourceEntityId: 'cls1', targetEntityId: 'dep1', kind: 'use', targetIsAbstraction: false },
     ];
     const moduleBoundaries: ModuleBoundary[] = [
-      { moduleId: 'infra', modulePath: 'src/infra', files: ['src/infra/db.ts'], declaredLayer: 1 },
+      { moduleId: 'infra', modulePath: 'src/infra', files: ['src/infra/db.ts'], declaredLayer: 1, isPackage: false, kind: 'manual' },
     ];
 
     const result = calculateSolidIndicators(entities, relationships, moduleBoundaries, []);

@@ -32,7 +32,7 @@ function createMockCollectedData(): CollectedData {
     ],
     relationships: [],
     moduleBoundaries: [
-      { moduleId: 'mod-a', modulePath: 'src/', files: ['src/a.ts', 'src/b.ts'], declaredLayer: null, isPackage: false },
+      { moduleId: 'mod-a', modulePath: 'src/', files: ['src/a.ts', 'src/b.ts'], declaredLayer: null, isPackage: false, kind: 'manual' },
     ],
   };
 }

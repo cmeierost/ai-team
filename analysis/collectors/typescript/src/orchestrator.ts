@@ -67,6 +67,8 @@ export interface CollectorOptions {
   eslint?: { configPath?: string; extraArgs?: string[] };
   /** dependency-cruiser options. */
   depCruiser?: { extraOptions?: Record<string, unknown> };
+  /** Path to tsconfig.json — auto-detected if not provided. */
+  tsConfigPath?: string;
 }
 
 export interface CollectionResult {
@@ -424,6 +426,7 @@ export async function collect(
         rootDir: options.rootDir,
         srcDirs: options.srcDirs,
         cruiseOptions: options.depCruiser?.extraOptions,
+        tsConfigPath: options.tsConfigPath,
         moduleBoundaries: options.moduleBoundaries?.map((mb) => ({
           moduleId: mb.moduleId,
           modulePath: mb.modulePath,
@@ -516,15 +519,67 @@ export async function collect(
       allowedEntityIds.add(entity.id);
     }
   }
+
+  // Phase 2.6 — Remap short .js entity references to their full .ts counterparts.
+  // dep-cruiser resolves imports to .js paths (e.g., 'agent/index.js') but we have
+  // the real .ts entities (e.g., 'packages/core/src/agent/index.ts'). Build a lookup
+  // from short basename to full entity ID so relationships stay connected.
+  const jsRemapTable = new Map<string, string>();
+  const filteredIds = new Set(
+    entities.filter((e) => !allowedEntityIds.has(e.id)).map((e) => e.id),
+  );
+  if (filteredIds.size > 0) {
+    // Build basename→fullId map from kept entities
+    const baseToFull = new Map<string, string>();
+    for (const e of filteredEntities) {
+      if (e.kind !== 'file') continue;
+      const fp = e.filePath.replace(/\\/g, '/');
+      // Extract the short name: 'packages/core/src/agent/index.ts' → 'agent/index.ts'
+      // Also: 'packages/core/src/utils/str.ts' → 'utils/str.ts', 'str.ts'
+      const parts = fp.split('/');
+      for (let i = 1; i < parts.length; i++) {
+        const suffix = parts.slice(i).join('/');
+        if (!baseToFull.has(suffix)) {
+          baseToFull.set(suffix, e.id);
+        }
+        // Also the .js variant
+        const jsSuffix = suffix.replace(/\.tsx?$/, '.js');
+        if (!baseToFull.has(jsSuffix)) {
+          baseToFull.set(jsSuffix, e.id);
+        }
+      }
+    }
+
+    // For each filtered entity, try to find a remap
+    for (const e of entities) {
+      if (allowedEntityIds.has(e.id)) continue;
+      const fp = e.filePath.replace(/\\/g, '/');
+      const fullId = baseToFull.get(fp);
+      if (fullId) {
+        jsRemapTable.set(e.id, fullId);
+      }
+    }
+  }
+
   entities = filteredEntities;
 
-  relationships = relationships.filter(
-    (r) => allowedEntityIds.has(r.sourceEntityId) && allowedEntityIds.has(r.targetEntityId),
-  );
+  // Remap and filter relationships
+  relationships = relationships
+    .map((r) => {
+      const src = jsRemapTable.get(r.sourceEntityId) ?? r.sourceEntityId;
+      const tgt = jsRemapTable.get(r.targetEntityId) ?? r.targetEntityId;
+      if (src === r.sourceEntityId && tgt === r.targetEntityId) return r;
+      return { ...r, sourceEntityId: src, targetEntityId: tgt };
+    })
+    .filter(
+      (r) =>
+        allowedEntityIds.has(r.sourceEntityId) &&
+        allowedEntityIds.has(r.targetEntityId),
+    );
 
   if (preFilterCount !== entities.length) {
     warnings.push(
-      `Filtered ${preFilterCount - entities.length} gitignored/external entities (${entities.length} remaining)`,
+      `Filtered ${preFilterCount - entities.length} gitignored/external entities (${entities.length} remaining), remapped ${jsRemapTable.size} short paths`,
     );
   }
 

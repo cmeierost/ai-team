@@ -395,6 +395,10 @@ export interface ModuleBoundary {
    * True if this module boundary corresponds to a discrete distributable package (e.g. an npm package or Maven module).
    */
   isPackage: boolean;
+  /**
+   * How this boundary was detected. 'package' = from package.json or similar manifest, 'directory' = from folder structure at a given depth, 'facade' = from re-export index files (e.g. index.ts), 'namespace' = from language namespaces, 'manual' = user-supplied.
+   */
+  kind: 'package' | 'directory' | 'facade' | 'namespace' | 'manual';
 }
 /**
  * Duplication signals from clone-detection tools such as jscpd. Represents a single collection run with detected code clones and summary statistics.

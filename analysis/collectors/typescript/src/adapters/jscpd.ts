@@ -3,7 +3,6 @@
  */
 
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { readFile, mkdir, rm, access } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
@@ -109,6 +108,8 @@ export interface DuplicationSignal {
 export interface JscpdAdapterOptions {
   /** Root directory to analyze */
   rootDir: string;
+  /** Source directories (relative to rootDir) to scan */
+  srcDirs?: string[];
   /** Glob patterns to include */
   include?: string[];
   /** Glob patterns to exclude */
@@ -117,6 +118,10 @@ export interface JscpdAdapterOptions {
   minTokens?: number;
   /** Minimum lines for clone detection (default: 5) */
   minLines?: number;
+  /** Max lines per file before skipping (default: 5000) */
+  maxLines?: number;
+  /** Language formats to scan (default: ['typescript']) */
+  formats?: string[];
 }
 
 export interface JscpdToolRun {
@@ -204,33 +209,26 @@ export function normalizeJscpdOutput(
 }
 
 // ---------------------------------------------------------------------------
-// Resolve jscpd binary path
+// Resolve jscpd bin script (the JS file, not the shell shim)
 // ---------------------------------------------------------------------------
 
-function resolveJscpdBin(): string {
-  // Resolve relative to THIS package's node_modules, not CWD
-  try {
-    const req = createRequire(import.meta.url);
-    const jscpdPkgPath = req.resolve('jscpd/package.json');
-    const jscpdDir = dirname(jscpdPkgPath);
-    const pkg = JSON.parse(readFileSync(jscpdPkgPath, 'utf-8'));
-    const binPath = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin?.jscpd;
-    if (binPath) {
-      return resolve(jscpdDir, binPath);
-    }
-  } catch {
-    // fall through
-  }
-  return 'jscpd'; // fall back to PATH
+function resolveJscpdBinScript(): string {
+  // Resolve the main entry, then navigate to the bin script.
+  // jscpd's package.json `exports` doesn't expose `./package.json`, so we
+  // resolve the main entry and derive the bin path from there.
+  const req = createRequire(import.meta.url);
+  const jscpdMain = req.resolve('jscpd'); // e.g. .../jscpd/dist/src/index.js
+  const distDir = dirname(dirname(jscpdMain)); // .../jscpd/dist
+  return join(distDir, 'bin', 'jscpd');
 }
 
 // ---------------------------------------------------------------------------
 // Get jscpd version
 // ---------------------------------------------------------------------------
 
-function getJscpdVersion(bin: string): Promise<string> {
+function getJscpdVersion(binScript: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(bin, ['--version'], { timeout: 10_000 }, (err, stdout) => {
+    execFile(process.execPath, [binScript, '--version'], { timeout: 10_000 }, (err, stdout) => {
       if (err) {
         reject(new Error(`Failed to get jscpd version: ${String(err.message)}`));
         return;
@@ -241,7 +239,7 @@ function getJscpdVersion(bin: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Run jscpd CLI
+// Run jscpd CLI via node
 // ---------------------------------------------------------------------------
 
 interface CliRunResult {
@@ -251,12 +249,14 @@ interface CliRunResult {
 }
 
 function runJscpdCli(
-  bin: string,
+  binScript: string,
   args: string[],
   cwd: string,
 ): Promise<CliRunResult> {
   return new Promise((resolve) => {
-    execFile(bin, args, { cwd, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    // Run the bin script with node so it works on all platforms (the .bin
+    // shims are shell/cmd scripts that don't work with execFile portably).
+    execFile(process.execPath, [binScript, ...args], { cwd, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
       // jscpd may exit non-zero when duplicates are found — that's not an error
       const exitCode = err && 'code' in err ? (err.code as number) : 0;
       resolve({ exitCode: typeof exitCode === 'number' ? exitCode : 1, stdout, stderr });
@@ -272,8 +272,8 @@ export async function runJscpdAdapter(options: JscpdAdapterOptions): Promise<Jsc
   const start = Date.now();
   const warnings: string[] = [];
 
-  const bin = resolveJscpdBin();
-  const version = await getJscpdVersion(bin).catch(() => {
+  const binScript = resolveJscpdBinScript();
+  const version = await getJscpdVersion(binScript).catch(() => {
     warnings.push('Could not determine jscpd version');
     return 'unknown';
   });
@@ -281,13 +281,20 @@ export async function runJscpdAdapter(options: JscpdAdapterOptions): Promise<Jsc
   const rootDir = resolve(options.rootDir);
   const outputDir = join(rootDir, '.jscpd-report');
 
+  // Resolve scan paths — either explicit srcDirs or the rootDir itself
+  const scanPaths = (options.srcDirs ?? []).length > 0
+    ? options.srcDirs!.map((d) => resolve(rootDir, d))
+    : [rootDir];
+
   // Build CLI args
   const args: string[] = [
-    rootDir,
+    ...scanPaths,
     '--reporters', 'json',
     '--output', outputDir,
+    '--format', (options.formats ?? ['typescript']).join(','),
     '--min-tokens', String(options.minTokens ?? 50),
     '--min-lines', String(options.minLines ?? 5),
+    '--max-lines', String(options.maxLines ?? 5000),
     '--silent',
   ];
 
@@ -297,14 +304,12 @@ export async function runJscpdAdapter(options: JscpdAdapterOptions): Promise<Jsc
   }
 
   const exclude = options.exclude ?? ['**/node_modules/**', '**/dist/**'];
-  for (const pattern of exclude) {
-    args.push('--ignore', pattern);
-  }
+  args.push('--ignore', exclude.join(','));
 
   // Ensure output dir exists
   await mkdir(outputDir, { recursive: true });
 
-  const cliResult = await runJscpdCli(bin, args, rootDir);
+  const cliResult = await runJscpdCli(binScript, args, rootDir);
 
   if (cliResult.stderr) {
     warnings.push(cliResult.stderr.trim());

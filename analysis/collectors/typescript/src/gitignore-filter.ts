@@ -80,8 +80,15 @@ export function buildPathFilter(rootDir: string): PathFilter {
       // Paths starting with ../ are outside rootDir — always exclude
       if (normalized.startsWith('../')) return true;
 
-      // Bare names without '/' or '.' (e.g., 'path', 'fs') are Node builtins — exclude
+      // Bare names without '/' (e.g., 'path', 'fs', 'stream') are Node builtins
       if (!normalized.includes('/') && !normalized.includes('.')) return true;
+
+      // Node builtin subpaths (e.g., 'fs/promises', 'node:fs/promises')
+      if (normalized.startsWith('node:')) return true;
+      if (/^[a-z][a-z0-9_-]*\/[a-z]/.test(normalized) && !normalized.includes('.')) return true;
+
+      // Scoped npm packages without node_modules/ prefix (e.g., '@typescript-eslint/...')
+      if (normalized.startsWith('@')) return true;
 
       return ig.ignores(normalized);
     },

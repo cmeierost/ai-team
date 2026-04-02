@@ -57,8 +57,8 @@ function createMockCollectedData(): CollectedData {
       mockRelationship('c', 'a'),
     ],
     moduleBoundaries: [
-      { moduleId: 'mod-a', modulePath: 'src/', files: ['src/a.ts', 'src/b.ts'], declaredLayer: null, isPackage: false },
-      { moduleId: 'mod-b', modulePath: 'lib/', files: ['src/c.ts'], declaredLayer: null, isPackage: false },
+      { moduleId: 'mod-a', modulePath: 'src/', files: ['src/a.ts', 'src/b.ts'], declaredLayer: null, isPackage: false, kind: 'manual' },
+      { moduleId: 'mod-b', modulePath: 'lib/', files: ['src/c.ts'], declaredLayer: null, isPackage: false, kind: 'manual' },
     ],
   };
 }

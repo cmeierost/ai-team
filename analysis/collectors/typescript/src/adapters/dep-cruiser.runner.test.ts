@@ -18,6 +18,7 @@ const mockReaddirSync = vi.fn();
 
 vi.mock('node:fs', () => ({
   readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
+  existsSync: vi.fn(() => false),
 }));
 
 import { runDepCruiserAdapter, type DepCruiserRawOutput } from './dep-cruiser.js';
@@ -129,6 +130,8 @@ describe('runDepCruiserAdapter', () => {
         baseDir: '/project',
         tsPreCompilationDeps: true,
       }),
+      undefined,
+      undefined,
     );
   });
 

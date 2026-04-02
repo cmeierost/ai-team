@@ -73,6 +73,7 @@ function moduleBoundary(
     files,
     declaredLayer: null,
     isPackage: false,
+    kind: 'manual' as const,
   };
 }
 

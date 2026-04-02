@@ -6,7 +6,7 @@
  */
 
 import * as path from 'node:path';
-import { readdirSync } from 'node:fs';
+import { readdirSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 // ── Local types ─────────────────────────────────────────────────────────────
@@ -112,6 +112,8 @@ export interface DepCruiserAdapterOptions {
   cruiseOptions?: Record<string, unknown>;
   /** Module boundary definitions for crossModule detection. */
   moduleBoundaries?: ModuleBoundaryDef[];
+  /** Path to tsconfig.json — enables proper .js→.ts resolution. Auto-detected if not provided. */
+  tsConfigPath?: string;
 }
 
 export interface DepCruiserToolRun {
@@ -237,33 +239,78 @@ export function normalizeDepCruiserOutput(
   const entities: Entity[] = [];
   const relationships: Relationship[] = [];
 
+  // Phase 1: Collect all source paths (these are the .ts files we fed to cruise).
+  // Build a lookup to remap .js resolved paths back to their .ts source.
+  const knownSources = new Set<string>();
+  for (const mod of rawOutput.modules) {
+    const fp = mod.source.replace(/\\/g, '/').replace(/^\.\//, '');
+    knownSources.add(fp);
+  }
+
+  // Build .js → .ts remap table.
+  // 'packages/core/src/agent/index.ts' produces entries for:
+  //   'agent/index.js' → 'packages/core/src/agent/index.ts'
+  //   'packages/core/src/agent/index.js' → 'packages/core/src/agent/index.ts'
+  const jsToTs = new Map<string, string>();
+  for (const tsPath of knownSources) {
+    const jsVariant = tsPath.replace(/\.tsx?$/, '.js');
+    jsToTs.set(jsVariant, tsPath);
+    // Also map short suffixes (dep-cruiser sometimes gives paths relative to srcDir)
+    const parts = tsPath.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      const suffix = parts.slice(i).join('/');
+      const jsSuffix = suffix.replace(/\.tsx?$/, '.js');
+      if (!jsToTs.has(jsSuffix)) jsToTs.set(jsSuffix, tsPath);
+      if (!jsToTs.has(suffix)) jsToTs.set(suffix, tsPath);
+    }
+  }
+
+  /** Resolve a dep target path: remap .js → .ts when possible. */
+  function resolveTargetPath(raw: string): string {
+    const normalized = raw.replace(/\\/g, '/').replace(/^\.\//, '');
+    // If it's already a known source, use it directly
+    if (knownSources.has(normalized)) return normalized;
+    // Try .js → .ts remap
+    return jsToTs.get(normalized) ?? normalized;
+  }
+
+  // Phase 2: Build entities and relationships.
+  // Only create entities for known source files — skip third-party/external modules.
+  const seenEntities = new Set<string>();
+
   for (const mod of rawOutput.modules) {
     const filePath = mod.source.replace(/\\/g, '/').replace(/^\.\//, '');
     const entityId = makeEntityId(filePath);
 
-    entities.push({
-      id: entityId,
-      kind: 'file',
-      name: path.basename(filePath),
-      filePath,
-      sourceRange: null,
-      parentEntityId: null,
-      classification: {
-        isAbstract: false,
-        isInterface: false,
-        isConcrete: true,
-        isTypeOnly: false,
-        isExported: false,
-        visibility: null,
-      },
-      nameTokens: tokenizeName(filePath),
-      rawCounts: null,
-      methodFieldAccessMatrix: null,
-    });
+    if (!seenEntities.has(entityId)) {
+      seenEntities.add(entityId);
+      entities.push({
+        id: entityId,
+        kind: 'file',
+        name: path.basename(filePath),
+        filePath,
+        sourceRange: null,
+        parentEntityId: null,
+        classification: {
+          isAbstract: false,
+          isInterface: false,
+          isConcrete: true,
+          isTypeOnly: false,
+          isExported: false,
+          visibility: null,
+        },
+        nameTokens: tokenizeName(filePath),
+        rawCounts: null,
+        methodFieldAccessMatrix: null,
+      });
+    }
 
     for (const dep of mod.dependencies) {
-      const targetPath = dep.resolved.replace(/\\/g, '/').replace(/^\.\//, '');
-      const targetId = makeEntityId(targetPath);
+      // Skip third-party / core-module dependencies entirely
+      if (isThirdParty(dep)) continue;
+
+      const resolvedPath = resolveTargetPath(dep.resolved);
+      const targetId = makeEntityId(resolvedPath);
 
       relationships.push({
         sourceEntityId: entityId,
@@ -274,9 +321,9 @@ export function normalizeDepCruiserOutput(
         targetIsAbstraction: false,
         consumedMembers: null,
         targetTotalMembers: null,
-        crossModule: isCrossModule(filePath, targetPath, boundaries),
+        crossModule: isCrossModule(filePath, resolvedPath, boundaries),
         crossPackage: isCrossPackage(dep.resolved),
-        thirdParty: isThirdParty(dep),
+        thirdParty: false,
         typeOnly: isTypeOnly(dep),
         dynamic: dep.dynamic,
       });
@@ -326,6 +373,36 @@ function getDepCruiserVersion(): string {
   }
 }
 
+// ── tsconfig detection ──────────────────────────────────────────────────────
+
+/**
+ * Find a tsconfig.json for dependency-cruiser's TypeScript resolution.
+ * Checks: explicit path → srcDir-specific → rootDir → rootDir/tsconfig.base.json
+ */
+function findTsConfig(explicitPath: string | undefined, rootDir: string, srcDirs: string[]): string | undefined {
+  if (explicitPath) return explicitPath;
+
+  // Check srcDir-specific tsconfig (e.g., packages/core/tsconfig.json)
+  for (const srcDir of srcDirs) {
+    // Walk up from srcDir to find tsconfig closest to source
+    const parts = srcDir.replace(/\\/g, '/').split('/');
+    for (let i = parts.length; i >= 1; i--) {
+      const dir = parts.slice(0, i).join('/');
+      const candidate = path.resolve(rootDir, dir, 'tsconfig.json');
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+
+  // Fall back to rootDir tsconfig
+  const rootTsConfig = path.resolve(rootDir, 'tsconfig.json');
+  if (existsSync(rootTsConfig)) return rootTsConfig;
+
+  const baseTsConfig = path.resolve(rootDir, 'tsconfig.base.json');
+  if (existsSync(baseTsConfig)) return baseTsConfig;
+
+  return undefined;
+}
+
 // ── File collection ─────────────────────────────────────────────────────────
 
 /**
@@ -371,9 +448,41 @@ export async function runDepCruiserAdapter(
     filePaths.push(...tsFiles.map((f) => path.join(srcDir, f).replace(/\\/g, '/')));
   }
 
+  // Auto-detect tsconfig.json for proper .js → .ts resolution.
+  // Check srcDir-specific tsconfigs first, then fall back to rootDir.
+  const tsConfigPath = findTsConfig(options.tsConfigPath, rootDir, srcDirs);
+
+  // Load and parse tsconfig using TypeScript compiler for proper extends resolution.
+  let extractedTsConfig: unknown;
+  if (tsConfigPath) {
+    try {
+      const ts = await import('typescript');
+      const configFile = ts.readConfigFile(tsConfigPath, ts.sys.readFile);
+      if (!configFile.error) {
+        extractedTsConfig = ts.parseJsonConfigFileContent(
+          configFile.config,
+          ts.sys,
+          path.dirname(path.resolve(tsConfigPath)),
+          {},
+          tsConfigPath,
+        );
+      }
+    } catch {
+      // TypeScript not available — dep-cruiser will use basic resolution
+      extractedTsConfig = undefined;
+    }
+  }
+  const transpileOptions = extractedTsConfig ? { tsConfig: extractedTsConfig } : undefined;
+
   const result = await cruise(filePaths, {
     outputType: 'json',
     baseDir: rootDir,
+    tsPreCompilationDeps: true,
+    enhancedResolveOptions: {
+      exportsFields: ['exports'],
+      conditionNames: ['import', 'require', 'node', 'default'],
+      extensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'],
+    },
     doNotFollow: {
       path: ['node_modules', '\\.pnpm'],
     },
@@ -381,7 +490,7 @@ export async function runDepCruiserAdapter(
       path: ['node_modules'],
     },
     ...cruiseOptions,
-  });
+  }, undefined, transpileOptions as Record<string, unknown> | undefined);
 
   const duration = Math.round(performance.now() - startTime);
 

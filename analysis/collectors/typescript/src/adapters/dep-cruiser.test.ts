@@ -21,8 +21,8 @@ describe('normalizeDepCruiserOutput (fixture)', () => {
   });
 
   it('produces the correct number of relationships', () => {
-    // 10 modules produce 16 dependency edges in the fixture
-    expect(result.relationships).toHaveLength(16);
+    // 16 total edges in fixture, but 5 are third-party (2 core + 3 npm) → filtered out
+    expect(result.relationships).toHaveLength(11);
   });
 
   it('generates deterministic entity IDs', () => {
@@ -107,23 +107,21 @@ describe('makeEntityId', () => {
 describe('third-party detection', () => {
   const result = normalizeDepCruiserOutput(fixture);
 
-  it('marks core module imports as thirdParty', () => {
+  it('filters out core module imports (no third-party relationships)', () => {
     const coreImport = result.relationships.find(
       (r) => r.targetEntityId === 'file:node:fs',
     );
-    expect(coreImport).toBeDefined();
-    expect(coreImport!.thirdParty).toBe(true);
+    expect(coreImport).toBeUndefined();
   });
 
-  it('marks npm imports as thirdParty', () => {
+  it('filters out npm imports (no third-party relationships)', () => {
     const npmImport = result.relationships.find(
       (r) => r.targetEntityId === 'file:node_modules/lodash/lodash.js',
     );
-    expect(npmImport).toBeDefined();
-    expect(npmImport!.thirdParty).toBe(true);
+    expect(npmImport).toBeUndefined();
   });
 
-  it('marks local imports as not thirdParty', () => {
+  it('keeps local imports (all remaining relationships are not thirdParty)', () => {
     const localImport = result.relationships.find(
       (r) =>
         r.sourceEntityId === 'file:src/index.ts' &&
@@ -131,6 +129,8 @@ describe('third-party detection', () => {
     );
     expect(localImport).toBeDefined();
     expect(localImport!.thirdParty).toBe(false);
+    // All remaining rels should be non-third-party
+    expect(result.relationships.every((r) => !r.thirdParty)).toBe(true);
   });
 });
 
@@ -256,12 +256,11 @@ describe('cross-module detection', () => {
 describe('cross-package detection', () => {
   const result = normalizeDepCruiserOutput(fixture);
 
-  it('marks node_modules dependencies as crossPackage', () => {
+  it('filters out node_modules dependencies (no crossPackage relationships)', () => {
     const npmDep = result.relationships.find(
       (r) => r.targetEntityId === 'file:node_modules/lodash/lodash.js',
     );
-    expect(npmDep).toBeDefined();
-    expect(npmDep!.crossPackage).toBe(true);
+    expect(npmDep).toBeUndefined();
   });
 
   it('marks local dependencies as not crossPackage', () => {
@@ -274,13 +273,11 @@ describe('cross-package detection', () => {
     expect(localDep!.crossPackage).toBe(false);
   });
 
-  it('marks core modules as not crossPackage', () => {
+  it('does not include core module relationships', () => {
     const coreDep = result.relationships.find(
       (r) => r.targetEntityId === 'file:node:fs',
     );
-    expect(coreDep).toBeDefined();
-    // core modules don't resolve through node_modules
-    expect(coreDep!.crossPackage).toBe(false);
+    expect(coreDep).toBeUndefined();
   });
 });
 

@@ -37,6 +37,19 @@ import { calculateDuplication } from './duplication.js';
 import type { DuplicationResults } from './duplication.js';
 import { calculateModuleMetrics } from './module-metrics.js';
 import type { ModuleMetricsSummary } from './module-metrics.js';
+import { calculateHierarchyMetrics } from './hierarchy.js';
+import type { HierarchyMetrics, HierarchyOptions } from './hierarchy.js';
+import { calculateCoherence } from './coherence.js';
+import type { CoherenceResult, CoherenceOptions } from './coherence.js';
+import {
+  buildReferenceGrouping,
+  buildDirectoryGrouping,
+  buildBoundaryGrouping,
+  compareGroupings,
+} from './grouping.js';
+import type { Grouping, GroupingComparison } from './grouping.js';
+import { classifyCodeRoles } from './code-roles.js';
+import type { CodeRoleResult, CodeRoleOptions } from './code-roles.js';
 
 // ── Public input / output types ─────────────────────────────────────────
 
@@ -56,15 +69,24 @@ export type CalculatorGroup =
   | 'cohesion'
   | 'solid'
   | 'duplication'
-  | 'module';
+  | 'module'
+  | 'hierarchy'
+  | 'coherence'
+  | 'codeRoles';
 
 export interface AnalysisOptions {
   /** Which calculator groups to run (default: all). */
   include?: CalculatorGroup[];
   /** Coupling filter options. */
   couplingOptions?: CouplingOptions;
+  /** Hierarchy analysis options. */
+  hierarchyOptions?: HierarchyOptions;
   /** Number of duplication hotspots to report (default: 10). */
   hotspotCount?: number;
+  /** Coherence analysis options. */
+  coherence?: CoherenceOptions;
+  /** Code role classification options. */
+  codeRoles?: CodeRoleOptions;
 }
 
 export interface CouplingSection {
@@ -81,6 +103,13 @@ export interface AnalysisResult {
   solid?: SolidResults;
   duplication?: DuplicationResults;
   moduleMetrics?: ModuleMetricsSummary;
+  hierarchy?: HierarchyMetrics;
+  coherence?: CoherenceResult;
+  codeRoles?: CodeRoleResult;
+  referenceGrouping?: Grouping;
+  directoryGrouping?: Grouping;
+  boundaryGrouping?: Grouping;
+  groupingComparison?: GroupingComparison;
   summary: AnalysisSummary;
   timing: { totalMs: number; perCalculator: Record<string, number> };
 }
@@ -100,8 +129,23 @@ export interface AnalysisSummary {
   mostCoupledEntities: Array<{ entityId: string; totalCoupling: number }>;
   worstSrpEntities: Array<{ entityId: string; lcom4: number }>;
 
+  overallCoherenceScore: number;
+  misplacedFileCount: number;
+  tangledDirectoryCount: number;
+
   modulesInZoneOfPain: string[];
   modulesInZoneOfUselessness: string[];
+
+  codeRoleCounts: {
+    utility: number;
+    contract: number;
+    business_logic: number;
+    presentation: number;
+    unknown: number;
+  };
+
+  groupingSimilarityScore: number;
+  groupingNmi: number;
 }
 
 // ── Constants ───────────────────────────────────────────────────────────
@@ -114,6 +158,9 @@ const ALL_GROUPS: CalculatorGroup[] = [
   'solid',
   'duplication',
   'module',
+  'hierarchy',
+  'coherence',
+  'codeRoles',
 ];
 
 const TOP_N = 5;
@@ -141,6 +188,9 @@ function buildSummary(
   solidResult?: SolidResults,
   duplicationResult?: DuplicationResults,
   moduleResult?: ModuleMetricsSummary,
+  coherenceResult?: CoherenceResult,
+  codeRolesResult?: CodeRoleResult,
+  groupingComparisonResult?: GroupingComparison,
 ): AnalysisSummary {
   // Complexity aggregates
   const cyclomatics = complexityResult?.cyclomatic ?? [];
@@ -190,8 +240,23 @@ function buildSummary(
     mostCoupledEntities,
     worstSrpEntities,
 
+    overallCoherenceScore: coherenceResult?.overallCoherenceScore ?? 0,
+    misplacedFileCount: coherenceResult?.misplacedFiles.length ?? 0,
+    tangledDirectoryCount: coherenceResult?.tangledDirectories.length ?? 0,
+
     modulesInZoneOfPain: moduleResult?.zoneOfPain ?? [],
     modulesInZoneOfUselessness: moduleResult?.zoneOfUselessness ?? [],
+
+    codeRoleCounts: codeRolesResult?.summary ?? {
+      utility: 0,
+      contract: 0,
+      business_logic: 0,
+      presentation: 0,
+      unknown: 0,
+    },
+
+    groupingSimilarityScore: groupingComparisonResult?.similarityScore ?? 0,
+    groupingNmi: groupingComparisonResult?.nmi ?? 0,
   };
 }
 
@@ -218,6 +283,9 @@ export async function analyze(
   let solidResult: SolidResults | undefined;
   let duplicationResult: DuplicationResults | undefined;
   let moduleResult: ModuleMetricsSummary | undefined;
+  let hierarchyResult: HierarchyMetrics | undefined;
+  let coherenceResult: CoherenceResult | undefined;
+  let codeRolesResult: CodeRoleResult | undefined;
 
   // --- Complexity ---
   if (include.has('complexity')) {
@@ -324,6 +392,58 @@ export async function analyze(
     timing.module = t.ms;
   }
 
+  // --- Hierarchy ---
+  if (include.has('hierarchy')) {
+    const t = timed(() =>
+      calculateHierarchyMetrics(
+        input.entities,
+        input.relationships,
+        options?.hierarchyOptions,
+      ),
+    );
+    hierarchyResult = t.result;
+    timing.hierarchy = t.ms;
+  }
+
+  // --- Coherence ---
+  if (include.has('coherence')) {
+    const t = timed(() =>
+      calculateCoherence(
+        input.entities,
+        input.relationships,
+        options?.coherence,
+      ),
+    );
+    coherenceResult = t.result;
+    timing.coherence = t.ms;
+  }
+
+  // --- Code roles ---
+  if (include.has('codeRoles')) {
+    const t = timed(() =>
+      classifyCodeRoles(
+        input.entities,
+        input.relationships,
+        options?.codeRoles,
+      ),
+    );
+    codeRolesResult = t.result;
+    timing.codeRoles = t.ms;
+  }
+
+  // --- Groupings (always computed, uses graph-metrics internally) ---
+  const tGrouping = timed(() => {
+    const refGrouping = buildReferenceGrouping(input.entities, input.relationships);
+    const dirGrouping = buildDirectoryGrouping(input.entities);
+    const bndGrouping = input.moduleBoundaries.length > 0
+      ? buildBoundaryGrouping(input.entities, input.moduleBoundaries)
+      : undefined;
+    const comparison = compareGroupings(refGrouping, dirGrouping, input.entities);
+    return { refGrouping, dirGrouping, bndGrouping, comparison };
+  });
+  const { refGrouping, dirGrouping, bndGrouping, comparison: groupingComparison } = tGrouping.result;
+  timing.grouping = tGrouping.ms;
+
   // --- Build combined result ---
   const couplingSection: CouplingSection | undefined =
     couplingEntities != null
@@ -343,6 +463,9 @@ export async function analyze(
     solidResult,
     duplicationResult,
     moduleResult,
+    coherenceResult,
+    codeRolesResult,
+    groupingComparison,
   );
 
   return {
@@ -353,6 +476,13 @@ export async function analyze(
     solid: solidResult,
     duplication: duplicationResult,
     moduleMetrics: moduleResult,
+    hierarchy: hierarchyResult,
+    coherence: coherenceResult,
+    codeRoles: codeRolesResult,
+    referenceGrouping: refGrouping,
+    directoryGrouping: dirGrouping,
+    boundaryGrouping: bndGrouping,
+    groupingComparison,
     summary,
     timing: { totalMs: performance.now() - start, perCalculator: timing },
   };

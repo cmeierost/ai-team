@@ -30,8 +30,13 @@
     "isPackage": {
       "type": "boolean",
       "description": "True if this module boundary corresponds to a discrete distributable package (e.g. an npm package or Maven module)."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["package", "directory", "facade", "namespace", "manual"],
+      "description": "How this boundary was detected. 'package' = from package.json or similar manifest, 'directory' = from folder structure at a given depth, 'facade' = from re-export index files (e.g. index.ts), 'namespace' = from language namespaces, 'manual' = user-supplied."
     }
   },
-  "required": ["moduleId", "modulePath", "files", "declaredLayer", "isPackage"],
+  "required": ["moduleId", "modulePath", "files", "declaredLayer", "isPackage", "kind"],
   "additionalProperties": false
 }

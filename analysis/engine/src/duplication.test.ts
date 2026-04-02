@@ -76,7 +76,7 @@ function makeModuleBoundary(
   modulePath: string,
   files: string[] = [],
 ): ModuleBoundary {
-  return { moduleId, modulePath, files, declaredLayer: null, isPackage: false };
+  return { moduleId, modulePath, files, declaredLayer: null, isPackage: false, kind: 'manual' as const };
 }
 
 // ---------------------------------------------------------------------------
