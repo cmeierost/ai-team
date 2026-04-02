@@ -1,0 +1,349 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/common/entity.schema.json",
+  "title": "Entity",
+  "description": "A code construct discovered during static analysis. Entities range from files and modules down to individual functions and fields. Each entity carries raw metric counts that downstream analysers use to compute derived scores.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Stable deterministic identifier for this entity, derived from its kind, file path, and qualified name."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "module",
+        "package",
+        "class",
+        "interface",
+        "type-alias",
+        "function",
+        "method",
+        "field",
+        "property",
+        "namespace",
+        "enum"
+      ],
+      "description": "The syntactic category of the code construct."
+    },
+    "name": {
+      "type": "string",
+      "description": "Simple (unqualified) name of the entity as it appears in source code."
+    },
+    "filePath": {
+      "type": "string",
+      "description": "Repository-relative path to the file containing this entity."
+    },
+    "sourceRange": {
+      "$ref": "source-range.schema.json",
+      "description": "Source location spanning the full extent of this entity."
+    },
+    "parentEntityId": {
+      "description": "Identifier of the entity that lexically contains this one (e.g. the class containing a method). Null for top-level entities.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    },
+    "classification": {
+      "$ref": "#/definitions/Classification",
+      "description": "Semantic classification flags that describe how the entity participates in the type system and module graph."
+    },
+    "nameTokens": {
+      "type": "array",
+      "description": "Tokens extracted by splitting the entity name on camelCase / snake_case boundaries (e.g. 'calculateTotalPrice' → ['calculate', 'total', 'price']). Used for semantic cohesion analysis.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rawCounts": {
+      "$ref": "#/definitions/RawCounts",
+      "description": "Raw numeric counts collected from the source code. Each field is nullable — collectors only populate the counts they can compute."
+    },
+    "methodFieldAccessMatrix": {
+      "description": "For class entities: a matrix recording which fields each method accesses. Used to compute Lack of Cohesion in Methods (LCOM). Null for non-class entities.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MethodFieldAccess"
+          }
+        },
+        { "type": "null" }
+      ]
+    }
+  },
+  "required": ["id", "kind", "name", "filePath", "sourceRange", "classification"],
+  "additionalProperties": false,
+  "definitions": {
+    "Classification": {
+      "type": "object",
+      "description": "Semantic flags describing the entity's role in the type system and module graph.",
+      "properties": {
+        "isAbstract": {
+          "type": "boolean",
+          "description": "True if the entity is declared abstract (abstract class, abstract method)."
+        },
+        "isInterface": {
+          "type": "boolean",
+          "description": "True if the entity is an interface declaration."
+        },
+        "isConcrete": {
+          "type": "boolean",
+          "description": "True if the entity is a concrete (non-abstract, non-interface) construct."
+        },
+        "isTypeOnly": {
+          "type": "boolean",
+          "description": "True if the entity has no runtime existence — e.g. a TypeScript interface or type alias."
+        },
+        "isExported": {
+          "type": "boolean",
+          "description": "True if the entity is exported from its containing module."
+        },
+        "visibility": {
+          "description": "Access modifier of the entity. Null when the language has no explicit visibility modifier.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["public", "private", "protected", "internal"]
+            },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["isAbstract", "isInterface", "isConcrete", "isTypeOnly", "isExported", "visibility"],
+      "additionalProperties": false
+    },
+    "RawCounts": {
+      "type": "object",
+      "description": "Raw numeric counts extracted from source code. Every field is nullable so that collectors only report what they can measure.",
+      "properties": {
+        "linesOfCode": {
+          "description": "Total logical lines of code for this entity.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "blankLines": {
+          "description": "Number of blank lines within this entity.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "commentLines": {
+          "description": "Number of comment lines within this entity.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "parameterCount": {
+          "description": "Number of parameters declared by a function or method.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "returnStatements": {
+          "description": "Number of return statements in a function or method.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "branchPoints": {
+          "description": "Count of branching constructs (if, for, while, case, catch, &&, ||) for cyclomatic complexity calculation.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "nestingContributions": {
+          "description": "Per-nesting-level increments for cognitive complexity calculation. Each entry records a nesting depth and its associated complexity increment.",
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/NestingContribution"
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "operators": {
+          "description": "Distinct and total operator counts for Halstead metric calculation.",
+          "oneOf": [
+            { "$ref": "#/definitions/HalsteadCounts" },
+            { "type": "null" }
+          ]
+        },
+        "operands": {
+          "description": "Distinct and total operand counts for Halstead metric calculation.",
+          "oneOf": [
+            { "$ref": "#/definitions/HalsteadCounts" },
+            { "type": "null" }
+          ]
+        },
+        "typeCheckingPatterns": {
+          "description": "Count of type-checking patterns (instanceof, typeof ===, switch-on-discriminant) for Open/Closed Principle analysis.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "conditionalDispatchLocations": {
+          "description": "Locations where conditional dispatch occurs, used for Open/Closed Principle violation detection.",
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ConditionalDispatchLocation"
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "extensionPoints": {
+          "description": "Count of abstract methods, overridable slots, and other extension points for Open/Closed Principle compliance.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "publicMethodCount": {
+          "description": "Number of public methods on a class or interface, for Interface Segregation Principle analysis.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "publicPropertyCount": {
+          "description": "Number of public properties on a class or interface, for Interface Segregation Principle analysis.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "overriddenMethods": {
+          "description": "Methods overridden from a parent class, for Liskov Substitution Principle analysis.",
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/OverriddenMethod"
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "NestingContribution": {
+      "type": "object",
+      "description": "A single nesting-level contribution to cognitive complexity.",
+      "properties": {
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Nesting depth at which this contribution occurs (0 = top level)."
+        },
+        "increment": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Complexity increment added at this nesting depth."
+        }
+      },
+      "required": ["depth", "increment"],
+      "additionalProperties": false
+    },
+    "HalsteadCounts": {
+      "type": "object",
+      "description": "Distinct and total counts for a Halstead operand or operator category.",
+      "properties": {
+        "distinct": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of unique operators or operands."
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total occurrences of operators or operands."
+        }
+      },
+      "required": ["distinct", "total"],
+      "additionalProperties": false
+    },
+    "ConditionalDispatchLocation": {
+      "type": "object",
+      "description": "Records a source location where conditional dispatch (type-checking, switch-on-discriminant) was detected.",
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based line number of the conditional dispatch."
+        },
+        "kind": {
+          "type": "string",
+          "description": "The kind of dispatch detected (e.g. 'instanceof', 'typeof', 'switch-discriminant')."
+        },
+        "branchCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of branches in this dispatch construct."
+        }
+      },
+      "required": ["line", "kind", "branchCount"],
+      "additionalProperties": false
+    },
+    "OverriddenMethod": {
+      "type": "object",
+      "description": "Describes a method overridden from a parent class, capturing its signature for LSP analysis.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the overridden method."
+        },
+        "paramTypes": {
+          "type": "array",
+          "description": "Ordered list of parameter type names as strings.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "returnType": {
+          "description": "Return type of the overridden method. Null if the return type cannot be determined.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["name", "paramTypes", "returnType"],
+      "additionalProperties": false
+    },
+    "MethodFieldAccess": {
+      "type": "object",
+      "description": "Records which instance fields a single method accesses, for Lack of Cohesion in Methods (LCOM) calculation.",
+      "properties": {
+        "methodName": {
+          "type": "string",
+          "description": "Name of the method."
+        },
+        "accessedFields": {
+          "type": "array",
+          "description": "Names of instance fields accessed by this method.",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["methodName", "accessedFields"],
+      "additionalProperties": false
+    }
+  }
+}

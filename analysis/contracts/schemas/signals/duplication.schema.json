@@ -1,0 +1,146 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/signals/duplication.schema.json",
+  "title": "DuplicationSignal",
+  "description": "Duplication signals from clone-detection tools such as jscpd. Represents a single collection run with detected code clones and summary statistics.",
+  "type": "object",
+  "required": ["source", "clones", "statistics"],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "description": "Metadata about the tool that produced these duplication signals.",
+      "type": "object",
+      "required": ["tool", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "description": "Name of the duplication-detection tool (e.g. \"jscpd\").",
+          "type": "string"
+        },
+        "version": {
+          "description": "Version of the tool that produced the output.",
+          "type": "string"
+        }
+      }
+    },
+    "clones": {
+      "description": "Array of detected code clones.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/clone"
+      }
+    },
+    "statistics": {
+      "description": "Aggregate duplication statistics for the analysed scope.",
+      "type": "object",
+      "required": ["totalLines", "totalTokens", "totalSources", "duplicatedLines", "duplicatedTokens"],
+      "additionalProperties": false,
+      "properties": {
+        "totalLines": {
+          "description": "Total number of lines in all analysed sources.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalTokens": {
+          "description": "Total number of tokens in all analysed sources.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalSources": {
+          "description": "Total number of source files analysed.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicatedLines": {
+          "description": "Number of lines involved in at least one clone.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicatedTokens": {
+          "description": "Number of tokens involved in at least one clone.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "clone": {
+      "description": "A single detected code clone between two file regions.",
+      "type": "object",
+      "required": ["id", "format", "tokenCount", "lineCount", "firstFile", "secondFile"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Unique identifier for this clone entry.",
+          "type": "string"
+        },
+        "format": {
+          "description": "Language or format of the duplicated code (e.g. \"javascript\", \"typescript\").",
+          "type": "string"
+        },
+        "tokenCount": {
+          "description": "Number of tokens in the duplicated fragment.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "lineCount": {
+          "description": "Number of lines in the duplicated fragment.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "fragment": {
+          "description": "Actual duplicated code text, if available.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "firstFile": {
+          "description": "Location of the clone in the first file.",
+          "$ref": "#/$defs/fileLocation"
+        },
+        "secondFile": {
+          "description": "Location of the clone in the second file.",
+          "$ref": "#/$defs/fileLocation"
+        }
+      }
+    },
+    "fileLocation": {
+      "description": "A region within a source file, defined by line (and optionally column) ranges.",
+      "type": "object",
+      "required": ["filePath", "startLine", "endLine"],
+      "additionalProperties": false,
+      "properties": {
+        "filePath": {
+          "description": "Path to the source file, relative to the repository root.",
+          "type": "string"
+        },
+        "startLine": {
+          "description": "One-based start line of the region.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "endLine": {
+          "description": "One-based end line of the region (inclusive).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "startColumn": {
+          "description": "Zero-based start column, if available.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "endColumn": {
+          "description": "Zero-based end column, if available.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}

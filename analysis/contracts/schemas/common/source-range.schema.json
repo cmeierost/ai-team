@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/common/source-range.schema.json",
+  "title": "SourceRange",
+  "description": "A contiguous range of source code identified by start and end positions. Used to pinpoint where an entity or relationship originates in the source file.",
+  "type": "object",
+  "properties": {
+    "startLine": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-based line number where the range begins."
+    },
+    "startColumn": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "0-based column offset where the range begins."
+    },
+    "endLine": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-based line number where the range ends."
+    },
+    "endColumn": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "0-based column offset where the range ends."
+    }
+  },
+  "required": ["startLine", "startColumn", "endLine", "endColumn"],
+  "additionalProperties": false
+}
