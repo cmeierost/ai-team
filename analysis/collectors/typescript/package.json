@@ -24,6 +24,7 @@
   "dependencies": {
     "@aspect/contracts": "workspace:*",
     "dependency-cruiser": "^16.10.2",
+    "ignore": "^7.0.5",
     "jscpd": "^4.0.5"
   },
   "devDependencies": {

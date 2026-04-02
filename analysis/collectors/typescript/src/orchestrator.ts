@@ -22,6 +22,9 @@ import { runDepCruiserAdapter } from './adapters/dep-cruiser.js';
 import { runJscpdAdapter } from './adapters/jscpd.js';
 import { runEslintAdapter } from './adapters/eslint.js';
 import { runCoverageAdapter } from './adapters/coverage.js';
+import { detectModuleBoundaries } from './boundary-detector.js';
+import type { BoundaryDetectionOptions } from './boundary-detector.js';
+import { buildPathFilter } from './gitignore-filter.js';
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -41,8 +44,15 @@ export interface CollectorOptions {
   includeAspects?: CollectionAspect[];
   /** Which aspects to skip. */
   excludeAspects?: CollectionAspect[];
-  /** Module boundary definitions. */
+  /** Module boundary definitions (manual). When omitted, boundaries are auto-detected. */
   moduleBoundaries?: Array<{ moduleId: string; modulePath: string }>;
+  /**
+   * Auto-detect module boundaries when no manual boundaries are supplied.
+   * Set to `false` to disable auto-detection entirely. Default: `true`.
+   */
+  autoDetectBoundaries?: boolean;
+  /** Options for boundary auto-detection. */
+  boundaryDetection?: Partial<Omit<BoundaryDetectionOptions, 'rootDir' | 'srcDirs'>>;
   /** File patterns to include (default: ['**\/*.ts', '**\/*.tsx']). */
   include?: string[];
   /** File patterns to exclude (default: ['**\/node_modules\/**', '**\/dist\/**']). */
@@ -87,6 +97,7 @@ const UNKNOWN_RANGE: SourceRange = {
 
 const COLLECTOR_ID = '@aspect/collector-typescript';
 const COLLECTOR_VERSION = '0.1.0';
+const DEFAULT_SRC_DIRS = ['src'];
 
 // ── Helpers (exported for testability) ──────────────────────────────────────
 
@@ -217,6 +228,7 @@ export function buildModuleBoundaries(
       files,
       declaredLayer: null,
       isPackage: false,
+      kind: 'manual' as const,
     };
   });
 }
@@ -377,9 +389,12 @@ export async function collect(
   // Phase 1 — Discover source files
   const sourceFiles = await discoverFiles(options);
 
+  // Build gitignore-aware path filter
+  const pathFilter = buildPathFilter(options.rootDir);
+
   // Phase 2 — Run adapters
-  const entities: Entity[] = [];
-  const relationships: Relationship[] = [];
+  let entities: Entity[] = [];
+  let relationships: Relationship[] = [];
   let duplicationSignals: ContractDuplicationSignal[] | undefined;
   let coverageSignals: ContractCoverageSignal[] | undefined;
   let lintSignals: ContractLintSignal[] | undefined;
@@ -436,6 +451,7 @@ export async function collect(
     try {
       const result = await runJscpdAdapter({
         rootDir: options.rootDir,
+        srcDirs: options.srcDirs,
         include: options.include,
         exclude: options.exclude,
         minTokens: options.jscpd?.minTokens,
@@ -489,11 +505,79 @@ export async function collect(
     timing.coverage = Math.round(performance.now() - t0);
   }
 
-  // Phase 3 — Build module boundaries
-  const moduleBoundaries = buildModuleBoundaries(
-    options.moduleBoundaries,
-    entities,
+  // Phase 2.5 — Filter out gitignored/external entities and their relationships
+  const preFilterCount = entities.length;
+  const allowedEntityIds = new Set<string>();
+
+  const filteredEntities: Entity[] = [];
+  for (const entity of entities) {
+    if (!pathFilter.isIgnored(entity.filePath)) {
+      filteredEntities.push(entity);
+      allowedEntityIds.add(entity.id);
+    }
+  }
+  entities = filteredEntities;
+
+  relationships = relationships.filter(
+    (r) => allowedEntityIds.has(r.sourceEntityId) && allowedEntityIds.has(r.targetEntityId),
   );
+
+  if (preFilterCount !== entities.length) {
+    warnings.push(
+      `Filtered ${preFilterCount - entities.length} gitignored/external entities (${entities.length} remaining)`,
+    );
+  }
+
+  // Phase 3 — Build module boundaries
+  let moduleBoundaries: ModuleBoundary[];
+
+  if (options.moduleBoundaries && options.moduleBoundaries.length > 0) {
+    // Manual boundaries supplied — use them
+    moduleBoundaries = buildModuleBoundaries(options.moduleBoundaries, entities);
+  } else if (options.autoDetectBoundaries !== false) {
+    // Auto-detect boundaries from codebase structure
+    const resolvedSrcDirs = (options.srcDirs ?? DEFAULT_SRC_DIRS).map((d) =>
+      join(options.rootDir, d),
+    );
+    const detected = detectModuleBoundaries({
+      rootDir: options.rootDir,
+      srcDirs: resolvedSrcDirs,
+      detectPackages: true,
+      detectFacades: true,
+      detectDirectories: true,
+      directoryDepth: 1,
+      ...options.boundaryDetection,
+    });
+
+    // Convert DetectedBoundary → contract ModuleBoundary (enriching with file lists)
+    const fileEntities = entities.filter((e) => e.kind === 'file');
+    moduleBoundaries = detected.map((det) => {
+      const normalizedBoundary = det.modulePath
+        .replace(/\\/g, '/')
+        .replace(/\/$/, '');
+
+      const files = fileEntities
+        .filter((e) => {
+          const fp = e.filePath.replace(/\\/g, '/');
+          return (
+            fp === normalizedBoundary ||
+            fp.startsWith(normalizedBoundary + '/')
+          );
+        })
+        .map((e) => e.filePath);
+
+      return {
+        moduleId: det.moduleId,
+        modulePath: det.modulePath,
+        files,
+        declaredLayer: null,
+        isPackage: det.isPackage,
+        kind: det.kind,
+      };
+    });
+  } else {
+    moduleBoundaries = [];
+  }
 
   // Phase 4 — Assemble CollectedCodeData
   const totalMs = performance.now() - start;

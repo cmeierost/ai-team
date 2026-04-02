@@ -59,3 +59,18 @@ export type {
   AstVisitorResult,
   AstVisitorToolRun,
 } from './adapters/ast-visitor.js';
+
+export {
+  detectModuleBoundaries,
+  detectPackageBoundaries,
+  detectFacadeBoundaries,
+  detectDirectoryBoundaries,
+} from './boundary-detector.js';
+
+export type {
+  BoundaryDetectionOptions,
+  DetectedBoundary,
+} from './boundary-detector.js';
+
+export { buildPathFilter } from './gitignore-filter.js';
+export type { PathFilter } from './gitignore-filter.js';

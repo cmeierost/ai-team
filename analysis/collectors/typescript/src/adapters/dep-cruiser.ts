@@ -374,6 +374,12 @@ export async function runDepCruiserAdapter(
   const result = await cruise(filePaths, {
     outputType: 'json',
     baseDir: rootDir,
+    doNotFollow: {
+      path: ['node_modules', '\\.pnpm'],
+    },
+    exclude: {
+      path: ['node_modules'],
+    },
     ...cruiseOptions,
   });
 

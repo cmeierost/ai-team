@@ -44,6 +44,9 @@ importers:
       dependency-cruiser:
         specifier: ^16.10.2
         version: 16.10.4
+      ignore:
+        specifier: ^7.0.5
+        version: 7.0.5
       jscpd:
         specifier: ^4.0.5
         version: 4.0.8
