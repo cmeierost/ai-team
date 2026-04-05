@@ -208,9 +208,14 @@ function isCrossModule(
   return sourceModule !== targetModule;
 }
 
-function isCrossPackage(resolvedPath: string): boolean {
-  const normalized = resolvedPath.replace(/\\/g, '/');
-  return normalized.includes('node_modules/');
+function isCrossPackage(sourcePath: string, resolvedPath: string): boolean {
+  const normSrc = sourcePath.replace(/\\/g, '/');
+  const normRes = resolvedPath.replace(/\\/g, '/');
+  if (normRes.includes('node_modules/')) return true;
+  // Workspace packages: compare the package prefix (e.g., 'packages/core/')
+  const srcPkg = normSrc.match(/^(.+?\/src)\//)?.[1];
+  const resPkg = normRes.match(/^(.+?\/(?:src|dist))\//)?.[1]?.replace('/dist', '/src');
+  return !!(srcPkg && resPkg && srcPkg !== resPkg);
 }
 
 function isThirdParty(dep: DepCruiserRawDependency): boolean {
@@ -241,10 +246,11 @@ export function normalizeDepCruiserOutput(
 
   // Phase 1: Collect all source paths (these are the .ts files we fed to cruise).
   // Build a lookup to remap .js resolved paths back to their .ts source.
+  // Dep-cruiser may also emit dist/ modules for workspace deps — exclude them.
   const knownSources = new Set<string>();
   for (const mod of rawOutput.modules) {
     const fp = mod.source.replace(/\\/g, '/').replace(/^\.\//, '');
-    knownSources.add(fp);
+    if (!fp.includes('/dist/')) knownSources.add(fp);
   }
 
   // Build .js → .ts remap table.
@@ -265,11 +271,26 @@ export function normalizeDepCruiserOutput(
     }
   }
 
-  /** Resolve a dep target path: remap .js → .ts when possible. */
+  // Build dist/ → src/ remap for workspace packages.
+  // pnpm resolves workspace imports like `@ai-team/core` to `packages/core/dist/index.js`.
+  // We remap these to the corresponding source file so cross-package edges connect properly.
+  const distToSrc = new Map<string, string>();
+  for (const tsPath of knownSources) {
+    const m = tsPath.match(/^(.+?)\/src\/(.+)$/);
+    if (m) {
+      const distVariant = `${m[1]}/dist/${m[2].replace(/\.tsx?$/, '.js')}`;
+      if (!distToSrc.has(distVariant)) distToSrc.set(distVariant, tsPath);
+    }
+  }
+
+  /** Resolve a dep target path: remap .js → .ts and dist/ → src/ when possible. */
   function resolveTargetPath(raw: string): string {
     const normalized = raw.replace(/\\/g, '/').replace(/^\.\//, '');
     // If it's already a known source, use it directly
     if (knownSources.has(normalized)) return normalized;
+    // Try dist/ → src/ remap (workspace package imports)
+    const fromDist = distToSrc.get(normalized);
+    if (fromDist) return fromDist;
     // Try .js → .ts remap
     return jsToTs.get(normalized) ?? normalized;
   }
@@ -280,6 +301,10 @@ export function normalizeDepCruiserOutput(
 
   for (const mod of rawOutput.modules) {
     const filePath = mod.source.replace(/\\/g, '/').replace(/^\.\//, '');
+
+    // Skip dist/ modules added by dep-cruiser for workspace deps
+    if (filePath.includes('/dist/')) continue;
+
     const entityId = makeEntityId(filePath);
 
     if (!seenEntities.has(entityId)) {
@@ -322,7 +347,7 @@ export function normalizeDepCruiserOutput(
         consumedMembers: null,
         targetTotalMembers: null,
         crossModule: isCrossModule(filePath, resolvedPath, boundaries),
-        crossPackage: isCrossPackage(dep.resolved),
+        crossPackage: isCrossPackage(filePath, dep.resolved),
         thirdParty: false,
         typeOnly: isTypeOnly(dep),
         dynamic: dep.dynamic,
