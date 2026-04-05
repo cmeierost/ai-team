@@ -1,139 +1,176 @@
 /**
- * @aspect/viewer — Shared types for viewer components.
- *
- * Re-exports engine types and adds viewer-specific ones.
+ * @aspect/viewer — Types and constants for the structural viewer.
  */
 
 import type {
-  AnalysisResult,
-  AnalysisSummary,
-  GroupCouplingResult,
-  GroupCouplingProfile,
-  GroupPairCoupling,
-  MergeCandidate,
-  ArchitecturalSummary,
-  Recommendation,
-  Grouping,
-  Group,
-  CoherenceResult,
+  StructuralPipelineResult,
+  FileClassificationEntry,
+  FileCluster,
+  ClusterQuality,
+  StructuralWarning,
+  PipelineSummary,
+  PipelineRecommendation,
   MisplacedFile,
-  CodeRoleClassification,
-  CodeRole,
-} from '@aspect/engine';
+  FileSplitCandidate,
+  TangledDirectory,
+  FileCentrality,
+  WeightedEdge,
+  CodeContentRole,
+  Community,
+  ExportAnalysis,
+  FileExportInfo,
+  ExportedSymbol,
+} from '@aspect/structural';
 
 export type {
-  AnalysisResult,
-  AnalysisSummary,
-  GroupCouplingResult,
-  GroupCouplingProfile,
-  GroupPairCoupling,
-  MergeCandidate,
-  ArchitecturalSummary,
-  Recommendation,
-  Grouping,
-  Group,
-  CoherenceResult,
+  StructuralPipelineResult,
+  FileClassificationEntry,
+  FileCluster,
+  ClusterQuality,
+  StructuralWarning,
+  PipelineSummary,
+  PipelineRecommendation,
   MisplacedFile,
-  CodeRoleClassification,
-  CodeRole,
+  FileSplitCandidate,
+  TangledDirectory,
+  FileCentrality,
+  WeightedEdge,
+  CodeContentRole,
+  Community,
+  ExportAnalysis,
+  FileExportInfo,
+  ExportedSymbol,
 };
 
-/** Props for the main ArchitectureViewer component */
-export interface ArchitectureViewerProps {
-  /** Full analysis result from the engine */
-  data: AnalysisResult;
-  /** CSS class name for the root container */
+// ── Viewer props ────────────────────────────────────────────────────────
+
+export interface ViewerProps {
+  data: StructuralPipelineResult;
   className?: string;
-  /** Which grouping to display ('boundary' | 'reference' | 'directory') */
-  defaultGrouping?: 'boundary' | 'reference' | 'directory';
-  /** Initial panel to show */
-  defaultPanel?: 'overview' | 'recommendations' | 'detail';
-  /** Callback when a node (group or file) is selected */
-  onNodeSelect?: (nodeId: string, type: 'group' | 'file') => void;
 }
 
-/** A node in the architecture graph (either a group or a file) */
-export interface GraphNode {
+export type SidePanel = 'detail' | 'problems' | 'stats';
+
+export interface Selection {
+  type: 'cluster' | 'file' | null;
+  id: string;
+}
+
+// ── Aggregated inter-cluster edge (for the graph) ───────────────────────
+
+export interface ClusterEdge {
+  sourceClusterId: string;
+  targetClusterId: string;
+  totalWeight: number;
+  edgeCount: number;
+  typeOnlyCount: number;
+  reexportCount: number;
+}
+
+/**
+ * Unified group representation for the graph.
+ * A group can come from union-find clusters or Louvain communities.
+ */
+export interface ViewerGroup {
   id: string;
   label: string;
-  type: 'group' | 'file';
-  parentId?: string;
-  metrics: GroupNodeMetrics | FileNodeMetrics;
+  fileIds: string[];
+  source: 'cluster' | 'community';
+  /** Only set for cluster groups */
+  cohesionRatio?: number;
+  /** Only set for cluster groups */
+  cohesionType?: string;
 }
 
-export interface GroupNodeMetrics {
-  memberCount: number;
-  internalCohesion: number;
-  separabilityIndex: number;
-  outboundEdges: number;
-  inboundEdges: number;
-  isMergeCandidate: boolean;
-  isWellStructured: boolean;
-  healthIndicator: 'good' | 'warning' | 'critical';
-}
+// ── Problem categories ──────────────────────────────────────────────────
 
-export interface FileNodeMetrics {
-  codeRole: CodeRole;
-  isMisplaced: boolean;
-  suggestedGroup?: string;
-  complexity?: number;
-}
+export type ProblemCategory =
+  | 'misplaced'
+  | 'split-candidate'
+  | 'tangled-dir'
+  | 'mixed-concerns'
+  | 'warnings';
 
-/** An edge in the architecture graph */
-export interface GraphEdge {
+export interface ProblemItem {
   id: string;
-  source: string;
+  category: ProblemCategory;
+  severity: 'critical' | 'warning' | 'info';
   target: string;
-  weight: number;
-  typeOnlyRatio: number;
-  isCycle: boolean;
-  isMergeCandidate: boolean;
+  targetType: 'file' | 'cluster' | 'directory';
+  title: string;
+  detail: string;
 }
 
-/** Currently selected item for detail panel */
-export interface Selection {
-  type: 'group' | 'file' | 'edge' | null;
-  id: string;
-}
+// ── Colors ──────────────────────────────────────────────────────────────
 
-/** Color palette */
-export const COLORS = {
-  good: '#22c55e',
-  warning: '#f59e0b',
-  critical: '#ef4444',
-  neutral: '#94a3b8',
-  // Code role colors
-  utility: '#8b5cf6',
-  contract: '#06b6d4',
-  business_logic: '#3b82f6',
-  presentation: '#ec4899',
-  unknown: '#94a3b8',
-  // Edge colors
-  edgeNormal: '#94a3b8',
-  edgeTypeOnly: '#06b6d4',
-  edgeCycle: '#ef4444',
-  edgeMerge: '#f59e0b',
-  // Backgrounds
-  groupBg: '#f8fafc',
-  groupBorder: '#e2e8f0',
-  fileBg: '#ffffff',
+export const ROLE_COLORS: Record<string, string> = {
+  contract:       '#06b6d4',
+  logic:          '#3b82f6',
+  presentation:   '#ec4899',
+  infrastructure: '#8b5cf6',
+  entry_point:    '#f59e0b',
+  unknown:        '#94a3b8',
+};
+
+/** Colors for non-code file categories. */
+export const CATEGORY_COLORS: Record<string, string> = {
+  test:           '#22c55e',
+  config:         '#6b7280',
+  documentation:  '#60a5fa',
+  ai_config:      '#a78bfa',
+  binary:         '#374151',
+  style:          '#f472b6',
+  markup:         '#fb923c',
+  data:           '#2dd4bf',
+  script:         '#fbbf24',
+  unknown:        '#d1d5db',
+};
+
+/** Emoji shorthand for category badges. */
+export const CATEGORY_ICONS: Record<string, string> = {
+  test:           '🧪',
+  config:         '⚙️',
+  documentation:  '📄',
+  ai_config:      '🤖',
+  binary:         '📦',
+  style:          '🎨',
+  markup:         '📝',
+  data:           '💾',
+  script:         '📜',
+  unknown:        '❓',
+};
+
+export const SEVERITY_COLORS = {
+  critical: '#f44336',
+  warning:  '#ff9800',
+  info:     '#3794ff',
 } as const;
 
-/** Health indicator thresholds */
-export function healthIndicator(separability: number, cohesion: number): 'good' | 'warning' | 'critical' {
-  if (cohesion >= 0.7 && separability >= 0.6) return 'good';
-  if (cohesion >= 0.4 || separability >= 0.4) return 'warning';
-  return 'critical';
+/** Non-code files associated with a group by path. */
+export interface NonCodeBreakdown {
+  total: number;
+  byCategory: { category: string; count: number; files: string[] }[];
 }
 
-/** Format a 0-1 ratio as percentage */
+export function healthColor(score: number): string {
+  if (score >= 80) return '#4caf50';
+  if (score >= 50) return '#ff9800';
+  return '#f44336';
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+
 export function pct(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
-/** Truncate file path for display */
 export function shortPath(path: string, maxSegments = 3): string {
   const parts = path.replace(/\\/g, '/').split('/');
   if (parts.length <= maxSegments) return parts.join('/');
   return '…/' + parts.slice(-maxSegments).join('/');
+}
+
+export function shortName(path: string): string {
+  const parts = path.replace(/\\/g, '/').split('/');
+  return parts[parts.length - 1];
 }

@@ -2,7 +2,7 @@
   "name": "@aspect/viewer",
   "version": "0.1.0",
   "type": "module",
-  "description": "Interactive architecture visualization for @aspect/engine analysis results",
+  "description": "Interactive architecture visualization for @aspect/structural analysis results",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -14,7 +14,7 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "vite build && tsc --emitDeclarationOnly",
+    "build": "vite build && tsc --build --emitDeclarationOnly --force",
     "dev": "vite build --watch",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
@@ -28,7 +28,7 @@
     "@xyflow/react": "^12.10.1"
   },
   "devDependencies": {
-    "@aspect/engine": "workspace:*",
+    "@aspect/structural": "workspace:*",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "react": "^19.2.4",
