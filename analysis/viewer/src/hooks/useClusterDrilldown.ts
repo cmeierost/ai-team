@@ -26,7 +26,7 @@ export function useClusterDrilldown(
   data: StructuralPipelineResult,
   groupId: string,
   selection: Selection,
-  options?: { hideTypeOnly?: boolean; hideReexports?: boolean; showFullPath?: boolean },
+  options?: { hideTypeOnly?: boolean; showFullPath?: boolean },
 ): { nodes: Node[]; edges: Edge[]; onNodesChange: OnNodesChange } {
   const [localNodes, setLocalNodes] = useState<Node[]>([]);
 
@@ -82,8 +82,6 @@ export function useClusterDrilldown(
 
       const srcIsBarrel = barrelFileIds.has(we.sourceFileId);
       const tgtIsBarrel = barrelFileIds.has(we.targetFileId);
-
-      if (options?.hideReexports && (srcIsBarrel || tgtIsBarrel)) continue;
 
       // Full-path resolution: when target is barrel, create edges to resolved targets
       if (options?.showFullPath && tgtIsBarrel) {
@@ -216,7 +214,7 @@ export function useClusterDrilldown(
     });
 
     return { nodes: resultNodes, edges: resultEdges };
-  }, [data, groupId, selection, options?.hideTypeOnly, options?.hideReexports, options?.showFullPath]);
+  }, [data, groupId, selection, options?.hideTypeOnly, options?.showFullPath]);
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => setLocalNodes((prev) => applyNodeChanges(changes, prev.length ? prev : nodes)),

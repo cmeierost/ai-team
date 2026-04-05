@@ -11,8 +11,6 @@ export interface OverviewBarProps {
   data: StructuralPipelineResult;
   hideTypeOnly?: boolean;
   onToggleHideTypeOnly?: () => void;
-  hideReexports?: boolean;
-  onToggleHideReexports?: () => void;
   showFullPath?: boolean;
   onToggleShowFullPath?: () => void;
 }
@@ -99,7 +97,7 @@ function ToggleButton({ active, onClick, activeLabel, inactiveLabel, activeTitle
   );
 }
 
-export function OverviewBar({ data, hideTypeOnly, onToggleHideTypeOnly, hideReexports, onToggleHideReexports, showFullPath, onToggleShowFullPath }: OverviewBarProps) {
+export function OverviewBar({ data, hideTypeOnly, onToggleHideTypeOnly, showFullPath, onToggleShowFullPath }: OverviewBarProps) {
   const { summary, healthScore, communities } = data;
 
   const scoreDisplay = healthScore != null ? Math.round(healthScore) : '—';
@@ -158,16 +156,6 @@ export function OverviewBar({ data, hideTypeOnly, onToggleHideTypeOnly, hideReex
             inactiveLabel="◉ Types"
             activeTitle="Showing only value imports — click to show all"
             inactiveTitle="Click to hide type-only imports"
-          />
-        )}
-        {onToggleHideReexports && (
-          <ToggleButton
-            active={!!hideReexports}
-            onClick={onToggleHideReexports}
-            activeLabel="⊘ Re-exports hidden"
-            inactiveLabel="◉ Re-exports"
-            activeTitle="Barrel/index re-export edges hidden — click to show"
-            inactiveTitle="Click to hide edges through barrel/index files"
           />
         )}
         {onToggleShowFullPath && (

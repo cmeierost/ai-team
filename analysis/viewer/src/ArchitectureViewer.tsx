@@ -44,12 +44,11 @@ export function ArchitectureViewer({ data, className }: ArchitectureViewerProps)
   const [sidePanel, setSidePanel] = useState<SidePanel>('detail');
   const [drilldownGroupId, setDrilldownGroupId] = useState<string | null>(null);
   const [hideTypeOnly, setHideTypeOnly] = useState(false);
-  const [hideReexports, setHideReexports] = useState(false);
   const [showFullPath, setShowFullPath] = useState(false);
 
   const graphOptions = useMemo(
-    () => ({ hideTypeOnly, hideReexports, showFullPath }),
-    [hideTypeOnly, hideReexports, showFullPath],
+    () => ({ hideTypeOnly, showFullPath }),
+    [hideTypeOnly, showFullPath],
   );
 
   // Compute cluster file IDs for scoped panels
@@ -113,8 +112,6 @@ export function ArchitectureViewer({ data, className }: ArchitectureViewerProps)
         data={data}
         hideTypeOnly={hideTypeOnly}
         onToggleHideTypeOnly={() => setHideTypeOnly((v) => !v)}
-        hideReexports={hideReexports}
-        onToggleHideReexports={() => setHideReexports((v) => !v)}
         showFullPath={showFullPath}
         onToggleShowFullPath={() => setShowFullPath((v) => !v)}
       />

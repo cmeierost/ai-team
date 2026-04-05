@@ -111,7 +111,7 @@ function buildGroups(data: StructuralPipelineResult): ViewerGroup[] {
 export function useClusterGraph(
   data: StructuralPipelineResult,
   selection: Selection,
-  options?: { hideTypeOnly?: boolean; hideReexports?: boolean; showFullPath?: boolean },
+  options?: { hideTypeOnly?: boolean; showFullPath?: boolean },
 ): { nodes: Node[]; edges: Edge[]; onNodesChange: OnNodesChange } {
   const [localNodes, setLocalNodes] = useState<Node[]>([]);
 
@@ -337,9 +337,6 @@ export function useClusterGraph(
       const srcIsBarrel = barrelFileIds.has(we.sourceFileId);
       const tgtIsBarrel = barrelFileIds.has(we.targetFileId);
 
-      // Hide re-export edges: skip edges where either end is a barrel file
-      if (options?.hideReexports && (srcIsBarrel || tgtIsBarrel)) continue;
-
       let srcGroup = fileToGroup.get(we.sourceFileId);
       let tgtGroup = fileToGroup.get(we.targetFileId);
 
@@ -507,7 +504,7 @@ export function useClusterGraph(
     }
 
     return { nodes: resultNodes, edges: resultEdges };
-  }, [data, selection, options?.hideTypeOnly, options?.hideReexports, options?.showFullPath]);
+  }, [data, selection, options?.hideTypeOnly, options?.showFullPath]);
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => setLocalNodes((prev) => applyNodeChanges(changes, prev.length ? prev : nodes)),
