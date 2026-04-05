@@ -19,6 +19,23 @@ export interface DetectedBoundary {
   modulePath: string;
   kind: 'package' | 'directory' | 'facade';
   isPackage: boolean;
+  /** True when package.json signals this is a runnable application, not a library. */
+  isApp?: boolean;
+  /** Why this package is classified as an app. Only set when isApp is true. */
+  appKind?: 'cli' | 'server' | 'extension' | 'web-app';
+  /** Entry points resolved from package.json manifest fields. */
+  entryPoints?: DetectedEntryPoint[];
+}
+
+export interface DetectedEntryPoint {
+  /** Source file path (relative to repo root). */
+  file: string;
+  /** How this entry point was declared. */
+  kind: 'bin' | 'main' | 'exports' | 'browser';
+  /** True when this entry point is an app root (not a library export). */
+  isAppEntry: boolean;
+  /** Optional name (bin command name or exports subpath). */
+  name?: string;
 }
 
 export interface PackageDetectionOptions {
@@ -122,56 +139,90 @@ export function detectPackageBoundaries(options: PackageDetectionOptions): Detec
     if (seen.has(modPath)) return;
     seen.add(modPath);
 
-    let name: string | undefined;
+    let json: Record<string, unknown>;
     try {
-      const json = JSON.parse(readFileSync(absPath, 'utf-8'));
-      name = json.name;
+      json = JSON.parse(readFileSync(absPath, 'utf-8'));
     } catch {
-      // unreadable / invalid JSON — skip
       return;
     }
+
+    const name = typeof json.name === 'string' ? json.name : undefined;
+    const appKind = detectAppKind(json);
+    const isApp = appKind !== undefined;
+    const entryPoints = extractEntryPoints(json, dir, rootDir, isApp);
 
     results.push({
       moduleId: name ?? modPath,
       modulePath: modPath,
       kind: 'package',
       isPackage: true,
+      isApp: isApp || undefined,
+      appKind,
+      entryPoints: entryPoints.length > 0 ? entryPoints : undefined,
     });
   }
 
-  // Check rootDir itself for workspaces
+  // Check rootDir for workspace definitions (npm/yarn workspaces + pnpm)
+  const workspacePatterns: string[] = [];
+
   const rootPkg = join(rootDir, 'package.json');
   if (existsSync(rootPkg)) {
     try {
       const json = JSON.parse(readFileSync(rootPkg, 'utf-8'));
       if (Array.isArray(json.workspaces)) {
-        for (const pattern of json.workspaces as string[]) {
-          // Simple glob: only support trailing /* or /**
-          const clean = pattern.replace(/\/?\*\*?$/, '').replace(/\/?\*$/, '');
-          const wsDir = join(rootDir, clean);
-          if (!existsSync(wsDir)) continue;
-          try {
-            const children = readdirSync(wsDir, { withFileTypes: true, encoding: 'utf-8' }) as Dirent<string>[];
-            for (const child of children) {
-              if (!child.isDirectory() || shouldSkipDir(child.name)) continue;
-              const candidatePkg = join(wsDir, child.name, 'package.json');
-              if (existsSync(candidatePkg)) {
-                processPackageJson(candidatePkg);
-              }
-            }
-          } catch {
-            // skip unreadable workspace dir
-          }
+        workspacePatterns.push(...json.workspaces as string[]);
+      }
+    } catch { /* skip */ }
+  }
+
+  // pnpm-workspace.yaml support
+  const pnpmWs = join(rootDir, 'pnpm-workspace.yaml');
+  if (existsSync(pnpmWs)) {
+    try {
+      const yaml = readFileSync(pnpmWs, 'utf-8');
+      // Simple YAML list parser: lines starting with "  - " under "packages:"
+      let inPackages = false;
+      for (const line of yaml.split('\n')) {
+        if (/^packages\s*:/.test(line)) { inPackages = true; continue; }
+        if (inPackages && /^\s+-\s+/.test(line)) {
+          const val = line.replace(/^\s+-\s+/, '').replace(/['"]/g, '').trim();
+          if (val) workspacePatterns.push(val);
+        } else if (inPackages && /^\S/.test(line)) {
+          inPackages = false;
+        }
+      }
+    } catch { /* skip */ }
+  }
+
+  for (const pattern of workspacePatterns) {
+    const clean = pattern.replace(/\/?\*\*?$/, '').replace(/\/?\*$/, '');
+    const wsDir = join(rootDir, clean);
+    if (!existsSync(wsDir)) continue;
+    try {
+      const children = readdirSync(wsDir, { withFileTypes: true, encoding: 'utf-8' }) as Dirent<string>[];
+      for (const child of children) {
+        if (!child.isDirectory() || shouldSkipDir(child.name)) continue;
+        const candidatePkg = join(wsDir, child.name, 'package.json');
+        if (existsSync(candidatePkg)) {
+          processPackageJson(candidatePkg);
         }
       }
     } catch {
-      // skip
+      // skip unreadable workspace dir
     }
   }
 
   // Walk each srcDir
   for (const srcDir of srcDirs) {
     const abs = resolveSrcDir(rootDir, srcDir);
+
+    // Check parent dir — handles srcDirs like "packages/cli/src" where
+    // package.json is at "packages/cli/package.json"
+    const parentCandidate = join(dirname(abs), 'package.json');
+    if (existsSync(parentCandidate)) {
+      processPackageJson(parentCandidate);
+    }
+
     // Check srcDir root itself
     const rootCandidate = join(abs, 'package.json');
     if (existsSync(rootCandidate)) {
@@ -343,4 +394,208 @@ export function detectModuleBoundaries(options: BoundaryDetectionOptions): Detec
   }
 
   return [...byPath.values()];
+}
+
+// ---------------------------------------------------------------------------
+// 5. Entry point extraction from package.json
+// ---------------------------------------------------------------------------
+
+/** Source extensions to try when resolving a dist path back to source. */
+const SRC_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
+
+/**
+ * Resolve a manifest path (often pointing to dist/) back to its source file.
+ * Returns the repo-relative source path, or undefined if not found.
+ */
+function resolveManifestPath(
+  rawPath: string,
+  pkgDir: string,
+  rootDir: string,
+): string | undefined {
+  const clean = rawPath.replace(/^\.\//, '');
+
+  // Try source remap first — manifest paths typically point to dist/
+  const remaps: Array<[RegExp, string]> = [
+    [/^dist\//, 'src/'],
+    [/^build\//, 'src/'],
+    [/^out\//, 'src/'],
+    [/^lib\//, 'src/'],
+  ];
+
+  for (const [pattern, replacement] of remaps) {
+    if (!pattern.test(clean)) continue;
+    const srcRelative = clean.replace(pattern, replacement);
+
+    // Strip .js/.cjs/.mjs and try each source extension
+    const stripped = srcRelative.replace(/\.(js|cjs|mjs|d\.ts|d\.cts|d\.mts)$/, '');
+    for (const ext of SRC_EXTENSIONS) {
+      const candidate = join(pkgDir, stripped + ext);
+      if (existsSync(candidate)) {
+        return relFromRoot(rootDir, candidate);
+      }
+    }
+    // Try the exact remapped path
+    const exact = join(pkgDir, srcRelative);
+    if (existsSync(exact) && !statSync(exact).isDirectory()) {
+      return relFromRoot(rootDir, exact);
+    }
+  }
+
+  // Fallback: try stripping extension and probing source extensions
+  const strippedOriginal = clean.replace(/\.(js|cjs|mjs|d\.ts|d\.cts|d\.mts)$/, '');
+  for (const ext of SRC_EXTENSIONS) {
+    const candidate = join(pkgDir, strippedOriginal + ext);
+    if (existsSync(candidate)) {
+      return relFromRoot(rootDir, candidate);
+    }
+  }
+
+  // Last resort: try path as-is (might already point to source)
+  const asIs = join(pkgDir, clean);
+  if (existsSync(asIs) && !statSync(asIs).isDirectory()) {
+    return relFromRoot(rootDir, asIs);
+  }
+
+  return undefined;
+}
+
+type AppKind = 'cli' | 'server' | 'extension' | 'web-app';
+
+/**
+ * Detect whether a package.json describes an application (not a library).
+ * Uses manifest signals only — no heuristics, no import graph.
+ * Returns the app kind or undefined for libraries.
+ */
+function detectAppKind(json: Record<string, unknown>): AppKind | undefined {
+  // Has bin → CLI application
+  if (json.bin) return 'cli';
+
+  // VS Code extension (has engines.vscode) — check before server-script
+  const engines = json.engines as Record<string, string> | undefined;
+  if (engines?.vscode) return 'extension';
+
+  // Has scripts.start that runs a file → server application
+  const scripts = json.scripts as Record<string, string> | undefined;
+  if (scripts?.start && /\b(node|tsx?|ts-node)\b/.test(scripts.start)) return 'server';
+  if (scripts?.serve && /\b(node|tsx?|ts-node)\b/.test(scripts.serve)) return 'server';
+
+  // Bundled frontend app (vite, webpack, next, nuxt, angular in devDeps/deps + build script)
+  const allDeps = {
+    ...json.dependencies as Record<string, string> | undefined,
+    ...json.devDependencies as Record<string, string> | undefined,
+  };
+  const bundlers = ['vite', 'webpack', 'next', 'nuxt', '@angular/cli', 'parcel', 'esbuild'];
+  const hasBundler = bundlers.some((b) => b in allDeps);
+  // Only if there's no main/exports (pure app, not a library that happens to use vite)
+  if (hasBundler && !json.main && !json.exports) return 'web-app';
+
+  return undefined;
+}
+
+/**
+ * Extract entry points from a parsed package.json.
+ * Generic — works on any Node.js/TypeScript package.
+ * When isApp=true, main/exports entries are marked as app entries too.
+ */
+function extractEntryPoints(
+  json: Record<string, unknown>,
+  pkgDir: string,
+  rootDir: string,
+  isApp: boolean,
+): DetectedEntryPoint[] {
+  const result: DetectedEntryPoint[] = [];
+  const seen = new Set<string>();
+
+  // CLI packages: only bin entries are app entry points.
+  // Other app kinds: main/exports/browser are the actual app entries.
+  const hasBin = !!json.bin;
+  const nonBinIsApp = isApp && !hasBin;
+
+  function add(
+    file: string | undefined,
+    kind: DetectedEntryPoint['kind'],
+    isAppEntry: boolean,
+    name?: string,
+  ): void {
+    if (!file || seen.has(file)) return;
+    seen.add(file);
+    result.push({ file: file.replace(/\\/g, '/'), kind, isAppEntry, name });
+  }
+
+  // bin — always app entry points
+  if (typeof json.bin === 'string') {
+    add(resolveManifestPath(json.bin, pkgDir, rootDir), 'bin', true);
+  } else if (json.bin && typeof json.bin === 'object') {
+    for (const [cmd, target] of Object.entries(json.bin as Record<string, string>)) {
+      add(resolveManifestPath(target, pkgDir, rootDir), 'bin', true, cmd);
+    }
+  }
+
+  // main — app entry for non-CLI apps, library entry for CLIs/libraries
+  if (typeof json.main === 'string') {
+    add(resolveManifestPath(json.main, pkgDir, rootDir), 'main', nonBinIsApp);
+  }
+
+  // browser — browser-specific entry
+  if (typeof json.browser === 'string') {
+    add(resolveManifestPath(json.browser, pkgDir, rootDir), 'browser', nonBinIsApp);
+  }
+
+  // exports — conditional exports
+  if (json.exports) {
+    extractExportsEntries(json.exports, pkgDir, rootDir, seen, nonBinIsApp).forEach((ep) => result.push(ep));
+  }
+
+  // Web app heuristic: if it's a bundled app with no manifest entry points,
+  // probe for common Vite/webpack/CRA entry files
+  if (isApp && !hasBin && result.length === 0) {
+    const webEntryNames = ['main.tsx', 'main.ts', 'main.jsx', 'main.js', 'index.tsx', 'index.ts', 'index.jsx', 'index.js'];
+    for (const name of webEntryNames) {
+      const candidate = join(pkgDir, 'src', name);
+      if (existsSync(candidate)) {
+        add(relFromRoot(rootDir, candidate), 'browser', true);
+        break;
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Recursively extract file paths from package.json "exports" field.
+ * Handles: string, {".":{...}}, {import, require, default, ...}
+ */
+function extractExportsEntries(
+  exports: unknown,
+  pkgDir: string,
+  rootDir: string,
+  seen: Set<string>,
+  isApp: boolean,
+  subpath?: string,
+): DetectedEntryPoint[] {
+  const result: DetectedEntryPoint[] = [];
+
+  if (typeof exports === 'string') {
+    const file = resolveManifestPath(exports, pkgDir, rootDir);
+    if (file && !seen.has(file)) {
+      seen.add(file);
+      result.push({ file: file.replace(/\\/g, '/'), kind: 'exports', isAppEntry: isApp, name: subpath });
+    }
+    return result;
+  }
+
+  if (exports && typeof exports === 'object' && !Array.isArray(exports)) {
+    for (const [key, value] of Object.entries(exports as Record<string, unknown>)) {
+      if (key.startsWith('.')) {
+        result.push(...extractExportsEntries(value, pkgDir, rootDir, seen, isApp, key));
+      } else {
+        if (key !== 'types') {
+          result.push(...extractExportsEntries(value, pkgDir, rootDir, seen, isApp, subpath));
+        }
+      }
+    }
+  }
+
+  return result;
 }

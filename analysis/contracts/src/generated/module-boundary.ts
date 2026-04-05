@@ -29,4 +29,30 @@ export interface ModuleBoundary {
    * How this boundary was detected. 'package' = from package.json or similar manifest, 'directory' = from folder structure at a given depth, 'facade' = from re-export index files (e.g. index.ts), 'namespace' = from language namespaces, 'manual' = user-supplied.
    */
   kind: 'package' | 'directory' | 'facade' | 'namespace' | 'manual';
+  /**
+   * Entry points declared in this module's package.json (bin, main, exports).
+   * Only present for package-kind boundaries.
+   */
+  entryPoints?: ModuleBoundaryEntryPoint[];
+  /**
+   * True when package.json signals this is a runnable application (has bin,
+   * scripts.start, engines.vscode, or a bundler without library exports).
+   */
+  isApp?: boolean;
+  /**
+   * Why this package is classified as an app. Only set when isApp is true.
+   */
+  appKind?: 'cli' | 'server' | 'extension' | 'web-app';
+}
+
+/** An entry point declared in a package manifest. */
+export interface ModuleBoundaryEntryPoint {
+  /** Source file path (relative to repo root) resolved from the manifest entry. */
+  file: string;
+  /** How this entry point was declared. */
+  kind: 'bin' | 'main' | 'exports' | 'browser';
+  /** True when this entry point is an app root (not a library export). */
+  isAppEntry: boolean;
+  /** Optional entry point name (e.g. the bin command name or exports subpath). */
+  name?: string;
 }

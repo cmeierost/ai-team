@@ -755,6 +755,9 @@ export async function collect(
         declaredLayer: null,
         isPackage: det.isPackage,
         kind: det.kind,
+        entryPoints: det.entryPoints,
+        isApp: det.isApp,
+        appKind: det.appKind,
       };
     });
   } else {

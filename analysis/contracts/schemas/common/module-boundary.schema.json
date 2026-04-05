@@ -35,6 +35,43 @@
       "type": "string",
       "enum": ["package", "directory", "facade", "namespace", "manual"],
       "description": "How this boundary was detected. 'package' = from package.json or similar manifest, 'directory' = from folder structure at a given depth, 'facade' = from re-export index files (e.g. index.ts), 'namespace' = from language namespaces, 'manual' = user-supplied."
+    },
+    "entryPoints": {
+      "type": "array",
+      "description": "Entry points declared in this module's package.json (bin, main, exports). Only present for package-kind boundaries.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path (relative to repo root) resolved from the manifest entry."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["bin", "main", "exports", "browser"],
+            "description": "How this entry point was declared."
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional entry point name (e.g. the bin command name or exports subpath)."
+          },
+          "isAppEntry": {
+            "type": "boolean",
+            "description": "True if this entry point belongs to an app package (CLI, server, extension, web app) rather than a library."
+          }
+        },
+        "required": ["file", "kind"],
+        "additionalProperties": false
+      }
+    },
+    "isApp": {
+      "type": "boolean",
+      "description": "True if this package is an application (has bin, start script, vscode engine, or is a pure frontend build). False for libraries. Only set for package-kind boundaries."
+    },
+    "appKind": {
+      "type": "string",
+      "enum": ["cli", "server", "extension", "web-app"],
+      "description": "Why this package is classified as an app. Only set when isApp is true."
     }
   },
   "required": ["moduleId", "modulePath", "files", "declaredLayer", "isPackage", "kind"],

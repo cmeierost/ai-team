@@ -30,6 +30,7 @@
 
 import type { FileCategory } from './1-file-classification.js';
 import type { CodeContentRole } from './2-code-classification.js';
+import type { EntryPointAnalysis } from './entry-point-analysis.js';
 
 /** A raw dependency edge extracted from collector relationships. */
 export interface RawDependencyEdge {
@@ -266,6 +267,7 @@ export interface StructuralPipelineResult {
   groupingComparisons?: PipelineGroupingComparison[];
   centrality?: FileCentrality[];
   exportAnalysis?: ExportAnalysis;
+  entryPointAnalysis?: EntryPointAnalysis;
   recommendations?: PipelineRecommendation[];
   healthScore?: number;
   summary: PipelineSummary;
@@ -343,6 +345,10 @@ export interface PipelineSummary {
   bridgeFileCount?: number;
   healthScore?: number;
   recommendationCount?: number;
+  appEntryPointCount?: number;
+  exclusiveFileCount?: number;
+  sharedFileCount?: number;
+  unreachableFileCount?: number;
 }
 
 export interface StructuralPipelineOptions {
