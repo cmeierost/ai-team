@@ -102,9 +102,15 @@ export function useClusterDrilldown(
       }
     }
 
-    // When showing full paths, remove pure barrel nodes (their edges are resolved)
+    // When showing full paths, remove interior barrel nodes (their edges are resolved).
+    // Keep package root barrels (e.g. packages/foo/src/index.ts) — they represent
+    // the public API boundary.
+    const isPackageRoot = (fid: string): boolean => {
+      const fp = (fileClassMap.get(fid)?.filePath ?? fid.replace(/^file:/, '')).replace(/\\/g, '/');
+      return /^[^/]+\/[^/]+\/src\/index\.[^.]+$/.test(fp);
+    };
     const visibleFileIds = options?.showFullPath
-      ? fileIds.filter((fid) => !barrelFileIds.has(fid))
+      ? fileIds.filter((fid) => !barrelFileIds.has(fid) || isPackageRoot(fid))
       : fileIds;
 
     // Dagre layout for files
