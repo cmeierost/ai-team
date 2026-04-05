@@ -22,6 +22,7 @@ import { useClusterGraph, deriveGroupLabel } from './hooks/useClusterGraph.js';
 import { useClusterDrilldown } from './hooks/useClusterDrilldown.js';
 import { ClusterNode } from './components/ClusterNode.js';
 import { FileNode } from './components/FileNode.js';
+import { SuperClusterNode } from './components/SuperClusterNode.js';
 import { OverviewBar } from './components/OverviewBar.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { ProblemsPanel } from './components/ProblemsPanel.js';
@@ -37,6 +38,7 @@ export interface ArchitectureViewerProps {
 const nodeTypes: NodeTypes = {
   cluster: ClusterNode,
   file: FileNode,
+  supercluster: SuperClusterNode,
 };
 
 export function ArchitectureViewer({ data, className }: ArchitectureViewerProps) {

@@ -377,14 +377,36 @@ export function useClusterGraph(
     const connectedGroups = groups.filter((g) => connectedGroupIds.has(g.id));
     const disconnectedGroups = groups.filter((g) => !connectedGroupIds.has(g.id));
 
-    // Layout connected nodes with dagre
-    const g = new dagre.graphlib.Graph();
+    // Layout connected nodes with dagre (compound graph for supercluster grouping)
+    const g = new dagre.graphlib.Graph({ compound: true });
     g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 100, ranker: 'longest-path' });
     g.setDefaultEdgeLabel(() => ({}));
+
+    // Build supercluster membership lookup
+    const superClusters = data.communities?.superClusters ?? [];
+    const groupToSuperCluster = new Map<string, string>();
+    for (const sc of superClusters) {
+      if (sc.communityIds.length < 2) continue; // don't group trivial superclusters
+      for (const cid of sc.communityIds) groupToSuperCluster.set(cid, sc.id);
+    }
+
+    // Add supercluster parent nodes
+    const activeSuperClusters = new Set<string>();
+    for (const group of connectedGroups) {
+      const scId = groupToSuperCluster.get(group.id);
+      if (scId && !activeSuperClusters.has(scId)) {
+        activeSuperClusters.add(scId);
+        g.setNode(scId, {}); // parent node — dagre sizes it automatically
+      }
+    }
 
     for (const group of connectedGroups) {
       const scaled = locScaledSize(group.id);
       g.setNode(group.id, { width: scaled.w, height: scaled.h });
+      const scId = groupToSuperCluster.get(group.id);
+      if (scId && activeSuperClusters.has(scId)) {
+        g.setParent(group.id, scId);
+      }
     }
 
     for (const ce of groupEdgeMap.values()) {
@@ -439,6 +461,70 @@ export function useClusterGraph(
 
     // --- Generate nodes ---
     const resultNodes: Node[] = [];
+
+    // Supercluster bounding-box nodes (behind community nodes)
+    // dagre compound layout keeps each supercluster's children together,
+    // so bounding boxes won't overlap
+    const PAD = 30;
+    for (const sc of superClusters) {
+      if (sc.communityIds.length < 2) continue;
+      // Compute bounding box of all member community positions
+      let minX = Infinity, minY = Infinity, maxXB = -Infinity, maxYB = -Infinity;
+      let totalFiles = 0;
+      let contractCount = 0;
+      let hasMember = false;
+      for (const cid of sc.communityIds) {
+        const pos = groupPositions.get(cid);
+        if (!pos) continue;
+        hasMember = true;
+        minX = Math.min(minX, pos.x);
+        minY = Math.min(minY, pos.y);
+        maxXB = Math.max(maxXB, pos.x + pos.w);
+        maxYB = Math.max(maxYB, pos.y + pos.h);
+        const grp = groups.find((g) => g.id === cid);
+        if (grp) {
+          totalFiles += grp.fileIds.length;
+          for (const fid of grp.fileIds) {
+            const fc = fileClassMap.get(fid);
+            if (fc?.contentRole === 'contract' || fc?.contentRole === 'infrastructure') {
+              contractCount++;
+            }
+          }
+        }
+      }
+      if (!hasMember) continue;
+
+      // Derive a label from the member communities
+      const memberLabels = sc.communityIds
+        .map((cid) => groups.find((g) => g.id === cid))
+        .filter(Boolean)
+        .map((g) => g!.label);
+      const labelCounts = new Map<string, number>();
+      for (const l of memberLabels) labelCounts.set(l, (labelCounts.get(l) ?? 0) + 1);
+      const scLabel = [...labelCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([l]) => l)
+        .slice(0, 3)
+        .join(' + ');
+
+      resultNodes.push({
+        id: sc.id,
+        type: 'supercluster',
+        position: { x: minX - PAD, y: minY - PAD },
+        width: maxXB - minX + PAD * 2,
+        height: maxYB - minY + PAD * 2,
+        zIndex: -1,
+        selectable: false,
+        draggable: false,
+        data: {
+          label: scLabel,
+          communityCount: sc.communityIds.length,
+          fileCount: totalFiles,
+          contractCount,
+        },
+        style: { zIndex: -1 },
+      });
+    }
 
     for (const group of groups) {
       const pos = groupPositions.get(group.id)!;
