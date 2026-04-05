@@ -109,6 +109,8 @@ export const ROLE_COLORS: Record<string, string> = {
   presentation:   '#ec4899',
   infrastructure: '#8b5cf6',
   entry_point:    '#f59e0b',
+  barrel:         '#78716c',
+  reexport:       '#a8a29e',
   unknown:        '#94a3b8',
 };
 

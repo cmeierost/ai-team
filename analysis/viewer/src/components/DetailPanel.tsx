@@ -331,7 +331,27 @@ function FileDetail({ data, fileId }: { data: StructuralPipelineResult; fileId: 
 
   const role = file.contentRole ?? 'unknown';
   const rc = roleColor(role);
-  const composition = file.contentClassification?.composition;
+  const baseComposition = file.contentClassification?.composition;
+
+  // Enrich composition with re-export count so re-exports show in the bar.
+  // baseComposition has proportions summing to ~1.0; CompositionBar normalises,
+  // so we scale own proportions to entity counts then add re-exports as peers.
+  const reexportCount = exportInfo?.reexportSources?.length ?? 0;
+  const enrichedComposition = (() => {
+    if (!baseComposition && reexportCount === 0) return undefined;
+    const comp: Record<string, number> = {};
+    if (baseComposition) Object.assign(comp, baseComposition);
+    if (reexportCount > 0) {
+      const ownSum = Object.values(comp).reduce((s, v) => s + v, 0) || 0;
+      const ownEntities = Math.max(1, (exportInfo?.totalExports ?? 1) - reexportCount);
+      if (ownSum > 0) {
+        const scale = ownEntities / ownSum;
+        for (const k of Object.keys(comp)) comp[k] *= scale;
+      }
+      comp.reexport = reexportCount;
+    }
+    return comp;
+  })();
 
   return (
     <>
@@ -356,7 +376,7 @@ function FileDetail({ data, fileId }: { data: StructuralPipelineResult; fileId: 
       )}
 
       {/* Composition breakdown */}
-      {composition && <CompositionBar composition={composition} />}
+      {enrichedComposition && <CompositionBar composition={enrichedComposition} />}
 
       {/* LCOM4 */}
       {file.lcom4 != null && (
