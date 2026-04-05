@@ -19,7 +19,7 @@ import louvain from 'graphology-communities-louvain';
 
 import type {
   WeightedEdge, FileClassificationEntry,
-  Community, CommunityDetectionResult, MisplacedFile, TangledDirectory,
+  Community, SuperCluster, CommunityDetectionResult, MisplacedFile, TangledDirectory,
 } from './types.js';
 import type { CodeContentRole } from './2-code-classification.js';
 import { parentDir } from './types.js';
@@ -61,7 +61,7 @@ export function detectCommunities(
 ): CommunityDetectionResult {
   const codeFiles = fileClassifications.filter((f) => f.category === 'code');
   if (codeFiles.length < 2) {
-    return { communities: [], modularity: 0, misplacedFiles: [], tangledDirectories: [] };
+    return { communities: [], superClusters: [], modularity: 0, misplacedFiles: [], tangledDirectories: [] };
   }
 
   // Build undirected graph (Louvain requirement)
@@ -85,7 +85,7 @@ export function detectCommunities(
   }
 
   if (graph.size === 0) {
-    return { communities: [], modularity: 0, misplacedFiles: [], tangledDirectories: [] };
+    return { communities: [], superClusters: [], modularity: 0, misplacedFiles: [], tangledDirectories: [] };
   }
 
   // Run Louvain with higher resolution for smaller, context-window-sized clusters
@@ -128,12 +128,16 @@ export function detectCommunities(
   for (const f of codeFiles) roleMap.set(f.fileId, f.contentRole);
   communities = extractSharedTypes(communities, weightedEdges, roleMap);
 
+  // Build superclusters: group communities by shared contract dependencies
+  const superClusters = buildSuperClusters(communities, weightedEdges, roleMap);
+
   // Detect misplaced files: file's community majority dir ≠ file's actual dir
   const misplacedFiles = findMisplacedFiles(communities, pathMap);
   const tangledDirectories = findTangledDirectories(communities, pathMap);
 
   return {
     communities,
+    superClusters,
     modularity: detailed.modularity,
     misplacedFiles,
     tangledDirectories,
@@ -475,6 +479,123 @@ function extractSharedTypes(
     ...c,
     id: `community-${i}`,
   }));
+}
+
+// ── Supercluster detection ──────────────────────────────────────────────
+
+/**
+ * Build superclusters by grouping communities around shared contracts.
+ *
+ * A supercluster = the contract community + every community that imports
+ * from it. This maps to a team-lead's scope: the lead owns the shared
+ * interfaces and coordinates the clusters that depend on them.
+ *
+ * Communities that don't share contracts form standalone superclusters.
+ */
+function buildSuperClusters(
+  communities: Community[],
+  edges: WeightedEdge[],
+  roleMap: Map<string, CodeContentRole | undefined>,
+): SuperCluster[] {
+  // file → community id
+  const fileToCommunity = new Map<string, string>();
+  for (const c of communities) {
+    for (const fid of c.memberFileIds) fileToCommunity.set(fid, c.id);
+  }
+
+  // Identify contract-dominated communities (≥50% contract/infrastructure)
+  const communityFiles = new Map<string, string[]>();
+  for (const c of communities) communityFiles.set(c.id, c.memberFileIds);
+
+  const contractCommunities = new Set<string>();
+  for (const c of communities) {
+    const contractCount = c.memberFileIds.filter((fid) => {
+      const role = roleMap.get(fid);
+      return role === 'contract' || role === 'infrastructure';
+    }).length;
+    if (contractCount >= c.memberFileIds.length * 0.5 && c.memberFileIds.length >= 2) {
+      contractCommunities.add(c.id);
+    }
+  }
+
+  // For each contract community, find consuming communities (who imports from it)
+  const contractConsumers = new Map<string, Set<string>>();
+  for (const cid of contractCommunities) contractConsumers.set(cid, new Set());
+
+  for (const edge of edges) {
+    const tgtCommunity = fileToCommunity.get(edge.targetFileId);
+    const srcCommunity = fileToCommunity.get(edge.sourceFileId);
+    if (!tgtCommunity || !srcCommunity || tgtCommunity === srcCommunity) continue;
+
+    // If the target file is a contract/infra in a contract community,
+    // the source community is a consumer
+    if (contractCommunities.has(tgtCommunity)) {
+      const role = roleMap.get(edge.targetFileId);
+      if (role === 'contract' || role === 'infrastructure' || role === 'barrel') {
+        contractConsumers.get(tgtCommunity)!.add(srcCommunity);
+      }
+    }
+  }
+
+  // Union-find to group contract communities that share consumers
+  const parent = new Map<string, string>();
+  for (const c of communities) parent.set(c.id, c.id);
+
+  function find(x: string): string {
+    while (parent.get(x) !== x) {
+      parent.set(x, parent.get(parent.get(x)!)!);
+      x = parent.get(x)!;
+    }
+    return x;
+  }
+  function union(a: string, b: string): void {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  }
+
+  // Each contract community unions with all its consumers
+  for (const [contractId, consumers] of contractConsumers) {
+    for (const consumerId of consumers) {
+      union(contractId, consumerId);
+    }
+  }
+
+  // Also union communities that share the same package prefix and are small
+  // (keeps the supercluster view from being too fragmented)
+  const communityPkg = new Map<string, string>();
+  for (const c of communities) {
+    const firstFile = c.memberFileIds[0];
+    if (firstFile) communityPkg.set(c.id, packagePrefix(firstFile));
+  }
+  const pkgGroups = new Map<string, string[]>();
+  for (const c of communities) {
+    const pkg = communityPkg.get(c.id) ?? '';
+    const list = pkgGroups.get(pkg) ?? [];
+    list.push(c.id);
+    pkgGroups.set(pkg, list);
+  }
+  for (const [, cids] of pkgGroups) {
+    if (cids.length > 1) {
+      for (let i = 1; i < cids.length; i++) union(cids[0], cids[i]);
+    }
+  }
+
+  // Group by root
+  const groups = new Map<string, string[]>();
+  for (const c of communities) {
+    const root = find(c.id);
+    const list = groups.get(root) ?? [];
+    list.push(c.id);
+    groups.set(root, list);
+  }
+
+  return [...groups.values()]
+    .sort((a, b) => b.length - a.length)
+    .map((cids, i) => ({
+      id: `supercluster-${i}`,
+      communityIds: cids.sort(),
+    }));
 }
 
 // ── Misplaced file detection ────────────────────────────────────────────
