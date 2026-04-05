@@ -24,6 +24,15 @@ import type {
 import type { CodeContentRole } from './2-code-classification.js';
 import { parentDir } from './types.js';
 
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+/** Extract the top-level package prefix (e.g. 'packages/web' or 'analysis/structural'). */
+function packagePrefix(filePath: string): string {
+  const parts = filePath.replace(/\\/g, '/').replace(/^file:/, '').split('/');
+  // Typical shape: packages/web/src/... or analysis/structural/src/...
+  return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : parts[0] ?? '';
+}
+
 // ── Constants ───────────────────────────────────────────────────────────
 
 const TANGLED_THRESHOLD = 3;
@@ -37,10 +46,12 @@ const MAX_CLUSTER_LOC = 8_000;
 const MAX_CLUSTER_FILES = 30;
 
 /**
- * Higher resolution → more, smaller communities. Default Louvain is 1.0;
- * we use a higher value to keep clusters context-window-sized.
+ * Higher resolution → more, smaller communities. Default Louvain is 1.0.
  */
-const LOUVAIN_RESOLUTION = 1.2;
+const LOUVAIN_RESOLUTION = 1.0;
+
+/** Communities below this size get merged into their best neighbor. */
+const MIN_CLUSTER_FILES = 4;
 
 // ── Community detection ─────────────────────────────────────────────────
 
@@ -106,7 +117,10 @@ export function detectCommunities(
   // Absorb singleton files into the nearest community by directory
   communities = absorbSingletons(communities, pathMap);
 
-  // Split oversized communities (after absorb, since absorbed singletons may push clusters over the cap)
+  // Merge undersized clusters into their most-connected neighbor
+  communities = mergeSmallCommunities(communities, graph, pathMap);
+
+  // Split oversized communities (after absorb+merge, since they may push clusters over the cap)
   communities = splitOversizedCommunities(communities, locMap, graph);
 
   // Extract shared contract/type files into their own clusters
@@ -189,6 +203,93 @@ function absorbSingletons(
 
   // Re-number
   return result.map((c, i) => ({ ...c, id: `community-${i}`, memberFileIds: c.memberFileIds.sort() }));
+}
+
+// ── Small-community merging ─────────────────────────────────────────────
+
+/**
+ * Merge communities smaller than MIN_CLUSTER_FILES into their best neighbor.
+ * "Best" = the community sharing the most edges, breaking ties by directory
+ * proximity. This prevents the cluster map from being dominated by tiny
+ * fragments that don't carry enough context for an agent.
+ */
+function mergeSmallCommunities(
+  communities: Community[],
+  graph: InstanceType<typeof Graph>,
+  pathMap: Map<string, string>,
+): Community[] {
+  // Build file → community index
+  const fileToCIdx = new Map<string, number>();
+  for (let i = 0; i < communities.length; i++) {
+    for (const fid of communities[i].memberFileIds) fileToCIdx.set(fid, i);
+  }
+
+  // Iteratively merge smallest into best neighbor
+  const merged = new Set<number>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < communities.length; i++) {
+      if (merged.has(i)) continue;
+      if (communities[i].memberFileIds.length >= MIN_CLUSTER_FILES) continue;
+
+      // Count edges to each other community
+      const edgeCounts = new Map<number, number>();
+      for (const fid of communities[i].memberFileIds) {
+        if (!graph.hasNode(fid)) continue;
+        graph.forEachNeighbor(fid, (neighbor) => {
+          const nIdx = fileToCIdx.get(neighbor);
+          if (nIdx !== undefined && nIdx !== i && !merged.has(nIdx)) {
+            edgeCounts.set(nIdx, (edgeCounts.get(nIdx) ?? 0) + 1);
+          }
+        });
+      }
+
+      // Pick the neighbor with most edges; if none, pick closest by directory
+      let bestIdx = -1;
+      let bestEdges = 0;
+      for (const [idx, count] of edgeCounts) {
+        if (count > bestEdges && communities[idx].memberFileIds.length + communities[i].memberFileIds.length <= MAX_CLUSTER_FILES) {
+          bestEdges = count;
+          bestIdx = idx;
+        }
+      }
+
+      if (bestIdx === -1) {
+        // No edge-connected neighbor under the cap — try directory proximity
+        // but only within the same package to avoid cross-package merging
+        const myDir = parentDir(pathMap.get(communities[i].memberFileIds[0]) ?? '');
+        const myPkg = packagePrefix(myDir);
+        let bestScore = -1;
+        for (let j = 0; j < communities.length; j++) {
+          if (j === i || merged.has(j)) continue;
+          if (communities[j].memberFileIds.length + communities[i].memberFileIds.length > MAX_CLUSTER_FILES) continue;
+          const otherDir = parentDir(pathMap.get(communities[j].memberFileIds[0]) ?? '');
+          if (packagePrefix(otherDir) !== myPkg) continue; // don't cross packages
+          const myParts = myDir.split('/');
+          const otherParts = otherDir.split('/');
+          let common = 0;
+          while (common < myParts.length && common < otherParts.length && myParts[common] === otherParts[common]) common++;
+          if (common > bestScore) { bestScore = common; bestIdx = j; }
+        }
+      }
+
+      if (bestIdx === -1) continue;
+
+      // Merge i into bestIdx
+      for (const fid of communities[i].memberFileIds) {
+        communities[bestIdx].memberFileIds.push(fid);
+        fileToCIdx.set(fid, bestIdx);
+      }
+      communities[i].memberFileIds = [];
+      merged.add(i);
+      changed = true;
+    }
+  }
+
+  return communities
+    .filter((_, i) => !merged.has(i))
+    .map((c, i) => ({ ...c, id: `community-${i}`, memberFileIds: c.memberFileIds.sort() }));
 }
 
 // ── Oversized community splitting ───────────────────────────────────────
@@ -330,6 +431,7 @@ function extractSharedTypes(
   if (sharedFiles.size === 0) return communities;
 
   // Group extracted files by directory prefix so related types stay together
+  // Only create a separate cluster if the group is big enough to be meaningful
   const dirGroups = new Map<string, string[]>();
   for (const fid of sharedFiles) {
     const dir = parentDir(fid);
@@ -338,18 +440,30 @@ function extractSharedTypes(
     dirGroups.set(dir, list);
   }
 
+  const actuallyExtracted = new Set<string>();
+  const viableGroups: string[][] = [];
+  for (const [, members] of dirGroups) {
+    if (members.length >= MIN_CLUSTER_FILES) {
+      viableGroups.push(members);
+      for (const fid of members) actuallyExtracted.add(fid);
+    }
+    // Small groups stay in their original community — not worth fragmenting
+  }
+
+  if (actuallyExtracted.size === 0) return communities;
+
   // Remove extracted files from their original communities
   const remaining = communities
     .map((c) => ({
       ...c,
-      memberFileIds: c.memberFileIds.filter((fid) => !sharedFiles.has(fid)),
+      memberFileIds: c.memberFileIds.filter((fid) => !actuallyExtracted.has(fid)),
     }))
     .filter((c) => c.memberFileIds.length > 0);
 
   // Create new shared-type communities
   let nextId = remaining.length;
   const sharedCommunities: Community[] = [];
-  for (const [, members] of dirGroups) {
+  for (const members of viableGroups) {
     sharedCommunities.push({
       id: `community-${nextId++}`,
       memberFileIds: members.sort(),

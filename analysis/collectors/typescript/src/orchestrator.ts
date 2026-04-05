@@ -4,7 +4,8 @@
  */
 
 import { readdir } from 'node:fs/promises';
-import { join, extname } from 'node:path';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, extname, basename, relative } from 'node:path';
 import type {
   CollectedCodeData,
   Entity,
@@ -100,6 +101,117 @@ const UNKNOWN_RANGE: SourceRange = {
 const COLLECTOR_ID = '@aspect/collector-typescript';
 const COLLECTOR_VERSION = '0.1.0';
 const DEFAULT_SRC_DIRS = ['src'];
+
+// ── File discovery constants ────────────────────────────────────────────────
+
+const EXTENSION_LANGUAGES: Record<string, string> = {
+  '.ts': 'typescript', '.tsx': 'typescript', '.mts': 'typescript', '.cts': 'typescript',
+  '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+  '.css': 'css', '.scss': 'scss', '.sass': 'sass', '.less': 'less',
+  '.html': 'html', '.htm': 'html',
+  '.md': 'markdown', '.mdx': 'markdown',
+  '.json': 'json', '.jsonc': 'json',
+  '.yaml': 'yaml', '.yml': 'yaml',
+  '.xml': 'xml', '.svg': 'xml',
+  '.sh': 'shell', '.bash': 'shell',
+  '.py': 'python', '.cs': 'csharp', '.java': 'java', '.go': 'go', '.rs': 'rust',
+};
+
+const BINARY_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.avif',
+  '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  '.pdf', '.zip', '.tar', '.gz', '.br',
+  '.mp3', '.mp4', '.wav', '.ogg', '.webm',
+  '.wasm', '.node', '.dll', '.so', '.dylib',
+]);
+
+const WALK_SKIP_DIRS = new Set([
+  'node_modules', 'dist', '.git', 'build', 'out',
+  'storybook-static', 'coverage', '__snapshots__',
+]);
+
+function shouldSkipDir(name: string): boolean {
+  if (name === '.ai-team') return false; // always include AI config
+  return name.startsWith('.') || WALK_SKIP_DIRS.has(name);
+}
+
+function detectLanguage(ext: string): string {
+  if (BINARY_EXTENSIONS.has(ext)) return 'binary';
+  return EXTENSION_LANGUAGES[ext] ?? 'unknown';
+}
+
+function countLines(filePath: string): number {
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    return content.split('\n').length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Walk the repository and create minimal file entities for every file
+ * that passes the gitignore filter. Non-code files get basic metadata
+ * (path, line count) but no AST analysis.
+ */
+export async function discoverAllFiles(
+  rootDir: string,
+  pathFilter: (path: string) => boolean,
+): Promise<Entity[]> {
+  const entities: Entity[] = [];
+  const defaultClassification: Entity['classification'] = {
+    isExported: false,
+    isAbstract: false,
+    isInterface: false,
+    isConcrete: true,
+    isTypeOnly: false,
+    visibility: null,
+  };
+
+  function walkDir(dir: string): void {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // unreadable directory — skip silently
+    }
+
+    for (const entry of entries) {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (shouldSkipDir(entry.name)) continue;
+        walkDir(abs);
+      } else if (entry.isFile()) {
+        const relPath = relative(rootDir, abs).replace(/\\/g, '/');
+
+        // Apply gitignore filter (returns true if ignored)
+        if (pathFilter(relPath)) continue;
+
+        const ext = extname(entry.name).toLowerCase();
+        const language = detectLanguage(ext);
+        const isBinary = language === 'binary';
+
+        const lineCount = isBinary ? 0 : countLines(abs);
+        const sourceRange: SourceRange = isBinary
+          ? { startLine: 0, startColumn: 0, endLine: 0, endColumn: 0 }
+          : { startLine: 1, startColumn: 0, endLine: lineCount, endColumn: 0 };
+
+        entities.push({
+          id: `file:${relPath}`,
+          kind: 'file',
+          name: entry.name,
+          filePath: relPath,
+          sourceRange,
+          classification: { ...defaultClassification },
+          nameTokens: [basename(entry.name, ext)],
+        });
+      }
+    }
+  }
+
+  walkDir(rootDir);
+  return entities;
+}
 
 // ── Helpers (exported for testability) ──────────────────────────────────────
 
@@ -581,6 +693,21 @@ export async function collect(
     warnings.push(
       `Filtered ${preFilterCount - entities.length} gitignored/external entities (${entities.length} remaining), remapped ${jsRemapTable.size} short paths`,
     );
+  }
+
+  // Phase 2.7 — Discover ALL files (non-code included) and merge with existing entities
+  try {
+    const discoveredFiles = await discoverAllFiles(
+      options.rootDir,
+      (p) => pathFilter.isIgnored(p),
+    );
+    const existingFileIds = new Set(
+      entities.filter((e) => e.kind === 'file').map((e) => e.id),
+    );
+    const newFiles = discoveredFiles.filter((f) => !existingFileIds.has(f.id));
+    entities.push(...newFiles);
+  } catch (err) {
+    warnings.push(`File discovery failed: ${formatError(err)}`);
   }
 
   // Phase 3 — Build module boundaries
