@@ -23,12 +23,12 @@
   "license": "MIT",
   "dependencies": {
     "@aspect/contracts": "workspace:*",
-    "dependency-cruiser": "^16.10.2",
+    "dependency-cruiser": "^17.3.10",
     "ignore": "^7.0.5",
-    "jscpd": "^4.0.5"
+    "jscpd": "^4.0.8"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "@vitest/coverage-v8": "^4.1.2",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"

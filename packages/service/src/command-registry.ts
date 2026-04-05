@@ -270,6 +270,15 @@ export const CLI_COMMAND_REGISTRY: CliCommandMetadata[] = [
     ],
   },
   {
+    key: 'ui',
+    command: 'ui',
+    description: 'Start the web UI and also start the API when it is not already running',
+    llmCallable: false,
+    options: [
+      { flags: '-w, --workspace <path>', description: 'Workspace root for starting UI and API dev servers' },
+    ],
+  },
+  {
     key: 'provider',
     command: 'provider',
     description: 'Manage LLM providers',

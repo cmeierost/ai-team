@@ -11,6 +11,6 @@
   "exclude": ["node_modules", "dist"],
   "references": [
     { "path": "../viewer" },
-    { "path": "../engine" }
+    { "path": "../structural" }
   ]
 }

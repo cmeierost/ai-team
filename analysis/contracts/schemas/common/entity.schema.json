@@ -238,6 +238,13 @@
             },
             { "type": "null" }
           ]
+        },
+        "jsxElementCount": {
+          "description": "Number of JSX/TSX elements (tags) in a function or component. Used to distinguish rendering from logic in UI files.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
         }
       },
       "additionalProperties": false

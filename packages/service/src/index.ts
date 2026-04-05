@@ -98,6 +98,7 @@ export {
 export { generateIntroduction } from './orchestrator/introduction.js';
 export { generateDefaultHandoffPrompt } from './orchestrator/generate-handoff-prompt.js';
 export { serveApiCommand, type ServeApiOptions } from './commands/serve.js';
+export { runUiCommand, type UiCommandOptions } from './commands/ui.js';
 
 // Storage abstraction layer
 export {

@@ -1,0 +1,20 @@
+{
+  "name": "@aspect/complexity",
+  "version": "0.1.0",
+  "description": "Cyclomatic, cognitive, and Halstead complexity calculators",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

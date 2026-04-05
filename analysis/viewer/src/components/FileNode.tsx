@@ -1,100 +1,118 @@
 import { memo } from 'react';
-import { Handle, Position } from '@xyflow/react';
-import { COLORS } from '../types.js';
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
+import type {
+  FileClassificationEntry,
+  MisplacedFile,
+  FileCentrality,
+  CodeContentRole,
+} from '@aspect/structural';
+import { ROLE_COLORS, shortName } from '../types.js';
 
-interface FileNodeData {
-  label: string;
-  filePath: string;
-  codeRole: 'utility' | 'contract' | 'business_logic' | 'presentation' | 'unknown';
+export interface FileNodeData {
+  [key: string]: unknown;
+  file: FileClassificationEntry;
   isMisplaced: boolean;
-  suggestedGroup?: string;
-  complexity?: number;
+  misplacedInfo?: MisplacedFile;
+  centrality?: FileCentrality;
 }
 
-const roleColors: Record<FileNodeData['codeRole'], string> = {
-  utility: COLORS.utility,
-  contract: COLORS.contract,
-  business_logic: COLORS.business_logic,
-  presentation: COLORS.presentation,
-  unknown: COLORS.unknown,
-};
+const handle: React.CSSProperties = { width: 5, height: 5, opacity: 0.3, background: '#888' };
 
-const roleLabels: Record<FileNodeData['codeRole'], string> = {
-  utility: 'util',
-  contract: 'contract',
-  business_logic: 'logic',
-  presentation: 'ui',
-  unknown: '?',
-};
+function FileNodeComponent({ data }: NodeProps<Node<FileNodeData>>) {
+  const { file, isMisplaced, misplacedInfo, centrality } = data;
 
-function FileNodeInner(props: { data: FileNodeData }) {
-  const { data } = props;
+  const primaryRole: string =
+    file.contentClassification?.role ?? file.contentRole ?? 'unknown';
+  const roleColor = ROLE_COLORS[primaryRole] ?? ROLE_COLORS.unknown;
+  const fileName = shortName(file.filePath);
 
-  const roleColor = roleColors[data.codeRole];
+  const composition = file.contentClassification?.composition;
+  const segments: { role: string; value: number; color: string }[] = [];
+  if (composition) {
+    for (const [role, value] of Object.entries(composition)) {
+      if (value && value > 0) {
+        segments.push({
+          role,
+          value,
+          color: ROLE_COLORS[role as CodeContentRole] ?? ROLE_COLORS.unknown,
+        });
+      }
+    }
+  }
+  const isMixed = segments.length > 1;
 
-  const containerStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'stretch',
-    minWidth: 150,
-    borderRadius: 6,
-    border: `1px solid ${data.isMisplaced ? COLORS.critical + '66' : '#e2e8f0'}`,
-    background: data.isMisplaced ? `${COLORS.critical}0a` : COLORS.fileBg,
-    fontFamily: 'system-ui, sans-serif',
-    overflow: 'hidden',
-    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-  };
-
-  const colorBarStyle: React.CSSProperties = {
-    width: 4,
-    flexShrink: 0,
-    background: roleColor,
-    borderRadius: '6px 0 0 6px',
-  };
-
-  const contentStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '5px 8px',
-    flex: 1,
-    minWidth: 0,
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: 12,
-    color: '#1e293b',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    flex: 1,
-    minWidth: 0,
-  };
-
-  const roleBadgeStyle: React.CSSProperties = {
-    fontSize: 9,
-    fontWeight: 600,
-    color: roleColor,
-    background: `${roleColor}18`,
-    borderRadius: 4,
-    padding: '1px 4px',
-    flexShrink: 0,
-  };
+  const loc = file.linesOfCode;
 
   return (
-    <div style={containerStyle}>
-      <Handle type="target" position={Position.Top} style={{ background: roleColor }} />
+    <div style={{
+      width: 220,
+      background: '#252526',
+      border: `1px solid #3e3e42`,
+      borderLeft: `3px solid ${roleColor}`,
+      borderRadius: 6,
+      padding: '6px 8px',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      boxSizing: 'border-box',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.03)',
+    }}>
+      <Handle type="target" position={Position.Left} style={handle} />
 
-      <div style={colorBarStyle} />
-
-      <div style={contentStyle}>
-        {data.isMisplaced && <span style={{ flexShrink: 0, fontSize: 12 }} title={`Suggested: ${data.suggestedGroup ?? 'unknown'}`}>⚠️</span>}
-        <span style={labelStyle} title={data.filePath}>{data.label}</span>
-        <span style={roleBadgeStyle}>{roleLabels[data.codeRole]}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        {isMisplaced && (
+          <span style={{ flexShrink: 0, fontSize: 11, cursor: 'help' }}
+            title={`Suggested: ${misplacedInfo?.suggestedDirectory ?? '?'}`}>⚠️</span>
+        )}
+        <span style={{
+          fontSize: 11,
+          color: '#ccc',
+          flex: 1,
+          minWidth: 0,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }} title={file.filePath}>
+          {fileName}
+        </span>
+        {loc != null && (
+          <span style={{ fontSize: 9, color: '#666', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+            {loc}
+          </span>
+        )}
+        {centrality?.isBridge && (
+          <span style={{ flexShrink: 0, fontSize: 9, cursor: 'help' }}
+            title="Bridge file">🔗</span>
+        )}
+        <span style={{
+          width: 7,
+          height: 7,
+          borderRadius: 2,
+          background: roleColor,
+          flexShrink: 0,
+        }} title={primaryRole.replace('_', ' ')} />
       </div>
 
-      <Handle type="source" position={Position.Bottom} style={{ background: roleColor }} />
+      {isMixed && (
+        <div style={{
+          display: 'flex',
+          width: '100%',
+          height: 3,
+          borderRadius: 2,
+          overflow: 'hidden',
+          marginTop: 5,
+        }}>
+          {segments.map((seg) => (
+            <div
+              key={seg.role}
+              title={`${seg.role} ${Math.round(seg.value * 100)}%`}
+              style={{ flex: seg.value, background: seg.color, minWidth: 2 }}
+            />
+          ))}
+        </div>
+      )}
+
+      <Handle type="source" position={Position.Right} style={handle} />
     </div>
   );
 }
 
-export const FileNode = memo(FileNodeInner);
+export const FileNode = memo(FileNodeComponent);

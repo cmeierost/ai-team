@@ -4,33 +4,45 @@
  * Run from the repo root: node analysis/viewer-app/generate-data.mjs
  */
 import { collect } from '../collectors/typescript/dist/index.js';
-import { analyze } from '../engine/dist/index.js';
+import { runStructuralPipeline } from '../structural/dist/index.js';
 import { writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, '..', '..');
 
 const srcDirs = process.argv.slice(2);
 if (srcDirs.length === 0) {
-  srcDirs.push('packages/core/src');
+  srcDirs.push(
+    'packages/core/src',
+    'packages/service/src',
+    'packages/cli/src',
+    'packages/web/src',
+    'packages/api-server/src',
+    'packages/fs/src',
+    'packages/permission/src',
+    'packages/api-client/src',
+    'packages/api-client-http/src',
+    'packages/vscode/src',
+    'analysis/structural/src',
+    'analysis/contracts/src',
+  );
 }
 
 console.log(`Collecting from: ${srcDirs.join(', ')}...`);
-const { data } = await collect({ srcDirs, rootDir: '.' });
+const { data } = await collect({ srcDirs, rootDir: repoRoot });
 console.log(`  ${data.entities.length} entities, ${data.relationships.length} relationships`);
 
-console.log('Analyzing...');
-const result = await analyze({
-  entities: data.entities,
-  relationships: data.relationships,
-  moduleBoundaries: data.moduleBoundaries,
-  duplicationSignals: data.duplicationSignals,
-});
+console.log('Running structural pipeline...');
+const result = runStructuralPipeline(
+  data.entities,
+  data.relationships,
+  data.moduleBoundaries,
+);
 
 const outPath = resolve(__dirname, 'public', 'analysis-result.json');
 writeFileSync(outPath, JSON.stringify(result, null, 2));
 console.log(`Written to ${outPath}`);
-console.log(`  Health: ${result.summary.healthScore}/100`);
-console.log(`  Recommendations: ${result.summary.recommendationCount}`);
-console.log(`  Groups: ${result.groupCoupling?.profiles.length ?? 0}`);
+console.log(`  Files: ${result.summary.totalFiles}, Clusters: ${result.summary.clusterCount}`);
+console.log(`  Warnings: ${result.alignment.warnings.length}`);

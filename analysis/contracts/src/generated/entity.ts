@@ -163,6 +163,10 @@ export interface RawCounts {
    * Methods overridden from a parent class, for Liskov Substitution Principle analysis.
    */
   overriddenMethods?: OverriddenMethod[] | null;
+  /**
+   * Number of JSX/TSX elements (tags) in a function or component. Used to distinguish rendering from logic in UI files.
+   */
+  jsxElementCount?: number | null;
 }
 /**
  * A single nesting-level contribution to cognitive complexity.

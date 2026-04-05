@@ -35,6 +35,7 @@ import { providerAddCommand, providerConfigureCommand, providerSetCommand } from
 import { providerListCommand, providerModelsCommand, providerModelsRefreshCommand } from './commands/models.js';
 import { orgCommand } from './commands/org.js';
 import { serveCommand } from './commands/serve.js';
+import { uiCommand } from './commands/ui.js';
 import { CLI_COMMAND_REGISTRY, getCliCommandMetadata } from './commands/registry.js';
 import { dbStatusCommand, dbMigrateCommand } from './commands/db.js';
 
@@ -268,6 +269,9 @@ applyCommandMetadata(program.command(testConnectionMeta.command), testConnection
 
 const serveMeta = getCliCommandMetadata('serve');
 applyCommandMetadata(program.command(serveMeta.command), serveMeta).action(withCliErrorHandling((options) => serveCommand(options)));
+
+const uiMeta = getCliCommandMetadata('ui');
+applyCommandMetadata(program.command(uiMeta.command), uiMeta).action(withCliErrorHandling((options) => uiCommand(options)));
 
 const providerMeta = getCliCommandMetadata('provider');
 const provider = applyCommandMetadata(program.command(providerMeta.command), providerMeta);

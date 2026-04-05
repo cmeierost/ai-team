@@ -9,3 +9,4 @@ export * from './commands/chat.js';
 export * from './commands/graph.js';
 export * from './commands/org.js';
 export * from './commands/serve.js';
+export * from './commands/ui.js';

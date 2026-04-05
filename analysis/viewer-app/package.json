@@ -17,9 +17,10 @@
   },
   "devDependencies": {
     "@aspect/collector-typescript": "workspace:*",
-    "@aspect/engine": "workspace:*",
+    "@aspect/structural": "workspace:*",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "puppeteer-core": "^24.40.0",
     "typescript": "^5.9.3",
     "vite": "^8.0.0"
   }

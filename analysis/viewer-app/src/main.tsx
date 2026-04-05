@@ -1,112 +1,59 @@
-import { useState, useEffect } from 'react';
+import React from 'react';
 import { createRoot } from 'react-dom/client';
+import type { StructuralPipelineResult } from '@aspect/viewer';
 import { ArchitectureViewer } from '@aspect/viewer';
-import type { AnalysisResult } from '@aspect/viewer';
+
+const root = createRoot(document.getElementById('root')!);
+
+async function loadData(): Promise<StructuralPipelineResult | null> {
+  try {
+    const res = await fetch('/analysis-result.json');
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
 
 function App() {
-  const [data, setData] = useState<AnalysisResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = React.useState<StructuralPipelineResult | null>(null);
+  const [loading, setLoading] = React.useState(true);
 
-  // Auto-load from public/ if available
-  useEffect(() => {
-    fetch('/analysis-result.json')
-      .then((r) => { if (r.ok) return r.json(); throw new Error('not found'); })
-      .then((json: Record<string, unknown>) => {
-        const result = (json.result ?? json) as AnalysisResult;
-        if (result.summary) setData(result);
-      })
-      .catch(() => { /* no pre-loaded data, show upload */ });
+  React.useEffect(() => {
+    loadData().then((d) => {
+      setData(d);
+      setLoading(false);
+    });
   }, []);
 
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const text = await file.text();
-      const json = JSON.parse(text);
-      // Accept either raw AnalysisResult or a wrapper with .result
-      const result: AnalysisResult = json.result ?? json;
-      if (!result.summary) throw new Error('Invalid analysis result: missing summary');
-      setData(result);
-    } catch (err) {
-      setError(`Failed to load: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const reader = new FileReader();
+    reader.onload = () => {
+      setData(JSON.parse(reader.result as string));
+    };
+    reader.readAsText(file);
+  }, []);
 
-  if (!data) {
+  if (loading) {
     return (
-      <div style={landingStyle}>
-        <div style={cardStyle}>
-          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>
-            🏗️ Architecture Viewer
-          </h1>
-          <p style={{ color: '#64748b', marginBottom: 24, lineHeight: 1.5 }}>
-            Load an analysis result JSON file to visualize your codebase architecture,
-            identify improvement areas, and explore module coupling.
-          </p>
-
-          <label style={uploadStyle}>
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleFile}
-              style={{ display: 'none' }}
-            />
-            {loading ? '⏳ Loading…' : '📂 Choose analysis-result.json'}
-          </label>
-
-          <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 16 }}>
-            Generate with: <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>
-              node generate-data.mjs
-            </code>
-          </p>
-
-          {error && (
-            <p style={{ color: '#ef4444', marginTop: 12, fontSize: 13 }}>{error}</p>
-          )}
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui' }}>
+        Loading…
       </div>
     );
   }
 
-  return (
-    <div style={{ height: '100vh', width: '100vw' }}>
-      <ArchitectureViewer data={data} />
-    </div>
-  );
+  if (!data) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 16, fontFamily: 'system-ui' }}>
+        <p style={{ color: '#64748b' }}>No analysis data found. Upload a result file:</p>
+        <input type="file" accept=".json" onChange={handleUpload} />
+      </div>
+    );
+  }
+
+  return <ArchitectureViewer data={data} />;
 }
 
-const landingStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  height: '100vh',
-  background: '#f8fafc',
-};
-
-const cardStyle: React.CSSProperties = {
-  textAlign: 'center',
-  maxWidth: 440,
-  padding: 40,
-  background: '#ffffff',
-  borderRadius: 16,
-  boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
-};
-
-const uploadStyle: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '12px 28px',
-  background: '#3b82f6',
-  color: '#ffffff',
-  borderRadius: 10,
-  fontWeight: 600,
-  fontSize: 15,
-  cursor: 'pointer',
-};
-
-createRoot(document.getElementById('root')!).render(<App />);
+root.render(<App />);

@@ -1,0 +1,27 @@
+{
+  "name": "@aspect/structural",
+  "version": "0.1.0",
+  "description": "Structural analysis pipeline — file classification, clustering, alignment, community detection, and recommendations",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@aspect/contracts": "workspace:*",
+    "graphology": "^0.26.0",
+    "graphology-metrics": "^2.4.0",
+    "graphology-communities-louvain": "^2.0.2",
+    "graphology-components": "^1.5.4",
+    "graphology-types": "^0.24.8"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

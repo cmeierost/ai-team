@@ -457,6 +457,7 @@ function buildFunctionRawCounts(
   let typeCheckingPatterns = 0;
   const conditionalDispatchLocations: ConditionalDispatchLocation[] = [];
   let returnStatements = 0;
+  let jsxElementCount = 0;
   let parameterCount = 0;
 
   // Count parameters
@@ -568,6 +569,15 @@ function buildFunctionRawCounts(
       returnStatements++;
     }
 
+    // JSX element counting
+    if (
+      ts.isJsxElement(n) ||
+      ts.isJsxSelfClosingElement(n) ||
+      ts.isJsxFragment(n)
+    ) {
+      jsxElementCount++;
+    }
+
     // Halstead — operators
     collectHalsteadOperator(n, sourceFile, operatorSet, () => operatorTotal++);
     operatorTotal = collectHalsteadOperatorCount(n, operatorSet, operatorTotal);
@@ -614,6 +624,7 @@ function buildFunctionRawCounts(
       conditionalDispatchLocations.length > 0
         ? conditionalDispatchLocations
         : null,
+    jsxElementCount: jsxElementCount > 0 ? jsxElementCount : null,
   };
 }
 
@@ -659,6 +670,7 @@ function buildClassRawCounts(
     publicMethodCount,
     publicPropertyCount,
     extensionPoints: extensionPoints > 0 ? extensionPoints : null,
+    jsxElementCount: null,
   };
 }
 
@@ -682,6 +694,7 @@ function buildInterfaceRawCounts(
     linesOfCode: countLines(range),
     publicMethodCount,
     publicPropertyCount,
+    jsxElementCount: null,
   };
 }
 
