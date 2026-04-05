@@ -102,6 +102,11 @@ export function useClusterDrilldown(
       }
     }
 
+    // When showing full paths, remove pure barrel nodes (their edges are resolved)
+    const visibleFileIds = options?.showFullPath
+      ? fileIds.filter((fid) => !barrelFileIds.has(fid))
+      : fileIds;
+
     // Dagre layout for files
     const g = new dagre.graphlib.Graph();
     g.setGraph({ rankdir: 'LR', nodesep: 30, ranksep: 80, ranker: 'longest-path' });
@@ -117,8 +122,8 @@ export function useClusterDrilldown(
       connectedFiles.add(e.targetFileId);
     }
 
-    const connectedList = fileIds.filter((f) => connectedFiles.has(f));
-    const isolatedList = fileIds.filter((f) => !connectedFiles.has(f));
+    const connectedList = visibleFileIds.filter((f) => connectedFiles.has(f));
+    const isolatedList = visibleFileIds.filter((f) => !connectedFiles.has(f));
 
     for (const fid of connectedList) {
       g.setNode(fid, { width: nodeW, height: nodeH });
