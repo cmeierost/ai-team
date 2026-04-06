@@ -13,6 +13,8 @@ export interface OverviewBarProps {
   onToggleHideTypeOnly?: () => void;
   showFullPath?: boolean;
   onToggleShowFullPath?: () => void;
+  showSuperclusters?: boolean;
+  onToggleShowSuperclusters?: () => void;
 }
 
 const barStyle: React.CSSProperties = {
@@ -97,7 +99,15 @@ function ToggleButton({ active, onClick, activeLabel, inactiveLabel, activeTitle
   );
 }
 
-export function OverviewBar({ data, hideTypeOnly, onToggleHideTypeOnly, showFullPath, onToggleShowFullPath }: OverviewBarProps) {
+export function OverviewBar({
+  data,
+  hideTypeOnly,
+  onToggleHideTypeOnly,
+  showFullPath,
+  onToggleShowFullPath,
+  showSuperclusters,
+  onToggleShowSuperclusters,
+}: OverviewBarProps) {
   const { summary, healthScore, communities } = data;
 
   const scoreDisplay = healthScore != null ? Math.round(healthScore) : '—';
@@ -167,6 +177,17 @@ export function OverviewBar({ data, hideTypeOnly, onToggleHideTypeOnly, showFull
             activeTitle="Showing resolved paths through barrels — click for direct edges"
             inactiveTitle="Click to resolve edges through barrel files to actual targets"
             activeColor="#2d7a4f"
+          />
+        )}
+        {onToggleShowSuperclusters && (
+          <ToggleButton
+            active={!!showSuperclusters}
+            onClick={onToggleShowSuperclusters}
+            activeLabel="▣ Superclusters"
+            inactiveLabel="□ Superclusters"
+            activeTitle="Showing supercluster overlays"
+            inactiveTitle="Click to show supercluster overlays"
+            activeColor="#6b7280"
           />
         )}
       </div>

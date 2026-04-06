@@ -13,6 +13,8 @@ export interface ClusterNodeData {
   expanded: boolean;
   dominantRole: string;
   totalLoc: number;
+  contractHub?: boolean;
+  contractSharePct?: number;
 }
 
 const handle: React.CSSProperties = { width: 6, height: 6, opacity: 0.3, background: '#888' };
@@ -23,11 +25,11 @@ function formatLoc(loc: number): string {
 }
 
 function ClusterNodeComponent({ data }: NodeProps<Node<ClusterNodeData>>) {
-  const { group, quality, warningCount, fileCount, expanded, dominantRole, totalLoc } = data;
+  const { group, quality, warningCount, fileCount, expanded, dominantRole, totalLoc, contractHub, contractSharePct } = data;
   const ratio = group.cohesionRatio;
   const hasCohesion = ratio != null;
   const roleColor = ROLE_COLORS[dominantRole] ?? ROLE_COLORS.unknown;
-  const label = group.label || group.id;
+  const label = contractHub ? 'Shared contracts' : (group.label || group.id);
 
   // Glass card — mirrors agent-card aesthetic
   const container: React.CSSProperties = {
@@ -35,7 +37,9 @@ function ClusterNodeComponent({ data }: NodeProps<Node<ClusterNodeData>>) {
     minHeight: expanded ? 120 : undefined,
     position: 'relative',
     background: `color-mix(in srgb, ${roleColor} 18%, #252526)`,
-    border: `1.5px solid color-mix(in srgb, ${roleColor} 30%, #3e3e42)`,
+    border: contractHub
+      ? '2px dashed rgba(6,182,212,0.8)'
+      : `1.5px solid color-mix(in srgb, ${roleColor} 30%, #3e3e42)`,
     borderRadius: 8,
     padding: expanded ? '0 0 0' : 0,
     boxSizing: 'border-box',
@@ -57,7 +61,7 @@ function ClusterNodeComponent({ data }: NodeProps<Node<ClusterNodeData>>) {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '7px 10px',
-    background: 'rgba(255,255,255,0.04)',
+    background: contractHub ? 'rgba(6,182,212,0.12)' : 'rgba(255,255,255,0.04)',
     borderBottom: '1px solid rgba(255,255,255,0.06)',
   };
 
@@ -67,7 +71,7 @@ function ClusterNodeComponent({ data }: NodeProps<Node<ClusterNodeData>>) {
 
   return (
     <div style={container} className={expanded ? 'cluster-node--expanded' : undefined}>
-      <Handle type="target" position={Position.Left} style={handle} />
+      <Handle type="target" position={Position.Left} style={contractHub ? { ...handle, opacity: 0.15 } : handle} />
 
       {/* Header — label + file count */}
       <div style={header}>
@@ -90,14 +94,14 @@ function ClusterNodeComponent({ data }: NodeProps<Node<ClusterNodeData>>) {
           marginLeft: 8,
           fontVariantNumeric: 'tabular-nums',
         }}>
-          {fileCount} · {formatLoc(totalLoc)} loc
-        </span>
+            {fileCount} · {formatLoc(totalLoc)} loc
+          </span>
       </div>
 
       {/* Body — cohesion bar + meta */}
       <div style={body}>
         {/* Cohesion bar */}
-        {hasCohesion && (
+        {!contractHub && hasCohesion && (
           <div style={{
             width: '100%',
             height: 3,
@@ -132,7 +136,13 @@ function ClusterNodeComponent({ data }: NodeProps<Node<ClusterNodeData>>) {
               background: roleColor,
               flexShrink: 0,
             }} />
-            <span>{dominantRole.replace('_', ' ')}</span>
+            <span>{contractHub ? 'supercluster glue' : dominantRole.replace('_', ' ')}</span>
+            {contractHub && contractSharePct != null && (
+              <>
+                <span style={{ color: '#555' }}>·</span>
+                <span style={{ color: '#67e8f9', fontWeight: 700 }}>{contractSharePct}% contract</span>
+              </>
+            )}
             {hasCohesion && (
               <>
                 <span style={{ color: '#555' }}>·</span>
@@ -149,7 +159,7 @@ function ClusterNodeComponent({ data }: NodeProps<Node<ClusterNodeData>>) {
         )}
       </div>
 
-      <Handle type="source" position={Position.Right} style={handle} />
+      <Handle type="source" position={Position.Right} style={contractHub ? { ...handle, opacity: 0.15 } : handle} />
     </div>
   );
 }

@@ -20,8 +20,10 @@ export interface ProblemsPanelProps {
   data: StructuralPipelineResult;
   onSelectFile: (fileId: string) => void;
   onSelectCluster: (clusterId: string) => void;
-  /** When set, scope issues to this set of file IDs (cluster drilldown). */
+  /** When set, scope issues to this set of file IDs. */
   clusterFileIds?: Set<string>;
+  /** When set, scope group-level findings to these community/cluster ids. */
+  scopedGroupIds?: Set<string>;
 }
 
 type Tab = 'misplaced' | 'split' | 'mixed' | 'tangled' | 'warnings' | 'recommendations';
@@ -125,8 +127,19 @@ const impactBarOuter: React.CSSProperties = {
 
 // ── Component ───────────────────────────────────────────────────────────
 
-export function ProblemsPanel({ data, onSelectFile, onSelectCluster, clusterFileIds }: ProblemsPanelProps) {
+export function ProblemsPanel({
+  data,
+  onSelectFile,
+  onSelectCluster,
+  clusterFileIds,
+  scopedGroupIds,
+}: ProblemsPanelProps) {
   const isScoped = clusterFileIds != null && clusterFileIds.size > 0;
+  const communityById = useMemo(
+    () => new Map((data.communities?.communities ?? []).map((c) => [c.id, c])),
+    [data.communities?.communities],
+  );
+  const clusterById = useMemo(() => new Map(data.clusters.map((c) => [c.id, c])), [data.clusters]);
 
   const misplaced = useMemo(() => {
     const all = data.communities?.misplacedFiles ?? [];
@@ -139,16 +152,24 @@ export function ProblemsPanel({ data, onSelectFile, onSelectCluster, clusterFile
   }, [data, clusterFileIds, isScoped]);
 
   const tangled = useMemo(() => {
-    // Tangled dirs don't map to individual files — show in global only
-    return isScoped ? [] : (data.communities?.tangledDirectories ?? []);
-  }, [data, isScoped]);
+    const all = data.communities?.tangledDirectories ?? [];
+    if (!isScoped) return all;
+    if (!scopedGroupIds || scopedGroupIds.size === 0) return [];
+    return all.filter((t) => t.communityIds.some((cid) => scopedGroupIds.has(cid)));
+  }, [data, isScoped, scopedGroupIds]);
 
   const warnings = useMemo(() => {
     const all = data.alignment.warnings ?? [];
     if (!isScoped) return all;
-    // Keep warnings whose target is a file in the cluster, or whose target is this cluster ID
-    return all.filter((w) => clusterFileIds!.has(w.target));
-  }, [data, clusterFileIds, isScoped]);
+    return all.filter((w) => {
+      if (clusterFileIds!.has(w.target)) return true;
+      const community = communityById.get(w.target);
+      if (community && community.memberFileIds.some((fid) => clusterFileIds!.has(fid))) return true;
+      const cluster = clusterById.get(w.target);
+      if (cluster && cluster.fileIds.some((fid) => clusterFileIds!.has(fid))) return true;
+      return false;
+    });
+  }, [data, clusterFileIds, isScoped, communityById, clusterById]);
 
   const recommendations = useMemo(() => {
     const all = data.recommendations ?? [];
@@ -156,10 +177,17 @@ export function ProblemsPanel({ data, onSelectFile, onSelectCluster, clusterFile
     return all.filter((r) => r.fileIds.some((f) => clusterFileIds!.has(f)));
   }, [data, clusterFileIds, isScoped]);
 
-  const mixedClusters = useMemo(
-    () => data.alignment.clusterQuality.filter((q) => q.hasMixedConcerns),
-    [data.alignment.clusterQuality],
-  );
+  const mixedClusters = useMemo(() => {
+    const all = data.alignment.clusterQuality.filter((q) => q.hasMixedConcerns);
+    if (!isScoped) return all;
+    return all.filter((q) => {
+      const community = communityById.get(q.clusterId);
+      if (community && community.memberFileIds.some((fid) => clusterFileIds!.has(fid))) return true;
+      const cluster = clusterById.get(q.clusterId);
+      if (cluster && cluster.fileIds.some((fid) => clusterFileIds!.has(fid))) return true;
+      return false;
+    });
+  }, [data.alignment.clusterQuality, isScoped, clusterFileIds, communityById, clusterById]);
 
   const tabs: TabDef[] = [
     { key: 'misplaced', label: 'Misplaced', count: misplaced.length },

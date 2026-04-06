@@ -20,6 +20,37 @@ function clamp(value: number, min: number, max: number): number {
 
 const MIN_GROUP_SIZE = 2;
 
+function collectCommunityIdsFromSuperCluster(cluster: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]): string[] {
+  const ids: string[] = [];
+  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number] | { communityIds?: string[] }) => {
+    const legacyCommunityIds = (sc as { communityIds?: string[] }).communityIds ?? [];
+    if (legacyCommunityIds.length > 0) {
+      ids.push(...legacyCommunityIds);
+      return;
+    }
+    for (const child of (sc as NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]).children ?? []) {
+      if (child.kind === 'community') ids.push(child.communityId);
+      else walk(child.cluster);
+    }
+  };
+  walk(cluster);
+  return ids;
+}
+
+function flattenSuperClusters(
+  roots: NonNullable<StructuralPipelineResult['communities']>['superClusters'],
+): NonNullable<StructuralPipelineResult['communities']>['superClusters'] {
+  const all: NonNullable<StructuralPipelineResult['communities']>['superClusters'] = [];
+  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number] | { children?: unknown[] }) => {
+    all.push(sc as NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]);
+    for (const child of (sc as NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]).children ?? []) {
+      if (child.kind === 'supercluster') walk(child.cluster);
+    }
+  };
+  for (const root of roots) walk(root);
+  return all;
+}
+
 /**
  * Derive a human-readable label from a set of file paths.
  * Uses the package name + optional subfolder.
@@ -78,18 +109,15 @@ export function deriveGroupLabel(fileIds: string[]): string {
 }
 
 /**
- * Builds ViewerGroups from either clusters or communities, whichever provides
- * better grouping. Communities are preferred when clusters are too sparse.
+ * Builds ViewerGroups for overview rendering.
+ * When community/supercluster data exists, we must use community IDs so
+ * supercluster membership maps correctly.
  */
 function buildGroups(data: StructuralPipelineResult): ViewerGroup[] {
-  const clusterFileCount = data.clusters.reduce((s, c) => s + c.fileIds.length, 0);
   const communityGroups = (data.communities?.communities ?? []).filter(
     (c) => c.memberFileIds.length >= MIN_GROUP_SIZE,
   );
-  const communityFileCount = communityGroups.reduce((s, c) => s + c.memberFileIds.length, 0);
-
-  // Use communities when they cover more files than clusters
-  if (communityFileCount > clusterFileCount && communityGroups.length > 0) {
+  if (communityGroups.length > 0) {
     return communityGroups.map((c) => ({
       id: c.id,
       label: deriveGroupLabel(c.memberFileIds),
@@ -108,15 +136,75 @@ function buildGroups(data: StructuralPipelineResult): ViewerGroup[] {
   }));
 }
 
+function resolveGroupOverlaps(
+  groupPositions: Map<string, { x: number; y: number; w: number; h: number }>,
+  paddingX = 40,
+  paddingY = 28,
+): void {
+  const ids = [...groupPositions.keys()].sort();
+  const maxIterations = 12;
+
+  for (let iter = 0; iter < maxIterations; iter++) {
+    let changed = false;
+
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = groupPositions.get(ids[i]);
+        const b = groupPositions.get(ids[j]);
+        if (!a || !b) continue;
+
+        const acx = a.x + a.w / 2;
+        const bcx = b.x + b.w / 2;
+        const acy = a.y + a.h / 2;
+        const bcy = b.y + b.h / 2;
+
+        const overlapX = (a.w / 2 + b.w / 2 + paddingX) - Math.abs(acx - bcx);
+        const overlapY = (a.h / 2 + b.h / 2 + paddingY) - Math.abs(acy - bcy);
+
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        changed = true;
+
+        // Separate along the axis of least penetration.
+        if (overlapX < overlapY) {
+          const sign = acx <= bcx ? -1 : 1;
+          const shift = overlapX / 2 + 0.5;
+          a.x += sign * shift;
+          b.x -= sign * shift;
+        } else {
+          const sign = acy <= bcy ? -1 : 1;
+          const shift = overlapY / 2 + 0.5;
+          a.y += sign * shift;
+          b.y -= sign * shift;
+        }
+      }
+    }
+
+    if (!changed) break;
+  }
+}
+
+function safeNumber(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) ? (value as number) : fallback;
+}
+
 export function useClusterGraph(
   data: StructuralPipelineResult,
   selection: Selection,
-  options?: { hideTypeOnly?: boolean; showFullPath?: boolean },
+  options?: { hideTypeOnly?: boolean; showFullPath?: boolean; focusedSuperClusterId?: string; showSuperclusters?: boolean },
 ): { nodes: Node[]; edges: Edge[]; onNodesChange: OnNodesChange } {
   const [localNodes, setLocalNodes] = useState<Node[]>([]);
 
   const { nodes, edges } = useMemo(() => {
-    const groups = buildGroups(data);
+    const allGroups = buildGroups(data);
+    let groups = allGroups;
+    const allSuperClusters = flattenSuperClusters(data.communities?.superClusters ?? []);
+    if (options?.focusedSuperClusterId) {
+      const focused = allSuperClusters.find((sc) => sc.id === options.focusedSuperClusterId);
+      if (focused) {
+        const allowed = new Set(collectCommunityIdsFromSuperCluster(focused));
+        groups = allGroups.filter((g) => allowed.has(g.id));
+      }
+    }
 
     const fileToGroup = new Map<string, string>();
     const groupedFileIds = new Set<string>();
@@ -377,36 +465,34 @@ export function useClusterGraph(
     const connectedGroups = groups.filter((g) => connectedGroupIds.has(g.id));
     const disconnectedGroups = groups.filter((g) => !connectedGroupIds.has(g.id));
 
-    // Layout connected nodes with dagre (compound graph for supercluster grouping)
-    const g = new dagre.graphlib.Graph({ compound: true });
-    g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 100, ranker: 'longest-path' });
+    // Layout connected nodes with dagre.
+    // Superclusters are rendered as visual overlays, not dagre compound parents,
+    // to avoid dagre's dummy-node conflict path in dense layered graphs.
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: 'LR', nodesep: 110, ranksep: 170, ranker: 'longest-path' });
     g.setDefaultEdgeLabel(() => ({}));
 
     // Build supercluster membership lookup
-    const superClusters = data.communities?.superClusters ?? [];
+    const superClusters = allSuperClusters;
     const groupToSuperCluster = new Map<string, string>();
     for (const sc of superClusters) {
-      if (sc.communityIds.length < 2) continue; // don't group trivial superclusters
-      for (const cid of sc.communityIds) groupToSuperCluster.set(cid, sc.id);
+      const communityIds = collectCommunityIdsFromSuperCluster(sc);
+      if (communityIds.length < 2) continue; // don't group trivial superclusters
+      for (const cid of communityIds) groupToSuperCluster.set(cid, sc.id);
     }
 
-    // Add supercluster parent nodes
+    // Track active superclusters for overlay rendering.
     const activeSuperClusters = new Set<string>();
     for (const group of connectedGroups) {
       const scId = groupToSuperCluster.get(group.id);
       if (scId && !activeSuperClusters.has(scId)) {
         activeSuperClusters.add(scId);
-        g.setNode(scId, {}); // parent node — dagre sizes it automatically
       }
     }
 
     for (const group of connectedGroups) {
       const scaled = locScaledSize(group.id);
       g.setNode(group.id, { width: scaled.w, height: scaled.h });
-      const scId = groupToSuperCluster.get(group.id);
-      if (scId && activeSuperClusters.has(scId)) {
-        g.setParent(group.id, scId);
-      }
     }
 
     for (const ce of groupEdgeMap.values()) {
@@ -438,10 +524,10 @@ export function useClusterGraph(
     for (const group of connectedGroups) {
       const dn = g.node(group.id);
       groupPositions.set(group.id, {
-        x: dn.x - dn.width / 2,
-        y: dn.y - dn.height / 2,
-        w: dn.width,
-        h: dn.height,
+        x: safeNumber(dn?.x, 0) - safeNumber(dn?.width, 260) / 2,
+        y: safeNumber(dn?.y, 0) - safeNumber(dn?.height, 96) / 2,
+        w: safeNumber(dn?.width, 260),
+        h: safeNumber(dn?.height, 96),
       });
     }
 
@@ -459,21 +545,40 @@ export function useClusterGraph(
         });
       });
 
+    // Sanitize any bad coordinates/sizes from layout edge cases.
+    let fallbackIdx = 0;
+    for (const [gid, pos] of groupPositions) {
+      const x = safeNumber(pos.x, gridStartX + (fallbackIdx % Math.max(gridCols, 1)) * gridCellW);
+      const y = safeNumber(pos.y, Math.floor(fallbackIdx / Math.max(gridCols, 1)) * gridCellH);
+      const w = Math.max(120, safeNumber(pos.w, 260));
+      const h = Math.max(60, safeNumber(pos.h, 96));
+      groupPositions.set(gid, { x, y, w, h });
+      fallbackIdx++;
+    }
+
+    // Final collision pass: keep group nodes from overlapping after Dagre/grid placement.
+    resolveGroupOverlaps(groupPositions);
+
     // --- Generate nodes ---
     const resultNodes: Node[] = [];
+    const contractHubEdges: Edge[] = [];
 
-    // Supercluster bounding-box nodes (behind community nodes)
-    // dagre compound layout keeps each supercluster's children together,
-    // so bounding boxes won't overlap
+    // Supercluster bounding-box nodes (visual overlays for active scopes only).
+    const shouldRenderSuperclusters = !!options?.showSuperclusters || !!options?.focusedSuperClusterId;
     const PAD = 30;
-    for (const sc of superClusters) {
-      if (sc.communityIds.length < 2) continue;
+    if (shouldRenderSuperclusters) for (const sc of superClusters) {
+      if (!activeSuperClusters.has(sc.id)) continue;
+      const communityIds = collectCommunityIdsFromSuperCluster(sc);
+      if (communityIds.length < 2) continue;
       // Compute bounding box of all member community positions
       let minX = Infinity, minY = Infinity, maxXB = -Infinity, maxYB = -Infinity;
       let totalFiles = 0;
       let contractCount = 0;
+      let glueContractLoc = 0;
+      let glueInfrastructureLoc = 0;
+      let glueOtherLoc = 0;
       let hasMember = false;
-      for (const cid of sc.communityIds) {
+      for (const cid of communityIds) {
         const pos = groupPositions.get(cid);
         if (!pos) continue;
         hasMember = true;
@@ -494,8 +599,18 @@ export function useClusterGraph(
       }
       if (!hasMember) continue;
 
+      for (const fid of sc.sharedContractFileIds ?? []) {
+        const fc = fileClassMap.get(fid);
+        const loc = fc?.linesOfCode ?? 0;
+        if (fc?.contentRole === 'contract') glueContractLoc += loc;
+        else if (fc?.contentRole === 'infrastructure') glueInfrastructureLoc += loc;
+        else glueOtherLoc += loc;
+      }
+      const glueTotalLoc = glueContractLoc + glueInfrastructureLoc + glueOtherLoc;
+      const glueContractRatio = glueTotalLoc > 0 ? glueContractLoc / glueTotalLoc : 0;
+
       // Derive a label from the member communities
-      const memberLabels = sc.communityIds
+      const memberLabels = communityIds
         .map((cid) => groups.find((g) => g.id === cid))
         .filter(Boolean)
         .map((g) => g!.label);
@@ -507,23 +622,91 @@ export function useClusterGraph(
         .slice(0, 3)
         .join(' + ');
 
+      const scX = safeNumber(minX - PAD, 0);
+      const scY = safeNumber(minY - PAD, 0);
+      const scW = Math.max(160, safeNumber(maxXB - minX + PAD * 2, 300));
+      const scH = Math.max(100, safeNumber(maxYB - minY + PAD * 2, 160));
+
+      const sharedContractOnlyIds = (sc.sharedContractFileIds ?? []).filter((fid) => {
+        const role = fileClassMap.get(fid)?.contentRole;
+        return role === 'contract';
+      });
+
       resultNodes.push({
         id: sc.id,
         type: 'supercluster',
-        position: { x: minX - PAD, y: minY - PAD },
-        width: maxXB - minX + PAD * 2,
-        height: maxYB - minY + PAD * 2,
+        position: { x: scX, y: scY },
+        width: scW,
+        height: scH,
         zIndex: -1,
-        selectable: false,
+        selectable: true,
         draggable: false,
         data: {
           label: scLabel,
-          communityCount: sc.communityIds.length,
+          communityCount: communityIds.length,
           fileCount: totalFiles,
           contractCount,
+          sharedContractLoc: sc.sharedContractLoc ?? 0,
+          glueContractLoc,
+          glueInfrastructureLoc,
+          glueOtherLoc,
+          glueContractRatio,
+          exposureRatio: sc.exposureRatio ?? 0,
+          coordinatorScope: sc.coordinatorScope ?? '',
         },
         style: { zIndex: -1 },
       });
+
+      if (sharedContractOnlyIds.length > 0 && glueContractLoc > 0) {
+        const hubId = `${sc.id}::shared-contracts`;
+        const hubW = 220;
+        const hubH = 66;
+        const hubX = scX + Math.max(12, (scW - hubW) / 2);
+        const hubY = scY + 6;
+
+        resultNodes.push({
+          id: hubId,
+          type: 'cluster',
+          position: { x: hubX, y: hubY },
+          width: hubW,
+          height: hubH,
+          zIndex: 2,
+          selectable: false,
+          draggable: false,
+          data: {
+            group: {
+              id: hubId,
+              label: 'Shared contracts',
+              fileIds: sharedContractOnlyIds,
+              source: 'community',
+            },
+            warningCount: 0,
+            fileCount: sharedContractOnlyIds.length,
+            expanded: false,
+            dominantRole: 'contract',
+            totalLoc: glueContractLoc,
+            contractHub: true,
+            contractSharePct: 100,
+          },
+          selected: false,
+        });
+
+        const connectedChildren = communityIds.filter((cid) => groupPositions.has(cid));
+        for (const cid of connectedChildren.slice(0, 12)) {
+          contractHubEdges.push({
+            id: `${hubId}->${cid}`,
+            source: hubId,
+            target: cid,
+            style: {
+              stroke: '#22d3ee',
+              strokeWidth: 1.5,
+              opacity: 0.3,
+              strokeDasharray: '4 3',
+            },
+            animated: false,
+          });
+        }
+      }
     }
 
     for (const group of groups) {
@@ -539,9 +722,9 @@ export function useClusterGraph(
       const clusterNode: Node = {
         id: group.id,
         type: 'cluster',
-        position: { x: pos.x, y: pos.y },
-        width: pos.w,
-        height: pos.h,
+        position: { x: safeNumber(pos.x, 0), y: safeNumber(pos.y, 0) },
+        width: Math.max(120, safeNumber(pos.w, 260)),
+        height: Math.max(60, safeNumber(pos.h, 96)),
         data: {
           group,
           quality,
@@ -579,7 +762,7 @@ export function useClusterGraph(
         style: {
           strokeWidth,
           stroke: reexportRatio > 0.5 ? '#6b8e6b' : '#555',
-          opacity: 0.6,
+          opacity: 0.35,
           ...(typeOnlyRatio > 0.8 ? { strokeDasharray: '5 5' } : {}),
         },
         animated: false,
@@ -589,8 +772,10 @@ export function useClusterGraph(
       });
     }
 
+    resultEdges.push(...contractHubEdges);
+
     return { nodes: resultNodes, edges: resultEdges };
-  }, [data, selection, options?.hideTypeOnly, options?.showFullPath]);
+  }, [data, selection, options?.hideTypeOnly, options?.showFullPath, options?.focusedSuperClusterId, options?.showSuperclusters]);
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => setLocalNodes((prev) => applyNodeChanges(changes, prev.length ? prev : nodes)),

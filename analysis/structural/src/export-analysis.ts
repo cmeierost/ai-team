@@ -103,11 +103,19 @@ export function analyseExports(
     return idx >= 0 ? norm.slice(0, idx) : '';
   }
 
-  // Check if target is within the barrel's subtree
-  // A barrel at `a/b/index.ts` (dir=`a/b`) should only re-export from `a/b/**`
-  function isInSubtree(barrelDir: string, targetPath: string): boolean {
-    const normTarget = targetPath.replace(/\\/g, '/');
-    return normTarget.startsWith(barrelDir + '/');
+  // Check if barrel and target are on the same branch/lineage.
+  // Valid:
+  //   - barrel ancestor of target (parent index re-exporting child)
+  //   - barrel descendant of target (child index re-exporting parent)
+  // Invalid:
+  //   - cross-branch sibling re-export.
+  function isSameBranch(barrelDir: string, targetPath: string): boolean {
+    const normBarrel = barrelDir.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const targetDir = dirOf(targetPath).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    if (!normBarrel || !targetDir) return normBarrel === targetDir;
+    return targetDir === normBarrel
+      || targetDir.startsWith(normBarrel + '/')
+      || normBarrel.startsWith(targetDir + '/');
   }
 
   // Build per-file export info
@@ -150,14 +158,14 @@ export function analyseExports(
       ? [...reexportFrom].map((tid) => filePath(tid))
       : undefined;
 
-    // Subtree violation check: barrels should only re-export from their subtree
+    // Branch violation check: barrels should only re-export within their lineage.
     const barrelPath = (fileEntity.filePath ?? fileEntity.name).replace(/\\/g, '/');
     const barrelDir = dirOf(barrelPath);
     let reexportViolations: BarrelViolation[] | undefined;
     if (barrel && reexportSources) {
       const violations: BarrelViolation[] = [];
       for (const src of reexportSources) {
-        if (!isInSubtree(barrelDir, src)) {
+        if (!isSameBranch(barrelDir, src)) {
           violations.push({ barrelPath, targetPath: src, barrelDir });
         }
       }

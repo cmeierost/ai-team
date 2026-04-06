@@ -5,7 +5,7 @@
  */
 import { collect } from '../collectors/typescript/dist/index.js';
 import { runStructuralPipeline } from '../structural/dist/index.js';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,8 +41,20 @@ const result = runStructuralPipeline(
   data.moduleBoundaries,
 );
 
+const fileContents = {};
+for (const file of result.fileClassifications) {
+  try {
+    const relPath = file.filePath.replace(/\\/g, '/');
+    const abs = resolve(repoRoot, relPath);
+    const source = readFileSync(abs, 'utf8');
+    fileContents[file.fileId] = source;
+  } catch {
+    // Keep generation resilient if a file moved between collection and generation.
+  }
+}
+
 const outPath = resolve(__dirname, 'public', 'analysis-result.json');
-writeFileSync(outPath, JSON.stringify(result, null, 2));
+writeFileSync(outPath, JSON.stringify({ ...result, fileContents }, null, 2));
 console.log(`Written to ${outPath}`);
 console.log(`  Files: ${result.summary.totalFiles}, Clusters: ${result.summary.clusterCount}`);
 console.log(`  Warnings: ${result.alignment.warnings.length}`);

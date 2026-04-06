@@ -12,7 +12,9 @@
     },
     "./styles.css": "./dist/index.css"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "vite build && tsc --build --emitDeclarationOnly --force",
     "dev": "vite build --watch",
@@ -25,12 +27,14 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.4",
-    "@xyflow/react": "^12.10.1"
+    "@xyflow/react": "^12.10.1",
+    "react-syntax-highlighter": "^15.6.1"
   },
   "devDependencies": {
     "@aspect/structural": "workspace:*",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "typescript": "^5.9.3",

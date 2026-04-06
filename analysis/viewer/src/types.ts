@@ -18,6 +18,8 @@ import type {
   CodeContentRole,
   Community,
   SuperCluster,
+  SuperClusterChild,
+  ClusterExposure,
   ExportAnalysis,
   FileExportInfo,
   ExportedSymbol,
@@ -39,6 +41,8 @@ export type {
   CodeContentRole,
   Community,
   SuperCluster,
+  SuperClusterChild,
+  ClusterExposure,
   ExportAnalysis,
   FileExportInfo,
   ExportedSymbol,
@@ -54,7 +58,7 @@ export interface ViewerProps {
 export type SidePanel = 'detail' | 'problems' | 'stats';
 
 export interface Selection {
-  type: 'cluster' | 'file' | null;
+  type: 'cluster' | 'file' | 'supercluster' | null;
   id: string;
 }
 

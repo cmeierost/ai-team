@@ -299,17 +299,17 @@ export interface FileExportInfo {
   isDeadFile: boolean;
   /** File paths this file re-exports from (barrel files). */
   reexportSources?: string[];
-  /** Re-export targets that are outside this file's subtree (violations). */
+  /** Re-export targets that are outside the barrel's ancestor chain (violations). */
   reexportViolations?: BarrelViolation[];
 }
 
-/** A barrel file re-exporting from outside its folder subtree. */
+/** A barrel file re-exporting from outside its folder lineage/branch. */
 export interface BarrelViolation {
   /** The barrel file path. */
   barrelPath: string;
-  /** The imported file that is outside the barrel's subtree. */
+  /** The imported file that is outside the barrel's lineage. */
   targetPath: string;
-  /** The barrel's directory (the expected subtree root). */
+  /** The barrel's directory. */
   barrelDir: string;
 }
 
@@ -321,8 +321,19 @@ export interface ExportAnalysis {
   totalContractExports: number;
   deadFileCount: number;
   deadExportLoc: number;
-  /** Barrel files re-exporting from outside their subtree. */
+  /** Barrel files re-exporting across unrelated branches. */
   barrelViolations: BarrelViolation[];
+}
+
+/** Exposure summary for one dependency group boundary. */
+export interface ClusterExposure {
+  clusterId: string;
+  totalLoc: number;
+  exposedLoc: number;
+  exposureRatio: number;
+  exposedFileCount: number;
+  directExposureLoc: number;
+  barrelExposureLoc: number;
 }
 
 export interface PipelineSummary {
@@ -363,13 +374,30 @@ export interface StructuralPipelineOptions {
 export interface Community {
   id: string;
   memberFileIds: string[];
+  totalLoc?: number;
+  dominantTechnology?: string;
+  dominantRole?: CodeContentRole;
+  exposureRatio?: number;
 }
+
+export type SuperClusterChild =
+  | { kind: 'supercluster'; cluster: SuperCluster }
+  | { kind: 'community'; communityId: string };
 
 /** A supercluster groups related communities for high-level navigation. */
 export interface SuperCluster {
   id: string;
-  /** IDs of the communities in this supercluster. */
-  communityIds: string[];
+  label: string;
+  /** LOC of shared contract/infrastructure code between this node's children. */
+  sharedContractLoc: number;
+  /** File IDs of shared contract/infrastructure code this scope coordinates. */
+  sharedContractFileIds: string[];
+  totalFiles: number;
+  dominantTechnology?: string;
+  dominantRole?: CodeContentRole;
+  coordinatorScope: string;
+  exposureRatio?: number;
+  children: SuperClusterChild[];
 }
 
 /** A file whose dependency community doesn't match its directory. */
@@ -395,6 +423,8 @@ export interface TangledDirectory {
 export interface CommunityDetectionResult {
   communities: Community[];
   superClusters: SuperCluster[];
+  clusterExposure?: ClusterExposure[];
+  superClusterExposure?: ClusterExposure[];
   modularity: number;
   misplacedFiles: MisplacedFile[];
   tangledDirectories: TangledDirectory[];

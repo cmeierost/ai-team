@@ -70,7 +70,8 @@ export type {
   FileClassificationEntry, StructuralPipelineResult,
   PipelineSummary, StructuralPipelineOptions,
   // New types
-  Community, SuperCluster, MisplacedFile, TangledDirectory, CommunityDetectionResult,
+   Community, SuperCluster, MisplacedFile, TangledDirectory, CommunityDetectionResult,
+   SuperClusterChild, ClusterExposure,
   PipelineGrouping, PipelineGroup,
   PipelineGroupingComparison, PipelineGroupMismatch, PipelineMoveSuggestion,
   FileCentrality,

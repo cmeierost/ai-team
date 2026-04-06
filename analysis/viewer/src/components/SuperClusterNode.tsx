@@ -6,6 +6,13 @@ export interface SuperClusterNodeData {
   communityCount: number;
   fileCount: number;
   contractCount: number;
+  sharedContractLoc?: number;
+  glueContractLoc?: number;
+  glueInfrastructureLoc?: number;
+  glueOtherLoc?: number;
+  glueContractRatio?: number;
+  exposureRatio?: number;
+  coordinatorScope?: string;
 }
 
 /**
@@ -14,9 +21,11 @@ export interface SuperClusterNodeData {
  */
 export function SuperClusterNode({ data }: { data: SuperClusterNodeData }) {
   const hasContracts = data.contractCount > 0;
+  const glueRatio = typeof data.glueContractRatio === 'number' ? Math.round(data.glueContractRatio * 100) : null;
+  const glueLooksContractHeavy = glueRatio == null ? hasContracts : glueRatio >= 60;
 
-  const borderColor = hasContracts ? 'rgba(6, 182, 212, 0.35)' : 'rgba(148, 163, 184, 0.2)';
-  const bgColor = hasContracts ? 'rgba(6, 182, 212, 0.04)' : 'rgba(148, 163, 184, 0.03)';
+  const borderColor = glueLooksContractHeavy ? 'rgba(6, 182, 212, 0.45)' : 'rgba(245, 158, 11, 0.35)';
+  const bgColor = glueLooksContractHeavy ? 'rgba(6, 182, 212, 0.05)' : 'rgba(245, 158, 11, 0.05)';
 
   const container: React.CSSProperties = {
     width: '100%',
@@ -25,7 +34,7 @@ export function SuperClusterNode({ data }: { data: SuperClusterNodeData }) {
     borderRadius: 14,
     background: bgColor,
     position: 'relative',
-    pointerEvents: 'none',
+    pointerEvents: 'auto',
   };
 
   const labelStyle: React.CSSProperties = {
@@ -37,7 +46,7 @@ export function SuperClusterNode({ data }: { data: SuperClusterNodeData }) {
     borderRadius: 4,
     fontSize: 11,
     fontWeight: 600,
-    color: hasContracts ? '#06b6d4' : '#94a3b8',
+    color: glueLooksContractHeavy ? '#06b6d4' : '#f59e0b',
     letterSpacing: '0.02em',
     whiteSpace: 'nowrap',
     pointerEvents: 'auto',
@@ -57,11 +66,17 @@ export function SuperClusterNode({ data }: { data: SuperClusterNodeData }) {
   };
 
   return (
-    <div style={container}>
+    <div style={container} title={data.coordinatorScope ?? ''}>
       <div style={labelStyle}>{data.label}</div>
       <div style={metaStyle}>
         {data.communityCount} clusters · {data.fileCount} files
         {hasContracts ? ` · ${data.contractCount} contracts` : ''}
+        {typeof data.sharedContractLoc === 'number' ? ` · ${Math.round(data.sharedContractLoc)} shared LOC` : ''}
+        {glueRatio != null ? ` · glue ${glueRatio}% contract` : ''}
+        {typeof data.glueContractLoc === 'number' || typeof data.glueInfrastructureLoc === 'number'
+          ? ` (${Math.round(data.glueContractLoc ?? 0)}c/${Math.round(data.glueInfrastructureLoc ?? 0)}i)`
+          : ''}
+        {typeof data.exposureRatio === 'number' ? ` · ${Math.round(data.exposureRatio * 100)}% exposed` : ''}
       </div>
     </div>
   );

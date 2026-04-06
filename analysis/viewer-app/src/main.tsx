@@ -5,7 +5,11 @@ import { ArchitectureViewer } from '@aspect/viewer';
 
 const root = createRoot(document.getElementById('root')!);
 
-async function loadData(): Promise<StructuralPipelineResult | null> {
+interface ViewerPayload extends StructuralPipelineResult {
+  fileContents?: Record<string, string>;
+}
+
+async function loadData(): Promise<ViewerPayload | null> {
   try {
     const res = await fetch('/analysis-result.json');
     if (!res.ok) return null;
@@ -17,11 +21,13 @@ async function loadData(): Promise<StructuralPipelineResult | null> {
 
 function App() {
   const [data, setData] = React.useState<StructuralPipelineResult | null>(null);
+  const [fileContents, setFileContents] = React.useState<Record<string, string>>({});
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     loadData().then((d) => {
       setData(d);
+      setFileContents(d?.fileContents ?? {});
       setLoading(false);
     });
   }, []);
@@ -31,7 +37,9 @@ function App() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      setData(JSON.parse(reader.result as string));
+      const next = JSON.parse(reader.result as string) as ViewerPayload;
+      setData(next);
+      setFileContents(next.fileContents ?? {});
     };
     reader.readAsText(file);
   }, []);
@@ -53,7 +61,7 @@ function App() {
     );
   }
 
-  return <ArchitectureViewer data={data} />;
+  return <ArchitectureViewer data={data} fileContents={fileContents} />;
 }
 
 root.render(<App />);

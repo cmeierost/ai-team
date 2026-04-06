@@ -23,6 +23,7 @@ import { deriveGroupLabel } from '../hooks/useClusterGraph.js';
 export interface DetailPanelProps {
   data: StructuralPipelineResult;
   selection: Selection;
+  clusterFileIds?: Set<string>;
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────
@@ -164,6 +165,106 @@ function CompositionBar({ composition }: { composition: Record<string, number> }
         ))}
       </div>
     </div>
+  );
+}
+
+function flattenSuperClusters(
+  roots: NonNullable<StructuralPipelineResult['communities']>['superClusters'],
+): NonNullable<StructuralPipelineResult['communities']>['superClusters'] {
+  const all: NonNullable<StructuralPipelineResult['communities']>['superClusters'] = [];
+  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]) => {
+    all.push(sc);
+    for (const child of sc.children ?? []) {
+      if (child.kind === 'supercluster') walk(child.cluster);
+    }
+  };
+  for (const root of roots) walk(root);
+  return all;
+}
+
+function SuperclusterDetail({ data, superclusterId }: { data: StructuralPipelineResult; superclusterId: string }) {
+  const all = flattenSuperClusters(data.communities?.superClusters ?? []);
+  const sc = all.find((s) => s.id === superclusterId);
+  if (!sc) return <div style={emptyStyle}>Supercluster "{superclusterId}" not found</div>;
+
+  const communityIds: string[] = [];
+  const subSuperCount = sc.children.filter((c) => c.kind === 'supercluster').length;
+  for (const child of sc.children) {
+    if (child.kind === 'community') communityIds.push(child.communityId);
+    else {
+      const stack = [child.cluster];
+      while (stack.length) {
+        const n = stack.pop()!;
+        for (const c of n.children ?? []) {
+          if (c.kind === 'community') communityIds.push(c.communityId);
+          else stack.push(c.cluster);
+        }
+      }
+    }
+  }
+
+  const fileClassMap = new Map(data.fileClassifications.map((f) => [f.fileId, f]));
+  const sharedFiles = (sc.sharedContractFileIds ?? [])
+    .map((fid) => fileClassMap.get(fid))
+    .filter(Boolean) as FileClassificationEntry[];
+  const sharedRoleCounts = new Map<string, number>();
+  for (const f of sharedFiles) {
+    const role = f.contentRole ?? 'unknown';
+    sharedRoleCounts.set(role, (sharedRoleCounts.get(role) ?? 0) + 1);
+  }
+  const roleMix = Object.fromEntries(sharedRoleCounts.entries());
+
+  return (
+    <>
+      <div>
+        <div style={headingStyle}>{sc.label || sc.id}</div>
+        <div style={{ fontSize: 11, color: '#666', marginTop: 1 }}>{sc.id}</div>
+        <div style={{ fontSize: 12, color: '#a0a0a0', marginTop: 2 }}>
+          {sc.totalFiles} files · {communityIds.length} communities · {subSuperCount} sub-superclusters
+        </div>
+      </div>
+
+      <div>
+        <div style={sectionTitle}>Scope</div>
+        <Row label="Coordinator scope" value={sc.coordinatorScope || '—'} />
+        <Row label="Dominant technology" value={sc.dominantTechnology || '—'} />
+        <Row label="Dominant role" value={sc.dominantRole || '—'} />
+        <Row label="Exposure" value={sc.exposureRatio != null ? `${Math.round(sc.exposureRatio * 100)}%` : '—'} />
+      </div>
+
+      <div>
+        <div style={sectionTitle}>Shared glue ownership</div>
+        <Row label="Shared LOC" value={String(Math.round(sc.sharedContractLoc ?? 0))} />
+        <Row label="Shared files" value={String((sc.sharedContractFileIds ?? []).length)} />
+      </div>
+
+      {Object.keys(roleMix).length > 0 && (
+        <CompositionBar composition={roleMix} />
+      )}
+
+      {sharedFiles.length > 0 && (
+        <div>
+          <div style={sectionTitle}>Shared files</div>
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {sharedFiles.slice(0, 40).map((f) => (
+              <div key={f.fileId} style={fileRowStyle}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                  {shortName(f.filePath)}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {f.linesOfCode != null && (
+                    <span style={{ fontSize: 10, color: '#666', fontVariantNumeric: 'tabular-nums' }}>
+                      {f.linesOfCode}
+                    </span>
+                  )}
+                  <RoleBadge role={f.contentRole ?? 'unknown'} />
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -316,7 +417,15 @@ function ClusterDetail({ data, clusterId }: { data: StructuralPipelineResult; cl
 
 // ── File Detail ─────────────────────────────────────────────────────────
 
-function FileDetail({ data, fileId }: { data: StructuralPipelineResult; fileId: string }) {
+function FileDetail({
+  data,
+  fileId,
+  clusterFileIds,
+}: {
+  data: StructuralPipelineResult;
+  fileId: string;
+  clusterFileIds?: Set<string>;
+}) {
   const file = data.fileClassifications.find((f) => f.fileId === fileId);
   const centrality = data.centrality?.find((c) => c.fileId === fileId);
   const misplaced = data.communities?.misplacedFiles?.find((m) => m.fileId === fileId);
@@ -324,6 +433,11 @@ function FileDetail({ data, fileId }: { data: StructuralPipelineResult; fileId: 
 
   const incomingEdges = data.weightedEdges.filter((e) => e.targetFileId === fileId);
   const outgoingEdges = data.weightedEdges.filter((e) => e.sourceFileId === fileId);
+  const consumerFiles = new Set(incomingEdges.map((e) => e.sourceFileId));
+  const insideRefs = clusterFileIds
+    ? [...consumerFiles].filter((fid) => clusterFileIds.has(fid)).length
+    : 0;
+  const outsideRefs = consumerFiles.size - insideRefs;
 
   if (!file) {
     return <div style={emptyStyle}>File "{fileId}" not found</div>;
@@ -431,6 +545,8 @@ function FileDetail({ data, fileId }: { data: StructuralPipelineResult; fileId: 
           <Row label="Logic exports" value={String(exportInfo.logicExports)} />
           <Row label="Contract exports" value={String(exportInfo.contractExports)} />
           <Row label="Consumer files" value={String(exportInfo.consumerCount)} />
+          <Row label="Refs in cluster" value={String(insideRefs)} />
+          <Row label="Refs outside cluster" value={String(outsideRefs)} />
 
           {/* Re-exports */}
           {exportInfo.reexportSources && exportInfo.reexportSources.length > 0 && (
@@ -458,6 +574,9 @@ function FileDetail({ data, fileId }: { data: StructuralPipelineResult; fileId: 
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
                       <span style={{ color: '#e0e0e0' }}>{exp.name}</span>
                       <span style={{ color: '#555', marginLeft: 4 }}>{exp.kind}</span>
+                      <span style={{ color: '#777', marginLeft: 8 }}>
+                        in {insideRefs} / out {outsideRefs}
+                      </span>
                     </span>
                     <span style={badge(
                       exp.nature === 'logic' ? 'rgba(0,122,204,0.15)' : 'rgba(156,39,176,0.15)',
@@ -474,11 +593,68 @@ function FileDetail({ data, fileId }: { data: StructuralPipelineResult; fileId: 
   );
 }
 
+function RepoDetail({ data }: { data: StructuralPipelineResult }) {
+  const codeFiles = data.fileClassifications.filter((f) => f.category === 'code');
+  const totalLoc = data.fileClassifications.reduce((s, f) => s + (f.linesOfCode ?? 0), 0);
+  const roleCounts = new Map<string, number>();
+  for (const f of codeFiles) {
+    const role = f.contentRole ?? 'unknown';
+    roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
+  }
+  const topRoles = [...roleCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  return (
+    <>
+      <div>
+        <div style={headingStyle}>Repository overview</div>
+        <div style={{ fontSize: 12, color: '#a0a0a0', marginTop: 2 }}>
+          {data.summary.totalFiles.toLocaleString()} files · {totalLoc.toLocaleString()} LOC
+        </div>
+      </div>
+
+      <div>
+        <div style={sectionTitle}>Health</div>
+        <Row label="Health score">
+          <span style={{ color: healthColor(data.healthScore ?? 0), fontWeight: 700 }}>
+            {data.healthScore != null ? Math.round(data.healthScore) : '—'}
+          </span>
+        </Row>
+        <Row label="Warnings" value={String(data.alignment.warnings.length)} />
+        <Row label="Recommendations" value={String((data.recommendations ?? []).length)} />
+      </div>
+
+      <div>
+        <div style={sectionTitle}>Structure</div>
+        <Row label="Clusters" value={String(data.clusters.length)} />
+        <Row label="Communities" value={String(data.communities?.communities.length ?? 0)} />
+        <Row label="Superclusters" value={String(data.communities?.superClusters.length ?? 0)} />
+        <Row label="Code files" value={String(codeFiles.length)} />
+      </div>
+
+      {topRoles.length > 0 && (
+        <div>
+          <div style={sectionTitle}>Top code roles</div>
+          {topRoles.map(([role, count]) => (
+            <div key={role} style={fileRowStyle}>
+              <span>{role.replace('_', ' ')}</span>
+              <span style={{ fontWeight: 600, color: '#e0e0e0' }}>{count}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Main Component ──────────────────────────────────────────────────────
 
-export function DetailPanel({ data, selection }: DetailPanelProps) {
+export function DetailPanel({ data, selection, clusterFileIds }: DetailPanelProps) {
   if (selection.type == null) {
-    return <div style={emptyStyle}>Click a cluster or file to see details</div>;
+    return (
+      <div style={panelStyle}>
+        <RepoDetail data={data} />
+      </div>
+    );
   }
 
   if (selection.type === 'cluster') {
@@ -489,9 +665,17 @@ export function DetailPanel({ data, selection }: DetailPanelProps) {
     );
   }
 
+  if (selection.type === 'supercluster') {
+    return (
+      <div style={panelStyle}>
+        <SuperclusterDetail data={data} superclusterId={selection.id} />
+      </div>
+    );
+  }
+
   return (
     <div style={panelStyle}>
-      <FileDetail data={data} fileId={selection.id} />
+      <FileDetail data={data} fileId={selection.id} clusterFileIds={clusterFileIds} />
     </div>
   );
 }
