@@ -25,6 +25,7 @@ export { buildRawEdges, computeFileCouplingStats } from './3-import-analysis.js'
 export { weightEdge, weightAllEdges, WEIGHTS } from './4-edge-weighting.js';
 export { analysePackageAlignment, matchCommunityGroupsToPackages, comparePackages } from './6-package-comparison.js';
 export { analyseFolderFocus, assessFolder } from './7-folder-comparison.js';
+export { computeCommunityGlobs } from './7-community-globs.js';
 export {
   analyseClusterQuality, findSplitCandidates,
   generateWarnings, analyseStructuralAlignment,
@@ -91,6 +92,9 @@ export type {
    FileInterfaceMetrics, InterfaceChangeRiskBand,
    ExportAnalysis, FileExportInfo, ExportedSymbol, BarrelViolation,
 } from './types.js';
+export type {
+  CommunityGlobFingerprint, CommunityGlobResult,
+} from './7-community-globs.js';
 export type {
   FilesystemFitResult, DirectoryFitInfo, MisplacedFileInfo,
 } from './filesystem-fit.js';
