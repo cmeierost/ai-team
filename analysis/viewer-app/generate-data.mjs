@@ -5,7 +5,7 @@
  */
 import { collect } from '../collectors/typescript/dist/index.js';
 import { runStructuralPipeline } from '../structural/dist/index.js';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, openSync, writeSync, closeSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -127,12 +127,48 @@ for (const file of result.fileClassifications) {
 }
 
 const outPath = resolve(__dirname, 'public', 'analysis-result.json');
-writeFileSync(outPath, JSON.stringify({
-  ...result,
-  fileContents,
-  entities: enrichedEntities,
-  relationships: augmentedRelationships,
-}, null, 2));
+
+// Serialize in parts to avoid V8 string length limit with large codebases.
+const fd = openSync(outPath, 'w');
+const writePart = (s) => writeSync(fd, s);
+
+// fileContents — serialize per-file to avoid one giant string
+writePart('{"fileContents":{');
+let firstFC = true;
+for (const [key, value] of Object.entries(fileContents)) {
+  if (!firstFC) writePart(',');
+  firstFC = false;
+  writePart(JSON.stringify(key) + ':' + JSON.stringify(value));
+}
+writePart('}');
+
+// entities — serialize per-entity
+writePart(',"entities":[');
+for (let i = 0; i < enrichedEntities.length; i++) {
+  if (i > 0) writePart(',');
+  writePart(JSON.stringify(enrichedEntities[i]));
+}
+writePart(']');
+
+// relationships — serialize in chunks of 500
+writePart(',"relationships":[');
+for (let i = 0; i < augmentedRelationships.length; i += 500) {
+  const chunk = augmentedRelationships.slice(i, i + 500);
+  const json = JSON.stringify(chunk);
+  if (i > 0) writePart(',');
+  // Strip outer [ ] and write contents
+  writePart(json.slice(1, -1));
+}
+writePart(']');
+
+// Spread remaining result keys (smaller data)
+for (const [key, value] of Object.entries(result)) {
+  if (value === undefined) continue;
+  writePart(`,"${key}":`);
+  writePart(JSON.stringify(value));
+}
+writePart('}');
+closeSync(fd);
 console.log(`Written to ${outPath}`);
 console.log(`  Files: ${result.summary.totalFiles}, Clusters: ${result.summary.clusterCount}`);
 console.log(`  Warnings: ${result.alignment.warnings.length}`);
