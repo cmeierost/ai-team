@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import type { StructuralPipelineResult } from '../types.js';
+import type { StructuralPipelineResult, EntityRefLite } from '../types.js';
 import { ROLE_COLORS, CATEGORY_COLORS, CATEGORY_ICONS, healthColor } from '../types.js';
 import { HelpTooltip } from './HelpTooltip.js';
 
@@ -14,6 +14,8 @@ export interface StatsPanelProps {
   data: StructuralPipelineResult;
   /** When set, scope all stats to this set of file IDs (cluster drilldown). */
   clusterFileIds?: Set<string>;
+  /** Entity details for resolving names in entity-level metrics. */
+  entities?: EntityRefLite[];
 }
 
 // ── SVG donut ───────────────────────────────────────────────────────────
@@ -234,7 +236,7 @@ function DonutCard({
 
 // ── Component ───────────────────────────────────────────────────────────
 
-export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
+export function StatsPanel({ data, clusterFileIds, entities: entityRefs }: StatsPanelProps) {
   const isScoped = clusterFileIds != null && clusterFileIds.size > 0;
   const singleFileId = useMemo(() => {
     if (!clusterFileIds || clusterFileIds.size !== 1) return undefined;
@@ -475,26 +477,33 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
     };
   })() : null;
 
-  // Maintainability Index scoped summary
+  // Maintainability Index — entity-level
   const miStats = useMemo(() => {
-    const complexity = data.complexity;
-    if (!complexity?.maintainability?.fileSummaries?.length) return null;
-    const fileSums = complexity.maintainability.fileSummaries;
+    const miEntities = data.complexity?.maintainability?.entities;
+    if (!miEntities?.length) return null;
+
+    // Build entity lookup for names/filePaths
+    const entityMap = new Map<string, EntityRefLite>();
+    for (const e of entityRefs ?? []) entityMap.set(e.id, e);
+
+    // Scope to cluster files if drilled down
     const scoped = isScoped && clusterFileIds
-      ? fileSums.filter((f) => {
-          const fc = data.fileClassifications.find((c) => c.filePath === f.filePath);
+      ? miEntities.filter((m) => {
+          const e = entityMap.get(m.entityId);
+          if (!e) return false;
+          const fc = data.fileClassifications.find((c) => c.filePath === e.filePath);
           return fc && clusterFileIds.has(fc.fileId);
         })
-      : fileSums;
+      : miEntities;
     if (scoped.length === 0) return null;
-    const green = scoped.reduce((s, f) => s + f.greenCount, 0);
-    const yellow = scoped.reduce((s, f) => s + f.yellowCount, 0);
-    const red = scoped.reduce((s, f) => s + f.redCount, 0);
-    const total = green + yellow + red;
-    const avgMI = scoped.reduce((s, f) => s + f.avgMI, 0) / scoped.length;
-    const worstFiles = [...scoped].sort((a, b) => a.minMI - b.minMI).slice(0, 5);
-    return { green, yellow, red, total, avgMI, worstFiles, fileCount: scoped.length };
-  }, [data, clusterFileIds, isScoped]);
+
+    const green = scoped.filter((e) => e.riskBand === 'green').length;
+    const yellow = scoped.filter((e) => e.riskBand === 'yellow').length;
+    const red = scoped.filter((e) => e.riskBand === 'red').length;
+    const avgMI = scoped.reduce((s, e) => s + e.maintainabilityIndex, 0) / scoped.length;
+    const worstEntities = [...scoped].sort((a, b) => a.maintainabilityIndex - b.maintainabilityIndex).slice(0, 8);
+    return { green, yellow, red, total: scoped.length, avgMI, worstEntities, entityMap };
+  }, [data, clusterFileIds, isScoped, entityRefs]);
 
   return (
     <div className="sp-root">
@@ -655,7 +664,7 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
               {Math.round(miStats.avgMI)}
             </span>
             <span style={{ fontSize: 11, color: '#888' }}>
-              avg MI across {miStats.fileCount} files
+              avg MI across {miStats.total} entities
             </span>
           </div>
           {/* stacked risk bar */}
@@ -675,31 +684,45 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
             <span style={{ color: '#ff9800' }}>● {miStats.yellow} yellow</span>
             <span style={{ color: '#f44336' }}>● {miStats.red} red</span>
           </div>
-          {/* worst files */}
-          {miStats.worstFiles.length > 0 && miStats.worstFiles[0].minMI < 20 && (
+          {/* worst entities */}
+          {miStats.worstEntities.length > 0 && miStats.worstEntities[0].maintainabilityIndex < 20 && (
             <div style={{ marginTop: 10 }}>
               <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#888', marginBottom: 4 }}>
-                Lowest MI files
+                Lowest MI entities
               </div>
-              {miStats.worstFiles.filter((f) => f.minMI < 20).map((f) => (
-                <div key={f.filePath} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  fontSize: 12, padding: '3px 0', borderBottom: '1px solid #2d2d30',
-                }}>
-                  <span style={{
-                    color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap', flex: 1, minWidth: 0,
+              {miStats.worstEntities.filter((e) => e.maintainabilityIndex < 20).map((e) => {
+                const ref = miStats.entityMap.get(e.entityId);
+                const label = ref
+                  ? `${ref.kind} ${ref.name}`
+                  : e.entityId;
+                const filePart = ref?.filePath?.replace(/\\/g, '/').split('/').pop() ?? '';
+                return (
+                  <div key={e.entityId} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    fontSize: 12, padding: '3px 0', borderBottom: '1px solid #2d2d30',
                   }}>
-                    {f.filePath.replace(/\\/g, '/').split('/').slice(-2).join('/')}
-                  </span>
-                  <span style={{
-                    fontWeight: 600, fontVariantNumeric: 'tabular-nums', minWidth: 28, textAlign: 'right',
-                    color: f.minMI < 10 ? '#f44336' : '#ff9800',
-                  }}>
-                    {Math.round(f.minMI)}
-                  </span>
-                </div>
-              ))}
+                    <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                      <span style={{ color: '#ccc', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', display: 'block' }}>
+                        {label}
+                      </span>
+                      {filePart && (
+                        <span style={{ fontSize: 10, color: '#555' }}>{filePart}</span>
+                      )}
+                    </div>
+                    <div style={{ flexShrink: 0, textAlign: 'right', marginLeft: 8 }}>
+                      <span style={{
+                        fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                        color: e.maintainabilityIndex < 10 ? '#f44336' : '#ff9800',
+                      }}>
+                        {Math.round(e.maintainabilityIndex)}
+                      </span>
+                      <div style={{ fontSize: 9, color: '#555' }}>
+                        CC:{e.cyclomaticComplexity} · {e.linesOfCode}L
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

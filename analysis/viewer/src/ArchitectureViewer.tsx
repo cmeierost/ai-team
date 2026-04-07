@@ -576,7 +576,7 @@ export function ArchitectureViewer({
                 scopedGroupIds={scope.groupIds}
               />
             ) : (
-              <StatsPanel data={data} clusterFileIds={statsScope.fileIds} />
+              <StatsPanel data={data} clusterFileIds={statsScope.fileIds} entities={entities} />
             )}
           </div>
         </div>
