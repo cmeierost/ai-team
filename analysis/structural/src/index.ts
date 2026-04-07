@@ -55,6 +55,7 @@ export { computeRoleSeparation } from './role-separation.js';
 export { computeHierarchySummary } from './hierarchy-analysis.js';
 export { computeInventorySummary } from './inventory-summary.js';
 export { computeCoverageValidation } from './coverage-validation.js';
+export { classifyEntityConcern, classifyAllEntities } from './entity-classification.js';
 
 // ── Pipeline orchestrator ───────────────────────────────────────────────
 
@@ -117,6 +118,9 @@ export type {
 export type {
   CoverageValidation,
 } from './coverage-validation.js';
+export type {
+  EntityConcern, EntityConcernResult, EntityClassificationSummary,
+} from './entity-classification.js';
 export type {
   ComplexityResults, MaintainabilityResults, MaintainabilityResult,
   FileMaintainabilitySummary, MIRiskBand,

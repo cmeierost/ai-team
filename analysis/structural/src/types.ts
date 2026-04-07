@@ -46,6 +46,12 @@ export interface RawDependencyEdge {
   sourceEntityKind?: string;
   targetEntityKind?: string;
   targetIsAbstraction?: boolean;
+  /** Signature surface of the target entity (paramCount + typeComplexity). */
+  targetSignatureSurface?: number;
+  /** When the source entity narrows the target type via Pick/Omit/etc. */
+  sourceNarrowingKind?: string;
+  /** For Pick/Omit: number of fields selected/excluded from the target. */
+  sourceNarrowedFieldCount?: number;
 }
 
 /** Per-file import statistics. */
@@ -287,6 +293,7 @@ export interface StructuralPipelineResult {
   hierarchySummary?: import('./hierarchy-analysis.js').EntityHierarchySummary;
   inventorySummary?: import('./inventory-summary.js').InventorySummary;
   coverageValidation?: import('./coverage-validation.js').CoverageValidation;
+  entityClassification?: import('./entity-classification.js').EntityClassificationSummary;
   recommendations?: PipelineRecommendation[];
   healthScore?: number;
   complexity?: ComplexityResults & { maintainability: MaintainabilityResults };
@@ -424,6 +431,10 @@ export interface PipelineSummary {
   miYellowCount?: number;
   /** Count of entities with MI in green band (20-100) */
   miGreenCount?: number;
+  /** Entity-level concern distribution: count of entities per concern */
+  entityConcernCounts?: Record<string, number>;
+  /** Entity-level concern LOC distribution */
+  entityConcernLoc?: Record<string, number>;
 }
 
 export interface StructuralPipelineOptions {

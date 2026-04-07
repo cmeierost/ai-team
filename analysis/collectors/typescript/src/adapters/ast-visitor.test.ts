@@ -655,3 +655,213 @@ describe('resilience', () => {
     expect(classEntity!.methodFieldAccessMatrix).toEqual([]);
   });
 });
+
+// ── Signature surface tests ──────────────────────────────────────────────────
+
+describe('signatureSurface', () => {
+  it('measures simple function signature surface', () => {
+    const code = `export function greet(name: string): string { return name; }`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const fn = entities.find((e) => e.kind === 'function');
+    expect(fn).toBeDefined();
+    // paramCount=1 + paramTypeComplexity=1(string) + returnTypeComplexity=1(string) = 3
+    expect(fn!.rawCounts?.signatureSurface).toBe(3);
+    expect(fn!.rawCounts?.parameterTypeComplexity).toBe(1);
+    expect(fn!.rawCounts?.returnTypeComplexity).toBe(1);
+  });
+
+  it('measures complex parameter types', () => {
+    const code = `export function merge(a: Record<string, number>, b: Map<string, Set<number>>): void {}`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const fn = entities.find((e) => e.kind === 'function');
+    expect(fn).toBeDefined();
+    // param a: Record<string, number> = 1(Record) + 1(string) + 1(number) = 3
+    // param b: Map<string, Set<number>> = 1(Map) + 1(string) + 1(Set) + 1(number) = 4
+    // return: void = 1
+    // surface = 2(params) + 3 + 4 + 1 = 10
+    expect(fn!.rawCounts?.parameterTypeComplexity).toBe(7);
+    expect(fn!.rawCounts?.returnTypeComplexity).toBe(1);
+    expect(fn!.rawCounts?.signatureSurface).toBe(10);
+  });
+
+  it('measures union type complexity', () => {
+    const code = `export function handle(input: string | number | null): boolean | undefined { return true; }`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const fn = entities.find((e) => e.kind === 'function');
+    expect(fn).toBeDefined();
+    // param: string|number|null = 3
+    // return: boolean|undefined = 2
+    // surface = 1(param) + 3 + 2 = 6
+    expect(fn!.rawCounts?.parameterTypeComplexity).toBe(3);
+    expect(fn!.rawCounts?.returnTypeComplexity).toBe(2);
+    expect(fn!.rawCounts?.signatureSurface).toBe(6);
+  });
+
+  it('measures class signature surface (constructor + public methods)', () => {
+    const code = `
+      export class UserService {
+        constructor(private db: Database, private logger: Logger) {}
+        public findById(id: string): Promise<User | null> { return this.db.find(id); }
+        public save(user: User): Promise<void> { return this.db.save(user); }
+        private validate(user: User): boolean { return true; }
+      }
+    `;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const cls = entities.find((e) => e.kind === 'class');
+    expect(cls).toBeDefined();
+    // constructor: 2 params + 1(Database) + 1(Logger) = 4
+    // findById: 1 param + 1(string) + 1(Promise)+1(User)+1(null) = 5
+    // save: 1 param + 1(User) + 1(Promise)+1(void) = 4
+    // private validate excluded from surface
+    expect(cls!.rawCounts?.signatureSurface).toBe(13);
+  });
+
+  it('measures interface signature surface', () => {
+    const code = `
+      export interface Repository<T> {
+        findById(id: string): Promise<T | null>;
+        save(entity: T): Promise<void>;
+        count: number;
+      }
+    `;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const iface = entities.find((e) => e.kind === 'interface');
+    expect(iface).toBeDefined();
+    // findById: 1(param id) + 1(string) + 1(Promise) + 1(T) + 1(null) = 5
+    // save: 1(param entity) + 1(T) + 1(Promise) + 1(void) = 4
+    // count: 1(number) = 1
+    expect(iface!.rawCounts?.signatureSurface).toBe(10);
+  });
+
+  it('measures type-alias surface complexity', () => {
+    const code = `
+      export type Config = {
+        host: string;
+        port: number;
+        tls: boolean;
+        headers: Record<string, string>;
+      };
+    `;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const typeAlias = entities.find((e) => e.kind === 'type-alias');
+    expect(typeAlias).toBeDefined();
+    // host: string = 1, port: number = 1, tls: boolean = 1
+    // headers: Record<string, string> = 1(Record) + 1(string) + 1(string) = 3
+    // total = 6
+    expect(typeAlias!.rawCounts?.signatureSurface).toBe(6);
+  });
+
+  it('measures enum surface as member count', () => {
+    const code = `export enum Status { Active, Inactive, Pending, Archived }`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const enumEntity = entities.find((e) => e.kind === 'enum');
+    expect(enumEntity).toBeDefined();
+    expect(enumEntity!.rawCounts?.signatureSurface).toBe(4);
+  });
+
+  it('measures function with no type annotations as params-only surface', () => {
+    const code = `export function add(a, b) { return a + b; }`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const fn = entities.find((e) => e.kind === 'function');
+    expect(fn).toBeDefined();
+    // 2 params, no type annotations → surface = 2
+    expect(fn!.rawCounts?.parameterTypeComplexity).toBe(0);
+    expect(fn!.rawCounts?.returnTypeComplexity).toBe(0);
+    expect(fn!.rawCounts?.signatureSurface).toBe(2);
+  });
+
+  it('handles callback parameter types', () => {
+    const code = `export function subscribe(cb: (event: Event, index: number) => void): () => void { return () => {}; }`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const fn = entities.find((e) => e.kind === 'function');
+    expect(fn).toBeDefined();
+    // param cb: function type with 2 params → measureCallSignatureComplexity:
+    //   1(event param) + 1(Event) + 1(index param) + 1(number) + 1(void return) = 5
+    // return: function type () => void = 1(void)
+    // surface = 1(param cb) + 5(param type) + 1(return) = 7
+    expect(fn!.rawCounts?.parameterTypeComplexity).toBe(5);
+    expect(fn!.rawCounts?.returnTypeComplexity).toBe(1);
+    expect(fn!.rawCounts?.signatureSurface).toBe(7);
+  });
+});
+
+// ── Type narrowing detection tests ───────────────────────────────────────────
+
+describe('type narrowing detection', () => {
+  it('detects Pick narrowing with field count', () => {
+    const code = `export type UserSummary = Pick<User, 'id' | 'name' | 'email'>;`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const t = entities.find((e) => e.kind === 'type-alias');
+    expect(t).toBeDefined();
+    expect(t!.rawCounts?.narrowingKind).toBe('pick');
+    expect(t!.rawCounts?.narrowedFieldCount).toBe(3);
+  });
+
+  it('detects Omit narrowing with field count', () => {
+    const code = `export type SafeConfig = Omit<Config, 'secret' | 'apiKey'>;`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const t = entities.find((e) => e.kind === 'type-alias');
+    expect(t).toBeDefined();
+    expect(t!.rawCounts?.narrowingKind).toBe('omit');
+    expect(t!.rawCounts?.narrowedFieldCount).toBe(2);
+  });
+
+  it('detects Partial narrowing', () => {
+    const code = `export type UpdatePayload = Partial<User>;`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const t = entities.find((e) => e.kind === 'type-alias');
+    expect(t).toBeDefined();
+    expect(t!.rawCounts?.narrowingKind).toBe('partial');
+    expect(t!.rawCounts?.narrowedFieldCount).toBeNull();
+  });
+
+  it('detects Readonly narrowing', () => {
+    const code = `export type FrozenState = Readonly<AppState>;`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const t = entities.find((e) => e.kind === 'type-alias');
+    expect(t).toBeDefined();
+    expect(t!.rawCounts?.narrowingKind).toBe('readonly');
+  });
+
+  it('detects Extract narrowing', () => {
+    const code = `export type StringActions = Extract<Action, { type: 'add' | 'remove' }>;`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const t = entities.find((e) => e.kind === 'type-alias');
+    expect(t).toBeDefined();
+    expect(t!.rawCounts?.narrowingKind).toBe('extract');
+  });
+
+  it('returns null narrowing for plain type alias', () => {
+    const code = `export type UserId = string;`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const t = entities.find((e) => e.kind === 'type-alias');
+    expect(t).toBeDefined();
+    expect(t!.rawCounts?.narrowingKind).toBeNull();
+    expect(t!.rawCounts?.narrowedFieldCount).toBeNull();
+  });
+
+  it('detects Pick with single field', () => {
+    const code = `export type IdOnly = Pick<Entity, 'id'>;`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'test.ts');
+    const t = entities.find((e) => e.kind === 'type-alias');
+    expect(t).toBeDefined();
+    expect(t!.rawCounts?.narrowingKind).toBe('pick');
+    expect(t!.rawCounts?.narrowedFieldCount).toBe(1);
+  });
+});

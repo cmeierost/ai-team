@@ -301,6 +301,8 @@ function collectEntities(
     const id = `type:${filePath}:${name}`;
     const isExported = hasModifier(node, ts.SyntaxKind.ExportKeyword);
     const range = getSourceRange(node, sourceFile);
+    const signatureSurface = measureTypeComplexity(node.type);
+    const narrowing = detectNarrowingPattern(node.type);
 
     entities.push({
       id,
@@ -321,6 +323,12 @@ function collectEntities(
         visibility: null,
       },
       nameTokens: tokenizeName(name),
+      rawCounts: {
+        linesOfCode: countLines(range),
+        signatureSurface: signatureSurface > 0 ? signatureSurface : null,
+        narrowingKind: narrowing?.kind ?? null,
+        narrowedFieldCount: narrowing?.fieldCount ?? null,
+      },
     });
     return;
   }
@@ -353,6 +361,7 @@ function collectEntities(
       nameTokens: tokenizeName(name),
       rawCounts: {
         linesOfCode: countLines(range),
+        signatureSurface: node.members.length > 0 ? node.members.length : null,
       },
     });
     return;
@@ -527,6 +536,258 @@ function buildFileEntity(
   };
 }
 
+// ── Type complexity measurement ─────────────────────────────────────────────
+
+/**
+ * Recursively count the number of type nodes in a type annotation.
+ * Each distinct type reference, union/intersection member, generic argument,
+ * object property, tuple element, or function-type parameter adds 1.
+ * Returns 0 for undefined/missing type annotations.
+ */
+function measureTypeComplexity(typeNode: ts.TypeNode | undefined): number {
+  if (!typeNode) return 0;
+
+  switch (typeNode.kind) {
+    // Leaf types: 1 each
+    case ts.SyntaxKind.StringKeyword:
+    case ts.SyntaxKind.NumberKeyword:
+    case ts.SyntaxKind.BooleanKeyword:
+    case ts.SyntaxKind.VoidKeyword:
+    case ts.SyntaxKind.UndefinedKeyword:
+    case ts.SyntaxKind.NullKeyword:
+    case ts.SyntaxKind.NeverKeyword:
+    case ts.SyntaxKind.AnyKeyword:
+    case ts.SyntaxKind.UnknownKeyword:
+    case ts.SyntaxKind.BigIntKeyword:
+    case ts.SyntaxKind.SymbolKeyword:
+    case ts.SyntaxKind.ObjectKeyword:
+    case ts.SyntaxKind.LiteralType:
+    case ts.SyntaxKind.ThisType:
+    case ts.SyntaxKind.TemplateLiteralType:
+      return 1;
+
+    // Simple type reference (e.g. `Foo`): 1 + sum of generic args
+    case ts.SyntaxKind.TypeReference: {
+      const ref = typeNode as ts.TypeReferenceNode;
+      let c = 1;
+      for (const arg of ref.typeArguments ?? []) c += measureTypeComplexity(arg);
+      return c;
+    }
+
+    // Union / intersection: sum of members
+    case ts.SyntaxKind.UnionType: {
+      const union = typeNode as ts.UnionTypeNode;
+      let c = 0;
+      for (const t of union.types) c += measureTypeComplexity(t);
+      return c;
+    }
+    case ts.SyntaxKind.IntersectionType: {
+      const inter = typeNode as ts.IntersectionTypeNode;
+      let c = 0;
+      for (const t of inter.types) c += measureTypeComplexity(t);
+      return c;
+    }
+
+    // Array: 1 + element
+    case ts.SyntaxKind.ArrayType:
+      return 1 + measureTypeComplexity((typeNode as ts.ArrayTypeNode).elementType);
+
+    // Tuple: sum of elements
+    case ts.SyntaxKind.TupleType: {
+      const tuple = typeNode as ts.TupleTypeNode;
+      let c = 0;
+      for (const el of tuple.elements) c += measureTypeComplexity(el as ts.TypeNode);
+      return c;
+    }
+
+    // Object literal type: sum of member type complexities
+    case ts.SyntaxKind.TypeLiteral: {
+      const lit = typeNode as ts.TypeLiteralNode;
+      let c = 0;
+      for (const member of lit.members) {
+        if (ts.isPropertySignature(member) && member.type) {
+          c += measureTypeComplexity(member.type);
+        } else if (ts.isMethodSignature(member)) {
+          c += measureCallSignatureComplexity(member);
+        } else if (ts.isIndexSignatureDeclaration(member)) {
+          c += 1 + measureTypeComplexity(member.type);
+        } else {
+          c += 1;
+        }
+      }
+      return c;
+    }
+
+    // Function type: params + return
+    case ts.SyntaxKind.FunctionType:
+    case ts.SyntaxKind.ConstructorType: {
+      const fn = typeNode as ts.FunctionOrConstructorTypeNode;
+      return measureCallSignatureComplexity(fn);
+    }
+
+    // Parenthesized: unwrap
+    case ts.SyntaxKind.ParenthesizedType:
+      return measureTypeComplexity((typeNode as ts.ParenthesizedTypeNode).type);
+
+    // Conditional type: check + extends + true + false
+    case ts.SyntaxKind.ConditionalType: {
+      const cond = typeNode as ts.ConditionalTypeNode;
+      return measureTypeComplexity(cond.checkType) + measureTypeComplexity(cond.extendsType)
+        + measureTypeComplexity(cond.trueType) + measureTypeComplexity(cond.falseType);
+    }
+
+    // Mapped type: 1 + constraint + value
+    case ts.SyntaxKind.MappedType: {
+      const mapped = typeNode as ts.MappedTypeNode;
+      return 1 + measureTypeComplexity(mapped.type);
+    }
+
+    // Indexed access: object + index
+    case ts.SyntaxKind.IndexedAccessType: {
+      const indexed = typeNode as ts.IndexedAccessTypeNode;
+      return measureTypeComplexity(indexed.objectType) + measureTypeComplexity(indexed.indexType);
+    }
+
+    // Keyof / typeof / readonly: 1 + inner
+    case ts.SyntaxKind.TypeOperator:
+      return 1 + measureTypeComplexity((typeNode as ts.TypeOperatorNode).type);
+
+    // Infer: 1
+    case ts.SyntaxKind.InferType:
+      return 1;
+
+    // Rest type: inner
+    case ts.SyntaxKind.RestType:
+      return measureTypeComplexity((typeNode as ts.RestTypeNode).type);
+
+    // Named tuple member: inner
+    case ts.SyntaxKind.NamedTupleMember:
+      return measureTypeComplexity((typeNode as ts.NamedTupleMember).type);
+
+    // Fallback
+    default:
+      return 1;
+  }
+}
+
+/**
+ * Measure the surface complexity of a callable signature:
+ * parameterCount + sum of parameter type complexities + return type complexity.
+ */
+function measureCallSignatureComplexity(
+  sig: ts.SignatureDeclarationBase | ts.MethodSignature | ts.CallSignatureDeclaration,
+): number {
+  let c = 0;
+  for (const param of sig.parameters) {
+    c += 1; // the parameter itself
+    c += measureTypeComplexity(param.type);
+  }
+  c += measureTypeComplexity(sig.type); // return type
+  return c;
+}
+
+/**
+ * Build signature surface for a function-like node:
+ * paramCount + paramTypeComplexity + returnTypeComplexity.
+ */
+function measureFunctionSignatureSurface(node: ts.FunctionLikeDeclaration): {
+  parameterTypeComplexity: number;
+  returnTypeComplexity: number;
+  signatureSurface: number;
+} {
+  let parameterTypeComplexity = 0;
+  for (const param of node.parameters) {
+    parameterTypeComplexity += measureTypeComplexity(param.type);
+  }
+  const returnTypeComplexity = measureTypeComplexity(node.type);
+  const signatureSurface = node.parameters.length + parameterTypeComplexity + returnTypeComplexity;
+  return { parameterTypeComplexity, returnTypeComplexity, signatureSurface };
+}
+
+// ── Type narrowing detection ────────────────────────────────────────────────
+
+type NarrowingKind = 'pick' | 'omit' | 'extract' | 'exclude' | 'partial' | 'required' | 'readonly' | 'record';
+
+const NARROWING_UTILITIES: Record<string, NarrowingKind> = {
+  Pick: 'pick',
+  Omit: 'omit',
+  Extract: 'extract',
+  Exclude: 'exclude',
+  Partial: 'partial',
+  Required: 'required',
+  Readonly: 'readonly',
+  Record: 'record',
+};
+
+interface NarrowingInfo {
+  kind: NarrowingKind;
+  /** For Pick/Omit: number of keys selected/excluded. Null if not determinable. */
+  fieldCount: number | null;
+}
+
+/**
+ * Detect if a type-alias body uses a TypeScript utility type that narrows
+ * an imported type. E.g. `type X = Pick<Config, 'host' | 'port'>`.
+ *
+ * Returns narrowing info if detected, null otherwise.
+ */
+function detectNarrowingPattern(typeNode: ts.TypeNode): NarrowingInfo | null {
+  if (!ts.isTypeReferenceNode(typeNode)) return null;
+
+  const typeName = typeNode.typeName;
+  let name: string | undefined;
+  if (ts.isIdentifier(typeName)) {
+    name = typeName.text;
+  }
+  if (!name) return null;
+
+  const narrowingKind = NARROWING_UTILITIES[name];
+  if (!narrowingKind) return null;
+
+  const typeArgs = typeNode.typeArguments;
+
+  // For Pick<T, K> and Omit<T, K>: count keys in K (second type arg)
+  if ((narrowingKind === 'pick' || narrowingKind === 'omit') && typeArgs && typeArgs.length >= 2) {
+    const keysArg = typeArgs[1];
+    const fieldCount = countUnionLiteralMembers(keysArg);
+    return { kind: narrowingKind, fieldCount };
+  }
+
+  // For Extract<T, U> and Exclude<T, U>: count members of U (second type arg)
+  if ((narrowingKind === 'extract' || narrowingKind === 'exclude') && typeArgs && typeArgs.length >= 2) {
+    const filterArg = typeArgs[1];
+    const fieldCount = countUnionLiteralMembers(filterArg);
+    return { kind: narrowingKind, fieldCount };
+  }
+
+  // For Partial, Required, Readonly: they wrap the full type but weaken coupling
+  if (narrowingKind === 'partial' || narrowingKind === 'required' || narrowingKind === 'readonly') {
+    return { kind: narrowingKind, fieldCount: null };
+  }
+
+  // Record<K, V>: not really narrowing but marks a structural pattern
+  if (narrowingKind === 'record') {
+    return { kind: narrowingKind, fieldCount: null };
+  }
+
+  return { kind: narrowingKind, fieldCount: null };
+}
+
+/**
+ * Count the number of members in a union of literal types.
+ * `'a' | 'b' | 'c'` → 3, `string` → 1, `'a'` → 1.
+ */
+function countUnionLiteralMembers(typeNode: ts.TypeNode): number {
+  if (ts.isUnionTypeNode(typeNode)) {
+    return typeNode.types.length;
+  }
+  if (ts.isLiteralTypeNode(typeNode)) {
+    return 1;
+  }
+  // Single non-union type reference — we can't count fields
+  return 1;
+}
+
 // ── Raw counts builders ─────────────────────────────────────────────────────
 
 function buildFunctionRawCounts(
@@ -694,6 +955,19 @@ function buildFunctionRawCounts(
     total: operandTotal,
   };
 
+  // Signature surface measurement
+  let parameterTypeComplexity: number | null = null;
+  let returnTypeComplexity: number | null = null;
+  let signatureSurface: number | null = null;
+
+  const fnLike = node as ts.FunctionLikeDeclaration;
+  if (fnLike.parameters) {
+    const surf = measureFunctionSignatureSurface(fnLike);
+    parameterTypeComplexity = surf.parameterTypeComplexity;
+    returnTypeComplexity = surf.returnTypeComplexity;
+    signatureSurface = surf.signatureSurface;
+  }
+
   return {
     linesOfCode,
     parameterCount,
@@ -709,6 +983,9 @@ function buildFunctionRawCounts(
         ? conditionalDispatchLocations
         : null,
     jsxElementCount: jsxElementCount > 0 ? jsxElementCount : null,
+    parameterTypeComplexity,
+    returnTypeComplexity,
+    signatureSurface,
   };
 }
 
@@ -720,17 +997,28 @@ function buildClassRawCounts(
   let publicMethodCount = 0;
   let publicPropertyCount = 0;
   let extensionPoints = 0;
+  let signatureSurface = 0;
 
   for (const member of node.members) {
     const vis = getMemberVisibility(member);
     const isPublic = vis === 'public' || vis === null;
+
+    if (ts.isConstructorDeclaration(member)) {
+      // Constructor always contributes to class surface
+      const surf = measureFunctionSignatureSurface(member);
+      signatureSurface += surf.signatureSurface;
+    }
 
     if (
       ts.isMethodDeclaration(member) ||
       ts.isGetAccessorDeclaration(member) ||
       ts.isSetAccessorDeclaration(member)
     ) {
-      if (isPublic) publicMethodCount++;
+      if (isPublic) {
+        publicMethodCount++;
+        const surf = measureFunctionSignatureSurface(member as ts.FunctionLikeDeclaration);
+        signatureSurface += surf.signatureSurface;
+      }
       if (hasModifier(member, ts.SyntaxKind.AbstractKeyword)) {
         extensionPoints++;
       }
@@ -745,7 +1033,10 @@ function buildClassRawCounts(
     }
 
     if (ts.isPropertyDeclaration(member)) {
-      if (isPublic) publicPropertyCount++;
+      if (isPublic) {
+        publicPropertyCount++;
+        signatureSurface += measureTypeComplexity(member.type);
+      }
     }
   }
 
@@ -754,6 +1045,7 @@ function buildClassRawCounts(
     publicMethodCount,
     publicPropertyCount,
     extensionPoints: extensionPoints > 0 ? extensionPoints : null,
+    signatureSurface: signatureSurface > 0 ? signatureSurface : null,
     jsxElementCount: null,
   };
 }
@@ -765,12 +1057,19 @@ function buildInterfaceRawCounts(
   const range = getSourceRange(node, sourceFile);
   let publicMethodCount = 0;
   let publicPropertyCount = 0;
+  let signatureSurface = 0;
 
   for (const member of node.members) {
     if (ts.isMethodSignature(member)) {
       publicMethodCount++;
+      signatureSurface += measureCallSignatureComplexity(member);
     } else if (ts.isPropertySignature(member)) {
       publicPropertyCount++;
+      signatureSurface += measureTypeComplexity(member.type);
+    } else if (ts.isCallSignatureDeclaration(member)) {
+      signatureSurface += measureCallSignatureComplexity(member);
+    } else if (ts.isIndexSignatureDeclaration(member)) {
+      signatureSurface += 1 + measureTypeComplexity(member.type);
     }
   }
 
@@ -778,6 +1077,7 @@ function buildInterfaceRawCounts(
     linesOfCode: countLines(range),
     publicMethodCount,
     publicPropertyCount,
+    signatureSurface: signatureSurface > 0 ? signatureSurface : null,
     jsxElementCount: null,
   };
 }

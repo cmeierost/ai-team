@@ -72,6 +72,26 @@ const ENTITY_KIND_MULTIPLIERS: Partial<Record<string, number>> = {
 };
 
 /**
+ * Type narrowing multipliers — when the source entity narrows the target
+ * via a utility type, coupling is reduced because only a subset of the
+ * target's surface is actually consumed.
+ *
+ * Pick/Extract select specific fields → strong discount.
+ * Omit excludes a few fields → mild discount (still couples to most).
+ * Partial/Readonly wrap the whole type → mild discount (weaker contract).
+ */
+const NARROWING_MULTIPLIERS: Record<string, number> = {
+  pick: 0.5,       // only selected fields consumed
+  extract: 0.55,   // subset of union
+  exclude: 0.85,   // still couples to most of the union
+  omit: 0.8,       // still couples to most of the type
+  partial: 0.85,   // all fields but optional — weaker contract
+  required: 0.95,  // strengthens contract, barely a discount
+  readonly: 0.9,   // immutable wrapper — slightly less coupling risk
+  record: 1.0,     // structural pattern, no discount
+};
+
+/**
  * Relationship kind multipliers — the semantic nature of the dependency
  * determines coupling strength. Inheritance (extend) is the strongest:
  * the child inherits implementation internals. Contract-only references
@@ -207,6 +227,35 @@ export function weightEdge(
     if (kindMult != null && kindMult !== 1.0) {
       weight *= kindMult;
       reasons.push(`target kind ${edge.targetEntityKind} (×${kindMult})`);
+    }
+  }
+
+  // Surface complexity scaling: high-surface targets carry more coupling cost.
+  // Uses gentle log scale — surface ≤5 has no effect, grows slowly after.
+  // This counterbalances the abstraction discount: a small interface is cheap
+  // to depend on, but a 50-field DTO is meaningful coupling even if type-only.
+  if (edge.targetSignatureSurface != null && edge.targetSignatureSurface > 5) {
+    // When the source narrows the target (Pick/Extract), use narrowed field count
+    // as the effective surface instead of the full target surface.
+    let effectiveSurface = edge.targetSignatureSurface;
+    if (edge.sourceNarrowingKind && edge.sourceNarrowedFieldCount != null) {
+      effectiveSurface = edge.sourceNarrowedFieldCount;
+    }
+
+    if (effectiveSurface > 5) {
+      const surfaceMult = 1 + 0.1 * Math.log2(effectiveSurface / 5);
+      weight *= surfaceMult;
+      reasons.push(`target surface ${edge.targetSignatureSurface}${effectiveSurface !== edge.targetSignatureSurface ? ` narrowed to ${effectiveSurface}` : ''} (×${round3(surfaceMult)})`);
+    }
+  }
+
+  // Type narrowing discount: Pick/Extract use a strict subset of the target,
+  // Omit still couples to most of it, Partial/Readonly weaken the contract.
+  if (edge.sourceNarrowingKind) {
+    const narrowMult = NARROWING_MULTIPLIERS[edge.sourceNarrowingKind] ?? 1.0;
+    if (narrowMult !== 1.0) {
+      weight *= narrowMult;
+      reasons.push(`source narrows via ${edge.sourceNarrowingKind} (×${narrowMult})`);
     }
   }
 

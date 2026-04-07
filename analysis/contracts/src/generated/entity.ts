@@ -188,6 +188,26 @@ export interface RawCounts {
    * Number of JSX/TSX elements (tags) in a function or component. Used to distinguish rendering from logic in UI files.
    */
   jsxElementCount?: number | null;
+  /**
+   * Sum of type-node counts across all parameters of a function/method/constructor. Each type reference, union/intersection member, generic argument, object property, or tuple element adds 1. Null for non-callable entities.
+   */
+  parameterTypeComplexity?: number | null;
+  /**
+   * Type-node count of the return/output type annotation. Each type reference, union/intersection member, generic argument, object property, or tuple element adds 1. Null for non-callable entities or when no explicit return type is declared.
+   */
+  returnTypeComplexity?: number | null;
+  /**
+   * Composite signature surface score for a single callable entity: parameterCount + parameterTypeComplexity + returnTypeComplexity. For classes: sum across constructor + all public methods. For interfaces: sum across all declared members. Null when not applicable.
+   */
+  signatureSurface?: number | null;
+  /**
+   * When a type-alias narrows an imported type via a utility type. Narrowed references carry less coupling weight because the consumer only depends on a subset of the target surface. Null when not a narrowing alias.
+   */
+  narrowingKind?: ('pick' | 'omit' | 'extract' | 'exclude' | 'partial' | 'required' | 'readonly' | 'record') | null;
+  /**
+   * For Pick/Omit narrowing: the number of fields selected or excluded. For Pick this is the effective surface consumed from the target type. Null when not applicable or not determinable.
+   */
+  narrowedFieldCount?: number | null;
 }
 /**
  * A single nesting-level contribution to cognitive complexity.

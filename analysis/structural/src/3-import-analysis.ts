@@ -55,6 +55,9 @@ export function buildRawEdges(
       sourceEntityKind: sourceEntity.kind,
       targetEntityKind: targetEntity.kind,
       targetIsAbstraction: rel.targetIsAbstraction,
+      targetSignatureSurface: targetEntity.rawCounts?.signatureSurface ?? undefined,
+      sourceNarrowingKind: sourceEntity.rawCounts?.narrowingKind ?? undefined,
+      sourceNarrowedFieldCount: sourceEntity.rawCounts?.narrowedFieldCount ?? undefined,
     });
   }
 

@@ -44,6 +44,7 @@ import { computeRoleSeparation } from './role-separation.js';
 import { computeHierarchySummary } from './hierarchy-analysis.js';
 import { computeInventorySummary } from './inventory-summary.js';
 import { computeCoverageValidation } from './coverage-validation.js';
+import { classifyAllEntities } from './entity-classification.js';
 
 import type { LanguageProfile, MergedFileHints } from './language-profile.js';
 import { mergeFileHints, findProfileForExtension } from './language-profile.js';
@@ -322,6 +323,10 @@ export function runStructuralPipeline(
 
   const coverageValidation = computeCoverageValidation(entities);
 
+  // ── Entity-level code concern classification ──────────────────────
+
+  const entityClassification = classifyAllEntities(entities);
+
   // ── Step 9: Recommendations ────────────────────────────────────────
 
   // Build the result first (recommendations need it)
@@ -346,6 +351,7 @@ export function runStructuralPipeline(
     hierarchySummary,
     inventorySummary,
     coverageValidation,
+    entityClassification,
     complexity,
     summary: undefined as any, // filled below
   };
