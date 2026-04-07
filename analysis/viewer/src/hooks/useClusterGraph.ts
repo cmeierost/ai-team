@@ -4,6 +4,7 @@ import {
   type Edge,
   type OnNodesChange,
   applyNodeChanges,
+  MarkerType,
 } from '@xyflow/react';
 import dagre from '@dagrejs/dagre';
 import type {
@@ -397,26 +398,29 @@ export function useClusterGraph(
       const key = srcGroup < tgtGroup
         ? `${srcGroup}->${tgtGroup}`
         : `${tgtGroup}->${srcGroup}`;
-      const normalized = srcGroup < tgtGroup
-        ? { source: srcGroup, target: tgtGroup }
-        : { source: tgtGroup, target: srcGroup };
+      const isForward = srcGroup < tgtGroup;
 
       let ce = groupEdgeMap.get(key);
       if (!ce) {
         ce = {
-          sourceClusterId: normalized.source,
-          targetClusterId: normalized.target,
+          sourceClusterId: srcGroup < tgtGroup ? srcGroup : tgtGroup,
+          targetClusterId: srcGroup < tgtGroup ? tgtGroup : srcGroup,
           totalWeight: 0,
           edgeCount: 0,
           typeOnlyCount: 0,
           reexportCount: 0,
+          forwardWeight: 0,
+          backwardWeight: 0,
         };
         groupEdgeMap.set(key, ce);
       }
-      ce.totalWeight += we.weight;
-      ce.edgeCount += 1;
-      if (we.isTypeOnly) ce.typeOnlyCount += 1;
-      if (isReexport) ce.reexportCount += 1;
+      const edge = ce;
+      edge.totalWeight += we.weight;
+      edge.edgeCount += 1;
+      if (isForward) edge.forwardWeight += we.weight;
+      else edge.backwardWeight += we.weight;
+      if (we.isTypeOnly) edge.typeOnlyCount += 1;
+      if (isReexport) edge.reexportCount += 1;
     }
 
     for (const we of data.weightedEdges) {
@@ -1057,22 +1061,44 @@ export function useClusterGraph(
       const typeOnlyRatio = ce.edgeCount > 0 ? ce.typeOnlyCount / ce.edgeCount : 0;
       const reexportRatio = ce.edgeCount > 0 ? ce.reexportCount / ce.edgeCount : 0;
 
+      // Orient edge in dominant "uses" direction
+      const dominantForward = ce.forwardWeight >= ce.backwardWeight;
+      const source = dominantForward ? ce.sourceClusterId : ce.targetClusterId;
+      const target = dominantForward ? ce.targetClusterId : ce.sourceClusterId;
+      const isBidirectional = ce.forwardWeight > 0 && ce.backwardWeight > 0;
+
       // Build label: edge count + resolved re-export indicator
       let label = ce.edgeCount > 1 ? ce.edgeCount.toString() : '';
       if (options?.showFullPath && ce.reexportCount > 0) {
         label = `${ce.edgeCount} (${ce.reexportCount} resolved)`;
       }
 
+      const strokeColor = reexportRatio > 0.5 ? '#6b8e6b' : '#555';
+
       resultEdges.push({
         id: `${ce.sourceClusterId}->${ce.targetClusterId}`,
-        source: ce.sourceClusterId,
-        target: ce.targetClusterId,
+        source,
+        target,
         style: {
           strokeWidth,
-          stroke: reexportRatio > 0.5 ? '#6b8e6b' : '#555',
-          opacity: 0.35,
+          stroke: strokeColor,
+          opacity: 0.45,
           ...(typeOnlyRatio > 0.8 ? { strokeDasharray: '5 5' } : {}),
         },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 14,
+          height: 14,
+          color: strokeColor,
+        },
+        ...(isBidirectional ? {
+          markerStart: {
+            type: MarkerType.ArrowClosed,
+            width: 10,
+            height: 10,
+            color: strokeColor,
+          },
+        } : {}),
         animated: false,
         ...(label ? { label } : {}),
         labelStyle: { fill: '#aaa', fontSize: 10 },

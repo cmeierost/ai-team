@@ -125,6 +125,10 @@ export interface ClusterEdge {
   edgeCount: number;
   typeOnlyCount: number;
   reexportCount: number;
+  /** Weight in normalized source→target direction */
+  forwardWeight: number;
+  /** Weight in normalized target→source direction */
+  backwardWeight: number;
 }
 
 /**

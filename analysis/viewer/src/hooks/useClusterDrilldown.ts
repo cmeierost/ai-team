@@ -11,6 +11,7 @@ import {
   type Edge,
   type OnNodesChange,
   applyNodeChanges,
+  MarkerType,
 } from '@xyflow/react';
 import dagre from '@dagrejs/dagre';
 import type {
@@ -208,16 +209,23 @@ export function useClusterDrilldown(
 
     const resultEdges: Edge[] = [...edgeMap.values()].map((we) => {
       const isResolved = 'viaBarrel' in we && we.viaBarrel;
+      const strokeColor = isResolved ? '#6b8e6b' : we.isTypeOnly ? '#4a7a9b' : '#666';
       return {
         id: `${we.sourceFileId}->${we.targetFileId}`,
         source: we.sourceFileId,
         target: we.targetFileId,
         style: {
           strokeWidth: clamp(we.weight, 1, 4),
-          stroke: isResolved ? '#6b8e6b' : we.isTypeOnly ? '#4a7a9b' : '#666',
+          stroke: strokeColor,
           opacity: 0.5,
           ...(we.isTypeOnly ? { strokeDasharray: '4 4' } : {}),
           ...(isResolved ? { strokeDasharray: '8 3' } : {}),
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 12,
+          height: 12,
+          color: strokeColor,
         },
         animated: false,
         ...(isResolved ? { label: `via ${we.viaBarrel}`, labelStyle: { fill: '#8fbc8f', fontSize: 9 }, labelBgStyle: { fill: '#1e1e1e', fillOpacity: 0.8 } } : {}),
