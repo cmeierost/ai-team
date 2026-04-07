@@ -21,7 +21,7 @@ if (srcDirs.length === 0) {
     'packages/web/src',
     'packages/api-server/src',
     'packages/fs/src',
-    'packages/permission/src',
+    'packages/ide-interface/src',
     'packages/api-client/src',
     'packages/api-client-http/src',
     'packages/vscode/src',
