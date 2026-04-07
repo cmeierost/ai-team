@@ -47,6 +47,9 @@ const MAX_CLUSTER_FILES = 30;
 const MIN_CLUSTER_LOC = 3_000;
 const MAX_SUPERCLUSTER_SHARED_LOC = 5_000;
 const MAX_SUPERCLUSTER_CHILDREN = 5;
+/** Minimum number of communities a supercluster should contain.
+ *  Singletons or tiny SCs get merged with the closest technology/role match. */
+const MIN_SUPERCLUSTER_COMMUNITIES = 2;
 
 /**
  * Higher resolution → more, smaller communities. Default Louvain is 1.0.
@@ -1028,6 +1031,186 @@ function buildSuperClusters(
     }
   }
 
+  // Phase 4: merge undersized groups.
+  // Singleton or tiny supercluster groups are merged with the closest match
+  // by technology and dominant-role affinity. This prevents dozens of tiny
+  // superclusters. Barrel/zero-LOC groups always merge into something.
+  // Merging is NOT allowed to create new cross-boundary dependencies between
+  // groups that had no coupling at all.
+  groups = new Map();
+  for (const c of communities) {
+    const root = find(c.id);
+    const list = groups.get(root) ?? [];
+    list.push(c.id);
+    groups.set(root, list);
+  }
+
+  const undersized = new Map<string, string[]>();  // root → communityIds
+  const adequate = new Map<string, string[]>();
+  for (const [root, members] of groups) {
+    if (members.length < MIN_SUPERCLUSTER_COMMUNITIES) undersized.set(root, members);
+    else adequate.set(root, members);
+  }
+
+  if (undersized.size > 1) {
+    // Compute the "technology prefix" for each group (most common top-level dir)
+    const groupTech = (cids: string[]): string => {
+      const counts = new Map<string, number>();
+      for (const cid of cids) {
+        const tech = communityById.get(cid)?.dominantTechnology ?? '';
+        // Normalize to top 2 directory segments for grouping affinity
+        const prefix = tech.split('/').slice(0, 2).join('/');
+        counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+      }
+      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+    };
+
+    const groupRole = (cids: string[]): CodeContentRole | undefined => {
+      const counts = new Map<string, number>();
+      for (const cid of cids) {
+        const role = communityById.get(cid)?.dominantRole;
+        if (role) counts.set(role, (counts.get(role) ?? 0) + 1);
+      }
+      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] as CodeContentRole | undefined;
+    };
+
+    // Check if any edges exist between two groups
+    const groupFileSets = new Map<string, Set<string>>();
+    for (const [root, cids] of [...undersized, ...adequate]) {
+      const files = new Set<string>();
+      for (const cid of cids) {
+        const c = communityById.get(cid);
+        if (c) for (const fid of c.memberFileIds) files.add(fid);
+      }
+      groupFileSets.set(root, files);
+    }
+
+    const hasEdgeBetween = (rootA: string, rootB: string): boolean => {
+      const filesA = groupFileSets.get(rootA);
+      const filesB = groupFileSets.get(rootB);
+      if (!filesA || !filesB) return false;
+      for (const edge of edges) {
+        if ((filesA.has(edge.sourceFileId) && filesB.has(edge.targetFileId)) ||
+            (filesB.has(edge.sourceFileId) && filesA.has(edge.targetFileId))) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // 1. Try to merge each undersized group into an adequate group with
+    //    matching tech AND existing edge coupling.
+    const mergedRoots = new Set<string>();
+    for (const [uRoot, uMembers] of [...undersized]) {
+      if (mergedRoots.has(uRoot)) continue;
+      const uTech = groupTech(uMembers);
+      const uRole = groupRole(uMembers);
+
+      let bestTarget: string | undefined;
+      let bestScore = -1;
+
+      // Prefer adequate groups first, then other undersized
+      const candidates = [...adequate, ...undersized].filter(([r]) => r !== uRoot && !mergedRoots.has(r));
+      for (const [cRoot, cMembers] of candidates) {
+        const cTech = groupTech(cMembers);
+        const cRole = groupRole(cMembers);
+
+        // Technology affinity: same tech prefix = strong signal
+        let score = 0;
+        if (uTech && cTech && uTech === cTech) score += 10;
+        // Role affinity: same dominant role = secondary signal
+        if (uRole && cRole && uRole === cRole) score += 3;
+        // Barrel/infrastructure singletons can merge into same tech even without edges
+        const isBarrelLike = uRole === 'barrel' || uRole === 'infrastructure';
+        // Edge coupling: required unless barrel-like merging into same tech
+        const hasEdge = hasEdgeBetween(uRoot, cRoot);
+        if (hasEdge) score += 5;
+        else if (!isBarrelLike || uTech !== cTech) continue; // no coupling and not barrel → skip
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestTarget = cRoot;
+        }
+      }
+
+      if (bestTarget) {
+        // Merge undersized into target
+        const targetMembers = adequate.get(bestTarget) ?? undersized.get(bestTarget) ?? [];
+        for (const cid of uMembers) {
+          targetMembers.push(cid);
+          union(cid, bestTarget);
+        }
+        if (adequate.has(bestTarget)) adequate.set(bestTarget, targetMembers);
+        else {
+          // Two undersized merged → might now be adequate
+          undersized.delete(bestTarget);
+          adequate.set(bestTarget, targetMembers);
+        }
+        undersized.delete(uRoot);
+        mergedRoots.add(uRoot);
+        // Update file set for the merged group
+        const uFiles = groupFileSets.get(uRoot)!;
+        const tFiles = groupFileSets.get(bestTarget)!;
+        for (const f of uFiles) tFiles.add(f);
+      }
+    }
+
+    // 2. Any remaining undersized groups: merge by technology prefix alone
+    //    (no edge required — these are isolated utilities/barrels).
+    const remainingUndersized = [...undersized].filter(([r]) => !mergedRoots.has(r));
+    if (remainingUndersized.length >= 2) {
+      const byTech = new Map<string, string[]>();
+      for (const [root, members] of remainingUndersized) {
+        const tech = groupTech(members);
+        const list = byTech.get(tech) ?? [];
+        list.push(root);
+        byTech.set(tech, list);
+      }
+
+      for (const roots of byTech.values()) {
+        if (roots.length < 2) continue;
+        const target = roots[0];
+        for (let i = 1; i < roots.length; i++) {
+          const members = undersized.get(roots[i]) ?? [];
+          for (const cid of members) union(cid, target);
+          mergedRoots.add(roots[i]);
+        }
+      }
+    }
+
+    // 3. Group remaining isolated singletons by dominant role.
+    //    Barrel-only or contract-only singletons with different tech prefixes
+    //    are still safe to group — they share the same code concern.
+    const stillUndersized = [...undersized].filter(([r]) => !mergedRoots.has(r));
+    if (stillUndersized.length >= 2) {
+      const byRole = new Map<string, string[]>();
+      for (const [root, members] of stillUndersized) {
+        const role = groupRole(members) ?? 'unknown';
+        const list = byRole.get(role) ?? [];
+        list.push(root);
+        byRole.set(role, list);
+      }
+
+      for (const roots of byRole.values()) {
+        if (roots.length < 2) continue;
+        const target = roots[0];
+        for (let i = 1; i < roots.length; i++) {
+          const members = undersized.get(roots[i]) ?? [];
+          for (const cid of members) union(cid, target);
+          mergedRoots.add(roots[i]);
+        }
+      }
+    }
+
+    // Rebuild groups after Phase 4
+    groups = new Map();
+    for (const c of communities) {
+      const root = find(c.id);
+      const list = groups.get(root) ?? [];
+      list.push(c.id);
+      groups.set(root, list);
+    }
+  }
   let nextId = 0;
   const nextSuperId = () => `supercluster-${nextId++}`;
 
