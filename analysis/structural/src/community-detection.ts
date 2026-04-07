@@ -813,12 +813,124 @@ function buildSuperClusters(
     }
   }
 
-  const groups = new Map<string, string[]>();
+  // Also merge communities that share a dominant classification and have
+  // any cross-community edge (logic → logic coupling is still coupling).
+  for (const edge of edges) {
+    const src = fileToCommunity.get(edge.sourceFileId);
+    const tgt = fileToCommunity.get(edge.targetFileId);
+    if (!src || !tgt || src === tgt) continue;
+    if (find(src) === find(tgt)) continue; // already in the same group
+    const srcComm = communityById.get(src);
+    const tgtComm = communityById.get(tgt);
+    if (!srcComm || !tgtComm) continue;
+    // If both communities share the same dominant role, merge them
+    if (srcComm.dominantRole && srcComm.dominantRole === tgtComm.dominantRole) {
+      union(src, tgt);
+    }
+  }
+
+  // Build initial groups
+  let groups = new Map<string, string[]>();
   for (const c of communities) {
     const root = find(c.id);
     const list = groups.get(root) ?? [];
     list.push(c.id);
     groups.set(root, list);
+  }
+
+  // Absorb orphan singletons into the nearest multi-member group.
+  // Only pure contract/infrastructure-only communities may remain standalone.
+  const singletonIds = new Set<string>();
+  const multiGroupRoots = new Set<string>();
+  for (const [root, members] of groups) {
+    if (members.length === 1) singletonIds.add(members[0]);
+    else multiGroupRoots.add(root);
+  }
+
+  if (singletonIds.size > 0 && multiGroupRoots.size > 0) {
+    // Compute cross-community edge weight from each singleton to each group
+    const weightToGroup = new Map<string, Map<string, number>>();
+    for (const sid of singletonIds) weightToGroup.set(sid, new Map());
+
+    for (const edge of edges) {
+      const src = fileToCommunity.get(edge.sourceFileId);
+      const tgt = fileToCommunity.get(edge.targetFileId);
+      if (!src || !tgt || src === tgt) continue;
+
+      // One side must be a singleton, the other in a multi-member group
+      let singleton: string | undefined;
+      let other: string | undefined;
+      if (singletonIds.has(src) && !singletonIds.has(tgt)) {
+        singleton = src; other = tgt;
+      } else if (singletonIds.has(tgt) && !singletonIds.has(src)) {
+        singleton = tgt; other = src;
+      }
+      if (!singleton || !other) continue;
+
+      const otherRoot = find(other);
+      if (!multiGroupRoots.has(otherRoot)) continue;
+
+      const wMap = weightToGroup.get(singleton)!;
+      wMap.set(otherRoot, (wMap.get(otherRoot) ?? 0) + edge.weight);
+    }
+
+    for (const sid of singletonIds) {
+      const comm = communityById.get(sid);
+      const role = comm?.dominantRole;
+      // Pure contract-only communities may remain orphan
+      if (role === 'contract' || role === 'infrastructure') continue;
+
+      const wMap = weightToGroup.get(sid)!;
+      if (wMap.size === 0) continue;
+
+      // Pick the group with the strongest coupling, with classification match bonus
+      let bestRoot: string | undefined;
+      let bestScore = -1;
+      for (const [groupRoot, weight] of wMap) {
+        // Bonus for matching dominant role: look at the first community in the group
+        const groupMembers = groups.get(groupRoot) ?? [];
+        const groupRole = communityById.get(groupMembers[0])?.dominantRole;
+        const roleBonus = (groupRole && groupRole === role) ? 1.5 : 1.0;
+        const score = weight * roleBonus;
+        if (score > bestScore) {
+          bestScore = score;
+          bestRoot = groupRoot;
+        }
+      }
+
+      if (bestRoot) {
+        // Move singleton into the best group
+        const groupMembers = groups.get(bestRoot)!;
+        groupMembers.push(sid);
+        const singletonRoot = find(sid);
+        groups.delete(singletonRoot);
+        union(sid, bestRoot);
+        singletonIds.delete(sid);
+      }
+    }
+
+    // Also try to absorb remaining singletons into each other if they share a connection
+    const remainingSingletons = [...singletonIds];
+    if (remainingSingletons.length >= 2) {
+      for (const edge of edges) {
+        const src = fileToCommunity.get(edge.sourceFileId);
+        const tgt = fileToCommunity.get(edge.targetFileId);
+        if (!src || !tgt || src === tgt) continue;
+        if (!singletonIds.has(src) || !singletonIds.has(tgt)) continue;
+        const srcRole = communityById.get(src)?.dominantRole;
+        const tgtRole = communityById.get(tgt)?.dominantRole;
+        if (srcRole === 'contract' && tgtRole === 'contract') continue;
+        union(src, tgt);
+      }
+      // Rebuild groups for merged singletons
+      groups = new Map();
+      for (const c of communities) {
+        const root = find(c.id);
+        const list = groups.get(root) ?? [];
+        list.push(c.id);
+        groups.set(root, list);
+      }
+    }
   }
 
   let nextId = 0;
