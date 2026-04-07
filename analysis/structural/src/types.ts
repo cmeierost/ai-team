@@ -305,6 +305,8 @@ export interface StructuralPipelineResult {
   pairCouplings: FilePairCoupling[];
   clusters: FileCluster[];
   alignment: StructuralAlignmentResult;
+  /** Artefact 2: self-contained community map from step 5. */
+  communityMap?: CommunityMapArtefact;
   communities?: CommunityDetectionResult;
   filesystemFit?: FilesystemFitResult;
   moveSuggestions?: MoveSuggestionResult;
@@ -555,6 +557,8 @@ export interface SplitFileCandidate {
 export interface CommunityDetectionResult {
   communities: Community[];
   communityGroups: CommunityGroup[];
+  /** Summarised references crossing community boundaries. */
+  crossGroupEdges: CrossGroupEdge[];
   clusterExposure?: ClusterExposure[];
   communityGroupExposure?: ClusterExposure[];
   modularity: number;
@@ -562,6 +566,43 @@ export interface CommunityDetectionResult {
   tangledDirectories: TangledDirectory[];
   /** Files with entities in multiple communities — should be considered for splitting. */
   splitFileCandidates: SplitFileCandidate[];
+}
+
+// ── Artefact 2: Community map (step 5 output) ──────────────────────────
+
+/** Summarised directed dependency between two communities or community groups. */
+export interface CrossGroupEdge {
+  sourceGroupId: string;
+  targetGroupId: string;
+  /** Total aggregated weight of all entity-level edges crossing this boundary. */
+  weight: number;
+  /** Number of individual entity-level edges that contribute. */
+  edgeCount: number;
+  /** Which direction carries more weight: 'forward' (source→target) or 'backward'. */
+  dominantDirection: 'forward' | 'backward';
+}
+
+/**
+ * Self-contained artefact produced by step 5 (community detection).
+ * Contains communities, hierarchical community groups, and cross-boundary
+ * edge summaries. Can be serialised and consumed by downstream diagnostics,
+ * recommendations, and context comparison steps.
+ */
+export interface CommunityMapArtefact {
+  communities: Community[];
+  communityGroups: CommunityGroup[];
+  /** Summarised references crossing community/group boundaries. */
+  crossGroupEdges: CrossGroupEdge[];
+  /** Files with entities in multiple communities — split candidates. */
+  splitFileCandidates: SplitFileCandidate[];
+  /** Louvain quality metric. */
+  modularity: number;
+  /** Per-community exposure ratios. */
+  clusterExposure?: ClusterExposure[];
+  /** Per-community-group exposure ratios. */
+  communityGroupExposure?: ClusterExposure[];
+  misplacedFiles: MisplacedFile[];
+  tangledDirectories: TangledDirectory[];
 }
 
 // ── Steps 6–7 enrichment: Grouping comparison (ARI / NMI) ──────────────

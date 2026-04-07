@@ -25,6 +25,7 @@ import type {
   WeightedEdge, FileClassificationEntry,
   Community, CommunityGroup, CommunityGroupChild, CommunityDetectionResult,
   MisplacedFile, TangledDirectory, ClusterExposure, SplitFileCandidate,
+  CrossGroupEdge,
 } from './types.js';
 import type { CodeContentRole } from './2-code-classification.js';
 import { parentDir } from './types.js';
@@ -151,7 +152,7 @@ export function detectCommunities(
   entities: Entity[],
 ): CommunityDetectionResult {
   const emptyResult: CommunityDetectionResult = {
-    communities: [], communityGroups: [], modularity: 0,
+    communities: [], communityGroups: [], crossGroupEdges: [], modularity: 0,
     misplacedFiles: [], tangledDirectories: [], splitFileCandidates: [],
   };
 
@@ -266,9 +267,13 @@ export function detectCommunities(
   // Detect split file candidates: files with entities in multiple communities
   const splitFileCandidates = detectSplitFiles(communities, ctx);
 
+  // Compute cross-community edges (summarised)
+  const crossGroupEdges = computeCrossGroupEdges(communities, weightedEdges);
+
   return {
     communities,
     communityGroups,
+    crossGroupEdges,
     clusterExposure,
     communityGroupExposure,
     modularity: detailed.modularity,
@@ -276,6 +281,53 @@ export function detectCommunities(
     tangledDirectories,
     splitFileCandidates,
   };
+}
+
+// ── Cross-group edge summarisation ──────────────────────────────────────
+
+/**
+ * Summarise entity-level edges that cross community boundaries into
+ * per-community-pair aggregates with direction tracking.
+ */
+function computeCrossGroupEdges(
+  communities: Community[],
+  edges: WeightedEdge[],
+): CrossGroupEdge[] {
+  const fileToCommunity = new Map<string, string>();
+  for (const c of communities) {
+    for (const fid of c.memberFileIds) fileToCommunity.set(fid, c.id);
+  }
+
+  // Aggregate: key = "srcCommunity→tgtCommunity"
+  const agg = new Map<string, { fwd: number; bwd: number; count: number }>();
+  for (const edge of edges) {
+    const srcC = fileToCommunity.get(edge.sourceFileId);
+    const tgtC = fileToCommunity.get(edge.targetFileId);
+    if (!srcC || !tgtC || srcC === tgtC) continue;
+
+    // Canonical key — always smaller id first to deduplicate directions
+    const [a, b] = srcC < tgtC ? [srcC, tgtC] : [tgtC, srcC];
+    const key = `${a}→${b}`;
+    let entry = agg.get(key);
+    if (!entry) { entry = { fwd: 0, bwd: 0, count: 0 }; agg.set(key, entry); }
+
+    if (srcC === a) entry.fwd += edge.weight;
+    else entry.bwd += edge.weight;
+    entry.count++;
+  }
+
+  const result: CrossGroupEdge[] = [];
+  for (const [key, { fwd, bwd, count }] of agg) {
+    const [a, b] = key.split('→');
+    result.push({
+      sourceGroupId: a,
+      targetGroupId: b,
+      weight: fwd + bwd,
+      edgeCount: count,
+      dominantDirection: fwd >= bwd ? 'forward' : 'backward',
+    });
+  }
+  return result;
 }
 
 // ── Singleton absorption ────────────────────────────────────────────────

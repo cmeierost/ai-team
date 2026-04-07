@@ -72,7 +72,7 @@ export { TYPESCRIPT_PROFILE } from './profiles/typescript.js';
 export type {
   RawDependencyEdge, FileCouplingStats,
   FileInfo, WeightedEdge,
-  EntityGraphArtefact,
+  EntityGraphArtefact, CommunityMapArtefact, CrossGroupEdge,
   FilePairCoupling, CouplingPattern, FileCluster, ClusterCohesionType,
   PackageAlignment, SpilledCluster,
   FolderFocus, FolderAssessment,

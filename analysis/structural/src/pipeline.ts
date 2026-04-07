@@ -57,7 +57,7 @@ import type {
   FileClassificationEntry, StructuralPipelineResult,
   PipelineSummary, StructuralPipelineOptions,
   WarningThresholds,
-  EntityGraphArtefact,
+  EntityGraphArtefact, CommunityMapArtefact,
 } from './types.js';
 import { DEFAULT_THRESHOLDS } from './types.js';
 
@@ -216,6 +216,20 @@ export function runStructuralPipeline(
 
   const communities = detectCommunities(weightedEdges, fileClassifications, entities);
 
+  // ── Artefact 2: Community map ─────────────────────────────────────────
+
+  const communityMap: CommunityMapArtefact = {
+    communities: communities.communities,
+    communityGroups: communities.communityGroups,
+    crossGroupEdges: communities.crossGroupEdges,
+    splitFileCandidates: communities.splitFileCandidates,
+    modularity: communities.modularity,
+    clusterExposure: communities.clusterExposure,
+    communityGroupExposure: communities.communityGroupExposure,
+    misplacedFiles: communities.misplacedFiles,
+    tangledDirectories: communities.tangledDirectories,
+  };
+
   // ── Filesystem-fit metrics ──────────────────────────────────────────
 
   const filesystemFit = computeFilesystemFit(fileClassifications, clusters);
@@ -342,6 +356,7 @@ export function runStructuralPipeline(
   // Build the result first (recommendations need it)
   const result: StructuralPipelineResult = {
     entityGraph,
+    communityMap,
     fileClassifications,
     weightedEdges,
     pairCouplings,
