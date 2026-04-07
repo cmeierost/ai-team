@@ -1650,7 +1650,7 @@ function buildCommunityGroups(
 
     return {
       id: nextSuperId(),
-      label: dominantTechnology ? `${dominantTechnology} scope` : `scope ${depth + 1}`,
+      label: buildGroupLabel(communityIds),
       sharedContractLoc,
       sharedContractFileIds: [...sharedContractFileIds].sort(),
       totalFiles,
@@ -1739,6 +1739,54 @@ function buildCommunityGroups(
     let total = 0;
     for (const fid of fileIds) total += locMap.get(fid) ?? 0;
     return total;
+  }
+
+  /** Folder-based label for a community group — same logic as community labels. */
+  function buildGroupLabel(communityIds: string[]): string {
+    // Collect all member files across communities
+    const allFileIds: string[] = [];
+    for (const cid of communityIds) {
+      const c = communityById.get(cid);
+      if (c) allFileIds.push(...c.memberFileIds);
+    }
+    if (allFileIds.length === 0) return 'group';
+
+    // Package prefix (most common top-level dir)
+    const pkgCounts = new Map<string, number>();
+    for (const fid of allFileIds) {
+      const p = pathMap.get(fid)?.replace(/\\/g, '/');
+      if (!p) continue;
+      const pkg = packagePrefix(p);
+      if (pkg) pkgCounts.set(pkg, (pkgCounts.get(pkg) ?? 0) + 1);
+    }
+    const topPkg = [...pkgCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+    const pkgShort = topPkg.split('/').pop() ?? topPkg;
+
+    // Most common subfolder after src/
+    const subCounts = new Map<string, number>();
+    for (const fid of allFileIds) {
+      const fp = (pathMap.get(fid) ?? fid).replace(/\\/g, '/');
+      const parts = fp.split('/');
+      const srcIdx = parts.indexOf('src');
+      const subIdx = srcIdx >= 0 ? srcIdx + 1 : 3;
+      if (parts.length > subIdx + 1) {
+        subCounts.set(parts[subIdx], (subCounts.get(parts[subIdx]) ?? 0) + 1);
+      }
+    }
+    const topSub = [...subCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+
+    // Dominant role across all files
+    const roleCounts = new Map<string, number>();
+    for (const fid of allFileIds) {
+      const r = roleMap.get(fid);
+      if (r && r !== 'unknown') roleCounts.set(r, (roleCounts.get(r) ?? 0) + 1);
+    }
+    const topRole = [...roleCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+
+    const segments = [pkgShort];
+    if (topRole) segments.push(topRole);
+    if (topSub) segments.push(topSub);
+    return segments.join(' · ') || 'group';
   }
 }
 

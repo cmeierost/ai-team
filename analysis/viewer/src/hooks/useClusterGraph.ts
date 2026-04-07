@@ -988,18 +988,8 @@ export function useClusterGraph(
       const glueTotalLoc = glueContractLoc + glueInfrastructureLoc + glueOtherLoc;
       const glueContractRatio = glueTotalLoc > 0 ? glueContractLoc / glueTotalLoc : 0;
 
-      // Derive a label from the member communities
-      const memberLabels = communityIds
-        .map((cid) => groups.find((g) => g.id === cid))
-        .filter(Boolean)
-        .map((g) => g!.label);
-      const labelCounts = new Map<string, number>();
-      for (const l of memberLabels) labelCounts.set(l, (labelCounts.get(l) ?? 0) + 1);
-      const scLabel = [...labelCounts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([l]) => l)
-        .slice(0, 3)
-        .join(' + ');
+      // Use the pipeline-computed label (folder-based) for the group
+      const scLabel = sc.label || 'group';
 
       // Compute z-index based on nesting depth (deeper = higher z so parent renders behind)
       let depth = 0;
