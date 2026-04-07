@@ -50,6 +50,8 @@ export function buildRawEdges(
     edges.push({
       sourceFileId: sourceFile,
       targetFileId: targetFile,
+      sourceEntityId: rel.sourceEntityId,
+      targetEntityId: rel.targetEntityId!,
       isTypeOnly: rel.typeOnly ?? false,
       relationshipKind: rel.kind,
       sourceEntityKind: sourceEntity.kind,

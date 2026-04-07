@@ -278,6 +278,8 @@ export function weightEdge(
   return {
     sourceFileId: edge.sourceFileId,
     targetFileId: edge.targetFileId,
+    sourceEntityId: edge.sourceEntityId,
+    targetEntityId: edge.targetEntityId,
     isTypeOnly: edge.isTypeOnly,
     weight: round3(weight),
     weightReason: reasons.join(', '),

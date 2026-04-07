@@ -204,7 +204,7 @@ export function runStructuralPipeline(
 
   // ── Step 5b: Community detection (Louvain) ─────────────────────────
 
-  const communities = detectCommunities(weightedEdges, fileClassifications);
+  const communities = detectCommunities(weightedEdges, fileClassifications, entities);
 
   // ── Filesystem-fit metrics ──────────────────────────────────────────
 

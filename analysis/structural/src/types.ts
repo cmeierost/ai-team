@@ -41,6 +41,10 @@ import type {
 export interface RawDependencyEdge {
   sourceFileId: string;
   targetFileId: string;
+  /** Entity-level source (non-file entity ID). */
+  sourceEntityId: string;
+  /** Entity-level target (non-file entity ID). */
+  targetEntityId: string;
   isTypeOnly: boolean;
   relationshipKind?: string;
   sourceEntityKind?: string;
@@ -82,6 +86,10 @@ export interface FileInfo {
 export interface WeightedEdge {
   sourceFileId: string;
   targetFileId: string;
+  /** Entity-level source (non-file entity ID). */
+  sourceEntityId: string;
+  /** Entity-level target (non-file entity ID). */
+  targetEntityId: string;
   isTypeOnly: boolean;
   weight: number;
   weightReason: string;
@@ -455,11 +463,17 @@ export interface StructuralPipelineOptions {
 
 // ── Step 5b: Community detection (Louvain) ──────────────────────────────
 
-/** A community of files detected by the Louvain algorithm. */
+/**
+ * A community of entities detected by the Louvain algorithm.
+ * Primary membership is entity-level; file membership is derived.
+ */
 export interface Community {
   id: string;
   /** Human-readable label distinguishing this community (e.g. "web · presentation · hooks"). */
   label?: string;
+  /** Primary: entity IDs that belong to this community. */
+  memberEntityIds: string[];
+  /** Derived: file IDs containing member entities (deduplicated). */
   memberFileIds: string[];
   totalLoc?: number;
   dominantTechnology?: string;
@@ -507,6 +521,18 @@ export interface TangledDirectory {
   fileCount: number;
 }
 
+/** A file whose entities land in multiple communities — candidate for splitting. */
+export interface SplitFileCandidate {
+  fileId: string;
+  filePath: string;
+  /** How many distinct communities share entities from this file. */
+  communityCount: number;
+  /** Community IDs and the entity count in each. */
+  communityBreakdown: { communityId: string; entityCount: number; entityLoc: number }[];
+  /** Total entity LOC in this file. */
+  totalEntityLoc: number;
+}
+
 export interface CommunityDetectionResult {
   communities: Community[];
   superClusters: SuperCluster[];
@@ -515,6 +541,8 @@ export interface CommunityDetectionResult {
   modularity: number;
   misplacedFiles: MisplacedFile[];
   tangledDirectories: TangledDirectory[];
+  /** Files with entities in multiple communities — should be considered for splitting. */
+  splitFileCandidates: SplitFileCandidate[];
 }
 
 // ── Steps 6–7 enrichment: Grouping comparison (ARI / NMI) ──────────────

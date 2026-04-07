@@ -1,15 +1,18 @@
 /**
  * @aspect/engine — Community detection (Louvain)
  *
- * Detects dense subgraphs in the dependency graph using the Louvain
- * algorithm. Unlike the union-find clustering in step 5 (which only
- * groups mutually-coupled pairs), Louvain catches asymmetric dense
- * communities — groups of files that reference each other far more
- * than they reference outsiders.
+ * Detects dense subgraphs in the entity dependency graph using the Louvain
+ * algorithm. Entities (functions, classes, interfaces, etc.) are the graph
+ * nodes; cross-file entity references are the edges.
+ *
+ * When entities from the same file land in different communities, that file
+ * is flagged as a split candidate — it contains entities that belong to
+ * different concerns and should be considered for restructuring.
  *
  * Also detects:
  *   - Misplaced files (community ≠ directory)
  *   - Tangled directories (too many communities in one folder)
+ *   - Split file candidates (entities from one file in multiple communities)
  */
 
 import Graph from 'graphology';
@@ -17,9 +20,11 @@ import Graph from 'graphology';
 const UndirectedGraph = (Graph as any).UndirectedGraph as typeof Graph;
 import louvain from 'graphology-communities-louvain';
 
+import type { Entity } from '@aspect/contracts';
 import type {
   WeightedEdge, FileClassificationEntry,
-  Community, SuperCluster, SuperClusterChild, CommunityDetectionResult, MisplacedFile, TangledDirectory, ClusterExposure,
+  Community, SuperCluster, SuperClusterChild, CommunityDetectionResult,
+  MisplacedFile, TangledDirectory, ClusterExposure, SplitFileCandidate,
 } from './types.js';
 import type { CodeContentRole } from './2-code-classification.js';
 import { parentDir } from './types.js';
@@ -62,66 +67,149 @@ const MIN_CLUSTER_FILES = 4;
 const HUB_FANIN_THRESHOLD = 10;
 const ROLE_FOCUS_RATIO = 0.7;
 
+// ── Entity context ──────────────────────────────────────────────────────
+
+/** Shared lookup maps built from entities + file classifications. */
+interface EntityCtx {
+  /** Entity ID → file ID (e.g. "file:packages/core/src/index.ts"). */
+  entityToFileId: Map<string, string>;
+  /** Entity ID → bare file path. */
+  entityToPath: Map<string, string>;
+  /** Entity ID → LOC (from rawCounts.linesOfCode). */
+  entityLoc: Map<string, number>;
+  /** File ID → file LOC (from file classification). */
+  fileLoc: Map<string, number>;
+  /** File ID → bare file path. */
+  filePath: Map<string, string>;
+  /** File ID → content role. */
+  fileRole: Map<string, CodeContentRole | undefined>;
+  /** File ID → entity IDs belonging to that file (non-file entities only). */
+  fileEntities: Map<string, string[]>;
+}
+
+function buildEntityCtx(
+  entities: Entity[],
+  fileClassifications: FileClassificationEntry[],
+): EntityCtx {
+  const entityToFileId = new Map<string, string>();
+  const entityToPath = new Map<string, string>();
+  const entityLoc = new Map<string, number>();
+  const fileEntities = new Map<string, string[]>();
+
+  for (const e of entities) {
+    if (e.kind === 'file') continue;
+    const fid = `file:${e.filePath}`;
+    entityToFileId.set(e.id, fid);
+    entityToPath.set(e.id, e.filePath);
+    entityLoc.set(e.id, e.rawCounts?.linesOfCode ?? 0);
+    const list = fileEntities.get(fid) ?? [];
+    list.push(e.id);
+    fileEntities.set(fid, list);
+  }
+
+  const fileLoc = new Map<string, number>();
+  const filePath = new Map<string, string>();
+  const fileRole = new Map<string, CodeContentRole | undefined>();
+  for (const f of fileClassifications) {
+    fileLoc.set(f.fileId, f.linesOfCode ?? 0);
+    filePath.set(f.fileId, f.filePath);
+    fileRole.set(f.fileId, f.contentRole);
+  }
+
+  return { entityToFileId, entityToPath, entityLoc, fileLoc, filePath, fileRole, fileEntities };
+}
+
+/** Derive deduplicated file IDs from entity membership. */
+function deriveFileIds(memberEntityIds: string[], ctx: EntityCtx): string[] {
+  const files = new Set<string>();
+  for (const eid of memberEntityIds) {
+    const fid = ctx.entityToFileId.get(eid);
+    if (fid) files.add(fid);
+  }
+  return [...files].sort();
+}
+
+/** Create a community from entity IDs, deriving file membership. */
+function makeCommunity(id: string, entityIds: string[], ctx: EntityCtx): Community {
+  return {
+    id,
+    memberEntityIds: entityIds.sort(),
+    memberFileIds: deriveFileIds(entityIds, ctx),
+  };
+}
+
+/** Re-derive memberFileIds from memberEntityIds after mutations. */
+function syncFileIds(community: Community, ctx: EntityCtx): void {
+  community.memberFileIds = deriveFileIds(community.memberEntityIds, ctx);
+}
+
 // ── Community detection ─────────────────────────────────────────────────
 
 export function detectCommunities(
   weightedEdges: WeightedEdge[],
   fileClassifications: FileClassificationEntry[],
+  entities: Entity[],
 ): CommunityDetectionResult {
-  const codeFiles = fileClassifications.filter((f) => f.category === 'code');
-  if (codeFiles.length < 2) {
-    return { communities: [], superClusters: [], modularity: 0, misplacedFiles: [], tangledDirectories: [] };
+  const emptyResult: CommunityDetectionResult = {
+    communities: [], superClusters: [], modularity: 0,
+    misplacedFiles: [], tangledDirectories: [], splitFileCandidates: [],
+  };
+
+  const ctx = buildEntityCtx(entities, fileClassifications);
+
+  // Filter to non-file entities that have cross-file edges
+  const codeEntityIds = new Set<string>();
+  for (const e of entities) {
+    if (e.kind === 'file') continue;
+    const fid = ctx.entityToFileId.get(e.id);
+    if (!fid) continue;
+    const fc = fileClassifications.find((f) => f.fileId === fid);
+    if (fc?.category === 'code') codeEntityIds.add(e.id);
   }
 
-  // Build undirected graph (Louvain requirement)
+  if (codeEntityIds.size < 2) return emptyResult;
+
+  // Build undirected entity graph (Louvain requirement)
   const graph = new UndirectedGraph();
-  const pathMap = new Map<string, string>();
+  for (const eid of codeEntityIds) graph.addNode(eid);
 
-  for (const f of codeFiles) {
-    graph.addNode(f.fileId);
-    pathMap.set(f.fileId, f.filePath);
-  }
-
-  // Compute fan-in per target file for hub dampening.
-  // Files with very high fan-in (shared types, utils) pull everything into one
-  // community. Dampen their edge weights so Louvain can split naturally.
+  // Hub dampening: compute fan-in per target entity
   const fanIn = new Map<string, number>();
   for (const edge of weightedEdges) {
-    fanIn.set(edge.targetFileId, (fanIn.get(edge.targetFileId) ?? 0) + 1);
+    if (!codeEntityIds.has(edge.sourceEntityId) || !codeEntityIds.has(edge.targetEntityId)) continue;
+    if (edge.sourceEntityId === edge.targetEntityId) continue;
+    fanIn.set(edge.targetEntityId, (fanIn.get(edge.targetEntityId) ?? 0) + 1);
   }
 
   for (const edge of weightedEdges) {
-    if (!graph.hasNode(edge.sourceFileId) || !graph.hasNode(edge.targetFileId)) continue;
-    if (edge.sourceFileId === edge.targetFileId) continue;
+    const src = edge.sourceEntityId;
+    const tgt = edge.targetEntityId;
+    if (!graph.hasNode(src) || !graph.hasNode(tgt)) continue;
+    if (src === tgt) continue;
 
-    // Hub dampening: 1/sqrt(fanIn) for targets with fanIn > HUB_FANIN_THRESHOLD.
-    // A file imported by 100 sources gets ×0.1 weight per edge in the graph,
-    // preventing it from gluing unrelated importers into one community.
-    const targetFanIn = fanIn.get(edge.targetFileId) ?? 1;
     let w = edge.weight;
+    const targetFanIn = fanIn.get(tgt) ?? 1;
     if (targetFanIn > HUB_FANIN_THRESHOLD) {
       w *= HUB_FANIN_THRESHOLD / targetFanIn;
     }
 
-    if (graph.hasEdge(edge.sourceFileId, edge.targetFileId)) {
-      const existing = (graph.getEdgeAttribute(edge.sourceFileId, edge.targetFileId, 'weight') as number) ?? 0;
-      graph.setEdgeAttribute(edge.sourceFileId, edge.targetFileId, 'weight', existing + w);
+    if (graph.hasEdge(src, tgt)) {
+      const existing = (graph.getEdgeAttribute(src, tgt, 'weight') as number) ?? 0;
+      graph.setEdgeAttribute(src, tgt, 'weight', existing + w);
     } else {
-      graph.addEdge(edge.sourceFileId, edge.targetFileId, { weight: w });
+      graph.addEdge(src, tgt, { weight: w });
     }
   }
 
-  if (graph.size === 0) {
-    return { communities: [], superClusters: [], modularity: 0, misplacedFiles: [], tangledDirectories: [] };
-  }
+  if (graph.size === 0) return emptyResult;
 
-  // Run Louvain with higher resolution for smaller, context-window-sized clusters
+  // Run Louvain on entity graph
   const detailed = louvain.detailed(graph, {
     getEdgeWeight: 'weight',
     resolution: LOUVAIN_RESOLUTION,
   });
 
-  // Group by community
+  // Group entities by community
   const communityMap = new Map<number, string[]>();
   for (const [node, cid] of Object.entries(detailed.communities)) {
     const list = communityMap.get(cid) ?? [];
@@ -129,50 +217,40 @@ export function detectCommunities(
     communityMap.set(cid, list);
   }
 
-  // Build LOC lookup for size-based splitting
-  const locMap = new Map<string, number>();
-  for (const f of codeFiles) locMap.set(f.fileId, f.linesOfCode ?? 0);
-  const roleMap = new Map<string, CodeContentRole | undefined>();
-  for (const f of codeFiles) roleMap.set(f.fileId, f.contentRole);
+  // Capture entity→community assignment before helpers (for split detection)
+  const entityToCommunityIdx = new Map<string, number>();
+  for (const [cid, members] of communityMap) {
+    for (const eid of members) entityToCommunityIdx.set(eid, cid);
+  }
 
-  // Split oversized communities so each fits in a context window
+  // Build file-level lookup maps (for helpers that reason about directories)
+  const pathMap = new Map<string, string>();
+  const locMap = new Map<string, number>();
+  const roleMap = new Map<string, CodeContentRole | undefined>();
+  for (const f of fileClassifications) {
+    if (f.category === 'code') {
+      pathMap.set(f.fileId, f.filePath);
+      locMap.set(f.fileId, f.linesOfCode ?? 0);
+      roleMap.set(f.fileId, f.contentRole);
+    }
+  }
+
   let communities: Community[] = [...communityMap.entries()]
     .sort(([a], [b]) => a - b)
-    .map(([, members], i) => ({
-      id: `community-${i}`,
-      memberFileIds: members.sort(),
-    }));
+    .map(([, members], i) => makeCommunity(`community-${i}`, members, ctx));
 
-  // Absorb singleton files into the nearest community by directory
-  communities = absorbSingletons(communities, pathMap);
-
-  // Merge tiny fragments by directory continuity first.
-  communities = mergeSmallCommunities(communities, graph, pathMap);
-
-  // Split oversized communities (after absorb+merge, since they may push clusters over the cap)
-  communities = splitOversizedCommunities(communities, locMap, graph);
-
-  // Enforce concern focus: split mixed-role communities.
-  communities = splitMixedConcernCommunities(communities, roleMap);
-
-  // Merge undersized communities only when they are genuinely related.
-  communities = mergeUndersizedCommunities(communities, graph, pathMap, locMap, roleMap);
-
-  // Extract shared contract/type files into their own clusters.
-  communities = extractSharedTypes(communities, weightedEdges, roleMap);
-
-  // Merge communities with bidirectional (cyclic) dependencies.
-  // Cross-cluster edges must be unidirectional — cycles indicate the
-  // communities are too tightly coupled and should be one cluster.
-  communities = mergeCyclicCommunities(communities, weightedEdges);
-
+  // Post-processing pipeline
+  communities = absorbSingletons(communities, pathMap, ctx);
+  communities = mergeSmallCommunities(communities, graph, pathMap, ctx);
+  communities = splitOversizedCommunities(communities, locMap, graph, ctx);
+  communities = splitMixedConcernCommunities(communities, roleMap, ctx);
+  communities = mergeUndersizedCommunities(communities, graph, pathMap, locMap, roleMap, ctx);
+  communities = extractSharedTypes(communities, weightedEdges, roleMap, ctx);
+  communities = mergeCyclicCommunities(communities, weightedEdges, ctx);
   communities = annotateCommunities(communities, pathMap, locMap, roleMap);
 
-  // Build hierarchical superclusters from shared contracts + edge coupling.
+  // Build hierarchical superclusters
   let superClusters = buildSuperClusters(communities, weightedEdges, roleMap, pathMap, locMap);
-
-  // Verify no cyclic dependencies between superclusters (including indirect cycles).
-  // If cycles exist, merge the offending superclusters.
   superClusters = mergeCyclicSuperClusters(superClusters, communities, weightedEdges);
 
   const clusterExposure = computeCommunityExposure(communities, weightedEdges, locMap);
@@ -180,9 +258,11 @@ export function detectCommunities(
   applyExposureToCommunities(communities, clusterExposure);
   applyExposureToSuperClusters(superClusters, superClusterExposure);
 
-  // Detect misplaced files: file's community majority dir ≠ file's actual dir
   const misplacedFiles = findMisplacedFiles(communities, pathMap);
   const tangledDirectories = findTangledDirectories(communities, pathMap);
+
+  // Detect split file candidates: files with entities in multiple communities
+  const splitFileCandidates = detectSplitFiles(communities, ctx);
 
   return {
     communities,
@@ -192,6 +272,7 @@ export function detectCommunities(
     modularity: detailed.modularity,
     misplacedFiles,
     tangledDirectories,
+    splitFileCandidates,
   };
 }
 
@@ -200,86 +281,83 @@ export function detectCommunities(
 /**
  * Absorb single-file communities into the nearest multi-file community
  * by directory proximity, or group isolated singletons by directory into
- * new small communities. Keeps cluster count manageable without inflating
- * existing clusters beyond the file cap.
+ * new small communities.
  */
 function absorbSingletons(
   communities: Community[],
   pathMap: Map<string, string>,
+  ctx: EntityCtx,
 ): Community[] {
   const multi = communities.filter((c) => c.memberFileIds.length > 1);
-  const singles = communities.filter((c) => c.memberFileIds.length === 1);
+  const singles = communities.filter((c) => c.memberFileIds.length <= 1);
 
   if (singles.length === 0) return communities;
 
-  // Build community → majority directory (only for multi-member communities)
   const communityDirs = new Map<string, Set<string>>();
   for (const c of multi) {
     const dirs = new Set(c.memberFileIds.map((fid) => parentDir(pathMap.get(fid) ?? fid)));
     communityDirs.set(c.id, dirs);
   }
 
-  const absorbed: string[] = []; // singletons that found a home
-  const orphans: string[] = [];  // singletons that didn't match
+  const absorbedCommunities: Community[] = [];
+  const orphanEntityIds: string[] = [];
 
   for (const s of singles) {
+    if (s.memberEntityIds.length === 0) continue;
     const fid = s.memberFileIds[0];
+    if (!fid) { orphanEntityIds.push(...s.memberEntityIds); continue; }
     const fDir = parentDir(pathMap.get(fid) ?? fid);
 
-    // Only absorb if the singleton's directory is already represented in a community
     let bestCommunity: Community | null = null;
     for (const c of multi) {
-      if (c.memberFileIds.length >= MAX_CLUSTER_FILES) continue; // respect cap
+      if (c.memberFileIds.length >= MAX_CLUSTER_FILES) continue;
       const dirs = communityDirs.get(c.id)!;
       if (dirs.has(fDir)) { bestCommunity = c; break; }
     }
 
     if (bestCommunity) {
-      bestCommunity.memberFileIds.push(fid);
-      absorbed.push(fid);
+      bestCommunity.memberEntityIds.push(...s.memberEntityIds);
+      syncFileIds(bestCommunity, ctx);
     } else {
-      orphans.push(fid);
+      orphanEntityIds.push(...s.memberEntityIds);
     }
   }
 
-  // Group remaining orphans by directory into small communities
+  // Group remaining orphans by directory
   const dirGroups = new Map<string, string[]>();
-  for (const fid of orphans) {
-    const dir = parentDir(pathMap.get(fid) ?? fid);
+  for (const eid of orphanEntityIds) {
+    const fid = ctx.entityToFileId.get(eid);
+    const dir = parentDir(fid ? (pathMap.get(fid) ?? fid) : '');
     const list = dirGroups.get(dir) ?? [];
-    list.push(fid);
+    list.push(eid);
     dirGroups.set(dir, list);
   }
 
   const result = [...multi];
   for (const [, members] of dirGroups) {
-    result.push({ id: '', memberFileIds: members.sort() });
+    result.push(makeCommunity('', members, ctx));
   }
 
-  // Re-number
-  return result.map((c, i) => ({ ...c, id: `community-${i}`, memberFileIds: c.memberFileIds.sort() }));
+  return result.map((c, i) => ({ ...c, id: `community-${i}` }));
 }
 
 // ── Small-community merging ─────────────────────────────────────────────
 
 /**
  * Merge communities smaller than MIN_CLUSTER_FILES into their best neighbor.
- * "Best" = the community sharing the most edges, breaking ties by directory
- * proximity. This prevents the cluster map from being dominated by tiny
- * fragments that don't carry enough context for an agent.
+ * Works on entity-level graph for edge connectivity.
  */
 function mergeSmallCommunities(
   communities: Community[],
   graph: InstanceType<typeof Graph>,
   pathMap: Map<string, string>,
+  ctx: EntityCtx,
 ): Community[] {
-  // Build file → community index
-  const fileToCIdx = new Map<string, number>();
+  const entityToCIdx = new Map<string, number>();
   for (let i = 0; i < communities.length; i++) {
-    for (const fid of communities[i].memberFileIds) fileToCIdx.set(fid, i);
+    for (const eid of communities[i].memberEntityIds) entityToCIdx.set(eid, i);
   }
 
-  // Iteratively merge smallest into best neighbor
   const merged = new Set<number>();
   let changed = true;
   while (changed) {
@@ -288,19 +366,18 @@ function mergeSmallCommunities(
       if (merged.has(i)) continue;
       if (communities[i].memberFileIds.length >= MIN_CLUSTER_FILES) continue;
 
-      // Count edges to each other community
+      // Count edges to each other community via entity graph
       const edgeCounts = new Map<number, number>();
-      for (const fid of communities[i].memberFileIds) {
-        if (!graph.hasNode(fid)) continue;
-        graph.forEachNeighbor(fid, (neighbor) => {
-          const nIdx = fileToCIdx.get(neighbor);
+      for (const eid of communities[i].memberEntityIds) {
+        if (!graph.hasNode(eid)) continue;
+        graph.forEachNeighbor(eid, (neighbor) => {
+          const nIdx = entityToCIdx.get(neighbor);
           if (nIdx !== undefined && nIdx !== i && !merged.has(nIdx)) {
             edgeCounts.set(nIdx, (edgeCounts.get(nIdx) ?? 0) + 1);
           }
         });
       }
 
-      // Pick the neighbor with most edges; if none, pick closest by directory
       let bestIdx = -1;
       let bestEdges = 0;
       for (const [idx, count] of edgeCounts) {
@@ -311,16 +388,16 @@ function mergeSmallCommunities(
       }
 
       if (bestIdx === -1) {
-        // No edge-connected neighbor under the cap — try directory proximity
-        // but only within the same package to avoid cross-package merging
-        const myDir = parentDir(pathMap.get(communities[i].memberFileIds[0]) ?? '');
+        const myFid = communities[i].memberFileIds[0];
+        const myDir = parentDir(pathMap.get(myFid) ?? '');
         const myPkg = packagePrefix(myDir);
         let bestScore = -1;
         for (let j = 0; j < communities.length; j++) {
           if (j === i || merged.has(j)) continue;
           if (communities[j].memberFileIds.length + communities[i].memberFileIds.length > MAX_CLUSTER_FILES) continue;
-          const otherDir = parentDir(pathMap.get(communities[j].memberFileIds[0]) ?? '');
-          if (packagePrefix(otherDir) !== myPkg) continue; // don't cross packages
+          const otherFid = communities[j].memberFileIds[0];
+          const otherDir = parentDir(pathMap.get(otherFid) ?? '');
+          if (packagePrefix(otherDir) !== myPkg) continue;
           const myParts = myDir.split('/');
           const otherParts = otherDir.split('/');
           let common = 0;
@@ -331,12 +408,11 @@ function mergeSmallCommunities(
 
       if (bestIdx === -1) continue;
 
-      // Merge i into bestIdx
-      for (const fid of communities[i].memberFileIds) {
-        communities[bestIdx].memberFileIds.push(fid);
-        fileToCIdx.set(fid, bestIdx);
-      }
-      communities[i].memberFileIds = [];
+      communities[bestIdx].memberEntityIds.push(...communities[i].memberEntityIds);
+      for (const eid of communities[i].memberEntityIds) entityToCIdx.set(eid, bestIdx);
+      communities[i].memberEntityIds = [];
+      syncFileIds(communities[bestIdx], ctx);
+      syncFileIds(communities[i], ctx);
       merged.add(i);
       changed = true;
     }
@@ -344,19 +420,20 @@ function mergeSmallCommunities(
 
   return communities
     .filter((_, i) => !merged.has(i))
-    .map((c, i) => ({ ...c, id: `community-${i}`, memberFileIds: c.memberFileIds.sort() }));
+    .map((c, i) => ({ ...c, id: `community-${i}` }));
 }
 
 // ── Oversized community splitting ───────────────────────────────────────
 
 /**
  * Recursively split communities that exceed context-window thresholds.
- * Uses sub-graph Louvain with progressively higher resolution.
+ * Uses sub-graph Louvain on entity graph with progressively higher resolution.
  */
 function splitOversizedCommunities(
   communities: Community[],
   locMap: Map<string, number>,
   graph: InstanceType<typeof Graph>,
+  ctx: EntityCtx,
 ): Community[] {
   const result: Community[] = [];
   let nextId = communities.length;
@@ -368,13 +445,13 @@ function splitOversizedCommunities(
       continue;
     }
 
-    // Build subgraph and run Louvain at higher resolution
+    // Build entity subgraph
     const subGraph = new UndirectedGraph();
-    const members = new Set(community.memberFileIds);
-    for (const fid of members) {
-      if (graph.hasNode(fid)) subGraph.addNode(fid);
+    const members = new Set(community.memberEntityIds);
+    for (const eid of members) {
+      if (graph.hasNode(eid)) subGraph.addNode(eid);
     }
-    graph.forEachEdge((edge, attrs, src, tgt) => {
+    graph.forEachEdge((_edge, attrs, src, tgt) => {
       if (members.has(src) && members.has(tgt) && subGraph.hasNode(src) && subGraph.hasNode(tgt)) {
         if (!subGraph.hasEdge(src, tgt)) {
           subGraph.addEdge(src, tgt, { weight: attrs.weight ?? 1 });
@@ -401,37 +478,28 @@ function splitOversizedCommunities(
       }
 
       if (subMap.size <= 1) {
-        // Louvain couldn't split further — keep as-is
         result.push(community);
       } else {
-        // Collect sub-communities; absorb sub-singletons into the largest sub-community
         const subComms = [...subMap.values()].sort((a, b) => b.length - a.length);
         const largest = subComms[0];
         for (let i = 1; i < subComms.length; i++) {
           if (subComms[i].length === 1) {
             largest.push(subComms[i][0]);
           } else {
-            result.push({
-              id: `community-${nextId++}`,
-              memberFileIds: subComms[i].sort(),
-            });
+            result.push(makeCommunity(`community-${nextId++}`, subComms[i], ctx));
           }
         }
-        // Also add any members not in the subgraph (absorbed isolates)
-        for (const fid of members) {
-          if (!subGraph.hasNode(fid)) largest.push(fid);
+        // Add entities not in subgraph (isolated) to the largest
+        for (const eid of members) {
+          if (!subGraph.hasNode(eid)) largest.push(eid);
         }
-        result.push({
-          id: `community-${nextId++}`,
-          memberFileIds: largest.sort(),
-        });
+        result.push(makeCommunity(`community-${nextId++}`, largest, ctx));
       }
     } catch {
       result.push(community);
     }
   }
 
-  // Re-number sequentially
   return result.map((c, i) => ({ ...c, id: `community-${i}` }));
 }
 
@@ -441,29 +509,26 @@ function splitOversizedCommunities(
 const SHARED_TYPE_MIN_CONSUMERS = 2;
 
 /**
- * Extract contract/type files consumed by multiple communities into
- * dedicated "shared types" clusters. This keeps implementation clusters
- * focused on a single agent's scope — shared interfaces become their own
- * boundary clusters.
+ * Extract contract/type entities consumed by multiple communities into
+ * dedicated "shared types" clusters.
  */
 function extractSharedTypes(
   communities: Community[],
   edges: WeightedEdge[],
   roleMap: Map<string, CodeContentRole | undefined>,
+  ctx: EntityCtx,
 ): Community[] {
-  // Build file → community lookup
   const fileToCommunity = new Map<string, string>();
   for (const c of communities) {
     for (const fid of c.memberFileIds) fileToCommunity.set(fid, c.id);
   }
 
-  // For each target file, count how many distinct communities import it
   const targetConsumers = new Map<string, Set<string>>();
   for (const edge of edges) {
     const srcCommunity = fileToCommunity.get(edge.sourceFileId);
     const tgtCommunity = fileToCommunity.get(edge.targetFileId);
     if (!srcCommunity || !tgtCommunity) continue;
-    if (srcCommunity === tgtCommunity) continue; // same cluster — not cross-community
+    if (srcCommunity === tgtCommunity) continue;
 
     let consumers = targetConsumers.get(edge.targetFileId);
     if (!consumers) {
@@ -473,7 +538,6 @@ function extractSharedTypes(
     consumers.add(srcCommunity);
   }
 
-  // Identify contract files consumed by ≥ N communities
   const sharedFiles = new Set<string>();
   for (const [fileId, consumers] of targetConsumers) {
     if (consumers.size < SHARED_TYPE_MIN_CONSUMERS) continue;
@@ -485,8 +549,6 @@ function extractSharedTypes(
 
   if (sharedFiles.size === 0) return communities;
 
-  // Group extracted files by directory prefix so related types stay together
-  // Only create a separate cluster if the group is big enough to be meaningful
   const dirGroups = new Map<string, string[]>();
   for (const fid of sharedFiles) {
     const dir = parentDir(fid);
@@ -502,30 +564,27 @@ function extractSharedTypes(
       viableGroups.push(members);
       for (const fid of members) actuallyExtracted.add(fid);
     }
-    // Small groups stay in their original community — not worth fragmenting
   }
 
   if (actuallyExtracted.size === 0) return communities;
 
-  // Remove extracted files from their original communities
+  // Remove extracted entities from their original communities
   const remaining = communities
-    .map((c) => ({
-      ...c,
-      memberFileIds: c.memberFileIds.filter((fid) => !actuallyExtracted.has(fid)),
-    }))
-    .filter((c) => c.memberFileIds.length > 0);
+    .map((c) => {
+      const kept = c.memberEntityIds.filter((eid) => !actuallyExtracted.has(ctx.entityToFileId.get(eid)!));
+      return { ...c, memberEntityIds: kept, memberFileIds: deriveFileIds(kept, ctx) };
+    })
+    .filter((c) => c.memberEntityIds.length > 0);
 
-  // Create new shared-type communities
+  // Create new shared-type communities from extracted files' entities
   let nextId = remaining.length;
   const sharedCommunities: Community[] = [];
-  for (const members of viableGroups) {
-    sharedCommunities.push({
-      id: `community-${nextId++}`,
-      memberFileIds: members.sort(),
-    });
+  for (const fileIds of viableGroups) {
+    const entityIds: string[] = [];
+    for (const fid of fileIds) entityIds.push(...(ctx.fileEntities.get(fid) ?? []));
+    sharedCommunities.push(makeCommunity(`community-${nextId++}`, entityIds, ctx));
   }
 
-  // Re-number sequentially
   return [...remaining, ...sharedCommunities].map((c, i) => ({
     ...c,
     id: `community-${i}`,
@@ -535,24 +594,27 @@ function extractSharedTypes(
 function splitMixedConcernCommunities(
   communities: Community[],
   roleMap: Map<string, CodeContentRole | undefined>,
+  ctx: EntityCtx,
 ): Community[] {
   const next: Community[] = [];
   for (const community of communities) {
+    // Group entities by their file's role
     const byRole = new Map<string, string[]>();
-    for (const fid of community.memberFileIds) {
-      const role = roleMap.get(fid) ?? 'unknown';
+    for (const eid of community.memberEntityIds) {
+      const fid = ctx.entityToFileId.get(eid);
+      const role = (fid ? roleMap.get(fid) : undefined) ?? 'unknown';
       const list = byRole.get(role) ?? [];
-      list.push(fid);
+      list.push(eid);
       byRole.set(role, list);
     }
     const dominant = [...byRole.values()].sort((a, b) => b.length - a.length)[0]?.length ?? 0;
-    if (byRole.size <= 1 || dominant / Math.max(community.memberFileIds.length, 1) >= ROLE_FOCUS_RATIO) {
-      next.push({ ...community, memberFileIds: [...community.memberFileIds].sort() });
+    if (byRole.size <= 1 || dominant / Math.max(community.memberEntityIds.length, 1) >= ROLE_FOCUS_RATIO) {
+      next.push(community);
       continue;
     }
     for (const members of byRole.values()) {
       if (members.length === 0) continue;
-      next.push({ id: '', memberFileIds: members.sort() });
+      next.push(makeCommunity('', members, ctx));
     }
   }
   return next.map((c, i) => ({ ...c, id: `community-${i}` }));
@@ -564,11 +626,16 @@ function mergeUndersizedCommunities(
   pathMap: Map<string, string>,
   locMap: Map<string, number>,
   roleMap: Map<string, CodeContentRole | undefined>,
+  ctx: EntityCtx,
 ): Community[] {
-  const work = communities.map((c) => ({ ...c, memberFileIds: [...c.memberFileIds] }));
-  const fileToIdx = new Map<string, number>();
+  const work = communities.map((c) => ({
+    ...c,
+    memberEntityIds: [...c.memberEntityIds],
+    memberFileIds: [...c.memberFileIds],
+  }));
+  const entityToIdx = new Map<string, number>();
   for (let i = 0; i < work.length; i++) {
-    for (const fid of work[i].memberFileIds) fileToIdx.set(fid, i);
+    for (const eid of work[i].memberEntityIds) entityToIdx.set(eid, i);
   }
 
   const merged = new Set<number>();
@@ -584,10 +651,10 @@ function mergeUndersizedCommunities(
       const myTech = dominantTech(work[i], pathMap);
       const candidateScore = new Map<number, number>();
 
-      for (const fid of work[i].memberFileIds) {
-        if (!graph.hasNode(fid)) continue;
-        graph.forEachNeighbor(fid, (neighbor) => {
-          const idx = fileToIdx.get(neighbor);
+      for (const eid of work[i].memberEntityIds) {
+        if (!graph.hasNode(eid)) continue;
+        graph.forEachNeighbor(eid, (neighbor) => {
+          const idx = entityToIdx.get(neighbor);
           if (idx == null || idx === i || merged.has(idx)) return;
           if (dominantRole(work[idx], roleMap) !== myRole) return;
           if (dominantTech(work[idx], pathMap) !== myTech) return;
@@ -606,11 +673,11 @@ function mergeUndersizedCommunities(
       }
       if (bestIdx === -1) continue;
 
-      for (const fid of work[i].memberFileIds) {
-        work[bestIdx].memberFileIds.push(fid);
-        fileToIdx.set(fid, bestIdx);
-      }
-      work[i].memberFileIds = [];
+      work[bestIdx].memberEntityIds.push(...work[i].memberEntityIds);
+      for (const eid of work[i].memberEntityIds) entityToIdx.set(eid, bestIdx);
+      work[i].memberEntityIds = [];
+      syncFileIds(work[bestIdx], ctx);
+      syncFileIds(work[i], ctx);
       merged.add(i);
       changed = true;
     }
@@ -618,7 +685,7 @@ function mergeUndersizedCommunities(
 
   return work
     .filter((_, idx) => !merged.has(idx))
-    .map((c, i) => ({ ...c, id: `community-${i}`, memberFileIds: c.memberFileIds.sort() }));
+    .map((c, i) => ({ ...c, id: `community-${i}` }));
 }
 
 // ── Cycle elimination ────────────────────────────────────────────────────
@@ -634,6 +701,7 @@ function mergeUndersizedCommunities(
 function mergeCyclicCommunities(
   communities: Community[],
   edges: WeightedEdge[],
+  ctx: EntityCtx,
 ): Community[] {
   if (communities.length < 2) return communities;
 
@@ -642,7 +710,6 @@ function mergeCyclicCommunities(
     for (const fid of c.memberFileIds) fileToCommunity.set(fid, c.id);
   }
 
-  // Build directed edge set between communities
   const directedEdges = new Set<string>();
   for (const edge of edges) {
     const src = fileToCommunity.get(edge.sourceFileId);
@@ -651,7 +718,6 @@ function mergeCyclicCommunities(
     directedEdges.add(`${src}\0${tgt}`);
   }
 
-  // Find bidirectional pairs
   const parent = new Map<string, string>();
   for (const c of communities) parent.set(c.id, c.id);
   const find = (x: string): string => {
@@ -670,8 +736,7 @@ function mergeCyclicCommunities(
   let hasCycles = false;
   for (const key of directedEdges) {
     const [a, b] = key.split('\0');
-    const reverse = `${b}\0${a}`;
-    if (directedEdges.has(reverse)) {
+    if (directedEdges.has(`${b}\0${a}`)) {
       union(a, b);
       hasCycles = true;
     }
@@ -679,7 +744,6 @@ function mergeCyclicCommunities(
 
   if (!hasCycles) return communities;
 
-  // Group by root
   const groups = new Map<string, Community[]>();
   for (const c of communities) {
     const root = find(c.id);
@@ -688,22 +752,67 @@ function mergeCyclicCommunities(
     groups.set(root, list);
   }
 
-  // Collapse groups with multiple members into single communities
   const result: Community[] = [];
   for (const members of groups.values()) {
     if (members.length === 1) {
       result.push(members[0]);
     } else {
       const merged: string[] = [];
-      for (const c of members) merged.push(...c.memberFileIds);
-      result.push({
-        id: '',
-        memberFileIds: merged.sort(),
-      });
+      for (const c of members) merged.push(...c.memberEntityIds);
+      result.push(makeCommunity('', merged, ctx));
     }
   }
 
   return result.map((c, i) => ({ ...c, id: `community-${i}` }));
+}
+
+// ── Split file detection ────────────────────────────────────────────────
+
+/**
+ * Find files whose entities are spread across multiple communities.
+ * These are candidates for restructuring — the file contains concerns
+ * that belong to different architectural clusters.
+ */
+function detectSplitFiles(
+  communities: Community[],
+  ctx: EntityCtx,
+): SplitFileCandidate[] {
+  // Build entity → community mapping from final community assignments
+  const entityToCommunity = new Map<string, string>();
+  for (const c of communities) {
+    for (const eid of c.memberEntityIds) entityToCommunity.set(eid, c.id);
+  }
+
+  // For each file, check if its entities are in multiple communities
+  const candidates: SplitFileCandidate[] = [];
+  for (const [fileId, entityIds] of ctx.fileEntities) {
+    if (entityIds.length < 2) continue;
+
+    const communityBreakdown = new Map<string, { count: number; loc: number }>();
+    for (const eid of entityIds) {
+      const cid = entityToCommunity.get(eid);
+      if (!cid) continue;
+      const entry = communityBreakdown.get(cid) ?? { count: 0, loc: 0 };
+      entry.count++;
+      entry.loc += ctx.entityLoc.get(eid) ?? 0;
+      communityBreakdown.set(cid, entry);
+    }
+
+    if (communityBreakdown.size < 2) continue;
+
+    const totalEntityLoc = entityIds.reduce((s, eid) => s + (ctx.entityLoc.get(eid) ?? 0), 0);
+    candidates.push({
+      fileId,
+      filePath: ctx.filePath.get(fileId) ?? fileId,
+      communityCount: communityBreakdown.size,
+      communityBreakdown: [...communityBreakdown.entries()]
+        .map(([communityId, { count, loc }]) => ({ communityId, entityCount: count, entityLoc: loc }))
+        .sort((a, b) => b.entityLoc - a.entityLoc),
+      totalEntityLoc,
+    });
+  }
+
+  return candidates.sort((a, b) => b.communityCount - a.communityCount || b.totalEntityLoc - a.totalEntityLoc);
 }
 
 function annotateCommunities(
