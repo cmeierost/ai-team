@@ -8,8 +8,8 @@
  * would have on modularity.
  */
 
-import type { FileClassificationEntry, FileCluster, WeightedEdge } from './types.js';
-import { parentDir, round3, buildFileClusterIndex } from './types.js';
+import type { FileClassificationEntry, Community, WeightedEdge } from './types.js';
+import { parentDir, round3, buildFileCommunityIndex } from './types.js';
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -45,21 +45,21 @@ export interface MoveSuggestionResult {
 
 export function generateMoveSuggestions(
   files: FileClassificationEntry[],
-  clusters: FileCluster[],
+  communities: Community[],
   weightedEdges: WeightedEdge[],
 ): MoveSuggestionResult {
   const codeFiles = files.filter((f) => f.category === 'code');
-  if (codeFiles.length === 0 || clusters.length === 0) {
+  if (codeFiles.length === 0 || communities.length === 0) {
     return { suggestions: [], totalFilesToMove: 0, estimatedModularityGain: 0 };
   }
 
-  // Build file → cluster mapping (first cluster wins)
-  const fileClusterIndex = buildFileClusterIndex(clusters);
-  const fileToCluster = new Map<string, string>();
+  // Build file → community mapping (first community wins)
+  const fileCommunityIndex = buildFileCommunityIndex(communities);
+  const fileToCommunity = new Map<string, string>();
   for (const f of codeFiles) {
-    const clusterIds = fileClusterIndex.get(f.fileId);
-    if (clusterIds && clusterIds.length > 0) {
-      fileToCluster.set(f.fileId, clusterIds[0]);
+    const communityIds = fileCommunityIndex.get(f.fileId);
+    if (communityIds && communityIds.length > 0) {
+      fileToCommunity.set(f.fileId, communityIds[0]);
     }
   }
 
@@ -71,37 +71,37 @@ export function generateMoveSuggestions(
     fileLocMap.set(f.fileId, f.linesOfCode ?? 0);
   }
 
-  // Build cluster member sets
-  const clusterMembers = new Map<string, Set<string>>();
-  for (const c of clusters) {
-    clusterMembers.set(c.id, new Set(c.fileIds));
+  // Build community member sets
+  const communityMembers = new Map<string, Set<string>>();
+  for (const c of communities) {
+    communityMembers.set(c.id, new Set(c.memberFileIds));
   }
 
-  // Build cluster → dominant directory
-  const clusterDirCounts = new Map<string, Map<string, number>>();
-  const clusterTotalFiles = new Map<string, number>();
-  for (const c of clusters) {
+  // Build community → dominant directory
+  const communityDirCounts = new Map<string, Map<string, number>>();
+  const communityTotalFiles = new Map<string, number>();
+  for (const c of communities) {
     const dirCounts = new Map<string, number>();
-    for (const fileId of c.fileIds) {
+    for (const fileId of c.memberFileIds) {
       const dir = fileToDir.get(fileId);
       if (dir != null) {
         dirCounts.set(dir, (dirCounts.get(dir) ?? 0) + 1);
       }
     }
-    clusterDirCounts.set(c.id, dirCounts);
-    clusterTotalFiles.set(c.id, c.fileIds.length);
+    communityDirCounts.set(c.id, dirCounts);
+    communityTotalFiles.set(c.id, c.memberFileIds.length);
   }
 
-  const clusterDominantDir = new Map<string, string>();
-  const clusterDominantDirCount = new Map<string, number>();
-  for (const [clusterId, dirCounts] of clusterDirCounts) {
+  const communityDominantDir = new Map<string, string>();
+  const communityDominantDirCount = new Map<string, number>();
+  for (const [communityId, dirCounts] of communityDirCounts) {
     let bestDir = '';
     let bestCount = 0;
     for (const [dir, count] of dirCounts) {
       if (count > bestCount) { bestCount = count; bestDir = dir; }
     }
-    clusterDominantDir.set(clusterId, bestDir);
-    clusterDominantDirCount.set(clusterId, bestCount);
+    communityDominantDir.set(communityId, bestDir);
+    communityDominantDirCount.set(communityId, bestCount);
   }
 
   // Build per-file edge adjacency
@@ -121,15 +121,15 @@ export function generateMoveSuggestions(
   let totalModularityGain = 0;
 
   for (const f of codeFiles) {
-    const clusterId = fileToCluster.get(f.fileId);
-    if (!clusterId) continue; // unclustered — no suggestion
+    const communityId = fileToCommunity.get(f.fileId);
+    if (!communityId) continue; // unclustered — no suggestion
 
     const currentDir = fileToDir.get(f.fileId)!;
-    const suggestedDir = clusterDominantDir.get(clusterId)!;
+    const suggestedDir = communityDominantDir.get(communityId)!;
 
     if (currentDir === suggestedDir) continue; // already in correct directory
 
-    const memberSet = clusterMembers.get(clusterId)!;
+    const memberSet = communityMembers.get(communityId)!;
     const edges = fileEdges.get(f.fileId) ?? [];
 
     // Impact: count edge changes from the move
@@ -156,9 +156,9 @@ export function generateMoveSuggestions(
     const fileLoc = fileLocMap.get(f.fileId) ?? 0;
 
     // Confidence based on how dominant the suggested directory is
-    const totalInCluster = clusterTotalFiles.get(clusterId) ?? 1;
-    const dominantCount = clusterDominantDirCount.get(clusterId) ?? 0;
-    const dominantRatio = dominantCount / totalInCluster;
+    const totalInCommunity = communityTotalFiles.get(communityId) ?? 1;
+    const dominantCount = communityDominantDirCount.get(communityId) ?? 0;
+    const dominantRatio = dominantCount / totalInCommunity;
     const confidence: 'high' | 'medium' | 'low' =
       dominantRatio > 0.8 ? 'high' :
         dominantRatio > 0.5 ? 'medium' : 'low';
@@ -182,7 +182,7 @@ export function generateMoveSuggestions(
 
     // Rationale
     const rationale =
-      `${dominantCount} of ${totalInCluster} cluster files are in ${suggestedDir}, ` +
+      `${dominantCount} of ${totalInCommunity} community files are in ${suggestedDir}, ` +
       `but this file is in ${currentDir}`;
 
     totalModularityGain += deltaModularity;

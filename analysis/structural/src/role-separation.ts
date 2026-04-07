@@ -5,7 +5,7 @@
  * (logic, contract, presentation, infrastructure) versus mixing concerns.
  */
 
-import type { FileCluster, FileClassificationEntry } from './types.js';
+import type { Community, FileClassificationEntry } from './types.js';
 import { round3 } from './types.js';
 
 // ── Public types ────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ function roleKey(role: string | undefined): RoleKey {
  * single-role).
  */
 export function computeRoleSeparation(
-  clusters: FileCluster[],
+  communities: Community[],
   fileClassifications: FileClassificationEntry[],
 ): RoleSeparationMetrics {
   const fileIndex = new Map<string, FileClassificationEntry>();
@@ -75,12 +75,12 @@ export function computeRoleSeparation(
   let repoInfra = 0;
   let repoOther = 0;
 
-  for (const cluster of clusters) {
+  for (const community of communities) {
     const buckets: Record<RoleKey, number> = {
       logic: 0, contract: 0, presentation: 0, infrastructure: 0, other: 0,
     };
 
-    for (const fileId of cluster.fileIds) {
+    for (const fileId of community.memberFileIds) {
       const fc = fileIndex.get(fileId);
       if (!fc) continue;
       const loc = fc.linesOfCode ?? 0;
@@ -95,7 +95,7 @@ export function computeRoleSeparation(
     const separationScore = total > 0 ? round3(dominant[1] / total) : 0;
 
     perCluster.push({
-      clusterId: cluster.id,
+      clusterId: community.id,
       logicLoc: buckets.logic,
       contractLoc: buckets.contract,
       presentationLoc: buckets.presentation,

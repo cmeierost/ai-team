@@ -14,13 +14,13 @@
 
 import type { CodeContentRole } from './2-code-classification.js';
 import type {
-  StructuralFileInfo, FileCluster,
+  StructuralFileInfo, Community,
   ClusterQuality, FileSplitCandidate,
   FolderFocus, PackageAlignment,
   StructuralAlignmentResult, StructuralWarning,
   WarningThresholds,
 } from './types.js';
-import { DEFAULT_THRESHOLDS, round3, parentDir, buildFileClusterIndex } from './types.js';
+import { DEFAULT_THRESHOLDS, round3, parentDir, buildFileCommunityIndex } from './types.js';
 import { analysePackageAlignment } from './6-package-comparison.js';
 import { analyseFolderFocus } from './7-folder-comparison.js';
 
@@ -45,13 +45,13 @@ const ROLE_SIGNIFICANCE_THRESHOLD = 0.2;
  */
 export function analyseClusterQuality(
   files: StructuralFileInfo[],
-  clusters: FileCluster[],
+  communities: Community[],
 ): ClusterQuality[] {
   const fileMap = new Map(files.map((f) => [f.fileId, f]));
   const results: ClusterQuality[] = [];
 
-  for (const cluster of clusters) {
-    const members = cluster.fileIds
+  for (const community of communities) {
+    const members = community.memberFileIds
       .map((id) => fileMap.get(id))
       .filter((f): f is StructuralFileInfo => f != null);
 
@@ -102,19 +102,19 @@ export function analyseClusterQuality(
       folders.add(parentDir(f.filePath));
     }
 
-    // Folder separation: does this cluster share folders with others?
+    // Folder separation: does this community share folders with others?
     let folderSeparated: boolean | undefined;
     if (packages.size > 0) {
-      const otherClustersInSamePackages = clusters.filter((other) => {
-        if (other.id === cluster.id) return false;
-        const otherMembers = other.fileIds.map((id) => fileMap.get(id)).filter(Boolean);
+      const otherCommunitiesInSamePackages = communities.filter((other) => {
+        if (other.id === community.id) return false;
+        const otherMembers = other.memberFileIds.map((id) => fileMap.get(id)).filter(Boolean);
         return otherMembers.some((m) => m!.packageId && packages.has(m!.packageId));
       });
 
-      if (otherClustersInSamePackages.length > 0) {
+      if (otherCommunitiesInSamePackages.length > 0) {
         const otherFolders = new Set<string>();
-        for (const other of otherClustersInSamePackages) {
-          for (const fId of other.fileIds) {
+        for (const other of otherCommunitiesInSamePackages) {
+          for (const fId of other.memberFileIds) {
             const f = fileMap.get(fId);
             if (f && f.packageId && packages.has(f.packageId)) {
               otherFolders.add(parentDir(f.filePath));
@@ -131,7 +131,7 @@ export function analyseClusterQuality(
     }
 
     results.push({
-      clusterId: cluster.id,
+      clusterId: community.id,
       fileCount: members.length,
       roleMix,
       dominantRole,
@@ -157,19 +157,19 @@ export function analyseClusterQuality(
  */
 export function findSplitCandidates(
   files: StructuralFileInfo[],
-  clusters: FileCluster[],
+  communities: Community[],
 ): FileSplitCandidate[] {
-  const fileToCluster = buildFileClusterIndex(clusters);
+  const fileToCommunity = buildFileCommunityIndex(communities);
   const candidates: FileSplitCandidate[] = [];
 
   for (const f of files) {
-    const cIds = fileToCluster.get(f.fileId);
+    const cIds = fileToCommunity.get(f.fileId);
     if (!cIds || cIds.length < 2) continue;
 
     const edgesPerCluster: Record<string, number> = {};
     for (const cId of cIds) {
-      const cluster = clusters.find((c) => c.id === cId);
-      edgesPerCluster[cId] = cluster ? cluster.fileIds.length : 1;
+      const community = communities.find((c) => c.id === cId);
+      edgesPerCluster[cId] = community ? community.memberFileIds.length : 1;
     }
 
     const splitConfidence = round3(Math.min(1.0, (cIds.length - 1) * 0.4));
@@ -195,7 +195,7 @@ export function findSplitCandidates(
  */
 export function generateWarnings(
   files: StructuralFileInfo[],
-  clusters: FileCluster[],
+  communities: Community[],
   folderFocus: FolderFocus[],
   packageAlignment: PackageAlignment[],
   clusterQuality: ClusterQuality[],
@@ -223,21 +223,21 @@ export function generateWarnings(
     }
   }
 
-  // Cluster size warnings
-  for (const c of clusters) {
-    if (c.fileIds.length > thresholds.maxClusterSize * 2) {
+  // Community size warnings
+  for (const c of communities) {
+    if (c.memberFileIds.length > thresholds.maxClusterSize * 2) {
       warnings.push({
         kind: 'cluster-too-large', severity: 'critical',
         target: c.id,
-        message: `Cluster has ${c.fileIds.length} files — more than double the ${thresholds.maxClusterSize} limit, indicates a tightly coupled monolith`,
-        value: c.fileIds.length, threshold: thresholds.maxClusterSize,
+        message: `Community has ${c.memberFileIds.length} files — more than double the ${thresholds.maxClusterSize} limit, indicates a tightly coupled monolith`,
+        value: c.memberFileIds.length, threshold: thresholds.maxClusterSize,
       });
-    } else if (c.fileIds.length > thresholds.maxClusterSize) {
+    } else if (c.memberFileIds.length > thresholds.maxClusterSize) {
       warnings.push({
         kind: 'cluster-too-large', severity: 'warning',
         target: c.id,
-        message: `Cluster has ${c.fileIds.length} files — exceeds ${thresholds.maxClusterSize} limit`,
-        value: c.fileIds.length, threshold: thresholds.maxClusterSize,
+        message: `Community has ${c.memberFileIds.length} files — exceeds ${thresholds.maxClusterSize} limit`,
+        value: c.memberFileIds.length, threshold: thresholds.maxClusterSize,
       });
     }
   }
@@ -312,14 +312,14 @@ export function generateWarnings(
  */
 export function analyseStructuralAlignment(
   files: StructuralFileInfo[],
-  clusters: FileCluster[],
+  communities: Community[],
   thresholds: Partial<WarningThresholds> = {},
 ): StructuralAlignmentResult {
   const t = { ...DEFAULT_THRESHOLDS, ...thresholds };
-  const folderFocus = analyseFolderFocus(files, clusters);
-  const splitCandidates = findSplitCandidates(files, clusters);
-  const packageAlignment = analysePackageAlignment(files, clusters);
-  const clusterQuality = analyseClusterQuality(files, clusters);
-  const warnings = generateWarnings(files, clusters, folderFocus, packageAlignment, clusterQuality, t);
+  const folderFocus = analyseFolderFocus(files, communities);
+  const splitCandidates = findSplitCandidates(files, communities);
+  const packageAlignment = analysePackageAlignment(files, communities);
+  const clusterQuality = analyseClusterQuality(files, communities);
+  const warnings = generateWarnings(files, communities, folderFocus, packageAlignment, clusterQuality, t);
   return { folderFocus, splitCandidates, packageAlignment, clusterQuality, warnings };
 }

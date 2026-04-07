@@ -10,7 +10,7 @@
  *   2. Code classification    → CodeContentRole, ContentClassification
  *   3. Import analysis        → RawDependencyEdge, FileCouplingStats
  *   4. Edge weighting         → WeightedEdge
- *   5. Clustering             → FilePairCoupling, FileCluster
+ *   5. Community detection     → Community, CommunityDetectionResult
  *   6. Package comparison     → PackageAlignment
  *   7. Folder comparison      → FolderFocus
  *   8. Optimization           → ClusterQuality, warnings, split candidates
@@ -111,48 +111,6 @@ export interface EntityGraphArtefact {
   /** Lookup: fileId → FileInfo (category + contentRole). */
   fileInfoMap: Record<string, FileInfo>;
 }
-
-// ── Step 5: Clustering ──────────────────────────────────────────────────
-
-/** Aggregated coupling between two files (both directions). */
-export interface FilePairCoupling {
-  fileA: string;
-  fileB: string;
-  edgesAtoB: number;
-  edgesBtoA: number;
-  typeOnlyAtoB: number;
-  typeOnlyBtoA: number;
-  couplingScore: number;
-  /** 0 = fully unidirectional, 1 = perfectly symmetric */
-  directionality: number;
-  isConcern: boolean;
-  pattern: CouplingPattern;
-}
-
-export type CouplingPattern =
-  | 'healthy-unidirectional'
-  | 'contract-consumer'
-  | 'mutual-type-coupling'
-  | 'mutual-value-coupling'
-  | 'tight-bidirectional'
-  | 'negligible';
-
-/** A cluster of files that belong together by mutual coupling. */
-export interface FileCluster {
-  id: string;
-  fileIds: string[];
-  cohesionType: ClusterCohesionType;
-  internalCoupling: number;
-  externalCoupling: number;
-  /** internalCoupling / (internal + external) — higher = better */
-  cohesionRatio: number;
-}
-
-export type ClusterCohesionType =
-  | 'mutual-dependencies'
-  | 'shared-consumers'
-  | 'shared-providers'
-  | 'directory-proximity';
 
 // ── Step 6: Package comparison ──────────────────────────────────────────
 
@@ -302,8 +260,6 @@ export interface StructuralPipelineResult {
   entityGraph: EntityGraphArtefact;
   fileClassifications: FileClassificationEntry[];
   weightedEdges: WeightedEdge[];
-  pairCouplings: FilePairCoupling[];
-  clusters: FileCluster[];
   alignment: StructuralAlignmentResult;
   /** Artefact 2: self-contained community map from step 5. */
   communityMap?: CommunityMapArtefact;
@@ -695,13 +651,13 @@ export function parentDir(filePath: string): string {
   return lastSlash >= 0 ? normalized.substring(0, lastSlash) : '.';
 }
 
-export function buildFileClusterIndex(clusters: FileCluster[]): Map<string, string[]> {
+export function buildFileCommunityIndex(communities: Community[]): Map<string, string[]> {
   const index = new Map<string, string[]>();
-  for (const cluster of clusters) {
-    for (const fileId of cluster.fileIds) {
+  for (const community of communities) {
+    for (const fileId of community.memberFileIds) {
       let list = index.get(fileId);
       if (!list) { list = []; index.set(fileId, list); }
-      list.push(cluster.id);
+      list.push(community.id);
     }
   }
   return index;

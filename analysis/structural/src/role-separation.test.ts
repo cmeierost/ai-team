@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeRoleSeparation } from './role-separation.js';
-import type { FileCluster, FileClassificationEntry } from './types.js';
+import type { Community, FileClassificationEntry } from './types.js';
 
 function makeClassification(
   fileId: string,
@@ -17,20 +17,17 @@ function makeClassification(
   };
 }
 
-function makeCluster(id: string, fileIds: string[]): FileCluster {
+function makeCommunity(id: string, fileIds: string[]): Community {
   return {
     id,
-    fileIds,
-    cohesionType: 'mutual-dependencies',
-    internalCoupling: 1,
-    externalCoupling: 0,
-    cohesionRatio: 1,
+    memberEntityIds: [],
+    memberFileIds: fileIds,
   };
 }
 
 describe('computeRoleSeparation', () => {
   it('scores 1.0 for a single-role cluster', () => {
-    const clusters = [makeCluster('c1', ['f1', 'f2'])];
+    const clusters = [makeCommunity('c1', ['f1', 'f2'])];
     const files = [
       makeClassification('f1', 'logic', 100),
       makeClassification('f2', 'logic', 50),
@@ -44,7 +41,7 @@ describe('computeRoleSeparation', () => {
   });
 
   it('scores < 1.0 for mixed-role cluster', () => {
-    const clusters = [makeCluster('c1', ['f1', 'f2', 'f3'])];
+    const clusters = [makeCommunity('c1', ['f1', 'f2', 'f3'])];
     const files = [
       makeClassification('f1', 'logic', 60),
       makeClassification('f2', 'contract', 30),
@@ -62,8 +59,8 @@ describe('computeRoleSeparation', () => {
 
   it('computes repo summary', () => {
     const clusters = [
-      makeCluster('c1', ['f1']),
-      makeCluster('c2', ['f2']),
+      makeCommunity('c1', ['f1']),
+      makeCommunity('c2', ['f2']),
     ];
     const files = [
       makeClassification('f1', 'logic', 100),
@@ -77,7 +74,7 @@ describe('computeRoleSeparation', () => {
   });
 
   it('buckets unknown roles as other', () => {
-    const clusters = [makeCluster('c1', ['f1'])];
+    const clusters = [makeCommunity('c1', ['f1'])];
     const files = [makeClassification('f1', undefined, 50)];
     const result = computeRoleSeparation(clusters, files);
 

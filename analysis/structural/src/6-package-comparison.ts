@@ -9,17 +9,17 @@
  */
 
 import type {
-  StructuralFileInfo, FileCluster,
+  StructuralFileInfo, Community,
   PackageAlignment, SpilledCluster,
 } from './types.js';
-import { round3, buildFileClusterIndex } from './types.js';
+import { round3, buildFileCommunityIndex } from './types.js';
 
 /**
- * For each package, measure how well its boundaries match natural clusters.
+ * For each package, measure how well its boundaries match natural communities.
  */
 export function analysePackageAlignment(
   files: StructuralFileInfo[],
-  clusters: FileCluster[],
+  communities: Community[],
 ): PackageAlignment[] {
   const packageFiles = new Map<string, StructuralFileInfo[]>();
   for (const f of files) {
@@ -29,18 +29,18 @@ export function analysePackageAlignment(
     list.push(f);
   }
 
-  const fileToCluster = buildFileClusterIndex(clusters);
+  const fileToCommunity = buildFileCommunityIndex(communities);
   const results: PackageAlignment[] = [];
 
   for (const [packageId, pkgFiles] of packageFiles) {
     const pkgFileIds = new Set(pkgFiles.map((f) => f.fileId));
 
-    const touchedClusterIds = new Set<string>();
+    const touchedCommunityIds = new Set<string>();
     let unclustered = 0;
     for (const f of pkgFiles) {
-      const cIds = fileToCluster.get(f.fileId);
+      const cIds = fileToCommunity.get(f.fileId);
       if (cIds && cIds.length > 0) {
-        for (const cId of cIds) touchedClusterIds.add(cId);
+        for (const cId of cIds) touchedCommunityIds.add(cId);
       } else {
         unclustered++;
       }
@@ -48,18 +48,18 @@ export function analysePackageAlignment(
 
     const spilled: SpilledCluster[] = [];
     let totalContainment = 0;
-    for (const cId of touchedClusterIds) {
-      const cluster = clusters.find((c) => c.id === cId)!;
-      const inside = cluster.fileIds.filter((id) => pkgFileIds.has(id)).length;
-      const outside = cluster.fileIds.length - inside;
-      const containment = round3(inside / cluster.fileIds.length);
+    for (const cId of touchedCommunityIds) {
+      const community = communities.find((c) => c.id === cId)!;
+      const inside = community.memberFileIds.filter((id) => pkgFileIds.has(id)).length;
+      const outside = community.memberFileIds.length - inside;
+      const containment = round3(inside / community.memberFileIds.length);
       totalContainment += containment;
       if (outside > 0) {
         spilled.push({ clusterId: cId, insideCount: inside, outsideCount: outside, containment });
       }
     }
 
-    const clusterIds = [...touchedClusterIds];
+    const clusterIds = [...touchedCommunityIds];
     const alignmentScore = clusterIds.length > 0
       ? round3(totalContainment / clusterIds.length)
       : 1.0;

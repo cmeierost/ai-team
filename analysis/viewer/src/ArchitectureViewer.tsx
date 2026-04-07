@@ -108,8 +108,7 @@ export function ArchitectureViewer({
   const resolveScope = useCallback((kind: Selection['type'], id: string) => {
     if (kind === 'cluster') {
       const community = data.communities?.communities?.find((c) => c.id === id);
-      const cluster = data.clusters.find((c) => c.id === id);
-      const fileIds = community?.memberFileIds ?? cluster?.fileIds ?? [];
+      const fileIds = community?.memberFileIds ?? [];
       return {
         fileIds: fileIds.length > 0 ? new Set(fileIds) : undefined,
         groupIds: new Set([id]),
@@ -132,7 +131,7 @@ export function ArchitectureViewer({
       return { fileIds: new Set([id]), groupIds: undefined };
     }
     return { fileIds: undefined, groupIds: undefined };
-  }, [data.communities, data.clusters]);
+  }, [data.communities]);
 
   // Selection scope (for detail/issues).
   const scope = useMemo(() => {
@@ -156,16 +155,13 @@ export function ArchitectureViewer({
     const allWarnings = data.alignment.warnings ?? [];
     if (!scope.fileIds || scope.fileIds.size === 0) return allWarnings.length;
     const communityById = new Map((data.communities?.communities ?? []).map((c) => [c.id, c]));
-    const clusterById = new Map(data.clusters.map((c) => [c.id, c]));
     return allWarnings.filter((w) => {
       if (scope.fileIds!.has(w.target)) return true;
       const community = communityById.get(w.target);
       if (community && community.memberFileIds.some((fid) => scope.fileIds!.has(fid))) return true;
-      const cluster = clusterById.get(w.target);
-      if (cluster && cluster.fileIds.some((fid) => scope.fileIds!.has(fid))) return true;
       return false;
     }).length;
-  }, [data.alignment.warnings, data.communities?.communities, data.clusters, scope.fileIds]);
+  }, [data.alignment.warnings, data.communities?.communities, scope.fileIds]);
 
   // Overview graph (always computed, only rendered when not in drilldown)
   const overview = useClusterGraph(data, selection, graphOptions);
@@ -185,11 +181,8 @@ export function ArchitectureViewer({
       const label = c.label || deriveGroupLabel(c.memberFileIds);
       map.set(c.id, `${label} (${c.memberFileIds.length})`);
     }
-    for (const c of data.clusters) {
-      if (!map.has(c.id)) map.set(c.id, `${deriveGroupLabel(c.fileIds)} (${c.fileIds.length})`);
-    }
     return map;
-  }, [data.communities?.communities, data.clusters]);
+  }, [data.communities?.communities]);
   const fileToCommunityId = useMemo(() => {
     const map = new Map<string, string>();
     for (const community of data.communities?.communities ?? []) {
@@ -355,8 +348,7 @@ export function ArchitectureViewer({
   const drilldownLabel = isDrilldown
     ? (() => {
         const community = data.communities?.communities?.find((c) => c.id === drilldownGroupId);
-        const cluster = data.clusters.find((c) => c.id === drilldownGroupId);
-        const fileIds = community?.memberFileIds ?? cluster?.fileIds ?? [];
+        const fileIds = community?.memberFileIds ?? [];
         return `${deriveGroupLabel(fileIds)} — ${fileIds.length} files`;
       })()
     : '';

@@ -34,8 +34,7 @@ export function useClusterDrilldown(
   const { nodes, edges } = useMemo(() => {
     // Find the group
     const community = data.communities?.communities?.find((c) => c.id === groupId);
-    const cluster = data.clusters.find((c) => c.id === groupId);
-    const fileIds = community?.memberFileIds ?? cluster?.fileIds ?? [];
+    const fileIds = community?.memberFileIds ?? [];
     const fileSet = new Set(fileIds);
 
     // Build maps

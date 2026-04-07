@@ -7,8 +7,7 @@
  *   2. Code classification    → CodeContentRole per code file (+LCOM4)
  *   3. Import analysis        → Raw edges + per-file coupling stats
  *   4. Edge weighting         → Weighted edges (incl. folder distance)
- *   5. Clustering             → Pair coupling + union-find clusters
- *   5b. Community detection   → Louvain communities + misplaced files
+ *   5. Community detection    → Louvain communities + misplaced files
  *   6. Package comparison     → Package alignment scores
  *   7. Folder comparison      → Folder focus scores
  *   6–7b. Grouping comparison → ARI / NMI (reference vs directory vs boundary)
@@ -26,7 +25,6 @@ import { classifyByFilename, type FileClassification, type FileCategory } from '
 import { classifyCodeContent, type ContentClassification, type CodeContentRole } from './2-code-classification.js';
 import { buildRawEdges, computeFileCouplingStats } from './3-import-analysis.js';
 import { weightAllEdges } from './4-edge-weighting.js';
-import { analysePairCoupling, buildClusters } from './5-clustering.js';
 import { analyseStructuralAlignment } from './8-optimization.js';
 import { detectCommunities } from './community-detection.js';
 import { compareAllGroupings } from './grouping-comparison.js';
@@ -52,7 +50,6 @@ import { TYPESCRIPT_PROFILE } from './profiles/typescript.js';
 
 import type {
   FileInfo, StructuralFileInfo, WeightedEdge,
-  FilePairCoupling, FileCluster,
   StructuralAlignmentResult,
   FileClassificationEntry, StructuralPipelineResult,
   PipelineSummary, StructuralPipelineOptions,
@@ -193,26 +190,7 @@ export function runStructuralPipeline(
     fileInfoMap: Object.fromEntries(fileInfoMap),
   };
 
-  // ── Step 5: Pair coupling + clustering ──────────────────────────────
-
-  const pairCouplings = analysePairCoupling(weightedEdges, fileInfoMap);
-  const allFileIds = fileClassifications.map((f) => f.fileId);
-  const clusters = buildClusters(pairCouplings, allFileIds);
-
-  // ── Steps 6–8: Structural alignment ─────────────────────────────────
-
-  const structFiles: StructuralFileInfo[] = fileClassifications.map((f) => ({
-    fileId: f.fileId,
-    filePath: f.filePath,
-    category: f.category,
-    contentRole: f.contentRole,
-    packageId: f.packageId,
-    linesOfCode: f.linesOfCode,
-  }));
-
-  const alignment = analyseStructuralAlignment(structFiles, clusters, thresholds);
-
-  // ── Step 5b: Community detection (Louvain) ─────────────────────────
+  // ── Step 5: Community detection (Louvain) ────────────────────────────
 
   const communities = detectCommunities(weightedEdges, fileClassifications, entities);
 
@@ -230,13 +208,26 @@ export function runStructuralPipeline(
     tangledDirectories: communities.tangledDirectories,
   };
 
+  // ── Steps 6–8: Structural alignment ─────────────────────────────────
+
+  const structFiles: StructuralFileInfo[] = fileClassifications.map((f) => ({
+    fileId: f.fileId,
+    filePath: f.filePath,
+    category: f.category,
+    contentRole: f.contentRole,
+    packageId: f.packageId,
+    linesOfCode: f.linesOfCode,
+  }));
+
+  const alignment = analyseStructuralAlignment(structFiles, communities.communities, thresholds);
+
   // ── Filesystem-fit metrics ──────────────────────────────────────────
 
-  const filesystemFit = computeFilesystemFit(fileClassifications, clusters);
+  const filesystemFit = computeFilesystemFit(fileClassifications, communities.communities);
 
   // ── Move suggestions ──────────────────────────────────────────────
 
-  const moveSuggestions = generateMoveSuggestions(fileClassifications, clusters, weightedEdges);
+  const moveSuggestions = generateMoveSuggestions(fileClassifications, communities.communities, weightedEdges);
 
   // ── Steps 6–7b: Grouping comparison (ARI / NMI) ───────────────────
 
@@ -246,7 +237,7 @@ export function runStructuralPipeline(
 
   // ── Step 8b: Centrality + bridge detection ─────────────────────────
 
-  const centrality = computeCentrality(weightedEdges, fileClassifications, clusters);
+  const centrality = computeCentrality(weightedEdges, fileClassifications, communities.communities);
 
   // Add bridge-file warnings
   for (const fc of centrality) {
@@ -331,7 +322,7 @@ export function runStructuralPipeline(
   const referenceDiagnostics = computeReferenceDiagnostics(relationships);
   const locMetrics = computeCanonicalLocMetrics(entities, relationships);
   const nonQualifiedDiagnostics = computeNonQualifiedDiagnostics(entities);
-  const roleSeparation = computeRoleSeparation(clusters, fileClassifications);
+  const roleSeparation = computeRoleSeparation(communities.communities, fileClassifications);
 
   // ── Hierarchy analysis ─────────────────────────────────────────────
 
@@ -359,8 +350,6 @@ export function runStructuralPipeline(
     communityMap,
     fileClassifications,
     weightedEdges,
-    pairCouplings,
-    clusters,
     alignment,
     communities,
     filesystemFit,
@@ -401,7 +390,7 @@ export function runStructuralPipeline(
     }
   }
 
-  const clusterSizes = clusters.map((c) => c.fileIds.length);
+  const communitySizes = communities.communities.map((c) => c.memberFileIds.length);
   const oversizedFileCount = fileClassifications.filter(
     (f) => f.category === 'code' && f.linesOfCode && f.linesOfCode > thresholds.maxFileLoc,
   ).length;
@@ -411,11 +400,11 @@ export function runStructuralPipeline(
     codeFiles,
     categoryCounts,
     roleCounts,
-    clusterCount: clusters.length,
-    avgClusterSize: clusterSizes.length > 0
-      ? Math.round(clusterSizes.reduce((a, b) => a + b, 0) / clusterSizes.length)
+    clusterCount: communities.communities.length,
+    avgClusterSize: communitySizes.length > 0
+      ? Math.round(communitySizes.reduce((a, b) => a + b, 0) / communitySizes.length)
       : 0,
-    maxClusterSize: clusterSizes.length > 0 ? Math.max(...clusterSizes) : 0,
+    maxClusterSize: communitySizes.length > 0 ? Math.max(...communitySizes) : 0,
     warningCount: alignment.warnings.length,
     criticalWarningCount: alignment.warnings.filter((w) => w.severity === 'critical').length,
     focusedFolderCount: alignment.folderFocus.filter((f) => f.assessment === 'focused').length,

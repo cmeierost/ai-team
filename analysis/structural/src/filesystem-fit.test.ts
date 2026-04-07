@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeFilesystemFit } from './filesystem-fit.js';
-import type { FileClassificationEntry, FileCluster } from './types.js';
+import type { FileClassificationEntry, Community } from './types.js';
 
 // ── Test helpers ────────────────────────────────────────────────────────
 
@@ -13,14 +13,11 @@ function makeFile(id: string, path: string): FileClassificationEntry {
   };
 }
 
-function makeCluster(id: string, fileIds: string[]): FileCluster {
+function makeCommunity(id: string, fileIds: string[]): Community {
   return {
     id,
-    fileIds,
-    cohesionType: 'mutual-dependencies',
-    internalCoupling: 1,
-    externalCoupling: 0,
-    cohesionRatio: 1,
+    memberEntityIds: [],
+    memberFileIds: fileIds,
   };
 }
 
@@ -35,8 +32,8 @@ describe('computeFilesystemFit', () => {
       makeFile('b2', 'src/api/handler.ts'),
     ];
     const clusters = [
-      makeCluster('c0', ['a1', 'a2']),
-      makeCluster('c1', ['b1', 'b2']),
+      makeCommunity('c0', ['a1', 'a2']),
+      makeCommunity('c1', ['b1', 'b2']),
     ];
 
     const result = computeFilesystemFit(files, clusters);
@@ -58,8 +55,8 @@ describe('computeFilesystemFit', () => {
       makeFile('b2', 'src/api/handler.ts'),
     ];
     const clusters = [
-      makeCluster('c0', ['a1', 'b1']),
-      makeCluster('c1', ['a2', 'b2']),
+      makeCommunity('c0', ['a1', 'b1']),
+      makeCommunity('c1', ['a2', 'b2']),
     ];
 
     const result = computeFilesystemFit(files, clusters);
@@ -80,8 +77,8 @@ describe('computeFilesystemFit', () => {
       makeFile('b1', 'src/api/routes.ts'),
     ];
     const clusters = [
-      makeCluster('c0', ['a1', 'a2']),
-      makeCluster('c1', ['a3', 'b1']),
+      makeCommunity('c0', ['a1', 'a2']),
+      makeCommunity('c1', ['a3', 'b1']),
     ];
 
     const result = computeFilesystemFit(files, clusters);
@@ -113,8 +110,8 @@ describe('computeFilesystemFit', () => {
       makeFile('b2', 'src/api/handler.ts'),
     ];
     const clusters = [
-      makeCluster('c0', ['a1', 'a2']),
-      makeCluster('c1', ['x1', 'b1', 'b2']),
+      makeCommunity('c0', ['a1', 'a2']),
+      makeCommunity('c1', ['x1', 'b1', 'b2']),
     ];
 
     const result = computeFilesystemFit(files, clusters);
@@ -159,7 +156,7 @@ describe('computeFilesystemFit', () => {
         fileClassification: { category: 'config', confidence: 1, reason: 'test' },
       },
     ];
-    const clusters = [makeCluster('c0', ['a1'])];
+    const clusters = [makeCommunity('c0', ['a1'])];
 
     const result = computeFilesystemFit(files, clusters);
     expect(result.totalFiles).toBe(1);

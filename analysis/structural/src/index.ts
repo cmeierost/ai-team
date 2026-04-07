@@ -23,7 +23,6 @@ export {
 } from './2-code-classification.js';
 export { buildRawEdges, computeFileCouplingStats } from './3-import-analysis.js';
 export { weightEdge, weightAllEdges, WEIGHTS } from './4-edge-weighting.js';
-export { analysePairCoupling, classifyPattern, buildClusters } from './5-clustering.js';
 export { analysePackageAlignment } from './6-package-comparison.js';
 export { analyseFolderFocus, assessFolder } from './7-folder-comparison.js';
 export {
@@ -73,7 +72,6 @@ export type {
   RawDependencyEdge, FileCouplingStats,
   FileInfo, WeightedEdge,
   EntityGraphArtefact, CommunityMapArtefact, CrossGroupEdge,
-  FilePairCoupling, CouplingPattern, FileCluster, ClusterCohesionType,
   PackageAlignment, SpilledCluster,
   FolderFocus, FolderAssessment,
   StructuralFileInfo, ClusterQuality,
@@ -131,4 +129,4 @@ export type {
 export type {
   AppEntryPoint, EntryPointEvidence, FileReachability, FileScope, EntryPointAnalysis,
 } from './entry-point-analysis.js';
-export { DEFAULT_THRESHOLDS, round3, parentDir, buildFileClusterIndex } from './types.js';
+export { DEFAULT_THRESHOLDS, round3, parentDir, buildFileCommunityIndex } from './types.js';

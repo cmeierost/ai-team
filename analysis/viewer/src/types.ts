@@ -5,7 +5,6 @@
 import type {
   StructuralPipelineResult,
   FileClassificationEntry,
-  FileCluster,
   ClusterQuality,
   StructuralWarning,
   PipelineSummary,
@@ -36,7 +35,6 @@ import type {
 export type {
   StructuralPipelineResult,
   FileClassificationEntry,
-  FileCluster,
   ClusterQuality,
   StructuralWarning,
   PipelineSummary,

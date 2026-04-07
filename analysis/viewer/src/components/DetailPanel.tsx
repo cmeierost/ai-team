@@ -309,10 +309,9 @@ function ClusterDetail({
   clusterId: string;
   onSelectFile?: (fileId: string) => void;
 }) {
-  // Try clusters first, then fall back to communities
-  const cluster = data.clusters.find((c) => c.id === clusterId);
+  // Use communities for group lookup
   const community = data.communities?.communities?.find((c) => c.id === clusterId);
-  const fileIds = cluster?.fileIds ?? community?.memberFileIds;
+  const fileIds = community?.memberFileIds;
   const quality = data.alignment.clusterQuality.find((q) => q.clusterId === clusterId);
   const warnings = data.alignment.warnings.filter((w) => w.target === clusterId);
   const misplacedMap = new Map<string, MisplacedFile>();
@@ -324,7 +323,7 @@ function ClusterDetail({
     return <div style={emptyStyle}>Group "{clusterId}" not found</div>;
   }
 
-  const isCommunity = !cluster && !!community;
+  const isCommunity = !!community;
   const fileCount = fileIds.length;
 
   // Build directory breakdown for the group
@@ -362,9 +361,6 @@ function ClusterDetail({
           </div>
         )}
       </div>
-
-      {/* Cohesion (cluster only) */}
-      {cluster && <CohesionBar ratio={cluster.cohesionRatio} />}
 
       {/* Role breakdown - computed from files when no quality data */}
       <div>
@@ -786,7 +782,6 @@ function RepoDetail({ data }: { data: StructuralPipelineResult }) {
 
       <div>
         <div style={sectionTitle}>Structure</div>
-        <Row label="Clusters" value={String(data.clusters.length)} />
         <Row label="Communities" value={String(data.communities?.communities.length ?? 0)} />
         <Row label="Community groups" value={String(data.communities?.communityGroups.length ?? 0)} />
         <Row label="Code files" value={String(codeFiles.length)} />

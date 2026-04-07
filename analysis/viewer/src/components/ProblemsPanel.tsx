@@ -140,7 +140,6 @@ export function ProblemsPanel({
     () => new Map((data.communities?.communities ?? []).map((c) => [c.id, c])),
     [data.communities?.communities],
   );
-  const clusterById = useMemo(() => new Map(data.clusters.map((c) => [c.id, c])), [data.clusters]);
 
   const misplaced = useMemo(() => {
     const all = data.communities?.misplacedFiles ?? [];
@@ -171,11 +170,9 @@ export function ProblemsPanel({
       if (clusterFileIds!.has(w.target)) return true;
       const community = communityById.get(w.target);
       if (community && community.memberFileIds.some((fid) => clusterFileIds!.has(fid))) return true;
-      const cluster = clusterById.get(w.target);
-      if (cluster && cluster.fileIds.some((fid) => clusterFileIds!.has(fid))) return true;
       return false;
     });
-  }, [data, clusterFileIds, isScoped, communityById, clusterById]);
+  }, [data, clusterFileIds, isScoped, communityById]);
 
   const recommendations = useMemo(() => {
     const all = data.recommendations ?? [];
@@ -189,11 +186,9 @@ export function ProblemsPanel({
     return all.filter((q) => {
       const community = communityById.get(q.clusterId);
       if (community && community.memberFileIds.some((fid) => clusterFileIds!.has(fid))) return true;
-      const cluster = clusterById.get(q.clusterId);
-      if (cluster && cluster.fileIds.some((fid) => clusterFileIds!.has(fid))) return true;
       return false;
     });
-  }, [data.alignment.clusterQuality, isScoped, clusterFileIds, communityById, clusterById]);
+  }, [data.alignment.clusterQuality, isScoped, clusterFileIds, communityById]);
 
   const communityLabelMap = useMemo(() => {
     const map = new Map<string, string>();

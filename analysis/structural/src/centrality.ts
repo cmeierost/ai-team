@@ -11,17 +11,17 @@ import betweennessCentrality from 'graphology-metrics/centrality/betweenness.js'
 import pagerank from 'graphology-metrics/centrality/pagerank.js';
 
 import type {
-  WeightedEdge, FileClassificationEntry, FileCluster,
+  WeightedEdge, FileClassificationEntry, Community,
   FileCentrality,
 } from './types.js';
-import { round3, buildFileClusterIndex } from './types.js';
+import { round3, buildFileCommunityIndex } from './types.js';
 
 // ── Centrality computation ──────────────────────────────────────────────
 
 export function computeCentrality(
   weightedEdges: WeightedEdge[],
   fileClassifications: FileClassificationEntry[],
-  clusters: FileCluster[],
+  communities: Community[],
 ): FileCentrality[] {
   const codeFiles = fileClassifications.filter((f) => f.category === 'code');
   if (codeFiles.length < 2) return [];
@@ -51,17 +51,17 @@ export function computeCentrality(
   // PageRank
   const pr = pagerank(graph, { alpha: 0.85, maxIterations: 100, tolerance: 1e-6, getEdgeWeight: 'weight' });
 
-  // Build cluster index for bridge detection
-  const fileClusterIdx = buildFileClusterIndex(clusters);
+  // Build community index for bridge detection
+  const fileCommunityIdx = buildFileCommunityIndex(communities);
 
   const results: FileCentrality[] = [];
   for (const f of codeFiles) {
     const betweenness = round3(bc[f.fileId] ?? 0);
     const prScore = round3(pr[f.fileId] ?? 0);
 
-    // Bridge detection: high centrality file that appears in ≥2 clusters
-    const clusterIds = fileClusterIdx.get(f.fileId) ?? [];
-    const isBridge = betweenness > 0.05 && clusterIds.length >= 2;
+    // Bridge detection: high centrality file that appears in ≥2 communities
+    const communityIds = fileCommunityIdx.get(f.fileId) ?? [];
+    const isBridge = betweenness > 0.05 && communityIds.length >= 2;
 
     results.push({
       fileId: f.fileId,
@@ -69,8 +69,8 @@ export function computeCentrality(
       betweenness,
       pageRank: prScore,
       isBridge,
-      bridgeBetween: isBridge && clusterIds.length >= 2
-        ? [clusterIds[0], clusterIds[1]]
+      bridgeBetween: isBridge && communityIds.length >= 2
+        ? [communityIds[0], communityIds[1]]
         : undefined,
     });
   }

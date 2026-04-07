@@ -10,19 +10,19 @@
  */
 
 import type {
-  StructuralFileInfo, FileCluster,
+  StructuralFileInfo, Community,
   FolderFocus, FolderAssessment,
 } from './types.js';
-import { round3, parentDir, buildFileClusterIndex } from './types.js';
+import { round3, parentDir, buildFileCommunityIndex } from './types.js';
 
 /**
  * Analyse folder focus for all directories containing code files.
  */
 export function analyseFolderFocus(
   files: StructuralFileInfo[],
-  clusters: FileCluster[],
+  communities: Community[],
 ): FolderFocus[] {
-  const fileToCluster = buildFileClusterIndex(clusters);
+  const fileToCommunity = buildFileCommunityIndex(communities);
 
   const folderFiles = new Map<string, StructuralFileInfo[]>();
   for (const f of files) {
@@ -51,7 +51,7 @@ export function analyseFolderFocus(
     let unclustered = 0;
 
     for (const f of dirFiles) {
-      const cIds = fileToCluster.get(f.fileId);
+      const cIds = fileToCommunity.get(f.fileId);
       if (cIds && cIds.length > 0) {
         for (const cId of cIds) {
           clusterMix[cId] = (clusterMix[cId] ?? 0) + 1;

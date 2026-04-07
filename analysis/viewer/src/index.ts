@@ -26,7 +26,6 @@ export { useClusterDrilldown } from './hooks/useClusterDrilldown.js';
 export type {
   StructuralPipelineResult,
   FileClassificationEntry,
-  FileCluster,
   ClusterQuality,
   StructuralWarning,
   PipelineSummary,

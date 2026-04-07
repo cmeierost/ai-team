@@ -127,14 +127,7 @@ function buildGroups(data: StructuralPipelineResult): ViewerGroup[] {
     }));
   }
 
-  return data.clusters.map((c) => ({
-    id: c.id,
-    label: deriveGroupLabel(c.fileIds),
-    fileIds: c.fileIds,
-    source: 'cluster' as const,
-    cohesionRatio: c.cohesionRatio,
-    cohesionType: c.cohesionType,
-  }));
+  return [];
 }
 
 function resolveGroupOverlaps(
