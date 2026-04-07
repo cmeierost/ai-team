@@ -23,7 +23,7 @@ import louvain from 'graphology-communities-louvain';
 import type { Entity } from '@aspect/contracts';
 import type {
   WeightedEdge, FileClassificationEntry,
-  Community, SuperCluster, SuperClusterChild, CommunityDetectionResult,
+  Community, CommunityGroup, CommunityGroupChild, CommunityDetectionResult,
   MisplacedFile, TangledDirectory, ClusterExposure, SplitFileCandidate,
 } from './types.js';
 import type { CodeContentRole } from './2-code-classification.js';
@@ -50,11 +50,11 @@ const TANGLED_THRESHOLD = 3;
 const MAX_CLUSTER_LOC = 10_000;
 const MAX_CLUSTER_FILES = 30;
 const MIN_CLUSTER_LOC = 3_000;
-const MAX_SUPERCLUSTER_SHARED_LOC = 5_000;
-const MAX_SUPERCLUSTER_CHILDREN = 5;
-/** Minimum number of communities a supercluster should contain.
+const MAX_CommunityGroup_SHARED_LOC = 5_000;
+const MAX_CommunityGroup_CHILDREN = 5;
+/** Minimum number of communities a CommunityGroup should contain.
  *  Singletons or tiny SCs get merged with the closest technology/role match. */
-const MIN_SUPERCLUSTER_COMMUNITIES = 2;
+const MIN_CommunityGroup_COMMUNITIES = 2;
 
 /**
  * Higher resolution → more, smaller communities. Default Louvain is 1.0.
@@ -151,7 +151,7 @@ export function detectCommunities(
   entities: Entity[],
 ): CommunityDetectionResult {
   const emptyResult: CommunityDetectionResult = {
-    communities: [], superClusters: [], modularity: 0,
+    communities: [], communityGroups: [], modularity: 0,
     misplacedFiles: [], tangledDirectories: [], splitFileCandidates: [],
   };
 
@@ -251,14 +251,14 @@ export function detectCommunities(
   communities = splitOversizedCommunities(communities, locMap, graph, ctx);
   communities = annotateCommunities(communities, pathMap, locMap, roleMap);
 
-  // Build hierarchical superclusters
-  let superClusters = buildSuperClusters(communities, weightedEdges, roleMap, pathMap, locMap);
-  superClusters = mergeCyclicSuperClusters(superClusters, communities, weightedEdges, roleMap);
+  // Build hierarchical community groups
+  let communityGroups = buildCommunityGroups(communities, weightedEdges, roleMap, pathMap, locMap);
+  communityGroups = mergeCyclicCommunityGroups(communityGroups, communities, weightedEdges, roleMap);
 
   const clusterExposure = computeCommunityExposure(communities, weightedEdges, locMap);
-  const superClusterExposure = computeSuperClusterExposure(superClusters, communities, weightedEdges, locMap);
+  const communityGroupExposure = computeCommunityGroupExposure(communityGroups, communities, weightedEdges, locMap);
   applyExposureToCommunities(communities, clusterExposure);
-  applyExposureToSuperClusters(superClusters, superClusterExposure);
+  applyExposureToCommunityGroups(communityGroups, communityGroupExposure);
 
   const misplacedFiles = findMisplacedFiles(communities, pathMap);
   const tangledDirectories = findTangledDirectories(communities, pathMap);
@@ -268,9 +268,9 @@ export function detectCommunities(
 
   return {
     communities,
-    superClusters,
+    communityGroups,
     clusterExposure,
-    superClusterExposure,
+    communityGroupExposure,
     modularity: detailed.modularity,
     misplacedFiles,
     tangledDirectories,
@@ -904,7 +904,7 @@ function detectSplitFiles(
 
 /**
  * Split communities that span multiple packages into per-package
- * sub-communities. This ensures superclusters stay package-aligned.
+ * sub-communities. This ensures CommunityGroups stay package-aligned.
  */
 function splitCrossPackageCommunities(
   communities: Community[],
@@ -1084,8 +1084,8 @@ function computeCommunityExposure(
   });
 }
 
-function computeSuperClusterExposure(
-  superClusters: SuperCluster[],
+function computeCommunityGroupExposure(
+  communityGroups: CommunityGroup[],
   communities: Community[],
   edges: WeightedEdge[],
   locMap: Map<string, number>,
@@ -1095,7 +1095,7 @@ function computeSuperClusterExposure(
   for (const c of communities) for (const fid of c.memberFileIds) fileToCommunity.set(fid, c.id);
 
   const results: ClusterExposure[] = [];
-  const walk = (cluster: SuperCluster) => {
+  const walk = (cluster: CommunityGroup) => {
     const cids = collectCommunityIds(cluster);
     const cidSet = new Set(cids);
     const fileSet = new Set<string>();
@@ -1126,10 +1126,10 @@ function computeSuperClusterExposure(
       barrelExposureLoc: 0,
     });
     for (const child of cluster.children) {
-      if (child.kind === 'supercluster') walk(child.cluster);
+      if (child.kind === 'communityGroup') walk(child.cluster);
     }
   };
-  for (const cluster of superClusters) walk(cluster);
+  for (const cluster of communityGroups) walk(cluster);
   return results;
 }
 
@@ -1138,38 +1138,38 @@ function applyExposureToCommunities(communities: Community[], exposure: ClusterE
   for (const c of communities) c.exposureRatio = map.get(c.id) ?? 0;
 }
 
-function applyExposureToSuperClusters(superClusters: SuperCluster[], exposure: ClusterExposure[]): void {
+function applyExposureToCommunityGroups(communityGroups: CommunityGroup[], exposure: ClusterExposure[]): void {
   const map = new Map(exposure.map((e) => [e.clusterId, e.exposureRatio]));
-  const visit = (s: SuperCluster) => {
+  const visit = (s: CommunityGroup) => {
     s.exposureRatio = map.get(s.id) ?? 0;
     for (const child of s.children) {
-      if (child.kind === 'supercluster') visit(child.cluster);
+      if (child.kind === 'communityGroup') visit(child.cluster);
     }
   };
-  for (const s of superClusters) visit(s);
+  for (const s of communityGroups) visit(s);
 }
 
-function collectCommunityIds(superCluster: SuperCluster): string[] {
+function collectCommunityIds(group: CommunityGroup): string[] {
   const ids: string[] = [];
-  const walk = (s: SuperCluster) => {
+  const walk = (s: CommunityGroup) => {
     for (const child of s.children) {
       if (child.kind === 'community') ids.push(child.communityId);
       else walk(child.cluster);
     }
   };
-  walk(superCluster);
+  walk(group);
   return ids;
 }
 
-// ── Supercluster detection ──────────────────────────────────────────────
+// ── CommunityGroup detection ──────────────────────────────────────────────
 
-function buildSuperClusters(
+function buildCommunityGroups(
   communities: Community[],
   edges: WeightedEdge[],
   roleMap: Map<string, CodeContentRole | undefined>,
   pathMap: Map<string, string>,
   locMap: Map<string, number>,
-): SuperCluster[] {
+): CommunityGroup[] {
   const communityById = new Map(communities.map((c) => [c.id, c]));
   const fileToCommunity = new Map<string, string>();
   for (const c of communities) {
@@ -1193,9 +1193,9 @@ function buildSuperClusters(
   };
 
   // Phase 1: shared package scope — merge communities from the same package
-  // directory. Contracts are meant to be shared across superclusters, so we
+  // directory. Contracts are meant to be shared across CommunityGroups, so we
   // do NOT merge on contract edges. Instead, same-package communities form
-  // natural supercluster seeds.
+  // natural CommunityGroup seeds.
   const communityPkg = new Map<string, string>();
   for (const c of communities) {
     // Use the dominant package (top-level dir) of the community's files
@@ -1219,10 +1219,10 @@ function buildSuperClusters(
     }
   }
 
-  // Phase 2: minimize critical cross-supercluster dependencies.
+  // Phase 2: minimize critical cross-CommunityGroup dependencies.
   // Aggregate edge weights between each community pair, separating contract
   // weight (cheap — shared contracts are OK) from critical weight (logic,
-  // presentation, etc. — these should live inside the same supercluster).
+  // presentation, etc. — these should live inside the same CommunityGroup).
   const pairWeight = new Map<string, { contract: number; critical: number }>();
   for (const edge of edges) {
     const src = fileToCommunity.get(edge.sourceFileId);
@@ -1244,7 +1244,7 @@ function buildSuperClusters(
 
   // Merge pairs with significant critical coupling — only when the critical
   // weight exceeds a threshold. This prevents trivial cross-package imports
-  // from merging unrelated superclusters.
+  // from merging unrelated CommunityGroups.
   const MIN_CRITICAL_WEIGHT_FOR_MERGE = 5;
   const sortedPairs = [...pairWeight.entries()]
     .filter(([, pw]) => pw.critical >= MIN_CRITICAL_WEIGHT_FOR_MERGE)
@@ -1356,9 +1356,9 @@ function buildSuperClusters(
   }
 
   // Phase 4: merge undersized groups.
-  // Singleton or tiny supercluster groups are merged with the closest match
+  // Singleton or tiny CommunityGroup groups are merged with the closest match
   // by technology and dominant-role affinity. This prevents dozens of tiny
-  // superclusters. Barrel/zero-LOC groups always merge into something.
+  // CommunityGroups. Barrel/zero-LOC groups always merge into something.
   // Merging is NOT allowed to create new cross-boundary dependencies between
   // groups that had no coupling at all.
   groups = new Map();
@@ -1372,7 +1372,7 @@ function buildSuperClusters(
   const undersized = new Map<string, string[]>();  // root → communityIds
   const adequate = new Map<string, string[]>();
   for (const [root, members] of groups) {
-    if (members.length < MIN_SUPERCLUSTER_COMMUNITIES) undersized.set(root, members);
+    if (members.length < MIN_CommunityGroup_COMMUNITIES) undersized.set(root, members);
     else adequate.set(root, members);
   }
 
@@ -1560,15 +1560,15 @@ function buildSuperClusters(
     }
   }
   let nextId = 0;
-  const nextSuperId = () => `supercluster-${nextId++}`;
+  const nextSuperId = () => `CommunityGroup-${nextId++}`;
 
-  const roots: SuperCluster[] = [...groups.values()]
-    .map((cids) => buildSuperClusterRecursive(cids.sort(), 0))
-    .filter((s): s is SuperCluster => s != null);
+  const roots: CommunityGroup[] = [...groups.values()]
+    .map((cids) => buildCommunityGroupRecursive(cids.sort(), 0))
+    .filter((s): s is CommunityGroup => s != null);
 
   return roots;
 
-  function buildSuperClusterRecursive(communityIds: string[], depth: number): SuperCluster | null {
+  function buildCommunityGroupRecursive(communityIds: string[], depth: number): CommunityGroup | null {
     if (communityIds.length === 0) return null;
     const sharedContractFileIds = findSharedContractFiles(communityIds);
     const sharedContractLoc = sumLoc(sharedContractFileIds);
@@ -1576,8 +1576,8 @@ function buildSuperClusters(
     const dominantTechnology = dominantTech(communityIds);
     const dominantRole = dominantSharedRole(sharedContractFileIds);
 
-    const withinCaps = communityIds.length <= MAX_SUPERCLUSTER_CHILDREN && sharedContractLoc <= MAX_SUPERCLUSTER_SHARED_LOC;
-    let children: SuperClusterChild[] = [];
+    const withinCaps = communityIds.length <= MAX_CommunityGroup_CHILDREN && sharedContractLoc <= MAX_CommunityGroup_SHARED_LOC;
+    let children: CommunityGroupChild[] = [];
 
     if (withinCaps || depth >= 5) {
       children = communityIds.map((communityId) => ({ kind: 'community', communityId }));
@@ -1588,10 +1588,10 @@ function buildSuperClusters(
           children.push({ kind: 'community', communityId: part[0] });
           continue;
         }
-        const child = buildSuperClusterRecursive(part, depth + 1);
-        if (child) children.push({ kind: 'supercluster', cluster: child });
+        const child = buildCommunityGroupRecursive(part, depth + 1);
+        if (child) children.push({ kind: 'communityGroup', cluster: child });
       }
-      if (children.length === 1 && children[0].kind === 'supercluster') {
+      if (children.length === 1 && children[0].kind === 'communityGroup') {
         return children[0].cluster;
       }
     }
@@ -1625,8 +1625,8 @@ function buildSuperClusters(
     const sorted = [...communityIds].sort((a, b) =>
       (communityById.get(b)?.totalLoc ?? 0) - (communityById.get(a)?.totalLoc ?? 0));
     const targetGroupCount = Math.max(
-      Math.ceil(sorted.length / MAX_SUPERCLUSTER_CHILDREN),
-      Math.ceil(sharedLoc / MAX_SUPERCLUSTER_SHARED_LOC),
+      Math.ceil(sorted.length / MAX_CommunityGroup_CHILDREN),
+      Math.ceil(sharedLoc / MAX_CommunityGroup_SHARED_LOC),
     );
     const groups: string[][] = Array.from({ length: Math.max(2, targetGroupCount) }, () => []);
     for (let i = 0; i < sorted.length; i++) groups[i % groups.length].push(sorted[i]);
@@ -1690,31 +1690,31 @@ function buildSuperClusters(
   }
 }
 
-// ── Supercluster cycle elimination ──────────────────────────────────────
+// ── CommunityGroup cycle elimination ──────────────────────────────────────
 
 /**
- * Detect and eliminate cycles between superclusters.
- * Uses Tarjan's SCC algorithm on the directed inter-supercluster dependency
- * graph. Superclusters in the same SCC are merged.
+ * Detect and eliminate cycles between CommunityGroups.
+ * Uses Tarjan's SCC algorithm on the directed inter-CommunityGroup dependency
+ * graph. CommunityGroups in the same SCC are merged.
  */
-function mergeCyclicSuperClusters(
-  superClusters: SuperCluster[],
+function mergeCyclicCommunityGroups(
+  communityGroups: CommunityGroup[],
   communities: Community[],
   edges: WeightedEdge[],
   roleMap: Map<string, CodeContentRole | undefined>,
-): SuperCluster[] {
-  if (superClusters.length < 2) return superClusters;
+): CommunityGroup[] {
+  if (communityGroups.length < 2) return communityGroups;
 
-  // Build file → supercluster id mapping
+  // Build file → CommunityGroup id mapping
   const fileToSc = new Map<string, string>();
-  const collectFiles = (sc: SuperCluster) => {
+  const collectFiles = (sc: CommunityGroup) => {
     for (const child of sc.children) {
       if (child.kind === 'community') {
         const comm = communities.find((c) => c.id === child.communityId);
         if (comm) for (const fid of comm.memberFileIds) fileToSc.set(fid, sc.id);
       } else {
-        // Nested superclusters map to the root supercluster for cycle purposes
-        const collectNested = (nested: SuperCluster) => {
+        // Nested CommunityGroups map to the root CommunityGroup for cycle purposes
+        const collectNested = (nested: CommunityGroup) => {
           for (const nc of nested.children) {
             if (nc.kind === 'community') {
               const comm = communities.find((c) => c.id === nc.communityId);
@@ -1728,12 +1728,12 @@ function mergeCyclicSuperClusters(
       }
     }
   };
-  for (const sc of superClusters) collectFiles(sc);
+  for (const sc of communityGroups) collectFiles(sc);
 
-  // Build directed adjacency between superclusters.
+  // Build directed adjacency between CommunityGroups.
   // Only consider non-contract, non-type-only edges — contract imports across
-  // superclusters are expected and should not trigger cycle merging.
-  const scIds = superClusters.map((sc) => sc.id);
+  // CommunityGroups are expected and should not trigger cycle merging.
+  const scIds = communityGroups.map((sc) => sc.id);
   const adj = new Map<string, Set<string>>();
   for (const id of scIds) adj.set(id, new Set());
   for (const edge of edges) {
@@ -1786,21 +1786,21 @@ function mergeCyclicSuperClusters(
     if (!indices.has(id)) strongconnect(id);
   }
 
-  // Check if any SCC has more than one supercluster (i.e., cycle exists)
+  // Check if any SCC has more than one CommunityGroup (i.e., cycle exists)
   const hasCycle = sccs.some((scc) => scc.length > 1);
-  if (!hasCycle) return superClusters;
+  if (!hasCycle) return communityGroups;
 
-  // Merge superclusters in the same SCC
-  const scById = new Map<string, SuperCluster>();
-  for (const sc of superClusters) scById.set(sc.id, sc);
+  // Merge CommunityGroups in the same SCC
+  const scById = new Map<string, CommunityGroup>();
+  for (const sc of communityGroups) scById.set(sc.id, sc);
 
-  const result: SuperCluster[] = [];
+  const result: CommunityGroup[] = [];
   for (const scc of sccs) {
     if (scc.length === 1) {
       result.push(scById.get(scc[0])!);
     } else {
-      // Merge all children into a single supercluster
-      const children: SuperClusterChild[] = [];
+      // Merge all children into a single CommunityGroup
+      const children: CommunityGroupChild[] = [];
       let sharedContractLoc = 0;
       const sharedContractFileIds: string[] = [];
       let totalFiles = 0;

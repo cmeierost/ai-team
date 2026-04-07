@@ -398,7 +398,7 @@ export interface FileInterfaceMetrics {
   outgoingValueRefs: number;
   consumerFileCount: number;
   consumerClusterCount: number;
-  consumerSuperclusterCount: number;
+  consumerCommunityGroupCount: number;
   singleConsumerExportCount: number;
   singleConsumerExportRatio: number;
   interfaceSurfaceComplexityScore: number;
@@ -500,12 +500,12 @@ export interface Community {
   exposureRatio?: number;
 }
 
-export type SuperClusterChild =
-  | { kind: 'supercluster'; cluster: SuperCluster }
+export type CommunityGroupChild =
+  | { kind: 'communityGroup'; cluster: CommunityGroup }
   | { kind: 'community'; communityId: string };
 
-/** A supercluster groups related communities for high-level navigation. */
-export interface SuperCluster {
+/** A CommunityGroup groups related communities for high-level navigation. */
+export interface CommunityGroup {
   id: string;
   label: string;
   /** LOC of shared contract/infrastructure code between this node's children. */
@@ -517,7 +517,7 @@ export interface SuperCluster {
   dominantRole?: CodeContentRole;
   coordinatorScope: string;
   exposureRatio?: number;
-  children: SuperClusterChild[];
+  children: CommunityGroupChild[];
 }
 
 /** A file whose dependency community doesn't match its directory. */
@@ -554,9 +554,9 @@ export interface SplitFileCandidate {
 
 export interface CommunityDetectionResult {
   communities: Community[];
-  superClusters: SuperCluster[];
+  communityGroups: CommunityGroup[];
   clusterExposure?: ClusterExposure[];
-  superClusterExposure?: ClusterExposure[];
+  communityGroupExposure?: ClusterExposure[];
   modularity: number;
   misplacedFiles: MisplacedFile[];
   tangledDirectories: TangledDirectory[];

@@ -22,7 +22,7 @@ import { useClusterGraph, deriveGroupLabel } from './hooks/useClusterGraph.js';
 import { useClusterDrilldown } from './hooks/useClusterDrilldown.js';
 import { ClusterNode } from './components/ClusterNode.js';
 import { FileNode } from './components/FileNode.js';
-import { SuperClusterNode } from './components/SuperClusterNode.js';
+import { CommunityGroupNode } from './components/CommunityGroupNode.js';
 import { FileCodePane } from './components/FileCodePane.js';
 import { FileEntitiesPane } from './components/FileEntitiesPane.js';
 import { OverviewBar } from './components/OverviewBar.js';
@@ -44,36 +44,36 @@ export interface ArchitectureViewerProps {
 const nodeTypes: NodeTypes = {
   cluster: ClusterNode,
   file: FileNode,
-  supercluster: SuperClusterNode,
+  CommunityGroup: CommunityGroupNode,
 };
-const VALID_SELECTION_TYPES: Selection['type'][] = ['cluster', 'file', 'supercluster', null];
+const VALID_SELECTION_TYPES: Selection['type'][] = ['cluster', 'file', 'communityGroup', null];
 const VALID_SIDE_PANELS: SidePanel[] = ['detail', 'problems', 'stats'];
 
-function flattenSuperClusters(
-  roots: NonNullable<StructuralPipelineResult['communities']>['superClusters'],
-): NonNullable<StructuralPipelineResult['communities']>['superClusters'] {
-  const all: NonNullable<StructuralPipelineResult['communities']>['superClusters'] = [];
-  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]) => {
+function flattenCommunityGroups(
+  roots: NonNullable<StructuralPipelineResult['communities']>['communityGroups'],
+): NonNullable<StructuralPipelineResult['communities']>['communityGroups'] {
+  const all: NonNullable<StructuralPipelineResult['communities']>['communityGroups'] = [];
+  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number]) => {
     all.push(sc);
     for (const child of sc.children ?? []) {
-      if (child.kind === 'supercluster') walk(child.cluster);
+      if (child.kind === 'communityGroup') walk(child.cluster);
     }
   };
   for (const root of roots) walk(root);
   return all;
 }
 
-function collectSuperclusterCommunityIds(
-  supercluster: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number],
+function collectCommunityGroupCommunityIds(
+  CommunityGroup: NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number],
 ): string[] {
   const ids: string[] = [];
-  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]) => {
+  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number]) => {
     for (const child of sc.children ?? []) {
       if (child.kind === 'community') ids.push(child.communityId);
       else walk(child.cluster);
     }
   };
-  walk(supercluster);
+  walk(CommunityGroup);
   return ids;
 }
 
@@ -90,7 +90,7 @@ export function ArchitectureViewer({
   const [navigationPath, setNavigationPath] = useState<string[]>([]);
   const [hideTypeOnly, setHideTypeOnly] = useState(false);
   const [showFullPath, setShowFullPath] = useState(false);
-  const [showSuperclusters, setShowSuperclusters] = useState(false);
+  const [showCommunityGroups, setShowCommunityGroups] = useState(false);
   const [fileViewTab, setFileViewTab] = useState<'code' | 'entities'>('entities');
   const [sidebarWidth, setSidebarWidth] = useState(340);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
@@ -98,11 +98,11 @@ export function ArchitectureViewer({
   const hasHydratedFromUrl = useRef(false);
   const isApplyingUrlState = useRef(false);
   const lastPushedQuery = useRef<string>('');
-  const focusedSuperClusterId = navigationPath[navigationPath.length - 1] ?? undefined;
+  const focusedCommunityGroupId = navigationPath[navigationPath.length - 1] ?? undefined;
 
   const graphOptions = useMemo(
-    () => ({ hideTypeOnly, showFullPath, focusedSuperClusterId, showSuperclusters }),
-    [hideTypeOnly, showFullPath, focusedSuperClusterId, showSuperclusters],
+    () => ({ hideTypeOnly, showFullPath, focusedCommunityGroupId, showCommunityGroups }),
+    [hideTypeOnly, showFullPath, focusedCommunityGroupId, showCommunityGroups],
   );
 
   const resolveScope = useCallback((kind: Selection['type'], id: string) => {
@@ -115,11 +115,11 @@ export function ArchitectureViewer({
         groupIds: new Set([id]),
       };
     }
-    if (kind === 'supercluster') {
-      const allSuper = flattenSuperClusters(data.communities?.superClusters ?? []);
+    if (kind === 'communityGroup') {
+      const allSuper = flattenCommunityGroups(data.communities?.communityGroups ?? []);
       const sc = allSuper.find((s) => s.id === id);
       if (!sc) return { fileIds: undefined, groupIds: undefined };
-      const communityIds = new Set(collectSuperclusterCommunityIds(sc));
+      const communityIds = new Set(collectCommunityGroupCommunityIds(sc));
       const fileIds = (data.communities?.communities ?? [])
         .filter((c) => communityIds.has(c.id))
         .flatMap((c) => c.memberFileIds);
@@ -143,14 +143,14 @@ export function ArchitectureViewer({
   const statsScope = useMemo(() => {
     if (selection.type !== null) return resolveScope(selection.type, selection.id);
     if (drilldownGroupId) return resolveScope('cluster', drilldownGroupId);
-    if (focusedSuperClusterId) return resolveScope('supercluster', focusedSuperClusterId);
+    if (focusedCommunityGroupId) return resolveScope('communityGroup', focusedCommunityGroupId);
     return { fileIds: undefined, groupIds: undefined };
-  }, [selection, drilldownGroupId, focusedSuperClusterId, resolveScope]);
+  }, [selection, drilldownGroupId, focusedCommunityGroupId, resolveScope]);
   const referenceScopeFileIds = useMemo(() => {
     if (drilldownGroupId) return resolveScope('cluster', drilldownGroupId).fileIds;
-    if (focusedSuperClusterId) return resolveScope('supercluster', focusedSuperClusterId).fileIds;
+    if (focusedCommunityGroupId) return resolveScope('communityGroup', focusedCommunityGroupId).fileIds;
     return undefined;
-  }, [drilldownGroupId, focusedSuperClusterId, resolveScope]);
+  }, [drilldownGroupId, focusedCommunityGroupId, resolveScope]);
 
   const scopedIssueCount = useMemo(() => {
     const allWarnings = data.alignment.warnings ?? [];
@@ -175,9 +175,9 @@ export function ArchitectureViewer({
 
   const isDrilldown = drilldownGroupId != null;
   const activeGraph = isDrilldown ? drilldown : overview;
-  const superClusterById = useMemo(() => {
-    return new Map(flattenSuperClusters(data.communities?.superClusters ?? []).map((s) => [s.id, s]));
-  }, [data.communities?.superClusters]);
+  const CommunityGroupById = useMemo(() => {
+    return new Map(flattenCommunityGroups(data.communities?.communityGroups ?? []).map((s) => [s.id, s]));
+  }, [data.communities?.communityGroups]);
 
   const clusterLabelById = useMemo(() => {
     const map = new Map<string, string>();
@@ -200,7 +200,7 @@ export function ArchitectureViewer({
   const communityToSuperPath = useMemo(() => {
     const map = new Map<string, string[]>();
     const walk = (
-      node: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number],
+      node: NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number],
       path: string[],
     ) => {
       for (const child of node.children ?? []) {
@@ -208,11 +208,11 @@ export function ArchitectureViewer({
         else walk(child.cluster, [...path, child.cluster.id]);
       }
     };
-    for (const root of data.communities?.superClusters ?? []) {
+    for (const root of data.communities?.communityGroups ?? []) {
       walk(root, [root.id]);
     }
     return map;
-  }, [data.communities?.superClusters]);
+  }, [data.communities?.communityGroups]);
 
   const applyStateFromUrl = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -240,7 +240,7 @@ export function ArchitectureViewer({
     }
     setHideTypeOnly(params.get('types') === 'hidden');
     setShowFullPath(params.get('paths') === 'full');
-    setShowSuperclusters(params.get('grouping') === 'on');
+    setShowCommunityGroups(params.get('grouping') === 'on');
     if (urlSidePanel && VALID_SIDE_PANELS.includes(urlSidePanel as SidePanel)) {
       setSidePanel(urlSidePanel as SidePanel);
     }
@@ -272,7 +272,7 @@ export function ArchitectureViewer({
     if (fileViewTab !== 'code') next.set('tab', fileViewTab);
     if (hideTypeOnly) next.set('types', 'hidden');
     if (showFullPath) next.set('paths', 'full');
-    if (showSuperclusters) next.set('grouping', 'on');
+    if (showCommunityGroups) next.set('grouping', 'on');
     for (const id of navigationPath) next.append('nav', id);
 
     const query = next.toString();
@@ -293,7 +293,7 @@ export function ArchitectureViewer({
     fileViewTab,
     hideTypeOnly,
     showFullPath,
-    showSuperclusters,
+    showCommunityGroups,
     navigationPath,
   ]);
 
@@ -317,9 +317,9 @@ export function ArchitectureViewer({
     if ((node.data as { contractHub?: boolean } | undefined)?.contractHub) {
       return;
     }
-    if (node.type === 'supercluster') {
+    if (node.type === 'communityGroup') {
       setNavigationPath((prev) => [...prev, node.id]);
-      setSelection({ type: 'supercluster', id: node.id });
+      setSelection({ type: 'communityGroup', id: node.id });
       setSidePanel('detail');
       setDrilldownGroupId(null);
     } else if (node.type === 'cluster') {
@@ -386,13 +386,13 @@ export function ArchitectureViewer({
     superPath.forEach((id, index) => {
       items.push({
         key: `super-${id}`,
-        label: superClusterById.get(id)?.label || id,
+        label: CommunityGroupById.get(id)?.label || id,
         onClick: () => {
           setNavigationPath(superPath.slice(0, index + 1));
           setDrilldownGroupId(null);
-          setSelection({ type: 'supercluster', id });
+          setSelection({ type: 'communityGroup', id });
         },
-        active: !drilldownGroupId && selection.type === 'supercluster' && selection.id === id,
+        active: !drilldownGroupId && selection.type === 'communityGroup' && selection.id === id,
       });
     });
 
@@ -421,7 +421,7 @@ export function ArchitectureViewer({
     navigationPath,
     drilldownGroupId,
     selection,
-    superClusterById,
+    CommunityGroupById,
     clusterLabelById,
     fileToCommunityId,
     communityToSuperPath,
@@ -436,8 +436,8 @@ export function ArchitectureViewer({
         onToggleHideTypeOnly={() => setHideTypeOnly((v) => !v)}
         showFullPath={showFullPath}
         onToggleShowFullPath={() => setShowFullPath((v) => !v)}
-        showSuperclusters={showSuperclusters || !!focusedSuperClusterId}
-        onToggleShowSuperclusters={() => setShowSuperclusters((v) => !v)}
+        showCommunityGroups={showCommunityGroups || !!focusedCommunityGroupId}
+        onToggleShowCommunityGroups={() => setShowCommunityGroups((v) => !v)}
       />
 
       <div className="av-body">
@@ -504,7 +504,7 @@ export function ArchitectureViewer({
                 <ReactFlow
                   key={isDrilldown
                     ? `drill-${drilldownGroupId}`
-                    : `overview-${focusedSuperClusterId ?? 'root'}`}
+                    : `overview-${focusedCommunityGroupId ?? 'root'}`}
                   nodes={activeGraph.nodes}
                   edges={activeGraph.edges}
                   nodeTypes={nodeTypes}

@@ -15,14 +15,14 @@ function percentile(sorted: number[], p: number): number {
   return sorted[idx];
 }
 
-function flattenSuperClusters(
-  roots: NonNullable<CommunityDetectionResult['superClusters']>,
-): NonNullable<CommunityDetectionResult['superClusters']> {
-  const all: NonNullable<CommunityDetectionResult['superClusters']> = [];
-  const walk = (node: NonNullable<CommunityDetectionResult['superClusters']>[number]) => {
+function flattenCommunityGroups(
+  roots: NonNullable<CommunityDetectionResult['communityGroups']>,
+): NonNullable<CommunityDetectionResult['communityGroups']> {
+  const all: NonNullable<CommunityDetectionResult['communityGroups']> = [];
+  const walk = (node: NonNullable<CommunityDetectionResult['communityGroups']>[number]) => {
     all.push(node);
     for (const child of node.children ?? []) {
-      if (child.kind === 'supercluster') walk(child.cluster);
+      if (child.kind === 'communityGroup') walk(child.cluster);
     }
   };
   for (const root of roots) walk(root);
@@ -70,7 +70,7 @@ export function computeFileInterfaceMetrics(
   }
 
   const communityToSuper = new Map<string, string>();
-  for (const sc of flattenSuperClusters(communities?.superClusters ?? [])) {
+  for (const sc of flattenCommunityGroups(communities?.communityGroups ?? [])) {
     const stack = [sc];
     while (stack.length > 0) {
       const cur = stack.pop()!;
@@ -182,7 +182,7 @@ export function computeFileInterfaceMetrics(
       outgoingValueRefs,
       consumerFileCount,
       consumerClusterCount: consumerClusters.size,
-      consumerSuperclusterCount: consumerSupers.size,
+      consumerCommunityGroupCount: consumerSupers.size,
       singleConsumerExportCount,
       singleConsumerExportRatio,
       interfaceSurfaceComplexityScore,

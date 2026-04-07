@@ -83,8 +83,8 @@ export type {
   FileClassificationEntry, StructuralPipelineResult,
   PipelineSummary, StructuralPipelineOptions,
   // New types
-   Community, SuperCluster, MisplacedFile, TangledDirectory, CommunityDetectionResult,
-   SuperClusterChild, ClusterExposure, SplitFileCandidate,
+   Community, CommunityGroup, MisplacedFile, TangledDirectory, CommunityDetectionResult,
+   CommunityGroupChild, ClusterExposure, SplitFileCandidate,
   PipelineGrouping, PipelineGroup,
   PipelineGroupingComparison, PipelineGroupMismatch, PipelineMoveSuggestion,
    FileCentrality,

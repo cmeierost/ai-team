@@ -13,8 +13,8 @@ export interface OverviewBarProps {
   onToggleHideTypeOnly?: () => void;
   showFullPath?: boolean;
   onToggleShowFullPath?: () => void;
-  showSuperclusters?: boolean;
-  onToggleShowSuperclusters?: () => void;
+  showCommunityGroups?: boolean;
+  onToggleShowCommunityGroups?: () => void;
 }
 
 const barStyle: React.CSSProperties = {
@@ -105,8 +105,8 @@ export function OverviewBar({
   onToggleHideTypeOnly,
   showFullPath,
   onToggleShowFullPath,
-  showSuperclusters,
-  onToggleShowSuperclusters,
+  showCommunityGroups,
+  onToggleShowCommunityGroups,
 }: OverviewBarProps) {
   const { summary, healthScore, communities } = data;
 
@@ -179,10 +179,10 @@ export function OverviewBar({
             activeColor="#2d7a4f"
           />
         )}
-        {onToggleShowSuperclusters && (
+        {onToggleShowCommunityGroups && (
           <ToggleButton
-            active={!!showSuperclusters}
-            onClick={onToggleShowSuperclusters}
+            active={!!showCommunityGroups}
+            onClick={onToggleShowCommunityGroups}
             activeLabel="▣ Grouping"
             inactiveLabel="□ Grouping"
             activeTitle="Showing grouping overlays"

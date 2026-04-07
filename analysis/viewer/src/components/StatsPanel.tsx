@@ -454,7 +454,7 @@ export function StatsPanel({ data, clusterFileIds, entities: entityRefs }: Stats
             <div>Outgoing refs: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.outgoingTypeRefs + singleFileMetric.outgoingValueRefs}</strong> (type {singleFileMetric.outgoingTypeRefs}, value {singleFileMetric.outgoingValueRefs})</div>
             <div>Consumer files: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.consumerFileCount}</strong></div>
             <div>Consumer clusters: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.consumerClusterCount}</strong></div>
-            <div>Consumer superclusters: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.consumerSuperclusterCount}</strong></div>
+            <div>Consumer groups: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.consumerCommunityGroupCount}</strong></div>
             <div>Single-consumer exports: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.singleConsumerExportCount}</strong> ({Math.round(singleFileMetric.singleConsumerExportRatio * 100)}%)</div>
           </div>
         </div>

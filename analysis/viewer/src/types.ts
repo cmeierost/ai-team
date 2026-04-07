@@ -18,8 +18,8 @@ import type {
   WeightedEdge,
   CodeContentRole,
   Community,
-  SuperCluster,
-  SuperClusterChild,
+  CommunityGroup,
+  CommunityGroupChild,
   ClusterExposure,
   ExportAnalysis,
   FileExportInfo,
@@ -49,8 +49,8 @@ export type {
   WeightedEdge,
   CodeContentRole,
   Community,
-  SuperCluster,
-  SuperClusterChild,
+  CommunityGroup,
+  CommunityGroupChild,
   ClusterExposure,
   ExportAnalysis,
   FileExportInfo,
@@ -112,7 +112,7 @@ export interface RelationshipRefLite {
 export type SidePanel = 'detail' | 'problems' | 'stats';
 
 export interface Selection {
-  type: 'cluster' | 'file' | 'supercluster' | null;
+  type: 'cluster' | 'file' | 'communityGroup' | null;
   id: string;
 }
 

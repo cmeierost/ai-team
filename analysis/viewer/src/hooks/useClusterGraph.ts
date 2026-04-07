@@ -21,15 +21,15 @@ function clamp(value: number, min: number, max: number): number {
 
 const MIN_GROUP_SIZE = 2;
 
-function collectCommunityIdsFromSuperCluster(cluster: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]): string[] {
+function collectCommunityIdsFromCommunityGroup(cluster: NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number]): string[] {
   const ids: string[] = [];
-  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number] | { communityIds?: string[] }) => {
+  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number] | { communityIds?: string[] }) => {
     const legacyCommunityIds = (sc as { communityIds?: string[] }).communityIds ?? [];
     if (legacyCommunityIds.length > 0) {
       ids.push(...legacyCommunityIds);
       return;
     }
-    for (const child of (sc as NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]).children ?? []) {
+    for (const child of (sc as NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number]).children ?? []) {
       if (child.kind === 'community') ids.push(child.communityId);
       else walk(child.cluster);
     }
@@ -38,14 +38,14 @@ function collectCommunityIdsFromSuperCluster(cluster: NonNullable<StructuralPipe
   return ids;
 }
 
-function flattenSuperClusters(
-  roots: NonNullable<StructuralPipelineResult['communities']>['superClusters'],
-): NonNullable<StructuralPipelineResult['communities']>['superClusters'] {
-  const all: NonNullable<StructuralPipelineResult['communities']>['superClusters'] = [];
-  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number] | { children?: unknown[] }) => {
-    all.push(sc as NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]);
-    for (const child of (sc as NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]).children ?? []) {
-      if (child.kind === 'supercluster') walk(child.cluster);
+function flattenCommunityGroups(
+  roots: NonNullable<StructuralPipelineResult['communities']>['communityGroups'],
+): NonNullable<StructuralPipelineResult['communities']>['communityGroups'] {
+  const all: NonNullable<StructuralPipelineResult['communities']>['communityGroups'] = [];
+  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number] | { children?: unknown[] }) => {
+    all.push(sc as NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number]);
+    for (const child of (sc as NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number]).children ?? []) {
+      if (child.kind === 'communityGroup') walk(child.cluster);
     }
   };
   for (const root of roots) walk(root);
@@ -111,8 +111,8 @@ export function deriveGroupLabel(fileIds: string[]): string {
 
 /**
  * Builds ViewerGroups for overview rendering.
- * When community/supercluster data exists, we must use community IDs so
- * supercluster membership maps correctly.
+ * When community/CommunityGroup data exists, we must use community IDs so
+ * CommunityGroup membership maps correctly.
  */
 function buildGroups(data: StructuralPipelineResult): ViewerGroup[] {
   const communityGroups = (data.communities?.communities ?? []).filter(
@@ -191,18 +191,18 @@ function safeNumber(value: number | undefined, fallback: number): number {
 export function useClusterGraph(
   data: StructuralPipelineResult,
   selection: Selection,
-  options?: { hideTypeOnly?: boolean; showFullPath?: boolean; focusedSuperClusterId?: string; showSuperclusters?: boolean },
+  options?: { hideTypeOnly?: boolean; showFullPath?: boolean; focusedCommunityGroupId?: string; showCommunityGroups?: boolean },
 ): { nodes: Node[]; edges: Edge[]; onNodesChange: OnNodesChange } {
   const [localNodes, setLocalNodes] = useState<Node[]>([]);
 
   const { nodes, edges } = useMemo(() => {
     const allGroups = buildGroups(data);
     let groups = allGroups;
-    const allSuperClusters = flattenSuperClusters(data.communities?.superClusters ?? []);
-    if (options?.focusedSuperClusterId) {
-      const focused = allSuperClusters.find((sc) => sc.id === options.focusedSuperClusterId);
+    const allCommunityGroups = flattenCommunityGroups(data.communities?.communityGroups ?? []);
+    if (options?.focusedCommunityGroupId) {
+      const focused = allCommunityGroups.find((sc) => sc.id === options.focusedCommunityGroupId);
       if (focused) {
-        const allowed = new Set(collectCommunityIdsFromSuperCluster(focused));
+        const allowed = new Set(collectCommunityIdsFromCommunityGroup(focused));
         groups = allGroups.filter((g) => allowed.has(g.id));
       }
     }
@@ -470,20 +470,20 @@ export function useClusterGraph(
     const disconnectedGroups = groups.filter((g) => !connectedGroupIds.has(g.id));
 
     // ── Hierarchical layout ──────────────────────────────────────────────
-    // Goal: superclusters only overlap when they have a parent-child relation.
-    // Strategy: multi-level dagre — lay out children inside each supercluster,
-    // then lay out superclusters (as compound bounding boxes) at the next level up.
+    // Goal: CommunityGroups only overlap when they have a parent-child relation.
+    // Strategy: multi-level dagre — lay out children inside each CommunityGroup,
+    // then lay out CommunityGroups (as compound bounding boxes) at the next level up.
 
-    const superClusters = allSuperClusters;
+    const communityGroups = allCommunityGroups;
 
-    // Build immediate-parent mapping: communityId → innermost supercluster id
-    // and superclusterId → parent supercluster id
+    // Build immediate-parent mapping: communityId → innermost CommunityGroup id
+    // and CommunityGroupId → parent CommunityGroup id
     const communityToImmediateParent = new Map<string, string>();
     const scToParent = new Map<string, string>();
     const rootScIds = new Set<string>();
 
     function mapImmediateParents(
-      sc: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number],
+      sc: NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number],
       parentId?: string,
     ) {
       if (parentId) scToParent.set(sc.id, parentId);
@@ -496,55 +496,55 @@ export function useClusterGraph(
         }
       }
     }
-    for (const sc of data.communities?.superClusters ?? []) {
+    for (const sc of data.communities?.communityGroups ?? []) {
       mapImmediateParents(sc);
     }
 
-    // Track active superclusters for overlay rendering.
-    const activeSuperClusters = new Set<string>();
+    // Track active CommunityGroups for overlay rendering.
+    const activeCommunityGroups = new Set<string>();
     for (const group of connectedGroups) {
       const scId = communityToImmediateParent.get(group.id);
       if (scId) {
         // Walk up to mark all ancestors active too
         let cur: string | undefined = scId;
         while (cur) {
-          activeSuperClusters.add(cur);
+          activeCommunityGroups.add(cur);
           cur = scToParent.get(cur);
         }
       }
     }
 
-    // Map supercluster id → SuperCluster object
-    const scById = new Map<string, typeof superClusters[number]>();
-    for (const sc of superClusters) scById.set(sc.id, sc);
+    // Map CommunityGroup id → CommunityGroup object
+    const scById = new Map<string, typeof communityGroups[number]>();
+    for (const sc of communityGroups) scById.set(sc.id, sc);
 
     // Build position map for all groups (communities)
     const groupPositions = new Map<string, { x: number; y: number; w: number; h: number }>();
-    // Also track supercluster bounding boxes for overlap resolution between siblings
+    // Also track CommunityGroup bounding boxes for overlap resolution between siblings
     const scBounds = new Map<string, { x: number; y: number; w: number; h: number }>();
 
     const SC_PAD = 40;
-    const SC_TOP_PAD = 60; // extra top padding for supercluster label
+    const SC_TOP_PAD = 60; // extra top padding for CommunityGroup label
 
     /**
-     * Recursively lay out a supercluster's children and return its bounding box size.
-     * Positions are stored relative to the supercluster's top-left origin.
-     * Returns { w, h } of the supercluster bounding box.
+     * Recursively lay out a CommunityGroup's children and return its bounding box size.
+     * Positions are stored relative to the CommunityGroup's top-left origin.
+     * Returns { w, h } of the CommunityGroup bounding box.
      */
-    function layoutSuperCluster(
-      sc: typeof superClusters[number],
+    function layoutCommunityGroup(
+      sc: typeof communityGroups[number],
       connectedGroupSet: Set<string>,
     ): { w: number; h: number } {
       // Collect direct children
       const directCommunityIds: string[] = [];
-      const directChildScs: { sc: typeof superClusters[number]; w: number; h: number }[] = [];
+      const directChildScs: { sc: typeof communityGroups[number]; w: number; h: number }[] = [];
 
       for (const child of sc.children ?? []) {
         if (child.kind === 'community') {
           directCommunityIds.push(child.communityId);
         } else {
-          // Recursively layout the child supercluster first
-          const childSize = layoutSuperCluster(child.cluster, connectedGroupSet);
+          // Recursively layout the child CommunityGroup first
+          const childSize = layoutCommunityGroup(child.cluster, connectedGroupSet);
           directChildScs.push({ sc: child.cluster, ...childSize });
         }
       }
@@ -557,7 +557,7 @@ export function useClusterGraph(
         return { w: 200, h: 100 };
       }
 
-      // Sub-dagre for this supercluster's direct children
+      // Sub-dagre for this CommunityGroup's direct children
       const subG = new dagre.graphlib.Graph();
       subG.setGraph({ rankdir: 'LR', nodesep: 80, ranksep: 120, ranker: 'longest-path' });
       subG.setDefaultEdgeLabel(() => ({}));
@@ -568,7 +568,7 @@ export function useClusterGraph(
         subG.setNode(cid, { width: scaled.w, height: scaled.h });
       }
 
-      // Add child superclusters as compound nodes (using their computed bounding box size)
+      // Add child CommunityGroups as compound nodes (using their computed bounding box size)
       for (const csc of directChildScs) {
         subG.setNode(csc.sc.id, { width: csc.w, height: csc.h });
       }
@@ -581,19 +581,19 @@ export function useClusterGraph(
 
       // For edges: we need to map community-level edges to this scope level.
       // If both ends are communities in this scope, add directly.
-      // If one end is in a child supercluster, use the child sc id as proxy.
+      // If one end is in a child CommunityGroup, use the child sc id as proxy.
       const communityToLocalNode = new Map<string, string>();
       for (const cid of activeCommunities) {
         communityToLocalNode.set(cid, cid);
       }
       for (const csc of directChildScs) {
-        const descendantIds = collectCommunityIdsFromSuperCluster(csc.sc);
+        const descendantIds = collectCommunityIdsFromCommunityGroup(csc.sc);
         for (const did of descendantIds) {
           communityToLocalNode.set(did, csc.sc.id);
         }
       }
 
-      // Add edges scoped to this supercluster
+      // Add edges scoped to this CommunityGroup
       const addedEdges = new Set<string>();
       for (const ce of groupEdgeMap.values()) {
         const srcLocal = communityToLocalNode.get(ce.sourceClusterId);
@@ -639,7 +639,7 @@ export function useClusterGraph(
         minY = Math.min(minY, y);
         maxX = Math.max(maxX, x + csc.w);
         maxY = Math.max(maxY, y + csc.h);
-        // Store child supercluster bounds for later translation
+        // Store child CommunityGroup bounds for later translation
         scBounds.set(csc.sc.id, { x, y, w: csc.w, h: csc.h });
       }
 
@@ -672,16 +672,16 @@ export function useClusterGraph(
       return { w: Math.max(200, totalW), h: Math.max(100, totalH) };
     }
 
-    // Identify root superclusters that have active connected communities
-    const activeRootScs: { sc: typeof superClusters[number]; w: number; h: number }[] = [];
+    // Identify root CommunityGroups that have active connected communities
+    const activeRootScs: { sc: typeof communityGroups[number]; w: number; h: number }[] = [];
 
-    // Orphan communities: connected but not in any supercluster
+    // Orphan communities: connected but not in any CommunityGroup
     const orphanCommunityIds: string[] = [];
 
-    // Determine which connected communities belong to root superclusters
+    // Determine which connected communities belong to root CommunityGroups
     const communityInAnySc = new Set<string>();
-    for (const sc of data.communities?.superClusters ?? []) {
-      const cids = collectCommunityIdsFromSuperCluster(sc);
+    for (const sc of data.communities?.communityGroups ?? []) {
+      const cids = collectCommunityIdsFromCommunityGroup(sc);
       for (const cid of cids) communityInAnySc.add(cid);
     }
 
@@ -691,17 +691,17 @@ export function useClusterGraph(
       }
     }
 
-    // Layout each root supercluster
+    // Layout each root CommunityGroup
     const connectedGroupSet = new Set(connectedGroups.map((g) => g.id));
-    for (const sc of data.communities?.superClusters ?? []) {
-      const cids = collectCommunityIdsFromSuperCluster(sc);
+    for (const sc of data.communities?.communityGroups ?? []) {
+      const cids = collectCommunityIdsFromCommunityGroup(sc);
       const hasActive = cids.some((cid) => connectedGroupSet.has(cid));
       if (!hasActive) continue;
-      const size = layoutSuperCluster(sc, connectedGroupSet);
+      const size = layoutCommunityGroup(sc, connectedGroupSet);
       activeRootScs.push({ sc, ...size });
     }
 
-    // Now do the top-level layout: root superclusters + orphan communities
+    // Now do the top-level layout: root CommunityGroups + orphan communities
     const topG = new dagre.graphlib.Graph();
     topG.setGraph({ rankdir: 'LR', nodesep: 140, ranksep: 200, ranker: 'longest-path' });
     topG.setDefaultEdgeLabel(() => ({}));
@@ -720,7 +720,7 @@ export function useClusterGraph(
       communityToTopNode.set(cid, cid);
     }
     for (const rsc of activeRootScs) {
-      const cids = collectCommunityIdsFromSuperCluster(rsc.sc);
+      const cids = collectCommunityIdsFromCommunityGroup(rsc.sc);
       for (const cid of cids) communityToTopNode.set(cid, rsc.sc.id);
     }
 
@@ -742,8 +742,8 @@ export function useClusterGraph(
     }
 
     // Apply top-level positions and translate nested positions to global coordinates
-    function translateSuperClusterPositions(
-      sc: typeof superClusters[number],
+    function translateCommunityGroupPositions(
+      sc: typeof communityGroups[number],
       globalOffsetX: number,
       globalOffsetY: number,
     ) {
@@ -758,8 +758,8 @@ export function useClusterGraph(
         } else {
           const childBounds = scBounds.get(child.cluster.id);
           if (childBounds) {
-            // Recursively translate the child supercluster
-            translateSuperClusterPositions(
+            // Recursively translate the child CommunityGroup
+            translateCommunityGroupPositions(
               child.cluster,
               globalOffsetX + childBounds.x,
               globalOffsetY + childBounds.y,
@@ -778,7 +778,7 @@ export function useClusterGraph(
       const topX = safeNumber(dn.x, 0) - rsc.w / 2;
       const topY = safeNumber(dn.y, 0) - rsc.h / 2;
       scBounds.set(rsc.sc.id, { x: topX, y: topY, w: rsc.w, h: rsc.h });
-      translateSuperClusterPositions(rsc.sc, topX, topY);
+      translateCommunityGroupPositions(rsc.sc, topX, topY);
     }
 
     // Place orphan communities from top-level dagre
@@ -834,7 +834,7 @@ export function useClusterGraph(
     }
 
     // Final collision pass only for orphan communities and disconnected nodes
-    // (supercluster children are already spaced by their sub-dagre layout)
+    // (CommunityGroup children are already spaced by their sub-dagre layout)
     const orphanAndDisconnectedPositions = new Map<string, { x: number; y: number; w: number; h: number }>();
     for (const cid of orphanCommunityIds) {
       const pos = groupPositions.get(cid);
@@ -850,14 +850,14 @@ export function useClusterGraph(
     const resultNodes: Node[] = [];
     const contractHubEdges: Edge[] = [];
 
-    // Supercluster bounding-box nodes (visual overlays for active scopes only).
+    // CommunityGroup bounding-box nodes (visual overlays for active scopes only).
     // Positions come from the hierarchical layout (scBounds map) rather than
-    // post-hoc bounding-box computation, ensuring non-hierarchical superclusters
+    // post-hoc bounding-box computation, ensuring non-hierarchical CommunityGroups
     // never overlap.
-    const shouldRenderSuperclusters = !!options?.showSuperclusters || !!options?.focusedSuperClusterId;
-    if (shouldRenderSuperclusters) for (const sc of superClusters) {
-      if (!activeSuperClusters.has(sc.id)) continue;
-      const communityIds = collectCommunityIdsFromSuperCluster(sc);
+    const shouldRenderCommunityGroups = !!options?.showCommunityGroups || !!options?.focusedCommunityGroupId;
+    if (shouldRenderCommunityGroups) for (const sc of communityGroups) {
+      if (!activeCommunityGroups.has(sc.id)) continue;
+      const communityIds = collectCommunityIdsFromCommunityGroup(sc);
       if (communityIds.length < 2) continue;
 
       // Use pre-computed bounds from hierarchical layout, or fall back to
@@ -946,7 +946,7 @@ export function useClusterGraph(
 
       resultNodes.push({
         id: sc.id,
-        type: 'supercluster',
+        type: 'communityGroup',
         position: { x: scX, y: scY },
         width: scW,
         height: scH,
@@ -1109,7 +1109,7 @@ export function useClusterGraph(
     resultEdges.push(...contractHubEdges);
 
     return { nodes: resultNodes, edges: resultEdges };
-  }, [data, selection, options?.hideTypeOnly, options?.showFullPath, options?.focusedSuperClusterId, options?.showSuperclusters]);
+  }, [data, selection, options?.hideTypeOnly, options?.showFullPath, options?.focusedCommunityGroupId, options?.showCommunityGroups]);
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => setLocalNodes((prev) => applyNodeChanges(changes, prev.length ? prev : nodes)),

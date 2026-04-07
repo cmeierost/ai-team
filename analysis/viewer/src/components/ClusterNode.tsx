@@ -136,7 +136,7 @@ function ClusterNodeComponent({ data }: NodeProps<Node<ClusterNodeData>>) {
               background: roleColor,
               flexShrink: 0,
             }} />
-            <span>{contractHub ? 'supercluster glue' : dominantRole.replace('_', ' ')}</span>
+            <span>{contractHub ? 'CommunityGroup glue' : dominantRole.replace('_', ' ')}</span>
             {contractHub && contractSharePct != null && (
               <>
                 <span style={{ color: '#555' }}>·</span>

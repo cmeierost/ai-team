@@ -184,35 +184,35 @@ function CompositionBar({ composition }: { composition: Record<string, number> }
   );
 }
 
-function flattenSuperClusters(
-  roots: NonNullable<StructuralPipelineResult['communities']>['superClusters'],
-): NonNullable<StructuralPipelineResult['communities']>['superClusters'] {
-  const all: NonNullable<StructuralPipelineResult['communities']>['superClusters'] = [];
-  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number]) => {
+function flattenCommunityGroups(
+  roots: NonNullable<StructuralPipelineResult['communities']>['communityGroups'],
+): NonNullable<StructuralPipelineResult['communities']>['communityGroups'] {
+  const all: NonNullable<StructuralPipelineResult['communities']>['communityGroups'] = [];
+  const walk = (sc: NonNullable<StructuralPipelineResult['communities']>['communityGroups'][number]) => {
     all.push(sc);
     for (const child of sc.children ?? []) {
-      if (child.kind === 'supercluster') walk(child.cluster);
+      if (child.kind === 'communityGroup') walk(child.cluster);
     }
   };
   for (const root of roots) walk(root);
   return all;
 }
 
-function SuperclusterDetail({
+function CommunityGroupDetail({
   data,
-  superclusterId,
+  CommunityGroupId,
   onSelectFile,
 }: {
   data: StructuralPipelineResult;
-  superclusterId: string;
+  CommunityGroupId: string;
   onSelectFile?: (fileId: string) => void;
 }) {
-  const all = flattenSuperClusters(data.communities?.superClusters ?? []);
-  const sc = all.find((s) => s.id === superclusterId);
-  if (!sc) return <div style={emptyStyle}>Supercluster "{superclusterId}" not found</div>;
+  const all = flattenCommunityGroups(data.communities?.communityGroups ?? []);
+  const sc = all.find((s) => s.id === CommunityGroupId);
+  if (!sc) return <div style={emptyStyle}>CommunityGroup "{CommunityGroupId}" not found</div>;
 
   const communityIds: string[] = [];
-  const subSuperCount = sc.children.filter((c) => c.kind === 'supercluster').length;
+  const subSuperCount = sc.children.filter((c) => c.kind === 'communityGroup').length;
   for (const child of sc.children) {
     if (child.kind === 'community') communityIds.push(child.communityId);
     else {
@@ -244,7 +244,7 @@ function SuperclusterDetail({
         <div style={headingStyle}>{sc.label || sc.id}</div>
         <div style={{ fontSize: 11, color: '#666', marginTop: 1 }}>{sc.id}</div>
         <div style={{ fontSize: 12, color: '#a0a0a0', marginTop: 2 }}>
-          {sc.totalFiles} files · {communityIds.length} communities · {subSuperCount} sub-superclusters
+          {sc.totalFiles} files · {communityIds.length} communities · {subSuperCount} sub-groups
         </div>
       </div>
 
@@ -747,7 +747,7 @@ function FileDetail({
           <Row label="Leak score" value={fileMetric.sharedResponsibilityLeakScore.toFixed(2)} />
           <Row label="Hidden complexity" value={fileMetric.hiddenComplexityRatio.toFixed(2)} />
           <Row label="Consumer clusters" value={fileMetric.consumerClusterCount.toString()} />
-          <Row label="Consumer superclusters" value={fileMetric.consumerSuperclusterCount.toString()} />
+          <Row label="Consumer groups" value={fileMetric.consumerCommunityGroupCount.toString()} />
         </div>
       )}
     </>
@@ -788,7 +788,7 @@ function RepoDetail({ data }: { data: StructuralPipelineResult }) {
         <div style={sectionTitle}>Structure</div>
         <Row label="Clusters" value={String(data.clusters.length)} />
         <Row label="Communities" value={String(data.communities?.communities.length ?? 0)} />
-        <Row label="Superclusters" value={String(data.communities?.superClusters.length ?? 0)} />
+        <Row label="Community groups" value={String(data.communities?.communityGroups.length ?? 0)} />
         <Row label="Code files" value={String(codeFiles.length)} />
       </div>
 
@@ -832,10 +832,10 @@ export function DetailPanel({
     );
   }
 
-  if (selection.type === 'supercluster') {
+  if (selection.type === 'communityGroup') {
     return (
       <div style={panelStyle}>
-        <SuperclusterDetail data={data} superclusterId={selection.id} onSelectFile={onSelectFile} />
+        <CommunityGroupDetail data={data} CommunityGroupId={selection.id} onSelectFile={onSelectFile} />
       </div>
     );
   }

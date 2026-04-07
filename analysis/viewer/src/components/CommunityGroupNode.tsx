@@ -1,6 +1,6 @@
 import React from 'react';
 
-export interface SuperClusterNodeData {
+export interface CommunityGroupNodeData {
   [key: string]: unknown;
   label: string;
   communityCount: number;
@@ -17,9 +17,9 @@ export interface SuperClusterNodeData {
 
 /**
  * A transparent background node that visually groups communities belonging
- * to the same supercluster. Rendered behind cluster nodes via zIndex.
+ * to the same CommunityGroup. Rendered behind cluster nodes via zIndex.
  */
-export function SuperClusterNode({ data }: { data: SuperClusterNodeData }) {
+export function CommunityGroupNode({ data }: { data: CommunityGroupNodeData }) {
   const hasContracts = data.contractCount > 0;
   const glueRatio = typeof data.glueContractRatio === 'number' ? Math.round(data.glueContractRatio * 100) : null;
   const glueLooksContractHeavy = glueRatio == null ? hasContracts : glueRatio >= 60;
