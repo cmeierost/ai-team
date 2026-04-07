@@ -245,6 +245,32 @@ export function calculateHealthScore(result: StructuralPipelineResult): number {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
+function splitFileRecs(result: StructuralPipelineResult): PipelineRecommendation[] {
+  const recs: PipelineRecommendation[] = [];
+  if (!result.communities?.splitFileCandidates) return recs;
+
+  for (const sf of result.communities.splitFileCandidates) {
+    if (sf.communityCount < 2) continue;
+    const breakdown = sf.communityBreakdown
+      .map((b) => `${b.communityId} (${b.entityCount} entities, ${b.entityLoc} LOC)`)
+      .join(', ');
+    recs.push({
+      id: recId('cohesion-split'),
+      priority: sf.communityCount >= 3 ? 'high' : 'medium',
+      category: 'cohesion-split',
+      title: `Split ${fileName(sf.filePath)} — entities in ${sf.communityCount} communities`,
+      description:
+        `This file has entities landing in ${sf.communityCount} different communities: ${breakdown}. ` +
+        `Each community's entities should be in their own file.`,
+      fileIds: [sf.fileId],
+      filePaths: [sf.filePath],
+      impact: clamp((sf.communityCount - 1) / 4, 0.2, 0.9),
+    });
+  }
+
+  return recs;
+}
+
 // ── Main entry point ────────────────────────────────────────────────────
 
 export function generateRecommendations(
@@ -257,6 +283,7 @@ export function generateRecommendations(
     ...fileMoveRecs(result),
     ...bridgeDecoupleRecs(result),
     ...cohesionSplitRecs(result),
+    ...splitFileRecs(result),
     ...folderCleanupRecs(result),
   ];
 
