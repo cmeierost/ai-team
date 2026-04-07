@@ -59,7 +59,7 @@ const MIN_SUPERCLUSTER_COMMUNITIES = 2;
 /**
  * Higher resolution → more, smaller communities. Default Louvain is 1.0.
  */
-const LOUVAIN_RESOLUTION = 1.2;
+const LOUVAIN_RESOLUTION = 1.8;
 
 /** Communities below this size get merged into their best neighbor when meaningful. */
 const MIN_CLUSTER_FILES = 4;
@@ -247,11 +247,13 @@ export function detectCommunities(
   communities = mergeUndersizedCommunities(communities, graph, pathMap, locMap, roleMap, ctx);
   communities = extractSharedTypes(communities, weightedEdges, roleMap, ctx);
   communities = mergeCyclicCommunities(communities, weightedEdges, ctx);
+  communities = splitCrossPackageCommunities(communities, ctx);
+  communities = splitOversizedCommunities(communities, locMap, graph, ctx);
   communities = annotateCommunities(communities, pathMap, locMap, roleMap);
 
   // Build hierarchical superclusters
   let superClusters = buildSuperClusters(communities, weightedEdges, roleMap, pathMap, locMap);
-  superClusters = mergeCyclicSuperClusters(superClusters, communities, weightedEdges);
+  superClusters = mergeCyclicSuperClusters(superClusters, communities, weightedEdges, roleMap);
 
   const clusterExposure = computeCommunityExposure(communities, weightedEdges, locMap);
   const superClusterExposure = computeSuperClusterExposure(superClusters, communities, weightedEdges, locMap);
@@ -426,6 +428,46 @@ function mergeSmallCommunities(
 // ── Oversized community splitting ───────────────────────────────────────
 
 /**
+/**
+ * Directory-based splitting fallback: when Louvain can't split an oversized
+ * community, group entities by their directory within the package.
+ * Uses adaptive depth — tries depth-2 first, then depth-3 if largest group
+ * is still too big.
+ */
+function splitByDirectory(
+  community: Community,
+  ctx: EntityCtx,
+): string[][] {
+  const tryDepth = (depth: number): Map<string, string[]> => {
+    const byDir = new Map<string, string[]>();
+    for (const eid of community.memberEntityIds) {
+      const path = (ctx.entityToPath.get(eid) ?? '').replace(/\\/g, '/');
+      const parts = path.split('/');
+      const dir = parts.slice(2, 2 + depth).join('/') || 'root';
+      const list = byDir.get(dir) ?? [];
+      list.push(eid);
+      byDir.set(dir, list);
+    }
+    return byDir;
+  };
+
+  let byDir = tryDepth(2);
+  if (byDir.size <= 1) return [community.memberEntityIds];
+
+  // If the largest bucket has >75% of entities, try depth 3
+  const totalEntities = community.memberEntityIds.length;
+  const largestSize = Math.max(...[...byDir.values()].map(g => g.length));
+  if (largestSize > totalEntities * 0.75) {
+    const deeper = tryDepth(3);
+    if (deeper.size > byDir.size) byDir = deeper;
+  }
+
+  if (byDir.size <= 1) return [community.memberEntityIds];
+
+  return [...byDir.values()].filter(g => g.length > 0).sort((a, b) => b.length - a.length);
+}
+
+/**
  * Recursively split communities that exceed context-window thresholds.
  * Uses sub-graph Louvain on entity graph with progressively higher resolution.
  */
@@ -435,10 +477,13 @@ function splitOversizedCommunities(
   graph: InstanceType<typeof Graph>,
   ctx: EntityCtx,
 ): Community[] {
-  const result: Community[] = [];
   let nextId = communities.length;
+  const work = [...communities];
+  const result: Community[] = [];
 
-  for (const community of communities) {
+  // Iterative: keep splitting oversized communities until all fit or can't split
+  while (work.length > 0) {
+    const community = work.pop()!;
     const loc = community.memberFileIds.reduce((s, fid) => s + (locMap.get(fid) ?? 0), 0);
     if (loc <= MAX_CLUSTER_LOC && community.memberFileIds.length <= MAX_CLUSTER_FILES) {
       result.push(community);
@@ -467,7 +512,7 @@ function splitOversizedCommunities(
     try {
       const sub = louvain.detailed(subGraph, {
         getEdgeWeight: 'weight',
-        resolution: LOUVAIN_RESOLUTION * 2,
+        resolution: LOUVAIN_RESOLUTION * 1.5,
       });
 
       const subMap = new Map<number, string[]>();
@@ -478,22 +523,62 @@ function splitOversizedCommunities(
       }
 
       if (subMap.size <= 1) {
-        result.push(community);
+        // Louvain couldn't split — try directory-based split as fallback
+        const dirSplit = splitByDirectory(community, ctx);
+        if (dirSplit.length > 1) {
+          for (const sc of dirSplit) work.push(makeCommunity(`community-${nextId++}`, sc, ctx));
+        } else {
+          result.push(community);
+        }
       } else {
         const subComms = [...subMap.values()].sort((a, b) => b.length - a.length);
-        const largest = subComms[0];
-        for (let i = 1; i < subComms.length; i++) {
-          if (subComms[i].length === 1) {
-            largest.push(subComms[i][0]);
-          } else {
-            result.push(makeCommunity(`community-${nextId++}`, subComms[i], ctx));
+        const realSubComms: string[][] = [];
+        const singletons: string[] = [];
+        for (const sc of subComms) {
+          if (sc.length === 1) singletons.push(sc[0]);
+          else realSubComms.push(sc);
+        }
+        // Redistribute singletons by edge/file proximity
+        for (const eid of singletons) {
+          let bestIdx = 0;
+          let bestScore = 0;
+          for (let j = 0; j < realSubComms.length; j++) {
+            const nbrs = new Set(realSubComms[j]);
+            let score = 0;
+            if (subGraph.hasNode(eid)) {
+              subGraph.forEachNeighbor(eid, (nb) => { if (nbrs.has(nb)) score++; });
+            }
+            const eidFile = ctx.entityToFileId.get(eid);
+            if (eidFile) {
+              for (const m of realSubComms[j]) {
+                if (ctx.entityToFileId.get(m) === eidFile) score += 0.5;
+              }
+            }
+            if (score > bestScore) { bestScore = score; bestIdx = j; }
           }
+          realSubComms[bestIdx].push(eid);
         }
-        // Add entities not in subgraph (isolated) to the largest
+        // Isolated entities go to same-file community or largest
         for (const eid of members) {
-          if (!subGraph.hasNode(eid)) largest.push(eid);
+          if (subGraph.hasNode(eid)) continue;
+          const eidFile = ctx.entityToFileId.get(eid);
+          let bestIdx = 0;
+          let bestScore = 0;
+          for (let j = 0; j < realSubComms.length; j++) {
+            let score = 0;
+            if (eidFile) {
+              for (const m of realSubComms[j]) {
+                if (ctx.entityToFileId.get(m) === eidFile) score++;
+              }
+            }
+            if (score > bestScore) { bestScore = score; bestIdx = j; }
+          }
+          realSubComms[bestIdx].push(eid);
         }
-        result.push(makeCommunity(`community-${nextId++}`, largest, ctx));
+        // Push sub-communities back to work queue for potential further splitting
+        for (const sc of realSubComms) {
+          work.push(makeCommunity(`community-${nextId++}`, sc, ctx));
+        }
       }
     } catch {
       result.push(community);
@@ -815,6 +900,45 @@ function detectSplitFiles(
   return candidates.sort((a, b) => b.communityCount - a.communityCount || b.totalEntityLoc - a.totalEntityLoc);
 }
 
+// ── Cross-package splitting ─────────────────────────────────────────────
+
+/**
+ * Split communities that span multiple packages into per-package
+ * sub-communities. This ensures superclusters stay package-aligned.
+ */
+function splitCrossPackageCommunities(
+  communities: Community[],
+  ctx: EntityCtx,
+): Community[] {
+  const result: Community[] = [];
+  let nextId = communities.length;
+
+  for (const community of communities) {
+    // Group entities by package
+    const byPkg = new Map<string, string[]>();
+    for (const eid of community.memberEntityIds) {
+      const path = ctx.entityToPath.get(eid) ?? '';
+      const pkg = path.replace(/\\/g, '/').split('/')[1] ?? '';
+      const list = byPkg.get(pkg) ?? [];
+      list.push(eid);
+      byPkg.set(pkg, list);
+    }
+
+    if (byPkg.size <= 1) {
+      result.push(community);
+      continue;
+    }
+
+    // Split into per-package sub-communities
+    for (const [, entities] of byPkg) {
+      if (entities.length === 0) continue;
+      result.push(makeCommunity(`community-${nextId++}`, entities, ctx));
+    }
+  }
+
+  return result.map((c, i) => ({ ...c, id: `community-${i}` }));
+}
+
 function annotateCommunities(
   communities: Community[],
   pathMap: Map<string, string>,
@@ -1068,15 +1192,30 @@ function buildSuperClusters(
     if (ra !== rb) parent.set(ra, rb);
   };
 
-  // Phase 1: shared contracts — contract/infrastructure/barrel edges merge communities.
-  // These are cheap to share across clusters and indicate coordination.
-  for (const edge of edges) {
-    const src = fileToCommunity.get(edge.sourceFileId);
-    const tgt = fileToCommunity.get(edge.targetFileId);
-    if (!src || !tgt || src === tgt) continue;
-    const role = roleMap.get(edge.targetFileId);
-    if (role === 'contract' || role === 'infrastructure' || role === 'barrel') {
-      union(src, tgt);
+  // Phase 1: shared package scope — merge communities from the same package
+  // directory. Contracts are meant to be shared across superclusters, so we
+  // do NOT merge on contract edges. Instead, same-package communities form
+  // natural supercluster seeds.
+  const communityPkg = new Map<string, string>();
+  for (const c of communities) {
+    // Use the dominant package (top-level dir) of the community's files
+    const pkgCounts = new Map<string, number>();
+    for (const fid of c.memberFileIds) {
+      const p = pathMap.get(fid)?.replace(/\\/g, '/').split('/')[1] ?? '';
+      if (p) pkgCounts.set(p, (pkgCounts.get(p) ?? 0) + 1);
+    }
+    const dominant = [...pkgCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+    communityPkg.set(c.id, dominant);
+  }
+  // Merge communities that share the same package
+  for (const c of communities) {
+    const pkg = communityPkg.get(c.id);
+    if (!pkg) continue;
+    for (const other of communities) {
+      if (other.id === c.id) continue;
+      if (communityPkg.get(other.id) === pkg) {
+        union(c.id, other.id);
+      }
     }
   }
 
@@ -1103,16 +1242,22 @@ function buildSuperClusters(
     }
   }
 
-  // Merge pairs with any critical coupling — these are the cross-boundary
-  // dependencies we want inside superclusters, not across them.
+  // Merge pairs with significant critical coupling — only when the critical
+  // weight exceeds a threshold. This prevents trivial cross-package imports
+  // from merging unrelated superclusters.
+  const MIN_CRITICAL_WEIGHT_FOR_MERGE = 5;
   const sortedPairs = [...pairWeight.entries()]
-    .filter(([, pw]) => pw.critical > 0)
+    .filter(([, pw]) => pw.critical >= MIN_CRITICAL_WEIGHT_FOR_MERGE)
     .sort((a, b) => b[1].critical - a[1].critical);
 
   for (const [key, pw] of sortedPairs) {
     const [a, b] = key.split('\0');
     if (find(a) === find(b)) continue;
-    if (pw.critical > 0) {
+    // Only merge if they are in the same package already (from Phase 1)
+    // or have very strong critical coupling
+    const pkgA = communityPkg.get(a);
+    const pkgB = communityPkg.get(b);
+    if (pkgA === pkgB || pw.critical >= MIN_CRITICAL_WEIGHT_FOR_MERGE * 3) {
       union(a, b);
     }
   }
@@ -1233,6 +1378,20 @@ function buildSuperClusters(
 
   if (undersized.size > 1) {
     // Compute the "technology prefix" for each group (most common top-level dir)
+    // After cross-package splitting, each community belongs to exactly one package.
+    // Phase 4 must NEVER merge communities from different packages.
+    const groupPkg = (cids: string[]): string => {
+      const counts = new Map<string, number>();
+      for (const cid of cids) {
+        const c = communityById.get(cid);
+        if (!c) continue;
+        for (const fid of c.memberFileIds) {
+          const p = (pathMap.get(fid) ?? '').replace(/\\/g, '/').split('/')[1] ?? '';
+          counts.set(p, (counts.get(p) ?? 0) + 1);
+        }
+      }
+      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+    };
     const groupTech = (cids: string[]): string => {
       const counts = new Map<string, number>();
       for (const cid of cids) {
@@ -1284,6 +1443,7 @@ function buildSuperClusters(
       if (mergedRoots.has(uRoot)) continue;
       const uTech = groupTech(uMembers);
       const uRole = groupRole(uMembers);
+      const uPkg = groupPkg(uMembers);
 
       let bestTarget: string | undefined;
       let bestScore = -1;
@@ -1291,6 +1451,10 @@ function buildSuperClusters(
       // Prefer adequate groups first, then other undersized
       const candidates = [...adequate, ...undersized].filter(([r]) => r !== uRoot && !mergedRoots.has(r));
       for (const [cRoot, cMembers] of candidates) {
+        // Never merge communities from different packages
+        const cPkg = groupPkg(cMembers);
+        if (uPkg && cPkg && uPkg !== cPkg) continue;
+
         const cTech = groupTech(cMembers);
         const cRole = groupRole(cMembers);
 
@@ -1336,17 +1500,20 @@ function buildSuperClusters(
 
     // 2. Any remaining undersized groups: merge by technology prefix alone
     //    (no edge required — these are isolated utilities/barrels).
+    //    Constrained to same package.
     const remainingUndersized = [...undersized].filter(([r]) => !mergedRoots.has(r));
     if (remainingUndersized.length >= 2) {
-      const byTech = new Map<string, string[]>();
+      const byTechPkg = new Map<string, string[]>();
       for (const [root, members] of remainingUndersized) {
         const tech = groupTech(members);
-        const list = byTech.get(tech) ?? [];
+        const pkg = groupPkg(members);
+        const key = `${pkg}:${tech}`;
+        const list = byTechPkg.get(key) ?? [];
         list.push(root);
-        byTech.set(tech, list);
+        byTechPkg.set(key, list);
       }
 
-      for (const roots of byTech.values()) {
+      for (const roots of byTechPkg.values()) {
         if (roots.length < 2) continue;
         const target = roots[0];
         for (let i = 1; i < roots.length; i++) {
@@ -1359,18 +1526,20 @@ function buildSuperClusters(
 
     // 3. Group remaining isolated singletons by dominant role.
     //    Barrel-only or contract-only singletons with different tech prefixes
-    //    are still safe to group — they share the same code concern.
+    //    are still safe to group IF they belong to the same package.
     const stillUndersized = [...undersized].filter(([r]) => !mergedRoots.has(r));
     if (stillUndersized.length >= 2) {
-      const byRole = new Map<string, string[]>();
+      const byRolePkg = new Map<string, string[]>();
       for (const [root, members] of stillUndersized) {
         const role = groupRole(members) ?? 'unknown';
-        const list = byRole.get(role) ?? [];
+        const pkg = groupPkg(members);
+        const key = `${pkg}:${role}`;
+        const list = byRolePkg.get(key) ?? [];
         list.push(root);
-        byRole.set(role, list);
+        byRolePkg.set(key, list);
       }
 
-      for (const roots of byRole.values()) {
+      for (const roots of byRolePkg.values()) {
         if (roots.length < 2) continue;
         const target = roots[0];
         for (let i = 1; i < roots.length; i++) {
@@ -1532,6 +1701,7 @@ function mergeCyclicSuperClusters(
   superClusters: SuperCluster[],
   communities: Community[],
   edges: WeightedEdge[],
+  roleMap: Map<string, CodeContentRole | undefined>,
 ): SuperCluster[] {
   if (superClusters.length < 2) return superClusters;
 
@@ -1560,14 +1730,19 @@ function mergeCyclicSuperClusters(
   };
   for (const sc of superClusters) collectFiles(sc);
 
-  // Build directed adjacency between superclusters
+  // Build directed adjacency between superclusters.
+  // Only consider non-contract, non-type-only edges — contract imports across
+  // superclusters are expected and should not trigger cycle merging.
   const scIds = superClusters.map((sc) => sc.id);
   const adj = new Map<string, Set<string>>();
   for (const id of scIds) adj.set(id, new Set());
   for (const edge of edges) {
+    if (edge.isTypeOnly) continue;
     const src = fileToSc.get(edge.sourceFileId);
     const tgt = fileToSc.get(edge.targetFileId);
     if (!src || !tgt || src === tgt) continue;
+    const tgtRole = roleMap.get(edge.targetFileId);
+    if (tgtRole === 'contract' || tgtRole === 'infrastructure' || tgtRole === 'barrel') continue;
     adj.get(src)!.add(tgt);
   }
 
