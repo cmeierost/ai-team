@@ -23,7 +23,7 @@ export {
 } from './2-code-classification.js';
 export { buildRawEdges, computeFileCouplingStats } from './3-import-analysis.js';
 export { weightEdge, weightAllEdges, WEIGHTS } from './4-edge-weighting.js';
-export { analysePackageAlignment } from './6-package-comparison.js';
+export { analysePackageAlignment, matchCommunityGroupsToPackages, comparePackages } from './6-package-comparison.js';
 export { analyseFolderFocus, assessFolder } from './7-folder-comparison.js';
 export {
   analyseClusterQuality, findSplitCandidates,
@@ -73,6 +73,7 @@ export type {
   FileInfo, WeightedEdge,
   EntityGraphArtefact, CommunityMapArtefact, CrossGroupEdge,
   PackageAlignment, SpilledCluster,
+  CommunityGroupPackageMatch, PackageComparisonResult,
   FolderFocus, FolderAssessment,
   StructuralFileInfo, ClusterQuality,
   FileSplitCandidate,

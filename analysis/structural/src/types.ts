@@ -131,6 +131,29 @@ export interface SpilledCluster {
   containment: number;
 }
 
+/** Reverse mapping: for each community group, which package matches best? */
+export interface CommunityGroupPackageMatch {
+  communityGroupId: string;
+  /** Best-matching package by file overlap. */
+  bestPackageId: string;
+  /** Files in the community group that are in the best-matching package. */
+  coveredFiles: string[];
+  /** Files in the community group NOT in the best-matching package. */
+  missingFiles: string[];
+  /** Files in the best-matching package NOT in the community group. */
+  extraFiles: string[];
+  /** coveredFiles.length / totalGroupFiles. */
+  coverageRatio: number;
+}
+
+/** Combined result from step 6. */
+export interface PackageComparisonResult {
+  /** Per-package alignment (package→community direction). */
+  packageAlignment: PackageAlignment[];
+  /** Per-community-group best-match (group→package direction). */
+  communityGroupMatches: CommunityGroupPackageMatch[];
+}
+
 // ── Step 7: Folder comparison ───────────────────────────────────────────
 
 /** Analysis result for a single directory. */
