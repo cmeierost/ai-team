@@ -378,84 +378,119 @@ export function useClusterGraph(
     }
 
     // --- Dagre layout for connected nodes, grid for disconnected ---
-    // Build group edges including edges where one side is ungrouped
-    // (map ungrouped files to their nearest group via package ownership)
+    // Build group edges: use pre-computed crossGroupEdges when available,
+    // fall back to scanning all weightedEdges otherwise.
     const connectedGroupIds = new Set<string>();
     const groupEdgeMap = new Map<string, ClusterEdge>();
+    const groupIdSet = new Set(groups.map((g) => g.id));
 
-    function addGroupEdge(srcGroup: string, tgtGroup: string, we: typeof data.weightedEdges[number], isReexport = false) {
-      if (srcGroup === tgtGroup) return;
-      connectedGroupIds.add(srcGroup);
-      connectedGroupIds.add(tgtGroup);
+    const crossGroupEdges = data.communities?.crossGroupEdges;
+    if (crossGroupEdges && crossGroupEdges.length > 0) {
+      // Use pre-computed summary edges from community detection (step 5)
+      for (const cge of crossGroupEdges) {
+        if (!groupIdSet.has(cge.sourceGroupId) || !groupIdSet.has(cge.targetGroupId)) continue;
+        if (cge.sourceGroupId === cge.targetGroupId) continue;
 
-      const key = srcGroup < tgtGroup
-        ? `${srcGroup}->${tgtGroup}`
-        : `${tgtGroup}->${srcGroup}`;
-      const isForward = srcGroup < tgtGroup;
+        connectedGroupIds.add(cge.sourceGroupId);
+        connectedGroupIds.add(cge.targetGroupId);
 
-      let ce = groupEdgeMap.get(key);
-      if (!ce) {
-        ce = {
-          sourceClusterId: srcGroup < tgtGroup ? srcGroup : tgtGroup,
-          targetClusterId: srcGroup < tgtGroup ? tgtGroup : srcGroup,
-          totalWeight: 0,
-          edgeCount: 0,
-          typeOnlyCount: 0,
-          reexportCount: 0,
-          forwardWeight: 0,
-          backwardWeight: 0,
-        };
-        groupEdgeMap.set(key, ce);
-      }
-      const edge = ce;
-      edge.totalWeight += we.weight;
-      edge.edgeCount += 1;
-      if (isForward) edge.forwardWeight += we.weight;
-      else edge.backwardWeight += we.weight;
-      if (we.isTypeOnly) edge.typeOnlyCount += 1;
-      if (isReexport) edge.reexportCount += 1;
-    }
+        const key = cge.sourceGroupId < cge.targetGroupId
+          ? `${cge.sourceGroupId}->${cge.targetGroupId}`
+          : `${cge.targetGroupId}->${cge.sourceGroupId}`;
+        const isForward = cge.sourceGroupId < cge.targetGroupId;
 
-    for (const we of data.weightedEdges) {
-      if (options?.hideTypeOnly && we.isTypeOnly) continue;
-
-      const srcIsBarrel = barrelFileIds.has(we.sourceFileId);
-      const tgtIsBarrel = barrelFileIds.has(we.targetFileId);
-
-      let srcGroup = fileToGroup.get(we.sourceFileId);
-      let tgtGroup = fileToGroup.get(we.targetFileId);
-
-      // Map ungrouped files to a group via package ownership
-      if (!srcGroup) {
-        const fc = fileClassMap.get(we.sourceFileId);
-        if (fc) {
-          const pkg = fc.filePath.replace(/\\/g, '/').split('/')[1] ?? '';
-          srcGroup = pkgToGroup.get(pkg);
+        let ce = groupEdgeMap.get(key);
+        if (!ce) {
+          ce = {
+            sourceClusterId: cge.sourceGroupId < cge.targetGroupId ? cge.sourceGroupId : cge.targetGroupId,
+            targetClusterId: cge.sourceGroupId < cge.targetGroupId ? cge.targetGroupId : cge.sourceGroupId,
+            totalWeight: 0,
+            edgeCount: 0,
+            typeOnlyCount: 0,
+            reexportCount: 0,
+            forwardWeight: 0,
+            backwardWeight: 0,
+          };
+          groupEdgeMap.set(key, ce);
         }
+        ce.totalWeight += cge.weight;
+        ce.edgeCount += cge.edgeCount;
+        if (isForward) ce.forwardWeight += cge.weight;
+        else ce.backwardWeight += cge.weight;
       }
-      if (!tgtGroup) {
-        const fc = fileClassMap.get(we.targetFileId);
-        if (fc) {
-          const pkg = fc.filePath.replace(/\\/g, '/').split('/')[1] ?? '';
-          tgtGroup = pkgToGroup.get(pkg);
+    } else {
+      // Fallback: scan individual weighted edges
+      function addGroupEdge(srcGroup: string, tgtGroup: string, we: typeof data.weightedEdges[number], isReexport = false) {
+        if (srcGroup === tgtGroup) return;
+        connectedGroupIds.add(srcGroup);
+        connectedGroupIds.add(tgtGroup);
+
+        const key = srcGroup < tgtGroup
+          ? `${srcGroup}->${tgtGroup}`
+          : `${tgtGroup}->${srcGroup}`;
+        const isForward = srcGroup < tgtGroup;
+
+        let ce = groupEdgeMap.get(key);
+        if (!ce) {
+          ce = {
+            sourceClusterId: srcGroup < tgtGroup ? srcGroup : tgtGroup,
+            targetClusterId: srcGroup < tgtGroup ? tgtGroup : srcGroup,
+            totalWeight: 0,
+            edgeCount: 0,
+            typeOnlyCount: 0,
+            reexportCount: 0,
+            forwardWeight: 0,
+            backwardWeight: 0,
+          };
+          groupEdgeMap.set(key, ce);
         }
+        ce.totalWeight += we.weight;
+        ce.edgeCount += 1;
+        if (isForward) ce.forwardWeight += we.weight;
+        else ce.backwardWeight += we.weight;
+        if (we.isTypeOnly) ce.typeOnlyCount += 1;
+        if (isReexport) ce.reexportCount += 1;
       }
 
-      if (srcGroup && tgtGroup) {
-        // "Show full path": when target is a barrel, resolve through to actual files
-        if (options?.showFullPath && tgtIsBarrel) {
-          const reexportTargets = barrelReexportTargets.get(we.targetFileId);
-          if (reexportTargets && reexportTargets.size > 0) {
-            for (const resolvedId of reexportTargets) {
-              const resolvedGroup = fileToGroup.get(resolvedId);
-              if (resolvedGroup) {
-                addGroupEdge(srcGroup, resolvedGroup, we, true);
-              }
-            }
-            continue; // skip the barrel edge itself
+      for (const we of data.weightedEdges) {
+        if (options?.hideTypeOnly && we.isTypeOnly) continue;
+
+        const srcIsBarrel = barrelFileIds.has(we.sourceFileId);
+        const tgtIsBarrel = barrelFileIds.has(we.targetFileId);
+
+        let srcGroup = fileToGroup.get(we.sourceFileId);
+        let tgtGroup = fileToGroup.get(we.targetFileId);
+
+        if (!srcGroup) {
+          const fc = fileClassMap.get(we.sourceFileId);
+          if (fc) {
+            const pkg = fc.filePath.replace(/\\/g, '/').split('/')[1] ?? '';
+            srcGroup = pkgToGroup.get(pkg);
           }
         }
-        addGroupEdge(srcGroup, tgtGroup, we, srcIsBarrel || tgtIsBarrel);
+        if (!tgtGroup) {
+          const fc = fileClassMap.get(we.targetFileId);
+          if (fc) {
+            const pkg = fc.filePath.replace(/\\/g, '/').split('/')[1] ?? '';
+            tgtGroup = pkgToGroup.get(pkg);
+          }
+        }
+
+        if (srcGroup && tgtGroup) {
+          if (options?.showFullPath && tgtIsBarrel) {
+            const reexportTargets = barrelReexportTargets.get(we.targetFileId);
+            if (reexportTargets && reexportTargets.size > 0) {
+              for (const resolvedId of reexportTargets) {
+                const resolvedGroup = fileToGroup.get(resolvedId);
+                if (resolvedGroup) {
+                  addGroupEdge(srcGroup, resolvedGroup, we, true);
+                }
+              }
+              continue;
+            }
+          }
+          addGroupEdge(srcGroup, tgtGroup, we, srcIsBarrel || tgtIsBarrel);
+        }
       }
     }
 
