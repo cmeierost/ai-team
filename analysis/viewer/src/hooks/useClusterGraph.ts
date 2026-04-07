@@ -120,7 +120,7 @@ function buildGroups(data: StructuralPipelineResult): ViewerGroup[] {
   if (communityGroups.length > 0) {
     return communityGroups.map((c) => ({
       id: c.id,
-      label: deriveGroupLabel(c.memberFileIds),
+      label: c.label || deriveGroupLabel(c.memberFileIds),
       fileIds: c.memberFileIds,
       source: 'community' as const,
     }));

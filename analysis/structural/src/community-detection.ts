@@ -42,7 +42,7 @@ const TANGLED_THRESHOLD = 3;
  * split so each cluster fits comfortably in a single LLM context window.
  * ~8 000 LOC ≈ ~25 000 tokens — leaves room for prompts and output.
  */
-const MAX_CLUSTER_LOC = 8_000;
+const MAX_CLUSTER_LOC = 10_000;
 const MAX_CLUSTER_FILES = 30;
 const MIN_CLUSTER_LOC = 3_000;
 const MAX_SUPERCLUSTER_SHARED_LOC = 5_000;
@@ -692,15 +692,65 @@ function annotateCommunities(
   locMap: Map<string, number>,
   roleMap: Map<string, CodeContentRole | undefined>,
 ): Community[] {
-  return communities.map((community) => {
+  const annotated = communities.map((community) => {
     const totalLoc = communityLoc(community, locMap);
-    return {
-      ...community,
-      totalLoc,
-      dominantTechnology: dominantTech(community, pathMap),
-      dominantRole: dominantRole(community, roleMap),
-    };
+    const tech = dominantTech(community, pathMap);
+    const role = dominantRole(community, roleMap);
+    return { ...community, totalLoc, dominantTechnology: tech, dominantRole: role };
   });
+
+  // Build unique labels: tech-short · role · distinguishing subfolder
+  const labels = annotated.map((c) => buildCommunityLabel(c, pathMap));
+
+  // Disambiguate duplicates by appending a counter
+  const counts = new Map<string, number>();
+  for (const l of labels) counts.set(l, (counts.get(l) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  for (let i = 0; i < annotated.length; i++) {
+    const base = labels[i];
+    if (counts.get(base)! > 1) {
+      const n = (seen.get(base) ?? 0) + 1;
+      seen.set(base, n);
+      annotated[i].label = `${base} #${n}`;
+    } else {
+      annotated[i].label = base;
+    }
+  }
+
+  return annotated;
+}
+
+/** Build a human-readable label for a community from its files. */
+function buildCommunityLabel(
+  community: Community & { dominantTechnology?: string; dominantRole?: CodeContentRole },
+  pathMap: Map<string, string>,
+): string {
+  const tech = community.dominantTechnology ?? '';
+  const role = community.dominantRole;
+
+  // Short tech: "packages/core" → "core", "analysis/structural" → "structural"
+  const techShort = tech.split('/').pop() ?? tech;
+
+  // Find the most common subfolder beyond the package root (e.g. "hooks", "components")
+  const subfolderCounts = new Map<string, number>();
+  for (const fid of community.memberFileIds) {
+    const fp = (pathMap.get(fid) ?? fid).replace(/\\/g, '/');
+    const parts = fp.split('/');
+    // Look for the first meaningful subfolder after "src/"
+    const srcIdx = parts.indexOf('src');
+    const subIdx = srcIdx >= 0 ? srcIdx + 1 : 3;
+    if (parts.length > subIdx + 1) {
+      const sub = parts[subIdx];
+      subfolderCounts.set(sub, (subfolderCounts.get(sub) ?? 0) + 1);
+    }
+  }
+  const topSub = [...subfolderCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  const segments = [techShort];
+  if (role && role !== 'unknown') segments.push(role);
+  if (topSub) segments.push(topSub);
+
+  return segments.join(' · ') || 'group';
 }
 
 function dominantRole(

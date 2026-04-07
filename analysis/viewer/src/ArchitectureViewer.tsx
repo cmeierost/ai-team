@@ -182,7 +182,8 @@ export function ArchitectureViewer({
   const clusterLabelById = useMemo(() => {
     const map = new Map<string, string>();
     for (const c of data.communities?.communities ?? []) {
-      map.set(c.id, `${deriveGroupLabel(c.memberFileIds)} (${c.memberFileIds.length})`);
+      const label = c.label || deriveGroupLabel(c.memberFileIds);
+      map.set(c.id, `${label} (${c.memberFileIds.length})`);
     }
     for (const c of data.clusters) {
       if (!map.has(c.id)) map.set(c.id, `${deriveGroupLabel(c.fileIds)} (${c.fileIds.length})`);

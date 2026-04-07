@@ -458,6 +458,8 @@ export interface StructuralPipelineOptions {
 /** A community of files detected by the Louvain algorithm. */
 export interface Community {
   id: string;
+  /** Human-readable label distinguishing this community (e.g. "web · presentation · hooks"). */
+  label?: string;
   memberFileIds: string[];
   totalLoc?: number;
   dominantTechnology?: string;
