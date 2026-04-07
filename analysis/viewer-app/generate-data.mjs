@@ -136,9 +136,14 @@ const writePart = (s) => writeSync(fd, s);
 writePart('{"fileContents":{');
 let firstFC = true;
 for (const [key, value] of Object.entries(fileContents)) {
-  if (!firstFC) writePart(',');
-  firstFC = false;
-  writePart(JSON.stringify(key) + ':' + JSON.stringify(value));
+  try {
+    const jsonVal = JSON.stringify(value);
+    if (!firstFC) writePart(',');
+    firstFC = false;
+    writePart(JSON.stringify(key) + ':' + jsonVal);
+  } catch {
+    // Skip files whose source code is too large to serialize
+  }
 }
 writePart('}');
 

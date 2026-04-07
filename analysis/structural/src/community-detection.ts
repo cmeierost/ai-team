@@ -54,10 +54,12 @@ const MIN_SUPERCLUSTER_COMMUNITIES = 2;
 /**
  * Higher resolution → more, smaller communities. Default Louvain is 1.0.
  */
-const LOUVAIN_RESOLUTION = 1.0;
+const LOUVAIN_RESOLUTION = 1.2;
 
 /** Communities below this size get merged into their best neighbor when meaningful. */
 const MIN_CLUSTER_FILES = 4;
+/** Fan-in above this triggers hub dampening in the Louvain graph. */
+const HUB_FANIN_THRESHOLD = 10;
 const ROLE_FOCUS_RATIO = 0.7;
 
 // ── Community detection ─────────────────────────────────────────────────
@@ -80,14 +82,32 @@ export function detectCommunities(
     pathMap.set(f.fileId, f.filePath);
   }
 
+  // Compute fan-in per target file for hub dampening.
+  // Files with very high fan-in (shared types, utils) pull everything into one
+  // community. Dampen their edge weights so Louvain can split naturally.
+  const fanIn = new Map<string, number>();
+  for (const edge of weightedEdges) {
+    fanIn.set(edge.targetFileId, (fanIn.get(edge.targetFileId) ?? 0) + 1);
+  }
+
   for (const edge of weightedEdges) {
     if (!graph.hasNode(edge.sourceFileId) || !graph.hasNode(edge.targetFileId)) continue;
     if (edge.sourceFileId === edge.targetFileId) continue;
+
+    // Hub dampening: 1/sqrt(fanIn) for targets with fanIn > HUB_FANIN_THRESHOLD.
+    // A file imported by 100 sources gets ×0.1 weight per edge in the graph,
+    // preventing it from gluing unrelated importers into one community.
+    const targetFanIn = fanIn.get(edge.targetFileId) ?? 1;
+    let w = edge.weight;
+    if (targetFanIn > HUB_FANIN_THRESHOLD) {
+      w *= HUB_FANIN_THRESHOLD / targetFanIn;
+    }
+
     if (graph.hasEdge(edge.sourceFileId, edge.targetFileId)) {
-      const w = (graph.getEdgeAttribute(edge.sourceFileId, edge.targetFileId, 'weight') as number) ?? 0;
-      graph.setEdgeAttribute(edge.sourceFileId, edge.targetFileId, 'weight', w + edge.weight);
+      const existing = (graph.getEdgeAttribute(edge.sourceFileId, edge.targetFileId, 'weight') as number) ?? 0;
+      graph.setEdgeAttribute(edge.sourceFileId, edge.targetFileId, 'weight', existing + w);
     } else {
-      graph.addEdge(edge.sourceFileId, edge.targetFileId, { weight: edge.weight });
+      graph.addEdge(edge.sourceFileId, edge.targetFileId, { weight: w });
     }
   }
 
