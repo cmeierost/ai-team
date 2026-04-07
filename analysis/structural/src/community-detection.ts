@@ -138,10 +138,19 @@ export function detectCommunities(
   // Extract shared contract/type files into their own clusters.
   communities = extractSharedTypes(communities, weightedEdges, roleMap);
 
+  // Merge communities with bidirectional (cyclic) dependencies.
+  // Cross-cluster edges must be unidirectional — cycles indicate the
+  // communities are too tightly coupled and should be one cluster.
+  communities = mergeCyclicCommunities(communities, weightedEdges);
+
   communities = annotateCommunities(communities, pathMap, locMap, roleMap);
 
-  // Build hierarchical superclusters from shared contracts + package affinity.
-  const superClusters = buildSuperClusters(communities, weightedEdges, roleMap, pathMap, locMap);
+  // Build hierarchical superclusters from shared contracts + edge coupling.
+  let superClusters = buildSuperClusters(communities, weightedEdges, roleMap, pathMap, locMap);
+
+  // Verify no cyclic dependencies between superclusters (including indirect cycles).
+  // If cycles exist, merge the offending superclusters.
+  superClusters = mergeCyclicSuperClusters(superClusters, communities, weightedEdges);
 
   const clusterExposure = computeCommunityExposure(communities, weightedEdges, locMap);
   const superClusterExposure = computeSuperClusterExposure(superClusters, communities, weightedEdges, locMap);
@@ -587,6 +596,91 @@ function mergeUndersizedCommunities(
   return work
     .filter((_, idx) => !merged.has(idx))
     .map((c, i) => ({ ...c, id: `community-${i}`, memberFileIds: c.memberFileIds.sort() }));
+}
+
+// ── Cycle elimination ────────────────────────────────────────────────────
+
+/**
+ * Merge communities that have bidirectional (cyclic) dependencies.
+ * Cross-cluster edges must be unidirectional. If A → B and B → A both exist,
+ * those communities are too tightly coupled and must become one cluster.
+ *
+ * Uses union-find to transitively merge all communities in the same cycle,
+ * then collapses strongly-connected components into single communities.
+ */
+function mergeCyclicCommunities(
+  communities: Community[],
+  edges: WeightedEdge[],
+): Community[] {
+  if (communities.length < 2) return communities;
+
+  const fileToCommunity = new Map<string, string>();
+  for (const c of communities) {
+    for (const fid of c.memberFileIds) fileToCommunity.set(fid, c.id);
+  }
+
+  // Build directed edge set between communities
+  const directedEdges = new Set<string>();
+  for (const edge of edges) {
+    const src = fileToCommunity.get(edge.sourceFileId);
+    const tgt = fileToCommunity.get(edge.targetFileId);
+    if (!src || !tgt || src === tgt) continue;
+    directedEdges.add(`${src}\0${tgt}`);
+  }
+
+  // Find bidirectional pairs
+  const parent = new Map<string, string>();
+  for (const c of communities) parent.set(c.id, c.id);
+  const find = (x: string): string => {
+    while (parent.get(x) !== x) {
+      parent.set(x, parent.get(parent.get(x)!)!);
+      x = parent.get(x)!;
+    }
+    return x;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  let hasCycles = false;
+  for (const key of directedEdges) {
+    const [a, b] = key.split('\0');
+    const reverse = `${b}\0${a}`;
+    if (directedEdges.has(reverse)) {
+      union(a, b);
+      hasCycles = true;
+    }
+  }
+
+  if (!hasCycles) return communities;
+
+  // Group by root
+  const groups = new Map<string, Community[]>();
+  for (const c of communities) {
+    const root = find(c.id);
+    const list = groups.get(root) ?? [];
+    list.push(c);
+    groups.set(root, list);
+  }
+
+  // Collapse groups with multiple members into single communities
+  const result: Community[] = [];
+  for (const members of groups.values()) {
+    if (members.length === 1) {
+      result.push(members[0]);
+    } else {
+      const merged: string[] = [];
+      for (const c of members) merged.push(...c.memberFileIds);
+      result.push({
+        id: '',
+        memberFileIds: merged.sort(),
+      });
+    }
+  }
+
+  return result.map((c, i) => ({ ...c, id: `community-${i}` }));
 }
 
 function annotateCommunities(
@@ -1063,6 +1157,138 @@ function buildSuperClusters(
     for (const fid of fileIds) total += locMap.get(fid) ?? 0;
     return total;
   }
+}
+
+// ── Supercluster cycle elimination ──────────────────────────────────────
+
+/**
+ * Detect and eliminate cycles between superclusters.
+ * Uses Tarjan's SCC algorithm on the directed inter-supercluster dependency
+ * graph. Superclusters in the same SCC are merged.
+ */
+function mergeCyclicSuperClusters(
+  superClusters: SuperCluster[],
+  communities: Community[],
+  edges: WeightedEdge[],
+): SuperCluster[] {
+  if (superClusters.length < 2) return superClusters;
+
+  // Build file → supercluster id mapping
+  const fileToSc = new Map<string, string>();
+  const collectFiles = (sc: SuperCluster) => {
+    for (const child of sc.children) {
+      if (child.kind === 'community') {
+        const comm = communities.find((c) => c.id === child.communityId);
+        if (comm) for (const fid of comm.memberFileIds) fileToSc.set(fid, sc.id);
+      } else {
+        // Nested superclusters map to the root supercluster for cycle purposes
+        const collectNested = (nested: SuperCluster) => {
+          for (const nc of nested.children) {
+            if (nc.kind === 'community') {
+              const comm = communities.find((c) => c.id === nc.communityId);
+              if (comm) for (const fid of comm.memberFileIds) fileToSc.set(fid, sc.id);
+            } else {
+              collectNested(nc.cluster);
+            }
+          }
+        };
+        collectNested(child.cluster);
+      }
+    }
+  };
+  for (const sc of superClusters) collectFiles(sc);
+
+  // Build directed adjacency between superclusters
+  const scIds = superClusters.map((sc) => sc.id);
+  const adj = new Map<string, Set<string>>();
+  for (const id of scIds) adj.set(id, new Set());
+  for (const edge of edges) {
+    const src = fileToSc.get(edge.sourceFileId);
+    const tgt = fileToSc.get(edge.targetFileId);
+    if (!src || !tgt || src === tgt) continue;
+    adj.get(src)!.add(tgt);
+  }
+
+  // Tarjan's SCC
+  let index = 0;
+  const indices = new Map<string, number>();
+  const lowlinks = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const sccs: string[][] = [];
+
+  const strongconnect = (v: string) => {
+    indices.set(v, index);
+    lowlinks.set(v, index);
+    index++;
+    stack.push(v);
+    onStack.add(v);
+
+    for (const w of adj.get(v) ?? []) {
+      if (!indices.has(w)) {
+        strongconnect(w);
+        lowlinks.set(v, Math.min(lowlinks.get(v)!, lowlinks.get(w)!));
+      } else if (onStack.has(w)) {
+        lowlinks.set(v, Math.min(lowlinks.get(v)!, indices.get(w)!));
+      }
+    }
+
+    if (lowlinks.get(v) === indices.get(v)) {
+      const component: string[] = [];
+      let w: string;
+      do {
+        w = stack.pop()!;
+        onStack.delete(w);
+        component.push(w);
+      } while (w !== v);
+      sccs.push(component);
+    }
+  };
+
+  for (const id of scIds) {
+    if (!indices.has(id)) strongconnect(id);
+  }
+
+  // Check if any SCC has more than one supercluster (i.e., cycle exists)
+  const hasCycle = sccs.some((scc) => scc.length > 1);
+  if (!hasCycle) return superClusters;
+
+  // Merge superclusters in the same SCC
+  const scById = new Map<string, SuperCluster>();
+  for (const sc of superClusters) scById.set(sc.id, sc);
+
+  const result: SuperCluster[] = [];
+  for (const scc of sccs) {
+    if (scc.length === 1) {
+      result.push(scById.get(scc[0])!);
+    } else {
+      // Merge all children into a single supercluster
+      const children: SuperClusterChild[] = [];
+      let sharedContractLoc = 0;
+      const sharedContractFileIds: string[] = [];
+      let totalFiles = 0;
+      for (const id of scc) {
+        const sc = scById.get(id)!;
+        children.push(...sc.children);
+        sharedContractLoc += sc.sharedContractLoc;
+        sharedContractFileIds.push(...sc.sharedContractFileIds);
+        totalFiles += sc.totalFiles;
+      }
+      result.push({
+        id: scc.sort().join('+'),
+        label: `merged (cycle eliminated)`,
+        sharedContractLoc,
+        sharedContractFileIds: [...new Set(sharedContractFileIds)].sort(),
+        totalFiles,
+        dominantTechnology: scById.get(scc[0])!.dominantTechnology,
+        dominantRole: scById.get(scc[0])!.dominantRole,
+        coordinatorScope: 'merged scope (cyclic dependency eliminated)',
+        children,
+      });
+    }
+  }
+
+  return result;
 }
 
 // ── Misplaced file detection ────────────────────────────────────────────
