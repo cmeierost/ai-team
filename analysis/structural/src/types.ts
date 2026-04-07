@@ -31,6 +31,11 @@
 import type { FileCategory } from './1-file-classification.js';
 import type { CodeContentRole } from './2-code-classification.js';
 import type { EntryPointAnalysis } from './entry-point-analysis.js';
+import type { FilesystemFitResult } from './filesystem-fit.js';
+import type { MoveSuggestionResult } from './move-suggestions.js';
+import type {
+  MaintainabilityResults, ComplexityResults,
+} from '@aspect/complexity';
 
 /** A raw dependency edge extracted from collector relationships. */
 export interface RawDependencyEdge {
@@ -268,13 +273,23 @@ export interface StructuralPipelineResult {
   clusters: FileCluster[];
   alignment: StructuralAlignmentResult;
   communities?: CommunityDetectionResult;
+  filesystemFit?: FilesystemFitResult;
+  moveSuggestions?: MoveSuggestionResult;
   groupingComparisons?: PipelineGroupingComparison[];
   centrality?: FileCentrality[];
   exportAnalysis?: ExportAnalysis;
   fileMetrics?: FileInterfaceMetrics[];
   entryPointAnalysis?: EntryPointAnalysis;
+  referenceDiagnostics?: import('./reference-diagnostics.js').ReferenceDiagnostics;
+  locMetrics?: import('./loc-metrics.js').CanonicalLocMetrics;
+  nonQualifiedDiagnostics?: import('./nonqualified-diagnostics.js').NonQualifiedDiagnostics;
+  roleSeparation?: import('./role-separation.js').RoleSeparationMetrics;
+  hierarchySummary?: import('./hierarchy-analysis.js').EntityHierarchySummary;
+  inventorySummary?: import('./inventory-summary.js').InventorySummary;
+  coverageValidation?: import('./coverage-validation.js').CoverageValidation;
   recommendations?: PipelineRecommendation[];
   healthScore?: number;
+  complexity?: ComplexityResults & { maintainability: MaintainabilityResults };
   summary: PipelineSummary;
 }
 
@@ -389,18 +404,42 @@ export interface PipelineSummary {
   misplacedFileCount?: number;
   tangledDirectoryCount?: number;
   bridgeFileCount?: number;
+  filesystemFitScore?: number;
+  moveSuggestionCount?: number;
   healthScore?: number;
   recommendationCount?: number;
   appEntryPointCount?: number;
   exclusiveFileCount?: number;
   sharedFileCount?: number;
   unreachableFileCount?: number;
+  resolutionRate?: number;
+  totalCanonicalLoc?: number;
+  nonQualifiedRatio?: number;
+  avgClusterSeparation?: number;
+  /** Average Maintainability Index across all function-like entities */
+  avgMaintainabilityIndex?: number;
+  /** Count of entities with MI in red band (0-9) */
+  miRedCount?: number;
+  /** Count of entities with MI in yellow band (10-19) */
+  miYellowCount?: number;
+  /** Count of entities with MI in green band (20-100) */
+  miGreenCount?: number;
 }
 
 export interface StructuralPipelineOptions {
   thresholds?: Partial<WarningThresholds>;
   /** Language profiles for classification. Defaults to [TYPESCRIPT_PROFILE]. */
   profiles?: import('./language-profile.js').LanguageProfile[];
+  /** File inventory from collectors (optional enrichment) */
+  fileInventory?: Array<{
+    filePath: string;
+    fileCategory: string;
+    isAnalyzedLanguage: boolean;
+    fileSizeBytes: number;
+    totalLines?: number;
+    blankLines?: number;
+    commentLines?: number;
+  }>;
 }
 
 // ── Step 5b: Community detection (Louvain) ──────────────────────────────

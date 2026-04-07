@@ -213,6 +213,9 @@ importers:
 
   analysis/structural:
     dependencies:
+      '@aspect/complexity':
+        specifier: workspace:*
+        version: link:../complexity
       '@aspect/contracts':
         specifier: workspace:*
         version: link:../contracts

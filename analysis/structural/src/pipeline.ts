@@ -20,6 +20,7 @@
  */
 
 import type { Entity, Relationship, ModuleBoundary } from '@aspect/contracts';
+import { calculateComplexity } from '@aspect/complexity';
 
 import { classifyByFilename, type FileClassification, type FileCategory } from './1-file-classification.js';
 import { classifyCodeContent, type ContentClassification, type CodeContentRole } from './2-code-classification.js';
@@ -31,9 +32,18 @@ import { detectCommunities } from './community-detection.js';
 import { compareAllGroupings } from './grouping-comparison.js';
 import { computeCentrality } from './centrality.js';
 import { generateRecommendations } from './9-recommendations.js';
+import { computeFilesystemFit } from './filesystem-fit.js';
+import { generateMoveSuggestions } from './move-suggestions.js';
 import { analyseExports } from './export-analysis.js';
 import { analyseEntryPoints } from './entry-point-analysis.js';
 import { computeFileInterfaceMetrics } from './file-metrics.js';
+import { computeReferenceDiagnostics } from './reference-diagnostics.js';
+import { computeCanonicalLocMetrics } from './loc-metrics.js';
+import { computeNonQualifiedDiagnostics } from './nonqualified-diagnostics.js';
+import { computeRoleSeparation } from './role-separation.js';
+import { computeHierarchySummary } from './hierarchy-analysis.js';
+import { computeInventorySummary } from './inventory-summary.js';
+import { computeCoverageValidation } from './coverage-validation.js';
 
 import type { LanguageProfile, MergedFileHints } from './language-profile.js';
 import { mergeFileHints, findProfileForExtension } from './language-profile.js';
@@ -195,6 +205,14 @@ export function runStructuralPipeline(
 
   const communities = detectCommunities(weightedEdges, fileClassifications);
 
+  // ── Filesystem-fit metrics ──────────────────────────────────────────
+
+  const filesystemFit = computeFilesystemFit(fileClassifications, clusters);
+
+  // ── Move suggestions ──────────────────────────────────────────────
+
+  const moveSuggestions = generateMoveSuggestions(fileClassifications, clusters, weightedEdges);
+
   // ── Steps 6–7b: Grouping comparison (ARI / NMI) ───────────────────
 
   const groupingComparisons = communities.communities.length > 0
@@ -279,6 +297,31 @@ export function runStructuralPipeline(
     communities,
   );
 
+  // ── Complexity & Maintainability Index ──────────────────────────────
+
+  const complexity = calculateComplexity(entities as any);
+
+  // ── New analysis steps ─────────────────────────────────────────────
+
+  const referenceDiagnostics = computeReferenceDiagnostics(relationships);
+  const locMetrics = computeCanonicalLocMetrics(entities, relationships);
+  const nonQualifiedDiagnostics = computeNonQualifiedDiagnostics(entities);
+  const roleSeparation = computeRoleSeparation(clusters, fileClassifications);
+
+  // ── Hierarchy analysis ─────────────────────────────────────────────
+
+  const hierarchySummary = computeHierarchySummary(entities);
+
+  // ── Inventory summary (optional) ───────────────────────────────────
+
+  const inventorySummary = options?.fileInventory
+    ? computeInventorySummary(options.fileInventory)
+    : undefined;
+
+  // ── Coverage validation ────────────────────────────────────────────
+
+  const coverageValidation = computeCoverageValidation(entities);
+
   // ── Step 9: Recommendations ────────────────────────────────────────
 
   // Build the result first (recommendations need it)
@@ -289,11 +332,21 @@ export function runStructuralPipeline(
     clusters,
     alignment,
     communities,
+    filesystemFit,
+    moveSuggestions,
     groupingComparisons,
     centrality,
     exportAnalysis,
     fileMetrics,
     entryPointAnalysis,
+    referenceDiagnostics,
+    locMetrics,
+    nonQualifiedDiagnostics,
+    roleSeparation,
+    hierarchySummary,
+    inventorySummary,
+    coverageValidation,
+    complexity,
     summary: undefined as any, // filled below
   };
 
@@ -339,6 +392,8 @@ export function runStructuralPipeline(
     ).length,
     splitCandidateCount: alignment.splitCandidates.length,
     oversizedFileCount,
+    filesystemFitScore: filesystemFit.mojoFmScore,
+    moveSuggestionCount: moveSuggestions.totalFilesToMove,
     communityCount: communities.communities.length,
     misplacedFileCount: communities.misplacedFiles.length,
     tangledDirectoryCount: communities.tangledDirectories.length,
@@ -349,6 +404,16 @@ export function runStructuralPipeline(
     exclusiveFileCount: entryPointAnalysis.summary.exclusiveFileCount,
     sharedFileCount: entryPointAnalysis.summary.sharedFileCount,
     unreachableFileCount: entryPointAnalysis.summary.unreachableFileCount,
+    resolutionRate: referenceDiagnostics.resolutionRate,
+    totalCanonicalLoc: locMetrics.totalCanonicalLoc,
+    nonQualifiedRatio: nonQualifiedDiagnostics.nonQualifiedRatio,
+    avgClusterSeparation: roleSeparation.repoSummary.avgClusterSeparation,
+    avgMaintainabilityIndex: complexity.maintainability.entities.length > 0
+      ? Math.round(complexity.maintainability.entities.reduce((s, e) => s + e.maintainabilityIndex, 0) / complexity.maintainability.entities.length * 100) / 100
+      : undefined,
+    miRedCount: complexity.maintainability.entities.filter((e) => e.riskBand === 'red').length || undefined,
+    miYellowCount: complexity.maintainability.entities.filter((e) => e.riskBand === 'yellow').length || undefined,
+    miGreenCount: complexity.maintainability.entities.filter((e) => e.riskBand === 'green').length || undefined,
   };
 
   return result;

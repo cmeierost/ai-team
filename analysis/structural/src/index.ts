@@ -37,14 +37,24 @@ export { detectCommunities } from './community-detection.js';
 export {
   buildCommunityGrouping, buildDirectoryGrouping, buildBoundaryGrouping,
   compareGroupings, compareAllGroupings,
+  computeARI, computeNMI,
 } from './grouping-comparison.js';
 export { computeCentrality } from './centrality.js';
 export { generateRecommendations, calculateHealthScore } from './9-recommendations.js';
+export { computeFilesystemFit } from './filesystem-fit.js';
+export { generateMoveSuggestions } from './move-suggestions.js';
 export { analyseExports } from './export-analysis.js';
 export {
   discoverAppEntryPoints, analyseReachability, analyseEntryPoints,
 } from './entry-point-analysis.js';
 export { computeFileInterfaceMetrics } from './file-metrics.js';
+export { computeReferenceDiagnostics } from './reference-diagnostics.js';
+export { computeCanonicalLocMetrics } from './loc-metrics.js';
+export { computeNonQualifiedDiagnostics } from './nonqualified-diagnostics.js';
+export { computeRoleSeparation } from './role-separation.js';
+export { computeHierarchySummary } from './hierarchy-analysis.js';
+export { computeInventorySummary } from './inventory-summary.js';
+export { computeCoverageValidation } from './coverage-validation.js';
 
 // ── Pipeline orchestrator ───────────────────────────────────────────────
 
@@ -80,6 +90,39 @@ export type {
    FileInterfaceMetrics, InterfaceChangeRiskBand,
    ExportAnalysis, FileExportInfo, ExportedSymbol, BarrelViolation,
 } from './types.js';
+export type {
+  FilesystemFitResult, DirectoryFitInfo, MisplacedFileInfo,
+} from './filesystem-fit.js';
+export type {
+  MoveSuggestion, MoveImpact, MoveSuggestionResult,
+} from './move-suggestions.js';
+export type {
+  ReferenceDiagnostics, FileReferenceDiagnostic,
+} from './reference-diagnostics.js';
+export type {
+  CanonicalLocMetrics, FileLocMetrics,
+} from './loc-metrics.js';
+export type {
+  NonQualifiedDiagnostics, FileNonQualifiedInfo,
+} from './nonqualified-diagnostics.js';
+export type {
+  RoleSeparationMetrics, ClusterRoleSeparation, RepoRoleSummary,
+} from './role-separation.js';
+export type {
+  EntityHierarchySummary, FileHierarchyInfo,
+} from './hierarchy-analysis.js';
+export type {
+  InventorySummary, FileInventoryInput,
+} from './inventory-summary.js';
+export type {
+  CoverageValidation,
+} from './coverage-validation.js';
+export type {
+  ComplexityResults, MaintainabilityResults, MaintainabilityResult,
+  FileMaintainabilitySummary, MIRiskBand,
+  FileComplexitySummary, HalsteadResult, HalsteadMetrics,
+  CyclomaticResult, CognitiveResult,
+} from '@aspect/complexity';
 export type {
   AppEntryPoint, EntryPointEvidence, FileReachability, FileScope, EntryPointAnalysis,
 } from './entry-point-analysis.js';

@@ -25,6 +25,9 @@ import type {
   ExportedSymbol,
   FileInterfaceMetrics,
   InterfaceChangeRiskBand,
+  MaintainabilityResult,
+  FileMaintainabilitySummary,
+  MIRiskBand,
 } from '@aspect/structural';
 
 export type {
@@ -50,6 +53,9 @@ export type {
   ExportedSymbol,
   FileInterfaceMetrics,
   InterfaceChangeRiskBand,
+  MaintainabilityResult,
+  FileMaintainabilitySummary,
+  MIRiskBand,
 };
 
 // ── Viewer props ────────────────────────────────────────────────────────

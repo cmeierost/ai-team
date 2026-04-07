@@ -14,6 +14,7 @@
   "license": "MIT",
   "dependencies": {
     "@aspect/contracts": "workspace:*",
+    "@aspect/complexity": "workspace:*",
     "graphology": "^0.26.0",
     "graphology-metrics": "^2.4.0",
     "graphology-communities-louvain": "^2.0.2",

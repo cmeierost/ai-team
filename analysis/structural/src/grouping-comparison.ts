@@ -70,7 +70,7 @@ function choose2(n: number): number {
   return (n * (n - 1)) / 2;
 }
 
-function computeARI(labelsA: number[], labelsB: number[]): number {
+export function computeARI(labelsA: number[], labelsB: number[]): number {
   const n = labelsA.length;
   if (n === 0) return 1.0;
 
@@ -109,7 +109,7 @@ function computeARI(labelsA: number[], labelsB: number[]): number {
   return (index - expected) / (maxIndex - expected);
 }
 
-function computeNMI(labelsA: number[], labelsB: number[]): number {
+export function computeNMI(labelsA: number[], labelsB: number[]): number {
   const n = labelsA.length;
   if (n === 0) return 1.0;
 

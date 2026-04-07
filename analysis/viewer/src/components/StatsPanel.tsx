@@ -29,6 +29,11 @@ const METRIC_HELP: Record<string, string> = {
   'Contained Entities': 'What this file exposes. More exported surface often means more potential consumers and higher change impact.',
   'Imports and Consumers': 'Incoming references indicate how many places depend on this file; outgoing references indicate how much this file depends on others.',
   'Interface Change Risk': 'Boundary-aware average change risk for outward-facing files in the selected scope.',
+  'Maintainability Index': 'VS-style Maintainability Index (MI) combining Halstead volume, cyclomatic complexity, and LOC. Green (20-100) is healthy, yellow (10-19) needs attention, red (0-9) is critical.',
+  'Reference Quality': 'How completely references between entities were resolved. High resolution rate means the dependency graph is trustworthy for clustering and move suggestions.',
+  'Code Metrics': 'Canonical LOC excluding blank/import/export-only lines. Documentation density shows comment coverage.',
+  'Filesystem Fit': 'How well the actual directory structure matches the ideal structure suggested by dependency clusters. Higher MoJoFM = better fit.',
+  'Move Suggestions': 'Files that would improve modularity if moved to the directory where most of their cluster peers live.',
   'File Types': 'Distribution of code vs non-code files in this scope.',
   'Code Roles — Files': 'How many files are classified as contract, logic, presentation, infrastructure, and entry/barrel roles.',
   'Code Roles — LOC': 'Where code volume is concentrated by role. Use this to spot oversized role concentrations.',
@@ -470,6 +475,27 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
     };
   })() : null;
 
+  // Maintainability Index scoped summary
+  const miStats = useMemo(() => {
+    const complexity = data.complexity;
+    if (!complexity?.maintainability?.fileSummaries?.length) return null;
+    const fileSums = complexity.maintainability.fileSummaries;
+    const scoped = isScoped && clusterFileIds
+      ? fileSums.filter((f) => {
+          const fc = data.fileClassifications.find((c) => c.filePath === f.filePath);
+          return fc && clusterFileIds.has(fc.fileId);
+        })
+      : fileSums;
+    if (scoped.length === 0) return null;
+    const green = scoped.reduce((s, f) => s + f.greenCount, 0);
+    const yellow = scoped.reduce((s, f) => s + f.yellowCount, 0);
+    const red = scoped.reduce((s, f) => s + f.redCount, 0);
+    const total = green + yellow + red;
+    const avgMI = scoped.reduce((s, f) => s + f.avgMI, 0) / scoped.length;
+    const worstFiles = [...scoped].sort((a, b) => a.minMI - b.minMI).slice(0, 5);
+    return { green, yellow, red, total, avgMI, worstFiles, fileCount: scoped.length };
+  }, [data, clusterFileIds, isScoped]);
+
   return (
     <div className="sp-root">
       {scopedMetricSummary && (
@@ -615,6 +641,215 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
           </div>
         )}
       </div>
+      )}
+
+      {/* Maintainability Index */}
+      {miStats && miStats.total > 0 && (
+        <div className="sp-card">
+          <CardTitle title="Maintainability Index" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <span style={{
+              fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+              color: miStats.avgMI >= 20 ? '#4caf50' : miStats.avgMI >= 10 ? '#ff9800' : '#f44336',
+            }}>
+              {Math.round(miStats.avgMI)}
+            </span>
+            <span style={{ fontSize: 11, color: '#888' }}>
+              avg MI across {miStats.fileCount} files
+            </span>
+          </div>
+          {/* stacked risk bar */}
+          <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#2d2d30' }}>
+            {miStats.green > 0 && (
+              <div style={{ flex: miStats.green, background: '#4caf50' }} title={`Green: ${miStats.green}`} />
+            )}
+            {miStats.yellow > 0 && (
+              <div style={{ flex: miStats.yellow, background: '#ff9800' }} title={`Yellow: ${miStats.yellow}`} />
+            )}
+            {miStats.red > 0 && (
+              <div style={{ flex: miStats.red, background: '#f44336' }} title={`Red: ${miStats.red}`} />
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: '#888' }}>
+            <span style={{ color: '#4caf50' }}>● {miStats.green} green</span>
+            <span style={{ color: '#ff9800' }}>● {miStats.yellow} yellow</span>
+            <span style={{ color: '#f44336' }}>● {miStats.red} red</span>
+          </div>
+          {/* worst files */}
+          {miStats.worstFiles.length > 0 && miStats.worstFiles[0].minMI < 20 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#888', marginBottom: 4 }}>
+                Lowest MI files
+              </div>
+              {miStats.worstFiles.filter((f) => f.minMI < 20).map((f) => (
+                <div key={f.filePath} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  fontSize: 12, padding: '3px 0', borderBottom: '1px solid #2d2d30',
+                }}>
+                  <span style={{
+                    color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap', flex: 1, minWidth: 0,
+                  }}>
+                    {f.filePath.replace(/\\/g, '/').split('/').slice(-2).join('/')}
+                  </span>
+                  <span style={{
+                    fontWeight: 600, fontVariantNumeric: 'tabular-nums', minWidth: 28, textAlign: 'right',
+                    color: f.minMI < 10 ? '#f44336' : '#ff9800',
+                  }}>
+                    {Math.round(f.minMI)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Reference Quality — global only */}
+      {!isScoped && data.referenceDiagnostics && (
+        <div className="sp-card">
+          <CardTitle title="Reference Quality" />
+          <div className="sp-group-row">
+            <div className="sp-group-box sp-group-box--ok">
+              <strong>{Math.round(data.referenceDiagnostics.resolutionRate * 100)}%</strong>
+              <span>resolved</span>
+            </div>
+            <div className="sp-group-box" style={{ borderColor: 'rgba(255,152,0,0.3)' }}>
+              <strong>{data.referenceDiagnostics.proxyCount}</strong>
+              <span>proxy</span>
+            </div>
+            <div className="sp-group-box sp-group-box--warn">
+              <strong>{data.referenceDiagnostics.unresolvedCount}</strong>
+              <span>unresolved</span>
+            </div>
+          </div>
+          <div style={{ marginTop: 6, fontSize: 11, color: '#888' }}>
+            {data.referenceDiagnostics.totalReferences.toLocaleString()} total references
+          </div>
+          {data.referenceDiagnostics.topUnresolvedTargets.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#888', marginBottom: 4 }}>
+                Top unresolved targets
+              </div>
+              {data.referenceDiagnostics.topUnresolvedTargets.slice(0, 5).map((t) => (
+                <div key={t.target} style={{
+                  display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 0',
+                  borderBottom: '1px solid #2d2d30',
+                }}>
+                  <span style={{ color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                    {t.target}
+                  </span>
+                  <span style={{ color: '#f44336', fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>×{t.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Code Metrics — global only */}
+      {!isScoped && data.locMetrics && (
+        <div className="sp-card">
+          <CardTitle title="Code Metrics" />
+          <div className="sp-group-row">
+            <div className="sp-group-box sp-group-box--ok">
+              <strong>{fmt(data.locMetrics.totalCanonicalLoc)}</strong>
+              <span>canonical LOC</span>
+            </div>
+            <div className="sp-group-box">
+              <strong>{fmt(data.locMetrics.totalRawLines)}</strong>
+              <span>raw lines</span>
+            </div>
+          </div>
+          {/* density mini bars */}
+          <div style={{ marginTop: 8 }}>
+            {[
+              { label: 'Comment density', value: data.locMetrics.commentRatio, color: '#60a5fa' },
+              { label: 'Blank line ratio', value: data.locMetrics.blankLineRatio, color: '#94a3b8' },
+              { label: 'Import/export only', value: data.locMetrics.importExportOnlyRatio, color: '#a78bfa' },
+            ].map((m) => (
+              <div key={m.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 11, color: '#888', minWidth: 110 }}>{m.label}</span>
+                <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#2d2d30', overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.min(m.value * 100, 100)}%`, height: '100%', background: m.color, borderRadius: 3 }} />
+                </div>
+                <span style={{ fontSize: 10, color: '#aaa', fontVariantNumeric: 'tabular-nums', minWidth: 32, textAlign: 'right' }}>
+                  {Math.round(m.value * 100)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Filesystem Fit — global only */}
+      {!isScoped && data.filesystemFit && (
+        <div className="sp-card">
+          <CardTitle title="Filesystem Fit" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <span style={{
+              fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+              color: data.filesystemFit.mojoFmScore >= 70 ? '#4caf50'
+                : data.filesystemFit.mojoFmScore >= 40 ? '#ff9800' : '#f44336',
+            }}>
+              {Math.round(data.filesystemFit.mojoFmScore)}
+            </span>
+            <span style={{ fontSize: 11, color: '#888' }}>MoJoFM score (0–100)</span>
+          </div>
+          <div className="sp-group-row">
+            <div className="sp-group-box">
+              <strong>{data.filesystemFit.adjustedRandIndex.toFixed(2)}</strong>
+              <span>ARI</span>
+            </div>
+            <div className="sp-group-box">
+              <strong>{data.filesystemFit.normalizedMutualInfo.toFixed(2)}</strong>
+              <span>NMI</span>
+            </div>
+            <div className="sp-group-box sp-group-box--warn">
+              <strong>{data.filesystemFit.filesToMove}</strong>
+              <span>to move</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move Suggestions — global only */}
+      {!isScoped && data.moveSuggestions && data.moveSuggestions.suggestions.length > 0 && (
+        <div className="sp-card">
+          <CardTitle title="Move Suggestions" />
+          <div style={{ fontSize: 12, color: '#a0a0a0', marginBottom: 8 }}>
+            {data.moveSuggestions.totalFilesToMove} file{data.moveSuggestions.totalFilesToMove !== 1 ? 's' : ''} suggested to move
+            {data.moveSuggestions.estimatedModularityGain > 0 && (
+              <span style={{ color: '#4caf50' }}>
+                {' '}· +{(data.moveSuggestions.estimatedModularityGain * 100).toFixed(1)}% modularity
+              </span>
+            )}
+          </div>
+          <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+            {data.moveSuggestions.suggestions.slice(0, 10).map((s) => (
+              <div key={s.fileId} style={{
+                padding: '6px 0', borderBottom: '1px solid #2d2d30',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                    {s.filePath.replace(/\\/g, '/').split('/').slice(-2).join('/')}
+                  </span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, flexShrink: 0, marginLeft: 8,
+                    padding: '1px 6px', borderRadius: 3,
+                    background: s.confidence === 'high' ? 'rgba(76,175,80,0.15)' : s.confidence === 'medium' ? 'rgba(255,152,0,0.15)' : 'rgba(158,158,158,0.15)',
+                    color: s.confidence === 'high' ? '#4caf50' : s.confidence === 'medium' ? '#ff9800' : '#9e9e9e',
+                  }}>
+                    {s.confidence}
+                  </span>
+                </div>
+                <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>
+                  → {s.suggestedDirectory.replace(/\\/g, '/').split('/').slice(-2).join('/')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Export analysis */}
