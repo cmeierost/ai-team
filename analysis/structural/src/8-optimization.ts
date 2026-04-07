@@ -1,15 +1,13 @@
 /**
- * @aspect/engine — Step 8: Optimization
+ * @aspect/engine — Step 8: Structural diagnostics
  *
- * Takes the output of steps 5–7 and produces:
+ * Pure diagnostics layer that detects issues in the community structure:
  *
- *   - Cluster quality assessment (concern mixing, package span,
- *     folder separation)
- *   - File split candidates (files that bridge clusters)
- *   - Structural warnings (actionable advice)
+ *   - Community quality (concern mixing, package span, folder separation)
+ *   - File split candidates (files bridging multiple communities)
+ *   - Structural warnings (size, alignment, focus)
  *
- * Also provides `analyseStructuralAlignment()` — a convenience
- * wrapper that runs steps 6, 7, and 8 together.
+ * Feeds into step 9 (recommendations).
  */
 
 import type { CodeContentRole } from './2-code-classification.js';
