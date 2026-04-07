@@ -1360,10 +1360,6 @@ function buildCommunityGroups(
     }
 
     for (const sid of [...singletonIds]) {
-      const comm = communityById.get(sid);
-      // Pure contract-only communities may stay standalone
-      if (comm?.dominantRole === 'contract' || comm?.dominantRole === 'infrastructure') continue;
-
       const wMap = weightToGroup.get(sid)!;
       if (wMap.size === 0) continue;
 

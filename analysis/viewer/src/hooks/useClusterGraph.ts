@@ -928,7 +928,7 @@ export function useClusterGraph(
     if (shouldRenderCommunityGroups) for (const sc of communityGroups) {
       if (!activeCommunityGroups.has(sc.id)) continue;
       const communityIds = collectCommunityIdsFromCommunityGroup(sc);
-      if (communityIds.length < 2) continue;
+      if (communityIds.length === 0) continue;
 
       // Use pre-computed bounds from hierarchical layout, or fall back to
       // bounding-box of child positions for backwards compatibility
