@@ -44,7 +44,7 @@ export interface ArchitectureViewerProps {
 const nodeTypes: NodeTypes = {
   cluster: ClusterNode,
   file: FileNode,
-  CommunityGroup: CommunityGroupNode,
+  communityGroup: CommunityGroupNode,
 };
 const VALID_SELECTION_TYPES: Selection['type'][] = ['cluster', 'file', 'communityGroup', null];
 const VALID_SIDE_PANELS: SidePanel[] = ['detail', 'problems', 'stats'];
