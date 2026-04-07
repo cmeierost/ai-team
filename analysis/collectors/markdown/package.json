@@ -1,7 +1,7 @@
 {
-  "name": "@aspect/collector-typescript",
+  "name": "@aspect/collector-markdown",
   "version": "0.1.0",
-  "description": "TypeScript/JavaScript code analysis collector — extracts raw facts using dependency-cruiser, jscpd, eslint, and custom AST visitors",
+  "description": "Markdown documentation collector — extracts entities and relationships from .md/.mdx files for documentation quality analysis",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -15,19 +15,19 @@
   },
   "keywords": [
     "code-analysis",
-    "javascript",
-    "typescript",
-    "dependency-cruiser",
-    "jscpd"
+    "markdown",
+    "documentation",
+    "docs-quality"
   ],
   "license": "MIT",
   "dependencies": {
     "@aspect/contracts": "workspace:*",
-    "@aspect/collector-shared": "workspace:*",
-    "dependency-cruiser": "^17.3.10",
-    "jscpd": "^4.0.8"
+    "mdast-util-to-string": "^4.0.0",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.0"
   },
   "devDependencies": {
+    "@types/mdast": "^4.0.4",
     "@types/node": "^25.5.2",
     "@vitest/coverage-v8": "^4.1.2",
     "typescript": "^6.0.2",

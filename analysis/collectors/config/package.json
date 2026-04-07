@@ -1,0 +1,24 @@
+{
+  "name": "@aspect/collector-config",
+  "version": "0.1.0",
+  "description": "Config and tooling collector — extracts dependency declarations and config extends chains from package.json, tsconfig, and other config files",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist"
+  },
+  "keywords": ["code-analysis", "config", "package-json", "tsconfig"],
+  "license": "MIT",
+  "dependencies": {
+    "@aspect/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

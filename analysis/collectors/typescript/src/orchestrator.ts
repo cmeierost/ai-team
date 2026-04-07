@@ -26,7 +26,7 @@ import { runEslintAdapter } from './adapters/eslint.js';
 import { runCoverageAdapter } from './adapters/coverage.js';
 import { detectModuleBoundaries } from './boundary-detector.js';
 import type { BoundaryDetectionOptions } from './boundary-detector.js';
-import { buildPathFilter } from './gitignore-filter.js';
+import { buildPathFilter } from '@aspect/collector-shared';
 
 // ── Public types ────────────────────────────────────────────────────────────
 

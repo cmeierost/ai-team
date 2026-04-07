@@ -10,7 +10,7 @@ export interface Entity {
    */
   id: string;
   /**
-   * The syntactic category of the code construct.
+   * The syntactic category of the code construct. Includes TypeScript/JS, CSS, and Markdown entity kinds.
    */
   kind:
     | 'file'
@@ -24,7 +24,12 @@ export interface Entity {
     | 'field'
     | 'property'
     | 'namespace'
-    | 'enum';
+    | 'enum'
+    | 'selector-rule'
+    | 'custom-property'
+    | 'keyframes'
+    | 'mixin'
+    | 'section';
   /**
    * Simple (unqualified) name of the entity as it appears in source code.
    */

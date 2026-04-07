@@ -1,7 +1,7 @@
 {
-  "name": "@aspect/collector-typescript",
+  "name": "@aspect/collector-css",
   "version": "0.1.0",
-  "description": "TypeScript/JavaScript code analysis collector — extracts raw facts using dependency-cruiser, jscpd, eslint, and custom AST visitors",
+  "description": "CSS/SCSS/LESS code analysis collector — extracts entities and relationships from stylesheets using PostCSS",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -15,17 +15,16 @@
   },
   "keywords": [
     "code-analysis",
-    "javascript",
-    "typescript",
-    "dependency-cruiser",
-    "jscpd"
+    "css",
+    "scss",
+    "less",
+    "postcss"
   ],
   "license": "MIT",
   "dependencies": {
     "@aspect/contracts": "workspace:*",
-    "@aspect/collector-shared": "workspace:*",
-    "dependency-cruiser": "^17.3.10",
-    "jscpd": "^4.0.8"
+    "postcss": "^8.5.0",
+    "postcss-scss": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.2",

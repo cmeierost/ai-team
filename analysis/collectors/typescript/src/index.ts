@@ -72,5 +72,5 @@ export type {
   DetectedBoundary,
 } from './boundary-detector.js';
 
-export { buildPathFilter } from './gitignore-filter.js';
-export type { PathFilter } from './gitignore-filter.js';
+export { buildPathFilter } from '@aspect/collector-shared';
+export type { PathFilter } from '@aspect/collector-shared';

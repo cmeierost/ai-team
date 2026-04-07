@@ -8,10 +8,6 @@
     "sourceMap": true,
     "composite": true
   },
-  "references": [
-    { "path": "../../contracts" },
-    { "path": "../shared" }
-  ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
