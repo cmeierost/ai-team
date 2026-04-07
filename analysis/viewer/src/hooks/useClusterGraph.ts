@@ -465,51 +465,337 @@ export function useClusterGraph(
     const connectedGroups = groups.filter((g) => connectedGroupIds.has(g.id));
     const disconnectedGroups = groups.filter((g) => !connectedGroupIds.has(g.id));
 
-    // Layout connected nodes with dagre.
-    // Superclusters are rendered as visual overlays, not dagre compound parents,
-    // to avoid dagre's dummy-node conflict path in dense layered graphs.
-    const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'LR', nodesep: 110, ranksep: 170, ranker: 'longest-path' });
-    g.setDefaultEdgeLabel(() => ({}));
+    // ── Hierarchical layout ──────────────────────────────────────────────
+    // Goal: superclusters only overlap when they have a parent-child relation.
+    // Strategy: multi-level dagre — lay out children inside each supercluster,
+    // then lay out superclusters (as compound bounding boxes) at the next level up.
 
-    // Build supercluster membership lookup
     const superClusters = allSuperClusters;
-    const groupToSuperCluster = new Map<string, string>();
-    for (const sc of superClusters) {
-      const communityIds = collectCommunityIdsFromSuperCluster(sc);
-      if (communityIds.length < 2) continue; // don't group trivial superclusters
-      for (const cid of communityIds) groupToSuperCluster.set(cid, sc.id);
+
+    // Build immediate-parent mapping: communityId → innermost supercluster id
+    // and superclusterId → parent supercluster id
+    const communityToImmediateParent = new Map<string, string>();
+    const scToParent = new Map<string, string>();
+    const rootScIds = new Set<string>();
+
+    function mapImmediateParents(
+      sc: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number],
+      parentId?: string,
+    ) {
+      if (parentId) scToParent.set(sc.id, parentId);
+      else rootScIds.add(sc.id);
+      for (const child of sc.children ?? []) {
+        if (child.kind === 'community') {
+          communityToImmediateParent.set(child.communityId, sc.id);
+        } else {
+          mapImmediateParents(child.cluster, sc.id);
+        }
+      }
+    }
+    for (const sc of data.communities?.superClusters ?? []) {
+      mapImmediateParents(sc);
     }
 
     // Track active superclusters for overlay rendering.
     const activeSuperClusters = new Set<string>();
     for (const group of connectedGroups) {
-      const scId = groupToSuperCluster.get(group.id);
-      if (scId && !activeSuperClusters.has(scId)) {
-        activeSuperClusters.add(scId);
+      const scId = communityToImmediateParent.get(group.id);
+      if (scId) {
+        // Walk up to mark all ancestors active too
+        let cur: string | undefined = scId;
+        while (cur) {
+          activeSuperClusters.add(cur);
+          cur = scToParent.get(cur);
+        }
       }
     }
 
+    // Map supercluster id → SuperCluster object
+    const scById = new Map<string, typeof superClusters[number]>();
+    for (const sc of superClusters) scById.set(sc.id, sc);
+
+    // Build position map for all groups (communities)
+    const groupPositions = new Map<string, { x: number; y: number; w: number; h: number }>();
+    // Also track supercluster bounding boxes for overlap resolution between siblings
+    const scBounds = new Map<string, { x: number; y: number; w: number; h: number }>();
+
+    const SC_PAD = 40;
+    const SC_TOP_PAD = 60; // extra top padding for supercluster label
+
+    /**
+     * Recursively lay out a supercluster's children and return its bounding box size.
+     * Positions are stored relative to the supercluster's top-left origin.
+     * Returns { w, h } of the supercluster bounding box.
+     */
+    function layoutSuperCluster(
+      sc: typeof superClusters[number],
+      connectedGroupSet: Set<string>,
+    ): { w: number; h: number } {
+      // Collect direct children
+      const directCommunityIds: string[] = [];
+      const directChildScs: { sc: typeof superClusters[number]; w: number; h: number }[] = [];
+
+      for (const child of sc.children ?? []) {
+        if (child.kind === 'community') {
+          directCommunityIds.push(child.communityId);
+        } else {
+          // Recursively layout the child supercluster first
+          const childSize = layoutSuperCluster(child.cluster, connectedGroupSet);
+          directChildScs.push({ sc: child.cluster, ...childSize });
+        }
+      }
+
+      // Filter to only communities that are actually in our connected groups
+      const activeCommunities = directCommunityIds.filter((cid) => connectedGroupSet.has(cid));
+
+      // If nothing is active, return minimal size
+      if (activeCommunities.length === 0 && directChildScs.length === 0) {
+        return { w: 200, h: 100 };
+      }
+
+      // Sub-dagre for this supercluster's direct children
+      const subG = new dagre.graphlib.Graph();
+      subG.setGraph({ rankdir: 'LR', nodesep: 80, ranksep: 120, ranker: 'longest-path' });
+      subG.setDefaultEdgeLabel(() => ({}));
+
+      // Add direct community children as nodes
+      for (const cid of activeCommunities) {
+        const scaled = locScaledSize(cid);
+        subG.setNode(cid, { width: scaled.w, height: scaled.h });
+      }
+
+      // Add child superclusters as compound nodes (using their computed bounding box size)
+      for (const csc of directChildScs) {
+        subG.setNode(csc.sc.id, { width: csc.w, height: csc.h });
+      }
+
+      // Add edges between children in this scope
+      const childIdSet = new Set([
+        ...activeCommunities,
+        ...directChildScs.map((c) => c.sc.id),
+      ]);
+
+      // For edges: we need to map community-level edges to this scope level.
+      // If both ends are communities in this scope, add directly.
+      // If one end is in a child supercluster, use the child sc id as proxy.
+      const communityToLocalNode = new Map<string, string>();
+      for (const cid of activeCommunities) {
+        communityToLocalNode.set(cid, cid);
+      }
+      for (const csc of directChildScs) {
+        const descendantIds = collectCommunityIdsFromSuperCluster(csc.sc);
+        for (const did of descendantIds) {
+          communityToLocalNode.set(did, csc.sc.id);
+        }
+      }
+
+      // Add edges scoped to this supercluster
+      const addedEdges = new Set<string>();
+      for (const ce of groupEdgeMap.values()) {
+        const srcLocal = communityToLocalNode.get(ce.sourceClusterId);
+        const tgtLocal = communityToLocalNode.get(ce.targetClusterId);
+        if (!srcLocal || !tgtLocal || srcLocal === tgtLocal) continue;
+        if (!childIdSet.has(srcLocal) || !childIdSet.has(tgtLocal)) continue;
+        const eKey = srcLocal < tgtLocal ? `${srcLocal}→${tgtLocal}` : `${tgtLocal}→${srcLocal}`;
+        if (addedEdges.has(eKey)) continue;
+        addedEdges.add(eKey);
+        subG.setEdge(srcLocal, tgtLocal, { weight: ce.totalWeight });
+      }
+
+      // Run dagre layout
+      const nodeCount = activeCommunities.length + directChildScs.length;
+      if (nodeCount > 0) {
+        dagre.layout(subG);
+      }
+
+      // Compute bounding box of results
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+      for (const cid of activeCommunities) {
+        const dn = subG.node(cid);
+        if (!dn) continue;
+        const x = safeNumber(dn.x, 0) - safeNumber(dn.width, 200) / 2;
+        const y = safeNumber(dn.y, 0) - safeNumber(dn.height, 80) / 2;
+        const w = safeNumber(dn.width, 200);
+        const h = safeNumber(dn.height, 80);
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + w);
+        maxY = Math.max(maxY, y + h);
+        // Store position temporarily relative to sub-dagre origin
+        groupPositions.set(cid, { x, y, w, h });
+      }
+
+      for (const csc of directChildScs) {
+        const dn = subG.node(csc.sc.id);
+        if (!dn) continue;
+        const x = safeNumber(dn.x, 0) - csc.w / 2;
+        const y = safeNumber(dn.y, 0) - csc.h / 2;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + csc.w);
+        maxY = Math.max(maxY, y + csc.h);
+        // Store child supercluster bounds for later translation
+        scBounds.set(csc.sc.id, { x, y, w: csc.w, h: csc.h });
+      }
+
+      if (!Number.isFinite(minX)) {
+        return { w: 200, h: 100 };
+      }
+
+      // Normalize: shift all positions so they start from (SC_PAD, SC_TOP_PAD)
+      const offsetX = SC_PAD - minX;
+      const offsetY = SC_TOP_PAD - minY;
+
+      for (const cid of activeCommunities) {
+        const pos = groupPositions.get(cid);
+        if (pos) {
+          pos.x += offsetX;
+          pos.y += offsetY;
+        }
+      }
+      for (const csc of directChildScs) {
+        const bounds = scBounds.get(csc.sc.id);
+        if (bounds) {
+          bounds.x += offsetX;
+          bounds.y += offsetY;
+        }
+      }
+
+      const totalW = (maxX - minX) + SC_PAD * 2;
+      const totalH = (maxY - minY) + SC_PAD + SC_TOP_PAD;
+
+      return { w: Math.max(200, totalW), h: Math.max(100, totalH) };
+    }
+
+    // Identify root superclusters that have active connected communities
+    const activeRootScs: { sc: typeof superClusters[number]; w: number; h: number }[] = [];
+
+    // Orphan communities: connected but not in any supercluster
+    const orphanCommunityIds: string[] = [];
+
+    // Determine which connected communities belong to root superclusters
+    const communityInAnySc = new Set<string>();
+    for (const sc of data.communities?.superClusters ?? []) {
+      const cids = collectCommunityIdsFromSuperCluster(sc);
+      for (const cid of cids) communityInAnySc.add(cid);
+    }
+
     for (const group of connectedGroups) {
-      const scaled = locScaledSize(group.id);
-      g.setNode(group.id, { width: scaled.w, height: scaled.h });
+      if (!communityInAnySc.has(group.id)) {
+        orphanCommunityIds.push(group.id);
+      }
     }
 
+    // Layout each root supercluster
+    const connectedGroupSet = new Set(connectedGroups.map((g) => g.id));
+    for (const sc of data.communities?.superClusters ?? []) {
+      const cids = collectCommunityIdsFromSuperCluster(sc);
+      const hasActive = cids.some((cid) => connectedGroupSet.has(cid));
+      if (!hasActive) continue;
+      const size = layoutSuperCluster(sc, connectedGroupSet);
+      activeRootScs.push({ sc, ...size });
+    }
+
+    // Now do the top-level layout: root superclusters + orphan communities
+    const topG = new dagre.graphlib.Graph();
+    topG.setGraph({ rankdir: 'LR', nodesep: 140, ranksep: 200, ranker: 'longest-path' });
+    topG.setDefaultEdgeLabel(() => ({}));
+
+    for (const rsc of activeRootScs) {
+      topG.setNode(rsc.sc.id, { width: rsc.w, height: rsc.h });
+    }
+    for (const cid of orphanCommunityIds) {
+      const scaled = locScaledSize(cid);
+      topG.setNode(cid, { width: scaled.w, height: scaled.h });
+    }
+
+    // Map all communities to their top-level node (root sc or self if orphan)
+    const communityToTopNode = new Map<string, string>();
+    for (const cid of orphanCommunityIds) {
+      communityToTopNode.set(cid, cid);
+    }
+    for (const rsc of activeRootScs) {
+      const cids = collectCommunityIdsFromSuperCluster(rsc.sc);
+      for (const cid of cids) communityToTopNode.set(cid, rsc.sc.id);
+    }
+
+    // Add top-level edges
+    const topAddedEdges = new Set<string>();
     for (const ce of groupEdgeMap.values()) {
-      g.setEdge(ce.sourceClusterId, ce.targetClusterId, { weight: ce.totalWeight });
+      const srcTop = communityToTopNode.get(ce.sourceClusterId);
+      const tgtTop = communityToTopNode.get(ce.targetClusterId);
+      if (!srcTop || !tgtTop || srcTop === tgtTop) continue;
+      const eKey = srcTop < tgtTop ? `${srcTop}→${tgtTop}` : `${tgtTop}→${srcTop}`;
+      if (topAddedEdges.has(eKey)) continue;
+      topAddedEdges.add(eKey);
+      topG.setEdge(srcTop, tgtTop, { weight: ce.totalWeight });
     }
 
-    if (connectedGroups.length > 0) {
-      dagre.layout(g);
+    const topNodeCount = activeRootScs.length + orphanCommunityIds.length;
+    if (topNodeCount > 0) {
+      dagre.layout(topG);
     }
 
-    // Find the bounding box of the dagre layout to place disconnected nodes beside it
+    // Apply top-level positions and translate nested positions to global coordinates
+    function translateSuperClusterPositions(
+      sc: typeof superClusters[number],
+      globalOffsetX: number,
+      globalOffsetY: number,
+    ) {
+      // Translate direct community children
+      for (const child of sc.children ?? []) {
+        if (child.kind === 'community') {
+          const pos = groupPositions.get(child.communityId);
+          if (pos) {
+            pos.x += globalOffsetX;
+            pos.y += globalOffsetY;
+          }
+        } else {
+          const childBounds = scBounds.get(child.cluster.id);
+          if (childBounds) {
+            // Recursively translate the child supercluster
+            translateSuperClusterPositions(
+              child.cluster,
+              globalOffsetX + childBounds.x,
+              globalOffsetY + childBounds.y,
+            );
+            // Update child sc bounds to global
+            childBounds.x += globalOffsetX;
+            childBounds.y += globalOffsetY;
+          }
+        }
+      }
+    }
+
+    for (const rsc of activeRootScs) {
+      const dn = topG.node(rsc.sc.id);
+      if (!dn) continue;
+      const topX = safeNumber(dn.x, 0) - rsc.w / 2;
+      const topY = safeNumber(dn.y, 0) - rsc.h / 2;
+      scBounds.set(rsc.sc.id, { x: topX, y: topY, w: rsc.w, h: rsc.h });
+      translateSuperClusterPositions(rsc.sc, topX, topY);
+    }
+
+    // Place orphan communities from top-level dagre
+    for (const cid of orphanCommunityIds) {
+      const dn = topG.node(cid);
+      if (!dn) continue;
+      const scaled = locScaledSize(cid);
+      groupPositions.set(cid, {
+        x: safeNumber(dn.x, 0) - scaled.w / 2,
+        y: safeNumber(dn.y, 0) - scaled.h / 2,
+        w: scaled.w,
+        h: scaled.h,
+      });
+    }
+
+    // Find the bounding box of the laid-out nodes to place disconnected nodes beside them
     let maxX = 0;
     let maxY = 0;
-    for (const group of connectedGroups) {
-      const dn = g.node(group.id);
-      maxX = Math.max(maxX, dn.x + dn.width / 2);
-      maxY = Math.max(maxY, dn.y + dn.height / 2);
+    for (const pos of groupPositions.values()) {
+      maxX = Math.max(maxX, pos.x + pos.w);
+      maxY = Math.max(maxY, pos.y + pos.h);
     }
 
     // Place disconnected groups in a grid to the right of connected ones
@@ -517,19 +803,6 @@ export function useClusterGraph(
     const gridCols = Math.max(1, Math.ceil(Math.sqrt(disconnectedGroups.length)));
     const gridCellW = 420;
     const gridCellH = 180;
-
-    // Build position map for all groups
-    const groupPositions = new Map<string, { x: number; y: number; w: number; h: number }>();
-
-    for (const group of connectedGroups) {
-      const dn = g.node(group.id);
-      groupPositions.set(group.id, {
-        x: safeNumber(dn?.x, 0) - safeNumber(dn?.width, 260) / 2,
-        y: safeNumber(dn?.y, 0) - safeNumber(dn?.height, 96) / 2,
-        w: safeNumber(dn?.width, 260),
-        h: safeNumber(dn?.height, 96),
-      });
-    }
 
     disconnectedGroups
       .sort((a, b) => b.fileIds.length - a.fileIds.length)
@@ -556,36 +829,69 @@ export function useClusterGraph(
       fallbackIdx++;
     }
 
-    // Final collision pass: keep group nodes from overlapping after Dagre/grid placement.
-    resolveGroupOverlaps(groupPositions);
+    // Final collision pass only for orphan communities and disconnected nodes
+    // (supercluster children are already spaced by their sub-dagre layout)
+    const orphanAndDisconnectedPositions = new Map<string, { x: number; y: number; w: number; h: number }>();
+    for (const cid of orphanCommunityIds) {
+      const pos = groupPositions.get(cid);
+      if (pos) orphanAndDisconnectedPositions.set(cid, pos);
+    }
+    for (const g of disconnectedGroups) {
+      const pos = groupPositions.get(g.id);
+      if (pos) orphanAndDisconnectedPositions.set(g.id, pos);
+    }
+    resolveGroupOverlaps(orphanAndDisconnectedPositions);
 
     // --- Generate nodes ---
     const resultNodes: Node[] = [];
     const contractHubEdges: Edge[] = [];
 
     // Supercluster bounding-box nodes (visual overlays for active scopes only).
+    // Positions come from the hierarchical layout (scBounds map) rather than
+    // post-hoc bounding-box computation, ensuring non-hierarchical superclusters
+    // never overlap.
     const shouldRenderSuperclusters = !!options?.showSuperclusters || !!options?.focusedSuperClusterId;
-    const PAD = 30;
     if (shouldRenderSuperclusters) for (const sc of superClusters) {
       if (!activeSuperClusters.has(sc.id)) continue;
       const communityIds = collectCommunityIdsFromSuperCluster(sc);
       if (communityIds.length < 2) continue;
-      // Compute bounding box of all member community positions
-      let minX = Infinity, minY = Infinity, maxXB = -Infinity, maxYB = -Infinity;
+
+      // Use pre-computed bounds from hierarchical layout, or fall back to
+      // bounding-box of child positions for backwards compatibility
+      const precomputed = scBounds.get(sc.id);
+      let scX: number, scY: number, scW: number, scH: number;
+
+      if (precomputed) {
+        scX = safeNumber(precomputed.x, 0);
+        scY = safeNumber(precomputed.y, 0);
+        scW = Math.max(160, safeNumber(precomputed.w, 300));
+        scH = Math.max(100, safeNumber(precomputed.h, 160));
+      } else {
+        // Fallback: compute from child positions
+        let minXF = Infinity, minYF = Infinity, maxXF = -Infinity, maxYF = -Infinity;
+        let hasMemberF = false;
+        for (const cid of communityIds) {
+          const pos = groupPositions.get(cid);
+          if (!pos) continue;
+          hasMemberF = true;
+          minXF = Math.min(minXF, pos.x);
+          minYF = Math.min(minYF, pos.y);
+          maxXF = Math.max(maxXF, pos.x + pos.w);
+          maxYF = Math.max(maxYF, pos.y + pos.h);
+        }
+        if (!hasMemberF) continue;
+        scX = safeNumber(minXF - 30, 0);
+        scY = safeNumber(minYF - 30, 0);
+        scW = Math.max(160, safeNumber(maxXF - minXF + 60, 300));
+        scH = Math.max(100, safeNumber(maxYF - minYF + 60, 160));
+      }
+
       let totalFiles = 0;
       let contractCount = 0;
       let glueContractLoc = 0;
       let glueInfrastructureLoc = 0;
       let glueOtherLoc = 0;
-      let hasMember = false;
       for (const cid of communityIds) {
-        const pos = groupPositions.get(cid);
-        if (!pos) continue;
-        hasMember = true;
-        minX = Math.min(minX, pos.x);
-        minY = Math.min(minY, pos.y);
-        maxXB = Math.max(maxXB, pos.x + pos.w);
-        maxYB = Math.max(maxYB, pos.y + pos.h);
         const grp = groups.find((g) => g.id === cid);
         if (grp) {
           totalFiles += grp.fileIds.length;
@@ -597,7 +903,6 @@ export function useClusterGraph(
           }
         }
       }
-      if (!hasMember) continue;
 
       for (const fid of sc.sharedContractFileIds ?? []) {
         const fc = fileClassMap.get(fid);
@@ -622,10 +927,13 @@ export function useClusterGraph(
         .slice(0, 3)
         .join(' + ');
 
-      const scX = safeNumber(minX - PAD, 0);
-      const scY = safeNumber(minY - PAD, 0);
-      const scW = Math.max(160, safeNumber(maxXB - minX + PAD * 2, 300));
-      const scH = Math.max(100, safeNumber(maxYB - minY + PAD * 2, 160));
+      // Compute z-index based on nesting depth (deeper = higher z so parent renders behind)
+      let depth = 0;
+      let cur: string | undefined = sc.id;
+      while (cur && scToParent.get(cur)) {
+        depth++;
+        cur = scToParent.get(cur);
+      }
 
       const sharedContractOnlyIds = (sc.sharedContractFileIds ?? []).filter((fid) => {
         const role = fileClassMap.get(fid)?.contentRole;
@@ -638,7 +946,7 @@ export function useClusterGraph(
         position: { x: scX, y: scY },
         width: scW,
         height: scH,
-        zIndex: -1,
+        zIndex: -(10 - depth),
         selectable: true,
         draggable: false,
         data: {
@@ -654,7 +962,7 @@ export function useClusterGraph(
           exposureRatio: sc.exposureRatio ?? 0,
           coordinatorScope: sc.coordinatorScope ?? '',
         },
-        style: { zIndex: -1 },
+        style: { zIndex: -(10 - depth) },
       });
 
       if (sharedContractOnlyIds.length > 0 && glueContractLoc > 0) {
