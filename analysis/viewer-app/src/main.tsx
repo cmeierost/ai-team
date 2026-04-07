@@ -7,6 +7,37 @@ const root = createRoot(document.getElementById('root')!);
 
 interface ViewerPayload extends StructuralPipelineResult {
   fileContents?: Record<string, string>;
+  entities?: Array<{
+    id: string;
+    kind: string;
+    name: string;
+    filePath: string;
+    parentEntityId?: string | null;
+    classification?: {
+      isExported?: boolean;
+      isTypeOnly?: boolean;
+      isConcrete?: boolean;
+      visibility?: string | null;
+      codeConcern?: 'contract' | 'presentation' | 'logic' | 'unknown';
+    };
+    rawCounts?: {
+      linesOfCode?: number | null;
+      parameterCount?: number | null;
+      returnStatements?: number | null;
+      branchPoints?: number | null;
+      publicPropertyCount?: number | null;
+      publicMethodCount?: number | null;
+      jsxElementCount?: number | null;
+    };
+  }>;
+  relationships?: Array<{
+    sourceEntityId: string;
+    targetEntityId: string;
+    kind: string;
+    typeOnly?: boolean;
+    crossPackage?: boolean;
+    dynamic?: boolean;
+  }>;
 }
 
 async function loadData(): Promise<ViewerPayload | null> {
@@ -22,12 +53,16 @@ async function loadData(): Promise<ViewerPayload | null> {
 function App() {
   const [data, setData] = React.useState<StructuralPipelineResult | null>(null);
   const [fileContents, setFileContents] = React.useState<Record<string, string>>({});
+  const [entities, setEntities] = React.useState<ViewerPayload['entities']>([]);
+  const [relationships, setRelationships] = React.useState<ViewerPayload['relationships']>([]);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     loadData().then((d) => {
       setData(d);
       setFileContents(d?.fileContents ?? {});
+      setEntities(d?.entities ?? []);
+      setRelationships(d?.relationships ?? []);
       setLoading(false);
     });
   }, []);
@@ -40,6 +75,8 @@ function App() {
       const next = JSON.parse(reader.result as string) as ViewerPayload;
       setData(next);
       setFileContents(next.fileContents ?? {});
+      setEntities(next.entities ?? []);
+      setRelationships(next.relationships ?? []);
     };
     reader.readAsText(file);
   }, []);
@@ -61,7 +98,14 @@ function App() {
     );
   }
 
-  return <ArchitectureViewer data={data} fileContents={fileContents} />;
+  return (
+    <ArchitectureViewer
+      data={data}
+      fileContents={fileContents}
+      entities={entities}
+      relationships={relationships}
+    />
+  );
 }
 
 root.render(<App />);

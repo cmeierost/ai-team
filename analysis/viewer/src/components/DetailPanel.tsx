@@ -24,6 +24,7 @@ export interface DetailPanelProps {
   data: StructuralPipelineResult;
   selection: Selection;
   clusterFileIds?: Set<string>;
+  onSelectFile?: (fileId: string) => void;
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────
@@ -91,6 +92,20 @@ const fileRowStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
+};
+
+const fileLinkStyle: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: '#e0e0e0',
+  padding: 0,
+  textAlign: 'left',
+  cursor: 'pointer',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  flex: 1,
+  minWidth: 0,
 };
 
 const warningRowStyle = (severity: string): React.CSSProperties => ({
@@ -182,7 +197,15 @@ function flattenSuperClusters(
   return all;
 }
 
-function SuperclusterDetail({ data, superclusterId }: { data: StructuralPipelineResult; superclusterId: string }) {
+function SuperclusterDetail({
+  data,
+  superclusterId,
+  onSelectFile,
+}: {
+  data: StructuralPipelineResult;
+  superclusterId: string;
+  onSelectFile?: (fileId: string) => void;
+}) {
   const all = flattenSuperClusters(data.communities?.superClusters ?? []);
   const sc = all.find((s) => s.id === superclusterId);
   if (!sc) return <div style={emptyStyle}>Supercluster "{superclusterId}" not found</div>;
@@ -248,9 +271,15 @@ function SuperclusterDetail({ data, superclusterId }: { data: StructuralPipeline
           <div style={{ maxHeight: 220, overflowY: 'auto' }}>
             {sharedFiles.slice(0, 40).map((f) => (
               <div key={f.fileId} style={fileRowStyle}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                  {shortName(f.filePath)}
-                </span>
+                {onSelectFile ? (
+                  <button style={fileLinkStyle} onClick={() => onSelectFile(f.fileId)} title={f.filePath}>
+                    {shortName(f.filePath)}
+                  </button>
+                ) : (
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                    {shortName(f.filePath)}
+                  </span>
+                )}
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {f.linesOfCode != null && (
                     <span style={{ fontSize: 10, color: '#666', fontVariantNumeric: 'tabular-nums' }}>
@@ -270,7 +299,15 @@ function SuperclusterDetail({ data, superclusterId }: { data: StructuralPipeline
 
 // ── Cluster Detail ──────────────────────────────────────────────────────
 
-function ClusterDetail({ data, clusterId }: { data: StructuralPipelineResult; clusterId: string }) {
+function ClusterDetail({
+  data,
+  clusterId,
+  onSelectFile,
+}: {
+  data: StructuralPipelineResult;
+  clusterId: string;
+  onSelectFile?: (fileId: string) => void;
+}) {
   // Try clusters first, then fall back to communities
   const cluster = data.clusters.find((c) => c.id === clusterId);
   const community = data.communities?.communities?.find((c) => c.id === clusterId);
@@ -378,13 +415,23 @@ function ClusterDetail({ data, clusterId }: { data: StructuralPipelineResult; cl
             const mp = misplacedMap.get(fid);
             return (
               <div key={fid} style={fileRowStyle}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                  {mp && (
-                    <span title={`Misplaced — suggest move to ${mp.suggestedDirectory} (${mp.peerCount} peers there)`}
-                      style={{ cursor: 'help' }}>⚠️ </span>
-                  )}
-                  {file ? shortName(file.filePath) : fid}
-                </span>
+                {onSelectFile ? (
+                  <button style={fileLinkStyle} onClick={() => onSelectFile(fid)} title={file?.filePath ?? fid}>
+                    {mp && (
+                      <span title={`Misplaced — suggest move to ${mp.suggestedDirectory} (${mp.peerCount} peers there)`}
+                        style={{ cursor: 'help' }}>⚠️ </span>
+                    )}
+                    {file ? shortName(file.filePath) : fid}
+                  </button>
+                ) : (
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                    {mp && (
+                      <span title={`Misplaced — suggest move to ${mp.suggestedDirectory} (${mp.peerCount} peers there)`}
+                        style={{ cursor: 'help' }}>⚠️ </span>
+                    )}
+                    {file ? shortName(file.filePath) : fid}
+                  </span>
+                )}
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {file?.linesOfCode != null && (
                     <span style={{ fontSize: 10, color: '#666', fontVariantNumeric: 'tabular-nums' }}>
@@ -430,6 +477,7 @@ function FileDetail({
   const centrality = data.centrality?.find((c) => c.fileId === fileId);
   const misplaced = data.communities?.misplacedFiles?.find((m) => m.fileId === fileId);
   const exportInfo = data.exportAnalysis?.files.find((f) => f.fileId === fileId);
+  const fileMetric = data.fileMetrics?.find((m) => m.fileId === fileId);
 
   const incomingEdges = data.weightedEdges.filter((e) => e.targetFileId === fileId);
   const outgoingEdges = data.weightedEdges.filter((e) => e.sourceFileId === fileId);
@@ -589,6 +637,18 @@ function FileDetail({
           )}
         </div>
       )}
+
+      {fileMetric && (
+        <div>
+          <div style={sectionTitle}>Interface change impact</div>
+          <Row label="Cost score" value={Math.round(fileMetric.interfaceChangeCostScore).toString()} />
+          <Row label="Risk band" value={fileMetric.interfaceChangeRiskBand} />
+          <Row label="Leak score" value={fileMetric.sharedResponsibilityLeakScore.toFixed(2)} />
+          <Row label="Hidden complexity" value={fileMetric.hiddenComplexityRatio.toFixed(2)} />
+          <Row label="Consumer clusters" value={fileMetric.consumerClusterCount.toString()} />
+          <Row label="Consumer superclusters" value={fileMetric.consumerSuperclusterCount.toString()} />
+        </div>
+      )}
     </>
   );
 }
@@ -648,7 +708,12 @@ function RepoDetail({ data }: { data: StructuralPipelineResult }) {
 
 // ── Main Component ──────────────────────────────────────────────────────
 
-export function DetailPanel({ data, selection, clusterFileIds }: DetailPanelProps) {
+export function DetailPanel({
+  data,
+  selection,
+  clusterFileIds,
+  onSelectFile,
+}: DetailPanelProps) {
   if (selection.type == null) {
     return (
       <div style={panelStyle}>
@@ -660,7 +725,7 @@ export function DetailPanel({ data, selection, clusterFileIds }: DetailPanelProp
   if (selection.type === 'cluster') {
     return (
       <div style={panelStyle}>
-        <ClusterDetail data={data} clusterId={selection.id} />
+        <ClusterDetail data={data} clusterId={selection.id} onSelectFile={onSelectFile} />
       </div>
     );
   }
@@ -668,14 +733,18 @@ export function DetailPanel({ data, selection, clusterFileIds }: DetailPanelProp
   if (selection.type === 'supercluster') {
     return (
       <div style={panelStyle}>
-        <SuperclusterDetail data={data} superclusterId={selection.id} />
+        <SuperclusterDetail data={data} superclusterId={selection.id} onSelectFile={onSelectFile} />
       </div>
     );
   }
 
   return (
     <div style={panelStyle}>
-      <FileDetail data={data} fileId={selection.id} clusterFileIds={clusterFileIds} />
+      <FileDetail
+        data={data}
+        fileId={selection.id}
+        clusterFileIds={clusterFileIds}
+      />
     </div>
   );
 }

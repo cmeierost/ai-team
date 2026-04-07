@@ -207,6 +207,44 @@ function DonutCard({
 
 export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
   const isScoped = clusterFileIds != null && clusterFileIds.size > 0;
+  const singleFileId = useMemo(() => {
+    if (!clusterFileIds || clusterFileIds.size !== 1) return undefined;
+    return [...clusterFileIds][0];
+  }, [clusterFileIds]);
+  const singleFileMetric = useMemo(
+    () => singleFileId ? data.fileMetrics?.find((m) => m.fileId === singleFileId) : undefined,
+    [data.fileMetrics, singleFileId],
+  );
+  const scopedFileMetrics = useMemo(() => {
+    if (!data.fileMetrics || data.fileMetrics.length === 0) return [];
+    if (!clusterFileIds || clusterFileIds.size === 0) return data.fileMetrics;
+    return data.fileMetrics.filter((m) => clusterFileIds.has(m.fileId));
+  }, [data.fileMetrics, clusterFileIds]);
+  const boundaryScopedFileMetrics = useMemo(() => {
+    if (!isScoped || !clusterFileIds || clusterFileIds.size <= 1) return scopedFileMetrics;
+    const fileById = new Map(data.fileClassifications.map((f) => [f.fileId, f]));
+    const exportById = new Map((data.exportAnalysis?.files ?? []).map((f) => [f.fileId, f]));
+    const boundaryIds = new Set<string>();
+    for (const fileId of clusterFileIds) {
+      const filePath = fileById.get(fileId)?.filePath.replace(/\\/g, '/') ?? '';
+      const fileName = filePath.split('/').pop() ?? '';
+      const isIndexFile = /^index\./i.test(fileName);
+      const isBarrel = (exportById.get(fileId)?.reexportSources?.length ?? 0) > 0;
+      const hasOutsideConsumer = data.weightedEdges.some(
+        (e) => e.targetFileId === fileId && !clusterFileIds.has(e.sourceFileId),
+      );
+      if (isIndexFile || isBarrel || hasOutsideConsumer) boundaryIds.add(fileId);
+    }
+    const selected = scopedFileMetrics.filter((m) => boundaryIds.has(m.fileId));
+    return selected.length > 0 ? selected : scopedFileMetrics;
+  }, [
+    isScoped,
+    clusterFileIds,
+    scopedFileMetrics,
+    data.fileClassifications,
+    data.exportAnalysis?.files,
+    data.weightedEdges,
+  ]);
 
   const stats = useMemo(() => {
     const allFiles = isScoped
@@ -323,8 +361,103 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
     return { files, totalExports, totalLogicExports, totalContractExports, deadFileCount, deadExportLoc, barrelViolations };
   }, [data, clusterFileIds, isScoped]);
 
+  if (singleFileMetric) {
+    const riskColor =
+      singleFileMetric.interfaceChangeRiskBand === 'critical' ? '#f44336'
+      : singleFileMetric.interfaceChangeRiskBand === 'high' ? '#ff9800'
+      : singleFileMetric.interfaceChangeRiskBand === 'medium' ? '#3794ff'
+      : '#4caf50';
+    return (
+      <div className="sp-root">
+        <div className="sp-card">
+          <h3 className="sp-card-title">Interface Change Cost</h3>
+          <div className="sp-group-row">
+            <div className="sp-group-box" style={{ borderColor: `${riskColor}66` }}>
+              <strong style={{ color: riskColor }}>{Math.round(singleFileMetric.interfaceChangeCostScore)}</strong>
+              <span>{singleFileMetric.interfaceChangeRiskBand}</span>
+            </div>
+            <div className="sp-group-box">
+              <strong>{singleFileMetric.sharedResponsibilityLeakScore.toFixed(2)}</strong>
+              <span>shared leak</span>
+            </div>
+            <div className="sp-group-box">
+              <strong>{singleFileMetric.hiddenComplexityRatio.toFixed(2)}</strong>
+              <span>hidden complexity</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="sp-card">
+          <h3 className="sp-card-title">Contained Entities</h3>
+          <div style={{ fontSize: 12, color: '#a0a0a0', lineHeight: 1.7 }}>
+            <div>Exported entities: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.exportedEntityCount}</strong></div>
+            <div>Function-like exports: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.exportedFunctionLikeCount}</strong></div>
+            <div>Type-like exports: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.exportedTypeLikeCount}</strong></div>
+            <div>Class exports: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.exportedClassCount}</strong></div>
+            <div>Exported parameters: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.exportedParameterCount}</strong></div>
+            <div>Exported public props: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.exportedPublicPropertyCount}</strong></div>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: '#888' }}>
+            Interface surface proxy = exported params + public contract properties.
+          </div>
+        </div>
+
+        <div className="sp-card">
+          <h3 className="sp-card-title">Imports and Consumers</h3>
+          <div style={{ fontSize: 12, color: '#a0a0a0', lineHeight: 1.7 }}>
+            <div>Incoming refs: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.incomingTypeRefs + singleFileMetric.incomingValueRefs}</strong> (type {singleFileMetric.incomingTypeRefs}, value {singleFileMetric.incomingValueRefs})</div>
+            <div>Outgoing refs: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.outgoingTypeRefs + singleFileMetric.outgoingValueRefs}</strong> (type {singleFileMetric.outgoingTypeRefs}, value {singleFileMetric.outgoingValueRefs})</div>
+            <div>Consumer files: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.consumerFileCount}</strong></div>
+            <div>Consumer clusters: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.consumerClusterCount}</strong></div>
+            <div>Consumer superclusters: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.consumerSuperclusterCount}</strong></div>
+            <div>Single-consumer exports: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.singleConsumerExportCount}</strong> ({Math.round(singleFileMetric.singleConsumerExportRatio * 100)}%)</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const scopedMetricSummary = boundaryScopedFileMetrics.length > 0 ? (() => {
+    const sumCost = boundaryScopedFileMetrics.reduce((s, m) => s + m.interfaceChangeCostScore, 0);
+    const sumLeak = boundaryScopedFileMetrics.reduce((s, m) => s + m.sharedResponsibilityLeakScore, 0);
+    const sumHidden = boundaryScopedFileMetrics.reduce((s, m) => s + m.hiddenComplexityRatio, 0);
+    const high = boundaryScopedFileMetrics.filter((m) => m.interfaceChangeRiskBand === 'high').length;
+    const critical = boundaryScopedFileMetrics.filter((m) => m.interfaceChangeRiskBand === 'critical').length;
+    return {
+      avgCost: sumCost / boundaryScopedFileMetrics.length,
+      avgLeak: sumLeak / boundaryScopedFileMetrics.length,
+      avgHidden: sumHidden / boundaryScopedFileMetrics.length,
+      high,
+      critical,
+      consideredFiles: boundaryScopedFileMetrics.length,
+    };
+  })() : null;
+
   return (
     <div className="sp-root">
+      {scopedMetricSummary && (
+        <div className="sp-card">
+          <h3 className="sp-card-title">Interface Change Risk</h3>
+          <div className="sp-group-row">
+            <div className="sp-group-box">
+              <strong>{Math.round(scopedMetricSummary.avgCost)}</strong>
+              <span>avg cost</span>
+            </div>
+            <div className="sp-group-box sp-group-box--warn">
+              <strong>{scopedMetricSummary.high + scopedMetricSummary.critical}</strong>
+              <span>high+critical</span>
+            </div>
+            <div className="sp-group-box">
+              <strong>{scopedMetricSummary.avgLeak.toFixed(2)}</strong>
+              <span>avg leak</span>
+            </div>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: '#888' }}>
+            Boundary-aware rollup ({scopedMetricSummary.consideredFiles} outward-facing files). Hidden complexity avg {scopedMetricSummary.avgHidden.toFixed(2)}.
+          </div>
+        </div>
+      )}
+
       {/* header */}
       <div className="sp-header">
         {!isScoped && (

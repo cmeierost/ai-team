@@ -33,6 +33,7 @@ import { computeCentrality } from './centrality.js';
 import { generateRecommendations } from './9-recommendations.js';
 import { analyseExports } from './export-analysis.js';
 import { analyseEntryPoints } from './entry-point-analysis.js';
+import { computeFileInterfaceMetrics } from './file-metrics.js';
 
 import type { LanguageProfile, MergedFileHints } from './language-profile.js';
 import { mergeFileHints, findProfileForExtension } from './language-profile.js';
@@ -268,6 +269,16 @@ export function runStructuralPipeline(
     moduleBoundaries, fileClassifications, weightedEdges,
   );
 
+  // ── File-level interface/change-cost metrics ───────────────────────
+
+  const fileMetrics = computeFileInterfaceMetrics(
+    entities,
+    fileClassifications,
+    weightedEdges,
+    exportAnalysis,
+    communities,
+  );
+
   // ── Step 9: Recommendations ────────────────────────────────────────
 
   // Build the result first (recommendations need it)
@@ -281,6 +292,7 @@ export function runStructuralPipeline(
     groupingComparisons,
     centrality,
     exportAnalysis,
+    fileMetrics,
     entryPointAnalysis,
     summary: undefined as any, // filled below
   };

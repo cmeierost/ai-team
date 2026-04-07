@@ -24,17 +24,21 @@ import { ClusterNode } from './components/ClusterNode.js';
 import { FileNode } from './components/FileNode.js';
 import { SuperClusterNode } from './components/SuperClusterNode.js';
 import { FileCodePane } from './components/FileCodePane.js';
+import { FileEntitiesPane } from './components/FileEntitiesPane.js';
 import { OverviewBar } from './components/OverviewBar.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { ProblemsPanel } from './components/ProblemsPanel.js';
 import { StatsPanel } from './components/StatsPanel.js';
 
 import './styles/viewer.css';
+import type { EntityRefLite, RelationshipRefLite } from './types.js';
 
 export interface ArchitectureViewerProps {
   data: StructuralPipelineResult;
   className?: string;
   fileContents?: Record<string, string>;
+  entities?: EntityRefLite[];
+  relationships?: RelationshipRefLite[];
 }
 
 const nodeTypes: NodeTypes = {
@@ -42,6 +46,8 @@ const nodeTypes: NodeTypes = {
   file: FileNode,
   supercluster: SuperClusterNode,
 };
+const VALID_SELECTION_TYPES: Selection['type'][] = ['cluster', 'file', 'supercluster', null];
+const VALID_SIDE_PANELS: SidePanel[] = ['detail', 'problems', 'stats'];
 
 function flattenSuperClusters(
   roots: NonNullable<StructuralPipelineResult['communities']>['superClusters'],
@@ -71,7 +77,13 @@ function collectSuperclusterCommunityIds(
   return ids;
 }
 
-export function ArchitectureViewer({ data, className, fileContents }: ArchitectureViewerProps) {
+export function ArchitectureViewer({
+  data,
+  className,
+  fileContents,
+  entities,
+  relationships,
+}: ArchitectureViewerProps) {
   const [selection, setSelection] = useState<Selection>({ type: null, id: '' });
   const [sidePanel, setSidePanel] = useState<SidePanel>('detail');
   const [drilldownGroupId, setDrilldownGroupId] = useState<string | null>(null);
@@ -79,9 +91,13 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
   const [hideTypeOnly, setHideTypeOnly] = useState(false);
   const [showFullPath, setShowFullPath] = useState(false);
   const [showSuperclusters, setShowSuperclusters] = useState(false);
+  const [fileViewTab, setFileViewTab] = useState<'code' | 'entities'>('entities');
   const [sidebarWidth, setSidebarWidth] = useState(340);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const resizeState = useRef<{ startX: number; startWidth: number }>({ startX: 0, startWidth: 340 });
+  const hasHydratedFromUrl = useRef(false);
+  const isApplyingUrlState = useRef(false);
+  const lastPushedQuery = useRef<string>('');
   const focusedSuperClusterId = navigationPath[navigationPath.length - 1] ?? undefined;
 
   const graphOptions = useMemo(
@@ -130,6 +146,11 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
     if (focusedSuperClusterId) return resolveScope('supercluster', focusedSuperClusterId);
     return { fileIds: undefined, groupIds: undefined };
   }, [selection, drilldownGroupId, focusedSuperClusterId, resolveScope]);
+  const referenceScopeFileIds = useMemo(() => {
+    if (drilldownGroupId) return resolveScope('cluster', drilldownGroupId).fileIds;
+    if (focusedSuperClusterId) return resolveScope('supercluster', focusedSuperClusterId).fileIds;
+    return undefined;
+  }, [drilldownGroupId, focusedSuperClusterId, resolveScope]);
 
   const scopedIssueCount = useMemo(() => {
     const allWarnings = data.alignment.warnings ?? [];
@@ -168,6 +189,112 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
     }
     return map;
   }, [data.communities?.communities, data.clusters]);
+  const fileToCommunityId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const community of data.communities?.communities ?? []) {
+      for (const fileId of community.memberFileIds) map.set(fileId, community.id);
+    }
+    return map;
+  }, [data.communities?.communities]);
+  const communityToSuperPath = useMemo(() => {
+    const map = new Map<string, string[]>();
+    const walk = (
+      node: NonNullable<StructuralPipelineResult['communities']>['superClusters'][number],
+      path: string[],
+    ) => {
+      for (const child of node.children ?? []) {
+        if (child.kind === 'community') map.set(child.communityId, path);
+        else walk(child.cluster, [...path, child.cluster.id]);
+      }
+    };
+    for (const root of data.communities?.superClusters ?? []) {
+      walk(root, [root.id]);
+    }
+    return map;
+  }, [data.communities?.superClusters]);
+
+  const applyStateFromUrl = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    isApplyingUrlState.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const urlSelectionTypeRaw = params.get('selType');
+    const urlSelectionType = VALID_SELECTION_TYPES.includes(urlSelectionTypeRaw as Selection['type'])
+      ? (urlSelectionTypeRaw as Selection['type'])
+      : null;
+    const urlSelectionId = params.get('selId') ?? '';
+    const urlSidePanel = params.get('panel');
+    const urlDrilldown = params.get('drill');
+    const urlTab = params.get('tab');
+    const urlNav = params.getAll('nav');
+
+    if (urlSelectionType !== null && urlSelectionId) {
+      setSelection({ type: urlSelectionType, id: urlSelectionId });
+    } else {
+      setSelection({ type: null, id: '' });
+    }
+    setNavigationPath(urlNav);
+    setDrilldownGroupId(urlDrilldown || null);
+    if (urlTab === 'entities' || urlTab === 'code') {
+      setFileViewTab(urlTab);
+    }
+    setHideTypeOnly(params.get('types') === 'hidden');
+    setShowFullPath(params.get('paths') === 'full');
+    setShowSuperclusters(params.get('grouping') === 'on');
+    if (urlSidePanel && VALID_SIDE_PANELS.includes(urlSidePanel as SidePanel)) {
+      setSidePanel(urlSidePanel as SidePanel);
+    }
+    const query = window.location.search.startsWith('?')
+      ? window.location.search.slice(1)
+      : window.location.search;
+    lastPushedQuery.current = query;
+    hasHydratedFromUrl.current = true;
+    isApplyingUrlState.current = false;
+  }, []);
+
+  useEffect(() => {
+    applyStateFromUrl();
+    if (typeof window === 'undefined') return;
+    const onPopState = () => applyStateFromUrl();
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [applyStateFromUrl]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasHydratedFromUrl.current || isApplyingUrlState.current) return;
+    const next = new URLSearchParams();
+    if (selection.type && selection.id) {
+      next.set('selType', selection.type);
+      next.set('selId', selection.id);
+    }
+    if (sidePanel !== 'detail') next.set('panel', sidePanel);
+    if (drilldownGroupId) next.set('drill', drilldownGroupId);
+    if (fileViewTab !== 'code') next.set('tab', fileViewTab);
+    if (hideTypeOnly) next.set('types', 'hidden');
+    if (showFullPath) next.set('paths', 'full');
+    if (showSuperclusters) next.set('grouping', 'on');
+    for (const id of navigationPath) next.append('nav', id);
+
+    const query = next.toString();
+    const current = window.location.search.startsWith('?')
+      ? window.location.search.slice(1)
+      : window.location.search;
+    if (query === current || query === lastPushedQuery.current) {
+      lastPushedQuery.current = query;
+      return;
+    }
+    const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+    window.history.pushState(null, '', nextUrl);
+    lastPushedQuery.current = query;
+  }, [
+    selection,
+    sidePanel,
+    drilldownGroupId,
+    fileViewTab,
+    hideTypeOnly,
+    showFullPath,
+    showSuperclusters,
+    navigationPath,
+  ]);
 
   useEffect(() => {
     if (!isResizingSidebar) return;
@@ -201,21 +328,14 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
     } else if (node.type === 'file') {
       setSelection({ type: 'file', id: node.id });
       setSidePanel('detail');
+      setFileViewTab('entities');
     }
   }, []);
-
-  const handleBack = useCallback(() => {
-    if (drilldownGroupId) {
-      setDrilldownGroupId(null);
-      setSelection({ type: null, id: '' });
-      return;
-    }
-    setNavigationPath((prev) => prev.slice(0, -1));
-  }, [drilldownGroupId]);
 
   const handleSelectFile = useCallback((fileId: string) => {
     setSelection({ type: 'file', id: fileId });
     setSidePanel('detail');
+    setFileViewTab('entities');
   }, []);
 
   const handleSelectCluster = useCallback((clusterId: string) => {
@@ -242,6 +362,13 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
 
   const showNavBar = true;
   const breadcrumbs = useMemo(() => {
+    const selectedClusterId =
+      drilldownGroupId
+      ?? (selection.type === 'cluster' ? selection.id : undefined)
+      ?? (selection.type === 'file' ? fileToCommunityId.get(selection.id) : undefined);
+    const derivedSuperPath = selectedClusterId ? (communityToSuperPath.get(selectedClusterId) ?? []) : [];
+    const superPath = navigationPath.length > 0 ? navigationPath : derivedSuperPath;
+
     const items: { key: string; label: string; onClick?: () => void; active?: boolean }[] = [
       {
         key: 'repo',
@@ -251,16 +378,16 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
           setDrilldownGroupId(null);
           setSelection({ type: null, id: '' });
         },
-        active: navigationPath.length === 0 && !drilldownGroupId && selection.type == null,
+        active: superPath.length === 0 && !selectedClusterId && selection.type == null,
       },
     ];
 
-    navigationPath.forEach((id, index) => {
+    superPath.forEach((id, index) => {
       items.push({
         key: `super-${id}`,
         label: superClusterById.get(id)?.label || id,
         onClick: () => {
-          setNavigationPath(navigationPath.slice(0, index + 1));
+          setNavigationPath(superPath.slice(0, index + 1));
           setDrilldownGroupId(null);
           setSelection({ type: 'supercluster', id });
         },
@@ -268,20 +395,15 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
       });
     });
 
-    if (drilldownGroupId) {
+    if (selectedClusterId) {
       items.push({
-        key: `cluster-${drilldownGroupId}`,
-        label: clusterLabelById.get(drilldownGroupId) || drilldownGroupId,
+        key: `cluster-${selectedClusterId}`,
+        label: clusterLabelById.get(selectedClusterId) || selectedClusterId,
         onClick: () => {
-          setSelection({ type: 'cluster', id: drilldownGroupId });
+          setSelection({ type: 'cluster', id: selectedClusterId });
+          setDrilldownGroupId(selectedClusterId);
         },
-        active: selection.type === 'cluster' && selection.id === drilldownGroupId,
-      });
-    } else if (selection.type === 'cluster') {
-      items.push({
-        key: `cluster-${selection.id}`,
-        label: clusterLabelById.get(selection.id) || selection.id,
-        active: true,
+        active: selection.type === 'cluster' && selection.id === selectedClusterId,
       });
     }
 
@@ -294,7 +416,16 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
       });
     }
     return items;
-  }, [navigationPath, drilldownGroupId, selection, superClusterById, clusterLabelById, data.fileClassifications]);
+  }, [
+    navigationPath,
+    drilldownGroupId,
+    selection,
+    superClusterById,
+    clusterLabelById,
+    fileToCommunityId,
+    communityToSuperPath,
+    data.fileClassifications,
+  ]);
 
   return (
     <div className={`av-root ${className ?? ''}`}>
@@ -313,9 +444,6 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
           {/* Breadcrumb bar */}
           {showNavBar && (
             <div className="av-drilldown-bar">
-              <button className="av-drilldown-back" onClick={handleBack}>
-                {isDrilldown ? '← Back to supercluster' : '← Back'}
-              </button>
               <div className="av-breadcrumbs">
                 {breadcrumbs.map((crumb, index) => (
                   <React.Fragment key={crumb.key}>
@@ -338,10 +466,37 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
 
             {selection.type === 'file' ? (
               <div className="av-code-frame">
-                <FileCodePane
-                  file={data.fileClassifications.find((f) => f.fileId === selection.id)}
-                  content={selection.id ? fileContents?.[selection.id] : undefined}
-                />
+                <div className="av-file-tabs">
+                  <button
+                    className={`av-file-tab ${fileViewTab === 'code' ? 'av-file-tab--active' : ''}`}
+                    onClick={() => setFileViewTab('code')}
+                  >
+                    Code
+                  </button>
+                  <button
+                    className={`av-file-tab ${fileViewTab === 'entities' ? 'av-file-tab--active' : ''}`}
+                    onClick={() => setFileViewTab('entities')}
+                  >
+                    Entities
+                  </button>
+                </div>
+                <div className="av-file-content">
+                  {fileViewTab === 'code' ? (
+                    <FileCodePane
+                      file={data.fileClassifications.find((f) => f.fileId === selection.id)}
+                      content={selection.id ? fileContents?.[selection.id] : undefined}
+                    />
+                  ) : (
+                    <FileEntitiesPane
+                      file={data.fileClassifications.find((f) => f.fileId === selection.id)}
+                      content={selection.id ? fileContents?.[selection.id] : undefined}
+                      entities={entities}
+                      relationships={relationships}
+                      scopeFileIds={referenceScopeFileIds}
+                      hideTypeOnly={hideTypeOnly}
+                    />
+                  )}
+                </div>
               </div>
             ) : (
               <div className="av-graph-frame">
@@ -406,7 +561,12 @@ export function ArchitectureViewer({ data, className, fileContents }: Architectu
 
           <div className="av-sidebar-content">
             {sidePanel === 'detail' ? (
-              <DetailPanel data={data} selection={selection} clusterFileIds={scope.fileIds} />
+              <DetailPanel
+                data={data}
+                selection={selection}
+                clusterFileIds={scope.fileIds}
+                onSelectFile={handleSelectFile}
+              />
             ) : sidePanel === 'problems' ? (
               <ProblemsPanel
                 data={data}

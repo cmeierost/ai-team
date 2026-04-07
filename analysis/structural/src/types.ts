@@ -267,6 +267,7 @@ export interface StructuralPipelineResult {
   groupingComparisons?: PipelineGroupingComparison[];
   centrality?: FileCentrality[];
   exportAnalysis?: ExportAnalysis;
+  fileMetrics?: FileInterfaceMetrics[];
   entryPointAnalysis?: EntryPointAnalysis;
   recommendations?: PipelineRecommendation[];
   healthScore?: number;
@@ -323,6 +324,36 @@ export interface ExportAnalysis {
   deadExportLoc: number;
   /** Barrel files re-exporting across unrelated branches. */
   barrelViolations: BarrelViolation[];
+}
+
+export type InterfaceChangeRiskBand = 'low' | 'medium' | 'high' | 'critical';
+
+/** Canonical per-file interface-change and shared-responsibility metrics. */
+export interface FileInterfaceMetrics {
+  fileId: string;
+  filePath: string;
+  linesOfCode: number;
+  exportedEntityCount: number;
+  exportedFunctionLikeCount: number;
+  exportedTypeLikeCount: number;
+  exportedClassCount: number;
+  exportedParameterCount: number;
+  exportedPublicPropertyCount: number;
+  incomingTypeRefs: number;
+  incomingValueRefs: number;
+  outgoingTypeRefs: number;
+  outgoingValueRefs: number;
+  consumerFileCount: number;
+  consumerClusterCount: number;
+  consumerSuperclusterCount: number;
+  singleConsumerExportCount: number;
+  singleConsumerExportRatio: number;
+  interfaceSurfaceComplexityScore: number;
+  implementationComplexityScore: number;
+  hiddenComplexityRatio: number;
+  sharedResponsibilityLeakScore: number;
+  interfaceChangeCostScore: number;
+  interfaceChangeRiskBand: InterfaceChangeRiskBand;
 }
 
 /** Exposure summary for one dependency group boundary. */

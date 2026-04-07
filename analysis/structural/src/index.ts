@@ -44,6 +44,7 @@ export { analyseExports } from './export-analysis.js';
 export {
   discoverAppEntryPoints, analyseReachability, analyseEntryPoints,
 } from './entry-point-analysis.js';
+export { computeFileInterfaceMetrics } from './file-metrics.js';
 
 // ── Pipeline orchestrator ───────────────────────────────────────────────
 
@@ -74,9 +75,10 @@ export type {
    SuperClusterChild, ClusterExposure,
   PipelineGrouping, PipelineGroup,
   PipelineGroupingComparison, PipelineGroupMismatch, PipelineMoveSuggestion,
-  FileCentrality,
-  PipelineRecommendation, RecommendationPriority, RecommendationCategory,
-  ExportAnalysis, FileExportInfo, ExportedSymbol, BarrelViolation,
+   FileCentrality,
+   PipelineRecommendation, RecommendationPriority, RecommendationCategory,
+   FileInterfaceMetrics, InterfaceChangeRiskBand,
+   ExportAnalysis, FileExportInfo, ExportedSymbol, BarrelViolation,
 } from './types.js';
 export type {
   AppEntryPoint, EntryPointEvidence, FileReachability, FileScope, EntryPointAnalysis,

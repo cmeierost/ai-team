@@ -10,6 +10,7 @@ export type { ClusterNodeData } from './components/ClusterNode.js';
 
 export { FileNode } from './components/FileNode.js';
 export type { FileNodeData } from './components/FileNode.js';
+export { FileEntitiesPane } from './components/FileEntitiesPane.js';
 
 export { OverviewBar } from './components/OverviewBar.js';
 export { DetailPanel } from './components/DetailPanel.js';
@@ -44,6 +45,8 @@ export type {
   NonCodeBreakdown,
   ProblemCategory,
   ProblemItem,
+  EntityRefLite,
+  RelationshipRefLite,
 } from './types.js';
 
 export {

@@ -27,11 +27,17 @@ export function buildRawEdges(
   entities: Entity[],
   relationships: Relationship[],
 ): RawDependencyEdge[] {
+  const entityById = new Map(entities.map((e) => [e.id, e]));
   const entityToFile = buildEntityToFileMap(entities);
   const edges: RawDependencyEdge[] = [];
 
   for (const rel of relationships) {
     if (!IMPORT_RELATIONSHIP_KINDS.has(rel.kind)) continue;
+    const sourceEntity = entityById.get(rel.sourceEntityId);
+    const targetEntity = entityById.get(rel.targetEntityId);
+    // File-level dependencies must be derived from non-file entities.
+    if (!sourceEntity || !targetEntity) continue;
+    if (sourceEntity.kind === 'file' || targetEntity.kind === 'file') continue;
 
     const sourceFile = entityToFile.get(rel.sourceEntityId);
     const targetFile = entityToFile.get(rel.targetEntityId);
@@ -62,6 +68,7 @@ export function computeFileCouplingStats(
   entities: Entity[],
   relationships: Relationship[],
 ): Map<string, FileCouplingStats> {
+  const entityById = new Map(entities.map((e) => [e.id, e]));
   const entityToFile = buildEntityToFileMap(entities);
   const stats = new Map<string, FileCouplingStats>();
 
@@ -70,6 +77,11 @@ export function computeFileCouplingStats(
 
   for (const rel of relationships) {
     if (!IMPORT_RELATIONSHIP_KINDS.has(rel.kind)) continue;
+    const sourceEntity = entityById.get(rel.sourceEntityId);
+    const targetEntity = entityById.get(rel.targetEntityId);
+    // File-level coupling is summarized from non-file entity relationships only.
+    if (!sourceEntity || !targetEntity) continue;
+    if (sourceEntity.kind === 'file' || targetEntity.kind === 'file') continue;
 
     const sourceFile = entityToFile.get(rel.sourceEntityId);
     const targetFile = entityToFile.get(rel.targetEntityId);
@@ -114,13 +126,20 @@ export function computeFileCouplingStats(
 
 function buildEntityToFileMap(entities: Entity[]): Map<string, string> {
   const fileIds = new Set(entities.filter((e) => e.kind === 'file').map((e) => e.id));
+  const entityById = new Map(entities.map((e) => [e.id, e]));
   const entityToFile = new Map<string, string>();
 
+  for (const fileId of fileIds) entityToFile.set(fileId, fileId);
+
   for (const e of entities) {
-    if (e.kind === 'file') {
-      entityToFile.set(e.id, e.id);
-    } else if (e.parentEntityId && fileIds.has(e.parentEntityId)) {
-      entityToFile.set(e.id, e.parentEntityId);
+    if (e.kind === 'file') continue;
+    let cursor = e.parentEntityId ?? null;
+    while (cursor) {
+      if (fileIds.has(cursor)) {
+        entityToFile.set(e.id, cursor);
+        break;
+      }
+      cursor = entityById.get(cursor)?.parentEntityId ?? null;
     }
   }
 

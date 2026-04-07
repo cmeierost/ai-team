@@ -183,10 +183,10 @@ export function OverviewBar({
           <ToggleButton
             active={!!showSuperclusters}
             onClick={onToggleShowSuperclusters}
-            activeLabel="▣ Superclusters"
-            inactiveLabel="□ Superclusters"
-            activeTitle="Showing supercluster overlays"
-            inactiveTitle="Click to show supercluster overlays"
+            activeLabel="▣ Grouping"
+            inactiveLabel="□ Grouping"
+            activeTitle="Showing grouping overlays"
+            inactiveTitle="Click to show grouping overlays"
             activeColor="#6b7280"
           />
         )}

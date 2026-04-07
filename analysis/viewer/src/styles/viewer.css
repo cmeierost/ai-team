@@ -42,12 +42,44 @@
 .av-graph-frame {
   width: 100%;
   height: 100%;
+  box-sizing: border-box;
+  padding-top: 42px;
   animation: av-zoom-out 180ms ease;
 }
 .av-code-frame {
   width: 100%;
   height: 100%;
+  box-sizing: border-box;
+  padding-top: 42px;
+  display: flex;
+  flex-direction: column;
   animation: av-zoom-in 180ms ease;
+}
+.av-file-content {
+  flex: 1;
+  min-height: 0;
+}
+.av-file-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.av-file-tab {
+  padding: 8px 14px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.av-file-tab:hover { color: var(--text-bright); }
+.av-file-tab--active {
+  color: var(--text-bright);
+  border-bottom-color: var(--accent);
 }
 
 @keyframes av-zoom-in {
@@ -146,22 +178,6 @@
   background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
-}
-
-.av-drilldown-back {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-fg);
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.av-drilldown-back:hover {
-  background: var(--bg-hover);
 }
 
 .av-drilldown-label {

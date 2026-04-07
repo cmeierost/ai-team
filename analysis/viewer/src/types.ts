@@ -23,6 +23,8 @@ import type {
   ExportAnalysis,
   FileExportInfo,
   ExportedSymbol,
+  FileInterfaceMetrics,
+  InterfaceChangeRiskBand,
 } from '@aspect/structural';
 
 export type {
@@ -46,6 +48,8 @@ export type {
   ExportAnalysis,
   FileExportInfo,
   ExportedSymbol,
+  FileInterfaceMetrics,
+  InterfaceChangeRiskBand,
 };
 
 // ── Viewer props ────────────────────────────────────────────────────────
@@ -53,6 +57,39 @@ export type {
 export interface ViewerProps {
   data: StructuralPipelineResult;
   className?: string;
+}
+
+export interface EntityRefLite {
+  id: string;
+  kind: string;
+  name: string;
+  filePath: string;
+  parentEntityId?: string | null;
+  classification?: {
+    isExported?: boolean;
+    isTypeOnly?: boolean;
+    isConcrete?: boolean;
+    visibility?: string | null;
+    codeConcern?: 'contract' | 'presentation' | 'logic' | 'unknown';
+  };
+  rawCounts?: {
+    linesOfCode?: number | null;
+    parameterCount?: number | null;
+    returnStatements?: number | null;
+    branchPoints?: number | null;
+    publicPropertyCount?: number | null;
+    publicMethodCount?: number | null;
+    jsxElementCount?: number | null;
+  };
+}
+
+export interface RelationshipRefLite {
+  sourceEntityId: string;
+  targetEntityId: string;
+  kind: string;
+  typeOnly?: boolean;
+  crossPackage?: boolean;
+  dynamic?: boolean;
 }
 
 export type SidePanel = 'detail' | 'problems' | 'stats';
