@@ -792,19 +792,8 @@ function buildSuperClusters(
     if (ra !== rb) parent.set(ra, rb);
   };
 
-  // Phase 1: package affinity — same package → same supercluster
-  const byPkg = new Map<string, string[]>();
-  for (const c of communities) {
-    const pkg = c.dominantTechnology ?? packagePrefix(pathMap.get(c.memberFileIds[0] ?? '') ?? '');
-    const list = byPkg.get(pkg) ?? [];
-    list.push(c.id);
-    byPkg.set(pkg, list);
-  }
-  for (const ids of byPkg.values()) {
-    for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
-  }
-
-  // Phase 2: shared contracts — contract/infrastructure/barrel edges merge communities
+  // Phase 1: shared contracts — contract/infrastructure/barrel edges merge communities.
+  // These are cheap to share across clusters and indicate coordination.
   for (const edge of edges) {
     const src = fileToCommunity.get(edge.sourceFileId);
     const tgt = fileToCommunity.get(edge.targetFileId);
@@ -815,7 +804,7 @@ function buildSuperClusters(
     }
   }
 
-  // Phase 3: minimize critical cross-supercluster dependencies.
+  // Phase 2: minimize critical cross-supercluster dependencies.
   // Aggregate edge weights between each community pair, separating contract
   // weight (cheap — shared contracts are OK) from critical weight (logic,
   // presentation, etc. — these should live inside the same supercluster).
@@ -838,28 +827,24 @@ function buildSuperClusters(
     }
   }
 
-  // Sort by critical weight descending and merge pairs with significant
-  // non-contract coupling — these are the cross-boundary dependencies we
-  // want to eliminate.
+  // Merge pairs with any critical coupling — these are the cross-boundary
+  // dependencies we want inside superclusters, not across them.
   const sortedPairs = [...pairWeight.entries()]
     .filter(([, pw]) => pw.critical > 0)
     .sort((a, b) => b[1].critical - a[1].critical);
 
   for (const [key, pw] of sortedPairs) {
     const [a, b] = key.split('\0');
-    if (find(a) === find(b)) continue; // already merged by a previous iteration
-    // Any non-trivial critical coupling should be absorbed — even a single
-    // logic edge means we'd rather have this inside one supercluster than
-    // create a critical cross-boundary dependency.
+    if (find(a) === find(b)) continue;
     if (pw.critical > 0) {
       union(a, b);
     }
   }
 
-  // Phase 4: absorb remaining singletons.
-  // After phases 1-3, singletons should be rare — only communities with
-  // zero coupling to any other community. But if they exist, absorb
-  // non-contract ones into the nearest group by total edge weight.
+  // Phase 3: absorb remaining singletons.
+  // After phases 1-2, singletons are communities with zero coupling to any
+  // other community (or only contract-only coupling). Absorb non-contract
+  // ones into the nearest group by total edge weight.
   let groups = new Map<string, string[]>();
   for (const c of communities) {
     const root = find(c.id);
