@@ -13,7 +13,11 @@
 import type { Entity, Relationship } from '@aspect/contracts';
 import type { RawDependencyEdge, FileCouplingStats } from './types.js';
 
-const IMPORT_RELATIONSHIP_KINDS = new Set(['import', 'use', 'reference', 're-export']);
+/** Relationship kinds that represent structural dependencies (not containment). */
+const DEPENDENCY_RELATIONSHIP_KINDS = new Set([
+  'import', 'use', 'call', 'reference', 're-export',
+  'extend', 'implement', 'override',
+]);
 
 // ── Raw edge extraction ─────────────────────────────────────────────────
 
@@ -32,21 +36,25 @@ export function buildRawEdges(
   const edges: RawDependencyEdge[] = [];
 
   for (const rel of relationships) {
-    if (!IMPORT_RELATIONSHIP_KINDS.has(rel.kind)) continue;
+    if (!DEPENDENCY_RELATIONSHIP_KINDS.has(rel.kind)) continue;
     const sourceEntity = entityById.get(rel.sourceEntityId);
-    const targetEntity = entityById.get(rel.targetEntityId);
+    const targetEntity = rel.targetEntityId ? entityById.get(rel.targetEntityId) : undefined;
     // File-level dependencies must be derived from non-file entities.
     if (!sourceEntity || !targetEntity) continue;
     if (sourceEntity.kind === 'file' || targetEntity.kind === 'file') continue;
 
     const sourceFile = entityToFile.get(rel.sourceEntityId);
-    const targetFile = entityToFile.get(rel.targetEntityId);
+    const targetFile = entityToFile.get(rel.targetEntityId!);
     if (!sourceFile || !targetFile || sourceFile === targetFile) continue;
 
     edges.push({
       sourceFileId: sourceFile,
       targetFileId: targetFile,
       isTypeOnly: rel.typeOnly ?? false,
+      relationshipKind: rel.kind,
+      sourceEntityKind: sourceEntity.kind,
+      targetEntityKind: targetEntity.kind,
+      targetIsAbstraction: rel.targetIsAbstraction,
     });
   }
 
@@ -76,15 +84,15 @@ export function computeFileCouplingStats(
   const fanOutSets = new Map<string, Set<string>>();
 
   for (const rel of relationships) {
-    if (!IMPORT_RELATIONSHIP_KINDS.has(rel.kind)) continue;
+    if (!DEPENDENCY_RELATIONSHIP_KINDS.has(rel.kind)) continue;
     const sourceEntity = entityById.get(rel.sourceEntityId);
-    const targetEntity = entityById.get(rel.targetEntityId);
+    const targetEntity = rel.targetEntityId ? entityById.get(rel.targetEntityId) : undefined;
     // File-level coupling is summarized from non-file entity relationships only.
     if (!sourceEntity || !targetEntity) continue;
     if (sourceEntity.kind === 'file' || targetEntity.kind === 'file') continue;
 
     const sourceFile = entityToFile.get(rel.sourceEntityId);
-    const targetFile = entityToFile.get(rel.targetEntityId);
+    const targetFile = entityToFile.get(rel.targetEntityId!);
     if (!sourceFile || !targetFile || sourceFile === targetFile) continue;
 
     const isTypeOnly = rel.typeOnly ?? false;

@@ -10,14 +10,30 @@ export interface Relationship {
    */
   sourceEntityId: string;
   /**
-   * Identifier of the entity that this relationship points to.
+   * Identifier of the entity that this relationship points to. Null when the target cannot be resolved (external or unresolved dependency).
    */
-  targetEntityId: string;
+  targetEntityId: string | null;
   /**
    * The semantic kind of relationship between the two entities.
    */
   kind: 'import' | 'use' | 'call' | 'contain' | 'extend' | 'implement' | 'reference' | 'override' | 're-export';
+  /**
+   * Repository-relative path of the file containing the source entity. Denormalized for efficient lookup without entity join.
+   */
+  sourceFilePath: string;
+  /**
+   * Repository-relative path of the file containing the target entity. Null when unresolved.
+   */
+  targetFilePath?: string | null;
   sourceRange: SourceRange;
+  /**
+   * Source location of the target symbol definition. Null when the target is unresolved or external.
+   */
+  targetRange?: SourceRange1 | null;
+  /**
+   * How the target was resolved: 'resolved' = fully matched to a known entity, 'proxy' = matched to a file/module but not a specific entity, 'unresolved' = target could not be found.
+   */
+  resolutionKind: 'resolved' | 'proxy' | 'unresolved';
   /**
    * Semantic classification of the target entity, used for Dependency Inversion Principle analysis.
    */
@@ -59,6 +75,27 @@ export interface Relationship {
  * Source location of the statement or expression that creates this relationship.
  */
 export interface SourceRange {
+  /**
+   * 1-based line number where the range begins.
+   */
+  startLine: number;
+  /**
+   * 0-based column offset where the range begins.
+   */
+  startColumn: number;
+  /**
+   * 1-based line number where the range ends.
+   */
+  endLine: number;
+  /**
+   * 0-based column offset where the range ends.
+   */
+  endColumn: number;
+}
+/**
+ * A contiguous range of source code identified by start and end positions. Used to pinpoint where an entity or relationship originates in the source file.
+ */
+export interface SourceRange1 {
   /**
    * 1-based line number where the range begins.
    */

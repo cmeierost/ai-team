@@ -129,6 +129,7 @@ export function visitSourceFile(
     collectEntities(stmt, sourceFile, filePath, fileEntity.id, entities, 0);
   }
 
+  finalizeHierarchy(entities);
   return entities;
 }
 
@@ -157,6 +158,9 @@ function collectEntities(
       filePath,
       sourceRange: range,
       parentEntityId: parentId,
+      childEntityIds: [],
+      entityDepth: 1,
+      hierarchyKind: 'root',
       classification: {
         isAbstract,
         isInterface: false,
@@ -199,6 +203,9 @@ function collectEntities(
           filePath,
           sourceRange: methodRange,
           parentEntityId: id,
+          childEntityIds: [],
+          entityDepth: 2,
+          hierarchyKind: 'member',
           classification: {
             isAbstract: isMethodAbstract,
             isInterface: false,
@@ -229,6 +236,9 @@ function collectEntities(
           filePath,
           sourceRange: fieldRange,
           parentEntityId: id,
+          childEntityIds: [],
+          entityDepth: 2,
+          hierarchyKind: 'member',
           classification: {
             isAbstract: false,
             isInterface: false,
@@ -268,6 +278,9 @@ function collectEntities(
       filePath,
       sourceRange: range,
       parentEntityId: parentId,
+      childEntityIds: [],
+      entityDepth: 1,
+      hierarchyKind: 'root',
       classification: {
         isAbstract: false,
         isInterface: true,
@@ -296,6 +309,9 @@ function collectEntities(
       filePath,
       sourceRange: range,
       parentEntityId: parentId,
+      childEntityIds: [],
+      entityDepth: 1,
+      hierarchyKind: 'root',
       classification: {
         isAbstract: false,
         isInterface: false,
@@ -323,6 +339,9 @@ function collectEntities(
       filePath,
       sourceRange: range,
       parentEntityId: parentId,
+      childEntityIds: [],
+      entityDepth: 1,
+      hierarchyKind: 'root',
       classification: {
         isAbstract: false,
         isInterface: false,
@@ -353,6 +372,9 @@ function collectEntities(
       filePath,
       sourceRange: range,
       parentEntityId: parentId,
+      childEntityIds: [],
+      entityDepth: 1,
+      hierarchyKind: 'root',
       classification: {
         isAbstract: false,
         isInterface: false,
@@ -388,6 +410,9 @@ function collectEntities(
           filePath,
           sourceRange: range,
           parentEntityId: parentId,
+          childEntityIds: [],
+          entityDepth: 1,
+          hierarchyKind: 'root',
           classification: {
             isAbstract: false,
             isInterface: false,
@@ -406,6 +431,33 @@ function collectEntities(
 
   // Export default function / class
   if (ts.isExportAssignment(node)) return;
+}
+
+// ── Hierarchy finalization ──────────────────────────────────────────────────
+
+/**
+ * Post-process entities to compute `childEntityIds` from `parentEntityId`
+ * references and promote any entity with children to `hierarchyKind: 'container'`.
+ */
+function finalizeHierarchy(entities: Entity[]): void {
+  const parentToChildren = new Map<string, string[]>();
+  for (const e of entities) {
+    if (e.parentEntityId != null) {
+      let children = parentToChildren.get(e.parentEntityId);
+      if (!children) {
+        children = [];
+        parentToChildren.set(e.parentEntityId, children);
+      }
+      children.push(e.id);
+    }
+  }
+  for (const e of entities) {
+    const children = parentToChildren.get(e.id);
+    if (children && children.length > 0) {
+      e.childEntityIds = children;
+      e.hierarchyKind = 'container';
+    }
+  }
 }
 
 // ── File entity ─────────────────────────────────────────────────────────────
@@ -428,6 +480,9 @@ function buildFileEntity(
       endColumn: 0,
     },
     parentEntityId: null,
+    childEntityIds: [],
+    entityDepth: 0,
+    hierarchyKind: 'root',
     classification: {
       isAbstract: false,
       isInterface: false,

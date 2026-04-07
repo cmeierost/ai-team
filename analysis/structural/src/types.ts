@@ -37,6 +37,10 @@ export interface RawDependencyEdge {
   sourceFileId: string;
   targetFileId: string;
   isTypeOnly: boolean;
+  relationshipKind?: string;
+  sourceEntityKind?: string;
+  targetEntityKind?: string;
+  targetIsAbstraction?: boolean;
 }
 
 /** Per-file import statistics. */

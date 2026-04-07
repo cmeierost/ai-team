@@ -24,6 +24,7 @@ const COMMON_SCHEMAS = [
   'common/module-boundary.schema.json',
   'common/provenance.schema.json',
   'common/source-range.schema.json',
+  'common/file-inventory.schema.json',
 ];
 
 const SIGNAL_SCHEMAS = [
@@ -87,6 +88,7 @@ describe('collected-data $ref resolution', () => {
     ['coverageSignals', 'signals/coverage.schema.json'],
     ['lintSignals', 'signals/lint.schema.json'],
     ['provenance', 'common/provenance.schema.json'],
+    ['fileInventory', 'common/file-inventory.schema.json'],
   ];
 
   it.each(EXPECTED_REFS)(

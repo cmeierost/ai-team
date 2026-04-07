@@ -30,29 +30,32 @@ export interface ModuleBoundary {
    */
   kind: 'package' | 'directory' | 'facade' | 'namespace' | 'manual';
   /**
-   * Entry points declared in this module's package.json (bin, main, exports).
-   * Only present for package-kind boundaries.
+   * Entry points declared in this module's package.json (bin, main, exports). Only present for package-kind boundaries.
    */
-  entryPoints?: ModuleBoundaryEntryPoint[];
+  entryPoints?: {
+    /**
+     * Source file path (relative to repo root) resolved from the manifest entry.
+     */
+    file: string;
+    /**
+     * How this entry point was declared.
+     */
+    kind: 'bin' | 'main' | 'exports' | 'browser';
+    /**
+     * Optional entry point name (e.g. the bin command name or exports subpath).
+     */
+    name?: string;
+    /**
+     * True if this entry point belongs to an app package (CLI, server, extension, web app) rather than a library.
+     */
+    isAppEntry?: boolean;
+  }[];
   /**
-   * True when package.json signals this is a runnable application (has bin,
-   * scripts.start, engines.vscode, or a bundler without library exports).
+   * True if this package is an application (has bin, start script, vscode engine, or is a pure frontend build). False for libraries. Only set for package-kind boundaries.
    */
   isApp?: boolean;
   /**
    * Why this package is classified as an app. Only set when isApp is true.
    */
   appKind?: 'cli' | 'server' | 'extension' | 'web-app';
-}
-
-/** An entry point declared in a package manifest. */
-export interface ModuleBoundaryEntryPoint {
-  /** Source file path (relative to repo root) resolved from the manifest entry. */
-  file: string;
-  /** How this entry point was declared. */
-  kind: 'bin' | 'main' | 'exports' | 'browser';
-  /** True when this entry point is an app root (not a library export). */
-  isAppEntry: boolean;
-  /** Optional entry point name (e.g. the bin command name or exports subpath). */
-  name?: string;
 }

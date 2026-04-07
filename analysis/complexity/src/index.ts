@@ -2,6 +2,9 @@ export {
   calculateCyclomatic,
   calculateCognitive,
   calculateHalstead,
+  calculateMaintainabilityIndex,
+  calculateMaintainability,
+  miRiskBand,
   calculateComplexity,
   summarizeFileComplexity,
   type Entity,
@@ -12,4 +15,8 @@ export {
   type HalsteadResult,
   type FileComplexitySummary,
   type ComplexityResults,
+  type MIRiskBand,
+  type MaintainabilityResult,
+  type FileMaintainabilitySummary,
+  type MaintainabilityResults,
 } from './complexity.js';

@@ -18,7 +18,7 @@
   "scripts": {
     "build": "vite build && tsc --build --emitDeclarationOnly --force",
     "dev": "vite build --watch",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {

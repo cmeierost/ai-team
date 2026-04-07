@@ -8,6 +8,7 @@
 import React, { useMemo, useState } from 'react';
 import type { StructuralPipelineResult } from '../types.js';
 import { ROLE_COLORS, CATEGORY_COLORS, CATEGORY_ICONS, healthColor } from '../types.js';
+import { HelpTooltip } from './HelpTooltip.js';
 
 export interface StatsPanelProps {
   data: StructuralPipelineResult;
@@ -21,6 +22,29 @@ interface Slice {
   label: string;
   value: number;
   color: string;
+}
+
+const METRIC_HELP: Record<string, string> = {
+  'Interface Change Cost': 'Estimated impact if this file contract/interface changes. Higher values usually mean broader downstream effects.',
+  'Contained Entities': 'What this file exposes. More exported surface often means more potential consumers and higher change impact.',
+  'Imports and Consumers': 'Incoming references indicate how many places depend on this file; outgoing references indicate how much this file depends on others.',
+  'Interface Change Risk': 'Boundary-aware average change risk for outward-facing files in the selected scope.',
+  'File Types': 'Distribution of code vs non-code files in this scope.',
+  'Code Roles — Files': 'How many files are classified as contract, logic, presentation, infrastructure, and entry/barrel roles.',
+  'Code Roles — LOC': 'Where code volume is concentrated by role. Use this to spot oversized role concentrations.',
+  'Non-Code Files': 'Config/docs/assets/scripts distribution. Useful to understand filesystem reality beyond code entities.',
+  'Dependency Groups': 'Files that cluster by dependency strength. Ungrouped files are often isolated or weakly connected.',
+  Exports: 'Exported surface seen by other files. High dead exports or risky barrels can indicate boundary problems.',
+};
+
+function CardTitle({ title }: { title: string }) {
+  const help = METRIC_HELP[title];
+  return (
+    <h3 className="sp-card-title">
+      {title}
+      {help && <HelpTooltip text={help} />}
+    </h3>
+  );
 }
 
 function arc(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
@@ -172,7 +196,7 @@ function DonutCard({
 
   return (
     <div className="sp-card">
-      <h3 className="sp-card-title">{title}</h3>
+      <CardTitle title={title} />
       <div className="sp-card-body">
         <Donut
           slices={slices}
@@ -367,10 +391,15 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
       : singleFileMetric.interfaceChangeRiskBand === 'high' ? '#ff9800'
       : singleFileMetric.interfaceChangeRiskBand === 'medium' ? '#3794ff'
       : '#4caf50';
+    const riskBarPct =
+      singleFileMetric.interfaceChangeRiskBand === 'critical' ? 100
+      : singleFileMetric.interfaceChangeRiskBand === 'high' ? 75
+      : singleFileMetric.interfaceChangeRiskBand === 'medium' ? 50
+      : 25;
     return (
       <div className="sp-root">
         <div className="sp-card">
-          <h3 className="sp-card-title">Interface Change Cost</h3>
+          <CardTitle title="Interface Change Cost" />
           <div className="sp-group-row">
             <div className="sp-group-box" style={{ borderColor: `${riskColor}66` }}>
               <strong style={{ color: riskColor }}>{Math.round(singleFileMetric.interfaceChangeCostScore)}</strong>
@@ -385,10 +414,18 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
               <span>hidden complexity</span>
             </div>
           </div>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ height: 6, borderRadius: 999, background: '#2a2a2a', overflow: 'hidden' }}>
+              <div style={{ width: `${riskBarPct}%`, height: '100%', background: riskColor }} />
+            </div>
+            <div style={{ marginTop: 4, fontSize: 10, color: '#8a8a8a' }}>
+              Risk level visualized from low to critical.
+            </div>
+          </div>
         </div>
 
         <div className="sp-card">
-          <h3 className="sp-card-title">Contained Entities</h3>
+          <CardTitle title="Contained Entities" />
           <div style={{ fontSize: 12, color: '#a0a0a0', lineHeight: 1.7 }}>
             <div>Exported entities: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.exportedEntityCount}</strong></div>
             <div>Function-like exports: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.exportedFunctionLikeCount}</strong></div>
@@ -403,7 +440,7 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
         </div>
 
         <div className="sp-card">
-          <h3 className="sp-card-title">Imports and Consumers</h3>
+          <CardTitle title="Imports and Consumers" />
           <div style={{ fontSize: 12, color: '#a0a0a0', lineHeight: 1.7 }}>
             <div>Incoming refs: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.incomingTypeRefs + singleFileMetric.incomingValueRefs}</strong> (type {singleFileMetric.incomingTypeRefs}, value {singleFileMetric.incomingValueRefs})</div>
             <div>Outgoing refs: <strong style={{ color: '#e0e0e0' }}>{singleFileMetric.outgoingTypeRefs + singleFileMetric.outgoingValueRefs}</strong> (type {singleFileMetric.outgoingTypeRefs}, value {singleFileMetric.outgoingValueRefs})</div>
@@ -437,7 +474,7 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
     <div className="sp-root">
       {scopedMetricSummary && (
         <div className="sp-card">
-          <h3 className="sp-card-title">Interface Change Risk</h3>
+          <CardTitle title="Interface Change Risk" />
           <div className="sp-group-row">
             <div className="sp-group-box">
               <strong>{Math.round(scopedMetricSummary.avgCost)}</strong>
@@ -527,7 +564,7 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
       {/* grouping — global only */}
       {!isScoped && (
         <div className="sp-card">
-          <h3 className="sp-card-title">Dependency Groups</h3>
+          <CardTitle title="Dependency Groups" />
         <div className="sp-group-row">
           <div className="sp-group-box sp-group-box--ok">
             <strong>{stats.grouped}</strong>
@@ -583,7 +620,7 @@ export function StatsPanel({ data, clusterFileIds }: StatsPanelProps) {
       {/* Export analysis */}
       {scopedExports && scopedExports.totalExports > 0 && (
         <div className="sp-card">
-          <h3 className="sp-card-title">Exports</h3>
+          <CardTitle title="Exports" />
           <div className="sp-group-row">
             <div className="sp-group-box sp-group-box--ok">
               <strong>{scopedExports.totalExports}</strong>

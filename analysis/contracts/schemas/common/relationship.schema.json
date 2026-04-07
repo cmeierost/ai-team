@@ -10,8 +10,11 @@
       "description": "Identifier of the entity from which this relationship originates."
     },
     "targetEntityId": {
-      "type": "string",
-      "description": "Identifier of the entity that this relationship points to."
+      "description": "Identifier of the entity that this relationship points to. Null when the target cannot be resolved (external or unresolved dependency).",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ]
     },
     "kind": {
       "type": "string",
@@ -28,9 +31,32 @@
       ],
       "description": "The semantic kind of relationship between the two entities."
     },
+    "sourceFilePath": {
+      "type": "string",
+      "description": "Repository-relative path of the file containing the source entity. Denormalized for efficient lookup without entity join."
+    },
+    "targetFilePath": {
+      "description": "Repository-relative path of the file containing the target entity. Null when unresolved.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    },
     "sourceRange": {
       "$ref": "source-range.schema.json",
       "description": "Source location of the statement or expression that creates this relationship."
+    },
+    "targetRange": {
+      "description": "Source location of the target symbol definition. Null when the target is unresolved or external.",
+      "oneOf": [
+        { "$ref": "source-range.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "resolutionKind": {
+      "type": "string",
+      "enum": ["resolved", "proxy", "unresolved"],
+      "description": "How the target was resolved: 'resolved' = fully matched to a known entity, 'proxy' = matched to a file/module but not a specific entity, 'unresolved' = target could not be found."
     },
     "targetClassification": {
       "type": "string",
@@ -93,7 +119,9 @@
     "sourceEntityId",
     "targetEntityId",
     "kind",
+    "sourceFilePath",
     "sourceRange",
+    "resolutionKind",
     "targetClassification",
     "targetIsAbstraction",
     "crossModule",

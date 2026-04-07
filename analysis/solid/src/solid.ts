@@ -216,7 +216,7 @@ function calculateSrp(
     const importTargetFiles = new Set<string>();
     for (const rel of relationships) {
       if (rel.kind === 'import' && fileEntityIds.has(rel.sourceEntityId)) {
-        const target = entityMap.get(rel.targetEntityId);
+        const target = rel.targetEntityId ? entityMap.get(rel.targetEntityId) : undefined;
         if (target) importTargetFiles.add(target.filePath);
       }
     }
@@ -224,7 +224,8 @@ function calculateSrp(
 
     const childMethodIds = relationships
       .filter(r => r.sourceEntityId === entity.id && r.kind === 'contain')
-      .map(r => r.targetEntityId);
+      .map(r => r.targetEntityId)
+      .filter((id): id is string => id != null);
     const childMethods = childMethodIds
       .map(id => entityMap.get(id))
       .filter((e): e is Entity => e != null && e.kind === 'method');
@@ -362,6 +363,7 @@ function calculateIsp(
   const targetRelMap = new Map<string, Relationship[]>();
   for (const rel of relationships) {
     if (
+      rel.targetEntityId != null &&
       rel.consumedMembers != null &&
       rel.consumedMembers.length > 0 &&
       rel.targetTotalMembers != null &&
@@ -440,7 +442,7 @@ function calculateDip(
     let layerViolationCount = 0;
     if (sourceLayer != null) {
       for (const rel of outgoing) {
-        const target = entityMap.get(rel.targetEntityId);
+        const target = rel.targetEntityId ? entityMap.get(rel.targetEntityId) : undefined;
         if (!target) continue;
         const targetLayer = fileLayerMap.get(target.filePath);
         if (targetLayer != null && sourceLayer > targetLayer) {
@@ -493,7 +495,7 @@ function calculateLsp(
       continue;
     }
 
-    const baseEntity = entityMap.get(extendRel.targetEntityId);
+    const baseEntity = extendRel.targetEntityId ? entityMap.get(extendRel.targetEntityId) : undefined;
     const baseMethodMap = new Map(
       (baseEntity?.rawCounts?.overriddenMethods ?? []).map(m => [m.name, m]),
     );

@@ -6,7 +6,7 @@
  */
 export interface Entity {
   /**
-   * Stable deterministic identifier for this entity, derived from its kind, file path, and qualified name.
+   * Stable deterministic identifier for this entity, derived from canonical structural identity (file path, kind, qualified path, signature shape when applicable, and source range).
    */
   id: string;
   /**
@@ -35,9 +35,25 @@ export interface Entity {
   filePath: string;
   sourceRange: SourceRange;
   /**
+   * Structural role of this entity in the codebase. Assigned by the adapter or derived from classification signals during analysis. Used for classification-aware coupling and clustering.
+   */
+  role?: 'logic' | 'contract' | 'presentation' | 'infrastructure' | 'entry_point' | 'barrel' | 'unknown';
+  /**
    * Identifier of the entity that lexically contains this one (e.g. the class containing a method). Null for top-level entities.
    */
   parentEntityId?: string | null;
+  /**
+   * Identifiers of entities lexically contained within this one (e.g. methods within a class). Empty for leaf entities.
+   */
+  childEntityIds: string[];
+  /**
+   * Depth in the containment hierarchy. 0 = top-level (file/module), 1 = direct child, etc.
+   */
+  entityDepth: number;
+  /**
+   * Position in the containment hierarchy: 'root' = top-level entity, 'container' = has children, 'member' = leaf child.
+   */
+  hierarchyKind: 'root' | 'container' | 'member';
   classification: Classification;
   /**
    * Tokens extracted by splitting the entity name on camelCase / snake_case boundaries (e.g. 'calculateTotalPrice' → ['calculate', 'total', 'price']). Used for semantic cohesion analysis.

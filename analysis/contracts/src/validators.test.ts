@@ -38,6 +38,9 @@ function makeEntity(overrides?: Partial<Entity>): Entity {
       isExported: false,
       visibility: null,
     },
+    childEntityIds: [],
+    entityDepth: 0,
+    hierarchyKind: 'root',
     ...overrides,
   };
 }
@@ -48,6 +51,8 @@ function makeRelationship(overrides?: Partial<Relationship>): Relationship {
     targetEntityId: 'file:src/utils.ts',
     kind: 'import',
     sourceRange: makeSourceRange(),
+    sourceFilePath: 'src/index.ts',
+    resolutionKind: 'resolved',
     targetClassification: 'unknown',
     targetIsAbstraction: false,
     crossModule: false,
@@ -72,6 +77,7 @@ function makeCollectedData(overrides?: Partial<CollectedCodeData>): CollectedCod
     entities: [makeEntity()],
     relationships: [makeRelationship()],
     moduleBoundaries: [],
+    fileInventory: [],
     provenance: {
       collectionDuration: 100,
       toolRuns: [],

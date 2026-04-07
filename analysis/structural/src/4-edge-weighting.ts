@@ -5,11 +5,17 @@
  * a numeric weight to each edge based on:
  *
  *   - Import type: type-only = 0.2, value (runtime) = 1.0
- *   - Target role: importing a contract is lighter (×0.5)
- *   - Source role: test files importing things is expected (×0.1)
+ *   - Relationship kind: extend (×2.5) > override (×2.0) > call (×1.2) > implement (×0.6)
+ *   - Source/target file category: test/config files dampened
+ *   - Source→target role pair matrix: classification-aware coupling
+ *   - Target abstraction: interfaces/type-aliases dampened
+ *   - Target entity kind: fine-grained kind-level multiplier
+ *   - Folder distance: further apart = stronger signal
+ *   - Cross-package: public API boundary dampened heavily
  *
  * The weights are the "vectors" that feed into clustering — higher
- * weight means stronger coupling signal.
+ * weight means stronger coupling signal. All factors are traced
+ * in `weightReason` for explainability.
  */
 
 import type { RawDependencyEdge, WeightedEdge, FileInfo } from './types.js';
@@ -29,6 +35,61 @@ const CROSS_PACKAGE_MULTIPLIER = 0.15;
 
 /** Folder distance multipliers: the further apart, the stronger the coupling signal. */
 const DISTANCE_MULTIPLIERS: readonly number[] = [1.0, 1.0, 1.1, 1.3, 1.5];
+type RoleKey = NonNullable<FileInfo['contentRole']> | 'unknown';
+
+const ROLE_PAIR_MULTIPLIERS: Partial<Record<`${RoleKey}->${RoleKey}`, number>> = {
+  // Logic dependencies usually indicate meaningful implementation coupling.
+  'logic->logic': 1.15,
+  'logic->contract': 0.65,
+  'logic->infrastructure': 0.7,
+  'logic->presentation': 0.9,
+  // Contract and utility/infrastructure dependencies are common shared surfaces.
+  'contract->contract': 0.45,
+  'contract->logic': 0.75,
+  'contract->infrastructure': 0.6,
+  'infrastructure->logic': 0.8,
+  'infrastructure->infrastructure': 0.55,
+  'infrastructure->contract': 0.55,
+  // Presentation/UI often fans out broadly; dampen cross-cutting noise.
+  'presentation->presentation': 0.8,
+  'presentation->logic': 0.95,
+  'presentation->infrastructure': 0.7,
+  'presentation->contract': 0.75,
+  // Entry and barrel files are orchestration/proxy surfaces.
+  'entry_point->logic': 0.9,
+  'entry_point->contract': 0.75,
+  'barrel->logic': 0.65,
+  'barrel->contract': 0.55,
+};
+
+const ENTITY_KIND_MULTIPLIERS: Partial<Record<string, number>> = {
+  interface: 0.6,
+  'type-alias': 0.6,
+  enum: 0.75,
+  class: 1.1,
+  function: 1.05,
+  method: 1.05,
+};
+
+/**
+ * Relationship kind multipliers — the semantic nature of the dependency
+ * determines coupling strength. Inheritance (extend) is the strongest:
+ * the child inherits implementation internals. Contract-only references
+ * (implement, type references) are much lighter.
+ *
+ * These compose with isTypeOnly: e.g. interface-extends-interface gets
+ * ×2.5 (extend) × 0.2 (type-only) = 0.5 — light type derivation.
+ */
+const RELATIONSHIP_KIND_MULTIPLIERS: Partial<Record<string, number>> = {
+  extend: 2.5,
+  override: 2.0,
+  call: 1.2,
+  use: 1.0,
+  import: 0.8,
+  reference: 0.7,
+  implement: 0.6,
+  're-export': 0.3,
+};
 
 export const WEIGHTS = {
   TYPE_IMPORT_WEIGHT,
@@ -73,6 +134,14 @@ function isCrossPackage(pathA: string, pathB: string): boolean {
   return !!(rootA && rootB && rootA !== rootB);
 }
 
+function normalizeRole(role?: FileInfo['contentRole']): RoleKey {
+  return role ?? 'unknown';
+}
+
+function rolePairMultiplier(sourceRole: RoleKey, targetRole: RoleKey): number {
+  return ROLE_PAIR_MULTIPLIERS[`${sourceRole}->${targetRole}`] ?? 1.0;
+}
+
 // ── Edge weighting ──────────────────────────────────────────────────────
 
 /**
@@ -84,6 +153,8 @@ export function weightEdge(
 ): WeightedEdge {
   const target = fileInfoMap.get(edge.targetFileId);
   const source = fileInfoMap.get(edge.sourceFileId);
+  const sourceRole = normalizeRole(source?.contentRole);
+  const targetRole = normalizeRole(target?.contentRole);
 
   let weight = edge.isTypeOnly ? TYPE_IMPORT_WEIGHT : VALUE_IMPORT_WEIGHT;
   const reasons: string[] = [];
@@ -94,14 +165,16 @@ export function weightEdge(
     reasons.push('value import (1.0)');
   }
 
-  if (target?.contentRole === 'contract') {
-    weight *= 0.5;
-    reasons.push('target is contract (×0.5)');
+  // Relationship kind weighting — inheritance > call > use > reference > contract
+  if (edge.relationshipKind) {
+    const relMult = RELATIONSHIP_KIND_MULTIPLIERS[edge.relationshipKind];
+    if (relMult != null && relMult !== 1.0) {
+      weight *= relMult;
+      reasons.push(`relationship kind ${edge.relationshipKind} (×${relMult})`);
+    }
   }
-  if (target?.contentRole === 'infrastructure') {
-    weight *= 0.6;
-    reasons.push('target is infrastructure (×0.6)');
-  }
+
+  // File category dampening (test/config files are expected to have broad imports)
   if (source?.category === 'test') {
     weight *= 0.1;
     reasons.push('source is test file (×0.1)');
@@ -113,6 +186,28 @@ export function weightEdge(
   if (source?.category === 'config') {
     weight *= 0.2;
     reasons.push('source is config file (×0.2)');
+  }
+
+  // Classification-aware role-pair weighting (replaces old per-role dampening)
+  const roleMult = rolePairMultiplier(sourceRole, targetRole);
+  if (roleMult !== 1.0) {
+    weight *= roleMult;
+    reasons.push(`role pair ${sourceRole}->${targetRole} (×${roleMult})`);
+  }
+
+  // Abstraction targets (interfaces/type-aliases) get dampened
+  if (edge.targetIsAbstraction) {
+    weight *= 0.75;
+    reasons.push('target is abstraction (×0.75)');
+  }
+
+  // Fine-grained entity-kind multiplier on target
+  if (edge.targetEntityKind) {
+    const kindMult = ENTITY_KIND_MULTIPLIERS[edge.targetEntityKind];
+    if (kindMult != null && kindMult !== 1.0) {
+      weight *= kindMult;
+      reasons.push(`target kind ${edge.targetEntityKind} (×${kindMult})`);
+    }
   }
 
   // Folder distance: imports crossing many directory levels weigh more

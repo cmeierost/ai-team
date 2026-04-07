@@ -7,7 +7,7 @@
   "properties": {
     "id": {
       "type": "string",
-      "description": "Stable deterministic identifier for this entity, derived from its kind, file path, and qualified name."
+      "description": "Stable deterministic identifier for this entity, derived from canonical structural identity (file path, kind, qualified path, signature shape when applicable, and source range)."
     },
     "kind": {
       "type": "string",
@@ -39,12 +39,32 @@
       "$ref": "source-range.schema.json",
       "description": "Source location spanning the full extent of this entity."
     },
+    "role": {
+      "type": "string",
+      "enum": ["logic", "contract", "presentation", "infrastructure", "entry_point", "barrel", "unknown"],
+      "description": "Structural role of this entity in the codebase. Assigned by the adapter or derived from classification signals during analysis. Used for classification-aware coupling and clustering."
+    },
     "parentEntityId": {
       "description": "Identifier of the entity that lexically contains this one (e.g. the class containing a method). Null for top-level entities.",
       "oneOf": [
         { "type": "string" },
         { "type": "null" }
       ]
+    },
+    "childEntityIds": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Identifiers of entities lexically contained within this one (e.g. methods within a class). Empty for leaf entities."
+    },
+    "entityDepth": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Depth in the containment hierarchy. 0 = top-level (file/module), 1 = direct child, etc."
+    },
+    "hierarchyKind": {
+      "type": "string",
+      "enum": ["root", "container", "member"],
+      "description": "Position in the containment hierarchy: 'root' = top-level entity, 'container' = has children, 'member' = leaf child."
     },
     "classification": {
       "$ref": "#/definitions/Classification",
@@ -74,7 +94,7 @@
       ]
     }
   },
-  "required": ["id", "kind", "name", "filePath", "sourceRange", "classification"],
+  "required": ["id", "kind", "name", "filePath", "sourceRange", "classification", "childEntityIds", "entityDepth", "hierarchyKind"],
   "additionalProperties": false,
   "definitions": {
     "Classification": {

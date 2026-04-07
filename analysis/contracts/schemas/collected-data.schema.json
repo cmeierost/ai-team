@@ -46,6 +46,11 @@
       "items": { "$ref": "common/module-boundary.schema.json" },
       "description": "Module boundary definitions for architectural analysis."
     },
+    "fileInventory": {
+      "type": "array",
+      "items": { "$ref": "common/file-inventory.schema.json" },
+      "description": "Inventory of all files in the analysed scope, including non-code files. Every file gets an entry with category and size metadata."
+    },
     "duplicationSignals": {
       "type": "array",
       "items": { "$ref": "signals/duplication.schema.json" },
@@ -66,6 +71,6 @@
       "description": "Metadata about the collection process (timing, tool runs, warnings)."
     }
   },
-  "required": ["schemaVersion", "collectedAt", "collector", "entities", "relationships", "moduleBoundaries", "provenance"],
+  "required": ["schemaVersion", "collectedAt", "collector", "entities", "relationships", "moduleBoundaries", "fileInventory", "provenance"],
   "additionalProperties": false
 }

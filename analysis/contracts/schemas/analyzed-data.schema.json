@@ -8,6 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "complexity": { "$ref": "#/definitions/ComplexityResults" },
+    "maintainability": { "$ref": "#/definitions/MaintainabilityResults" },
     "coupling": { "$ref": "#/definitions/CouplingSection" },
     "graph": { "$ref": "#/definitions/GraphMetricsResult" },
     "cohesion": {
@@ -614,6 +615,63 @@
           "type": "array",
           "items": { "type": "string" }
         }
+      }
+    },
+
+    "MaintainabilityResults": {
+      "type": "object",
+      "description": "Maintainability Index (MI) results at entity, file, and aggregate levels. Uses the VS-style formula: MI = MAX(0, (171 - 5.2·ln(HV) - 0.23·CC - 16.2·ln(LOC)) × 100 / 171). Thresholds: 0-9 = red (low), 10-19 = yellow (moderate), 20-100 = green (good).",
+      "required": ["entities", "fileSummaries"],
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/MaintainabilityResult" },
+          "description": "Per-entity MI scores for function-like entities."
+        },
+        "fileSummaries": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/FileMaintainabilitySummary" },
+          "description": "Per-file MI aggregates."
+        }
+      }
+    },
+
+    "MaintainabilityResult": {
+      "type": "object",
+      "required": ["entityId", "maintainabilityIndex", "riskBand", "halsteadVolume", "cyclomaticComplexity", "linesOfCode"],
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": "string" },
+        "maintainabilityIndex": { "type": "number", "description": "0-100 MI score." },
+        "riskBand": {
+          "type": "string",
+          "enum": ["green", "yellow", "red"],
+          "description": "green (20-100), yellow (10-19), red (0-9)."
+        },
+        "halsteadVolume": { "type": "number", "description": "Halstead Volume (HV) used in the MI formula." },
+        "cyclomaticComplexity": { "type": "number", "description": "Cyclomatic Complexity (CC) used in the MI formula." },
+        "linesOfCode": { "type": "number", "description": "Lines of Code (LOC) used in the MI formula." }
+      }
+    },
+
+    "FileMaintainabilitySummary": {
+      "type": "object",
+      "required": ["filePath", "minMI", "avgMI", "riskBand", "entityCount", "redCount", "yellowCount", "greenCount"],
+      "additionalProperties": false,
+      "properties": {
+        "filePath": { "type": "string" },
+        "minMI": { "type": "number", "description": "Minimum MI across entities in the file." },
+        "avgMI": { "type": "number", "description": "Average MI across entities in the file." },
+        "riskBand": {
+          "type": "string",
+          "enum": ["green", "yellow", "red"],
+          "description": "Overall risk band based on minMI."
+        },
+        "entityCount": { "type": "number", "description": "Number of entities with MI scores." },
+        "redCount": { "type": "number", "description": "Entities in red band (0-9)." },
+        "yellowCount": { "type": "number", "description": "Entities in yellow band (10-19)." },
+        "greenCount": { "type": "number", "description": "Entities in green band (20-100)." }
       }
     },
 

@@ -16,6 +16,7 @@ import type {
   CoverageSignal as ContractCoverageSignal,
   LintSignal as ContractLintSignal,
   SourceRange,
+  FileInventoryEntry,
 } from '@aspect/contracts';
 
 import { runAstVisitor } from './adapters/ast-visitor.js';
@@ -202,6 +203,10 @@ export async function discoverAllFiles(
           name: entry.name,
           filePath: relPath,
           sourceRange,
+          parentEntityId: null,
+          childEntityIds: [],
+          entityDepth: 0,
+          hierarchyKind: 'root' as const,
           classification: { ...defaultClassification },
           nameTokens: [basename(entry.name, ext)],
         });
@@ -371,6 +376,9 @@ function adaptDepCruiserEntity(e: {
     sourceRange: e.sourceRange ?? UNKNOWN_RANGE,
     classification: e.classification,
     parentEntityId: e.parentEntityId,
+    childEntityIds: [],
+    entityDepth: 0,
+    hierarchyKind: 'root' as const,
     nameTokens: e.nameTokens,
   };
 }
@@ -398,7 +406,11 @@ function adaptDepCruiserRelationship(r: {
     sourceEntityId: r.sourceEntityId,
     targetEntityId: r.targetEntityId,
     kind: r.kind as Relationship['kind'],
+    sourceFilePath: r.sourceEntityId.replace(/^file:/, ''),
+    targetFilePath: null,
     sourceRange: r.sourceRange ?? UNKNOWN_RANGE,
+    targetRange: null,
+    resolutionKind: 'proxy' as const,
     targetClassification:
       r.targetClassification as Relationship['targetClassification'],
     targetIsAbstraction: r.targetIsAbstraction,
@@ -679,14 +691,14 @@ export async function collect(
   relationships = relationships
     .map((r) => {
       const src = jsRemapTable.get(r.sourceEntityId) ?? r.sourceEntityId;
-      const tgt = jsRemapTable.get(r.targetEntityId) ?? r.targetEntityId;
+      const tgt = r.targetEntityId == null ? null : (jsRemapTable.get(r.targetEntityId) ?? r.targetEntityId);
       if (src === r.sourceEntityId && tgt === r.targetEntityId) return r;
       return { ...r, sourceEntityId: src, targetEntityId: tgt };
     })
     .filter(
       (r) =>
         allowedEntityIds.has(r.sourceEntityId) &&
-        allowedEntityIds.has(r.targetEntityId),
+        (r.targetEntityId == null || allowedEntityIds.has(r.targetEntityId)),
     );
 
   if (preFilterCount !== entities.length) {
@@ -764,7 +776,34 @@ export async function collect(
     moduleBoundaries = [];
   }
 
-  // Phase 4 — Assemble CollectedCodeData
+  // Phase 4 — Build file inventory from file entities
+  const fileInventory: FileInventoryEntry[] = entities
+    .filter((e) => e.kind === 'file')
+    .map((e) => {
+      const absPath = join(options.rootDir, e.filePath);
+      let fileSizeBytes = 0;
+      try { fileSizeBytes = statSync(absPath).size; } catch { /* missing file */ }
+      const ext = extname(e.filePath).toLowerCase();
+      const isCode = ['.ts', '.tsx', '.js', '.jsx', '.css'].includes(ext);
+      const isTest = e.filePath.includes('.test.') || e.filePath.includes('.spec.') || e.filePath.includes('__tests__');
+      const isConfig = ['.json', '.yaml', '.yml', '.toml', '.env'].includes(ext) || basename(e.filePath).startsWith('.');
+      const isStyle = ['.css', '.scss', '.less'].includes(ext);
+      const isDoc = ['.md', '.txt', '.rst'].includes(ext);
+      const fileCategory: FileInventoryEntry['fileCategory'] =
+        isTest ? 'test' : isStyle ? 'style' : isDoc ? 'docs' : isConfig ? 'config' : isCode ? 'source_code' : 'other';
+      return {
+        filePath: e.filePath,
+        fileCategory,
+        isAnalyzedLanguage: isCode && !isStyle,
+        fileSizeBytes,
+        totalLines: e.sourceRange?.endLine ?? null,
+        blankLines: null,
+        commentLines: null,
+        importExportOnlyLines: null,
+      };
+    });
+
+  // Phase 5 — Assemble CollectedCodeData
   const totalMs = performance.now() - start;
 
   const data: CollectedCodeData = {
@@ -779,6 +818,7 @@ export async function collect(
     entities,
     relationships,
     moduleBoundaries,
+    fileInventory,
     ...(duplicationSignals && duplicationSignals.length > 0
       ? { duplicationSignals }
       : {}),

@@ -19,6 +19,7 @@ const SCHEMAS: SchemaEntry[] = [
   { schemaPath: 'common/entity.schema.json', outputName: 'entity' },
   { schemaPath: 'common/relationship.schema.json', outputName: 'relationship' },
   { schemaPath: 'common/module-boundary.schema.json', outputName: 'module-boundary' },
+  { schemaPath: 'common/file-inventory.schema.json', outputName: 'file-inventory' },
   { schemaPath: 'common/provenance.schema.json', outputName: 'provenance' },
   { schemaPath: 'signals/duplication.schema.json', outputName: 'duplication' },
   { schemaPath: 'signals/coverage.schema.json', outputName: 'coverage' },

@@ -56,7 +56,7 @@ export function analyseExports(
   for (const rel of relationships) {
     if (!IMPORT_KINDS.has(rel.kind)) continue;
     const sourceFile = entityToFile.get(rel.sourceEntityId);
-    const targetFile = entityToFile.get(rel.targetEntityId);
+    const targetFile = rel.targetEntityId ? entityToFile.get(rel.targetEntityId) : undefined;
     if (!sourceFile || !targetFile || sourceFile === targetFile) continue;
 
     let consumers = consumersByFile.get(targetFile);

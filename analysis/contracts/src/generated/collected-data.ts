@@ -47,6 +47,10 @@ export interface CollectedCodeData {
    */
   moduleBoundaries: ModuleBoundary[];
   /**
+   * Inventory of all files in the analysed scope, including non-code files. Every file gets an entry with category and size metadata.
+   */
+  fileInventory: FileInventoryEntry[];
+  /**
    * Duplication detection results. Each entry comes from one tool run.
    */
   duplicationSignals?: DuplicationSignal[];
@@ -65,7 +69,7 @@ export interface CollectedCodeData {
  */
 export interface Entity {
   /**
-   * Stable deterministic identifier for this entity, derived from its kind, file path, and qualified name.
+   * Stable deterministic identifier for this entity, derived from canonical structural identity (file path, kind, qualified path, signature shape when applicable, and source range).
    */
   id: string;
   /**
@@ -94,9 +98,25 @@ export interface Entity {
   filePath: string;
   sourceRange: SourceRange;
   /**
+   * Structural role of this entity in the codebase. Assigned by the adapter or derived from classification signals during analysis. Used for classification-aware coupling and clustering.
+   */
+  role?: 'logic' | 'contract' | 'presentation' | 'infrastructure' | 'entry_point' | 'barrel' | 'unknown';
+  /**
    * Identifier of the entity that lexically contains this one (e.g. the class containing a method). Null for top-level entities.
    */
   parentEntityId?: string | null;
+  /**
+   * Identifiers of entities lexically contained within this one (e.g. methods within a class). Empty for leaf entities.
+   */
+  childEntityIds: string[];
+  /**
+   * Depth in the containment hierarchy. 0 = top-level (file/module), 1 = direct child, etc.
+   */
+  entityDepth: number;
+  /**
+   * Position in the containment hierarchy: 'root' = top-level entity, 'container' = has children, 'member' = leaf child.
+   */
+  hierarchyKind: 'root' | 'container' | 'member';
   classification: Classification;
   /**
    * Tokens extracted by splitting the entity name on camelCase / snake_case boundaries (e.g. 'calculateTotalPrice' → ['calculate', 'total', 'price']). Used for semantic cohesion analysis.
@@ -309,14 +329,30 @@ export interface Relationship {
    */
   sourceEntityId: string;
   /**
-   * Identifier of the entity that this relationship points to.
+   * Identifier of the entity that this relationship points to. Null when the target cannot be resolved (external or unresolved dependency).
    */
-  targetEntityId: string;
+  targetEntityId: string | null;
   /**
    * The semantic kind of relationship between the two entities.
    */
   kind: 'import' | 'use' | 'call' | 'contain' | 'extend' | 'implement' | 'reference' | 'override' | 're-export';
+  /**
+   * Repository-relative path of the file containing the source entity. Denormalized for efficient lookup without entity join.
+   */
+  sourceFilePath: string;
+  /**
+   * Repository-relative path of the file containing the target entity. Null when unresolved.
+   */
+  targetFilePath?: string | null;
   sourceRange: SourceRange1;
+  /**
+   * Source location of the target symbol definition. Null when the target is unresolved or external.
+   */
+  targetRange?: SourceRange2 | null;
+  /**
+   * How the target was resolved: 'resolved' = fully matched to a known entity, 'proxy' = matched to a file/module but not a specific entity, 'unresolved' = target could not be found.
+   */
+  resolutionKind: 'resolved' | 'proxy' | 'unresolved';
   /**
    * Semantic classification of the target entity, used for Dependency Inversion Principle analysis.
    */
@@ -376,6 +412,27 @@ export interface SourceRange1 {
   endColumn: number;
 }
 /**
+ * A contiguous range of source code identified by start and end positions. Used to pinpoint where an entity or relationship originates in the source file.
+ */
+export interface SourceRange2 {
+  /**
+   * 1-based line number where the range begins.
+   */
+  startLine: number;
+  /**
+   * 0-based column offset where the range begins.
+   */
+  startColumn: number;
+  /**
+   * 1-based line number where the range ends.
+   */
+  endLine: number;
+  /**
+   * 0-based column offset where the range ends.
+   */
+  endColumn: number;
+}
+/**
  * Describes a logical module boundary for architectural analysis. Modules group files and can represent packages, layers, or other organisational units.
  */
 export interface ModuleBoundary {
@@ -404,13 +461,28 @@ export interface ModuleBoundary {
    */
   kind: 'package' | 'directory' | 'facade' | 'namespace' | 'manual';
   /**
-   * Entry points declared in this module's package.json (bin, main, exports).
-   * Only present for package-kind boundaries.
+   * Entry points declared in this module's package.json (bin, main, exports). Only present for package-kind boundaries.
    */
-  entryPoints?: ModuleBoundaryEntryPoint[];
+  entryPoints?: {
+    /**
+     * Source file path (relative to repo root) resolved from the manifest entry.
+     */
+    file: string;
+    /**
+     * How this entry point was declared.
+     */
+    kind: 'bin' | 'main' | 'exports' | 'browser';
+    /**
+     * Optional entry point name (e.g. the bin command name or exports subpath).
+     */
+    name?: string;
+    /**
+     * True if this entry point belongs to an app package (CLI, server, extension, web app) rather than a library.
+     */
+    isAppEntry?: boolean;
+  }[];
   /**
-   * True when package.json signals this is a runnable application (has bin,
-   * scripts.start, engines.vscode, or a bundler without library exports).
+   * True if this package is an application (has bin, start script, vscode engine, or is a pure frontend build). False for libraries. Only set for package-kind boundaries.
    */
   isApp?: boolean;
   /**
@@ -418,17 +490,42 @@ export interface ModuleBoundary {
    */
   appKind?: 'cli' | 'server' | 'extension' | 'web-app';
 }
-
-/** An entry point declared in a package manifest. */
-export interface ModuleBoundaryEntryPoint {
-  /** Source file path (relative to repo root) resolved from the manifest entry. */
-  file: string;
-  /** How this entry point was declared. */
-  kind: 'bin' | 'main' | 'exports' | 'browser';
-  /** True when this entry point is an app root (not a library export). */
-  isAppEntry: boolean;
-  /** Optional entry point name (e.g. the bin command name or exports subpath). */
-  name?: string;
+/**
+ * Metadata for a single file in the repository. Every file gets an inventory entry regardless of whether it contains analysable code. Non-code files (config, assets, docs) carry category and size but no line-level metrics.
+ */
+export interface FileInventoryEntry {
+  /**
+   * Repository-relative path to the file.
+   */
+  filePath: string;
+  /**
+   * High-level file category. Adapters map language-specific extensions and paths into these canonical categories.
+   */
+  fileCategory: 'source_code' | 'style' | 'config' | 'asset' | 'docs' | 'test' | 'generated' | 'other';
+  /**
+   * True if this file is in a language the current adapter can extract entities from (e.g. TS/TSX/CSS for the TypeScript adapter).
+   */
+  isAnalyzedLanguage: boolean;
+  /**
+   * File size in bytes on disk.
+   */
+  fileSizeBytes: number;
+  /**
+   * Total number of lines in the file. Null for binary or non-text files.
+   */
+  totalLines?: number | null;
+  /**
+   * Number of blank (whitespace-only) lines. Null for non-text files.
+   */
+  blankLines?: number | null;
+  /**
+   * Number of lines that are comments or documentation. Null for non-text files or when the adapter cannot identify comments.
+   */
+  commentLines?: number | null;
+  /**
+   * Number of lines that contain only import/re-export/export-forwarding statements. Null for non-code files.
+   */
+  importExportOnlyLines?: number | null;
 }
 /**
  * Duplication signals from clone-detection tools such as jscpd. Represents a single collection run with detected code clones and summary statistics.

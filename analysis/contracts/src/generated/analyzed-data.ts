@@ -6,6 +6,7 @@
  */
 export interface AnalyzedCodeData {
   complexity?: ComplexityResults;
+  maintainability?: MaintainabilityResults;
   coupling?: CouplingSection;
   graph?: GraphMetricsResult;
   /**
@@ -57,6 +58,73 @@ export interface FileComplexitySummary {
   avgCognitive: number;
   totalCognitive: number;
   functionCount: number;
+}
+/**
+ * Maintainability Index (MI) results at entity, file, and aggregate levels. Uses the VS-style formula: MI = MAX(0, (171 - 5.2·ln(HV) - 0.23·CC - 16.2·ln(LOC)) × 100 / 171). Thresholds: 0-9 = red (low), 10-19 = yellow (moderate), 20-100 = green (good).
+ */
+export interface MaintainabilityResults {
+  /**
+   * Per-entity MI scores for function-like entities.
+   */
+  entities: MaintainabilityResult[];
+  /**
+   * Per-file MI aggregates.
+   */
+  fileSummaries: FileMaintainabilitySummary[];
+}
+export interface MaintainabilityResult {
+  entityId: string;
+  /**
+   * 0-100 MI score.
+   */
+  maintainabilityIndex: number;
+  /**
+   * green (20-100), yellow (10-19), red (0-9).
+   */
+  riskBand: 'green' | 'yellow' | 'red';
+  /**
+   * Halstead Volume (HV) used in the MI formula.
+   */
+  halsteadVolume: number;
+  /**
+   * Cyclomatic Complexity (CC) used in the MI formula.
+   */
+  cyclomaticComplexity: number;
+  /**
+   * Lines of Code (LOC) used in the MI formula.
+   */
+  linesOfCode: number;
+}
+export interface FileMaintainabilitySummary {
+  filePath: string;
+  /**
+   * Minimum MI across entities in the file.
+   */
+  minMI: number;
+  /**
+   * Average MI across entities in the file.
+   */
+  avgMI: number;
+  /**
+   * Overall risk band based on minMI.
+   */
+  riskBand: 'green' | 'yellow' | 'red';
+  /**
+   * Number of entities with MI scores.
+   */
+  entityCount: number;
+  /**
+   * Entities in red band (0-9).
+   */
+  redCount: number;
+  /**
+   * Entities in yellow band (10-19).
+   */
+  yellowCount: number;
+  /**
+   * Entities in green band (20-100).
+   */
+  greenCount: number;
 }
 /**
  * Per-entity coupling metrics, module dependency matrix, and module cohesion.

@@ -76,6 +76,35 @@ export interface ComplexityResults {
   fileSummaries: FileComplexitySummary[];
 }
 
+// ── Maintainability Index types ──
+
+export type MIRiskBand = 'green' | 'yellow' | 'red';
+
+export interface MaintainabilityResult {
+  entityId: string;
+  maintainabilityIndex: number;
+  riskBand: MIRiskBand;
+  halsteadVolume: number;
+  cyclomaticComplexity: number;
+  linesOfCode: number;
+}
+
+export interface FileMaintainabilitySummary {
+  filePath: string;
+  minMI: number;
+  avgMI: number;
+  riskBand: MIRiskBand;
+  entityCount: number;
+  redCount: number;
+  yellowCount: number;
+  greenCount: number;
+}
+
+export interface MaintainabilityResults {
+  entities: MaintainabilityResult[];
+  fileSummaries: FileMaintainabilitySummary[];
+}
+
 // ── Kinds treated as "function-like" for file summaries ──
 
 const FUNCTION_KINDS = new Set([
@@ -195,9 +224,92 @@ export function summarizeFileComplexity(
   return summaries;
 }
 
+// ── Maintainability Index ──
+// VS-style formula: MI = MAX(0, (171 - 5.2·ln(HV) - 0.23·CC - 16.2·ln(LOC)) × 100/171)
+// Thresholds: 0-9 = red, 10-19 = yellow, 20-100 = green
+
+export function calculateMaintainabilityIndex(
+  halsteadVolume: number,
+  cyclomaticComplexity: number,
+  linesOfCode: number,
+): number {
+  const hv = Math.max(halsteadVolume, 1);
+  const loc = Math.max(linesOfCode, 1);
+  const raw = 171 - 5.2 * Math.log(hv) - 0.23 * cyclomaticComplexity - 16.2 * Math.log(loc);
+  return Math.max(0, (raw * 100) / 171);
+}
+
+export function miRiskBand(mi: number): MIRiskBand {
+  if (mi < 10) return 'red';
+  if (mi < 20) return 'yellow';
+  return 'green';
+}
+
+export function calculateMaintainability(
+  entities: Entity[],
+  cyclomaticResults: CyclomaticResult[],
+  halsteadResults: HalsteadResult[],
+): MaintainabilityResults {
+  const ccMap = new Map<string, number>();
+  for (const r of cyclomaticResults) ccMap.set(r.entityId, r.cyclomaticComplexity);
+
+  const hvMap = new Map<string, number>();
+  for (const r of halsteadResults) hvMap.set(r.entityId, r.halstead.volume);
+
+  const miResults: MaintainabilityResult[] = [];
+
+  for (const e of entities) {
+    if (!FUNCTION_KINDS.has(e.kind)) continue;
+    const hv = hvMap.get(e.id);
+    const cc = ccMap.get(e.id);
+    const loc = e.rawCounts?.linesOfCode;
+    if (hv == null || cc == null || loc == null) continue;
+
+    const mi = calculateMaintainabilityIndex(hv, cc, loc);
+    miResults.push({
+      entityId: e.id,
+      maintainabilityIndex: Math.round(mi * 100) / 100,
+      riskBand: miRiskBand(mi),
+      halsteadVolume: Math.round(hv * 100) / 100,
+      cyclomaticComplexity: cc,
+      linesOfCode: loc,
+    });
+  }
+
+  // File-level aggregation
+  const byFile = new Map<string, MaintainabilityResult[]>();
+  const entityFileMap = new Map<string, string>();
+  for (const e of entities) entityFileMap.set(e.id, e.filePath);
+  for (const r of miResults) {
+    const fp = entityFileMap.get(r.entityId) ?? '';
+    const list = byFile.get(fp) ?? [];
+    list.push(r);
+    byFile.set(fp, list);
+  }
+
+  const fileSummaries: FileMaintainabilitySummary[] = [];
+  for (const [filePath, results] of byFile) {
+    const mis = results.map((r) => r.maintainabilityIndex);
+    const minMI = Math.min(...mis);
+    const avgMI = mis.reduce((a, b) => a + b, 0) / mis.length;
+    fileSummaries.push({
+      filePath,
+      minMI: Math.round(minMI * 100) / 100,
+      avgMI: Math.round(avgMI * 100) / 100,
+      riskBand: miRiskBand(minMI),
+      entityCount: results.length,
+      redCount: results.filter((r) => r.riskBand === 'red').length,
+      yellowCount: results.filter((r) => r.riskBand === 'yellow').length,
+      greenCount: results.filter((r) => r.riskBand === 'green').length,
+    });
+  }
+
+  return { entities: miResults, fileSummaries };
+}
+
 // ── Main entry point ──
 
-export function calculateComplexity(entities: Entity[]): ComplexityResults {
+export function calculateComplexity(entities: Entity[]): ComplexityResults & { maintainability: MaintainabilityResults } {
   const cyclomatic: CyclomaticResult[] = [];
   const cognitive: CognitiveResult[] = [];
   const halstead: HalsteadResult[] = [];
@@ -247,6 +359,7 @@ export function calculateComplexity(entities: Entity[]): ComplexityResults {
   }
 
   const fileSummaries = summarizeFileComplexity(entities, cyclomatic, cognitive);
+  const maintainability = calculateMaintainability(entities, cyclomatic, halstead);
 
-  return { cyclomatic, cognitive, halstead, fileSummaries };
+  return { cyclomatic, cognitive, halstead, fileSummaries, maintainability };
 }

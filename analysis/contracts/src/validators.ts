@@ -30,6 +30,7 @@ const entitySchema = loadSchema('common/entity.schema.json');
 const relationshipSchema = loadSchema('common/relationship.schema.json');
 const moduleBoundarySchema = loadSchema('common/module-boundary.schema.json');
 const provenanceSchema = loadSchema('common/provenance.schema.json');
+const fileInventorySchema = loadSchema('common/file-inventory.schema.json');
 
 // Signal schemas
 const duplicationSchema = loadSchema('signals/duplication.schema.json');
@@ -59,6 +60,7 @@ ajv.addSchema(entitySchema);
 ajv.addSchema(relationshipSchema);
 ajv.addSchema(moduleBoundarySchema);
 ajv.addSchema(provenanceSchema);
+ajv.addSchema(fileInventorySchema);
 ajv.addSchema(duplicationSchema);
 ajv.addSchema(coverageSchema);
 ajv.addSchema(lintSchema);
