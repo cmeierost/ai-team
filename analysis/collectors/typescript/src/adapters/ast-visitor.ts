@@ -393,13 +393,12 @@ function collectEntities(
   if (ts.isVariableStatement(node)) {
     const isExported = hasModifier(node, ts.SyntaxKind.ExportKeyword);
     for (const decl of node.declarationList.declarations) {
-      if (
-        decl.initializer &&
-        (ts.isArrowFunction(decl.initializer) ||
-          ts.isFunctionExpression(decl.initializer)) &&
-        ts.isIdentifier(decl.name)
-      ) {
-        const name = decl.name.text;
+      if (!decl.initializer || !ts.isIdentifier(decl.name)) continue;
+      const name = decl.name.text;
+
+      // Direct arrow / function expression
+      const innerFn = unwrapToFunction(decl.initializer);
+      if (innerFn) {
         const id = `function:${filePath}:${name}`;
         const range = getSourceRange(decl, sourceFile);
 
@@ -422,7 +421,37 @@ function collectEntities(
             visibility: null,
           },
           nameTokens: tokenizeName(name),
-          rawCounts: buildFunctionRawCounts(decl.initializer, sourceFile),
+          rawCounts: buildFunctionRawCounts(decl, sourceFile),
+        });
+        continue;
+      }
+
+      // Standalone exported constant/variable (non-function value)
+      if (isExported) {
+        const id = `field:${filePath}:${name}`;
+        const range = getSourceRange(decl, sourceFile);
+        entities.push({
+          id,
+          kind: 'field',
+          name,
+          filePath,
+          sourceRange: range,
+          parentEntityId: parentId,
+          childEntityIds: [],
+          entityDepth: 1,
+          hierarchyKind: 'root',
+          classification: {
+            isAbstract: false,
+            isInterface: false,
+            isConcrete: true,
+            isTypeOnly: false,
+            isExported,
+            visibility: null,
+          },
+          nameTokens: tokenizeName(name),
+          rawCounts: {
+            linesOfCode: countLines(getSourceRange(decl, sourceFile)),
+          },
         });
       }
     }
@@ -1040,6 +1069,25 @@ function isFunctionOrInterfaceType(typeNode: ts.TypeNode): boolean {
     ts.isFunctionTypeNode(typeNode) ||
     ts.isTypeReferenceNode(typeNode) // might be an interface reference
   );
+}
+
+/**
+ * Unwrap HOC / wrapper call patterns to find the inner arrow or function expression.
+ * Handles: memo(() => ...), forwardRef((p,r) => ...), memo(forwardRef(...)), etc.
+ * Returns the inner function node or undefined if no function found.
+ */
+function unwrapToFunction(node: ts.Expression): ts.ArrowFunction | ts.FunctionExpression | undefined {
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return node;
+  if (ts.isCallExpression(node)) {
+    for (const arg of node.arguments) {
+      const inner = unwrapToFunction(arg);
+      if (inner) return inner;
+    }
+  }
+  if (ts.isParenthesizedExpression(node)) {
+    return unwrapToFunction(node.expression);
+  }
+  return undefined;
 }
 
 /**

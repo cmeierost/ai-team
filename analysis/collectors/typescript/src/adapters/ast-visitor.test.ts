@@ -553,6 +553,50 @@ export const multiply = function(a: number, b: number): number { return a * b; }
       expect(f.classification.isExported).toBe(true);
     }
   });
+
+  it('discovers wrapped/HOC function patterns (memo, forwardRef)', () => {
+    const code = `
+import { memo, forwardRef } from 'react';
+export const AgentNode = memo(({ data }: { data: any }) => {
+  return <div>{data.label}</div>;
+});
+export const Panel = forwardRef((props: any, ref: any) => {
+  return <div ref={ref}>{props.children}</div>;
+});
+export const Wrapped = memo(forwardRef((props: any, ref: any) => {
+  return <span ref={ref} />;
+}));
+`;
+    const sf = parseFixture(code, 'components.tsx');
+    const entities = visitSourceFile(sf, 'components.tsx');
+
+    const funcs = entities.filter((e) => e.kind === 'function');
+    expect(funcs.map((f) => f.name).sort()).toEqual(['AgentNode', 'Panel', 'Wrapped']);
+
+    for (const f of funcs) {
+      expect(f.classification.isExported).toBe(true);
+      expect(f.rawCounts?.linesOfCode).toBeGreaterThan(0);
+    }
+  });
+
+  it('discovers exported standalone constants as field entities', () => {
+    const code = `
+export const MAX_RETRIES = 3;
+export const DEFAULT_CONFIG = { timeout: 5000, retries: 3 };
+const internal = 'hidden';
+`;
+    const sf = parseFixture(code);
+    const entities = visitSourceFile(sf, 'constants.ts');
+
+    const fields = entities.filter((e) => e.kind === 'field');
+    expect(fields.map((f) => f.name).sort()).toEqual(['DEFAULT_CONFIG', 'MAX_RETRIES']);
+
+    for (const f of fields) {
+      expect(f.classification.isExported).toBe(true);
+    }
+    // Non-exported const should not appear as an entity
+    expect(entities.find((e) => e.name === 'internal')).toBeUndefined();
+  });
 });
 
 // ── 9. Enum detection ──────────────────────────────────────────────────────
