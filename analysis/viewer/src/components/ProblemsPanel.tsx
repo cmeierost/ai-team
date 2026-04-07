@@ -9,6 +9,7 @@ import type {
   StructuralPipelineResult,
   MisplacedFile,
   FileSplitCandidate,
+  SplitFileCandidate,
   ClusterQuality,
   TangledDirectory,
   StructuralWarning,
@@ -147,6 +148,11 @@ export function ProblemsPanel({
   }, [data, clusterFileIds, isScoped]);
 
   const splits = useMemo(() => {
+    const entitySplits = data.communities?.splitFileCandidates ?? [];
+    if (entitySplits.length > 0) {
+      return isScoped ? entitySplits.filter((s) => clusterFileIds!.has(s.fileId)) : entitySplits;
+    }
+    // Fallback to old alignment-based splits
     const all = data.alignment.splitCandidates ?? [];
     return isScoped ? all.filter((s) => clusterFileIds!.has(s.fileId)) : all;
   }, [data, clusterFileIds, isScoped]);
@@ -189,6 +195,14 @@ export function ProblemsPanel({
     });
   }, [data.alignment.clusterQuality, isScoped, clusterFileIds, communityById, clusterById]);
 
+  const communityLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of data.communities?.communities ?? []) {
+      map.set(c.id, c.label || c.id);
+    }
+    return map;
+  }, [data.communities?.communities]);
+
   const tabs: TabDef[] = [
     { key: 'misplaced', label: 'Misplaced', count: misplaced.length },
     { key: 'split', label: 'Split Candidates', count: splits.length },
@@ -226,7 +240,7 @@ export function ProblemsPanel({
           <MisplacedList items={misplaced} onSelect={onSelectFile} data={data} />
         )}
         {activeTab === 'split' && (
-          <SplitList items={splits} onSelect={onSelectFile} />
+          <SplitList items={splits} onSelect={onSelectFile} communityLabelMap={communityLabelMap} />
         )}
         {activeTab === 'mixed' && (
           <MixedList items={mixedClusters} data={data} onSelect={onSelectCluster} />
@@ -301,11 +315,53 @@ function MisplacedList({ items, onSelect, data }: { items: MisplacedFile[]; onSe
   );
 }
 
-function SplitList({ items, onSelect }: { items: FileSplitCandidate[]; onSelect: (id: string) => void }) {
+function SplitList({ items, onSelect, communityLabelMap }: {
+  items: (FileSplitCandidate | SplitFileCandidate)[];
+  onSelect: (id: string) => void;
+  communityLabelMap: Map<string, string>;
+}) {
   if (items.length === 0) return <EmptyMessage text="No split candidates detected" />;
+
+  // Detect shape: entity-level SplitFileCandidate has communityBreakdown
+  const isEntityLevel = items.length > 0 && 'communityBreakdown' in items[0];
+
   return (
     <>
+      <div style={{ fontSize: 11, color: '#888', padding: '4px 0 8px', lineHeight: 1.4 }}>
+        {isEntityLevel
+          ? 'Files whose entities belong to different communities — candidates for splitting.'
+          : 'Files referenced by multiple clusters — possible split points.'}
+      </div>
       {items.map((s) => {
+        if ('communityBreakdown' in s) {
+          const severity = s.communityCount >= 3 ? 'warning' : 'info';
+          return (
+            <div key={s.fileId} style={itemStyle(severity)} onClick={() => onSelect(s.fileId)}>
+              <div style={itemTitleStyle}>
+                {shortPath(s.filePath)}
+                <span style={kindBadge('#ff980020', '#ff9800')}>{s.communityCount} communities</span>
+              </div>
+              <div style={itemDetailStyle}>
+                {s.totalEntityLoc} LOC across {s.communityBreakdown.length} communities
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                {s.communityBreakdown.map((b) => (
+                  <span key={b.communityId} style={{
+                    fontSize: 10,
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    background: '#2d2d30',
+                    color: '#a0a0a0',
+                    border: '1px solid #3e3e42',
+                  }}>
+                    {communityLabelMap.get(b.communityId) ?? b.communityId}: {b.entityCount} entities, {b.entityLoc} LOC
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        // Old FileSplitCandidate shape
         const severity = s.splitConfidence > 0.5 ? 'warning' : 'info';
         return (
           <div key={s.fileId} style={itemStyle(severity)} onClick={() => onSelect(s.fileId)}>
