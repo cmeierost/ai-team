@@ -26,6 +26,7 @@ export { weightEdge, weightAllEdges, WEIGHTS } from './4-edge-weighting.js';
 export { analysePackageAlignment, matchCommunityGroupsToPackages, comparePackages } from './6-package-comparison.js';
 export { analyseFolderFocus, assessFolder } from './7-folder-comparison.js';
 export { computeCommunityGlobs } from './7-community-globs.js';
+export { compareContexts } from './10-context-comparison.js';
 export {
   analyseClusterQuality, findSplitCandidates,
   generateWarnings, analyseStructuralAlignment,
@@ -95,6 +96,10 @@ export type {
 export type {
   CommunityGlobFingerprint, CommunityGlobResult,
 } from './7-community-globs.js';
+export type {
+  FileContextInput, ContextComparisonResult, ContextComparisonEntry,
+  ContextCommunityCoverage, ContextGroupCoverage,
+} from './10-context-comparison.js';
 export type {
   FilesystemFitResult, DirectoryFitInfo, MisplacedFileInfo,
 } from './filesystem-fit.js';
