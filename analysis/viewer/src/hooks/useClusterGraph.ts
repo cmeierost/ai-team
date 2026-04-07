@@ -546,6 +546,49 @@ export function useClusterGraph(
     const scById = new Map<string, typeof communityGroups[number]>();
     for (const sc of communityGroups) scById.set(sc.id, sc);
 
+    // Build community → root community group mapping for group-level edge aggregation
+    const shouldRenderCommunityGroups = !!options?.showCommunityGroups || !!options?.focusedCommunityGroupId;
+    function findRootGroup(communityId: string): string | undefined {
+      let groupId = communityToImmediateParent.get(communityId);
+      if (!groupId) return undefined;
+      while (scToParent.has(groupId)) groupId = scToParent.get(groupId)!;
+      return groupId;
+    }
+
+    // When community groups are shown, aggregate crossGroupEdges to group level
+    const groupLevelEdgeMap = new Map<string, ClusterEdge>();
+    if (shouldRenderCommunityGroups && crossGroupEdges && crossGroupEdges.length > 0) {
+      for (const cge of crossGroupEdges) {
+        const srcRoot = findRootGroup(cge.sourceGroupId);
+        const tgtRoot = findRootGroup(cge.targetGroupId);
+        if (!srcRoot || !tgtRoot || srcRoot === tgtRoot) continue;
+
+        const key = srcRoot < tgtRoot
+          ? `${srcRoot}->${tgtRoot}`
+          : `${tgtRoot}->${srcRoot}`;
+        const isForward = srcRoot < tgtRoot;
+
+        let ce = groupLevelEdgeMap.get(key);
+        if (!ce) {
+          ce = {
+            sourceClusterId: srcRoot < tgtRoot ? srcRoot : tgtRoot,
+            targetClusterId: srcRoot < tgtRoot ? tgtRoot : srcRoot,
+            totalWeight: 0,
+            edgeCount: 0,
+            typeOnlyCount: 0,
+            reexportCount: 0,
+            forwardWeight: 0,
+            backwardWeight: 0,
+          };
+          groupLevelEdgeMap.set(key, ce);
+        }
+        ce.totalWeight += cge.weight;
+        ce.edgeCount += cge.edgeCount;
+        if (isForward) ce.forwardWeight += cge.weight;
+        else ce.backwardWeight += cge.weight;
+      }
+    }
+
     // Build position map for all groups (communities)
     const groupPositions = new Map<string, { x: number; y: number; w: number; h: number }>();
     // Also track CommunityGroup bounding boxes for overlap resolution between siblings
@@ -882,7 +925,6 @@ export function useClusterGraph(
     // Positions come from the hierarchical layout (scBounds map) rather than
     // post-hoc bounding-box computation, ensuring non-hierarchical CommunityGroups
     // never overlap.
-    const shouldRenderCommunityGroups = !!options?.showCommunityGroups || !!options?.focusedCommunityGroupId;
     if (shouldRenderCommunityGroups) for (const sc of communityGroups) {
       if (!activeCommunityGroups.has(sc.id)) continue;
       const communityIds = collectCommunityIdsFromCommunityGroup(sc);
@@ -1082,9 +1124,12 @@ export function useClusterGraph(
     }
 
     // --- Generate edges ---
+    // When community groups are shown, prefer group-level summarised edges;
+    // otherwise show community-to-community edges.
+    const edgesToRender = groupLevelEdgeMap.size > 0 ? groupLevelEdgeMap : groupEdgeMap;
     const resultEdges: Edge[] = [];
 
-    for (const ce of groupEdgeMap.values()) {
+    for (const ce of edgesToRender.values()) {
       const strokeWidth = clamp(ce.totalWeight, 1, 6);
       const typeOnlyRatio = ce.edgeCount > 0 ? ce.typeOnlyCount / ce.edgeCount : 0;
       const reexportRatio = ce.edgeCount > 0 ? ce.reexportCount / ce.edgeCount : 0;
