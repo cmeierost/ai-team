@@ -792,6 +792,7 @@ function buildSuperClusters(
     if (ra !== rb) parent.set(ra, rb);
   };
 
+  // Phase 1: package affinity — same package → same supercluster
   const byPkg = new Map<string, string[]>();
   for (const c of communities) {
     const pkg = c.dominantTechnology ?? packagePrefix(pathMap.get(c.memberFileIds[0] ?? '') ?? '');
@@ -803,6 +804,7 @@ function buildSuperClusters(
     for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
   }
 
+  // Phase 2: shared contracts — contract/infrastructure/barrel edges merge communities
   for (const edge of edges) {
     const src = fileToCommunity.get(edge.sourceFileId);
     const tgt = fileToCommunity.get(edge.targetFileId);
@@ -813,23 +815,51 @@ function buildSuperClusters(
     }
   }
 
-  // Also merge communities that share a dominant classification and have
-  // any cross-community edge (logic → logic coupling is still coupling).
+  // Phase 3: minimize critical cross-supercluster dependencies.
+  // Aggregate edge weights between each community pair, separating contract
+  // weight (cheap — shared contracts are OK) from critical weight (logic,
+  // presentation, etc. — these should live inside the same supercluster).
+  const pairWeight = new Map<string, { contract: number; critical: number }>();
   for (const edge of edges) {
     const src = fileToCommunity.get(edge.sourceFileId);
     const tgt = fileToCommunity.get(edge.targetFileId);
     if (!src || !tgt || src === tgt) continue;
     if (find(src) === find(tgt)) continue; // already in the same group
-    const srcComm = communityById.get(src);
-    const tgtComm = communityById.get(tgt);
-    if (!srcComm || !tgtComm) continue;
-    // If both communities share the same dominant role, merge them
-    if (srcComm.dominantRole && srcComm.dominantRole === tgtComm.dominantRole) {
-      union(src, tgt);
+
+    const key = src < tgt ? `${src}\0${tgt}` : `${tgt}\0${src}`;
+    let pw = pairWeight.get(key);
+    if (!pw) { pw = { contract: 0, critical: 0 }; pairWeight.set(key, pw); }
+
+    const tgtRole = roleMap.get(edge.targetFileId);
+    if (tgtRole === 'contract' || tgtRole === 'infrastructure' || tgtRole === 'barrel') {
+      pw.contract += edge.weight;
+    } else {
+      pw.critical += edge.weight;
     }
   }
 
-  // Build initial groups
+  // Sort by critical weight descending and merge pairs with significant
+  // non-contract coupling — these are the cross-boundary dependencies we
+  // want to eliminate.
+  const sortedPairs = [...pairWeight.entries()]
+    .filter(([, pw]) => pw.critical > 0)
+    .sort((a, b) => b[1].critical - a[1].critical);
+
+  for (const [key, pw] of sortedPairs) {
+    const [a, b] = key.split('\0');
+    if (find(a) === find(b)) continue; // already merged by a previous iteration
+    // Any non-trivial critical coupling should be absorbed — even a single
+    // logic edge means we'd rather have this inside one supercluster than
+    // create a critical cross-boundary dependency.
+    if (pw.critical > 0) {
+      union(a, b);
+    }
+  }
+
+  // Phase 4: absorb remaining singletons.
+  // After phases 1-3, singletons should be rare — only communities with
+  // zero coupling to any other community. But if they exist, absorb
+  // non-contract ones into the nearest group by total edge weight.
   let groups = new Map<string, string[]>();
   for (const c of communities) {
     const root = find(c.id);
@@ -838,8 +868,6 @@ function buildSuperClusters(
     groups.set(root, list);
   }
 
-  // Absorb orphan singletons into the nearest multi-member group.
-  // Only pure contract/infrastructure-only communities may remain standalone.
   const singletonIds = new Set<string>();
   const multiGroupRoots = new Set<string>();
   for (const [root, members] of groups) {
@@ -848,7 +876,7 @@ function buildSuperClusters(
   }
 
   if (singletonIds.size > 0 && multiGroupRoots.size > 0) {
-    // Compute cross-community edge weight from each singleton to each group
+    // Compute total edge weight from each singleton to each multi-member group
     const weightToGroup = new Map<string, Map<string, number>>();
     for (const sid of singletonIds) weightToGroup.set(sid, new Map());
 
@@ -857,7 +885,6 @@ function buildSuperClusters(
       const tgt = fileToCommunity.get(edge.targetFileId);
       if (!src || !tgt || src === tgt) continue;
 
-      // One side must be a singleton, the other in a multi-member group
       let singleton: string | undefined;
       let other: string | undefined;
       if (singletonIds.has(src) && !singletonIds.has(tgt)) {
@@ -874,34 +901,26 @@ function buildSuperClusters(
       wMap.set(otherRoot, (wMap.get(otherRoot) ?? 0) + edge.weight);
     }
 
-    for (const sid of singletonIds) {
+    for (const sid of [...singletonIds]) {
       const comm = communityById.get(sid);
-      const role = comm?.dominantRole;
-      // Pure contract-only communities may remain orphan
-      if (role === 'contract' || role === 'infrastructure') continue;
+      // Pure contract-only communities may stay standalone
+      if (comm?.dominantRole === 'contract' || comm?.dominantRole === 'infrastructure') continue;
 
       const wMap = weightToGroup.get(sid)!;
       if (wMap.size === 0) continue;
 
-      // Pick the group with the strongest coupling, with classification match bonus
+      // Pick the group with the strongest total coupling
       let bestRoot: string | undefined;
-      let bestScore = -1;
+      let bestWeight = 0;
       for (const [groupRoot, weight] of wMap) {
-        // Bonus for matching dominant role: look at the first community in the group
-        const groupMembers = groups.get(groupRoot) ?? [];
-        const groupRole = communityById.get(groupMembers[0])?.dominantRole;
-        const roleBonus = (groupRole && groupRole === role) ? 1.5 : 1.0;
-        const score = weight * roleBonus;
-        if (score > bestScore) {
-          bestScore = score;
+        if (weight > bestWeight) {
+          bestWeight = weight;
           bestRoot = groupRoot;
         }
       }
 
       if (bestRoot) {
-        // Move singleton into the best group
-        const groupMembers = groups.get(bestRoot)!;
-        groupMembers.push(sid);
+        groups.get(bestRoot)!.push(sid);
         const singletonRoot = find(sid);
         groups.delete(singletonRoot);
         union(sid, bestRoot);
@@ -909,20 +928,17 @@ function buildSuperClusters(
       }
     }
 
-    // Also try to absorb remaining singletons into each other if they share a connection
-    const remainingSingletons = [...singletonIds];
-    if (remainingSingletons.length >= 2) {
+    // Merge remaining connected singletons with each other
+    if (singletonIds.size >= 2) {
       for (const edge of edges) {
         const src = fileToCommunity.get(edge.sourceFileId);
         const tgt = fileToCommunity.get(edge.targetFileId);
         if (!src || !tgt || src === tgt) continue;
         if (!singletonIds.has(src) || !singletonIds.has(tgt)) continue;
-        const srcRole = communityById.get(src)?.dominantRole;
-        const tgtRole = communityById.get(tgt)?.dominantRole;
-        if (srcRole === 'contract' && tgtRole === 'contract') continue;
+        if (communityById.get(src)?.dominantRole === 'contract'
+          && communityById.get(tgt)?.dominantRole === 'contract') continue;
         union(src, tgt);
       }
-      // Rebuild groups for merged singletons
       groups = new Map();
       for (const c of communities) {
         const root = find(c.id);
