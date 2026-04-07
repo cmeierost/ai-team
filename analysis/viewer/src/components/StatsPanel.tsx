@@ -42,6 +42,7 @@ const METRIC_HELP: Record<string, string> = {
   'Non-Code Files': 'Config/docs/assets/scripts distribution. Useful to understand filesystem reality beyond code entities.',
   'Dependency Groups': 'Files that cluster by dependency strength. Ungrouped files are often isolated or weakly connected.',
   Exports: 'Exported surface seen by other files. High dead exports or risky barrels can indicate boundary problems.',
+  'Entity Concerns': 'How entities are classified by code concern: contract (types/interfaces), logic (functions/algorithms), presentation (UI/JSX). Helps verify separation of concerns.',
 };
 
 function CardTitle({ title }: { title: string }) {
@@ -505,6 +506,37 @@ export function StatsPanel({ data, clusterFileIds, entities: entityRefs }: Stats
     return { green, yellow, red, total: scoped.length, avgMI, worstEntities, entityMap };
   }, [data, clusterFileIds, isScoped, entityRefs]);
 
+  // Entity Concern Breakdown
+  const concernStats = useMemo(() => {
+    const ec = data.entityClassification;
+    if (!ec?.results?.length) return null;
+
+    const entityMap = new Map<string, EntityRefLite>();
+    for (const e of entityRefs ?? []) entityMap.set(e.id, e);
+
+    // Scope to cluster files if drilled down
+    const scoped = isScoped && clusterFileIds
+      ? ec.results.filter((r) => {
+          const e = entityMap.get(r.entityId);
+          if (!e) return false;
+          const fc = data.fileClassifications.find((c) => c.filePath === e.filePath);
+          return fc && clusterFileIds.has(fc.fileId);
+        })
+      : ec.results;
+    if (scoped.length === 0) return null;
+
+    const counts: Record<string, number> = { contract: 0, presentation: 0, logic: 0, unknown: 0 };
+    const loc: Record<string, number> = { contract: 0, presentation: 0, logic: 0, unknown: 0 };
+    for (const r of scoped) {
+      const concern = r.concern ?? 'unknown';
+      counts[concern] = (counts[concern] ?? 0) + 1;
+      const ent = entityMap.get(r.entityId);
+      loc[concern] = (loc[concern] ?? 0) + (ent?.rawCounts?.linesOfCode ?? 0);
+    }
+    const totalLoc = Object.values(loc).reduce((s, v) => s + v, 0);
+    return { counts, loc, total: scoped.length, totalLoc };
+  }, [data, clusterFileIds, isScoped, entityRefs]);
+
   return (
     <div className="sp-root">
       {scopedMetricSummary && (
@@ -723,6 +755,56 @@ export function StatsPanel({ data, clusterFileIds, entities: entityRefs }: Stats
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Entity Concern Breakdown */}
+      {concernStats && (
+        <div className="sp-card">
+          <CardTitle title="Entity Concerns" />
+          <div className="sp-group-row">
+            {(['contract', 'logic', 'presentation'] as const).map((c) => {
+              const colorMap: Record<string, string> = {
+                contract: '#06b6d4',
+                logic: '#3b82f6',
+                presentation: '#ec4899',
+              };
+              return (
+                <div key={c} className="sp-group-box" style={{ borderColor: `${colorMap[c]}44` }}>
+                  <strong style={{ color: colorMap[c] }}>{concernStats.counts[c]}</strong>
+                  <span>{c}</span>
+                </div>
+              );
+            })}
+          </div>
+          {/* LOC distribution bar */}
+          {concernStats.totalLoc > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#2d2d30' }}>
+                {(['contract', 'logic', 'presentation', 'unknown'] as const).map((c) => {
+                  const pct = concernStats.loc[c] / concernStats.totalLoc;
+                  if (pct <= 0) return null;
+                  const colorMap: Record<string, string> = {
+                    contract: '#06b6d4',
+                    logic: '#3b82f6',
+                    presentation: '#ec4899',
+                    unknown: '#94a3b8',
+                  };
+                  return <div key={c} style={{ flex: pct, background: colorMap[c] }} title={`${c}: ${concernStats.loc[c]} LOC`} />;
+                })}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: '#888' }}>
+                <span style={{ color: '#06b6d4' }}>contract {fmt(concernStats.loc.contract)}</span>
+                <span style={{ color: '#3b82f6' }}>logic {fmt(concernStats.loc.logic)}</span>
+                <span style={{ color: '#ec4899' }}>pres. {fmt(concernStats.loc.presentation)}</span>
+              </div>
+            </div>
+          )}
+          {concernStats.counts.unknown > 0 && (
+            <div style={{ marginTop: 4, fontSize: 10, color: '#94a3b8' }}>
+              {concernStats.counts.unknown} unclassified entities ({fmt(concernStats.loc.unknown)} LOC)
             </div>
           )}
         </div>

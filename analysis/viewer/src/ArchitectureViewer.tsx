@@ -566,6 +566,7 @@ export function ArchitectureViewer({
                 selection={selection}
                 clusterFileIds={scope.fileIds}
                 onSelectFile={handleSelectFile}
+                entities={entities}
               />
             ) : sidePanel === 'problems' ? (
               <ProblemsPanel

@@ -16,7 +16,7 @@ import type {
   MisplacedFile,
   FileExportInfo,
 } from '../types.js';
-import type { Selection } from '../types.js';
+import type { Selection, EntityRefLite } from '../types.js';
 import { ROLE_COLORS, SEVERITY_COLORS, healthColor, pct, shortPath, shortName } from '../types.js';
 import { deriveGroupLabel } from '../hooks/useClusterGraph.js';
 
@@ -25,6 +25,7 @@ export interface DetailPanelProps {
   selection: Selection;
   clusterFileIds?: Set<string>;
   onSelectFile?: (fileId: string) => void;
+  entities?: EntityRefLite[];
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────
@@ -468,10 +469,12 @@ function FileDetail({
   data,
   fileId,
   clusterFileIds,
+  entities,
 }: {
   data: StructuralPipelineResult;
   fileId: string;
   clusterFileIds?: Set<string>;
+  entities?: EntityRefLite[];
 }) {
   const file = data.fileClassifications.find((f) => f.fileId === fileId);
   const centrality = data.centrality?.find((c) => c.fileId === fileId);
@@ -638,6 +641,104 @@ function FileDetail({
         </div>
       )}
 
+      {/* Entity-level details */}
+      {(() => {
+        const fileEntities = entities?.filter(
+          (e) => e.filePath === fileId && e.kind !== 'file',
+        );
+        if (!fileEntities || fileEntities.length === 0) return null;
+
+        const classificationMap = new Map(
+          (data.entityClassification?.results ?? []).map((r) => [r.entityId, r]),
+        );
+
+        return (
+          <div>
+            <div style={sectionTitle}>Entities ({fileEntities.length})</div>
+            <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+              {fileEntities.map((ent) => {
+                const ec = classificationMap.get(ent.id);
+                const concern = ec?.concern ?? ent.classification?.codeConcern ?? 'unknown';
+                const surface = ent.rawCounts?.signatureSurface;
+                const loc = ent.rawCounts?.linesOfCode;
+                const branches = ent.rawCounts?.branchPoints;
+                const narrowing = ent.rawCounts?.narrowingKind;
+
+                const concernColors: Record<string, { bg: string; fg: string }> = {
+                  contract:     { bg: 'rgba(6,182,212,0.15)',   fg: '#06b6d4' },
+                  presentation: { bg: 'rgba(236,72,153,0.15)',  fg: '#ec4899' },
+                  logic:        { bg: 'rgba(59,130,246,0.15)',  fg: '#3b82f6' },
+                  unknown:      { bg: 'rgba(148,163,184,0.15)', fg: '#94a3b8' },
+                };
+                const cc = concernColors[concern] ?? concernColors.unknown;
+
+                const kindColors: Record<string, string> = {
+                  function: '#4ec9b0',
+                  class: '#4fc1ff',
+                  interface: '#ce93d8',
+                  'type-alias': '#c586c0',
+                  enum: '#dcdcaa',
+                  variable: '#9cdcfe',
+                  method: '#4ec9b0',
+                  property: '#9cdcfe',
+                  'selector-rule': '#d7ba7d',
+                  'custom-property': '#d7ba7d',
+                  keyframes: '#d7ba7d',
+                };
+                const kindFg = kindColors[ent.kind] ?? '#888';
+
+                return (
+                  <div
+                    key={ent.id}
+                    style={{
+                      fontSize: 11,
+                      padding: '4px 0',
+                      borderBottom: '1px solid #2d2d30',
+                    }}
+                  >
+                    {/* Row 1: name + kind + concern */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, color: '#e0e0e0', minWidth: 0 }}>
+                        {ent.name}
+                      </span>
+                      <span style={badge(`${kindFg}18`, kindFg)}>{ent.kind}</span>
+                      <span style={badge(cc.bg, cc.fg)}>{concern}</span>
+                    </div>
+
+                    {/* Row 2: compact metrics */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 2, fontSize: 10, color: '#888' }}>
+                      {loc != null && <span>LOC {loc}</span>}
+                      {surface != null && (
+                        <span style={{ color: surface > 20 ? '#f44336' : surface > 10 ? '#ffb74d' : '#888' }}>
+                          surface {surface}
+                        </span>
+                      )}
+                      {branches != null && branches > 0 && (
+                        <span style={{ color: branches > 10 ? '#f44336' : branches > 5 ? '#ffb74d' : '#888' }}>
+                          branches {branches}
+                        </span>
+                      )}
+                      {narrowing && (
+                        <span style={{ color: '#4ec9b0' }}>
+                          {narrowing}{ent.rawCounts?.narrowedFieldCount != null ? `(${ent.rawCounts.narrowedFieldCount})` : ''}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Confidence indicator */}
+                    {ec && ec.confidence < 0.3 && (
+                      <div style={{ fontSize: 9, color: '#666', marginTop: 1 }}>
+                        ⚠ low confidence ({(ec.confidence * 100).toFixed(0)}%)
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {fileMetric && (
         <div>
           <div style={sectionTitle}>Interface change impact</div>
@@ -713,6 +814,7 @@ export function DetailPanel({
   selection,
   clusterFileIds,
   onSelectFile,
+  entities,
 }: DetailPanelProps) {
   if (selection.type == null) {
     return (
@@ -744,6 +846,7 @@ export function DetailPanel({
         data={data}
         fileId={selection.id}
         clusterFileIds={clusterFileIds}
+        entities={entities}
       />
     </div>
   );

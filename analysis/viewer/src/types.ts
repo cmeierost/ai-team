@@ -28,6 +28,8 @@ import type {
   MaintainabilityResult,
   FileMaintainabilitySummary,
   MIRiskBand,
+  EntityConcernResult,
+  EntityClassificationSummary,
 } from '@aspect/structural';
 
 export type {
@@ -56,6 +58,8 @@ export type {
   MaintainabilityResult,
   FileMaintainabilitySummary,
   MIRiskBand,
+  EntityConcernResult,
+  EntityClassificationSummary,
 };
 
 // ── Viewer props ────────────────────────────────────────────────────────
@@ -86,6 +90,11 @@ export interface EntityRefLite {
     publicPropertyCount?: number | null;
     publicMethodCount?: number | null;
     jsxElementCount?: number | null;
+    signatureSurface?: number | null;
+    parameterTypeComplexity?: number | null;
+    returnTypeComplexity?: number | null;
+    narrowingKind?: string | null;
+    narrowedFieldCount?: number | null;
   };
 }
 
