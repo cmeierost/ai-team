@@ -95,6 +95,23 @@ export interface WeightedEdge {
   weightReason: string;
 }
 
+// ── Artefact 1: Entity dependency graph (steps 1–4 output) ──────────────
+
+/**
+ * Self-contained artefact produced by steps 1–4.
+ * Contains classified files, weighted entity-level edges, and repo-level metrics.
+ * Can be serialised and fed to any downstream consumer (community detection,
+ * context comparison, LLM prompts) without re-running collection.
+ */
+export interface EntityGraphArtefact {
+  /** Per-file classification and metadata (steps 1 + 2). */
+  fileClassifications: FileClassificationEntry[];
+  /** Weighted directed entity-level dependency edges (steps 3 + 4). */
+  weightedEdges: WeightedEdge[];
+  /** Lookup: fileId → FileInfo (category + contentRole). */
+  fileInfoMap: Record<string, FileInfo>;
+}
+
 // ── Step 5: Clustering ──────────────────────────────────────────────────
 
 /** Aggregated coupling between two files (both directions). */
@@ -281,6 +298,8 @@ export interface FileClassificationEntry {
 
 /** Full result of the structural pipeline. */
 export interface StructuralPipelineResult {
+  /** Artefact 1: self-contained entity dependency graph from steps 1–4. */
+  entityGraph: EntityGraphArtefact;
   fileClassifications: FileClassificationEntry[];
   weightedEdges: WeightedEdge[];
   pairCouplings: FilePairCoupling[];

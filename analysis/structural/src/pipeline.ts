@@ -57,6 +57,7 @@ import type {
   FileClassificationEntry, StructuralPipelineResult,
   PipelineSummary, StructuralPipelineOptions,
   WarningThresholds,
+  EntityGraphArtefact,
 } from './types.js';
 import { DEFAULT_THRESHOLDS } from './types.js';
 
@@ -182,6 +183,15 @@ export function runStructuralPipeline(
   // ── Step 4: Weight edges ────────────────────────────────────────────
 
   const weightedEdges = weightAllEdges(rawEdges, fileInfoMap);
+
+  // ── Artefact 1: Entity dependency graph ─────────────────────────────
+  // Self-contained checkpoint after steps 1–4.
+
+  const entityGraph: EntityGraphArtefact = {
+    fileClassifications,
+    weightedEdges,
+    fileInfoMap: Object.fromEntries(fileInfoMap),
+  };
 
   // ── Step 5: Pair coupling + clustering ──────────────────────────────
 
@@ -331,6 +341,7 @@ export function runStructuralPipeline(
 
   // Build the result first (recommendations need it)
   const result: StructuralPipelineResult = {
+    entityGraph,
     fileClassifications,
     weightedEdges,
     pairCouplings,
