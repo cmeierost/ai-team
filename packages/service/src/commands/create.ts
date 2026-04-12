@@ -1,14 +1,18 @@
-import { AgentManager, SkillManager, ContextLevel } from '@ai-team/core';
-import type { CreateAgentSetupInput, CreateOptions, CreateSkillSetupInput } from '../contracts.js';
+import { AgentManager, SkillManager, ContextLevel } from '@ai-team/infrastructure';
+import type {
+  CreateAgentSetupInput,
+  CreateOptions,
+  CreateSkillSetupInput,
+} from '@ai-team/api-client';
 
 export async function createCommand(workspaceRoot: string, type: string, options: CreateOptions) {
   try {
     switch (type) {
       case 'agent':
-        await createAgent(workspaceRoot, options);
+        await createAgentAsync(workspaceRoot, options);
         break;
       case 'skill':
-        await createSkill(workspaceRoot, options);
+        await createSkillAsync(workspaceRoot, options);
         break;
       default:
         throw new Error(`Unknown type: ${type}. Usage: ai-team create <agent|skill>`);
@@ -18,12 +22,11 @@ export async function createCommand(workspaceRoot: string, type: string, options
   }
 }
 
-async function createAgent(workspaceRoot: string, options: CreateOptions) {
+async function createAgentAsync(workspaceRoot: string, options: CreateOptions) {
   const agentManager = new AgentManager(workspaceRoot);
-  await agentManager.initialize();
 
   if (options.setup?.kind === 'agent') {
-    await createAgentFromSetup(agentManager, options.setup);
+    await createAgentFromSetupAsync(agentManager, options.setup);
     return;
   }
 
@@ -41,24 +44,22 @@ async function createAgent(workspaceRoot: string, options: CreateOptions) {
     contextLevel: ContextLevel.MODULE,
   };
 
-  const agent = await agentManager.createAgent(config);
-  void agent;
+  await agentManager.createAgentAsync(config);
 }
 
-async function createSkill(workspaceRoot: string, _options: CreateOptions) {
+async function createSkillAsync(workspaceRoot: string, _options: CreateOptions) {
   const skillManager = new SkillManager(workspaceRoot);
-  await skillManager.initialize();
 
   if (_options.setup?.kind === 'skill') {
-    await createSkillFromSetup(skillManager, _options.setup);
+    await createSkillFromSetupAsync(skillManager, _options.setup);
     return;
   }
 
   throw new Error('Skill creation requires client-provided setup payload.');
 }
 
-async function createAgentFromSetup(agentManager: AgentManager, setup: CreateAgentSetupInput) {
-  const agent = await agentManager.createAgent({
+async function createAgentFromSetupAsync(agentManager: AgentManager, setup: CreateAgentSetupInput) {
+  await agentManager.createAgentAsync({
     name: setup.name,
     role: setup.role,
     contextLevel: setup.contextLevel,
@@ -66,11 +67,10 @@ async function createAgentFromSetup(agentManager: AgentManager, setup: CreateAge
     features: setup.features,
     llm: setup.llm,
   });
-  void agent;
 }
 
-async function createSkillFromSetup(skillManager: SkillManager, setup: CreateSkillSetupInput) {
-  const skill = await skillManager.createSkill(
+async function createSkillFromSetupAsync(skillManager: SkillManager, setup: CreateSkillSetupInput) {
+  await skillManager.createSkillAsync(
     {
       name: setup.name,
       type: setup.type,
@@ -78,10 +78,8 @@ async function createSkillFromSetup(skillManager: SkillManager, setup: CreateSki
       contextLevel: setup.contextLevel,
       responsibilities: [],
       tools: [],
-      permissions: { read: [], write: [], create: [], delete: [] },
       llm: setup.llm,
     },
-    setup.instructions,
+    setup.instructions
   );
-  void skill;
 }

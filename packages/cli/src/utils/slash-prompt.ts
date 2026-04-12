@@ -30,9 +30,9 @@ type CommandEntry = (typeof IN_CHAT_COMMAND_REGISTRY)[number];
 function getSuggestions(buf: string): CommandEntry[] {
   if (!buf.startsWith('/')) return [];
   const fragment = buf.slice(1).toLowerCase();
-  return IN_CHAT_COMMAND_REGISTRY.filter(cmd => {
+  return IN_CHAT_COMMAND_REGISTRY.filter((cmd) => {
     const keys = [cmd.key, ...(cmd.aliases ?? [])];
-    return keys.some(k => k.startsWith(fragment));
+    return keys.some((k) => k.startsWith(fragment));
   });
 }
 
@@ -44,19 +44,30 @@ function renderAll(
   promptText: string,
   buf: string,
   suggs: CommandEntry[],
-  selectedIdx: number,
+  selectedIdx: number
 ): number {
   cursorTo(output, 0);
   clearScreenDown(output);
   output.write(`${promptText} ${buf}`);
 
-  const visible = suggs.slice(0, MAX_VISIBLE);
+  // Compute a scroll window so the selected item is always visible.
+  const clampedIdx = Math.max(0, selectedIdx);
+  const windowStart = Math.min(
+    Math.max(0, clampedIdx - MAX_VISIBLE + 1),
+    Math.max(0, suggs.length - MAX_VISIBLE)
+  );
+  const visible = suggs.slice(windowStart, windowStart + MAX_VISIBLE);
   let rows = 0;
+
+  if (windowStart > 0) {
+    output.write(`\n${chalk.dim(`  ↑ ${windowStart} more above`)}`);
+    rows++;
+  }
 
   for (let i = 0; i < visible.length; i++) {
     const cmd = visible[i];
     const usage = cmd.usage ?? `/${cmd.key}`;
-    const isSelected = i === selectedIdx;
+    const isSelected = windowStart + i === selectedIdx;
     const line = isSelected
       ? chalk.bgBlue.white(` ${usage.padEnd(26)} `) + chalk.dim(`  ${cmd.description}`)
       : chalk.cyan(` ${usage}`) + chalk.dim(`  ${cmd.description}`);
@@ -64,8 +75,9 @@ function renderAll(
     rows++;
   }
 
-  if (suggs.length > MAX_VISIBLE) {
-    output.write(`\n${chalk.dim(`  … ${suggs.length - MAX_VISIBLE} more`)}`);
+  const remaining = suggs.length - (windowStart + visible.length);
+  if (remaining > 0) {
+    output.write(`\n${chalk.dim(`  ↓ ${remaining} more below`)}`);
     rows++;
   }
 
@@ -84,7 +96,7 @@ function renderAll(
  */
 export async function askWithSlashSuggestions(
   promptText: string,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<string> {
   if (!process.stdin.isTTY) {
     const rl = createInterface({ input, output });
@@ -148,7 +160,10 @@ export async function askWithSlashSuggestions(
     const onKey = (_str: string | undefined, key: Key) => {
       if (!key) return;
 
-      if (signal?.aborted) { abort(); return; }
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
 
       // Ctrl+C / Ctrl+D
       if (key.ctrl && (key.name === 'c' || key.name === 'd')) {

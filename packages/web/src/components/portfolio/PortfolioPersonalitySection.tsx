@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { AiTeamHttpClient } from '@ai-team/api-client-http';
+import type { AiTeamHttpClient } from '@ai-team/api-client';
+import type { MarkdownSection } from '@ai-team/core';
 import type { AgentPersonality } from '../../types';
 import { LEVEL_CHIP, MarkdownEditor, PortfolioSectionCard, STYLE_ICONS } from './portfolioShared';
 
@@ -10,7 +11,10 @@ interface PortfolioPersonalitySectionProps {
   onSave: (personality: AgentPersonality) => Promise<void>;
 }
 
-function PersonalityView({ p, hasMentoringInfo }: Readonly<{ p: AgentPersonality; hasMentoringInfo: boolean }>) {
+function PersonalityView({
+  p,
+  hasMentoringInfo,
+}: Readonly<{ p: AgentPersonality; hasMentoringInfo: boolean }>) {
   return (
     <div className="personality-grid">
       {p.communication_style ? (
@@ -24,7 +28,9 @@ function PersonalityView({ p, hasMentoringInfo }: Readonly<{ p: AgentPersonality
       ) : null}
       {p.expertise_level ? (
         <div className="personality-item">
-          <span className={`portfolio-chip ${LEVEL_CHIP[p.expertise_level] ?? ''}`}>{p.expertise_level}</span>
+          <span className={`portfolio-chip ${LEVEL_CHIP[p.expertise_level] ?? ''}`}>
+            {p.expertise_level}
+          </span>
           <div>
             <div className="personality-label">Expertise level</div>
             <div className="personality-value">{p.expertise_level}</div>
@@ -40,12 +46,19 @@ function PersonalityView({ p, hasMentoringInfo }: Readonly<{ p: AgentPersonality
           </div>
         </div>
       ) : null}
-      {!p.communication_style && !p.expertise_level && !hasMentoringInfo ? <p className="text-muted">No personality set.</p> : null}
+      {!p.communication_style && !p.expertise_level && !hasMentoringInfo ? (
+        <p className="text-muted">No personality set.</p>
+      ) : null}
     </div>
   );
 }
 
-export function PortfolioPersonalitySection({ agentId, client, personality, onSave }: Readonly<PortfolioPersonalitySectionProps>) {
+export function PortfolioPersonalitySection({
+  agentId,
+  client,
+  personality,
+  onSave,
+}: Readonly<PortfolioPersonalitySectionProps>) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<AgentPersonality>({});
   const [profileMarkdown, setProfileMarkdown] = useState('');
@@ -55,14 +68,26 @@ export function PortfolioPersonalitySection({ agentId, client, personality, onSa
 
   // Load the "Personality Profile" md section on mount
   useEffect(() => {
-    void client.getAgentSections(agentId).then((sections) => {
-      const section = sections.find(s => s.heading === 'Personality Profile');
-      setProfileMarkdown(section?.content ?? '');
-    }).catch(() => { /* silently ignore if sections fail */ });
+    void client.agents.getSections(agentId)
+      .then((sections) => {
+        const section = sections.find((s) => s.heading === 'Personality Profile');
+        setProfileMarkdown(section?.content ?? '');
+      })
+      .catch(() => {
+        /* silently ignore if sections fail */
+      });
   }, [agentId, client]);
 
-  const startEdit = () => { setDraft({ ...personality }); setDraftMarkdown(profileMarkdown); setSaveError(null); setIsEditing(true); };
-  const cancel = () => { setIsEditing(false); setSaveError(null); };
+  const startEdit = () => {
+    setDraft({ ...personality });
+    setDraftMarkdown(profileMarkdown);
+    setSaveError(null);
+    setIsEditing(true);
+  };
+  const cancel = () => {
+    setIsEditing(false);
+    setSaveError(null);
+  };
 
   const save = async () => {
     setSaving(true);
@@ -70,8 +95,13 @@ export function PortfolioPersonalitySection({ agentId, client, personality, onSa
     try {
       await onSave(draft);
       if (draftMarkdown !== profileMarkdown) {
-        const updated = await client.updateAgentSection(agentId, 'Personality Profile', draftMarkdown);
-        const section = updated.find(s => s.heading === 'Personality Profile');
+        const updated = (await client.agents.updateSection(
+          agentId,
+          'Personality Profile',
+          { content: draftMarkdown },
+        ));
+        const freshSections = await client.agents.getSections(agentId);
+        const section = freshSections.find((s) => s.heading === 'Personality Profile');
         setProfileMarkdown(section?.content ?? draftMarkdown);
       }
       setIsEditing(false);
@@ -86,7 +116,15 @@ export function PortfolioPersonalitySection({ agentId, client, personality, onSa
   const hasMentoringInfo = typeof p?.mentoring === 'boolean';
 
   return (
-    <PortfolioSectionCard title="Personality" icon="🧠" onEdit={startEdit} isEditing={isEditing} saving={saving} onSave={save} onCancel={cancel}>
+    <PortfolioSectionCard
+      title="Personality"
+      icon="🧠"
+      onEdit={startEdit}
+      isEditing={isEditing}
+      saving={saving}
+      onSave={save}
+      onCancel={cancel}
+    >
       {saveError ? <p className="portfolio-section-error">{saveError}</p> : null}
       {isEditing ? (
         <>
@@ -95,11 +133,21 @@ export function PortfolioPersonalitySection({ agentId, client, personality, onSa
               <span>Communication Style</span>
               <select
                 value={p?.communication_style ?? ''}
-                onChange={(e) => setDraft((d) => ({ ...d, communication_style: (e.target.value as AgentPersonality['communication_style']) || undefined }))}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    communication_style:
+                      (e.target.value as AgentPersonality['communication_style']) || undefined,
+                  }))
+                }
               >
                 <option value="">— none —</option>
-                {(['collaborative', 'direct', 'supportive', 'analytical', 'strategic'] as const).map((style) => (
-                  <option key={style} value={style}>{STYLE_ICONS[style]} {style.charAt(0).toUpperCase() + style.slice(1)}</option>
+                {(
+                  ['collaborative', 'direct', 'supportive', 'analytical', 'strategic'] as const
+                ).map((style) => (
+                  <option key={style} value={style}>
+                    {STYLE_ICONS[style]} {style.charAt(0).toUpperCase() + style.slice(1)}
+                  </option>
                 ))}
               </select>
             </label>
@@ -107,11 +155,19 @@ export function PortfolioPersonalitySection({ agentId, client, personality, onSa
               <span>Expertise Level</span>
               <select
                 value={p?.expertise_level ?? ''}
-                onChange={(e) => setDraft((d) => ({ ...d, expertise_level: (e.target.value as AgentPersonality['expertise_level']) || undefined }))}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    expertise_level:
+                      (e.target.value as AgentPersonality['expertise_level']) || undefined,
+                  }))
+                }
               >
                 <option value="">— none —</option>
                 {(['executive', 'senior', 'mid-level', 'junior'] as const).map((level) => (
-                  <option key={level} value={level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>
+                  <option key={level} value={level}>
+                    {level.charAt(0).toUpperCase() + level.slice(1)}
+                  </option>
                 ))}
               </select>
             </label>

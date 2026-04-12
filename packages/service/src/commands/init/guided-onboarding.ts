@@ -1,4 +1,4 @@
-import type { LlmService } from '@ai-team/core';
+import type { LlmService } from '@ai-team/infrastructure';
 
 export interface GuidedChoice {
   name: string;

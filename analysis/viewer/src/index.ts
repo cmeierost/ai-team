@@ -10,7 +10,13 @@ export type { ClusterNodeData } from './components/ClusterNode.js';
 
 export { FileNode } from './components/FileNode.js';
 export type { FileNodeData } from './components/FileNode.js';
+export { EntityNode } from './components/EntityNode.js';
+export type { EntityNodeData } from './components/EntityNode.js';
+export { FileGroupNode } from './components/FileGroupNode.js';
+export type { FileGroupNodeData } from './components/FileGroupNode.js';
 export { FileEntitiesPane } from './components/FileEntitiesPane.js';
+export { EntityDetailPane } from './components/EntityDetailPane.js';
+export type { EntityDetailPaneProps } from './components/EntityDetailPane.js';
 
 export { OverviewBar } from './components/OverviewBar.js';
 export { DetailPanel } from './components/DetailPanel.js';
@@ -22,6 +28,9 @@ export type { StatsPanelProps } from './components/StatsPanel.js';
 
 export { useClusterGraph } from './hooks/useClusterGraph.js';
 export { useClusterDrilldown } from './hooks/useClusterDrilldown.js';
+export type { DrilldownViewMode } from './hooks/useClusterDrilldown.js';
+export { useEntityReferenceGraph } from './hooks/useEntityReferenceGraph.js';
+export type { EntityRefGraphOptions } from './hooks/useEntityReferenceGraph.js';
 
 export type {
   StructuralPipelineResult,

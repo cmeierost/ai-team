@@ -10,7 +10,7 @@
  *   2. Progressively shorter word-prefix slices of the extracted name
  *   3. LLM fallback (ask the model which roster entry the user means)
  */
-import type { AgentManager, Agent, LlmService, ChatMessage } from '@ai-team/core';
+import type { AgentManager, Agent, LlmService, ChatMessage } from '@ai-team/infrastructure';
 
 const FORWARD_PATTERNS = [
   /(?:forward|transfer|connect|switch|redirect)\s+(?:me\s+)?(?:to|over\s+to)\s+(.+)/i,
@@ -33,11 +33,11 @@ const FORWARD_TARGET_ALIASES: Record<string, string[]> = {
   'hr director': ['hr director', 'hr', 'human resources', 'head of human resources'],
 };
 
-function resolveForwardTargetCandidates(
+async function resolveForwardTargetCandidatesAsync(
   target: string,
   agentManager: AgentManager,
   currentAgentId: string,
-): Agent[] {
+): Promise<Agent[]> {
   const normalized = target.trim().toLowerCase();
   const queries = new Set<string>([normalized]);
 
@@ -51,7 +51,7 @@ function resolveForwardTargetCandidates(
   const seen = new Set<string>();
   const resolved: Agent[] = [];
   for (const query of queries) {
-    const matches = agentManager.resolveAgent(query);
+    const matches = await agentManager.resolveAgentAsync(query);
     for (const candidate of matches) {
       if (candidate.id === currentAgentId || seen.has(candidate.id)) continue;
       seen.add(candidate.id);
@@ -111,14 +111,14 @@ export function extractForwardNote(message: string, agentName: string): string |
   return note.length > 0 ? note : undefined;
 }
 
-function detectForwardRequest(
+async function detectForwardRequestAsync(
   message: string,
   agentManager: AgentManager,
   currentAgentId: string,
-): Agent | undefined {
+): Promise<Agent | undefined> {
   const target = extractForwardTargetName(message);
   if (!target) return undefined;
-  const resolved = resolveForwardTargetCandidates(target, agentManager, currentAgentId);
+  const resolved = await resolveForwardTargetCandidatesAsync(target, agentManager, currentAgentId);
   return resolved.length > 0 ? resolved[0] : undefined;
 }
 
@@ -133,7 +133,7 @@ export const REFERENCE_PRONOUNS = new Set([
  * Detect if the user's message is asking to be forwarded to another agent,
  * with three-phase fallback (regex → word-prefix slices → LLM).
  */
-export async function detectForwardRequestWithFallback(
+export async function detectForwardRequestWithFallbackAsync(
   message: string,
   agentManager: AgentManager,
   currentAgentId: string,
@@ -142,7 +142,7 @@ export async function detectForwardRequestWithFallback(
   history: ChatMessage[] = [],
 ): Promise<{ resolved: Agent | undefined; looksLikeForward: boolean }> {
   // Phase 1: exact/fuzzy regex match
-  const direct = detectForwardRequest(message, agentManager, currentAgentId);
+  const direct = await detectForwardRequestAsync(message, agentManager, currentAgentId);
   if (direct) return { resolved: direct, looksLikeForward: true };
 
   const rawTarget = extractForwardTargetName(message);
@@ -155,7 +155,7 @@ export async function detectForwardRequestWithFallback(
     const words = rawTarget.trim().split(/\s+/);
     for (let len = words.length - 1; len >= 1; len--) {
       const candidate = words.slice(0, len).join(' ');
-      const matches = agentManager.resolveAgent(candidate).filter(a => a.id !== currentAgentId);
+      const matches = (await agentManager.resolveAgentAsync(candidate)).filter(a => a.id !== currentAgentId);
       if (matches.length > 0) return { resolved: matches[0], looksLikeForward: true };
     }
   }
@@ -163,7 +163,7 @@ export async function detectForwardRequestWithFallback(
   // Phase 3: LLM fallback — let the model identify the target from the roster.
   // Always include recent conversation history so pronouns and implicit references
   // ("her", "him", "the one you mentioned") can be resolved from context.
-  const candidates = agentManager.getAllAgents().filter(a => a.id !== currentAgentId);
+  const candidates = (await agentManager.getAllAgentsAsync()).filter(a => a.id !== currentAgentId);
   if (candidates.length > 0) {
     try {
       const nameList = candidates.map(a => `${a.name} (${a.role})`).join(', ');
@@ -193,7 +193,7 @@ export async function detectForwardRequestWithFallback(
       );
       const answer = reply.trim().replace(/^["']|["'.!?]$/g, '');
       if (answer.toLowerCase() !== 'none' && answer.length > 0) {
-        const matches = agentManager.resolveAgent(answer).filter(a => a.id !== currentAgentId);
+        const matches = (await agentManager.resolveAgentAsync(answer)).filter(a => a.id !== currentAgentId);
         if (matches.length > 0) return { resolved: matches[0], looksLikeForward: true };
       }
     } catch {

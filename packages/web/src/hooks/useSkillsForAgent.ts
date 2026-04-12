@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { API_BASE } from '../context/TeamContext';
+import { useTeam } from '../context/TeamContext';
 import { contextPanelQueryKeys } from './contextPanelQueryKeys';
 
 export interface SkillEntry {
@@ -16,15 +16,9 @@ function getErrorMessage(error: unknown, fallback: string): string | null {
   return error ? fallback : null;
 }
 
-async function fetchSkills(agentId: string): Promise<SkillEntry[]> {
-  const response = await fetch(`${API_BASE}/api/skills?agent=${encodeURIComponent(agentId)}`);
-  if (!response.ok) {
-    throw new Error(`Failed to load skills: ${response.statusText}`);
-  }
-
-  const data = await response.json();
+async function fetchSkills(agentId: string, client: ReturnType<typeof useTeam>['client']): Promise<SkillEntry[]> {
+  const data = await client.skills.search({ agent: agentId }) as { entries?: any[] };
   const entries = Array.isArray(data.entries) ? data.entries : [];
-
   return entries
     .map((entry: any) => ({
       name: entry.name,
@@ -34,31 +28,32 @@ async function fetchSkills(agentId: string): Promise<SkillEntry[]> {
     .sort((a: SkillEntry, b: SkillEntry) => a.name.localeCompare(b.name));
 }
 
-async function toggleSkillAssignment(agentId: string, skillName: string, currentlyAssigned: boolean): Promise<void> {
-  const endpoint = currentlyAssigned ? 'remove' : 'add';
-  const response = await fetch(`${API_BASE}/api/skills/${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ agent: agentId, skill: skillName }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to ${currentlyAssigned ? 'remove' : 'add'} skill`);
+async function toggleSkillAssignment(
+  agentId: string,
+  skillName: string,
+  currentlyAssigned: boolean,
+  client: ReturnType<typeof useTeam>['client'],
+): Promise<void> {
+  if (currentlyAssigned) {
+    await client.skills.remove({ agent: agentId, skill: skillName });
+  } else {
+    await client.skills.add({ agent: agentId, skill: skillName });
   }
 }
 
 export function useSkillsForAgent(agentId: string) {
+  const { client } = useTeam();
   const queryClient = useQueryClient();
 
   const skillsQuery = useQuery({
     queryKey: contextPanelQueryKeys.skills(agentId),
-    queryFn: () => fetchSkills(agentId),
+    queryFn: () => fetchSkills(agentId, client),
     enabled: Boolean(agentId),
   });
 
   const toggleSkillMutation = useMutation({
     mutationFn: ({ skillName, currentlyAssigned }: { skillName: string; currentlyAssigned: boolean }) =>
-      toggleSkillAssignment(agentId, skillName, currentlyAssigned),
+      toggleSkillAssignment(agentId, skillName, currentlyAssigned, client),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.skills(agentId) });
     },

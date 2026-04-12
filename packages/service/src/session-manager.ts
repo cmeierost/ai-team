@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { ChatMessage, ChatSession, Artifact, type AgentManager } from '@ai-team/core';
-import { resolveAgentForOperation } from './utils/agent-resolution.js';
+import { ChatMessage, ChatSession, Artifact, type AgentManager } from '@ai-team/infrastructure';
+import { resolveAgentForOperationAsync } from './utils/agent-resolution.js';
 import type { IMessageStorage, SessionSkill } from './storage/contracts.js';
 
 export class SessionManager {
@@ -10,6 +10,8 @@ export class SessionManager {
   private agentManager?: AgentManager;
   private storage: IMessageStorage;
 
+  private artifactsDirReady = false;
+
   constructor(workspaceRoot: string, storage: IMessageStorage, agentManager?: AgentManager) {
     this.workspaceRoot = workspaceRoot;
     this.artifactsDir = path.join(workspaceRoot, '.ai-team', 'artifacts', 'briefs');
@@ -17,12 +19,11 @@ export class SessionManager {
     this.storage = storage;
   }
 
-  /**
-   * Initialize storage and directories
-   */
-  async initialize(): Promise<void> {
-    await this.storage.initialize();
-    await fs.mkdir(this.artifactsDir, { recursive: true });
+  private async ensureArtifactsDir(): Promise<void> {
+    if (!this.artifactsDirReady) {
+      await fs.mkdir(this.artifactsDir, { recursive: true });
+      this.artifactsDirReady = true;
+    }
   }
 
   /**
@@ -41,7 +42,7 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = resolveAgentForOperation(this.agentManager, agentQuery, 'create session');
+      const resolved = await resolveAgentForOperationAsync(this.agentManager, agentQuery, 'create session');
       agentId = resolved.id;
     }
 
@@ -77,7 +78,7 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let toAgentId = toAgentQuery;
     if (this.agentManager) {
-      const resolved = resolveAgentForOperation(this.agentManager, toAgentQuery, 'create handoff session');
+      const resolved = await resolveAgentForOperationAsync(this.agentManager, toAgentQuery, 'create handoff session');
       toAgentId = resolved.id;
     }
 
@@ -134,7 +135,7 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = resolveAgentForOperation(this.agentManager, agentQuery, 'get latest session');
+      const resolved = await resolveAgentForOperationAsync(this.agentManager, agentQuery, 'get latest session');
       agentId = resolved.id;
     }
 
@@ -179,7 +180,7 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = resolveAgentForOperation(this.agentManager, agentQuery, 'list sessions');
+      const resolved = await resolveAgentForOperationAsync(this.agentManager, agentQuery, 'list sessions');
       agentId = resolved.id;
     }
 

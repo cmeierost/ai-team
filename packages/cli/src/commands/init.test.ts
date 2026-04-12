@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AiTeamClient } from '@ai-team/api-client';
+import type { ICommandClient } from '@ai-team/api-client';
 
 const clientApi = vi.hoisted(() => ({
   stream: vi.fn(),
@@ -9,15 +9,17 @@ import { initCommand } from './init.js';
 
 const client = {
   stream: clientApi.stream,
-} as unknown as AiTeamClient;
+} as unknown as ICommandClient;
 
 describe('init command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clientApi.stream.mockReturnValue((async function* () {
-      yield { kind: 'started', command: 'init', timestamp: new Date().toISOString() };
-      yield { kind: 'done', command: 'init', timestamp: new Date().toISOString() };
-    })());
+    clientApi.stream.mockReturnValue(
+      (async function* () {
+        yield { kind: 'started', command: 'init', timestamp: new Date().toISOString() };
+        yield { kind: 'done', command: 'init', timestamp: new Date().toISOString() };
+      })()
+    );
   });
 
   afterEach(() => {
@@ -37,7 +39,7 @@ describe('init command', () => {
         questionConfirm: expect.any(Function),
         questionSelect: expect.any(Function),
         questionPassword: expect.any(Function),
-      }),
+      })
     );
   });
 });

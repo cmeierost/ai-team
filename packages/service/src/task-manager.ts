@@ -11,9 +11,9 @@ import {
   TimeLogEntry,
   TaskDelegationRecord,
   type AgentManager,
-} from "@ai-team/core";
+} from "@ai-team/infrastructure";
 import matter from "gray-matter";
-import { resolveAgentForOperation } from './utils/agent-resolution.js';
+import { resolveAgentForOperationAsync } from './utils/agent-resolution.js';
 
 export interface TaskFilter {
   status?: TaskStatus | TaskStatus[];
@@ -31,7 +31,7 @@ export class TaskManager {
   private tasksDir: string;
   private indexPath: string;
   private templatesPath: string;
-  private index: Map<string, Task> = new Map();
+  private index: Map<string, Task> | undefined;
   private agentManager?: AgentManager;
 
   constructor(workspaceRoot: string, agentManager?: AgentManager) {
@@ -42,18 +42,29 @@ export class TaskManager {
     this.agentManager = agentManager;
   }
 
-  async initialize(): Promise<void> {
+  async getIndex(): Promise<Map<string, Task>> {
+    if (!this.index) {
+      this.index = await this.loadIndex();
+    }
+    return this.index;
+  }
+
+  async refresh(): Promise<void> {
+    this.index = undefined;
+    await this.getIndex();
+  }
+
+  private async loadIndex(): Promise<Map<string, Task>> {
     await fs.mkdir(this.tasksDir, { recursive: true });
 
-    // Load index
+    let index: Map<string, Task>;
     try {
       const indexData = await fs.readFile(this.indexPath, "utf-8");
       const tasks = JSON.parse(indexData) as Task[];
-      this.index = new Map(tasks.map((task) => [task.id, task]));
+      index = new Map(tasks.map((task) => [task.id, task]));
     } catch (error) {
       // Index doesn't exist yet, start fresh
-      this.index = new Map();
-      await this.saveIndex();
+      index = new Map();
     }
 
     // Create default templates if they don't exist
@@ -62,6 +73,8 @@ export class TaskManager {
     } catch {
       await this.createDefaultTemplates();
     }
+
+    return index;
   }
 
   private async createDefaultTemplates(): Promise<void> {
@@ -189,7 +202,8 @@ export class TaskManager {
     await this.saveTask(task);
 
     // Update index
-    this.index.set(task.id, task);
+    const index = await this.getIndex();
+    index.set(task.id, task);
     await this.saveIndex();
 
     return task;
@@ -197,7 +211,8 @@ export class TaskManager {
 
   async getTask(taskId: string): Promise<Task | null> {
     // Try index first
-    const cached = this.index.get(taskId);
+    const index = await this.getIndex();
+    const cached = index.get(taskId);
     if (cached) {
       return cached;
     }
@@ -207,7 +222,7 @@ export class TaskManager {
     try {
       const content = await fs.readFile(taskPath, "utf-8");
       const task = this.markdownToTask(content);
-      this.index.set(task.id, task);
+      index.set(task.id, task);
       return task;
     } catch {
       return null;
@@ -215,7 +230,7 @@ export class TaskManager {
   }
 
   async listTasks(filter?: TaskFilter): Promise<Task[]> {
-    let tasks = Array.from(this.index.values());
+    let tasks = Array.from((await this.getIndex()).values());
 
     if (!filter) {
       return tasks;
@@ -227,11 +242,11 @@ export class TaskManager {
 
     if (this.agentManager) {
       if (filter.assignedTo) {
-        const resolved = resolveAgentForOperation(this.agentManager, filter.assignedTo, 'filter tasks by assignedTo');
+        const resolved = await resolveAgentForOperationAsync(this.agentManager, filter.assignedTo, 'filter tasks by assignedTo');
         resolvedAssignedTo = resolved.id;
       }
       if (filter.createdBy) {
-        const resolved = resolveAgentForOperation(this.agentManager, filter.createdBy, 'filter tasks by createdBy');
+        const resolved = await resolveAgentForOperationAsync(this.agentManager, filter.createdBy, 'filter tasks by createdBy');
         resolvedCreatedBy = resolved.id;
       }
     }
@@ -288,7 +303,7 @@ export class TaskManager {
     };
 
     await this.saveTask(updatedTask);
-    this.index.set(taskId, updatedTask);
+    (await this.getIndex()).set(taskId, updatedTask);
     await this.saveIndex();
 
     return updatedTask;
@@ -334,8 +349,8 @@ export class TaskManager {
     let toAgentId = toAgentQuery;
 
     if (this.agentManager) {
-      const resolvedFrom = resolveAgentForOperation(this.agentManager, fromAgentQuery, 'delegate task from agent');
-      const resolvedTo = resolveAgentForOperation(this.agentManager, toAgentQuery, 'delegate task to agent');
+      const resolvedFrom = await resolveAgentForOperationAsync(this.agentManager, fromAgentQuery, 'delegate task from agent');
+      const resolvedTo = await resolveAgentForOperationAsync(this.agentManager, toAgentQuery, 'delegate task to agent');
       fromAgentId = resolvedFrom.id;
       toAgentId = resolvedTo.id;
     }
@@ -372,7 +387,7 @@ export class TaskManager {
     // Resolve agent query if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = resolveAgentForOperation(this.agentManager, agentQuery, 'log time for task');
+      const resolved = await resolveAgentForOperationAsync(this.agentManager, agentQuery, 'log time for task');
       agentId = resolved.id;
     }
 
@@ -426,7 +441,7 @@ export class TaskManager {
   }
 
   async getStatistics(): Promise<TaskStatistics> {
-    const allTasks = Array.from(this.index.values());
+    const allTasks = Array.from((await this.getIndex()).values());
 
     const tasksByStatus = Object.values(TaskStatus).reduce(
       (acc, status) => {
@@ -621,7 +636,7 @@ export class TaskManager {
   }
 
   private async saveIndex(): Promise<void> {
-    const tasks = Array.from(this.index.values());
+    const tasks = Array.from(this.index!.values());
     await fs.writeFile(this.indexPath, JSON.stringify(tasks, null, 2), "utf-8");
   }
 }

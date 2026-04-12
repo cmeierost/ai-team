@@ -65,7 +65,10 @@ async function isApiRunning(port: number): Promise<boolean> {
   });
 }
 
-export async function runUiCommand(workspaceRoot: string, options: UiCommandOptions = {}): Promise<void> {
+export async function runUiCommand(
+  workspaceRoot: string,
+  options: UiCommandOptions = {}
+): Promise<void> {
   const resolvedWorkspace = resolveWorkspace(workspaceRoot, options.workspace);
   const apiAlreadyRunning = await isApiRunning(DEFAULT_API_PORT);
 
@@ -78,10 +81,13 @@ export async function runUiCommand(workspaceRoot: string, options: UiCommandOpti
       cwd: resolvedWorkspace,
       stdio: 'inherit',
       env: buildSafeEnv(),
+      shell: process.platform === 'win32',
     });
 
     child.once('error', (error) => {
-      rejectPromise(new ServiceDomainError('UNAVAILABLE', `Failed to start UI process: ${error.message}`));
+      rejectPromise(
+        new ServiceDomainError('UNAVAILABLE', `Failed to start UI process: ${error.message}`)
+      );
     });
 
     child.once('exit', (code, signal) => {
@@ -95,8 +101,8 @@ export async function runUiCommand(workspaceRoot: string, options: UiCommandOpti
       rejectPromise(
         new ServiceDomainError(
           'INTERNAL',
-          `UI process exited with code ${code ?? 'unknown'}${signalSuffix}.`,
-        ),
+          `UI process exited with code ${code ?? 'unknown'}${signalSuffix}.`
+        )
       );
     });
   });

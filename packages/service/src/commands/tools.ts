@@ -1,15 +1,15 @@
-import {
-  type Agent,
-  type AgentTool,
-} from '@ai-team/core';
-import {
-  type ListToolsOptions,
-  type ListToolsResponse,
-  type UpdateAgentToolOptions,
-  type UpdateAgentToolResponse,
-} from '../contracts.js';
-import { createContainer, TOKENS } from '../container/index.js';
-import { resolveAgentForOperation } from '../utils/agent-resolution.js';
+import { type Agent, type AgentManager, type AgentTool } from '@ai-team/infrastructure';
+import type { ToolManager } from '../tools/tool-manager.js';
+import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-client';
+export interface ListToolsOptions {
+  agent?: string;
+}
+
+export interface UpdateAgentToolOptions {
+  agent: string;
+  tool: string;
+}
+import { resolveAgentForOperationAsync } from '../utils/agent-resolution.js';
 import {
   type GovernanceRequest,
   assertDefaultGovernancePolicy,
@@ -17,7 +17,12 @@ import {
   resolveGovernanceActor,
 } from './governance.js';
 
-function buildCatalogEntry(toolManager: { toSchema: (toolName: string) => { parameters?: Record<string, unknown> } | undefined }, tool: AgentTool) {
+function buildCatalogEntry(
+  toolManager: {
+    toSchema: (toolName: string) => { parameters?: Record<string, unknown> } | undefined;
+  },
+  tool: AgentTool
+) {
   return {
     name: tool.name,
     description: tool.description,
@@ -32,12 +37,13 @@ function sortToolsByName(tools: AgentTool[]): AgentTool[] {
   return [...tools].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function resolveFullAgent(workspaceRoot: string, query: string, operation: string): Promise<Agent> {
-  const container = createContainer({ workspaceRoot });
-  const agentManager = container.resolve(TOKENS.AgentManager);
-  await agentManager.initialize();
-  const resolved = resolveAgentForOperation(agentManager, query, operation);
-  const agent = agentManager.getAgent(resolved.id);
+async function resolveFullAgent(
+  agentManager: AgentManager,
+  query: string,
+  operation: string
+): Promise<Agent> {
+  const resolved = await resolveAgentForOperationAsync(agentManager, query, operation);
+  const agent = await agentManager.getAgentAsync(resolved.id);
   if (!agent) {
     throw new Error(`Agent not found: ${resolved.id}`);
   }
@@ -45,29 +51,30 @@ async function resolveFullAgent(workspaceRoot: string, query: string, operation:
 }
 
 export async function listToolsCommand(
-  workspaceRoot: string,
-  options: ListToolsOptions = {},
+  agentManager: AgentManager,
+  toolManager: ToolManager,
+  options: ListToolsOptions = {}
 ): Promise<ListToolsResponse> {
-  const container = createContainer({ workspaceRoot });
-  const toolManager = container.resolve(TOKENS.ToolManager);
   const allTools = sortToolsByName(toolManager.getAll());
 
   if (!options.agent) {
     return {
-      entries: allTools.map(tool => buildCatalogEntry(toolManager, tool)),
+      entries: allTools.map((tool) => buildCatalogEntry(toolManager, tool)),
       timestamp: new Date().toISOString(),
     };
   }
 
-  const agent = await resolveFullAgent(workspaceRoot, options.agent, 'list tools for agent');
-  const entries = await Promise.all(allTools.map(async (tool) => {
-    const permission = await toolManager.canExecute(agent, tool.name, {});
-    return {
-      ...buildCatalogEntry(toolManager, tool),
-      allowedForAgent: permission.allowed,
-      deniedReason: permission.allowed ? undefined : permission.reason,
-    };
-  }));
+  const agent = await resolveFullAgent(agentManager, options.agent, 'list tools for agent');
+  const entries = await Promise.all(
+    allTools.map(async (tool) => {
+      const permission = await toolManager.canExecute(agent, tool.name, {});
+      return {
+        ...buildCatalogEntry(toolManager, tool),
+        allowedForAgent: permission.allowed,
+        deniedReason: permission.allowed ? undefined : permission.reason,
+      };
+    })
+  );
 
   return {
     entries,
@@ -81,16 +88,12 @@ export async function listToolsCommand(
 }
 
 export async function allowToolCommand(
-  workspaceRoot: string,
-  options: UpdateAgentToolOptions,
+  agentManager: AgentManager,
+  toolManager: ToolManager,
+  options: UpdateAgentToolOptions
 ): Promise<UpdateAgentToolResponse> {
-  const container = createContainer({ workspaceRoot });
-  const toolManager = container.resolve(TOKENS.ToolManager);
-  const agentManager = container.resolve(TOKENS.AgentManager);
-  await agentManager.initialize();
-
-  const resolved = resolveAgentForOperation(agentManager, options.agent, 'allow tool');
-  const agent = agentManager.getAgent(resolved.id);
+  const resolved = await resolveAgentForOperationAsync(agentManager, options.agent, 'allow tool');
+  const agent = await agentManager.getAgentAsync(resolved.id);
   if (!agent) {
     throw new Error(`Agent not found: ${resolved.id}`);
   }
@@ -104,12 +107,17 @@ export async function allowToolCommand(
   const toolAllowed = currentTools.includes(options.tool);
   const toolDenied = currentDenied.includes(options.tool);
 
-  const nextTools = toolAllowed ? currentTools : [...currentTools, options.tool].sort((a, b) => a.localeCompare(b));
-  const nextDenied = currentDenied.filter(t => t !== options.tool);
+  const nextTools = toolAllowed
+    ? currentTools
+    : [...currentTools, options.tool].sort((a, b) => a.localeCompare(b));
+  const nextDenied = currentDenied.filter((t) => t !== options.tool);
   const changed = !toolAllowed || toolDenied;
 
   const updatedAgent = changed
-    ? await agentManager.updateAgent(agent.id, { tools: nextTools, disallowedTools: nextDenied.length > 0 ? nextDenied : undefined })
+    ? await agentManager.updateAgentAsync(agent.id, {
+        tools: nextTools,
+        disallowedTools: nextDenied.length > 0 ? nextDenied : undefined,
+      })
     : agent;
 
   return {
@@ -128,31 +136,32 @@ export async function allowToolCommand(
  * Alias for allowToolCommand using governance naming.
  */
 export async function toolAllowCommand(
-  workspaceRoot: string,
+  agentManager: AgentManager,
+  toolManager: ToolManager,
   options: UpdateAgentToolOptions,
-  governance: GovernanceRequest,
+  governance: GovernanceRequest
 ): Promise<UpdateAgentToolResponse> {
-  const actor = await resolveGovernanceActor(workspaceRoot, governance.requestedBy, 'tool_allow');
+  const actor = await resolveGovernanceActor(agentManager, governance.requestedBy, 'tool_allow');
   assertDefaultGovernancePolicy(actor);
   await requireUserApproval(
     governance,
-    `Approve tool_allow by ${actor.name} (${actor.id}) for target agent '${options.agent}' and tool '${options.tool}'?`,
+    `Approve tool_allow by ${actor.name} (${actor.id}) for target agent '${options.agent}' and tool '${options.tool}'?`
   );
 
-  return allowToolCommand(workspaceRoot, options);
+  return allowToolCommand(agentManager, toolManager, options);
 }
 
 export async function disallowToolCommand(
-  workspaceRoot: string,
-  options: UpdateAgentToolOptions,
+  agentManager: AgentManager,
+  toolManager: ToolManager,
+  options: UpdateAgentToolOptions
 ): Promise<UpdateAgentToolResponse> {
-  const container = createContainer({ workspaceRoot });
-  const toolManager = container.resolve(TOKENS.ToolManager);
-  const agentManager = container.resolve(TOKENS.AgentManager);
-  await agentManager.initialize();
-
-  const resolved = resolveAgentForOperation(agentManager, options.agent, 'disallow tool');
-  const agent = agentManager.getAgent(resolved.id);
+  const resolved = await resolveAgentForOperationAsync(
+    agentManager,
+    options.agent,
+    'disallow tool'
+  );
+  const agent = await agentManager.getAgentAsync(resolved.id);
   if (!agent) {
     throw new Error(`Agent not found: ${resolved.id}`);
   }
@@ -163,7 +172,7 @@ export async function disallowToolCommand(
 
   const currentTools = agent.tools ?? [];
   const currentDenied = agent.disallowedTools ?? [];
-  const nextTools = currentTools.filter(t => t !== options.tool);
+  const nextTools = currentTools.filter((t) => t !== options.tool);
   const alreadyDenied = currentDenied.includes(options.tool);
   const nextDenied = alreadyDenied
     ? currentDenied
@@ -171,7 +180,10 @@ export async function disallowToolCommand(
   const changed = nextTools.length !== currentTools.length || !alreadyDenied;
 
   const updatedAgent = changed
-    ? await agentManager.updateAgent(agent.id, { tools: nextTools.length > 0 ? nextTools : undefined, disallowedTools: nextDenied })
+    ? await agentManager.updateAgentAsync(agent.id, {
+        tools: nextTools.length > 0 ? nextTools : undefined,
+        disallowedTools: nextDenied,
+      })
     : agent;
 
   return {
@@ -190,16 +202,17 @@ export async function disallowToolCommand(
  * Alias for disallowToolCommand using governance naming.
  */
 export async function toolDenyCommand(
-  workspaceRoot: string,
+  agentManager: AgentManager,
+  toolManager: ToolManager,
   options: UpdateAgentToolOptions,
-  governance: GovernanceRequest,
+  governance: GovernanceRequest
 ): Promise<UpdateAgentToolResponse> {
-  const actor = await resolveGovernanceActor(workspaceRoot, governance.requestedBy, 'tool_deny');
+  const actor = await resolveGovernanceActor(agentManager, governance.requestedBy, 'tool_deny');
   assertDefaultGovernancePolicy(actor);
   await requireUserApproval(
     governance,
-    `Approve tool_deny by ${actor.name} (${actor.id}) for target agent '${options.agent}' and tool '${options.tool}'?`,
+    `Approve tool_deny by ${actor.name} (${actor.id}) for target agent '${options.agent}' and tool '${options.tool}'?`
   );
 
-  return disallowToolCommand(workspaceRoot, options);
+  return disallowToolCommand(agentManager, toolManager, options);
 }

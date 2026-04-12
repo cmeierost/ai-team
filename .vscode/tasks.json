@@ -5,9 +5,52 @@
       "label": "build:cli",
       "type": "shell",
       "command": "pnpm",
-      "args": ["--filter", "@ai-team/cli", "build"],
+      "args": [
+        "--filter",
+        "@ai-team/cli",
+        "build"
+      ],
       "group": "build",
-      "problemMatcher": ["$tsc"]
+      "problemMatcher": [
+        "$tsc"
+      ]
+    },
+    {
+      "label": "Log: Tail backend",
+      "type": "shell",
+      "command": "node",
+      "args": [
+        "scripts/tail-log.mjs"
+      ],
+      "isBackground": true,
+      "presentation": {
+        "label": "backend.log",
+        "group": "logs",
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Log: Tail backend (all sources)",
+      "type": "shell",
+      "command": "node",
+      "args": [
+        "scripts/tail-log.mjs",
+        "--all"
+      ],
+      "isBackground": true,
+      "presentation": {
+        "label": "backend.log (all)",
+        "group": "logs",
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": []
     }
   ]
 }

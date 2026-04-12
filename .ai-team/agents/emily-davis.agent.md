@@ -68,4 +68,6 @@ When a task falls outside your scope, guide the user to the right agent using `/
 
 - **Escalate to CEO** → `michael-brown`: This needs executive-level direction or approval.
 - **Scout Talent** → `john-smith`: Research and recommend skills or agent profiles for the need described above.
+- **[auto] Report to Michael Brown** → `michael-brown`: Reporting back with my findings and progress.
+- **[auto] Delegate to John Smith** → `john-smith`: Please take this on within your area of responsibility.
 

@@ -1,17 +1,17 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { ContextLevel, RoleType, AgentManager, loadTeamConfig } from '@ai-team/core';
+import { ContextLevel, RoleType, AgentManager, loadTeamConfig } from '@ai-team/infrastructure';
 import type {
-  AiTeamClient,
+  IAiTeamMediator,
   CreateAgentSetupInput,
   CreateOptions,
   CreateSkillSetupInput,
 } from '@ai-team/api-client';
-import type { LlmGenerationParams, LlmProfile } from '@ai-team/core';
+import type { LlmGenerationParams, LlmProfile } from '@ai-team/infrastructure';
 import { runCommandStream } from './stream-runner.js';
 import { interactiveAvatarSelection } from '../utils/avatar-selection.js';
 
-export async function createCommand(client: AiTeamClient, type: string, options: CreateOptions) {
+export async function createCommand(client: IAiTeamMediator, type: string, options: CreateOptions) {
   const normalizedType = type.toLowerCase();
   const nextOptions = { ...options };
   let agentName: string | undefined;
@@ -35,21 +35,21 @@ export async function createCommand(client: AiTeamClient, type: string, options:
   // Offer avatar selection after agent creation (only if interactive)
   if (normalizedType === 'agent' && agentName && nextOptions.interactive !== false) {
     try {
-      const { wantAvatar } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'wantAvatar',
-        message: 'Would you like to set an avatar now?',
-        default: false,
-      }]);
+      const { wantAvatar } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'wantAvatar',
+          message: 'Would you like to set an avatar now?',
+          default: false,
+        },
+      ]);
 
       if (wantAvatar) {
         const workspaceRoot = process.cwd();
         const agentManager = new AgentManager(workspaceRoot);
-        await agentManager.initialize();
-        
-        const agent = agentManager.resolveAgentOrThrow(agentName);
+        const agent = await agentManager.resolveAgentOrThrowAsync(agentName);
         const teamConfig = await loadTeamConfig(workspaceRoot);
-        
+
         if (teamConfig) {
           await interactiveAvatarSelection(agent, workspaceRoot, teamConfig);
         } else {
@@ -101,7 +101,12 @@ async function askAgentSetup(): Promise<CreateAgentSetupInput> {
     role: answers.role,
     contextLevel: answers.contextLevel,
     reportsTo: answers.reportsTo || undefined,
-    features: answers.features ? answers.features.split(',').map((part: string) => part.trim()).filter(Boolean) : undefined,
+    features: answers.features
+      ? answers.features
+          .split(',')
+          .map((part: string) => part.trim())
+          .filter(Boolean)
+      : undefined,
     llm: await askLlmProfile('Add agent-specific LLM overrides?'),
   };
 }
@@ -242,7 +247,7 @@ async function askLlmProfile(message: string): Promise<LlmProfile | undefined> {
       stop: stop.length > 0 ? stop : undefined,
     };
 
-    if (Object.values(params).every(value => value === undefined)) {
+    if (Object.values(params).every((value) => value === undefined)) {
       params = undefined;
     }
   }
@@ -255,7 +260,7 @@ async function askLlmProfile(message: string): Promise<LlmProfile | undefined> {
     params,
   };
 
-  if (Object.values(profile).every(value => value === undefined)) {
+  if (Object.values(profile).every((value) => value === undefined)) {
     return undefined;
   }
 
@@ -296,6 +301,6 @@ function toStringList(value: unknown): string[] {
 
   return value
     .split(',')
-    .map(part => part.trim())
+    .map((part) => part.trim())
     .filter(Boolean);
 }

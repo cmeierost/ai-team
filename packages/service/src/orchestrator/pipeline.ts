@@ -16,10 +16,10 @@ import type {
   AgentTool,
   ChatCompletionMessageParam,
   ChatMessage,
-  LlmToolDefinition,
   Skill,
   StructuredToolResult,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
+import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 
 // ── 1. Context Compression ────────────────────────────────────────────────────
@@ -32,10 +32,7 @@ import type { OrchestratorContext } from './pipeline-context.js';
  * Future: summarize oldest N messages, or apply importance-weighted pruning.
  */
 export interface IContextCompressor {
-  compress(
-    history: ChatMessage[],
-    ctx: OrchestratorContext,
-  ): Promise<ChatMessage[]>;
+  compress(history: ChatMessage[], ctx: OrchestratorContext): Promise<ChatMessage[]>;
 }
 
 // ── 2. Context Builder ────────────────────────────────────────────────────────
@@ -49,10 +46,7 @@ export interface IContextCompressor {
  * Future: inject RAG results, apply per-agent formatting rules.
  */
 export interface IContextBuilder {
-  build(
-    history: ChatMessage[],
-    ctx: OrchestratorContext,
-  ): Promise<ChatCompletionMessageParam[]>;
+  build(history: ChatMessage[], ctx: OrchestratorContext): Promise<ChatCompletionMessageParam[]>;
 }
 
 // ── 3. Context Enricher ───────────────────────────────────────────────────────
@@ -86,10 +80,7 @@ export interface IContextEnricher {
  * Future: embedding-based retrieval over allowed file index.
  */
 export interface IRagProvider {
-  retrieve(
-    query: string,
-    ctx: OrchestratorContext,
-  ): Promise<string | null>;
+  retrieve(query: string, ctx: OrchestratorContext): Promise<string | null>;
 }
 
 // ── 5. Tool Resolver ──────────────────────────────────────────────────────────
@@ -164,7 +155,7 @@ export interface ITurnResultParser {
     structuredResults: StructuredToolResult[],
     fullResponse: string,
     persistedContent: string,
-    ctx: OrchestratorContext,
+    ctx: OrchestratorContext
   ): Partial<TurnResult> | null;
 }
 
@@ -245,10 +236,10 @@ export interface IOrchestratorHookPlugin {
   onSkillsResolved?(payload: SkillsResolvedHookPayload): Promise<void> | void;
   onToolsResolved?(payload: ToolsResolvedHookPayload): Promise<void> | void;
   onBeforePersistAssistantMessage?(
-    payload: BeforePersistAssistantMessageHookPayload,
+    payload: BeforePersistAssistantMessageHookPayload
   ): Promise<string | void> | string | void;
   onAfterPersistAssistantMessage?(
-    payload: AfterPersistAssistantMessageHookPayload,
+    payload: AfterPersistAssistantMessageHookPayload
   ): Promise<void> | void;
   onTurnCompleted?(payload: TurnCompletedHookPayload): Promise<void> | void;
 }

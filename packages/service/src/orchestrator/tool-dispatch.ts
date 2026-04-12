@@ -19,13 +19,13 @@ import {
   isToolCatalogResult,
   isTeamListResult,
   type StructuredToolResult,
-  type FsPathAccessEnvelope,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
+import type { FsPathAccessEnvelope } from '../tools/catalog/fs-access.js';
 import { ProposalStore } from '../storage/proposal-store.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import { requestConfirm } from './question-io.js';
 import { emitEvent, emitToolEvent } from './stream-events.js';
-import type { ToolDenialEvent, ToolRuntimePayloadEvent } from '../contracts.js';
+import type { ToolDenialEvent, ToolRuntimePayloadEvent } from '@ai-team/api-client';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -94,8 +94,8 @@ function toToolDenialEvent(denial: ToolDenial): ToolDenialEvent {
 // Tools whose results never need human approval (read-only / info-only).
 const SILENT_TOOL_PREFIXES = ['find_', 'list_', 'read_', 'search_', 'get_'];
 const SILENT_TOOL_NAMES = new Set([
-  'com_handoff',   // orchestration — already requires delegation permission
-  'hr_hire',       // requires manage-agents permission (checked by ToolManager)
+  'com_handoff', // orchestration — already requires delegation permission
+  'hr_hire', // requires manage-agents permission (checked by ToolManager)
   'http_fetch',
   'http_crawl',
   'fs_who_should',
@@ -114,7 +114,7 @@ const SILENT_TOOL_NAMES = new Set([
 
 function requiresConfirmation(toolName: string): boolean {
   if (SILENT_TOOL_NAMES.has(toolName)) return false;
-  if (SILENT_TOOL_PREFIXES.some(p => toolName.startsWith(p))) return false;
+  if (SILENT_TOOL_PREFIXES.some((p) => toolName.startsWith(p))) return false;
   return true;
 }
 
@@ -123,7 +123,7 @@ function requiresConfirmation(toolName: string): boolean {
 export async function dispatchToolCall(
   call: ToolCallRequest,
   ctx: OrchestratorContext,
-  contextFiles?: string[],
+  contextFiles?: string[]
 ): Promise<ToolCallResponse> {
   const { toolName, toolCallId, args } = call;
   const label = `${toolName}(${formatArgs(args)})`;
@@ -143,51 +143,49 @@ export async function dispatchToolCall(
 
   emitToolEvent(ctx.hooks, toolName, 'start', 'Executing');
 
-  const execResult = await ctx.toolManager.execute(
-    ctx.agent,
-    toolName,
-    args,
-    { agentId: ctx.agent.id, workspaceRoot: ctx.workspaceRoot, currentFiles: contextFiles },
-  );
+  const execResult = await ctx.toolManager.execute(ctx.agent, toolName, args, {
+    agentId: ctx.agent.id,
+    workspaceRoot: ctx.workspaceRoot,
+    currentFiles: contextFiles,
+  });
 
   // ── Strip _fileChanges early — before serialisation, history, and events ──
   const fileChanges = execResult.ok ? extractFileChanges(execResult.result) : [];
-  const strippedResult = fileChanges.length > 0
-    ? stripFileChanges(execResult.result)
-    : execResult.result;
+  const strippedResult =
+    fileChanges.length > 0 ? stripFileChanges(execResult.result) : execResult.result;
 
   // ── Apply per-tool LLM formatting if defined ──────────────────────────────
   const tool = ctx.toolManager.get(toolName);
-  const llmResult = execResult.ok && tool?.formatForLlm
-    ? tool.formatForLlm(strippedResult)
-    : strippedResult;
+  const llmResult =
+    execResult.ok && tool?.formatForLlm ? tool.formatForLlm(strippedResult) : strippedResult;
 
   const outputText = execResult.ok
     ? serialise(llmResult)
     : (execResult.error ?? 'Tool execution failed');
 
   await appendToolHistory(
-    ctx, toolName, outputText,
+    ctx,
+    toolName,
+    outputText,
     execResult.ok ? strippedResult : undefined,
     execResult.ok && tool?.formatForLlm ? llmResult : undefined,
-    args,
+    args
   );
 
   const denial = classifyToolDenial(execResult.ok, strippedResult, outputText);
 
-  const toolPhase = denial?.kind === 'policy-denied'
-    ? 'denied'
-    : (execResult.ok ? 'result' : 'error');
+  const toolPhase =
+    denial?.kind === 'policy-denied' ? 'denied' : execResult.ok ? 'result' : 'error';
 
-  const toolEventMessage = denial?.message
-    ?? (execResult.ok ? formatToolResultPreview(outputText) : outputText);
+  const toolEventMessage =
+    denial?.message ?? (execResult.ok ? formatToolResultPreview(outputText) : outputText);
 
   const toolEventPayload = buildToolRuntimePayload(
     toolName,
-    denial ? 'denied' : (execResult.ok ? 'result' : 'error'),
+    denial ? 'denied' : execResult.ok ? 'result' : 'error',
     execResult.ok ? strippedResult : outputText,
     denial,
-    execResult.ok && tool?.formatForLlm ? llmResult : undefined,
+    execResult.ok && tool?.formatForLlm ? llmResult : undefined
   );
 
   emitToolEvent(
@@ -196,7 +194,7 @@ export async function dispatchToolCall(
     toolPhase,
     toolEventMessage,
     denial ? toToolDenialEvent(denial) : undefined,
-    toolEventPayload,
+    toolEventPayload
   );
 
   const structured = execResult.ok ? asStructuredToolResult(strippedResult) : undefined;
@@ -204,8 +202,8 @@ export async function dispatchToolCall(
   // ── 5. fs_apply_patch proposal persistence ────────────────────────────────
 
   if (execResult.ok && toolName === 'fs_apply_patch') {
-    await persistCodeEditProposal(execResult.result, args, ctx).catch(err =>
-      console.error('[tool-dispatch] Failed to persist code edit proposal:', err),
+    await persistCodeEditProposal(execResult.result, args, ctx).catch((err) =>
+      console.error('[tool-dispatch] Failed to persist code edit proposal:', err)
     );
   }
 
@@ -220,9 +218,18 @@ export async function dispatchToolCall(
       // Simple line-count diff: count added and removed lines
       const maxLen = Math.max(oldLines.length, newLines.length);
       for (let i = 0; i < maxLen; i++) {
-        if (i >= oldLines.length) { additions++; continue; }
-        if (i >= newLines.length) { deletions++; continue; }
-        if (oldLines[i] !== newLines[i]) { additions++; deletions++; }
+        if (i >= oldLines.length) {
+          additions++;
+          continue;
+        }
+        if (i >= newLines.length) {
+          deletions++;
+          continue;
+        }
+        if (oldLines[i] !== newLines[i]) {
+          additions++;
+          deletions++;
+        }
       }
     }
 
@@ -234,7 +241,7 @@ export async function dispatchToolCall(
       filesChanged: fileChanges.length,
       additions,
       deletions,
-      files: fileChanges.map(fc => ({
+      files: fileChanges.map((fc) => ({
         filePath: fc.filePath,
         oldContent: fc.oldContent,
         newContent: fc.newContent,
@@ -255,7 +262,7 @@ export async function dispatchToolCall(
 async function requestExecutionApproval(
   toolName: string,
   label: string,
-  ctx: OrchestratorContext,
+  ctx: OrchestratorContext
 ): Promise<ToolDenial | undefined> {
   if (!requiresConfirmation(toolName)) return undefined;
 
@@ -277,7 +284,7 @@ async function requestExecutionApproval(
     'denied',
     denied,
     toToolDenialEvent(denial),
-    buildToolRuntimePayload(toolName, 'denied', denied, denial),
+    buildToolRuntimePayload(toolName, 'denied', denied, denial)
   );
   await appendToolHistory(ctx, toolName, denied);
   return denial;
@@ -288,7 +295,7 @@ function buildToolRuntimePayload(
   outcome: ToolRuntimePayloadEvent['outcome'],
   result: unknown,
   denial?: ToolDenial,
-  resultLlm?: unknown,
+  resultLlm?: unknown
 ): ToolRuntimePayloadEvent {
   return {
     toolName,
@@ -301,11 +308,11 @@ function buildToolRuntimePayload(
 
 function asStructuredToolResult(result: unknown): StructuredToolResult | undefined {
   if (
-    isHandoffRequest(result)
-    || isHireResult(result)
-    || isFindCapableAgentResult(result)
-    || isToolCatalogResult(result)
-    || isTeamListResult(result)
+    isHandoffRequest(result) ||
+    isHireResult(result) ||
+    isFindCapableAgentResult(result) ||
+    isToolCatalogResult(result) ||
+    isTeamListResult(result)
   ) {
     return result;
   }
@@ -313,12 +320,7 @@ function asStructuredToolResult(result: unknown): StructuredToolResult | undefin
 }
 
 function isAccessEnvelope(v: unknown): v is FsPathAccessEnvelope {
-  return (
-    !!v &&
-    typeof v === 'object' &&
-    'allowed' in v &&
-    'alternativeContexts' in v
-  );
+  return !!v && typeof v === 'object' && 'allowed' in v && 'alternativeContexts' in v;
 }
 
 function classifyToolDenial(ok: boolean, result: unknown, message: string): ToolDenial | undefined {
@@ -356,7 +358,9 @@ function classifyToolDenial(ok: boolean, result: unknown, message: string): Tool
   };
 }
 
-function extractAlternativeContexts(payload: Record<string, unknown>): Array<{ contextId: string; allowedPaths: string[] }> {
+function extractAlternativeContexts(
+  payload: Record<string, unknown>
+): Array<{ contextId: string; allowedPaths: string[] }> {
   const direct = payload.alternativeContexts;
   const access = payload.access;
   const accessAlternatives = isAccessEnvelope(access) ? access.alternativeContexts : undefined;
@@ -396,21 +400,23 @@ async function appendToolHistory(
   output: string,
   rawResult?: unknown,
   llmResult?: unknown,
-  callArgs?: unknown,
+  callArgs?: unknown
 ): Promise<void> {
   const prepared = await prepareToolOutputForHistory(ctx, toolName, output);
-  const content = prepared.filtered && prepared.label
-    ? `[tool:${toolName}] [filtered:${prepared.label}] ${prepared.output}`
-    : `[tool:${toolName}] ${prepared.output}`;
+  const content =
+    prepared.filtered && prepared.label
+      ? `[tool:${toolName}] [filtered:${prepared.label}] ${prepared.output}`
+      : `[tool:${toolName}] ${prepared.output}`;
 
-  const toolCall = rawResult !== undefined
-    ? {
-        tool: toolName,
-        params: (callArgs ?? {}) as Record<string, unknown>,
-        result: rawResult,
-        ...(llmResult !== undefined ? { resultLlm: llmResult } : {}),
-      }
-    : undefined;
+  const toolCall =
+    rawResult !== undefined
+      ? {
+          tool: toolName,
+          params: (callArgs ?? {}) as Record<string, unknown>,
+          result: rawResult,
+          ...(llmResult !== undefined ? { resultLlm: llmResult } : {}),
+        }
+      : undefined;
 
   await ctx.sessionManager.appendMessage(ctx.sessionId, {
     from: ctx.agent.id,
@@ -424,14 +430,19 @@ async function appendToolHistory(
 async function prepareToolOutputForHistory(
   ctx: OrchestratorContext,
   toolName: string,
-  output: string,
+  output: string
 ): Promise<PreparedHistoryOutput> {
   const latestUserText = getLatestHumanMessageText(ctx);
   const intent = parseToolHistoryIntent(latestUserText);
   const deterministic = applyDeterministicFilters(output, intent);
 
   if (intent.mode) {
-    const llmTransformed = await applyLlmTransform(ctx, toolName, deterministic.output, intent.mode);
+    const llmTransformed = await applyLlmTransform(
+      ctx,
+      toolName,
+      deterministic.output,
+      intent.mode
+    );
     if (llmTransformed) {
       return {
         output: llmTransformed,
@@ -506,7 +517,10 @@ function parseToolHistoryIntent(input: string): ToolHistoryIntent {
   return intent;
 }
 
-function applyDeterministicFilters(output: string, intent: ToolHistoryIntent): { output: string; changed: boolean; label: string } {
+function applyDeterministicFilters(
+  output: string,
+  intent: ToolHistoryIntent
+): { output: string; changed: boolean; label: string } {
   const DEFAULT_MAX_LINES = 120;
   const DEFAULT_MAX_CHARS = 6000;
   const LARGE_OUTPUT_CHARS = 8000;
@@ -566,7 +580,10 @@ function applyDeterministicFilters(output: string, intent: ToolHistoryIntent): {
   };
 }
 
-function applyLineWindow(lines: string[], intent: ToolHistoryIntent): { lines: string[]; label?: string } {
+function applyLineWindow(
+  lines: string[],
+  intent: ToolHistoryIntent
+): { lines: string[]; label?: string } {
   if (intent.lineStart !== undefined && intent.lineEnd !== undefined) {
     const start = Math.max(1, Math.min(intent.lineStart, lines.length || 1));
     const end = Math.max(start, Math.min(intent.lineEnd, lines.length || start));
@@ -597,13 +614,13 @@ async function applyLlmTransform(
   ctx: OrchestratorContext,
   toolName: string,
   input: string,
-  mode: 'summary' | 'analysis',
+  mode: 'summary' | 'analysis'
 ): Promise<string | undefined> {
   const llm = ctx.llmService as {
     rawChat?: (
       systemPrompt: string,
       messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
-      options?: { maxTokens?: number; temperature?: number },
+      options?: { maxTokens?: number; temperature?: number }
     ) => Promise<string>;
   };
 
@@ -611,15 +628,16 @@ async function applyLlmTransform(
   if (!input.trim()) return input;
 
   const clipped = input.length > 20_000 ? `${input.slice(0, 20_000)}\n...[input clipped]` : input;
-  const systemPrompt = mode === 'summary'
-    ? 'Summarize tool output faithfully and concisely. Keep key facts, counts, errors, and URLs. Do not invent details. Max 12 bullets.'
-    : 'Analyze tool output concisely. Return: key findings, risks/issues, and actionable next steps. Do not invent details.';
+  const systemPrompt =
+    mode === 'summary'
+      ? 'Summarize tool output faithfully and concisely. Keep key facts, counts, errors, and URLs. Do not invent details. Max 12 bullets.'
+      : 'Analyze tool output concisely. Return: key findings, risks/issues, and actionable next steps. Do not invent details.';
 
   try {
     const transformed = await llm.rawChat(
       systemPrompt,
       [{ role: 'user', content: `Tool: ${toolName}\n\n${clipped}` }],
-      { maxTokens: 450, temperature: 0.1 },
+      { maxTokens: 450, temperature: 0.1 }
     );
     return transformed.trim();
   } catch {
@@ -632,7 +650,7 @@ async function applyLlmTransform(
 async function persistCodeEditProposal(
   result: unknown,
   args: unknown,
-  ctx: OrchestratorContext,
+  ctx: OrchestratorContext
 ): Promise<void> {
   const r = result as Record<string, unknown>;
   if (r?.status !== 'pending_approval') return;
@@ -651,7 +669,11 @@ async function persistCodeEditProposal(
       : path.join(ctx.workspaceRoot, change.filePath);
     await fs.mkdir(path.dirname(absPath), { recursive: true });
     await fs.writeFile(absPath, change.newContent, 'utf8');
-    resolvedFiles.push({ filePath: absPath, oldContent: change.oldContent, newContent: change.newContent });
+    resolvedFiles.push({
+      filePath: absPath,
+      oldContent: change.oldContent,
+      newContent: change.newContent,
+    });
   }
 
   const store = new ProposalStore(ctx.workspaceRoot);
@@ -671,9 +693,18 @@ async function persistCodeEditProposal(
       const newLines = (f.newContent ?? '').split('\n');
       const maxLen = Math.max(oldLines.length, newLines.length);
       for (let i = 0; i < maxLen; i++) {
-        if (i >= oldLines.length) { additions++; continue; }
-        if (i >= newLines.length) { deletions++; continue; }
-        if (oldLines[i] !== newLines[i]) { additions++; deletions++; }
+        if (i >= oldLines.length) {
+          additions++;
+          continue;
+        }
+        if (i >= newLines.length) {
+          deletions++;
+          continue;
+        }
+        if (oldLines[i] !== newLines[i]) {
+          additions++;
+          deletions++;
+        }
       }
     }
   }
@@ -736,7 +767,12 @@ function formatToolResultPreview(outputText: string): string {
 function isLikelyJsonDocument(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
-  if (!((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']')))) {
+  if (
+    !(
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    )
+  ) {
     return false;
   }
 

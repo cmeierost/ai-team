@@ -13,6 +13,3 @@ docs/architecture/**/*
 .ai-team/skills/knowledge-brief-writing/**/*
 .ai-team/agents/adrian-foster.agent.md
 .ai-team/agents/adrian-foster.agent.yml
-
-[create]
-analysis/**/*

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { API_BASE } from '../../context/TeamContext';
+import { useTeam } from '../../context/TeamContext';
 import { fileIcon } from './fileTreeUtils';
 import type { PatternMode, TreeNode } from './fileTreeTypes';
 
@@ -22,19 +22,16 @@ interface FilePermissionsProps {
   onToggle: (path: string, mode: PatternMode, current: boolean) => void;
 }
 
-async function openFileInIde(relativePath: string) {
+async function openFileInIde(client: ReturnType<typeof useTeam>['client'], relativePath: string) {
   try {
-    await fetch(`${API_BASE}/api/ide/open-file`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath: relativePath }),
-    });
+    await client.ide.openFile({ filePath: relativePath });
   } catch {
     // IDE bridge may not be connected.
   }
 }
 
 function FileTreeRowAction({ node, isDirectory, editMode, open, onToggleOpen }: Readonly<{ node: TreeNode; isDirectory: boolean; editMode: boolean; open: boolean; onToggleOpen: () => void }>) {
+  const { client } = useTeam();
   if (isDirectory) {
     return (
       <button
@@ -54,7 +51,7 @@ function FileTreeRowAction({ node, isDirectory, editMode, open, onToggleOpen }: 
   return (
     <button
       className="ft-expand ft-open-btn"
-      onClick={() => void openFileInIde(node.path)}
+      onClick={() => void openFileInIde(client, node.path)}
       title="Open in IDE"
       aria-label="Open in IDE"
     >
@@ -64,6 +61,7 @@ function FileTreeRowAction({ node, isDirectory, editMode, open, onToggleOpen }: 
 }
 
 function FileTreeRowName({ node, isDirectory, editMode }: Readonly<{ node: TreeNode; isDirectory: boolean; editMode: boolean }>) {
+  const { client } = useTeam();
   if (isDirectory || editMode) {
     return <span className="ft-name" title={node.path}>{node.name}</span>;
   }
@@ -72,7 +70,7 @@ function FileTreeRowName({ node, isDirectory, editMode }: Readonly<{ node: TreeN
     <button
       className="ft-name ft-name-link"
       title={`Open in IDE: ${node.path}`}
-      onClick={() => void openFileInIde(node.path)}
+      onClick={() => void openFileInIde(client, node.path)}
     >
       {node.name}
     </button>

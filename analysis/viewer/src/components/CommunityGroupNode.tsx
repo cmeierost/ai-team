@@ -1,4 +1,5 @@
 import React from 'react';
+import { groupColor } from '../types.js';
 
 export interface CommunityGroupNodeData {
   [key: string]: unknown;
@@ -13,6 +14,7 @@ export interface CommunityGroupNodeData {
   glueContractRatio?: number;
   exposureRatio?: number;
   coordinatorScope?: string;
+  groupId?: string;
 }
 
 /**
@@ -22,10 +24,12 @@ export interface CommunityGroupNodeData {
 export function CommunityGroupNode({ data }: { data: CommunityGroupNodeData }) {
   const hasContracts = data.contractCount > 0;
   const glueRatio = typeof data.glueContractRatio === 'number' ? Math.round(data.glueContractRatio * 100) : null;
-  const glueLooksContractHeavy = glueRatio == null ? hasContracts : glueRatio >= 60;
 
-  const borderColor = glueLooksContractHeavy ? 'rgba(6, 182, 212, 0.45)' : 'rgba(245, 158, 11, 0.35)';
-  const bgColor = glueLooksContractHeavy ? 'rgba(6, 182, 212, 0.05)' : 'rgba(245, 158, 11, 0.05)';
+  // Deterministic color from group id or label
+  const color = groupColor(data.groupId ?? data.label);
+
+  const borderColor = `color-mix(in srgb, ${color} 45%, transparent)`;
+  const bgColor = `color-mix(in srgb, ${color} 5%, transparent)`;
 
   const container: React.CSSProperties = {
     width: '100%',
@@ -46,7 +50,7 @@ export function CommunityGroupNode({ data }: { data: CommunityGroupNodeData }) {
     borderRadius: 4,
     fontSize: 11,
     fontWeight: 600,
-    color: glueLooksContractHeavy ? '#06b6d4' : '#f59e0b',
+    color,
     letterSpacing: '0.02em',
     whiteSpace: 'nowrap',
     pointerEvents: 'auto',

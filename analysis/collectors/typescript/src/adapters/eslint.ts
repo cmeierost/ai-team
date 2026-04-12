@@ -104,7 +104,7 @@ export function normalizeEslintOutput(
   rawOutput: EslintRawOutput[],
   rootDir: string,
   toolVersion: string,
-  ruleSet: string,
+  ruleSet: string
 ): LintSignal {
   const results: LintSignalResult[] = [];
 
@@ -145,13 +145,12 @@ export function normalizeEslintOutput(
 function execFileAsync(
   cmd: string,
   args: string[],
-  options: { cwd?: string; timeout?: number },
+  options: { cwd?: string; timeout?: number }
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
     execFile(cmd, args, { ...options, maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
-      const exitCode = error && 'code' in error && typeof error.code === 'number'
-        ? error.code
-        : error ? 1 : 0;
+      const exitCode =
+        error && 'code' in error && typeof error.code === 'number' ? error.code : error ? 1 : 0;
       resolve({ stdout: stdout ?? '', stderr: stderr ?? '', exitCode });
     });
   });

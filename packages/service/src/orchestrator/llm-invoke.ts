@@ -11,15 +11,15 @@
  * Does not touch session persistence, history, or handoff resolution.
  */
 
-import { withAbortSignal } from '@ai-team/core';
+import { withAbortSignal } from '@ai-team/infrastructure';
 import type {
   Agent,
   AgentTool,
   ChatCompletionMessageParam,
-  LlmToolDefinition,
   Skill,
   StructuredToolResult,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
+import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import { dispatchToolCall } from './tool-dispatch.js';
 import { extractStreamDeltaText } from './stream-events.js';
@@ -136,16 +136,14 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
   const structuredResults: StructuredToolResult[] = [];
 
   const workingMessages: ChatCompletionMessageParam[] =
-    toolDefs.length > 0
-      ? [buildToolPolicyMessage(tools), ...messages]
-      : messages;
+    toolDefs.length > 0 ? [buildToolPolicyMessage(tools), ...messages] : messages;
 
   try {
     if (toolDefs.length === 0) {
       const stream = await withAbortSignal(
         llmService.streamChat(agent, workingMessages, undefined, skills, teamRoster),
         hooks?.signal,
-        'Chat streaming aborted.',
+        'Chat streaming aborted.'
       );
 
       for await (const chunk of stream) {
@@ -165,7 +163,7 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
           async (toolCall) => {
             const response = await dispatchToolCall(
               { toolCallId: toolCall.toolCallId, toolName: toolCall.toolName, args: toolCall.args },
-              ctx,
+              ctx
             );
 
             if (response.structured) {
@@ -189,10 +187,10 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
               fullResponse += delta;
             }
           },
-          ctx.instructions,
+          ctx.instructions
         ),
         hooks?.signal,
-        'Chat aborted.',
+        'Chat aborted.'
       );
 
       flushFilter(state);

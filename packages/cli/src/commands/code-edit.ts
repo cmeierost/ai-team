@@ -3,7 +3,7 @@
  */
 
 import chalk from 'chalk';
-import { CodeEditManager, ProposalStatus, type CodeEditProposal } from '@ai-team/core';
+import { CodeEditManager, ProposalStatus, type CodeEditProposal } from '@ai-team/infrastructure';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 

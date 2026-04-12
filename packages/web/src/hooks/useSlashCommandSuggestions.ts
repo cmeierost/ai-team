@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { type ChatCommandRegistryEntry } from '@ai-team/api-client-http';
+import { type ChatCommandRegistryEntry } from '@ai-team/api-client';
 import { useTeam } from '../context/TeamContext';
 
 export interface SlashCommandSuggestionsState {
@@ -31,7 +31,7 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
 
   const { data: registry = [] } = useQuery({
     queryKey: ['slashCommands'],
-    queryFn: () => client.getSlashCommands(),
+    queryFn: () => client.commands.list(),
     staleTime: Infinity,
   });
 
@@ -43,9 +43,9 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
 
   const suggestions = useMemo((): ChatCommandRegistryEntry[] => {
     if (fragment === null) return [];
-    return registry.filter(cmd => {
+    return registry.filter((cmd) => {
       const keys = [cmd.key, ...(cmd.aliases ?? [])];
-      return keys.some(k => k.startsWith(fragment));
+      return keys.some((k) => k.startsWith(fragment));
     });
   }, [fragment]);
 
@@ -58,7 +58,7 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
   const isOpen = !dismissed && suggestions.length > 0;
 
   const navigate = (delta: 1 | -1) => {
-    setSelectedIndex(prev => {
+    setSelectedIndex((prev) => {
       const count = suggestions.length;
       if (count === 0) return -1;
       if (prev === -1) return delta === 1 ? 0 : count - 1;

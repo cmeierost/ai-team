@@ -14,6 +14,7 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 
 - Keep `@ai-team/core` UI-free.
 - Keep orchestration in `@ai-team/service`.
+- Keep container primitives in `@ai-team/container` and service-specific registrations in `@ai-team/service`.
 - Treat `@ai-team/api-client` (local/in-process) and `@ai-team/api-client-http` (remote/browser) as different clients.
 - Keep `@ai-team/vscode` as a thin IDE adapter over shared contracts.
 - In web: TanStack Query for server state; Zustand for live runtime client state.
@@ -35,7 +36,7 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 
 ## Permission model essentials
 
-- File rights are enforced by `@ai-team/permission`.
+- File rights are enforced through `packages/core/src/context/index.ts`, backed by `file-context` (`ContextRuntime` + parsers/matchers).
 - Keep per-agent path rules in `.ai-team/agents/<agent-id>.perm` (not in frontmatter).
 - Inheritance: `write => read + list`, `read => list`; explicit deny wins.
 
@@ -55,8 +56,8 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 - `packages/service/src/orchestrator/chat-orchestrator.ts`
 - `packages/service/src/orchestrator/send-turn.ts`
 - `packages/core/src/tools/index.ts`
-- `packages/core/src/context/permission-adapter.ts`
-- `packages/permission/src/engine.ts`
+- `packages/core/src/context/index.ts`
+- `file-context/src/context-runtime.ts`
 - `packages/api-server/src/server.ts`
 - `packages/api-client-http/src/websocket.ts`
 - `packages/vscode/src/extension.ts`

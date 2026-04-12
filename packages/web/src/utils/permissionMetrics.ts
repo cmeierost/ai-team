@@ -11,9 +11,6 @@ export function getPermissionMetricKind(right: PermissionRight): PermissionMetri
   if (right === 'write' || right === 'read') {
     return 'lines';
   }
-  if (right === 'create') {
-    return 'folders';
-  }
   return 'files';
 }
 

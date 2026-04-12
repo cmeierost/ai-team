@@ -15,7 +15,7 @@
     "storybook:build": "storybook build"
   },
   "dependencies": {
-    "@ai-team/api-client-http": "workspace:*",
+    "@ai-team/api-client": "workspace:^",
     "@ai-team/core": "workspace:*",
     "@tanstack/react-query": "^5.90.21",
     "@vscode/codicons": "^0.0.45",

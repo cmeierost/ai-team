@@ -9,8 +9,8 @@
  * This avoids duplicate system messages in the tool-call path.
  */
 
-import type { ChatCompletionMessageParam, ChatMessage } from '@ai-team/core';
-import { LlmService } from '@ai-team/core';
+import type { ChatCompletionMessageParam, ChatMessage } from '@ai-team/infrastructure';
+import { LlmService } from '@ai-team/infrastructure';
 import type { IContextBuilder } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
 

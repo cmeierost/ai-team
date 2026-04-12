@@ -10,10 +10,21 @@ interface SessionGraphProps {
   onSelectSession: (sessionId: string, agentId: string, handoffId?: string) => void;
 }
 
-export function SessionGraph({ thread, activeSessionId, onSelectSession }: Readonly<SessionGraphProps>) {
+export function SessionGraph({
+  thread,
+  activeSessionId,
+  onSelectSession,
+}: Readonly<SessionGraphProps>) {
   const { agents } = useTeam();
 
-  return <SessionGraphView thread={thread} agents={agents} activeSessionId={activeSessionId} onSelectSession={onSelectSession} />;
+  return (
+    <SessionGraphView
+      thread={thread}
+      agents={agents}
+      activeSessionId={activeSessionId}
+      onSelectSession={onSelectSession}
+    />
+  );
 }
 
 // --- SessionGraphLoader ---
@@ -24,7 +35,11 @@ interface SessionGraphLoaderProps {
   onSelectSession: (sessionId: string, agentId: string, handoffId?: string) => void;
 }
 
-export function SessionGraphLoader({ sessionId, activeSessionId, onSelectSession }: Readonly<SessionGraphLoaderProps>) {
+export function SessionGraphLoader({
+  sessionId,
+  activeSessionId,
+  onSelectSession,
+}: Readonly<SessionGraphLoaderProps>) {
   const { client } = useTeam();
   const [thread, setThread] = useState<SessionThread | null>(null);
   const [loadingThread, setLoadingThread] = useState(true);
@@ -32,14 +47,22 @@ export function SessionGraphLoader({ sessionId, activeSessionId, onSelectSession
 
   useEffect(() => {
     let cancelled = false;
+    const load = async () => {
+      try {
+        const result = await client.sessions.getThread(sessionId) as SessionThread;
+        if (!cancelled) setThread(result);
+      } catch (err: unknown) {
+        if (!cancelled) setThreadError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoadingThread(false);
+      }
+    };
     setLoadingThread(true);
     setThreadError(null);
-    client
-      .getSessionThread(sessionId)
-      .then((data) => { if (!cancelled) setThread(data); })
-      .catch((err: Error) => { if (!cancelled) setThreadError(err.message); })
-      .finally(() => { if (!cancelled) setLoadingThread(false); });
-    return () => { cancelled = true; };
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId, client]);
 
   if (loadingThread) {

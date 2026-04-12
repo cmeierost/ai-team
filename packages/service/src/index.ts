@@ -1,6 +1,11 @@
-import { CoreAiTeamService } from './core-service.js';
-import type { AiTeamService } from './contracts.js';
-
+export {
+  HttpError,
+  BadRequestError,
+  NotFoundError,
+  ForbiddenError,
+  ConflictError,
+  InternalError,
+} from './http-errors.js';
 export {
   CLI_COMMAND_REGISTRY,
   IN_CHAT_COMMAND_ALIASES,
@@ -10,78 +15,16 @@ export {
 } from './command-registry.js';
 export type { ChatCommandRegistryEntry } from './command-registry.js';
 
-export function createAiTeamService(workspaceRoot: string): AiTeamService {
-  return new CoreAiTeamService(workspaceRoot);
-}
-
-export type {
-  AiTeamCommandName,
-  AiTeamCommandResponseMap,
-  AiTeamMediator,
-  AiTeamService,
-  ChatOptions,
-  AddProviderOptions,
-  ConfigureProviderOptions,
-  CreateAgentSetupInput,
-  CreateOptions,
-  CreateSetupInput,
-  CreateSkillSetupInput,
-  Employee,
-  FireOptions,
-  HireOptions,
-  InitOptions,
-  ListEmployeesRequest,
-  MediatorContext,
-  MediatorEvent,
-  MediatorRuntimeEvent,
-  MediatorRequest,
-  QuestionAnswerValue,
-  QuestionChecklistRequest,
-  QuestionConfirmRequest,
-  QuestionInputRequest,
-  QuestionPasswordRequest,
-  QuestionRequest,
-  QuestionSelectChoice,
-  QuestionSelectRequest,
-  QuestionWorkflowMetadata,
-  ProviderSetupInput,
-  ProviderListOptions,
-  SearchSkillsOptions,
-  SearchSkillsResponse,
-  ListToolsOptions,
-  ListToolsResponse,
-  SetProviderOptions,
-  ProviderModelsOptions,
-  RefreshProviderModelsOptions,
-  UpdateAgentSkillOptions,
-  UpdateAgentSkillResponse,
-  UpdateAgentToolOptions,
-  UpdateAgentToolResponse,
-  PathMode,
-  FilePatternCollections,
-  GetFilePatternsResponse,
-  UpdateGlobalPathOptions,
-  UpdateGlobalPathResponse,
-  UpdateAgentPathOptions,
-  UpdateAgentPathResponse,
-  SearchAgentsRequest,
-  SearchAgentsResponse,
-  WorkflowFrame,
-  WorkflowStateSnapshot,
-  TestConnectionOptions,
-  GovernanceMutationOptions,
-  FilePermission,
-  WhoHasPermissionOptions,
-  WhoHasPermissionResponse,
-  DoIHavePermissionOptions,
-  DoIHavePermissionResponse,
-} from './contracts.js';
-
-export { ServiceDomainError, AmbiguousAgentQueryError, type ServiceErrorCode, type ServiceErrorInputRequest } from './errors.js';
+export {
+  ServiceDomainError,
+  AmbiguousAgentQueryError,
+  type ServiceErrorCode,
+  type ServiceErrorInputRequest,
+} from './errors.js';
 export { MissingUserInputError } from './utils/user-env.js';
 export { SessionManager } from './session-manager.js';
 export { TaskManager, type TaskFilter } from './task-manager.js';
-export { resolveAgentForOperation, resolveAgentSafe } from './utils/agent-resolution.js';
+export { resolveAgentForOperationAsync, resolveAgentSafe } from './utils/agent-resolution.js';
 export { findWorkspaceRoot } from './utils/workspace.js';
 export { getSystemInfo, type SystemInfo } from './utils/system-info.js';
 export {
@@ -97,6 +40,7 @@ export {
 
 export { generateIntroduction } from './orchestrator/introduction.js';
 export { generateDefaultHandoffPrompt } from './orchestrator/generate-handoff-prompt.js';
+export { chatCommand, type ChatRuntimeHooks } from './commands/chat/index.js';
 export { serveApiCommand, type ServeApiOptions } from './commands/serve.js';
 export { runUiCommand, type UiCommandOptions } from './commands/ui.js';
 
@@ -113,4 +57,64 @@ export {
   MigrationManager,
   createSqliteStorage,
 } from './storage/index.js';
-export { ProposalStore, type StoredProposal, type StoredProposalFile } from './storage/proposal-store.js';
+export {
+  ProposalStore,
+  type StoredProposal,
+  type StoredProposalFile,
+} from './storage/proposal-store.js';
+export type { AgentFilesResponse } from '@ai-team/api-client';
+
+export { createToolManager, type OrchestrationDeps } from './tools/create-tool-manager.js';
+export { ToolManager } from './tools/tool-manager.js';
+export type {
+  LlmToolDefinition,
+  ToolExecutionResult as ToolManagerExecutionResult,
+  ToolExecutionOptions as ToolManagerExecutionOptions,
+} from './tools/tool-manager.js';
+export { type ResolvedPlugins } from './orchestrator/pipeline.js';
+export type {
+  IContextBuilder,
+  IContextCompressor,
+  IContextEnricher,
+  ILlmSelector,
+  IMcpGateway,
+  IOrchestratorHookPlugin,
+  IOutputHandler,
+  IRagProvider,
+  ISlashCommand,
+  IToolResolver,
+  ITurnResultParser,
+} from '@ai-team/core';
+export { NoOpCompressor } from './orchestrator/defaults/context-compressor.js';
+export { DefaultContextBuilder } from './orchestrator/defaults/context-builder.js';
+export {
+  WorkspaceOverviewEnricher,
+  TeamRosterEnricher,
+} from './orchestrator/defaults/context-enrichers.js';
+export { NoOpRagProvider } from './orchestrator/defaults/rag-provider.js';
+export { DefaultToolResolver } from './orchestrator/defaults/tool-resolver.js';
+export { NoOpMcpGateway } from './orchestrator/defaults/mcp-gateway.js';
+export { DefaultLlmSelector } from './orchestrator/defaults/llm-selector.js';
+export { DefaultOutputHandler } from './orchestrator/defaults/output-handler.js';
+export { buildDefaultHookPlugins } from './orchestrator/defaults/hook-plugins.js';
+export { buildDefaultTurnResultParsers } from './orchestrator/defaults/turn-result-parsers.js';
+export { buildDefaultSlashCommands } from './orchestrator/slash-commands.js';
+
+export {
+  CommandsService,
+  SystemService,
+  DeveloperService,
+  MetaService,
+  TeamService,
+  SkillsService,
+  ToolsService,
+  AccessService,
+  ConfigService,
+  FilesService,
+  AgentsService,
+  TasksService,
+  ArtifactsService,
+  ChatService,
+  SessionsService,
+  IdeService,
+} from './routers/index.js';

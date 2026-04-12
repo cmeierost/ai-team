@@ -41,7 +41,10 @@ function normalizePort(port: string | number | undefined): number | undefined {
 
   const parsed = typeof port === 'number' ? port : Number.parseInt(port, 10);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-    throw new ServiceDomainError('VALIDATION', `Invalid port '${String(port)}'. Expected an integer between 1 and 65535.`);
+    throw new ServiceDomainError(
+      'VALIDATION',
+      `Invalid port '${String(port)}'. Expected an integer between 1 and 65535.`
+    );
   }
 
   return parsed;
@@ -64,14 +67,17 @@ function resolveApiServerEntry(): string {
   if (!existsSync(entry)) {
     throw new ServiceDomainError(
       'UNAVAILABLE',
-      `Built API server not found at ${entry}. Run 'pnpm --filter @ai-team/api-server build' first.`,
+      `Built API server not found at ${entry}. Run 'pnpm --filter @ai-team/api-server build' first.`
     );
   }
 
   return entry;
 }
 
-export async function serveApiCommand(workspaceRoot: string, options: ServeApiOptions = {}): Promise<void> {
+export async function serveApiCommand(
+  workspaceRoot: string,
+  options: ServeApiOptions = {}
+): Promise<void> {
   const port = normalizePort(options.port);
   const resolvedWorkspace = resolveWorkspace(workspaceRoot, options.workspace);
   const effectivePort = port ?? 3002;
@@ -91,7 +97,12 @@ export async function serveApiCommand(workspaceRoot: string, options: ServeApiOp
     });
 
     child.once('error', (error) => {
-      rejectPromise(new ServiceDomainError('UNAVAILABLE', `Failed to start API server process: ${error.message}`));
+      rejectPromise(
+        new ServiceDomainError(
+          'UNAVAILABLE',
+          `Failed to start API server process: ${error.message}`
+        )
+      );
     });
 
     child.once('exit', (code, signal) => {
@@ -106,8 +117,8 @@ export async function serveApiCommand(workspaceRoot: string, options: ServeApiOp
       rejectPromise(
         new ServiceDomainError(
           'INTERNAL',
-          `API server process exited with code ${code ?? 'unknown'}${signalSuffix}.`,
-        ),
+          `API server process exited with code ${code ?? 'unknown'}${signalSuffix}.`
+        )
       );
     });
   });

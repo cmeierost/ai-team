@@ -110,7 +110,7 @@ export interface RelationshipRefLite {
 export type SidePanel = 'detail' | 'problems' | 'stats';
 
 export interface Selection {
-  type: 'cluster' | 'file' | 'communityGroup' | null;
+  type: 'cluster' | 'file' | 'entity' | 'communityGroup' | null;
   id: string;
 }
 
@@ -175,6 +175,31 @@ export const ROLE_COLORS: Record<string, string> = {
   reexport:       '#a8a29e',
   unknown:        '#94a3b8',
 };
+
+/** Deterministic palette for community groups. 12 visually distinct hues. */
+export const GROUP_PALETTE = [
+  '#06b6d4', // cyan
+  '#f59e0b', // amber
+  '#8b5cf6', // violet
+  '#10b981', // emerald
+  '#ef4444', // red
+  '#3b82f6', // blue
+  '#ec4899', // pink
+  '#84cc16', // lime
+  '#f97316', // orange
+  '#6366f1', // indigo
+  '#14b8a6', // teal
+  '#a855f7', // purple
+];
+
+/** Deterministic color for a group based on its id. */
+export function groupColor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) {
+    h = ((h << 5) - h + id.charCodeAt(i)) | 0;
+  }
+  return GROUP_PALETTE[((h % GROUP_PALETTE.length) + GROUP_PALETTE.length) % GROUP_PALETTE.length];
+}
 
 /** Colors for non-code file categories. */
 export const CATEGORY_COLORS: Record<string, string> = {

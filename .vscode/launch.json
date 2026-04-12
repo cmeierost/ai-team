@@ -8,9 +8,27 @@
       "preLaunchTask": "build:cli",
       "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/packages/cli/dist/cli.js",
-      "args": ["chat"],
+      "args": [
+        "chat"
+      ],
       "console": "integratedTerminal",
-      "skipFiles": ["<node_internals>/**"]
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "env": {
+        "AI_TEAM_BACKEND_FILE_LOG": "1",
+        "AI_TEAM_FRONTEND_FILE_LOG": "1",
+        "AI_TEAM_STREAM_PERF": "1"
+      }
+    },
+    {
+      "name": "CLI: Attach",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
     },
     {
       "name": "CLI: CPU Profile (dist)",
@@ -24,9 +42,13 @@
         "--cpu-prof-name=cli.cpuprofile"
       ],
       "program": "${workspaceFolder}/packages/cli/dist/cli.js",
-      "args": ["--help"],
+      "args": [
+        "--help"
+      ],
       "console": "integratedTerminal",
-      "skipFiles": ["<node_internals>/**"]
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
     }
   ]
 }

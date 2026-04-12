@@ -9,12 +9,12 @@ import * as fs from 'node:fs/promises';
 export class SqliteConnection {
   private db: sqlite3.Database | null = null;
   private dbPath: string;
-  
+
   constructor(workspaceRoot: string, dbFileName: string = 'ai-team.db') {
     const dbDir = path.join(workspaceRoot, '.ai-team', 'private');
     this.dbPath = path.join(dbDir, dbFileName);
   }
-  
+
   /**
    * Open the database connection
    * Creates the .ai-team/private directory if it doesn't exist
@@ -24,25 +24,25 @@ export class SqliteConnection {
     if (this.db) {
       return; // Already open
     }
-    
+
     // Ensure directory exists
     const dbDir = path.dirname(this.dbPath);
     await fs.mkdir(dbDir, { recursive: true });
-    
+
     return new Promise((resolve, reject) => {
       this.db = new sqlite3.Database(this.dbPath, (err) => {
         if (err) {
           reject(new Error(`Failed to open database at ${this.dbPath}: ${err.message}`));
           return;
         }
-        
+
         // Enable WAL mode for concurrent reads/writes
         this.db!.run('PRAGMA journal_mode = WAL;', (walErr) => {
           if (walErr) {
             reject(new Error(`Failed to enable WAL mode: ${walErr.message}`));
             return;
           }
-          
+
           // Enable foreign keys
           this.db!.run('PRAGMA foreign_keys = ON;', (fkErr) => {
             if (fkErr) {
@@ -55,7 +55,7 @@ export class SqliteConnection {
       });
     });
   }
-  
+
   /**
    * Close the database connection
    */
@@ -63,7 +63,7 @@ export class SqliteConnection {
     if (!this.db) {
       return;
     }
-    
+
     return new Promise((resolve, reject) => {
       this.db!.close((err) => {
         this.db = null;
@@ -75,7 +75,7 @@ export class SqliteConnection {
       });
     });
   }
-  
+
   /**
    * Execute a SQL query that doesn't return rows (INSERT, UPDATE, DELETE, CREATE, etc.)
    * @returns Object with lastID and changes count
@@ -84,9 +84,9 @@ export class SqliteConnection {
     if (!this.db) {
       throw new Error('Database not open. Call open() first.');
     }
-    
+
     return new Promise((resolve, reject) => {
-      this.db!.run(sql, params, function(err) {
+      this.db!.run(sql, params, function (err) {
         if (err) {
           reject(new Error(`SQL run error: ${err.message}\nSQL: ${sql}`));
         } else {
@@ -95,7 +95,7 @@ export class SqliteConnection {
       });
     });
   }
-  
+
   /**
    * Execute a SQL query that returns a single row
    * @returns The first row or null if no results
@@ -104,7 +104,7 @@ export class SqliteConnection {
     if (!this.db) {
       throw new Error('Database not open. Call open() first.');
     }
-    
+
     return new Promise((resolve, reject) => {
       this.db!.get(sql, params, (err, row) => {
         if (err) {
@@ -115,7 +115,7 @@ export class SqliteConnection {
       });
     });
   }
-  
+
   /**
    * Execute a SQL query that returns multiple rows
    * @returns Array of rows (empty array if no results)
@@ -124,7 +124,7 @@ export class SqliteConnection {
     if (!this.db) {
       throw new Error('Database not open. Call open() first.');
     }
-    
+
     return new Promise((resolve, reject) => {
       this.db!.all(sql, params, (err, rows) => {
         if (err) {
@@ -135,7 +135,7 @@ export class SqliteConnection {
       });
     });
   }
-  
+
   /**
    * Execute multiple SQL statements in one string (convenience method for migrations)
    * Cannot use parameterized queries. Use transaction() method if you need parameters.
@@ -144,7 +144,7 @@ export class SqliteConnection {
     if (!this.db) {
       throw new Error('Database not open. Call open() first.');
     }
-    
+
     return new Promise((resolve, reject) => {
       this.db!.exec(sql, (err) => {
         if (err) {
@@ -155,7 +155,7 @@ export class SqliteConnection {
       });
     });
   }
-  
+
   /**
    * Execute multiple SQL statements in a transaction
    * If any statement fails, the entire transaction is rolled back
@@ -164,9 +164,9 @@ export class SqliteConnection {
     if (!this.db) {
       throw new Error('Database not open. Call open() first.');
     }
-    
+
     await this.run('BEGIN TRANSACTION');
-    
+
     try {
       for (const stmt of statements) {
         await this.run(stmt.sql, stmt.params || []);
@@ -177,14 +177,14 @@ export class SqliteConnection {
       throw error;
     }
   }
-  
+
   /**
    * Get the database file path
    */
   getPath(): string {
     return this.dbPath;
   }
-  
+
   /**
    * Check if database file exists
    */

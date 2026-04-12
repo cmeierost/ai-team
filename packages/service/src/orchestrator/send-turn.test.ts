@@ -132,10 +132,18 @@ function makeCtx(llmResponse: string): { ctx: OrchestratorContext; appendMessage
       getSession: vi.fn().mockResolvedValue({ id: 'sess-emily-1', developerId: 'clemens' }),
     } as any,
     agentManager: {
-      recordInteraction: vi.fn().mockResolvedValue(undefined),
-      getAllAgents: vi.fn(() => knownAgents),
-      getAgent: vi.fn((id: string) => knownAgents.find((candidate) => candidate.id === id)),
-      resolveAgent: vi.fn((query: string) => {
+      recordInteractionAsync: vi.fn().mockResolvedValue(undefined),
+      getAllAgentsAsync: vi.fn(async () => knownAgents),
+      getAgent: (id: string) => knownAgents.find((candidate) => candidate.id === id),
+      getAgentAsync: vi.fn(async (id: string) => knownAgents.find((candidate) => candidate.id === id) ?? null),
+      resolveAgent: (query: string) => {
+        const normalized = query.trim().toLowerCase();
+        return knownAgents.filter((candidate) =>
+          candidate.id.toLowerCase() === normalized
+            || candidate.name.toLowerCase() === normalized,
+        );
+      },
+      resolveAgentAsync: vi.fn(async (query: string) => {
         const normalized = query.trim().toLowerCase();
         return knownAgents.filter((candidate) =>
           candidate.id.toLowerCase() === normalized
@@ -151,7 +159,6 @@ function makeCtx(llmResponse: string): { ctx: OrchestratorContext; appendMessage
         missingSkillNames: [],
       })),
     } as any,
-    contextManager: {} as any,
     llmService: {
       // send-turn uses streamChat (async generator, no tools path)
       streamChat: vi.fn(async function* (_agent: any, _msgs: any) {
@@ -437,8 +444,8 @@ function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
       getSession: vi.fn().mockResolvedValue({ id: 'sess-victor-1', developerId: 'clemens' }),
     } as any,
     agentManager: {
-      recordInteraction: vi.fn().mockResolvedValue(undefined),
-      getAllAgents: vi.fn(() => [agent]),
+      recordInteractionAsync: vi.fn().mockResolvedValue(undefined),
+      getAllAgentsAsync: vi.fn(async () => [agent]),
     } as any,
     skillManager: {
       resolveSkillsForAgent: vi.fn(() => ({
@@ -448,7 +455,6 @@ function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
         missingSkillNames: [],
       })),
     } as any,
-    contextManager: {} as any,
     llmService: {
       chatWithTools: chatWithToolsMock,
       streamChat: vi.fn(), // must NOT be called when tools are in play

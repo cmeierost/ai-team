@@ -35,9 +35,9 @@ describe('SessionManager.findAgentSessionInChain', () => {
   beforeEach(async () => {
     const workspaceRoot = await createTempWorkspace();
     const storage = new SqliteMessageStorage(workspaceRoot);
+    await storage.migrate();
     // No AgentManager — IDs are used verbatim
     sessionManager = new SessionManager(workspaceRoot, storage);
-    await sessionManager.initialize();
   });
 
   afterEach(async () => {
@@ -117,8 +117,8 @@ describe('SessionManager.getSessionChain', () => {
   beforeEach(async () => {
     const workspaceRoot = await createTempWorkspace();
     const storage = new SqliteMessageStorage(workspaceRoot);
+    await storage.migrate();
     sessionManager = new SessionManager(workspaceRoot, storage);
-    await sessionManager.initialize();
   });
 
   afterEach(async () => {

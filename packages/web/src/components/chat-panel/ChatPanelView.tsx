@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
 import type { Agent, ChatMessage, Developer, SessionActivatedTool } from '../../types';
-import type { ChatCommandRegistryEntry } from '@ai-team/api-client-http';
+import type { ChatCommandRegistryEntry } from '@ai-team/api-client';
 import { Avatar } from '../Avatar';
 import { getAgentHue } from '../../utils/color';
 import { ContextPanel } from '../ContextPanel';
@@ -12,9 +12,7 @@ import type { PendingQuestion } from './chatPanelTypes';
 function ChatHeaderModelInfo({ agent }: Readonly<{ agent: Agent }>) {
   const info = agent.resolvedLlm;
   const ctxLabel =
-    info?.contextWindow !== undefined
-      ? `${(info.contextWindow / 1000).toFixed(0)}k ctx`
-      : null;
+    info?.contextWindow !== undefined ? `${(info.contextWindow / 1000).toFixed(0)}k ctx` : null;
 
   return (
     <div className="chat-header-model">
@@ -83,7 +81,22 @@ interface ResponsiveContextPanelProps {
   onSuggestedHandoff: (targetAgentId: string, task?: string) => void;
 }
 
-function ResponsiveContextPanel({ isMobileViewport, isMobileContextOpen, onCloseMobileContext, agentId, sessionId, artifacts, allowedTools, activatedTools, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, onSuggestedHandoff }: Readonly<ResponsiveContextPanelProps>) {
+function ResponsiveContextPanel({
+  isMobileViewport,
+  isMobileContextOpen,
+  onCloseMobileContext,
+  agentId,
+  sessionId,
+  artifacts,
+  allowedTools,
+  activatedTools,
+  onToggleArtifact,
+  onSwitchSession,
+  onDeleteSession,
+  onCreateSession,
+  onOpenSessionGraph,
+  onSuggestedHandoff,
+}: Readonly<ResponsiveContextPanelProps>) {
   const contextPanel = (
     <ContextPanel
       agentId={agentId}
@@ -116,7 +129,12 @@ function ResponsiveContextPanel({ isMobileViewport, isMobileContextOpen, onClose
         aria-label="Close chat context"
         onClick={onCloseMobileContext}
       />
-      <div className="chat-panel-context-mobile-sheet" role="dialog" aria-modal="true" aria-label="Chat context">
+      <div
+        className="chat-panel-context-mobile-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Chat context"
+      >
         <div className="chat-panel-context-mobile-header">
           <strong>Context</strong>
           <button
@@ -166,7 +184,11 @@ interface ChatPanelViewProps {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onNavigatePortfolio: () => void;
   onGraphBack: () => void;
-  onSelectSessionFromGraph: (targetSessionId: string, targetAgentId: string, handoffId?: string) => void;
+  onSelectSessionFromGraph: (
+    targetSessionId: string,
+    targetAgentId: string,
+    handoffId?: string
+  ) => void;
   onScrollMessages: () => void;
   onSummarize: (toIndex: number) => void;
   onSplitSession: (atIndex: number) => void;
@@ -202,7 +224,72 @@ interface ChatPanelViewProps {
   onSlashSelect: (index: number) => void;
 }
 
-export function ChatPanelView({ agent, agents, developer, routeAgentId, currentAgentId, currentSessionId, graphSessionId, loading, sending, streaming, pendingQuestion, pendingInputAnswer, pendingPasswordAnswer, pendingConfirmAnswer, pendingSelectAnswer, pendingChecklistAnswer, pendingFormAnswer, input, isRecording, recognition, messages, editingIndex, editContent, artifactsInContext, allowedTools, activatedTools, messagesEndRef, messagesContainerRef, textareaRef, onNavigatePortfolio, onGraphBack, onSelectSessionFromGraph, onScrollMessages, onSummarize, onSplitSession, onEditContentChange, onEditMessage, onCancelEdit, onCopyMessage, onToggleArchive, onDeleteMessage, onHandoffClick, onPendingInputAnswerChange, onPendingPasswordAnswerChange, onPendingConfirmAnswerChange, onPendingSelectAnswerChange, onTogglePendingChecklistValue, onPendingFormFieldChange, onPendingQuestionSubmit, onInputChange, onInputKeyDown, onStartRecording, onSend, onInterrupt, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, onSuggestedHandoff, slashSuggestions, slashSelectedIndex, slashIsOpen, onSlashSelect }: Readonly<ChatPanelViewProps>) {
+export function ChatPanelView({
+  agent,
+  agents,
+  developer,
+  routeAgentId,
+  currentAgentId,
+  currentSessionId,
+  graphSessionId,
+  loading,
+  sending,
+  streaming,
+  pendingQuestion,
+  pendingInputAnswer,
+  pendingPasswordAnswer,
+  pendingConfirmAnswer,
+  pendingSelectAnswer,
+  pendingChecklistAnswer,
+  pendingFormAnswer,
+  input,
+  isRecording,
+  recognition,
+  messages,
+  editingIndex,
+  editContent,
+  artifactsInContext,
+  allowedTools,
+  activatedTools,
+  messagesEndRef,
+  messagesContainerRef,
+  textareaRef,
+  onNavigatePortfolio,
+  onGraphBack,
+  onSelectSessionFromGraph,
+  onScrollMessages,
+  onSummarize,
+  onSplitSession,
+  onEditContentChange,
+  onEditMessage,
+  onCancelEdit,
+  onCopyMessage,
+  onToggleArchive,
+  onDeleteMessage,
+  onHandoffClick,
+  onPendingInputAnswerChange,
+  onPendingPasswordAnswerChange,
+  onPendingConfirmAnswerChange,
+  onPendingSelectAnswerChange,
+  onTogglePendingChecklistValue,
+  onPendingFormFieldChange,
+  onPendingQuestionSubmit,
+  onInputChange,
+  onInputKeyDown,
+  onStartRecording,
+  onSend,
+  onInterrupt,
+  onToggleArtifact,
+  onSwitchSession,
+  onDeleteSession,
+  onCreateSession,
+  onOpenSessionGraph,
+  onSuggestedHandoff,
+  slashSuggestions,
+  slashSelectedIndex,
+  slashIsOpen,
+  onSlashSelect,
+}: Readonly<ChatPanelViewProps>) {
   const isMobileViewport = useIsMobileViewport();
   const [isMobileContextOpen, setIsMobileContextOpen] = useState(false);
 
@@ -253,7 +340,10 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
   if (loading) {
     return (
       <div className="chat-panel">
-        <div className="chat-header" style={{ '--agent-hue': getAgentHue(agent) } as React.CSSProperties}>
+        <div
+          className="chat-header"
+          style={{ '--agent-hue': getAgentHue(agent) } as React.CSSProperties}
+        >
           <Avatar agent={agent} size="medium" />
           <div className="chat-header-info">
             <h2>Chat with {agent.name}</h2>
@@ -273,7 +363,10 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
   return (
     <div className="chat-panel-container">
       <div className="chat-panel">
-        <div className="chat-header" style={{ '--agent-hue': getAgentHue(agent) } as React.CSSProperties}>
+        <div
+          className="chat-header"
+          style={{ '--agent-hue': getAgentHue(agent) } as React.CSSProperties}
+        >
           <div className="chat-header-main">
             <Avatar agent={agent} size="medium" />
             <div className="chat-header-info">
@@ -284,7 +377,11 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
             {streaming ? <span className="streaming-indicator">●</span> : null}
           </div>
           <div className="chat-header-actions">
-            <button onClick={onNavigatePortfolio} className="btn-header-action" title="View portfolio">
+            <button
+              onClick={onNavigatePortfolio}
+              className="btn-header-action"
+              title="View portfolio"
+            >
               <i className="codicon codicon-account" />
               <span>Portfolio</span>
             </button>
@@ -368,7 +465,11 @@ export function ChatPanelView({ agent, agents, developer, routeAgentId, currentA
               />
               <div className="chat-input-actions">
                 {streaming ? (
-                  <button onClick={onInterrupt} className="chat-action-button chat-interrupt-button" title="Stop generation">
+                  <button
+                    onClick={onInterrupt}
+                    className="chat-action-button chat-interrupt-button"
+                    title="Stop generation"
+                  >
                     <i className="codicon codicon-debug-stop" />
                   </button>
                 ) : (

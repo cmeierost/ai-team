@@ -1,0 +1,56 @@
+{
+    "name": "fs-context",
+    "version": "0.1.0",
+    "description": "Mighty file system layer: permission-aware access, file operations, caching, watching, and .perm file registry.",
+    "license": "MIT",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "keywords": [
+        "filesystem",
+        "permissions",
+        "access-control",
+        "glob",
+        "perm",
+        "file-tree",
+        "gitignore",
+        "workspace",
+        "cache",
+        "watcher"
+    ],
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage",
+        "lint": "eslint src --ext .ts",
+        "clean": "rm -rf dist"
+    },
+    "dependencies": {
+        "@zip.js/zip.js": "2.7.62",
+        "chokidar": "^5.0.0",
+        "diff": "^8.0.3",
+        "ignore": "^7.0.5",
+        "minimatch": "^10.2.5",
+        "parse-diff": "^0.11.1",
+        "yaml": "^2.8.3",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/node": "^25.5.2",
+        "@vitest/coverage-v8": "^4.1.2",
+        "typescript": "^5.9.3",
+        "vitest": "^4.1.2"
+    }
+}

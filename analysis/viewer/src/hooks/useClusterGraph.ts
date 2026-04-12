@@ -1015,6 +1015,7 @@ export function useClusterGraph(
         draggable: false,
         data: {
           label: scLabel,
+          groupId: sc.id,
           communityCount: communityIds.length,
           fileCount: totalFiles,
           contractCount,

@@ -47,17 +47,17 @@ export class CodeEditDecorationManager implements vscode.Disposable {
     // Guard: skip when the change was caused by a disk reload (document not dirty),
     // or while we are in the middle of applyProposal (file just written by the agent).
     const textChangeDisposable = vscode.workspace.onDidChangeTextDocument((e) => {
-        if (!e.document.isDirty) return;
-        const uriStr = e.document.uri.toString();
-        for (const [proposalId, p] of this.pending) {
-          if (this._applying.has(proposalId)) continue;
-          if (p.proposal.files.some(f => vscode.Uri.file(f.filePath).toString() === uriStr)) {
-            this._clearPending(proposalId);
-            this._onProposalResolved.fire();
-            break;
-          }
+      if (!e.document.isDirty) return;
+      const uriStr = e.document.uri.toString();
+      for (const [proposalId, p] of this.pending) {
+        if (this._applying.has(proposalId)) continue;
+        if (p.proposal.files.some((f) => vscode.Uri.file(f.filePath).toString() === uriStr)) {
+          this._clearPending(proposalId);
+          this._onProposalResolved.fire();
+          break;
         }
-      });
+      }
+    });
 
     this.disposables.push(textChangeDisposable);
 
@@ -74,10 +74,10 @@ export class CodeEditDecorationManager implements vscode.Disposable {
     // Supersede any existing pending proposals that touch the same files.
     // Carry forward the oldest known original so undo always reverts to the
     // pre-agent state, not just to the previous patch's intermediate content.
-    const newFilePaths = new Set(proposal.files.map(f => f.filePath));
+    const newFilePaths = new Set(proposal.files.map((f) => f.filePath));
     const inheritedOriginals = new Map<string, string>();
     for (const [existingId, p] of this.pending) {
-      if (p.proposal.files.some(f => newFilePaths.has(f.filePath))) {
+      if (p.proposal.files.some((f) => newFilePaths.has(f.filePath))) {
         for (const [fp, orig] of p.originals) {
           if (newFilePaths.has(fp)) {
             inheritedOriginals.set(fp, orig);
@@ -106,7 +106,7 @@ export class CodeEditDecorationManager implements vscode.Disposable {
 
     // Give VS Code time to detect the file change on disk before opening the diff,
     // otherwise the right side still shows the old content.
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 300));
 
     // Open diff for each modified file
     for (const file of proposal.files) {
@@ -150,7 +150,7 @@ export class CodeEditDecorationManager implements vscode.Disposable {
   acceptProposal(proposalId: string): void {
     const p = this.pending.get(proposalId);
     // New content is already on disk — close diff tabs, clean up, and ack
-    const filePaths = p ? p.proposal.files.map(f => f.filePath) : [];
+    const filePaths = p ? p.proposal.files.map((f) => f.filePath) : [];
     this._clearPending(proposalId);
     this.server.broadcastAck(proposalId, 'accept');
     this._onProposalResolved.fire();
@@ -161,7 +161,7 @@ export class CodeEditDecorationManager implements vscode.Disposable {
     const p = this.pending.get(proposalId);
     if (!p) return;
 
-    const filePaths = p.proposal.files.map(f => f.filePath);
+    const filePaths = p.proposal.files.map((f) => f.filePath);
 
     for (const [filePath, original] of p.originals) {
       try {
@@ -178,7 +178,7 @@ export class CodeEditDecorationManager implements vscode.Disposable {
   }
 
   getPendingProposals(): IdeCodeEditProposal[] {
-    return Array.from(this.pending.values()).map(p => p.proposal);
+    return Array.from(this.pending.values()).map((p) => p.proposal);
   }
 
   private _clearPending(proposalId: string): void {
@@ -206,7 +206,10 @@ export class CodeEditDecorationManager implements vscode.Disposable {
         const input = tab.input;
         // vscode.diff creates a TabInputTextDiff with original/modified URIs
         if (input instanceof vscode.TabInputTextDiff) {
-          if (input.original.scheme === diffScheme && input.original.path.startsWith(`/${proposalId}/`)) {
+          if (
+            input.original.scheme === diffScheme &&
+            input.original.path.startsWith(`/${proposalId}/`)
+          ) {
             await vscode.window.tabGroups.close(tab).then(undefined, () => {});
           }
         }
@@ -226,14 +229,11 @@ export class CodeEditDecorationManager implements vscode.Disposable {
 
   dispose(): void {
     this._onProposalResolved.dispose();
-    this.disposables.forEach(d => d.dispose());
+    this.disposables.forEach((d) => d.dispose());
   }
-
-
 
   private replaceFileContent(filePath: string, content: string): void {
     // Write directly via fs to avoid VS Code opening the file in an editor tab.
     fs.writeFileSync(filePath, content, 'utf-8');
   }
 }
-

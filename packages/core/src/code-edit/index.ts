@@ -1,10 +1,10 @@
 export {
-  TreeSitterManager,
+  type ITreeSitterManager,
   type LanguageConfig,
   DEFAULT_LANGUAGE_CONFIGS,
 } from './tree-sitter-manager.js';
 export {
-  DiffBuilder,
+  type IDiffBuilder,
   type DiffHunk,
   type StructuredDiff,
   type DiffOptions,
@@ -15,10 +15,8 @@ export {
   type CodeEditProposalInput,
   type CreateProposalOptions,
   type ProposalValidationResult,
-  ProposalStatus,
-  ProposalValidator,
+  type ProposalStatus,
+  type IProposalValidator,
   CodeEditProposalInputSchema,
-  generateProposalId,
-  summarizeProposal,
 } from './edit-proposal.js';
-export { CodeEditManager } from './code-edit-manager.js';
+export { type ICodeEditManager } from './code-edit-manager.js';

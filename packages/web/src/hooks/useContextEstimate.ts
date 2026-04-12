@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { API_BASE } from '../context/TeamContext';
+import { useTeam } from '../context/TeamContext';
 
 export interface ContextSegment {
   label: string;
@@ -14,13 +14,10 @@ export interface ContextEstimateResponse {
 }
 
 export function useContextEstimate(agentId: string | undefined) {
+  const { client } = useTeam();
   return useQuery<ContextEstimateResponse>({
     queryKey: ['meta', 'context-estimate', agentId],
-    queryFn: async () => {
-      const r = await fetch(`${API_BASE}/api/meta/context-estimate/${encodeURIComponent(agentId!)}`);
-      if (!r.ok) throw new Error(`Failed to load context estimate: ${r.statusText}`);
-      return r.json() as Promise<ContextEstimateResponse>;
-    },
+    queryFn: () => client.context.getContextEstimate(agentId!) as Promise<ContextEstimateResponse>,
     enabled: !!agentId,
     staleTime: 30_000,
   });

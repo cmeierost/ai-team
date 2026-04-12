@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { API_BASE } from '../context/TeamContext';
+import { useTeam } from '../context/TeamContext';
 import type { ChatSession } from '../types';
 import { contextPanelQueryKeys } from './contextPanelQueryKeys';
 
@@ -11,55 +11,26 @@ function getErrorMessage(error: unknown, fallback: string): string | null {
   return error ? fallback : null;
 }
 
-async function fetchSessions(agentId: string): Promise<ChatSession[]> {
-  const response = await fetch(`${API_BASE}/api/sessions?agentId=${encodeURIComponent(agentId)}&limit=20`);
-  if (!response.ok) {
-    throw new Error(`Failed to load sessions: ${response.statusText}`);
-  }
-
-  return (await response.json()) as ChatSession[];
-}
-
-async function saveSessionNotes(sessionId: string, notes: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ notes }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to save notes: ${response.statusText}`);
-  }
-}
-
-async function deleteSession(sessionId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
-    method: 'DELETE',
-  });
-
-  if (!response.ok && response.status !== 204) {
-    throw new Error('Failed to delete session');
-  }
-}
-
 export function useSessionsForAgent(agentId: string) {
+  const { client } = useTeam();
   const queryClient = useQueryClient();
 
   const sessionsQuery = useQuery({
     queryKey: contextPanelQueryKeys.sessions(agentId),
-    queryFn: () => fetchSessions(agentId),
+    queryFn: () => client.sessions.list({ agentId, limit: 20 }) as Promise<ChatSession[]>,
     enabled: Boolean(agentId),
   });
 
   const saveNotesMutation = useMutation({
-    mutationFn: ({ sessionId, notes }: { sessionId: string; notes: string }) => saveSessionNotes(sessionId, notes),
+    mutationFn: ({ sessionId, notes }: { sessionId: string; notes: string }) =>
+      client.sessions.update(sessionId, { notes }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessions(agentId) });
     },
   });
 
   const deleteSessionMutation = useMutation({
-    mutationFn: (sessionId: string) => deleteSession(sessionId),
+    mutationFn: (sessionId: string) => client.sessions.delete(sessionId),
     onSuccess: async (_, deletedSessionId) => {
       queryClient.setQueriesData<ChatSession[]>({ queryKey: contextPanelQueryKeys.sessions(agentId) }, (old) =>
         old?.filter((session) => session.id !== deletedSessionId) ?? [],

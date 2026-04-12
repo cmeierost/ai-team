@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import {
   AgentManager,
   loadTeamConfig,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
 import { interactiveAvatarSelection } from '../utils/avatar-selection.js';
 
 interface AvatarCommandOptions {
@@ -16,8 +16,7 @@ export async function avatarCommand(agentQuery: string, options: AvatarCommandOp
     // Step 1: Resolve agent
     console.log(chalk.blue(`Looking for agent: ${agentQuery}`));
     const agentManager = new AgentManager(workspaceRoot);
-    await agentManager.initialize();
-    const agent = agentManager.resolveAgentOrThrow(agentQuery);
+    const agent = await agentManager.resolveAgentOrThrowAsync(agentQuery);
     console.log(chalk.green(`✓ Found agent: ${agent.name}`));
 
     // Step 2: Load team config

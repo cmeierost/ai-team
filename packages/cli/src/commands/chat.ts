@@ -1,11 +1,16 @@
-import type { AiTeamClient, ChatOptions } from '@ai-team/api-client';
+import type {
+  IAiTeamMediator,
+  ChatOptions,
+  MediatorEvent,
+  AiTeamCommandName,
+} from '@ai-team/api-client';
 import type {
   MediatorContext,
   QuestionConfirmRequest,
   QuestionInputRequest,
 } from '@ai-team/api-client';
-import { generateAgentColor, parseHslHue } from '@ai-team/core';
-import { createIdeAdapter } from '@ai-team/ide-interface';
+import { generateAgentColor, parseHslHue } from '@ai-team/infrastructure';
+import { createIdeAdapter } from '@ai-team/infrastructure';
 import { findWorkspaceRoot, IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';
@@ -66,10 +71,9 @@ function isAbortLikeError(error: unknown): boolean {
 function slashCompleter(line: string): [string[], string] {
   if (!line.startsWith('/')) return [[], line];
   const fragment = line.slice(1).toLowerCase();
-  const hits = IN_CHAT_COMMAND_REGISTRY
-    .flatMap(cmd => [cmd.key, ...(cmd.aliases ?? [])])
-    .filter(key => key.startsWith(fragment))
-    .map(key => `/${key} `);
+  const hits = IN_CHAT_COMMAND_REGISTRY.flatMap((cmd) => [cmd.key, ...(cmd.aliases ?? [])])
+    .filter((key) => key.startsWith(fragment))
+    .map((key) => `/${key} `);
   return [hits.length ? hits : [], line];
 }
 
@@ -82,10 +86,10 @@ async function askLine(message: string, signal?: AbortSignal): Promise<string> {
   }
 }
 
-function createChatQuestionResponders(signal: AbortSignal, onAnswered?: () => void): Pick<
-  MediatorContext,
-  'questionInput' | 'questionConfirm'
-> {
+function createChatQuestionResponders(
+  signal: AbortSignal,
+  onAnswered?: () => void
+): Pick<MediatorContext, 'questionInput' | 'questionConfirm'> {
   return {
     questionInput: async (request: QuestionInputRequest) => {
       while (true) {
@@ -126,8 +130,8 @@ function createChatQuestionResponders(signal: AbortSignal, onAnswered?: () => vo
 }
 
 function handleOneShotEvent(
-  event: Awaited<ReturnType<AiTeamClient['stream']>> extends AsyncIterable<infer TEvent> ? TEvent : never,
-  writeStderrLine: (text: string) => void,
+  event: MediatorEvent<AiTeamCommandName>,
+  writeStderrLine: (text: string) => void
 ): void {
   if (event.kind === 'status' && event.message) {
     writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
@@ -135,7 +139,9 @@ function handleOneShotEvent(
   }
 
   if (event.kind === 'question') {
-    writeStderrLine(chalk.yellow(`[frontend:question:${event.questionType || 'input'}] ${event.message}`));
+    writeStderrLine(
+      chalk.yellow(`[frontend:question:${event.questionType || 'input'}] ${event.message}`)
+    );
     return;
   }
 
@@ -188,9 +194,8 @@ function toPayloadRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function resolveDeveloperDisplayName(env: NodeJS.ProcessEnv): string {
-  const fromEnv = env.AI_TEAM_USER_NAME?.trim()
-    || env.AI_TEAM_USER?.trim()
-    || env.AI_TEAM_DEVELOPER?.trim();
+  const fromEnv =
+    env.AI_TEAM_USER_NAME?.trim() || env.AI_TEAM_USER?.trim() || env.AI_TEAM_DEVELOPER?.trim();
   if (fromEnv) return fromEnv;
   try {
     const gitName = execSync('git config user.name', { encoding: 'utf-8' }).trim();
@@ -233,7 +238,10 @@ function formatToolEventMessage(event: Record<string, unknown>): string | undefi
   if (toolName === 'fs_who_should' && payload) {
     const who = payload as WhoShouldPayloadLike;
     const matches = Array.isArray(who.matches) ? who.matches : [];
-    const top = matches.slice(0, 3).map((m) => m.agentName || m.agentId || 'unknown').join(', ');
+    const top = matches
+      .slice(0, 3)
+      .map((m) => m.agentName || m.agentId || 'unknown')
+      .join(', ');
     if (matches.length > 0) {
       return `matches: ${matches.length}${top ? ` (${top})` : ''}`;
     }
@@ -268,7 +276,7 @@ async function handleCodeEditProposal(
   event: any,
   writeStderrLine: (text: string) => void,
   isOneShot: boolean,
-  workspaceRoot: string,
+  workspaceRoot: string
 ): Promise<void> {
   const { proposalId, description, filesChanged, additions, deletions, warnings } = event;
 
@@ -279,8 +287,10 @@ async function handleCodeEditProposal(
   writeStderrLine(`${chalk.bold('ID:')} ${proposalId}`);
   writeStderrLine(`${chalk.bold('Description:')} ${description}`);
   writeStderrLine(`${chalk.bold('Files:')} ${filesChanged}`);
-  writeStderrLine(`${chalk.bold('Changes:')} ${chalk.green(`+${additions ?? 0}`)} ${chalk.red(`-${deletions ?? 0}`)}`);
-  
+  writeStderrLine(
+    `${chalk.bold('Changes:')} ${chalk.green(`+${additions ?? 0}`)} ${chalk.red(`-${deletions ?? 0}`)}`
+  );
+
   if (warnings && warnings.length > 0) {
     writeStderrLine('');
     writeStderrLine(chalk.yellow('⚠️  Warnings:'));
@@ -288,27 +298,33 @@ async function handleCodeEditProposal(
       writeStderrLine(chalk.yellow(`   • ${warning}`));
     });
   }
-  
+
   writeStderrLine(chalk.gray('─'.repeat(60)));
 
   // Notify VS Code plugin (best-effort, non-blocking)
-  createIdeAdapter(workspaceRoot, 'cli').then(adapter => {
-    if (adapter.isConnected()) {
-      return adapter.notifyCodeEditProposal({
-        proposalId: event.proposalId ?? '',
-        agentName: event.agentName ?? '',
-        description: event.description ?? '',
-        files: (event.files ?? []).map((f: any) => ({
-          filePath: f.filePath,
-          oldContent: f.oldContent ?? '',
-          newContent: f.newContent ?? '',
-          additions: f.additions ?? 0,
-          deletions: f.deletions ?? 0,
-        })),
-      }).then(() => adapter.dispose());
-    }
-    adapter.dispose();
-  }).catch(() => { /* VS Code not running — silent */ });
+  createIdeAdapter(workspaceRoot, 'cli')
+    .then((adapter) => {
+      if (adapter.isConnected()) {
+        return adapter
+          .notifyCodeEditProposal({
+            proposalId: event.proposalId ?? '',
+            agentName: event.agentName ?? '',
+            description: event.description ?? '',
+            files: (event.files ?? []).map((f: any) => ({
+              filePath: f.filePath,
+              oldContent: f.oldContent ?? '',
+              newContent: f.newContent ?? '',
+              additions: f.additions ?? 0,
+              deletions: f.deletions ?? 0,
+            })),
+          })
+          .then(() => adapter.dispose());
+      }
+      adapter.dispose();
+    })
+    .catch(() => {
+      /* VS Code not running — silent */
+    });
 
   // In one-shot mode, just log and continue
   if (isOneShot) {
@@ -318,14 +334,12 @@ async function handleCodeEditProposal(
 
   // Interactive mode: ask for approval
   const rl = createInterface({ input, output: process.stderr });
-  
+
   try {
-    const answer = await rl.question(
-      chalk.yellow('Review this proposal? [y/n/view] (y): ')
-    );
-    
+    const answer = await rl.question(chalk.yellow('Review this proposal? [y/n/view] (y): '));
+
     const choice = (answer || 'y').toLowerCase().trim();
-    
+
     if (choice === 'view' || choice === 'v') {
       writeStderrLine(chalk.dim('Detailed diff view requires VS Code extension or web UI'));
       writeStderrLine(chalk.dim(`Proposal ID: ${proposalId}`));
@@ -338,11 +352,16 @@ async function handleCodeEditProposal(
   } finally {
     rl.close();
   }
-  
+
   writeStderrLine('');
 }
 
-export async function chatCommand(client: AiTeamClient, agentId: string | undefined, options: ChatOptions, mediatorLog: boolean = false) {
+export async function chatCommand(
+  client: IAiTeamMediator,
+  agentId: string | undefined,
+  options: ChatOptions,
+  mediatorLog: boolean = false
+) {
   const mediatorLoggerEnabled = mediatorLog || process.env.AI_TEAM_MEDIATOR_LOG === '1';
   const frontendFileLogEnabled = isFrontendFileLogEnabled();
   const workspaceRoot = findWorkspaceRoot();
@@ -375,7 +394,9 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
     spinnerFrame = 0;
     const tick = () => {
       if (!spinnerActive) return;
-      process.stdout.write(`\r${spinnerFrames[spinnerFrame % spinnerFrames.length]} ${chalk.dim(spinnerText)}`);
+      process.stdout.write(
+        `\r${spinnerFrames[spinnerFrame % spinnerFrames.length]} ${chalk.dim(spinnerText)}`
+      );
       spinnerFrame++;
     };
     tick();
@@ -409,17 +430,33 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
     const hue = parseHslHue(hsl);
     if (hue !== undefined) {
       // Convert HSL(hue, 70%, 60%) to RGB for chalk v5 compatibility
-      const s = 0.7, l = 0.6;
+      const s = 0.7,
+        l = 0.6;
       const c = (1 - Math.abs(2 * l - 1)) * s;
       const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
       const m = l - c / 2;
-      let r1 = 0, g1 = 0, b1 = 0;
-      if (hue < 60)      { r1 = c; g1 = x; }
-      else if (hue < 120) { r1 = x; g1 = c; }
-      else if (hue < 180) { g1 = c; b1 = x; }
-      else if (hue < 240) { g1 = x; b1 = c; }
-      else if (hue < 300) { r1 = x; b1 = c; }
-      else                { r1 = c; b1 = x; }
+      let r1 = 0,
+        g1 = 0,
+        b1 = 0;
+      if (hue < 60) {
+        r1 = c;
+        g1 = x;
+      } else if (hue < 120) {
+        r1 = x;
+        g1 = c;
+      } else if (hue < 180) {
+        g1 = c;
+        b1 = x;
+      } else if (hue < 240) {
+        g1 = x;
+        b1 = c;
+      } else if (hue < 300) {
+        r1 = x;
+        b1 = c;
+      } else {
+        r1 = c;
+        b1 = x;
+      }
       const r = Math.round((r1 + m) * 255);
       const g = Math.round((g1 + m) * 255);
       const b = Math.round((b1 + m) * 255);
@@ -434,32 +471,42 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
 
   try {
     startSpinner();
-    for await (const event of client.stream({
-      command: 'chat',
-      payload: {
-        employeeId: agentId,
-        options,
+    for await (const event of client.streamInteraction(
+      {
+        command: 'chat',
+        payload: {
+          employeeId: agentId,
+          options,
+        },
       },
-    }, {
-      ...createChatQuestionResponders(abortControl.signal, startSpinner),
-      signal: abortControl.signal,
-      logger: mediatorLoggerEnabled || frontendFileLogEnabled
-        ? (entry) => {
-            if (frontendFileLogEnabled) {
-              writeFrontendDebugLog({ command: 'chat', channel: entry.channel, event: entry.event });
-            }
-            try {
-              if (mediatorLoggerEnabled) {
-                writeStderrLine(`${chalk.gray('[frontend:mediator-log]')} ${JSON.stringify(entry)}`);
+      {
+        ...createChatQuestionResponders(abortControl.signal, startSpinner),
+        signal: abortControl.signal,
+        logger:
+          mediatorLoggerEnabled || frontendFileLogEnabled
+            ? (entry) => {
+                if (frontendFileLogEnabled) {
+                  writeFrontendDebugLog({
+                    command: 'chat',
+                    channel: entry.channel,
+                    event: entry.event,
+                  });
+                }
+                try {
+                  if (mediatorLoggerEnabled) {
+                    writeStderrLine(
+                      `${chalk.gray('[frontend:mediator-log]')} ${JSON.stringify(entry)}`
+                    );
+                  }
+                } catch {
+                  if (mediatorLoggerEnabled) {
+                    writeStderrLine(`${chalk.gray('[frontend:mediator-log]')} ${String(entry)}`);
+                  }
+                }
               }
-            } catch {
-              if (mediatorLoggerEnabled) {
-                writeStderrLine(`${chalk.gray('[frontend:mediator-log]')} ${String(entry)}`);
-              }
-            }
-          }
-        : undefined,
-    })) {
+            : undefined,
+      }
+    )) {
       if (event.kind === 'token') {
         if (!tokenBurstOpen) {
           stopSpinner();
@@ -514,14 +561,21 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
         const phase = event.toolPhase || 'event';
         const formatted = formatToolEventMessage(event as unknown as Record<string, unknown>);
         const suffix = formatted ? chalk.gray(` — ${formatted}`) : '';
-        writeStderrLine(`${chalk.cyan(`[backend:tool:${phase}]`)} ${chalk.white(event.toolName)}${suffix}`);
+        writeStderrLine(
+          `${chalk.cyan(`[backend:tool:${phase}]`)} ${chalk.white(event.toolName)}${suffix}`
+        );
         continue;
       }
 
       // Handle code edit proposals
       if (event.kind === 'code_edit_proposal') {
         stopSpinner();
-        await handleCodeEditProposal(event, writeStderrLine, options.oneShot || false, workspaceRoot);
+        await handleCodeEditProposal(
+          event,
+          writeStderrLine,
+          options.oneShot || false,
+          workspaceRoot
+        );
         continue;
       }
 
@@ -552,7 +606,9 @@ export async function chatCommand(client: AiTeamClient, agentId: string | undefi
           writeFrontendDebugLog({ command: 'chat', event });
         }
         if (options.oneShot || mediatorLoggerEnabled) {
-          writeStderrLine(chalk.yellow(`[frontend:question:${event.questionType || 'input'}] ${event.message}`));
+          writeStderrLine(
+            chalk.yellow(`[frontend:question:${event.questionType || 'input'}] ${event.message}`)
+          );
         }
         continue;
       }

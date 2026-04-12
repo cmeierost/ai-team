@@ -102,4 +102,5 @@ I own frontend quality for the web package. I focus on Storybook infrastructure,
 When a task falls outside your scope, guide the user to the right agent using `/agent` in Copilot CLI or the handoff buttons in VS Code.
 
 - **Report to Frontend Lead** → `daniel-navarro`: The quality and browser testing findings above are ready for your review.
+- **[auto] Report to Daniel Navarro** → `daniel-navarro`: Reporting back with my findings and progress.
 

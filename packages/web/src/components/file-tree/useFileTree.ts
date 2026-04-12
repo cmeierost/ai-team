@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { API_BASE } from '../../context/TeamContext';
+import { useTeam } from '../../context/TeamContext';
 import type { AgentFilesResponse, FilePatternsResponse } from '../../types';
 import { buildTree, filterFiles, getAccessCounts, getVisiblePatternGroups } from './fileTreeUtils';
 import type { FileAccessFilter, PatternMode, PatternScope } from './fileTreeTypes';
@@ -33,6 +33,7 @@ export interface UseFileTreeResult {
 }
 
 export function useFileTree(agentId: string): UseFileTreeResult {
+  const { client } = useTeam();
   const [data, setData] = useState<AgentFilesResponse | null>(null);
   const [patterns, setPatterns] = useState<FilePatternsResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -49,18 +50,10 @@ export function useFileTree(agentId: string): UseFileTreeResult {
     setLoading(true);
     setError(null);
     try {
-      const [filesResponse, patternsResponse] = await Promise.all([
-        fetch(`${API_BASE}/api/agents/${encodeURIComponent(agentId)}/files?all=true`),
-        fetch(`${API_BASE}/api/files/patterns?agent=${encodeURIComponent(agentId)}`),
+      const [filesJson, patternsJson] = await Promise.all([
+        client.agents.getFiles(agentId) as Promise<AgentFilesResponse>,
+        client.files.getPatterns({ agent: agentId }) as Promise<FilePatternsResponse>,
       ]);
-      if (!filesResponse.ok) {
-        throw new Error(`HTTP ${filesResponse.status}`);
-      }
-      if (!patternsResponse.ok) {
-        throw new Error(`HTTP ${patternsResponse.status}`);
-      }
-      const filesJson: AgentFilesResponse = await filesResponse.json();
-      const patternsJson: FilePatternsResponse = await patternsResponse.json();
       setData(filesJson);
       setPatterns(patternsJson);
     } catch (loadError: any) {
@@ -68,7 +61,7 @@ export function useFileTree(agentId: string): UseFileTreeResult {
     } finally {
       setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, client]);
 
   useEffect(() => {
     void load();
@@ -77,15 +70,10 @@ export function useFileTree(agentId: string): UseFileTreeResult {
   const togglePathPermission = useCallback(async (path: string, mode: PatternMode, current: boolean) => {
     setPendingPaths((previous) => new Set([...previous, path]));
     try {
-      const method = current ? 'DELETE' : 'POST';
-      const response = await fetch(`${API_BASE}/api/files/agents/${encodeURIComponent(agentId)}/allow`, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, mode }),
-      });
-      if (!response.ok) {
-        const errorJson = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-        throw new Error(errorJson.error || `HTTP ${response.status}`);
+      if (current) {
+        await client.files.disallow({ agent: agentId, path, mode });
+      } else {
+        await client.files.allow({ agent: agentId, path, mode });
       }
       setData((previous) => {
         if (!previous) {
@@ -115,7 +103,7 @@ export function useFileTree(agentId: string): UseFileTreeResult {
         return next;
       });
     }
-  }, [agentId]);
+  }, [agentId, client]);
 
   const addPattern = useCallback(async () => {
     const value = patternInput.trim();
@@ -127,17 +115,10 @@ export function useFileTree(agentId: string): UseFileTreeResult {
     setPendingPatternKey(key);
     setError(null);
     try {
-      const url = patternScope === 'agent'
-        ? `${API_BASE}/api/files/agents/${encodeURIComponent(agentId)}/allow`
-        : `${API_BASE}/api/files/allow`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: value, mode: patternMode }),
-      });
-      if (!response.ok) {
-        const errorJson = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-        throw new Error(errorJson.error || `HTTP ${response.status}`);
+      if (patternScope === 'agent') {
+        await client.files.allow({ agent: agentId, path: value, mode: patternMode });
+      } else {
+        await client.files.allowAll({ path: value, mode: patternMode });
       }
       setPatternInput('');
       await load();
@@ -146,24 +127,17 @@ export function useFileTree(agentId: string): UseFileTreeResult {
     } finally {
       setPendingPatternKey(null);
     }
-  }, [agentId, load, patternInput, patternMode, patternScope]);
+  }, [agentId, client, load, patternInput, patternMode, patternScope]);
 
   const removePattern = useCallback(async (scope: PatternScope, mode: PatternMode, value: string) => {
     const key = `remove:${scope}:${mode}:${value}`;
     setPendingPatternKey(key);
     setError(null);
     try {
-      const url = scope === 'agent'
-        ? `${API_BASE}/api/files/agents/${encodeURIComponent(agentId)}/allow`
-        : `${API_BASE}/api/files/allow`;
-      const response = await fetch(url, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: value, mode }),
-      });
-      if (!response.ok) {
-        const errorJson = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-        throw new Error(errorJson.error || `HTTP ${response.status}`);
+      if (scope === 'agent') {
+        await client.files.disallow({ agent: agentId, path: value, mode });
+      } else {
+        await client.files.disallowAll({ path: value, mode });
       }
       await load();
     } catch (removeError: any) {
@@ -171,7 +145,7 @@ export function useFileTree(agentId: string): UseFileTreeResult {
     } finally {
       setPendingPatternKey(null);
     }
-  }, [agentId, load]);
+  }, [agentId, client, load]);
 
   const filteredFiles = useMemo(() => filterFiles(data?.files ?? [], filter, search), [data?.files, filter, search]);
   const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);

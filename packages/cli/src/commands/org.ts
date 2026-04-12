@@ -3,14 +3,14 @@
  */
 
 import chalk from 'chalk';
-import type { AiTeamClient } from '@ai-team/api-client';
+import type { ITeamGraphService } from '@ai-team/api-client';
 
 interface OrgOptions {
   mermaid?: boolean;
   output?: string;
 }
 
-export async function orgCommand(client: AiTeamClient, options: OrgOptions) {
+export async function orgCommand(client: ITeamGraphService, options: OrgOptions) {
   try {
     const graphData = await client.getOrganizationGraph();
 
@@ -61,9 +61,7 @@ function printHierarchy(graphData: any) {
   const { nodes, edges } = graphData;
 
   const hasManager = new Set(
-    edges
-      .filter((e: any) => e.type === 'reports-to')
-      .map((e: any) => e.source)
+    edges.filter((e: any) => e.type === 'reports-to').map((e: any) => e.source)
   );
 
   const roots = nodes.filter((n: any) => !hasManager.has(n.id));
@@ -80,7 +78,9 @@ function printHierarchy(graphData: any) {
     const prefix = '  '.repeat(indent);
     const status = node.data.status ? getStatusIcon(node.data.status) : '○';
 
-    console.log(`${prefix}${status} ${chalk.cyan(node.data.label)} ${chalk.dim(`(${node.data.role})`)}`);
+    console.log(
+      `${prefix}${status} ${chalk.cyan(node.data.label)} ${chalk.dim(`(${node.data.role})`)}`
+    );
 
     const reports = edges
       .filter((e: any) => e.type === 'reports-to' && e.target === nodeId)

@@ -13,7 +13,7 @@ export function dbStatusCommand(workspaceRoot: string): Command {
   cmd.action(async () => {
     try {
       const storage = createSqliteStorage(workspaceRoot);
-      await storage.initialize();
+      await storage.migrate();
       
       const stats = await storage.getStats();
       
@@ -46,7 +46,6 @@ export function dbStatusCommand(workspaceRoot: string): Command {
 /**
  * Database migration command
  * Applies any pending schema migrations
- * Note: Migrations are also applied automatically on initialization
  */
 export function dbMigrateCommand(workspaceRoot: string): Command {
   const cmd = new Command('db:migrate');
@@ -57,9 +56,13 @@ export function dbMigrateCommand(workspaceRoot: string): Command {
       const storage = createSqliteStorage(workspaceRoot);
       
       console.log('Checking for pending migrations...');
-      await storage.initialize();
+      const applied = await storage.migrate();
       
-      console.log('✓ Database is up to date');
+      if (applied > 0) {
+        console.log(`✓ Applied ${applied} migration(s)`);
+      } else {
+        console.log('✓ Database is up to date');
+      }
       
       const stats = await storage.getStats();
       console.log(`Current schema version: v${stats.schemaVersion}`);

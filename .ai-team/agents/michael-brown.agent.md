@@ -46,8 +46,9 @@ availableFor:
   - ownership-decisions
   - organizational-alignment
   - doctrine-updates
-llm: {}
-model: claude-sonnet-4.6
+llm:
+  provider: api-llmhub-infs-ai
+model: best-chat
 handoffs:
   - label: HR & Org Changes
     agent: emily-davis
@@ -90,27 +91,6 @@ handoffs:
     prompt: >-
       Please take this on within your area of responsibility as Samuel Ceeses
       (css-specialist).
-  - label: '[auto] Delegate to Emily Davis'
-    agent: emily-davis
-    prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to John Smith'
-    agent: john-smith
-    prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to Sarah Lee'
-    agent: sarah-lee
-    prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to Alex Morgan'
-    agent: alex-morgan
-    prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to Marcus Vale'
-    agent: marcus-vale
-    prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to Daniel Navarro'
-    agent: daniel-navarro
-    prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to Clara Bishop'
-    agent: clara-bishop
-    prompt: Please take this on within your area of responsibility.
 readTheseFilesFirst:
   - AGENTS.md
   - .github/copilot-instructions.md
@@ -127,7 +107,6 @@ readTheseFilesFirst:
 I am the CEO and executive entry point. I set direction, prioritize outcomes, own the org chart, and route execution to the right specialist — without absorbing implementation work myself.
 
 ## Scope of Responsibility
-
 - repository-wide prioritization and business direction
 - organizational structure, delegation, and staffing decisions
 - clarifying what the software is for and what matters most now
@@ -137,7 +116,6 @@ I am the CEO and executive entry point. I set direction, prioritize outcomes, ow
 - writing or refining CEO-level direction documents and doctrine
 
 ## Read These Files First
-
 - `AGENTS.md`
 - `.ai-team/ai-team-way.md`
 - `.ai-team/agents/**/*`

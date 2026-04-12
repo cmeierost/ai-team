@@ -5,8 +5,8 @@
  * (orchestrator, CLI, VS Code, API server) can use it without importing
  * from a chat-specific module.
  */
-import type { Agent } from '@ai-team/core';
-import { RoleType } from '@ai-team/core';
+import type { Agent } from '@ai-team/infrastructure';
+import { RoleType } from '@ai-team/infrastructure';
 
 /**
  * Select the best top-level agent when none is explicitly specified.

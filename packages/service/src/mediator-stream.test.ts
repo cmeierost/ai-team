@@ -1,0 +1,48 @@
+import { describe, expect, it } from 'vitest';
+import { streamMediatorInteraction } from './mediator-stream.js';
+
+describe('streamMediatorInteraction', () => {
+  it('streams runtime events and completion markers through the shared helper', async () => {
+    const events: Array<{ kind: string; [key: string]: unknown }> = [];
+
+    for await (const event of streamMediatorInteraction({
+      request: {
+        command: 'chat',
+        payload: {
+          employeeId: 'michael-brown',
+          options: { message: 'hello' },
+        },
+      },
+      invoke: async (context) => {
+        context.emit?.({ kind: 'token', text: 'shared hello' });
+      },
+    })) {
+      events.push(event as { kind: string; [key: string]: unknown });
+    }
+
+    expect(events.map((event) => event.kind)).toEqual(['started', 'token', 'result', 'done']);
+    expect(events[1]).toMatchObject({ kind: 'token', text: 'shared hello' });
+  });
+
+  it('normalizes invoke errors into mediator error events', async () => {
+    const events: Array<{ kind: string; [key: string]: unknown }> = [];
+
+    for await (const event of streamMediatorInteraction({
+      request: {
+        command: 'chat',
+        payload: {
+          employeeId: 'michael-brown',
+          options: { message: 'hello' },
+        },
+      },
+      invoke: async () => {
+        throw new Error('boom');
+      },
+    })) {
+      events.push(event as { kind: string; [key: string]: unknown });
+    }
+
+    expect(events.map((event) => event.kind)).toEqual(['started', 'error']);
+    expect(events[1]).toMatchObject({ kind: 'error', message: 'boom' });
+  });
+});

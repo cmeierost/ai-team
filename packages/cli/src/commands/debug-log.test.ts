@@ -13,9 +13,8 @@ async function waitForFileLine(filePath: string, timeoutMs = 500): Promise<strin
       if (line) {
         return line;
       }
-    } catch {
-    }
-    await new Promise(resolve => setTimeout(resolve, 10));
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
 
   return undefined;
@@ -75,9 +74,12 @@ describe('frontend debug log', () => {
     process.env.AI_TEAM_FRONTEND_FILE_LOG = 'off';
     writeFrontendDebugLog({ source: 'disabled' });
 
-    await new Promise(resolve => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 30));
     const filePath = path.join(tempCwd, '.ai-team', 'logs', 'frontend.log');
-    const exists = await fs.stat(filePath).then(() => true).catch(() => false);
+    const exists = await fs
+      .stat(filePath)
+      .then(() => true)
+      .catch(() => false);
     expect(exists).toBe(false);
   });
 

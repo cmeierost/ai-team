@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { API_BASE, useTeam } from '../context/TeamContext';
+import { useTeam } from '../context/TeamContext';
 import { usePermissionAnalysis, filterRegionsForAgent } from '../hooks/usePermissionAnalysis';
 import type { Agent, PermissionOverlapRegion, PermissionRight } from '../types';
 import { PermissionOverlapDiagram } from '../components/permissions/PermissionOverlapDiagram';
@@ -14,22 +14,18 @@ import '../components/permissions/PermissionsAnalysis.css';
 
 const rightOptions: PermissionRight[] = ['read', 'write', 'list'];
 
-async function openPermissionFileInIde(agentId: string): Promise<void> {
-  try {
-    await fetch(`${API_BASE}/api/ide/open-file`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath: `.ai-team/agents/${agentId}.perm` }),
-    });
-  } catch {
-    // IDE bridge may not be connected.
-  }
-}
-
 export function PermissionsAnalysisPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { agents } = useTeam();
+  const { agents, client } = useTeam();
+
+  async function openPermissionFileInIde(agentId: string): Promise<void> {
+    try {
+      await client.ide.openFile({ filePath: `.ai-team/agents/${agentId}.perm` });
+    } catch {
+      // IDE bridge may not be connected.
+    }
+  }
   const [requested, setRequested] = useState(false);
   const [selectedRight, setSelectedRight] = useState<PermissionRight>('write');
   const [selectedFileTypeGroupId, setSelectedFileTypeGroupId] = useState<string>('all');

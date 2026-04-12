@@ -1,12 +1,11 @@
-import { matchesFsTreePreLlmIntent } from '@ai-team/core';
+import { matchesFsTreePreLlmIntent } from './catalog/fs-tools.js';
 import { matchesTeamListPreLlmIntent, matchesToolListPreLlmIntent } from './orchestration-tools.js';
 
-export type PreLlmIntent =
-  | {
-      kind: 'tool';
-      toolName: 'tool_list' | 'fs_tree' | 'team_list';
-      args: Record<string, unknown>;
-    };
+export type PreLlmIntent = {
+  kind: 'tool';
+  toolName: 'tool_list' | 'fs_tree' | 'team_list';
+  args: Record<string, unknown>;
+};
 
 /**
  * Central place for deterministic pre-LLM intent regexes that map user text

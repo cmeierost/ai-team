@@ -24,7 +24,7 @@ flowchart LR
     IDE[@ai-team/ide-interface\nIDE bridge contracts]
     SERVICE[@ai-team/service\nMediator, orchestration, runtime events]
     CORE[@ai-team/core\nUI-free domain logic]
-    ACCESS[@ai-team/permission\nFile-path permission rights policy engine]
+    FILECTX[file-context\nContextRuntime + parser + matcher]
   end
 
   STATE[.ai-team/*\nRuntime state]
@@ -36,7 +36,7 @@ flowchart LR
   APISERVER --> LOCALCLIENT
   LOCALCLIENT --> SERVICE
   SERVICE --> CORE
-  CORE --> ACCESS
+  CORE --> FILECTX
   CORE --> STATE
   SERVICE --> STATE
   SERVICE --> PROVIDERS
@@ -206,15 +206,16 @@ This diagram shows how global file-tree defaults and per-agent `.perm` rules com
 
 ```mermaid
 flowchart TD
-  REQUEST[Path + right request\nread/write/create/delete/list] --> ENGINE[@ai-team/permission PermissionEngine]
+  REQUEST[Path + right request\nread/write/list] --> CM[packages/core/context/index.ts\nContextManager]
 
-  GLOBAL[.ai-team/config.json\nfileTree.read/write/create/delete paths] --> ENGINE
+  GLOBAL[.ai-team/config.json\nfileTree.read/write paths] --> CM
   AGENTCFG[.ai-team/agents/*.agent.md
-frontmatter: identity/tools/delegation metadata] --> ADAPTER[core permission adapter]
-  AGENTACCESS[.ai-team/agents/<agent-id>.perm\nper-agent path policies] --> ADAPTER
-  ADAPTER --> ENGINE
+frontmatter: identity/tools/delegation metadata] --> CM
+  AGENTACCESS[.ai-team/agents/<agent-id>.perm\nper-agent path policies] --> PARSE[loadAgentAccessPatterns + parseAccessFile]
+  PARSE --> CM
+  CM --> RUNTIME[file-context ContextRuntime]
 
-  ENGINE --> INHERIT[Rights inheritance\nwrite => read + list\nread => list]
+  RUNTIME --> INHERIT[Rights inheritance\nwrite => read + list\nread => list]
   INHERIT --> PRECEDENCE[Explicit deny precedence]
   PRECEDENCE --> VERDICT[Allowed or denied verdict\nwith path-level rationale]
 

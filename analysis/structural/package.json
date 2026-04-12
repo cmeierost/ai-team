@@ -22,7 +22,7 @@
     "graphology-types": "^0.24.8"
   },
   "devDependencies": {
-    "typescript": "^6.0.2",
+    "typescript": "^5.9.3",
     "vitest": "^4.1.2"
   }
 }

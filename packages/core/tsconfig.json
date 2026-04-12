@@ -8,6 +8,14 @@
     "sourceMap": true,
     "composite": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "src/types/diff.d.ts",
+    "src/types/parse-diff.d.ts"
+  ]
 }

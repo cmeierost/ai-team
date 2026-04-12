@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatSession } from '@ai-team/core';
+import type { ChatMessage, ChatSession } from '@ai-team/infrastructure';
 import type {
   IMessageStorage,
   MessageFilter,
@@ -18,8 +18,9 @@ import { randomBytes } from 'node:crypto';
  * Stores messages and sessions in a local SQLite database
  */
 export class SqliteMessageStorage implements IMessageStorage {
-  private connection: SqliteConnection;
-  private migrations: MigrationManager;
+  private readonly connection: SqliteConnection;
+  private readonly migrations: MigrationManager;
+  private ready = false;
   
   constructor(workspaceRoot: string) {
     this.connection = new SqliteConnection(workspaceRoot);
@@ -28,9 +29,21 @@ export class SqliteMessageStorage implements IMessageStorage {
   
   // ========== Lifecycle ==========
   
-  async initialize(): Promise<void> {
-    await this.connection.open();
-    await this.migrations.initialize();
+  private async getConnection(): Promise<SqliteConnection> {
+    if (!this.ready) {
+      await this.connection.open();
+      this.ready = true;
+    }
+    return this.connection;
+  }
+
+  /**
+   * Run pending schema migrations.
+   * Call explicitly during upgrade flows — not on every connection.
+   */
+  async migrate(): Promise<number> {
+    await this.getConnection();
+    return this.migrations.migrate();
   }
   
   async close(): Promise<void> {
@@ -40,6 +53,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   // ========== Messages ==========
   
   async insertMessage(sessionId: string, message: ChatMessage): Promise<MessageInsertResult> {
+    await this.getConnection();
     const timestamp = message.timestamp || new Date().toISOString();
     
     // Start transaction
@@ -133,6 +147,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async getSessionMessages(sessionId: string, includeArchived: boolean = false): Promise<ChatMessage[]> {
+    await this.getConnection();
     const sql = `
       SELECT 
         m.id,
@@ -159,6 +174,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async queryMessages(filter: MessageFilter): Promise<ChatMessage[]> {
+    await this.getConnection();
     const conditions: string[] = [];
     const params: any[] = [];
     
@@ -232,6 +248,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async archiveMessage(sessionId: string, messageTimestamp: string): Promise<boolean> {
+    await this.getConnection();
     const result = await this.connection.run(
       'UPDATE messages SET archived = 1 WHERE session_id = ? AND timestamp = ?',
       [sessionId, messageTimestamp]
@@ -240,6 +257,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async deleteMessage(sessionId: string, messageTimestamp: string): Promise<boolean> {
+    await this.getConnection();
     // Get message ID first
     const row = await this.connection.get<{ id: number }>(
       'SELECT id FROM messages WHERE session_id = ? AND timestamp = ?',
@@ -266,6 +284,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async searchMessages(query: string, sessionId?: string): Promise<ChatMessage[]> {
+    await this.getConnection();
     // Use FTS5 for full-text search with relevance ranking
     const conditions = ['messages_fts MATCH ?'];
     const params: any[] = [query];
@@ -305,6 +324,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   // ========== Sessions ==========
   
   async createSession(session: Omit<ChatSession, 'id' | 'messageCount'>): Promise<ChatSession> {
+    await this.getConnection();
     const now = new Date().toISOString();
     const id = session.startedAt ? `session-${session.startedAt.split('T')[0]}-${Math.random().toString(36).substring(2, 8)}` : `session-${now.split('T')[0]}-${Math.random().toString(36).substring(2, 8)}`;
     
@@ -395,6 +415,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async getSession(sessionId: string): Promise<ChatSession | null> {
+    await this.getConnection();
     const row = await this.connection.get<any>(
       `SELECT 
         id, developer_id, started_at, last_activity_at, message_count,
@@ -412,6 +433,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async updateSession(sessionId: string, updates: Partial<Omit<ChatSession, 'id' | 'messageCount'>>): Promise<void> {
+    await this.getConnection();
     const now = new Date().toISOString();
     const statements: Array<{ sql: string; params?: any[] }> = [];
     
@@ -528,6 +550,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async listSessions(filter?: SessionFilter): Promise<ChatSession[]> {
+    await this.getConnection();
     const conditions: string[] = [];
     const params: any[] = [];
     
@@ -590,6 +613,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async deleteSession(sessionId: string): Promise<boolean> {
+    await this.getConnection();
     // NULL-out cross-session references before deleting so linked sessions/messages
     // don't hold dangling IDs. These columns have no FK ON DELETE SET NULL because
     // they were added via ALTER TABLE (SQLite limitation).
@@ -613,6 +637,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async addSessionAgent(sessionId: string, agentId: string): Promise<void> {
+    await this.getConnection();
     await this.connection.run(
       'INSERT OR IGNORE INTO session_agents (session_id, agent_id) VALUES (?, ?)',
       [sessionId, agentId]
@@ -620,6 +645,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async removeSessionAgent(sessionId: string, agentId: string): Promise<void> {
+    await this.getConnection();
     await this.connection.run(
       'DELETE FROM session_agents WHERE session_id = ? AND agent_id = ?',
       [sessionId, agentId]
@@ -629,6 +655,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   // ========== Statistics ==========
   
   async getStats(): Promise<StorageStats> {
+    await this.getConnection();
     const sessionCount = await this.connection.get<{ count: number }>(
       'SELECT COUNT(*) as count FROM sessions'
     );
@@ -901,6 +928,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   // ========== Notes ==========
   
   async createNote(note: Omit<Note, 'id' | 'createdAt' | 'updatedAt'>): Promise<Note> {
+    await this.getConnection();
     const id = randomBytes(8).toString('hex');
     const now = new Date().toISOString();
     const tagsJson = note.tags ? JSON.stringify(note.tags) : null;
@@ -923,6 +951,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async getNote(noteId: string): Promise<Note | null> {
+    await this.getConnection();
     const row = await this.connection.get<any>(
       'SELECT id, agent_id, title, content, tags_json, created_at, updated_at FROM notes WHERE id = ?',
       [noteId]
@@ -944,6 +973,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async listAgentNotes(agentId: string): Promise<Note[]> {
+    await this.getConnection();
     const rows = await this.connection.all<any>(
       'SELECT id, agent_id, title, content, tags_json, created_at, updated_at FROM notes WHERE agent_id = ? ORDER BY created_at DESC',
       [agentId]
@@ -961,6 +991,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async updateNote(noteId: string, updates: Partial<Omit<Note, 'id' | 'agentId' | 'createdAt' | 'updatedAt'>>): Promise<void> {
+    await this.getConnection();
     const now = new Date().toISOString();
     const setParts: string[] = [];
     const params: any[] = [];
@@ -996,6 +1027,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async deleteNote(noteId: string): Promise<boolean> {
+    await this.getConnection();
     const result = await this.connection.run(
       'DELETE FROM notes WHERE id = ?',
       [noteId]
@@ -1004,6 +1036,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
   
   async searchNotes(query: string, agentId?: string): Promise<Note[]> {
+    await this.getConnection();
     // Use FTS5 for full-text search with Porter stemming and relevance ranking
     const conditions = ['notes_fts MATCH ?'];
     const params: any[] = [query];
@@ -1046,6 +1079,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   // ========== Session Skills ==========
 
   async addSessionSkill(sessionId: string, skillPath: string): Promise<void> {
+    await this.getConnection();
     const now = new Date().toISOString();
     await this.connection.run(
       `INSERT INTO session_skills (session_id, skill_path, loaded_at, paused)
@@ -1056,6 +1090,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
 
   async getSessionSkills(sessionId: string): Promise<SessionSkill[]> {
+    await this.getConnection();
     const rows = await this.connection.all<{
       skill_path: string;
       loaded_at: string;
@@ -1073,6 +1108,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
 
   async setSessionSkillPaused(sessionId: string, skillPath: string, paused: boolean): Promise<void> {
+    await this.getConnection();
     await this.connection.run(
       'UPDATE session_skills SET paused = ? WHERE session_id = ? AND skill_path = ?',
       [paused ? 1 : 0, sessionId, skillPath]
@@ -1080,6 +1116,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   }
 
   async removeSessionSkill(sessionId: string, skillPath: string): Promise<void> {
+    await this.getConnection();
     await this.connection.run(
       'DELETE FROM session_skills WHERE session_id = ? AND skill_path = ?',
       [sessionId, skillPath]

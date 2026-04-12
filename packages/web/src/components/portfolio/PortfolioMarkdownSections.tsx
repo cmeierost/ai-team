@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { AiTeamHttpClient } from '@ai-team/api-client-http';
+import type { AiTeamHttpClient } from '@ai-team/api-client';
 import type { MarkdownSection } from '@ai-team/core';
 import { MarkdownEditor, PortfolioSectionCard } from './portfolioShared';
 
@@ -23,16 +23,19 @@ const EXCLUDED_SECTIONS = new Set([
 
 const SECTION_ICONS: Record<string, string> = {
   'Scope of Responsibility': '🎯',
-  'Introduction': '👋',
+  Introduction: '👋',
   'Working Rules': '📐',
   'Successful Outcome': '✅',
 };
 
-const SKILLS_LINE_RE = /^\*\*Skills:\*\*.*$/mg;
+const SKILLS_LINE_RE = /^\*\*Skills:\*\*.*$/gm;
 
 /** Strip the auto-managed `**Skills:** ...` line from display / editing */
 function stripSkillsLine(content: string): string {
-  return content.replaceAll(SKILLS_LINE_RE, '').replaceAll(/\n{3,}/g, '\n\n').trimEnd();
+  return content
+    .replaceAll(SKILLS_LINE_RE, '')
+    .replaceAll(/\n{3,}/g, '\n\n')
+    .trimEnd();
 }
 
 interface SectionCardProps {
@@ -57,7 +60,10 @@ function SectionCard({ heading, content, specializations, onSave }: Readonly<Sec
     setSaveError(null);
     setIsEditing(true);
   };
-  const cancel = () => { setIsEditing(false); setSaveError(null); };
+  const cancel = () => {
+    setIsEditing(false);
+    setSaveError(null);
+  };
 
   const save = async () => {
     setSaving(true);
@@ -106,7 +112,11 @@ function SectionCard({ heading, content, specializations, onSave }: Readonly<Sec
       {sectionContent}
       {isScopeSection && !isEditing && specializations && specializations.length > 0 ? (
         <div className="skill-tags-group portfolio-scope-skill-tags">
-          {specializations.map((s) => <span key={s} className="skill-tag">{s}</span>)}
+          {specializations.map((s) => (
+            <span key={s} className="skill-tag">
+              {s}
+            </span>
+          ))}
         </div>
       ) : null}
     </PortfolioSectionCard>
@@ -138,8 +148,8 @@ export function PortfolioMarkdownSections({
     setLoading(true);
     setLoadError(null);
     try {
-      const fetched = await client.getAgentSections(agentId);
-      setSections(fetched.filter(s => s.heading !== ''));
+      const fetched = await client.agents.getSections(agentId);
+      setSections(fetched.filter((s) => s.heading !== ''));
     } catch (e: any) {
       setLoadError(e?.message || 'Failed to load sections');
     } finally {
@@ -147,19 +157,22 @@ export function PortfolioMarkdownSections({
     }
   }, [agentId, client]);
 
-  useEffect(() => { void loadSections(); }, [loadSections]);
+  useEffect(() => {
+    void loadSections();
+  }, [loadSections]);
 
   const handleSave = async (heading: string, content: string) => {
-    const updated = await client.updateAgentSection(agentId, heading, content);
-    setSections(updated.filter(s => s.heading !== ''));
+    await client.agents.updateSection(agentId, heading, { content });
+    await loadSections();
     onUpdated();
   };
 
   if (loading) return <p className="text-muted portfolio-sections-status">Loading sections…</p>;
-  if (loadError) return <p className="portfolio-section-error portfolio-sections-status">{loadError}</p>;
+  if (loadError)
+    return <p className="portfolio-section-error portfolio-sections-status">{loadError}</p>;
 
   // Order: standard sections first (in preferred order), then any extras; exclude moved/removed sections.
-  const sectionMap = new Map(sections.map(s => [s.heading, s.content]));
+  const sectionMap = new Map(sections.map((s) => [s.heading, s.content]));
   const ordered: Array<{ heading: string; content: string }> = [];
   const onlySet = onlyHeadings && onlyHeadings.length > 0 ? new Set(onlyHeadings) : null;
   const excludeSet = new Set(excludeHeadings ?? []);

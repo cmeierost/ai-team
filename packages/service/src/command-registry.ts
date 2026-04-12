@@ -1,4 +1,4 @@
-import type { CliCommandMetadata } from '@ai-team/core';
+import type { CliCommandMetadata } from '@ai-team/infrastructure';
 import { buildChatCommandRegistry, buildChatCommandAliases } from './orchestrator/slash-commands.js';
 export type { ChatCommandRegistryEntry } from './orchestrator/slash-commands.js';
 

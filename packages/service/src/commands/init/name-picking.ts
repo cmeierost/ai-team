@@ -1,5 +1,5 @@
 import ora from 'ora';
-import type { LlmService } from '@ai-team/core';
+import type { LlmService } from '@ai-team/infrastructure';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 import { renderTemplate, type InitTemplates } from './template-utils.js';
 

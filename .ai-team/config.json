@@ -558,8 +558,8 @@
     }
   },
   "defaultModel": {
-    "provider": "openai",
-    "model": "gpt-5.4"
+    "provider": "api-llmhub-infs-ai",
+    "model": "best-chat"
   },
   "allowedCliTools": [
     "git",
@@ -572,9 +572,7 @@
   ],
   "fileTree": {
     "readPaths": [],
-    "writePaths": [],
-    "createPaths": [],
-    "deletePaths": []
+    "writePaths": []
   },
   "fileTypeGroups": {
     "code": {

@@ -14,9 +14,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Agent, ChatMessage } from '@ai-team/core';
+import type { Agent, ChatMessage } from '@ai-team/infrastructure';
 import { emitEvent, emitLog } from './stream-events.js';
-import { detectForwardRequestWithFallback, extractForwardNote } from './forward-detection.js';
+import { detectForwardRequestWithFallbackAsync, extractForwardNote } from './forward-detection.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ export async function tryNlForward(
   message: string,
   ctx: OrchestratorContext,
 ): Promise<string | null> {
-  const { resolved, looksLikeForward } = await detectForwardRequestWithFallback(
+  const { resolved, looksLikeForward } = await detectForwardRequestWithFallbackAsync(
     message,
     ctx.agentManager,
     ctx.agent.id,
@@ -91,8 +91,8 @@ export async function executeHandoff(
   // getAgent uses exact ID matching; fall back to fuzzy resolveAgent so LLMs
   // that write "Emily Davis" (name) instead of "emily-davis" (id) still work.
   const target =
-    ctx.agentManager.getAgent(targetAgentId)
-    ?? ctx.agentManager.resolveAgent(targetAgentId).find(a => a.id !== ctx.agent.id);
+    await ctx.agentManager.getAgentAsync(targetAgentId)
+    ?? (await ctx.agentManager.resolveAgentAsync(targetAgentId)).find(a => a.id !== ctx.agent.id);
   if (!target) return false;
 
   const currentSession = await ctx.sessionManager.getSession(ctx.sessionId);
@@ -157,7 +157,7 @@ export async function executeHandoff(
     fromAgentName: fromAgent.name,
     fromAgentRole: fromAgent.role,
     fromSessionId,
-    toAgentId: targetAgentId,
+    toAgentId: target.id,
     toAgentName: target.name,
     toAgentRole: target.role,
     toSessionId,
@@ -208,7 +208,7 @@ async function generateHandoffBriefing(
           + `Write a handoff briefing for ${toAgent.name}.\n`
           + (triggerMessage ? `${developerName} said: "${triggerMessage}"\n\n` : '')
           + (historyText ? `Recent conversation:\n${historyText}\n\n` : '')
-          + `Write 2-4 sentences in first person as ${fromAgent.name}: summarise what you and `
+          + `Write 2-10 sentences in first person as ${fromAgent.name}: summarise what you and `
           + `${developerName} discussed, what ${developerName}'s goal is, and why you are `
           + `forwarding them to ${toAgent.name}. `
           + `Do not repeat the request word-for-word. Do not add a subject line or greeting.`,

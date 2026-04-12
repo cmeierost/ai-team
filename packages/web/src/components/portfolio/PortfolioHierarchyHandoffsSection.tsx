@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Agent, AgentHandoff } from '../../types';
-import type { AiTeamHttpClient } from '@ai-team/api-client-http';
+import type { AiTeamHttpClient } from '@ai-team/api-client';
 import { Avatar } from '../Avatar';
 import { PortfolioSectionCard } from './portfolioShared';
 import { getAgentColor } from '../../utils/color';
@@ -28,7 +28,10 @@ function handoffKey(h: AgentHandoff) {
 function autoLabelFromAgent(agent: Agent | undefined): string {
   if (!agent) return '';
   if (agent.role) {
-    return agent.role.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    return agent.role
+      .split('-')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
   }
   return `Delegate to ${agent.name}`;
 }
@@ -42,7 +45,12 @@ interface PromptFieldProps {
   onCommit: (value: string) => void;
 }
 
-function PromptField({ value, placeholder = 'No routing prompt — click to add', disabled, onCommit }: Readonly<PromptFieldProps>) {
+function PromptField({
+  value,
+  placeholder = 'No routing prompt — click to add',
+  disabled,
+  onCommit,
+}: Readonly<PromptFieldProps>) {
   const [draft, setDraft] = useState(value);
   const [editing, setEditing] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -53,7 +61,10 @@ function PromptField({ value, placeholder = 'No routing prompt — click to add'
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') { setDraft(value); setEditing(false); }
+    if (e.key === 'Escape') {
+      setDraft(value);
+      setEditing(false);
+    }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) commit();
   };
 
@@ -66,7 +77,10 @@ function PromptField({ value, placeholder = 'No routing prompt — click to add'
       disabled={disabled}
       readOnly={!editing}
       rows={1}
-      onFocus={() => { setDraft(value); setEditing(true); }}
+      onFocus={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
       onBlur={commit}
       onChange={(e) => setDraft(e.target.value)}
       onKeyDown={onKeyDown}
@@ -90,9 +104,11 @@ function GenerateBtn({ loading, disabled, onClick }: Readonly<GenerateBtnProps>)
       disabled={disabled}
       title="Generate routing prompt with AI"
     >
-      {loading
-        ? <i className="codicon codicon-loading codicon-modifier-spin" />
-        : <i className="codicon codicon-sparkle" />}
+      {loading ? (
+        <i className="codicon codicon-loading codicon-modifier-spin" />
+      ) : (
+        <i className="codicon codicon-sparkle" />
+      )}
     </button>
   );
 }
@@ -119,13 +135,26 @@ export function PortfolioHierarchyHandoffsSection({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const startEditReportsTo = () => { setDraftReportsTo(reportsTo); setSaveError(null); setIsEditing(true); };
-  const cancelReportsTo = () => { setIsEditing(false); setSaveError(null); };
+  const startEditReportsTo = () => {
+    setDraftReportsTo(reportsTo);
+    setSaveError(null);
+    setIsEditing(true);
+  };
+  const cancelReportsTo = () => {
+    setIsEditing(false);
+    setSaveError(null);
+  };
   const saveReportsTo = async () => {
-    setSaving(true); setSaveError(null);
-    try { await onSaveReportsTo(draftReportsTo); setIsEditing(false); }
-    catch (e: any) { setSaveError(e?.message || 'Save failed'); }
-    finally { setSaving(false); }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSaveReportsTo(draftReportsTo);
+      setIsEditing(false);
+    } catch (e: any) {
+      setSaveError(e?.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ── Prompt generation state ────────────────────────────────────────────────
@@ -136,18 +165,25 @@ export function PortfolioHierarchyHandoffsSection({
     setGenerating(targetAgentId);
     setGenerateError(null);
     try {
-      const { prompt } = await client.generateHandoffPrompt(agentId, targetAgentId);
+      const { prompt } = (await client.agents.generateHandoffPrompt(
+        agentId,
+        { targetAgentId },
+      )) as { prompt: string };
       const existing = handoffs.find((h) => h.agent === targetAgentId && h.label === existingLabel);
       let updated: AgentHandoff[];
       if (existing) {
         updated = handoffs.map((h) =>
-          h.agent === targetAgentId && h.label === existingLabel ? { ...h, prompt } : h,
+          h.agent === targetAgentId && h.label === existingLabel ? { ...h, prompt } : h
         );
       } else {
         const targetAgent = agentById(targetAgentId);
         updated = [
           ...handoffs,
-          { agent: targetAgentId, label: `Delegate to ${targetAgent?.name ?? targetAgentId}`, prompt },
+          {
+            agent: targetAgentId,
+            label: `Delegate to ${targetAgent?.name ?? targetAgentId}`,
+            prompt,
+          },
         ];
       }
       await onSaveHandoffs(updated);
@@ -164,7 +200,9 @@ export function PortfolioHierarchyHandoffsSection({
     let updated: AgentHandoff[];
     if (existing) {
       updated = handoffs.map((h) =>
-        h.agent === targetAgentId && h.label === label ? { ...h, prompt: newPrompt || undefined } : h,
+        h.agent === targetAgentId && h.label === label
+          ? { ...h, prompt: newPrompt || undefined }
+          : h
       );
     } else {
       updated = [...handoffs, { agent: targetAgentId, label, prompt: newPrompt || undefined }];
@@ -180,12 +218,18 @@ export function PortfolioHierarchyHandoffsSection({
   const [addSaving, setAddSaving] = useState(false);
 
   const submitAdd = async () => {
-    if (!newAgentId) { setAddError('Choose an agent.'); return; }
+    if (!newAgentId) {
+      setAddError('Choose an agent.');
+      return;
+    }
     const effectiveLabel = newLabel.trim() || autoLabelFromAgent(agentById(newAgentId));
-    setAddSaving(true); setAddError(null);
+    setAddSaving(true);
+    setAddError(null);
     try {
       await onSaveHandoffs([...handoffs, { agent: newAgentId, label: effectiveLabel }]);
-      setIsAdding(false); setNewAgentId(''); setNewLabel('');
+      setIsAdding(false);
+      setNewAgentId('');
+      setNewLabel('');
     } catch (e: any) {
       setAddError(e?.message || 'Save failed');
     } finally {
@@ -200,12 +244,18 @@ export function PortfolioHierarchyHandoffsSection({
     handoff: handoffs.find((h) => h.agent === report.id),
   }));
   const managerHandoff = reportsTo ? handoffs.find((h) => h.agent === reportsTo) : undefined;
-  const otherHandoffs = handoffs.filter((h) => !directReportIds.has(h.agent) && h.agent !== reportsTo);
+  const otherHandoffs = handoffs.filter(
+    (h) => !directReportIds.has(h.agent) && h.agent !== reportsTo
+  );
 
   // Agents that don't already have a handoff in "Other handoffs"
   const otherHandoffAgentIds = new Set(otherHandoffs.map((h) => h.agent));
   const addableAgents = selectableAgents.filter(
-    (a) => a.id !== agentId && !directReportIds.has(a.id) && a.id !== reportsTo && !otherHandoffAgentIds.has(a.id),
+    (a) =>
+      a.id !== agentId &&
+      !directReportIds.has(a.id) &&
+      a.id !== reportsTo &&
+      !otherHandoffAgentIds.has(a.id)
   );
 
   return (
@@ -224,17 +274,23 @@ export function PortfolioHierarchyHandoffsSection({
       {isEditing ? (
         <label className="portfolio-form-label-full">
           <span>Reports To</span>
-          <select value={draftReportsTo ?? ''} onChange={(e) => setDraftReportsTo(e.target.value || undefined)}>
+          <select
+            value={draftReportsTo ?? ''}
+            onChange={(e) => setDraftReportsTo(e.target.value || undefined)}
+          >
             <option value="">— none (top level) —</option>
             {selectableAgents
               .filter((a) => a.id !== agentId)
               .sort((l, r) => l.name.localeCompare(r.name))
-              .map((a) => <option key={a.id} value={a.id}>{a.name} · {a.role}</option>)}
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} · {a.role}
+                </option>
+              ))}
           </select>
         </label>
       ) : (
         <div className="hierarchy-handoffs-section">
-
           {/* ── Manager row ── */}
           <div className="hierarchy-row">
             <span className="hierarchy-label">Reports to</span>
@@ -253,7 +309,13 @@ export function PortfolioHierarchyHandoffsSection({
                   <PromptField
                     value={managerHandoff?.prompt ?? ''}
                     disabled={generating !== null}
-                    onCommit={(v) => handlePromptEdit(manager.id, managerHandoff?.label ?? `[auto] Report to ${manager.name}`, v)}
+                    onCommit={(v) =>
+                      handlePromptEdit(
+                        manager.id,
+                        managerHandoff?.label ?? `[auto] Report to ${manager.name}`,
+                        v
+                      )
+                    }
                   />
                   <GenerateBtn
                     loading={generating === manager.id}
@@ -271,7 +333,11 @@ export function PortfolioHierarchyHandoffsSection({
               <span className="hierarchy-label">Direct reports</span>
               <div className="direct-reports-handoff-list">
                 {directReportRows.map(({ report, handoff }) => (
-                  <div key={report.id} className="handoff-report-row" style={{ borderLeft: `2px solid ${getAgentColor(report)}` }}>
+                  <div
+                    key={report.id}
+                    className="handoff-report-row"
+                    style={{ borderLeft: `2px solid ${getAgentColor(report)}` }}
+                  >
                     <Link to={`/portfolio/${report.id}`} className="hierarchy-agent-link">
                       <Avatar agent={report} size="small" />
                       <span>{report.name}</span>
@@ -281,7 +347,13 @@ export function PortfolioHierarchyHandoffsSection({
                       <PromptField
                         value={handoff?.prompt ?? ''}
                         disabled={generating !== null}
-                        onCommit={(v) => handlePromptEdit(report.id, handoff?.label ?? `Delegate to ${report.name}`, v)}
+                        onCommit={(v) =>
+                          handlePromptEdit(
+                            report.id,
+                            handoff?.label ?? `Delegate to ${report.name}`,
+                            v
+                          )
+                        }
                       />
                       <GenerateBtn
                         loading={generating === report.id}
@@ -318,8 +390,14 @@ export function PortfolioHierarchyHandoffsSection({
                         <span
                           className="handoff-custom-badge"
                           title="Custom delegation — not a direct report"
-                          style={{ color: agentColor, background: `color-mix(in srgb, ${agentColor} 12%, transparent)`, borderColor: `color-mix(in srgb, ${agentColor} 35%, transparent)` }}
-                        >↗ delegation</span>
+                          style={{
+                            color: agentColor,
+                            background: `color-mix(in srgb, ${agentColor} 12%, transparent)`,
+                            borderColor: `color-mix(in srgb, ${agentColor} 35%, transparent)`,
+                          }}
+                        >
+                          ↗ delegation
+                        </span>
                       </div>
                       <span className="collab-view-comment">{entry.label}</span>
                       <div className="handoff-prompt-row">
@@ -354,18 +432,39 @@ export function PortfolioHierarchyHandoffsSection({
                       <option value="">— select agent —</option>
                       {addableAgents
                         .sort((a, b) => a.name.localeCompare(b.name))
-                        .map((a) => <option key={a.id} value={a.id}>{a.name} · {a.role}</option>)}
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name} · {a.role}
+                          </option>
+                        ))}
                     </select>
                     <input
                       type="text"
-                      placeholder={newAgentId ? autoLabelFromAgent(agentById(newAgentId)) : 'Label (auto-generated from role)'}
+                      placeholder={
+                        newAgentId
+                          ? autoLabelFromAgent(agentById(newAgentId))
+                          : 'Label (auto-generated from role)'
+                      }
                       value={newLabel}
                       onChange={(e) => setNewLabel(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') void submitAdd(); if (e.key === 'Escape') setIsAdding(false); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void submitAdd();
+                        if (e.key === 'Escape') setIsAdding(false);
+                      }}
                     />
                     <div className="handoff-add-form-actions">
-                      <button className="btn-save" onClick={submitAdd} disabled={addSaving}>Add</button>
-                      <button className="btn-cancel" onClick={() => { setIsAdding(false); setAddError(null); }}>Cancel</button>
+                      <button className="btn-save" onClick={submitAdd} disabled={addSaving}>
+                        Add
+                      </button>
+                      <button
+                        className="btn-cancel"
+                        onClick={() => {
+                          setIsAdding(false);
+                          setAddError(null);
+                        }}
+                      >
+                        Cancel
+                      </button>
                     </div>
                   </div>
                 ) : null}

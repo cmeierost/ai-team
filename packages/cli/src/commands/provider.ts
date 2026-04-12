@@ -1,16 +1,19 @@
 import { confirm, input, password, select } from '@inquirer/prompts';
 import type {
   AddProviderOptions,
-  AiTeamClient,
+  IAiTeamMediator,
   ConfigureProviderOptions,
   ProviderSetupInput,
   SetProviderOptions,
 } from '@ai-team/api-client';
-import { fetchGitHubModels, loadEnvFile, loadTeamConfig } from '@ai-team/core';
-import type { LlmConfig, LlmProviderConfig, TeamConfig } from '@ai-team/core';
+import { fetchGitHubModels, loadEnvFile, loadTeamConfig } from '@ai-team/infrastructure';
+import type { LlmConfig, LlmProviderConfig, TeamConfig } from '@ai-team/infrastructure';
 import { runCommandStream } from './stream-runner.js';
 
-export async function providerConfigureCommand(client: AiTeamClient, options: ConfigureProviderOptions = {}) {
+export async function providerConfigureCommand(
+  client: IAiTeamMediator,
+  options: ConfigureProviderOptions = {}
+) {
   if (!options.fromInit) {
     const workspaceRoot = process.cwd();
     const existing = await loadTeamConfig(workspaceRoot);
@@ -45,7 +48,10 @@ export async function providerConfigureCommand(client: AiTeamClient, options: Co
   });
 }
 
-export async function providerAddCommand(client: AiTeamClient, options: AddProviderOptions = {}) {
+export async function providerAddCommand(
+  client: IAiTeamMediator,
+  options: AddProviderOptions = {}
+) {
   if (options.setup) {
     await runCommandStream(client, {
       command: 'providerAdd',
@@ -68,7 +74,10 @@ export async function providerAddCommand(client: AiTeamClient, options: AddProvi
   });
 }
 
-export async function providerSetCommand(client: AiTeamClient, options: SetProviderOptions = {}) {
+export async function providerSetCommand(
+  client: IAiTeamMediator,
+  options: SetProviderOptions = {}
+) {
   if (!options.fromInit) {
     const workspaceRoot = process.cwd();
     const existing = await loadTeamConfig(workspaceRoot);
@@ -108,12 +117,13 @@ export default providerConfigureCommand;
 async function askProviderSetup(
   workspaceRoot: string,
   existing: TeamConfig | undefined,
-  options: { mode: 'configure' | 'add' },
+  options: { mode: 'configure' | 'add' }
 ): Promise<ProviderSetupInput> {
   const providerKind = await select<'github-copilot' | 'openai-compatible'>({
-    message: options.mode === 'configure'
-      ? 'Which provider should be configured as default?'
-      : 'Which provider do you want to add?',
+    message:
+      options.mode === 'configure'
+        ? 'Which provider should be configured as default?'
+        : 'Which provider do you want to add?',
     choices: [
       { name: 'GitHub Copilot', value: 'github-copilot' },
       { name: 'OpenAI-compatible (OpenAI, Ollama, Azure, etc.)', value: 'openai-compatible' },
@@ -122,13 +132,15 @@ async function askProviderSetup(
 
   if (providerKind === 'github-copilot') {
     const models = await fetchGitHubModels();
-    const modelChoices = (models.length > 0
-      ? models.map(model => ({ name: model.name, value: model.id }))
-      : [
-          { name: 'GPT-4o', value: 'gpt-4o' },
-          { name: 'GPT-4o mini', value: 'gpt-4o-mini' },
-          { name: 'Claude Sonnet 4', value: 'claude-sonnet-4' },
-        ]) as { name: string; value: string }[];
+    const modelChoices = (
+      models.length > 0
+        ? models.map((model) => ({ name: model.name, value: model.id }))
+        : [
+            { name: 'GPT-4o', value: 'gpt-4o' },
+            { name: 'GPT-4o mini', value: 'gpt-4o-mini' },
+            { name: 'Claude Sonnet 4', value: 'claude-sonnet-4' },
+          ]
+    ) as { name: string; value: string }[];
 
     const model = await select({
       message: 'Which model?',
@@ -169,9 +181,21 @@ async function askProviderSetup(
   });
 
   const presets: Record<string, { baseUrl: string; needsKey: boolean; models: string[] }> = {
-    openai: { baseUrl: 'https://api.openai.com/v1', needsKey: true, models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'] },
-    ollama: { baseUrl: 'http://localhost:11434/v1', needsKey: false, models: ['llama3', 'mistral', 'codellama', 'deepseek-coder'] },
-    lmstudio: { baseUrl: 'http://localhost:1234/v1', needsKey: false, models: ['(uses loaded model)'] },
+    openai: {
+      baseUrl: 'https://api.openai.com/v1',
+      needsKey: true,
+      models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'],
+    },
+    ollama: {
+      baseUrl: 'http://localhost:11434/v1',
+      needsKey: false,
+      models: ['llama3', 'mistral', 'codellama', 'deepseek-coder'],
+    },
+    lmstudio: {
+      baseUrl: 'http://localhost:1234/v1',
+      needsKey: false,
+      models: ['(uses loaded model)'],
+    },
     azure: { baseUrl: '', needsKey: true, models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'] },
   };
 
@@ -194,7 +218,10 @@ async function askProviderSetup(
     baseUrl = presetInfo.baseUrl;
   }
 
-  const modelChoices = (presetInfo?.models || ['gpt-4o']).map(modelId => ({ name: modelId, value: modelId }));
+  const modelChoices = (presetInfo?.models || ['gpt-4o']).map((modelId) => ({
+    name: modelId,
+    value: modelId,
+  }));
   if (preset !== 'lmstudio') {
     modelChoices.push({ name: 'Other (type manually)', value: '__custom__' });
   }
@@ -204,13 +231,16 @@ async function askProviderSetup(
     choices: modelChoices,
   });
 
-  const model = modelChoice === '__custom__'
-    ? await input({ message: 'Model name:' })
-    : (modelChoice === '(uses loaded model)' ? '' : modelChoice);
+  const model =
+    modelChoice === '__custom__'
+      ? await input({ message: 'Model name:' })
+      : modelChoice === '(uses loaded model)'
+        ? ''
+        : modelChoice;
 
   const suggestedRef = buildProviderRef(
     { provider: 'openai-compatible', baseUrl, ...(model ? { model } : {}) },
-    existing,
+    existing
   );
 
   const providerRef = await input({
@@ -226,12 +256,17 @@ async function askProviderSetup(
   if (needsKey) {
     const envVars = await loadEnvFile(workspaceRoot);
     const existingRefConfig = (existing?.providers || {})[providerRef];
-    const defaultEnvVar = existingRefConfig?.apiKeyEnvVar || `${providerRef.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`;
+    const defaultEnvVar =
+      existingRefConfig?.apiKeyEnvVar ||
+      `${providerRef.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`;
 
     apiKeyEnvVar = await input({
-      message: 'API key environment variable name (stored in config, value stays in .ai-team/.env):',
+      message:
+        'API key environment variable name (stored in config, value stays in .ai-team/.env):',
       default: defaultEnvVar,
-      validate: (value: string) => /^[A-Z_][A-Z0-9_]*$/.test(value.trim()) || 'Use uppercase letters, numbers, and underscores only.',
+      validate: (value: string) =>
+        /^[A-Z_][A-Z0-9_]*$/.test(value.trim()) ||
+        'Use uppercase letters, numbers, and underscores only.',
     });
 
     const existingValue = envVars[apiKeyEnvVar];
@@ -245,7 +280,7 @@ async function askProviderSetup(
         apiKey = await password({
           message: `New value for ${apiKeyEnvVar}:`,
           mask: '*',
-          validate: value => value.trim().length > 0 || 'API key cannot be empty',
+          validate: (value) => value.trim().length > 0 || 'API key cannot be empty',
         });
       }
     } else {
@@ -258,7 +293,7 @@ async function askProviderSetup(
         apiKey = await password({
           message: `Value for ${apiKeyEnvVar}:`,
           mask: '*',
-          validate: value => value.trim().length > 0 || 'API key cannot be empty',
+          validate: (value) => value.trim().length > 0 || 'API key cannot be empty',
         });
       }
     }
@@ -287,7 +322,7 @@ async function askProviderSetup(
 }
 
 function resolveCurrentDefaultProvider(
-  config: TeamConfig | undefined,
+  config: TeamConfig | undefined
 ): { ref: string; config: LlmProviderConfig } | undefined {
   const registry = config?.providers;
   if (!registry || Object.keys(registry).length === 0) {
@@ -349,4 +384,3 @@ function validateProviderRef(value: string): true | string {
   }
   return true;
 }
-

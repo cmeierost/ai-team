@@ -11,7 +11,7 @@
 export async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-  timeoutMessage: string,
+  timeoutMessage: string
 ): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -27,18 +27,29 @@ export async function withTimeout<T>(
 export async function withAbortSignal<T>(
   promise: Promise<T>,
   signal: AbortSignal | undefined,
-  abortMessage: string,
+  abortMessage: string
 ): Promise<T> {
   if (!signal) return promise;
   if (signal.aborted) throw new Error(abortMessage);
 
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => { cleanup(); reject(new Error(abortMessage)); };
-    const cleanup = () => { signal.removeEventListener('abort', onAbort); };
+    const onAbort = () => {
+      cleanup();
+      reject(new Error(abortMessage));
+    };
+    const cleanup = () => {
+      signal.removeEventListener('abort', onAbort);
+    };
     signal.addEventListener('abort', onAbort, { once: true });
     promise
-      .then((value) => { cleanup(); resolve(value); })
-      .catch((error) => { cleanup(); reject(error); });
+      .then((value) => {
+        cleanup();
+        resolve(value);
+      })
+      .catch((error) => {
+        cleanup();
+        reject(error);
+      });
   });
 }
 

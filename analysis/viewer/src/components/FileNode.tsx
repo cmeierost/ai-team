@@ -14,12 +14,15 @@ export interface FileNodeData {
   isMisplaced: boolean;
   misplacedInfo?: MisplacedFile;
   centrality?: FileCentrality;
+  /** Other community labels this file also belongs to (shared across communities). */
+  sharedCommunities?: string[];
 }
 
 const handle: React.CSSProperties = { width: 5, height: 5, opacity: 0.3, background: '#888' };
 
 function FileNodeComponent({ data }: NodeProps<Node<FileNodeData>>) {
-  const { file, isMisplaced, misplacedInfo, centrality } = data;
+  const { file, isMisplaced, misplacedInfo, centrality, sharedCommunities } = data;
+  const isShared = sharedCommunities && sharedCommunities.length > 0;
 
   const primaryRole: string =
     file.contentClassification?.role ?? file.contentRole ?? 'unknown';
@@ -81,6 +84,10 @@ function FileNodeComponent({ data }: NodeProps<Node<FileNodeData>>) {
         {centrality?.isBridge && (
           <span style={{ flexShrink: 0, fontSize: 9, cursor: 'help' }}
             title="Bridge file">🔗</span>
+        )}
+        {isShared && (
+          <span style={{ flexShrink: 0, fontSize: 9, cursor: 'help', color: '#f59e0b' }}
+            title={`Also in: ${sharedCommunities!.join(', ')}`}>⚠</span>
         )}
         <span style={{
           width: 7,

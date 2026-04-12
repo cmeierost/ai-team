@@ -1,5 +1,5 @@
-import type { AgentManager } from '@ai-team/core';
-import { AgentNotFoundError } from '@ai-team/core';
+import type { AgentManager } from '@ai-team/infrastructure';
+import { AgentNotFoundError } from '@ai-team/infrastructure';
 import { AmbiguousAgentQueryError } from '../errors.js';
 
 /**
@@ -11,16 +11,16 @@ import { AmbiguousAgentQueryError } from '../errors.js';
  * @throws {AgentNotFoundError} If no agent matches the query
  * @throws {AmbiguousAgentQueryError} If multiple agents match the query
  */
-export function resolveAgentForOperation(
+export async function resolveAgentForOperationAsync(
   agentManager: AgentManager,
   query: string,
   operation: string,
-): { id: string; name: string; role: string } {
-  const matches = agentManager.resolveAgent(query);
+): Promise<{ id: string; name: string; role: string; }> {
+  const matches = await agentManager.resolveAgentAsync(query);
 
   if (matches.length === 0) {
     // Generate suggestions for similar agents
-    const allAgents = agentManager.getAllAgents();
+    const allAgents = await agentManager.getAllAgentsAsync();
     const suggestions = allAgents
       .slice(0, 10) // Limit to 10 suggestions
       .map(a => ({ id: a.id, name: a.name, role: a.role }));
@@ -48,15 +48,15 @@ export function resolveAgentForOperation(
  * @param query - Agent ID, role, name, or partial match
  * @returns The resolved agent or null
  */
-export function resolveAgentSafe(
+export async function resolveAgentSafe(
   agentManager: AgentManager | undefined,
   query: string,
-): { id: string; name: string; role: string } | null {
+): Promise<{ id: string; name: string; role: string } | null> {
   if (!agentManager) {
     return null;
   }
 
-  const matches = agentManager.resolveAgent(query);
+  const matches = await agentManager.resolveAgentAsync(query);
   
   if (matches.length === 1) {
     const agent = matches[0];

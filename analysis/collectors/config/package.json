@@ -11,14 +11,19 @@
     "test": "vitest run --passWithNoTests",
     "clean": "rm -rf dist"
   },
-  "keywords": ["code-analysis", "config", "package-json", "tsconfig"],
+  "keywords": [
+    "code-analysis",
+    "config",
+    "package-json",
+    "tsconfig"
+  ],
   "license": "MIT",
   "dependencies": {
     "@aspect/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.5.2",
-    "typescript": "^6.0.2",
+    "typescript": "^5.9.3",
     "vitest": "^4.1.2"
   }
 }

@@ -37,20 +37,19 @@ Editor-local workflows use a dedicated IDE bridge:
 
 ## Main package responsibilities
 
-### `@ai-team/permission`
+### `file-context`
 
-- standalone file-path permission rights policy engine
-- layered contexts with deny-before-allow semantics
-- operation-aware: shell command and tool call path extraction
-- structured verdicts with alternative-context suggestions for delegation
+- shared file-context library at repository root
+- provides `.perm` parsing, glob matching, overlap analysis, and `ContextRuntime`
 - powers per-agent `.ai-team/agents/<agent-id>.perm` path policies
+- used by `@ai-team/core` context management as the underlying rights runtime
 
 ### `@ai-team/core`
 
 - UI-free domain logic and shared types
 - workspace-backed file/domain operations
 - agent, team, skill, context, and tool primitives
-- adapter layer bridging Agent/FileTreeConfig types to `@ai-team/permission`
+- `ContextManager` compatibility API backed by `file-context` `ContextRuntime`
 
 ### `@ai-team/service`
 
@@ -99,7 +98,7 @@ flowchart LR
     IDE[@ai-team/ide-interface]
     SERVICE[@ai-team/service]
     CORE[@ai-team/core]
-    ACCESS[@ai-team/permission]
+    FILECTX[file-context]
   end
 
   STATE[.ai-team/* runtime state]
@@ -111,7 +110,7 @@ flowchart LR
   APISERVER --> LOCALCLIENT
   LOCALCLIENT --> SERVICE
   SERVICE --> CORE
-  CORE --> ACCESS
+  CORE --> FILECTX
   CORE --> STATE
   SERVICE --> STATE
   SERVICE --> PROVIDERS
@@ -209,7 +208,7 @@ In short: the architecture direction is clear, but the frontend is still mid-mig
 
 ## Access and file-system model (current)
 
-- File-path rights are evaluated by the `@ai-team/permission` engine via the core permission adapter.
+- File-path rights are evaluated through `ContextManager` (`packages/core/src/context/index.ts`) backed by `file-context` `ContextRuntime`.
 - Agent-specific path rules live in `.ai-team/agents/<agent-id>.perm`.
 - Agent frontmatter should not carry file-path access globs.
 - Rights inheritance:

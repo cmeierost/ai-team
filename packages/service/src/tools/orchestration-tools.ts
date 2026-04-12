@@ -32,7 +32,7 @@ import {
   FindCapableAgentResult,
   TeamListResult,
   ToolCatalogResult,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
 
 // ── DI contracts — each tool depends only on what it needs ───────────────────
 
@@ -49,9 +49,9 @@ export interface ISessionGateway {
  * AgentManager satisfies this structurally.
  */
 export interface IAgentRegistry {
-  getAgent(id: string): Agent | undefined;
-  getAllAgents(): Agent[];
-  createAgent(config: AgentConfig): Promise<Agent>;
+  getAgentAsync(id: string): Promise<Agent | undefined>;
+  getAllAgentsAsync(): Promise<Agent[]>;
+  createAgentAsync(config: AgentConfig): Promise<Agent>;
 }
 
 /**
@@ -79,9 +79,7 @@ export interface OrchestrationDeps {
  * Returns a HandoffRequest — the orchestrator's tool-dispatch does the actual
  * context switch because it holds the full OrchestratorContext.
  */
-export function createHandoffTool(
-  deps: Pick<OrchestrationDeps, 'agents' | 'sessions'>,
-): AgentTool {
+export function createHandoffTool(deps: Pick<OrchestrationDeps, 'agents' | 'sessions'>): AgentTool {
   return {
     name: 'handoff',
     group: 'com',
@@ -92,9 +90,10 @@ export function createHandoffTool(
     permissionCheck: { type: 'agent-delegation', argsPath: 'targetAgentId' },
     parameters: z.object({
       targetAgentId: z.string().min(1).describe('ID of the agent to hand off to'),
-      briefingNote: z.string().min(1).describe(
-        'Concise summary of the conversation and what the target agent needs to do.',
-      ),
+      briefingNote: z
+        .string()
+        .min(1)
+        .describe('Concise summary of the conversation and what the target agent needs to do.'),
     }),
     tags: ['orchestration'],
     examples: [
@@ -106,20 +105,20 @@ export function createHandoffTool(
         briefingNote: string;
       };
 
-      const target = deps.agents.getAgent(targetAgentId)
-        ?? deps.agents
-          .getAllAgents()
-          .find((candidate) => {
-            const query = targetAgentId.trim().toLowerCase();
-            return candidate.id.toLowerCase() === query
-              || candidate.name.toLowerCase() === query
-              || candidate.role.toLowerCase() === query;
-          });
+      const target =
+        (await deps.agents.getAgentAsync(targetAgentId)) ??
+        (await deps.agents.getAllAgentsAsync()).find((candidate) => {
+          const query = targetAgentId.trim().toLowerCase();
+          return (
+            candidate.id.toLowerCase() === query ||
+            candidate.name.toLowerCase() === query ||
+            candidate.role.toLowerCase() === query
+          );
+        });
 
       if (!target) {
         throw new Error(
-          `Agent not found: "${targetAgentId}". ` +
-            'Use who_should to discover valid agent IDs.',
+          `Agent not found: "${targetAgentId}". ` + 'Use who_should to discover valid agent IDs.'
         );
       }
 
@@ -186,7 +185,7 @@ export function createHireTool(deps: Pick<OrchestrationDeps, 'agents'>): AgentTo
         contextLevel: ContextLevel.MODULE,
       };
 
-      const created = await deps.agents.createAgent(config);
+      const created = await deps.agents.createAgentAsync(config);
 
       return {
         type: 'hire',
@@ -209,11 +208,11 @@ export function createHireTool(deps: Pick<OrchestrationDeps, 'agents'>): AgentTo
  * list it can immediately use as input for com_handoff.
  */
 export function createFindCapableTool(
-  deps: Pick<OrchestrationDeps, 'agents' | 'tools'>,
+  deps: Pick<OrchestrationDeps, 'agents' | 'tools'>
 ): AgentTool {
   return {
     name: 'who_should',
-    group: 'access',
+    group: 'fs',
     description:
       'Discover which team members are authorized to perform a specific action. ' +
       'Call this before com_handoff to ensure you delegate to the right person.',
@@ -238,7 +237,7 @@ export function createFindCapableTool(
         requiredArgs?: Record<string, unknown>;
       };
 
-      const allAgents = deps.agents.getAllAgents();
+      const allAgents = await deps.agents.getAllAgentsAsync();
 
       const matched: Agent[] = requiredTool
         ? await deps.tools.whoCanExecute(requiredTool, requiredArgs ?? {}, allAgents)
@@ -247,7 +246,7 @@ export function createFindCapableTool(
       return {
         type: 'fs_who_should_result',
         task,
-        matches: matched.map(a => ({ agentId: a.id, agentName: a.name, agentRole: a.role })),
+        matches: matched.map((a) => ({ agentId: a.id, agentName: a.name, agentRole: a.role })),
         timestamp: new Date().toISOString(),
       };
     },
@@ -275,7 +274,7 @@ export function matchesToolListPreLlmIntent(message: string): boolean {
  */
 export function createListToolsTool(deps: Pick<OrchestrationDeps, 'tools'>): AgentTool {
   return {
-    name: 'list_tools',
+    name: 'list',
     group: 'tool',
     description:
       'Show all tools currently available to you, including name, description, and parameters.',
@@ -290,7 +289,7 @@ export function createListToolsTool(deps: Pick<OrchestrationDeps, 'tools'>): Age
 
       let entries = deps.tools.catalog(context.agent);
       if (tag) {
-        entries = entries.filter(e => e.tags?.includes(tag));
+        entries = entries.filter((e) => e.tags?.includes(tag));
       }
 
       return {
@@ -322,20 +321,17 @@ export function matchesTeamListPreLlmIntent(message: string): boolean {
  *
  * Returns all known team members as a structured snapshot.
  */
-export function createTeamListTool(
-  deps: Pick<OrchestrationDeps, 'agents'>,
-): AgentTool {
+export function createTeamListTool(deps: Pick<OrchestrationDeps, 'agents'>): AgentTool {
   return {
-    name: 'list_team',
+    name: 'list',
     group: 'team',
-    description:
-      'List all team members with their IDs, names, and roles.',
+    description: 'List all team members with their IDs, names, and roles.',
     permissionCheck: { type: 'none' },
     parameters: z.object({}),
     tags: ['orchestration'],
     examples: ['team_list({})'],
     async execute(): Promise<TeamListResult> {
-      const members = deps.agents.getAllAgents();
+      const members = await deps.agents.getAllAgentsAsync();
 
       return {
         type: 'team_list_result',

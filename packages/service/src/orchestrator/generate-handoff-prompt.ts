@@ -1,5 +1,5 @@
-import type { Agent } from '@ai-team/core';
-import { LlmService } from '@ai-team/core';
+import type { Agent } from '@ai-team/infrastructure';
+import { LlmService } from '@ai-team/infrastructure';
 
 /**
  * Generates a default handoff prompt from one agent to another using the LLM.

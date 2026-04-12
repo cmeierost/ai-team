@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AiTeamClient } from '@ai-team/api-client';
+import type { ICommandClient } from '@ai-team/api-client';
 
 const clientApi = vi.hoisted(() => ({
   stream: vi.fn(),
@@ -9,15 +9,17 @@ import { createCommand } from './create.js';
 
 const client = {
   stream: clientApi.stream,
-} as unknown as AiTeamClient;
+} as unknown as ICommandClient;
 
 describe('create command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clientApi.stream.mockReturnValue((async function* () {
-      yield { kind: 'started', command: 'create', timestamp: new Date().toISOString() };
-      yield { kind: 'done', command: 'create', timestamp: new Date().toISOString() };
-    })());
+    clientApi.stream.mockReturnValue(
+      (async function* () {
+        yield { kind: 'started', command: 'create', timestamp: new Date().toISOString() };
+        yield { kind: 'done', command: 'create', timestamp: new Date().toISOString() };
+      })()
+    );
   });
 
   afterEach(() => {
@@ -27,18 +29,21 @@ describe('create command', () => {
   it('forwards create operation to api client', async () => {
     await createCommand(client, 'agent', { name: 'Maya', role: 'engineer', interactive: false });
 
-    expect(clientApi.stream).toHaveBeenCalledWith({
-      command: 'create',
-      payload: {
-        type: 'agent',
-        options: {
-          name: 'Maya',
-          role: 'engineer',
-          interactive: false,
+    expect(clientApi.stream).toHaveBeenCalledWith(
+      {
+        command: 'create',
+        payload: {
+          type: 'agent',
+          options: {
+            name: 'Maya',
+            role: 'engineer',
+            interactive: false,
+          },
         },
       },
-    }, expect.objectContaining({
-      signal: expect.any(Object),
-    }));
+      expect.objectContaining({
+        signal: expect.any(Object),
+      })
+    );
   });
 });

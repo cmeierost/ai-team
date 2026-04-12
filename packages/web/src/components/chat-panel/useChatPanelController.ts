@@ -4,8 +4,7 @@ import { useMatch, useNavigate, useParams } from 'react-router-dom';
 import { API_BASE, useTeam } from '../../context/TeamContext';
 import { contextPanelQueryKeys } from '../../hooks/contextPanelQueryKeys';
 import type { ChatMessage, SessionActivatedTool } from '../../types';
-import type { IdeEditStatusResponse } from '@ai-team/api-client-http';
-import type { ChatCommandRegistryEntry } from '@ai-team/api-client-http';
+import type { IdeEditSession, ChatCommandRegistryEntry } from '@ai-team/api-client';
 import { useSlashCommandSuggestions } from '../../hooks/useSlashCommandSuggestions';
 import {
   buildSummaryMarkdown,
@@ -75,7 +74,11 @@ interface UseChatPanelControllerResult {
   agent: ReturnType<typeof useTeam>['agents'][number] | undefined;
   handleNavigatePortfolio: () => void;
   handleGraphBack: () => void;
-  handleSelectSessionFromGraph: (targetSessionId: string, targetAgentId: string, handoffId?: string) => void;
+  handleSelectSessionFromGraph: (
+    targetSessionId: string,
+    targetAgentId: string,
+    handoffId?: string
+  ) => void;
   handleScroll: () => void;
   handleSummarize: (toIndex: number) => Promise<void>;
   handleSplitSession: (atIndex: number) => Promise<void>;
@@ -155,7 +158,8 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const graphRouteMatch = useMatch(GRAPH_ROUTE);
   const sessionRouteMatch = useMatch(SESSION_ROUTE);
-  const urlSessionId = graphRouteMatch?.params?.sessionId ?? sessionRouteMatch?.params?.sessionId ?? null;
+  const urlSessionId =
+    graphRouteMatch?.params?.sessionId ?? sessionRouteMatch?.params?.sessionId ?? null;
   const graphSessionId = graphRouteMatch?.params?.sessionId ?? null;
 
   const agent = agents.find((entry) => entry.id === currentAgentId);
@@ -172,7 +176,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const loadGreeting = async (targetAgentId: string, cancelled?: { value: boolean }) => {
     try {
       const developerName = encodeURIComponent(developer?.name || 'Developer');
-      const response = await fetch(`${API_BASE}/api/agents/${targetAgentId}/introduction?developerName=${developerName}`);
+      const response = await fetch(
+        `${API_BASE}/api/agents/${targetAgentId}/introduction?developerName=${developerName}`
+      );
       if (cancelled?.value) {
         return;
       }
@@ -222,7 +228,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     }
   };
 
-  const loadPersistedSession = async (targetAgentId: string, targetSessionId: string | null, cancelled: boolean) => {
+  const loadPersistedSession = async (
+    targetAgentId: string,
+    targetSessionId: string | null,
+    cancelled: boolean
+  ) => {
     const targetUrl = targetSessionId
       ? `${API_BASE}/api/sessions/${targetSessionId}?includeMessages=true`
       : `${API_BASE}/api/sessions/${targetAgentId}/latest?includeMessages=true`;
@@ -255,7 +265,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const fetchSessionWithMessages = async (sessionId: string) => {
-    const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}?includeMessages=true`);
+    const response = await fetch(
+      `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}?includeMessages=true`
+    );
     if (!response.ok) {
       return null;
     }
@@ -268,7 +280,10 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       return null;
     }
 
-    applyLoadedSession(getSessionPrimaryAgentId(sessionWithMessages, fallbackAgentId), sessionWithMessages);
+    applyLoadedSession(
+      getSessionPrimaryAgentId(sessionWithMessages, fallbackAgentId),
+      sessionWithMessages
+    );
     return sessionWithMessages;
   };
 
@@ -281,7 +296,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     let cancelled = false;
     const loadAllowedTools = async () => {
       try {
-        const response = await client.listTools({ agent: currentAgentId });
+        const response = (await client.tools.list({ agent: currentAgentId })) as {
+          entries: Array<{ name: string; allowedForAgent?: boolean }>;
+        };
         if (cancelled) {
           return;
         }
@@ -308,7 +325,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       return;
     }
     const timer = setTimeout(() => {
-      const element = messagesContainerRef.current?.querySelector<HTMLElement>(`[data-handoff-id="${scrollToHandoffId}"]`);
+      const element = messagesContainerRef.current?.querySelector<HTMLElement>(
+        `[data-handoff-id="${scrollToHandoffId}"]`
+      );
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
         element.classList.add('handoff-highlight');
@@ -426,8 +445,10 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     clearPendingQuestion();
   };
 
-  const beginPendingQuestion = <T,>(question: PendingQuestion): Promise<T> => {
-    pendingQuestionRejectRef.current?.(new Error('Previous question was replaced before submission.'));
+  const beginPendingQuestion = <T>(question: PendingQuestion): Promise<T> => {
+    pendingQuestionRejectRef.current?.(
+      new Error('Previous question was replaced before submission.')
+    );
 
     if (question.kind === 'input') {
       setPendingInputAnswer('');
@@ -455,27 +476,38 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     });
   };
 
-  const askInputQuestion = async (request: InputQuestionRequest): Promise<string> => beginPendingQuestion<string>({ kind: 'input', message: request.message });
-  const askConfirmQuestion = async (request: ConfirmQuestionRequest): Promise<boolean> => beginPendingQuestion<boolean>({ kind: 'confirm', message: request.message, defaultValue: request.default ?? false });
-  const askSelectQuestion = async (request: SelectQuestionRequest): Promise<string> => beginPendingQuestion<string>({
-    kind: 'select',
-    message: request.message,
-    choices: request.choices,
-    allowOther: request.allowOther,
-    otherLabel: request.otherLabel,
-    otherPrompt: request.otherPrompt,
-  });
-  const askPasswordQuestion = async (request: PasswordQuestionRequest): Promise<string> => beginPendingQuestion<string>({ kind: 'password', message: request.message });
-  const askChecklistQuestion = async (request: ChecklistQuestionRequest): Promise<string[]> => beginPendingQuestion<string[]>({
-    kind: 'checklist',
-    message: request.message,
-    choices: request.choices,
-    allowOther: request.allowOther,
-    otherLabel: request.otherLabel,
-    otherPrompt: request.otherPrompt,
-  });
+  const askInputQuestion = async (request: InputQuestionRequest): Promise<string> =>
+    beginPendingQuestion<string>({ kind: 'input', message: request.message });
+  const askConfirmQuestion = async (request: ConfirmQuestionRequest): Promise<boolean> =>
+    beginPendingQuestion<boolean>({
+      kind: 'confirm',
+      message: request.message,
+      defaultValue: request.default ?? false,
+    });
+  const askSelectQuestion = async (request: SelectQuestionRequest): Promise<string> =>
+    beginPendingQuestion<string>({
+      kind: 'select',
+      message: request.message,
+      choices: request.choices,
+      allowOther: request.allowOther,
+      otherLabel: request.otherLabel,
+      otherPrompt: request.otherPrompt,
+    });
+  const askPasswordQuestion = async (request: PasswordQuestionRequest): Promise<string> =>
+    beginPendingQuestion<string>({ kind: 'password', message: request.message });
+  const askChecklistQuestion = async (request: ChecklistQuestionRequest): Promise<string[]> =>
+    beginPendingQuestion<string[]>({
+      kind: 'checklist',
+      message: request.message,
+      choices: request.choices,
+      allowOther: request.allowOther,
+      otherLabel: request.otherLabel,
+      otherPrompt: request.otherPrompt,
+    });
   const togglePendingChecklistValue = (choiceValue: string, checked: boolean) => {
-    setPendingChecklistAnswer((previous) => (checked ? [...previous, choiceValue] : previous.filter((value) => value !== choiceValue)));
+    setPendingChecklistAnswer((previous) =>
+      checked ? [...previous, choiceValue] : previous.filter((value) => value !== choiceValue)
+    );
   };
 
   const setPendingFormFieldValue = (fieldId: string, value: string) => {
@@ -595,7 +627,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         targetSessionId = newSession.id;
       }
 
-      const messagesResponse = await fetch(`${API_BASE}/api/sessions/${targetSessionId}?includeMessages=true`);
+      const messagesResponse = await fetch(
+        `${API_BASE}/api/sessions/${targetSessionId}?includeMessages=true`
+      );
       if (!messagesResponse.ok) {
         return true;
       }
@@ -619,7 +653,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       skipNextSessionLoadRef.current = targetSessionId;
       navigate(`/chat/${toAgentId}/session/${targetSessionId}`, { replace: true });
 
-      const briefing = existingMessages.find((message) => message.handoffType === 'agent-briefing' && message.handoffId);
+      const briefing = existingMessages.find(
+        (message) => message.handoffType === 'agent-briefing' && message.handoffId
+      );
       if (briefing?.handoffId) {
         setScrollToHandoffId(briefing.handoffId);
       }
@@ -642,22 +678,23 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       try {
-        const openResult = await client.ideOpenDiff({
+        const openResult = await client.ide.openDiff({
           operationId: `${event.proposalId ?? 'code-edit'}:${index}`,
           filePath: file.filePath,
-          originalContent: file.oldContent ?? '',
-          editType: 'modify',
           agentName: event.agentName ?? currentAgentId ?? 'AI Team',
           description: event.description ?? 'Code edit proposal',
         });
 
-        await client.ideUpdateEdit({
+        await client.ide.updateEdit({
           sessionId: openResult.sessionId,
-          content: file.newContent ?? '',
-          isFinal: true,
+          newContent: file.newContent ?? '',
         });
 
-        void observeIdeLifecycleOutcome(openResult.sessionId, file.filePath, event.agentName ?? currentAgentId);
+        void observeIdeLifecycleOutcome(
+          openResult.sessionId,
+          file.filePath,
+          event.agentName ?? currentAgentId
+        );
       } catch (error) {
         console.warn('Failed to forward code edit proposal to IDE lifecycle API:', error);
       }
@@ -667,16 +704,19 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const observeIdeLifecycleOutcome = async (
     sessionId: string,
     filePath: string,
-    agentName?: string,
+    agentName?: string
   ) => {
     const maxAttempts = 30;
     const pollIntervalMs = 1000;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
-        const status: IdeEditStatusResponse = await client.ideEditStatus(sessionId);
+        const status = (await client.ide.getEditStatus({ sessionId })) as IdeEditSession;
 
-        const terminal = status.terminalState;
+        const terminal =
+          'terminalState' in status
+            ? (status as { terminalState?: string }).terminalState
+            : undefined;
         const isCommitted = status.state === 'committed' || terminal === 'committed';
         const isReverted = status.state === 'reverted' || terminal === 'reverted';
 
@@ -801,24 +841,29 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         throw new Error('Chat request was interrupted before it started. Please try again.');
       }
 
-      const stream = client.stream({
-        command: 'chat',
-        payload: {
-          employeeId: currentAgentId,
-          options: {
-            message: messageContent,
-            sessionId: sessionId ?? undefined,
-            ...(pendingIntroductionContent ? { pendingIntroduction: pendingIntroductionContent } : {}),
+      const stream = client.stream(
+        {
+          command: 'chat',
+          payload: {
+            employeeId: currentAgentId,
+            options: {
+              message: messageContent,
+              sessionId: sessionId ?? undefined,
+              ...(pendingIntroductionContent
+                ? { pendingIntroduction: pendingIntroductionContent }
+                : {}),
+            },
           },
         },
-      }, {
-        signal: abortSignal,
-        questionInput: askInputQuestion,
-        questionConfirm: askConfirmQuestion,
-        questionSelect: askSelectQuestion,
-        questionPassword: askPasswordQuestion,
-        questionChecklist: askChecklistQuestion,
-      });
+        {
+          signal: abortSignal,
+          questionInput: askInputQuestion,
+          questionConfirm: askConfirmQuestion,
+          questionSelect: askSelectQuestion,
+          questionPassword: askPasswordQuestion,
+          questionChecklist: askChecklistQuestion,
+        }
+      );
 
       const { accumulator, handoffDetected } = await consumeStream(stream, sessionId);
 
@@ -833,8 +878,12 @@ export function useChatPanelController(): UseChatPanelControllerResult {
           !syncedSession.title &&
           (syncedSession.messages ?? []).filter((m: any) => m.isHuman).length >= 2
         ) {
-          fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/generate-title`, { method: 'POST' })
-            .then(() => queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot }))
+          fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/generate-title`, {
+            method: 'POST',
+          })
+            .then(() =>
+              queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot })
+            )
             .catch(() => {});
         }
       }
@@ -923,9 +972,12 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const startVoiceRecording = () => {
-    const SpeechRecognition = (globalThis as any).SpeechRecognition || (globalThis as any).webkitSpeechRecognition;
+    const SpeechRecognition =
+      (globalThis as any).SpeechRecognition || (globalThis as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      globalThis.alert('Speech recognition is not supported in your browser. Please try Chrome or Edge.');
+      globalThis.alert(
+        'Speech recognition is not supported in your browser. Please try Chrome or Edge.'
+      );
       return;
     }
 
@@ -943,7 +995,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       console.error('Speech recognition error:', event.error);
       setIsRecording(false);
       if (event.error === 'not-allowed') {
-        globalThis.alert('Microphone access denied. Please allow microphone access in your browser settings.');
+        globalThis.alert(
+          'Microphone access denied. Please allow microphone access in your browser settings.'
+        );
       }
     };
     recognitionInstance.onend = () => setIsRecording(false);
@@ -995,7 +1049,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       if (!currentSessionId) {
-        const response = await fetch(`${API_BASE}/api/chat/${currentAgentId}/messages/${index}`, { method: 'DELETE' });
+        const response = await fetch(`${API_BASE}/api/chat/${currentAgentId}/messages/${index}`, {
+          method: 'DELETE',
+        });
         if (response.ok) {
           setMessages((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
         }
@@ -1005,7 +1061,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       let timestampToDelete = targetMessage.timestamp;
       let response = await fetch(
         `${API_BASE}/api/sessions/${encodeURIComponent(currentSessionId)}/messages/${encodeURIComponent(timestampToDelete)}`,
-        { method: 'DELETE' },
+        { method: 'DELETE' }
       );
 
       if (response.ok) {
@@ -1023,7 +1079,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         timestampToDelete = persistedMessage.timestamp;
         response = await fetch(
           `${API_BASE}/api/sessions/${encodeURIComponent(currentSessionId)}/messages/${encodeURIComponent(timestampToDelete)}`,
-          { method: 'DELETE' },
+          { method: 'DELETE' }
         );
 
         if (!response.ok) {
@@ -1032,14 +1088,18 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         }
 
         setMessages((previous) => {
-          const matchedIndex = previous[index]?.timestamp === timestampToDelete
-            ? index
-            : previous.findIndex((message, messageIndex) => {
-                if (messageIndex === index && message.timestamp === timestampToDelete) {
-                  return true;
-                }
-                return message.timestamp === timestampToDelete && findMatchingMessage([message], targetMessage, 0) !== null;
-              });
+          const matchedIndex =
+            previous[index]?.timestamp === timestampToDelete
+              ? index
+              : previous.findIndex((message, messageIndex) => {
+                  if (messageIndex === index && message.timestamp === timestampToDelete) {
+                    return true;
+                  }
+                  return (
+                    message.timestamp === timestampToDelete &&
+                    findMatchingMessage([message], targetMessage, 0) !== null
+                  );
+                });
           return matchedIndex >= 0
             ? previous.filter((_, messageIndex) => messageIndex !== matchedIndex)
             : previous.filter((_, messageIndex) => messageIndex !== index);
@@ -1056,14 +1116,17 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const handleCopyMessage = (content: string) => {
     navigator.clipboard.writeText(content).then(
       () => console.log('Message copied to clipboard'),
-      (error) => console.error('Failed to copy message:', error),
+      (error) => console.error('Failed to copy message:', error)
     );
   };
 
   const handleToggleArchive = async (index: number, currentlyArchived: boolean) => {
     try {
       const endpoint = currentlyArchived ? 'unarchive' : 'archive';
-      const response = await fetch(`${API_BASE}/api/chat/${currentAgentId}/messages/${index}/${endpoint}`, { method: 'PATCH' });
+      const response = await fetch(
+        `${API_BASE}/api/chat/${currentAgentId}/messages/${index}/${endpoint}`,
+        { method: 'PATCH' }
+      );
       if (response.ok) {
         setMessages((previous) => {
           const updated = [...previous];
@@ -1086,7 +1149,10 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       if (!title) {
         return;
       }
-      const summary = buildSummaryMarkdown(messages.slice(0, toIndex + 1), developer?.name || undefined);
+      const summary = buildSummaryMarkdown(
+        messages.slice(0, toIndex + 1),
+        developer?.name || undefined
+      );
       const response = await fetch(`${API_BASE}/api/sessions/${currentSessionId}/summarize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1120,7 +1186,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         globalThis.alert('No active session. Please start a chat first.');
         return;
       }
-      const confirmed = globalThis.confirm(`Split session at message ${atIndex + 1}? This will create a new session with messages from that point forward.`);
+      const confirmed = globalThis.confirm(
+        `Split session at message ${atIndex + 1}? This will create a new session with messages from that point forward.`
+      );
       if (!confirmed) {
         return;
       }
@@ -1216,7 +1284,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         throw new Error('Failed to create handoff session');
       }
       const newSession = await response.json();
-      const messagesResponse = await fetch(`${API_BASE}/api/sessions/${newSession.id}/messages?includeMessages=true`);
+      const messagesResponse = await fetch(
+        `${API_BASE}/api/sessions/${newSession.id}/messages?includeMessages=true`
+      );
       if (messagesResponse.ok) {
         const sessionWithMessages = await messagesResponse.json();
         setMessages(sessionWithMessages.messages || []);
@@ -1235,7 +1305,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     navigate(`/chat/${currentAgentId}/session/${sessionId}/thread`);
   };
 
-  const handleSelectSessionFromGraph = (targetSessionId: string, targetAgentId: string, handoffId?: string) => {
+  const handleSelectSessionFromGraph = (
+    targetSessionId: string,
+    targetAgentId: string,
+    handoffId?: string
+  ) => {
     if (handoffId) {
       setScrollToHandoffId(handoffId);
     }
@@ -1271,7 +1345,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const handleGraphBack = () => {
-    navigate(`/chat/${currentAgentId}/session/${currentSessionId ?? ''}`.replace(/\/session\/$/, ''));
+    navigate(
+      `/chat/${currentAgentId}/session/${currentSessionId ?? ''}`.replace(/\/session\/$/, '')
+    );
   };
 
   return {

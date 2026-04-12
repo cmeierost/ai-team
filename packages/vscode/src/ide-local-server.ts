@@ -67,7 +67,7 @@ export class IdeLocalServer {
   }
 
   private emit(event: IdeLocalServerEvent): void {
-    this.eventHandlers.forEach(h => h(event));
+    this.eventHandlers.forEach((h) => h(event));
   }
 
   getPort(): number {
@@ -75,7 +75,7 @@ export class IdeLocalServer {
   }
 
   getConnectedClients(): IdeClientInfo[] {
-    return Array.from(this.clients.values()).map(c => ({
+    return Array.from(this.clients.values()).map((c) => ({
       clientId: c.clientId,
       workspaceRoot: c.workspaceRoot,
       connectedAt: c.connectedAt,
@@ -110,7 +110,9 @@ export class IdeLocalServer {
           return;
         }
         if (!pathsMatch(msg.workspaceRoot, this.workspaceRoot)) {
-          console.error(`[AI Team] WS path mismatch: msg="${msg.workspaceRoot}" server="${this.workspaceRoot}"`);
+          console.error(
+            `[AI Team] WS path mismatch: msg="${msg.workspaceRoot}" server="${this.workspaceRoot}"`
+          );
           const reply: IdePluginMessage = { type: 'rejected', reason: 'Workspace root mismatch' };
           ws.send(JSON.stringify(reply));
           ws.close();
@@ -177,7 +179,7 @@ export class IdeLocalServer {
         // pong back to all (broadcast not targeted — fine for this use case)
         const pong: IdePluginMessage = { type: 'pong' };
         const payload = JSON.stringify(pong);
-        this.clients.forEach(c => {
+        this.clients.forEach((c) => {
           if (c.ws.readyState === WebSocket.OPEN) c.ws.send(payload);
         });
         break;
@@ -192,7 +194,7 @@ export class IdeLocalServer {
   private async handleLspRequest(
     requestId: string,
     operation: LspOperation,
-    params: LspParams,
+    params: LspParams
   ): Promise<void> {
     try {
       const result = await this.executeLspOperation(operation, params);
@@ -203,76 +205,99 @@ export class IdeLocalServer {
     }
   }
 
-  private async executeLspOperation(operation: LspOperation, params: LspParams): Promise<LspResult> {
+  private async executeLspOperation(
+    operation: LspOperation,
+    params: LspParams
+  ): Promise<LspResult> {
     const uri = vscode.Uri.file(params.filePath);
     const pos = new vscode.Position(params.line ?? 0, params.character ?? 0);
 
     switch (operation) {
       case 'goToDefinition': {
-        const locs = await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
-          'vscode.executeDefinitionProvider', uri, pos,
-        );
+        const locs = await vscode.commands.executeCommand<
+          (vscode.Location | vscode.LocationLink)[]
+        >('vscode.executeDefinitionProvider', uri, pos);
         return { kind: 'locations', locations: await this.convertLocations(locs ?? []) };
       }
       case 'findReferences': {
         const locs = await vscode.commands.executeCommand<vscode.Location[]>(
-          'vscode.executeReferenceProvider', uri, pos,
+          'vscode.executeReferenceProvider',
+          uri,
+          pos
         );
         return { kind: 'locations', locations: await this.convertLocations(locs ?? []) };
       }
       case 'goToImplementation': {
-        const locs = await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
-          'vscode.executeImplementationProvider', uri, pos,
-        );
+        const locs = await vscode.commands.executeCommand<
+          (vscode.Location | vscode.LocationLink)[]
+        >('vscode.executeImplementationProvider', uri, pos);
         return { kind: 'locations', locations: await this.convertLocations(locs ?? []) };
       }
       case 'hover': {
         const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
-          'vscode.executeHoverProvider', uri, pos,
+          'vscode.executeHoverProvider',
+          uri,
+          pos
         );
         return { kind: 'hover', hover: this.convertHover(hovers ?? []) };
       }
       case 'documentSymbol': {
         const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
-          'vscode.executeDocumentSymbolProvider', uri,
+          'vscode.executeDocumentSymbolProvider',
+          uri
         );
-        return { kind: 'symbols', symbols: this.convertDocumentSymbols(symbols ?? [], params.filePath) };
+        return {
+          kind: 'symbols',
+          symbols: this.convertDocumentSymbols(symbols ?? [], params.filePath),
+        };
       }
       case 'workspaceSymbol': {
         const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
-          'vscode.executeWorkspaceSymbolProvider', params.query ?? '',
+          'vscode.executeWorkspaceSymbolProvider',
+          params.query ?? ''
         );
         return { kind: 'symbols', symbols: this.convertSymbolInformations(symbols ?? []) };
       }
       case 'prepareCallHierarchy': {
         const items = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
-          'vscode.prepareCallHierarchy', uri, pos,
+          'vscode.prepareCallHierarchy',
+          uri,
+          pos
         );
         return { kind: 'callItems', items: this.convertCallHierarchyItems(items ?? []) };
       }
       case 'incomingCalls': {
         const prepared = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
-          'vscode.prepareCallHierarchy', uri, pos,
+          'vscode.prepareCallHierarchy',
+          uri,
+          pos
         );
         if (!prepared?.length) return { kind: 'callItems', items: [] };
         const calls = await vscode.commands.executeCommand<vscode.CallHierarchyIncomingCall[]>(
-          'vscode.provideIncomingCalls', prepared[0],
+          'vscode.provideIncomingCalls',
+          prepared[0]
         );
         return { kind: 'callItems', items: this.convertIncomingCalls(calls ?? []) };
       }
       case 'outgoingCalls': {
         const prepared = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
-          'vscode.prepareCallHierarchy', uri, pos,
+          'vscode.prepareCallHierarchy',
+          uri,
+          pos
         );
         if (!prepared?.length) return { kind: 'callItems', items: [] };
         const calls = await vscode.commands.executeCommand<vscode.CallHierarchyOutgoingCall[]>(
-          'vscode.provideOutgoingCalls', prepared[0],
+          'vscode.provideOutgoingCalls',
+          prepared[0]
         );
         return { kind: 'callItems', items: this.convertOutgoingCalls(calls ?? []) };
       }
       case 'getDiagnostics': {
         const diagnostics = vscode.languages.getDiagnostics(uri);
-        return { kind: 'diagnostics', diagnostics: this.convertDiagnostics(diagnostics, params.filePath) };
+        return {
+          kind: 'diagnostics',
+          diagnostics: this.convertDiagnostics(diagnostics, params.filePath),
+        };
       }
       default:
         throw new Error(`Unknown LSP operation: ${operation}`);
@@ -280,7 +305,7 @@ export class IdeLocalServer {
   }
 
   private async convertLocations(
-    locs: (vscode.Location | vscode.LocationLink)[],
+    locs: (vscode.Location | vscode.LocationLink)[]
   ): Promise<LspLocation[]> {
     const results: LspLocation[] = [];
     for (const loc of locs.slice(0, 50)) {
@@ -339,7 +364,7 @@ export class IdeLocalServer {
   }
 
   private convertSymbolInformations(symbols: vscode.SymbolInformation[]): LspSymbol[] {
-    return symbols.slice(0, 200).map(sym => ({
+    return symbols.slice(0, 200).map((sym) => ({
       name: sym.name,
       kind: vscode.SymbolKind[sym.kind] ?? String(sym.kind),
       path: sym.location.uri.fsPath,
@@ -351,7 +376,7 @@ export class IdeLocalServer {
   }
 
   private convertCallHierarchyItems(items: vscode.CallHierarchyItem[]): LspCallHierarchyItem[] {
-    return items.slice(0, 50).map(item => ({
+    return items.slice(0, 50).map((item) => ({
       name: item.name,
       kind: vscode.SymbolKind[item.kind] ?? String(item.kind),
       path: item.uri.fsPath,
@@ -361,13 +386,13 @@ export class IdeLocalServer {
   }
 
   private convertIncomingCalls(calls: vscode.CallHierarchyIncomingCall[]): LspCallHierarchyItem[] {
-    return calls.slice(0, 50).map(call => ({
+    return calls.slice(0, 50).map((call) => ({
       name: call.from.name,
       kind: vscode.SymbolKind[call.from.kind] ?? String(call.from.kind),
       path: call.from.uri.fsPath,
       line: call.from.range.start.line,
       character: call.from.range.start.character,
-      fromRanges: call.fromRanges.map(r => ({
+      fromRanges: call.fromRanges.map((r) => ({
         line: r.start.line,
         character: r.start.character,
         endLine: r.end.line,
@@ -377,13 +402,13 @@ export class IdeLocalServer {
   }
 
   private convertOutgoingCalls(calls: vscode.CallHierarchyOutgoingCall[]): LspCallHierarchyItem[] {
-    return calls.slice(0, 50).map(call => ({
+    return calls.slice(0, 50).map((call) => ({
       name: call.to.name,
       kind: vscode.SymbolKind[call.to.kind] ?? String(call.to.kind),
       path: call.to.uri.fsPath,
       line: call.to.range.start.line,
       character: call.to.range.start.character,
-      fromRanges: call.fromRanges.map(r => ({
+      fromRanges: call.fromRanges.map((r) => ({
         line: r.start.line,
         character: r.start.character,
         endLine: r.end.line,
@@ -399,7 +424,7 @@ export class IdeLocalServer {
       [vscode.DiagnosticSeverity.Information]: 'info',
       [vscode.DiagnosticSeverity.Hint]: 'hint',
     };
-    return diagnostics.slice(0, 20).map(d => {
+    return diagnostics.slice(0, 20).map((d) => {
       let code: string | number | undefined;
       if (d.code != null) {
         code = typeof d.code === 'object' ? String(d.code.value) : d.code;
@@ -420,7 +445,7 @@ export class IdeLocalServer {
 
   private broadcastLspResponse(msg: IdePluginMessage): void {
     const payload = JSON.stringify(msg);
-    this.clients.forEach(c => {
+    this.clients.forEach((c) => {
       if (c.ws.readyState === WebSocket.OPEN) c.ws.send(payload);
     });
   }
@@ -429,7 +454,7 @@ export class IdeLocalServer {
   broadcastAck(proposalId: string, action: 'accept' | 'reject'): void {
     const msg: IdePluginMessage = { type: 'ack', proposalId, action };
     const payload = JSON.stringify(msg);
-    this.clients.forEach(c => {
+    this.clients.forEach((c) => {
       if (c.ws.readyState === WebSocket.OPEN) {
         c.ws.send(payload);
       }
@@ -440,7 +465,7 @@ export class IdeLocalServer {
     const clients = this.getConnectedClients();
     const msg: IdePluginMessage = { type: 'clientsChanged', clients };
     const payload = JSON.stringify(msg);
-    this.clients.forEach(c => {
+    this.clients.forEach((c) => {
       if (c.ws.readyState === WebSocket.OPEN) c.ws.send(payload);
     });
     this.emit({ kind: 'clientsChanged', clients });
@@ -460,7 +485,7 @@ export class IdeLocalServer {
   }
 
   stop(): void {
-    this.clients.forEach(c => c.ws.terminate());
+    this.clients.forEach((c) => c.ws.terminate());
     this.clients.clear();
     this.wss?.close();
     this.wss = null;
@@ -479,7 +504,7 @@ export class IdeLocalServer {
       server.listen(0, '127.0.0.1', () => {
         const address = server.address();
         const port = typeof address === 'object' && address ? address.port : 0;
-        server.close(err => (err ? reject(err) : resolve(port)));
+        server.close((err) => (err ? reject(err) : resolve(port)));
       });
       server.on('error', reject);
     });

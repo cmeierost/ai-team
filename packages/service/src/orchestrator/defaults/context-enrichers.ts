@@ -14,7 +14,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { ContextLevel } from '@ai-team/core';
+import { ContextLevel } from '@ai-team/infrastructure';
 import type { IContextEnricher } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
 
@@ -56,7 +56,7 @@ export class TeamRosterEnricher implements IContextEnricher {
 
     if (!isHrRole) return null;
 
-    const agents = ctx.agentManager.getAllAgents().filter(a => a.id !== ctx.agent.id);
+    const agents = (await ctx.agentManager.getAllAgentsAsync()).filter(a => a.id !== ctx.agent.id);
     if (agents.length === 0) return null;
 
     const lines = agents.map(a => `- **${a.name}** (${a.role}) [${a.id}]${a.status ? ` — ${a.status}` : ''}`);

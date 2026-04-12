@@ -6,27 +6,24 @@
  * now inline notation rendered client-side).
  */
 import type { ChatRuntimeHooks } from './hooks.js';
-import type {
-  QuestionInputRequest,
-  QuestionSelectRequest,
-} from '../../contracts.js';
+import type { QuestionInputRequest, QuestionSelectRequest } from '@ai-team/api-client';
 
 // ── Public question helpers ───────────────────────────────────────────────────
 
 export async function requestInput(
   hooks: ChatRuntimeHooks | undefined,
-  request: QuestionInputRequest,
+  request: QuestionInputRequest
 ): Promise<string> {
   if (!hooks?.questionInput) {
     throw new Error('Input question requested but no client questionInput responder is available.');
   }
-  await new Promise<void>(r => setImmediate(r));
+  await new Promise<void>((r) => setImmediate(r));
   return hooks.questionInput(request);
 }
 
 export async function requestSelect(
   hooks: ChatRuntimeHooks | undefined,
-  request: QuestionSelectRequest,
+  request: QuestionSelectRequest
 ): Promise<string> {
   if (!hooks?.questionSelect) {
     // Fallback: render choices as numbered list via questionInput
@@ -35,15 +32,18 @@ export async function requestSelect(
       await Promise.resolve();
       const answer = await hooks.questionInput({
         message: `${request.message}\n${choiceLines}\nEnter number or option value:`,
-        validate: v => resolveSelectAnswer(v, request.choices) != null || 'Please enter a valid option.',
+        validate: (v) =>
+          resolveSelectAnswer(v, request.choices) != null || 'Please enter a valid option.',
       });
       const resolved = resolveSelectAnswer(answer, request.choices);
       if (!resolved) throw new Error('Invalid selection for select question.');
       return resolved;
     }
-    throw new Error('Select question requested but no client questionSelect responder is available.');
+    throw new Error(
+      'Select question requested but no client questionSelect responder is available.'
+    );
   }
-  await new Promise<void>(r => setImmediate(r));
+  await new Promise<void>((r) => setImmediate(r));
   return hooks.questionSelect(request);
 }
 
@@ -51,7 +51,7 @@ export async function requestSelect(
 
 function resolveSelectAnswer(
   input: string,
-  choices: Array<{ name: string; value: string }>,
+  choices: Array<{ name: string; value: string }>
 ): string | undefined {
   const trimmed = input.trim();
   if (!trimmed) return undefined;
@@ -62,7 +62,7 @@ function resolveSelectAnswer(
   }
 
   return (
-    choices.find(c => c.value.toLowerCase() === trimmed.toLowerCase())?.value ??
-    choices.find(c => c.name.toLowerCase() === trimmed.toLowerCase())?.value
+    choices.find((c) => c.value.toLowerCase() === trimmed.toLowerCase())?.value ??
+    choices.find((c) => c.name.toLowerCase() === trimmed.toLowerCase())?.value
   );
 }

@@ -3,18 +3,21 @@
  */
 
 import chalk from 'chalk';
-import type { AiTeamClient, ListEmployeesRequest } from '@ai-team/api-client';
+import type { IAgentsService, ListEmployeesRequest, Agent } from '@ai-team/api-client';
 
 interface ListOptions extends ListEmployeesRequest {
   json?: boolean;
 }
 
-export async function listCommand(client: AiTeamClient, options: ListOptions) {
+export async function listCommand(client: IAgentsService, options: ListOptions) {
   try {
-    const employees = await client.listEmployees({
-      role: options.role,
-      feature: options.feature,
-    });
+    let employees: Agent[];
+    if (options.role || options.feature) {
+      const response = await client.search({ role: options.role, feature: options.feature });
+      employees = response.results.map((r) => r.agent);
+    } else {
+      employees = await client.list();
+    }
 
     if (options.json) {
       console.log(JSON.stringify(employees, null, 2));
@@ -23,7 +26,11 @@ export async function listCommand(client: AiTeamClient, options: ListOptions) {
 
     // Pretty print
     if (employees.length === 0) {
-      console.log(chalk.yellow('No team members found. Run') + ' ai-team init ' + chalk.yellow('to get started.'));
+      console.log(
+        chalk.yellow('No team members found. Run') +
+          ' ai-team init ' +
+          chalk.yellow('to get started.')
+      );
       return;
     }
 
@@ -32,19 +39,19 @@ export async function listCommand(client: AiTeamClient, options: ListOptions) {
     for (const employee of employees) {
       const status = getStatusIcon(employee.status);
       console.log(`${status} ${chalk.cyan(employee.name)} ${chalk.dim(`(${employee.role})`)}`);
-      
+
       if (employee.reportsTo) {
         console.log(chalk.dim(`  ├─ Reports to: ${employee.reportsTo}`));
       }
-      
+
       if (employee.features && employee.features.length > 0) {
         console.log(chalk.dim(`  ├─ Features: ${employee.features.join(', ')}`));
       }
-      
+
       if (employee.conversationCount) {
         console.log(chalk.dim(`  └─ Conversations: ${employee.conversationCount}`));
       }
-      
+
       console.log('');
     }
   } catch (error) {

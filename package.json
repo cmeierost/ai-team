@@ -17,7 +17,7 @@
     "test": "pnpm -r test",
     "test:coverage": "pnpm -r test:coverage",
     "lint": "pnpm -r lint",
-    "analyze:perms": "pnpm --filter @ai-team/permission build && pnpm --filter @ai-team/core build && pnpm --filter @ai-team/api-client build && pnpm --filter @ai-team/service build && pnpm --filter @ai-team/cli build && node packages/cli/dist/cli.js access overlap --json",
+    "analyze:perms": "pnpm --filter @ai-team/core build && pnpm --filter @ai-team/api-client build && pnpm --filter @ai-team/service build && pnpm --filter @ai-team/cli build && node packages/cli/dist/cli.js access overlap --json",
     "docs:pdf": "node tools/export-md-pdf.mjs",
     "docs:orchestrator:pdf": "node tools/export-md-pdf.mjs docs/architecture/orchestrator-overview.md docs/architecture/orchestrator-overview.pdf",
     "clean": "pnpm -r clean && rm -rf node_modules",
@@ -26,17 +26,28 @@
   "devDependencies": {
     "@types/node": "^25.5.0",
     "eslint": "^10.1.0",
+    "highlight.js": "^11.11.1",
     "kill-port": "^2.0.1",
+    "knip": "^6.3.1",
     "marked": "^17.0.5",
     "mermaid": "^11.13.0",
     "prettier": "^3.8.1",
-    "highlight.js": "^11.11.1",
     "puppeteer-core": "^24.40.0",
-    "typescript": "^6.0.2"
+    "typescript": "^5.9.3"
   },
   "packageManager": "pnpm@8.15.0",
   "engines": {
     "node": ">=18.0.0",
     "pnpm": ">=8.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@ts-http/openapi>@ts-http/core": "0.0.5",
+      "@ts-http/express>@ts-http/core": "0.0.5"
+    },
+    "packageExtensions": {
+      "@ts-http/express": { "dependencies": { "@ts-http/core": "^0.0.5" } },
+      "@ts-http/openapi": { "dependencies": { "@ts-http/core": "^0.0.5" } }
+    }
   }
 }

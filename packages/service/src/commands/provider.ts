@@ -7,13 +7,21 @@ import {
   saveEnvFile,
   saveTeamConfig,
   testLlmConnection,
-} from '@ai-team/core';
-import type { UserConfig, LlmProviderConfig, TeamConfig } from '@ai-team/core';
-import type { AddProviderOptions, ConfigureProviderOptions, ProviderSetupInput, SetProviderOptions } from '../contracts.js';
+} from '@ai-team/infrastructure';
+import type { UserConfig, LlmProviderConfig, TeamConfig } from '@ai-team/infrastructure';
+import type {
+  AddProviderOptions,
+  ConfigureProviderOptions,
+  ProviderSetupInput,
+  SetProviderOptions,
+} from '@ai-team/api-client';
 
 type ProviderSetupResult = ProviderSetupInput;
 
-export async function providerConfigureCommand(workspaceRoot: string, options: ConfigureProviderOptions = {}) {
+export async function providerConfigureCommand(
+  workspaceRoot: string,
+  options: ConfigureProviderOptions = {}
+) {
   const existing = await loadTeamConfig(workspaceRoot);
   const existingUserConfig = await loadUserConfig(workspaceRoot);
 
@@ -50,7 +58,11 @@ export async function providerAddCommand(workspaceRoot: string, options: AddProv
   const makeDefault = Boolean(options.makeDefault);
 
   const next = applyProviderConfiguration(existing, setup, makeDefault);
-  const nextUserConfig = applyProviderConfigurationToUserConfig(existingUserConfig, setup, makeDefault);
+  const nextUserConfig = applyProviderConfigurationToUserConfig(
+    existingUserConfig,
+    setup,
+    makeDefault
+  );
   await saveTeamConfig(workspaceRoot, next);
   await saveUserConfig(workspaceRoot, nextUserConfig);
   await persistApiKeyIfProvided(workspaceRoot, setup);
@@ -65,7 +77,7 @@ export async function providerSetCommand(workspaceRoot: string, options: SetProv
 function applyProviderConfiguration(
   existing: TeamConfig | undefined,
   setup: ProviderSetupResult,
-  makeDefault: boolean,
+  makeDefault: boolean
 ): TeamConfig {
   const base: TeamConfig = existing ? { ...existing } : { version: '0.1.0', randomAvatarUrls: [] };
   const registry: Record<string, LlmProviderConfig> = {};
@@ -79,9 +91,10 @@ function applyProviderConfiguration(
     ...setup.providerConfig,
   };
 
-  const defaultModel = makeDefault && setup.providerConfig.defaultModel
-    ? { provider: setup.providerRef, model: setup.providerConfig.defaultModel }
-    : base.defaultModel;
+  const defaultModel =
+    makeDefault && setup.providerConfig.defaultModel
+      ? { provider: setup.providerRef, model: setup.providerConfig.defaultModel }
+      : base.defaultModel;
 
   const next: TeamConfig = {
     ...base,
@@ -96,7 +109,7 @@ function applyProviderConfiguration(
 function applyProviderConfigurationToUserConfig(
   existing: UserConfig | undefined,
   setup: ProviderSetupResult,
-  makeDefault: boolean,
+  makeDefault: boolean
 ): UserConfig {
   const base = existing ? { ...existing } : {};
   const existingRegistry = base.providers;
@@ -107,9 +120,10 @@ function applyProviderConfigurationToUserConfig(
     ...setup.providerConfig,
   };
 
-  const defaultModel = makeDefault && setup.providerConfig.defaultModel
-    ? { provider: setup.providerRef, model: setup.providerConfig.defaultModel }
-    : base.defaultModel;
+  const defaultModel =
+    makeDefault && setup.providerConfig.defaultModel
+      ? { provider: setup.providerRef, model: setup.providerConfig.defaultModel }
+      : base.defaultModel;
 
   return {
     ...base,
@@ -118,7 +132,10 @@ function applyProviderConfigurationToUserConfig(
   };
 }
 
-async function persistApiKeyIfProvided(workspaceRoot: string, setup: ProviderSetupResult): Promise<void> {
+async function persistApiKeyIfProvided(
+  workspaceRoot: string,
+  setup: ProviderSetupResult
+): Promise<void> {
   if (!setup.apiKey || !setup.apiKeyEnvVar) {
     return;
   }
@@ -132,7 +149,7 @@ async function testConfiguredProvider(
   workspaceRoot: string,
   config: TeamConfig | undefined,
   providerRef: string,
-  injectedApiKey?: string,
+  injectedApiKey?: string
 ) {
   if (!config) {
     return;
@@ -149,10 +166,17 @@ async function testConfiguredProvider(
       defaultModel: model ? { provider: providerRef, model } : config.defaultModel,
     };
 
-    const resolved = resolveEffectiveLlmSettings(tempConfig, undefined, undefined, { model: undefined });
+    const resolved = resolveEffectiveLlmSettings(tempConfig, undefined, undefined, {
+      model: undefined,
+    });
     const env = await loadEnvFile(workspaceRoot);
     const apiKeyName = resolved.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-    const apiKey = injectedApiKey || env[apiKeyName] || env.AI_TEAM_LLM_API_KEY || env.LLM_API_KEY || env.OPENAI_API_KEY;
+    const apiKey =
+      injectedApiKey ||
+      env[apiKeyName] ||
+      env.AI_TEAM_LLM_API_KEY ||
+      env.LLM_API_KEY ||
+      env.OPENAI_API_KEY;
     await testLlmConnection(resolved.config, apiKey);
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : 'LLM connection failed.');
@@ -160,7 +184,7 @@ async function testConfiguredProvider(
 }
 
 function resolveCurrentDefaultProvider(
-  config: TeamConfig | undefined,
+  config: TeamConfig | undefined
 ): { ref: string; config: LlmProviderConfig } | undefined {
   const registry = config?.providers;
   if (!registry || Object.keys(registry).length === 0) {
@@ -188,4 +212,3 @@ function resolveCurrentDefaultProvider(
     config: registry[first],
   };
 }
-

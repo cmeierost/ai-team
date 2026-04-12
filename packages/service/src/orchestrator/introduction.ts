@@ -10,11 +10,12 @@ import {
   type ChatMessage,
   type Skill,
   type LlmService,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
 import type { SessionManager } from '../session-manager.js';
-import type { ChatRuntimeHooks } from '../contracts.js';
+import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 
-const DEFAULT_GREETING_TEMPLATE = 'Hi {{developerName}}, I\'m {{agentName}} ({{agentRole}}). How can I help today?';
+const DEFAULT_GREETING_TEMPLATE =
+  "Hi {{developerName}}, I'm {{agentName}} ({{agentRole}}). How can I help today?";
 
 function resolveGreetingTemplate(agent: Agent): string {
   const markdown = agent.markdown?.trim();
@@ -23,9 +24,7 @@ function resolveGreetingTemplate(agent: Agent): string {
   const sections = parseMarkdownSections(markdown);
   const greetingSection = sections.find((section) => {
     const heading = section.heading.trim().toLowerCase();
-    return heading === 'greeting'
-      || heading === 'greeting template'
-      || heading === 'welcome';
+    return heading === 'greeting' || heading === 'greeting template' || heading === 'welcome';
   });
 
   if (greetingSection?.content?.trim()) {
@@ -38,7 +37,7 @@ function resolveGreetingTemplate(agent: Agent): string {
 function renderGreetingTemplate(
   template: string,
   agent: Agent,
-  developerName: string | undefined,
+  developerName: string | undefined
 ): string {
   const safeDeveloper = developerName?.trim() || 'there';
 
@@ -61,7 +60,7 @@ export async function generateIntroduction(
   _skill: Skill | undefined,
   developerName: string | undefined,
   _signal?: AbortSignal,
-  _onChunk?: (delta: string) => void,
+  _onChunk?: (delta: string) => void
 ): Promise<string> {
   const template = resolveGreetingTemplate(agent);
   return renderGreetingTemplate(template, agent, developerName);
@@ -106,7 +105,7 @@ export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promis
     agent,
     skill,
     developerName,
-    hooks.signal,
+    hooks.signal
   );
 
   if (hooks.emit) {
@@ -124,5 +123,5 @@ export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promis
   };
   await sessionManager.appendMessage(sessionId, agentMsg);
   history.push(agentMsg);
-  await agentManager.recordInteraction(agent.id);
+  await agentManager.recordInteractionAsync(agent.id);
 }

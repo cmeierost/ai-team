@@ -13,19 +13,23 @@ import type {
   StructuralWarning,
   FileCentrality,
   WeightedEdge,
-  MisplacedFile,
   FileExportInfo,
+  CommunityGroup,
+  CommunityGroupChild,
 } from '../types.js';
-import type { Selection, EntityRefLite } from '../types.js';
+import type { Selection, EntityRefLite, RelationshipRefLite } from '../types.js';
 import { ROLE_COLORS, SEVERITY_COLORS, healthColor, pct, shortPath, shortName } from '../types.js';
-import { deriveGroupLabel } from '../hooks/useClusterGraph.js';
+import { EntityDetailPane } from './EntityDetailPane.js';
 
 export interface DetailPanelProps {
   data: StructuralPipelineResult;
   selection: Selection;
   clusterFileIds?: Set<string>;
   onSelectFile?: (fileId: string) => void;
+  onSelectCluster?: (clusterId: string) => void;
   entities?: EntityRefLite[];
+  relationships?: RelationshipRefLite[];
+  showCommunityGroups?: boolean;
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────
@@ -107,6 +111,15 @@ const fileLinkStyle: React.CSSProperties = {
   whiteSpace: 'nowrap',
   flex: 1,
   minWidth: 0,
+};
+
+const listRow: React.CSSProperties = {
+  fontSize: 12,
+  padding: '4px 0',
+  borderBottom: '1px solid #2d2d30',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
 };
 
 const warningRowStyle = (severity: string): React.CSSProperties => ({
@@ -298,78 +311,176 @@ function CommunityGroupDetail({
   );
 }
 
+// ── Cross-reference helper ──────────────────────────────────────────────
+
+interface CrossRefEntry {
+  id: string;
+  label: string;
+  weight: number;
+  edgeCount: number;
+}
+
+function buildCrossReferences(
+  communityId: string,
+  data: StructuralPipelineResult,
+  showCommunityGroups?: boolean,
+): { uses: CrossRefEntry[]; usedBy: CrossRefEntry[] } {
+  const edges = data.communities?.crossGroupEdges ?? [];
+  if (edges.length === 0) return { uses: [], usedBy: [] };
+
+  const communities = data.communities?.communities ?? [];
+  const groups = data.communities?.communityGroups ?? [];
+
+  // Build community→rootGroup mapping when showing groups
+  const communityToGroup = new Map<string, string>();
+  if (showCommunityGroups && groups.length > 0) {
+    const walkGroup = (g: CommunityGroup, rootId: string) => {
+      for (const child of g.children) {
+        if (child.kind === 'community') {
+          communityToGroup.set(child.communityId, rootId);
+        } else {
+          walkGroup(child.cluster, rootId);
+        }
+      }
+    };
+    for (const g of groups) {
+      walkGroup(g, g.id);
+    }
+  }
+
+  const resolveId = (cid: string): string => {
+    if (showCommunityGroups && communityToGroup.has(cid)) {
+      return communityToGroup.get(cid)!;
+    }
+    return cid;
+  };
+
+  const resolvedId = resolveId(communityId);
+
+  // Aggregate edges
+  const usesMap = new Map<string, { weight: number; edgeCount: number }>();
+  const usedByMap = new Map<string, { weight: number; edgeCount: number }>();
+
+  for (const edge of edges) {
+    const src = resolveId(edge.sourceGroupId);
+    const tgt = resolveId(edge.targetGroupId);
+    if (src === resolvedId && tgt !== resolvedId) {
+      const prev = usesMap.get(tgt) ?? { weight: 0, edgeCount: 0 };
+      usesMap.set(tgt, { weight: prev.weight + edge.weight, edgeCount: prev.edgeCount + edge.edgeCount });
+    }
+    if (tgt === resolvedId && src !== resolvedId) {
+      const prev = usedByMap.get(src) ?? { weight: 0, edgeCount: 0 };
+      usedByMap.set(src, { weight: prev.weight + edge.weight, edgeCount: prev.edgeCount + edge.edgeCount });
+    }
+  }
+
+  const resolveLabel = (id: string): string => {
+    if (showCommunityGroups) {
+      const g = groups.find((gr) => gr.id === id);
+      if (g) return g.label ?? id;
+    }
+    const c = communities.find((cm) => cm.id === id);
+    if (c) return c.label ?? id;
+    const g = groups.find((gr) => gr.id === id);
+    if (g) return g.label ?? id;
+    return id;
+  };
+
+  const toEntries = (map: Map<string, { weight: number; edgeCount: number }>): CrossRefEntry[] =>
+    [...map.entries()]
+      .map(([id, v]) => ({ id, label: resolveLabel(id), ...v }))
+      .sort((a, b) => b.weight - a.weight);
+
+  return { uses: toEntries(usesMap), usedBy: toEntries(usedByMap) };
+}
+
 // ── Cluster Detail ──────────────────────────────────────────────────────
 
 function ClusterDetail({
   data,
   clusterId,
   onSelectFile,
+  onSelectCluster,
+  entities,
+  showCommunityGroups,
 }: {
   data: StructuralPipelineResult;
   clusterId: string;
   onSelectFile?: (fileId: string) => void;
+  onSelectCluster?: (clusterId: string) => void;
+  entities?: EntityRefLite[];
+  showCommunityGroups?: boolean;
 }) {
   // Use communities for group lookup
   const community = data.communities?.communities?.find((c) => c.id === clusterId);
-  const fileIds = community?.memberFileIds;
+  const entityIds = community?.memberEntityIds;
   const quality = data.alignment.clusterQuality.find((q) => q.clusterId === clusterId);
   const warnings = data.alignment.warnings.filter((w) => w.target === clusterId);
-  const misplacedMap = new Map<string, MisplacedFile>();
-  for (const m of data.communities?.misplacedFiles ?? []) {
-    misplacedMap.set(m.fileId, m);
+
+  if (!entityIds) {
+    return <div style={emptyStyle}>Community "{clusterId}" not found</div>;
   }
 
-  if (!fileIds) {
-    return <div style={emptyStyle}>Group "{clusterId}" not found</div>;
-  }
-
-  const isCommunity = !!community;
-  const fileCount = fileIds.length;
-
-  // Build directory breakdown for the group
-  const fileClassMap = new Map<string, (typeof data.fileClassifications)[number]>();
-  for (const fc of data.fileClassifications) fileClassMap.set(fc.fileId, fc);
-
-  const dirCounts = new Map<string, number>();
-  const roleCounts = new Map<string, number>();
-  let totalLoc = 0;
-  for (const fid of fileIds) {
-    const fc = fileClassMap.get(fid);
-    if (fc) {
-      const dir = fc.filePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-      dirCounts.set(dir, (dirCounts.get(dir) ?? 0) + 1);
-      const role = fc.contentRole ?? 'unknown';
-      roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
-      if (fc.linesOfCode) totalLoc += fc.linesOfCode;
+  // Build entity lookup
+  const entityIdSet = new Set(entityIds);
+  const entityMap = new Map<string, EntityRefLite>();
+  if (entities) {
+    for (const e of entities) {
+      if (entityIdSet.has(e.id)) entityMap.set(e.id, e);
     }
   }
-  const sortedDirs = [...dirCounts.entries()].sort((a, b) => b[1] - a[1]);
-  const sortedRoles = [...roleCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const communityEntities = entityIds
+    .map((eid) => entityMap.get(eid))
+    .filter((e): e is EntityRefLite => e != null);
+
+  // Compute stats from entities
+  const concernCounts = new Map<string, number>();
+  const fileCounts = new Map<string, number>();
+  let totalLoc = 0;
+  let exportedCount = 0;
+  let privateCount = 0;
+  for (const e of communityEntities) {
+    const concern = e.classification?.codeConcern ?? 'unknown';
+    concernCounts.set(concern, (concernCounts.get(concern) ?? 0) + 1);
+    const dir = e.filePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+    fileCounts.set(dir, (fileCounts.get(dir) ?? 0) + 1);
+    totalLoc += e.rawCounts?.linesOfCode ?? 0;
+    const isExported = e.classification?.isExported !== false;
+    const vis = e.classification?.visibility;
+    if (isExported && vis !== 'private' && vis !== 'protected') exportedCount++;
+    else privateCount++;
+  }
+  const sortedConcerns = [...concernCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const sortedDirs = [...fileCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const uniqueFiles = new Set(communityEntities.map((e) => e.filePath));
+
+  // Cross-references: Uses / Used by
+  const crossRefs = buildCrossReferences(
+    clusterId, data, showCommunityGroups,
+  );
 
   return (
     <>
       {/* Header */}
       <div>
-        <div style={headingStyle}>{deriveGroupLabel(fileIds)}</div>
+        <div style={headingStyle}>{community.label ?? clusterId}</div>
         <div style={{ fontSize: 11, color: '#666', marginTop: 1 }}>{clusterId}</div>
         <div style={{ fontSize: 12, color: '#a0a0a0', marginTop: 2 }}>
-          {fileCount} files · {totalLoc.toLocaleString()} lines of code · {isCommunity ? 'dependency community' : 'coupling cluster'}
+          {communityEntities.length} entities · {uniqueFiles.size} files · {totalLoc.toLocaleString()} LOC
         </div>
-        {isCommunity && (
-          <div style={{ fontSize: 11, color: '#888', marginTop: 4, lineHeight: 1.4 }}>
-            Files grouped by their import dependencies (Louvain community detection).
-          </div>
-        )}
+        <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+          {exportedCount} exported · {privateCount} private
+        </div>
       </div>
 
-      {/* Role breakdown - computed from files when no quality data */}
+      {/* Concern breakdown */}
       <div>
-        <div style={sectionTitle}>Role Mix</div>
-        {(quality ? Object.entries(quality.roleMix) : sortedRoles).map(([role, count]) => (
-          <div key={role} style={{ ...fileRowStyle, gap: 6 }}>
+        <div style={sectionTitle}>Concerns</div>
+        {sortedConcerns.map(([concern, count]) => (
+          <div key={concern} style={{ ...fileRowStyle, gap: 6 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: roleColor(role), flexShrink: 0 }} />
-              {role.replace('_', ' ')}
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: roleColor(concern), flexShrink: 0 }} />
+              {concern}
             </span>
             <span style={{ fontWeight: 600, color: '#e0e0e0' }}>{count}</span>
           </div>
@@ -402,46 +513,43 @@ function ClusterDetail({
         )}
       </div>
 
-      {/* Files */}
-      <div>
-        <div style={sectionTitle}>Files ({fileCount})</div>
-        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-          {fileIds.map((fid) => {
-            const file = fileClassMap.get(fid);
-            const role = file?.contentRole ?? 'unknown';
-            const mp = misplacedMap.get(fid);
-            return (
-              <div key={fid} style={fileRowStyle}>
-                {onSelectFile ? (
-                  <button style={fileLinkStyle} onClick={() => onSelectFile(fid)} title={file?.filePath ?? fid}>
-                    {mp && (
-                      <span title={`Misplaced — suggest move to ${mp.suggestedDirectory} (${mp.peerCount} peers there)`}
-                        style={{ cursor: 'help' }}>⚠️ </span>
-                    )}
-                    {file ? shortName(file.filePath) : fid}
-                  </button>
-                ) : (
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                    {mp && (
-                      <span title={`Misplaced — suggest move to ${mp.suggestedDirectory} (${mp.peerCount} peers there)`}
-                        style={{ cursor: 'help' }}>⚠️ </span>
-                    )}
-                    {file ? shortName(file.filePath) : fid}
-                  </span>
-                )}
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {file?.linesOfCode != null && (
-                    <span style={{ fontSize: 10, color: '#666', fontVariantNumeric: 'tabular-nums' }}>
-                      {file.linesOfCode}
-                    </span>
-                  )}
-                  <RoleBadge role={role} />
-                </span>
-              </div>
-            );
-          })}
+      {/* Cross-references: Uses */}
+      {crossRefs.uses.length > 0 && (
+        <div>
+          <div style={sectionTitle}>Uses ({crossRefs.uses.length})</div>
+          {crossRefs.uses.map((ref) => (
+            <div
+              key={ref.id}
+              style={{ ...listRow, cursor: onSelectCluster ? 'pointer' : 'default' }}
+              onClick={() => onSelectCluster?.(ref.id)}
+            >
+              <span style={{ fontWeight: 500 }}>{ref.label}</span>
+              <span style={{ color: '#888', fontSize: 11 }}>
+                {ref.edgeCount} ref{ref.edgeCount !== 1 ? 's' : ''} · w{ref.weight.toFixed(1)}
+              </span>
+            </div>
+          ))}
         </div>
-      </div>
+      )}
+
+      {/* Cross-references: Used by */}
+      {crossRefs.usedBy.length > 0 && (
+        <div>
+          <div style={sectionTitle}>Used by ({crossRefs.usedBy.length})</div>
+          {crossRefs.usedBy.map((ref) => (
+            <div
+              key={ref.id}
+              style={{ ...listRow, cursor: onSelectCluster ? 'pointer' : 'default' }}
+              onClick={() => onSelectCluster?.(ref.id)}
+            >
+              <span style={{ fontWeight: 500 }}>{ref.label}</span>
+              <span style={{ color: '#888', fontSize: 11 }}>
+                {ref.edgeCount} ref{ref.edgeCount !== 1 ? 's' : ''} · w{ref.weight.toFixed(1)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Warnings */}
       {warnings.length > 0 && (
@@ -457,6 +565,23 @@ function ClusterDetail({
       )}
     </>
   );
+}
+
+const ENTITY_KIND_GLYPHS: Record<string, string> = {
+  class: '◆',
+  interface: '◇',
+  'type-alias': '◇',
+  function: 'ƒ',
+  method: 'ƒ',
+  enum: 'E',
+  namespace: 'N',
+  module: 'M',
+  field: '•',
+  property: '•',
+};
+
+function entityKindGlyph(kind: string): string {
+  return ENTITY_KIND_GLYPHS[kind] ?? '·';
 }
 
 // ── File Detail ─────────────────────────────────────────────────────────
@@ -809,7 +934,10 @@ export function DetailPanel({
   selection,
   clusterFileIds,
   onSelectFile,
+  onSelectCluster,
   entities,
+  relationships,
+  showCommunityGroups,
 }: DetailPanelProps) {
   if (selection.type == null) {
     return (
@@ -822,7 +950,14 @@ export function DetailPanel({
   if (selection.type === 'cluster') {
     return (
       <div style={panelStyle}>
-        <ClusterDetail data={data} clusterId={selection.id} onSelectFile={onSelectFile} />
+        <ClusterDetail
+          data={data}
+          clusterId={selection.id}
+          onSelectFile={onSelectFile}
+          onSelectCluster={onSelectCluster}
+          entities={entities}
+          showCommunityGroups={showCommunityGroups}
+        />
       </div>
     );
   }
@@ -835,11 +970,27 @@ export function DetailPanel({
     );
   }
 
+  // Entity → show entity detail pane in sidebar
+  if (selection.type === 'entity') {
+    return (
+      <div style={panelStyle}>
+        <EntityDetailPane
+          entityId={selection.id}
+          entities={entities}
+          relationships={relationships}
+        />
+      </div>
+    );
+  }
+
+  // File → show file detail
+  const fileId = selection.id;
+
   return (
     <div style={panelStyle}>
       <FileDetail
         data={data}
-        fileId={selection.id}
+        fileId={fileId}
         clusterFileIds={clusterFileIds}
         entities={entities}
       />

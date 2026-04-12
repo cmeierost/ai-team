@@ -1,15 +1,16 @@
-import fs from 'fs/promises';
-import { AgentManager } from '@ai-team/core';
-import type { FireOptions } from '../contracts.js';
+import fs from 'node:fs/promises';
+import { AgentManager } from '@ai-team/infrastructure';
+import type { FireOptions } from '@ai-team/api-client';
 
 export async function fireCommand(workspaceRoot: string, agentQuery: string, options: FireOptions) {
   if (!options.force) {
-    throw new Error('Confirmation required before firing an agent. Re-run with force=true once confirmed by the client.');
+    throw new Error(
+      'Confirmation required before firing an agent. Re-run with force=true once confirmed by the client.'
+    );
   }
 
   const agentManager = new AgentManager(workspaceRoot);
-  await agentManager.initialize();
-  const matches = agentManager.resolveAgent(agentQuery);
+  const matches = await agentManager.resolveAgentAsync(agentQuery);
 
   if (matches.length === 0) {
     throw new Error(`No agent found matching "${agentQuery}".`);
@@ -17,7 +18,7 @@ export async function fireCommand(workspaceRoot: string, agentQuery: string, opt
 
   let agent;
   if (matches.length > 1) {
-    const summary = matches.map(m => `${m.name} (${m.role}) [${m.id}]`).join(', ');
+    const summary = matches.map((m) => `${m.name} (${m.role}) [${m.id}]`).join(', ');
     throw new Error(`Multiple agents match "${agentQuery}": ${summary}`);
   } else {
     agent = matches[0];

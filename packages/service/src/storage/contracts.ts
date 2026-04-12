@@ -1,7 +1,7 @@
 import type {
   ChatMessage,
   ChatSession,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
 
 /**
  * Storage interface for chat messages and sessions
@@ -89,12 +89,6 @@ export interface MessageInsertResult {
  */
 export interface IMessageStorage {
   // ========== Lifecycle ==========
-  
-  /**
-   * Initialize storage (create tables, run migrations, etc.)
-   * Called once at startup
-   */
-  initialize(): Promise<void>;
   
   /**
    * Close storage connections gracefully

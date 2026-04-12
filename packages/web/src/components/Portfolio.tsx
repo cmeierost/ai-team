@@ -28,11 +28,15 @@ export function Portfolio() {
   const manager = agents.find((a) => a.id === agent?.reportsTo);
 
   // ── Tools & skills state ──
-  const [toolEntries, setToolEntries] = useState<Array<{ name: string; description: string; group?: string; allowedForAgent?: boolean }>>([]);
+  const [toolEntries, setToolEntries] = useState<
+    Array<{ name: string; description: string; group?: string; allowedForAgent?: boolean }>
+  >([]);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolActionPending, setToolActionPending] = useState<string | null>(null);
   const [toolsError, setToolsError] = useState<string | null>(null);
-  const [skillEntries, setSkillEntries] = useState<Array<{ name: string; description: string; assignedToAgent?: boolean }>>([]);
+  const [skillEntries, setSkillEntries] = useState<
+    Array<{ name: string; description: string; assignedToAgent?: boolean }>
+  >([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillActionPending, setSkillActionPending] = useState<string | null>(null);
   const [skillsError, setSkillsError] = useState<string | null>(null);
@@ -43,7 +47,14 @@ export function Portfolio() {
     }
     setToolsError(null);
     try {
-      const response = await client.listTools({ agent: targetAgentId });
+      const response = (await client.tools.list({ agent: targetAgentId })) as {
+        entries: Array<{
+          name: string;
+          description: string;
+          group?: string;
+          allowedForAgent?: boolean;
+        }>;
+      };
       setToolEntries(
         response.entries
           .map((entry) => ({
@@ -52,7 +63,7 @@ export function Portfolio() {
             group: entry.group,
             allowedForAgent: entry.allowedForAgent,
           }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
+          .sort((a, b) => a.name.localeCompare(b.name))
       );
     } catch (e: any) {
       setToolsError(e?.message || 'Failed to load tools');
@@ -68,7 +79,9 @@ export function Portfolio() {
     setSkillsLoading(true);
     setSkillsError(null);
     try {
-      const response = await client.searchSkills({ agent: targetAgentId });
+      const response = (await client.skills.search({ agent: targetAgentId })) as {
+        entries: Array<{ name: string; description: string; assignedToAgent?: boolean }>;
+      };
       setSkillEntries(
         response.entries
           .map((entry) => ({
@@ -76,7 +89,7 @@ export function Portfolio() {
             description: entry.description,
             assignedToAgent: entry.assignedToAgent,
           }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
+          .sort((a, b) => a.name.localeCompare(b.name))
       );
     } catch (e: any) {
       setSkillsError(e?.message || 'Failed to load skills');
@@ -96,13 +109,18 @@ export function Portfolio() {
     void loadSkills(agentId);
   }, [agentId]);
 
-  if (loading && !agent) return <div className="portfolio-loading"><i className="codicon codicon-loading codicon-modifier-spin" /> Loading portfolio…</div>;
+  if (loading && !agent)
+    return (
+      <div className="portfolio-loading">
+        <i className="codicon codicon-loading codicon-modifier-spin" /> Loading portfolio…
+      </div>
+    );
   if (error) return <div className="portfolio-error">Error: {error.message}</div>;
   if (!agentId || !agent) return null;
 
   // ── Save helpers ──
   const saveAgentFields = async (fields: Record<string, unknown>) => {
-    await client.updateAgentFrontmatter(agent.id, fields as any);
+    await client.agents.updateFrontmatter(agent.id, fields);
     await refresh();
   };
 
@@ -112,18 +130,16 @@ export function Portfolio() {
 
     setToolEntries((prev) =>
       prev.map((entry) =>
-        entry.name === toolName
-          ? { ...entry, allowedForAgent: !currentlyAllowed }
-          : entry,
-      ),
+        entry.name === toolName ? { ...entry, allowedForAgent: !currentlyAllowed } : entry
+      )
     );
     setToolActionPending(toolName);
     setToolsError(null);
     try {
       if (currentlyAllowed) {
-        await client.disallowTool({ agent: agentId, tool: toolName });
+        await client.tools.disallow({ agent: agentId, tool: toolName });
       } else {
-        await client.allowTool({ agent: agentId, tool: toolName });
+        await client.tools.allow({ agent: agentId, tool: toolName });
       }
       await loadTools(agentId, { silent: true });
     } catch (e: any) {
@@ -140,9 +156,9 @@ export function Portfolio() {
     setSkillsError(null);
     try {
       if (currentlyAssigned) {
-        await client.removeSkill({ agent: agentId, skill: skillName });
+        await client.skills.remove({ agent: agentId, skill: skillName });
       } else {
-        await client.addSkill({ agent: agentId, skill: skillName });
+        await client.skills.add({ agent: agentId, skill: skillName });
       }
       await Promise.all([refresh(), loadSkills(agentId)]);
     } catch (e: any) {
@@ -158,10 +174,13 @@ export function Portfolio() {
         agent={agent}
         onOpenChat={() => navigate(`/chat/${agent.id}`)}
         onSave={({ role, color }) =>
-          saveAgentFields({ role, ...(color !== undefined ? { avatar: { ...agent.avatar, color } } : {}) })
+          saveAgentFields({
+            role,
+            ...(color !== undefined ? { avatar: { ...agent.avatar, color } } : {}),
+          })
         }
-        onUploadAvatar={async (data, ext) => {
-          await client.uploadAgentAvatar(agent.id, data, ext);
+        onUploadAvatar={async (data, _ext) => {
+          await client.agents.uploadAvatar(agent.id, { data, ext: _ext });
           await refresh();
         }}
         onBack={() => navigate('/employees')}
@@ -190,10 +209,7 @@ export function Portfolio() {
           onSave={(personality) => saveAgentFields({ personality })}
         />
 
-        <PortfolioLlmSection
-          llm={agent.llm}
-          onSave={(llm) => saveAgentFields({ llm })}
-        />
+        <PortfolioLlmSection llm={agent.llm} onSave={(llm) => saveAgentFields({ llm })} />
 
         <PortfolioMarkdownSections
           agentId={agent.id}
@@ -245,7 +261,7 @@ export function Portfolio() {
 
         <PortfolioContextWindowSection agent={agent} />
 
-        {(agent.conversationCount !== undefined || agent.lastInteraction || agent.createdAt) ? (
+        {agent.conversationCount !== undefined || agent.lastInteraction || agent.createdAt ? (
           <PortfolioActivitySection
             conversationCount={agent.conversationCount}
             lastInteraction={agent.lastInteraction}

@@ -4,7 +4,7 @@
 
 import chalk from 'chalk';
 import { confirm, input } from '@inquirer/prompts';
-import { type FileTreeNode, type AnnotatedFile, AgentManager, ContextManager, createPermissionEngine, loadAgentAccessPatterns, loadTeamConfig } from '@ai-team/core';
+import { type FileTreeNode, type AnnotatedFile, AgentManager, getWritableFiles, getAnnotatedFiles, loadAgentAccessPatterns, loadTeamConfig } from '@ai-team/infrastructure';
 import {
   findWorkspaceRoot,
   getFileTreeCommand,
@@ -21,14 +21,18 @@ interface FilesOptions {
   writeable?: boolean;
 }
 
-type PathMode = 'read' | 'write' | 'create' | 'delete';
+type PathMode = 'read' | 'write';
 
 function resolvePathMode(options: AllowOptions): PathMode {
   if (options.mode) {
-    if (options.mode === 'read' || options.mode === 'write' || options.mode === 'create' || options.mode === 'delete') {
+    if (options.mode === 'read' || options.mode === 'write') {
       return options.mode;
     }
-    throw new Error(`Invalid mode "${options.mode}". Use one of: read, write, create, delete.`);
+    // Backward compat: create/delete → write
+    if (options.mode === 'create' || options.mode === 'delete') {
+      return 'write';
+    }
+    throw new Error(`Invalid mode "${options.mode}". Use one of: read, write.`);
   }
 
   return options.write ? 'write' : 'read';
@@ -60,9 +64,7 @@ export async function filesCommand(options: FilesOptions = {}): Promise<void> {
   // Agent-scoped file listing
   if (options.agent) {
     const agentManager = new AgentManager(workspaceRoot);
-    await agentManager.initialize();
-
-    const matches = agentManager.resolveAgent(options.agent);
+    const matches = await agentManager.resolveAgentAsync(options.agent);
     if (matches.length === 0) {
       console.log(chalk.red(`  Agent not found: "${options.agent}"`));
       process.exit(1);
@@ -77,17 +79,11 @@ export async function filesCommand(options: FilesOptions = {}): Promise<void> {
 
     const allFiles = flattenFiles(tree);
     const config = await loadTeamConfig(workspaceRoot);
-    const engine = createPermissionEngine({
-      workspaceRoot,
-      fileTreeConfig: config?.fileTree,
-      agents: agentManager.getAllAgents(),
-    });
-    const contextManager = ContextManager.fromConfig(workspaceRoot, config?.fileTree, engine);
     const accessPatterns = await loadAgentAccessPatterns(workspaceRoot, agent.id);
 
     if (options.writeable) {
       // Legacy behaviour: only writable files
-      const filtered = contextManager.getWritableFiles(agent, allFiles);
+      const filtered = getWritableFiles(workspaceRoot, agent.permissions, allFiles);
       const patterns = accessPatterns.write ?? [];
       const agentLabel = chalk.cyan(agent.name) + ' ' + chalk.dim(`(${agent.id})`);
 
@@ -117,7 +113,7 @@ export async function filesCommand(options: FilesOptions = {}): Promise<void> {
     }
 
     // Default: annotated view showing read/write per file
-    const annotated = contextManager.getAnnotatedFiles(agent, allFiles);
+    const annotated = getAnnotatedFiles(workspaceRoot, agent.permissions, allFiles);
     const withAccess = annotated.filter(f => f.readable || f.writable);
 
     const readPatterns = accessPatterns.read ?? [];
@@ -239,13 +235,14 @@ export async function filesAllowCommand(filePath: string, options: AllowOptions 
     const governedModule = await import('@ai-team/service/src/commands/file-tree.js') as {
       permissionAllowCommand: (
         workspaceRoot: string,
+        agentManager: import('@ai-team/infrastructure').AgentManager,
         agentQuery: string,
         filePath: string,
         governance: { requestedBy: string; confirmUserApproval: (message: string) => Promise<boolean> },
         mode: PathMode,
       ) => Promise<{ agent: { id: string }; paths: string[] }>;
     };
-    const result = await governedModule.permissionAllowCommand(workspaceRoot, options.agent, filePath, {
+    const result = await governedModule.permissionAllowCommand(workspaceRoot, new AgentManager(workspaceRoot), options.agent, filePath, {
       requestedBy,
       confirmUserApproval: async () => approvedByUser,
     }, mode);
@@ -277,13 +274,15 @@ export async function filesDisallowCommand(filePath: string, options: AllowOptio
     const governedModule = await import('@ai-team/service/src/commands/file-tree.js') as {
       permissionDenyCommand: (
         workspaceRoot: string,
+        agentManager: import('@ai-team/infrastructure').AgentManager,
         agentQuery: string,
         filePath: string,
         governance: { requestedBy: string; confirmUserApproval: (message: string) => Promise<boolean> },
         mode: PathMode,
       ) => Promise<{ agent: { id: string }; paths: string[] }>;
     };
-    const result = await governedModule.permissionDenyCommand(workspaceRoot, options.agent, filePath, {
+
+    const result = await governedModule.permissionDenyCommand(workspaceRoot, new AgentManager(workspaceRoot), options.agent, filePath, {
       requestedBy,
       confirmUserApproval: async () => approvedByUser,
     }, mode);
@@ -303,8 +302,6 @@ export async function filesPatternsCommand(options: { agent?: string; json?: boo
   const global = {
     read: config?.fileTree?.readPaths ?? [],
     write: config?.fileTree?.writePaths ?? [],
-    create: config?.fileTree?.createPaths ?? [],
-    delete: config?.fileTree?.deletePaths ?? [],
   };
 
   if (!options.agent) {
@@ -322,8 +319,7 @@ export async function filesPatternsCommand(options: { agent?: string; json?: boo
   }
 
   const manager = new AgentManager(workspaceRoot);
-  await manager.initialize();
-  const matches = manager.resolveAgent(options.agent);
+  const matches = await manager.resolveAgentAsync(options.agent);
   if (matches.length === 0) {
     throw new Error(`Agent not found: "${options.agent}"`);
   }

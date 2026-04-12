@@ -129,7 +129,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
         const query = args.trim();
         if (!query) { write(ctx, 'Usage: /chat <name|role>'); return; }
 
-        const matches = ctx.agentManager.resolveAgent(query);
+        const matches = await ctx.agentManager.resolveAgentAsync(query);
         if (matches.length === 0) { write(ctx, `No agent found matching: "${query}"`); return; }
 
         const target = matches.find(a => a.id !== ctx.agent.id) ?? matches[0];
@@ -190,7 +190,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       execute: async (args, ctx) => {
         const query = args.trim();
         if (!query) { write(ctx, 'Usage: /info <name|role>'); return; }
-        const agents = ctx.agentManager.resolveAgent(query);
+        const agents = await ctx.agentManager.resolveAgentAsync(query);
         if (agents.length === 0) { write(ctx, `No agent found matching: "${query}"`); return; }
         for (const a of agents) {
           write(ctx, `\n${a.name} (${a.role}) [${a.id}]`);
@@ -209,7 +209,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       execute: async (_args, ctx) => {
         const { hireCommand } = await import('../commands/hire.js');
         await hireCommand(ctx.workspaceRoot, {});
-        await ctx.agentManager.loadAllAgents();
+        await ctx.agentManager.refreshAsync();
       },
     },
 
@@ -222,7 +222,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
         if (!args.trim()) { write(ctx, 'Usage: /fire <name|id>'); return; }
         const { fireCommand } = await import('../commands/fire.js');
         await fireCommand(ctx.workspaceRoot, args.trim(), {});
-        await ctx.agentManager.loadAllAgents();
+        await ctx.agentManager.refreshAsync();
       },
     },
 
@@ -235,7 +235,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
         const type = (args.trim() || 'agent').split(/\s+/)[0];
         const { createCommand } = await import('../commands/create.js');
         await createCommand(ctx.workspaceRoot, type, { interactive: true });
-        await ctx.agentManager.loadAllAgents();
+        await ctx.agentManager.refreshAsync();
       },
     },
 
@@ -246,7 +246,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       execute: async (_args, ctx) => {
         const { initCommand } = await import('../commands/init.js');
         await initCommand(ctx.workspaceRoot, {});
-        await ctx.agentManager.loadAllAgents();
+        await ctx.agentManager.refreshAsync();
       },
     },
 
@@ -411,7 +411,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           return;
         }
         const prev = navStack.pop()!;
-        const prevAgent = ctx.agentManager.getAgent(prev.agentId);
+        const prevAgent = await ctx.agentManager.getAgentAsync(prev.agentId);
         if (!prevAgent) {
           emitLog(ctx.hooks, 'warn', `Previous agent ${prev.agentId} no longer found.`);
           return;

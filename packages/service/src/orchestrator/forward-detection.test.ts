@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Agent, AgentManager } from '@ai-team/core';
 import {
-  detectForwardRequestWithFallback,
+  detectForwardRequestWithFallbackAsync,
   extractForwardNote,
   REFERENCE_PRONOUNS,
 } from './forward-detection.js';
@@ -25,8 +25,8 @@ function makeAgent(id: string, name: string, role: string): Agent {
 
 function makeAgentManager(agents: Agent[]): AgentManager {
   return {
-    getAllAgents: () => agents,
-    resolveAgent: (query: string) => {
+    getAllAgentsAsync: async () => agents,
+    resolveAgentAsync: async (query: string) => {
       const q = query.toLowerCase().trim();
       return agents.filter(
         a =>
@@ -36,7 +36,7 @@ function makeAgentManager(agents: Agent[]): AgentManager {
           a.name.toLowerCase().startsWith(q),
       );
     },
-    getAgent: (id: string) => agents.find(a => a.id === id),
+    getAgentAsync: async (id: string) => agents.find(a => a.id === id) ?? null,
   } as unknown as AgentManager;
 }
 
@@ -75,7 +75,7 @@ describe('detectForwardRequestWithFallback', () => {
     const agentManager = makeAgentManager([SARAH, MICHAEL]);
     const llm = { chat: vi.fn() } as any;
 
-    const result = await detectForwardRequestWithFallback(
+    const result = await detectForwardRequestWithFallbackAsync(
       'forward me to Sarah',
       agentManager, currentAgentId, llm, MICHAEL,
     );
@@ -89,7 +89,7 @@ describe('detectForwardRequestWithFallback', () => {
     const agentManager = makeAgentManager([SARAH, MICHAEL, CHRIS]);
     const llm = { chat: vi.fn() } as any;
 
-    const result = await detectForwardRequestWithFallback(
+    const result = await detectForwardRequestWithFallbackAsync(
       'forward me to the ceo',
       agentManager, currentAgentId, llm, MICHAEL,
     );
@@ -103,7 +103,7 @@ describe('detectForwardRequestWithFallback', () => {
     const agentManager = makeAgentManager([SARAH, MICHAEL]);
     const llm = { chat: vi.fn() } as any;
 
-    const result = await detectForwardRequestWithFallback(
+    const result = await detectForwardRequestWithFallbackAsync(
       'forward me to sarah i want to discuss this',
       agentManager, currentAgentId, llm, MICHAEL,
     );
@@ -122,7 +122,7 @@ describe('detectForwardRequestWithFallback', () => {
       { from: currentAgentId, to: MICHAEL.id, isHuman: true,  content: 'OK, sounds good.', timestamp: '' },
     ] as any[];
 
-    const result = await detectForwardRequestWithFallback(
+    const result = await detectForwardRequestWithFallbackAsync(
       'please forward me to her',
       agentManager, currentAgentId, llm, MICHAEL,
       history,
@@ -140,7 +140,7 @@ describe('detectForwardRequestWithFallback', () => {
     const agentManager = makeAgentManager([SARAH, MICHAEL]);
     const llm = { chat: vi.fn().mockResolvedValue('none') } as any;
 
-    const result = await detectForwardRequestWithFallback(
+    const result = await detectForwardRequestWithFallbackAsync(
       'forward me to her',
       agentManager, currentAgentId, llm, MICHAEL,
       [],
@@ -154,7 +154,7 @@ describe('detectForwardRequestWithFallback', () => {
     const agentManager = makeAgentManager([SARAH, MICHAEL]);
     const llm = { chat: vi.fn() } as any;
 
-    const result = await detectForwardRequestWithFallback(
+    const result = await detectForwardRequestWithFallbackAsync(
       'how is the project going?',
       agentManager, currentAgentId, llm, MICHAEL,
     );
@@ -168,7 +168,7 @@ describe('detectForwardRequestWithFallback', () => {
     const agentManager = makeAgentManager([SARAH, MICHAEL]);
     const llm = { chat: vi.fn().mockResolvedValue('Michael Brown') } as any;
 
-    const result = await detectForwardRequestWithFallback(
+    const result = await detectForwardRequestWithFallbackAsync(
       'forward me to Michael',
       agentManager, currentAgentId, llm, MICHAEL,
     );
@@ -198,7 +198,7 @@ describe('detectForwardRequestWithFallback', () => {
       const agentManager = makeAgentManager([SARAH, MICHAEL]);
       const llm = { chat: vi.fn() } as any;
 
-      const result = await detectForwardRequestWithFallback(
+      const result = await detectForwardRequestWithFallbackAsync(
         input, agentManager, currentAgentId, llm, MICHAEL,
       );
 

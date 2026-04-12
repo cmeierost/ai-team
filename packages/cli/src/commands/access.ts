@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import type {
   FilePermission,
-  AiTeamClient,
+  IAccessService,
   PermissionOverlapReport,
   RightOverlapSummary,
   FilePermissionOverlapReport,
@@ -35,7 +35,10 @@ function ensurePath(value: string | undefined): string {
   return value;
 }
 
-export async function accessWhoCommand(client: AiTeamClient, options: AccessWhoOptions = {}): Promise<void> {
+export async function accessWhoCommand(
+  client: IAccessService,
+  options: AccessWhoOptions = {}
+): Promise<void> {
   const path = ensurePath(options.path);
   const right = options.right ?? 'list';
   const response = await client.whoHasPermission({ path, right });
@@ -45,7 +48,11 @@ export async function accessWhoCommand(client: AiTeamClient, options: AccessWhoO
     return;
   }
 
-  console.log(chalk.bold(`\nAccess candidates for ${chalk.cyan(response.path.relative || response.path.input)} (${right})`));
+  console.log(
+    chalk.bold(
+      `\nAccess candidates for ${chalk.cyan(response.path.relative || response.path.input)} (${right})`
+    )
+  );
   if (response.contexts.length === 0) {
     console.log(chalk.yellow('No contexts can access this path/right.'));
     console.log(chalk.dim(response.explanation));
@@ -54,18 +61,23 @@ export async function accessWhoCommand(client: AiTeamClient, options: AccessWhoO
   }
 
   for (const context of response.contexts) {
-    console.log(`- ${chalk.cyan(context.contextId)}${context.label ? chalk.dim(` (${context.label})`) : ''}`);
+    console.log(
+      `- ${chalk.cyan(context.contextId)}${context.label ? chalk.dim(` (${context.label})`) : ''}`
+    );
   }
   console.log(chalk.dim(`\n${response.explanation}\n`));
 }
 
-export async function accessCanCommand(client: AiTeamClient, options: AccessCanOptions = {}): Promise<void> {
+export async function accessCanCommand(
+  client: IAccessService,
+  options: AccessCanOptions = {}
+): Promise<void> {
   const path = ensurePath(options.path);
   const right = options.right ?? 'list';
   const response = await client.doIHavePermission({
     path,
     right,
-    agent: options.agent,
+    agent: options.agent ?? '',
   });
 
   if (options.json) {
@@ -113,21 +125,19 @@ function filterRightSummary(summary: RightOverlapSummary, agentId?: string): Rig
 
   return {
     ...summary,
-    sharedAllowPatterns: summary.sharedAllowPatterns.filter((entry) => entry.agentIds.includes(agentId)),
-    sharedDenyPatterns: summary.sharedDenyPatterns.filter((entry) => entry.agentIds.includes(agentId)),
-    agents: summary.agents.filter((entry) => entry.agentId === agentId),
-    pairs: summary.pairs.filter((entry) => entry.agentA === agentId || entry.agentB === agentId),
+    sharedPatterns: summary.sharedPatterns.filter((entry) => entry.agentIds.includes(agentId)),
   };
 }
 
-function filterOverlapReport(report: PermissionOverlapReport, options: AccessOverlapOptions): PermissionOverlapReport {
+function filterOverlapReport(
+  report: PermissionOverlapReport,
+  options: AccessOverlapOptions
+): PermissionOverlapReport {
   if (report.kind === 'files') {
     return report;
   }
 
-  const requestedRights = options.right
-    ? [options.right]
-    : (['read', 'list', 'write', 'create', 'delete'] as const);
+  const requestedRights = options.right ? [options.right] : (['read', 'list', 'write'] as const);
 
   const agentIds = options.agent
     ? report.agentIds.filter((agentId) => agentId === options.agent)
@@ -137,11 +147,15 @@ function filterOverlapReport(report: PermissionOverlapReport, options: AccessOve
     ...report,
     agentIds,
     rights: {
-      read: requestedRights.includes('read') ? filterRightSummary(report.rights.read, options.agent) : emptyRightSummary('read'),
-      write: requestedRights.includes('write') ? filterRightSummary(report.rights.write, options.agent) : emptyRightSummary('write'),
-      create: requestedRights.includes('create') ? filterRightSummary(report.rights.create, options.agent) : emptyRightSummary('create'),
-      delete: requestedRights.includes('delete') ? filterRightSummary(report.rights.delete, options.agent) : emptyRightSummary('delete'),
-      list: requestedRights.includes('list') ? filterRightSummary(report.rights.list, options.agent) : emptyRightSummary('list'),
+      read: requestedRights.includes('read')
+        ? filterRightSummary(report.rights.read, options.agent)
+        : emptyRightSummary('read'),
+      write: requestedRights.includes('write')
+        ? filterRightSummary(report.rights.write, options.agent)
+        : emptyRightSummary('write'),
+      list: requestedRights.includes('list')
+        ? filterRightSummary(report.rights.list, options.agent)
+        : emptyRightSummary('list'),
     },
   };
 }
@@ -149,29 +163,19 @@ function filterOverlapReport(report: PermissionOverlapReport, options: AccessOve
 function emptyRightSummary(right: FilePermission): RightOverlapSummary {
   return {
     right,
-    totalDistinctAllowPatterns: 0,
-    totalDistinctDenyPatterns: 0,
-    sharedAllowPatterns: [],
-    sharedDenyPatterns: [],
-    agents: [],
-    pairs: [],
+    agentIds: [],
+    sharedPatterns: [],
   };
 }
 
-function formatPairLine(summary: RightOverlapSummary): string[] {
-  return summary.pairs
-    .filter((entry) => entry.sharedAllowPatterns.length > 0 || entry.sharedDenyPatterns.length > 0)
-    .slice(0, 5)
-    .map((entry) => {
-      const allowCount = entry.sharedAllowPatterns.length;
-      const denyCount = entry.sharedDenyPatterns.length;
-      const ratio = `${(entry.overlapRatio * 100).toFixed(1)}%`;
-      return `- ${chalk.cyan(entry.agentA)} <> ${chalk.cyan(entry.agentB)}: `
-        + `${allowCount} shared allow, ${denyCount} shared deny, ${ratio} allow overlap`;
-    });
+function formatPairLine(_summary: RightOverlapSummary): string[] {
+  return [];
 }
 
-function formatSharedPatternLines(label: string, entries: Array<{ pattern: string; agentIds: string[] }>): string[] {
+function formatSharedPatternLines(
+  label: string,
+  entries: Array<{ pattern: string; agentIds: string[] }>
+): string[] {
   if (entries.length === 0) {
     return [];
   }
@@ -188,63 +192,64 @@ function formatSharedPatternLines(label: string, entries: Array<{ pattern: strin
   return lines;
 }
 
-function renderPatternOverlapReport(report: PatternOverlapReport, options: AccessOverlapOptions): void {
+function renderPatternOverlapReport(
+  report: PatternOverlapReport,
+  options: AccessOverlapOptions
+): void {
   if (options.agent && !report.agentIds.includes(options.agent)) {
     throw new Error(`Unknown agent id '${options.agent}' in permission overlap report`);
   }
 
   const filtered = filterOverlapReport(report, options) as PatternOverlapReport;
 
-  console.log(chalk.bold(`\nPermission overlap across ${chalk.cyan(String(filtered.agentIds.length))} agent(s)`));
+  console.log(
+    chalk.bold(
+      `\nPermission overlap across ${chalk.cyan(String(filtered.agentIds.length))} agent(s)`
+    )
+  );
   console.log(chalk.dim(`Mode: patterns`));
   console.log(chalk.dim(`Generated at ${filtered.generatedAt}`));
 
-  const rightsToShow = options.right
-    ? [options.right]
-    : (['read', 'list', 'write'] as const);
+  const rightsToShow = options.right ? [options.right] : (['read', 'list', 'write'] as const);
 
   let printedAny = false;
   for (const right of rightsToShow) {
     const summary = filtered.rights[right];
-    const pairLines = formatPairLine(summary);
-    const sharedAllowLines = formatSharedPatternLines('Shared allow patterns:', summary.sharedAllowPatterns);
-    const sharedDenyLines = formatSharedPatternLines('Shared deny patterns:', summary.sharedDenyPatterns);
+    const sharedLines = formatSharedPatternLines('Shared patterns:', summary.sharedPatterns);
 
-    if (pairLines.length === 0 && sharedAllowLines.length === 0 && sharedDenyLines.length === 0) {
+    if (sharedLines.length === 0) {
       continue;
     }
 
     printedAny = true;
     console.log(chalk.bold(`\n${right.toUpperCase()}`));
-    console.log(chalk.dim(`Distinct allow patterns: ${summary.totalDistinctAllowPatterns}; distinct deny patterns: ${summary.totalDistinctDenyPatterns}`));
+    console.log(chalk.dim(`Shared patterns: ${summary.sharedPatterns.length}`));
 
-    if (pairLines.length > 0) {
-      console.log(chalk.yellow('Top overlapping pairs:'));
-      for (const line of pairLines) {
-        console.log(line);
-      }
-    }
-
-    for (const line of sharedAllowLines) {
-      console.log(line);
-    }
-    for (const line of sharedDenyLines) {
+    for (const line of sharedLines) {
       console.log(line);
     }
   }
 
   if (!printedAny) {
-    console.log(chalk.dim('\nNo overlapping permission patterns found for the selected filters.\n'));
+    console.log(
+      chalk.dim('\nNo overlapping permission patterns found for the selected filters.\n')
+    );
     return;
   }
 
   console.log();
 }
 
-function formatOwnershipLines(entries: Array<{ path: string; agentIds: string[]; lineCount: number }>, limit = 8): string[] {
-  const lines = entries.slice(0, limit).map((entry) =>
-    `- ${chalk.cyan(entry.path)} ${chalk.dim(`[${entry.agentIds.join(', ')} | ${entry.lineCount} lines]`)}`,
-  );
+function formatOwnershipLines(
+  entries: Array<{ path: string; agentIds: string[]; lineCount: number }>,
+  limit = 8
+): string[] {
+  const lines = entries
+    .slice(0, limit)
+    .map(
+      (entry) =>
+        `- ${chalk.cyan(entry.path)} ${chalk.dim(`[${entry.agentIds.join(', ')} | ${entry.lineCount} lines]`)}`
+    );
 
   if (entries.length > limit) {
     lines.push(chalk.dim(`...and ${entries.length - limit} more`));
@@ -253,10 +258,16 @@ function formatOwnershipLines(entries: Array<{ path: string; agentIds: string[];
   return lines;
 }
 
-function formatExtensionLines(entries: Array<{ extension: string; fileCount: number; lineCount: number }>, limit = 8): string[] {
-  const lines = entries.slice(0, limit).map((entry) =>
-    `- ${chalk.cyan(entry.extension)}: ${entry.fileCount} files, ${entry.lineCount} lines`,
-  );
+function formatExtensionLines(
+  entries: Array<{ extension: string; fileCount: number; lineCount: number }>,
+  limit = 8
+): string[] {
+  const lines = entries
+    .slice(0, limit)
+    .map(
+      (entry) =>
+        `- ${chalk.cyan(entry.extension)}: ${entry.fileCount} files, ${entry.lineCount} lines`
+    );
 
   if (entries.length > limit) {
     lines.push(chalk.dim(`...and ${entries.length - limit} more`));
@@ -265,26 +276,44 @@ function formatExtensionLines(entries: Array<{ extension: string; fileCount: num
   return lines;
 }
 
-function renderFileOverlapReport(report: FilePermissionOverlapReport, options: AccessOverlapOptions): void {
-  console.log(chalk.bold(`\nWorkspace permission overlap across ${chalk.cyan(String(report.agentIds.length))} agent(s)`));
+function renderFileOverlapReport(
+  report: FilePermissionOverlapReport,
+  options: AccessOverlapOptions
+): void {
+  console.log(
+    chalk.bold(
+      `\nWorkspace permission overlap across ${chalk.cyan(String(report.agentIds.length))} agent(s)`
+    )
+  );
   console.log(chalk.dim(`Mode: files`));
   console.log(chalk.dim(`Generated at ${report.generatedAt}`));
   console.log(chalk.dim(`Workspace files analyzed: ${report.workspaceFileCount}`));
 
-  const rightsToShow = options.right
-    ? [options.right]
-    : (['read', 'list', 'write'] as const);
+  const rightsToShow = options.right ? [options.right] : (['read', 'list', 'write'] as const);
 
   for (const right of rightsToShow) {
     const summary = report.rights[right];
     console.log(chalk.bold(`\n${right.toUpperCase()}`));
-    console.log(chalk.dim(
-      `Total: ${summary.totalFiles}; uncovered: ${summary.uncoveredFiles.length}; `
-      + `single-owner: ${summary.singlyOwnedFiles.length}; overlapping: ${summary.overlappingFiles.length}`,
-    ));
+    console.log(
+      chalk.dim(
+        `Total: ${summary.totalFiles}; uncovered: ${summary.uncoveredFiles.length}; ` +
+          `single-owner: ${summary.singlyOwnedFiles.length}; overlapping: ${summary.overlappingFiles.length}`
+      )
+    );
 
     if (options.agent && report.agentFocus) {
-      const focused = report.agentFocus.rights[right];
+      const focused = report.agentFocus.rights[right] as {
+        responsibility: {
+          byExtension: Array<{ extension: string; fileCount: number; lineCount: number }>;
+        };
+        overlapsWith: Array<{
+          otherAgentId: string;
+          sharedFileCount: number;
+          sharedLineCount: number;
+          overlapRatio: number;
+        }>;
+        uniqueFiles: Array<{ path: string; agentIds: string[]; lineCount: number }>;
+      };
       console.log(chalk.yellow(`Responsibility for ${options.agent}:`));
       for (const line of formatExtensionLines(focused.responsibility.byExtension)) {
         console.log(line);
@@ -294,9 +323,9 @@ function renderFileOverlapReport(report: FilePermissionOverlapReport, options: A
         console.log(chalk.yellow('Overlapping agents:'));
         for (const overlap of focused.overlapsWith.slice(0, 8)) {
           console.log(
-            `- ${chalk.cyan(overlap.otherAgentId)}: `
-            + `${overlap.sharedFileCount} shared files, ${overlap.sharedLineCount} shared lines, `
-            + `${(overlap.overlapRatio * 100).toFixed(1)}% overlap`,
+            `- ${chalk.cyan(overlap.otherAgentId)}: ` +
+              `${overlap.sharedFileCount} shared files, ${overlap.sharedLineCount} shared lines, ` +
+              `${(overlap.overlapRatio * 100).toFixed(1)}% overlap`
           );
         }
       }
@@ -313,8 +342,8 @@ function renderFileOverlapReport(report: FilePermissionOverlapReport, options: A
         console.log(chalk.yellow('Top agent responsibility:'));
         for (const responsibility of topResponsibility) {
           console.log(
-            `- ${chalk.cyan(responsibility.agentId)}: `
-            + `${responsibility.fileCount} files, ${responsibility.lineCount} lines`,
+            `- ${chalk.cyan(responsibility.agentId)}: ` +
+              `${responsibility.fileCount} files, ${responsibility.lineCount} lines`
           );
         }
       }
@@ -324,9 +353,9 @@ function renderFileOverlapReport(report: FilePermissionOverlapReport, options: A
         console.log(chalk.yellow('Closest overlapping pairs:'));
         for (const pair of topPairs) {
           console.log(
-            `- ${chalk.cyan(pair.agentA)} <> ${chalk.cyan(pair.agentB)}: `
-            + `${pair.sharedFileCount} shared files, ${pair.sharedLineCount} shared lines, `
-            + `${(pair.overlapRatio * 100).toFixed(1)}% overlap`,
+            `- ${chalk.cyan(pair.agentA)} <> ${chalk.cyan(pair.agentB)}: ` +
+              `${pair.sharedFileCount} shared files, ${pair.sharedLineCount} shared lines, ` +
+              `${(pair.overlapRatio * 100).toFixed(1)}% overlap`
           );
         }
       }
@@ -350,10 +379,13 @@ function renderFileOverlapReport(report: FilePermissionOverlapReport, options: A
   console.log();
 }
 
-export async function accessOverlapCommand(client: AiTeamClient, options: AccessOverlapOptions = {}): Promise<void> {
-  const report = await client.analyzePermissionOverlap({
+export async function accessOverlapCommand(
+  client: IAccessService,
+  options: AccessOverlapOptions = {}
+): Promise<void> {
+  const report = await client.analyzeOverlap({
     mode: options.mode ?? 'files',
-    agentId: options.agent,
+    agent: options.agent,
   });
 
   if (options.json) {

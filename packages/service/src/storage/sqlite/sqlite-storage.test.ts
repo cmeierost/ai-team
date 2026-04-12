@@ -14,7 +14,9 @@ async function createTempWorkspace(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0, tempDirs.length).map(dir => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    tempDirs.splice(0, tempDirs.length).map((dir) => fs.rm(dir, { recursive: true, force: true }))
+  );
 });
 
 describe('SqliteMessageStorage', () => {
@@ -24,7 +26,7 @@ describe('SqliteMessageStorage', () => {
   beforeEach(async () => {
     workspaceRoot = await createTempWorkspace();
     storage = new SqliteMessageStorage(workspaceRoot);
-    await storage.initialize();
+    await storage.migrate();
   });
 
   afterEach(async () => {
@@ -384,8 +386,8 @@ describe('SqliteMessageStorage', () => {
 
       const results = await storage.searchMessages('authentication', sessionId);
       expect(results).toHaveLength(2);
-      expect(results.some(m => m.content.includes('JWT'))).toBe(true);
-      expect(results.some(m => m.content.includes('jsonwebtoken'))).toBe(true);
+      expect(results.some((m) => m.content.includes('JWT'))).toBe(true);
+      expect(results.some((m) => m.content.includes('jsonwebtoken'))).toBe(true);
     });
 
     it('searches messages with FTS5 boolean operators', async () => {
@@ -428,7 +430,7 @@ describe('SqliteMessageStorage', () => {
 
       // Boolean NOT: exclude term
       const notResults = await storage.searchMessages('authentication NOT OAuth2', sessionId);
-      expect(notResults.every(m => !m.content.includes('OAuth2'))).toBe(true);
+      expect(notResults.every((m) => !m.content.includes('OAuth2'))).toBe(true);
       expect(notResults.length).toBeGreaterThan(0);
     });
 
@@ -457,7 +459,7 @@ describe('SqliteMessageStorage', () => {
       // Phrase query: exact phrase match
       const results = await storage.searchMessages('"error handling"', sessionId);
       expect(results).toHaveLength(2);
-      expect(results.every(m => m.content.toLowerCase().includes('error handling'))).toBe(true);
+      expect(results.every((m) => m.content.toLowerCase().includes('error handling'))).toBe(true);
     });
   });
 
@@ -583,7 +585,8 @@ describe('SqliteMessageStorage', () => {
       await storage.createNote({
         agentId: 'developer-1',
         title: 'Unit Test Configuration',
-        content: 'Configure the test runner to execute unit tests automatically. Mock API responses for testing.',
+        content:
+          'Configure the test runner to execute unit tests automatically. Mock API responses for testing.',
         tags: ['testing', 'config'],
       });
 
@@ -602,7 +605,7 @@ describe('SqliteMessageStorage', () => {
       const testingResults = await storage.searchNotes('testing', 'developer-1');
       expect(testingResults.length).toBeGreaterThanOrEqual(1); // Found in title (note: tags are not indexed)
 
-      // FTS5 word matching: "API" should match by title  
+      // FTS5 word matching: "API" should match by title
       const apiResults = await storage.searchNotes('API', 'developer-1');
       expect(apiResults.length).toBeGreaterThanOrEqual(2); // Found in title and content
     });

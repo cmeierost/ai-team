@@ -7,8 +7,8 @@ import { promisify } from 'util';
 import { platform } from 'os';
 import { resolve } from 'path';
 import chalk from 'chalk';
-import type { AiTeamClient } from '@ai-team/api-client';
-import { Agent } from '@ai-team/core';
+import type { IAgentsService } from '@ai-team/api-client';
+import { Agent } from '@ai-team/infrastructure';
 
 const execAsync = promisify(exec);
 
@@ -17,8 +17,9 @@ interface InfoOptions {
   openAvatar?: boolean;
 }
 
-export async function infoCommand(client: AiTeamClient, agentId: string, options: InfoOptions) {
-  const matches = await client.resolveEmployees(agentId);
+export async function infoCommand(client: IAgentsService, agentId: string, options: InfoOptions) {
+  const searchResponse = await client.search({ q: agentId });
+  const matches = searchResponse.results.map((r) => r.agent);
 
   if (matches.length === 0) {
     console.log(chalk.red(`No agent found matching "${agentId}".`));
@@ -74,12 +75,12 @@ function printAgentInfo(agent: Agent) {
     if (p.communication_style) console.log(chalk.dim('  Style:        ') + p.communication_style);
     if (p.expertise_level) console.log(chalk.dim('  Expertise:    ') + p.expertise_level);
   }
-  
+
   // Display avatar if configured
   if (agent.avatar?.type === 'url' && agent.avatar.url) {
     console.log(chalk.dim('  Avatar:       ') + agent.avatar.url);
   }
-  
+
   if (agent.llm) {
     if (agent.llm.provider) console.log(chalk.dim('  LLM Provider: ') + agent.llm.provider);
     if (agent.llm.modelKey) console.log(chalk.dim('  LLM ModelKey: ') + agent.llm.modelKey);
@@ -99,7 +100,9 @@ function printAgentInfo(agent: Agent) {
     console.log(chalk.dim('  Created:      ') + new Date(agent.createdAt).toLocaleDateString());
   }
   if (agent.lastInteraction) {
-    console.log(chalk.dim('  Last active:  ') + new Date(agent.lastInteraction).toLocaleDateString());
+    console.log(
+      chalk.dim('  Last active:  ') + new Date(agent.lastInteraction).toLocaleDateString()
+    );
   }
   if (agent.conversationCount) {
     console.log(chalk.dim('  Messages:     ') + agent.conversationCount);
@@ -135,6 +138,8 @@ async function openInDefaultViewer(filePath: string): Promise<void> {
   try {
     await execAsync(command);
   } catch (_error) {
-    console.warn(chalk.yellow(`\nCould not open avatar automatically. Please open manually:\n${filePath}\n`));
+    console.warn(
+      chalk.yellow(`\nCould not open avatar automatically. Please open manually:\n${filePath}\n`)
+    );
   }
 }

@@ -14,7 +14,7 @@ import {
   type Agent,
   type LlmProviderConfig,
   type TeamConfig,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
 
 const execAsync = promisify(exec);
 

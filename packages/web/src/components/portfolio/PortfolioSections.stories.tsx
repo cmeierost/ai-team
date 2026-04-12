@@ -285,9 +285,9 @@ export const OverlapSection: Story = {
           totalLines: 1320,
           overlapRatio: 0.42,
           sharedRights: ['read', 'write'],
-          rightFileCounts: { read: 18, write: 9, create: 0, delete: 0, list: 18 },
-          rightLineCounts: { read: 1320, write: 740, create: 0, delete: 0, list: 1320 },
-          rightOverlapRatio: { read: 0.42, write: 0.31, create: 0, delete: 0, list: 0.42 },
+          rightFileCounts: { read: 18, write: 9, list: 18 },
+          rightLineCounts: { read: 1320, write: 740, list: 1320 },
+          rightOverlapRatio: { read: 0.42, write: 0.31, list: 0.42 },
           rightSharedFiles: {
             write: [
               { path: 'packages/web/src/components/Portfolio.tsx', extension: '.tsx', lineCount: 220, agentIds: ['daniel-navarro', 'clara-bishop'] },

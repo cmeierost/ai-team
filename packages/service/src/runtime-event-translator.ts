@@ -1,8 +1,12 @@
-import type { AiTeamCommandName, MediatorRuntimeEvent, MediatorEvent } from './contracts.js';
+import type {
+  AiTeamCommandName,
+  MediatorRuntimeEvent,
+  MediatorEvent,
+} from '@ai-team/api-client';
 
 export function runtimeEventToStreamEvent<TCommand extends AiTeamCommandName>(
   event: MediatorRuntimeEvent,
-  base: { requestId?: string; command: TCommand; timestamp: string },
+  base: { requestId?: string; command: TCommand; timestamp: string }
 ): MediatorEvent<TCommand> | null {
   switch (event.kind) {
     case 'status':
@@ -14,19 +18,24 @@ export function runtimeEventToStreamEvent<TCommand extends AiTeamCommandName>(
       return { ...base, ...event, message: event.message ?? '' } as MediatorEvent<TCommand>;
     case 'token':
       return event.text !== undefined
-        ? { ...base, ...event, text: event.text } as MediatorEvent<TCommand>
+        ? ({ ...base, ...event, text: event.text } as MediatorEvent<TCommand>)
         : null;
     case 'tool':
       return event.toolName
-        ? { ...base, ...event, toolName: event.toolName } as MediatorEvent<TCommand>
+        ? ({ ...base, ...event, toolName: event.toolName } as MediatorEvent<TCommand>)
         : null;
     case 'question':
       return event.message
-        ? { ...base, ...event, message: event.message } as MediatorEvent<TCommand>
+        ? ({ ...base, ...event, message: event.message } as MediatorEvent<TCommand>)
         : null;
     case 'handoff':
       return event.fromAgentId && event.toAgentId
-        ? { ...base, ...event, fromAgentId: event.fromAgentId, toAgentId: event.toAgentId } as MediatorEvent<TCommand>
+        ? ({
+            ...base,
+            ...event,
+            fromAgentId: event.fromAgentId,
+            toAgentId: event.toAgentId,
+          } as MediatorEvent<TCommand>)
         : null;
   }
 }

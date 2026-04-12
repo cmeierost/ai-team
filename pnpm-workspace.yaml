@@ -2,3 +2,4 @@ packages:
   - 'packages/*'
   - 'analysis/*'
   - 'analysis/collectors/*'
+  - 'fs-context'

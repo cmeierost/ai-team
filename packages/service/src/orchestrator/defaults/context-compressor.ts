@@ -4,7 +4,7 @@
  * summarization or importance-weighted pruning without touching the orchestrator.
  */
 
-import type { ChatMessage } from '@ai-team/core';
+import type { ChatMessage } from '@ai-team/infrastructure';
 import type { IContextCompressor } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
 

@@ -32,12 +32,12 @@ flowchart TD
   F --> J[loadAllInstructionFiles]
   J --> K[.ai-team/instructions/*.instructions.md]
 
-  F --> L[createPermissionEngine]
-  L --> M[loadAgentAccessPatterns per agent]
-  M --> N[.ai-team/agents/agentId.perm]
-  N --> O[PermissionEngine ready]
+  F --> L[loadTeamConfig]
+  L --> M[ContextManager.fromConfig(workspaceRoot, fileTree)]
+  M --> N[loadAgentAccessPatterns per agent]
+  N --> O[Agent.permissions hydrated from .perm]
 
-  O --> P[ContextManager wraps PermissionEngine]
+  O --> P[ContextManager backed by file-context ContextRuntime]
   P --> Q[ChatOrchestrator constructed with full context]
 ```
 
@@ -49,19 +49,20 @@ flowchart TD
 | Role skill instructions | `.ai-team/roles/<role>.md` | System prompt body for the agent's role (resolved by `SkillManager` via `agent.role`) |
 | Specialization skill instructions | `.ai-team/roles/<specialization>.md` | Additional system prompt sections for each value in `agent.specializations[]` |
 | Workspace instructions | `.ai-team/instructions/*.instructions.md` | Appended instructions filtered by `applyTo` glob |
-| Per-agent access rules | `.ai-team/agents/<agentId>.perm` | File-level read/write/create/delete permission patterns |
+| Per-agent access rules | `.ai-team/agents/<agentId>.perm` | File-level read/write/list permission patterns |
 | Global fileTree config | `config.json → fileTree` | Workspace-wide path overrides merged with agent rules |
 
 ### Access enforcement
 
-`ContextManager.canRead/canWrite/canCreate/canDelete` delegates to `PermissionEngine`. Every file tool call goes through `ContextManager` before execution. The engine evaluates the requesting agent against the pattern set from its `.perm` file.
+`ContextManager.canRead/canWrite/canList` is the single adapter surface used by tools/commands. Internally it resolves agent + global patterns and registers contexts into `file-context` `ContextRuntime`. Every file tool call still goes through `ContextManager` before execution.
 
 ```ts
 // packages/core/src/context/index.ts
-canRead(agent: Agent, filePath: string): AccessVerdict {
-  return this.engine
-    ? this.engine.evaluate(agent.id, 'read', filePath)
-    : this.globCheck(agent, filePath);
+canRead(agent: Agent, filePath: string): boolean {
+  const relativePath = this.addKnownPath(filePath);
+  if (relativePath === null) return false;
+  this.ensureAgentContext(agent);
+  return this.runtime.canRead(agent.id, relativePath);
 }
 ```
 
@@ -71,7 +72,7 @@ export async function loadAgentAccessPatterns(workspaceRoot: string, agentId: st
   const filePath = getAgentAccessFilePath(workspaceRoot, agentId); // .ai-team/agents/<id>.perm
   const content = await fs.readFile(filePath, 'utf-8');
   const rules = parseAccessFile(content);
-  return accessRulesToPatternSet(rules);
+  return permissionRulesToPatternSet(rules);
 }
 ```
 

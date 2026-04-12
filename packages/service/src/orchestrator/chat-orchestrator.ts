@@ -64,7 +64,7 @@ export class ChatOrchestrator {
 
       // ── Hire: reload agents, notify surface, continue ─────────────────────
       if (result.hired) {
-        await this.ctx.agentManager.loadAllAgents();
+        await this.ctx.agentManager.refreshAsync();
         emitLog(
           this.ctx.hooks,
           'info',

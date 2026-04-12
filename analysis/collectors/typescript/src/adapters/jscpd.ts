@@ -181,7 +181,7 @@ function normalizeFileRef(raw: JscpdRawFileRef): DuplicationFileRef {
 
 export function normalizeJscpdOutput(
   rawOutput: JscpdRawOutput,
-  toolVersion: string,
+  toolVersion: string
 ): DuplicationSignal {
   const clones: DuplicationClone[] = rawOutput.duplicates.map((dup) => ({
     id: buildCloneId(dup.firstFile, dup.secondFile),
@@ -248,19 +248,20 @@ interface CliRunResult {
   stderr: string;
 }
 
-function runJscpdCli(
-  binScript: string,
-  args: string[],
-  cwd: string,
-): Promise<CliRunResult> {
+function runJscpdCli(binScript: string, args: string[], cwd: string): Promise<CliRunResult> {
   return new Promise((resolve) => {
     // Run the bin script with node so it works on all platforms (the .bin
     // shims are shell/cmd scripts that don't work with execFile portably).
-    execFile(process.execPath, [binScript, ...args], { cwd, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
-      // jscpd may exit non-zero when duplicates are found — that's not an error
-      const exitCode = err && 'code' in err ? (err.code as number) : 0;
-      resolve({ exitCode: typeof exitCode === 'number' ? exitCode : 1, stdout, stderr });
-    });
+    execFile(
+      process.execPath,
+      [binScript, ...args],
+      { cwd, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        // jscpd may exit non-zero when duplicates are found — that's not an error
+        const exitCode = err && 'code' in err ? (err.code as number) : 0;
+        resolve({ exitCode: typeof exitCode === 'number' ? exitCode : 1, stdout, stderr });
+      }
+    );
   });
 }
 
@@ -282,19 +283,26 @@ export async function runJscpdAdapter(options: JscpdAdapterOptions): Promise<Jsc
   const outputDir = join(rootDir, '.jscpd-report');
 
   // Resolve scan paths — either explicit srcDirs or the rootDir itself
-  const scanPaths = (options.srcDirs ?? []).length > 0
-    ? options.srcDirs!.map((d) => resolve(rootDir, d))
-    : [rootDir];
+  const scanPaths =
+    (options.srcDirs ?? []).length > 0
+      ? options.srcDirs!.map((d) => resolve(rootDir, d))
+      : [rootDir];
 
   // Build CLI args
   const args: string[] = [
     ...scanPaths,
-    '--reporters', 'json',
-    '--output', outputDir,
-    '--format', (options.formats ?? ['typescript']).join(','),
-    '--min-tokens', String(options.minTokens ?? 50),
-    '--min-lines', String(options.minLines ?? 5),
-    '--max-lines', String(options.maxLines ?? 5000),
+    '--reporters',
+    'json',
+    '--output',
+    outputDir,
+    '--format',
+    (options.formats ?? ['typescript']).join(','),
+    '--min-tokens',
+    String(options.minTokens ?? 50),
+    '--min-lines',
+    String(options.minLines ?? 5),
+    '--max-lines',
+    String(options.maxLines ?? 5000),
     '--silent',
   ];
 
@@ -321,20 +329,16 @@ export async function runJscpdAdapter(options: JscpdAdapterOptions): Promise<Jsc
   try {
     await access(reportPath);
   } catch {
-    const detail = cliResult.stderr
-      ? `\nCLI stderr: ${cliResult.stderr.trim()}`
-      : '';
+    const detail = cliResult.stderr ? `\nCLI stderr: ${cliResult.stderr.trim()}` : '';
     throw new Error(
-      `jscpd did not produce a report at ${reportPath} (exit code ${cliResult.exitCode}).${detail}`,
+      `jscpd did not produce a report at ${reportPath} (exit code ${cliResult.exitCode}).${detail}`
     );
   }
   try {
     const content = await readFile(reportPath, 'utf-8');
     rawOutput = JSON.parse(content) as JscpdRawOutput;
   } catch (readErr) {
-    throw new Error(
-      `Failed to read jscpd report at ${reportPath}: ${String(readErr)}`,
-    );
+    throw new Error(`Failed to read jscpd report at ${reportPath}: ${String(readErr)}`);
   }
 
   // Clean up report directory

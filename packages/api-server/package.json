@@ -17,28 +17,28 @@
   },
   "dependencies": {
     "@ai-team/api-client": "workspace:*",
+    "@ai-team/container": "workspace:*",
     "@ai-team/core": "workspace:*",
-    "@ai-team/ide-interface": "workspace:*",
+    "@ai-team/infrastructure": "workspace:*",
     "@ai-team/service": "workspace:*",
+    "@ts-http/express": "^0.0.5",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
-    "ws": "^8.19.0"
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@asyncapi/parser": "^3.6.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "@types/node": "^25.5.0",
-    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/node": "^25.6.0",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/ws": "^8.18.1",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/coverage-v8": "^4.1.4",
     "rimraf": "^6.1.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "typescript-json-schema": "^0.65.1",
+    "typescript-json-schema": "^0.67.1",
     "vitest": "^4.1.2"
   }
 }

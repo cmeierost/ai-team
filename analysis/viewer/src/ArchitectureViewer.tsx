@@ -20,9 +20,12 @@ import type { StructuralPipelineResult } from './types.js';
 import type { Selection, SidePanel } from './types.js';
 import { useClusterGraph, deriveGroupLabel } from './hooks/useClusterGraph.js';
 import { useClusterDrilldown } from './hooks/useClusterDrilldown.js';
+import { useEntityReferenceGraph } from './hooks/useEntityReferenceGraph.js';
 import { ClusterNode } from './components/ClusterNode.js';
 import { FileNode } from './components/FileNode.js';
 import { CommunityGroupNode } from './components/CommunityGroupNode.js';
+import { EntityNode } from './components/EntityNode.js';
+import { FileGroupNode } from './components/FileGroupNode.js';
 import { FileCodePane } from './components/FileCodePane.js';
 import { FileEntitiesPane } from './components/FileEntitiesPane.js';
 import { OverviewBar } from './components/OverviewBar.js';
@@ -44,9 +47,11 @@ export interface ArchitectureViewerProps {
 const nodeTypes: NodeTypes = {
   cluster: ClusterNode,
   file: FileNode,
+  entity: EntityNode,
   communityGroup: CommunityGroupNode,
+  fileGroup: FileGroupNode,
 };
-const VALID_SELECTION_TYPES: Selection['type'][] = ['cluster', 'file', 'communityGroup', null];
+const VALID_SELECTION_TYPES: Selection['type'][] = ['cluster', 'file', 'entity', 'communityGroup', null];
 const VALID_SIDE_PANELS: SidePanel[] = ['detail', 'problems', 'stats'];
 
 function flattenCommunityGroups(
@@ -91,7 +96,9 @@ export function ArchitectureViewer({
   const [hideTypeOnly, setHideTypeOnly] = useState(false);
   const [showFullPath, setShowFullPath] = useState(false);
   const [showCommunityGroups, setShowCommunityGroups] = useState(false);
-  const [fileViewTab, setFileViewTab] = useState<'code' | 'entities'>('entities');
+  const [fileViewTab, setFileViewTab] = useState<'code' | 'entities' | 'entity'>('entities');
+  const [drilldownViewMode, setDrilldownViewMode] = useState<'files' | 'entities'>('files');
+  const [expandedRefIds, setExpandedRefIds] = useState<Set<string>>(new Set());
   const [sidebarWidth, setSidebarWidth] = useState(340);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const resizeState = useRef<{ startX: number; startWidth: number }>({ startX: 0, startWidth: 340 });
@@ -130,8 +137,15 @@ export function ArchitectureViewer({
     if (kind === 'file') {
       return { fileIds: new Set([id]), groupIds: undefined };
     }
+    if (kind === 'entity') {
+      const ent = entities?.find((e) => e.id === id);
+      if (ent?.filePath) {
+        return { fileIds: new Set([`file:${ent.filePath}`]), groupIds: undefined };
+      }
+      return { fileIds: undefined, groupIds: undefined };
+    }
     return { fileIds: undefined, groupIds: undefined };
-  }, [data.communities]);
+  }, [data.communities, entities]);
 
   // Selection scope (for detail/issues).
   const scope = useMemo(() => {
@@ -163,11 +177,30 @@ export function ArchitectureViewer({
     }).length;
   }, [data.alignment.warnings, data.communities?.communities, scope.fileIds]);
 
+  const drilldownOptions = useMemo(
+    () => ({ hideTypeOnly, showFullPath, viewMode: drilldownViewMode }),
+    [hideTypeOnly, showFullPath, drilldownViewMode],
+  );
+
+  const entityRefOptions = useMemo(
+    () => ({ showCommunityGroups, hideTypeOnly, expandedRefIds }),
+    [showCommunityGroups, hideTypeOnly, expandedRefIds],
+  );
+
   // Overview graph (always computed, only rendered when not in drilldown)
   const overview = useClusterGraph(data, selection, graphOptions);
 
   // Drilldown graph (only meaningful when drilldownGroupId is set)
-  const drilldown = useClusterDrilldown(data, drilldownGroupId ?? '', selection, graphOptions);
+  const drilldown = useClusterDrilldown(data, drilldownGroupId ?? '', selection, drilldownOptions, entities);
+
+  // Entity reference graph (only meaningful when an entity is selected)
+  const entityRefGraph = useEntityReferenceGraph(
+    data,
+    selection.type === 'entity' ? selection.id : '',
+    entities ?? [],
+    relationships ?? [],
+    entityRefOptions,
+  );
 
   const isDrilldown = drilldownGroupId != null;
   const activeGraph = isDrilldown ? drilldown : overview;
@@ -228,12 +261,16 @@ export function ArchitectureViewer({
     }
     setNavigationPath(urlNav);
     setDrilldownGroupId(urlDrilldown || null);
-    if (urlTab === 'entities' || urlTab === 'code') {
+    if (urlTab === 'entities' || urlTab === 'code' || urlTab === 'entity') {
       setFileViewTab(urlTab);
     }
     setHideTypeOnly(params.get('types') === 'hidden');
     setShowFullPath(params.get('paths') === 'full');
     setShowCommunityGroups(params.get('grouping') === 'on');
+    const urlDrilldownView = params.get('drillView');
+    if (urlDrilldownView === 'files' || urlDrilldownView === 'entities') {
+      setDrilldownViewMode(urlDrilldownView);
+    }
     if (urlSidePanel && VALID_SIDE_PANELS.includes(urlSidePanel as SidePanel)) {
       setSidePanel(urlSidePanel as SidePanel);
     }
@@ -266,6 +303,7 @@ export function ArchitectureViewer({
     if (hideTypeOnly) next.set('types', 'hidden');
     if (showFullPath) next.set('paths', 'full');
     if (showCommunityGroups) next.set('grouping', 'on');
+    if (drilldownViewMode !== 'files') next.set('drillView', drilldownViewMode);
     for (const id of navigationPath) next.append('nav', id);
 
     const query = next.toString();
@@ -287,6 +325,7 @@ export function ArchitectureViewer({
     hideTypeOnly,
     showFullPath,
     showCommunityGroups,
+    drilldownViewMode,
     navigationPath,
   ]);
 
@@ -319,10 +358,33 @@ export function ArchitectureViewer({
       setSelection({ type: 'cluster', id: node.id });
       setSidePanel('detail');
       setDrilldownGroupId(node.id);
+    } else if (node.type === 'entity') {
+      setSelection({ type: 'entity', id: node.id });
+      setSidePanel('detail');
+      setFileViewTab('entity');
+      setExpandedRefIds(new Set());
     } else if (node.type === 'file') {
       setSelection({ type: 'file', id: node.id });
       setSidePanel('detail');
       setFileViewTab('entities');
+    }
+  }, []);
+
+  // Click handler for the entity reference graph — cluster nodes toggle expand
+  const handleEntityRefNodeClick: NodeMouseHandler = useCallback((_event, node) => {
+    if (node.type === 'entity') {
+      if ((node.data as { focal?: boolean })?.focal) return;
+      setSelection({ type: 'entity', id: node.id });
+      setSidePanel('detail');
+      setFileViewTab('entity');
+      setExpandedRefIds(new Set());
+    } else if (node.type === 'cluster') {
+      setExpandedRefIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(node.id)) next.delete(node.id);
+        else next.add(node.id);
+        return next;
+      });
     }
   }, []);
 
@@ -355,10 +417,20 @@ export function ArchitectureViewer({
 
   const showNavBar = true;
   const breadcrumbs = useMemo(() => {
+    // Determine the active community id from drilldown or selection
     const selectedClusterId =
       drilldownGroupId
       ?? (selection.type === 'cluster' ? selection.id : undefined)
+      ?? (selection.type === 'entity' ? (() => {
+        const ent = entities?.find((e) => e.id === selection.id);
+        if (ent?.filePath) {
+          const fid = `file:${ent.filePath}`;
+          return fileToCommunityId.get(fid);
+        }
+        return undefined;
+      })() : undefined)
       ?? (selection.type === 'file' ? fileToCommunityId.get(selection.id) : undefined);
+
     const derivedSuperPath = selectedClusterId ? (communityToSuperPath.get(selectedClusterId) ?? []) : [];
     const superPath = navigationPath.length > 0 ? navigationPath : derivedSuperPath;
 
@@ -375,9 +447,10 @@ export function ArchitectureViewer({
       },
     ];
 
+    // Group / subgroup levels (can be multiple)
     superPath.forEach((id, index) => {
       items.push({
-        key: `super-${id}`,
+        key: `group-${id}`,
         label: CommunityGroupById.get(id)?.label || id,
         onClick: () => {
           setNavigationPath(superPath.slice(0, index + 1));
@@ -388,26 +461,29 @@ export function ArchitectureViewer({
       });
     });
 
+    // Community level
     if (selectedClusterId) {
       items.push({
-        key: `cluster-${selectedClusterId}`,
+        key: `community-${selectedClusterId}`,
         label: clusterLabelById.get(selectedClusterId) || selectedClusterId,
         onClick: () => {
           setSelection({ type: 'cluster', id: selectedClusterId });
           setDrilldownGroupId(selectedClusterId);
         },
-        active: selection.type === 'cluster' && selection.id === selectedClusterId,
+        active: selection.type === 'cluster' || selection.type === 'file',
       });
     }
 
-    if (selection.type === 'file') {
-      const file = data.fileClassifications.find((f) => f.fileId === selection.id);
+    // Entity level
+    if (selection.type === 'entity') {
+      const ent = entities?.find((e) => e.id === selection.id);
       items.push({
-        key: `file-${selection.id}`,
-        label: file?.filePath.split('/').slice(-1)[0] || selection.id,
+        key: `entity-${selection.id}`,
+        label: ent?.name || selection.id,
         active: true,
       });
     }
+
     return items;
   }, [
     navigationPath,
@@ -417,7 +493,7 @@ export function ArchitectureViewer({
     clusterLabelById,
     fileToCommunityId,
     communityToSuperPath,
-    data.fileClassifications,
+    entities,
   ]);
 
   return (
@@ -451,38 +527,101 @@ export function ArchitectureViewer({
                   </React.Fragment>
                 ))}
               </div>
-              {isDrilldown && (
-                <span className="av-drilldown-label">{drilldownLabel}</span>
-              )}
+            </div>
+          )}
+          {isDrilldown && selection.type !== 'file' && selection.type !== 'entity' && (
+            <div className="av-drilldown-tabs">
+              <button
+                className={`av-file-tab ${drilldownViewMode === 'files' ? 'av-file-tab--active' : ''}`}
+                onClick={() => setDrilldownViewMode('files')}
+              >
+                Files
+              </button>
+              <button
+                className={`av-file-tab ${drilldownViewMode === 'entities' ? 'av-file-tab--active' : ''}`}
+                onClick={() => setDrilldownViewMode('entities')}
+              >
+                Entities
+              </button>
             </div>
           )}
 
-            {selection.type === 'file' ? (
+            {selection.type === 'file' || selection.type === 'entity' ? (() => {
+              // Resolve to file id for the panes
+              let fileId = selection.id;
+              const isEntityView = selection.type === 'entity';
+              if (isEntityView) {
+                const ent = entities?.find((e) => e.id === selection.id);
+                fileId = ent?.filePath ? `file:${ent.filePath}` : selection.id;
+              }
+              const file = data.fileClassifications.find((f) => f.fileId === fileId);
+              // Ensure tab is valid for current selection type
+              const effectiveTab = isEntityView
+                ? (fileViewTab === 'entity' || fileViewTab === 'code' ? fileViewTab : 'entity')
+                : (fileViewTab === 'code' || fileViewTab === 'entities' ? fileViewTab : 'entities');
+              return (
               <div className="av-code-frame">
                 <div className="av-file-tabs">
-                  <button
-                    className={`av-file-tab ${fileViewTab === 'code' ? 'av-file-tab--active' : ''}`}
-                    onClick={() => setFileViewTab('code')}
-                  >
-                    Code
-                  </button>
-                  <button
-                    className={`av-file-tab ${fileViewTab === 'entities' ? 'av-file-tab--active' : ''}`}
-                    onClick={() => setFileViewTab('entities')}
-                  >
-                    Entities
-                  </button>
+                  {isEntityView ? (
+                    <>
+                      <button
+                        className={`av-file-tab ${effectiveTab === 'entity' ? 'av-file-tab--active' : ''}`}
+                        onClick={() => setFileViewTab('entity')}
+                      >
+                        Entity
+                      </button>
+                      <button
+                        className={`av-file-tab ${effectiveTab === 'code' ? 'av-file-tab--active' : ''}`}
+                        onClick={() => setFileViewTab('code')}
+                      >
+                        Code
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className={`av-file-tab ${effectiveTab === 'code' ? 'av-file-tab--active' : ''}`}
+                        onClick={() => setFileViewTab('code')}
+                      >
+                        Code
+                      </button>
+                      <button
+                        className={`av-file-tab ${effectiveTab === 'entities' ? 'av-file-tab--active' : ''}`}
+                        onClick={() => setFileViewTab('entities')}
+                      >
+                        Entities
+                      </button>
+                    </>
+                  )}
                 </div>
                 <div className="av-file-content">
-                  {fileViewTab === 'code' ? (
+                  {effectiveTab === 'code' ? (
                     <FileCodePane
-                      file={data.fileClassifications.find((f) => f.fileId === selection.id)}
-                      content={selection.id ? fileContents?.[selection.id] : undefined}
+                      file={file}
+                      content={fileId ? fileContents?.[fileId] : undefined}
                     />
+                  ) : effectiveTab === 'entity' ? (
+                    <div style={{ width: '100%', height: '100%' }}>
+                      <ReactFlow
+                        key={`entity-ref-${selection.id}`}
+                        nodes={entityRefGraph.nodes}
+                        edges={entityRefGraph.edges}
+                        nodeTypes={nodeTypes}
+                        onNodesChange={entityRefGraph.onNodesChange}
+                        onNodeClick={handleEntityRefNodeClick}
+                        fitView
+                        minZoom={0.1}
+                        maxZoom={2}
+                        proOptions={{ hideAttribution: true }}
+                      >
+                        <Background gap={20} color="#3e3e42" />
+                        <Controls position="bottom-left" />
+                      </ReactFlow>
+                    </div>
                   ) : (
                     <FileEntitiesPane
-                      file={data.fileClassifications.find((f) => f.fileId === selection.id)}
-                      content={selection.id ? fileContents?.[selection.id] : undefined}
+                      file={file}
+                      content={fileId ? fileContents?.[fileId] : undefined}
                       entities={entities}
                       relationships={relationships}
                       scopeFileIds={referenceScopeFileIds}
@@ -491,7 +630,8 @@ export function ArchitectureViewer({
                   )}
                 </div>
               </div>
-            ) : (
+              );
+            })() : (
               <div className="av-graph-frame">
                 <ReactFlow
                   key={isDrilldown
@@ -559,7 +699,10 @@ export function ArchitectureViewer({
                 selection={selection}
                 clusterFileIds={scope.fileIds}
                 onSelectFile={handleSelectFile}
+                onSelectCluster={handleSelectCluster}
                 entities={entities}
+                relationships={relationships}
+                showCommunityGroups={showCommunityGroups}
               />
             ) : sidePanel === 'problems' ? (
               <ProblemsPanel

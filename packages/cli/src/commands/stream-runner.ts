@@ -1,4 +1,4 @@
-import type { AiTeamClient, AiTeamCommandName, MediatorRequest } from '@ai-team/api-client';
+import type { IAiTeamMediator, AiTeamCommandName, MediatorRequest } from '@ai-team/api-client';
 import chalk from 'chalk';
 
 interface StreamRunnerOptions {
@@ -52,15 +52,15 @@ function isAbortLikeError(error: unknown): boolean {
 }
 
 export async function runCommandStream<TCommand extends AiTeamCommandName>(
-  client: AiTeamClient,
+  client: IAiTeamMediator,
   request: MediatorRequest<TCommand>,
-  options: StreamRunnerOptions = {},
+  options: StreamRunnerOptions = {}
 ): Promise<void> {
   const abortControl = setupAbortController();
   let lastErrorLogMessage: string | undefined;
 
   try {
-    for await (const event of client.stream(request, { signal: abortControl.signal })) {
+    for await (const event of client.streamInteraction(request, { signal: abortControl.signal })) {
       if (event.kind === 'token') {
         process.stdout.write(event.text);
         continue;

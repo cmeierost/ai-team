@@ -12,14 +12,13 @@ import type {
   Agent,
   AgentManager,
   ChatMessage,
-  ContextManager,
   InstructionFile,
   LlmService,
-  ToolManager,
   SkillManager,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
+import type { ToolManager } from '../tools/tool-manager.js';
 import type { SessionManager } from '../session-manager.js';
-import type { ChatRuntimeHooks } from '../contracts.js';
+import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 
 export interface NavStackEntry {
   agentId: string;
@@ -49,7 +48,6 @@ export interface OrchestratorContext {
   agentManager: AgentManager;
   skillManager: SkillManager;
   llmService: LlmService;
-  contextManager: ContextManager;
 
   /** Message history for the current agent session. */
   history: ChatMessage[];

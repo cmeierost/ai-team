@@ -1,4 +1,4 @@
-import type { ChatCommandRegistryEntry } from '@ai-team/api-client-http';
+import type { ChatCommandRegistryEntry } from '@ai-team/api-client';
 import './SlashCommandDropdown.css';
 
 interface SlashCommandDropdownProps {
@@ -7,7 +7,11 @@ interface SlashCommandDropdownProps {
   onSelect: (index: number) => void;
 }
 
-export function SlashCommandDropdown({ suggestions, selectedIndex, onSelect }: Readonly<SlashCommandDropdownProps>) {
+export function SlashCommandDropdown({
+  suggestions,
+  selectedIndex,
+  onSelect,
+}: Readonly<SlashCommandDropdownProps>) {
   if (suggestions.length === 0) return null;
 
   return (
