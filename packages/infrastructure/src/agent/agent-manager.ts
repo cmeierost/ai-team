@@ -11,7 +11,13 @@ import {
   RankedAgentResult,
 } from '@ai-team/core';
 import { rankAgentsByIdentity, filterAndRankAgents } from './agent-search.js';
-import { ensureAiTeamDirectory, saveAgent, findAgentFiles, loadAgent } from './storage.js';
+import {
+  ensureAiTeamDirectory,
+  saveAgent,
+  findAgentFiles,
+  loadAgent,
+  loadAgentAccessPatterns,
+} from './storage.js';
 import { levenshtein } from '../utils/str.js';
 
 export class AgentManager implements IAgentManager {
@@ -250,6 +256,15 @@ export class AgentManager implements IAgentManager {
     for (const filePath of agentFiles) {
       try {
         const agent = await loadAgent(filePath);
+
+        // Merge fallback permissions from the .perm file alongside any YAML-specified permissions
+        const accessPatterns = await loadAgentAccessPatterns(this.workspaceRoot, agent.id);
+        agent.permissions = {
+          list: [...new Set([...(agent.permissions?.list ?? []), ...accessPatterns.list])],
+          read: [...new Set([...(agent.permissions?.read ?? []), ...accessPatterns.read])],
+          write: [...new Set([...(agent.permissions?.write ?? []), ...accessPatterns.write])],
+        };
+
         if (agents.has(agent.id)) {
           console.error(
             `Duplicate agent id "${agent.id}" detected at ${filePath}. Skipping duplicate.`

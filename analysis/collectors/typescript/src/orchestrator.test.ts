@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import type { Entity, ToolRun } from '@aspect/contracts';
+import type { Entity } from '@aspect/contracts';
 
 // ── Mock modules (hoisted before imports) ───────────────────────────────────
 
@@ -61,7 +61,7 @@ const CLASSIFICATION = {
   isConcrete: true,
   isTypeOnly: false,
   isExported: false,
-  visibility: null as const,
+  visibility: null,
 };
 
 function makeEntity(id: string, filePath: string, name: string): Entity {
@@ -73,6 +73,9 @@ function makeEntity(id: string, filePath: string, name: string): Entity {
     sourceRange: RANGE,
     classification: CLASSIFICATION,
     nameTokens: [name.replace('.ts', '')],
+    childEntityIds: [],
+    entityDepth: 0,
+    hierarchyKind: 'root',
   };
 }
 
@@ -80,22 +83,22 @@ const entity1 = makeEntity('file:src/foo.ts', 'src/foo.ts', 'foo.ts');
 const entity2 = makeEntity('file:src/bar.ts', 'src/bar.ts', 'bar.ts');
 const entity3 = makeEntity('file:src/baz.ts', 'src/baz.ts', 'baz.ts');
 
-function makeAstToolRun(): ToolRun {
+function makeAstToolRun() {
   return {
-    tool: 'typescript-ast',
+    tool: 'typescript-ast' as const,
     version: '5.0.0',
-    aspect: 'entityExtraction',
+    aspect: 'entityExtraction' as const,
     exitCode: 0,
     duration: 50,
     warnings: [],
   };
 }
 
-function makeDepCruiserToolRun(): ToolRun {
+function makeDepCruiserToolRun() {
   return {
-    tool: 'dependency-cruiser',
+    tool: 'dependency-cruiser' as const,
     version: '16.0.0',
-    aspect: 'dependencyGraph',
+    aspect: 'dependencyGraph' as const,
     exitCode: 0,
     duration: 100,
     warnings: [],
@@ -126,7 +129,7 @@ function makeEslintToolRun() {
 
 function makeCoverageToolRun() {
   return {
-    tool: 'lcov',
+    tool: 'lcov' as const,
     version: '1.0',
     aspect: 'coverage' as const,
     exitCode: 0,
@@ -154,7 +157,7 @@ function makeDepCruiserEntity(id: string, filePath: string, name: string) {
 function makeDepCruiserRelationship(
   source: string,
   target: string,
-  opts?: { crossModule?: boolean },
+  opts?: { crossModule?: boolean }
 ) {
   return {
     sourceEntityId: source,
@@ -191,9 +194,7 @@ function setupDefaultMocks() {
       makeDepCruiserEntity('file:src/foo.ts', 'src/foo.ts', 'foo.ts'),
       makeDepCruiserEntity('file:src/baz.ts', 'src/baz.ts', 'baz.ts'),
     ],
-    relationships: [
-      makeDepCruiserRelationship('file:src/foo.ts', 'file:src/bar.ts'),
-    ],
+    relationships: [makeDepCruiserRelationship('file:src/foo.ts', 'file:src/bar.ts')],
     toolRun: makeDepCruiserToolRun(),
   });
 
@@ -311,10 +312,7 @@ describe('resolveAspects', () => {
   });
 
   it('applies both include and exclude', () => {
-    const aspects = resolveAspects(
-      ['entityExtraction', 'lint', 'coverage'],
-      ['lint'],
-    );
+    const aspects = resolveAspects(['entityExtraction', 'lint', 'coverage'], ['lint']);
     expect(aspects.size).toBe(2);
     expect(aspects.has('entityExtraction')).toBe(true);
     expect(aspects.has('coverage')).toBe(true);
@@ -327,19 +325,12 @@ describe('mergeEntities', () => {
     const existing = [entity1];
     mergeEntities(existing, [entity2, entity3]);
     expect(existing).toHaveLength(3);
-    expect(existing.map((e) => e.id)).toEqual([
-      entity1.id,
-      entity2.id,
-      entity3.id,
-    ]);
+    expect(existing.map((e) => e.id)).toEqual([entity1.id, entity2.id, entity3.id]);
   });
 
   it('skips duplicate entities by ID, keeping the earlier one', () => {
     const existing = [entity1];
-    const incoming = [
-      makeEntity('file:src/foo.ts', 'src/foo.ts', 'foo-modified.ts'),
-      entity2,
-    ];
+    const incoming = [makeEntity('file:src/foo.ts', 'src/foo.ts', 'foo-modified.ts'), entity2];
     mergeEntities(existing, incoming);
     expect(existing).toHaveLength(2);
     // The original entity1 is kept, not the modified incoming one
@@ -363,17 +354,11 @@ describe('mergeEntities', () => {
 describe('buildModuleBoundaries', () => {
   it('assigns files to correct module boundaries', () => {
     const entities = [entity1, entity2, entity3];
-    const definitions = [
-      { moduleId: 'mod-a', modulePath: 'src' },
-    ];
+    const definitions = [{ moduleId: 'mod-a', modulePath: 'src' }];
     const boundaries = buildModuleBoundaries(definitions, entities);
     expect(boundaries).toHaveLength(1);
     expect(boundaries[0].moduleId).toBe('mod-a');
-    expect(boundaries[0].files).toEqual([
-      'src/foo.ts',
-      'src/bar.ts',
-      'src/baz.ts',
-    ]);
+    expect(boundaries[0].files).toEqual(['src/foo.ts', 'src/bar.ts', 'src/baz.ts']);
     expect(boundaries[0].declaredLayer).toBeNull();
     expect(boundaries[0].isPackage).toBe(false);
   });
@@ -411,11 +396,7 @@ describe('discoverFiles', () => {
   });
 
   it('discovers files in srcDirs with default extensions', async () => {
-    (mockReaddir as any).mockResolvedValue([
-      'index.ts',
-      'util.tsx',
-      'readme.md',
-    ]);
+    (mockReaddir as any).mockResolvedValue(['index.ts', 'util.tsx', 'readme.md']);
     const result = await discoverFiles({ rootDir: '/project' });
     expect(result).toEqual(['src/index.ts', 'src/util.tsx']);
   });
@@ -441,9 +422,7 @@ describe('discoverFiles', () => {
   });
 
   it('returns empty array when directory does not exist', async () => {
-    (mockReaddir as any).mockRejectedValue(
-      new Error('ENOENT: no such file or directory'),
-    );
+    (mockReaddir as any).mockRejectedValue(new Error('ENOENT: no such file or directory'));
     const result = await discoverFiles({ rootDir: '/project' });
     expect(result).toEqual([]);
   });
@@ -486,14 +465,10 @@ describe('collect', () => {
 
     // Relationships from dep-cruiser
     expect(result.data.relationships).toHaveLength(1);
-    expect(result.data.relationships[0].sourceEntityId).toBe(
-      'file:src/foo.ts',
-    );
+    expect(result.data.relationships[0].sourceEntityId).toBe('file:src/foo.ts');
 
     // Dep-cruiser entities get a default sourceRange when null
-    const bazEntity = result.data.entities.find(
-      (e) => e.id === 'file:src/baz.ts',
-    );
+    const bazEntity = result.data.entities.find((e) => e.id === 'file:src/baz.ts');
     expect(bazEntity!.sourceRange).toEqual({
       startLine: 0,
       startColumn: 0,
@@ -575,7 +550,7 @@ describe('collect', () => {
     mockAstVisitor.mockRejectedValue(new Error('TS crash'));
     (mockDepCruiser as any).mockRejectedValue(new Error('cruise failed'));
 
-    await collect({
+    const result = await collect({
       ...baseOptions,
       includeAspects: ['entityExtraction', 'dependencyGraph'],
     });
@@ -665,7 +640,7 @@ describe('collect', () => {
         srcDirs: ['lib'],
         cruiseOptions: { tsPreCompilationDeps: true },
         moduleBoundaries: [{ moduleId: 'core', modulePath: 'lib/core' }],
-      }),
+      })
     );
 
     expect(mockJscpd).toHaveBeenCalledWith(
@@ -673,7 +648,7 @@ describe('collect', () => {
         rootDir: '/project',
         minTokens: 100,
         minLines: 10,
-      }),
+      })
     );
 
     expect(mockEslint).toHaveBeenCalledWith(
@@ -681,7 +656,7 @@ describe('collect', () => {
         rootDir: '/project',
         configPath: '.eslintrc.json',
         extraArgs: ['--fix'],
-      }),
+      })
     );
 
     expect(mockCoverage).toHaveBeenCalledWith({
@@ -743,9 +718,7 @@ describe('collect', () => {
 
     // Failures are warnings
     expect(result.warnings).toHaveLength(2);
-    expect(result.warnings.some((w) => w.includes('dep-cruise boom'))).toBe(
-      true,
-    );
+    expect(result.warnings.some((w) => w.includes('dep-cruise boom'))).toBe(true);
     expect(result.warnings.some((w) => w.includes('jscpd boom'))).toBe(true);
   });
 });

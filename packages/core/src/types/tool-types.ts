@@ -7,6 +7,28 @@ import type { z } from 'zod';
 export interface ToolContext {
   agentId: string;
   workspaceRoot: string;
+  /** Optional user-question bridges provided by the active runtime surface (web/CLI). */
+  questionInput?: (request: { message: string }) => Promise<string>;
+  questionConfirm?: (request: { message: string; default?: boolean }) => Promise<boolean>;
+  questionSelect?: (request: {
+    message: string;
+    choices: Array<{ name: string; value: string; description?: string; recommended?: boolean }>;
+    default?: string;
+    allowOther?: boolean;
+    otherLabel?: string;
+    otherPrompt?: string;
+  }) => Promise<string>;
+  questionPassword?: (request: { message: string; mask?: string }) => Promise<string>;
+  questionChecklist?: (request: {
+    message: string;
+    choices: Array<{ name: string; value: string; description?: string; recommended?: boolean }>;
+    default?: string[];
+    minSelections?: number;
+    maxSelections?: number;
+    allowOther?: boolean;
+    otherLabel?: string;
+    otherPrompt?: string;
+  }) => Promise<string[]>;
   /** LSP code-intelligence provider (injected by ToolManager when available). */
   lsp?: {
     execute(operation: string, params: unknown): Promise<unknown>;

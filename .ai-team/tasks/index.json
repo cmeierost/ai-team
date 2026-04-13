@@ -12,7 +12,6 @@
         "subtaskIds": [
             "DOC-20260412-A001",
             "FEAT-20260412-A002",
-            "BUG-20260412-A001",
             "FEAT-20260412-A003",
             "FEAT-20260412-A004",
             "FEAT-20260412-A005"
@@ -75,31 +74,6 @@
         ],
         "metadata": {
             "immediateAfterDocs": true
-        },
-        "createdAt": "2026-04-12T12:00:00.000Z",
-        "updatedAt": "2026-04-12T12:00:00.000Z"
-    },
-    {
-        "id": "BUG-20260412-A001",
-        "type": "bug",
-        "title": "Restore stable web chat behavior after architecture cleanup",
-        "description": "Get browser chat back to a pushable state after the mediator / notifier cleanup.",
-        "createdBy": "human",
-        "createdByType": "human",
-        "parentTaskId": "FEAT-20260412-A001",
-        "status": "not_started",
-        "priority": "urgent",
-        "requiresApproval": false,
-        "estimatedHours": 8,
-        "tags": [
-            "bug",
-            "web",
-            "websocket",
-            "chat"
-        ],
-        "metadata": {
-            "pushBlocker": true,
-            "dependsOn": "FEAT-20260412-A002"
         },
         "createdAt": "2026-04-12T12:00:00.000Z",
         "updatedAt": "2026-04-12T12:00:00.000Z"

@@ -159,6 +159,8 @@ The shared chat behavior lives in `@ai-team/service`, not in the adapters.
 
 That shared service-level orchestration keeps CLI and remote chat behavior aligned.
 
+`com_ask` is now a first-class orchestration tool in this shared runtime path. Question bridges (input/confirm/select/password/checklist) are injected at dispatch time so web and CLI surfaces can render native prompts while the orchestrator remains transport-agnostic.
+
 The active architecture transition is about separating:
 
 - business-facing **service interfaces**

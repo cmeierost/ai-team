@@ -27,6 +27,24 @@ const MAX_VISIBLE = 7;
 
 type CommandEntry = (typeof IN_CHAT_COMMAND_REGISTRY)[number];
 
+function measureInputRows(promptText: string, buf: string): number {
+  const columns = Math.max(1, output.columns ?? 80);
+  const textLen = Math.max(1, promptText.length + 1 + buf.length);
+  return Math.max(1, Math.ceil(textLen / columns));
+}
+
+function resolveCursorPosition(
+  promptText: string,
+  buf: string
+): { rowOffset: number; column: number } {
+  const columns = Math.max(1, output.columns ?? 80);
+  const absoluteCol = promptText.length + 1 + buf.length;
+  return {
+    rowOffset: Math.floor(absoluteCol / columns),
+    column: absoluteCol % columns,
+  };
+}
+
 function getSuggestions(buf: string): CommandEntry[] {
   if (!buf.startsWith('/')) return [];
   const fragment = buf.slice(1).toLowerCase();
@@ -44,11 +62,17 @@ function renderAll(
   promptText: string,
   buf: string,
   suggs: CommandEntry[],
-  selectedIdx: number
+  selectedIdx: number,
+  previousInputRows: number
 ): number {
+  if (previousInputRows > 1) {
+    moveCursor(output, 0, -(previousInputRows - 1));
+  }
   cursorTo(output, 0);
   clearScreenDown(output);
   output.write(`${promptText} ${buf}`);
+
+  const inputRows = measureInputRows(promptText, buf);
 
   // Compute a scroll window so the selected item is always visible.
   const clampedIdx = Math.max(0, selectedIdx);
@@ -85,9 +109,14 @@ function renderAll(
   if (rows > 0) {
     moveCursor(output, 0, -rows);
   }
-  cursorTo(output, promptText.length + 1 + buf.length);
 
-  return rows;
+  const cursor = resolveCursorPosition(promptText, buf);
+  if (cursor.rowOffset > 0) {
+    moveCursor(output, 0, cursor.rowOffset);
+  }
+  cursorTo(output, cursor.column);
+
+  return inputRows;
 }
 
 /**
@@ -115,11 +144,12 @@ export async function askWithSlashSuggestions(
     let buffer = '';
     let selectedIdx = -1;
     let dismissed = false;
+    let currentInputRows = 1;
 
     const rerender = () => {
       const suggs = dismissed ? [] : getSuggestions(buffer);
       selectedIdx = suggs.length === 0 ? -1 : Math.min(selectedIdx, suggs.length - 1);
-      renderAll(promptText, buffer, suggs, selectedIdx);
+      currentInputRows = renderAll(promptText, buffer, suggs, selectedIdx, currentInputRows);
     };
 
     const applySelection = (): boolean => {
@@ -136,6 +166,9 @@ export async function askWithSlashSuggestions(
     };
 
     const finish = (value: string) => {
+      if (currentInputRows > 1) {
+        moveCursor(output, 0, -(currentInputRows - 1));
+      }
       cursorTo(output, 0);
       clearScreenDown(output);
       output.write(`${promptText} ${value}\n`);
@@ -144,6 +177,9 @@ export async function askWithSlashSuggestions(
     };
 
     const abort = () => {
+      if (currentInputRows > 1) {
+        moveCursor(output, 0, -(currentInputRows - 1));
+      }
       cursorTo(output, 0);
       clearScreenDown(output);
       output.write('\n');
@@ -190,7 +226,7 @@ export async function askWithSlashSuggestions(
         if (suggs.length > 0) {
           dismissed = false;
           selectedIdx = selectedIdx <= 0 ? suggs.length - 1 : selectedIdx - 1;
-          renderAll(promptText, buffer, suggs, selectedIdx);
+          currentInputRows = renderAll(promptText, buffer, suggs, selectedIdx, currentInputRows);
         }
         return;
       }
@@ -201,7 +237,7 @@ export async function askWithSlashSuggestions(
         if (suggs.length > 0) {
           dismissed = false;
           selectedIdx = selectedIdx >= suggs.length - 1 ? 0 : selectedIdx + 1;
-          renderAll(promptText, buffer, suggs, selectedIdx);
+          currentInputRows = renderAll(promptText, buffer, suggs, selectedIdx, currentInputRows);
         }
         return;
       }

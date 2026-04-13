@@ -40,6 +40,7 @@ export interface ChatMessage {
 }
 
 export interface ToolCall {
+  id?: number;
   tool: string;
   params: Record<string, unknown>;
   result?: unknown;

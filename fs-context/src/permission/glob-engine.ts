@@ -1,7 +1,7 @@
 import { minimatch } from 'minimatch';
 import type { PatternToken } from './types.js';
 
-const MINIMATCH_OPTS = { dot: true } as const;
+const MINIMATCH_OPTS = { dot: true, nocase: process.platform === 'win32' } as const;
 
 const matcherCache = new Map<string, (path: string) => boolean>();
 
@@ -41,7 +41,7 @@ export function applyOrderedTokens(
   start: Set<string>,
   tokens: PatternToken[],
   globalFiles: Set<string>,
-  filesystemFiles?: Set<string>,
+  filesystemFiles?: Set<string>
 ): Set<string> {
   const running = new Set(start);
 
@@ -83,10 +83,7 @@ export function collectDenyPatterns(tokens: PatternToken[]): string[] {
   return patterns;
 }
 
-export function removeMatchingPatterns(
-  files: Set<string>,
-  denyPatterns: string[],
-): Set<string> {
+export function removeMatchingPatterns(files: Set<string>, denyPatterns: string[]): Set<string> {
   if (denyPatterns.length === 0) return files;
   const result = new Set(files);
   for (const pattern of denyPatterns) {

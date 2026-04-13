@@ -351,11 +351,22 @@ const execResult = await ctx.toolManager.execute(
   ctx.agent,
   toolName,
   args,
-  { workspaceRoot: ctx.workspaceRoot, currentFiles: contextFiles },
+  {
+    workspaceRoot: ctx.workspaceRoot,
+    currentFiles: contextFiles,
+    questionInput: ctx.hooks.questionInput,
+    questionConfirm: ctx.hooks.questionConfirm,
+    questionSelect: ctx.hooks.questionSelect,
+    questionPassword: ctx.hooks.questionPassword,
+    questionChecklist: ctx.hooks.questionChecklist,
+  },
+  { timeoutMs: toolName === 'com_ask' ? 15 * 60 * 1000 : undefined },
 );
 
 emitToolEvent(ctx.hooks, toolName, execResult.ok ? 'result' : 'error', ...);
 ```
+
+`com_ask` is a first-class orchestration tool (`group: com`, `name: ask`) and is handled like other tool calls. It is intentionally confirmation-silent and receives a longer timeout because it can wait on human input.
 
 ### 8) Runtime event helper usage
 

@@ -22,13 +22,76 @@ function makeContext(overrides?: Partial<OrchestratorContext>): OrchestratorCont
     agentManager: {} as any,
     skillManager: {} as any,
     llmService: {} as any,
-    contextManager: {} as any,
   };
 
   return { ...base, ...overrides };
 }
 
 describe('dispatchToolCall denial metadata', () => {
+  it('uses extended timeout for com_ask interactive tool calls', async () => {
+    const execute = vi.fn(async () => ({ ok: true, result: { ok: true } }));
+    const toolManager = {
+      get: vi.fn(() => undefined),
+      execute,
+    } as any;
+
+    const ctx = makeContext({ toolManager });
+
+    await dispatchToolCall(
+      {
+        toolCallId: 'tc-ask-timeout',
+        toolName: 'com_ask',
+        args: { kind: 'input', message: 'Question?' },
+      },
+      ctx
+    );
+
+    const executionOptions = (execute.mock.calls[0] as any[])?.[4] as
+      | { timeoutMs?: number }
+      | undefined;
+    expect(executionOptions?.timeoutMs).toBe(15 * 60 * 1000);
+  });
+
+  it('forwards runtime question bridges to tool execution context', async () => {
+    const execute = vi.fn(async () => ({ ok: true, result: { ok: true } }));
+    const toolManager = {
+      get: vi.fn(() => undefined),
+      execute,
+    } as any;
+
+    const ctx = makeContext({
+      toolManager,
+      hooks: {
+        emit: vi.fn(),
+        questionInput: vi.fn(async () => 'x'),
+        questionConfirm: vi.fn(async () => true),
+        questionSelect: vi.fn(async () => 'a'),
+        questionPassword: vi.fn(async () => 'secret'),
+        questionChecklist: vi.fn(async () => ['a']),
+      },
+    });
+
+    await dispatchToolCall(
+      {
+        toolCallId: 'tc-bridges',
+        toolName: 'tool_list',
+        args: {},
+      },
+      ctx
+    );
+
+    const executionContext = (execute.mock.calls[0] as any[])?.[3];
+    expect(executionContext).toEqual(
+      expect.objectContaining({
+        questionInput: expect.any(Function),
+        questionConfirm: expect.any(Function),
+        questionSelect: expect.any(Function),
+        questionPassword: expect.any(Function),
+        questionChecklist: expect.any(Function),
+      })
+    );
+  });
+
   it('emits tool result event with a preview of successful output', async () => {
     const toolManager = {
       get: vi.fn(() => undefined),
@@ -49,7 +112,7 @@ describe('dispatchToolCall denial metadata', () => {
         toolName: 'tool_list',
         args: {},
       },
-      ctx,
+      ctx
     );
 
     const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
@@ -63,7 +126,7 @@ describe('dispatchToolCall denial metadata', () => {
           toolName: 'tool_list',
           outcome: 'result',
         }),
-      }),
+      })
     );
   });
 
@@ -82,13 +145,16 @@ describe('dispatchToolCall denial metadata', () => {
         toolName: 'tool_list',
         args: {},
       },
-      ctx,
+      ctx
     );
 
     const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const resultEvent = emit.mock.calls
-      .map(call => call[0])
-      .find(event => event?.kind === 'tool' && event?.toolPhase === 'result' && event?.toolName === 'tool_list');
+      .map((call) => call[0])
+      .find(
+        (event) =>
+          event?.kind === 'tool' && event?.toolPhase === 'result' && event?.toolName === 'tool_list'
+      );
 
     expect(typeof resultEvent?.message).toBe('string');
     expect(resultEvent?.message.length).toBeLessThanOrEqual(220);
@@ -98,7 +164,10 @@ describe('dispatchToolCall denial metadata', () => {
   it('does not truncate JSON tool result previews', async () => {
     const payload = {
       type: 'tool_list_result',
-      entries: Array.from({ length: 40 }, (_, idx) => ({ name: `tool_${idx + 1}`, description: 'x'.repeat(24) })),
+      entries: Array.from({ length: 40 }, (_, idx) => ({
+        name: `tool_${idx + 1}`,
+        description: 'x'.repeat(24),
+      })),
     };
 
     const toolManager = {
@@ -114,13 +183,16 @@ describe('dispatchToolCall denial metadata', () => {
         toolName: 'tool_list',
         args: {},
       },
-      ctx,
+      ctx
     );
 
     const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const resultEvent = emit.mock.calls
-      .map(call => call[0])
-      .find(event => event?.kind === 'tool' && event?.toolPhase === 'result' && event?.toolName === 'tool_list');
+      .map((call) => call[0])
+      .find(
+        (event) =>
+          event?.kind === 'tool' && event?.toolPhase === 'result' && event?.toolName === 'tool_list'
+      );
 
     expect(resultEvent?.message).toBe(JSON.stringify(payload, null, 2));
     expect((resultEvent?.message as string).length).toBeGreaterThan(220);
@@ -146,7 +218,7 @@ describe('dispatchToolCall denial metadata', () => {
         toolName: 'fs_write_file',
         args: { filePath: 'a.ts', content: 'x' },
       },
-      ctx,
+      ctx
     );
 
     expect(toolManager.execute).not.toHaveBeenCalled();
@@ -165,7 +237,7 @@ describe('dispatchToolCall denial metadata', () => {
           kind: 'user-denied',
           reasonCode: 'user_declined',
         }),
-      }),
+      })
     );
   });
 
@@ -180,9 +252,7 @@ describe('dispatchToolCall denial metadata', () => {
           blockedFiles: [{ filePath: 'src/secret.ts', reason: 'scope mismatch' }],
           access: {
             allowed: false,
-            alternativeContexts: [
-              { contextId: 'agent-infra', allowedPaths: ['src/secret.ts'] },
-            ],
+            alternativeContexts: [{ contextId: 'agent-infra', allowedPaths: ['src/secret.ts'] }],
           },
         },
       })),
@@ -196,7 +266,7 @@ describe('dispatchToolCall denial metadata', () => {
         toolName: 'fs_read',
         args: { filePath: 'src/secret.ts' },
       },
-      ctx,
+      ctx
     );
 
     expect(result.isError).toBe(false);
@@ -221,7 +291,7 @@ describe('dispatchToolCall denial metadata', () => {
           reasonCode: 'permission_denied',
           blockedPaths: ['src/secret.ts'],
         }),
-      }),
+      })
     );
   });
 
@@ -239,7 +309,7 @@ describe('dispatchToolCall denial metadata', () => {
         toolName: 'fs_read',
         args: { filePath: 'src/a.ts' },
       },
-      ctx,
+      ctx
     );
 
     expect(result.isError).toBe(true);
@@ -275,7 +345,7 @@ describe('dispatchToolCall denial metadata', () => {
         toolName: 'tool_list',
         args: {},
       },
-      ctx,
+      ctx
     );
 
     const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
@@ -318,7 +388,7 @@ describe('dispatchToolCall denial metadata', () => {
         toolName: 'tool_list',
         args: {},
       },
-      ctx,
+      ctx
     );
 
     const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
@@ -357,7 +427,7 @@ describe('dispatchToolCall denial metadata', () => {
         toolName: 'tool_list',
         args: {},
       },
-      ctx,
+      ctx
     );
 
     expect(rawChat).toHaveBeenCalledTimes(1);
@@ -385,10 +455,7 @@ describe('code_edit_proposal emission', () => {
 
     const ctx = makeContext({ toolManager });
 
-    await dispatchToolCall(
-      { toolCallId: 'tc-diff-1', toolName: 'fs_edit', args: {} },
-      ctx,
-    );
+    await dispatchToolCall({ toolCallId: 'tc-diff-1', toolName: 'fs_edit', args: {} }, ctx);
 
     const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const events = emit.mock.calls.map((c: any[]) => c[0]);
@@ -420,10 +487,7 @@ describe('code_edit_proposal emission', () => {
 
     const ctx = makeContext({ toolManager });
 
-    await dispatchToolCall(
-      { toolCallId: 'tc-diff-multi', toolName: 'multiedit', args: {} },
-      ctx,
-    );
+    await dispatchToolCall({ toolCallId: 'tc-diff-multi', toolName: 'multiedit', args: {} }, ctx);
 
     const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const events = emit.mock.calls.map((c: any[]) => c[0]);
@@ -445,10 +509,7 @@ describe('code_edit_proposal emission', () => {
 
     const ctx = makeContext({ toolManager });
 
-    await dispatchToolCall(
-      { toolCallId: 'tc-no-diff', toolName: 'fs_edit', args: {} },
-      ctx,
-    );
+    await dispatchToolCall({ toolCallId: 'tc-no-diff', toolName: 'fs_edit', args: {} }, ctx);
 
     const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const events = emit.mock.calls.map((c: any[]) => c[0]);
@@ -468,10 +529,7 @@ describe('code_edit_proposal emission', () => {
 
     const ctx = makeContext({ toolManager });
 
-    await dispatchToolCall(
-      { toolCallId: 'tc-empty-diff', toolName: 'fs_edit', args: {} },
-      ctx,
-    );
+    await dispatchToolCall({ toolCallId: 'tc-empty-diff', toolName: 'fs_edit', args: {} }, ctx);
 
     const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const events = emit.mock.calls.map((c: any[]) => c[0]);
@@ -488,9 +546,7 @@ describe('code_edit_proposal emission', () => {
         result: {
           edited: true,
           summary: 'replaced text',
-          _fileChanges: [
-            { filePath: '/ws/c.ts', oldContent: 'old', newContent: 'new' },
-          ],
+          _fileChanges: [{ filePath: '/ws/c.ts', oldContent: 'old', newContent: 'new' }],
         },
       })),
     } as any;
@@ -499,7 +555,7 @@ describe('code_edit_proposal emission', () => {
 
     const response = await dispatchToolCall(
       { toolCallId: 'tc-strip', toolName: 'fs_edit', args: {} },
-      ctx,
+      ctx
     );
 
     expect(response.result).not.toHaveProperty('_fileChanges');
@@ -514,9 +570,7 @@ describe('code_edit_proposal emission', () => {
         ok: true,
         result: {
           edited: true,
-          _fileChanges: [
-            { filePath: '/ws/d.ts', oldContent: 'old', newContent: 'new' },
-          ],
+          _fileChanges: [{ filePath: '/ws/d.ts', oldContent: 'old', newContent: 'new' }],
         },
       })),
     } as any;
@@ -535,10 +589,7 @@ describe('code_edit_proposal emission', () => {
       ],
     });
 
-    await dispatchToolCall(
-      { toolCallId: 'tc-hist', toolName: 'fs_edit', args: {} },
-      ctx,
-    );
+    await dispatchToolCall({ toolCallId: 'tc-hist', toolName: 'fs_edit', args: {} }, ctx);
 
     const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
     const persisted = (firstCall[1]?.content ?? '') as string;
@@ -553,10 +604,7 @@ describe('code_edit_proposal emission', () => {
 
     const ctx = makeContext({ toolManager });
 
-    await dispatchToolCall(
-      { toolCallId: 'tc-fail', toolName: 'fs_edit', args: {} },
-      ctx,
-    );
+    await dispatchToolCall({ toolCallId: 'tc-fail', toolName: 'fs_edit', args: {} }, ctx);
 
     const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const events = emit.mock.calls.map((c: any[]) => c[0]);

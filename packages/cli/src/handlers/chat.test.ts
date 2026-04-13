@@ -228,6 +228,55 @@ describe('chat command', () => {
     );
   });
 
+  it('suppresses raw [tool:com_ask] token JSON when tool event renders successfully', async () => {
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'agent_info',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          agentId: 'michael-brown',
+          agentName: 'Michael Brown',
+          agentRole: 'ceo',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: '[tool:com_ask]\n{ "kind": "select", "message": "Pick one" }',
+        };
+        yield {
+          kind: 'tool',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          toolName: 'com_ask',
+          toolPhase: 'result',
+          toolResult: {
+            toolName: 'com_ask',
+            outcome: 'result',
+            result: {
+              request: { questionType: 'select' },
+              response: { questionType: 'select', answer: 'emily-davis' },
+            },
+          },
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await renderChat(client, 'michael-brown', { message: 'ask me', oneShot: true });
+
+    expect(stdoutSpy).not.toHaveBeenCalledWith(expect.stringContaining('[tool:com_ask]'));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('com_ask'));
+  });
+
   it('prints assistant reply header as Agent (role) → Developer before streamed tokens', async () => {
     process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
     clientApi.streamInteraction.mockReturnValue(

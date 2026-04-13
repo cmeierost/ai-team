@@ -459,7 +459,7 @@ export class LlmService {
           }
         }
 
-        const toolCalls = [...toolCallMap.entries()]
+        let toolCalls = [...toolCallMap.entries()]
           .sort((a, b) => a[0] - b[0])
           .map(([, value]) => ({
             id: value.id || randomUUID(),
@@ -470,6 +470,24 @@ export class LlmService {
             },
           }))
           .filter((toolCall) => toolCall.function.name.trim().length > 0);
+
+        if (toolCalls.length === 0) {
+          const fallbackCalls = parseBracketToolCalls(
+            assistantText,
+            new Set(tools.map((tool) => tool.name))
+          );
+
+          if (fallbackCalls.length > 0) {
+            toolCalls = fallbackCalls.map((fallback) => ({
+              id: fallback.toolCallId,
+              type: 'function' as const,
+              function: {
+                name: fallback.toolName,
+                arguments: JSON.stringify(fallback.args ?? {}),
+              },
+            }));
+          }
+        }
 
         if (toolCalls.length === 0) {
           const text = assistantText.trim();
@@ -1484,6 +1502,44 @@ interface SerializedError {
 
 function safeJsonClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value ?? null)) as T;
+}
+
+export function parseBracketToolCalls(
+  assistantText: string,
+  knownToolNames: Set<string>
+): LlmToolCall[] {
+  const calls: LlmToolCall[] = [];
+  const re = /\[tool:([a-zA-Z0-9_]+)\]\s*([\s\S]*?)(?=\n\s*\[tool:[a-zA-Z0-9_]+\]|$)/g;
+
+  for (const match of assistantText.matchAll(re)) {
+    const toolName = (match[1] ?? '').trim();
+    if (!toolName || !knownToolNames.has(toolName)) {
+      continue;
+    }
+
+    const rawPayload = (match[2] ?? '').trim();
+    const normalizedPayload = rawPayload
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+
+    let args: unknown = {};
+    if (normalizedPayload) {
+      try {
+        args = JSON.parse(normalizedPayload);
+      } catch {
+        continue;
+      }
+    }
+
+    calls.push({
+      toolCallId: randomUUID(),
+      toolName,
+      args,
+    });
+  }
+
+  return calls;
 }
 
 function serializeError(error: unknown): SerializedError {

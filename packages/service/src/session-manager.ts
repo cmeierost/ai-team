@@ -42,14 +42,18 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = await resolveAgentForOperationAsync(this.agentManager, agentQuery, 'create session');
+      const resolved = await resolveAgentForOperationAsync(
+        this.agentManager,
+        agentQuery,
+        'create session'
+      );
       agentId = resolved.id;
     }
 
     const now = new Date().toISOString();
     const session = await this.storage.createSession({
-      agentIds: [agentId],  // Primary field - array for multi-agent support
-      agentId,  // Backward compatibility
+      agentIds: [agentId], // Primary field - array for multi-agent support
+      agentId, // Backward compatibility
       developerId,
       startedAt: now,
       lastActivityAt: now,
@@ -78,21 +82,26 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let toAgentId = toAgentQuery;
     if (this.agentManager) {
-      const resolved = await resolveAgentForOperationAsync(this.agentManager, toAgentQuery, 'create handoff session');
+      const resolved = await resolveAgentForOperationAsync(
+        this.agentManager,
+        toAgentQuery,
+        'create handoff session'
+      );
       toAgentId = resolved.id;
     }
 
     const previousSession = await this.getSession(previousSessionId);
-    
+
     const now = new Date().toISOString();
     const newSession = await this.storage.createSession({
-      agentIds: [toAgentId],  // Primary field - array for multi-agent support
-      agentId: toAgentId,  // Backward compatibility
+      agentIds: [toAgentId], // Primary field - array for multi-agent support
+      agentId: toAgentId, // Backward compatibility
       developerId,
       startedAt: now,
       lastActivityAt: now,
       artifacts: transferArtifacts && previousSession ? [...previousSession.artifacts] : [],
-      allowedFiles: transferAllowedFiles && previousSession ? [...previousSession.allowedFiles] : [],
+      allowedFiles:
+        transferAllowedFiles && previousSession ? [...previousSession.allowedFiles] : [],
       previousSessionId,
     });
 
@@ -113,10 +122,10 @@ export class SessionManager {
   async resolveHandoffSession(
     targetAgentId: string,
     currentSessionId: string,
-    developerId: string,
+    developerId: string
   ): Promise<{ session: ChatSession; isNew: boolean }> {
     const chain = await this.getSessionChain(currentSessionId);
-    const existing = chain.find(s => {
+    const existing = chain.find((s) => {
       const ids: string[] = (s as any).agentIds ?? (s.agentId ? [(s as any).agentId] : []);
       return ids.includes(targetAgentId);
     });
@@ -135,7 +144,11 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = await resolveAgentForOperationAsync(this.agentManager, agentQuery, 'get latest session');
+      const resolved = await resolveAgentForOperationAsync(
+        this.agentManager,
+        agentQuery,
+        'get latest session'
+      );
       agentId = resolved.id;
     }
 
@@ -180,7 +193,11 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = await resolveAgentForOperationAsync(this.agentManager, agentQuery, 'list sessions');
+      const resolved = await resolveAgentForOperationAsync(
+        this.agentManager,
+        agentQuery,
+        'list sessions'
+      );
       agentId = resolved.id;
     }
 
@@ -406,11 +423,11 @@ ${summary}
   async getOrCreateLatestSession(agentId: string, developerId: string): Promise<ChatSession> {
     // Try to get latest session first
     const latest = await this.getLatestSession(agentId);
-    
+
     if (latest && latest.developerId === developerId) {
       return latest;
     }
-    
+
     // No session exists or developer mismatch - create new one
     return await this.createSession(agentId, developerId);
   }
@@ -424,28 +441,28 @@ ${summary}
    */
   async generateTitle(sessionId: string, llmService: any): Promise<string> {
     const messages = await this.getSessionMessages(sessionId);
-    
+
     // Get first 2 human and 2 agent messages for context
-    const humanMessages = messages.filter(m => m.isHuman).slice(0, 2);
-    const agentMessages = messages.filter(m => !m.isHuman).slice(0, 2);
+    const humanMessages = messages.filter((m) => m.isHuman).slice(0, 2);
+    const agentMessages = messages.filter((m) => !m.isHuman).slice(0, 2);
     const contextMessages = [...humanMessages, ...agentMessages]
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       .slice(0, 4);
-    
+
     if (contextMessages.length === 0) {
       return 'New Conversation';
     }
-    
+
     // Use LLM to generate title
     const title = await llmService.generateTitle(contextMessages);
-    
+
     // Update session with title
     const session = await this.getSession(sessionId);
     if (session) {
       session.title = title;
       await this.saveSession(session);
     }
-    
+
     return title;
   }
 
@@ -456,17 +473,17 @@ ${summary}
    */
   async addAgentToSession(sessionId: string, agentId: string): Promise<ChatSession> {
     await this.storage.addSessionAgent(sessionId, agentId);
-    
+
     // Update lastActivityAt
     await this.storage.updateSession(sessionId, {
       lastActivityAt: new Date().toISOString(),
     });
-    
+
     const session = await this.getSession(sessionId);
     if (!session) {
       throw new Error(`Session ${sessionId} not found`);
     }
-    
+
     return session;
   }
 
@@ -475,56 +492,56 @@ ${summary}
    * @param olderSessionId - Target session (will receive all messages)
    * @param newerSessionId - Source session (will be deleted)
    */
-  async mergeSessionsIntoOlder(olderSessionId: string, newerSessionId: string): Promise<ChatSession> {
+  async mergeSessionsIntoOlder(
+    olderSessionId: string,
+    newerSessionId: string
+  ): Promise<ChatSession> {
     const olderSession = await this.getSession(olderSessionId);
     const newerSession = await this.getSession(newerSessionId);
-    
+
     if (!olderSession || !newerSession) {
       throw new Error('Both sessions must exist');
     }
-    
+
     if (olderSession.developerId !== newerSession.developerId) {
       throw new Error('Cannot merge sessions from different developers');
     }
-    
+
     // Load messages from newer session and copy to older
     const newerMessages = await this.getSessionMessages(newerSessionId);
     for (const message of newerMessages) {
       await this.storage.insertMessage(olderSessionId, message);
     }
-    
+
     // Merge agentIds arrays
-    const mergedAgentIds = new Set([
-      ...olderSession.agentIds,
-      ...newerSession.agentIds,
-    ]);
-    
+    const mergedAgentIds = new Set([...olderSession.agentIds, ...newerSession.agentIds]);
+
     for (const agentId of mergedAgentIds) {
       await this.storage.addSessionAgent(olderSessionId, agentId);
     }
-    
+
     // Track merge history and merge artifacts/files
     const mergedFromSessionIds = [
       ...(olderSession.mergedFromSessionIds || []),
       newerSessionId,
       ...(newerSession.mergedFromSessionIds || []),
     ];
-    
+
     await this.storage.updateSession(olderSessionId, {
       lastActivityAt: new Date().toISOString(),
       mergedFromSessionIds,
       artifacts: [...new Set([...olderSession.artifacts, ...newerSession.artifacts])],
       allowedFiles: [...new Set([...olderSession.allowedFiles, ...newerSession.allowedFiles])],
     });
-    
+
     // Delete newer session
     await this.storage.deleteSession(newerSessionId);
-    
+
     const updatedSession = await this.getSession(olderSessionId);
     if (!updatedSession) {
       throw new Error(`Failed to retrieve merged session ${olderSessionId}`);
     }
-    
+
     return updatedSession;
   }
 
@@ -555,7 +572,7 @@ ${summary}
     // This gives the full connected graph the caller is part of, regardless
     // of which session they started from.
     const allSessions = await this.storage.listSessions(
-      root.developerId ? { developerId: root.developerId } : undefined,
+      root.developerId ? { developerId: root.developerId } : undefined
     );
 
     const childrenOf = new Map<string, ChatSession[]>();
@@ -574,7 +591,7 @@ ${summary}
     while (queue.length > 0) {
       const node = queue.shift()!;
       result.push(node);
-      for (const child of (childrenOf.get(node.id) ?? [])) {
+      for (const child of childrenOf.get(node.id) ?? []) {
         if (!seen.has(child.id)) {
           seen.add(child.id);
           queue.push(child);
@@ -595,7 +612,10 @@ ${summary}
    * earlier in the same thread (e.g. Alex → Michael → Alex → Michael should
    * reuse Michael's first session, not open a third one).
    */
-  async findAgentSessionInChain(fromSessionId: string, agentId: string): Promise<ChatSession | null> {
+  async findAgentSessionInChain(
+    fromSessionId: string,
+    agentId: string
+  ): Promise<ChatSession | null> {
     const visited = new Set<string>();
     let current: ChatSession | null = await this.getSession(fromSessionId);
 
@@ -605,7 +625,9 @@ ${summary}
 
       const ids: string[] = current.agentIds?.length
         ? current.agentIds
-        : current.agentId ? [current.agentId] : [];
+        : current.agentId
+          ? [current.agentId]
+          : [];
 
       if (ids.includes(agentId)) return current;
 
@@ -634,7 +656,15 @@ ${summary}
     return this.storage.getSessionSkills(sessionId);
   }
 
-  async setSessionSkillPaused(sessionId: string, skillPath: string, paused: boolean): Promise<void> {
+  async setSessionSkillPaused(
+    sessionId: string,
+    skillPath: string,
+    paused: boolean
+  ): Promise<void> {
     await this.storage.setSessionSkillPaused(sessionId, skillPath, paused);
+  }
+
+  async updateToolCallLlmResult(toolCallId: number, newText: string): Promise<void> {
+    await this.storage.updateToolCallLlmResult(toolCallId, newText);
   }
 }

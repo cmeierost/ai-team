@@ -95,6 +95,7 @@ function toToolDenialEvent(denial: ToolDenial): ToolDenialEvent {
 const SILENT_TOOL_PREFIXES = ['find_', 'list_', 'read_', 'search_', 'get_'];
 const SILENT_TOOL_NAMES = new Set([
   'com_handoff', // orchestration — already requires delegation permission
+  'com_ask', // interactive clarification tool (must not trigger confirmation recursion)
   'hr_hire', // requires manage-agents permission (checked by ToolManager)
   'http_fetch',
   'http_crawl',
@@ -111,6 +112,8 @@ const SILENT_TOOL_NAMES = new Set([
   'fs_search_metadata',
   'lsp',
 ]);
+
+const INTERACTIVE_ASK_TIMEOUT_MS = 15 * 60 * 1000;
 
 function requiresConfirmation(toolName: string): boolean {
   if (SILENT_TOOL_NAMES.has(toolName)) return false;
@@ -147,6 +150,13 @@ export async function dispatchToolCall(
     agentId: ctx.agent.id,
     workspaceRoot: ctx.workspaceRoot,
     currentFiles: contextFiles,
+    questionInput: ctx.hooks.questionInput,
+    questionConfirm: ctx.hooks.questionConfirm,
+    questionSelect: ctx.hooks.questionSelect,
+    questionPassword: ctx.hooks.questionPassword,
+    questionChecklist: ctx.hooks.questionChecklist,
+  }, {
+    timeoutMs: toolName === 'com_ask' ? INTERACTIVE_ASK_TIMEOUT_MS : undefined,
   });
 
   // ── Strip _fileChanges early — before serialisation, history, and events ──

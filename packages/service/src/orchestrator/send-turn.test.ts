@@ -535,6 +535,7 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
       'fs_read',
       { filePath: 'src/greet.ts' },
       expect.objectContaining({ workspaceRoot: '/workspace' }),
+      expect.any(Object),
     );
 
     // fs_apply_patch — called second with old/new file contents
@@ -549,6 +550,7 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
         ]),
       }),
       expect.objectContaining({ workspaceRoot: '/workspace' }),
+      expect.any(Object),
     );
 
     // ── Approval ────────────────────────────────────────────────────────────

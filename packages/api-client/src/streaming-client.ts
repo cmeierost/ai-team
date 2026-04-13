@@ -5,6 +5,7 @@ import type {
   StreamEvent,
   IStreamingClient,
   IInteractionStream,
+  QuestionHandlerMap,
   QuestionConfirmRequest,
   QuestionSelectRequest,
   QuestionPasswordRequest,
@@ -24,7 +25,7 @@ export class StreamingClient implements IStreamingClient {
 
   stream<TCommand extends AiTeamCommandName>(
     request: InteractionRequest<TCommand>,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal } & Partial<QuestionHandlerMap>
   ): IInteractionStream<TCommand> {
     const { command, payload } = request;
     if (command !== 'chat') {
@@ -35,25 +36,34 @@ export class StreamingClient implements IStreamingClient {
     const wsBaseUrl = this.wsBaseUrl;
 
     return new InteractionStream<TCommand>((handlers) => {
-      const onQuestion =
-        Object.keys(handlers).length > 0
-          ? async (question: Record<string, unknown>): Promise<unknown> => {
-              const kind = question.kind as string | undefined;
-              const q = question as unknown;
-              switch (kind) {
-                case 'confirm':
-                  return handlers.questionConfirm?.(q as QuestionConfirmRequest) ?? false;
-                case 'select':
-                  return handlers.questionSelect?.(q as QuestionSelectRequest) ?? '';
-                case 'password':
-                  return handlers.questionPassword?.(q as QuestionPasswordRequest) ?? '';
-                case 'checklist':
-                  return handlers.questionChecklist?.(q as QuestionChecklistRequest) ?? [];
-                default:
-                  return handlers.questionInput?.(q as QuestionInputRequest) ?? '';
-              }
+      const effectiveHandlers = {
+        questionInput: handlers.questionInput ?? options?.questionInput,
+        questionConfirm: handlers.questionConfirm ?? options?.questionConfirm,
+        questionSelect: handlers.questionSelect ?? options?.questionSelect,
+        questionPassword: handlers.questionPassword ?? options?.questionPassword,
+        questionChecklist: handlers.questionChecklist ?? options?.questionChecklist,
+      };
+
+      const onQuestion = Object.values(effectiveHandlers).some(
+        (handler) => typeof handler === 'function'
+      )
+        ? async (question: Record<string, unknown>): Promise<unknown> => {
+            const kind = question.kind as string | undefined;
+            const q = question as unknown;
+            switch (kind) {
+              case 'confirm':
+                return effectiveHandlers.questionConfirm?.(q as QuestionConfirmRequest) ?? false;
+              case 'select':
+                return effectiveHandlers.questionSelect?.(q as QuestionSelectRequest) ?? '';
+              case 'password':
+                return effectiveHandlers.questionPassword?.(q as QuestionPasswordRequest) ?? '';
+              case 'checklist':
+                return effectiveHandlers.questionChecklist?.(q as QuestionChecklistRequest) ?? [];
+              default:
+                return effectiveHandlers.questionInput?.(q as QuestionInputRequest) ?? '';
             }
-          : undefined;
+          }
+        : undefined;
 
       return streamViaWebSocket(chatPayload.employeeId ?? '', chatPayload.options?.message ?? '', {
         url: wsBaseUrl,

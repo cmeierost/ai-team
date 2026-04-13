@@ -100,6 +100,17 @@ readTheseFilesFirst:
   - COPILOT-CONTEXT.md
   - README.md
   - docs/**/*
+permissions:
+  list: []
+  read:
+    - README.md
+    - tools/export-md-pdf.mjs
+  write:
+    - .ai-team/**/*
+    - .ai-team/ai-team-way.md
+    - .github/copilot-instructions.md
+    - AGENTS.md
+    - docs/**/*
 ---
 
 # Michael Brown

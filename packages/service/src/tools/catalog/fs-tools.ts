@@ -441,11 +441,8 @@ export const fsTreeTool: AgentTool = {
       path: string;
       tree: FileTreeNode | null;
     };
-    if (!r.tree) return result;
-    return {
-      path: r.path,
-      tree_ascii: renderAsciiTree(r.tree),
-    };
+    if (!r.tree) return `${r.path}: (empty or not accessible)`;
+    return `${r.path}\n\n${renderAsciiTree(r.tree)}`;
   },
 };
 

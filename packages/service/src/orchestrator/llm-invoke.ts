@@ -103,11 +103,15 @@ function flushFilter(state: StreamFilterState, sink: StreamTextSink): void {
 // ── Tool policy system message ────────────────────────────────────────────────
 
 function buildToolPolicyMessage(tools: AgentTool[]): ChatCompletionMessageParam {
+  const hasAskTool = tools.some((t) => t.group === 'com' && t.name === 'ask');
   return {
     role: 'system',
     content:
       `Tool-calling is available. Registered tools: ${tools.map((t) => t.name).join(', ')}. ` +
       'Do not invent tool names. ' +
+      (hasAskTool
+        ? 'If you need clarification or missing input from the developer, call com_ask instead of guessing. '
+        : '') +
       'If the developer asks about what tools you can use, what files you can read/write, or access/permissions, call a relevant introspection tool (for example tool_list, tool_can_i, fs_who_can) before answering. ' +
       'If the developer asks to list or show visible/readable files (or file tree), call fs_tree on path "." (or requested path) first, then explain results.',
   };

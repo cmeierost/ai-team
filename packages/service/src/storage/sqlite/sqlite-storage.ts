@@ -21,14 +21,14 @@ export class SqliteMessageStorage implements IMessageStorage {
   private readonly connection: SqliteConnection;
   private readonly migrations: MigrationManager;
   private ready = false;
-  
+
   constructor(workspaceRoot: string) {
     this.connection = new SqliteConnection(workspaceRoot);
     this.migrations = new MigrationManager(this.connection);
   }
-  
+
   // ========== Lifecycle ==========
-  
+
   private async getConnection(): Promise<SqliteConnection> {
     if (!this.ready) {
       await this.connection.open();
@@ -45,20 +45,20 @@ export class SqliteMessageStorage implements IMessageStorage {
     await this.getConnection();
     return this.migrations.migrate();
   }
-  
+
   async close(): Promise<void> {
     await this.connection.close();
   }
-  
+
   // ========== Messages ==========
-  
+
   async insertMessage(sessionId: string, message: ChatMessage): Promise<MessageInsertResult> {
     await this.getConnection();
     const timestamp = message.timestamp || new Date().toISOString();
-    
+
     // Start transaction
     const statements: Array<{ sql: string; params?: any[] }> = [];
-    
+
     // Insert message
     const messageResult = await this.connection.run(
       `INSERT INTO messages (session_id, timestamp, from_id, to_id, is_human, content, archived, handoff_type, target_agent_id, handoff_from_session_id, handoff_to_session_id, handoff_id, importance)
@@ -79,9 +79,9 @@ export class SqliteMessageStorage implements IMessageStorage {
         message.importance || null,
       ]
     );
-    
+
     const messageId = messageResult.lastID;
-    
+
     // Insert context files
     if (message.context && message.context.length > 0) {
       for (const filePath of message.context) {
@@ -91,7 +91,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Insert tool calls
     if (message.tool_calls && message.tool_calls.length > 0) {
       for (const toolCall of message.tool_calls) {
@@ -107,7 +107,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Insert code suggestions
     if (message.suggestions && message.suggestions.length > 0) {
       for (const suggestion of message.suggestions) {
@@ -124,7 +124,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Update session message count and last activity
     statements.push({
       sql: `UPDATE sessions 
@@ -134,19 +134,22 @@ export class SqliteMessageStorage implements IMessageStorage {
             WHERE id = ?`,
       params: [timestamp, timestamp, sessionId],
     });
-    
+
     // Execute all statements in transaction
     if (statements.length > 0) {
       await this.connection.transaction(statements);
     }
-    
+
     return {
       messageId,
       timestamp,
     };
   }
-  
-  async getSessionMessages(sessionId: string, includeArchived: boolean = false): Promise<ChatMessage[]> {
+
+  async getSessionMessages(
+    sessionId: string,
+    includeArchived: boolean = false
+  ): Promise<ChatMessage[]> {
     await this.getConnection();
     const sql = `
       SELECT 
@@ -168,60 +171,60 @@ export class SqliteMessageStorage implements IMessageStorage {
         ${!includeArchived ? 'AND m.archived = 0' : ''}
       ORDER BY m.timestamp ASC
     `;
-    
+
     const rows = await this.connection.all<any>(sql, [sessionId]);
     return this.rowsToMessages(rows);
   }
-  
+
   async queryMessages(filter: MessageFilter): Promise<ChatMessage[]> {
     await this.getConnection();
     const conditions: string[] = [];
     const params: any[] = [];
-    
+
     if (filter.sessionId) {
       conditions.push('m.session_id = ?');
       params.push(filter.sessionId);
     }
-    
+
     if (filter.fromId) {
       conditions.push('m.from_id = ?');
       params.push(filter.fromId);
     }
-    
+
     if (filter.toId) {
       conditions.push('m.to_id = ?');
       params.push(filter.toId);
     }
-    
+
     if (filter.isHuman !== undefined) {
       conditions.push('m.is_human = ?');
       params.push(filter.isHuman ? 1 : 0);
     }
-    
+
     if (filter.archived !== undefined) {
       conditions.push('m.archived = ?');
       params.push(filter.archived ? 1 : 0);
     }
-    
+
     if (filter.handoffType) {
       conditions.push('m.handoff_type = ?');
       params.push(filter.handoffType);
     }
-    
+
     if (filter.timestampFrom) {
       conditions.push('m.timestamp >= ?');
       params.push(filter.timestampFrom);
     }
-    
+
     if (filter.timestampTo) {
       conditions.push('m.timestamp <= ?');
       params.push(filter.timestampTo);
     }
-    
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const limitClause = filter.limit ? `LIMIT ${filter.limit}` : '';
     const offsetClause = filter.offset ? `OFFSET ${filter.offset}` : '';
-    
+
     const sql = `
       SELECT 
         m.id,
@@ -242,11 +245,11 @@ export class SqliteMessageStorage implements IMessageStorage {
       ORDER BY m.timestamp ASC
       ${limitClause} ${offsetClause}
     `;
-    
+
     const rows = await this.connection.all<any>(sql, params);
     return this.rowsToMessages(rows);
   }
-  
+
   async archiveMessage(sessionId: string, messageTimestamp: string): Promise<boolean> {
     await this.getConnection();
     const result = await this.connection.run(
@@ -255,7 +258,7 @@ export class SqliteMessageStorage implements IMessageStorage {
     );
     return result.changes > 0;
   }
-  
+
   async deleteMessage(sessionId: string, messageTimestamp: string): Promise<boolean> {
     await this.getConnection();
     // Get message ID first
@@ -263,11 +266,11 @@ export class SqliteMessageStorage implements IMessageStorage {
       'SELECT id FROM messages WHERE session_id = ? AND timestamp = ?',
       [sessionId, messageTimestamp]
     );
-    
+
     if (!row) {
       return false;
     }
-    
+
     // Delete message (CASCADE will delete related rows)
     await this.connection.transaction([
       {
@@ -279,21 +282,21 @@ export class SqliteMessageStorage implements IMessageStorage {
         params: [new Date().toISOString(), sessionId],
       },
     ]);
-    
+
     return true;
   }
-  
+
   async searchMessages(query: string, sessionId?: string): Promise<ChatMessage[]> {
     await this.getConnection();
     // Use FTS5 for full-text search with relevance ranking
     const conditions = ['messages_fts MATCH ?'];
     const params: any[] = [query];
-    
+
     if (sessionId) {
       conditions.push('messages_fts.session_id = ?');
       params.push(sessionId);
     }
-    
+
     const sql = `
       SELECT 
         m.id,
@@ -316,20 +319,22 @@ export class SqliteMessageStorage implements IMessageStorage {
       ORDER BY messages_fts.rank, m.timestamp DESC
       LIMIT 100
     `;
-    
+
     const rows = await this.connection.all<any>(sql, params);
     return this.rowsToMessages(rows);
   }
-  
+
   // ========== Sessions ==========
-  
+
   async createSession(session: Omit<ChatSession, 'id' | 'messageCount'>): Promise<ChatSession> {
     await this.getConnection();
     const now = new Date().toISOString();
-    const id = session.startedAt ? `session-${session.startedAt.split('T')[0]}-${Math.random().toString(36).substring(2, 8)}` : `session-${now.split('T')[0]}-${Math.random().toString(36).substring(2, 8)}`;
-    
+    const id = session.startedAt
+      ? `session-${session.startedAt.split('T')[0]}-${Math.random().toString(36).substring(2, 8)}`
+      : `session-${now.split('T')[0]}-${Math.random().toString(36).substring(2, 8)}`;
+
     const statements: Array<{ sql: string; params?: any[] }> = [];
-    
+
     // Insert session
     statements.push({
       sql: `INSERT INTO sessions (
@@ -348,7 +353,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         now,
       ],
     });
-    
+
     // Insert agent associations
     for (const agentId of session.agentIds) {
       statements.push({
@@ -356,7 +361,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         params: [id, agentId],
       });
     }
-    
+
     // Insert artifacts
     if (session.artifacts && session.artifacts.length > 0) {
       for (const artifact of session.artifacts) {
@@ -366,7 +371,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Insert allowed files
     if (session.allowedFiles && session.allowedFiles.length > 0) {
       for (const filePath of session.allowedFiles) {
@@ -376,7 +381,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Insert tasks
     if (session.tasks && session.tasks.length > 0) {
       for (const taskId of session.tasks) {
@@ -386,7 +391,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Insert merged from sessions
     if (session.mergedFromSessionIds && session.mergedFromSessionIds.length > 0) {
       for (const mergedId of session.mergedFromSessionIds) {
@@ -396,7 +401,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Insert RAG config
     if (session.ragConfig) {
       statements.push({
@@ -404,16 +409,16 @@ export class SqliteMessageStorage implements IMessageStorage {
         params: [id, JSON.stringify(session.ragConfig)],
       });
     }
-    
+
     await this.connection.transaction(statements);
-    
+
     return {
       id,
       ...session,
       messageCount: 0,
     };
   }
-  
+
   async getSession(sessionId: string): Promise<ChatSession | null> {
     await this.getConnection();
     const row = await this.connection.get<any>(
@@ -424,46 +429,49 @@ export class SqliteMessageStorage implements IMessageStorage {
        WHERE id = ?`,
       [sessionId]
     );
-    
+
     if (!row) {
       return null;
     }
-    
+
     return this.rowToSession(row);
   }
-  
-  async updateSession(sessionId: string, updates: Partial<Omit<ChatSession, 'id' | 'messageCount'>>): Promise<void> {
+
+  async updateSession(
+    sessionId: string,
+    updates: Partial<Omit<ChatSession, 'id' | 'messageCount'>>
+  ): Promise<void> {
     await this.getConnection();
     const now = new Date().toISOString();
     const statements: Array<{ sql: string; params?: any[] }> = [];
-    
+
     // Build UPDATE statement for main session fields
     const fields: string[] = [];
     const params: any[] = [];
-    
+
     if (updates.title !== undefined) {
       fields.push('title = ?');
       params.push(updates.title);
     }
-    
+
     if (updates.notes !== undefined) {
       fields.push('notes = ?');
       params.push(updates.notes);
     }
-    
+
     if (updates.lastActivityAt) {
       fields.push('last_activity_at = ?');
       params.push(updates.lastActivityAt);
     }
-    
+
     if (updates.previousSessionId !== undefined) {
       fields.push('previous_session_id = ?');
       params.push(updates.previousSessionId);
     }
-    
+
     fields.push('updated_at = ?');
     params.push(now);
-    
+
     if (fields.length > 0) {
       params.push(sessionId);
       statements.push({
@@ -471,7 +479,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         params,
       });
     }
-    
+
     // Handle artifacts update
     if (updates.artifacts !== undefined) {
       statements.push({
@@ -485,7 +493,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Handle files update
     if (updates.allowedFiles !== undefined || updates.prioritizedFiles !== undefined) {
       statements.push({
@@ -501,7 +509,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Handle tasks update
     if (updates.tasks !== undefined) {
       statements.push({
@@ -515,7 +523,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Handle RAG config update
     if (updates.ragConfig !== undefined) {
       statements.push({
@@ -529,7 +537,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     // Handle merged sessions tracking
     if (updates.mergedFromSessionIds !== undefined) {
       statements.push({
@@ -543,54 +551,61 @@ export class SqliteMessageStorage implements IMessageStorage {
         });
       }
     }
-    
+
     if (statements.length > 0) {
       await this.connection.transaction(statements);
     }
   }
-  
+
   async listSessions(filter?: SessionFilter): Promise<ChatSession[]> {
     await this.getConnection();
     const conditions: string[] = [];
     const params: any[] = [];
-    
+
     if (filter?.developerId) {
       conditions.push('s.developer_id = ?');
       params.push(filter.developerId);
     }
-    
+
     if (filter?.agentId) {
-      conditions.push('EXISTS (SELECT 1 FROM session_agents sa WHERE sa.session_id = s.id AND sa.agent_id = ?)');
+      conditions.push(
+        'EXISTS (SELECT 1 FROM session_agents sa WHERE sa.session_id = s.id AND sa.agent_id = ?)'
+      );
       params.push(filter.agentId);
     }
-    
+
     if (filter?.hasAgents && filter.hasAgents.length > 0) {
       for (const agentId of filter.hasAgents) {
-        conditions.push('EXISTS (SELECT 1 FROM session_agents sa WHERE sa.session_id = s.id AND sa.agent_id = ?)');
+        conditions.push(
+          'EXISTS (SELECT 1 FROM session_agents sa WHERE sa.session_id = s.id AND sa.agent_id = ?)'
+        );
         params.push(agentId);
       }
     }
-    
+
     if (filter?.timestampFrom) {
       conditions.push('s.started_at >= ?');
       params.push(filter.timestampFrom);
     }
-    
+
     if (filter?.timestampTo) {
       conditions.push('s.started_at <= ?');
       params.push(filter.timestampTo);
     }
-    
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const sortBy = filter?.sortBy || 'lastActivityAt';
     const sortOrder = filter?.sortOrder || 'desc';
-    const orderByColumn = sortBy === 'lastActivityAt' ? 'last_activity_at' :
-                           sortBy === 'startedAt' ? 'started_at' :
-                           'message_count';
+    const orderByColumn =
+      sortBy === 'lastActivityAt'
+        ? 'last_activity_at'
+        : sortBy === 'startedAt'
+          ? 'started_at'
+          : 'message_count';
     const orderClause = `ORDER BY s.${orderByColumn} ${sortOrder.toUpperCase()}`;
     const limitClause = filter?.limit ? `LIMIT ${filter.limit}` : '';
     const offsetClause = filter?.offset ? `OFFSET ${filter.offset}` : '';
-    
+
     const sql = `
       SELECT 
         s.id, s.developer_id, s.started_at, s.last_activity_at, s.message_count,
@@ -600,18 +615,18 @@ export class SqliteMessageStorage implements IMessageStorage {
       ${orderClause}
       ${limitClause} ${offsetClause}
     `;
-    
+
     const rows = await this.connection.all<any>(sql, params);
-    
+
     const sessions: ChatSession[] = [];
     for (const row of rows) {
       const session = await this.rowToSession(row);
       sessions.push(session);
     }
-    
+
     return sessions;
   }
-  
+
   async deleteSession(sessionId: string): Promise<boolean> {
     await this.getConnection();
     // NULL-out cross-session references before deleting so linked sessions/messages
@@ -629,13 +644,10 @@ export class SqliteMessageStorage implements IMessageStorage {
       'UPDATE messages SET handoff_to_session_id = NULL WHERE handoff_to_session_id = ?',
       [sessionId]
     );
-    const result = await this.connection.run(
-      'DELETE FROM sessions WHERE id = ?',
-      [sessionId]
-    );
+    const result = await this.connection.run('DELETE FROM sessions WHERE id = ?', [sessionId]);
     return result.changes > 0;
   }
-  
+
   async addSessionAgent(sessionId: string, agentId: string): Promise<void> {
     await this.getConnection();
     await this.connection.run(
@@ -643,29 +655,29 @@ export class SqliteMessageStorage implements IMessageStorage {
       [sessionId, agentId]
     );
   }
-  
+
   async removeSessionAgent(sessionId: string, agentId: string): Promise<void> {
     await this.getConnection();
-    await this.connection.run(
-      'DELETE FROM session_agents WHERE session_id = ? AND agent_id = ?',
-      [sessionId, agentId]
-    );
+    await this.connection.run('DELETE FROM session_agents WHERE session_id = ? AND agent_id = ?', [
+      sessionId,
+      agentId,
+    ]);
   }
-  
+
   // ========== Statistics ==========
-  
+
   async getStats(): Promise<StorageStats> {
     await this.getConnection();
     const sessionCount = await this.connection.get<{ count: number }>(
       'SELECT COUNT(*) as count FROM sessions'
     );
-    
+
     const messageCount = await this.connection.get<{ count: number }>(
       'SELECT COUNT(*) as count FROM messages'
     );
-    
+
     const version = await this.migrations.getCurrentVersion();
-    
+
     let storageSize: number | undefined;
     try {
       const dbPath = this.connection.getPath();
@@ -675,7 +687,7 @@ export class SqliteMessageStorage implements IMessageStorage {
       // File doesn't exist or can't be accessed
       storageSize = undefined;
     }
-    
+
     return {
       totalSessions: sessionCount?.count || 0,
       totalMessages: messageCount?.count || 0,
@@ -683,47 +695,48 @@ export class SqliteMessageStorage implements IMessageStorage {
       schemaVersion: version,
     };
   }
-  
+
   // ========== Helper Methods ==========
-  
+
   /**
    * Convert a database row to a ChatMessage with all related data
    */
   private async rowToMessage(row: any): Promise<ChatMessage> {
     const messageId = row.id;
-    
+
     // Load context files
     const contextRows = await this.connection.all<{ file_path: string }>(
       'SELECT file_path FROM message_files WHERE message_id = ?',
       [messageId]
     );
-    const context = contextRows.map(r => r.file_path);
-    
+    const context = contextRows.map((r) => r.file_path);
+
     // Load tool calls
     const toolCallRows = await this.connection.all<any>(
-      'SELECT tool_name, params_json, result_json, result_llm_json FROM message_tool_calls WHERE message_id = ?',
+      'SELECT id, tool_name, params_json, result_json, result_llm_json FROM message_tool_calls WHERE message_id = ?',
       [messageId]
     );
-    const tool_calls = toolCallRows.map(r => ({
+    const tool_calls = toolCallRows.map((r) => ({
+      id: r.id as number,
       tool: r.tool_name,
       params: JSON.parse(r.params_json),
       result: r.result_json ? JSON.parse(r.result_json) : undefined,
       resultLlm: r.result_llm_json ? JSON.parse(r.result_llm_json) : undefined,
     }));
-    
+
     // Load suggestions
     const suggestionRows = await this.connection.all<any>(
       'SELECT suggestion_type, file_path, line_number, description, code FROM message_suggestions WHERE message_id = ?',
       [messageId]
     );
-    const suggestions = suggestionRows.map(r => ({
+    const suggestions = suggestionRows.map((r) => ({
       type: r.suggestion_type as any,
       file: r.file_path,
       line: r.line_number || undefined,
       description: r.description,
       code: r.code || undefined,
     }));
-    
+
     return {
       timestamp: row.timestamp,
       from: row.from_id,
@@ -752,25 +765,26 @@ export class SqliteMessageStorage implements IMessageStorage {
       return [];
     }
 
-    const messageIds = rows.map(row => row.id as number);
+    const messageIds = rows.map((row) => row.id as number);
     const placeholders = messageIds.map(() => '?').join(', ');
 
     const [contextRows, toolCallRows, suggestionRows] = await Promise.all([
       this.connection.all<{ message_id: number; file_path: string }>(
         `SELECT message_id, file_path FROM message_files WHERE message_id IN (${placeholders})`,
-        messageIds,
+        messageIds
       ),
       this.connection.all<{
+        id: number;
         message_id: number;
         tool_name: string;
         params_json: string;
         result_json: string | null;
         result_llm_json: string | null;
       }>(
-        `SELECT message_id, tool_name, params_json, result_json, result_llm_json
+        `SELECT id, message_id, tool_name, params_json, result_json, result_llm_json
          FROM message_tool_calls
          WHERE message_id IN (${placeholders})`,
-        messageIds,
+        messageIds
       ),
       this.connection.all<{
         message_id: number;
@@ -783,7 +797,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         `SELECT message_id, suggestion_type, file_path, line_number, description, code
          FROM message_suggestions
          WHERE message_id IN (${placeholders})`,
-        messageIds,
+        messageIds
       ),
     ]);
 
@@ -797,9 +811,13 @@ export class SqliteMessageStorage implements IMessageStorage {
       }
     }
 
-    const toolCallsByMessage = new Map<number, Array<{ tool: string; params: unknown; result?: unknown; resultLlm?: unknown }>>();
+    const toolCallsByMessage = new Map<
+      number,
+      Array<{ id: number; tool: string; params: unknown; result?: unknown; resultLlm?: unknown }>
+    >();
     for (const row of toolCallRows) {
       const parsed = {
+        id: row.id,
         tool: row.tool_name,
         params: JSON.parse(row.params_json),
         result: row.result_json ? JSON.parse(row.result_json) : undefined,
@@ -813,7 +831,10 @@ export class SqliteMessageStorage implements IMessageStorage {
       }
     }
 
-    const suggestionsByMessage = new Map<number, Array<{ type: any; file: string; line?: number; description: string; code?: string }>>();
+    const suggestionsByMessage = new Map<
+      number,
+      Array<{ type: any; file: string; line?: number; description: string; code?: string }>
+    >();
     for (const row of suggestionRows) {
       const parsed = {
         type: row.suggestion_type as any,
@@ -855,60 +876,60 @@ export class SqliteMessageStorage implements IMessageStorage {
       } as ChatMessage;
     });
   }
-  
+
   /**
    * Convert a database row to a ChatSession with all related data
    */
   private async rowToSession(row: any): Promise<ChatSession> {
     const sessionId = row.id;
-    
+
     // Load agent IDs
     const agentRows = await this.connection.all<{ agent_id: string }>(
       'SELECT agent_id FROM session_agents WHERE session_id = ?',
       [sessionId]
     );
-    const agentIds = agentRows.map(r => r.agent_id);
-    
+    const agentIds = agentRows.map((r) => r.agent_id);
+
     // Load artifacts
     const artifactRows = await this.connection.all<{ artifact_path: string }>(
       'SELECT artifact_path FROM session_artifacts WHERE session_id = ?',
       [sessionId]
     );
-    const artifacts = artifactRows.map(r => r.artifact_path);
-    
+    const artifacts = artifactRows.map((r) => r.artifact_path);
+
     // Load files
     const fileRows = await this.connection.all<{ file_path: string; is_prioritized: number }>(
       'SELECT file_path, is_prioritized FROM session_files WHERE session_id = ?',
       [sessionId]
     );
-    const allowedFiles = fileRows.map(r => r.file_path);
-    const prioritizedFiles = fileRows.filter(r => r.is_prioritized === 1).map(r => r.file_path);
-    
+    const allowedFiles = fileRows.map((r) => r.file_path);
+    const prioritizedFiles = fileRows.filter((r) => r.is_prioritized === 1).map((r) => r.file_path);
+
     // Load tasks
     const taskRows = await this.connection.all<{ task_id: string }>(
       'SELECT task_id FROM session_tasks WHERE session_id = ?',
       [sessionId]
     );
-    const tasks = taskRows.map(r => r.task_id);
-    
+    const tasks = taskRows.map((r) => r.task_id);
+
     // Load merged from sessions
     const mergedRows = await this.connection.all<{ merged_session_id: string }>(
       'SELECT merged_session_id FROM session_merged_from WHERE session_id = ?',
       [sessionId]
     );
-    const mergedFromSessionIds = mergedRows.map(r => r.merged_session_id);
-    
+    const mergedFromSessionIds = mergedRows.map((r) => r.merged_session_id);
+
     // Load RAG config
     const ragRow = await this.connection.get<{ config_json: string }>(
       'SELECT config_json FROM session_rag_config WHERE session_id = ?',
       [sessionId]
     );
     const ragConfig = ragRow ? JSON.parse(ragRow.config_json) : undefined;
-    
+
     return {
       id: sessionId,
       agentIds,
-      agentId: agentIds[0] || '',  // Backward compatibility
+      agentId: agentIds[0] || '', // Backward compatibility
       developerId: row.developer_id,
       startedAt: row.started_at,
       lastActivityAt: row.last_activity_at,
@@ -924,21 +945,21 @@ export class SqliteMessageStorage implements IMessageStorage {
       mergedFromSessionIds: mergedFromSessionIds.length > 0 ? mergedFromSessionIds : undefined,
     };
   }
-  
+
   // ========== Notes ==========
-  
+
   async createNote(note: Omit<Note, 'id' | 'createdAt' | 'updatedAt'>): Promise<Note> {
     await this.getConnection();
     const id = randomBytes(8).toString('hex');
     const now = new Date().toISOString();
     const tagsJson = note.tags ? JSON.stringify(note.tags) : null;
-    
+
     await this.connection.run(
       `INSERT INTO notes (id, agent_id, title, content, tags_json, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [id, note.agentId, note.title || null, note.content, tagsJson, now, now]
     );
-    
+
     return {
       id,
       agentId: note.agentId,
@@ -949,18 +970,18 @@ export class SqliteMessageStorage implements IMessageStorage {
       updatedAt: now,
     };
   }
-  
+
   async getNote(noteId: string): Promise<Note | null> {
     await this.getConnection();
     const row = await this.connection.get<any>(
       'SELECT id, agent_id, title, content, tags_json, created_at, updated_at FROM notes WHERE id = ?',
       [noteId]
     );
-    
+
     if (!row) {
       return null;
     }
-    
+
     return {
       id: row.id,
       agentId: row.agent_id,
@@ -971,15 +992,15 @@ export class SqliteMessageStorage implements IMessageStorage {
       updatedAt: row.updated_at,
     };
   }
-  
+
   async listAgentNotes(agentId: string): Promise<Note[]> {
     await this.getConnection();
     const rows = await this.connection.all<any>(
       'SELECT id, agent_id, title, content, tags_json, created_at, updated_at FROM notes WHERE agent_id = ? ORDER BY created_at DESC',
       [agentId]
     );
-    
-    return rows.map(row => ({
+
+    return rows.map((row) => ({
       id: row.id,
       agentId: row.agent_id,
       title: row.title || undefined,
@@ -989,63 +1010,60 @@ export class SqliteMessageStorage implements IMessageStorage {
       updatedAt: row.updated_at,
     }));
   }
-  
-  async updateNote(noteId: string, updates: Partial<Omit<Note, 'id' | 'agentId' | 'createdAt' | 'updatedAt'>>): Promise<void> {
+
+  async updateNote(
+    noteId: string,
+    updates: Partial<Omit<Note, 'id' | 'agentId' | 'createdAt' | 'updatedAt'>>
+  ): Promise<void> {
     await this.getConnection();
     const now = new Date().toISOString();
     const setParts: string[] = [];
     const params: any[] = [];
-    
+
     if (updates.title !== undefined) {
       setParts.push('title = ?');
       params.push(updates.title || null);
     }
-    
+
     if (updates.content !== undefined) {
       setParts.push('content = ?');
       params.push(updates.content);
     }
-    
+
     if (updates.tags !== undefined) {
       setParts.push('tags_json = ?');
       params.push(updates.tags ? JSON.stringify(updates.tags) : null);
     }
-    
+
     if (setParts.length === 0) {
       return; // No updates
     }
-    
+
     setParts.push('updated_at = ?');
     params.push(now);
-    
+
     params.push(noteId);
-    
-    await this.connection.run(
-      `UPDATE notes SET ${setParts.join(', ')} WHERE id = ?`,
-      params
-    );
+
+    await this.connection.run(`UPDATE notes SET ${setParts.join(', ')} WHERE id = ?`, params);
   }
-  
+
   async deleteNote(noteId: string): Promise<boolean> {
     await this.getConnection();
-    const result = await this.connection.run(
-      'DELETE FROM notes WHERE id = ?',
-      [noteId]
-    );
+    const result = await this.connection.run('DELETE FROM notes WHERE id = ?', [noteId]);
     return (result.changes || 0) > 0;
   }
-  
+
   async searchNotes(query: string, agentId?: string): Promise<Note[]> {
     await this.getConnection();
     // Use FTS5 for full-text search with Porter stemming and relevance ranking
     const conditions = ['notes_fts MATCH ?'];
     const params: any[] = [query];
-    
+
     if (agentId) {
       conditions.push('notes_fts.agent_id = ?');
       params.push(agentId);
     }
-    
+
     const sql = `
       SELECT 
         n.id,
@@ -1062,10 +1080,10 @@ export class SqliteMessageStorage implements IMessageStorage {
       ORDER BY notes_fts.rank, n.created_at DESC
       LIMIT 100
     `;
-    
+
     const rows = await this.connection.all<any>(sql, params);
-    
-    return rows.map(row => ({
+
+    return rows.map((row) => ({
       id: row.id,
       agentId: row.agent_id,
       title: row.title || undefined,
@@ -1099,7 +1117,7 @@ export class SqliteMessageStorage implements IMessageStorage {
       'SELECT skill_path, loaded_at, paused FROM session_skills WHERE session_id = ? ORDER BY loaded_at ASC',
       [sessionId]
     );
-    return rows.map(r => ({
+    return rows.map((r) => ({
       sessionId,
       skillPath: r.skill_path,
       loadedAt: r.loaded_at,
@@ -1107,7 +1125,11 @@ export class SqliteMessageStorage implements IMessageStorage {
     }));
   }
 
-  async setSessionSkillPaused(sessionId: string, skillPath: string, paused: boolean): Promise<void> {
+  async setSessionSkillPaused(
+    sessionId: string,
+    skillPath: string,
+    paused: boolean
+  ): Promise<void> {
     await this.getConnection();
     await this.connection.run(
       'UPDATE session_skills SET paused = ? WHERE session_id = ? AND skill_path = ?',
@@ -1121,5 +1143,13 @@ export class SqliteMessageStorage implements IMessageStorage {
       'DELETE FROM session_skills WHERE session_id = ? AND skill_path = ?',
       [sessionId, skillPath]
     );
+  }
+
+  async updateToolCallLlmResult(toolCallId: number, newText: string): Promise<void> {
+    await this.getConnection();
+    await this.connection.run('UPDATE message_tool_calls SET result_llm_json = ? WHERE id = ?', [
+      JSON.stringify(newText),
+      toolCallId,
+    ]);
   }
 }

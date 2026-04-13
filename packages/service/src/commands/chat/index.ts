@@ -455,7 +455,7 @@ export async function chatCommand(
 
       if (message.toLowerCase() === 'exit') {
         writeInfo(hooks, 'Goodbye!');
-        break;
+        process.exit(0);
       }
 
       // /back — handled here so it has access to the local navStack

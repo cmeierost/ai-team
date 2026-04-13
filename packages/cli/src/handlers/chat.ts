@@ -4,10 +4,14 @@ import type {
   InteractionContext,
   QuestionConfirmRequest,
   QuestionInputRequest,
+  QuestionSelectRequest,
+  QuestionChecklistRequest,
+  QuestionPasswordRequest,
 } from '@ai-team/api-client';
 import { generateAgentColor, parseHslHue } from '@ai-team/infrastructure';
 import { createIdeAdapter } from '@ai-team/infrastructure';
 import { findWorkspaceRoot, IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
+import { checkbox, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
@@ -84,10 +88,34 @@ async function askLine(message: string, signal?: AbortSignal): Promise<string> {
 
 function createChatQuestionResponders(
   signal: AbortSignal,
-  onAnswered?: () => void
-): Pick<InteractionContext, 'questionInput' | 'questionConfirm'> {
+  onAnswered?: () => void,
+  onQuestionStart?: () => void
+): Pick<
+  InteractionContext,
+  'questionInput' | 'questionConfirm' | 'questionSelect' | 'questionChecklist' | 'questionPassword'
+> {
+  const normalizeSelection = (
+    raw: string,
+    choices: Array<{ name: string; value: string }>
+  ): string | undefined => {
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+
+    const byValue = choices.find((choice) => choice.value.toLowerCase() === trimmed.toLowerCase());
+    if (byValue) return byValue.value;
+
+    const idx = Number.parseInt(trimmed, 10);
+    if (!Number.isNaN(idx) && idx >= 1 && idx <= choices.length) {
+      return choices[idx - 1]?.value;
+    }
+
+    const byName = choices.find((choice) => choice.name.toLowerCase() === trimmed.toLowerCase());
+    return byName?.value;
+  };
+
   return {
     questionInput: async (request: QuestionInputRequest) => {
+      onQuestionStart?.();
       while (true) {
         const answer = await askWithSlashSuggestions(request.message, signal);
         if (request.validate) {
@@ -102,6 +130,7 @@ function createChatQuestionResponders(
       }
     },
     questionConfirm: async (request: QuestionConfirmRequest) => {
+      onQuestionStart?.();
       const defaultValue = request.default ?? false;
       const suffix = defaultValue ? '[Y/n]' : '[y/N]';
 
@@ -121,6 +150,129 @@ function createChatQuestionResponders(
         }
         process.stderr.write('Please answer yes or no.\n');
       }
+    },
+    questionSelect: async (request: QuestionSelectRequest) => {
+      onQuestionStart?.();
+      if (process.stdin.isTTY) {
+        const selected = await select({
+          message: request.message,
+          default: request.default,
+          choices: request.choices.map((choice) => ({
+            name: choice.description ? `${choice.name} — ${choice.description}` : choice.name,
+            value: choice.value,
+            description: choice.description,
+          })),
+          loop: false,
+        });
+        onAnswered?.();
+        return selected;
+      }
+
+      const lines = request.choices.map((choice, idx) => {
+        const desc = choice.description ? ` — ${choice.description}` : '';
+        return `  ${idx + 1}) ${choice.name} [${choice.value}]${desc}`;
+      });
+      const defaultValue = request.default;
+      while (true) {
+        process.stderr.write(`${request.message}\n${lines.join('\n')}\n`);
+        const suffix = defaultValue ? ` (default: ${defaultValue})` : '';
+        const raw = await askLine(`Select one (number or value)${suffix}:`, signal);
+        if (!raw.trim() && defaultValue) {
+          onAnswered?.();
+          return defaultValue;
+        }
+        const normalized = normalizeSelection(raw, request.choices);
+        if (normalized) {
+          onAnswered?.();
+          return normalized;
+        }
+        if (request.allowOther && raw.trim()) {
+          onAnswered?.();
+          return raw.trim();
+        }
+        process.stderr.write('Please choose a listed option (number/value).\n');
+      }
+    },
+    questionChecklist: async (request: QuestionChecklistRequest) => {
+      onQuestionStart?.();
+      if (process.stdin.isTTY) {
+        const selected = await checkbox({
+          message: request.message,
+          choices: request.choices.map((choice) => ({
+            name: choice.description ? `${choice.name} — ${choice.description}` : choice.name,
+            value: choice.value,
+            checked: (request.default ?? []).includes(choice.value),
+            description: choice.description,
+          })),
+          validate: (values) => {
+            if (request.minSelections && values.length < request.minSelections) {
+              return `Please select at least ${request.minSelections} option(s).`;
+            }
+            if (request.maxSelections && values.length > request.maxSelections) {
+              return `Please select at most ${request.maxSelections} option(s).`;
+            }
+            return true;
+          },
+          loop: false,
+        });
+        onAnswered?.();
+        return selected;
+      }
+
+      const lines = request.choices.map((choice, idx) => {
+        const desc = choice.description ? ` — ${choice.description}` : '';
+        return `  ${idx + 1}) ${choice.name} [${choice.value}]${desc}`;
+      });
+      const defaults = request.default ?? [];
+      const defaultSuffix = defaults.length > 0 ? ` (default: ${defaults.join(', ')})` : '';
+      while (true) {
+        process.stderr.write(`${request.message}\n${lines.join('\n')}\n`);
+        const raw = await askLine(
+          `Select one or more (comma-separated numbers/values)${defaultSuffix}:`,
+          signal
+        );
+        const entries = raw
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+        const selected = entries.length === 0 ? defaults : entries;
+        const resolved = selected
+          .map((entry) => normalizeSelection(entry, request.choices))
+          .filter((value): value is string => Boolean(value));
+        if (resolved.length !== selected.length) {
+          if (request.allowOther) {
+            const passthrough = selected.map((entry, idx) => resolved[idx] ?? entry);
+            onAnswered?.();
+            return passthrough;
+          }
+          process.stderr.write('One or more selections are invalid. Use listed numbers/values.\n');
+          continue;
+        }
+        if (request.minSelections && resolved.length < request.minSelections) {
+          process.stderr.write(`Please select at least ${request.minSelections} option(s).\n`);
+          continue;
+        }
+        if (request.maxSelections && resolved.length > request.maxSelections) {
+          process.stderr.write(`Please select at most ${request.maxSelections} option(s).\n`);
+          continue;
+        }
+        onAnswered?.();
+        return resolved;
+      }
+    },
+    questionPassword: async (request: QuestionPasswordRequest) => {
+      onQuestionStart?.();
+      if (process.stdin.isTTY) {
+        const answer = await password({
+          message: request.message,
+          mask: request.mask ?? '*',
+        });
+        onAnswered?.();
+        return answer;
+      }
+      const answer = await askLine(request.message, signal);
+      onAnswered?.();
+      return answer;
     },
   };
 }
@@ -146,6 +298,8 @@ function handleOneShotEvent(
     const formatted = formatToolEventMessage(event as Record<string, unknown>);
     const suffix = formatted ? ` — ${formatted}` : '';
     writeStderrLine(chalk.cyan(`[backend:tool:${phase}] ${event.toolName}${suffix}`));
+    const detail = formatToolEventDetail(event as Record<string, unknown>);
+    if (detail) writeStderrLine(detail);
     return;
   }
 
@@ -154,9 +308,18 @@ function handleOneShotEvent(
   }
 }
 
+interface AgentAccessLike {
+  agentId: string;
+  canRead: boolean;
+  canWrite: boolean;
+  canList: boolean;
+}
+
 interface FileTreeNodeLike {
+  name?: string;
   isDirectory?: boolean;
   children?: FileTreeNodeLike[];
+  agentAccess?: AgentAccessLike[];
 }
 
 interface FileTreePayloadLike {
@@ -216,6 +379,67 @@ function countTreeNodes(node?: FileTreeNodeLike): { files: number; directories: 
   return { files, directories };
 }
 
+function renderAccessBadge(access?: AgentAccessLike[]): string | undefined {
+  if (!access?.length) return undefined;
+  const agents = access.map((a) => {
+    const rights = [a.canRead ? 'r' : '', a.canWrite ? 'w' : '', a.canList ? 'l' : '']
+      .filter(Boolean)
+      .join('');
+    return chalk.dim(`${a.agentId}:${rights}`);
+  });
+  return chalk.gray('[') + agents.join(chalk.gray(' ')) + chalk.gray(']');
+}
+
+function renderAsciiFileTree(
+  node: FileTreeNodeLike,
+  opts: { maxDepth?: number; maxItems?: number } = {}
+): string {
+  const maxDepth = opts.maxDepth ?? 4;
+  const maxItems = opts.maxItems ?? 60;
+  const lines: string[] = [];
+  let totalShown = 0;
+
+  function walk(n: FileTreeNodeLike, prefix: string, depth: number): void {
+    const children = n.children ?? [];
+    const sorted = [...children].sort((a, b) => {
+      if (!!a.isDirectory !== !!b.isDirectory) return a.isDirectory ? -1 : 1;
+      return (a.name ?? '').localeCompare(b.name ?? '');
+    });
+
+    for (let i = 0; i < sorted.length; i++) {
+      if (totalShown >= maxItems) {
+        lines.push(chalk.gray(`${prefix}… (${sorted.length - i} more)`));
+        break;
+      }
+      const child = sorted[i];
+      const isLast = i === sorted.length - 1;
+      const connector = isLast ? '└── ' : '├── ';
+      const childPrefix = prefix + (isLast ? '    ' : '│   ');
+      const name = child.name ?? '?';
+      const baseLabel = child.isDirectory ? chalk.bold(name + '/') : name;
+      const accessBadge = renderAccessBadge(child.agentAccess);
+      const label = accessBadge ? `${baseLabel} ${accessBadge}` : baseLabel;
+      lines.push(chalk.gray(prefix + connector) + label);
+      totalShown++;
+
+      if (child.isDirectory && child.children) {
+        if (depth + 1 >= maxDepth) {
+          if (child.children.length > 0) {
+            lines.push(chalk.gray(`${childPrefix}…`));
+          }
+        } else {
+          walk(child, childPrefix, depth + 1);
+        }
+      }
+    }
+  }
+
+  const rootName = node.name ?? '.';
+  lines.push(chalk.bold(node.isDirectory ? rootName + '/' : rootName));
+  walk(node, '', 0);
+  return lines.join('\n');
+}
+
 function formatToolEventMessage(event: Record<string, unknown>): string | undefined {
   const toolName = typeof event.toolName === 'string' ? event.toolName : undefined;
   const message = typeof event.message === 'string' ? event.message : undefined;
@@ -248,6 +472,34 @@ function formatToolEventMessage(event: Record<string, unknown>): string | undefi
   }
 
   return message;
+}
+
+function formatToolEventDetail(event: Record<string, unknown>): string | undefined {
+  const toolName = typeof event.toolName === 'string' ? event.toolName : undefined;
+  const phase = typeof event.toolPhase === 'string' ? event.toolPhase : undefined;
+  if (phase !== 'result') return undefined;
+
+  const toolResult = toPayloadRecord((event as { toolResult?: unknown }).toolResult);
+  const resultPayload = toolResult ? (toolResult as { result?: unknown }).result : undefined;
+  const payload = toPayloadRecord(resultPayload);
+
+  if (toolName === 'fs_tree' && payload && 'tree' in payload) {
+    const tree = (payload as FileTreePayloadLike).tree;
+    const denied =
+      typeof (payload as { denied?: unknown }).denied === 'number'
+        ? (payload as { denied: number }).denied
+        : undefined;
+    if (tree) {
+      const rendered = renderAsciiFileTree(tree, { maxDepth: 4, maxItems: 60 });
+      const footer =
+        denied && denied > 0
+          ? chalk.yellow(`\n  (${denied} item(s) hidden — access restricted)`)
+          : '';
+      return rendered + footer;
+    }
+  }
+
+  return undefined;
 }
 
 function summarizeGenericJsonPayload(payload: Record<string, unknown>): string {
@@ -375,6 +627,9 @@ export async function renderChat(
   let currentAgentRole: string | undefined;
   let developerDisplayName = resolveDeveloperDisplayName(process.env);
   let tokenBurstOpen = false;
+  let bufferingBracketToolCall = false;
+  let bracketToolBuffer = '';
+  let bracketToolRenderedViaEvent = false;
 
   let spinnerActive = false;
   let spinnerTimer: ReturnType<typeof setInterval> | undefined;
@@ -399,6 +654,7 @@ export async function renderChat(
     spinnerTimer = setInterval(tick, 80);
   };
   const stopSpinner = () => {
+    if (!spinnerActive) return;
     spinnerActive = false;
     if (spinnerTimer !== undefined) {
       clearInterval(spinnerTimer);
@@ -465,8 +721,54 @@ export async function renderChat(
     return agentChalk(id, name)(text);
   }
 
+  function openTokenHeaderIfNeeded() {
+    if (tokenBurstOpen) return;
+    const agentName = currentAgentName || currentAgentId || 'Agent';
+    const title = currentAgentRole ? `${agentName} (${currentAgentRole})` : agentName;
+    const styledTitle = agentChalk(currentAgentId, currentAgentName).bold(title);
+    process.stdout.write(`\n${styledTitle}${chalk.dim(' → ')}${developerDisplayName}: `);
+    tokenBurstOpen = true;
+  }
+
+  function writeVisibleAssistantToken(text: string) {
+    if (!text) return;
+    openTokenHeaderIfNeeded();
+    process.stdout.write(colorize(text, currentAgentId, currentAgentName));
+  }
+
+  function handleAssistantTokenChunk(deltaText: string) {
+    if (!deltaText) return;
+    if (bufferingBracketToolCall) {
+      bracketToolBuffer += deltaText;
+      return;
+    }
+
+    const markerIndex = deltaText.toLowerCase().indexOf('[tool:');
+    if (markerIndex === -1) {
+      writeVisibleAssistantToken(deltaText);
+      return;
+    }
+
+    const visiblePrefix = deltaText.slice(0, markerIndex);
+    if (visiblePrefix) {
+      writeVisibleAssistantToken(visiblePrefix);
+    }
+
+    bufferingBracketToolCall = true;
+    bracketToolBuffer += deltaText.slice(markerIndex);
+  }
+
+  function flushBracketToolBufferFallbackIfNeeded() {
+    if (!bufferingBracketToolCall) return;
+    const buffered = bracketToolBuffer;
+    bufferingBracketToolCall = false;
+    bracketToolBuffer = '';
+    if (bracketToolRenderedViaEvent) return;
+    if (!buffered.trim()) return;
+    writeVisibleAssistantToken(buffered);
+  }
+
   try {
-    startSpinner();
     for await (const event of client.streamInteraction(
       {
         command: 'chat',
@@ -476,7 +778,7 @@ export async function renderChat(
         },
       },
       {
-        ...createChatQuestionResponders(abortControl.signal, startSpinner),
+        ...createChatQuestionResponders(abortControl.signal, startSpinner, stopSpinner),
         signal: abortControl.signal,
         logger:
           mediatorLoggerEnabled || frontendFileLogEnabled
@@ -504,25 +806,24 @@ export async function renderChat(
       }
     )) {
       if (event.kind === 'token') {
-        if (!tokenBurstOpen) {
-          stopSpinner();
-          const agentName = currentAgentName || currentAgentId || 'Agent';
-          const title = currentAgentRole ? `${agentName} (${currentAgentRole})` : agentName;
-          const styledTitle = agentChalk(currentAgentId, currentAgentName).bold(title);
-          process.stdout.write(`\n${styledTitle}${chalk.dim(' → ')}${developerDisplayName}: `);
-          tokenBurstOpen = true;
-        }
+        stopSpinner();
         // Always write tokens to stdout — same stream as readline's prompt,
         // guaranteeing correct ordering on Windows (ConPTY merges stdout/stderr
         // but they may flush in non-deterministic order).
-        process.stdout.write(colorize(event.text, currentAgentId, currentAgentName));
+        handleAssistantTokenChunk(event.text);
         continue;
       }
 
       tokenBurstOpen = false;
 
+      if (event.kind === 'done') {
+        flushBracketToolBufferFallbackIfNeeded();
+        continue;
+      }
+
       if (event.kind === 'aborted') {
         stopSpinner();
+        flushBracketToolBufferFallbackIfNeeded();
         writeStderrLine(chalk.yellow('Chat aborted.'));
         process.exitCode = 130;
         return;
@@ -555,11 +856,21 @@ export async function renderChat(
       if (event.kind === 'tool') {
         stopSpinner();
         const phase = event.toolPhase || 'event';
+        if (
+          bufferingBracketToolCall &&
+          (phase === 'result' || phase === 'error' || phase === 'denied')
+        ) {
+          bracketToolRenderedViaEvent = true;
+          bufferingBracketToolCall = false;
+          bracketToolBuffer = '';
+        }
         const formatted = formatToolEventMessage(event as unknown as Record<string, unknown>);
         const suffix = formatted ? chalk.gray(` — ${formatted}`) : '';
         writeStderrLine(
           `${chalk.cyan(`[backend:tool:${phase}]`)} ${chalk.white(event.toolName)}${suffix}`
         );
+        const detail = formatToolEventDetail(event as unknown as Record<string, unknown>);
+        if (detail) writeStderrLine(detail);
         continue;
       }
 
@@ -624,6 +935,7 @@ export async function renderChat(
 
       if (event.kind === 'error') {
         stopSpinner();
+        flushBracketToolBufferFallbackIfNeeded();
         if (abortControl.wasAborted() || isAbortLikeError(event.message)) {
           writeStderrLine(chalk.yellow('Chat aborted.'));
           process.exitCode = 130;
@@ -638,6 +950,7 @@ export async function renderChat(
     }
   } catch (error) {
     if (abortControl.wasAborted() || isAbortLikeError(error)) {
+      flushBracketToolBufferFallbackIfNeeded();
       writeStderrLine(chalk.yellow('Chat aborted.'));
       process.exitCode = 130;
       return;

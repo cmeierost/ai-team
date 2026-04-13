@@ -54,4 +54,10 @@ export interface OrchestratorContext {
 
   /** Workspace instruction files loaded from `.ai-team/instructions/`. */
   instructions?: InstructionFile[];
+
+  /**
+   * Output from the last user-invoked slash command (/run, /tool).
+   * Not automatically added to LLM context — use /context add to inject it.
+   */
+  lastManualOutput?: string;
 }

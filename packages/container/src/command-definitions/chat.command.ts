@@ -29,6 +29,9 @@ export const chatCommandDefinition = createFactoryCommandDefinition(
       emit: context.emit,
       questionInput: context.questionInput,
       questionConfirm: context.questionConfirm,
+      questionSelect: context.questionSelect,
+      questionPassword: context.questionPassword,
+      questionChecklist: context.questionChecklist,
       workflowState: context.workflowState,
       onWorkflowFrame: context.onWorkflowFrame,
     });

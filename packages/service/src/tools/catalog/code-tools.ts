@@ -279,8 +279,8 @@ function formatLspForLlm(r: LspFormatInput): unknown {
     const lines = diags.map((d) => `${d.path}:${d.line} [${d.severity}] ${d.message}`);
     return `${op}${diags.length} diagnostics\n\n${lines.join('\n')}`;
   }
-  // hover / error / message passthrough
-  return r;
+  // hover / error / message passthrough — serialise to string so serialise() gets a string
+  return JSON.stringify(r, null, 2);
 }
 
 /**
@@ -394,7 +394,7 @@ export const analyzeComplexityTool: AgentTool = {
       });
       return `${r.filePath}  ${r.functions.length} functions\n\n${lines.join('\n')}`;
     }
-    return result;
+    return JSON.stringify(result, null, 2);
   },
   parameters: z.object({
     filePath: z.string().describe('File path to analyze'),
