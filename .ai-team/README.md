@@ -7,6 +7,7 @@ This directory contains your virtual AI development team configuration.
 - `agents/` - Individual team members
 - `roles/` - Role templates/skills
 - `features/` - Feature teams and assignments
+- `tasks/` - Local long-running backlog for architecture transitions and planned features
 - `meetings/` - Meeting summaries (committed to git)
 - `private/` - Private chat logs (gitignored)
 - `avatars/` - AI-generated team member avatars

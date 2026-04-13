@@ -5,11 +5,11 @@
 import { format as formatMessage } from 'util';
 import type { ChatMessage } from '@ai-team/infrastructure';
 import type { ChatRuntimeHooks } from './hooks.js';
-import type { MediatorRuntimeEvent } from '@ai-team/api-client';
+import type { RuntimeStreamEvent } from '@ai-team/api-client';
 
 export function emitRuntimeEvent(
   hooks: ChatRuntimeHooks | undefined,
-  event: MediatorRuntimeEvent
+  event: RuntimeStreamEvent
 ): void {
   hooks?.emit?.(event);
 }

@@ -22,6 +22,7 @@ import {
   ContextRuntime,
   ChatManager,
   ChatStorage,
+  type CliCommandMetadata,
   type Agent,
 } from '@ai-team/infrastructure';
 import {
@@ -42,7 +43,10 @@ import {
   buildDefaultHookPlugins,
   buildDefaultTurnResultParsers,
   buildDefaultSlashCommands,
+  COMMAND_DEFINITION_REGISTRY_TOKEN,
+  createCommandDefinitionRegistry,
   type IMessageStorage,
+  type IInteractionService,
   SystemService,
   AgentsService,
   TeamService,
@@ -60,8 +64,8 @@ import {
   CommandsService,
   AccessService,
 } from '@ai-team/service';
+import { registerDefaultCommandDefinitions } from './command-definitions/index.js';
 import { Token } from './token.js';
-import type { IAiTeamMediator } from '@ai-team/api-client';
 
 export const SERVERTokens = {} as const;
 
@@ -70,7 +74,7 @@ export const EXCHANGABLE_TOKENS = {} as const;
 export const TOKENS = {
   // ── Exchangable ───────────────────────────────────────────────────────
   ApiBaseUrl: new Token<string>('ApiBaseUrl'),
-  AiTeamMediator: new Token<IAiTeamMediator>('IAiTeamMediator'),
+  InteractionService: new Token<IInteractionService>('IInteractionService'),
 
   // ── Core infrastructure ─────────────────────────────────────────────────
   WorkspaceRoot: new Token<string>('WorkspaceRoot'),
@@ -121,16 +125,15 @@ export const TOKENS = {
   HookPlugins: new Token<IOrchestratorHookPlugin[]>('IOrchestratorHookPlugin[]'),
 } as const;
 
-export type ServiceBootstrapTypes = ContainerTokenValueMap<typeof TOKENS>;
+export const COMMAND_METADATA_BY_KEY = new Token<Map<string, CliCommandMetadata>>(
+  'CommandMetadataByKey'
+);
 
-export type TransportAdapterFactory = (
-  container: ServiceContainer<ServiceBootstrapTypes>
-) => IAiTeamMediator;
+export type ServiceBootstrapTypes = ContainerTokenValueMap<typeof TOKENS>;
 
 export interface ServiceBootstrapConfig {
   workspaceRoot: string;
   apiBaseUrl?: string;
-  transportAdapterFactory: TransportAdapterFactory;
 }
 
 export type ServiceBootstrapTokens<T extends ServiceBootstrapTypes = ServiceBootstrapTypes> = {
@@ -207,8 +210,11 @@ function registerBaseServices(
   c.registerSingleton(tokens.SlashCommands, () => buildDefaultSlashCommands());
   c.registerSingleton(tokens.TurnResultParsers, () => buildDefaultTurnResultParsers());
   c.registerSingleton(tokens.HookPlugins, () => buildDefaultHookPlugins());
-
-  c.registerSingleton(tokens.AiTeamMediator, (c) => cfg.transportAdapterFactory(c));
+  c.registerSingleton(COMMAND_DEFINITION_REGISTRY_TOKEN, () => {
+    const registry = createCommandDefinitionRegistry();
+    registerDefaultCommandDefinitions(registry);
+    return registry;
+  });
 
   // ── HTTP route services (lazily resolved; server overrides ApiBaseUrl) ──
   c.registerSingleton(
@@ -229,7 +235,7 @@ function registerBaseServices(
     tokens.ChatService,
     (c) =>
       new ChatService(
-        c.resolve(tokens.AiTeamMediator),
+        c.resolve(tokens.InteractionService),
         c.resolve(tokens.SessionManager),
         c.resolve(tokens.ChatManager),
         c.resolve(tokens.ChatStorage)
@@ -237,7 +243,12 @@ function registerBaseServices(
   );
   c.registerSingleton(
     tokens.SessionsService,
-    (c) => new SessionsService(c.resolve(tokens.SessionManager), c.resolve(tokens.AgentManager))
+    (c) =>
+      new SessionsService(
+        c.resolve(tokens.SessionManager),
+        c.resolve(tokens.AgentManager),
+        c.resolve(tokens.LlmService)
+      )
   );
   c.registerSingleton(
     tokens.ArtifactsService,

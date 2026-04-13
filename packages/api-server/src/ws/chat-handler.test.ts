@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { IAiTeamMediator, MediatorContext, MediatorRequest } from '@ai-team/api-client';
+import type { InteractionContext, InteractionRequest } from '@ai-team/api-client';
+import type { IInteractionService } from '@ai-team/service';
 import { setupChatWebSocket } from './chat-handler.js';
 
 class MockWebSocket {
@@ -40,9 +41,9 @@ function flushAsync(): Promise<void> {
 describe('setupChatWebSocket', () => {
   it('forwards non-confirm questions over the websocket and resumes streaming after an answer', async () => {
     const ws = new MockWebSocket();
-    const streamInteraction = vi.fn(async function* (
-      _request: MediatorRequest<'chat'>,
-      context: MediatorContext = {}
+    const stream = vi.fn(async function* (
+      _request: InteractionRequest<'chat'>,
+      context: InteractionContext = {}
     ) {
       const selection = await context.questionSelect?.({
         message: 'Choose a teammate',
@@ -66,13 +67,17 @@ describe('setupChatWebSocket', () => {
       };
     });
 
-    const client: IAiTeamMediator = {
-      streamChat: vi.fn(),
-      invokeTool: vi.fn(),
-      streamInteraction,
+    const interactionService: IInteractionService = {
+      stream,
     };
 
-    await setupChatWebSocket(ws as unknown as any, 'michael-brown', client, {} as any, null);
+    await setupChatWebSocket(
+      ws as unknown as any,
+      'michael-brown',
+      interactionService,
+      {} as any,
+      null
+    );
 
     expect(ws.sent[0]).toMatchObject({ type: 'ready' });
 
@@ -108,7 +113,7 @@ describe('setupChatWebSocket', () => {
 
     await flushAsync();
 
-    expect(streamInteraction).toHaveBeenCalledOnce();
+    expect(stream).toHaveBeenCalledOnce();
     expect(ws.sent).toContainEqual({
       type: 'mediator',
       data: expect.objectContaining({

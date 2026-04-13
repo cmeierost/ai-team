@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type React from 'react';
-import type { Agent, AvatarConfig } from '../../types';
+import type { Agent } from '../../types';
 import { Avatar } from '../Avatar';
 import { getAgentHue, getAgentColorHex } from '../../utils/color';
 import { CONTEXT_LABELS, TYPE_LABELS } from './portfolioShared';

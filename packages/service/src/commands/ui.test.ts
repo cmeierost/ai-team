@@ -87,6 +87,61 @@ describe('runUiCommand', () => {
 
   it('starts API and web when API is not running', async () => {
     netApi.createConnection.mockReturnValue(createMockSocket('error'));
+    childProcessApi.spawn
+      .mockImplementationOnce((_command: string, _args: string[]) => {
+        const child = new EventEmitter();
+        queueMicrotask(() => {
+          child.emit('exit', 0, null);
+        });
+        return child;
+      })
+      .mockImplementationOnce((_command: string, _args: string[]) => {
+        const child = new EventEmitter();
+        queueMicrotask(() => {
+          child.emit('exit', 0, null);
+        });
+        return child;
+      });
+
+    await runUiCommand('c:/workspace-root');
+
+    expect(workspaceApi.findWorkspaceRoot).toHaveBeenCalledWith('c:/workspace-root');
+    expect(childProcessApi.spawn).toHaveBeenCalledTimes(2);
+    const [, apiArgs] = childProcessApi.spawn.mock.calls[0] as [string, string[]];
+    const [, webArgs] = childProcessApi.spawn.mock.calls[1] as [string, string[]];
+    expect(apiArgs).toEqual(['--filter', '@ai-team/api-server', 'dev']);
+    expect(webArgs).toEqual(['--filter', '@ai-team/web', 'dev']);
+  });
+
+  it('starts API and web when includeApi is true even if API is already running', async () => {
+    netApi.createConnection.mockReturnValue(createMockSocket('connect'));
+    childProcessApi.spawn
+      .mockImplementationOnce((_command: string, _args: string[]) => {
+        const child = new EventEmitter();
+        queueMicrotask(() => {
+          child.emit('exit', 0, null);
+        });
+        return child;
+      })
+      .mockImplementationOnce((_command: string, _args: string[]) => {
+        const child = new EventEmitter();
+        queueMicrotask(() => {
+          child.emit('exit', 0, null);
+        });
+        return child;
+      });
+
+    await runUiCommand('c:/workspace-root', { includeApi: true });
+
+    expect(netApi.createConnection).not.toHaveBeenCalled();
+    expect(childProcessApi.spawn).toHaveBeenCalledTimes(2);
+    const [, apiArgs] = childProcessApi.spawn.mock.calls[0] as [string, string[]];
+    const [, webArgs] = childProcessApi.spawn.mock.calls[1] as [string, string[]];
+    expect(apiArgs).toEqual(['--filter', '@ai-team/api-server', 'dev']);
+    expect(webArgs).toEqual(['--filter', '@ai-team/web', 'dev']);
+  });
+
+  it('starts only web with custom server url and injects env override', async () => {
     childProcessApi.spawn.mockImplementation((_command: string, _args: string[]) => {
       const child = new EventEmitter();
       queueMicrotask(() => {
@@ -95,11 +150,26 @@ describe('runUiCommand', () => {
       return child;
     });
 
-    await runUiCommand('c:/workspace-root');
+    await runUiCommand('c:/workspace-root', { serverUrl: 'http://localhost:4111' });
 
-    expect(workspaceApi.findWorkspaceRoot).toHaveBeenCalledWith('c:/workspace-root');
-    const [, args] = childProcessApi.spawn.mock.calls[0] as [string, string[]];
-    expect(args).toEqual(['--filter', '@ai-team/api-server', '--filter', '@ai-team/web', '--parallel', 'dev']);
+    expect(netApi.createConnection).not.toHaveBeenCalled();
+    const [, args, spawnOptions] = childProcessApi.spawn.mock.calls[0] as [
+      string,
+      string[],
+      { cwd: string; stdio: string; env: Record<string, string | undefined> },
+    ];
+    expect(args).toEqual(['--filter', '@ai-team/web', 'dev']);
+    expect(spawnOptions.env.VITE_AI_TEAM_API_BASE).toBe('http://localhost:4111');
+  });
+
+  it('throws validation error for invalid server url', async () => {
+    await expect(
+      runUiCommand('c:/workspace-root', { serverUrl: 'not-a-url' })
+    ).rejects.toMatchObject({
+      code: 'VALIDATION',
+    });
+
+    expect(childProcessApi.spawn).not.toHaveBeenCalled();
   });
 
   it('returns unavailable when process spawn fails', async () => {

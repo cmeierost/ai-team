@@ -206,6 +206,10 @@ export interface IAgentsService {
     body: { targetAgentId: string; context?: string }
   ): Promise<{ prompt: string }>;
   getSlashCommands(id: string): Promise<ChatCommandRegistryEntry[]>;
+  introduction(
+    id: string,
+    query?: { developerName?: string }
+  ): Promise<{ agentId: string; content: string; timestamp: string }>;
 }
 
 export const agentsDesc: ApiDescription<IAgentsService> = {
@@ -224,5 +228,6 @@ export const agentsDesc: ApiDescription<IAgentsService> = {
     getFiles: { method: 'GET', path: ':id/files' },
     generateHandoffPrompt: { method: 'POST', path: ':id/handoff-prompt' },
     getSlashCommands: { method: 'GET', path: ':id/slash-commands' },
+    introduction: { method: 'GET', path: ':id/introduction' },
   },
 };

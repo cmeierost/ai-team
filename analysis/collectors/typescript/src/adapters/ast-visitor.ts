@@ -9,10 +9,8 @@
 
 import ts from 'typescript';
 import * as path from 'node:path';
-import { readFile } from 'node:fs/promises';
 import type {
   Entity,
-  Classification,
   RawCounts,
   NestingContribution,
   HalsteadCounts,
@@ -1164,31 +1162,6 @@ function detectOverriddenMethods(
 }
 
 // ── Halstead helpers (simplified) ───────────────────────────────────────────
-
-const OPERATOR_KEYWORDS = new Set([
-  ts.SyntaxKind.IfKeyword,
-  ts.SyntaxKind.ElseKeyword,
-  ts.SyntaxKind.ForKeyword,
-  ts.SyntaxKind.WhileKeyword,
-  ts.SyntaxKind.DoKeyword,
-  ts.SyntaxKind.ReturnKeyword,
-  ts.SyntaxKind.SwitchKeyword,
-  ts.SyntaxKind.CaseKeyword,
-  ts.SyntaxKind.BreakKeyword,
-  ts.SyntaxKind.ContinueKeyword,
-  ts.SyntaxKind.ThrowKeyword,
-  ts.SyntaxKind.TryKeyword,
-  ts.SyntaxKind.CatchKeyword,
-  ts.SyntaxKind.FinallyKeyword,
-  ts.SyntaxKind.NewKeyword,
-  ts.SyntaxKind.DeleteKeyword,
-  ts.SyntaxKind.TypeOfKeyword,
-  ts.SyntaxKind.VoidKeyword,
-  ts.SyntaxKind.InstanceOfKeyword,
-  ts.SyntaxKind.InKeyword,
-  ts.SyntaxKind.ConstKeyword,
-  ts.SyntaxKind.LetKeyword,
-]);
 
 function collectHalsteadOperatorCount(
   n: ts.Node,

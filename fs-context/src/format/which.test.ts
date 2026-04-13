@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { which, clearWhichCache } from './which.js';
-import { promisify } from 'node:util';
 
 // State shared between mock and test code.
 const state = { stdout: '', reject: false, error: new Error('not found') };
@@ -9,8 +8,6 @@ let lastArgs: any[] = [];
 
 // vi.mock factory is hoisted above imports, so we use Symbol.for to reference
 // util.promisify.custom without importing 'node:util' inside the factory.
-const customSymbol = Symbol.for('nodejs.util.promisify.custom');
-
 vi.mock('node:child_process', () => {
   const fn: any = vi.fn();
   fn[Symbol.for('nodejs.util.promisify.custom')] = async (...args: any[]) => {

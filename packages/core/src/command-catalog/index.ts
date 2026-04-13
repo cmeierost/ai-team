@@ -14,7 +14,9 @@ export interface CliCommandMetadata {
   command: string;
   description: string;
   llmCallable: boolean;
+  directCli?: boolean;
   parentKey?: string;
+  aliases?: string[];
   options?: CommandOptionMetadata[];
   arguments?: CommandArgumentMetadata[];
 }

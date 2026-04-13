@@ -410,12 +410,6 @@ function buildPatternReport(patternReport: PatternPermissionOverlapReport): Patt
   };
 }
 
-function buildAllowPaths(config: Awaited<ReturnType<typeof loadTeamConfig>>): string[] {
-  return Array.from(
-    new Set([...(config?.fileTree?.readPaths ?? []), ...(config?.fileTree?.writePaths ?? [])])
-  );
-}
-
 function mergeUniquePatterns(...groups: ReadonlyArray<readonly string[]>): string[] {
   return [
     ...new Set(

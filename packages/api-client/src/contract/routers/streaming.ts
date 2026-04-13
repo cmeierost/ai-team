@@ -1,5 +1,16 @@
-import { WebSocketStreamOptions } from '../../websocket';
-import { Agent, ContextLevel, ListEmployeesRequest, RoleType } from './agents';
+import {
+  DoIHavePermissionResponse,
+  FilePermission,
+  PermissionOverlapReport,
+  WhoHasPermissionResponse,
+} from './access';
+import {
+  Agent,
+  ContextLevel,
+  ListEmployeesRequest,
+  RoleType,
+  SearchAgentsResponse,
+} from './agents';
 import { LlmProfile } from './config';
 import {
   AddProviderOptions,
@@ -11,8 +22,17 @@ import {
   TestConnectionOptions,
 } from './llm';
 import { GraphData, ViewMode } from './team';
+import { SearchSkillsResponse, UpdateAgentSkillResponse } from './skills';
+import { ListToolsResponse, UpdateAgentToolResponse } from './tools';
 
+/**
+ * Command names available for service-layer dispatch.
+ *
+ * Service commands are callable from CLI, chat, and tools depending on
+ * their `availableIn` flags in the command registry.
+ */
 export type AiTeamCommandName =
+  // ── Service commands (CLI + chat + tool) ──────────────────────────────────
   | 'listEmployees'
   | 'resolveEmployees'
   | 'getTeamGraph'
@@ -22,6 +42,9 @@ export type AiTeamCommandName =
   | 'hire'
   | 'fire'
   | 'init'
+  | 'setup'
+  | 'onboard'
+  | 'systemStatus'
   | 'hhRefresh'
   | 'providerConfigure'
   | 'providerAdd'
@@ -29,9 +52,50 @@ export type AiTeamCommandName =
   | 'providerList'
   | 'providerModels'
   | 'providerModelsRefresh'
-  | 'testConnection';
+  | 'testConnection'
+  | 'avatar'
+  // ── Access commands ────────────────────────────────────────────────────────
+  | 'accessWho'
+  | 'accessCan'
+  | 'accessOverlap'
+  // ── Search & skills commands ────────────────────────────────────────────────
+  | 'searchAgents'
+  | 'skillsList'
+  | 'skillsAdd'
+  | 'skillsRemove'
+  // ── Tools commands ───────────────────────────────────────────────────────
+  | 'toolsList'
+  | 'toolsAllow'
+  | 'toolsDeny'
+  // ── Files commands ───────────────────────────────────────────────────────
+  | 'filesTree'
+  | 'filesPatterns'
+  | 'filesAllow'
+  | 'filesDeny'
+  // ── Utility commands ────────────────────────────────────────────────────────
+  | 'systemInfo'
+  | 'dbStatus'
+  | 'dbMigrate'
+  | 'codeEditList'
+  | 'codeEditApprove'
+  | 'codeEditReject'
+  | 'codeEditApply'
+  | 'patchApply'
+  // ── Chat-only slash commands ──────────────────────────────────────────────
+  | 'help'
+  | 'who'
+  | 'session'
+  | 'new'
+  | 'history'
+  | 'portfolio'
+  | 'info'
+  | 'overview'
+  | 'graph'
+  | 'run'
+  | 'tool'
+  | 'back';
 
-export type MediatorRuntimeEvent =
+export type RuntimeStreamEvent =
   | {
       kind: 'status';
       phase?: string;
@@ -114,7 +178,96 @@ export type MediatorRuntimeEvent =
       handoffNote?: string;
       /** LLM-generated briefing written in the FROM agent's voice */
       briefingContent?: string;
+    }
+  | {
+      kind: 'avatar-preview';
+      agentId: string;
+      agentName: string;
+      previewPath: string;
+      /** Base64-encoded image data for web clients that cannot access the file system */
+      imageBase64?: string;
     };
+
+export interface AvatarOptions {
+  agentQuery: string;
+}
+
+// ── Files command response types ─────────────────────────────────────────────
+
+export interface FileTreeNode {
+  name: string;
+  path: string;
+  relativePath: string;
+  isDirectory: boolean;
+  children?: FileTreeNode[];
+  size?: number;
+  modified?: string;
+}
+
+export interface FilesTreeResponse {
+  workspaceRoot: string;
+  tree?: FileTreeNode;
+  /** Agent-scoped annotated file list (present when agent is specified) */
+  agent?: { id: string; name: string; role: string };
+  annotatedFiles?: Array<{ path: string; readable: boolean; writable: boolean }>;
+  writeableFiles?: string[];
+  readPatterns?: string[];
+  writePatterns?: string[];
+  maxDepth: number;
+  includeHidden: boolean;
+  ignoreGitignore: boolean;
+}
+
+export interface FilesPatternsResponse {
+  global: { read: string[]; write: string[] };
+  agent?: { id: string; name: string; role: string };
+  agentPatterns?: { read: string[]; write: string[] };
+}
+
+// ── Utility command response types ───────────────────────────────────────────
+
+export interface SystemInfoResponse {
+  workspace: string;
+  branch: string | null;
+  package: { name: string | null; version: string | null; description: string | null } | null;
+}
+
+export interface DbStatusResponse {
+  schemaVersion: number;
+  totalSessions: number;
+  totalMessages: number;
+  storageSizeBytes?: number;
+  dbPath: string;
+}
+
+export interface DbMigrateResponse {
+  applied: number;
+  schemaVersion: number;
+}
+
+export interface CodeEditProposalSummary {
+  id: string;
+  description: string;
+  agentName: string;
+  status: string;
+  timestamp: string;
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+  files: string[];
+}
+
+export interface CodeEditListResponse {
+  proposals: CodeEditProposalSummary[];
+  stats: {
+    total: number;
+    pending: number;
+    approved: number;
+    applied: number;
+    rejected: number;
+    failed: number;
+  };
+}
 
 export interface CreateSkillSetupInput {
   kind: 'skill';
@@ -145,9 +298,6 @@ export interface ChatOptions {
   createNewSession?: boolean; // Force create new session instead of resuming latest
   addAgentToSession?: string; // Add another agent to this session (multi-agent mode)
 
-  /** @deprecated No longer used. Messages are always persisted to SQLite via SessionManager. */
-  skipPersistence?: boolean;
-
   /**
    * Introduction text already displayed by the client (e.g. web UI). When provided on an empty-history
    * session, the introduction is persisted (with importance: 'low') immediately before the first user
@@ -174,6 +324,22 @@ export interface InitOptions {
   force?: boolean;
 }
 
+export interface SetupOptions {
+  /** Force re-setup even if LLM is already configured */
+  force?: boolean;
+}
+
+export interface OnboardOptions {
+  /** Template to use for onboarding */
+  template?: string;
+}
+
+export interface SystemStatus {
+  initialized: boolean;
+  hasLlmConfig: boolean;
+  hasAgents: boolean;
+}
+
 export interface AiTeamCommandPayloadMap {
   listEmployees: ListEmployeesRequest;
   resolveEmployees: { query: string };
@@ -184,6 +350,9 @@ export interface AiTeamCommandPayloadMap {
   hire: { options: HireOptions };
   fire: { employeeQuery: string; options: FireOptions };
   init: { options: InitOptions };
+  setup: { options?: SetupOptions };
+  onboard: { options?: OnboardOptions };
+  systemStatus: Record<string, never>;
   hhRefresh: Record<string, never>;
   providerConfigure: { options?: ConfigureProviderOptions };
   providerAdd: { options?: AddProviderOptions };
@@ -192,14 +361,118 @@ export interface AiTeamCommandPayloadMap {
   providerModels: { options: ProviderModelsOptions };
   providerModelsRefresh: { options: RefreshProviderModelsOptions };
   testConnection: { options?: TestConnectionOptions };
+  avatar: { options: AvatarOptions };
+  // ── Access commands ────────────────────────────────────────────────────────
+  accessWho: { path: string; right?: FilePermission };
+  accessCan: { path: string; right?: FilePermission; agent?: string };
+  accessOverlap: { mode?: 'files' | 'patterns'; right?: FilePermission; agent?: string };
+  // ── Search & skills commands ────────────────────────────────────────────────
+  searchAgents: {
+    query?: string;
+    role?: string | string[];
+    type?: string | string[];
+    status?: string | string[];
+    feature?: string | string[];
+    specialization?: string | string[];
+    tool?: string | string[];
+    reportsTo?: string;
+    contextLevel?: string | string[];
+  };
+  skillsList: { query?: string; agent?: string };
+  skillsAdd: { agent: string; skill: string };
+  skillsRemove: { agent: string; skill: string };
+  // ── Tools commands ───────────────────────────────────────────────────────
+  toolsList: { agent?: string };
+  toolsAllow: { agent: string; tool: string; requestedBy?: string; approvedByUser?: boolean };
+  toolsDeny: { agent: string; tool: string; requestedBy?: string; approvedByUser?: boolean };
+  // ── Files commands ───────────────────────────────────────────────────────
+  filesTree: {
+    agent?: string;
+    depth?: number;
+    all?: boolean;
+    noGitignore?: boolean;
+    writeable?: boolean;
+  };
+  filesPatterns: { agent?: string };
+  filesAllow: {
+    path: string;
+    agent?: string;
+    mode?: string;
+    requestedBy?: string;
+    approvedByUser?: boolean;
+  };
+  filesDeny: {
+    path: string;
+    agent?: string;
+    mode?: string;
+    requestedBy?: string;
+    approvedByUser?: boolean;
+  };
+  // ── Utility commands ────────────────────────────────────────────────────────
+  systemInfo: Record<string, never>;
+  dbStatus: Record<string, never>;
+  dbMigrate: Record<string, never>;
+  codeEditList: { status?: string; agent?: string };
+  codeEditApprove: { proposalId: string };
+  codeEditReject: { proposalId: string; reason?: string };
+  codeEditApply: { proposalId: string };
+  patchApply: { file: string; changes: Array<{ line: number; content: string }> };
+  // ── Chat-only slash commands ──────────────────────────────────────────────
+  help: Record<string, never>;
+  who: Record<string, never>;
+  session: Record<string, never>;
+  new: Record<string, never>;
+  history: { limit?: number };
+  portfolio: Record<string, never>;
+  info: { query: string };
+  overview: Record<string, never>;
+  graph: Record<string, never>;
+  run: { command: string };
+  tool: { toolName: string; args?: unknown };
+  back: Record<string, never>;
 }
 
-export interface MediatorRequest<
+export interface InteractionRequest<
   TCommand extends keyof AiTeamCommandPayloadMap = keyof AiTeamCommandPayloadMap,
 > {
   requestId?: string;
   command: TCommand;
   payload: AiTeamCommandPayloadMap[TCommand];
+}
+
+// ── Command Dispatcher ────────────────────────────────────────────────────────
+
+/** Where a command is available. */
+export interface CommandAvailability {
+  cli?: boolean;
+  chat?: boolean;
+  tool?: boolean;
+}
+
+/** Read-only descriptor exposed by the dispatcher for discovery. */
+export interface CommandDescriptor {
+  key: AiTeamCommandName;
+  aliases?: string[];
+  description: string;
+  usage?: string;
+  availableIn: CommandAvailability;
+}
+
+/**
+ * Service-layer command dispatch interface.
+ *
+ * Both CLI and browser clients delegate here to execute commands by typed
+ * payload. Chat slash commands are also routed through this interface, making
+ * every command callable as `{ command, payload }`.
+ */
+export interface ICommandDispatcher {
+  dispatch<TCommand extends AiTeamCommandName>(
+    request: InteractionRequest<TCommand>,
+    context?: InteractionContext
+  ): Promise<AiTeamCommandResponseMap[TCommand]>;
+
+  getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[];
+  getCommand(key: AiTeamCommandName): CommandDescriptor | undefined;
 }
 
 export interface ToolRuntimePayloadEvent {
@@ -211,7 +484,7 @@ export interface ToolRuntimePayloadEvent {
   denial?: ToolDenialEvent;
 }
 
-export type MediatorEvent<
+export type StreamEvent<
   TCommand extends AiTeamCommandName & keyof AiTeamCommandResponseMap = AiTeamCommandName,
 > =
   | {
@@ -331,6 +604,16 @@ export type MediatorEvent<
   | {
       requestId?: string;
       command: TCommand;
+      kind: 'avatar-preview';
+      timestamp: string;
+      agentId: string;
+      agentName: string;
+      previewPath: string;
+      imageBase64?: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
       kind: 'result';
       timestamp: string;
       data: AiTeamCommandResponseMap[TCommand];
@@ -423,14 +706,8 @@ export interface WorkflowStateSnapshot {
   answers: Record<string, QuestionAnswerValue>;
 }
 
-export interface MediatorContext {
-  signal?: AbortSignal;
-  emit?: (event: MediatorRuntimeEvent) => void;
-  questionInput?: (request: QuestionInputRequest) => Promise<string>;
-  questionConfirm?: (request: QuestionConfirmRequest) => Promise<boolean>;
-  questionSelect?: (request: QuestionSelectRequest) => Promise<string>;
-  questionPassword?: (request: QuestionPasswordRequest) => Promise<string>;
-  questionChecklist?: (request: QuestionChecklistRequest) => Promise<string[]>;
+export interface InteractionContext extends IQuestionContext {
+  emit?: (event: RuntimeStreamEvent) => void;
   workflowState?: WorkflowStateSnapshot;
   onWorkflowFrame?: (frame: WorkflowFrame) => void;
   logger?: (entry: { channel: 'runtime' | 'stream'; event: unknown }) => void;
@@ -523,6 +800,9 @@ export interface AiTeamCommandResponseMap {
   hire: void;
   fire: void;
   init: void;
+  setup: void;
+  onboard: void;
+  systemStatus: SystemStatus;
   hhRefresh: void;
   providerConfigure: void;
   providerAdd: void;
@@ -531,6 +811,47 @@ export interface AiTeamCommandResponseMap {
   providerModels: void;
   providerModelsRefresh: void;
   testConnection: void;
+  avatar: void;
+  // ── Access commands ────────────────────────────────────────────────────────
+  accessWho: WhoHasPermissionResponse;
+  accessCan: DoIHavePermissionResponse;
+  accessOverlap: PermissionOverlapReport;
+  // ── Search & skills commands ────────────────────────────────────────────────
+  searchAgents: SearchAgentsResponse;
+  skillsList: SearchSkillsResponse;
+  skillsAdd: UpdateAgentSkillResponse;
+  skillsRemove: UpdateAgentSkillResponse;
+  // ── Tools commands ───────────────────────────────────────────────────────
+  toolsList: ListToolsResponse;
+  toolsAllow: UpdateAgentToolResponse;
+  toolsDeny: UpdateAgentToolResponse;
+  // ── Files commands ───────────────────────────────────────────────────────
+  filesTree: FilesTreeResponse;
+  filesPatterns: FilesPatternsResponse;
+  filesAllow: { paths: string[] };
+  filesDeny: { paths: string[] };
+  // ── Utility commands ────────────────────────────────────────────────────────
+  systemInfo: SystemInfoResponse;
+  dbStatus: DbStatusResponse;
+  dbMigrate: DbMigrateResponse;
+  codeEditList: CodeEditListResponse;
+  codeEditApprove: { proposalId: string };
+  codeEditReject: { proposalId: string };
+  codeEditApply: { proposalId: string; files: string[] };
+  patchApply: { proposalId: string; patchedLines: number };
+  // ── Chat-only slash commands ──────────────────────────────────────────────
+  help: void;
+  who: void;
+  session: void;
+  new: void;
+  history: void;
+  portfolio: void;
+  info: void;
+  overview: void;
+  graph: void;
+  run: void;
+  tool: void;
+  back: void;
 }
 
 export interface ToolDenialEvent {
@@ -546,20 +867,66 @@ export interface ToolDenialEvent {
   };
 }
 
-export interface IAiTeamMediator {
-  streamChat<TCommand extends AiTeamCommandName>(
-    agentId: string,
-    message: string,
-    options: Omit<WebSocketStreamOptions, 'url'> & { sessionId?: string }
-  ): AsyncIterable<MediatorEvent<TCommand>>;
+// ─── Streaming client (browser / transport) ───────────────────────────────────
 
-  invokeTool<TCommand extends AiTeamCommandName>(
-    request: MediatorRequest<TCommand>,
-    context?: MediatorContext
-  ): Promise<AiTeamCommandResponseMap[TCommand]>;
+/**
+ * Map of question event names to their typed handler signatures.
+ */
+export type QuestionHandlerMap = {
+  questionInput: (request: QuestionInputRequest) => Promise<string>;
+  questionConfirm: (request: QuestionConfirmRequest) => Promise<boolean>;
+  questionSelect: (request: QuestionSelectRequest) => Promise<string>;
+  questionPassword: (request: QuestionPasswordRequest) => Promise<string>;
+  questionChecklist: (request: QuestionChecklistRequest) => Promise<string[]>;
+};
 
-  streamInteraction<TCommand extends AiTeamCommandName>(
-    request: MediatorRequest<TCommand>,
-    context?: MediatorContext
-  ): AsyncIterable<MediatorEvent<TCommand>>;
+export type QuestionEventName = keyof QuestionHandlerMap;
+
+/**
+ * A stream of interaction events with typed `.on()` registration for
+ * question handlers.
+ *
+ * Handlers registered via `.on()` are collected before iteration begins.
+ * When the underlying transport encounters a question, it invokes the
+ * matching handler.
+ *
+ * ```ts
+ * const stream = client.stream(request)
+ *   .on('questionInput', handler)
+ *   .on('questionConfirm', handler);
+ * for await (const event of stream) { ... }
+ * ```
+ */
+export interface IInteractionStream<TCommand extends AiTeamCommandName> extends AsyncIterable<
+  StreamEvent<TCommand>
+> {
+  on<K extends QuestionEventName>(event: K, handler: QuestionHandlerMap[K]): this;
+}
+
+/**
+ * @deprecated Use {@link IInteractionStream} `.on()` registration instead.
+ *
+ * Legacy context passed by the browser client when starting a stream.
+ */
+export interface IQuestionContext {
+  signal?: AbortSignal;
+  questionInput?: (request: QuestionInputRequest) => Promise<string>;
+  questionConfirm?: (request: QuestionConfirmRequest) => Promise<boolean>;
+  questionSelect?: (request: QuestionSelectRequest) => Promise<string>;
+  questionPassword?: (request: QuestionPasswordRequest) => Promise<string>;
+  questionChecklist?: (request: QuestionChecklistRequest) => Promise<string[]>;
+}
+
+/**
+ * Transport-level streaming client for the browser.
+ *
+ * Connects to the API server over WebSocket and yields streaming events.
+ * This is NOT a service interface — it's a transport adapter consumed by the
+ * web frontend.
+ */
+export interface IStreamingClient {
+  stream<TCommand extends AiTeamCommandName>(
+    request: InteractionRequest<TCommand>,
+    options?: { signal?: AbortSignal }
+  ): IInteractionStream<TCommand>;
 }

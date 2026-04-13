@@ -20,7 +20,7 @@ import type { Agent, ChatMessage } from '@ai-team/core';
 import { ChatOrchestrator } from './chat-orchestrator.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
-import type { MediatorRuntimeEvent } from '@ai-team/api-client';
+import type { RuntimeStreamEvent } from '@ai-team/api-client';
 import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
 
@@ -695,10 +695,10 @@ describe('CLI handoff — natural-language phrase variants', () => {
     // Handoff event should have been emitted
     const emitCalls = (ctx.hooks.emit as ReturnType<typeof vi.fn>).mock.calls;
     const handoffEvent = emitCalls.find(
-      (call: unknown[]) => (call[0] as MediatorRuntimeEvent).kind === 'handoff'
+      (call: unknown[]) => (call[0] as RuntimeStreamEvent).kind === 'handoff'
     );
     expect(handoffEvent).toBeDefined();
-    const hEvent = handoffEvent![0] as Extract<MediatorRuntimeEvent, { kind: 'handoff' }>;
+    const hEvent = handoffEvent![0] as Extract<RuntimeStreamEvent, { kind: 'handoff' }>;
     expect(hEvent.fromAgentId).toBe('emily-davis');
     expect(hEvent.toAgentId).toBe('michael-brown');
     expect(hEvent.toSessionId).toBe(ctx.sessionId);
@@ -779,9 +779,9 @@ describe('CLI handoff — natural-language phrase variants', () => {
     // Verify the handoff event has all fields a stream consumer needs
     const emitCalls = (ctx.hooks.emit as ReturnType<typeof vi.fn>).mock.calls;
     const handoffEvent = emitCalls.find(
-      (call: unknown[]) => (call[0] as MediatorRuntimeEvent).kind === 'handoff'
+      (call: unknown[]) => (call[0] as RuntimeStreamEvent).kind === 'handoff'
     );
-    const hEvent = handoffEvent![0] as Extract<MediatorRuntimeEvent, { kind: 'handoff' }>;
+    const hEvent = handoffEvent![0] as Extract<RuntimeStreamEvent, { kind: 'handoff' }>;
 
     // These are the fields the web ChatPanel and CLI both rely on
     expect(hEvent.fromAgentId).toBe('emily-davis');

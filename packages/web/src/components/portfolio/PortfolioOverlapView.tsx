@@ -28,7 +28,6 @@ export function PortfolioOverlapView({
   const filteredRegions = regions.filter((region) => getRegionMetricValue(region, selectedRight) > 0);
   const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
   const selectedRegion = filteredRegions.find((region) => region.id === selectedRegionId) ?? filteredRegions[0];
-  const strongestRegion = filteredRegions[0];
   const highestWriteRegion = [...filteredRegions]
     .sort((left, right) =>
       right.rightLineCounts.write - left.rightLineCounts.write

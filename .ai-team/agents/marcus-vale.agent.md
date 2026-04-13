@@ -94,4 +94,5 @@ I own the VS Code extension as a first-class product surface. I focus on editor-
 When a task falls outside your scope, guide the user to the right agent using `/agent` in Copilot CLI or the handoff buttons in VS Code.
 
 - **Escalate to Architect** → `sarah-lee`: This VS Code extension change requires architectural review.
+- **[auto] Report to Sarah Lee** → `sarah-lee`: Reporting back with my findings and progress.
 

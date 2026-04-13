@@ -9,11 +9,16 @@ export {
 export { createBootstrappedContainer, type ContainerBootstrapper } from './bootstrap.js';
 export {
   TOKENS,
+  COMMAND_METADATA_BY_KEY,
   createContainer,
   createContainerWithBootstrap,
-  type TransportAdapterFactory,
   type ServiceBootstrapConfig,
   type ServiceBootstrapTypes,
   type ServiceBootstrapTokens,
   type ExtendedServiceContainer,
 } from './service-bootstrap.js';
+export {
+  CLI_COMMAND_METADATA_BY_KEY,
+  DEFAULT_COMMAND_DEFINITIONS,
+  registerDefaultCommandDefinitions,
+} from './command-definitions/index.js';

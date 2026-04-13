@@ -40,7 +40,6 @@ import {
   mergeEntities,
   buildModuleBoundaries,
   discoverFiles,
-  type CollectionAspect,
   type CollectorOptions,
 } from './orchestrator.js';
 
@@ -560,7 +559,7 @@ describe('collect', () => {
   });
 
   it('skips aspects via excludeAspects', async () => {
-    const result = await collect({
+    await collect({
       ...baseOptions,
       excludeAspects: ['dependencyGraph', 'duplication', 'lint', 'coverage'],
     });
@@ -576,7 +575,7 @@ describe('collect', () => {
     mockAstVisitor.mockRejectedValue(new Error('TS crash'));
     (mockDepCruiser as any).mockRejectedValue(new Error('cruise failed'));
 
-    const result = await collect({
+    await collect({
       ...baseOptions,
       includeAspects: ['entityExtraction', 'dependencyGraph'],
     });

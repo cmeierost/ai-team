@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { AgentManager, ContextLevel, RoleType, buildAgentMarkdown } from '@ai-team/infrastructure';
-import type { HireOptions } from '@ai-team/api-client';
+import type { HireOptions, InteractionContext } from '@ai-team/api-client';
 
 export function getPersonalityForHire(role: string, roleType: RoleType) {
   const r = role.toLowerCase();
@@ -59,7 +59,11 @@ export function getPersonalityForHire(role: string, roleType: RoleType) {
   };
 }
 
-export async function hireCommand(workspaceRoot: string, options: HireOptions) {
+export async function hireCommand(
+  workspaceRoot: string,
+  options: HireOptions,
+  context: InteractionContext = {}
+) {
   try {
     const agentManager = new AgentManager(workspaceRoot);
 
@@ -123,12 +127,17 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
             expertise_level: personalityPreset.expertise_level,
             mentoring: personalityPreset.mentoring,
           },
-          // Note: Avatar is not set during hire - use `ait avatar <agent>` command
           llm: config.llm,
           cliTools: config.cliTools,
         },
         { markdown }
       );
+
+      context.emit?.({
+        kind: 'log',
+        level: 'info',
+        message: `✓ ${config.name} has been hired as ${config.role}.`,
+      });
 
       if (config.reportsTo) {
         await agentManager.getAgentAsync(config.reportsTo);

@@ -1,7 +1,7 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { toString as mdastToString } from 'mdast-util-to-string';
-import type { Root, Content, Heading, Link, Image, Code } from 'mdast';
+import type { Root, Content, Heading, Link, Image } from 'mdast';
 import type { Entity, Relationship, SourceRange } from '@aspect/contracts';
 
 // ── Slug helper ─────────────────────────────────────────────────────────────
@@ -210,9 +210,9 @@ export function parseMarkdownFile(
   // ── Walk MDAST for links, images, code ────────────────────────────────
   walkNodes(tree.children, (node) => {
     if (node.type === 'link') {
-      processLink(node as Link, relativePath, entities, relationships, sectionEntities, headingNodes);
+      processLink(node as Link, relativePath, entities, relationships);
     } else if (node.type === 'image') {
-      processImage(node as Image, relativePath, entities, relationships, sectionEntities, headingNodes);
+      processImage(node as Image, relativePath, entities, relationships);
     }
   });
 
@@ -226,8 +226,6 @@ function processLink(
   relativePath: string,
   entities: Entity[],
   relationships: Relationship[],
-  sectionEntities: Map<string, Entity>,
-  headingNodes: Heading[],
 ): void {
   const href = node.url;
   if (!href) return;
@@ -318,8 +316,6 @@ function processImage(
   relativePath: string,
   entities: Entity[],
   relationships: Relationship[],
-  sectionEntities: Map<string, Entity>,
-  headingNodes: Heading[],
 ): void {
   const src = node.url;
   if (!src) return;

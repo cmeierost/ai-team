@@ -5,6 +5,12 @@ import { Avatar } from './Avatar';
 import { useMemo, useEffect, useState } from 'react';
 import { TaskStatistics, SystemInfo, ChatSession, Agent } from '../types';
 import { getAgentColor } from '../utils/color';
+import { API_BASE, hasStartupApiBaseOverride } from '../config/api-base';
+import {
+  connectToServer,
+  getSavedServerConnections,
+  selectServerConnection,
+} from '../config/server-connections';
 import './Dashboard.css';
 
 export function Dashboard() {
@@ -14,6 +20,10 @@ export function Dashboard() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [recentSessions, setRecentSessions] = useState<ChatSession[]>([]);
+  const [savedServerUrls, setSavedServerUrls] = useState<string[]>([]);
+  const [selectedServerUrl, setSelectedServerUrl] = useState(API_BASE);
+  const [newServerUrl, setNewServerUrl] = useState('');
+  const [serverUrlError, setServerUrlError] = useState<string | null>(null);
 
   // Find CEO (root of hierarchy - no reportsTo)
   const ceoAgent = useMemo(() => {
@@ -95,6 +105,27 @@ export function Dashboard() {
     fetchSystemInfo();
   }, [client]);
 
+  useEffect(() => {
+    const urls = getSavedServerConnections().map((entry) => entry.url);
+    setSavedServerUrls(urls);
+    if (urls.includes(API_BASE)) {
+      setSelectedServerUrl(API_BASE);
+    } else if (urls.length > 0) {
+      setSelectedServerUrl(urls[0]!);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!systemInfo?.workspace) {
+      return;
+    }
+
+    selectServerConnection(API_BASE, systemInfo.workspace);
+    const urls = getSavedServerConnections().map((entry) => entry.url);
+    setSavedServerUrls(urls);
+    setSelectedServerUrl(API_BASE);
+  }, [systemInfo]);
+
   // Fetch recent sessions for dashboard
   useEffect(() => {
     async function fetchRecentSessions() {
@@ -133,6 +164,32 @@ export function Dashboard() {
 
   const handleViewEmployees = () => {
     navigate('/employees');
+  };
+
+  const handleConnectSelectedServer = () => {
+    setServerUrlError(null);
+    try {
+      connectToServer(selectedServerUrl, systemInfo?.workspace);
+    } catch (error) {
+      setServerUrlError(error instanceof Error ? error.message : 'Failed to switch server.');
+    }
+  };
+
+  const handleAddServer = () => {
+    setServerUrlError(null);
+    if (!newServerUrl.trim()) {
+      return;
+    }
+
+    try {
+      const normalized = selectServerConnection(newServerUrl, systemInfo?.workspace);
+      const urls = getSavedServerConnections().map((entry) => entry.url);
+      setSavedServerUrls(urls);
+      setSelectedServerUrl(normalized);
+      setNewServerUrl('');
+    } catch (error) {
+      setServerUrlError(error instanceof Error ? error.message : 'Invalid server URL.');
+    }
   };
 
   return (
@@ -238,9 +295,48 @@ export function Dashboard() {
           </div>
         </div>
 
-        {systemInfo && (
-          <div className="system-info">
-            <h2 className="system-info-title">System Information</h2>
+        <div className="system-info">
+          <h2 className="system-info-title">System Information</h2>
+          <div className="server-connection-panel">
+            <div className="server-connection-panel-header">
+              <span>Server Connection</span>
+              {!hasStartupApiBaseOverride() && (
+                <span className="server-connection-panel-hint">No startup server provided</span>
+              )}
+            </div>
+            <div className="server-connection-controls">
+              <select
+                className="server-connection-select"
+                value={selectedServerUrl}
+                onChange={(event) => setSelectedServerUrl(event.target.value)}
+              >
+                {[...new Set([API_BASE, ...savedServerUrls])].map((url) => (
+                  <option key={url} value={url}>
+                    {url}
+                  </option>
+                ))}
+              </select>
+              <button className="server-connection-button" onClick={handleConnectSelectedServer}>
+                Connect
+              </button>
+            </div>
+            <div className="server-connection-controls">
+              <input
+                className="server-connection-input"
+                value={newServerUrl}
+                onChange={(event) => setNewServerUrl(event.target.value)}
+                placeholder="https://my-server.example:3002"
+              />
+              <button
+                className="server-connection-button server-connection-button-secondary"
+                onClick={handleAddServer}
+              >
+                Save URL
+              </button>
+            </div>
+            {serverUrlError && <div className="server-connection-error">{serverUrlError}</div>}
+          </div>
+          {systemInfo ? (
             <div className="system-info-grid">
               <div className="info-item">
                 <span className="info-label">API URL</span>
@@ -291,8 +387,12 @@ export function Dashboard() {
                 </div>
               )}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="server-connection-panel-hint">
+              Connect to a server to load workspace and package details.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

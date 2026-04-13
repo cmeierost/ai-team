@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   parseLcov,
   parseIstanbul,
   runCoverageAdapter,
-  type CoverageSignal,
 } from './coverage.js';
 
 const __filename = fileURLToPath(import.meta.url);

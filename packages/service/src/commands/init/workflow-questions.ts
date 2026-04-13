@@ -1,5 +1,5 @@
 import type {
-  MediatorRuntimeEvent,
+  RuntimeStreamEvent,
   QuestionAnswerValue,
   QuestionChecklistRequest,
   QuestionConfirmRequest,
@@ -9,10 +9,16 @@ import type {
   WorkflowFrame,
   WorkflowStateSnapshot,
 } from '@ai-team/api-client';
+import {
+  resolveWorkflowAnswer as _resolveWorkflowAnswer,
+  emitWorkflowQuestionFrame as _emitWorkflowQuestionFrame,
+  emitWorkflowResultFrame as _emitWorkflowResultFrame,
+  ensureNotAborted as _ensureNotAborted,
+} from '../../workflow/helpers.js';
 
 export interface InitRuntimeHooks {
   signal?: AbortSignal;
-  emit?: (event: MediatorRuntimeEvent) => void;
+  emit?: (event: RuntimeStreamEvent) => void;
   questionInput?: (request: QuestionInputRequest) => Promise<string>;
   questionConfirm?: (request: QuestionConfirmRequest) => Promise<boolean>;
   questionSelect?: (request: QuestionSelectRequest) => Promise<string>;
@@ -22,21 +28,14 @@ export interface InitRuntimeHooks {
   onWorkflowFrame?: (frame: WorkflowFrame) => void;
 }
 
+// Thin wrappers that delegate to the shared workflow helpers.
+// InitRuntimeHooks is structurally compatible with InteractionContext.
+
 function resolveWorkflowAnswer(
   hooks: InitRuntimeHooks | undefined,
   request: { workflow?: { workflowId?: string; questionId?: string } }
 ): QuestionAnswerValue | undefined {
-  const workflowId = request.workflow?.workflowId;
-  const questionId = request.workflow?.questionId;
-  if (!workflowId || !questionId) {
-    return undefined;
-  }
-
-  if (hooks?.workflowState?.workflowId !== workflowId) {
-    return undefined;
-  }
-
-  return hooks.workflowState.answers[questionId];
+  return _resolveWorkflowAnswer(hooks, request);
 }
 
 function emitWorkflowQuestionFrame(
@@ -48,17 +47,7 @@ function emitWorkflowQuestionFrame(
     | ({ kind: 'password' } & QuestionPasswordRequest)
     | ({ kind: 'checklist' } & QuestionChecklistRequest)
 ): void {
-  const workflowId = request.workflow?.workflowId;
-  if (!workflowId) {
-    return;
-  }
-
-  hooks?.onWorkflowFrame?.({
-    workflowId,
-    stepId: request.workflow?.stepId || 'question',
-    continuationToken: request.workflow?.continuationToken,
-    question: request,
-  });
+  _emitWorkflowQuestionFrame(hooks, request);
 }
 
 function emitWorkflowResultFrame(
@@ -73,30 +62,11 @@ function emitWorkflowResultFrame(
   },
   result: QuestionAnswerValue
 ): void {
-  const workflowId = request.workflow?.workflowId;
-  if (!workflowId) {
-    return;
-  }
-
-  hooks?.onWorkflowFrame?.({
-    workflowId,
-    stepId: request.workflow?.stepId || 'question',
-    continuationToken: request.workflow?.continuationToken,
-    question: request.workflow?.questionId
-      ? {
-          kind: 'input',
-          message: '',
-          workflow: request.workflow,
-        }
-      : undefined,
-    result,
-  });
+  _emitWorkflowResultFrame(hooks, request, result);
 }
 
 function ensureNotAborted(hooks: InitRuntimeHooks | undefined): void {
-  if (hooks?.signal?.aborted) {
-    throw new Error('Init command aborted');
-  }
+  _ensureNotAborted(hooks);
 }
 
 function resolveSelectAnswer(

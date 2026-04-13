@@ -8,7 +8,7 @@ import type {
   ListWorkspaceFilesOptions,
 } from './file-tree.js';
 import { getFileTree, listWorkspaceFiles } from './file-tree.js';
-import { SyncGitignoreMatcher, isIgnoredByRules } from './ignore.js';
+import { SyncGitignoreMatcher } from './ignore.js';
 import { emitFileWatcherEvent } from '../fs/file-events.js';
 
 interface CacheEntry<T> {

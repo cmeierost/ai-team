@@ -95,9 +95,6 @@ interface IstanbulFileCoverage {
 // ---------------------------------------------------------------------------
 
 function relativize(filePath: string, rootDir: string): string {
-  const normalized = filePath.replace(/\\/g, '/');
-  const root = rootDir.replace(/\\/g, '/');
-
   // If the path starts with the rootDir, make it relative
   const rel = relative(resolve(rootDir), resolve(filePath));
   return rel.replace(/\\/g, '/');

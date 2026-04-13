@@ -1,5 +1,10 @@
 import path from 'node:path';
-import { canReadPath, canWritePath, canListPath } from '@ai-team/infrastructure';
+import {
+  AgentManager as AgentManagerImpl,
+  canReadPath,
+  canWritePath,
+  canListPath,
+} from '@ai-team/infrastructure';
 import type { Agent, AgentManager } from '@ai-team/infrastructure';
 import type {
   FilePermission,
@@ -169,4 +174,35 @@ export async function doIHaveAccessCommand(
     deniedByIgnore: false,
     blockedByPatterns: [],
   };
+}
+
+// ── Dispatcher-compatible handlers ──────────────────────────────────────────
+
+export async function accessWhoHandler(
+  workspaceRoot: string,
+  payload: { path: string; right?: FilePermission }
+): Promise<WhoHasPermissionResponse> {
+  if (!payload.path || payload.path.trim().length === 0) {
+    throw new Error('Missing required option --path');
+  }
+  const agentManager = new AgentManagerImpl(workspaceRoot);
+  return whoHasAccessCommand(workspaceRoot, agentManager, {
+    path: payload.path,
+    right: payload.right,
+  });
+}
+
+export async function accessCanHandler(
+  workspaceRoot: string,
+  payload: { path: string; right?: FilePermission; agent?: string }
+): Promise<DoIHavePermissionResponse> {
+  if (!payload.path || payload.path.trim().length === 0) {
+    throw new Error('Missing required option --path');
+  }
+  const agentManager = new AgentManagerImpl(workspaceRoot);
+  return doIHaveAccessCommand(workspaceRoot, agentManager, {
+    path: payload.path,
+    right: payload.right,
+    agent: payload.agent,
+  });
 }

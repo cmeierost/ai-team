@@ -48,20 +48,22 @@ interface StreamFilterState {
   lineSafe: boolean;
 }
 
+type StreamTextSink = (text: string) => void;
+
 function makeFilterState(): StreamFilterState {
   return { lineBuf: '', lineSafe: false };
 }
 
-function writeFiltered(delta: string, state: StreamFilterState): void {
+function writeFiltered(delta: string, state: StreamFilterState, sink: StreamTextSink): void {
   let pos = 0;
   while (pos < delta.length) {
     if (state.lineSafe) {
       const nl = delta.indexOf('\n', pos);
       if (nl === -1) {
-        process.stdout.write(delta.slice(pos));
+        sink(delta.slice(pos));
         return;
       }
-      process.stdout.write(delta.slice(pos, nl + 1));
+      sink(delta.slice(pos, nl + 1));
       pos = nl + 1;
       state.lineSafe = false;
       state.lineBuf = '';
@@ -69,7 +71,7 @@ function writeFiltered(delta: string, state: StreamFilterState): void {
       const ch = delta[pos++];
       if (ch === '\n') {
         state.lineBuf += ch;
-        if (!HANDOFF_LINE_RE.test(state.lineBuf)) process.stdout.write(state.lineBuf);
+        if (!HANDOFF_LINE_RE.test(state.lineBuf)) sink(state.lineBuf);
         state.lineBuf = '';
         state.lineSafe = false;
       } else {
@@ -82,7 +84,7 @@ function writeFiltered(delta: string, state: StreamFilterState): void {
 
         if (trimmedUpper.length > 0 && !couldBecomeDirective) {
           state.lineSafe = true;
-          process.stdout.write(state.lineBuf);
+          sink(state.lineBuf);
           state.lineBuf = '';
         }
       }
@@ -90,9 +92,9 @@ function writeFiltered(delta: string, state: StreamFilterState): void {
   }
 }
 
-function flushFilter(state: StreamFilterState): void {
+function flushFilter(state: StreamFilterState, sink: StreamTextSink): void {
   if (state.lineBuf && !HANDOFF_LINE_RE.test(state.lineBuf)) {
-    process.stdout.write(state.lineBuf);
+    sink(state.lineBuf);
   }
   state.lineBuf = '';
   state.lineSafe = false;
@@ -134,6 +136,16 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
   const state = makeFilterState();
   let fullResponse = '';
   const structuredResults: StructuredToolResult[] = [];
+  const writeToken = (text: string) => {
+    if (!text) {
+      return;
+    }
+    if (hooks?.emit) {
+      hooks.emit({ kind: 'token', text });
+      return;
+    }
+    process.stdout.write(text);
+  };
 
   const workingMessages: ChatCompletionMessageParam[] =
     toolDefs.length > 0 ? [buildToolPolicyMessage(tools), ...messages] : messages;
@@ -149,11 +161,11 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
       for await (const chunk of stream) {
         const delta = extractStreamDeltaText(chunk as Parameters<typeof extractStreamDeltaText>[0]);
         if (delta) {
-          writeFiltered(delta, state);
+          writeFiltered(delta, state, writeToken);
           fullResponse += delta;
         }
       }
-      flushFilter(state);
+      flushFilter(state, writeToken);
     } else {
       const result = await withAbortSignal(
         llmService.chatWithTools(
@@ -183,7 +195,7 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
           8,
           (delta: string) => {
             if (delta) {
-              writeFiltered(delta, state);
+              writeFiltered(delta, state, writeToken);
               fullResponse += delta;
             }
           },
@@ -193,7 +205,7 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
         'Chat aborted.'
       );
 
-      flushFilter(state);
+      flushFilter(state, writeToken);
       if (result?.text) fullResponse = result.text;
     }
   } catch (err: unknown) {

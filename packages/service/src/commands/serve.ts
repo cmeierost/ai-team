@@ -8,6 +8,30 @@ import { findWorkspaceRoot } from '../utils/workspace.js';
 export interface ServeApiOptions {
   port?: string | number;
   workspace?: string;
+  ui?: boolean;
+  uiServerUrl?: string;
+}
+
+function getAitCommand(): string {
+  return process.platform === 'win32' ? 'ait.cmd' : 'ait';
+}
+
+function launchUiProcessInBackground(resolvedWorkspace: string, serverUrl: string): void {
+  const isWindows = process.platform === 'win32';
+  const uiChild = spawn(getAitCommand(), ['ui', '--server-url', serverUrl], {
+    cwd: resolvedWorkspace,
+    detached: true,
+    stdio: 'ignore',
+    env: buildSafeEnv({}),
+    shell: isWindows,
+    windowsHide: true,
+  });
+
+  uiChild.once('error', (error) => {
+    console.warn(`Unable to launch UI via 'ait ui': ${error.message}`);
+  });
+
+  uiChild.unref();
 }
 
 function buildSafeEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
@@ -81,6 +105,7 @@ export async function serveApiCommand(
   const port = normalizePort(options.port);
   const resolvedWorkspace = resolveWorkspace(workspaceRoot, options.workspace);
   const effectivePort = port ?? 3002;
+  const uiServerUrl = options.uiServerUrl?.trim() || `http://127.0.0.1:${effectivePort}`;
   const apiServerEntry = resolveApiServerEntry();
   const command = process.execPath;
   const args = [apiServerEntry];
@@ -95,6 +120,10 @@ export async function serveApiCommand(
         PORT: String(effectivePort),
       }),
     });
+
+    if (options.ui) {
+      launchUiProcessInBackground(resolvedWorkspace, uiServerUrl);
+    }
 
     child.once('error', (error) => {
       rejectPromise(

@@ -1,4 +1,4 @@
-import { matchesPattern, matchInSet } from './glob-engine.js';
+import { matchesPattern } from './glob-engine.js';
 import type {
   ContextMatchRanking,
   FileContextMembership,

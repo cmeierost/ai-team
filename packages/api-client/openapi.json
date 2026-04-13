@@ -1435,6 +1435,466 @@
         }
       }
     },
+    "/api/agents/{id}/introduction": {
+      "get": {
+        "operationId": "introduction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "developerName",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agentId": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "timestamp": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "agentId",
+                    "content",
+                    "timestamp"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/team/graph": {
+      "get": {
+        "operationId": "getTeamGraph",
+        "parameters": [
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphData"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/team/organization-graph": {
+      "get": {
+        "operationId": "getOrganizationGraph",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphData"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/skills": {
+      "get": {
+        "operationId": "search",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "agent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchSkillsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/skills/add": {
+      "post": {
+        "operationId": "add",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "skill": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent",
+                  "skill"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateAgentSkillResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/skills/remove": {
+      "post": {
+        "operationId": "remove",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "skill": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent",
+                  "skill"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateAgentSkillResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/tools": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "agent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListToolsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/tools/allow": {
+      "post": {
+        "operationId": "allow",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "tool": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent",
+                  "tool"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateAgentToolResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/tools/disallow": {
+      "post": {
+        "operationId": "disallow",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "tool": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent",
+                  "tool"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateAgentToolResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/tools/tool-allow": {
+      "post": {
+        "operationId": "toolAllow",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "tool": {
+                    "type": "string"
+                  },
+                  "requestedBy": {
+                    "type": "string"
+                  },
+                  "approvedByUser": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "agent",
+                  "tool",
+                  "requestedBy",
+                  "approvedByUser"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateAgentToolResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/tools/tool-deny": {
+      "post": {
+        "operationId": "toolDeny",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "tool": {
+                    "type": "string"
+                  },
+                  "requestedBy": {
+                    "type": "string"
+                  },
+                  "approvedByUser": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "agent",
+                  "tool",
+                  "requestedBy",
+                  "approvedByUser"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateAgentToolResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
     "/api/permission/patterns": {
       "get": {
         "operationId": "getPatterns",
@@ -3041,6 +3501,78 @@
         }
       }
     },
+    "/api/sessions/handoff": {
+      "post": {
+        "operationId": "handoff",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "toAgentId": {
+                    "type": "string"
+                  },
+                  "developerId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "previousSessionId": {
+                    "type": "string"
+                  },
+                  "transferArtifacts": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "transferAllowedFiles": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "toAgentId",
+                  "previousSessionId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
     "/api/sessions/{sessionId}": {
       "get": {
         "operationId": "getById",
@@ -3225,6 +3757,68 @@
         }
       }
     },
+    "/api/sessions/{sessionId}/summarize": {
+      "post": {
+        "operationId": "summarize",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fromIndex": {
+                    "type": "number"
+                  },
+                  "toIndex": {
+                    "type": "number"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "developerId": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                },
+                "required": [
+                  "fromIndex",
+                  "toIndex",
+                  "title",
+                  "summary"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
     "/api/sessions/{sessionId}/split": {
       "post": {
         "operationId": "split",
@@ -3277,26 +3871,16 @@
         }
       }
     },
-    "/api/skills": {
-      "get": {
-        "operationId": "search",
+    "/api/sessions/{sessionId}/generate-title": {
+      "post": {
+        "operationId": "generateTitle",
         "parameters": [
           {
-            "name": "q",
-            "in": "query",
-            "required": false,
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
             "schema": {
-              "type": "string",
-              "nullable": true
-            }
-          },
-          {
-            "name": "agent",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "nullable": true
+              "type": "string"
             }
           }
         ],
@@ -3306,91 +3890,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SearchSkillsResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/skills/add": {
-      "post": {
-        "operationId": "add",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "agent": {
-                    "type": "string"
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    }
                   },
-                  "skill": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "agent",
-                  "skill"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateAgentSkillResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/skills/remove": {
-      "post": {
-        "operationId": "remove",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "agent": {
-                    "type": "string"
-                  },
-                  "skill": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "agent",
-                  "skill"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateAgentSkillResponse"
+                  "required": [
+                    "title"
+                  ]
                 }
               }
             }
@@ -3439,72 +3947,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SystemInfo"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/team/graph": {
-      "get": {
-        "operationId": "getTeamGraph",
-        "parameters": [
-          {
-            "name": "mode",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "string"
-                }
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GraphData"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/team/organization-graph": {
-      "get": {
-        "operationId": "getOrganizationGraph",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GraphData"
                 }
               }
             }
@@ -3850,221 +4292,6 @@
         }
       }
     },
-    "/api/tools": {
-      "get": {
-        "operationId": "list",
-        "parameters": [
-          {
-            "name": "agent",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "nullable": true
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListToolsResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/tools/allow": {
-      "post": {
-        "operationId": "allow",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "agent": {
-                    "type": "string"
-                  },
-                  "tool": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "agent",
-                  "tool"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateAgentToolResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/tools/disallow": {
-      "post": {
-        "operationId": "disallow",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "agent": {
-                    "type": "string"
-                  },
-                  "tool": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "agent",
-                  "tool"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateAgentToolResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/tools/tool-allow": {
-      "post": {
-        "operationId": "toolAllow",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "agent": {
-                    "type": "string"
-                  },
-                  "tool": {
-                    "type": "string"
-                  },
-                  "requestedBy": {
-                    "type": "string"
-                  },
-                  "approvedByUser": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "agent",
-                  "tool",
-                  "requestedBy",
-                  "approvedByUser"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateAgentToolResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/tools/tool-deny": {
-      "post": {
-        "operationId": "toolDeny",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "agent": {
-                    "type": "string"
-                  },
-                  "tool": {
-                    "type": "string"
-                  },
-                  "requestedBy": {
-                    "type": "string"
-                  },
-                  "approvedByUser": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "agent",
-                  "tool",
-                  "requestedBy",
-                  "approvedByUser"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateAgentToolResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
     "/api/developer/me": {
       "get": {
         "operationId": "getMe",
@@ -4333,6 +4560,52 @@
         "responses": {
           "204": {
             "description": "No content"
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/chat/{agentId}/messages/{index}/unarchive": {
+      "put": {
+        "operationId": "unarchiveMessage",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
           },
           "default": {
             "description": "Error"
@@ -6022,6 +6295,457 @@
           "writable"
         ]
       },
+      "GraphNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "agent": {
+                "$ref": "#/components/schemas/Agent",
+                "nullable": true
+              },
+              "feature": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "team": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "contextPaths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "status": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "description",
+                  "owner",
+                  "team",
+                  "contextPaths",
+                  "status"
+                ],
+                "nullable": true
+              },
+              "role": {
+                "type": "string",
+                "nullable": true
+              },
+              "status": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "label"
+            ]
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "data"
+        ]
+      },
+      "GraphEdge": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "type": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "target",
+          "type"
+        ]
+      },
+      "GraphData": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphNode"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphEdge"
+            }
+          }
+        },
+        "required": [
+          "nodes",
+          "edges"
+        ]
+      },
+      "AgentSkillAssignmentEntry": {
+        "type": "object",
+        "properties": {
+          "assignedToAgent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "contextLevel": {
+            "type": "string",
+            "nullable": true
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "tools"
+        ]
+      },
+      "SearchSkillsResponse": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentSkillAssignmentEntry"
+            }
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "role"
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "entries",
+          "timestamp"
+        ]
+      },
+      "UpdateAgentSkillResponse": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "role"
+            ]
+          },
+          "skill": {
+            "type": "string"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agent",
+          "skill",
+          "skills",
+          "changed"
+        ]
+      },
+      "AgentToolPermissionEntry": {
+        "type": "object",
+        "properties": {
+          "allowedForAgent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "deniedReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string",
+            "nullable": true
+          },
+          "schema": {
+            "type": "object",
+            "properties": {}
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "examples": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "schema"
+        ]
+      },
+      "ListToolsResponse": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentToolPermissionEntry"
+            }
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "role"
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "entries",
+          "timestamp"
+        ]
+      },
+      "UpdateAgentToolResponse": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "role"
+            ]
+          },
+          "tool": {
+            "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agent",
+          "tool",
+          "tools",
+          "changed"
+        ]
+      },
       "GetFilePatternsResponse": {
         "type": "object",
         "properties": {
@@ -6653,129 +7377,6 @@
           "sessions"
         ]
       },
-      "AgentSkillAssignmentEntry": {
-        "type": "object",
-        "properties": {
-          "assignedToAgent": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "boolean"
-              }
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "nullable": true
-          },
-          "contextLevel": {
-            "type": "string",
-            "nullable": true
-          },
-          "tools": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "name",
-          "description",
-          "tools"
-        ]
-      },
-      "SearchSkillsResponse": {
-        "type": "object",
-        "properties": {
-          "entries": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AgentSkillAssignmentEntry"
-            }
-          },
-          "timestamp": {
-            "type": "string"
-          },
-          "agent": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "role": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "name",
-              "role"
-            ],
-            "nullable": true
-          }
-        },
-        "required": [
-          "entries",
-          "timestamp"
-        ]
-      },
-      "UpdateAgentSkillResponse": {
-        "type": "object",
-        "properties": {
-          "agent": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "role": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "name",
-              "role"
-            ]
-          },
-          "skill": {
-            "type": "string"
-          },
-          "skills": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "changed": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "agent",
-          "skill",
-          "skills",
-          "changed"
-        ]
-      },
       "SystemInfo": {
         "type": "object",
         "properties": {
@@ -6818,334 +7419,6 @@
           "branch",
           "apiUrl",
           "package"
-        ]
-      },
-      "GraphNode": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "string"
-              }
-            ]
-          },
-          "data": {
-            "type": "object",
-            "properties": {
-              "label": {
-                "type": "string"
-              },
-              "agent": {
-                "$ref": "#/components/schemas/Agent",
-                "nullable": true
-              },
-              "feature": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string"
-                  },
-                  "name": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "owner": {
-                    "type": "string"
-                  },
-                  "team": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "contextPaths": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "status": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id",
-                  "name",
-                  "description",
-                  "owner",
-                  "team",
-                  "contextPaths",
-                  "status"
-                ],
-                "nullable": true
-              },
-              "role": {
-                "type": "string",
-                "nullable": true
-              },
-              "status": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "string"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "label"
-            ]
-          },
-          "position": {
-            "type": "object",
-            "properties": {
-              "x": {
-                "type": "number"
-              },
-              "y": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "x",
-              "y"
-            ],
-            "nullable": true
-          }
-        },
-        "required": [
-          "id",
-          "type",
-          "data"
-        ]
-      },
-      "GraphEdge": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "source": {
-            "type": "string"
-          },
-          "target": {
-            "type": "string"
-          },
-          "type": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "string"
-              }
-            ]
-          },
-          "label": {
-            "type": "string",
-            "nullable": true
-          },
-          "error": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "required": [
-          "id",
-          "source",
-          "target",
-          "type"
-        ]
-      },
-      "GraphData": {
-        "type": "object",
-        "properties": {
-          "nodes": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/GraphNode"
-            }
-          },
-          "edges": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/GraphEdge"
-            }
-          }
-        },
-        "required": [
-          "nodes",
-          "edges"
-        ]
-      },
-      "AgentToolPermissionEntry": {
-        "type": "object",
-        "properties": {
-          "allowedForAgent": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "boolean"
-              }
-            ]
-          },
-          "deniedReason": {
-            "type": "string",
-            "nullable": true
-          },
-          "name": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "group": {
-            "type": "string",
-            "nullable": true
-          },
-          "schema": {
-            "type": "object",
-            "properties": {}
-          },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "nullable": true
-          },
-          "examples": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "nullable": true
-          }
-        },
-        "required": [
-          "name",
-          "description",
-          "schema"
-        ]
-      },
-      "ListToolsResponse": {
-        "type": "object",
-        "properties": {
-          "entries": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AgentToolPermissionEntry"
-            }
-          },
-          "timestamp": {
-            "type": "string"
-          },
-          "agent": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "role": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "name",
-              "role"
-            ],
-            "nullable": true
-          }
-        },
-        "required": [
-          "entries",
-          "timestamp"
-        ]
-      },
-      "UpdateAgentToolResponse": {
-        "type": "object",
-        "properties": {
-          "agent": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "role": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "name",
-              "role"
-            ]
-          },
-          "tool": {
-            "type": "string"
-          },
-          "tools": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "changed": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "agent",
-          "tool",
-          "tools",
-          "changed"
         ]
       },
       "ChatSummary": {

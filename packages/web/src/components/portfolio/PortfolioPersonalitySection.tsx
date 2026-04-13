@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import type { AiTeamHttpClient } from '@ai-team/api-client';
-import type { MarkdownSection } from '@ai-team/core';
 import type { AgentPersonality } from '../../types';
 import { LEVEL_CHIP, MarkdownEditor, PortfolioSectionCard, STYLE_ICONS } from './portfolioShared';
 
@@ -95,11 +94,11 @@ export function PortfolioPersonalitySection({
     try {
       await onSave(draft);
       if (draftMarkdown !== profileMarkdown) {
-        const updated = (await client.agents.updateSection(
+        await client.agents.updateSection(
           agentId,
           'Personality Profile',
           { content: draftMarkdown },
-        ));
+        );
         const freshSections = await client.agents.getSections(agentId);
         const section = freshSections.find((s) => s.heading === 'Personality Profile');
         setProfileMarkdown(section?.content ?? draftMarkdown);

@@ -54,7 +54,6 @@ export function parsePermFile(content: string, baseDir: string): ParsedPermFile 
 
   const sections: SectionMap = { list: [], read: [], write: [] };
   let currentSection: Right | null = null;
-  let hasSectionHeaders = false;
   let inUnknownSection = false;
 
   for (const line of lines) {
@@ -70,7 +69,6 @@ export function parsePermFile(content: string, baseDir: string): ParsedPermFile 
       }
       currentSection = sectionName as Right;
       inUnknownSection = false;
-      hasSectionHeaders = true;
       continue;
     }
 

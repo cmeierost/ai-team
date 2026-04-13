@@ -5,7 +5,7 @@
  * All other modules go through emitEvent() rather than calling hooks.emit directly.
  */
 
-import type { MediatorRuntimeEvent } from '@ai-team/api-client';
+import type { RuntimeStreamEvent } from '@ai-team/api-client';
 import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 import type { ToolDenialEvent } from '@ai-team/api-client';
 import type { ToolRuntimePayloadEvent } from '@ai-team/api-client';
@@ -51,7 +51,7 @@ function extractDeltaSegmentText(value: unknown): string {
 // ── Event emission ────────────────────────────────────────────────────────────
 
 /** Emit a runtime event through hooks, if a listener is registered. */
-export function emitEvent(hooks: ChatRuntimeHooks | undefined, event: MediatorRuntimeEvent): void {
+export function emitEvent(hooks: ChatRuntimeHooks | undefined, event: RuntimeStreamEvent): void {
   hooks?.emit?.(event);
 }
 

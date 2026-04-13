@@ -251,97 +251,9 @@ export interface IProviderRegistry {
   getGitHubToken(): string;
 }
 
-interface LlmLogBase {
-  id: string;
-  timestamp: string;
-  provider: string;
-  model: string;
-  mode: 'chat' | 'stream' | 'raw-chat' | 'raw-stream';
-  agent?: {
-    id: string;
-    name: string;
-    role: string;
-  };
-  request: {
-    messages: ChatCompletionMessageParams[];
-    options?: LlmChatOptions;
-    skills?: {
-      name: string;
-      filePath: string;
-    }[];
-    teamRoster?: {
-      id: string;
-      name: string;
-      role: string;
-    }[];
-  };
-}
-
-interface LlmLogPayload extends LlmLogBase {
-  durationMs?: number;
-  response?: {
-    text?: string;
-    raw?: unknown;
-  };
-  error?: SerializedError;
-}
-
-interface SerializedError {
-  name?: string;
-  message: string;
-  stack?: string;
-}
-
-type ChatCompletionRequestPayload = Record<string, unknown>;
-
 // ============================================================================
 // Model discovery
 // ============================================================================
-
-/** Shape returned from the Copilot models API */
-interface CopilotModel {
-  id: string;
-  name: string;
-  capabilities: {
-    family: string;
-    type: string;
-    limits?: {
-      max_context_window_tokens?: number;
-      max_prompt_tokens?: number;
-      max_output_tokens?: number;
-    };
-  };
-}
-
-interface OpenAiCompatibleModel {
-  id: string;
-  object?: string;
-  context_window?: number;
-  input_token_limit?: number;
-  output_token_limit?: number;
-  max_context_window_tokens?: number;
-  max_prompt_tokens?: number;
-  max_output_tokens?: number;
-  capabilities?: {
-    limits?: {
-      max_context_window_tokens?: number;
-      max_prompt_tokens?: number;
-      max_output_tokens?: number;
-    };
-  };
-  context_length?: number;
-  max_input_tokens?: number;
-  max_tokens?: number;
-  max_completion_tokens?: number;
-  token_limits?: {
-    context_window?: number;
-    max_context_window_tokens?: number;
-    max_prompt_tokens?: number;
-    max_output_tokens?: number;
-    max_input_tokens?: number;
-    max_completion_tokens?: number;
-  };
-}
 
 export interface DiscoveredProviderModel {
   id: string;

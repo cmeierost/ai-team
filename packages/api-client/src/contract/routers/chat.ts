@@ -10,6 +10,7 @@ export interface IChatService {
   ): Promise<{ content: string; handoff?: unknown }>;
   editMessage(agentId: string, index: string, body: { content: string }): Promise<ChatMessage>;
   archiveMessage(agentId: string, index: string): Promise<{ ok: boolean }>;
+  unarchiveMessage(agentId: string, index: string): Promise<{ ok: boolean }>;
   clearHistory(agentId: string): Promise<{ ok: boolean }>;
   getStats(agentId: string): Promise<MessageStats>;
 }
@@ -22,6 +23,7 @@ export const chatDesc: ApiDescription<IChatService> = {
     post: { method: 'POST', path: ':agentId' },
     editMessage: { method: 'PUT', path: ':agentId/messages/:index' },
     archiveMessage: { method: 'DELETE', path: ':agentId/messages/:index', resultType: 'NONE' },
+    unarchiveMessage: { method: 'PUT', path: ':agentId/messages/:index/unarchive' },
     clearHistory: { method: 'DELETE', path: ':agentId', resultType: 'NONE' },
     getStats: { method: 'GET', path: ':agentId/stats' },
   },

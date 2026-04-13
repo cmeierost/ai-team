@@ -1,5 +1,4 @@
-import { parse, AST_NODE_TYPES, TSESTree } from '@typescript-eslint/typescript-estree';
-import { readFile } from 'node:fs/promises';
+import { TSESTree } from '@typescript-eslint/typescript-estree';
 
 /**
  * Complexity metrics for a function or method

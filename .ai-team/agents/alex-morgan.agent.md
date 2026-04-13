@@ -62,21 +62,6 @@ handoffs:
     agent: victor-alvarez
     prompt: 'Implement the LLM provider, model, or code intelligence aspects of this.'
     send: false
-  - label: '[auto] Report to Sarah Lee'
-    agent: sarah-lee
-    prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to Leah Brooks'
-    agent: leah-brooks
-    prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to Ethan Carter'
-    agent: ethan-carter
-    prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to Maya Patel'
-    agent: maya-patel
-    prompt: Please take this on within your area of responsibility.
-  - label: '[auto] Delegate to Victor Alvarez'
-    agent: victor-alvarez
-    prompt: Please take this on within your area of responsibility.
 ---
 
 ![avatar](../avatars/alex-morgan.jpg)

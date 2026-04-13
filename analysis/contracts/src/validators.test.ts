@@ -126,7 +126,6 @@ describe('validateCollectedData', () => {
 
   it('rejects data missing the entities field', () => {
     const data = makeCollectedData();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (data as any).entities;
 
     expect(validateCollectedData(data)).toBe(false);
@@ -136,7 +135,6 @@ describe('validateCollectedData', () => {
   });
 
   it('rejects an entity missing required fields (id)', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const badEntity = { kind: 'file', name: 'x.ts' } as any;
     const data = makeCollectedData({ entities: [badEntity] });
 
@@ -147,7 +145,6 @@ describe('validateCollectedData', () => {
 
   it('rejects a relationship with wrong kind enum value', () => {
     const data = makeCollectedData({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       relationships: [makeRelationship({ kind: 'bad-kind' as any })],
     });
 
@@ -216,7 +213,6 @@ describe('validateCollectedData', () => {
     const data = makeCollectedData({
       entities: [
         makeEntity({
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           sourceRange: { startLine: 1, startColumn: 0, endColumn: 0 } as any,
         }),
       ],
@@ -227,14 +223,12 @@ describe('validateCollectedData', () => {
 
   it('rejects data missing schemaVersion', () => {
     const data = makeCollectedData();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (data as any).schemaVersion;
 
     expect(validateCollectedData(data)).toBe(false);
   });
 
   it('rejects data with wrong schemaVersion value', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = makeCollectedData({ schemaVersion: '2.0' as any });
 
     expect(validateCollectedData(data)).toBe(false);

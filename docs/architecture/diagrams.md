@@ -1,6 +1,12 @@
 # Architecture Diagrams
 
-These diagrams are the visual companion to [ARCHITECTURE.md](../../ARCHITECTURE.md). They focus on package responsibilities and the main runtime flows in the current March 2026 architecture.
+These diagrams are the visual companion to [ARCHITECTURE.md](../../ARCHITECTURE.md). They focus on package responsibilities and runtime flows in the **current implementation**, while the active transition backlog lives in [`.ai-team/tasks/`](../../.ai-team/tasks/).
+
+Use these diagrams together with the backlog to distinguish:
+
+- what is true in the code today
+- what is the intended target direction
+- what is actively being migrated
 
 ## Package and transport map
 
@@ -22,7 +28,7 @@ flowchart LR
   subgraph SharedRuntime[Shared runtime]
     LOCALCLIENT[@ai-team/api-client\nLocal typed client façade]
     IDE[@ai-team/ide-interface\nIDE bridge contracts]
-    SERVICE[@ai-team/service\nMediator, orchestration, runtime events]
+    SERVICE[@ai-team/service\nOrchestration + transitional mediator boundary]
     CORE[@ai-team/core\nUI-free domain logic]
     FILECTX[file-context\nContextRuntime + parser + matcher]
   end
@@ -180,6 +186,45 @@ sequenceDiagram
   Service-->>Surface: done or error
 ```
 
+## Transition target (in progress)
+
+This diagram shows the target direction that the backlog is steering toward. It is **not** a claim that the code is already fully there.
+
+```mermaid
+flowchart LR
+  subgraph UISurfaces[UI surfaces]
+    CLI[CLI]
+    WEB[Web UI]
+  end
+
+  subgraph Boundary[Transport-independent boundary]
+    SVC[Service interfaces]
+    UIN[UI notifier]
+    MAN[Manual execution service\nplanned]
+  end
+
+  subgraph ServiceLayer[Service layer]
+    MED[Internal service-layer mediator]
+    ORCH[Chat / tasks / orchestration]
+  end
+
+  subgraph LowerLayers[Boundary interfaces + implementations]
+    CORE[@ai-team/core\nBoundary interfaces]
+    INFRA[@ai-team/infrastructure\nImplementations]
+  end
+
+  CLI --> SVC
+  WEB --> SVC
+  SVC --> MED
+  MED --> ORCH
+  ORCH --> UIN
+  UIN --> CLI
+  UIN --> WEB
+  MAN -. future explicit user path .-> ORCH
+  ORCH --> CORE
+  CORE --> INFRA
+```
+
 ## VS Code proposal review loop
 
 The VS Code extension is not a second service layer; it is the IDE-native review endpoint for proposal/open-file workflows.
@@ -228,5 +273,6 @@ frontmatter: identity/tools/delegation metadata] --> CM
 ## Notes
 
 - `@ai-team/api-client` and `@ai-team/api-client-http` are intentionally different client surfaces.
-- `@ai-team/service` is the shared orchestration boundary.
+- `@ai-team/service` is the shared orchestration boundary in the current implementation.
 - `@ai-team/vscode` is best understood as an IDE adapter reached through `@ai-team/ide-interface`, not as a peer orchestrator.
+- The target direction is tracked in the local backlog under [`.ai-team/tasks/`](../../.ai-team/tasks/).

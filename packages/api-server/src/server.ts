@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
-import { createSqliteStorage, findWorkspaceRoot } from '@ai-team/service';
+import { createSqliteStorage, findWorkspaceRoot, InteractionService } from '@ai-team/service';
 import { createExpressRouter } from '@ts-http/express';
 import {
   systemDesc,
@@ -32,7 +32,6 @@ import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { setupChatWebSocket } from './ws/chat-handler.js';
 import { asyncApiUi as serveApiDefinition } from './async-api-ui.js';
 import { serveStaticFiles } from './serve-static-files.js';
-import { ApiServerMediator } from './api-server-mediator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -64,21 +63,23 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
 
   const apiBaseUrl = `http://localhost:${port}`;
 
+  const interactionService = new InteractionService(workspaceRoot);
+
   const container = createContainerWithBootstrap(
     {
       workspaceRoot,
       apiBaseUrl,
-      transportAdapterFactory: (c) => new ApiServerMediator(c.resolve(TOKENS.WorkspaceRoot)),
     },
     (c) => {
       // Provide the pre-migrated storage so the container doesn't re-create it.
       c.registerInstance(TOKENS.MessageStorage, storage);
       // Provide the actual API base URL for SystemService.
       c.registerInstance(TOKENS.ApiBaseUrl, apiBaseUrl);
+      // Provide InteractionService to route services that need streaming.
+      c.registerInstance(TOKENS.InteractionService, interactionService);
     }
   );
 
-  const service = container.resolve(TOKENS.AiTeamMediator);
   const agentManager = container.resolve(TOKENS.AgentManager);
   const sessionManager = container.resolve(TOKENS.SessionManager);
 
@@ -188,7 +189,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     setupChatWebSocket(
       ws,
       agentId,
-      service,
+      interactionService,
       sessionManager,
       sessionId,
       agentManager,

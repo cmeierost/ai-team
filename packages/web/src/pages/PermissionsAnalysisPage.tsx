@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
 import { usePermissionAnalysis, filterRegionsForAgent } from '../hooks/usePermissionAnalysis';
-import type { Agent, PermissionOverlapRegion, PermissionRight } from '../types';
+import type { PermissionRight } from '../types';
 import { PermissionOverlapDiagram } from '../components/permissions/PermissionOverlapDiagram';
 import { PermissionOverlapInspector } from '../components/permissions/PermissionOverlapInspector';
 import { PermissionRelationshipMap } from '../components/permissions/PermissionRelationshipMap';
 import { PermissionAgentInfoCard } from '../components/permissions/PermissionAgentInfoCard';
 import { PermissionAgentContextCard } from '../components/permissions/PermissionAgentContextCard';
-import { formatMetricValue, formatRightMetric, getRegionMetricValue, getResponsibilityMetricValue } from '../utils/permissionMetrics';
+import { formatRightMetric, getRegionMetricValue, getResponsibilityMetricValue } from '../utils/permissionMetrics';
 import { PortfolioFileAccessSection } from '../components/portfolio/PortfolioFileAccessSection';
 import '../components/permissions/PermissionsAnalysis.css';
 

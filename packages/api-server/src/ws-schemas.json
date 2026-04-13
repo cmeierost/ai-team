@@ -4,16 +4,18 @@
     "type": "object",
     "properties": {
       "type": {
-        "description": "Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question",
+        "description": "Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question, 'interrupt' = hard interrupt, 'steer' = drift in message",
         "enum": [
           "answer",
           "cancel",
-          "message"
+          "interrupt",
+          "message",
+          "steer"
         ],
         "type": "string"
       },
       "content": {
-        "description": "Chat message content (required for 'message' type)",
+        "description": "Chat message content (required for 'message', 'steer' type)",
         "type": "string"
       },
       "options": {
@@ -31,7 +33,7 @@
             "description": "Answer value (string/bool/number/array/object depending on question type)",
             "anyOf": [
               {
-                "$ref": "#/definitions/Record<string,string>"
+                "$ref": "#/definitions/Record%3Cstring%2Cstring%3E"
               },
               {
                 "type": "array",
@@ -90,5 +92,5 @@
     ],
     "$schema": "http://json-schema.org/draft-07/schema#"
   },
-  "generatedAt": "2026-04-12T17:07:03.458Z"
+  "generatedAt": "2026-04-13T02:53:08.057Z"
 }

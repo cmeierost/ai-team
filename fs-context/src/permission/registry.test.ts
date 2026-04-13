@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { parsePermFile } from './parser.js';
-import { resolveContext } from './resolver.js';
 import { ContextRegistry } from './registry.js';
 import { ContextRuntime } from './context-runtime.js';
 import type { GlobalContext } from './types.js';

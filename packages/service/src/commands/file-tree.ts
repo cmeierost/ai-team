@@ -1,15 +1,18 @@
 import {
   getCachedFileTree,
+  getWritableFiles,
+  getAnnotatedFiles,
   loadAgentAccessPatterns as loadAgentPermissionPatterns,
   loadTeamConfig,
   saveAgentAccessPatterns as saveAgentPermissionPatterns,
   saveTeamConfig,
+  AgentManager,
   type Agent,
-  type AgentManager,
   type FileTreeNode,
   type GetFileTreeOptions,
   type TeamConfig,
 } from '@ai-team/infrastructure';
+import type { FilesTreeResponse } from '@ai-team/api-client';
 import { resolveAgentForOperationAsync } from '../utils/agent-resolution.js';
 import {
   type GovernanceRequest,
@@ -197,3 +200,102 @@ export async function permissionDenyCommand(
 
   return agentDisallowPathCommand(workspaceRoot, agentManager, agentQuery, filePath, mode);
 }
+
+// ============================================================================
+// Full file tree / patterns data commands for CLI + browser renderers
+// ============================================================================
+
+function flattenFiles(root: FileTreeNode): string[] {
+  const files: string[] = [];
+  const stack: FileTreeNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (!node.isDirectory && node.relativePath !== '') {
+      files.push(node.relativePath);
+    }
+    if (node.children) {
+      for (let i = node.children.length - 1; i >= 0; i--) {
+        stack.push(node.children[i]);
+      }
+    }
+  }
+  return files;
+}
+
+export async function filesTreeCommandAsync(
+  workspaceRoot: string,
+  payload: {
+    agent?: string;
+    depth?: number;
+    all?: boolean;
+    noGitignore?: boolean;
+    writeable?: boolean;
+  }
+): Promise<FilesTreeResponse> {
+  const maxDepth = payload.depth ?? 4;
+  const includeHidden = payload.all ?? false;
+  const ignoreGitignore = payload.noGitignore ?? false;
+
+  if (payload.agent) {
+    const agentManager = new AgentManager(workspaceRoot);
+    const matches = await agentManager.resolveAgentAsync(payload.agent);
+    if (matches.length === 0) {
+      throw new Error(`Agent not found: "${payload.agent}"`);
+    }
+    const agent = matches[0];
+
+    const tree = await getFileTreeCommand(workspaceRoot, {
+      maxDepth: payload.depth ?? 6,
+      includeHidden,
+      ignoreGitignore,
+    });
+    const allFiles = flattenFiles(tree);
+    const accessPatterns = await loadAgentPermissionPatterns(workspaceRoot, agent.id);
+
+    if (payload.writeable) {
+      const filtered = getWritableFiles(workspaceRoot, agent.permissions, allFiles);
+      return {
+        workspaceRoot,
+        agent: { id: agent.id, name: agent.name, role: agent.role },
+        writeableFiles: filtered,
+        writePatterns: accessPatterns.write ?? [],
+        maxDepth,
+        includeHidden,
+        ignoreGitignore,
+      };
+    }
+
+    const annotated = getAnnotatedFiles(workspaceRoot, agent.permissions, allFiles);
+    const withAccess = annotated.filter((f) => f.readable || f.writable);
+
+    return {
+      workspaceRoot,
+      agent: { id: agent.id, name: agent.name, role: agent.role },
+      annotatedFiles: withAccess.map((f) => ({
+        path: f.path,
+        readable: f.readable,
+        writable: f.writable,
+      })),
+      readPatterns: accessPatterns.read ?? [],
+      writePatterns: accessPatterns.write ?? [],
+      maxDepth,
+      includeHidden,
+      ignoreGitignore,
+    };
+  }
+
+  const tree = await getFileTreeCommand(workspaceRoot, {
+    maxDepth,
+    includeHidden,
+    ignoreGitignore,
+  });
+
+  return {
+    workspaceRoot,
+    tree,
+    maxDepth,
+    includeHidden,
+    ignoreGitignore,
+  };
+}
+

@@ -2,11 +2,11 @@ import type { IChatService, ChatSummary, ChatMessage, MessageStats } from '@ai-t
 import type { SessionManager } from '../session-manager.js';
 import { BadRequestError, NotFoundError } from '../http-errors.js';
 import { ChatManager, ChatStorage } from '@ai-team/infrastructure';
-import { IAiTeamMediator } from '../../../api-client/dist/contract/routers/streaming.js';
+import type { IInteractionService } from '../interaction-service.js';
 
 export class ChatService implements IChatService {
   constructor(
-    private readonly mediator: IAiTeamMediator,
+    private readonly interactionService: IInteractionService,
     private readonly sessionManager: SessionManager,
     private readonly mgr: ChatManager,
     private readonly storage: ChatStorage
@@ -34,7 +34,7 @@ export class ChatService implements IChatService {
   ): Promise<{ content: string; handoff?: unknown }> {
     if (!body.content || typeof body.content !== 'string')
       throw new BadRequestError('content is required');
-    const stream = this.mediator.streamInteraction({
+    const stream = this.interactionService.stream({
       command: 'chat',
       payload: {
         employeeId: agentId,
@@ -72,6 +72,12 @@ export class ChatService implements IChatService {
   async archiveMessage(agentId: string, index: string): Promise<{ ok: boolean }> {
     const idx = parseInt(index, 10);
     await this.mgr.archiveMessage(agentId, idx);
+    return { ok: true };
+  }
+
+  async unarchiveMessage(agentId: string, index: string): Promise<{ ok: boolean }> {
+    const idx = parseInt(index, 10);
+    await this.mgr.unarchiveMessage(agentId, idx);
     return { ok: true };
   }
 

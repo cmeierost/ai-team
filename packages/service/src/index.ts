@@ -7,11 +7,8 @@ export {
   InternalError,
 } from './http-errors.js';
 export {
-  CLI_COMMAND_REGISTRY,
   IN_CHAT_COMMAND_ALIASES,
   IN_CHAT_COMMAND_REGISTRY,
-  getCliCommandMetadata,
-  getLlmCallableCliCommands,
 } from './command-registry.js';
 export type { ChatCommandRegistryEntry } from './command-registry.js';
 
@@ -43,6 +40,21 @@ export { generateDefaultHandoffPrompt } from './orchestrator/generate-handoff-pr
 export { chatCommand, type ChatRuntimeHooks } from './commands/chat/index.js';
 export { serveApiCommand, type ServeApiOptions } from './commands/serve.js';
 export { runUiCommand, type UiCommandOptions } from './commands/ui.js';
+export {
+  COMMAND_FACTORY_TOKENS,
+  COMMAND_DEFINITION_REGISTRY_TOKEN,
+  createCommandDefinitionRegistry,
+  type AnyCommandDefinition,
+  type CommandDefinition,
+  type CommandDefinitionRegistry,
+  type CommandDefinitionSet,
+} from './commands/definitions/types.js';
+
+// Interaction service (streaming interface for transports)
+export { InteractionService, type IInteractionService } from './interaction-service.js';
+
+// Command dispatcher (unified command dispatch for CLI + chat + tools)
+export { CommandDispatcher, createCommandDispatcher } from './command-dispatcher.js';
 
 // Storage abstraction layer
 export {

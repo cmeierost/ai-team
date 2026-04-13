@@ -6,53 +6,56 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { createContainerWithBootstrap } from '@ai-team/container';
+import type { IServiceContainer } from '@ai-team/core';
 import { registerCliCommandCatalog, type CliCommandMetadata } from '@ai-team/infrastructure';
-import { createContainer, TOKENS, type TransportAdapterFactory } from '@ai-team/container';
-import { CliMediator } from './cli-mediator.js';
+import { CliCommandClient } from './cli-command-client.js';
 import {
   findWorkspaceRoot,
   ServiceDomainError,
   type ServiceErrorInputRequest,
 } from '@ai-team/service';
-import { initCommand } from './commands/init.js';
-import { listCommand } from './commands/list.js';
-import { createCommand } from './commands/create.js';
-import { chatCommand } from './commands/chat.js';
-import { graphCommand } from './commands/graph.js';
-import { hireCommand } from './commands/hire.js';
-import { infoCommand } from './commands/info.js';
-import { fireCommand } from './commands/fire.js';
-import { sysinfoCommand } from './commands/sysinfo.js';
-import { hhRefreshCommand } from './commands/hh.js';
-import { codeEditCommand } from './commands/code-edit.js';
-import { avatarCommand } from './commands/avatar.js';
-import { patchCommand } from './commands/patch.js';
-import {
-  filesCommand,
-  filesAllowCommand,
-  filesDisallowCommand,
-  filesPatternsCommand,
-} from './commands/files.js';
-import { accessCanCommand, accessOverlapCommand, accessWhoCommand } from './commands/access.js';
-import { toolsAllowCommand, toolsCommand, toolsDisallowCommand } from './commands/tools.js';
-import { skillsAddCommand, skillsCommand, skillsRemoveCommand } from './commands/skills.js';
+import { renderInit } from './handlers/init.js';
+import { renderAgentList } from './handlers/list.js';
 
-import { testConnectionCommand } from './commands/test-connection.js';
+import { renderChat } from './handlers/chat.js';
+import { renderTeamGraph } from './handlers/graph.js';
+
+import { renderAgentInfo } from './handlers/info.js';
+
+import { renderSysinfo } from './handlers/sysinfo.js';
+
 import {
-  providerAddCommand,
-  providerConfigureCommand,
-  providerSetCommand,
-} from './commands/provider.js';
+  renderCodeEditList,
+  renderCodeEditApprove,
+  renderCodeEditReject,
+  renderCodeEditApply,
+} from './handlers/code-edit.js';
+
+import { renderPatchApply } from './handlers/patch.js';
 import {
-  providerListCommand,
-  providerModelsCommand,
-  providerModelsRefreshCommand,
-} from './commands/models.js';
-import { orgCommand } from './commands/org.js';
-import { serveCommand } from './commands/serve.js';
-import { uiCommand } from './commands/ui.js';
-import { CLI_COMMAND_REGISTRY, getCliCommandMetadata } from './commands/registry.js';
-import { dbStatusCommand, dbMigrateCommand } from './commands/db.js';
+  renderFilesTree,
+  renderFilesPatterns,
+  renderFilesAllow,
+  renderFilesDeny,
+} from './handlers/files.js';
+import { renderAccessCan, renderAccessOverlap, renderAccessWho } from './handlers/access.js';
+import { runCommandStream } from './handlers/stream-runner.js';
+import { renderToolsAllow, renderToolsList, renderToolsDeny } from './handlers/tools.js';
+import { renderSkillsList, renderSkillsAdd, renderSkillsRemove } from './handlers/skills.js';
+import { renderSearchResults } from './handlers/search.js';
+
+import {
+  renderProviderAdd,
+  renderProviderConfigure,
+  renderProviderSet,
+} from './handlers/provider.js';
+
+import { renderOrgGraph } from './handlers/org.js';
+import { launchServer, launchServerWithUi } from './handlers/serve.js';
+import { launchUi } from './handlers/ui.js';
+import { CLI_COMMAND_REGISTRY } from './handlers/registry.js';
+import { renderDbStatus, renderDbMigrate } from './handlers/db.js';
 
 registerCliCommandCatalog(CLI_COMMAND_REGISTRY);
 
@@ -101,6 +104,12 @@ function withCliErrorHandling<TArgs extends unknown[]>(
 function applyCommandMetadata(command: Command, metadata: CliCommandMetadata): Command {
   command.description(metadata.description);
 
+  if (metadata.aliases) {
+    for (const alias of metadata.aliases) {
+      command.alias(alias);
+    }
+  }
+
   if (metadata.arguments) {
     for (const argument of metadata.arguments) {
       command.argument(argument.syntax, argument.description);
@@ -121,386 +130,545 @@ function applyCommandMetadata(command: Command, metadata: CliCommandMetadata): C
 }
 
 const workspaceRoot = findWorkspaceRoot();
-const createCliMediator: TransportAdapterFactory = (c) =>
-  new CliMediator(c.resolve(TOKENS.WorkspaceRoot));
 
-const container = createContainer({
+const commandContainer = createContainerWithBootstrap({ workspaceRoot }, () => {});
+const commandClient = new CliCommandClient(
   workspaceRoot,
-  transportAdapterFactory: createCliMediator,
-});
-
-const commandClient = container.resolve(TOKENS.AiTeamMediator);
-const agentsClient = container.resolve(TOKENS.AgentsService);
-const skillsClient = container.resolve(TOKENS.SkillsService);
-const toolsClient = container.resolve(TOKENS.ToolsService);
-const accessClient = container.resolve(TOKENS.AccessService);
-const orgClient = container.resolve(TOKENS.TeamService);
-const configClient = container.resolve(TOKENS.ConfigService);
-
-program.name('ai-team').description('Manage virtual AI development teams').version('0.1.0');
-
-const initMeta = getCliCommandMetadata('init');
-applyCommandMetadata(program.command(initMeta.command), initMeta).action(
-  withCliErrorHandling((options) => initCommand(commandClient, options))
+  commandContainer.child() as unknown as IServiceContainer
 );
 
-const listMeta = getCliCommandMetadata('list');
-applyCommandMetadata(program.command(listMeta.command), listMeta).action(
-  withCliErrorHandling((options) => listCommand(agentsClient, options))
-);
+type CliActionHandler = (...args: any[]) => Promise<unknown> | unknown;
 
-const createMeta = getCliCommandMetadata('create');
-applyCommandMetadata(program.command(createMeta.command), createMeta).action(
-  withCliErrorHandling((type, options) => createCommand(commandClient, type, options))
-);
-
-const chatMeta = getCliCommandMetadata('chat');
-applyCommandMetadata(program.command(chatMeta.command), chatMeta).action(
-  withCliErrorHandling(
-    (
-      agentId: string | undefined,
-      messageParts: string[] | undefined,
-      options: {
-        message?: string;
-        context?: string[];
-        mediatorLog?: boolean;
-        new?: boolean;
-        session?: string;
+const directCliActionHandlers: Record<string, CliActionHandler> = {
+  init: (options) => renderInit(commandClient, options),
+  list: (options: { role?: string; feature?: string; json?: boolean }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'listEmployees',
+        payload: { role: options.role, feature: options.feature },
+      },
+      {
+        resultHandler: (data) => renderAgentList(data, options),
       }
-    ) => {
-      const { mediatorLog, new: createNew, session, ...chatOptions } = options;
-      const inlineMessage =
-        messageParts && messageParts.length > 0 ? messageParts.join(' ') : undefined;
-      const hasOptionMessage = Boolean(chatOptions.message || inlineMessage);
-      const message = chatOptions.message || inlineMessage;
-      return chatCommand(
-        commandClient,
-        agentId,
-        {
-          ...chatOptions,
-          message,
-          oneShot: hasOptionMessage,
-          createNewSession: createNew,
-          sessionId: session,
+    ),
+  create: (type: string, options) =>
+    runCommandStream(commandClient, {
+      command: 'create',
+      payload: { type: type.toLowerCase(), options },
+    }),
+  chat: (
+    agentId: string | undefined,
+    messageParts: string[] | undefined,
+    options: {
+      message?: string;
+      context?: string[];
+      mediatorLog?: boolean;
+      new?: boolean;
+      session?: string;
+    }
+  ) => {
+    const { mediatorLog, new: createNew, session, ...chatOptions } = options;
+    const inlineMessage =
+      messageParts && messageParts.length > 0 ? messageParts.join(' ') : undefined;
+    const hasOptionMessage = Boolean(chatOptions.message || inlineMessage);
+    const message = chatOptions.message || inlineMessage;
+    return renderChat(
+      commandClient,
+      agentId,
+      {
+        ...chatOptions,
+        message,
+        oneShot: hasOptionMessage,
+        createNewSession: createNew,
+        sessionId: session,
+      },
+      Boolean(mediatorLog)
+    );
+  },
+  graph: async (options: { mode?: string; output?: string }) => {
+    let graphData: unknown;
+    await runCommandStream(
+      commandClient,
+      {
+        command: 'getTeamGraph',
+        payload: { mode: options.mode as any },
+      },
+      {
+        resultHandler: (data) => {
+          graphData = data;
         },
-        Boolean(mediatorLog)
+      }
+    );
+
+    if (!graphData) {
+      return;
+    }
+
+    if (options.output) {
+      const fs = await import('fs/promises');
+      if (options.output.endsWith('.json')) {
+        await fs.writeFile(options.output, JSON.stringify(graphData, null, 2));
+        console.log(chalk.green(`✓ Exported graph to ${options.output}`));
+      } else {
+        console.log(chalk.yellow('Only JSON export is currently supported'));
+        console.log(chalk.dim('Use --output graph.json'));
+      }
+      return;
+    }
+
+    await renderTeamGraph(graphData as Parameters<typeof renderTeamGraph>[0], {
+      mode: options.mode,
+    });
+  },
+  org: (options: { mermaid?: boolean; output?: string }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'getOrganizationGraph',
+        payload: {},
+      },
+      {
+        resultHandler: (data) => renderOrgGraph(data, options),
+      }
+    ),
+  hire: (options) =>
+    runCommandStream(commandClient, {
+      command: 'hire',
+      payload: { options },
+    }),
+  info: (agentId: string, options: { json?: boolean }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'resolveEmployees',
+        payload: { query: agentId },
+      },
+      {
+        resultHandler: (data) => renderAgentInfo(data, agentId, options),
+      }
+    ),
+  fire: (agentQuery: string, options: { force?: boolean }) =>
+    runCommandStream(commandClient, {
+      command: 'fire',
+      payload: { employeeQuery: agentQuery, options },
+    }),
+  show: (agentId: string) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'resolveEmployees',
+        payload: { query: agentId },
+      },
+      {
+        resultHandler: (data) =>
+          renderAgentInfo(data, agentId, { openAvatar: true, workspaceRoot }),
+      }
+    ),
+  avatar: (agentQuery: string) =>
+    runCommandStream(commandClient, {
+      command: 'avatar',
+      payload: { options: { agentQuery } },
+    }),
+  sysinfo: (options: { json?: boolean }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'systemInfo',
+        payload: {},
+      },
+      {
+        resultHandler: (data) => renderSysinfo(data, options),
+      }
+    ),
+  'code-edit': (options: {
+    status?: string;
+    agent?: string;
+    json?: boolean;
+    approve?: string;
+    reject?: string;
+    apply?: string;
+  }) => {
+    if (options.approve) {
+      return runCommandStream(
+        commandClient,
+        {
+          command: 'codeEditApprove',
+          payload: { proposalId: options.approve },
+        },
+        {
+          resultHandler: (data) => renderCodeEditApprove(data),
+        }
       );
     }
-  )
-);
-
-const graphMeta = getCliCommandMetadata('graph');
-applyCommandMetadata(program.command(graphMeta.command), graphMeta).action(
-  withCliErrorHandling((options) => graphCommand(orgClient, options))
-);
-
-const orgMeta = getCliCommandMetadata('org');
-applyCommandMetadata(program.command(orgMeta.command), orgMeta).action(
-  withCliErrorHandling((options) => orgCommand(orgClient, options))
-);
-
-const hireMeta = getCliCommandMetadata('hire');
-applyCommandMetadata(program.command(hireMeta.command), hireMeta).action(
-  withCliErrorHandling((options) => hireCommand(commandClient, options))
-);
-
-const infoMeta = getCliCommandMetadata('info');
-applyCommandMetadata(program.command(infoMeta.command), infoMeta).action(
-  withCliErrorHandling((agentId, options) => infoCommand(agentsClient, agentId, options))
-);
-
-// Show command - open avatar only
-program
-  .command('show <agent>')
-  .description('Open the avatar image for an employee')
-  .action(
-    withCliErrorHandling((agentId) => infoCommand(agentsClient, agentId, { openAvatar: true }))
-  );
-
-const fireMeta = getCliCommandMetadata('fire');
-applyCommandMetadata(program.command(fireMeta.command), fireMeta).action(
-  withCliErrorHandling((agentQuery, options) => fireCommand(commandClient, agentQuery, options))
-);
-
-// Avatar command
-program
-  .command('avatar <agent>')
-  .description('Download and set an avatar picture for an agent')
-  .action(
-    withCliErrorHandling((agentQuery) =>
-      avatarCommand(agentQuery, { workspaceRoot: process.cwd() })
-    )
-  );
-
-// System info command
-program
-  .command('sysinfo')
-  .alias('sys')
-  .description('Display system information about the workspace')
-  .option('--json', 'Output as JSON')
-  .action(withCliErrorHandling((options) => sysinfoCommand(options)));
-
-// Files / file tree command
-const files = program
-  .command('files')
-  .description(
-    'Preview the workspace file tree with gitignore awareness and optional agent-scoped filtering'
-  )
-  .option('-d, --depth <number>', 'Max recursion depth (default: 4)')
-  .option('-a, --all', 'Include hidden files and directories')
-  .option('--no-gitignore', 'Ignore .gitignore rules and show all files')
-  .option('--json', 'Output as JSON')
-  .option('--agent <id>', 'Show files accessible to a specific agent')
-  .option('--writeable', 'Show writeable files instead of readable (requires --agent)')
-  .action(withCliErrorHandling((options) => filesCommand(options)));
-
-files
-  .command('allow <path>')
-  .description(
-    'Allow a path in file visibility (global config) or agent access rules (governed when --agent is used)'
-  )
-  .option('--agent <id>', 'Scope to a specific agent (updates their .md permissions)')
-  .option(
-    '--requested-by <agent>',
-    'Governance actor requesting the change (default policy typically allows CEO or HR Director)'
-  )
-  .option(
-    '--approved-by-user',
-    'Mark user approval as granted and skip interactive confirmation prompt'
-  )
-  .option('--write', 'Affect write permissions instead of read (default: read)')
-  .option('--mode <mode>', 'Permission mode: read | write | create | delete')
-  .action(
-    withCliErrorHandling(
-      (
-        p: string,
-        options: {
-          agent?: string;
-          requestedBy?: string;
-          approvedByUser?: boolean;
-          write?: boolean;
-          mode?: string;
+    if (options.reject) {
+      return runCommandStream(
+        commandClient,
+        {
+          command: 'codeEditReject',
+          payload: { proposalId: options.reject },
+        },
+        {
+          resultHandler: (data) => renderCodeEditReject(data),
         }
-      ) => filesAllowCommand(p, options)
-    )
-  );
-
-files
-  .command('disallow <path>')
-  .description(
-    'Disallow a path from file visibility (global config) or agent access rules (governed when --agent is used)'
-  )
-  .option('--agent <id>', 'Scope to a specific agent (updates their .md permissions)')
-  .option(
-    '--requested-by <agent>',
-    'Governance actor requesting the change (default policy typically allows CEO or HR Director)'
-  )
-  .option(
-    '--approved-by-user',
-    'Mark user approval as granted and skip interactive confirmation prompt'
-  )
-  .option('--write', 'Affect write permissions instead of read (default: read)')
-  .option('--mode <mode>', 'Permission mode: read | write | create | delete')
-  .action(
-    withCliErrorHandling(
-      (
-        p: string,
-        options: {
-          agent?: string;
-          requestedBy?: string;
-          approvedByUser?: boolean;
-          write?: boolean;
-          mode?: string;
+      );
+    }
+    if (options.apply) {
+      return runCommandStream(
+        commandClient,
+        {
+          command: 'codeEditApply',
+          payload: { proposalId: options.apply },
+        },
+        {
+          resultHandler: (data) => renderCodeEditApply(data),
         }
-      ) => filesDisallowCommand(p, options)
-    )
-  );
-
-files
-  .command('patterns')
-  .description('List configured file permission patterns (global or per-agent)')
-  .option('--agent <id>', 'Show patterns for a specific agent')
-  .option('--json', 'Output as JSON')
-  .action(
-    withCliErrorHandling((options: { agent?: string; json?: boolean }) =>
-      filesPatternsCommand(options)
-    )
-  );
-
-const toolsMeta = getCliCommandMetadata('tools');
-const tools = applyCommandMetadata(program.command(toolsMeta.command), toolsMeta).action(
-  withCliErrorHandling((options: { agent?: string; json?: boolean }) =>
-    toolsCommand(toolsClient, options)
-  )
-);
-
-const accessMeta = getCliCommandMetadata('access');
-const access = applyCommandMetadata(program.command(accessMeta.command), accessMeta);
-
-const accessWhoMeta = getCliCommandMetadata('access.who');
-applyCommandMetadata(access.command(accessWhoMeta.command), accessWhoMeta).action(
-  withCliErrorHandling(
-    (options: { path?: string; right?: 'read' | 'write' | 'list'; json?: boolean }) =>
-      accessWhoCommand(accessClient, options)
-  )
-);
-
-const accessCanMeta = getCliCommandMetadata('access.can');
-applyCommandMetadata(access.command(accessCanMeta.command), accessCanMeta).action(
-  withCliErrorHandling(
-    (options: {
-      path?: string;
-      right?: 'read' | 'write' | 'list';
+      );
+    }
+    return runCommandStream(
+      commandClient,
+      {
+        command: 'codeEditList',
+        payload: { status: options.status, agent: options.agent },
+      },
+      {
+        resultHandler: (data) => renderCodeEditList(data, options),
+      }
+    );
+  },
+  'db:status': () =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'dbStatus',
+        payload: {},
+      },
+      {
+        resultHandler: (data) => renderDbStatus(data),
+      }
+    ),
+  'db:migrate': () =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'dbMigrate',
+        payload: {},
+      },
+      {
+        resultHandler: (data) => renderDbMigrate(data),
+      }
+    ),
+  patch: (file: string, line: string, content: string, rest: string[]) => {
+    const changes: Array<{ line: number; content: string }> = [];
+    const allPairs: Array<[string, string]> = [[line, content]];
+    for (let i = 0; i + 1 < rest.length; i += 2) {
+      allPairs.push([rest[i], rest[i + 1]]);
+    }
+    for (const [ls, c] of allPairs) {
+      const n = parseInt(ls, 10);
+      if (isNaN(n) || n < 1) {
+        throw new Error(`Line must be a positive integer, got: ${ls}`);
+      }
+      changes.push({ line: n, content: c });
+    }
+    return runCommandStream(
+      commandClient,
+      {
+        command: 'patchApply',
+        payload: { file, changes },
+      },
+      {
+        resultHandler: (data) => renderPatchApply(data),
+      }
+    );
+  },
+  files: (options: {
+    depth?: string;
+    all?: boolean;
+    noGitignore?: boolean;
+    json?: boolean;
+    agent?: string;
+    writeable?: boolean;
+  }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'filesTree',
+        payload: {
+          agent: options.agent,
+          depth: options.depth ? Number.parseInt(options.depth, 10) : undefined,
+          all: options.all,
+          noGitignore: options.noGitignore,
+          writeable: options.writeable,
+        },
+      },
+      {
+        resultHandler: (data) => renderFilesTree(data, options),
+      }
+    ),
+  'files.allow': (
+    p: string,
+    options: {
       agent?: string;
-      json?: boolean;
-    }) => accessCanCommand(accessClient, options)
-  )
-);
-
-const accessOverlapMeta = getCliCommandMetadata('access.overlap');
-applyCommandMetadata(access.command(accessOverlapMeta.command), accessOverlapMeta).action(
-  withCliErrorHandling(
-    (options: {
-      mode?: 'files' | 'patterns';
-      right?: 'read' | 'write' | 'list';
-      agent?: string;
-      json?: boolean;
-    }) => accessOverlapCommand(accessClient, options)
-  )
-);
-
-const toolsAllowMeta = getCliCommandMetadata('tools.allow');
-applyCommandMetadata(tools.command(toolsAllowMeta.command).alias('add'), toolsAllowMeta).action(
-  withCliErrorHandling(
-    (options: {
-      agent?: string;
-      tool?: string;
       requestedBy?: string;
       approvedByUser?: boolean;
-      json?: boolean;
-    }) => toolsAllowCommand(toolsClient, options)
-  )
-);
-
-const toolsDisallowMeta = getCliCommandMetadata('tools.disallow');
-applyCommandMetadata(
-  tools.command(toolsDisallowMeta.command).alias('remove'),
-  toolsDisallowMeta
-).action(
-  withCliErrorHandling(
-    (options: {
+      write?: boolean;
+      mode?: string;
+    }
+  ) => renderFilesAllow(commandClient, p, options),
+  'files.disallow': (
+    p: string,
+    options: {
       agent?: string;
-      tool?: string;
       requestedBy?: string;
       approvedByUser?: boolean;
+      write?: boolean;
+      mode?: string;
+    }
+  ) => renderFilesDeny(commandClient, p, options),
+  'files.patterns': (options: { agent?: string; json?: boolean }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'filesPatterns',
+        payload: { agent: options.agent },
+      },
+      {
+        resultHandler: (data) => renderFilesPatterns(data, options),
+      }
+    ),
+  tools: (options: { agent?: string; json?: boolean }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'toolsList',
+        payload: { agent: options.agent },
+      },
+      {
+        resultHandler: (data) => renderToolsList(data, options),
+      }
+    ),
+  access: () => undefined,
+  'access.who': (options: { path?: string; right?: 'read' | 'write' | 'list'; json?: boolean }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'accessWho',
+        payload: { path: options.path ?? '', right: options.right },
+      },
+      {
+        resultHandler: (data) => renderAccessWho(data, options),
+      }
+    ),
+  'access.can': (options: {
+    path?: string;
+    right?: 'read' | 'write' | 'list';
+    agent?: string;
+    json?: boolean;
+  }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'accessCan',
+        payload: { path: options.path ?? '', right: options.right, agent: options.agent },
+      },
+      {
+        resultHandler: (data) => renderAccessCan(data, options),
+      }
+    ),
+  'access.overlap': (options: {
+    mode?: 'files' | 'patterns';
+    right?: 'read' | 'write' | 'list';
+    agent?: string;
+    json?: boolean;
+  }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'accessOverlap',
+        payload: { mode: options.mode, right: options.right, agent: options.agent },
+      },
+      {
+        resultHandler: (data) => renderAccessOverlap(data, options),
+      }
+    ),
+  'tools.allow': (options: {
+    agent?: string;
+    tool?: string;
+    requestedBy?: string;
+    approvedByUser?: boolean;
+    json?: boolean;
+  }) => renderToolsAllow(commandClient, options),
+  'tools.disallow': (options: {
+    agent?: string;
+    tool?: string;
+    requestedBy?: string;
+    approvedByUser?: boolean;
+    json?: boolean;
+  }) => renderToolsDeny(commandClient, options),
+  skills: (options: { query?: string; agent?: string; json?: boolean }) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'skillsList',
+        payload: { query: options.query, agent: options.agent },
+      },
+      {
+        resultHandler: (data) => renderSkillsList(data, options),
+      }
+    ),
+  search: (
+    query: string | undefined,
+    options: {
+      role?: string;
+      type?: string;
+      status?: string;
+      feature?: string;
+      specialization?: string;
+      tool?: string;
+      reportsTo?: string;
+      contextLevel?: string;
       json?: boolean;
-    }) => toolsDisallowCommand(toolsClient, options)
-  )
-);
+    }
+  ) =>
+    runCommandStream(
+      commandClient,
+      {
+        command: 'searchAgents',
+        payload: {
+          query,
+          role: options.role,
+          type: options.type,
+          status: options.status,
+          feature: options.feature,
+          specialization: options.specialization,
+          tool: options.tool,
+          reportsTo: options.reportsTo,
+          contextLevel: options.contextLevel,
+        },
+      },
+      {
+        resultHandler: (data) =>
+          renderSearchResults(data, {
+            query,
+            json: options.json,
+            hasFilters: Boolean(
+              options.role ||
+              options.type ||
+              options.status ||
+              options.feature ||
+              options.specialization ||
+              options.tool ||
+              options.reportsTo ||
+              options.contextLevel
+            ),
+          }),
+      }
+    ),
+  'skills.add': (options: { agent?: string; skill?: string; json?: boolean }) => {
+    if (!options.agent?.trim()) throw new Error('Missing required option --agent');
+    if (!options.skill?.trim()) throw new Error('Missing required option --skill');
+    return runCommandStream(
+      commandClient,
+      {
+        command: 'skillsAdd',
+        payload: { agent: options.agent, skill: options.skill },
+      },
+      {
+        resultHandler: (data) => renderSkillsAdd(data, options),
+      }
+    );
+  },
+  'skills.remove': (options: { agent?: string; skill?: string; json?: boolean }) => {
+    if (!options.agent?.trim()) throw new Error('Missing required option --agent');
+    if (!options.skill?.trim()) throw new Error('Missing required option --skill');
+    return runCommandStream(
+      commandClient,
+      {
+        command: 'skillsRemove',
+        payload: { agent: options.agent, skill: options.skill },
+      },
+      {
+        resultHandler: (data) => renderSkillsRemove(data, options),
+      }
+    );
+  },
+  hh: () => undefined,
+  'hh.refresh': () =>
+    runCommandStream(commandClient, {
+      command: 'hhRefresh',
+      payload: {},
+    }),
+  'test-connection': (options) =>
+    runCommandStream(commandClient, {
+      command: 'testConnection',
+      payload: { options },
+    }),
+  serve: (options) => launchServer(options, workspaceRoot),
+  'serve.ui': (options) => launchServerWithUi(options, workspaceRoot),
+  ui: (options) => launchUi(options, workspaceRoot),
+  provider: () => undefined,
+  'provider.configure': (options) => renderProviderConfigure(commandClient, options),
+  'provider.add': () => renderProviderAdd(commandClient),
+  'provider.set': (options) => renderProviderSet(commandClient, options),
+  'provider.list': (options) =>
+    runCommandStream(commandClient, {
+      command: 'providerList',
+      payload: { options },
+    }),
+  'provider.models': (options) =>
+    runCommandStream(commandClient, {
+      command: 'providerModels',
+      payload: { options },
+    }),
+  'provider.models.refresh': (options) =>
+    runCommandStream(commandClient, {
+      command: 'providerModelsRefresh',
+      payload: { options },
+    }),
+};
 
-const skillsMeta = getCliCommandMetadata('skills');
-const skills = applyCommandMetadata(program.command(skillsMeta.command), skillsMeta).action(
-  withCliErrorHandling((options: { query?: string; agent?: string; json?: boolean }) =>
-    skillsCommand(skillsClient, options)
-  )
-);
+function registerDirectCliCommands(
+  rootCommand: Command,
+  metadataEntries: CliCommandMetadata[],
+  actionHandlers: Record<string, CliActionHandler>
+): void {
+  const directEntries = metadataEntries.filter((entry) => entry.directCli);
+  const entriesByKey = new Map(directEntries.map((entry) => [entry.key, entry]));
+  const registeredCommands = new Map<string, Command>();
 
-const skillsAddMeta = getCliCommandMetadata('skills.add');
-applyCommandMetadata(skills.command(skillsAddMeta.command), skillsAddMeta).action(
-  withCliErrorHandling((options: { agent?: string; skill?: string; json?: boolean }) =>
-    skillsAddCommand(skillsClient, options)
-  )
-);
+  const registerEntry = (entry: CliCommandMetadata): Command => {
+    const existing = registeredCommands.get(entry.key);
+    if (existing) {
+      return existing;
+    }
 
-const skillsRemoveMeta = getCliCommandMetadata('skills.remove');
-applyCommandMetadata(skills.command(skillsRemoveMeta.command), skillsRemoveMeta).action(
-  withCliErrorHandling((options: { agent?: string; skill?: string; json?: boolean }) =>
-    skillsRemoveCommand(skillsClient, options)
-  )
-);
+    const parentCommand = entry.parentKey
+      ? registerEntry(
+          entriesByKey.get(entry.parentKey) ??
+            (() => {
+              throw new Error(`Direct CLI parent metadata missing for '${entry.key}'.`);
+            })()
+        )
+      : rootCommand;
 
-const hhMeta = getCliCommandMetadata('hh');
-const hh = applyCommandMetadata(program.command(hhMeta.command), hhMeta);
+    const command = applyCommandMetadata(parentCommand.command(entry.command), entry);
+    const actionHandler = actionHandlers[entry.key];
+    if (!actionHandler) {
+      throw new Error(`Direct CLI action handler missing for '${entry.key}'.`);
+    }
 
-const hhRefreshMeta = getCliCommandMetadata('hh.refresh');
-applyCommandMetadata(hh.command(hhRefreshMeta.command), hhRefreshMeta).action(
-  withCliErrorHandling(() => hhRefreshCommand(commandClient))
-);
+    command.action(withCliErrorHandling(actionHandler));
+    registeredCommands.set(entry.key, command);
+    return command;
+  };
 
-const testConnectionMeta = getCliCommandMetadata('test-connection');
-applyCommandMetadata(program.command(testConnectionMeta.command), testConnectionMeta).action(
-  withCliErrorHandling((options) => testConnectionCommand(commandClient, options))
-);
+  for (const entry of directEntries) {
+    registerEntry(entry);
+  }
+}
 
-const serveMeta = getCliCommandMetadata('serve');
-applyCommandMetadata(program.command(serveMeta.command), serveMeta).action(
-  withCliErrorHandling((options) => serveCommand(options))
-);
-
-const uiMeta = getCliCommandMetadata('ui');
-applyCommandMetadata(program.command(uiMeta.command), uiMeta).action(
-  withCliErrorHandling((options) => uiCommand(options))
-);
-
-const providerMeta = getCliCommandMetadata('provider');
-const provider = applyCommandMetadata(program.command(providerMeta.command), providerMeta);
-
-const providerConfigureMeta = getCliCommandMetadata('provider.configure');
-applyCommandMetadata(provider.command(providerConfigureMeta.command), providerConfigureMeta).action(
-  withCliErrorHandling((options) => providerConfigureCommand(commandClient, options))
-);
-
-const providerAddMeta = getCliCommandMetadata('provider.add');
-applyCommandMetadata(provider.command(providerAddMeta.command), providerAddMeta).action(
-  withCliErrorHandling(() => providerAddCommand(commandClient))
-);
-
-const providerSetMeta = getCliCommandMetadata('provider.set');
-applyCommandMetadata(provider.command(providerSetMeta.command), providerSetMeta).action(
-  withCliErrorHandling((options) => providerSetCommand(commandClient, options))
-);
-
-const providerListMeta = getCliCommandMetadata('provider.list');
-applyCommandMetadata(provider.command(providerListMeta.command), providerListMeta).action(
-  withCliErrorHandling((options) => providerListCommand(commandClient, options))
-);
-
-const providerModelsMeta = getCliCommandMetadata('provider.models');
-const providerModels = applyCommandMetadata(
-  provider.command(providerModelsMeta.command),
-  providerModelsMeta
-).action(withCliErrorHandling((options) => providerModelsCommand(commandClient, options)));
-
-const providerModelsRefreshMeta = getCliCommandMetadata('provider.models.refresh');
-applyCommandMetadata(
-  providerModels.command(providerModelsRefreshMeta.command),
-  providerModelsRefreshMeta
-).action(withCliErrorHandling((options) => providerModelsRefreshCommand(commandClient, options)));
-
-// Code edit proposals command
-program
-  .command('code-edit')
-  .description('Manage code edit proposals')
-  .option('--status <status>', 'Filter by status (PENDING, APPROVED, APPLIED, REJECTED, FAILED)')
-  .option('--agent <agent>', 'Filter by agent name')
-  .option('--approve <id>', 'Approve a proposal')
-  .option('--reject <id>', 'Reject a proposal')
-  .option('--apply <id>', 'Apply an approved proposal')
-  .action(withCliErrorHandling((options) => codeEditCommand(process.cwd(), options)));
-
-// Database commands
-program.addCommand(dbStatusCommand(process.cwd()));
-program.addCommand(dbMigrateCommand(process.cwd()));
-
-// Patch: replace one or more lines in a file and push through the proposal pipeline
-// Usage: ait patch <file> <line> <content> [<line2> <content2> ...]
-program
-  .command('patch <file> <line> <content> [rest...]')
-  .description('Replace one or more lines in a file and send a code-edit proposal to VS Code')
-  .action(
-    withCliErrorHandling((file: string, line: string, content: string, rest: string[]) =>
-      patchCommand(file, line, content, rest)
-    )
-  );
+program.name('ai-team').description('Manage virtual AI development teams').version('0.1.0');
+registerDirectCliCommands(program, CLI_COMMAND_REGISTRY, directCliActionHandlers);
 
 program.parse();

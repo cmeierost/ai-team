@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useMatch, useNavigate, useParams } from 'react-router-dom';
-import { API_BASE, useTeam } from '../../context/TeamContext';
+import { useTeam } from '../../context/TeamContext';
 import { contextPanelQueryKeys } from '../../hooks/contextPanelQueryKeys';
 import type { ChatMessage, SessionActivatedTool } from '../../types';
 import type { IdeEditSession, ChatCommandRegistryEntry } from '@ai-team/api-client';
@@ -175,26 +175,19 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const loadGreeting = async (targetAgentId: string, cancelled?: { value: boolean }) => {
     try {
-      const developerName = encodeURIComponent(developer?.name || 'Developer');
-      const response = await fetch(
-        `${API_BASE}/api/agents/${targetAgentId}/introduction?developerName=${developerName}`
-      );
       if (cancelled?.value) {
         return;
       }
-      if (response.ok) {
-        const data = await response.json();
-        const greetingMessage: ChatMessage = {
-          from: data.agentId ?? targetAgentId,
-          content: data.content ?? '',
-          timestamp: data.timestamp ?? new Date().toISOString(),
-        };
-        setMessages([greetingMessage]);
-        setIsEphemeral(true);
-      } else {
-        setMessages([]);
-        setIsEphemeral(false);
-      }
+      const data = await client.agents.introduction(targetAgentId, {
+        developerName: developer?.name || 'Developer',
+      });
+      const greetingMessage: ChatMessage = {
+        from: data.agentId ?? targetAgentId,
+        content: data.content ?? '',
+        timestamp: data.timestamp ?? new Date().toISOString(),
+      };
+      setMessages([greetingMessage]);
+      setIsEphemeral(true);
     } catch {
       setMessages([]);
       setIsEphemeral(false);
@@ -233,13 +226,38 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     targetSessionId: string | null,
     cancelled: boolean
   ) => {
-    const targetUrl = targetSessionId
-      ? `${API_BASE}/api/sessions/${targetSessionId}?includeMessages=true`
-      : `${API_BASE}/api/sessions/${targetAgentId}/latest?includeMessages=true`;
-    const sessionResponse = await fetch(targetUrl);
+    try {
+      let sessionWithMessages = targetSessionId
+        ? await fetchSessionWithMessages(targetSessionId)
+        : await fetchSessionWithMessagesFromAgent(targetAgentId);
 
-    if (sessionResponse.ok) {
-      const sessionWithMessages = await sessionResponse.json();
+      if (!sessionWithMessages) {
+        throw new Error('Session not found');
+      }
+
+      const hasMessagesArray = Array.isArray(sessionWithMessages.messages);
+      const messageCount = Number(sessionWithMessages.messageCount ?? 0);
+
+      if (
+        !targetSessionId &&
+        (!hasMessagesArray || sessionWithMessages.messages.length === 0) &&
+        messageCount > 0 &&
+        typeof sessionWithMessages.id === 'string'
+      ) {
+        const fullSession = await fetchSessionWithMessages(sessionWithMessages.id);
+        if (fullSession) {
+          sessionWithMessages = fullSession;
+        }
+      }
+
+      // When no specific session was requested and the latest session has no messages,
+      // treat it as a fresh start — show the greeting (mirrors CLI behaviour).
+      if (!targetSessionId && (sessionWithMessages.messages ?? []).length === 0) {
+        if (!cancelled) {
+          await loadGreetingFallback(targetAgentId, cancelled);
+        }
+        return;
+      }
       if (!cancelled) {
         applyLoadedSession(targetAgentId, sessionWithMessages);
 
@@ -248,10 +266,10 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         }
       }
       return;
-    }
-
-    if (!cancelled) {
-      await loadGreetingFallback(targetAgentId, cancelled);
+    } catch {
+      if (!cancelled) {
+        await loadGreetingFallback(targetAgentId, cancelled);
+      }
     }
   };
 
@@ -265,13 +283,29 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const fetchSessionWithMessages = async (sessionId: string) => {
-    const response = await fetch(
-      `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}?includeMessages=true`
-    );
-    if (!response.ok) {
+    try {
+      const session = await client.sessions.getById(sessionId);
+      const messages = await client.sessions.getMessages(sessionId);
+      return {
+        ...session,
+        messages: Array.isArray(messages) ? messages : [],
+      };
+    } catch {
       return null;
     }
-    return response.json();
+  };
+
+  const fetchSessionWithMessagesFromAgent = async (agentId: string) => {
+    try {
+      const session = await client.sessions.latestByAgent(agentId);
+      const messages = await client.sessions.getMessages(session.id);
+      return {
+        ...session,
+        messages: Array.isArray(messages) ? messages : [],
+      };
+    } catch {
+      return null;
+    }
   };
 
   const syncSessionState = async (sessionId: string, fallbackAgentId: string) => {
@@ -575,21 +609,10 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       return currentSessionId;
     }
 
-    const createResponse = await fetch(`${API_BASE}/api/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        agentId: currentAgentId,
-        developerId: developer?.id || 'clemens-meier',
-        ...(pendingIntroductionContent ? { pendingIntroduction: pendingIntroductionContent } : {}),
-      }),
+    const newSession = await client.sessions.create({
+      agentId: currentAgentId,
+      developerId: developer?.id || 'clemens-meier',
     });
-
-    if (!createResponse.ok) {
-      throw new Error('Failed to create new session');
-    }
-
-    const newSession = await createResponse.json();
     const sessionId = newSession.id as string;
     setCurrentSessionId(sessionId);
     setIsEphemeral(false);
@@ -609,32 +632,28 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     try {
       let targetSessionId = toSessionId ?? null;
       if (!targetSessionId) {
-        const handoffResponse = await fetch(`${API_BASE}/api/sessions/handoff`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            toAgentId,
-            developerId: developer?.id || 'clemens-meier',
-            previousSessionId: activeSessionId,
-            transferArtifacts: true,
-            transferAllowedFiles: true,
-          }),
-        });
-        if (!handoffResponse.ok) {
-          throw new Error('Failed to create handoff session');
+        if (!activeSessionId) {
+          return false;
         }
-        const newSession = await handoffResponse.json();
+        const newSession = await client.sessions.handoff({
+          toAgentId,
+          developerId: developer?.id || 'clemens-meier',
+          previousSessionId: activeSessionId,
+          transferArtifacts: true,
+          transferAllowedFiles: true,
+        });
         targetSessionId = newSession.id;
       }
 
-      const messagesResponse = await fetch(
-        `${API_BASE}/api/sessions/${targetSessionId}?includeMessages=true`
-      );
-      if (!messagesResponse.ok) {
+      if (!targetSessionId) {
+        return false;
+      }
+
+      const sessionWithMessages = await fetchSessionWithMessages(targetSessionId);
+      if (!sessionWithMessages) {
         return true;
       }
 
-      const sessionWithMessages = await messagesResponse.json();
       const existingMessages: ChatMessage[] = sessionWithMessages.messages || [];
       assistantIndexRef.current = existingMessages.length;
       setMessages([
@@ -794,7 +813,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const handleSend = async (messageOverride?: string) => {
-    const composedMessage = messageOverride ?? input;
+    const composedMessage = typeof messageOverride === 'string' ? messageOverride : input;
     if (!composedMessage.trim() || sending) {
       return;
     }
@@ -849,6 +868,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
             options: {
               message: messageContent,
               sessionId: sessionId ?? undefined,
+              oneShot: true,
               ...(pendingIntroductionContent
                 ? { pendingIntroduction: pendingIntroductionContent }
                 : {}),
@@ -878,9 +898,8 @@ export function useChatPanelController(): UseChatPanelControllerResult {
           !syncedSession.title &&
           (syncedSession.messages ?? []).filter((m: any) => m.isHuman).length >= 2
         ) {
-          fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/generate-title`, {
-            method: 'POST',
-          })
+          client.sessions
+            .generateTitle(sessionId)
             .then(() =>
               queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot })
             )
@@ -1009,20 +1028,14 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const handleEditMessage = async (index: number) => {
     if (editingIndex === index) {
       try {
-        const response = await fetch(`${API_BASE}/api/chat/${currentAgentId}/messages/${index}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: editContent }),
+        await client.chat.editMessage(currentAgentId, String(index), { content: editContent });
+        setMessages((previous) => {
+          const updated = [...previous];
+          updated[index] = { ...updated[index], content: editContent };
+          return updated;
         });
-        if (response.ok) {
-          setMessages((previous) => {
-            const updated = [...previous];
-            updated[index] = { ...updated[index], content: editContent };
-            return updated;
-          });
-          setEditingIndex(null);
-          setEditContent('');
-        }
+        setEditingIndex(null);
+        setEditContent('');
       } catch (error) {
         console.error('Failed to edit message:', error);
       }
@@ -1049,22 +1062,20 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       if (!currentSessionId) {
-        const response = await fetch(`${API_BASE}/api/chat/${currentAgentId}/messages/${index}`, {
-          method: 'DELETE',
-        });
-        if (response.ok) {
-          setMessages((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
-        }
+        setMessages((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
         return;
       }
 
       let timestampToDelete = targetMessage.timestamp;
-      let response = await fetch(
-        `${API_BASE}/api/sessions/${encodeURIComponent(currentSessionId)}/messages/${encodeURIComponent(timestampToDelete)}`,
-        { method: 'DELETE' }
-      );
+      let deleted = false;
+      try {
+        await client.sessions.deleteMessage(currentSessionId, encodeURIComponent(timestampToDelete));
+        deleted = true;
+      } catch {
+        deleted = false;
+      }
 
-      if (response.ok) {
+      if (deleted) {
         setMessages((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
       } else {
         const sessionWithMessages = await fetchSessionWithMessages(currentSessionId);
@@ -1077,12 +1088,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         }
 
         timestampToDelete = persistedMessage.timestamp;
-        response = await fetch(
-          `${API_BASE}/api/sessions/${encodeURIComponent(currentSessionId)}/messages/${encodeURIComponent(timestampToDelete)}`,
-          { method: 'DELETE' }
-        );
-
-        if (!response.ok) {
+        try {
+          await client.sessions.deleteMessage(currentSessionId, encodeURIComponent(timestampToDelete));
+        } catch {
           setMessages(persistedMessages);
           return;
         }
@@ -1122,18 +1130,16 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const handleToggleArchive = async (index: number, currentlyArchived: boolean) => {
     try {
-      const endpoint = currentlyArchived ? 'unarchive' : 'archive';
-      const response = await fetch(
-        `${API_BASE}/api/chat/${currentAgentId}/messages/${index}/${endpoint}`,
-        { method: 'PATCH' }
-      );
-      if (response.ok) {
-        setMessages((previous) => {
-          const updated = [...previous];
-          updated[index] = { ...updated[index], archived: !currentlyArchived };
-          return updated;
-        });
+      if (currentlyArchived) {
+        await client.chat.unarchiveMessage(currentAgentId, String(index));
+      } else {
+        await client.chat.archiveMessage(currentAgentId, String(index));
       }
+      setMessages((previous) => {
+        const updated = [...previous];
+        updated[index] = { ...updated[index], archived: !currentlyArchived };
+        return updated;
+      });
     } catch (error) {
       console.error('Failed to toggle archive:', error);
     }
@@ -1153,21 +1159,13 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         messages.slice(0, toIndex + 1),
         developer?.name || undefined
       );
-      const response = await fetch(`${API_BASE}/api/sessions/${currentSessionId}/summarize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fromIndex: 0,
-          toIndex,
-          title,
-          summary,
-          developerId: developer?.id || 'clemens-meier',
-        }),
+      await client.sessions.summarize(currentSessionId, {
+        fromIndex: 0,
+        toIndex,
+        title,
+        summary,
+        developerId: developer?.id || 'clemens-meier',
       });
-      if (!response.ok) {
-        throw new Error(`Summarize failed: ${response.statusText}`);
-      }
-      await response.json();
       globalThis.alert(`Brief "${title}" created successfully!`);
     } catch (error) {
       console.error('Failed to create summary:', error);
@@ -1192,15 +1190,10 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       if (!confirmed) {
         return;
       }
-      const response = await fetch(`${API_BASE}/api/sessions/${currentSessionId}/split`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ atIndex, developerId: developer?.id || 'clemens-meier' }),
+      const newSession = await client.sessions.split(currentSessionId, {
+        fromTimestamp: String(atIndex),
+        newAgentId: developer?.id || 'clemens-meier',
       });
-      if (!response.ok) {
-        throw new Error(`Split failed: ${response.statusText}`);
-      }
-      const newSession = await response.json();
       setCurrentSessionId(newSession.id);
       await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
       await handleSwitchSession(newSession.id);
@@ -1222,14 +1215,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       return;
     }
     try {
-      const response = await fetch(`${API_BASE}/api/sessions/${currentSessionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artifacts: updatedArtifacts }),
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to update session: ${response.statusText}`);
-      }
+      await client.sessions.update(currentSessionId, { artifacts: updatedArtifacts });
     } catch (error) {
       console.error('Failed to persist artifacts to session:', error);
       setArtifactsInContext(previousArtifacts);
@@ -1269,26 +1255,15 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       return;
     }
     try {
-      const response = await fetch(`${API_BASE}/api/sessions/handoff`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          toAgentId: targetAgentId,
-          developerId: developer?.id || 'clemens-meier',
-          previousSessionId: currentSessionId,
-          transferArtifacts: true,
-          transferAllowedFiles: true,
-        }),
+      const newSession = await client.sessions.handoff({
+        toAgentId: targetAgentId,
+        developerId: developer?.id || 'clemens-meier',
+        previousSessionId: currentSessionId,
+        transferArtifacts: true,
+        transferAllowedFiles: true,
       });
-      if (!response.ok) {
-        throw new Error('Failed to create handoff session');
-      }
-      const newSession = await response.json();
-      const messagesResponse = await fetch(
-        `${API_BASE}/api/sessions/${newSession.id}/messages?includeMessages=true`
-      );
-      if (messagesResponse.ok) {
-        const sessionWithMessages = await messagesResponse.json();
+      const sessionWithMessages = await fetchSessionWithMessages(newSession.id);
+      if (sessionWithMessages) {
         setMessages(sessionWithMessages.messages || []);
         setCurrentSessionId(newSession.id);
         setCurrentAgentId(targetAgentId);
@@ -1329,11 +1304,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       return;
     }
     lastPersistedToolStateRef.current = payload;
-    void fetch(`${API_BASE}/api/sessions/${currentSessionId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activatedTools }),
-    }).catch((error) => {
+    void client.sessions.update(currentSessionId, { activatedTools }).catch((error) => {
       console.error('Failed to persist activated tools:', error);
     });
   }, [activatedTools, currentSessionId]);

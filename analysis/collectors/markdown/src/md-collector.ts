@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, extname } from 'node:path';
+import { join, relative } from 'node:path';
 import type { Entity, Relationship, FileInventoryEntry } from '@aspect/contracts';
 import { parseMarkdownFile } from './md-parser.js';
 

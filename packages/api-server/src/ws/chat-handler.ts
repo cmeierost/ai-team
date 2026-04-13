@@ -1,7 +1,6 @@
 import type { WebSocket } from 'ws';
 import type {
-  IAiTeamMediator,
-  MediatorEvent,
+  StreamEvent,
   QuestionChecklistRequest,
   QuestionConfirmRequest,
   QuestionInputRequest,
@@ -9,7 +8,11 @@ import type {
   QuestionSelectRequest,
 } from '@ai-team/api-client';
 import type { AgentManager } from '@ai-team/infrastructure';
-import { resolveAgentForOperationAsync, SessionManager } from '@ai-team/service';
+import {
+  resolveAgentForOperationAsync,
+  SessionManager,
+  type IInteractionService,
+} from '@ai-team/service';
 import { createIdeAdapter, type IdeAdapter } from '@ai-team/infrastructure';
 
 /**
@@ -43,9 +46,9 @@ import { createIdeAdapter, type IdeAdapter } from '@ai-team/infrastructure';
  * ```
  */
 export interface ChatWebSocketMessage {
-  /** Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question */
-  type: 'message' | 'cancel' | 'answer';
-  /** Chat message content (required for 'message' type) */
+  /** Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question, 'interrupt' = hard interrupt, 'steer' = drift in message */
+  type: 'message' | 'cancel' | 'answer' | 'interrupt' | 'steer';
+  /** Chat message content (required for 'message', 'steer' type) */
   content?: string;
   /** Additional options for the chat interaction (optional for 'message' type) */
   options?: any;
@@ -111,13 +114,13 @@ export interface ChatWebSocketEvent {
   data?: unknown;
 }
 
-type ChatMediatorEvent = MediatorEvent<'chat'>;
+type ChatStreamEvent = StreamEvent<'chat'>;
 type PendingAnswerValue = string | boolean | number | string[] | Record<string, string>;
 
 export async function setupChatWebSocket(
   ws: WebSocket,
   agentQuery: string,
-  client: IAiTeamMediator,
+  interactionService: IInteractionService,
   sessionManager: SessionManager,
   sessionId: string | null,
   agentManager?: AgentManager,
@@ -258,7 +261,7 @@ export async function setupChatWebSocket(
           // — no need to save user or assistant messages here.
 
           // Stream chat response with question handlers
-          const stream = client.streamInteraction(
+          const stream = interactionService.stream(
             {
               command: 'chat',
               payload: {
@@ -267,6 +270,7 @@ export async function setupChatWebSocket(
                   message: message.content,
                   sessionId: sessionId ?? undefined,
                   ...message.options,
+                  oneShot: message.options?.oneShot ?? true,
                 },
               },
             },
@@ -325,7 +329,7 @@ export async function setupChatWebSocket(
             // Send typed mediator event envelope to client
             const wsEvent: ChatWebSocketEvent = {
               type: 'mediator',
-              data: event as ChatMediatorEvent,
+              data: event as ChatStreamEvent,
             };
             ws.send(JSON.stringify(wsEvent));
           }

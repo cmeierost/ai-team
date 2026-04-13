@@ -2,9 +2,9 @@ import { createRestClient, RestClientError } from '@ts-http/core';
 import type { RestClientOptions } from '@ts-http/core';
 import { StreamingClient } from './streaming-client.js';
 import type {
-  MediatorRequest,
-  MediatorEvent,
-  MediatorContext,
+  InteractionRequest,
+  StreamEvent,
+  IQuestionContext,
   AiTeamCommandName,
 } from './contract/routers/streaming.js';
 import { accessDesc } from './contract/routers/access.js';
@@ -34,7 +34,10 @@ export class ApiHttpError extends Error {
     public readonly status: number,
     public readonly body: unknown
   ) {
-    const msg = (body as any)?.error ?? (body as any)?.message ?? `HTTP ${status}`;
+    const msg =
+      (body as any)?.error ??
+      (body as any)?.message ??
+      (typeof body === 'string' ? body : `HTTP ${status}`);
     super(msg);
     this.name = 'ApiHttpError';
   }
@@ -163,10 +166,10 @@ export function createAiTeamClient({ baseUrl, wsUrl, restOptions }: CreateAiTeam
     team,
     tools,
     stream<TCommand extends AiTeamCommandName>(
-      request: MediatorRequest<TCommand>,
-      ctx?: MediatorContext
-    ): AsyncIterable<MediatorEvent<TCommand>> {
-      return streaming.streamInteraction<TCommand>(request, ctx);
+      request: InteractionRequest<TCommand>,
+      ctx?: IQuestionContext
+    ): AsyncIterable<StreamEvent<TCommand>> {
+      return streaming.stream<TCommand>(request, ctx);
     },
   };
 }

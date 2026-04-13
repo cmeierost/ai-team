@@ -157,7 +157,7 @@ export class LocalWsIdeAdapter implements IdeAdapter {
   }
 
   private rejectPendingLsp(reason: string): void {
-    for (const [id, pending] of this.lspPendingRequests) {
+    for (const [, pending] of this.lspPendingRequests) {
       pending.reject(new Error(reason));
     }
     this.lspPendingRequests.clear();

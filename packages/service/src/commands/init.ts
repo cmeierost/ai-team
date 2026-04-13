@@ -1,39 +1,21 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import ora from 'ora';
 import {
-  ensureAiTeamDirectory,
-  loadTeamConfig,
-  resolveEffectiveLlmSettings,
-  saveUserConfig,
-  saveTeamConfig,
-  saveEnvFile,
   saveAgentAccessPatterns,
   loadSkill,
   loadAllInstructionFiles,
-  testLlmConnection,
   LlmService,
   ChatStorage,
-  loadEnvFile,
   AgentManager,
   buildAgentMarkdown,
   ContextLevel,
   RoleType,
 } from '@ai-team/infrastructure';
-import type {
-  UserConfig,
-  TeamConfig,
-  Agent,
-  ChatMessage,
-  ChatCompletionMessageParam,
-} from '@ai-team/infrastructure';
+import type { Agent, ChatMessage, ChatCompletionMessageParam } from '@ai-team/infrastructure';
 import { getPersonalityForHire } from './hire.js';
 import type { InitOptions } from '@ai-team/api-client';
 import { getGitUserName, developerNameToId } from '../utils/git.js';
 import { listEmployeesCommand } from './list.js';
-import { updateWorkspaceSettings } from './init/update-workspace-settings.js';
-import { updateGitignore } from './init/update-gitignore.js';
-import { askLlmSetup, type LlmSetupResult, type LlmSettingsIo } from './init/llm-settings.js';
 import {
   createRoleTemplates,
   createBootstrapWorkspaceFiles,
@@ -55,7 +37,6 @@ import {
   requestInput,
   requestConfirm,
   requestSelect,
-  requestPassword,
   requestChecklist,
 } from './init/workflow-questions.js';
 import { pickAgentName } from './init/name-picking.js';
@@ -101,70 +82,7 @@ function writeDebug(hooks: InitRuntimeHooks | undefined, message: string) {
   }
 }
 
-function buildLlmSettingsIo(hooks: InitRuntimeHooks | undefined): LlmSettingsIo {
-  return {
-    select: (request) => requestSelect(hooks, request),
-    input: (request) => requestInput(hooks, request),
-    password: (request) => requestPassword(hooks, request),
-    writeLine: (message) => writeLine(hooks, message),
-    writeWarn: (message) => writeWarn(hooks, message),
-  };
-}
-
 const FORCE_KEEP = new Set(['config.json', '.env']);
-const DEFAULT_SKILL_SOURCES = ['https://github.com/anthropics/skills'];
-
-function inferDefaultProviderRef(setup: LlmSetupResult): string {
-  if (setup.provider === 'github-copilot') {
-    return 'copilot';
-  }
-
-  const baseUrl = setup.baseUrl?.toLowerCase() ?? '';
-  if (baseUrl.includes('api.openai.com')) {
-    return 'openai';
-  }
-
-  if (baseUrl.includes('localhost')) {
-    return 'local';
-  }
-
-  return 'personal-openai';
-}
-
-function buildUserConfigFromInit(setup: LlmSetupResult): UserConfig {
-  const gitDeveloperName = getGitUserName();
-  const providerRef = inferDefaultProviderRef(setup);
-
-  const providerEntry =
-    setup.provider === 'github-copilot'
-      ? {
-          kind: 'github-copilot' as const,
-          ...(setup.model ? { defaultModel: setup.model } : {}),
-          ...(setup.model ? { models: [{ name: setup.model }] } : {}),
-        }
-      : {
-          kind: 'openai-compatible' as const,
-          ...(setup.baseUrl ? { baseUrl: setup.baseUrl } : {}),
-          ...(setup.model ? { defaultModel: setup.model } : {}),
-          ...(setup.model ? { models: [{ name: setup.model }] } : {}),
-          ...(setup.apiKey ? { apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY' } : {}),
-        };
-
-  return {
-    ...(gitDeveloperName
-      ? {
-          developer: {
-            id: developerNameToId(gitDeveloperName),
-            name: gitDeveloperName,
-          },
-        }
-      : {}),
-    defaultModel: setup.model ? { provider: providerRef, model: setup.model } : undefined,
-    providers: {
-      [providerRef]: providerEntry,
-    },
-  };
-}
 
 async function clearAiTeamDirectory(workspaceRoot: string, hooks?: InitRuntimeHooks) {
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
@@ -196,7 +114,6 @@ export async function initCommand(
   hooks?: InitRuntimeHooks
 ) {
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
-  const existingConfig = await loadTeamConfig(workspaceRoot);
 
   try {
     const stats = await fs.stat(aiTeamDir);
@@ -215,159 +132,17 @@ export async function initCommand(
     }
   } catch {}
 
-  let reusedExistingLlm = false;
-  let llmConfig: LlmSetupResult;
-  let existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined;
-
-  try {
-    if (existingConfig) {
-      existingResolvedLlm = resolveEffectiveLlmSettings(existingConfig);
-    }
-  } catch {
-    existingResolvedLlm = undefined;
-  }
-
-  // Ask LLM reuse BEFORE writing any log messages so the confirm prompt
-  // is not clobbered by buffered events delivered to the CLI concurrently.
-  if (options.force && existingResolvedLlm) {
-    const providerLabel =
-      existingResolvedLlm.config.provider === 'github-copilot'
-        ? 'GitHub Copilot'
-        : `OpenAI-compatible (${existingResolvedLlm.config.baseUrl ?? 'custom base URL'})`;
-    const providerRefSuffix = existingResolvedLlm.providerRef
-      ? ` [${existingResolvedLlm.providerRef}]`
-      : '';
-
-    writeLine(hooks, `  Current LLM: ${providerLabel}${providerRefSuffix}`);
-    const reuse = await requestConfirm(hooks, {
-      message: 'Reuse existing default LLM connection?',
-      default: true,
-    });
-
-    if (reuse) {
-      if (existingResolvedLlm.config.provider === 'openai-compatible') {
-        const envVars = await loadEnvFile(workspaceRoot);
-        const keyEnvVar = existingResolvedLlm.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-        const existingKey =
-          envVars[keyEnvVar] ||
-          envVars['AI_TEAM_LLM_API_KEY'] ||
-          envVars['LLM_API_KEY'] ||
-          envVars['OPENAI_API_KEY'];
-        if (existingKey) {
-          llmConfig = { ...existingResolvedLlm.config, apiKey: existingKey };
-          reusedExistingLlm = true;
-          writeLine(hooks, 'Reusing existing OpenAI-compatible configuration.');
-        } else {
-          writeWarn(
-            hooks,
-            'Existing OpenAI-compatible provider has no API key saved; re-running setup...'
-          );
-          llmConfig = await askLlmSetup(buildLlmSettingsIo(hooks));
-        }
-      } else {
-        llmConfig = { ...existingResolvedLlm.config };
-        reusedExistingLlm = true;
-        writeLine(hooks, 'Reusing existing GitHub Copilot configuration.');
-      }
-    } else {
-      llmConfig = await askLlmSetup(buildLlmSettingsIo(hooks));
-    }
-  } else {
-    llmConfig = await askLlmSetup(buildLlmSettingsIo(hooks));
-  }
+  // Phase 1: LLM setup
+  const { setupCommand } = await import('./setup.js');
+  await setupCommand(workspaceRoot, { force: options.force }, hooks);
 
   writeLine(hooks, '');
   writeLine(hooks, 'Welcome to AI Team!');
   writeLine(hooks, "Let's set up your virtual development team.");
 
-  const spinner = ora('Initializing AI Team workspace...').start();
-
-  try {
-    await ensureAiTeamDirectory(workspaceRoot);
-    spinner.text = 'Created .ai-team directory structure';
-
-    const { apiKey, ...safeLlmConfig } = llmConfig;
-    const teamConfig: TeamConfig = existingConfig
-      ? {
-          ...existingConfig,
-          llm: safeLlmConfig,
-          skillSources: existingConfig.skillSources?.length
-            ? existingConfig.skillSources
-            : DEFAULT_SKILL_SOURCES,
-        }
-      : {
-          version: '0.1.0',
-          randomAvatarUrls: [],
-          llm: safeLlmConfig,
-          skillSources: DEFAULT_SKILL_SOURCES,
-        };
-    await saveTeamConfig(workspaceRoot, teamConfig);
-
-    if (apiKey && !reusedExistingLlm) {
-      await saveEnvFile(workspaceRoot, { AI_TEAM_LLM_API_KEY: apiKey });
-    }
-
-    await saveUserConfig(workspaceRoot, buildUserConfigFromInit(llmConfig));
-    spinner.text = 'Saved LLM configuration';
-
-    await updateWorkspaceSettings(workspaceRoot);
-    spinner.text = 'Updated workspace Copilot settings';
-
-    await updateGitignore(workspaceRoot);
-    spinner.text = 'Updated .gitignore';
-
-    spinner.succeed('AI Team initialized successfully!');
-
-    writeLine(hooks, '');
-    writeLine(hooks, 'LLM Configuration:');
-    if (llmConfig.provider === 'github-copilot') {
-      writeLine(hooks, '  Provider: GitHub Copilot');
-      if (llmConfig.model) {
-        writeLine(hooks, `  Model:    ${llmConfig.model}`);
-      }
-    } else {
-      writeLine(hooks, '  Provider: OpenAI-compatible');
-      writeLine(hooks, `  Base URL: ${llmConfig.baseUrl}`);
-      if (llmConfig.model) {
-        writeLine(hooks, `  Model:    ${llmConfig.model}`);
-      }
-      writeLine(hooks, `  API Key:  ${apiKey ? 'saved to .ai-team/.env' : 'not set'}`);
-    }
-
-    const testSpinner = ora('Testing LLM connection...').start();
-    try {
-      const reply = await testLlmConnection(safeLlmConfig, apiKey);
-      testSpinner.succeed('LLM connection working!');
-      writeLine(hooks, `  Response: ${reply}`);
-    } catch (testError) {
-      testSpinner.fail('LLM connection failed');
-      if (testError instanceof Error) {
-        writeError(hooks, `  ${testError.message}`);
-      }
-      writeLine(hooks, '');
-      writeLine(hooks, '  You can retry later with: ait test-connection');
-      writeLine(hooks, '');
-      writeLine(hooks, '  Skipping team onboarding (requires working LLM).');
-      showNextSteps(hooks);
-      return;
-    }
-
-    const llm = new LlmService(workspaceRoot);
-    llm.initializeFromConfig(safeLlmConfig, apiKey);
-
-    await runOnboarding(workspaceRoot, llm, hooks);
-  } catch (error) {
-    spinner.fail('Failed to initialize AI Team');
-    writeError(hooks, error instanceof Error ? error.message : String(error));
-    throw new Error(error instanceof Error ? error.message : 'Failed to initialize AI Team');
-  }
-}
-
-function showNextSteps(hooks?: InitRuntimeHooks) {
-  writeLine(hooks, '');
-  writeLine(hooks, 'Next steps:');
-  writeLine(hooks, '  1. Run ait list to see your team');
-  writeLine(hooks, '  2. Run ait chat <agent-id> to start chatting');
+  // Phase 2: Team onboarding (requires working LLM)
+  const { onboardCommand } = await import('./onboard.js');
+  await onboardCommand(workspaceRoot, { template: options.template }, hooks);
 }
 
 async function writeFileIfMissing(filePath: string, content: string): Promise<void> {
@@ -380,7 +155,11 @@ async function writeFileIfMissing(filePath: string, content: string): Promise<vo
   }
 }
 
-async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: InitRuntimeHooks) {
+export async function runOnboarding(
+  workspaceRoot: string,
+  llm: LlmService,
+  hooks?: InitRuntimeHooks
+) {
   writeLine(hooks, '');
   writeLine(hooks, '--- Team Onboarding ---');
   writeLine(hooks, "Let's set up your founding team.");

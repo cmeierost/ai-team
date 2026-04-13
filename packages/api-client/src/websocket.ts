@@ -1,4 +1,4 @@
-import { AiTeamCommandName, MediatorEvent } from './contract/index.js';
+import { AiTeamCommandName, StreamEvent } from './contract/index.js';
 
 export interface WebSocketStreamOptions {
   url: string;
@@ -41,13 +41,13 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
   agentId: string,
   message: string,
   options: WebSocketStreamOptions
-): AsyncIterable<MediatorEvent<TCommand>> {
+): AsyncIterable<StreamEvent<TCommand>> {
   const encodedAgentId = encodeURIComponent(agentId);
   const wsUrl = options.sessionId
     ? `${options.url}/ws/chat/${encodedAgentId}?sessionId=${encodeURIComponent(options.sessionId)}`
     : `${options.url}/ws/chat/${encodedAgentId}`;
   const ws = new WebSocket(wsUrl);
-  const events: MediatorEvent<TCommand>[] = [];
+  const events: StreamEvent<TCommand>[] = [];
   let error: Error | null = null;
   let done = false;
   let eventWaiter: (() => void) | null = null;
@@ -159,24 +159,24 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
       }
 
       if (wsEvent.type === 'mediator') {
-        const mediatorEvent = wsEvent.data as MediatorEvent<TCommand>;
-        if (mediatorEvent.kind === 'question') {
+        const streamEvent = wsEvent.data as StreamEvent<TCommand>;
+        if (streamEvent.kind === 'question') {
           handleQuestion({
-            ...(mediatorEvent as unknown as Record<string, unknown>),
+            ...(streamEvent as unknown as Record<string, unknown>),
             questionId:
-              (mediatorEvent as unknown as { requestId?: string }).requestId ?? 'mediator-question',
+              (streamEvent as unknown as { requestId?: string }).requestId ?? 'mediator-question',
           });
           return;
         }
-        if (mediatorEvent.kind === 'done') {
+        if (streamEvent.kind === 'done') {
           done = true;
           ws.close();
           wakeEventWaiter();
           return;
         }
 
-        events.push(mediatorEvent);
-        if (mediatorEvent.kind === 'aborted' || mediatorEvent.kind === 'error') {
+        events.push(streamEvent);
+        if (streamEvent.kind === 'aborted' || streamEvent.kind === 'error') {
           done = true;
         }
         wakeEventWaiter();
@@ -192,8 +192,8 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
       }
 
       if (wsEvent.data) {
-        const mediatorEvent = wsEvent.data as MediatorEvent<TCommand>;
-        events.push(mediatorEvent);
+        const streamEvent = wsEvent.data as StreamEvent<TCommand>;
+        events.push(streamEvent);
         wakeEventWaiter();
       }
     } catch (err) {

@@ -7,6 +7,7 @@ import type {
   SearchAgentsResponse,
   IAgentsService,
 } from '@ai-team/api-client';
+import { generateIntroduction } from '../orchestrator/introduction.js';
 import type { AgentManager } from '@ai-team/infrastructure';
 import {
   AgentSchema,
@@ -159,5 +160,24 @@ export class AgentsService implements IAgentsService {
     const matches = await this.agentManager.resolveAgentAsync(id);
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
     return [];
+  }
+
+  async introduction(
+    id: string,
+    query?: { developerName?: string }
+  ): Promise<{ agentId: string; content: string; timestamp: string }> {
+    const matches = await this.agentManager.resolveAgentAsync(id);
+    if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
+    const agent = matches[0] as any;
+    const content = await generateIntroduction(
+      null as any,
+      null as any,
+      agent,
+      undefined,
+      query?.developerName,
+      undefined,
+      undefined
+    );
+    return { agentId: agent.id, content, timestamp: new Date().toISOString() };
   }
 }

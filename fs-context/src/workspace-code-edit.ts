@@ -12,8 +12,8 @@
 import path from 'node:path';
 import type { PermissionChecker } from './permission/types.js';
 import { PermissionError } from './permission/context-runtime.js';
-import { readFile, type ReadFileOptions, type ReadFileResult } from './fs/file-read.js';
-import { writeFile as rawWriteFile, type WriteFileResult } from './fs/file-ops.js';
+import { readFile } from './fs/file-read.js';
+import { writeFile as rawWriteFile } from './fs/file-ops.js';
 import { Patch, type FileDiff, type ParsedHunk, type PatchType } from './edit/patch.js';
 import {
   fuzzyReplace as rawFuzzyReplace,

@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizeEslintOutput } from './eslint.js';
-import type { EslintRawOutput, LintSignal } from './eslint.js';
+import type { EslintRawOutput } from './eslint.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '..', '__fixtures__', 'eslint-output.json');

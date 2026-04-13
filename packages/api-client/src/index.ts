@@ -7,6 +7,9 @@ export interface IdeOpenDiffResponse {
   state: string;
 }
 
+// ─── Interaction stream ──────────────────────────────────────────────────────
+export { InteractionStream } from './interaction-stream.js';
+
 // ─── HTTP client (browser/remote transport) ──────────────────────────────────
 export { createAiTeamClient, ApiHttpError, streamViaWebSocket } from './http-client.js';
 export type { AiTeamHttpClient, WebSocketStreamOptions } from './http-client.js';

@@ -9,7 +9,6 @@ import {
   runAstVisitor,
   normalizePath,
   tokenizeName,
-  type AstVisitorResult,
 } from './ast-visitor.js';
 
 const __filename = fileURLToPath(import.meta.url);

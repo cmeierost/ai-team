@@ -1,10 +1,9 @@
 import { createContext, useContext, useMemo, useState, useEffect, ReactNode } from 'react';
 import { createAiTeamClient, type AiTeamHttpClient } from '@ai-team/api-client';
 import { Agent, GraphData, Developer } from '../types';
-
-// Use window.location.origin in production, or default to localhost in dev
-export const API_BASE =
-  window.location.hostname === 'localhost' ? 'http://localhost:3002' : window.location.origin;
+import { useBackendConnectionStore } from '../stores/backendConnectionStore';
+import { API_BASE } from '../config/api-base';
+export { API_BASE } from '../config/api-base';
 
 interface TeamContextValue {
   agents: Agent[];
@@ -39,7 +38,21 @@ export function TeamProvider({
   initialLoading = false,
   initialError = null,
 }: TeamProviderProps) {
-  const client = useMemo(() => createAiTeamClient({ baseUrl: API_BASE }), []);
+  const client = useMemo(
+    () =>
+      createAiTeamClient({
+        baseUrl: API_BASE,
+        restOptions: {
+          onError: (error) => {
+            if (error instanceof Error) {
+              useBackendConnectionStore.getState().setReachable(false);
+            }
+            return false;
+          },
+        },
+      }),
+    []
+  );
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [agents, setAgents] = useState<Agent[]>(initialAgents || []);
   const [developer, setDeveloper] = useState<Developer | null>(null);
@@ -54,6 +67,9 @@ export function TeamProvider({
       // Load team graph with resolved role references
       const loadedGraphData = (await client.team.getTeamGraph('hierarchy')) as GraphData;
       setGraphData(loadedGraphData);
+
+      // Successfully connected to backend
+      useBackendConnectionStore.getState().setReachable(true);
 
       // Load agents from dedicated endpoint (includes resolvedLlm)
       try {

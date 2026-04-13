@@ -6,6 +6,7 @@ import type {
   SessionThread,
 } from '@ai-team/api-client';
 import type { AgentManager } from '@ai-team/infrastructure';
+import type { LlmService } from '@ai-team/infrastructure';
 import type { SessionManager } from '../session-manager.js';
 import { BadRequestError, NotFoundError } from '../http-errors.js';
 
@@ -44,7 +45,8 @@ function hydrateSession(session: Record<string, unknown>): ChatSession {
 export class SessionsService implements ISessionsService {
   constructor(
     private readonly sessionManager: SessionManager,
-    private readonly agentManager: AgentManager
+    private readonly agentManager: AgentManager,
+    private readonly llmService: LlmService
   ) {}
 
   async recent(query?: { limit?: number }): Promise<ChatSession[]> {
@@ -77,6 +79,25 @@ export class SessionsService implements ISessionsService {
     return this.sessionManager.createSession(
       body.agentId,
       body.developerId ?? 'developer'
+    ) as Promise<ChatSession>;
+  }
+
+  async handoff(body: {
+    toAgentId: string;
+    developerId?: string;
+    previousSessionId: string;
+    transferArtifacts?: boolean;
+    transferAllowedFiles?: boolean;
+  }): Promise<ChatSession> {
+    if (!body.toAgentId) throw new BadRequestError('toAgentId is required');
+    if (!body.previousSessionId) throw new BadRequestError('previousSessionId is required');
+
+    return this.sessionManager.createHandoffSession(
+      body.toAgentId,
+      body.developerId ?? 'developer',
+      body.previousSessionId,
+      body.transferArtifacts ?? true,
+      body.transferAllowedFiles ?? true
     ) as Promise<ChatSession>;
   }
 
@@ -169,6 +190,34 @@ export class SessionsService implements ISessionsService {
     } as unknown as SessionThread;
   }
 
+  async summarize(
+    sessionId: string,
+    body: {
+      fromIndex: number;
+      toIndex: number;
+      title: string;
+      summary: string;
+      developerId?: string;
+    }
+  ): Promise<unknown> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    if (!body?.title) throw new BadRequestError('title is required');
+    if (!body?.summary) throw new BadRequestError('summary is required');
+    if (typeof body.fromIndex !== 'number' || typeof body.toIndex !== 'number') {
+      throw new BadRequestError('fromIndex and toIndex must be numbers');
+    }
+
+    return this.sessionManager.createArtifact(
+      sessionId,
+      body.fromIndex,
+      body.toIndex,
+      body.summary,
+      body.title,
+      body.developerId ?? 'developer'
+    );
+  }
+
   async split(
     sessionId: string,
     body: { fromTimestamp: string; newAgentId?: string }
@@ -183,6 +232,13 @@ export class SessionsService implements ISessionsService {
       msgIndex,
       body.newAgentId ?? 'developer'
     ) as Promise<ChatSession>;
+  }
+
+  async generateTitle(sessionId: string): Promise<{ title: string }> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    const title = await this.sessionManager.generateTitle(sessionId, this.llmService);
+    return { title };
   }
 
   async update(sessionId: string, body: Record<string, unknown>): Promise<ChatSession> {
