@@ -1,10 +1,10 @@
 ---
-id: FEAT-20260412-A004
+id: remove-direct-service-to-infrastructure-
 type: feature
 title: Remove direct service to infrastructure dependencies via core boundary interfaces
 createdBy: human
 createdByType: human
-parentTaskId: FEAT-20260412-A001
+parentPlanId: transition-service-boundaries-away-from-
 status: not_started
 priority: high
 requiresApproval: false
@@ -19,7 +19,9 @@ metadata:
 createdAt: 2026-04-12T12:00:00.000Z
 updatedAt: 2026-04-12T12:00:00.000Z
 deadline: null
----
+assignedTo: ethan-carter
+
+------
 
 ## Goal
 

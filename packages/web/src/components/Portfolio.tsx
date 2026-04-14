@@ -191,6 +191,8 @@ export function Portfolio() {
           type={agent.type}
           contextLevel={agent.contextLevel}
           pronouns={agent.pronouns}
+          ttsVoice={agent.ttsVoice}
+          ttsRate={agent.ttsRate}
           onSave={(fields) => saveAgentFields(fields as Record<string, unknown>)}
         />
 
@@ -216,7 +218,8 @@ export function Portfolio() {
           specializations={agent.specializations ?? []}
           client={client}
           onUpdated={refresh}
-          excludeHeadings={['Introduction', 'Handoffs']}
+          excludeHeadings={['Introduction']}
+          showAddSection
         />
 
         <PortfolioHierarchyHandoffsSection

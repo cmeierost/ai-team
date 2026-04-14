@@ -1,10 +1,10 @@
 ---
-id: FEAT-20260412-A003
+id: roll-out-stricter-dependency-injection-a
 type: feature
 title: Roll out stricter dependency injection across service composition seams
 createdBy: human
 createdByType: human
-parentTaskId: FEAT-20260412-A001
+parentPlanId: transition-service-boundaries-away-from-
 status: not_started
 priority: high
 requiresApproval: false
@@ -18,7 +18,9 @@ metadata:
 createdAt: 2026-04-12T12:00:00.000Z
 updatedAt: 2026-04-12T12:00:00.000Z
 deadline: null
----
+assignedTo: alex-morgan
+
+------
 
 ## Goal
 

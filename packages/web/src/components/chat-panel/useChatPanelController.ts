@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useMatch, useNavigate, useParams } from 'react-router-dom';
 import { useTeam } from '../../context/TeamContext';
@@ -6,6 +13,8 @@ import { contextPanelQueryKeys } from '../../hooks/contextPanelQueryKeys';
 import type { ChatMessage, SessionActivatedTool } from '../../types';
 import type { IdeEditSession, ChatCommandRegistryEntry } from '@ai-team/api-client';
 import { useSlashCommandSuggestions } from '../../hooks/useSlashCommandSuggestions';
+import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
+import { pickVoice, stripMarkdownForSpeech } from '../../utils/agentVoice';
 import {
   buildSummaryMarkdown,
   extractSessionActivatedTools,
@@ -65,7 +74,17 @@ interface UseChatPanelControllerResult {
   pendingChecklistAnswer: string[];
   pendingFormAnswer: Record<string, string>;
   isRecording: boolean;
+  interimTranscript: string;
   recognition: any;
+  ttsEnabled: boolean;
+  ttsSupported: boolean;
+  ttsSpeaking: boolean;
+  ttsPaused: boolean;
+  ttsSpeakingWord: string | null;
+  ttsSpeakingOccurrence: number | null;
+  ttsRate: number;
+  setTtsRate: (rate: number) => void;
+  toggleTts: () => void;
   messagesEndRef: RefObject<HTMLDivElement | null>;
   messagesContainerRef: RefObject<HTMLDivElement | null>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -86,6 +105,10 @@ interface UseChatPanelControllerResult {
   handleEditMessage: (index: number) => Promise<void>;
   handleCancelEdit: () => void;
   handleCopyMessage: (content: string) => void;
+  handleSpeakMessage: (content: string, fromAgentId: string) => void;
+  handleStopSpeaking: () => void;
+  handlePauseSpeaking: () => void;
+  handleResumeSpeaking: () => void;
   handleToggleArchive: (index: number, currentlyArchived: boolean) => Promise<void>;
   handleDeleteMessage: (index: number) => Promise<void>;
   handleHandoffClick: (targetAgentId: string, existingSessionId?: string | null) => Promise<void>;
@@ -97,9 +120,11 @@ interface UseChatPanelControllerResult {
   togglePendingChecklistValue: (choiceValue: string, checked: boolean) => void;
   setPendingFormFieldValue: (fieldId: string, value: string) => void;
   handlePendingQuestionSubmit: (event: { preventDefault(): void }) => void;
+  handleConfirmDirectAnswer: (value: boolean) => void;
   handleInputChange: (value: string) => void;
   handleInputKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   startVoiceRecording: () => void;
+  stopVoiceRecording: () => void;
   handleSend: () => Promise<void>;
   handleInterrupt: () => void;
   handleToggleArtifact: (artifactId: string) => Promise<void>;
@@ -118,7 +143,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const { agentId } = useParams<{ agentId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { agents, client, developer } = useTeam();
+  const { agents, client, developer, loading: teamLoading } = useTeam();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -132,7 +157,34 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const [allowedTools, setAllowedTools] = useState<string[]>([]);
   const [activatedTools, setActivatedTools] = useState<SessionActivatedTool[]>([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [recognition, setRecognition] = useState<any>(null);
+  const isRecordingRef = useRef(false);
+  const [ttsEnabled, setTtsEnabled] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('ai-team.ttsEnabled');
+      // Default to true if never set
+      return stored === null ? true : stored === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const ttsEnabledRef = useRef(ttsEnabled);
+  useEffect(() => {
+    ttsEnabledRef.current = ttsEnabled;
+  }, [ttsEnabled]);
+  const tts = useSpeechSynthesis();
+  const ttsSentenceBuffer = useRef('');
+  const [ttsRate, setTtsRateState] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem('ai-team.ttsRate');
+      return stored ? parseFloat(stored) : 1.0;
+    } catch {
+      return 1.0;
+    }
+  });
+  const ttsRateRef = useRef(ttsRate);
+  ttsRateRef.current = ttsRate;
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
   const [pendingInputAnswer, setPendingInputAnswer] = useState('');
   const [pendingPasswordAnswer, setPendingPasswordAnswer] = useState('');
@@ -188,6 +240,13 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       };
       setMessages([greetingMessage]);
       setIsEphemeral(true);
+      if (ttsEnabled && tts.supported && greetingMessage.content) {
+        const greetingAgent = agents.find((a) => a.id === greetingMessage.from);
+        const voice = pickVoice(greetingAgent, tts.voices);
+        const rate = greetingAgent?.ttsRate ?? ttsRateRef.current;
+        const clean = stripMarkdownForSpeech(greetingMessage.content);
+        if (clean) tts.speakChunk(clean, voice, rate);
+      }
     } catch {
       setMessages([]);
       setIsEphemeral(false);
@@ -373,7 +432,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   }, [messages, scrollToHandoffId]);
 
   useEffect(() => {
-    if (!agentId) {
+    if (!agentId || teamLoading) {
       return;
     }
 
@@ -428,7 +487,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     return () => {
       cancelled = true;
     };
-  }, [agentId, agents, graphSessionId, navigate, urlSessionId]);
+  }, [agentId, agents, graphSessionId, navigate, teamLoading, urlSessionId]);
 
   const isAtBottom = () => {
     const container = messagesContainerRef.current;
@@ -517,7 +576,14 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       kind: 'confirm',
       message: request.message,
       defaultValue: request.default ?? false,
+      style: request.style,
     });
+
+  const handleConfirmDirectAnswer = (value: boolean) => {
+    if (!pendingQuestionResolveRef.current || pendingQuestion?.kind !== 'confirm') return;
+    pendingQuestionResolveRef.current(value);
+    clearPendingQuestion();
+  };
   const askSelectQuestion = async (request: SelectQuestionRequest): Promise<string> =>
     beginPendingQuestion<string>({
       kind: 'select',
@@ -764,13 +830,62 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     }
   };
 
+  const flushTtsBuffer = useCallback(
+    (force: boolean, voice?: SpeechSynthesisVoice, rateOverride?: number) => {
+      if (!ttsEnabledRef.current || !tts.supported) {
+        console.debug(
+          '[TTS] flush skipped — enabled:',
+          ttsEnabledRef.current,
+          'supported:',
+          tts.supported
+        );
+        return;
+      }
+      const buf = ttsSentenceBuffer.current;
+      if (!buf) return;
+      const rate = rateOverride ?? ttsRateRef.current;
+      if (force) {
+        const clean = stripMarkdownForSpeech(buf);
+        if (clean) tts.speakChunk(clean, voice, rate);
+        ttsSentenceBuffer.current = '';
+        return;
+      }
+      // Split at sentence boundaries: ., !, ?, or double newline
+      const boundary = /[.!?](?:\s|$)|\n\n/;
+      let rest = buf;
+      let match: RegExpExecArray | null;
+      while ((match = boundary.exec(rest)) !== null) {
+        const end = match.index + match[0].length;
+        const sentence = rest.slice(0, end);
+        const clean = stripMarkdownForSpeech(sentence);
+        if (clean) tts.speakChunk(clean, voice, rate);
+        rest = rest.slice(end);
+      }
+      ttsSentenceBuffer.current = rest;
+    },
+    [ttsEnabled, tts]
+  );
+
   const consumeStream = async (stream: AsyncIterable<any>, activeSessionId: string | null) => {
     let accumulator = '';
     let handoffDetected = false;
+    // Track the active agent ID locally so it updates immediately on handoff,
+    // without waiting for React state to re-render.
+    let activeAgentId = currentAgentId;
+    const getActiveAgent = () => agents.find((a) => a.id === activeAgentId);
+    const getVoice = () =>
+      ttsEnabledRef.current ? pickVoice(getActiveAgent(), tts.voices) : undefined;
+    const getRate = () => getActiveAgent()?.ttsRate ?? ttsRateRef.current;
 
     for await (const event of stream) {
       if (event.kind === 'handoff') {
         handoffDetected = await handleStreamHandoff(event, activeSessionId);
+        if (handoffDetected && event.toAgentId) {
+          activeAgentId = event.toAgentId as string;
+          // Cancel any buffered speech from the previous agent immediately
+          tts.cancel();
+          ttsSentenceBuffer.current = '';
+        }
         accumulator = '';
         continue;
       }
@@ -778,6 +893,10 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       if (event.kind === 'token') {
         accumulator += event.text;
         updateAssistantMessageContent(accumulator);
+        if (ttsEnabledRef.current) {
+          ttsSentenceBuffer.current += event.text;
+          flushTtsBuffer(false, getVoice(), getRate());
+        }
         // Yield to the macrotask queue so React can render this token before
         // the next one arrives. Without this, React 18 automatic batching
         // suppresses all intermediate renders (the whole stream drains as
@@ -804,9 +923,29 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         continue;
       }
 
+      if (event.kind === 'session_switched') {
+        const newSessionId = event.sessionId as string;
+        setCurrentSessionId(newSessionId);
+        setMessages([]);
+        setIsEphemeral(false);
+        await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
+        navigate(`/chat/${currentAgentId}/session/${newSessionId}`, { replace: true });
+        continue;
+      }
+
+      if (event.kind === 'session_title_updated') {
+        await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
+        continue;
+      }
+
       if (event.kind === 'error') {
         throw new Error(event.message || 'Chat error');
       }
+    }
+
+    // Flush any remaining buffered text after stream ends
+    if (ttsEnabledRef.current) {
+      flushTtsBuffer(true, getVoice(), getRate());
     }
 
     return { accumulator, handoffDetected };
@@ -817,6 +956,10 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     if (!composedMessage.trim() || sending) {
       return;
     }
+
+    // Cancel any in-flight TTS from the previous response
+    tts.cancel();
+    ttsSentenceBuffer.current = '';
 
     const messageContent = composedMessage.trim();
     const pendingIntroductionContent = isEphemeral ? messages[0]?.content : undefined;
@@ -831,6 +974,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       setInput('');
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
+        textareaRef.current.focus();
       }
     }
     setIsUserScrolledUp(false);
@@ -892,19 +1036,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       if (sessionId && !handoffDetected) {
-        const syncedSession = await syncSessionState(sessionId, currentAgentId);
-        if (
-          syncedSession &&
-          !syncedSession.title &&
-          (syncedSession.messages ?? []).filter((m: any) => m.isHuman).length >= 2
-        ) {
-          client.sessions
-            .generateTitle(sessionId)
-            .then(() =>
-              queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot })
-            )
-            .catch(() => {});
-        }
+        await syncSessionState(sessionId, currentAgentId);
       }
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -944,6 +1076,29 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     requestAnimationFrame(autoResizeTextarea);
   };
 
+  const setTtsRate = useCallback((rate: number) => {
+    setTtsRateState(rate);
+    ttsRateRef.current = rate;
+    try {
+      localStorage.setItem('ai-team.ttsRate', String(rate));
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+
+  const toggleTts = useCallback(() => {
+    setTtsEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('ai-team.ttsEnabled', String(next));
+      } catch {
+        /* storage unavailable */
+      }
+      if (!next) tts.cancel();
+      return next;
+    });
+  }, [tts]);
+
   const {
     suggestions: slashSuggestions,
     selectedIndex: slashSelectedIndex,
@@ -972,7 +1127,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         slashNavigate(-1);
         return;
       }
-      if (event.key === 'Enter' || event.key === 'Tab') {
+      if (event.key === 'Tab') {
         const idx = slashSelectedIndex >= 0 ? slashSelectedIndex : 0;
         event.preventDefault();
         handleSlashSelect(idx);
@@ -990,7 +1145,14 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     }
   };
 
-  const startVoiceRecording = () => {
+  const stopVoiceRecording = useCallback(() => {
+    isRecordingRef.current = false;
+    setIsRecording(false);
+    setInterimTranscript('');
+    recognition?.stop();
+  }, [recognition]);
+
+  const startVoiceRecording = useCallback(() => {
     const SpeechRecognition =
       (globalThis as any).SpeechRecognition || (globalThis as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -1001,29 +1163,63 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     }
 
     const recognitionInstance = new SpeechRecognition();
-    recognitionInstance.continuous = false;
-    recognitionInstance.interimResults = false;
+    recognitionInstance.continuous = true;
+    recognitionInstance.interimResults = true;
     recognitionInstance.lang = 'en-US';
 
-    recognitionInstance.onstart = () => setIsRecording(true);
-    recognitionInstance.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput((previous) => (previous ? `${previous} ${transcript}` : transcript));
+    recognitionInstance.onstart = () => {
+      isRecordingRef.current = true;
+      setIsRecording(true);
     };
+
+    recognitionInstance.onresult = (event: any) => {
+      let finalText = '';
+      let interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalText += result[0].transcript;
+        } else {
+          interimText += result[0].transcript;
+        }
+      }
+      if (finalText) {
+        setInput((previous) => (previous ? `${previous} ${finalText}` : finalText));
+      }
+      setInterimTranscript(interimText);
+    };
+
     recognitionInstance.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
-      setIsRecording(false);
       if (event.error === 'not-allowed') {
+        isRecordingRef.current = false;
+        setIsRecording(false);
+        setInterimTranscript('');
         globalThis.alert(
           'Microphone access denied. Please allow microphone access in your browser settings.'
         );
       }
+      // For other transient errors (network, no-speech), the onend restart loop handles recovery
     };
-    recognitionInstance.onend = () => setIsRecording(false);
+
+    // Chrome stops continuous recognition after ~60s of silence or network hiccup.
+    // Restart automatically as long as the user hasn't toggled off.
+    recognitionInstance.onend = () => {
+      setInterimTranscript('');
+      if (isRecordingRef.current) {
+        try {
+          recognitionInstance.start();
+        } catch {
+          // already started or permission lost — give up silently
+          isRecordingRef.current = false;
+          setIsRecording(false);
+        }
+      }
+    };
 
     setRecognition(recognitionInstance);
     recognitionInstance.start();
-  };
+  }, []);
 
   const handleEditMessage = async (index: number) => {
     if (editingIndex === index) {
@@ -1066,53 +1262,27 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         return;
       }
 
-      let timestampToDelete = targetMessage.timestamp;
-      let deleted = false;
-      try {
-        await client.sessions.deleteMessage(currentSessionId, encodeURIComponent(timestampToDelete));
-        deleted = true;
-      } catch {
-        deleted = false;
-      }
+      // Always resolve the server-side timestamp before deleting, because
+      // React state may hold client-generated timestamps that differ from
+      // what is stored in the database.
+      const sessionWithMessages = await fetchSessionWithMessages(currentSessionId);
+      const persistedMessages = sessionWithMessages?.messages ?? [];
+      const persistedMessage = findMatchingMessage(persistedMessages, targetMessage, index);
 
-      if (deleted) {
+      if (!persistedMessage) {
+        // Message not persisted yet or already deleted — just remove from local state.
         setMessages((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
-      } else {
-        const sessionWithMessages = await fetchSessionWithMessages(currentSessionId);
-        const persistedMessages = sessionWithMessages?.messages ?? [];
-        const persistedMessage = findMatchingMessage(persistedMessages, targetMessage, index);
-
-        if (!persistedMessage) {
-          setMessages(persistedMessages);
-          return;
-        }
-
-        timestampToDelete = persistedMessage.timestamp;
-        try {
-          await client.sessions.deleteMessage(currentSessionId, encodeURIComponent(timestampToDelete));
-        } catch {
-          setMessages(persistedMessages);
-          return;
-        }
-
-        setMessages((previous) => {
-          const matchedIndex =
-            previous[index]?.timestamp === timestampToDelete
-              ? index
-              : previous.findIndex((message, messageIndex) => {
-                  if (messageIndex === index && message.timestamp === timestampToDelete) {
-                    return true;
-                  }
-                  return (
-                    message.timestamp === timestampToDelete &&
-                    findMatchingMessage([message], targetMessage, 0) !== null
-                  );
-                });
-          return matchedIndex >= 0
-            ? previous.filter((_, messageIndex) => messageIndex !== matchedIndex)
-            : previous.filter((_, messageIndex) => messageIndex !== index);
-        });
+        return;
       }
+
+      try {
+        await client.sessions.deleteMessage(currentSessionId, persistedMessage.timestamp);
+      } catch {
+        setMessages(persistedMessages);
+        return;
+      }
+
+      setMessages((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
 
       await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
       await syncSessionState(currentSessionId, currentAgentId);
@@ -1127,6 +1297,31 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       (error) => console.error('Failed to copy message:', error)
     );
   };
+
+  const handleSpeakMessage = useCallback(
+    (content: string, fromAgentId: string) => {
+      if (!tts.supported) return;
+      tts.cancel();
+      const fromAgent = agents.find((a) => a.id === fromAgentId);
+      const voice = pickVoice(fromAgent, tts.voices);
+      const rate = fromAgent?.ttsRate ?? ttsRateRef.current;
+      const clean = stripMarkdownForSpeech(content);
+      if (clean) tts.speakChunk(clean, voice, rate);
+    },
+    [tts, agents, ttsRateRef]
+  );
+
+  const handleStopSpeaking = useCallback(() => {
+    tts.cancel();
+  }, [tts]);
+
+  const handlePauseSpeaking = useCallback(() => {
+    tts.pause();
+  }, [tts]);
+
+  const handleResumeSpeaking = useCallback(() => {
+    tts.resume();
+  }, [tts]);
 
   const handleToggleArchive = async (index: number, currentlyArchived: boolean) => {
     try {
@@ -1344,7 +1539,17 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     pendingChecklistAnswer,
     pendingFormAnswer,
     isRecording,
+    interimTranscript,
     recognition,
+    ttsEnabled,
+    ttsSupported: tts.supported,
+    ttsSpeaking: tts.speaking,
+    ttsPaused: tts.paused,
+    ttsSpeakingWord: tts.speakingWord,
+    ttsSpeakingOccurrence: tts.speakingOccurrence,
+    ttsRate: agent?.ttsRate ?? ttsRate,
+    setTtsRate,
+    toggleTts,
     messagesEndRef,
     messagesContainerRef,
     textareaRef,
@@ -1361,6 +1566,10 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     handleEditMessage,
     handleCancelEdit,
     handleCopyMessage,
+    handleSpeakMessage,
+    handleStopSpeaking,
+    handlePauseSpeaking,
+    handleResumeSpeaking,
     handleToggleArchive,
     handleDeleteMessage,
     handleHandoffClick,
@@ -1372,9 +1581,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     togglePendingChecklistValue,
     setPendingFormFieldValue,
     handlePendingQuestionSubmit,
+    handleConfirmDirectAnswer,
     handleInputChange,
     handleInputKeyDown,
     startVoiceRecording,
+    stopVoiceRecording,
     handleSend,
     handleInterrupt,
     handleToggleArtifact,

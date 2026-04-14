@@ -11,7 +11,7 @@ README.md
 docs/**/*
 packages/*/README.md
 todo/**/*
-.ai-team/tasks/**/*
+.ai-team/plans/**/*
 .ai-team/skills/documentation-quality-audit/**/*
 .ai-team/agents/taylor-reed.agent.md
 .ai-team/agents/taylor-reed.agent.yml

@@ -41,7 +41,7 @@ export function useFileTree(agentId: string): UseFileTreeResult {
   const [pendingPaths, setPendingPaths] = useState<Set<string>>(new Set());
   const [pendingPatternKey, setPendingPatternKey] = useState<string | null>(null);
   const [patternScope, setPatternScope] = useState<PatternScope>('agent');
-  const [patternMode, setPatternMode] = useState<PatternMode>('read');
+  const [patternMode, setPatternMode] = useState<PatternMode>('write');
   const [patternInput, setPatternInput] = useState('');
   const [filter, setFilter] = useState<FileAccessFilter>('all');
   const [search, setSearch] = useState('');
@@ -67,43 +67,46 @@ export function useFileTree(agentId: string): UseFileTreeResult {
     void load();
   }, [load]);
 
-  const togglePathPermission = useCallback(async (path: string, mode: PatternMode, current: boolean) => {
-    setPendingPaths((previous) => new Set([...previous, path]));
-    try {
-      if (current) {
-        await client.files.disallow({ agent: agentId, path, mode });
-      } else {
-        await client.files.allow({ agent: agentId, path, mode });
-      }
-      setData((previous) => {
-        if (!previous) {
-          return previous;
+  const togglePathPermission = useCallback(
+    async (path: string, mode: PatternMode, current: boolean) => {
+      setPendingPaths((previous) => new Set([...previous, path]));
+      try {
+        if (current) {
+          await client.files.disallow({ agent: agentId, path, mode });
+        } else {
+          await client.files.allow({ agent: agentId, path, mode });
         }
-        return {
-          ...previous,
-          files: previous.files.map((file) => {
-            if (file.path !== path) {
-              return file;
-            }
-            return {
-              ...file,
-              readable: mode === 'read' ? !current : file.readable,
-              listable: file.listable,
-              writable: mode === 'write' ? !current : file.writable,
-            };
-          }),
-        };
-      });
-    } catch (toggleError: any) {
-      setError(toggleError?.message || 'Failed to update permission');
-    } finally {
-      setPendingPaths((previous) => {
-        const next = new Set(previous);
-        next.delete(path);
-        return next;
-      });
-    }
-  }, [agentId, client]);
+        setData((previous) => {
+          if (!previous) {
+            return previous;
+          }
+          return {
+            ...previous,
+            files: previous.files.map((file) => {
+              if (file.path !== path) {
+                return file;
+              }
+              return {
+                ...file,
+                readable: mode === 'read' ? !current : file.readable,
+                listable: mode === 'list' ? !current : file.listable,
+                writable: mode === 'write' ? !current : file.writable,
+              };
+            }),
+          };
+        });
+      } catch (toggleError: any) {
+        setError(toggleError?.message || 'Failed to update permission');
+      } finally {
+        setPendingPaths((previous) => {
+          const next = new Set(previous);
+          next.delete(path);
+          return next;
+        });
+      }
+    },
+    [agentId, client]
+  );
 
   const addPattern = useCallback(async () => {
     const value = patternInput.trim();
@@ -129,28 +132,40 @@ export function useFileTree(agentId: string): UseFileTreeResult {
     }
   }, [agentId, client, load, patternInput, patternMode, patternScope]);
 
-  const removePattern = useCallback(async (scope: PatternScope, mode: PatternMode, value: string) => {
-    const key = `remove:${scope}:${mode}:${value}`;
-    setPendingPatternKey(key);
-    setError(null);
-    try {
-      if (scope === 'agent') {
-        await client.files.disallow({ agent: agentId, path: value, mode });
-      } else {
-        await client.files.disallowAll({ path: value, mode });
+  const removePattern = useCallback(
+    async (scope: PatternScope, mode: PatternMode, value: string) => {
+      const key = `remove:${scope}:${mode}:${value}`;
+      setPendingPatternKey(key);
+      setError(null);
+      try {
+        if (scope === 'agent') {
+          await client.files.disallow({ agent: agentId, path: value, mode });
+        } else {
+          await client.files.disallowAll({ path: value, mode });
+        }
+        await load();
+      } catch (removeError: any) {
+        setError(removeError?.message || 'Failed to remove pattern');
+      } finally {
+        setPendingPatternKey(null);
       }
-      await load();
-    } catch (removeError: any) {
-      setError(removeError?.message || 'Failed to remove pattern');
-    } finally {
-      setPendingPatternKey(null);
-    }
-  }, [agentId, client, load]);
+    },
+    [agentId, client, load]
+  );
 
-  const filteredFiles = useMemo(() => filterFiles(data?.files ?? [], filter, search), [data?.files, filter, search]);
+  const filteredFiles = useMemo(
+    () => filterFiles(data?.files ?? [], filter, search),
+    [data?.files, filter, search]
+  );
   const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);
-  const { readCount, listCount, writeCount } = useMemo(() => getAccessCounts(data?.files ?? []), [data?.files]);
-  const visiblePatternGroups = useMemo(() => getVisiblePatternGroups(data, patterns), [data, patterns]);
+  const { readCount, listCount, writeCount } = useMemo(
+    () => getAccessCounts(data?.files ?? []),
+    [data?.files]
+  );
+  const visiblePatternGroups = useMemo(
+    () => getVisiblePatternGroups(data, patterns),
+    [data, patterns]
+  );
 
   return {
     data,

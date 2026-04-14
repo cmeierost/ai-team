@@ -1,5 +1,5 @@
 ---
-id: FEAT-20260412-A006
+id: agent-text-to-speech
 type: feature
 title: Agent Text-to-Speech
 status: todo
@@ -14,7 +14,9 @@ createdBy: human
 createdByType: human
 requiresApproval: false
 estimatedHours: null
----
+assignedTo: daniel-navarro
+
+------
 
 ## Goal
 

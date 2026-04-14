@@ -36,7 +36,6 @@ If the user is working with a short-term plan (e.g., a plan created by a Plan ag
 - Tasks should be broken down into actionable subtasks using standard markdown checkboxes (`- [ ]`).
 - When a subtask is completed by an agent or user, it must be updated to (`- [x]`).
 - **CRITICAL:** Anytime an agent updates these checkboxes to track progress, the `updatedAt` field in the frontmatter must be updated to the current ISO date.
-- **Task Deletion:** Once all checkboxes are completed and the task/plan is fully done, the agent should proactively ask the user if they want to delete the task file.
 
 ## File Naming
 
@@ -58,6 +57,7 @@ type: feature # Or bug, doc, chore
 title: Brief description of the task
 status: todo # Or in_progress, done
 priority: low # Or urgent, high, medium
+assignedTo: daniel-navarro # The ID of the agent who should own or execute this (e.g., alex-morgan, sarah-lee)
 createdBy: human # Or agent
 createdByType: human # Or agent
 requiresApproval: false

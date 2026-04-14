@@ -83,6 +83,8 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
         (ctx as any).sessionId = fresh.id;
         (ctx as any).history = [];
         write(ctx, `New session started: ${fresh.id}`);
+        emitLog(ctx.hooks, 'info', `[session_switched] ${fresh.id}`);
+        ctx.hooks?.emit?.({ kind: 'session_switched', sessionId: fresh.id });
       },
     },
 

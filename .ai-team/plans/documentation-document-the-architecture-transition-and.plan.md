@@ -1,10 +1,10 @@
 ---
-id: DOC-20260412-A001
+id: document-the-architecture-transition-and
 type: documentation
 title: Document the architecture transition and local backlog
 createdBy: human
 createdByType: human
-parentTaskId: FEAT-20260412-A001
+parentPlanId: transition-service-boundaries-away-from-
 status: completed
 priority: urgent
 requiresApproval: false
@@ -19,7 +19,9 @@ metadata:
 createdAt: 2026-04-12T12:00:00.000Z
 updatedAt: 2026-04-12T12:00:00.000Z
 deadline: null
----
+assignedTo: taylor-reed
+
+------
 
 ## Done
 
@@ -32,7 +34,7 @@ Refresh the architecture docs so they clearly distinguish:
 
 ## Acceptance notes
 
-- `ARCHITECTURE.md` links to `.ai-team/tasks/`.
+- `ARCHITECTURE.md` links to `.ai-team/plans/`.
 - `COPILOT-CONTEXT.md` points coding agents to the local backlog.
 - [ ] Architecture overview and diagrams mention both current state and target direction.
 - `.ai-team/README.md` documents the `tasks/` directory.

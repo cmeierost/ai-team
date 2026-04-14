@@ -1,5 +1,5 @@
 ---
-id: shared-session-and-invites
+id: shared-session-and-agent-invites
 type: feature
 title: Shared Session and Agent Invites
 status: todo
@@ -7,7 +7,7 @@ priority: high
 createdBy: human
 createdByType: human
 requiresApproval: false
-subtaskIds: []
+subPlanIds: []
 estimatedHours: null
 deadline: null
 tags:
@@ -16,7 +16,9 @@ tags:
   - ui
 createdAt: 2026-04-12T12:00:00.000Z
 updatedAt: 2026-04-12T12:00:00.000Z
----
+assignedTo: maya-patel
+
+------
 
 ## Goal
 

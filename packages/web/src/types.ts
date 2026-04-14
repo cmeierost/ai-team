@@ -26,6 +26,7 @@ export interface AgentFilesResponse {
   agent: string;
   readPatterns: string[];
   writePatterns: string[];
+  listPatterns?: string[];
   files: AnnotatedFile[];
 }
 
@@ -34,11 +35,13 @@ export interface FilePatternsResponse {
     allowPaths: string[];
     readPaths: string[];
     writePaths: string[];
+    listPaths?: string[];
   };
   agent?: {
     id: string;
     readPaths: string[];
     writePaths: string[];
+    listPaths?: string[];
   };
 }
 
@@ -118,6 +121,8 @@ export interface Agent {
   avatar?: AvatarConfig;
   personality?: AgentPersonality;
   pronouns?: string;
+  ttsVoice?: string;
+  ttsRate?: number;
   workHours?: string;
   goal?: string;
   backstory?: string;

@@ -186,6 +186,17 @@ export type RuntimeStreamEvent =
       previewPath: string;
       /** Base64-encoded image data for web clients that cannot access the file system */
       imageBase64?: string;
+    }
+  | {
+      /** Emitted when a slash command switches the active session (e.g. /new). */
+      kind: 'session_switched';
+      sessionId: string;
+    }
+  | {
+      /** Emitted when the session title is automatically generated. */
+      kind: 'session_title_updated';
+      sessionId: string;
+      title: string;
     };
 
 export interface AvatarOptions {
@@ -614,6 +625,21 @@ export type StreamEvent<
   | {
       requestId?: string;
       command: TCommand;
+      kind: 'session_switched';
+      timestamp: string;
+      sessionId: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'session_title_updated';
+      timestamp: string;
+      sessionId: string;
+      title: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
       kind: 'result';
       timestamp: string;
       data: AiTeamCommandResponseMap[TCommand];
@@ -655,6 +681,8 @@ export interface QuestionInputRequest {
 export interface QuestionConfirmRequest {
   message: string;
   default?: boolean;
+  /** Visual style for the confirmation prompt. 'allow' renders Allow/Deny buttons; 'confirm' (default) renders Yes/No buttons. */
+  style?: 'confirm' | 'allow';
   workflow?: QuestionWorkflowMetadata;
 }
 
@@ -738,6 +766,8 @@ export interface QuestionInputRequest {
 export interface QuestionConfirmRequest {
   message: string;
   default?: boolean;
+  /** Visual style for the confirmation prompt. 'allow' renders Allow/Deny buttons; 'confirm' (default) renders Yes/No buttons. */
+  style?: 'confirm' | 'allow';
   workflow?: QuestionWorkflowMetadata;
 }
 

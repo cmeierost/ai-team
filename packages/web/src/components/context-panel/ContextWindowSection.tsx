@@ -8,6 +8,7 @@ import type { ContextSection } from './contextPanelTypes';
 
 interface ContextWindowSectionProps {
   agentId: string;
+  sessionId?: string;
   expandedSection: ContextSection | null;
   onToggleSection: (section: ContextSection) => void;
 }
@@ -78,11 +79,12 @@ function resolveContextWindow(agent: Agent | undefined, config: TeamConfig | und
 
 export function ContextWindowSection({
   agentId,
+  sessionId,
   expandedSection,
   onToggleSection,
 }: Readonly<ContextWindowSectionProps>) {
   const { agents } = useTeam();
-  const { data: estimate, isLoading } = useContextEstimate(agentId);
+  const { data: estimate, isLoading } = useContextEstimate(agentId, sessionId);
   const { data: config } = useConfig();
 
   const agent = agents.find((a) => a.id === agentId);
@@ -128,23 +130,13 @@ export function ContextWindowSection({
 
   const ctxLabel = `${(contextWindow / 1000).toFixed(0)}k`;
 
-  return (
-    <ContextPanelSectionFrame
-      section="context-window"
-      expandedSection={expandedSection}
-      onToggleSection={onToggleSection}
-      title={<span><i className="codicon codicon-dashboard" /> Context Window</span>}
-      count={ctxLabel}
-    >
-      {isLoading ? (
-        <div className="ctx-loading ctx-panel-pad">
-          <i className="codicon codicon-loading codicon-modifier-spin" /> Estimating…
-        </div>
-      ) : !estimate || estimate.totalChars === 0 ? (
-        <div className="context-empty">No context estimate available yet.</div>
-      ) : (
-        <div className="ctx-panel-pad">
-          <div className="ctx-content ctx-content--compact">
+  function renderContent() {
+    if (!estimate || estimate.totalChars === 0) {
+      return <div className="context-empty">No context estimate available yet.</div>;
+    }
+    return (
+      <div className="ctx-panel-pad">
+        <div className="ctx-content ctx-content--compact">
             <div className="ctx-chart-wrap ctx-chart-wrap--sm">
               <DonutChart entries={donutEntries} />
               <div className="ctx-center-label">
@@ -178,15 +170,84 @@ export function ContextWindowSection({
           </div>
           <div className="ctx-window-bar">
             <div className="ctx-window-bar-header">
-              <span>Initial context usage</span>
+              <span>{sessionId ? 'Session context usage' : 'Initial context usage'}</span>
               <span>
                 {usePct}% of {(contextWindow / 1000).toFixed(0)}k
               </span>
             </div>
             <progress className={`ctx-window-progress ${usageClass}`} max={100} value={usePct} />
           </div>
+
+          {/* Workspace instruction files */}
+          {estimate.instructionFiles && estimate.instructionFiles.length > 0 && (
+            <div className="ctx-detail-section">
+              <div className="ctx-detail-header">
+                <i className="codicon codicon-file-code" /> Workspace Instructions
+              </div>
+              {estimate.instructionFiles.map((f) => (
+                <div key={f.path} className="ctx-detail-row" title={f.path}>
+                  <span className="ctx-detail-name">{f.label}</span>
+                  <span className="ctx-detail-tokens">{Math.round(f.chars / 4).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Session skills loaded */}
+          {estimate.sessionSkills && estimate.sessionSkills.length > 0 && (
+            <div className="ctx-detail-section">
+              <div className="ctx-detail-header">
+                <i className="codicon codicon-symbol-misc" /> Session Skills
+              </div>
+              {estimate.sessionSkills.map((s) => (
+                <div key={s.skillPath} className={`ctx-detail-row${s.paused ? ' ctx-detail-row--muted' : ''}`} title={s.skillPath}>
+                  <span className="ctx-detail-name">
+                    {s.name}
+                    {s.paused && <span className="ctx-detail-badge">paused</span>}
+                  </span>
+                  <span className="ctx-detail-tokens">{Math.round(s.chars / 4).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Session messages going to LLM */}
+          {estimate.messages && estimate.messages.length > 0 && (
+            <div className="ctx-detail-section">
+              <div className="ctx-detail-header">
+                <i className="codicon codicon-comment-discussion" /> Messages → LLM ({estimate.messages.length})
+              </div>
+              {estimate.messages.map((msg, i) => (
+                <div key={`msg-${i}-${msg.role}`} className="ctx-msg-row" title={msg.preview}>
+                  <span className={`ctx-msg-role ctx-msg-role--${msg.role}`}>{msg.role === 'user' ? 'U' : 'A'}</span>
+                  <span className="ctx-msg-preview">{msg.preview}{msg.preview.length >= 120 ? '…' : ''}</span>
+                  <span className="ctx-detail-tokens">{Math.round(msg.chars / 4).toLocaleString()}</span>
+                  {msg.toolCallCount > 0 && (
+                    <span className="ctx-msg-tools" title={`${msg.toolCallCount} tool call(s), ${Math.round(msg.toolChars / 4)} tokens`}>
+                      🔧{msg.toolCallCount}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+    );
+  }
+
+  return (
+    <ContextPanelSectionFrame
+      section="context-window"
+      expandedSection={expandedSection}
+      onToggleSection={onToggleSection}
+      title={<span><i className="codicon codicon-dashboard" /> Context Window</span>}
+      count={ctxLabel}
+    >
+      {isLoading ? (
+        <div className="ctx-loading ctx-panel-pad">
+          <i className="codicon codicon-loading codicon-modifier-spin" /> Estimating…
         </div>
-      )}
+      ) : renderContent()}
     </ContextPanelSectionFrame>
   );
 }

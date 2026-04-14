@@ -8,7 +8,9 @@
 .app {
   display: grid;
   grid-template-columns: auto 1fr;
+  grid-template-rows: 1fr;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -16,4 +18,5 @@
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--color-bg-primary);
+  min-height: 0;
 }

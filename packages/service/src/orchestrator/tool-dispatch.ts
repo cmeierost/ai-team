@@ -279,6 +279,7 @@ async function requestExecutionApproval(
   const approved = await requestConfirm(ctx.hooks, {
     message: `Allow ${ctx.agent.name} to run ${label}?`,
     default: false,
+    style: 'allow',
   });
   if (approved) return undefined;
 

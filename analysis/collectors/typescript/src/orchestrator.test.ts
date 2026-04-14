@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import type { Entity } from '@aspect/contracts';
+import type { Entity, ToolRun } from '@aspect/contracts';
 
 // ── Mock modules (hoisted before imports) ───────────────────────────────────
 
@@ -87,7 +87,7 @@ function makeAstToolRun() {
   return {
     tool: 'typescript-ast' as const,
     version: '5.0.0',
-    aspect: 'entityExtraction' as const,
+    aspect: 'entityExtraction',
     exitCode: 0,
     duration: 50,
     warnings: [],
@@ -96,9 +96,9 @@ function makeAstToolRun() {
 
 function makeDepCruiserToolRun() {
   return {
-    tool: 'dependency-cruiser' as const,
+    tool: 'dependency-cruiser',
     version: '16.0.0',
-    aspect: 'dependencyGraph' as const,
+    aspect: 'dependencyGraph',
     exitCode: 0,
     duration: 100,
     warnings: [],
@@ -129,7 +129,7 @@ function makeEslintToolRun() {
 
 function makeCoverageToolRun() {
   return {
-    tool: 'lcov' as const,
+    tool: 'lcov',
     version: '1.0',
     aspect: 'coverage' as const,
     exitCode: 0,

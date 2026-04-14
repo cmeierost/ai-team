@@ -14,6 +14,8 @@ import {
   loadEffectiveConfig,
   resolveEffectiveLlmSettings,
   getAnnotatedFiles,
+  loadAgentAccessPatterns,
+  listCachedWorkspaceFiles,
   parseMarkdownSections,
   replaceOrAppendMarkdownSection,
 } from '@ai-team/infrastructure';
@@ -140,11 +142,23 @@ export class AgentsService implements IAgentsService {
     return this.agentManager.updateAgentAsync(matches[0].id, { markdown: body.markdown });
   }
 
-  async getFiles(id: string): Promise<{ files: AnnotatedFile[] }> {
+  async getFiles(id: string): Promise<{ files: AnnotatedFile[]; readPatterns: string[]; writePatterns: string[]; listPatterns: string[] }> {
     const matches = await this.agentManager.resolveAgentAsync(id);
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
-    const files = getAnnotatedFiles(this.workspaceRoot, undefined, []);
-    return { files: files as AnnotatedFile[] };
+    const agent = matches[0] as any;
+    const [allEntries, accessPatterns] = await Promise.all([
+      listCachedWorkspaceFiles(this.workspaceRoot),
+      loadAgentAccessPatterns(this.workspaceRoot, id),
+    ]);
+    const allFiles = allEntries.filter((e) => !e.isDirectory).map((e) => e.relativePath);
+    const annotated = getAnnotatedFiles(this.workspaceRoot, agent.permissions, allFiles);
+    const withAccess = annotated.filter((f) => f.readable || f.listable || f.writable);
+    return {
+      files: withAccess as AnnotatedFile[],
+      readPatterns: accessPatterns.read ?? [],
+      writePatterns: accessPatterns.write ?? [],
+      listPatterns: accessPatterns.list ?? [],
+    };
   }
 
   async generateHandoffPrompt(

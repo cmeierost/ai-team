@@ -56,6 +56,7 @@
 .ft-summary-read  { color: #4fc3f7; }
 .ft-summary-list  { color: #f7c26d; }
 .ft-summary-write { color: #81c784; }
+.ft-summary-none  { color: #ef9a9a; }
 
 .ft-patterns {
   font-size: 12px;
@@ -83,7 +84,7 @@
 .ft-pattern-group-label {
   font-size: 11px;
   color: var(--color-text-muted);
-  min-width: 82px;
+  min-width: 20px;
 }
 
 .ft-pattern {
@@ -150,10 +151,10 @@
 .ft-pattern-add:hover:not(:disabled) { background: var(--color-bg-hover); }
 .ft-pattern-add:disabled { opacity: 0.6; cursor: default; }
 
+.ft-pattern-list  { background: var(--color-bg-secondary); border-color: rgba(247,194,109,0.45); color: #f7c26d; }
 .ft-pattern-read  { background: var(--color-bg-secondary); border-color: rgba(79, 195, 247, 0.45); color: var(--color-text-primary); }
 .ft-pattern-write { background: var(--color-bg-secondary); border-color: rgba(129, 199, 132, 0.45); color: var(--color-text-primary); }
-.ft-pattern-create { background: var(--color-bg-secondary); border-color: rgba(255, 183, 77, 0.5); color: var(--color-text-primary); }
-.ft-pattern-delete { background: var(--color-bg-secondary); border-color: rgba(244, 143, 177, 0.5); color: var(--color-text-primary); }
+.ft-pattern-default { opacity: 0.55; font-style: italic; }
 
 /* ── Toolbar ───────────────────────────────────────────────────────────────── */
 

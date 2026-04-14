@@ -1,10 +1,10 @@
 ---
-id: FEAT-20260412-A005
+id: plan-explicit-user-triggered-tool-mcp-an
 type: feature
 title: Plan explicit user-triggered tool, MCP, and CLI execution surface
 createdBy: human
 createdByType: human
-parentTaskId: FEAT-20260412-A001
+parentPlanId: transition-service-boundaries-away-from-
 status: not_started
 priority: medium
 requiresApproval: false
@@ -20,7 +20,9 @@ metadata:
 createdAt: 2026-04-12T12:00:00.000Z
 updatedAt: 2026-04-12T12:00:00.000Z
 deadline: null
----
+assignedTo: ethan-carter
+
+------
 
 ## Why this exists
 

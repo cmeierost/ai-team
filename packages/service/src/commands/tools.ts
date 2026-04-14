@@ -1,5 +1,6 @@
 import { type Agent, type AgentManager, type AgentTool } from '@ai-team/infrastructure';
 import type { ToolManager } from '../tools/tool-manager.js';
+import { toolKey } from '../tools/tool-manager.js';
 import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-client';
 export interface ListToolsOptions {
   agent?: string;
@@ -67,7 +68,7 @@ export async function listToolsCommand(
   const agent = await resolveFullAgent(agentManager, options.agent, 'list tools for agent');
   const entries = await Promise.all(
     allTools.map(async (tool) => {
-      const permission = await toolManager.canExecute(agent, tool.name, {});
+      const permission = await toolManager.canExecute(agent, toolKey(tool), {});
       return {
         ...buildCatalogEntry(toolManager, tool),
         allowedForAgent: permission.allowed,

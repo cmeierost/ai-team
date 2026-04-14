@@ -145,6 +145,16 @@ body.context-panel-resizing {
   flex-shrink: 0;
 }
 
+.files-section-counts {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.files-section-count-list  { color: #f7c26d; }
+.files-section-count-read  { color: #4fc3f7; }
+.files-section-count-write { color: #81c784; }
+
 .context-section-action {
   display: flex;
   align-items: center;
@@ -168,6 +178,10 @@ body.context-panel-resizing {
 .context-section-content {
   padding: 8px 0;
   background-color: #2d2d30;
+}
+
+.context-section-content-hidden {
+  display: none;
 }
 
 .context-section-filetree {
@@ -908,3 +922,110 @@ body.context-panel-resizing {
 .ctx-window-fill--ok::-moz-progress-bar { background: #43c59e; border-radius: 3px; }
 .ctx-window-fill--warn::-moz-progress-bar { background: #f0a443; border-radius: 3px; }
 .ctx-window-fill--high::-moz-progress-bar { background: #e06c75; border-radius: 3px; }
+
+/* ── Context detail sections (instructions / skills / messages) ─── */
+
+.ctx-detail-section {
+  margin-top: 10px;
+  border-top: 1px solid #2d2d30;
+  padding-top: 8px;
+}
+
+.ctx-detail-header {
+  font-size: 10px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ctx-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: #bbb;
+  padding: 2px 0;
+  overflow: hidden;
+}
+
+.ctx-detail-row--muted {
+  opacity: 0.45;
+}
+
+.ctx-detail-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ctx-detail-tokens {
+  flex-shrink: 0;
+  color: #777;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+}
+
+.ctx-detail-badge {
+  font-size: 9px;
+  background: #3a3a3a;
+  color: #888;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.ctx-msg-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 10px;
+  color: #bbb;
+  padding: 2px 0;
+  overflow: hidden;
+}
+
+.ctx-msg-role {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.ctx-msg-role--user {
+  background: #1a3a5c;
+  color: #4e9ff5;
+}
+
+.ctx-msg-role--assistant {
+  background: #1a3a2c;
+  color: #43c59e;
+}
+
+.ctx-msg-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #999;
+}
+
+.ctx-msg-tools {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: #f0a443;
+}

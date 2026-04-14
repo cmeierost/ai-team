@@ -53,6 +53,10 @@ export interface CreateAiTeamClientOptions {
 
 function makeRestClient<T>(desc: object, baseUrl: string, options?: RestClientOptions): T {
   const restOpts: RestClientOptions = {
+    // Disable the default dateAdapter — it converts ISO timestamp strings to
+    // Date objects at runtime, which breaks path-param serialisation because
+    // encodeURIComponent(new Date()) produces a locale string, not an ISO string.
+    adapters: [],
     ...options,
     onError: (error: RestClientError) => {
       const apiError = new ApiHttpError((error as any).status ?? 500, error.message);

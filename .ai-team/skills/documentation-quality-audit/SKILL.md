@@ -24,7 +24,7 @@ This includes:
 5. `docs/**/*`
 6. `packages/*/README.md`
 7. `analysis/**/*` when the docs depend on deeper research notes
-8. `todo/**/*` or `.ai-team/tasks/**/*` when work-in-progress docs need coordination cleanup
+8. `todo/**/*` or `.ai-team/plans/**/*` when work-in-progress docs need coordination cleanup
 
 ## Workflow
 

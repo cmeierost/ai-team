@@ -1,5 +1,5 @@
 ---
-id: fix-cli-arguments
+id: fix-cli-argument-handling-and-help-fallb
 type: bug
 title: Fix CLI argument handling and help fallback
 status: todo
@@ -7,7 +7,7 @@ priority: medium
 createdBy: human
 createdByType: human
 requiresApproval: false
-subtaskIds: []
+subPlanIds: []
 estimatedHours: null
 deadline: null
 tags:
@@ -15,7 +15,9 @@ tags:
   - bug
 createdAt: 2026-04-13T00:00:00.000Z
 updatedAt: 2026-04-13T00:00:00.000Z
----
+assignedTo: ethan-carter
+
+------
 
 ## Goal
 

@@ -141,6 +141,8 @@ export const AgentSchema = z
     avatar: AvatarConfigSchema.optional(),
     personality: PersonalityConfigSchema.optional(),
     pronouns: z.string().optional(),
+    ttsVoice: z.string().optional(),
+    ttsRate: z.number().min(0.1).max(10).optional(),
     workHours: z.string().optional(),
     description: z.string().optional(),
     version: z.string().optional(),

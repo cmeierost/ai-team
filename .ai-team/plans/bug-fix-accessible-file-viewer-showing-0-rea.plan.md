@@ -1,5 +1,5 @@
 ---
-id: fix-accessible-file-viewer
+id: fix-accessible-file-viewer-showing-0-rea
 type: bug
 title: Fix accessible file viewer showing 0 readable/listable/writable files
 status: todo
@@ -7,14 +7,16 @@ priority: high
 createdBy: human
 createdByType: human
 requiresApproval: false
-subtaskIds: []
+subPlanIds: []
 estimatedHours: null
 deadline: null
 tags:
   - bug
 createdAt: 2026-04-13T00:00:00.000Z
 updatedAt: 2026-04-13T00:00:00.000Z
----
+assignedTo: sarah-lee
+
+------
 
 ## Goal
 

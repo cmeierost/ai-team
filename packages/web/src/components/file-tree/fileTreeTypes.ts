@@ -17,13 +17,15 @@ export interface TreeNode {
 
 export type FileAccessFilter = 'all' | 'read' | 'list' | 'write';
 export type PatternScope = 'agent' | 'global';
-export type PatternMode = 'read' | 'write';
+export type PatternMode = 'read' | 'write' | 'list';
 
 export interface PatternGroup {
   label: string;
   scope: PatternScope;
   mode: PatternMode;
   values: string[];
+  /** True when no explicit pattern is configured and the value shown is the implicit default. */
+  isDefault?: boolean;
 }
 
 export interface FileTreeViewState {

@@ -170,6 +170,13 @@ export class LlmService {
     await this.initializeForChat();
   }
 
+  /** Initialize only if not already done. Safe to call multiple times. */
+  async ensureInitialized(): Promise<void> {
+    if (!this.initialized) {
+      await this.initializeForChat();
+    }
+  }
+
   async initializeForChat(
     agent?: Pick<Agent, 'llm'>,
     skill?: Pick<Skill, 'llm'>,

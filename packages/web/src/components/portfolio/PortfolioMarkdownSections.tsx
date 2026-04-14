@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AiTeamHttpClient } from '@ai-team/api-client';
@@ -13,12 +13,16 @@ const STANDARD_ORDER = [
   'Successful Outcome',
 ];
 
+// Always rendered even when not yet authored — shows empty state with edit prompt.
+const ALWAYS_SHOWN = new Set(['Working Rules', 'Successful Outcome']);
+
 // Sections moved to YAML or removed — never rendered as markdown cards.
 const EXCLUDED_SECTIONS = new Set([
   'Read These Files First',
   'Routing Defaults',
   'Do Not Use This Agent For',
   'Personality Profile',
+  'Handoffs', // auto-generated for Copilot context; managed via YAML handoffs editor
 ]);
 
 const SECTION_ICONS: Record<string, string> = {
@@ -130,6 +134,8 @@ interface PortfolioMarkdownSectionsProps {
   onUpdated: () => void;
   onlyHeadings?: string[];
   excludeHeadings?: string[];
+  /** Show an "Add section" button for creating optional custom sections. */
+  showAddSection?: boolean;
 }
 
 export function PortfolioMarkdownSections({
@@ -139,10 +145,14 @@ export function PortfolioMarkdownSections({
   onUpdated,
   onlyHeadings,
   excludeHeadings,
+  showAddSection,
 }: Readonly<PortfolioMarkdownSectionsProps>) {
   const [sections, setSections] = useState<MarkdownSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [addingSection, setAddingSection] = useState(false);
+  const [newHeading, setNewHeading] = useState('');
+  const addInputRef = useRef<HTMLInputElement>(null);
 
   const loadSections = useCallback(async () => {
     setLoading(true);
@@ -167,6 +177,24 @@ export function PortfolioMarkdownSections({
     onUpdated();
   };
 
+  const handleAddSection = async () => {
+    const heading = newHeading.trim();
+    if (!heading) return;
+    await handleSave(heading, '');
+    setNewHeading('');
+    setAddingSection(false);
+  };
+
+  const handleAddKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); void handleAddSection(); }
+    if (e.key === 'Escape') { setAddingSection(false); setNewHeading(''); }
+  };
+
+  const openAddForm = () => {
+    setAddingSection(true);
+    setTimeout(() => addInputRef.current?.focus(), 0);
+  };
+
   if (loading) return <p className="text-muted portfolio-sections-status">Loading sections…</p>;
   if (loadError)
     return <p className="portfolio-section-error portfolio-sections-status">{loadError}</p>;
@@ -185,8 +213,9 @@ export function PortfolioMarkdownSections({
   };
 
   for (const h of STANDARD_ORDER) {
-    if (sectionMap.has(h) && shouldInclude(h)) {
-      ordered.push({ heading: h, content: sectionMap.get(h)! });
+    // ALWAYS_SHOWN sections render even without existing content (shows empty-state + edit prompt).
+    if ((sectionMap.has(h) || ALWAYS_SHOWN.has(h)) && shouldInclude(h)) {
+      ordered.push({ heading: h, content: sectionMap.get(h) ?? '' });
     }
   }
   for (const s of sections) {
@@ -195,7 +224,7 @@ export function PortfolioMarkdownSections({
     }
   }
 
-  if (ordered.length === 0) return null;
+  if (ordered.length === 0 && !showAddSection) return null;
 
   return (
     <>
@@ -208,6 +237,32 @@ export function PortfolioMarkdownSections({
           onSave={handleSave}
         />
       ))}
+      {showAddSection && (
+        <div className="portfolio-add-section-row">
+          {addingSection ? (
+            <div className="portfolio-add-section-form">
+              <input
+                ref={addInputRef}
+                className="portfolio-add-section-input"
+                placeholder="Section heading…"
+                value={newHeading}
+                onChange={(e) => setNewHeading(e.target.value)}
+                onKeyDown={handleAddKeyDown}
+              />
+              <button className="btn-save" onClick={() => void handleAddSection()} disabled={!newHeading.trim()}>
+                Add
+              </button>
+              <button className="btn-header-action" onClick={() => { setAddingSection(false); setNewHeading(''); }}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button className="btn-add-handoff" onClick={openAddForm}>
+              <i className="codicon codicon-add" /> Add section
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }

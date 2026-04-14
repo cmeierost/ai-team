@@ -174,6 +174,7 @@ export interface AgentFilesResponse {
   agent: string;
   readPatterns: string[];
   writePatterns: string[];
+  listPatterns?: string[];
   createPatterns?: string[];
   deletePatterns?: string[];
   files: AnnotatedFile[];

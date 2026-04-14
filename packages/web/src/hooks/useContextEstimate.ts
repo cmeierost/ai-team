@@ -7,18 +7,46 @@ export interface ContextSegment {
   chars: number;
 }
 
-export interface ContextEstimateResponse {
-  agentId: string;
-  segments: ContextSegment[];
-  totalChars: number;
+export interface ContextInstructionFile {
+  path: string;
+  label: string;
+  chars: number;
 }
 
-export function useContextEstimate(agentId: string | undefined) {
+export interface ContextMessage {
+  role: 'user' | 'assistant';
+  preview: string;
+  chars: number;
+  toolCallCount: number;
+  toolChars: number;
+  archived: boolean;
+}
+
+export interface ContextSessionSkill {
+  name: string;
+  skillPath: string;
+  chars: number;
+  paused: boolean;
+  isSessionSkill: boolean;
+}
+
+export interface ContextEstimateResponse {
+  agentId: string;
+  sessionId?: string;
+  segments: ContextSegment[];
+  totalChars: number;
+  instructionFiles: ContextInstructionFile[];
+  messages: ContextMessage[];
+  sessionSkills: ContextSessionSkill[];
+}
+
+export function useContextEstimate(agentId: string | undefined, sessionId?: string) {
   const { client } = useTeam();
   return useQuery<ContextEstimateResponse>({
-    queryKey: ['meta', 'context-estimate', agentId],
-    queryFn: () => client.context.getContextEstimate(agentId!) as Promise<ContextEstimateResponse>,
+    queryKey: ['meta', 'context-estimate', agentId, sessionId],
+    queryFn: () =>
+      client.context.getContextEstimate(agentId!, sessionId ? { sessionId } : undefined) as Promise<ContextEstimateResponse>,
     enabled: !!agentId,
-    staleTime: 30_000,
+    staleTime: 15_000,
   });
 }

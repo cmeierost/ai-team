@@ -1,7 +1,7 @@
 /* Markdown rendering styles */
 .message-content {
   line-height: 1.2;
-  color: #333;
+  color: inherit;
 }
 
 .message-content h1,
@@ -13,7 +13,7 @@
   margin: 0.5em 0 0.25em;
   font-weight: 600;
   line-height: 1.2;
-  color: #1a1a1a;
+  color: inherit;
 }
 
 .message-content h1 {
@@ -162,7 +162,7 @@
 }
 
 /* Task lists */
-.message-content input[type="checkbox"] {
+.message-content input[type='checkbox'] {
   margin-right: 0.5em;
 }
 

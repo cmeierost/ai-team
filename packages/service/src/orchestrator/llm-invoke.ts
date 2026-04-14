@@ -210,7 +210,12 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
       );
 
       flushFilter(state, writeToken);
-      if (result?.text) fullResponse = result.text;
+      // Do NOT overwrite fullResponse with result.text here.
+      // fullResponse is accumulated across ALL rounds via the onToken delta callback,
+      // capturing text both before and after every tool call.
+      // result.text only contains the final round's assistantText — using it would
+      // silently drop any text the model emitted before the last tool call.
+      if (!fullResponse && result?.text) fullResponse = result.text;
     }
   } catch (err: unknown) {
     if (isAbortError(err)) throw err;

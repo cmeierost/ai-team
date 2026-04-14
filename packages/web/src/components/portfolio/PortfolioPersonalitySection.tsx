@@ -67,7 +67,8 @@ export function PortfolioPersonalitySection({
 
   // Load the "Personality Profile" md section on mount
   useEffect(() => {
-    void client.agents.getSections(agentId)
+    void client.agents
+      .getSections(agentId)
       .then((sections) => {
         const section = sections.find((s) => s.heading === 'Personality Profile');
         setProfileMarkdown(section?.content ?? '');
@@ -94,11 +95,9 @@ export function PortfolioPersonalitySection({
     try {
       await onSave(draft);
       if (draftMarkdown !== profileMarkdown) {
-        await client.agents.updateSection(
-          agentId,
-          'Personality Profile',
-          { content: draftMarkdown },
-        );
+        await client.agents.updateSection(agentId, 'Personality Profile', {
+          content: draftMarkdown,
+        });
         const freshSections = await client.agents.getSections(agentId);
         const section = freshSections.find((s) => s.heading === 'Personality Profile');
         setProfileMarkdown(section?.content ?? draftMarkdown);

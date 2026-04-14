@@ -14,10 +14,11 @@ interface PendingQuestionFormProps {
   onPendingSelectAnswerChange: (value: string) => void;
   onTogglePendingChecklistValue: (choiceValue: string, checked: boolean) => void;
   onPendingFormFieldChange: (fieldId: string, value: string) => void;
+  onConfirmDirectAnswer: (value: boolean) => void;
   onSubmit: (event: { preventDefault(): void }) => void;
 }
 
-export function PendingQuestionForm({ pendingQuestion, pendingInputAnswer, pendingPasswordAnswer, pendingConfirmAnswer, pendingSelectAnswer, pendingChecklistAnswer, pendingFormAnswer, onPendingInputAnswerChange, onPendingPasswordAnswerChange, onPendingConfirmAnswerChange, onPendingSelectAnswerChange, onTogglePendingChecklistValue, onPendingFormFieldChange, onSubmit }: Readonly<PendingQuestionFormProps>) {
+export function PendingQuestionForm({ pendingQuestion, pendingInputAnswer, pendingPasswordAnswer, pendingConfirmAnswer, pendingSelectAnswer, pendingChecklistAnswer, pendingFormAnswer, onPendingInputAnswerChange, onPendingPasswordAnswerChange, onPendingConfirmAnswerChange, onPendingSelectAnswerChange, onTogglePendingChecklistValue, onPendingFormFieldChange, onConfirmDirectAnswer, onSubmit }: Readonly<PendingQuestionFormProps>) {
   return (
     <form className="chat-input-container pending-question-form" onSubmit={onSubmit}>
       <div className="pending-question-title">{pendingQuestion.message}</div>
@@ -45,14 +46,22 @@ export function PendingQuestionForm({ pendingQuestion, pendingInputAnswer, pendi
       ) : null}
 
       {pendingQuestion.kind === 'confirm' ? (
-        <label className="pending-question-control pending-question-confirm">
-          <input
-            type="checkbox"
-            checked={pendingConfirmAnswer}
-            onChange={(event) => onPendingConfirmAnswerChange(event.target.checked)}
-          />
-          <span>Yes / No</span>
-        </label>
+        <div className="pending-question-confirm">
+          <button
+            type="button"
+            className="confirm-answer-button confirm-answer-yes"
+            onClick={() => onConfirmDirectAnswer(true)}
+          >
+            {pendingQuestion.style === 'allow' ? 'Allow' : 'Yes'}
+          </button>
+          <button
+            type="button"
+            className="confirm-answer-button confirm-answer-no"
+            onClick={() => onConfirmDirectAnswer(false)}
+          >
+            {pendingQuestion.style === 'allow' ? 'Deny' : 'No'}
+          </button>
+        </div>
       ) : null}
 
       {pendingQuestion.kind === 'select' ? (
@@ -134,9 +143,11 @@ export function PendingQuestionForm({ pendingQuestion, pendingInputAnswer, pendi
       ) : null}
 
       <div className="chat-input-actions">
-        <button type="submit" className="chat-action-button chat-send-button pending-question-submit">
-          Send answers
-        </button>
+        {pendingQuestion.kind === 'confirm' ? null : (
+          <button type="submit" className="chat-action-button chat-send-button pending-question-submit">
+            Send answers
+          </button>
+        )}
       </div>
     </form>
   );

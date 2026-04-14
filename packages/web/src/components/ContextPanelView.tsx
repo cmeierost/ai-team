@@ -99,6 +99,7 @@ export function ContextPanelView({
       <div className="context-sections">
         <ContextWindowSection
           agentId={agentId}
+          sessionId={sessionId}
           expandedSection={expandedSection}
           onToggleSection={onToggleSection}
         />

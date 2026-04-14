@@ -237,6 +237,7 @@ export class SessionsService implements ISessionsService {
   async generateTitle(sessionId: string): Promise<{ title: string }> {
     const existing = await this.sessionManager.getSession(sessionId);
     if (!existing) throw new NotFoundError('Session not found');
+    await this.llmService.ensureInitialized();
     const title = await this.sessionManager.generateTitle(sessionId, this.llmService);
     return { title };
   }

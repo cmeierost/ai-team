@@ -35,5 +35,9 @@ export function runtimeEventToStreamEvent<TCommand extends AiTeamCommandName>(
         : null;
     case 'avatar-preview':
       return { ...base, ...event } as StreamEvent<TCommand>;
+    case 'session_switched':
+      return { ...base, ...event } as StreamEvent<TCommand>;
+    case 'session_title_updated':
+      return { ...base, ...event } as StreamEvent<TCommand>;
   }
 }

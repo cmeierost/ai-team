@@ -254,6 +254,20 @@ export async function sendTurn(
   await sessionManager.appendMessage(sessionId, agentMsg);
   ctx.history.push(agentMsg);
 
+  // Auto-generate session title when the session has no title and there are more than 2 messages.
+  // Awaited so the event is emitted while the stream is still live and reaches the client.
+  if (ctx.history.length > 2) {
+    try {
+      const session = await sessionManager.getSession(sessionId);
+      if (session && !session.title) {
+        const title = await sessionManager.generateTitle(sessionId, ctx.llmService);
+        hooks?.emit?.({ kind: 'session_title_updated', sessionId, title });
+      }
+    } catch {
+      // Non-critical; ignore errors during auto-title generation.
+    }
+  }
+
   await runVoidHook(
     hookPlugins,
     'onAfterPersistAssistantMessage',

@@ -81,8 +81,8 @@ function FilePermissions({ path, editMode, isPending, readable, listable, writab
   if (!editMode) {
     return (
       <div className="ft-perms">
-        {readable ? <span className="ft-badge ft-badge-read" title="Readable">R</span> : null}
         {listable ? <span className="ft-badge ft-badge-list" title="Listable">L</span> : null}
+        {readable ? <span className="ft-badge ft-badge-read" title="Readable">R</span> : null}
         {writable ? <span className="ft-badge ft-badge-write" title="Writable">W</span> : null}
       </div>
     );
@@ -90,6 +90,15 @@ function FilePermissions({ path, editMode, isPending, readable, listable, writab
 
   return (
     <div className="ft-perms">
+      <button
+        type="button"
+        className={`ft-perm-btn ${listable ? 'ft-perm-on' : 'ft-perm-off'}`}
+        title={listable ? 'Revoke list access' : 'Grant list access'}
+        disabled={isPending}
+        onClick={() => onToggle(path, 'list', listable)}
+      >
+        <i className="codicon codicon-list-tree" /> L
+      </button>
       <button
         type="button"
         className={`ft-perm-btn ${readable ? 'ft-perm-on' : 'ft-perm-off'}`}

@@ -13,6 +13,7 @@ export interface InputQuestionRequest {
 export interface ConfirmQuestionRequest {
   message: string;
   default?: boolean;
+  style?: 'confirm' | 'allow';
 }
 
 export interface SelectQuestionRequest {
@@ -62,6 +63,7 @@ export type PendingQuestion =
       kind: 'confirm';
       message: string;
       defaultValue: boolean;
+      style?: 'confirm' | 'allow';
     }
   | {
       kind: 'select';

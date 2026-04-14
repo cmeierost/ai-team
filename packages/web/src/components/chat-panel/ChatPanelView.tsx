@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
+import { useDeferredValue, useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
 import type { Agent, ChatMessage, Developer, SessionActivatedTool } from '../../types';
 import type { ChatCommandRegistryEntry } from '@ai-team/api-client';
 import { Avatar } from '../Avatar';
@@ -172,7 +172,16 @@ interface ChatPanelViewProps {
   pendingFormAnswer: Record<string, string>;
   input: string;
   isRecording: boolean;
+  interimTranscript: string;
   recognition: any;
+  ttsEnabled: boolean;
+  ttsSupported: boolean;
+  ttsSpeaking: boolean;
+  ttsPaused: boolean;
+  ttsSpeakingWord: string | null;
+  ttsSpeakingOccurrence: number | null;
+  ttsRate: number;
+  onSetTtsRate: (rate: number) => void;
   messages: ChatMessage[];
   editingIndex: number | null;
   editContent: string;
@@ -199,16 +208,23 @@ interface ChatPanelViewProps {
   onToggleArchive: (index: number, currentlyArchived: boolean) => void;
   onDeleteMessage: (index: number) => void;
   onHandoffClick: (targetAgentId: string, existingSessionId?: string | null) => void;
+  onSpeakMessage: (content: string, fromAgentId: string) => void;
+  onStopSpeaking: () => void;
+  onPauseSpeaking: () => void;
+  onResumeSpeaking: () => void;
   onPendingInputAnswerChange: (value: string) => void;
   onPendingPasswordAnswerChange: (value: string) => void;
   onPendingConfirmAnswerChange: (value: boolean) => void;
   onPendingSelectAnswerChange: (value: string) => void;
   onTogglePendingChecklistValue: (choiceValue: string, checked: boolean) => void;
   onPendingFormFieldChange: (fieldId: string, value: string) => void;
+  onConfirmDirectAnswer: (value: boolean) => void;
   onPendingQuestionSubmit: (event: { preventDefault(): void }) => void;
   onInputChange: (value: string) => void;
   onInputKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onStartRecording: () => void;
+  onStopRecording: () => void;
+  onToggleTts: () => void;
   onSend: () => void;
   onInterrupt: () => void;
   onToggleArtifact: (artifactId: string) => void;
@@ -244,7 +260,16 @@ export function ChatPanelView({
   pendingFormAnswer,
   input,
   isRecording,
+  interimTranscript,
   recognition,
+  ttsEnabled,
+  ttsSupported,
+  ttsSpeaking,
+  ttsPaused,
+  ttsSpeakingWord,
+  ttsSpeakingOccurrence,
+  ttsRate,
+  onSetTtsRate,
   messages,
   editingIndex,
   editContent,
@@ -267,16 +292,23 @@ export function ChatPanelView({
   onToggleArchive,
   onDeleteMessage,
   onHandoffClick,
+  onSpeakMessage,
+  onStopSpeaking,
+  onPauseSpeaking,
+  onResumeSpeaking,
   onPendingInputAnswerChange,
   onPendingPasswordAnswerChange,
   onPendingConfirmAnswerChange,
   onPendingSelectAnswerChange,
   onTogglePendingChecklistValue,
   onPendingFormFieldChange,
+  onConfirmDirectAnswer,
   onPendingQuestionSubmit,
   onInputChange,
   onInputKeyDown,
   onStartRecording,
+  onStopRecording,
+  onToggleTts,
   onSend,
   onInterrupt,
   onToggleArtifact,
@@ -292,6 +324,11 @@ export function ChatPanelView({
 }: Readonly<ChatPanelViewProps>) {
   const isMobileViewport = useIsMobileViewport();
   const [isMobileContextOpen, setIsMobileContextOpen] = useState(false);
+
+  // Defer heavy message-list re-renders so input updates always stay urgent.
+  // When the user types while streaming, React will render the input first and
+  // flush the deferred message update between idle frames.
+  const deferredMessages = useDeferredValue(messages);
 
   useEffect(() => {
     if (!isMobileViewport) {
@@ -405,7 +442,7 @@ export function ChatPanelView({
           routeAgentId={routeAgentId}
           currentSessionId={currentSessionId}
           graphSessionId={graphSessionId}
-          messages={messages}
+          messages={deferredMessages}
           editingIndex={editingIndex}
           editContent={editContent}
           messagesContainerRef={messagesContainerRef}
@@ -422,6 +459,15 @@ export function ChatPanelView({
           onToggleArchive={onToggleArchive}
           onDeleteMessage={onDeleteMessage}
           onHandoffClick={onHandoffClick}
+          onSpeakMessage={onSpeakMessage}
+          onStopSpeaking={onStopSpeaking}
+          onPauseSpeaking={onPauseSpeaking}
+          onResumeSpeaking={onResumeSpeaking}
+          ttsSupported={ttsSupported}
+          ttsSpeaking={ttsSpeaking}
+          ttsPaused={ttsPaused}
+          ttsSpeakingWord={ttsSpeakingWord}
+          ttsSpeakingOccurrence={ttsSpeakingOccurrence}
           activatedTools={activatedTools}
           streaming={streaming}
         />
@@ -442,6 +488,7 @@ export function ChatPanelView({
               onPendingSelectAnswerChange={onPendingSelectAnswerChange}
               onTogglePendingChecklistValue={onTogglePendingChecklistValue}
               onPendingFormFieldChange={onPendingFormFieldChange}
+              onConfirmDirectAnswer={onConfirmDirectAnswer}
               onSubmit={onPendingQuestionSubmit}
             />
           ) : (
@@ -453,35 +500,93 @@ export function ChatPanelView({
                   onSelect={onSlashSelect}
                 />
               )}
-              <textarea
-                ref={textareaRef}
-                className="chat-input-textarea"
-                value={input}
-                onChange={(event) => onInputChange(event.target.value)}
-                onKeyDown={onInputKeyDown}
-                placeholder={`Ask ${agent.name}...`}
-                rows={1}
-                disabled={sending && !streaming}
-              />
+              <div className="chat-textarea-wrapper">
+                <textarea
+                  ref={textareaRef}
+                  className="chat-input-textarea"
+                  value={input}
+                  onChange={(event) => onInputChange(event.target.value)}
+                  onKeyDown={onInputKeyDown}
+                  placeholder={`Ask ${agent.name}...`}
+                  rows={1}
+                  disabled={sending && !streaming}
+                />
+                {isRecording && interimTranscript ? (
+                  <span className="voice-interim">
+                    {interimTranscript}
+                    <span className="voice-cursor">|</span>
+                  </span>
+                ) : null}
+              </div>
               <div className="chat-input-actions">
                 {streaming ? (
-                  <button
-                    onClick={onInterrupt}
-                    className="chat-action-button chat-interrupt-button"
-                    title="Stop generation"
-                  >
-                    <i className="codicon codicon-debug-stop" />
-                  </button>
+                  <>
+                    {ttsSupported ? (
+                      <>
+                        <button
+                          onClick={onToggleTts}
+                          className={`chat-action-button ${ttsEnabled ? 'chat-tts-active' : ''}`}
+                          title={ttsEnabled ? 'Disable agent voice' : 'Enable agent voice'}
+                        >
+                          <i
+                            className={`codicon ${ttsEnabled ? 'codicon-unmute' : 'codicon-mute'}`}
+                          />
+                        </button>
+                        {ttsEnabled ? (
+                          <select
+                            className="chat-tts-rate"
+                            value={ttsRate}
+                            onChange={(e) => onSetTtsRate(parseFloat(e.target.value))}
+                            title="Speech speed"
+                          >
+                            <option value={0.75}>0.75×</option>
+                            <option value={1.0}>1×</option>
+                            <option value={1.25}>1.25×</option>
+                            <option value={1.5}>1.5×</option>
+                            <option value={2.0}>2×</option>
+                          </select>
+                        ) : null}
+                      </>
+                    ) : null}
+                    <button
+                      onClick={onInterrupt}
+                      className="chat-action-button chat-interrupt-button"
+                      title="Stop generation"
+                    >
+                      <i className="codicon codicon-debug-stop" />
+                    </button>
+                  </>
                 ) : (
                   <>
+                    {ttsSupported ? (
+                      <>
+                        <button
+                          onClick={onToggleTts}
+                          className={`chat-action-button ${ttsEnabled ? 'chat-tts-active' : ''}`}
+                          title={ttsEnabled ? 'Disable agent voice' : 'Enable agent voice'}
+                        >
+                          <i
+                            className={`codicon ${ttsEnabled ? 'codicon-unmute' : 'codicon-mute'}`}
+                          />
+                        </button>
+                        {ttsEnabled ? (
+                          <select
+                            className="chat-tts-rate"
+                            value={ttsRate}
+                            onChange={(e) => onSetTtsRate(parseFloat(e.target.value))}
+                            title="Speech speed"
+                          >
+                            <option value={0.75}>0.75×</option>
+                            <option value={1.0}>1×</option>
+                            <option value={1.25}>1.25×</option>
+                            <option value={1.5}>1.5×</option>
+                            <option value={2.0}>2×</option>
+                          </select>
+                        ) : null}
+                      </>
+                    ) : null}
                     <button
-                      onClick={() => {
-                        if (isRecording) {
-                          recognition?.stop();
-                        } else {
-                          onStartRecording();
-                        }
-                      }}
+                      onClick={isRecording ? onStopRecording : onStartRecording}
                       className={`chat-action-button ${isRecording ? 'chat-recording' : ''}`}
                       title={isRecording ? 'Stop recording' : 'Voice input'}
                       disabled={sending}

@@ -1,5 +1,5 @@
 ---
-id: async-message-steering
+id: asynchronous-message-steering-and-queuin
 type: feature
 title: Asynchronous Message Steering and Queuing
 status: todo
@@ -7,7 +7,7 @@ priority: high
 createdBy: human
 createdByType: human
 requiresApproval: false
-subtaskIds: []
+subPlanIds: []
 estimatedHours: null
 deadline: null
 tags:
@@ -16,7 +16,9 @@ tags:
   - service
 createdAt: 2026-04-13T00:00:00.000Z
 updatedAt: 2026-04-13T00:00:00.000Z
----
+assignedTo: leah-brooks
+
+------
 
 ## Goal
 

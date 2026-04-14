@@ -1,5 +1,5 @@
 ---
-id: FEAT-20260412-A001
+id: transition-service-boundaries-away-from-
 type: feature
 title: Transition service boundaries away from transport-coupled mediator naming
 createdBy: human
@@ -7,12 +7,12 @@ createdByType: human
 status: in_progress
 priority: urgent
 requiresApproval: false
-subtaskIds:
-  - DOC-20260412-A001
-  - FEAT-20260412-A002
-  - FEAT-20260412-A003
-  - FEAT-20260412-A004
-  - FEAT-20260412-A005
+subPlanIds:
+  - document-the-architecture-transition-and
+  - clarify-service-interfaces-internal-medi
+  - roll-out-stricter-dependency-injection-a
+  - remove-direct-service-to-infrastructure-
+  - plan-explicit-user-triggered-tool-mcp-an
 estimatedHours: 40
 tags:
   - architecture
@@ -25,7 +25,9 @@ metadata:
 createdAt: 2026-04-12T12:00:00.000Z
 updatedAt: 2026-04-12T12:00:00.000Z
 deadline: null
----
+assignedTo: leah-brooks
+
+------
 
 ## Goal
 

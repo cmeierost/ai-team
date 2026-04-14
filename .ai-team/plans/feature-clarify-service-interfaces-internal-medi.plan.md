@@ -1,10 +1,10 @@
 ---
-id: FEAT-20260412-A002
+id: clarify-service-interfaces-internal-medi
 type: feature
 title: Clarify service interfaces, internal mediator, and UI notifier split
 createdBy: human
 createdByType: human
-parentTaskId: FEAT-20260412-A001
+parentPlanId: transition-service-boundaries-away-from-
 status: not_started
 priority: urgent
 requiresApproval: false
@@ -19,7 +19,9 @@ metadata:
 createdAt: 2026-04-12T12:00:00.000Z
 updatedAt: 2026-04-12T12:00:00.000Z
 deadline: null
----
+assignedTo: leah-brooks
+
+------
 
 ## Problem
 
