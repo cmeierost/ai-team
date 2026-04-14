@@ -136,6 +136,9 @@ export interface LlmToolChatResult {
   toolResults: LlmToolResult[];
 }
 
+import type { LlmLogPayload, SerializedError } from './llm-console-log.js';
+import { isLlmConsoleLogEnabled, writeLlmLogToConsole } from './llm-console-log.js';
+
 /**
  * High-level LLM service that reads workspace config and exposes a
  * provider-agnostic chat interface.
@@ -711,15 +714,24 @@ export class LlmService {
    */
   async generateTitle(messages: ChatMessage[]): Promise<string> {
     this.assertReady();
-    const conversationMessages: ChatCompletionMessageParam[] = messages.map((m) => ({
-      role: m.from === 'human' ? ('user' as const) : ('assistant' as const),
-      content: m.content,
-    }));
-    const raw = await this.rawChat(
-      'Generate a short title (5 words or fewer) for this conversation. Reply with only the title text, no quotes, no punctuation at the end.',
-      conversationMessages,
-      { maxTokens: 20, temperature: 0.3 }
-    );
+    const excerpts = messages
+      .map((m) => (m.content ?? '').trim().slice(0, 200))
+      .filter(Boolean)
+      .map((text, i) => `Message ${i + 1}: ${text}`)
+      .join('\n');
+    if (!excerpts) return 'New Conversation';
+    const prompt = `You are a title generator. Your output must be a short noun phrase — 2 to 4 words — that names the specific topic or task the user is working on.
+
+Rules:
+- Use a noun phrase, not a sentence or question (e.g. "Multi-Select Input Design", not "Ask multi select question")
+- Ignore greetings, small talk, and vague openers like "let's get to work"
+- Focus on the most specific thing the user mentions
+- No quotes, no punctuation at the end
+
+${excerpts}`;
+    const raw = await this.rawChat(prompt, [{ role: 'user', content: 'Title:' }], {
+      temperature: 0.3,
+    });
     return raw.replace(/^["'\u201C\u201D]|["'\u201C\u201D]$/g, '').trim();
   }
 
@@ -856,6 +868,10 @@ export class LlmService {
   }
 
   private async writeLlmLog(payload: LlmLogPayload): Promise<void> {
+    if (isLlmConsoleLogEnabled()) {
+      writeLlmLogToConsole(payload);
+    }
+
     try {
       if (!this.logDirReady) {
         await fs.mkdir(this.logDir, { recursive: true });
@@ -1490,21 +1506,6 @@ interface LlmLogBase {
       role: string;
     }[];
   };
-}
-
-interface LlmLogPayload extends LlmLogBase {
-  durationMs?: number;
-  response?: {
-    text?: string;
-    raw?: unknown;
-  };
-  error?: SerializedError;
-}
-
-interface SerializedError {
-  name?: string;
-  message: string;
-  stack?: string;
 }
 
 function safeJsonClone<T>(value: T): T {

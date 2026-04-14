@@ -17,6 +17,7 @@ export function ChatPanel() {
       routeAgentId={controller.routeAgentId}
       currentAgentId={controller.currentAgentId}
       currentSessionId={controller.currentSessionId}
+      sessionTitle={controller.sessionTitle}
       graphSessionId={controller.graphSessionId}
       loading={controller.loading}
       sending={controller.sending}

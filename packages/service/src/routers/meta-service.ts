@@ -51,7 +51,10 @@ export class MetaService implements IContextService {
     private readonly skillManager: SkillManager
   ) {}
 
-  async getContextEstimate(agentId: string, query?: { sessionId?: string }): Promise<unknown> {
+  async getContextEstimate(
+    agentId: string,
+    query?: { sessionId?: string }
+  ): Promise<unknown> {
     const agent = await this.agentManager.getAgentAsync(agentId);
     if (!agent) throw new NotFoundError(`Agent '${agentId}' not found`);
 
@@ -64,13 +67,7 @@ export class MetaService implements IContextService {
       this.skillManager.resolveSkillsForAgent(agent),
     ]);
 
-    const segments = this.buildSystemPromptSegments(
-      agent,
-      agentId,
-      instructionFiles,
-      allAgents,
-      resolvedSkills
-    );
+    const segments = this.buildSystemPromptSegments(agent, agentId, instructionFiles, allAgents, resolvedSkills);
 
     let messages: ContextEstimateMessage[] = [];
     let sessionSkills: ContextEstimateSkill[] = [];
@@ -84,14 +81,7 @@ export class MetaService implements IContextService {
     }
 
     const totalChars = segments.reduce((s, x) => s + x.chars, 0);
-    const response: ContextEstimateResponse = {
-      agentId: agent.id,
-      segments,
-      totalChars,
-      instructionFiles,
-      messages,
-      sessionSkills,
-    };
+    const response: ContextEstimateResponse = { agentId: agent.id, segments, totalChars, instructionFiles, messages, sessionSkills };
     if (sessionId) response.sessionId = sessionId;
     return response;
   }
@@ -107,50 +97,34 @@ export class MetaService implements IContextService {
     const bioChars = (agent as Record<string, unknown>).markdown
       ? String((agent as Record<string, unknown>).markdown).trim().length
       : 0;
-    const skillChars = resolvedSkills.skills.reduce(
-      (sum, s) => sum + (s.instructions?.length ?? 0),
-      0
-    );
+    const skillChars = resolvedSkills.skills.reduce((sum, s) => sum + (s.instructions?.length ?? 0), 0);
     const instructionChars = instructionFiles.reduce((sum, f) => sum + f.chars, 0);
-    const teamChars =
-      allAgents
-        .filter((a) => a.id !== agentId)
-        .map((a) => `- ${a.name} — ${a.role}`)
-        .join('\n').length + 20;
+    const teamChars = allAgents
+      .filter((a) => a.id !== agentId)
+      .map((a) => `- ${a.name} — ${a.role}`)
+      .join('\n').length + 20;
 
     const segments: ContextEstimateSegment[] = [
       { key: 'identity', label: 'Identity & Personality', chars: identityChars },
     ];
     if (bioChars > 0) segments.push({ key: 'bio', label: 'Bio', chars: bioChars });
     if (skillChars > 0) segments.push({ key: 'skills', label: 'Role Skills', chars: skillChars });
-    if (instructionChars > 0)
-      segments.push({
-        key: 'instructions',
-        label: 'Workspace Instructions',
-        chars: instructionChars,
-      });
+    if (instructionChars > 0) segments.push({ key: 'instructions', label: 'Workspace Instructions', chars: instructionChars });
     if (teamChars > 20) segments.push({ key: 'team', label: 'Team Roster', chars: teamChars });
     return segments;
   }
 
   private estimateIdentityChars(agent: Record<string, unknown>): number {
-    const parts = [
-      `You are ${String(agent.name)}, a virtual AI team member.`,
-      `Your role: ${String(agent.role)}`,
-    ];
+    const parts = [`You are ${String(agent.name)}, a virtual AI team member.`, `Your role: ${String(agent.role)}`];
     if (agent.reportsTo) parts.push(`You report to ${JSON.stringify(agent.reportsTo)}.`);
     const p = agent.personality as Record<string, unknown> | undefined;
-    if (p?.communication_style)
-      parts.push(`Communication style: ${JSON.stringify(p.communication_style)}`);
+    if (p?.communication_style) parts.push(`Communication style: ${JSON.stringify(p.communication_style)}`);
     if (p?.expertise_level) parts.push(`Expertise level: ${JSON.stringify(p.expertise_level)}`);
-    const cliBlock =
-      '## CLI Commands Available To The User\nThe developer can run these in-chat commands: chat, list, hire, history, portfolio, graph, overview, run, help, exit.\nHANDOFF: <name-or-role> | <message>.\nStay in character. Be concise and helpful.';
+    const cliBlock = '## CLI Commands Available To The User\nThe developer can run these in-chat commands: chat, list, hire, history, portfolio, graph, overview, run, help, exit.\nHANDOFF: <name-or-role> | <message>.\nStay in character. Be concise and helpful.';
     return parts.join('\n').length + cliBlock.length;
   }
 
-  private async loadInstructionFiles(
-    workspaceRoot: string
-  ): Promise<ContextEstimateInstructionFile[]> {
+  private async loadInstructionFiles(workspaceRoot: string): Promise<ContextEstimateInstructionFile[]> {
     try {
       const files = await loadAllInstructionFiles(workspaceRoot);
       return files
@@ -175,7 +149,7 @@ export class MetaService implements IContextService {
         return {
           role: msg.isHuman ? ('user' as const) : ('assistant' as const),
           preview: msg.content.slice(0, 120),
-          chars: msg.content.length + toolChars,
+          chars: msg.content.length,
           toolCallCount,
           toolChars,
           archived: false,
@@ -187,16 +161,12 @@ export class MetaService implements IContextService {
     return toolCalls.reduce((sum, tc) => {
       const resultContent = tc.resultLlm ?? tc.result;
       if (resultContent === undefined) return sum;
-      const serialized =
-        typeof resultContent === 'string' ? resultContent : JSON.stringify(resultContent);
+      const serialized = typeof resultContent === 'string' ? resultContent : JSON.stringify(resultContent);
       return sum + serialized.length;
     }, 0);
   }
 
-  private async loadSessionSkills(
-    sessionId: string,
-    workspaceRoot: string
-  ): Promise<ContextEstimateSkill[]> {
+  private async loadSessionSkills(sessionId: string, workspaceRoot: string): Promise<ContextEstimateSkill[]> {
     const storedSkills = await this.sessionManager.getSessionSkills(sessionId);
     const results: ContextEstimateSkill[] = [];
     for (const sk of storedSkills) {
@@ -210,13 +180,7 @@ export class MetaService implements IContextService {
       } catch {
         // ignore load failure
       }
-      results.push({
-        name: skillName,
-        skillPath: sk.skillPath,
-        chars,
-        paused: sk.paused,
-        isSessionSkill: true,
-      });
+      results.push({ name: skillName, skillPath: sk.skillPath, chars, paused: sk.paused, isSessionSkill: true });
     }
     return results;
   }
@@ -226,13 +190,12 @@ export class MetaService implements IContextService {
     messages: ContextEstimateMessage[],
     sessionSkills: ContextEstimateSkill[]
   ): void {
-    const activeSkillChars = sessionSkills
-      .filter((s) => !s.paused)
-      .reduce((sum, s) => sum + s.chars, 0);
-    if (activeSkillChars > 0)
-      segments.push({ key: 'session_skills', label: 'Session Skills', chars: activeSkillChars });
-    const msgChars = messages.reduce((sum, m) => sum + m.chars, 0);
-    if (msgChars > 0)
-      segments.push({ key: 'messages', label: 'Session Messages', chars: msgChars });
+    const activeSkillChars = sessionSkills.filter((s) => !s.paused).reduce((sum, s) => sum + s.chars, 0);
+    if (activeSkillChars > 0) segments.push({ key: 'session_skills', label: 'Session Skills', chars: activeSkillChars });
+    const msgTextChars = messages.reduce((sum, m) => sum + m.chars, 0);
+    const toolResultChars = messages.reduce((sum, m) => sum + m.toolChars, 0);
+    if (msgTextChars > 0) segments.push({ key: 'messages', label: 'Chat Messages', chars: msgTextChars });
+    if (toolResultChars > 0) segments.push({ key: 'tool_results', label: 'Tool Results', chars: toolResultChars });
   }
 }
+

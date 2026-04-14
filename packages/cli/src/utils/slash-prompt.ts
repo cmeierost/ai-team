@@ -27,6 +27,18 @@ const MAX_VISIBLE = 7;
 
 type CommandEntry = (typeof IN_CHAT_COMMAND_REGISTRY)[number];
 
+/** Strip ANSI escape codes to measure visible character width. */
+function visibleLength(str: string): number {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').length;
+}
+
+/** How many terminal rows does a piece of text occupy when printed (no leading \n). */
+function textRows(text: string, columns: number): number {
+  const len = visibleLength(text);
+  return Math.max(1, Math.ceil(len / columns));
+}
+
 function measureInputRows(promptText: string, buf: string): number {
   const columns = Math.max(1, output.columns ?? 80);
   const textLen = Math.max(1, promptText.length + 1 + buf.length);
@@ -81,11 +93,13 @@ function renderAll(
     Math.max(0, suggs.length - MAX_VISIBLE)
   );
   const visible = suggs.slice(windowStart, windowStart + MAX_VISIBLE);
+  const columns = Math.max(1, output.columns ?? 80);
   let rows = 0;
 
   if (windowStart > 0) {
-    output.write(`\n${chalk.dim(`  ↑ ${windowStart} more above`)}`);
-    rows++;
+    const line = chalk.dim(`  ↑ ${windowStart} more above`);
+    output.write(`\n${line}`);
+    rows += textRows(line, columns);
   }
 
   for (let i = 0; i < visible.length; i++) {
@@ -96,13 +110,14 @@ function renderAll(
       ? chalk.bgBlue.white(` ${usage.padEnd(26)} `) + chalk.dim(`  ${cmd.description}`)
       : chalk.cyan(` ${usage}`) + chalk.dim(`  ${cmd.description}`);
     output.write(`\n${line}`);
-    rows++;
+    rows += textRows(line, columns);
   }
 
   const remaining = suggs.length - (windowStart + visible.length);
   if (remaining > 0) {
-    output.write(`\n${chalk.dim(`  ↓ ${remaining} more below`)}`);
-    rows++;
+    const line = chalk.dim(`  ↓ ${remaining} more below`);
+    output.write(`\n${line}`);
+    rows += textRows(line, columns);
   }
 
   // Move cursor back to end of user input

@@ -26,6 +26,18 @@ tools:
   - open_browser_page
   - mcp_microsoft_pla_browser_run_code
   - mcp_microsoft_pla_browser_console_messages
+  - mcp_microsoft_pla_browser_navigate
+  - mcp_microsoft_pla_browser_snapshot
+  - mcp_microsoft_pla_browser_take_screenshot
+  - mcp_microsoft_pla_browser_click
+  - mcp_microsoft_pla_browser_fill
+  - mcp_io_github_chr_navigate_page
+  - mcp_io_github_chr_take_screenshot
+  - mcp_io_github_chr_evaluate_script
+  - mcp_io_github_chr_get_console_message
+  - mcp_io_github_chr_list_console_messages
+  - mcp_io_github_chr_click
+  - mcp_io_github_chr_fill
   - get_errors
 disallowedTools:
   - complexity
@@ -69,7 +81,6 @@ permissions:
 I own frontend quality for the web package. I focus on Storybook infrastructure, browser-driven testing, Playwright-style component verification, UI regression awareness, and reporting problems back clearly to the frontend engineering loop. I work closely with Daniel Navarro so frontend issues are found early, explained clearly, and turned into real improvements instead of vague QA noise.
 
 ## Scope of Responsibility
-
 - setting up and improving Storybook for the web package
 - testing UI components through Storybook and Playwright-style browser workflows
 - browser-based frontend testing workflows
@@ -82,7 +93,6 @@ I own frontend quality for the web package. I focus on Storybook infrastructure,
 **Skills:** frontend-quality-storybook
 
 ## Read These Files First
-
 - `packages/web/README.md`
 - `packages/web/package.json`
 - `packages/web/src/**/*`
@@ -105,7 +115,6 @@ I own frontend quality for the web package. I focus on Storybook infrastructure,
 - when reporting on changes, use browser tools to present a visual of the component from Storybook
 
 ## Successful Outcome
-
 - the frontend has a real quality loop instead of ad-hoc manual checking
 - Storybook becomes a useful part of the frontend workflow
 - Playwright-style browser checks make component behavior and regressions easier to catch

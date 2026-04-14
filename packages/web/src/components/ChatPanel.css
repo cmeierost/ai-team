@@ -351,9 +351,7 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    background-color 0.15s,
-    border-color 0.15s;
+  transition: background-color 0.15s, border-color 0.15s;
 }
 
 .confirm-answer-yes {
@@ -363,10 +361,7 @@
 }
 
 .confirm-answer-yes:hover {
-  background-color: var(
-    --color-accent-blue-hover,
-    color-mix(in srgb, var(--color-accent-blue) 85%, black)
-  );
+  background-color: var(--color-accent-blue-hover, color-mix(in srgb, var(--color-accent-blue) 85%, black));
 }
 
 .confirm-answer-no {
@@ -375,10 +370,7 @@
 }
 
 .confirm-answer-no:hover {
-  background-color: var(
-    --color-bg-tertiary,
-    color-mix(in srgb, var(--color-bg-secondary) 80%, black)
-  );
+  background-color: var(--color-bg-tertiary, color-mix(in srgb, var(--color-bg-secondary) 80%, black));
 }
 
 .pending-question-checklist {

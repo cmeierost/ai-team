@@ -273,15 +273,7 @@ function registerBaseServices(
     (c) => new ToolsService(c.resolve(tokens.AgentManager), c.resolve(tokens.ToolManager))
   );
   c.registerSingleton(tokens.ConfigService, () => new ConfigService(cfg.workspaceRoot));
-  c.registerSingleton(
-    tokens.MetaService,
-    (c) =>
-      new MetaService(
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.SessionManager),
-        c.resolve(tokens.SkillManager)
-      )
-  );
+  c.registerSingleton(tokens.MetaService, (c) => new MetaService(c.resolve(tokens.AgentManager), c.resolve(tokens.SessionManager), c.resolve(tokens.SkillManager)));
   c.registerSingleton(tokens.CommandsService, () => new CommandsService());
   c.registerSingleton(tokens.ContextRuntime, () => new ContextRuntime());
   c.registerSingleton(

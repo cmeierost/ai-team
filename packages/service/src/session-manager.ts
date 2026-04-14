@@ -245,10 +245,29 @@ export class SessionManager {
   }
 
   /**
-   * Append a message to a session
+   * Append a message to a session.
+   * If the session has no title yet and the total message count reaches 3 or more
+   * after inserting this message, a title is generated via the provided llmService
+   * and saved to the session. Returns the generated title, or null otherwise.
    */
-  async appendMessage(sessionId: string, message: ChatMessage): Promise<void> {
+  async appendMessage(
+    sessionId: string,
+    message: ChatMessage,
+    llmService?: any
+  ): Promise<string | null> {
     await this.storage.insertMessage(sessionId, message);
+
+    if (!llmService) return null;
+
+    try {
+      const session = await this.storage.getSession(sessionId);
+      if (!session || session.title) return null;
+
+      return await this.generateTitle(sessionId, llmService);
+    } catch (err) {
+      console.error('[SessionManager] Auto-title generation failed:', err);
+      return null;
+    }
   }
 
   /**
@@ -440,14 +459,9 @@ ${summary}
    * @returns Generated title
    */
   async generateTitle(sessionId: string, llmService: any): Promise<string> {
-    const messages = await this.getSessionMessages(sessionId);
-
-    // Get first 2 human and 2 agent messages for context
-    const humanMessages = messages.filter((m) => m.isHuman).slice(0, 2);
-    const agentMessages = messages.filter((m) => !m.isHuman).slice(0, 2);
-    const contextMessages = [...humanMessages, ...agentMessages]
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-      .slice(0, 4);
+    // Use only the first 2 human messages — agent intro messages add noise, not signal.
+    const humanMessages = await this.storage.queryMessages({ sessionId, isHuman: true, limit: 2 });
+    const contextMessages = humanMessages.filter((m) => m.content?.trim());
 
     if (contextMessages.length === 0) {
       return 'New Conversation';

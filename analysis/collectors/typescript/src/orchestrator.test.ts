@@ -87,7 +87,7 @@ function makeAstToolRun() {
   return {
     tool: 'typescript-ast' as const,
     version: '5.0.0',
-    aspect: 'entityExtraction',
+    aspect: 'entityExtraction' as const,
     exitCode: 0,
     duration: 50,
     warnings: [],

@@ -18,23 +18,7 @@ interface PendingQuestionFormProps {
   onSubmit: (event: { preventDefault(): void }) => void;
 }
 
-export function PendingQuestionForm({
-  pendingQuestion,
-  pendingInputAnswer,
-  pendingPasswordAnswer,
-  pendingConfirmAnswer,
-  pendingSelectAnswer,
-  pendingChecklistAnswer,
-  pendingFormAnswer,
-  onPendingInputAnswerChange,
-  onPendingPasswordAnswerChange,
-  onPendingConfirmAnswerChange,
-  onPendingSelectAnswerChange,
-  onTogglePendingChecklistValue,
-  onPendingFormFieldChange,
-  onConfirmDirectAnswer,
-  onSubmit,
-}: Readonly<PendingQuestionFormProps>) {
+export function PendingQuestionForm({ pendingQuestion, pendingInputAnswer, pendingPasswordAnswer, pendingConfirmAnswer, pendingSelectAnswer, pendingChecklistAnswer, pendingFormAnswer, onPendingInputAnswerChange, onPendingPasswordAnswerChange, onPendingConfirmAnswerChange, onPendingSelectAnswerChange, onTogglePendingChecklistValue, onPendingFormFieldChange, onConfirmDirectAnswer, onSubmit }: Readonly<PendingQuestionFormProps>) {
   return (
     <form className="chat-input-container pending-question-form" onSubmit={onSubmit}>
       <div className="pending-question-title">{pendingQuestion.message}</div>
@@ -96,8 +80,7 @@ export function PendingQuestionForm({
           </select>
           {pendingQuestion.allowOther ? (
             <small className="pending-question-hint">
-              You can choose “{pendingQuestion.otherLabel || 'Other (type your own)'}” for free
-              text.
+              You can choose “{pendingQuestion.otherLabel || 'Other (type your own)'}” for free text.
             </small>
           ) : null}
         </>
@@ -111,9 +94,7 @@ export function PendingQuestionForm({
                 <input
                   type="checkbox"
                   checked={pendingChecklistAnswer.includes(choice.value)}
-                  onChange={(event) =>
-                    onTogglePendingChecklistValue(choice.value, event.target.checked)
-                  }
+                  onChange={(event) => onTogglePendingChecklistValue(choice.value, event.target.checked)}
                 />
                 {choice.name}
               </label>
@@ -121,8 +102,7 @@ export function PendingQuestionForm({
           </div>
           {pendingQuestion.allowOther ? (
             <small className="pending-question-hint">
-              Multi-select enabled. Choose “{pendingQuestion.otherLabel || 'Other (type your own)'}”
-              to add custom text.
+              Multi-select enabled. Choose “{pendingQuestion.otherLabel || 'Other (type your own)'}” to add custom text.
             </small>
           ) : null}
         </>
@@ -164,10 +144,7 @@ export function PendingQuestionForm({
 
       <div className="chat-input-actions">
         {pendingQuestion.kind === 'confirm' ? null : (
-          <button
-            type="submit"
-            className="chat-action-button chat-send-button pending-question-submit"
-          >
+          <button type="submit" className="chat-action-button chat-send-button pending-question-submit">
             Send answers
           </button>
         )}

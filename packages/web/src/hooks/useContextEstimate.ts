@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTeam } from '../context/TeamContext';
+import { contextPanelQueryKeys } from './contextPanelQueryKeys';
 
 export interface ContextSegment {
   label: string;
@@ -43,12 +44,9 @@ export interface ContextEstimateResponse {
 export function useContextEstimate(agentId: string | undefined, sessionId?: string) {
   const { client } = useTeam();
   return useQuery<ContextEstimateResponse>({
-    queryKey: ['meta', 'context-estimate', agentId, sessionId],
+    queryKey: contextPanelQueryKeys.contextEstimate(agentId!, sessionId),
     queryFn: () =>
-      client.context.getContextEstimate(
-        agentId!,
-        sessionId ? { sessionId } : undefined
-      ) as Promise<ContextEstimateResponse>,
+      client.context.getContextEstimate(agentId!, sessionId ? { sessionId } : undefined) as Promise<ContextEstimateResponse>,
     enabled: !!agentId,
     staleTime: 15_000,
   });

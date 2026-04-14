@@ -146,24 +146,18 @@ export async function dispatchToolCall(
 
   emitToolEvent(ctx.hooks, toolName, 'start', 'Executing');
 
-  const execResult = await ctx.toolManager.execute(
-    ctx.agent,
-    toolName,
-    args,
-    {
-      agentId: ctx.agent.id,
-      workspaceRoot: ctx.workspaceRoot,
-      currentFiles: contextFiles,
-      questionInput: ctx.hooks.questionInput,
-      questionConfirm: ctx.hooks.questionConfirm,
-      questionSelect: ctx.hooks.questionSelect,
-      questionPassword: ctx.hooks.questionPassword,
-      questionChecklist: ctx.hooks.questionChecklist,
-    },
-    {
-      timeoutMs: toolName === 'com_ask' ? INTERACTIVE_ASK_TIMEOUT_MS : undefined,
-    }
-  );
+  const execResult = await ctx.toolManager.execute(ctx.agent, toolName, args, {
+    agentId: ctx.agent.id,
+    workspaceRoot: ctx.workspaceRoot,
+    currentFiles: contextFiles,
+    questionInput: ctx.hooks.questionInput,
+    questionConfirm: ctx.hooks.questionConfirm,
+    questionSelect: ctx.hooks.questionSelect,
+    questionPassword: ctx.hooks.questionPassword,
+    questionChecklist: ctx.hooks.questionChecklist,
+  }, {
+    timeoutMs: toolName === 'com_ask' ? INTERACTIVE_ASK_TIMEOUT_MS : undefined,
+  });
 
   // ── Strip _fileChanges early — before serialisation, history, and events ──
   const fileChanges = execResult.ok ? extractFileChanges(execResult.result) : [];

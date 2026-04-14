@@ -16,6 +16,35 @@
       ]
     },
     {
+      "label": "dev:web",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["--filter", "@ai-team/web", "dev"],
+      "isBackground": true,
+      "presentation": {
+        "label": "web dev",
+        "group": "dev",
+        "reveal": "silent",
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": {
+          "regexp": "^",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "Local:\\s+http://localhost"
+        }
+      }
+    },
+    {
       "label": "Log: Tail backend",
       "type": "shell",
       "command": "node",

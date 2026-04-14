@@ -55,6 +55,7 @@ interface UseChatPanelControllerResult {
   routeAgentId?: string;
   currentAgentId: string;
   currentSessionId: string | null;
+  sessionTitle: string | null;
   graphSessionId: string | null;
   loading: boolean;
   sending: boolean;
@@ -153,6 +154,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [artifactsInContext, setArtifactsInContext] = useState<string[]>([]);
   const [allowedTools, setAllowedTools] = useState<string[]>([]);
   const [activatedTools, setActivatedTools] = useState<SessionActivatedTool[]>([]);
@@ -255,6 +257,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const resetSessionState = (targetAgentId: string) => {
     setCurrentSessionId(null);
+    setSessionTitle(null);
     setArtifactsInContext([]);
     setActivatedTools([]);
     setCurrentAgentId(targetAgentId);
@@ -262,6 +265,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const applyLoadedSession = (targetAgentId: string, sessionWithMessages: any) => {
     setCurrentSessionId(sessionWithMessages.id);
+    setSessionTitle(sessionWithMessages.title ?? null);
     setMessages(sessionWithMessages.messages || []);
     setArtifactsInContext(sessionWithMessages.artifacts || []);
     setActivatedTools(extractSessionActivatedTools(sessionWithMessages.notes));
@@ -377,6 +381,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       getSessionPrimaryAgentId(sessionWithMessages, fallbackAgentId),
       sessionWithMessages
     );
+    await queryClient.invalidateQueries({
+      queryKey: contextPanelQueryKeys.contextEstimate(fallbackAgentId, sessionId),
+    });
     return sessionWithMessages;
   };
 
@@ -934,6 +941,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       if (event.kind === 'session_title_updated') {
+        setSessionTitle(event.title);
         await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
         continue;
       }
@@ -1138,6 +1146,18 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         slashDismiss();
         return;
       }
+    }
+    if (event.key === 'Enter' && event.ctrlKey) {
+      event.preventDefault();
+      const ta = event.currentTarget as HTMLTextAreaElement;
+      const start = ta.selectionStart ?? 0;
+      const end = ta.selectionEnd ?? start;
+      const pos = start + 1;
+      setInput(input.substring(0, start) + '\n' + input.substring(end));
+      requestAnimationFrame(() => {
+        ta.setSelectionRange(pos, pos);
+      });
+      return;
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -1520,6 +1540,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     routeAgentId: agentId,
     currentAgentId,
     currentSessionId,
+    sessionTitle,
     graphSessionId,
     loading,
     sending,

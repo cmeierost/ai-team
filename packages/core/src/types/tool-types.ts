@@ -9,11 +9,7 @@ export interface ToolContext {
   workspaceRoot: string;
   /** Optional user-question bridges provided by the active runtime surface (web/CLI). */
   questionInput?: (request: { message: string }) => Promise<string>;
-  questionConfirm?: (request: {
-    message: string;
-    default?: boolean;
-    style?: 'confirm' | 'allow';
-  }) => Promise<boolean>;
+  questionConfirm?: (request: { message: string; default?: boolean; style?: 'confirm' | 'allow' }) => Promise<boolean>;
   questionSelect?: (request: {
     message: string;
     choices: Array<{ name: string; value: string; description?: string; recommended?: boolean }>;

@@ -251,21 +251,19 @@ export async function sendTurn(
     content: persistedContent,
     isHuman: false,
   };
-  await sessionManager.appendMessage(sessionId, agentMsg);
+  // Pass llmService only once there are ≥ 2 human messages in history (userMsg already pushed).
+  const humanCount = ctx.history.filter((m) => m.isHuman).length;
+  const llmServiceForTitle = humanCount >= 2 ? ctx.llmService : undefined;
+  if (llmServiceForTitle) emitStatus(hooks, 'title', 'Generating title...');
+  const generatedTitle = await sessionManager.appendMessage(
+    sessionId,
+    agentMsg,
+    llmServiceForTitle
+  );
   ctx.history.push(agentMsg);
 
-  // Auto-generate session title when the session has no title and there are more than 2 messages.
-  // Awaited so the event is emitted while the stream is still live and reaches the client.
-  if (ctx.history.length > 2) {
-    try {
-      const session = await sessionManager.getSession(sessionId);
-      if (session && !session.title) {
-        const title = await sessionManager.generateTitle(sessionId, ctx.llmService);
-        hooks?.emit?.({ kind: 'session_title_updated', sessionId, title });
-      }
-    } catch {
-      // Non-critical; ignore errors during auto-title generation.
-    }
+  if (generatedTitle) {
+    hooks?.emit?.({ kind: 'session_title_updated', sessionId, title: generatedTitle });
   }
 
   await runVoidHook(

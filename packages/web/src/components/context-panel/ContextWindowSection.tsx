@@ -20,7 +20,15 @@ interface DonutEntry {
   label: string;
 }
 
-const SEGMENT_COLORS = ['#4e9ff5', '#43c59e', '#f0a443', '#e06c75', '#c678dd', '#56b6c2'] as const;
+const SEGMENT_COLORS = [
+  '#4e9ff5',
+  '#43c59e',
+  '#f0a443',
+  '#e06c75',
+  '#c678dd',
+  '#56b6c2',
+  '#e5c07b',
+] as const;
 const FREE_COLOR = '#525866';
 
 const CX = 40;
@@ -96,10 +104,13 @@ export function ContextWindowSection({
   const freeTokens = Math.max(contextWindow - totalTokens, 0);
 
   let usageClass = 'ctx-window-fill--ok';
-  if (usePct >= 80) {
+  let pctClass = 'ctx-pct--ok';
+  if (usePct >= 90) {
     usageClass = 'ctx-window-fill--high';
+    pctClass = 'ctx-pct--high';
   } else if (usePct >= 50) {
     usageClass = 'ctx-window-fill--warn';
+    pctClass = 'ctx-pct--warn';
   }
 
   const segments = (estimate?.segments ?? []).map((seg, i) => ({
@@ -129,6 +140,7 @@ export function ContextWindowSection({
   ];
 
   const ctxLabel = `${(contextWindow / 1000).toFixed(0)}k`;
+  const usedLabel = totalTokens > 0 ? `${(totalTokens / 1000).toFixed(1)}k` : null;
 
   function renderContent() {
     if (!estimate || estimate.totalChars === 0) {
@@ -220,7 +232,7 @@ export function ContextWindowSection({
         {estimate.messages && estimate.messages.length > 0 && (
           <div className="ctx-detail-section">
             <div className="ctx-detail-header">
-              <i className="codicon codicon-comment-discussion" /> Messages → LLM (
+              <i className="codicon codicon-comment-discussion" /> Chat Messages → LLM (
               {estimate.messages.length})
             </div>
             {estimate.messages.map((msg, i) => (
@@ -238,9 +250,12 @@ export function ContextWindowSection({
                 {msg.toolCallCount > 0 && (
                   <span
                     className="ctx-msg-tools"
-                    title={`${msg.toolCallCount} tool call(s), ${Math.round(msg.toolChars / 4)} tokens`}
+                    title={`${msg.toolCallCount} tool call(s) — ${Math.round(msg.toolChars / 4).toLocaleString()} tokens`}
                   >
-                    🔧{msg.toolCallCount}
+                    🔧{msg.toolCallCount}{' '}
+                    <span className="ctx-detail-tokens">
+                      +{Math.round(msg.toolChars / 4).toLocaleString()}
+                    </span>
                   </span>
                 )}
               </div>
@@ -261,7 +276,15 @@ export function ContextWindowSection({
           <i className="codicon codicon-dashboard" /> Context Window
         </span>
       }
-      count={ctxLabel}
+      count={
+        usedLabel ? (
+          <span className="ctx-window-count">
+            {usedLabel} / {ctxLabel} <span className={pctClass}>({usePct}%)</span>
+          </span>
+        ) : (
+          ctxLabel
+        )
+      }
     >
       {isLoading ? (
         <div className="ctx-loading ctx-panel-pad">

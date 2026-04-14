@@ -159,6 +159,7 @@ interface ChatPanelViewProps {
   routeAgentId?: string | null;
   currentAgentId: string;
   currentSessionId: string | null;
+  sessionTitle: string | null;
   graphSessionId: string | null;
   loading: boolean;
   sending: boolean;
@@ -247,6 +248,7 @@ export function ChatPanelView({
   routeAgentId,
   currentAgentId,
   currentSessionId,
+  sessionTitle,
   graphSessionId,
   loading,
   sending,
@@ -408,6 +410,7 @@ export function ChatPanelView({
             <Avatar agent={agent} size="medium" />
             <div className="chat-header-info">
               <h2>Chat with {agent.name}</h2>
+              {sessionTitle ? <p className="chat-session-title">{sessionTitle}</p> : null}
               <p className="agent-role">{agent.role}</p>
               <ChatHeaderModelInfo agent={agent} />
             </div>

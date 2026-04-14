@@ -31,6 +31,44 @@
       ]
     },
     {
+      "name": "Server: Debug (dev)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/packages/api-server",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "dev:debug"
+      ],
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "env": {
+        "AI_TEAM_CONSOLE_LOG": "1",
+        "AI_TEAM_BACKEND_FILE_LOG": "0"
+      }
+    },
+    {
+      "name": "Server: Attach",
+      "type": "node",
+      "request": "attach",
+      "port": 9230,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Web: Debug (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "preLaunchTask": "dev:web",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/packages/web/src",
+      "sourceMapPathOverrides": {
+        "/src/*": "${workspaceFolder}/packages/web/src/*"
+      }
+    },
+    {
       "name": "CLI: CPU Profile (dist)",
       "type": "node",
       "request": "launch",
@@ -49,6 +87,16 @@
       "skipFiles": [
         "<node_internals>/**"
       ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack: Debug",
+      "configurations": [
+        "Server: Debug (dev)",
+        "Web: Debug (Chrome)"
+      ],
+      "stopAll": true
     }
   ]
 }

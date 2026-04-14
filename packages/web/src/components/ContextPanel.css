@@ -956,6 +956,24 @@ body.context-panel-resizing {
   border-radius: 3px;
 }
 
+.ctx-window-count {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: #888;
+}
+
+.ctx-pct--ok {
+  color: #43c59e;
+}
+.ctx-pct--warn {
+  color: #f0a443;
+}
+.ctx-pct--high {
+  color: #e06c75;
+}
+
 /* ── Context detail sections (instructions / skills / messages) ─── */
 
 .ctx-detail-section {
