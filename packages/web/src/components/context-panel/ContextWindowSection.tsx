@@ -137,100 +137,116 @@ export function ContextWindowSection({
     return (
       <div className="ctx-panel-pad">
         <div className="ctx-content ctx-content--compact">
-            <div className="ctx-chart-wrap ctx-chart-wrap--sm">
-              <DonutChart entries={donutEntries} />
-              <div className="ctx-center-label">
-                <span className="ctx-center-tokens">{totalTokens.toLocaleString()}</span>
-                <span className="ctx-center-sublabel">tokens</span>
-              </div>
+          <div className="ctx-chart-wrap ctx-chart-wrap--sm">
+            <DonutChart entries={donutEntries} />
+            <div className="ctx-center-label">
+              <span className="ctx-center-tokens">{totalTokens.toLocaleString()}</span>
+              <span className="ctx-center-sublabel">tokens</span>
             </div>
-            <div className="ctx-legend ctx-legend--compact">
-              {segments.map((seg) => (
-                <div
-                  key={seg.key}
-                  className="ctx-legend-row"
-                  title={`${seg.label}: ${seg.tokens.toLocaleString()} tokens`}
-                >
-                  <span className={`ctx-swatch ${seg.swatchClass}`} />
-                  <span className="ctx-seg-name">{seg.label}</span>
-                  <span className="ctx-seg-tokens">{seg.tokens.toLocaleString()}</span>
-                  <span className="ctx-seg-pct">{Math.round(seg.fractionOfWindow * 100)}%</span>
-                </div>
-              ))}
+          </div>
+          <div className="ctx-legend ctx-legend--compact">
+            {segments.map((seg) => (
               <div
+                key={seg.key}
                 className="ctx-legend-row"
-                title={`Free: ${freeTokens.toLocaleString()} tokens`}
+                title={`${seg.label}: ${seg.tokens.toLocaleString()} tokens`}
               >
-                <span className="ctx-swatch ctx-swatch--free" />
-                <span className="ctx-seg-name">Free</span>
-                <span className="ctx-seg-tokens">{freeTokens.toLocaleString()}</span>
-                <span className="ctx-seg-pct">{Math.max(0, 100 - usePct)}%</span>
+                <span className={`ctx-swatch ${seg.swatchClass}`} />
+                <span className="ctx-seg-name">{seg.label}</span>
+                <span className="ctx-seg-tokens">{seg.tokens.toLocaleString()}</span>
+                <span className="ctx-seg-pct">{Math.round(seg.fractionOfWindow * 100)}%</span>
               </div>
+            ))}
+            <div className="ctx-legend-row" title={`Free: ${freeTokens.toLocaleString()} tokens`}>
+              <span className="ctx-swatch ctx-swatch--free" />
+              <span className="ctx-seg-name">Free</span>
+              <span className="ctx-seg-tokens">{freeTokens.toLocaleString()}</span>
+              <span className="ctx-seg-pct">{Math.max(0, 100 - usePct)}%</span>
             </div>
           </div>
-          <div className="ctx-window-bar">
-            <div className="ctx-window-bar-header">
-              <span>{sessionId ? 'Session context usage' : 'Initial context usage'}</span>
-              <span>
-                {usePct}% of {(contextWindow / 1000).toFixed(0)}k
-              </span>
-            </div>
-            <progress className={`ctx-window-progress ${usageClass}`} max={100} value={usePct} />
+        </div>
+        <div className="ctx-window-bar">
+          <div className="ctx-window-bar-header">
+            <span>{sessionId ? 'Session context usage' : 'Initial context usage'}</span>
+            <span>
+              {usePct}% of {(contextWindow / 1000).toFixed(0)}k
+            </span>
           </div>
+          <progress className={`ctx-window-progress ${usageClass}`} max={100} value={usePct} />
+        </div>
 
-          {/* Workspace instruction files */}
-          {estimate.instructionFiles && estimate.instructionFiles.length > 0 && (
-            <div className="ctx-detail-section">
-              <div className="ctx-detail-header">
-                <i className="codicon codicon-file-code" /> Workspace Instructions
-              </div>
-              {estimate.instructionFiles.map((f) => (
-                <div key={f.path} className="ctx-detail-row" title={f.path}>
-                  <span className="ctx-detail-name">{f.label}</span>
-                  <span className="ctx-detail-tokens">{Math.round(f.chars / 4).toLocaleString()}</span>
-                </div>
-              ))}
+        {/* Workspace instruction files */}
+        {estimate.instructionFiles && estimate.instructionFiles.length > 0 && (
+          <div className="ctx-detail-section">
+            <div className="ctx-detail-header">
+              <i className="codicon codicon-file-code" /> Workspace Instructions
             </div>
-          )}
-
-          {/* Session skills loaded */}
-          {estimate.sessionSkills && estimate.sessionSkills.length > 0 && (
-            <div className="ctx-detail-section">
-              <div className="ctx-detail-header">
-                <i className="codicon codicon-symbol-misc" /> Session Skills
+            {estimate.instructionFiles.map((f) => (
+              <div key={f.path} className="ctx-detail-row" title={f.path}>
+                <span className="ctx-detail-name">{f.label}</span>
+                <span className="ctx-detail-tokens">
+                  {Math.round(f.chars / 4).toLocaleString()}
+                </span>
               </div>
-              {estimate.sessionSkills.map((s) => (
-                <div key={s.skillPath} className={`ctx-detail-row${s.paused ? ' ctx-detail-row--muted' : ''}`} title={s.skillPath}>
-                  <span className="ctx-detail-name">
-                    {s.name}
-                    {s.paused && <span className="ctx-detail-badge">paused</span>}
+            ))}
+          </div>
+        )}
+
+        {/* Session skills loaded */}
+        {estimate.sessionSkills && estimate.sessionSkills.length > 0 && (
+          <div className="ctx-detail-section">
+            <div className="ctx-detail-header">
+              <i className="codicon codicon-symbol-misc" /> Session Skills
+            </div>
+            {estimate.sessionSkills.map((s) => (
+              <div
+                key={s.skillPath}
+                className={`ctx-detail-row${s.paused ? ' ctx-detail-row--muted' : ''}`}
+                title={s.skillPath}
+              >
+                <span className="ctx-detail-name">
+                  {s.name}
+                  {s.paused && <span className="ctx-detail-badge">paused</span>}
+                </span>
+                <span className="ctx-detail-tokens">
+                  {Math.round(s.chars / 4).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Session messages going to LLM */}
+        {estimate.messages && estimate.messages.length > 0 && (
+          <div className="ctx-detail-section">
+            <div className="ctx-detail-header">
+              <i className="codicon codicon-comment-discussion" /> Messages → LLM (
+              {estimate.messages.length})
+            </div>
+            {estimate.messages.map((msg, i) => (
+              <div key={`msg-${i}-${msg.role}`} className="ctx-msg-row" title={msg.preview}>
+                <span className={`ctx-msg-role ctx-msg-role--${msg.role}`}>
+                  {msg.role === 'user' ? 'U' : 'A'}
+                </span>
+                <span className="ctx-msg-preview">
+                  {msg.preview}
+                  {msg.preview.length >= 120 ? '…' : ''}
+                </span>
+                <span className="ctx-detail-tokens">
+                  {Math.round(msg.chars / 4).toLocaleString()}
+                </span>
+                {msg.toolCallCount > 0 && (
+                  <span
+                    className="ctx-msg-tools"
+                    title={`${msg.toolCallCount} tool call(s), ${Math.round(msg.toolChars / 4)} tokens`}
+                  >
+                    🔧{msg.toolCallCount}
                   </span>
-                  <span className="ctx-detail-tokens">{Math.round(s.chars / 4).toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Session messages going to LLM */}
-          {estimate.messages && estimate.messages.length > 0 && (
-            <div className="ctx-detail-section">
-              <div className="ctx-detail-header">
-                <i className="codicon codicon-comment-discussion" /> Messages → LLM ({estimate.messages.length})
+                )}
               </div>
-              {estimate.messages.map((msg, i) => (
-                <div key={`msg-${i}-${msg.role}`} className="ctx-msg-row" title={msg.preview}>
-                  <span className={`ctx-msg-role ctx-msg-role--${msg.role}`}>{msg.role === 'user' ? 'U' : 'A'}</span>
-                  <span className="ctx-msg-preview">{msg.preview}{msg.preview.length >= 120 ? '…' : ''}</span>
-                  <span className="ctx-detail-tokens">{Math.round(msg.chars / 4).toLocaleString()}</span>
-                  {msg.toolCallCount > 0 && (
-                    <span className="ctx-msg-tools" title={`${msg.toolCallCount} tool call(s), ${Math.round(msg.toolChars / 4)} tokens`}>
-                      🔧{msg.toolCallCount}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -240,14 +256,20 @@ export function ContextWindowSection({
       section="context-window"
       expandedSection={expandedSection}
       onToggleSection={onToggleSection}
-      title={<span><i className="codicon codicon-dashboard" /> Context Window</span>}
+      title={
+        <span>
+          <i className="codicon codicon-dashboard" /> Context Window
+        </span>
+      }
       count={ctxLabel}
     >
       {isLoading ? (
         <div className="ctx-loading ctx-panel-pad">
           <i className="codicon codicon-loading codicon-modifier-spin" /> Estimating…
         </div>
-      ) : renderContent()}
+      ) : (
+        renderContent()
+      )}
     </ContextPanelSectionFrame>
   );
 }

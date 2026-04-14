@@ -45,7 +45,10 @@ export function useContextEstimate(agentId: string | undefined, sessionId?: stri
   return useQuery<ContextEstimateResponse>({
     queryKey: ['meta', 'context-estimate', agentId, sessionId],
     queryFn: () =>
-      client.context.getContextEstimate(agentId!, sessionId ? { sessionId } : undefined) as Promise<ContextEstimateResponse>,
+      client.context.getContextEstimate(
+        agentId!,
+        sessionId ? { sessionId } : undefined
+      ) as Promise<ContextEstimateResponse>,
     enabled: !!agentId,
     staleTime: 15_000,
   });

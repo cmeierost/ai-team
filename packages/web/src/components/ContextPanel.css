@@ -43,7 +43,9 @@
   height: 72px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .context-panel-shell:hover .context-panel-resize-handle::before,
@@ -151,9 +153,15 @@ body.context-panel-resizing {
   align-items: center;
 }
 
-.files-section-count-list  { color: #f7c26d; }
-.files-section-count-read  { color: #4fc3f7; }
-.files-section-count-write { color: #81c784; }
+.files-section-count-list {
+  color: #f7c26d;
+}
+.files-section-count-read {
+  color: #4fc3f7;
+}
+.files-section-count-write {
+  color: #81c784;
+}
 
 .context-section-action {
   display: flex;
@@ -337,7 +345,9 @@ body.context-panel-resizing {
   border: none;
   cursor: pointer;
   font-size: 16px;
-  transition: opacity 0.2s, background-color 0.2s;
+  transition:
+    opacity 0.2s,
+    background-color 0.2s;
   border-radius: 4px;
   flex-shrink: 0;
   display: flex;
@@ -847,13 +857,27 @@ body.context-panel-resizing {
   border-radius: 2px;
 }
 
-.ctx-swatch--c0 { background: #4e9ff5; }
-.ctx-swatch--c1 { background: #43c59e; }
-.ctx-swatch--c2 { background: #f0a443; }
-.ctx-swatch--c3 { background: #e06c75; }
-.ctx-swatch--c4 { background: #c678dd; }
-.ctx-swatch--c5 { background: #56b6c2; }
-.ctx-swatch--free { background: #525866; }
+.ctx-swatch--c0 {
+  background: #4e9ff5;
+}
+.ctx-swatch--c1 {
+  background: #43c59e;
+}
+.ctx-swatch--c2 {
+  background: #f0a443;
+}
+.ctx-swatch--c3 {
+  background: #e06c75;
+}
+.ctx-swatch--c4 {
+  background: #c678dd;
+}
+.ctx-swatch--c5 {
+  background: #56b6c2;
+}
+.ctx-swatch--free {
+  background: #525866;
+}
 
 .ctx-seg-name {
   flex: 1;
@@ -919,9 +943,18 @@ body.context-panel-resizing {
   border-radius: 3px;
 }
 
-.ctx-window-fill--ok::-moz-progress-bar { background: #43c59e; border-radius: 3px; }
-.ctx-window-fill--warn::-moz-progress-bar { background: #f0a443; border-radius: 3px; }
-.ctx-window-fill--high::-moz-progress-bar { background: #e06c75; border-radius: 3px; }
+.ctx-window-fill--ok::-moz-progress-bar {
+  background: #43c59e;
+  border-radius: 3px;
+}
+.ctx-window-fill--warn::-moz-progress-bar {
+  background: #f0a443;
+  border-radius: 3px;
+}
+.ctx-window-fill--high::-moz-progress-bar {
+  background: #e06c75;
+  border-radius: 3px;
+}
 
 /* ── Context detail sections (instructions / skills / messages) ─── */
 

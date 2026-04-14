@@ -12,12 +12,27 @@ interface SectionFrameProps {
   children: ReactNode;
 }
 
-export function ContextPanelSectionFrame({ section, expandedSection, title, count, action, keepMounted, onToggleSection, children }: Readonly<SectionFrameProps>) {
+export function ContextPanelSectionFrame({
+  section,
+  expandedSection,
+  title,
+  count,
+  action,
+  keepMounted,
+  onToggleSection,
+  children,
+}: Readonly<SectionFrameProps>) {
   const isExpanded = expandedSection === section;
 
   let content: ReactNode;
   if (keepMounted) {
-    content = <div className={`context-section-content${isExpanded ? '' : ' context-section-content-hidden'}`}>{children}</div>;
+    content = (
+      <div
+        className={`context-section-content${isExpanded ? '' : ' context-section-content-hidden'}`}
+      >
+        {children}
+      </div>
+    );
   } else if (isExpanded) {
     content = <div className="context-section-content">{children}</div>;
   } else {

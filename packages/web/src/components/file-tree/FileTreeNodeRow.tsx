@@ -30,7 +30,19 @@ async function openFileInIde(client: ReturnType<typeof useTeam>['client'], relat
   }
 }
 
-function FileTreeRowAction({ node, isDirectory, editMode, open, onToggleOpen }: Readonly<{ node: TreeNode; isDirectory: boolean; editMode: boolean; open: boolean; onToggleOpen: () => void }>) {
+function FileTreeRowAction({
+  node,
+  isDirectory,
+  editMode,
+  open,
+  onToggleOpen,
+}: Readonly<{
+  node: TreeNode;
+  isDirectory: boolean;
+  editMode: boolean;
+  open: boolean;
+  onToggleOpen: () => void;
+}>) {
   const { client } = useTeam();
   if (isDirectory) {
     return (
@@ -60,10 +72,18 @@ function FileTreeRowAction({ node, isDirectory, editMode, open, onToggleOpen }: 
   );
 }
 
-function FileTreeRowName({ node, isDirectory, editMode }: Readonly<{ node: TreeNode; isDirectory: boolean; editMode: boolean }>) {
+function FileTreeRowName({
+  node,
+  isDirectory,
+  editMode,
+}: Readonly<{ node: TreeNode; isDirectory: boolean; editMode: boolean }>) {
   const { client } = useTeam();
   if (isDirectory || editMode) {
-    return <span className="ft-name" title={node.path}>{node.name}</span>;
+    return (
+      <span className="ft-name" title={node.path}>
+        {node.name}
+      </span>
+    );
   }
 
   return (
@@ -77,13 +97,33 @@ function FileTreeRowName({ node, isDirectory, editMode }: Readonly<{ node: TreeN
   );
 }
 
-function FilePermissions({ path, editMode, isPending, readable, listable, writable, onToggle }: Readonly<FilePermissionsProps>) {
+function FilePermissions({
+  path,
+  editMode,
+  isPending,
+  readable,
+  listable,
+  writable,
+  onToggle,
+}: Readonly<FilePermissionsProps>) {
   if (!editMode) {
     return (
       <div className="ft-perms">
-        {listable ? <span className="ft-badge ft-badge-list" title="Listable">L</span> : null}
-        {readable ? <span className="ft-badge ft-badge-read" title="Readable">R</span> : null}
-        {writable ? <span className="ft-badge ft-badge-write" title="Writable">W</span> : null}
+        {listable ? (
+          <span className="ft-badge ft-badge-list" title="Listable">
+            L
+          </span>
+        ) : null}
+        {readable ? (
+          <span className="ft-badge ft-badge-read" title="Readable">
+            R
+          </span>
+        ) : null}
+        {writable ? (
+          <span className="ft-badge ft-badge-write" title="Writable">
+            W
+          </span>
+        ) : null}
       </div>
     );
   }
@@ -121,7 +161,14 @@ function FilePermissions({ path, editMode, isPending, readable, listable, writab
   );
 }
 
-export function FileTreeNodeRow({ node, depth, editMode, highlightedPaths, pendingPaths, onToggle }: Readonly<FileTreeNodeRowProps>) {
+export function FileTreeNodeRow({
+  node,
+  depth,
+  editMode,
+  highlightedPaths,
+  pendingPaths,
+  onToggle,
+}: Readonly<FileTreeNodeRowProps>) {
   const [open, setOpen] = useState(depth < 2);
   const file = node.file;
   const isDirectory = node.isDir;

@@ -21,7 +21,12 @@ interface FileTreeProps {
   onCountsChange?: (counts: FileTreeCounts) => void;
 }
 
-export function FileTree({ agentId, editMode, highlightedPaths, onCountsChange }: Readonly<FileTreeProps>) {
+export function FileTree({
+  agentId,
+  editMode,
+  highlightedPaths,
+  onCountsChange,
+}: Readonly<FileTreeProps>) {
   const {
     data,
     loading,
