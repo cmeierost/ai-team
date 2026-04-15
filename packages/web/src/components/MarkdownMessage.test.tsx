@@ -5,7 +5,11 @@ import { MarkdownMessage } from './MarkdownMessage';
 describe('MarkdownMessage TTS highlight marker', () => {
   it('renders only one active marker for repeated words', () => {
     const { container } = render(
-      <MarkdownMessage content="alpha beta alpha gamma alpha" highlightWord="alpha" highlightOccurrence={1} />
+      <MarkdownMessage
+        content="alpha beta alpha gamma alpha"
+        highlightWord="alpha"
+        highlightOccurrence={1}
+      />
     );
 
     const markers = container.querySelectorAll('mark.tts-highlight');
