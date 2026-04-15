@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { detectRequiresUserGestureForSpeech } from '../utils/ttsPolicy';
+import { resolveSpokenWordBoundary } from '../utils/ttsHighlight';
 
 export interface UseSpeechSynthesisResult {
   supported: boolean;
@@ -48,6 +49,11 @@ export function useSpeechSynthesis(): UseSpeechSynthesisResult {
   const [lastError, setLastError] = useState<string | null>(null);
   const speakingRef = useRef(false);
 
+  const resetSpeakingHighlightTracking = useCallback(() => {
+    setSpeakingWord(null);
+    setSpeakingOccurrence(null);
+  }, []);
+
   useEffect(() => {
     if (!supported) return;
 
@@ -71,9 +77,8 @@ export function useSpeechSynthesis(): UseSpeechSynthesisResult {
     speakingRef.current = false;
     setSpeaking(false);
     setPaused(false);
-    setSpeakingWord(null);
-    setSpeakingOccurrence(null);
-  }, [supported]);
+    resetSpeakingHighlightTracking();
+  }, [supported, resetSpeakingHighlightTracking]);
 
   const clearError = useCallback(() => {
     setLastError(null);
@@ -101,6 +106,9 @@ export function useSpeechSynthesis(): UseSpeechSynthesisResult {
       }
       utterance.rate = rate;
       utterance.onstart = () => {
+        // Reset for every utterance so occurrence mapping is always scoped to
+        // the currently spoken chunk and can start from the first token.
+        resetSpeakingHighlightTracking();
         speakingRef.current = true;
         setSpeaking(true);
       };
@@ -110,8 +118,7 @@ export function useSpeechSynthesis(): UseSpeechSynthesisResult {
           speakingRef.current = false;
           setSpeaking(false);
           setPaused(false);
-          setSpeakingWord(null);
-          setSpeakingOccurrence(null);
+          resetSpeakingHighlightTracking();
         }
       };
       utterance.onerror = (e) => {
@@ -124,22 +131,18 @@ export function useSpeechSynthesis(): UseSpeechSynthesisResult {
         speakingRef.current = false;
         setSpeaking(false);
         setPaused(false);
-        setSpeakingWord(null);
-        setSpeakingOccurrence(null);
+        resetSpeakingHighlightTracking();
       };
       utterance.onboundary = (e) => {
-        if (e.name === 'word') {
-          const len = e.charLength ?? utterance.text.slice(e.charIndex).search(/\s|$/);
-          const word = utterance.text.substring(e.charIndex, e.charIndex + (len || 0));
-          if (word) {
-            setSpeakingWord(word);
-            // Count occurrences of this word before charIndex to know which instance we're on
-            const before = utterance.text.substring(0, e.charIndex);
-            const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const matches = before.match(new RegExp(`\\b${escaped}\\b`, 'gi'));
-            setSpeakingOccurrence(matches ? matches.length : 0);
-          }
+        const resolvedBoundary = resolveSpokenWordBoundary(utterance.text, e.charIndex);
+        if (!resolvedBoundary?.word) {
+          // Some boundary events can point at punctuation/whitespace; keep
+          // the previous highlight stable until a resolvable word arrives.
+          return;
         }
+
+        setSpeakingWord(resolvedBoundary.word);
+        setSpeakingOccurrence(resolvedBoundary.occurrence);
       };
       // Note: we do NOT call resume() here unconditionally anymore — pause/resume
       // is now user-controlled. Only resume if paused from a previous bug state.
@@ -154,7 +157,7 @@ export function useSpeechSynthesis(): UseSpeechSynthesisResult {
       );
       window.speechSynthesis.speak(utterance);
     },
-    [supported, paused]
+    [supported, paused, resetSpeakingHighlightTracking]
   );
 
   return {

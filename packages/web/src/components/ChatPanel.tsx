@@ -67,6 +67,8 @@ export function ChatPanel() {
       onToggleArchive={controller.handleToggleArchive}
       onDeleteMessage={controller.handleDeleteMessage}
       onHandoffClick={controller.handleHandoffClick}
+      onOpenFileReference={controller.handleOpenFileReference}
+      onOpenAgentReference={controller.handleOpenAgentReference}
       onPendingInputAnswerChange={controller.setPendingInputAnswer}
       onPendingPasswordAnswerChange={controller.setPendingPasswordAnswer}
       onPendingConfirmAnswerChange={controller.setPendingConfirmAnswer}

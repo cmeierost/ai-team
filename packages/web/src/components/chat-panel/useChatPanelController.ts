@@ -112,13 +112,19 @@ interface UseChatPanelControllerResult {
   handleEditMessage: (index: number) => Promise<void>;
   handleCancelEdit: () => void;
   handleCopyMessage: (content: string) => void;
-  handleSpeakMessage: (content: string, fromAgentId: string) => void;
-  handleStopSpeaking: () => void;
+  handleSpeakMessage: (
+    content: string,
+    fromAgentId: string,
+    options?: { selected?: boolean }
+  ) => void;
+  handleStopSpeaking: (context?: 'message' | 'input') => void;
   handlePauseSpeaking: () => void;
   handleResumeSpeaking: () => void;
   handleToggleArchive: (index: number, currentlyArchived: boolean) => Promise<void>;
   handleDeleteMessage: (index: number) => Promise<void>;
   handleHandoffClick: (targetAgentId: string, existingSessionId?: string | null) => Promise<void>;
+  handleOpenFileReference: (filePath: string) => Promise<void>;
+  handleOpenAgentReference: (agentId: string) => void;
   handleSuggestedToolHandoff: (targetAgentId: string, task?: string) => Promise<void>;
   setPendingInputAnswer: (value: string) => void;
   setPendingPasswordAnswer: (value: string) => void;
@@ -180,7 +186,6 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   });
   const tts = useSpeechSynthesis();
   const ttsSentenceBuffer = useRef('');
-  const suppressAutoTtsForCurrentResponseRef = useRef(false);
   const [ttsRate, setTtsRateState] = useState<number>(() => {
     try {
       const stored = localStorage.getItem('ai-team.ttsRate');
@@ -227,7 +232,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     if (!textarea) {
       return;
     }
-    textarea.style.height = 'auto';
+    textarea.style.height = '1px';
     textarea.style.height = `${textarea.scrollHeight}px`;
   }, []);
 
@@ -251,12 +256,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       };
       setMessages([greetingMessage]);
       setIsEphemeral(true);
-      if (
-        ttsEnabled &&
-        tts.supported &&
-        !suppressAutoTtsForCurrentResponseRef.current &&
-        greetingMessage.content
-      ) {
+      if (ttsEnabled && tts.supported && greetingMessage.content) {
         const greetingAgent = agents.find((a) => a.id === greetingMessage.from);
         const voice = pickVoice(greetingAgent, tts.voices);
         const rate = greetingAgent?.ttsRate ?? ttsRateRef.current;
@@ -671,9 +671,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const handleInterrupt = () => {
     rejectAndClearPendingQuestion(new Error('Question interrupted by user.'));
-    suppressAutoTtsForCurrentResponseRef.current = true;
-    ttsSentenceBuffer.current = '';
-    tts.cancel();
+    handleStopSpeaking('input');
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -887,9 +885,6 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         console.debug('[TTS] flush skipped — enabled:', ttsEnabled, 'supported:', tts.supported);
         return;
       }
-      if (suppressAutoTtsForCurrentResponseRef.current) {
-        return;
-      }
       const buf = ttsSentenceBuffer.current;
       if (!buf) return;
       const rate = rateOverride ?? ttsRateRef.current;
@@ -941,7 +936,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       if (event.kind === 'token') {
         accumulator += event.text;
         updateAssistantMessageContent(accumulator);
-        if (ttsEnabled && !suppressAutoTtsForCurrentResponseRef.current) {
+        if (ttsEnabled) {
           ttsSentenceBuffer.current += event.text;
           flushTtsBuffer(false, getVoice(), getRate());
         }
@@ -961,7 +956,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       if (event.kind === 'tool') {
         const toolEvent: SessionActivatedTool = {
           toolName: event.toolName,
+          toolCallId: event.toolCallId,
           toolPhase: event.toolPhase,
+          toolEventSeq: event.toolEventSeq,
           message: event.message,
           toolResult: event.toolResult,
           toolDenial: event.toolDenial,
@@ -997,7 +994,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     }
 
     // Flush any remaining buffered text after stream ends
-    if (ttsEnabled && !suppressAutoTtsForCurrentResponseRef.current) {
+    if (ttsEnabled) {
       flushTtsBuffer(true, getVoice(), getRate());
     }
 
@@ -1013,7 +1010,6 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     // Cancel any in-flight TTS from the previous response
     tts.cancel();
     ttsSentenceBuffer.current = '';
-    suppressAutoTtsForCurrentResponseRef.current = false;
 
     const messageContent = composedMessage.trim();
     const pendingIntroductionContent = isEphemeral ? messages[0]?.content : undefined;
@@ -1353,23 +1349,36 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const handleSpeakMessage = useCallback(
-    (content: string, fromAgentId: string) => {
+    (content: string, fromAgentId: string, options?: { selected?: boolean }) => {
       if (!tts.supported) return;
       tts.cancel();
       const fromAgent = agents.find((a) => a.id === fromAgentId);
       const voice = pickVoice(fromAgent, tts.voices);
       const rate = fromAgent?.ttsRate ?? ttsRateRef.current;
-      const clean = stripMarkdownForSpeech(content);
-      if (clean) tts.speakChunk(clean, voice, rate);
+      const speechText = options?.selected ? content.trim() : stripMarkdownForSpeech(content);
+      if (speechText) tts.speakChunk(speechText, voice, rate);
     },
     [tts, agents, ttsRateRef]
   );
 
-  const handleStopSpeaking = useCallback(() => {
-    suppressAutoTtsForCurrentResponseRef.current = true;
-    ttsSentenceBuffer.current = '';
-    tts.cancel();
-  }, [tts]);
+  const handleStopSpeaking = useCallback(
+    (context: 'message' | 'input' = 'message') => {
+      ttsSentenceBuffer.current = '';
+      tts.cancel();
+
+      // Input-context stop acts as a persistent streaming auto-read latch.
+      // Message-level read controls must remain independent from this latch.
+      if (context === 'input') {
+        setTtsEnabled(false);
+        try {
+          localStorage.setItem('ai-team.ttsEnabled', 'false');
+        } catch {
+          /* storage unavailable */
+        }
+      }
+    },
+    [tts]
+  );
 
   const handlePauseSpeaking = useCallback(() => {
     tts.pause();
@@ -1544,6 +1553,29 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     }
   };
 
+  const handleOpenFileReference = async (filePath: string) => {
+    const normalized = filePath.trim().replaceAll(/^['"`]|['"`]$/g, '');
+    if (!normalized) {
+      return;
+    }
+    try {
+      await client.ide.openFile({ filePath: normalized });
+    } catch {
+      // IDE bridge may be disconnected; keep interaction safe and silent in chat.
+    }
+  };
+
+  const handleOpenAgentReference = (agentRef: string) => {
+    const normalized = agentRef.trim().replace(/^@/, '').toLowerCase();
+    const target = agents.find(
+      (entry) => entry.id.toLowerCase() === normalized || entry.name.toLowerCase() === normalized
+    );
+    if (!target) {
+      return;
+    }
+    navigate(`/chat/${target.id}`);
+  };
+
   const handleOpenSessionGraph = (sessionId: string) => {
     navigate(`/chat/${currentAgentId}/session/${sessionId}/thread`);
   };
@@ -1673,6 +1705,8 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     handleToggleArchive,
     handleDeleteMessage,
     handleHandoffClick,
+    handleOpenFileReference,
+    handleOpenAgentReference,
     handleSuggestedToolHandoff,
     setPendingInputAnswer,
     setPendingPasswordAnswer,
