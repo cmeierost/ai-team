@@ -216,8 +216,10 @@ interface ChatPanelViewProps {
   onToggleArchive: (index: number, currentlyArchived: boolean) => void;
   onDeleteMessage: (index: number) => void;
   onHandoffClick: (targetAgentId: string, existingSessionId?: string | null) => void;
-  onSpeakMessage: (content: string, fromAgentId: string) => void;
-  onStopSpeaking: () => void;
+  onOpenFileReference: (filePath: string) => void;
+  onOpenAgentReference: (agentId: string) => void;
+  onSpeakMessage: (content: string, fromAgentId: string, options?: { selected?: boolean }) => void;
+  onStopSpeaking: (context?: 'message' | 'input') => void;
   onPauseSpeaking: () => void;
   onResumeSpeaking: () => void;
   onPendingInputAnswerChange: (value: string) => void;
@@ -302,6 +304,8 @@ export function ChatPanelView({
   onToggleArchive,
   onDeleteMessage,
   onHandoffClick,
+  onOpenFileReference,
+  onOpenAgentReference,
   onSpeakMessage,
   onStopSpeaking,
   onPauseSpeaking,
@@ -568,6 +572,8 @@ export function ChatPanelView({
           onToggleArchive={onToggleArchive}
           onDeleteMessage={onDeleteMessage}
           onHandoffClick={onHandoffClick}
+          onOpenFileReference={onOpenFileReference}
+          onOpenAgentReference={onOpenAgentReference}
           onSpeakMessage={onSpeakMessage}
           onStopSpeaking={onStopSpeaking}
           onPauseSpeaking={onPauseSpeaking}
@@ -614,7 +620,9 @@ export function ChatPanelView({
                   ref={textareaRef}
                   className="chat-input-textarea"
                   value={input}
-                  onChange={(event) => onInputChange(event.target.value)}
+                  onChange={(event) => {
+                    onInputChange(event.target.value);
+                  }}
                   onKeyDown={onInputKeyDown}
                   placeholder={`Ask ${agent.name}...`}
                   rows={1}
