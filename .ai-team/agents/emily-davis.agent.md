@@ -17,6 +17,7 @@ personality:
   communication_style: supportive
   expertise_level: executive
   mentoring: true
+ttsVoice: Microsoft Ava Online (Natural) - English (United States)
 description: >-
   HR Director responsible for shaping agents, defining team ownership, and
   maintaining organizational structure. Use when the work needs agent authoring,
@@ -36,7 +37,6 @@ handoffs:
       Research and recommend skills or agent profiles for the need described
       above.
     send: false
-ttsVoice: Zira
 permissions:
   list: []
   read: []

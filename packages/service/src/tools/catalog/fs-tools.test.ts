@@ -256,9 +256,42 @@ describe('remaining fs tool execution', () => {
     expect((created.result as any).created).toBe(true);
     expect(written.ok).toBe(true);
     expect((written.result as any).written).toBe(true);
+    expect((written.result as any)._fileChanges).toHaveLength(1);
+    expect((written.result as any)._fileChanges[0]).toEqual({
+      filePath: path.join(workspaceRoot, 'tmp', 'nested', 'new.txt'),
+      oldContent: 'hello',
+      newContent: 'updated',
+    });
 
     const disk = await fs.readFile(path.join(workspaceRoot, 'tmp', 'nested', 'new.txt'), 'utf8');
     expect(disk).toBe('updated');
+  });
+
+  it('returns _fileChanges with empty oldContent when fs_write_file creates a new file', async () => {
+    const workspaceRoot = await createWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, 'tmp', 'nested'), { recursive: true });
+
+    const a = makeFullFsAgent('a');
+    const manager = await setupManager(workspaceRoot, [a]);
+
+    const written = await manager.execute(
+      a,
+      'fs_write_file',
+      { filePath: 'tmp/nested/brand-new.txt', content: 'new-content' },
+      ctx(a, workspaceRoot)
+    );
+
+    expect(written.ok).toBe(true);
+    expect((written.result as any).written).toBe(true);
+    expect((written.result as any)._fileChanges).toHaveLength(1);
+    expect((written.result as any)._fileChanges[0]).toEqual({
+      filePath: path.join(workspaceRoot, 'tmp', 'nested', 'brand-new.txt'),
+      oldContent: '',
+      newContent: 'new-content',
+    });
+
+    const disk = await fs.readFile(path.join(workspaceRoot, 'tmp', 'nested', 'brand-new.txt'), 'utf8');
+    expect(disk).toBe('new-content');
   });
 
   it('supports fs_list and fs_delete_path', async () => {

@@ -129,6 +129,40 @@ export class AgentsService implements IAgentsService {
     return this.agentManager.updateAgentAsync(existing.id, { markdown: updated });
   }
 
+  async getBio(id: string): Promise<{ bio: string | null }> {
+    const matches = await this.agentManager.resolveAgentAsync(id);
+    if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
+    const sections = parseMarkdownSections((matches[0] as any).markdown || '');
+    const preamble = sections.find((s) => s.heading === '');
+    if (!preamble) return { bio: null };
+    const bio = preamble.content
+      .replace(/^!\[[^\]]*\]\([^)]*\)\n*/m, '')  // strip avatar image line
+      .replace(/^#+[^\n]*\n*/m, '')               // strip h1 heading
+      .trimStart();
+    return { bio: bio || null };
+  }
+
+  async updateBio(id: string, body: { bio: string }): Promise<Agent> {
+    const matches = await this.agentManager.resolveAgentAsync(id);
+    if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
+    if (typeof body.bio !== 'string') throw new BadRequestError('bio is required');
+    const existing = matches[0] as any;
+    const sections = parseMarkdownSections(existing.markdown || '');
+    const preamble = sections.find((s) => s.heading === '');
+    // Preserve any existing avatar line and h1 heading from the current preamble
+    let prefix = '';
+    if (preamble) {
+      const avatarMatch = preamble.content.match(/^!\[[^\]]*\]\([^)]*\)\n*/m);
+      const h1Match = preamble.content.match(/^#+[^\n]*\n*/m);
+      if (avatarMatch) prefix += avatarMatch[0];
+      if (h1Match) prefix += h1Match[0];
+    }
+    if (!prefix) prefix = `# ${(existing as any).name ?? id}\n\n`;
+    const newContent = `${prefix}${body.bio.trim()}`;
+    const updated = replaceOrAppendMarkdownSection(existing.markdown || '', '', newContent);
+    return this.agentManager.updateAgentAsync(existing.id, { markdown: updated });
+  }
+
   async getMarkdown(id: string): Promise<{ markdown: string }> {
     const matches = await this.agentManager.resolveAgentAsync(id);
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);

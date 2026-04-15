@@ -505,6 +505,48 @@ describe('dispatchToolCall denial metadata', () => {
 });
 
 describe('code_edit_proposal emission', () => {
+  it('emits code_edit_proposal for fs_write_file when result includes _fileChanges', async () => {
+    const toolManager = {
+      get: vi.fn(() => undefined),
+      execute: vi.fn(async () => ({
+        ok: true,
+        result: {
+          path: 'src/new-file.ts',
+          written: true,
+          _fileChanges: [
+            {
+              filePath: '/ws/src/new-file.ts',
+              oldContent: '',
+              newContent: 'export const x = 1;\n',
+            },
+          ],
+        },
+      })),
+    } as any;
+
+    const ctx = makeContext({ toolManager });
+
+    await dispatchToolCall(
+      { toolCallId: 'tc-write-file', toolName: 'fs_write_file', args: {} },
+      ctx
+    );
+
+    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    const events = emit.mock.calls.map((c: any[]) => c[0]);
+    const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
+
+    expect(proposal).toBeDefined();
+    expect(proposal.proposalId).toBe('fs_write_file-tc-write-file');
+    expect(proposal.filesChanged).toBe(1);
+    expect(proposal.files).toEqual([
+      {
+        filePath: '/ws/src/new-file.ts',
+        oldContent: '',
+        newContent: 'export const x = 1;\n',
+      },
+    ]);
+  });
+
   it('emits code_edit_proposal when tool result contains _fileChanges', async () => {
     const toolManager = {
       get: vi.fn(() => undefined),

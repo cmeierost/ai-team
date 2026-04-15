@@ -1,68 +1,147 @@
+import { useState } from 'react';
+import type { McpServerEntry } from '@ai-team/api-client';
 import { PortfolioSectionCard } from './portfolioShared';
 
 interface PortfolioMcpSectionProps {
-  tools: string[];
+  servers: McpServerEntry[];
+  loading: boolean;
+  error: string | null;
+  actionPending: string | null;
+  onToggleServer: (serverId: string, currentlyAllowed: boolean) => void;
 }
 
-function groupMcpTools(tools: string[]): Map<string, string[]> {
-  const map = new Map<string, string[]>();
-  for (const tool of tools) {
-    // Group by prefix: mcp_microsoft_pla → playwright, mcp_io_github_chr → chrome, etc.
-    let group = 'other';
-    if (tool.startsWith('mcp_microsoft_pla_')) group = 'playwright';
-    else if (tool.startsWith('mcp_io_github_chr_')) group = 'chrome-devtools';
-    else if (tool.startsWith('mcp_microsoft_')) group = 'microsoft';
-    else if (tool.startsWith('mcp_io_github_')) group = 'github';
-    else if (tool.startsWith('mcp_')) group = tool.split('_').slice(0, 3).join('_');
-
-    if (!map.has(group)) map.set(group, []);
-    map.get(group)?.push(tool);
+function groupByType(servers: McpServerEntry[]): Map<string, McpServerEntry[]> {
+  const map = new Map<string, McpServerEntry[]>();
+  for (const s of servers) {
+    const key = s.type === 'http' ? 'HTTP' : 'stdio';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(s);
   }
-  return new Map([...map.entries()].sort(([a], [b]) => a.localeCompare(b)));
+  return map;
 }
 
-export function PortfolioMcpSection({ tools }: Readonly<PortfolioMcpSectionProps>) {
-  const mcpTools = tools.filter((t) => t.startsWith('mcp_'));
-  const otherTools = tools.filter((t) => !t.startsWith('mcp_'));
-  const groups = groupMcpTools(mcpTools);
+function serverTitle(s: McpServerEntry): string {
+  if (s.type === 'http') return s.url ?? s.id;
+  return [s.command, ...(s.args ?? [])].filter(Boolean).join(' ');
+}
 
-  return (
-    <PortfolioSectionCard title="MCP Tools" icon="🔌">
-      {tools.length === 0 ? (
-        <p className="text-muted">No MCP tools registered.</p>
-      ) : (
-        <div className="tool-groups">
-          {mcpTools.length > 0 &&
-            [...groups.entries()].map(([group, groupTools]) => (
+export function PortfolioMcpSection({
+  servers,
+  loading,
+  error,
+  actionPending,
+  onToggleServer,
+}: Readonly<PortfolioMcpSectionProps>) {
+  const [isEditing, setIsEditing] = useState(false);
+
+  const allowed = servers.filter((s) => s.allowedForAgent !== false);
+
+  let bodyContent;
+  if (loading) {
+    bodyContent = <p className="text-muted">Loading MCP servers…</p>;
+  } else if (isEditing) {
+    const groups = groupByType(servers);
+    bodyContent = (
+      <div className="tool-groups">
+        {servers.length === 0 ? (
+          <p className="text-muted">No MCP servers configured.</p>
+        ) : (
+          [...groups.entries()].map(([group, groupServers]) => {
+            const allAllowed = groupServers.every((s) => s.allowedForAgent !== false);
+            const someAllowed = groupServers.some((s) => s.allowedForAgent !== false);
+            return (
               <div key={group} className="tool-group">
                 <div className="tool-group-header">
                   <span className="tool-group-name">{group}</span>
+                  <button
+                    type="button"
+                    className="tool-group-toggle"
+                    disabled={!!actionPending}
+                    onClick={() => {
+                      for (const s of groupServers) {
+                        const isAllowed = s.allowedForAgent !== false;
+                        if (allAllowed ? isAllowed : !isAllowed) {
+                          onToggleServer(s.id, isAllowed);
+                        }
+                      }
+                    }}
+                  >
+                    {allAllowed ? 'Deny all' : someAllowed ? 'Allow rest' : 'Allow all'}
+                  </button>
                 </div>
                 <div className="tool-active-chips">
-                  {groupTools.map((tool) => (
-                    <span key={tool} className="tool-tag tool-tag-active" title={tool}>
-                      {tool.replace(/^mcp_[^_]+_[^_]+_/, '')}
-                    </span>
-                  ))}
+                  {groupServers.map((s) => {
+                    const isAllowed = s.allowedForAgent !== false;
+                    const pending = actionPending === s.id;
+                    let chipIcon = isAllowed ? '✓' : '✕';
+                    if (pending) chipIcon = '…';
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        title={serverTitle(s)}
+                        className={`tool-chip-toggle ${isAllowed ? 'tool-chip-allowed' : 'tool-chip-disallowed'}`}
+                        onClick={() => onToggleServer(s.id, isAllowed)}
+                        disabled={pending || !!actionPending}
+                      >
+                        <span className="tool-chip-icon">{chipIcon}</span>
+                        <span className="tool-chip-text">
+                          <span className="tool-chip-label">{s.id}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-            ))}
-          {otherTools.length > 0 && (
-            <div className="tool-group">
+            );
+          })
+        )}
+      </div>
+    );
+  } else {
+    const groups = groupByType(allowed);
+    bodyContent = (
+      <div className="tool-groups">
+        {allowed.length === 0 ? (
+          <p className="text-muted">No MCP servers allowed for this agent.</p>
+        ) : (
+          [...groups.entries()].map(([group, groupServers]) => (
+            <div key={group} className="tool-group">
               <div className="tool-group-header">
-                <span className="tool-group-name">other</span>
+                <span className="tool-group-name">{group}</span>
               </div>
               <div className="tool-active-chips">
-                {otherTools.map((tool) => (
-                  <span key={tool} className="tool-tag tool-tag-active" title={tool}>
-                    {tool}
+                {groupServers.map((s) => (
+                  <span
+                    key={s.id}
+                    className="tool-tag tool-tag-active"
+                    title={serverTitle(s)}
+                  >
+                    {s.id}
                   </span>
                 ))}
               </div>
             </div>
-          )}
+          ))
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <PortfolioSectionCard
+      title="MCP Servers"
+      icon="🔌"
+      onEdit={() => setIsEditing(true)}
+      isEditing={isEditing}
+      onCancel={() => setIsEditing(false)}
+    >
+      {error ? (
+        <div className="tool-permissions-error">
+          <i className="codicon codicon-error" /> {error}
         </div>
-      )}
+      ) : null}
+      {bodyContent}
     </PortfolioSectionCard>
   );
 }

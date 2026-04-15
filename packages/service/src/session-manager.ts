@@ -1,8 +1,29 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { ChatMessage, ChatSession, Artifact, type AgentManager } from '@ai-team/infrastructure';
+import type { HandoffEdge } from '@ai-team/api-client';
 import { resolveAgentForOperationAsync } from './utils/agent-resolution.js';
 import type { IMessageStorage, SessionSkill } from './storage/contracts.js';
+
+export interface SessionThreadGraphSession {
+  sessionId: string;
+  agentIds: string[];
+  developerId: string | null;
+  title: string | null;
+  startedAt: string;
+  lastActivityAt: string;
+  previousSessionId: string | null;
+  mergedFromSessionIds: string[] | null;
+  messageCount: number;
+  messages: ChatMessage[];
+}
+
+export interface SessionThreadGraphData {
+  rootSessionId: string;
+  depth: number;
+  sessions: SessionThreadGraphSession[];
+  handoffs: HandoffEdge[];
+}
 
 export class SessionManager {
   private workspaceRoot: string;
@@ -104,6 +125,7 @@ export class SessionManager {
       developerId,
       startedAt: now,
       lastActivityAt: now,
+      title: previousSession?.title,
       artifacts: transferArtifacts && previousSession ? [...previousSession.artifacts] : [],
       allowedFiles:
         transferAllowedFiles && previousSession ? [...previousSession.allowedFiles] : [],
@@ -268,6 +290,12 @@ export class SessionManager {
     try {
       const session = await this.storage.getSession(sessionId);
       if (!session || session.title) return null;
+
+      const existingThreadTitle = await this.getExistingThreadTitle(sessionId);
+      if (existingThreadTitle) {
+        await this.applyThreadTitle(sessionId, existingThreadTitle);
+        return existingThreadTitle;
+      }
 
       // Generate only after we have enough user intent signal.
       const humanMessages = await this.storage.queryMessages({
@@ -473,6 +501,12 @@ ${summary}
    * @returns Generated title
    */
   async generateTitle(sessionId: string, llmService: any): Promise<string> {
+    const existingThreadTitle = await this.getExistingThreadTitle(sessionId);
+    if (existingThreadTitle) {
+      await this.applyThreadTitle(sessionId, existingThreadTitle);
+      return existingThreadTitle;
+    }
+
     // Use only the first 2 human messages — agent intro messages add noise, not signal.
     const humanMessages = await this.storage.queryMessages({ sessionId, isHuman: true, limit: 2 });
     const contextMessages = humanMessages.filter((m) => m.content?.trim());
@@ -491,14 +525,38 @@ ${summary}
       }
     }
 
-    // Update session with title
-    const session = await this.getSession(sessionId);
-    if (session) {
-      session.title = title;
-      await this.saveSession(session);
-    }
+    await this.applyThreadTitle(sessionId, title);
 
     return title;
+  }
+
+  async setThreadTitle(sessionId: string, title: string): Promise<void> {
+    await this.applyThreadTitle(sessionId, title);
+  }
+
+  private async getExistingThreadTitle(sessionId: string): Promise<string | null> {
+    const chain = await this.getSessionChain(sessionId);
+    for (const session of chain) {
+      const normalized = this.normalizeTitle(session.title ?? '');
+      if (normalized) {
+        return normalized;
+      }
+    }
+    return null;
+  }
+
+  private async applyThreadTitle(sessionId: string, title: string): Promise<void> {
+    const normalizedTitle = this.normalizeTitle(title);
+    if (!normalizedTitle) {
+      return;
+    }
+
+    const chain = await this.getSessionChain(sessionId);
+    await Promise.all(
+      chain
+        .filter((session) => this.normalizeTitle(session.title ?? '') !== normalizedTitle)
+        .map((session) => this.storage.updateSession(session.id, { title: normalizedTitle }))
+    );
   }
 
   private normalizeTitle(input: string | undefined | null): string {
@@ -788,6 +846,110 @@ ${summary}
     }
 
     return result;
+  }
+
+  async getThreadGraphData(sessionId: string): Promise<SessionThreadGraphData> {
+    const chain = await this.getSessionChain(sessionId);
+
+    const sessionsWithMessages = await Promise.all(
+      chain.map(async (session) => {
+        const allMessages = await this.getSessionMessages(session.id);
+        const timelineMessages = this.sortMessagesByTimestamp(
+          allMessages.filter((message) => this.isTimelineMessage(message))
+        );
+
+        return {
+          session,
+          allMessages,
+          timelineMessages,
+        };
+      })
+    );
+
+    const handoffMap = new Map<string, HandoffEdge>();
+    for (const entry of sessionsWithMessages) {
+      for (const msg of entry.allMessages) {
+        if (!msg.handoffId) continue;
+
+        const edge = handoffMap.get(msg.handoffId) ?? {
+          handoffId: msg.handoffId,
+          fromSessionId: null,
+          toSessionId: null,
+          fromAgentIds: [],
+          toAgentIds: [],
+        };
+
+        if (msg.handoffFromSessionId) {
+          edge.fromSessionId = msg.handoffFromSessionId;
+        }
+        if (msg.handoffToSessionId) {
+          edge.toSessionId = msg.handoffToSessionId;
+        }
+
+        handoffMap.set(msg.handoffId, edge);
+      }
+    }
+
+    for (const edge of handoffMap.values()) {
+      if (edge.fromSessionId) {
+        const session = sessionsWithMessages.find(
+          (entry) => entry.session.id === edge.fromSessionId
+        );
+        if (session) {
+          edge.fromAgentIds = this.getSessionAgentIds(session.session);
+        }
+      }
+
+      if (edge.toSessionId) {
+        const session = sessionsWithMessages.find((entry) => entry.session.id === edge.toSessionId);
+        if (session) {
+          edge.toAgentIds = this.getSessionAgentIds(session.session);
+        }
+      }
+    }
+
+    return {
+      rootSessionId: sessionsWithMessages[0]?.session.id ?? sessionId,
+      depth: sessionsWithMessages.length,
+      handoffs: Array.from(handoffMap.values()),
+      sessions: sessionsWithMessages.map(({ session, timelineMessages }) => ({
+        sessionId: session.id,
+        agentIds: this.getSessionAgentIds(session),
+        developerId: session.developerId ?? null,
+        title: session.title ?? null,
+        startedAt: session.startedAt,
+        lastActivityAt: session.lastActivityAt,
+        previousSessionId: session.previousSessionId ?? null,
+        mergedFromSessionIds: session.mergedFromSessionIds ?? null,
+        messageCount: timelineMessages.length,
+        messages: timelineMessages,
+      })),
+    };
+  }
+
+  private isTimelineMessage(message: ChatMessage): boolean {
+    return !message.handoffId && !message.handoffType;
+  }
+
+  private sortMessagesByTimestamp(messages: ChatMessage[]): ChatMessage[] {
+    return messages
+      .map((message, index) => ({
+        message,
+        index,
+        timestampMs: Number.isFinite(Date.parse(message.timestamp))
+          ? Date.parse(message.timestamp)
+          : 0,
+      }))
+      .sort((left, right) => left.timestampMs - right.timestampMs || left.index - right.index)
+      .map((entry) => entry.message);
+  }
+
+  private getSessionAgentIds(session: ChatSession): string[] {
+    if (Array.isArray(session.agentIds) && session.agentIds.length > 0) {
+      return session.agentIds;
+    }
+
+    return session.agentId ? [session.agentId] : [];
   }
 
   /**

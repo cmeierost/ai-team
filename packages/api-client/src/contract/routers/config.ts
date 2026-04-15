@@ -73,6 +73,28 @@ export interface TeamConfig {
     string,
     { provider?: string; modelKey?: string; model?: string; contextWindow?: number }
   >;
+  mcpConfigFiles?: string[];
+}
+
+export interface McpServerEntry {
+  id: string;
+  type: string;
+  url?: string;
+  command?: string;
+  args?: string[];
+  sourceFile: string;
+  allowedForAgent?: boolean;
+}
+
+export interface GetMcpServersResponse {
+  servers: McpServerEntry[];
+}
+
+export interface UpdateMcpServerResponse {
+  agent: { id: string; name: string; role: string };
+  server: string;
+  mcpServers: string[];
+  changed: boolean;
 }
 
 export interface UserProfile {
@@ -115,6 +137,9 @@ export interface IConfigService {
   refreshProviderModels(providerRef: string): Promise<unknown>;
   getEnvStatus(): Promise<Record<string, boolean>>;
   setEnvVar(body: { key: string; value: string }): Promise<{ ok: boolean }>;
+  getMcpServers(query?: { agent?: string }): Promise<GetMcpServersResponse>;
+  allowMcpServer(body: { agent: string; server: string }): Promise<UpdateMcpServerResponse>;
+  disallowMcpServer(body: { agent: string; server: string }): Promise<UpdateMcpServerResponse>;
 }
 
 export const configDesc: ApiDescription<IConfigService> = {
@@ -133,5 +158,8 @@ export const configDesc: ApiDescription<IConfigService> = {
     refreshProviderModels: { method: 'POST', path: 'providers/:providerRef/models/refresh' },
     getEnvStatus: { method: 'GET', path: 'env-status' },
     setEnvVar: { method: 'PUT', path: 'env-key' },
+    getMcpServers: { method: 'GET', path: 'mcp-servers' },
+    allowMcpServer: { method: 'POST', path: 'mcp-servers/allow' },
+    disallowMcpServer: { method: 'POST', path: 'mcp-servers/disallow' },
   },
 };

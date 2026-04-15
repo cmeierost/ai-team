@@ -416,6 +416,13 @@
 
 /* ── Bio / Markdown ─────────────────────────────────────────────────────── */
 
+.portfolio-description {
+  font-size: 14px;
+  line-height: 1.7;
+  margin-bottom: 8px;
+  color: var(--color-text-primary);
+}
+
 .portfolio-bio {
   font-size: 14px;
   line-height: 1.7;
@@ -1127,6 +1134,37 @@
   gap: 12px;
 }
 
+.tts-voice-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.tts-voice-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.tts-preview-btn {
+  flex-shrink: 0;
+  padding: 0 10px;
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+  line-height: 1;
+}
+
+.tts-preview-btn:hover {
+  border-color: var(--color-border-focus);
+  color: var(--color-text-primary);
+}
+
 .portfolio-form-stack {
   display: flex;
   flex-direction: column;
@@ -1161,9 +1199,12 @@
 
 .portfolio-form-grid input,
 .portfolio-form-grid select,
+.portfolio-form-grid textarea,
 .portfolio-form-stack input,
 .portfolio-form-stack select,
-.portfolio-form-label-full select {
+.portfolio-form-stack textarea,
+.portfolio-form-label-full select,
+.portfolio-form-label-full textarea {
   background: var(--color-bg-input);
   border: 1px solid var(--color-border-primary);
   border-radius: 4px;
@@ -1177,9 +1218,12 @@
 
 .portfolio-form-grid input:focus,
 .portfolio-form-grid select:focus,
+.portfolio-form-grid textarea:focus,
 .portfolio-form-stack input:focus,
 .portfolio-form-stack select:focus,
-.portfolio-form-label-full select:focus {
+.portfolio-form-stack textarea:focus,
+.portfolio-form-label-full select:focus,
+.portfolio-form-label-full textarea:focus {
   outline: none;
   border-color: var(--color-border-focus);
 }

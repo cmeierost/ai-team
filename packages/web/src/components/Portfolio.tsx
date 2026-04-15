@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import type { McpServerEntry } from '@ai-team/api-client';
 import { useTeam } from '../context/TeamContext';
 import { PortfolioHeader } from './portfolio/PortfolioHeader';
 import { PortfolioIdentitySection } from './portfolio/PortfolioIdentitySection';
@@ -41,6 +42,26 @@ export function Portfolio() {
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillActionPending, setSkillActionPending] = useState<string | null>(null);
   const [skillsError, setSkillsError] = useState<string | null>(null);
+
+  // ── MCP servers state ──
+  const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpError, setMcpError] = useState<string | null>(null);
+  const [mcpActionPending, setMcpActionPending] = useState<string | null>(null);
+
+  const loadMcpServers = async (targetAgentId: string, options?: { silent?: boolean }) => {
+    if (!options?.silent) setMcpLoading(true);
+    setMcpError(null);
+    try {
+      const response = await client.config.getMcpServers({ agent: targetAgentId });
+      setMcpServers(response.servers);
+    } catch (e: any) {
+      setMcpError(e?.message || 'Failed to load MCP servers');
+      setMcpServers([]);
+    } finally {
+      if (!options?.silent) setMcpLoading(false);
+    }
+  };
 
   const loadTools = async (targetAgentId: string, options?: { silent?: boolean }) => {
     if (!options?.silent) {
@@ -108,6 +129,7 @@ export function Portfolio() {
     if (!agentId) return;
     void loadTools(agentId);
     void loadSkills(agentId);
+    void loadMcpServers(agentId);
   }, [agentId]);
 
   if (loading && !agent)
@@ -188,22 +210,17 @@ export function Portfolio() {
       />
 
       <div className="portfolio-content">
-        <PortfolioIdentitySection
-          type={agent.type}
-          contextLevel={agent.contextLevel}
-          pronouns={agent.pronouns}
-          ttsVoice={agent.ttsVoice}
-          ttsRate={agent.ttsRate}
-          onSave={(fields) => saveAgentFields(fields as Record<string, unknown>)}
-        />
-
-        <PortfolioMarkdownSections
-          agentId={agent.id}
-          specializations={agent.specializations ?? []}
-          client={client}
-          onUpdated={refresh}
-          onlyHeadings={['Introduction']}
-        />
+        <div style={{ marginBottom: '12px' }}>
+          <PortfolioIdentitySection
+            type={agent.type}
+            contextLevel={agent.contextLevel}
+            pronouns={agent.pronouns}
+            ttsVoice={agent.ttsVoice}
+            ttsRate={agent.ttsRate}
+            description={agent.description}
+            onSave={(fields) => saveAgentFields(fields as Record<string, unknown>)}
+          />
+        </div>
 
         <PortfolioPersonalitySection
           personality={agent.personality}
@@ -219,7 +236,6 @@ export function Portfolio() {
           specializations={agent.specializations ?? []}
           client={client}
           onUpdated={refresh}
-          excludeHeadings={['Introduction']}
           showAddSection
         />
 
@@ -261,7 +277,38 @@ export function Portfolio() {
           onToggleTool={handleToggleTool}
         />
 
-        <PortfolioMcpSection tools={agent.tools ?? []} />
+        <PortfolioMcpSection
+          servers={mcpServers}
+          loading={mcpLoading}
+          error={mcpError}
+          actionPending={mcpActionPending}
+          onToggleServer={async (serverId, currentlyAllowed) => {
+            if (mcpActionPending) return;
+            const previousServers = [...mcpServers];
+            setMcpServers((prev) =>
+              prev.map((s) =>
+                s.id === serverId ? { ...s, allowedForAgent: !currentlyAllowed } : s
+              )
+            );
+            setMcpActionPending(serverId);
+            setMcpError(null);
+            try {
+              if (currentlyAllowed) {
+                await client.config.disallowMcpServer({ agent: agentId, server: serverId });
+              } else {
+                await client.config.allowMcpServer({ agent: agentId, server: serverId });
+              }
+              await loadMcpServers(agentId, { silent: true });
+            } catch (e: any) {
+              setMcpServers(previousServers);
+              setMcpError(
+                e?.message || `Failed to ${currentlyAllowed ? 'disallow' : 'allow'} MCP server`
+              );
+            } finally {
+              setMcpActionPending(null);
+            }
+          }}
+        />
 
         <PortfolioFileAccessSection agentId={agent.id} />
 

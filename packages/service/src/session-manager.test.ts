@@ -349,4 +349,126 @@ describe('SessionManager title generation', () => {
     const persisted = await sessionManager.getSession(session.id);
     expect(persisted?.title).toBe(generatedTitle);
   });
+
+  it('inherits thread title immediately when creating a handoff session', async () => {
+    const root = await sessionManager.createSession('michael-brown', 'dev-1');
+    await sessionManager.saveSession({ ...root, title: 'Unified Thread Title' } as any);
+
+    const child = await sessionManager.createHandoffSession('alex-johnson', 'dev-1', root.id);
+    expect(child.title).toBe('Unified Thread Title');
+
+    const persistedChild = await sessionManager.getSession(child.id);
+    expect(persistedChild?.title).toBe('Unified Thread Title');
+  });
+
+  it('propagates generated title to all sessions in the same thread', async () => {
+    const root = await sessionManager.createSession('michael-brown', 'dev-1');
+    const child = await sessionManager.createHandoffSession('alex-johnson', 'dev-1', root.id);
+
+    await sessionManager.appendMessage(child.id, {
+      timestamp: new Date().toISOString(),
+      from: 'human',
+      to: 'alex-johnson',
+      isHuman: true,
+      content: 'help me align titles across this thread',
+    } as any);
+
+    const generatedTitle = await sessionManager.appendMessage(
+      child.id,
+      {
+        timestamp: new Date().toISOString(),
+        from: 'human',
+        to: 'alex-johnson',
+        isHuman: true,
+        content: 'set one shared title for all linked sessions',
+      } as any,
+      {
+        generateTitle: async () => 'Thread Unified Title',
+      }
+    );
+
+    expect(generatedTitle).toBe('Thread Unified Title');
+
+    const persistedRoot = await sessionManager.getSession(root.id);
+    const persistedChild = await sessionManager.getSession(child.id);
+    expect(persistedRoot?.title).toBe('Thread Unified Title');
+    expect(persistedChild?.title).toBe('Thread Unified Title');
+  });
+});
+
+describe('SessionManager.getThreadGraphData', () => {
+  let sessionManager: SessionManager;
+
+  beforeEach(async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const storage = new SqliteMessageStorage(workspaceRoot);
+    await storage.migrate();
+    sessionManager = new SessionManager(workspaceRoot, storage);
+  });
+
+  afterEach(async () => {
+    await (sessionManager as any).storage.close();
+  });
+
+  it('filters handoff bridge messages and keeps timeline messages sorted', async () => {
+    const sessionA = await sessionManager.createSession('michael-brown', 'dev-1');
+    const sessionB = await sessionManager.createHandoffSession(
+      'alex-johnson',
+      'dev-1',
+      sessionA.id
+    );
+
+    await sessionManager.appendMessage(sessionA.id, {
+      timestamp: '2026-03-09T09:00:00.000Z',
+      from: 'michael-brown',
+      to: 'alex-johnson',
+      isHuman: false,
+      content: 'briefing duplicate',
+      handoffId: 'handoff-1',
+      handoffType: 'agent-briefing',
+      handoffFromSessionId: sessionA.id,
+      handoffToSessionId: sessionB.id,
+    } as any);
+
+    await sessionManager.appendMessage(sessionB.id, {
+      timestamp: '2026-03-09T09:00:00.000Z',
+      from: 'michael-brown',
+      to: 'alex-johnson',
+      isHuman: false,
+      content: 'briefing duplicate',
+      handoffId: 'handoff-1',
+      handoffType: 'agent-briefing',
+      handoffFromSessionId: sessionA.id,
+      handoffToSessionId: sessionB.id,
+    } as any);
+
+    await sessionManager.appendMessage(sessionA.id, {
+      timestamp: '2026-03-09T09:02:00.000Z',
+      from: 'dev-1',
+      to: 'michael-brown',
+      isHuman: true,
+      content: 'real session-a message',
+    } as any);
+
+    await sessionManager.appendMessage(sessionB.id, {
+      timestamp: '2026-03-09T09:01:00.000Z',
+      from: 'dev-1',
+      to: 'alex-johnson',
+      isHuman: true,
+      content: 'real session-b message',
+    } as any);
+
+    const graph = await sessionManager.getThreadGraphData(sessionB.id);
+    const graphSessionA = graph.sessions.find((s) => s.sessionId === sessionA.id);
+    const graphSessionB = graph.sessions.find((s) => s.sessionId === sessionB.id);
+    const handoff = graph.handoffs[0];
+
+    expect(graph.handoffs).toHaveLength(1);
+    expect(handoff?.fromSessionId).toBe(sessionA.id);
+    expect(handoff?.toSessionId).toBe(sessionB.id);
+    expect(graphSessionA?.messageCount).toBe(1);
+    expect(graphSessionB?.messageCount).toBe(1);
+    expect(graphSessionA?.messages[0]?.content).toBe('real session-a message');
+    expect(graphSessionB?.messages[0]?.content).toBe('real session-b message');
+  });
 });

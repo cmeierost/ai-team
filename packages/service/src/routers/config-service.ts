@@ -1,4 +1,12 @@
-import type { IConfigService, UserConfig, TeamConfig } from '@ai-team/api-client';
+import type {
+  IConfigService,
+  UserConfig,
+  TeamConfig,
+  GetMcpServersResponse,
+  UpdateMcpServerResponse,
+} from '@ai-team/api-client';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import {
   AgentManager,
   loadTeamConfig,
@@ -101,5 +109,124 @@ export class ConfigService implements IConfigService {
     existing[body.key] = body.value;
     await saveEnvFile(this.workspaceRoot, existing);
     return { ok: true };
+  }
+
+  async getMcpServers(query?: { agent?: string }): Promise<GetMcpServersResponse> {
+    const config = await loadTeamConfig(this.workspaceRoot);
+    const mcpConfigFiles: string[] = (config as any)?.mcpConfigFiles ?? [];
+    const servers: GetMcpServersResponse['servers'] = [];
+    for (const relPath of mcpConfigFiles) {
+      const absPath = path.resolve(this.workspaceRoot, relPath);
+      let raw: string;
+      try {
+        raw = await readFile(absPath, 'utf8');
+      } catch (err: any) {
+        if (err.code === 'ENOENT') continue;
+        throw err;
+      }
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      const mcpServerDefs: Record<string, any> = parsed?.servers ?? {};
+      for (const [id, def] of Object.entries(mcpServerDefs)) {
+        servers.push({
+          id,
+          type: (def as any).type ?? 'stdio',
+          url: (def as any).url,
+          command: (def as any).command,
+          args: (def as any).args,
+          sourceFile: relPath,
+        });
+      }
+    }
+
+    if (query?.agent) {
+      const mgr = new AgentManager(this.workspaceRoot);
+      await mgr.refreshAsync();
+      const agent = await mgr.getAgentAsync(query.agent);
+      if (agent) {
+        const allowed: string[] = (agent as any).mcpServers ?? [];
+        const disallowed: string[] = (agent as any).disallowedMcpServers ?? [];
+        for (const s of servers) {
+          if (disallowed.includes(s.id)) {
+            s.allowedForAgent = false;
+          } else {
+            s.allowedForAgent = allowed.includes(s.id);
+          }
+        }
+      }
+    }
+
+    return { servers };
+  }
+
+  async allowMcpServer(body: { agent: string; server: string }): Promise<UpdateMcpServerResponse> {
+    if (!body.agent || !body.server) throw new BadRequestError('agent and server are required');
+    const mgr = new AgentManager(this.workspaceRoot);
+    await mgr.refreshAsync();
+    const agent = await mgr.getAgentAsync(body.agent);
+    if (!agent) throw new BadRequestError(`Agent not found: ${body.agent}`);
+
+    const currentAllowed: string[] = (agent as any).mcpServers ?? [];
+    const currentDisallowed: string[] = (agent as any).disallowedMcpServers ?? [];
+    const alreadyAllowed = currentAllowed.includes(body.server);
+    const wasDenied = currentDisallowed.includes(body.server);
+
+    const nextAllowed = alreadyAllowed
+      ? currentAllowed
+      : [...currentAllowed, body.server].sort((a, b) => a.localeCompare(b));
+    const nextDisallowed = currentDisallowed.filter((s) => s !== body.server);
+    const changed = !alreadyAllowed || wasDenied;
+
+    if (changed) {
+      await mgr.updateAgentAsync(agent.id, {
+        mcpServers: nextAllowed,
+        disallowedMcpServers: nextDisallowed.length > 0 ? nextDisallowed : undefined,
+      } as any);
+    }
+
+    return {
+      agent: { id: agent.id, name: agent.name, role: agent.role },
+      server: body.server,
+      mcpServers: nextAllowed,
+      changed,
+    };
+  }
+
+  async disallowMcpServer(body: {
+    agent: string;
+    server: string;
+  }): Promise<UpdateMcpServerResponse> {
+    if (!body.agent || !body.server) throw new BadRequestError('agent and server are required');
+    const mgr = new AgentManager(this.workspaceRoot);
+    await mgr.refreshAsync();
+    const agent = await mgr.getAgentAsync(body.agent);
+    if (!agent) throw new BadRequestError(`Agent not found: ${body.agent}`);
+
+    const currentAllowed: string[] = (agent as any).mcpServers ?? [];
+    const currentDisallowed: string[] = (agent as any).disallowedMcpServers ?? [];
+    const nextAllowed = currentAllowed.filter((s) => s !== body.server);
+    const alreadyDenied = currentDisallowed.includes(body.server);
+    const nextDisallowed = alreadyDenied
+      ? currentDisallowed
+      : [...currentDisallowed, body.server].sort((a, b) => a.localeCompare(b));
+    const changed = nextAllowed.length !== currentAllowed.length || !alreadyDenied;
+
+    if (changed) {
+      await mgr.updateAgentAsync(agent.id, {
+        mcpServers: nextAllowed.length > 0 ? nextAllowed : undefined,
+        disallowedMcpServers: nextDisallowed,
+      } as any);
+    }
+
+    return {
+      agent: { id: agent.id, name: agent.name, role: agent.role },
+      server: body.server,
+      mcpServers: nextAllowed,
+      changed,
+    };
   }
 }

@@ -4,7 +4,7 @@ export class MarkdownSectionService implements IMarkdownSectionService {
   public parseMarkdownSections(markdown: string): MarkdownSection[] {
     if (!markdown || !markdown.trim()) return [];
 
-    const lines = markdown.split('\n');
+    const lines = markdown.split(/\r?\n/);
     const sections: MarkdownSection[] = [];
     let currentHeading = '';
     let currentLines: string[] = [];

@@ -20,17 +20,17 @@ import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
 
 function makeContext(): OrchestratorContext {
+  const appendMessage = vi.fn(async () => null);
   return {
     agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
     hooks: { emit: vi.fn() } as any,
     toolManager: {} as any,
-    sessionManager: {} as any,
+    sessionManager: { appendMessage } as any,
     agentManager: { loadAllAgents: vi.fn(async () => {}) } as any,
     skillManager: {} as any,
     llmService: {} as any,
-    contextManager: {} as any,
     history: [],
   };
 }
@@ -69,7 +69,24 @@ describe('ChatOrchestrator regex tool intents', () => {
         args: { path: '.', maxDepth: 6, includeHidden: true },
       }),
       ctx,
-      undefined,
+      undefined
+    );
+    expect(ctx.sessionManager.appendMessage).toHaveBeenCalledWith(
+      'sess-1',
+      expect.objectContaining({
+        from: 'human',
+        to: 'michael-brown',
+        isHuman: true,
+        content: 'show your visible file tree',
+      }),
+      ctx.llmService
+    );
+    expect(ctx.history).toContainEqual(
+      expect.objectContaining({
+        from: 'human',
+        to: 'michael-brown',
+        content: 'show your visible file tree',
+      })
     );
     expect(sendTurn).not.toHaveBeenCalled();
   });
@@ -88,7 +105,7 @@ describe('ChatOrchestrator regex tool intents', () => {
         args: {},
       }),
       ctx,
-      undefined,
+      undefined
     );
     expect(sendTurn).not.toHaveBeenCalled();
   });
@@ -118,7 +135,7 @@ describe('ChatOrchestrator regex tool intents', () => {
         args: {},
       }),
       ctx,
-      undefined,
+      undefined
     );
     expect(sendTurn).not.toHaveBeenCalled();
   });
@@ -137,7 +154,7 @@ describe('ChatOrchestrator regex tool intents', () => {
         args: {},
       }),
       ctx,
-      undefined,
+      undefined
     );
     expect(sendTurn).not.toHaveBeenCalled();
   });

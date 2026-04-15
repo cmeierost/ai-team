@@ -53,6 +53,37 @@ interface CodeEditProposalEvent {
   files?: CodeEditProposalFile[];
 }
 
+interface CancelToken {
+  value: boolean;
+}
+
+const GREETING_DEDUPE_WINDOW_MS = 2000;
+
+export async function awaitUnlessCancelled<T>(
+  promise: Promise<T>,
+  cancelToken?: CancelToken
+): Promise<T | undefined> {
+  const result = await promise;
+  if (cancelToken?.value) {
+    return undefined;
+  }
+  return result;
+}
+
+export function shouldSkipDuplicateGreetingSpeech(
+  nextFingerprint: string,
+  previousFingerprint: string | null,
+  previousTimestamp: number,
+  now: number,
+  dedupeWindowMs = GREETING_DEDUPE_WINDOW_MS
+): boolean {
+  if (!previousFingerprint || previousFingerprint !== nextFingerprint) {
+    return false;
+  }
+
+  return now - previousTimestamp <= dedupeWindowMs;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -218,6 +249,8 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const skipNewSessionRef = useRef(false);
   const lastPersistedToolStateRef = useRef('');
   const greetingCancelRef = useRef<{ value: boolean }>({ value: false });
+  const latestGreetingLoadIdRef = useRef(0);
+  const lastGreetingSpeechRef = useRef<{ fingerprint: string; at: number } | null>(null);
 
   const graphRouteMatch = useMatch(GRAPH_ROUTE);
   const sessionRouteMatch = useMatch(SESSION_ROUTE);
@@ -241,14 +274,59 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     return () => cancelAnimationFrame(frame);
   }, [autoResizeTextarea, input]);
 
-  const loadGreeting = async (targetAgentId: string, cancelled?: { value: boolean }) => {
+  const speakGreetingIfNeeded = (greetingMessage: ChatMessage) => {
+    if (!ttsEnabled || !tts.supported || !greetingMessage.content) {
+      return;
+    }
+
+    const runtimeVoices =
+      typeof globalThis.window !== 'undefined' && 'speechSynthesis' in globalThis.window
+        ? globalThis.window.speechSynthesis.getVoices()
+        : [];
+    const availableVoices = runtimeVoices.length > 0 ? runtimeVoices : tts.voices;
+    const greetingAgent = agents.find((a) => a.id === greetingMessage.from);
+    const voice = pickVoice(greetingAgent, availableVoices);
+    const rate = greetingAgent?.ttsRate ?? ttsRateRef.current;
+    const clean = stripMarkdownForSpeech(greetingMessage.content);
+    if (!clean) {
+      return;
+    }
+
+    const fingerprint = `${greetingMessage.from}::${clean}`;
+    const now = Date.now();
+    const previous = lastGreetingSpeechRef.current;
+    const shouldSkip = shouldSkipDuplicateGreetingSpeech(
+      fingerprint,
+      previous?.fingerprint ?? null,
+      previous?.at ?? 0,
+      now
+    );
+    if (shouldSkip) {
+      return;
+    }
+
+    lastGreetingSpeechRef.current = { fingerprint, at: now };
+    tts.speakChunk(clean, voice, rate);
+  };
+
+  const loadGreeting = async (targetAgentId: string, cancelToken?: CancelToken) => {
+    const greetingLoadId = ++latestGreetingLoadIdRef.current;
     try {
-      if (cancelled?.value) {
+      if (cancelToken?.value) {
         return;
       }
-      const data = await client.agents.introduction(targetAgentId, {
-        developerName: developer?.name || 'Developer',
-      });
+      const data = await awaitUnlessCancelled(
+        client.agents.introduction(targetAgentId, {
+          developerName: developer?.name || 'Developer',
+        }),
+        cancelToken
+      );
+      if (!data) {
+        return;
+      }
+      if (cancelToken?.value || greetingLoadId !== latestGreetingLoadIdRef.current) {
+        return;
+      }
       const greetingMessage: ChatMessage = {
         from: data.agentId ?? targetAgentId,
         content: data.content ?? '',
@@ -256,13 +334,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       };
       setMessages([greetingMessage]);
       setIsEphemeral(true);
-      if (ttsEnabled && tts.supported && greetingMessage.content) {
-        const greetingAgent = agents.find((a) => a.id === greetingMessage.from);
-        const voice = pickVoice(greetingAgent, tts.voices);
-        const rate = greetingAgent?.ttsRate ?? ttsRateRef.current;
-        const clean = stripMarkdownForSpeech(greetingMessage.content);
-        if (clean) tts.speakChunk(clean, voice, rate);
-      }
+      speakGreetingIfNeeded(greetingMessage);
     } catch {
       setMessages([]);
       setIsEphemeral(false);
@@ -302,21 +374,17 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     setIsEphemeral(false);
   };
 
-  const loadGreetingFallback = async (targetAgentId: string, cancelled: boolean) => {
+  const loadGreetingFallback = async (targetAgentId: string, cancelToken: CancelToken) => {
     resetSessionState(targetAgentId);
-    const cancelObj = { value: false };
-    if (!cancelled) {
-      await loadGreeting(targetAgentId, cancelObj);
-    }
-    if (cancelled) {
-      cancelObj.value = true;
+    if (!cancelToken.value) {
+      await loadGreeting(targetAgentId, cancelToken);
     }
   };
 
   const loadPersistedSession = async (
     targetAgentId: string,
     targetSessionId: string | null,
-    cancelled: boolean
+    cancelToken: CancelToken
   ) => {
     try {
       let sessionWithMessages = targetSessionId
@@ -345,12 +413,12 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       // When no specific session was requested and the latest session has no messages,
       // treat it as a fresh start — show the greeting (mirrors CLI behaviour).
       if (!targetSessionId && (sessionWithMessages.messages ?? []).length === 0) {
-        if (!cancelled) {
-          await loadGreetingFallback(targetAgentId, cancelled);
+        if (!cancelToken.value) {
+          await loadGreetingFallback(targetAgentId, cancelToken);
         }
         return;
       }
-      if (!cancelled) {
+      if (!cancelToken.value) {
         applyLoadedSession(targetAgentId, sessionWithMessages);
 
         if (!targetSessionId && sessionWithMessages.id) {
@@ -359,8 +427,8 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
       return;
     } catch {
-      if (!cancelled) {
-        await loadGreetingFallback(targetAgentId, cancelled);
+      if (!cancelToken.value) {
+        await loadGreetingFallback(targetAgentId, cancelToken);
       }
     }
   };
@@ -465,7 +533,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       return;
     }
 
-    let cancelled = false;
+    const cancelToken: CancelToken = { value: false };
     const loadSession = async () => {
       const resolvedRouteAgent = resolveRouteAgent(agents, agentId);
       const targetAgentId = resolvedRouteAgent?.id ?? agentId;
@@ -496,17 +564,18 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       greetingCancelRef.current.value = true;
+      greetingCancelRef.current = cancelToken;
       setLoading(true);
       try {
-        await loadPersistedSession(targetAgentId, urlSessionId, cancelled);
+        await loadPersistedSession(targetAgentId, urlSessionId, cancelToken);
       } catch (error) {
         console.error('Failed to load session:', error);
-        if (!cancelled) {
+        if (!cancelToken.value) {
           resetSessionState(targetAgentId);
-          await loadGreeting(targetAgentId);
+          await loadGreeting(targetAgentId, cancelToken);
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelToken.value) {
           setLoading(false);
         }
       }
@@ -514,7 +583,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
     void loadSession();
     return () => {
-      cancelled = true;
+      cancelToken.value = true;
     };
   }, [agentId, agents, graphSessionId, navigate, teamLoading, urlSessionId]);
 

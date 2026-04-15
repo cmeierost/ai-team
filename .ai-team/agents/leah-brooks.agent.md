@@ -16,7 +16,7 @@ personality:
   communication_style: analytical
   expertise_level: senior
   mentoring: true
-ttsVoice: Zira
+ttsVoice: Microsoft Natasha Online (Natural) - English (Australia)
 description: >-
   Backend runtime engineer responsible for agent runtime behavior, service
   orchestration, command dispatch, mediator flow, and chat-flow fixes in

@@ -18,8 +18,12 @@ export function PortfolioOverlapSection({ agent, allAgents }: Readonly<Portfolio
   const visibleRegions = view?.peerRegions.filter((region) => getRegionMetricValue(region, selectedRight) > 0) ?? [];
 
   useEffect(() => {
-    setSelectedRegionId(visibleRegions[0]?.id);
-  }, [view?.focusAgentId, selectedRight, visibleRegions]);
+    setSelectedRegionId(
+      view?.peerRegions.find((r) => getRegionMetricValue(r, selectedRight) > 0)?.id,
+    );
+    // Only reset selection when the focused agent or the active right changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view?.focusAgentId, selectedRight]);
 
   return (
     <PortfolioSectionCard title="Overlap Map" icon="◌">
@@ -51,6 +55,8 @@ export function PortfolioOverlapSection({ agent, allAgents }: Readonly<Portfolio
           selectedRight={selectedRight}
           onSelectedRightChange={setSelectedRight}
           suggestions={view.suggestions}
+          agentResponsibilities={view.agentResponsibilities}
+          workspaceFileCount={view.workspaceFileCount}
           selectedRegionId={selectedRegionId}
           onSelectRegion={setSelectedRegionId}
         />

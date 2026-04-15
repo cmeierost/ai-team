@@ -2,11 +2,9 @@ import type {
   ISessionsService,
   ChatSession,
   ChatMessage,
-  HandoffEdge,
   SessionThread,
 } from '@ai-team/api-client';
-import type { AgentManager } from '@ai-team/infrastructure';
-import type { LlmService } from '@ai-team/infrastructure';
+import type { AgentManager, LlmService } from '@ai-team/infrastructure';
 import type { SessionManager } from '../session-manager.js';
 import { BadRequestError, NotFoundError } from '../http-errors.js';
 
@@ -123,13 +121,13 @@ export class SessionsService implements ISessionsService {
   async getThread(sessionId: string): Promise<SessionThread> {
     const check = await this.sessionManager.getSession(sessionId);
     if (!check) throw new NotFoundError('Session not found');
-    const chain = await this.sessionManager.getSessionChain(sessionId);
+
+    const threadGraph = await this.sessionManager.getThreadGraphData(sessionId);
+
     const sessions = await Promise.all(
-      chain.map(async (s: any) => {
-        const messages = await this.sessionManager.getSessionMessages(s.id);
-        const ids = s.agentIds ?? (s.agentId ? [s.agentId] : []);
+      threadGraph.sessions.map(async (session) => {
         const agentNames = await Promise.all(
-          ids.map(async (id: string) => {
+          session.agentIds.map(async (id) => {
             try {
               return (await this.agentManager.getAgentAsync(id))?.name ?? id;
             } catch {
@@ -137,55 +135,19 @@ export class SessionsService implements ISessionsService {
             }
           })
         );
+
         return {
-          sessionId: s.id,
-          agentIds: ids,
+          ...session,
           agentNames,
-          developerId: s.developerId ?? null,
-          title: s.title ?? null,
-          startedAt: s.startedAt,
-          lastActivityAt: s.lastActivityAt,
-          previousSessionId: s.previousSessionId ?? null,
-          mergedFromSessionIds: s.mergedFromSessionIds ?? null,
-          messageCount: messages.length,
-          messages,
         };
       })
     );
-    const handoffMap = new Map<string, HandoffEdge>();
-    for (const sess of sessions) {
-      for (const msg of sess.messages as any[]) {
-        if (msg.handoffId) {
-          const edge = handoffMap.get(msg.handoffId) ?? {
-            handoffId: msg.handoffId,
-            fromSessionId: null,
-            toSessionId: null,
-            fromAgentIds: [],
-            toAgentIds: [],
-          };
-          if (msg.handoffType === 'agent-briefing' && msg.handoffFromSessionId)
-            (edge as any).fromSessionId = msg.handoffFromSessionId;
-          if (msg.handoffType === 'user-acknowledgment' && msg.handoffToSessionId)
-            (edge as any).toSessionId = msg.handoffToSessionId;
-          handoffMap.set(msg.handoffId, edge);
-        }
-      }
-    }
-    for (const [, edge] of handoffMap) {
-      if ((edge as any).fromSessionId) {
-        const s = sessions.find((x) => x.sessionId === (edge as any).fromSessionId);
-        if (s) (edge as any).fromAgentIds = s.agentIds;
-      }
-      if ((edge as any).toSessionId) {
-        const s = sessions.find((x) => x.sessionId === (edge as any).toSessionId);
-        if (s) (edge as any).toAgentIds = s.agentIds;
-      }
-    }
+
     return {
-      rootSessionId: sessions[0]?.sessionId ?? sessionId,
+      rootSessionId: threadGraph.rootSessionId,
       currentSessionId: sessionId,
-      depth: sessions.length,
-      handoffs: Array.from(handoffMap.values()),
+      depth: threadGraph.depth,
+      handoffs: threadGraph.handoffs,
       sessions,
     } as unknown as SessionThread;
   }
@@ -225,8 +187,9 @@ export class SessionsService implements ISessionsService {
     const existing = await this.sessionManager.getSession(sessionId);
     if (!existing) throw new NotFoundError('Session not found');
     if (!body.fromTimestamp) throw new BadRequestError('fromTimestamp is required');
-    const msgIndex = parseInt(body.fromTimestamp, 10);
-    if (isNaN(msgIndex)) throw new BadRequestError('fromTimestamp must be a numeric message index');
+    const msgIndex = Number.parseInt(body.fromTimestamp, 10);
+    if (Number.isNaN(msgIndex))
+      throw new BadRequestError('fromTimestamp must be a numeric message index');
     return this.sessionManager.splitSession(
       sessionId,
       msgIndex,
@@ -246,6 +209,16 @@ export class SessionsService implements ISessionsService {
     const existing = await this.sessionManager.getSession(sessionId);
     if (!existing) throw new NotFoundError('Session not found');
 
+    if ('title' in body) {
+      const requestedTitle = typeof body.title === 'string' ? body.title.trim() : '';
+      const currentTitle = typeof existing.title === 'string' ? existing.title.trim() : '';
+      const isTitleChange = requestedTitle !== currentTitle;
+
+      if (existing.previousSessionId && isTitleChange) {
+        throw new BadRequestError('Sessions with a parent session cannot be renamed');
+      }
+    }
+
     // When activatedTools are included, serialize them into the notes column as session meta.
     const updates: Record<string, unknown> = { ...body };
     if ('activatedTools' in body) {
@@ -256,7 +229,16 @@ export class SessionsService implements ISessionsService {
       delete updates.activatedTools;
     }
 
-    await this.sessionManager.saveSession({ ...(existing as any), ...updates, id: sessionId } as any);
+    if ('title' in updates && typeof updates.title === 'string' && !existing.previousSessionId) {
+      await this.sessionManager.setThreadTitle(sessionId, updates.title);
+      delete updates.title;
+    }
+
+    await this.sessionManager.saveSession({
+      ...(existing as any),
+      ...updates,
+      id: sessionId,
+    } as any);
     const updated = await this.sessionManager.getSession(sessionId);
     return hydrateSession((updated ?? existing) as any);
   }

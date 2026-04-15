@@ -130,6 +130,7 @@ export interface Agent {
   pronouns?: string;
   ttsVoice?: string;
   ttsRate?: number;
+  description?: string;
   workHours?: string;
   goal?: string;
   backstory?: string;

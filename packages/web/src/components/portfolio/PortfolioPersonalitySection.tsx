@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { AiTeamHttpClient } from '@ai-team/api-client';
 import type { AgentPersonality } from '../../types';
 import { LEVEL_CHIP, MarkdownEditor, PortfolioSectionCard, STYLE_ICONS } from './portfolioShared';
@@ -62,10 +64,12 @@ export function PortfolioPersonalitySection({
   const [draft, setDraft] = useState<AgentPersonality>({});
   const [profileMarkdown, setProfileMarkdown] = useState('');
   const [draftMarkdown, setDraftMarkdown] = useState('');
+  const [bio, setBio] = useState<string | null>(null);
+  const [bioDraft, setBioDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Load the "Personality Profile" md section on mount
+  // Load "Personality Profile" section and bio on mount
   useEffect(() => {
     void client.agents
       .getSections(agentId)
@@ -74,13 +78,20 @@ export function PortfolioPersonalitySection({
         setProfileMarkdown(section?.content ?? '');
       })
       .catch(() => {
-        /* silently ignore if sections fail */
+        /* ignore */
+      });
+    void client.agents
+      .getBio(agentId)
+      .then((r) => setBio(r.bio))
+      .catch(() => {
+        /* ignore */
       });
   }, [agentId, client]);
 
   const startEdit = () => {
     setDraft({ ...personality });
     setDraftMarkdown(profileMarkdown);
+    setBioDraft(bio ?? '');
     setSaveError(null);
     setIsEditing(true);
   };
@@ -101,6 +112,11 @@ export function PortfolioPersonalitySection({
         const freshSections = await client.agents.getSections(agentId);
         const section = freshSections.find((s) => s.heading === 'Personality Profile');
         setProfileMarkdown(section?.content ?? draftMarkdown);
+      }
+      if (bioDraft !== (bio ?? '')) {
+        await client.agents.updateBio(agentId, { bio: bioDraft });
+        const fresh = await client.agents.getBio(agentId);
+        setBio(fresh.bio);
       }
       setIsEditing(false);
     } catch (e: any) {
@@ -126,6 +142,10 @@ export function PortfolioPersonalitySection({
       {saveError ? <p className="portfolio-section-error">{saveError}</p> : null}
       {isEditing ? (
         <>
+          <div className="personality-narrative-editor">
+            <span className="personality-narrative-label">Bio</span>
+            <MarkdownEditor value={bioDraft} onChange={setBioDraft} />
+          </div>
           <div className="portfolio-form-grid">
             <label>
               <span>Communication Style</span>
@@ -178,13 +198,16 @@ export function PortfolioPersonalitySection({
               <span>Available for mentoring</span>
             </label>
           </div>
-          <div className="personality-narrative-editor">
-            <span className="personality-narrative-label">Personality profile narrative</span>
-            <MarkdownEditor value={draftMarkdown} onChange={setDraftMarkdown} />
-          </div>
         </>
       ) : (
         <>
+          {bio ? (
+            <div className="personality-narrative-view">
+              <div className="portfolio-bio personality-narrative-content">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{bio}</ReactMarkdown>
+              </div>
+            </div>
+          ) : null}
           <PersonalityView p={p} hasMentoringInfo={hasMentoringInfo} />
           {profileMarkdown ? (
             <div className="personality-narrative-view">

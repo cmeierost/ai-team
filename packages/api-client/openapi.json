@@ -353,6 +353,13 @@
                     "type": "object",
                     "properties": {},
                     "nullable": true
+                  },
+                  "mcpConfigFiles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "nullable": true
                   }
                 }
               }
@@ -738,6 +745,121 @@
                   "required": [
                     "ok"
                   ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/config/mcp-servers": {
+      "get": {
+        "operationId": "getMcpServers",
+        "parameters": [
+          {
+            "name": "agent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMcpServersResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/config/mcp-servers/allow": {
+      "post": {
+        "operationId": "allowMcpServer",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "server": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent",
+                  "server"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateMcpServerResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/config/mcp-servers/disallow": {
+      "post": {
+        "operationId": "disallowMcpServer",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "server": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent",
+                  "server"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateMcpServerResponse"
                 }
               }
             }
@@ -1199,6 +1321,91 @@
                 },
                 "required": [
                   "content"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/agents/{id}/bio": {
+      "get": {
+        "operationId": "getBio",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bio": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "bio"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateBio",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "bio": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "bio"
                 ]
               }
             }
@@ -5207,6 +5414,13 @@
             "type": "object",
             "properties": {},
             "nullable": true
+          },
+          "mcpConfigFiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
           }
         },
         "required": [
@@ -5351,6 +5565,109 @@
             "nullable": true
           }
         }
+      },
+      "McpServerEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          },
+          "command": {
+            "type": "string",
+            "nullable": true
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "sourceFile": {
+            "type": "string"
+          },
+          "allowedForAgent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "sourceFile"
+        ]
+      },
+      "GetMcpServersResponse": {
+        "type": "object",
+        "properties": {
+          "servers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpServerEntry"
+            }
+          }
+        },
+        "required": [
+          "servers"
+        ]
+      },
+      "UpdateMcpServerResponse": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "role"
+            ]
+          },
+          "server": {
+            "type": "string"
+          },
+          "mcpServers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agent",
+          "server",
+          "mcpServers",
+          "changed"
+        ]
       },
       "ChatCommandRegistryEntry": {
         "type": "object",
@@ -5876,6 +6193,20 @@
             },
             "nullable": true
           },
+          "mcpServers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "disallowedMcpServers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
           "canDelegate": {
             "oneOf": [
               {
@@ -6194,6 +6525,20 @@
             "nullable": true
           },
           "cliTools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "mcpServers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "disallowedMcpServers": {
             "type": "array",
             "items": {
               "type": "string"

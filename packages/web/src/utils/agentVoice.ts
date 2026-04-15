@@ -12,15 +12,100 @@ function hashString(s: string): number {
   return Math.abs(h);
 }
 
+type VoiceStyle = 'female' | 'male' | 'neutral';
+
+const FEMALE_VOICE_MARKERS = [
+  'zira',
+  'aria',
+  'jenny',
+  'sara',
+  'hazel',
+  'sonia',
+  'libby',
+  'female',
+  'woman',
+];
+
+const MALE_VOICE_MARKERS = ['david', 'guy', 'mark', 'andrew', 'brian', 'male', 'man'];
+
+const COMMON_FEMALE_FIRST_NAMES = new Set([
+  'emily',
+  'sarah',
+  'anna',
+  'lisa',
+  'jennifer',
+  'jenny',
+  'emma',
+  'olivia',
+  'sophia',
+  'ava',
+]);
+
+const COMMON_MALE_FIRST_NAMES = new Set([
+  'david',
+  'mike',
+  'michael',
+  'tom',
+  'alex',
+  'andrew',
+  'mark',
+  'brian',
+  'john',
+  'robert',
+]);
+
+function inferVoiceStyle(agent: Agent): VoiceStyle {
+  const pronouns = (agent.pronouns ?? '').toLowerCase();
+
+  if (/(^|\W)she(\W|$)|(^|\W)her(\W|$)/.test(pronouns)) {
+    return 'female';
+  }
+
+  if (/(^|\W)he(\W|$)|(^|\W)him(\W|$)/.test(pronouns)) {
+    return 'male';
+  }
+
+  const firstName = (agent.name ?? '').trim().split(/\s+/)[0]?.toLowerCase();
+
+  if (firstName && COMMON_FEMALE_FIRST_NAMES.has(firstName)) {
+    return 'female';
+  }
+
+  if (firstName && COMMON_MALE_FIRST_NAMES.has(firstName)) {
+    return 'male';
+  }
+
+  return 'neutral';
+}
+
+function voiceNameHasAnyMarker(voice: SpeechSynthesisVoice, markers: string[]): boolean {
+  const voiceName = voice.name.toLowerCase();
+  return markers.some((marker) => voiceName.includes(marker));
+}
+
+function pickVoicePoolByStyle(
+  agent: Agent,
+  voices: SpeechSynthesisVoice[]
+): SpeechSynthesisVoice[] {
+  const style = inferVoiceStyle(agent);
+  if (style === 'neutral') {
+    return voices;
+  }
+
+  const markers = style === 'female' ? FEMALE_VOICE_MARKERS : MALE_VOICE_MARKERS;
+  const matched = voices.filter((voice) => voiceNameHasAnyMarker(voice, markers));
+  return matched.length > 0 ? matched : voices;
+}
+
 /**
  * Pick a browser voice for the given agent.
  *
  * Strategy:
  * 1. If the agent has an explicit `ttsVoice` hint → exact name match, then
  *    case-insensitive includes match.
- * 2. If no hint → assign a voice deterministically from the full available
- *    list using a hash of the agent ID, so every agent always gets the same
- *    distinct voice and no two agents share a voice unless voices are scarce.
+ * 2. If no hint → infer a preferred voice style (female/male/neutral) from
+ *    pronouns and common first-name hints, then assign deterministically from
+ *    that filtered pool (or from all voices if no style matches are found).
  */
 export function pickVoice(
   agent: Agent | null | undefined,
@@ -38,10 +123,11 @@ export function pickVoice(
     return voices.find((v) => v.name.toLowerCase().includes(lower));
   }
 
-  // No hint — assign deterministically from the full voice list so each
-  // agent always sounds distinct and consistent.
-  const index = hashString(agent.id) % voices.length;
-  return voices[index];
+  // No hint — assign deterministically from a style-aware pool first, falling
+  // back to the full voice list if no style-specific candidates are present.
+  const candidateVoices = pickVoicePoolByStyle(agent, voices);
+  const index = hashString(agent.id) % candidateVoices.length;
+  return candidateVoices[index];
 }
 
 function isCodeLikeLine(line: string): boolean {

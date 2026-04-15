@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { PermissionOverlapRegion, PermissionSuggestion } from '../types';
+import type { PermissionAgentResponsibilitySummary, PermissionOverlapRegion, PermissionSuggestion } from '../types';
 import { usePermissionAnalysis, filterRegionsForAgent } from './usePermissionAnalysis';
 
 export interface AgentOverlapView {
@@ -8,6 +8,8 @@ export interface AgentOverlapView {
   strongestRegion?: PermissionOverlapRegion;
   dominantFileTypes: string[];
   suggestions: PermissionSuggestion[];
+  agentResponsibilities: Record<string, PermissionAgentResponsibilitySummary>;
+  workspaceFileCount: number;
 }
 
 interface UseAgentOverlapOptions {
@@ -76,6 +78,8 @@ export function useAgentOverlap(agentId: string | undefined, options: UseAgentOv
       strongestRegion,
       dominantFileTypes,
       suggestions: buildAgentSuggestions(agentId, peerRegions),
+      agentResponsibilities: query.view.agentResponsibilities,
+      workspaceFileCount: query.view.workspaceFileCount,
     };
   }, [agentId, query.view]);
 

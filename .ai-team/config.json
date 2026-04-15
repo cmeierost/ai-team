@@ -1,5 +1,8 @@
 {
   "version": "0.1.0",
+  "mcpConfigFiles": [
+    ".vscode/mcp.json"
+  ],
   "providers": {
     "api-llmhub-infs-ai": {
       "kind": "openai-compatible",

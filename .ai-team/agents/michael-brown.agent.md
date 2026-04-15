@@ -13,8 +13,8 @@ personality:
   communication_style: strategic
   expertise_level: executive
   mentoring: true
-ttsVoice: David
-ttsRate: 1.5
+ttsVoice: Microsoft Andrew Online (Natural) - English (United States)
+ttsRate: 1.25
 description: >-
   CEO and executive root of the ai-team organization. Use when the work needs
   top-level business direction, product/software purpose clarification,
@@ -35,6 +35,8 @@ disallowedTools:
   - hr_avatar
   - hr_hire
   - update_llm
+mcpServers:
+  - microsoftdocs/mcp
 canDelegate: true
 delegatesTo:
   - emily-davis

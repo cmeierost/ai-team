@@ -157,6 +157,8 @@ export const AgentSchema = z
     tools: z.array(z.string()).optional(),
     disallowedTools: z.array(z.string()).optional(),
     cliTools: z.array(z.string()).optional(),
+    mcpServers: z.array(z.string()).optional(),
+    disallowedMcpServers: z.array(z.string()).optional(),
     canDelegate: z.boolean().optional(),
     delegatesTo: z.array(z.string()).optional(),
     availableFor: z.array(z.string()).optional(),
@@ -250,6 +252,7 @@ export const TeamConfigSchema = z.object({
       })
     )
     .optional(),
+  mcpConfigFiles: z.array(z.string()).optional(),
 });
 
 export type TeamConfig = z.infer<typeof TeamConfigSchema>;

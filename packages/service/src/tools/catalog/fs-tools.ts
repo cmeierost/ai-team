@@ -1,4 +1,5 @@
 import path from 'node:path';
+import * as nodeFs from 'node:fs/promises';
 import { z } from 'zod';
 import { FileTime, READ_DEFAULT_LIMIT, PermissionError, renderAsciiTree } from 'fs-context';
 import type { ReadFileResult, FileTreeNode } from 'fs-context';
@@ -271,9 +272,23 @@ export const fsWriteFileTool: AgentTool = {
   async execute(params, context) {
     const { filePath, content } = params as { filePath: string; content: string };
     try {
-      const fs = wfs(context);
-      const { bytes } = await fs.writeFile(filePath, content);
-      return { path: filePath, written: true, bytes };
+      const workspaceFs = wfs(context);
+      const absolutePath = workspaceFs.toAbsolutePath(filePath);
+
+      let oldContent = '';
+      try {
+        oldContent = await nodeFs.readFile(absolutePath, 'utf8');
+      } catch {
+        oldContent = '';
+      }
+
+      const { bytes } = await workspaceFs.writeFile(filePath, content);
+      return {
+        path: filePath,
+        written: true,
+        bytes,
+        _fileChanges: [{ filePath: absolutePath, oldContent, newContent: content }],
+      };
     } catch (e) {
       return failed(e, filePath, 'written');
     }

@@ -86,6 +86,8 @@ export interface AgentConfig {
   tools?: string[];
   disallowedTools?: string[];
   cliTools?: string[];
+  mcpServers?: string[];
+  disallowedMcpServers?: string[];
   canDelegate?: boolean;
   delegatesTo?: string[];
   availableFor?: string[];
@@ -199,6 +201,8 @@ export interface IAgentsService {
   uploadAvatar(id: string, body: { data: string; ext: string }): Promise<Agent>;
   getSections(id: string): Promise<MarkdownSection[]>;
   updateSection(id: string, heading: string, body: { content: string }): Promise<Agent>;
+  getBio(id: string): Promise<{ bio: string | null }>;
+  updateBio(id: string, body: { bio: string }): Promise<Agent>;
   getMarkdown(id: string): Promise<{ markdown: string }>;
   updateMarkdown(id: string, body: { markdown: string }): Promise<Agent>;
   getFiles(id: string): Promise<{ files: AnnotatedFile[] }>;
@@ -224,6 +228,8 @@ export const agentsDesc: ApiDescription<IAgentsService> = {
     uploadAvatar: { method: 'POST', path: ':id/avatar' },
     getSections: { method: 'GET', path: ':id/sections' },
     updateSection: { method: 'PUT', path: ':id/sections/:heading' },
+    getBio: { method: 'GET', path: ':id/bio' },
+    updateBio: { method: 'PUT', path: ':id/bio' },
     getMarkdown: { method: 'GET', path: ':id/markdown' },
     updateMarkdown: { method: 'PUT', path: ':id/markdown' },
     getFiles: { method: 'GET', path: ':id/files' },

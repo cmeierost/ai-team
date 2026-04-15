@@ -20,6 +20,7 @@ import { executeHandoff, tryNlForward } from './handoff.js';
 import { dispatchToolCall } from './tool-dispatch.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
+import type { ChatMessage } from '@ai-team/infrastructure';
 
 /** Options for a single run() call. */
 export interface RunOptions {
@@ -187,8 +188,35 @@ export class ChatOrchestrator {
     const intent = resolvePreLlmIntent(message);
     if (!intent) return null;
 
+    await this.persistRegexIntentUserMessage(message);
     await this.executeRegexToolIntent(intent.toolName, intent.args, contextFiles);
     return '';
+  }
+
+  private async persistRegexIntentUserMessage(message: string): Promise<void> {
+    const userMsg: ChatMessage = {
+      timestamp: new Date().toISOString(),
+      from: 'human',
+      to: this.ctx.agent.id,
+      isHuman: true,
+      content: message,
+    };
+
+    const generatedTitle = await this.ctx.sessionManager.appendMessage(
+      this.ctx.sessionId,
+      userMsg,
+      this.ctx.llmService
+    );
+
+    if (generatedTitle) {
+      this.ctx.hooks?.emit?.({
+        kind: 'session_title_updated',
+        sessionId: this.ctx.sessionId,
+        title: generatedTitle,
+      });
+    }
+
+    this.ctx.history.push(userMsg);
   }
 
   private async executeRegexToolIntent(
