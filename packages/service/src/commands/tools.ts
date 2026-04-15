@@ -25,12 +25,13 @@ function buildCatalogEntry(
   },
   tool: AgentTool
 ) {
+  const key = toolKey(tool);
   const permType = tool.permissionCheck?.type;
   return {
-    name: tool.name,
+    name: key,
     description: tool.description,
     group: tool.group,
-    schema: toolManager.toSchema(tool.name)?.parameters ?? {},
+    schema: toolManager.toSchema(key)?.parameters ?? {},
     tags: tool.tags,
     examples: tool.examples,
     fileRightsDependent: permType === 'file-read' || permType === 'file-write',
@@ -52,6 +53,39 @@ async function resolveFullAgent(
     throw new Error(`Agent not found: ${resolved.id}`);
   }
   return agent;
+}
+
+function resolveToolIdentifier(
+  toolManager: Pick<ToolManager, 'get' | 'getAll'>,
+  requestedTool: string
+): string {
+  // Preferred: canonical lookup key (e.g., "hr_hire").
+  if (toolManager.get(requestedTool)) {
+    return requestedTool;
+  }
+
+  // Backward compatibility: accept short names returned by older API payloads
+  // (e.g., "hire" -> "hr_hire", "performance" -> "hr_performance").
+  const canonicalMatches = Array.from(
+    new Set(
+      toolManager
+        .getAll()
+        .filter((tool) => tool.name === requestedTool)
+        .map((tool) => toolKey(tool))
+    )
+  );
+
+  if (canonicalMatches.length === 1) {
+    return canonicalMatches[0];
+  }
+
+  if (canonicalMatches.length > 1) {
+    throw new Error(
+      `Ambiguous tool name: ${requestedTool}. Use one of: ${canonicalMatches.join(', ')}`
+    );
+  }
+
+  throw new Error(`Unknown tool: ${requestedTool}`);
 }
 
 export async function listToolsCommand(
@@ -114,19 +148,17 @@ export async function allowToolCommand(
     throw new Error(`Agent not found: ${resolved.id}`);
   }
 
-  if (!toolManager.get(options.tool)) {
-    throw new Error(`Unknown tool: ${options.tool}`);
-  }
+  const resolvedTool = resolveToolIdentifier(toolManager, options.tool);
 
   const currentTools = agent.tools ?? [];
   const currentDenied = agent.disallowedTools ?? [];
-  const toolAllowed = currentTools.includes(options.tool);
-  const toolDenied = currentDenied.includes(options.tool);
+  const toolAllowed = currentTools.includes(resolvedTool);
+  const toolDenied = currentDenied.includes(resolvedTool);
 
   const nextTools = toolAllowed
     ? currentTools
-    : [...currentTools, options.tool].sort((a, b) => a.localeCompare(b));
-  const nextDenied = currentDenied.filter((t) => t !== options.tool);
+    : [...currentTools, resolvedTool].sort((a, b) => a.localeCompare(b));
+  const nextDenied = currentDenied.filter((t) => t !== resolvedTool);
   const changed = !toolAllowed || toolDenied;
 
   const updatedAgent = changed
@@ -142,7 +174,7 @@ export async function allowToolCommand(
       name: updatedAgent.name,
       role: updatedAgent.role,
     },
-    tool: options.tool,
+    tool: resolvedTool,
     tools: updatedAgent.tools ?? nextTools,
     changed,
   };
@@ -182,17 +214,15 @@ export async function disallowToolCommand(
     throw new Error(`Agent not found: ${resolved.id}`);
   }
 
-  if (!toolManager.get(options.tool)) {
-    throw new Error(`Unknown tool: ${options.tool}`);
-  }
+  const resolvedTool = resolveToolIdentifier(toolManager, options.tool);
 
   const currentTools = agent.tools ?? [];
   const currentDenied = agent.disallowedTools ?? [];
-  const nextTools = currentTools.filter((t) => t !== options.tool);
-  const alreadyDenied = currentDenied.includes(options.tool);
+  const nextTools = currentTools.filter((t) => t !== resolvedTool);
+  const alreadyDenied = currentDenied.includes(resolvedTool);
   const nextDenied = alreadyDenied
     ? currentDenied
-    : [...currentDenied, options.tool].sort((a, b) => a.localeCompare(b));
+    : [...currentDenied, resolvedTool].sort((a, b) => a.localeCompare(b));
   const changed = nextTools.length !== currentTools.length || !alreadyDenied;
 
   const updatedAgent = changed
@@ -208,7 +238,7 @@ export async function disallowToolCommand(
       name: updatedAgent.name,
       role: updatedAgent.role,
     },
-    tool: options.tool,
+    tool: resolvedTool,
     tools: updatedAgent.tools ?? nextTools,
     changed,
   };

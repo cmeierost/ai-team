@@ -7046,6 +7046,12 @@
               },
               {
                 "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
               }
             ]
           },
@@ -7067,6 +7073,10 @@
         "properties": {
           "toolName": {
             "type": "string"
+          },
+          "toolCallId": {
+            "type": "string",
+            "nullable": true
           },
           "toolPhase": {
             "oneOf": [
@@ -7104,6 +7114,10 @@
           },
           "timestamp": {
             "type": "string"
+          },
+          "toolEventSeq": {
+            "type": "number",
+            "nullable": true
           }
         },
         "required": [

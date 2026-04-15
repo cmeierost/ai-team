@@ -128,6 +128,8 @@ export type RuntimeStreamEvent =
       kind: 'tool';
       toolName?: string;
       toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
+      /** Monotonic sequence assigned by server stream emission for deterministic ordering. */
+      toolEventSeq?: number;
       message?: string;
       toolDenial?: ToolDenialEvent;
       toolResult?: ToolRuntimePayloadEvent;
@@ -488,7 +490,7 @@ export interface ICommandDispatcher {
 
 export interface ToolRuntimePayloadEvent {
   toolName: string;
-  outcome: 'result' | 'error' | 'denied';
+  outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
   request?: unknown;
   result?: unknown;
   /** LLM-formatted representation of result — what was injected into the model's context window. */
@@ -501,6 +503,7 @@ export type StreamEvent<
 > =
   | {
       requestId?: string;
+      toolCallId?: string;
       command: TCommand;
       kind: 'started';
       timestamp: string;
@@ -554,7 +557,10 @@ export type StreamEvent<
       kind: 'tool';
       timestamp: string;
       toolName: string;
+      toolCallId?: string;
       toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
+      /** Monotonic sequence assigned by server stream emission for deterministic ordering. */
+      toolEventSeq?: number;
       message?: string;
       toolDenial?: ToolDenialEvent;
       toolResult?: ToolRuntimePayloadEvent;

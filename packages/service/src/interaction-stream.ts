@@ -45,6 +45,7 @@ export async function* streamInteraction<
   let invokeError: unknown;
   let invokeSettled = false;
   let terminalStateNotified = false;
+  let toolEventSeq = 0;
 
   const notifyTerminalState = (state: 'done' | 'error' | 'aborted') => {
     if (terminalStateNotified) {
@@ -60,8 +61,19 @@ export async function* streamInteraction<
   };
 
   const emitRuntimeEvent = (event: RuntimeStreamEvent) => {
-    options.onRuntimeEvent?.(event);
-    runtimeQueue.push(event);
+    const enrichedEvent: RuntimeStreamEvent =
+      event.kind === 'tool'
+        ? {
+            ...event,
+            toolEventSeq:
+              typeof event.toolEventSeq === 'number' && Number.isFinite(event.toolEventSeq)
+                ? event.toolEventSeq
+                : ++toolEventSeq,
+          }
+        : event;
+
+    options.onRuntimeEvent?.(enrichedEvent);
+    runtimeQueue.push(enrichedEvent);
     if (runtimeWaiter) {
       runtimeWaiter();
       runtimeWaiter = undefined;

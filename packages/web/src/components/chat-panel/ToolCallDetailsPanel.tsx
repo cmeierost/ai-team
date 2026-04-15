@@ -189,14 +189,10 @@ export function ToolCallDetailsPanel({ event }: Readonly<ToolCallDetailsPanelPro
   const hasJson = result !== undefined;
   const hasLlm = resultLlm !== undefined;
   const hasRequest = request !== undefined;
-  const isError = event.toolResult?.outcome === 'error';
 
   const defaultTab: Tab = (() => {
-    if (isError) {
-      if (hasRequest) return 'request';
-      if (hasJson) return 'json';
-      return 'llm';
-    }
+    // Default view should prioritize response output over request payload.
+    // If no renderer exists, fall back to JSON response.
     if (hasRendered) return 'rendered';
     if (hasJson) return 'json';
     if (hasLlm) return 'llm';
@@ -205,10 +201,10 @@ export function ToolCallDetailsPanel({ event }: Readonly<ToolCallDetailsPanelPro
   const [tab, setTab] = useState<Tab>(defaultTab);
 
   const tabs: { id: Tab; label: string; visible: boolean }[] = [
-    { id: 'rendered', label: 'Rendered', visible: hasRendered },
-    { id: 'json', label: isError ? 'Error' : 'JSON', visible: hasJson },
-    { id: 'llm', label: 'LLM', visible: hasLlm },
     { id: 'request', label: 'Request', visible: hasRequest },
+    { id: 'rendered', label: 'Rendered', visible: hasRendered },
+    { id: 'json', label: 'JSON', visible: hasJson },
+    { id: 'llm', label: 'LLM', visible: hasLlm },
   ];
 
   const visibleTabs = tabs.filter((t) => t.visible);

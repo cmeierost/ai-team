@@ -192,25 +192,11 @@ export const fsReadFileTool: AgentTool = {
     const r = result as Record<string, unknown>;
     if (typeof r.content !== 'string') return result;
     const filePath = r.path as string;
-    const startLine = typeof r.startLine === 'number' ? r.startLine : undefined;
-    const endLine = typeof r.endLine === 'number' ? r.endLine : undefined;
-    const totalLines = typeof r.totalLines === 'number' ? r.totalLines : undefined;
     const isFullFile = r.isFullFile === true;
-    let rangeText = 'unknown';
-
-    if (startLine !== undefined && endLine !== undefined) {
-      rangeText = `${startLine}-${endLine}`;
-      if (totalLines !== undefined) {
-        rangeText += ` of ${totalLines}`;
-      }
-    } else if (totalLines !== undefined) {
-      rangeText = `1-${totalLines} of ${totalLines}`;
-    }
 
     return [
       `File: ${filePath}`,
-      `Lines: ${rangeText}`,
-      `Full file: ${isFullFile ? 'yes' : 'no'}`,
+      `Scope: ${isFullFile ? 'full-file' : 'partial-slice'}`,
       '',
       r.content,
     ].join('\n');

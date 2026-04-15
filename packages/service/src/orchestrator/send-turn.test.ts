@@ -19,7 +19,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { parseHandoffDirective, stripHandoffDirective } from '../commands/chat/index.js';
-import { sendTurn } from './send-turn.js';
+import { buildRetryableFailureMessage, sendTurn } from './send-turn.js';
 import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
 import type { OrchestratorContext } from './pipeline-context.js';
@@ -359,6 +359,49 @@ describe('sendTurn — no directive (normal turn)', () => {
     expect(result.handedOff).toBeFalsy();
     expect(result.handoffTargetId).toBeUndefined();
     expect(result.text).toContain('Working on it.');
+  });
+});
+
+describe('sendTurn — llm failure fallback', () => {
+  it('returns a retryable timeout message and persists it as archived when LLM invocation fails', async () => {
+    const { ctx, appendMessage } = makeCtx('unused');
+    (ctx.llmService as { streamChat: unknown }).streamChat = vi.fn(async () => {
+      throw new Error('LLM request timed out after 30s.');
+    });
+
+    const outputHandle = vi.fn(async () => {});
+    const plugins = {
+      ...makePlugins(),
+      outputHandler: { handle: outputHandle } as any,
+    };
+
+    const result = await sendTurn('hello', plugins, ctx);
+
+    expect(result.done).toBe(true);
+    expect(result.text).toBe("Sorry — I couldn't complete that request in time. Please try again.");
+    expect(outputHandle).toHaveBeenCalledOnce();
+
+    const persistedAgentMsg = appendMessage.mock.calls.find((call: unknown[]) => {
+      const msg = call[1] as ChatMessage | undefined;
+      return !!msg && !msg.isHuman && msg.to === 'human';
+    })?.[1] as ChatMessage | undefined;
+
+    expect(persistedAgentMsg?.content).toBe(
+      "Sorry — I couldn't complete that request in time. Please try again."
+    );
+    expect(persistedAgentMsg?.archived).toBe(true);
+  });
+});
+
+describe('buildRetryableFailureMessage', () => {
+  it('uses timeout-specific guidance for timeout errors', () => {
+    expect(buildRetryableFailureMessage('LLM request timed out after 30s.')).toContain(
+      "couldn't complete that request in time"
+    );
+  });
+
+  it('uses generic retry guidance for non-timeout errors', () => {
+    expect(buildRetryableFailureMessage('connection reset')).toContain('temporary issue');
   });
 });
 

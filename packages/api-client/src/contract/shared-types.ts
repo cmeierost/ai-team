@@ -45,7 +45,7 @@ export interface SessionToolDenial {
 
 export interface SessionToolResult {
   toolName: string;
-  outcome: 'result' | 'error' | 'denied';
+  outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
   request?: unknown;
   result?: unknown;
   resultLlm?: unknown;
@@ -54,11 +54,14 @@ export interface SessionToolResult {
 
 export interface SessionActivatedTool {
   toolName: string;
+  toolCallId?: string;
   toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
   message?: string;
   toolResult?: SessionToolResult;
   toolDenial?: SessionToolDenial;
   timestamp: string;
+  /** Monotonic server-assigned sequence for deterministic ordering. */
+  toolEventSeq?: number;
 }
 
 export interface ChatSession {

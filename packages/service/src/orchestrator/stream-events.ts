@@ -5,10 +5,12 @@
  * All other modules go through emitEvent() rather than calling hooks.emit directly.
  */
 
-import type { RuntimeStreamEvent } from '@ai-team/api-client';
+import type {
+  RuntimeStreamEvent,
+  ToolDenialEvent,
+  ToolRuntimePayloadEvent,
+} from '@ai-team/api-client';
 import type { ChatRuntimeHooks } from '../commands/chat/index.js';
-import type { ToolDenialEvent } from '@ai-team/api-client';
-import type { ToolRuntimePayloadEvent } from '@ai-team/api-client';
 
 // ── Delta extraction ──────────────────────────────────────────────────────────
 
@@ -81,10 +83,19 @@ export function emitStatus(
 export function emitToolEvent(
   hooks: ChatRuntimeHooks | undefined,
   toolName: string,
+  toolCallId: string | undefined,
   toolPhase: 'start' | 'result' | 'error' | 'denied',
   message?: string,
   toolDenial?: ToolDenialEvent,
   toolResult?: ToolRuntimePayloadEvent
 ): void {
-  emitEvent(hooks, { kind: 'tool', toolName, toolPhase, message, toolDenial, toolResult });
+  emitEvent(hooks, {
+    kind: 'tool',
+    toolName,
+    toolCallId,
+    toolPhase,
+    message,
+    toolDenial,
+    toolResult,
+  } as RuntimeStreamEvent);
 }

@@ -15,6 +15,8 @@ type PersistedToolCall = {
   resultLlm?: unknown;
 };
 
+type ToolDenial = NonNullable<NonNullable<SessionActivatedTool['toolResult']>['denial']>;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -44,7 +46,7 @@ export function getPersistedToolStatus(call: PersistedToolCall): {
   phase: SessionActivatedTool['toolPhase'];
   outcome: NonNullable<SessionActivatedTool['toolResult']>['outcome'];
   message?: string;
-  denial?: SessionActivatedTool['toolResult'] extends { denial?: infer D } ? D : never;
+  denial?: ToolDenial;
 } {
   const result = call.result;
 
@@ -94,11 +96,8 @@ export function getPersistedToolStatus(call: PersistedToolCall): {
   };
 }
 
-function toPersistedDenial(
-  value: unknown,
-  fallbackMessage?: string
-): SessionActivatedTool['toolResult'] extends { denial?: infer D } ? D : never {
-  if (!isRecord(value)) return undefined as never;
+function toPersistedDenial(value: unknown, fallbackMessage?: string): ToolDenial | undefined {
+  if (!isRecord(value)) return undefined;
 
   const kind =
     value.kind === 'user-denied' ||
@@ -119,7 +118,7 @@ function toPersistedDenial(
       : undefined,
     alternativeContexts: undefined,
     handoffRecommendation: undefined,
-  } as never;
+  };
 }
 
 export function extractSessionActivatedTools(notes?: string): SessionActivatedTool[] {
@@ -294,8 +293,8 @@ function toNameSlug(value: string): string {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replaceAll(/[^a-z0-9]+/g, '-')
+    .replaceAll(/^-+|-+$/g, '');
 }
 
 function pickUniqueMatch(agents: Agent[], predicate: (agent: Agent) => boolean): Agent | null {

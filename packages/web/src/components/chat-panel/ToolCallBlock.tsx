@@ -8,19 +8,56 @@ interface ToolCallBlockProps {
   event: SessionActivatedTool;
 }
 
+function requestPreview(request: unknown): string | null {
+  if (request === undefined) return null;
+  if (typeof request === 'string') return request;
+  try {
+    const serialized = JSON.stringify(request);
+    if (!serialized) return null;
+    return serialized.length > 140 ? `${serialized.slice(0, 137)}…` : serialized;
+  } catch {
+    return '[unserializable request]';
+  }
+}
+
 export function ToolCallBlock({ event }: Readonly<ToolCallBlockProps>) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const toolName = event.toolResult?.toolName ?? event.toolName;
   const phase = event.toolPhase;
   const phaseClass = getToolPhaseClass(phase);
   const phaseLabel = getToolPhaseLabel(phase);
+  const request = event.toolResult?.request;
 
   if (phase === 'request' || phase === 'start') {
+    const hasRequest = request !== undefined;
+    const preview = requestPreview(request);
+    const previewLabel = preview ? `params: ${preview}` : null;
+    const toggleDetailsOpen = () => {
+      if (!hasRequest) return;
+      setDetailsOpen((open) => !open);
+    };
+
     return (
-      <div className="tool-call-block tool-call-block--running">
-        <span className="tool-call-dot" aria-hidden="true" />
-        <span className="tool-call-name">{toolName}</span>
-        <span className={`context-tool-phase ${phaseClass}`}>{phaseLabel}</span>
+      <div className={`tool-call-entry${detailsOpen ? ' tool-call-entry--open' : ''}`}>
+        <button
+          type="button"
+          className={`tool-call-block tool-call-block--running${detailsOpen ? ' tool-call-block--details-open' : ''}${hasRequest ? ' tool-call-block--clickable' : ''}`}
+          data-tool-phase={phase}
+          onClick={toggleDetailsOpen}
+          disabled={!hasRequest}
+          aria-expanded={hasRequest ? detailsOpen : undefined}
+        >
+          <span className="tool-call-dot" aria-hidden="true" />
+          <span className="tool-call-name">{toolName}</span>
+          <span className={`context-tool-phase ${phaseClass}`}>{phaseLabel}</span>
+          {previewLabel && <span className="tool-call-inline-msg">{previewLabel}</span>}
+          {hasRequest && (
+            <span className="tool-call-details-toggle" aria-hidden="true">
+              {detailsOpen ? 'details ▴' : 'details ▾'}
+            </span>
+          )}
+        </button>
+        {detailsOpen && <ToolCallDetailsPanel event={event} />}
       </div>
     );
   }
@@ -30,6 +67,7 @@ export function ToolCallBlock({ event }: Readonly<ToolCallBlockProps>) {
       event.message ??
       (typeof event.toolResult?.result === 'string' ? event.toolResult.result : undefined) ??
       'Tool execution failed';
+    const userFacingMessage = /^error:\s*/i.test(msg) ? msg : `Error: ${msg}`;
     const canOpen =
       event.toolResult?.result !== undefined || event.toolResult?.request !== undefined;
     const toggleDetailsOpen = () => {
@@ -41,6 +79,7 @@ export function ToolCallBlock({ event }: Readonly<ToolCallBlockProps>) {
         <button
           type="button"
           className={`tool-call-block tool-call-block--failed${detailsOpen ? ' tool-call-block--details-open' : ''}${canOpen ? ' tool-call-block--clickable' : ''}`}
+          data-tool-phase={phase}
           onClick={toggleDetailsOpen}
           disabled={!canOpen}
           aria-expanded={canOpen ? detailsOpen : undefined}
@@ -50,7 +89,11 @@ export function ToolCallBlock({ event }: Readonly<ToolCallBlockProps>) {
           </span>
           <span className="tool-call-name">{toolName}</span>
           <span className={`context-tool-phase ${phaseClass}`}>{phaseLabel}</span>
-          {msg && <span className="tool-call-inline-msg">{msg}</span>}
+          {msg && (
+            <span className="tool-call-inline-msg tool-call-inline-msg--error" title={msg}>
+              {userFacingMessage}
+            </span>
+          )}
           {canOpen && (
             <span className="tool-call-details-toggle" aria-hidden="true">
               {detailsOpen ? 'details ▴' : 'details ▾'}
@@ -101,6 +144,7 @@ export function ToolCallBlock({ event }: Readonly<ToolCallBlockProps>) {
       <button
         type="button"
         className={`tool-call-block tool-call-block--completed${detailsOpen ? ' tool-call-block--details-open' : ''}${canOpen ? ' tool-call-block--clickable' : ''}`}
+        data-tool-phase={phase ?? 'result'}
         onClick={toggleDetailsOpen}
         disabled={!canOpen}
         aria-expanded={detailsOpen}

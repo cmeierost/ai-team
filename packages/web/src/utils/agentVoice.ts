@@ -44,6 +44,74 @@ export function pickVoice(
   return voices[index];
 }
 
+function isCodeLikeLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  const startsWithToken = [
+    'import ',
+    'export ',
+    'const ',
+    'let ',
+    'var ',
+    'function ',
+    'class ',
+    'interface ',
+    'type ',
+    'return ',
+    '#include ',
+  ].some((token) => trimmed.startsWith(token));
+
+  if (startsWithToken) {
+    return true;
+  }
+
+  if (/^(if|for|while)\s*\(/.test(trimmed)) {
+    return true;
+  }
+
+  if (/^(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE)\b/i.test(trimmed)) {
+    return true;
+  }
+
+  if (/^<\/?[A-Za-z]/.test(trimmed)) {
+    return true;
+  }
+
+  return /[{}[\];=<>]/.test(trimmed);
+}
+
+function removeLargeCodeLikeChunks(text: string): string {
+  const lines = text.split('\n');
+  const output: string[] = [];
+
+  let index = 0;
+  while (index < lines.length) {
+    if (!isCodeLikeLine(lines[index])) {
+      output.push(lines[index]);
+      index += 1;
+      continue;
+    }
+
+    let next = index;
+    while (next < lines.length && isCodeLikeLine(lines[next])) {
+      next += 1;
+    }
+
+    if (next - index >= 4) {
+      output.push(' ');
+    } else {
+      output.push(...lines.slice(index, next));
+    }
+
+    index = next;
+  }
+
+  return output.join('\n');
+}
+
 /**
  * Strip markdown syntax that would sound poor when spoken aloud:
  * - Fenced code blocks (``` ... ```)
@@ -55,24 +123,30 @@ export function pickVoice(
  * - Bare URLs
  */
 export function stripMarkdownForSpeech(text: string): string {
-  return (
+  const withoutCodeBlocks = removeLargeCodeLikeChunks(
     text
-      // fenced code blocks
-      .replace(/```[\s\S]*?```/g, ' ')
-      // inline code
-      .replace(/`[^`]*`/g, ' ')
+      // complete fenced code blocks (```...``` and ~~~...~~~)
+      .replaceAll(/(```|~~~)[\s\S]*?\1/g, ' ')
+      // dangling/unclosed fenced blocks while streaming
+      .replaceAll(/(```|~~~)[\s\S]*$/g, ' ')
+  );
+
+  return (
+    withoutCodeBlocks
+      // inline code — keep content, strip markdown backticks
+      .replaceAll(/`([^`]*)`/g, '$1')
       // links — keep display text
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replaceAll(/\[([^\]]+)\]\([^)]*\)/g, '$1')
       // bare URLs
-      .replace(/https?:\/\/\S+/g, ' ')
+      .replaceAll(/https?:\/\/\S+/g, ' ')
       // bold/italic
-      .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
+      .replaceAll(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
       // atx headings
-      .replace(/^#{1,6}\s+/gm, '')
+      .replaceAll(/^#{1,6}\s+/gm, '')
       // horizontal rules
-      .replace(/^[-*]{3,}\s*$/gm, '')
+      .replaceAll(/^[-*]{3,}\s*$/gm, '')
       // extra whitespace
-      .replace(/\s+/g, ' ')
+      .replaceAll(/\s+/g, ' ')
       .trim()
   );
 }

@@ -811,6 +811,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.90.21
         version: 5.90.21(react@19.2.4)
+      '@tanstack/react-virtual':
+        specifier: ^3.13.23
+        version: 3.13.23(react-dom@19.2.4)(react@19.2.4)
       '@uiw/react-json-view':
         specifier: 2.0.0-alpha.41
         version: 2.0.0-alpha.41(@babel/runtime@7.28.6)(react-dom@19.2.4)(react@19.2.4)
@@ -3616,6 +3619,21 @@ packages:
     dependencies:
       '@tanstack/query-core': 5.90.20
       react: 19.2.4
+    dev: false
+
+  /@tanstack/react-virtual@3.13.23(react-dom@19.2.4)(react@19.2.4):
+    resolution: {integrity: sha512-XnMRnHQ23piOVj2bzJqHrRrLg4r+F86fuBcwteKfbIjJrtGxb4z7tIvPVAe4B+4UVwo9G4Giuz5fmapcrnZ0OQ==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    dependencies:
+      '@tanstack/virtual-core': 3.13.23
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+    dev: false
+
+  /@tanstack/virtual-core@3.13.23:
+    resolution: {integrity: sha512-zSz2Z2HNyLjCplANTDyl3BcdQJc2k1+yyFoKhNRmCr7V7dY8o8q5m8uFTI1/Pg1kL+Hgrz6u3Xo6eFUB7l66cg==}
     dev: false
 
   /@testing-library/dom@10.4.1:

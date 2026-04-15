@@ -10,6 +10,7 @@ import { PortfolioHierarchyHandoffsSection } from './portfolio/PortfolioHierarch
 import { PortfolioReadFilesSection } from './portfolio/PortfolioReadFilesSection';
 import { PortfolioSkillAssignmentsSection } from './portfolio/PortfolioSkillAssignmentsSection';
 import { PortfolioToolsPermissionsSection } from './portfolio/PortfolioToolsPermissionsSection';
+import { PortfolioMcpSection } from './portfolio/PortfolioMcpSection';
 import { PortfolioFileAccessSection } from './portfolio/PortfolioFileAccessSection';
 import { PortfolioActivitySection } from './portfolio/PortfolioActivitySection';
 import { PortfolioContextWindowSection } from './portfolio/PortfolioContextWindowSection';
@@ -259,6 +260,8 @@ export function Portfolio() {
           actionPending={toolActionPending}
           onToggleTool={handleToggleTool}
         />
+
+        <PortfolioMcpSection tools={agent.tools ?? []} />
 
         <PortfolioFileAccessSection agentId={agent.id} />
 

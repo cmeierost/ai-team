@@ -25,7 +25,7 @@ import { ProposalStore } from '../storage/proposal-store.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import { requestConfirm } from './question-io.js';
 import { emitEvent, emitToolEvent } from './stream-events.js';
-import type { ToolDenialEvent, ToolRuntimePayloadEvent } from '@ai-team/api-client';
+import type { RuntimeStreamEvent, ToolDenialEvent, ToolRuntimePayloadEvent } from '@ai-team/api-client';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -131,9 +131,16 @@ export async function dispatchToolCall(
   const { toolName, toolCallId, args } = call;
   const label = `${toolName}(${formatArgs(args)})`;
 
-  emitEvent(ctx.hooks, { kind: 'tool', toolName, toolPhase: 'request', message: label });
+  emitEvent(ctx.hooks, {
+    kind: 'tool',
+    toolName,
+    toolCallId,
+    toolPhase: 'request',
+    message: label,
+    toolResult: buildPendingToolRuntimePayload(toolName, 'request', args),
+  } as RuntimeStreamEvent);
 
-  const deniedByUser = await requestExecutionApproval(toolName, label, args, ctx);
+  const deniedByUser = await requestExecutionApproval(toolName, toolCallId, label, args, ctx);
   if (deniedByUser) {
     return {
       toolCallId,
@@ -144,7 +151,14 @@ export async function dispatchToolCall(
     };
   }
 
-  emitToolEvent(ctx.hooks, toolName, 'start', 'In progress');
+  emitEvent(ctx.hooks, {
+    kind: 'tool',
+    toolName,
+    toolCallId,
+    toolPhase: 'start',
+    message: 'In progress',
+    toolResult: buildPendingToolRuntimePayload(toolName, 'start', args),
+  } as RuntimeStreamEvent);
 
   const execResult = await ctx.toolManager.execute(
     ctx.agent,
@@ -233,6 +247,7 @@ export async function dispatchToolCall(
   emitToolEvent(
     ctx.hooks,
     toolName,
+    toolCallId,
     toolPhase,
     toolEventMessage,
     denial ? toToolDenialEvent(denial) : undefined,
@@ -303,6 +318,7 @@ export async function dispatchToolCall(
 
 async function requestExecutionApproval(
   toolName: string,
+  toolCallId: string,
   label: string,
   args: unknown,
   ctx: OrchestratorContext
@@ -325,6 +341,7 @@ async function requestExecutionApproval(
   emitToolEvent(
     ctx.hooks,
     toolName,
+    toolCallId,
     'denied',
     denied,
     toToolDenialEvent(denial),
@@ -363,6 +380,21 @@ function buildToolRuntimePayload(
     result,
     resultLlm,
     denial: denial ? toToolDenialEvent(denial) : undefined,
+  };
+}
+
+function buildPendingToolRuntimePayload(
+  toolName: string,
+  phase: 'request' | 'start',
+  request: unknown
+): ToolRuntimePayloadEvent {
+  return {
+    toolName,
+    outcome: phase as unknown as ToolRuntimePayloadEvent['outcome'],
+    request,
+    result: undefined,
+    resultLlm: undefined,
+    denial: undefined,
   };
 }
 

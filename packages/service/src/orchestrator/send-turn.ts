@@ -241,7 +241,49 @@ export async function sendTurn(
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`\n[LLM error] ${message}\n`);
     emitStatus(hooks, 'error', message);
-    return { text: '', done: true };
+
+    const fallbackContent = buildRetryableFailureMessage(message);
+    const persistedContent = await runBeforePersistMessageHooks(
+      hookPlugins,
+      {
+        fullResponse: '',
+        persistedContent: fallbackContent,
+        ctx,
+      },
+      hooks
+    );
+
+    const failedAgentMsg: ChatMessage = {
+      timestamp: new Date().toISOString(),
+      from: agent.id,
+      to: 'human',
+      content: persistedContent,
+      isHuman: false,
+      archived: true,
+    };
+
+    if (!options?.skipPersist) {
+      await sessionManager.appendMessage(sessionId, failedAgentMsg);
+    }
+    ctx.history.push(failedAgentMsg);
+
+    const failedTurnResult: TurnResult = { text: persistedContent, done: true };
+    await plugins.outputHandler.handle(failedTurnResult, ctx);
+
+    await runVoidHook(
+      hookPlugins,
+      'onTurnCompleted',
+      {
+        fullResponse: '',
+        persistedContent,
+        structuredResults,
+        turnResult: failedTurnResult,
+        ctx,
+      },
+      hooks
+    );
+
+    return failedTurnResult;
   }
 
   process.stdout.write('\n');
@@ -334,6 +376,16 @@ function isAbortError(err: unknown): boolean {
     return err.name === 'AbortError' || err.message.includes('aborted');
   }
   return false;
+}
+
+export function buildRetryableFailureMessage(rawMessage: string): string {
+  const normalized = rawMessage.toLowerCase();
+
+  if (normalized.includes('timed out') || normalized.includes('timeout')) {
+    return "Sorry — I couldn't complete that request in time. Please try again.";
+  }
+
+  return "Sorry — I ran into a temporary issue while processing your request. Please try again.";
 }
 
 async function runVoidHook<T extends keyof IOrchestratorHookPlugin>(

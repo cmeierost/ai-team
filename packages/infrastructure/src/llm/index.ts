@@ -85,7 +85,8 @@ const COPILOT_MODEL_FALLBACK: Array<{
 const GITHUB_TOKEN_TIMEOUT_MS = 15_000;
 const MODEL_FETCH_TIMEOUT_MS = 15_000;
 const TEST_CONNECTION_TIMEOUT_MS = 20_000;
-const CHAT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_CHAT_REQUEST_TIMEOUT_MS = 30_000;
+const OPENAI_GPT5_CHAT_REQUEST_TIMEOUT_MS = 90_000;
 const STREAM_CHUNK_TIMEOUT_MS = 30_000;
 const TITLE_REQUEST_TIMEOUT_MS = 8_000;
 
@@ -130,6 +131,16 @@ export interface LlmToolResult {
   toolName: string;
   result: unknown;
   isError?: boolean;
+}
+
+export interface RuntimeToolEvidence {
+  toolName: string;
+  args: Record<string, unknown>;
+  status: 'success' | 'failed' | 'partial' | 'mixed';
+  content?: string;
+  error?: string;
+  sourceType: 'tool';
+  confidence: 'direct';
 }
 
 export interface LlmToolChatResult {
@@ -254,6 +265,8 @@ export class LlmService {
   ): Promise<string> {
     this.assertReady();
 
+    const requestTimeoutMs = getChatRequestTimeoutMs(this.config, options?.model ?? this.model);
+
     const systemPrompt = buildSystemPrompt(agent, skills, teamRoster);
     const allMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
@@ -274,8 +287,8 @@ export class LlmService {
           frequency_penalty: options?.frequencyPenalty,
           stop: options?.stop,
         }),
-        CHAT_REQUEST_TIMEOUT_MS,
-        `LLM request timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`
+        requestTimeoutMs,
+        `LLM request timed out after ${requestTimeoutMs / 1000}s.`
       );
 
       const text = extractChatCompletionText(response);
@@ -322,6 +335,8 @@ export class LlmService {
   ) {
     this.assertReady();
 
+    const requestTimeoutMs = getChatRequestTimeoutMs(this.config, options?.model ?? this.model);
+
     const systemPrompt = buildSystemPrompt(agent, skills, teamRoster);
     const allMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
@@ -343,8 +358,8 @@ export class LlmService {
           stop: options?.stop,
           stream: true,
         }),
-        CHAT_REQUEST_TIMEOUT_MS,
-        `LLM stream setup timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`
+        requestTimeoutMs,
+        `LLM stream setup timed out after ${requestTimeoutMs / 1000}s.`
       )) as AsyncIterable<ChatCompletionChunk>;
 
       return this.wrapStreamWithLogging(stream, logBase, start, STREAM_CHUNK_TIMEOUT_MS);
@@ -372,6 +387,8 @@ export class LlmService {
   ): Promise<LlmToolChatResult> {
     this.assertReady();
 
+    const requestTimeoutMs = getChatRequestTimeoutMs(this.config, options?.model ?? this.model);
+
     const systemPrompt = buildSystemPrompt(agent, skills, teamRoster, instructions);
     const allMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
@@ -381,6 +398,26 @@ export class LlmService {
     const logBase = this.buildLogBase('chat', agent, allMessages, options, skills, teamRoster);
     const start = Date.now();
     const collectedResults: LlmToolResult[] = [];
+
+    if (shouldUseResponsesApiForToolLoop(this.config, options?.model ?? this.model)) {
+      try {
+        return await this.chatWithToolsViaResponses(
+          allMessages,
+          tools,
+          executeTool,
+          options,
+          maxToolRounds,
+          onToken,
+          collectedResults
+        );
+      } catch (error) {
+        if (!isResponsesApiFallbackError(error)) {
+          throw error;
+        }
+        // Fall back to chat.completions for providers/endpoints that expose
+        // GPT-5 model IDs but do not support Responses API tool loops.
+      }
+    }
 
     try {
       for (let round = 0; round < maxToolRounds; round++) {
@@ -407,8 +444,8 @@ export class LlmService {
             })),
             stream: true,
           }),
-          CHAT_REQUEST_TIMEOUT_MS,
-          `LLM request timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`
+          requestTimeoutMs,
+          `LLM request timed out after ${requestTimeoutMs / 1000}s.`
         )) as AsyncIterable<ChatCompletionChunk>;
 
         const toolCallMap = new Map<number, { id?: string; name: string; args: string }>();
@@ -552,9 +589,7 @@ export class LlmService {
 
           collectedResults.push(toolResult);
 
-          const payload = toolResult.isError
-            ? { error: toolResult.result }
-            : { result: toolResult.result };
+          const payload = buildRuntimeToolEvidence(toolResult, toRecord(args));
 
           allMessages.push({
             role: 'tool',
@@ -580,6 +615,114 @@ export class LlmService {
     }
   }
 
+  private async chatWithToolsViaResponses(
+    allMessages: ChatCompletionMessageParam[],
+    tools: LlmToolDefinition[],
+    executeTool: (toolCall: LlmToolCall) => Promise<LlmToolResult>,
+    options: LlmChatOptions | undefined,
+    maxToolRounds: number,
+    onToken: ((token: string) => void) | undefined,
+    collectedResults: LlmToolResult[]
+  ): Promise<LlmToolChatResult> {
+    const responseClient = (this.client as unknown as {
+      responses?: { create?: (args: Record<string, unknown>) => Promise<unknown> };
+    }).responses;
+    if (typeof responseClient?.create !== 'function') {
+      throw new TypeError('Responses API is unavailable on the configured client.');
+    }
+
+    const model = options?.model ?? this.model;
+    const requestTimeoutMs = getChatRequestTimeoutMs(this.config, model);
+    let inputItems = mapChatMessagesToResponsesInput(allMessages);
+    let previousResponseId: string | undefined;
+    const responseTools = tools.map((tool) => ({
+      type: 'function' as const,
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters ?? {
+        type: 'object',
+        additionalProperties: true,
+      },
+    }));
+
+    let lastText = '';
+
+    for (let round = 0; round < maxToolRounds; round++) {
+      const request: Record<string, unknown> = {
+        model,
+        tools: responseTools,
+      };
+
+      if (previousResponseId) {
+        request.previous_response_id = previousResponseId;
+      }
+
+      request.input = inputItems;
+
+      if (options?.maxTokens !== undefined) {
+        request.max_output_tokens = options.maxTokens;
+      }
+      if (options?.temperature !== undefined) {
+        request.temperature = options.temperature;
+      }
+
+      const response = await withTimeout(
+        responseClient.create(request),
+        requestTimeoutMs,
+        `LLM request timed out after ${requestTimeoutMs / 1000}s.`
+      );
+
+      const roundText = extractResponsesOutputText(response);
+      if (roundText) {
+        onToken?.(roundText);
+        lastText = roundText;
+      }
+
+      const responseId = extractResponsesResponseId(response);
+      if (responseId) {
+        previousResponseId = responseId;
+      }
+
+      const functionCalls = extractResponseFunctionCalls(response);
+      if (functionCalls.length === 0) {
+        if (!lastText) {
+          throw new Error('LLM returned an empty response');
+        }
+        return {
+          text: lastText,
+          toolResults: collectedResults,
+        };
+      }
+
+      const toolOutputItems: Array<{ type: 'function_call_output'; call_id: string; output: string }> = [];
+      for (const call of functionCalls) {
+        const args = parseToolCallArguments(call.rawArgs);
+        const toolResult = await executeTool({
+          toolCallId: call.callId,
+          toolName: call.toolName,
+          args,
+        });
+        collectedResults.push(toolResult);
+
+        const payload = buildRuntimeToolEvidence(toolResult, toRecord(args));
+        toolOutputItems.push({
+          type: 'function_call_output',
+          call_id: call.callId,
+          output: JSON.stringify(payload),
+        });
+      }
+
+      if (previousResponseId) {
+        inputItems = toolOutputItems;
+      } else {
+        const outputItems = extractResponseOutputItems(response);
+        inputItems = [...inputItems, ...outputItems, ...toolOutputItems];
+      }
+    }
+
+    throw new Error(`Tool loop exceeded maximum rounds (${maxToolRounds})`);
+  }
+
   // --------------------------------------------------------------------------
   // Helpers
   // --------------------------------------------------------------------------
@@ -592,10 +735,12 @@ export class LlmService {
    * @returns OpenAI-compatible message array
    */
   static historyToMessages(history: ChatMessage[], agentId: string): ChatCompletionMessageParam[] {
-    return history.map((msg) => ({
-      role: msg.from === 'human' ? ('user' as const) : ('assistant' as const),
-      content: msg.content,
-    }));
+    return history
+      .filter((msg) => !msg.archived)
+      .map((msg) => ({
+        role: msg.from === 'human' ? ('user' as const) : ('assistant' as const),
+        content: msg.content,
+      }));
   }
 
   /**
@@ -613,6 +758,8 @@ export class LlmService {
     options?: LlmChatOptions
   ): Promise<string> {
     this.assertReady();
+
+    const requestTimeoutMs = getChatRequestTimeoutMs(this.config, options?.model ?? this.model);
 
     const allMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
@@ -634,8 +781,8 @@ export class LlmService {
           frequency_penalty: options?.frequencyPenalty,
           stop: options?.stop,
         }),
-        CHAT_REQUEST_TIMEOUT_MS,
-        `LLM request timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`
+        requestTimeoutMs,
+        `LLM request timed out after ${requestTimeoutMs / 1000}s.`
       );
 
       const text = extractChatCompletionText(response);
@@ -673,6 +820,8 @@ export class LlmService {
   ) {
     this.assertReady();
 
+    const requestTimeoutMs = getChatRequestTimeoutMs(this.config, options?.model ?? this.model);
+
     const allMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       ...messages,
@@ -694,8 +843,8 @@ export class LlmService {
           stop: options?.stop,
           stream: true,
         }),
-        CHAT_REQUEST_TIMEOUT_MS,
-        `LLM stream setup timed out after ${CHAT_REQUEST_TIMEOUT_MS / 1000}s.`
+        requestTimeoutMs,
+        `LLM stream setup timed out after ${requestTimeoutMs / 1000}s.`
       )) as AsyncIterable<ChatCompletionChunk>;
 
       return this.wrapStreamWithLogging(stream, logBase, start, STREAM_CHUNK_TIMEOUT_MS);
@@ -1104,6 +1253,16 @@ export function buildSystemPrompt(
   parts.push(
     'When the developer shares tool output (overview snapshots, run <command>, etc.), treat it as fresh context and reference it in your reasoning.'
   );
+  parts.push(
+    'Treat tool output as direct evidence with provenance. Distinguish verified tool evidence from your inference.'
+  );
+  parts.push(
+    'If tool outputs conflict, explicitly acknowledge the conflict and prioritize the strongest directly available evidence.'
+  );
+  parts.push(
+    'If one tool call fails but other tool evidence is usable, say which call failed and proceed using the verified evidence.'
+  );
+  parts.push('Prefer fresh tool evidence over memory for factual claims.');
   parts.push(
     'If a person is not found, tell the user to run `chat <name>` so fuzzy search can resolve the employee.'
   );
@@ -1572,6 +1731,336 @@ interface LlmLogBase {
 
 function safeJsonClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value ?? null)) as T;
+}
+
+export function buildRuntimeToolEvidence(
+  toolResult: Pick<LlmToolResult, 'toolName' | 'result' | 'isError'>,
+  args: Record<string, unknown>
+): RuntimeToolEvidence {
+  if (toolResult.isError) {
+    return {
+      toolName: toolResult.toolName,
+      args,
+      status: 'failed',
+      error: stringifyToolPayload(toolResult.result),
+      sourceType: 'tool',
+      confidence: 'direct',
+    };
+  }
+
+  return {
+    toolName: toolResult.toolName,
+    args,
+    status: 'success',
+    content: stringifyToolPayload(toolResult.result),
+    sourceType: 'tool',
+    confidence: 'direct',
+  };
+}
+
+export function shouldUseResponsesApiForToolLoop(config: LlmConfig, model?: string): boolean {
+  if (config.provider !== 'openai-compatible' || !config.baseUrl || !model) {
+    return false;
+  }
+
+  let hostname: string;
+  try {
+    hostname = new URL(config.baseUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+
+  if (hostname !== 'api.openai.com') {
+    return false;
+  }
+
+  return model.toLowerCase().startsWith('gpt-5');
+}
+
+export function getChatRequestTimeoutMs(config: LlmConfig, model?: string): number {
+  if (!model || config.provider !== 'openai-compatible' || !config.baseUrl) {
+    return DEFAULT_CHAT_REQUEST_TIMEOUT_MS;
+  }
+
+  let hostname: string;
+  try {
+    hostname = new URL(config.baseUrl).hostname.toLowerCase();
+  } catch {
+    return DEFAULT_CHAT_REQUEST_TIMEOUT_MS;
+  }
+
+  if (hostname === 'api.openai.com' && model.toLowerCase().startsWith('gpt-5')) {
+    return OPENAI_GPT5_CHAT_REQUEST_TIMEOUT_MS;
+  }
+
+  return DEFAULT_CHAT_REQUEST_TIMEOUT_MS;
+}
+
+type ResponseInputTextItem = {
+  role: 'system' | 'user' | 'assistant';
+  content: Array<{ type: 'input_text' | 'output_text'; text: string }>;
+};
+
+type ResponseFunctionCallOutputItem = {
+  type: 'function_call_output';
+  call_id: string;
+  output: string;
+};
+
+type ResponseInputItem = ResponseInputTextItem | ResponseFunctionCallOutputItem;
+
+export function resolveResponsesContentTypeForRole(
+  role: 'system' | 'user' | 'assistant'
+): 'input_text' | 'output_text' {
+  return role === 'assistant' ? 'output_text' : 'input_text';
+}
+
+function mapChatMessagesToResponsesInput(
+  messages: ChatCompletionMessageParam[]
+): ResponseInputItem[] {
+  const out: ResponseInputItem[] = [];
+  for (const message of messages) {
+    if (message.role === 'system' || message.role === 'user' || message.role === 'assistant') {
+      const text = extractMessageContentText(message.content);
+      if (!text) {
+        continue;
+      }
+      out.push({
+        role: message.role,
+        content: [{ type: resolveResponsesContentTypeForRole(message.role), text }],
+      });
+      continue;
+    }
+
+    if (message.role === 'tool') {
+      const text = extractMessageContentText(message.content);
+      const toolCallId = message.tool_call_id;
+      if (!toolCallId || !text) {
+        continue;
+      }
+      out.push({
+        type: 'function_call_output',
+        call_id: toolCallId,
+        output: text,
+      });
+    }
+  }
+
+  return out;
+}
+
+function extractResponseOutputItems(response: unknown): ResponseInputItem[] {
+  const output = (response as { output?: unknown } | undefined)?.output;
+  if (!Array.isArray(output)) {
+    return [];
+  }
+
+  const items: ResponseInputItem[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    const type = record.type;
+    if (type === 'function_call') {
+      const callId =
+        typeof record.call_id === 'string' && record.call_id.trim().length > 0
+          ? record.call_id
+          : typeof record.id === 'string' && record.id.trim().length > 0
+            ? record.id
+            : randomUUID();
+      const toolName =
+        typeof record.name === 'string' && record.name.trim().length > 0 ? record.name : undefined;
+      const argumentsValue =
+        typeof record.arguments === 'string' ? record.arguments : JSON.stringify(record.arguments ?? {});
+      if (!toolName) {
+        continue;
+      }
+      items.push({
+        role: 'assistant',
+        content: [
+          {
+            type: 'output_text',
+            text: `[function_call]\nname: ${toolName}\ncall_id: ${callId}\narguments: ${argumentsValue}`,
+          },
+        ],
+      });
+      continue;
+    }
+
+    if (type === 'message') {
+      const text = extractResponsesMessageText(record);
+      if (text) {
+        items.push({
+          role: 'assistant',
+          content: [{ type: 'output_text', text }],
+        });
+      }
+    }
+  }
+
+  return items;
+}
+
+function extractResponsesResponseId(response: unknown): string | undefined {
+  const id = (response as { id?: unknown } | undefined)?.id;
+  if (typeof id === 'string' && id.trim().length > 0) {
+    return id;
+  }
+  return undefined;
+}
+
+function extractResponsesMessageText(record: Record<string, unknown>): string {
+  const content = record.content;
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  const parts: string[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== 'object') {
+      continue;
+    }
+    const item = part as Record<string, unknown>;
+    if (item.type === 'output_text' && typeof item.text === 'string' && item.text.trim().length > 0) {
+      parts.push(item.text.trim());
+      continue;
+    }
+
+    if (item.type === 'text' && typeof item.text === 'string' && item.text.trim().length > 0) {
+      parts.push(item.text.trim());
+      continue;
+    }
+
+    const textObject = item.text;
+    if (textObject && typeof textObject === 'object') {
+      const value = (textObject as Record<string, unknown>).value;
+      if (typeof value === 'string' && value.trim().length > 0) {
+        parts.push(value.trim());
+      }
+    }
+  }
+
+  return parts.join('\n').trim();
+}
+
+function extractResponsesOutputText(response: unknown): string {
+  const outputText = (response as { output_text?: unknown } | undefined)?.output_text;
+  if (typeof outputText === 'string' && outputText.trim().length > 0) {
+    return outputText.trim();
+  }
+
+  const output = (response as { output?: unknown } | undefined)?.output;
+  if (!Array.isArray(output)) {
+    return '';
+  }
+
+  const parts: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    if (record.type !== 'message') {
+      continue;
+    }
+
+    const text = extractResponsesMessageText(record);
+    if (text) {
+      parts.push(text);
+    }
+  }
+
+  return parts.join('\n').trim();
+}
+
+function extractResponseFunctionCalls(
+  response: unknown
+): Array<{ callId: string; toolName: string; rawArgs: string }> {
+  const output = (response as { output?: unknown } | undefined)?.output;
+  if (!Array.isArray(output)) {
+    return [];
+  }
+
+  const calls: Array<{ callId: string; toolName: string; rawArgs: string }> = [];
+
+  for (const item of output) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    if (record.type !== 'function_call') {
+      continue;
+    }
+
+    const toolName = typeof record.name === 'string' ? record.name.trim() : '';
+    if (!toolName) {
+      continue;
+    }
+
+    const callId =
+      typeof record.call_id === 'string' && record.call_id.trim().length > 0
+        ? record.call_id
+        : typeof record.id === 'string' && record.id.trim().length > 0
+          ? record.id
+          : randomUUID();
+
+    const rawArgs =
+      typeof record.arguments === 'string' ? record.arguments : JSON.stringify(record.arguments ?? {});
+
+    calls.push({
+      callId,
+      toolName,
+      rawArgs,
+    });
+  }
+
+  return calls;
+}
+
+function parseToolCallArguments(rawArgs: string): unknown {
+  const normalized = rawArgs.trim();
+  if (!normalized) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(normalized) as unknown;
+  } catch {
+    return {};
+  }
+}
+
+function stringifyToolPayload(payload: unknown): string {
+  if (typeof payload === 'string') {
+    return payload;
+  }
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return String(payload);
+  }
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+}
+
+function isResponsesApiFallbackError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('responses api is unavailable') ||
+    normalized.includes('404') ||
+    normalized.includes('not found') ||
+    normalized.includes('unknown url') ||
+    normalized.includes('unsupported') ||
+    normalized.includes('invalid value') ||
+    normalized.includes('supported values')
+  );
 }
 
 export function parseBracketToolCalls(

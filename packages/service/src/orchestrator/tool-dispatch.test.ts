@@ -28,6 +28,39 @@ function makeContext(overrides?: Partial<OrchestratorContext>): OrchestratorCont
 }
 
 describe('dispatchToolCall denial metadata', () => {
+  it('emits ordered request/start/result lifecycle events with stable toolCallId', async () => {
+    const toolManager = {
+      get: vi.fn(() => undefined),
+      execute: vi.fn(async () => ({ ok: true, result: { ok: true } })),
+    } as any;
+
+    const ctx = makeContext({ toolManager });
+
+    await dispatchToolCall(
+      {
+        toolCallId: 'tc-order-1',
+        toolName: 'tool_list',
+        args: { includeHidden: false },
+      },
+      ctx
+    );
+
+    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    const phases = emit.mock.calls
+      .map((call) => call[0])
+      .filter((event) => event?.kind === 'tool' && event?.toolName === 'tool_list')
+      .map((event) => ({
+        phase: event.toolPhase,
+        toolCallId: event.toolCallId,
+      }));
+
+    expect(phases).toEqual([
+      { phase: 'request', toolCallId: 'tc-order-1' },
+      { phase: 'start', toolCallId: 'tc-order-1' },
+      { phase: 'result', toolCallId: 'tc-order-1' },
+    ]);
+  });
+
   it('uses extended timeout for com_ask interactive tool calls', async () => {
     const execute = vi.fn(async () => ({ ok: true, result: { ok: true } }));
     const toolManager = {

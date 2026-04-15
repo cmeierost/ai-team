@@ -415,11 +415,13 @@ export interface ChatMessage {
 
 export interface SessionActivatedTool {
   toolName: string;
+  toolCallId?: string;
   toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
+  toolEventSeq?: number;
   message?: string;
   toolResult?: {
     toolName: string;
-    outcome: 'result' | 'error' | 'denied';
+    outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
     request?: unknown;
     result?: unknown;
     /** LLM-formatted representation — what was injected into the model's context window. */
