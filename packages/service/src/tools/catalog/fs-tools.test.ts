@@ -112,7 +112,12 @@ describe('fs_exists/fs_info tool execution', () => {
     const a = makeAgent('a', ['src/**/*']);
     const manager = await setupManager(workspaceRoot, [a]);
 
-    const result = await manager.execute(a, 'fs_info', { path: 'src/app.ts' }, ctx(a, workspaceRoot));
+    const result = await manager.execute(
+      a,
+      'fs_info',
+      { path: 'src/app.ts' },
+      ctx(a, workspaceRoot)
+    );
 
     expect(result.ok).toBe(true);
     const payload = result.result as any;
@@ -209,9 +214,16 @@ describe('remaining fs tool execution', () => {
     );
 
     expect(full.ok).toBe(true);
-    expect((full.result as any).content).toContain('line1');
+    expect((full.result as any).content).toBe('line1\nline2\nline3');
+    expect((full.result as any).startLine).toBe(1);
+    expect((full.result as any).endLine).toBe(3);
+    expect((full.result as any).isFullFile).toBe(true);
     expect(lines.ok).toBe(true);
-    expect((lines.result as any).lines).toEqual(['2: line2', '3: line3']);
+    expect((lines.result as any).content).toBe('line2\nline3');
+    expect((lines.result as any).startLine).toBe(2);
+    expect((lines.result as any).endLine).toBe(3);
+    expect((lines.result as any).isFullFile).toBe(false);
+    expect((lines.result as any).lines).toEqual(['line2', 'line3']);
   });
 
   it('supports fs_write_file, fs_create and fs_mkdir', async () => {
@@ -219,7 +231,12 @@ describe('remaining fs tool execution', () => {
     const a = makeFullFsAgent('a');
     const manager = await setupManager(workspaceRoot, [a]);
 
-    const mkdir = await manager.execute(a, 'fs_mkdir', { path: 'tmp/nested' }, ctx(a, workspaceRoot));
+    const mkdir = await manager.execute(
+      a,
+      'fs_mkdir',
+      { path: 'tmp/nested' },
+      ctx(a, workspaceRoot)
+    );
     const created = await manager.execute(
       a,
       'fs_create',
@@ -295,7 +312,15 @@ describe('fs_tree with subtree-only access', () => {
     // src subtree should be visible
     const srcNode = payload.tree.children?.find((c: any) => c.name === 'src');
     expect(srcNode).toBeTruthy();
+    expect(srcNode.rights).toEqual(
+      expect.objectContaining({ l: true, r: true, w: expect.any(Boolean) })
+    );
     expect(srcNode.children?.some((c: any) => c.name === 'app.ts')).toBe(true);
+
+    const appNode = srcNode.children?.find((c: any) => c.name === 'app.ts');
+    expect(appNode?.rights).toEqual(
+      expect.objectContaining({ l: true, r: true, w: expect.any(Boolean) })
+    );
 
     // docs should NOT be visible (no list access)
     const docsNode = payload.tree.children?.find((c: any) => c.name === 'docs');
@@ -345,6 +370,7 @@ describe('fs_tree with subtree-only access', () => {
     expect(payload.tree).not.toBeNull();
     expect(payload.tree.children?.find((c: any) => c.name === 'src')).toBeTruthy();
     expect(payload.tree.children?.find((c: any) => c.name === 'docs')).toBeTruthy();
+    expect(payload.tree.children?.every((c: any) => c.rights?.l === true)).toBe(true);
     expect(payload.denied).toBe(0);
   });
 });

@@ -7,6 +7,8 @@ export interface ToolCatalogEntry {
   schema: Record<string, unknown>;
   tags?: string[];
   examples?: string[];
+  /** True when the tool's allowed/denied status is governed by file-path permissions at runtime rather than static agent config. */
+  fileRightsDependent?: boolean;
 }
 
 export interface AgentToolPermissionEntry extends ToolCatalogEntry {

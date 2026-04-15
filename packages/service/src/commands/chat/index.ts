@@ -311,6 +311,7 @@ export async function chatCommand(
       } else {
         writeInfo(hooks, `Connected to ${llm.provider} using ${llm.modelName}`);
       }
+      sessionManager.setAutoTitleLlmService(llm);
     } catch (error) {
       if (spinner) spinner.fail('Could not connect to configured LLM');
       writeError(hooks, (error as Error).message);

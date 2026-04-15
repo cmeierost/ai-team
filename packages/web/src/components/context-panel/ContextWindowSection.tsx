@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTeam } from '../../context/TeamContext';
 import { useContextEstimate } from '../../hooks/useContextEstimate';
 import { useConfig } from '../../hooks/useConfig';
@@ -91,7 +92,10 @@ export function ContextWindowSection({
   expandedSection,
   onToggleSection,
 }: Readonly<ContextWindowSectionProps>) {
-  const { agents } = useTeam();
+  const [instructionsExpanded, setInstructionsExpanded] = useState(false);
+  const [skillsExpanded, setSkillsExpanded] = useState(false);
+  const [toolsExpanded, setToolsExpanded] = useState(false);
+  const { agents, client } = useTeam();
   const { data: estimate, isLoading } = useContextEstimate(agentId, sessionId);
   const { data: config } = useConfig();
 
@@ -113,16 +117,18 @@ export function ContextWindowSection({
     pctClass = 'ctx-pct--warn';
   }
 
-  const segments = (estimate?.segments ?? []).map((seg, i) => ({
-    ...seg,
-    tokens: Math.round(seg.chars / 4),
-    fractionOfWindow:
-      estimate && estimate.totalChars > 0
-        ? (seg.chars / estimate.totalChars) * usedFractionOfWindow
-        : 0,
-    color: SEGMENT_COLORS[i % SEGMENT_COLORS.length],
-    swatchClass: `ctx-swatch--c${i % SEGMENT_COLORS.length}` as const,
-  }));
+  const segments = (estimate?.segments ?? [])
+    .filter((seg) => seg.chars > 0)
+    .map((seg, i) => ({
+      ...seg,
+      tokens: Math.round(seg.chars / 4),
+      fractionOfWindow:
+        estimate && estimate.totalChars > 0
+          ? (seg.chars / estimate.totalChars) * usedFractionOfWindow
+          : 0,
+      color: SEGMENT_COLORS[i % SEGMENT_COLORS.length],
+      swatchClass: `ctx-swatch--c${i % SEGMENT_COLORS.length}` as const,
+    }));
 
   const donutEntries: DonutEntry[] = [
     ...segments.map((s) => ({
@@ -158,15 +164,189 @@ export function ContextWindowSection({
           </div>
           <div className="ctx-legend ctx-legend--compact">
             {segments.map((seg) => (
-              <div
-                key={seg.key}
-                className="ctx-legend-row"
-                title={`${seg.label}: ${seg.tokens.toLocaleString()} tokens`}
-              >
-                <span className={`ctx-swatch ${seg.swatchClass}`} />
-                <span className="ctx-seg-name">{seg.label}</span>
-                <span className="ctx-seg-tokens">{seg.tokens.toLocaleString()}</span>
-                <span className="ctx-seg-pct">{Math.round(seg.fractionOfWindow * 100)}%</span>
+              <div key={seg.key}>
+                <div
+                  className="ctx-legend-row"
+                  title={`${seg.label}: ${seg.tokens.toLocaleString()} tokens`}
+                >
+                  <span className={`ctx-swatch ${seg.swatchClass}`} />
+                  <span className="ctx-seg-name">{seg.label}</span>
+                  <span className="ctx-seg-tokens">{seg.tokens.toLocaleString()}</span>
+                  <span className="ctx-seg-pct">{Math.round(seg.fractionOfWindow * 100)}%</span>
+                </div>
+
+                {/* Instruction files sub-rows */}
+                {seg.key === 'instructions' &&
+                  estimate?.instructionFiles &&
+                  estimate.instructionFiles.filter((f) => f.chars > 0).length > 0 && (
+                    <div className="ctx-collapsible">
+                      <div
+                        className="ctx-collapsible-toggle"
+                        onClick={() => setInstructionsExpanded(!instructionsExpanded)}
+                      >
+                        <span
+                          className={`ctx-toggle-icon${instructionsExpanded ? ' ctx-toggle-icon--expanded' : ''}`}
+                        >
+                          ▶
+                        </span>
+                        <span>
+                          Workspace instructions (
+                          {estimate.instructionFiles.filter((f) => f.chars > 0).length})
+                        </span>
+                      </div>
+                      {instructionsExpanded && (
+                        <div className="ctx-sub-rows">
+                          {estimate.instructionFiles
+                            .filter((f) => f.chars > 0)
+                            .map((f) => (
+                              <div
+                                key={f.path}
+                                className="ctx-sub-row ctx-sub-row--clickable"
+                                onClick={() => {
+                                  client.ide.openFile({ filePath: f.path }).catch(() => {
+                                    // IDE bridge may not be connected
+                                  });
+                                }}
+                                title={f.path}
+                                role="button"
+                                tabIndex={0}
+                              >
+                                <span className="ctx-sub-name">{f.label}</span>
+                                <span className="ctx-sub-tokens">
+                                  {Math.round(f.chars / 4).toLocaleString()}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                {/* Session skills sub-rows */}
+                {seg.key === 'session_skills' &&
+                  estimate?.sessionSkills &&
+                  estimate.sessionSkills.filter((s) => s.chars > 0).length > 0 && (
+                    <div className="ctx-collapsible">
+                      <div
+                        className="ctx-collapsible-toggle"
+                        onClick={() => setSkillsExpanded(!skillsExpanded)}
+                      >
+                        <span
+                          className={`ctx-toggle-icon${skillsExpanded ? ' ctx-toggle-icon--expanded' : ''}`}
+                        >
+                          ▶
+                        </span>
+                        <span>
+                          Session skills ({estimate.sessionSkills.filter((s) => s.chars > 0).length}
+                          )
+                        </span>
+                      </div>
+                      {skillsExpanded && (
+                        <div className="ctx-sub-rows">
+                          {estimate.sessionSkills
+                            .filter((s) => s.chars > 0)
+                            .map((s) => (
+                              <div
+                                key={s.skillPath}
+                                className={`ctx-sub-row${s.paused ? ' ctx-sub-row--muted' : ''}`}
+                                title={s.skillPath}
+                              >
+                                <span className="ctx-sub-name">
+                                  {s.name}
+                                  {s.paused && <span className="ctx-detail-badge">paused</span>}
+                                </span>
+                                <span className="ctx-sub-tokens">
+                                  {Math.round(s.chars / 4).toLocaleString()}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                {/* Message sub-rows */}
+                {seg.key === 'messages' && estimate?.messages && estimate.messages.length > 0 && (
+                  <div className="ctx-sub-rows">
+                    {estimate.messages.map((msg, i) => (
+                      <div key={`msg-${i}-${msg.role}`} className="ctx-sub-row" title={msg.preview}>
+                        <span className={`ctx-msg-role ctx-msg-role--${msg.role}`}>
+                          {msg.role === 'user' ? 'U' : 'A'}
+                        </span>
+                        <span className="ctx-sub-name ctx-sub-preview">
+                          {msg.preview}
+                          {msg.preview.length >= 80 ? '…' : ''}
+                        </span>
+                        <span className="ctx-sub-tokens">
+                          {Math.round(msg.chars / 4).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Tool results summary */}
+                {seg.key === 'tool_results' && estimate?.messages && (
+                  <div className="ctx-sub-rows">
+                    {estimate.messages
+                      .filter((m) => m.toolCallCount > 0)
+                      .map((msg) => (
+                        <div
+                          key={`tool-${msg.preview.slice(0, 40)}`}
+                          className="ctx-sub-row"
+                          title={msg.preview}
+                        >
+                          <span className="ctx-msg-role ctx-msg-role--assistant">A</span>
+                          <span className="ctx-sub-name ctx-sub-preview">
+                            {msg.toolCallCount}× tool {msg.toolCallCount === 1 ? 'call' : 'calls'}
+                          </span>
+                          <span className="ctx-sub-tokens">
+                            {Math.round(msg.toolChars / 4).toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+
+                {/* Tool definitions sub-rows */}
+                {seg.key === 'tools' &&
+                  estimate?.tools &&
+                  estimate.tools.filter((tool) => tool.chars > 0).length > 0 && (
+                    <div className="ctx-collapsible">
+                      <div
+                        className="ctx-collapsible-toggle"
+                        onClick={() => setToolsExpanded(!toolsExpanded)}
+                      >
+                        <span
+                          className={`ctx-toggle-icon${toolsExpanded ? ' ctx-toggle-icon--expanded' : ''}`}
+                        >
+                          ▶
+                        </span>
+                        <span>
+                          Tool definitions ({estimate.tools.filter((tool) => tool.chars > 0).length}
+                          )
+                        </span>
+                      </div>
+                      {toolsExpanded && (
+                        <div className="ctx-sub-rows">
+                          {estimate.tools
+                            .filter((tool) => tool.chars > 0)
+                            .map((tool) => (
+                              <div
+                                key={tool.name}
+                                className="ctx-sub-row"
+                                title={tool.description || tool.name}
+                              >
+                                <span className="ctx-sub-name">{tool.name}</span>
+                                <span className="ctx-sub-tokens">
+                                  {Math.round(tool.chars / 4).toLocaleString()}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
               </div>
             ))}
             <div className="ctx-legend-row" title={`Free: ${freeTokens.toLocaleString()} tokens`}>
@@ -186,82 +366,6 @@ export function ContextWindowSection({
           </div>
           <progress className={`ctx-window-progress ${usageClass}`} max={100} value={usePct} />
         </div>
-
-        {/* Workspace instruction files */}
-        {estimate.instructionFiles && estimate.instructionFiles.length > 0 && (
-          <div className="ctx-detail-section">
-            <div className="ctx-detail-header">
-              <i className="codicon codicon-file-code" /> Workspace Instructions
-            </div>
-            {estimate.instructionFiles.map((f) => (
-              <div key={f.path} className="ctx-detail-row" title={f.path}>
-                <span className="ctx-detail-name">{f.label}</span>
-                <span className="ctx-detail-tokens">
-                  {Math.round(f.chars / 4).toLocaleString()}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Session skills loaded */}
-        {estimate.sessionSkills && estimate.sessionSkills.length > 0 && (
-          <div className="ctx-detail-section">
-            <div className="ctx-detail-header">
-              <i className="codicon codicon-symbol-misc" /> Session Skills
-            </div>
-            {estimate.sessionSkills.map((s) => (
-              <div
-                key={s.skillPath}
-                className={`ctx-detail-row${s.paused ? ' ctx-detail-row--muted' : ''}`}
-                title={s.skillPath}
-              >
-                <span className="ctx-detail-name">
-                  {s.name}
-                  {s.paused && <span className="ctx-detail-badge">paused</span>}
-                </span>
-                <span className="ctx-detail-tokens">
-                  {Math.round(s.chars / 4).toLocaleString()}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Session messages going to LLM */}
-        {estimate.messages && estimate.messages.length > 0 && (
-          <div className="ctx-detail-section">
-            <div className="ctx-detail-header">
-              <i className="codicon codicon-comment-discussion" /> Chat Messages → LLM (
-              {estimate.messages.length})
-            </div>
-            {estimate.messages.map((msg, i) => (
-              <div key={`msg-${i}-${msg.role}`} className="ctx-msg-row" title={msg.preview}>
-                <span className={`ctx-msg-role ctx-msg-role--${msg.role}`}>
-                  {msg.role === 'user' ? 'U' : 'A'}
-                </span>
-                <span className="ctx-msg-preview">
-                  {msg.preview}
-                  {msg.preview.length >= 120 ? '…' : ''}
-                </span>
-                <span className="ctx-detail-tokens">
-                  {Math.round(msg.chars / 4).toLocaleString()}
-                </span>
-                {msg.toolCallCount > 0 && (
-                  <span
-                    className="ctx-msg-tools"
-                    title={`${msg.toolCallCount} tool call(s) — ${Math.round(msg.toolChars / 4).toLocaleString()} tokens`}
-                  >
-                    🔧{msg.toolCallCount}{' '}
-                    <span className="ctx-detail-tokens">
-                      +{Math.round(msg.toolChars / 4).toLocaleString()}
-                    </span>
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     );
   }

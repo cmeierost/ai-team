@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react';
 import { SessionActivatedTool } from '../types';
+import type { AgentToolPermissionEntry } from '@ai-team/api-client';
 import { useArtifactsQuery } from '../hooks/useArtifactsQuery';
 import { useSessionsForAgent } from '../hooks/useSessionsForAgent';
 import { useSkillsForAgent } from '../hooks/useSkillsForAgent';
@@ -20,7 +21,7 @@ interface ContextPanelProps {
   agentId: string;
   sessionId?: string;
   artifacts: string[]; // Artifact IDs in context
-  allowedTools: string[];
+  toolEntries: AgentToolPermissionEntry[];
   activatedTools: SessionActivatedTool[];
   onToggleArtifact: (artifactId: string) => void;
   onSwitchSession?: (sessionId: string) => void;
@@ -30,9 +31,21 @@ interface ContextPanelProps {
   onSuggestedHandoff?: (targetAgentId: string, task?: string) => void;
 }
 
-export function ContextPanel({ agentId, sessionId, artifacts, allowedTools, activatedTools, onToggleArtifact, onSwitchSession, onDeleteSession, onCreateSession, onOpenSessionGraph, onSuggestedHandoff }: Readonly<ContextPanelProps>) {
+export function ContextPanel({
+  agentId,
+  sessionId,
+  artifacts,
+  toolEntries,
+  activatedTools,
+  onToggleArtifact,
+  onSwitchSession,
+  onDeleteSession,
+  onCreateSession,
+  onOpenSessionGraph,
+  onSuggestedHandoff,
+}: Readonly<ContextPanelProps>) {
   const [notesDraft, setNotesDraft] = useState('');
-  const [expandedSection, setExpandedSection] = useState<ContextSection | null>('sessions');
+  const [expandedSection, setExpandedSection] = useState<ContextSection | null>(null);
   const [panelWidth, setPanelWidth] = useState(() => {
     if (globalThis.window === undefined) {
       return DEFAULT_CONTEXT_PANEL_WIDTH;
@@ -48,9 +61,16 @@ export function ContextPanel({ agentId, sessionId, artifacts, allowedTools, acti
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const artifactsQuery = useArtifactsQuery();
-  const { sessions, saveNotes: persistNotes, savingNotes, notesError, deleteSession: removeSession } = useSessionsForAgent(agentId);
+  const {
+    sessions,
+    saveNotes: persistNotes,
+    savingNotes,
+    notesError,
+    deleteSession: removeSession,
+  } = useSessionsForAgent(agentId);
   const tasksQuery = useTasksForAgent(agentId);
-  const { skillEntries, skillsLoading, skillsError, skillActionPending, toggleSkill } = useSkillsForAgent(agentId);
+  const { skillEntries, skillsLoading, skillsError, skillActionPending, toggleSkill } =
+    useSkillsForAgent(agentId);
 
   const allArtifacts = artifactsQuery.data ?? [];
   const tasks = tasksQuery.data ?? [];
@@ -156,9 +176,7 @@ export function ContextPanel({ agentId, sessionId, artifacts, allowedTools, acti
     setPanelWidth((previous) => clampContextPanelWidth(previous + delta));
   };
 
-  const recentToolEvents = [...activatedTools]
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 12);
+  const recentToolEvents = activatedTools;
 
   const activeToolNames = getActiveToolNames(activatedTools);
   const hasSession = Boolean(sessionId);
@@ -177,7 +195,7 @@ export function ContextPanel({ agentId, sessionId, artifacts, allowedTools, acti
         agentId={agentId}
         sessionId={sessionId}
         artifacts={artifacts}
-        allowedTools={allowedTools}
+        toolEntries={toolEntries}
         allArtifacts={allArtifacts}
         sessions={sessions}
         tasks={tasks}

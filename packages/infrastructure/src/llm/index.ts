@@ -87,6 +87,7 @@ const MODEL_FETCH_TIMEOUT_MS = 15_000;
 const TEST_CONNECTION_TIMEOUT_MS = 20_000;
 const CHAT_REQUEST_TIMEOUT_MS = 30_000;
 const STREAM_CHUNK_TIMEOUT_MS = 30_000;
+const TITLE_REQUEST_TIMEOUT_MS = 8_000;
 
 // ============================================================================
 // LlmService — high-level abstraction for any configured provider
@@ -720,19 +721,80 @@ export class LlmService {
       .map((text, i) => `Message ${i + 1}: ${text}`)
       .join('\n');
     if (!excerpts) return 'New Conversation';
-    const prompt = `You are a title generator. Your output must be a short noun phrase — 2 to 4 words — that names the specific topic or task the user is working on.
+    const prompt = `Write one short title for this conversation.
 
-Rules:
-- Use a noun phrase, not a sentence or question (e.g. "Multi-Select Input Design", not "Ask multi select question")
-- Ignore greetings, small talk, and vague openers like "let's get to work"
-- Focus on the most specific thing the user mentions
-- No quotes, no punctuation at the end
+Use commit-message style:
+- Imperative command form (e.g. "Fix ...", "Improve ...", "Create ...").
+- Maximum 6 words.
+- If clearly a feature, prefix with "FEAT:".
+- If clearly a bug fix, prefix with "BUG:".
+- Ignore greetings/small talk and focus on the main intent.
+- Do not start with "Let" or "Let's".
+- Do not return generic titles like "New Conversation".
+- Return title only.
 
+Examples:
+- "title is not set after fallback" -> "BUG: Fix Title Fallback"
+- "planning retiring agents and archiving old ones" -> "FEAT: Plan Agent Retirement"
+- "write a SQL migration for users table" -> "Create Users Table Migration"
+
+Conversation:
 ${excerpts}`;
-    const raw = await this.rawChat(prompt, [{ role: 'user', content: 'Title:' }], {
+    const allMessages: ChatCompletionMessageParam[] = [
+      { role: 'system', content: 'You generate concise conversation titles.' },
+      { role: 'user', content: prompt },
+    ];
+    const start = Date.now();
+    const logBase = this.buildRawLogBase('raw-chat', allMessages, {
       temperature: 0.3,
+      maxTokens: 24,
     });
-    return raw.replace(/^["'\u201C\u201D]|["'\u201C\u201D]$/g, '').trim();
+
+    try {
+      const response = await withTimeout(
+        createChatCompletion(this.client, this.config, {
+          model: this.model,
+          messages: allMessages,
+          temperature: 0.3,
+          max_tokens: 24,
+        }),
+        TITLE_REQUEST_TIMEOUT_MS,
+        `Title request timed out after ${TITLE_REQUEST_TIMEOUT_MS / 1000}s.`
+      );
+
+      const text = extractChatCompletionText(response)
+        .replaceAll(/^["'\u201C\u201D]|["'\u201C\u201D]$/g, '')
+        .trim();
+
+      if (!text || isWeakGeneratedTitle(text)) {
+        throw new Error('LLM returned an empty title response');
+      }
+
+      await this.writeLlmLog({
+        ...logBase,
+        durationMs: Date.now() - start,
+        response: {
+          text,
+          raw: safeJsonClone(response),
+        },
+      });
+
+      return text;
+    } catch (error) {
+      const fallback = deriveFallbackTitle(messages);
+      await this.writeLlmLog({
+        ...logBase,
+        durationMs: Date.now() - start,
+        response: {
+          text: fallback,
+          raw: {
+            mode: 'fallback',
+          },
+        },
+        error: serializeError(error),
+      });
+      return fallback;
+    }
   }
 
   /**
@@ -1884,6 +1946,165 @@ function extractMessageContentText(content: unknown): string {
   }
 
   return parts.join('\n').trim();
+}
+
+const TITLE_STOPWORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'can',
+  'could',
+  'for',
+  'from',
+  'how',
+  'i',
+  'in',
+  'is',
+  'it',
+  'let',
+  'lets',
+  'my',
+  'of',
+  'on',
+  'or',
+  'please',
+  'say',
+  'should',
+  'that',
+  'the',
+  'this',
+  'to',
+  'want',
+  'we',
+  'what',
+  'when',
+  'where',
+  'why',
+  'would',
+  'with',
+  'you',
+  'future',
+]);
+
+const TITLE_ACTION_VERB_MAP: Record<string, string> = {
+  fix: 'Fix',
+  improve: 'Improve',
+  add: 'Add',
+  update: 'Update',
+  refactor: 'Refactor',
+  debug: 'Debug',
+  implement: 'Implement',
+  test: 'Test',
+  create: 'Create',
+  plan: 'Plan',
+  retire: 'Retire',
+  retiring: 'Retire',
+  retirement: 'Plan',
+  archive: 'Archive',
+  offboard: 'Offboard',
+  offboarding: 'Offboard',
+  decommission: 'Decommission',
+  sunset: 'Sunset',
+  consolidate: 'Consolidate',
+};
+
+const TITLE_ACTION_WORDS = new Set(Object.keys(TITLE_ACTION_VERB_MAP));
+
+export function deriveFallbackTitle(messages: ChatMessage[]): string {
+  const source = messages
+    .filter((m) => m.isHuman)
+    .slice(0, 2)
+    .map((m) => m.content ?? '')
+    .join(' ')
+    .toLowerCase();
+
+  const words = source
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3);
+
+  if (words.length === 0) return 'Plan Request';
+
+  const actionWord = words.find((w) => TITLE_ACTION_VERB_MAP[w]);
+  const action = actionWord ? TITLE_ACTION_VERB_MAP[actionWord] : 'Plan';
+
+  const hasAgentToken = words.some((w) => w === 'agent' || w === 'agents');
+  const hasRetirementToken = words.some((w) =>
+    ['retire', 'retiring', 'retirement', 'offboard', 'offboarding', 'decommission', 'sunset'].includes(
+      w
+    )
+  );
+
+  if (hasAgentToken && hasRetirementToken) {
+    return 'Plan Agent Retirement';
+  }
+
+  const orderedUnique: string[] = [];
+  const seen = new Set<string>();
+  for (const word of words) {
+    if (TITLE_STOPWORDS.has(word) || TITLE_ACTION_WORDS.has(word)) continue;
+    if (seen.has(word)) continue;
+    seen.add(word);
+    orderedUnique.push(word);
+    if (orderedUnique.length >= 3) break;
+  }
+
+  if (orderedUnique.length === 0) return `${action} Request`;
+
+  const top = orderedUnique.map((w) => w.charAt(0).toUpperCase() + w.slice(1));
+
+  return `${action} ${top.join(' ')}`.trim() || `${action} Request`;
+}
+
+export function isWeakGeneratedTitle(title: string): boolean {
+  const normalized = title
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9\s]/g, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) return true;
+
+  const weakTitles = new Set([
+    'new conversation',
+    'conversation',
+    'general request',
+    'task request',
+    'title request',
+    'help request',
+  ]);
+
+  if (weakTitles.has(normalized)) return true;
+
+  const words = normalized.split(' ').filter(Boolean);
+  const wordCount = words.length;
+  if (wordCount < 2) return true;
+
+  if (words[0] === 'let' || words[0] === 'lets') return true;
+
+  // Reject low-signal, filler-heavy titles that still satisfy 2+ words.
+  const noisyWords = new Set([
+    'let',
+    'lets',
+    'future',
+    'want',
+    'thing',
+    'things',
+    'stuff',
+    'something',
+    'anything',
+  ]);
+  const contentWords = words.filter((w) => !TITLE_STOPWORDS.has(w) && !TITLE_ACTION_WORDS.has(w));
+  if (contentWords.length === 0) return true;
+  if (contentWords.every((w) => noisyWords.has(w))) return true;
+  if (normalized === 'let plan future want') return true;
+
+  return false;
 }
 
 function hasNonTextCompletionSignal(response: unknown): boolean {

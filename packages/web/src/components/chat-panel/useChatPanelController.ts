@@ -11,13 +11,19 @@ import { useMatch, useNavigate, useParams } from 'react-router-dom';
 import { useTeam } from '../../context/TeamContext';
 import { contextPanelQueryKeys } from '../../hooks/contextPanelQueryKeys';
 import type { ChatMessage, SessionActivatedTool } from '../../types';
-import type { IdeEditSession, ChatCommandRegistryEntry } from '@ai-team/api-client';
+import type {
+  AgentToolPermissionEntry,
+  IdeEditSession,
+  ChatCommandRegistryEntry,
+} from '@ai-team/api-client';
 import { useSlashCommandSuggestions } from '../../hooks/useSlashCommandSuggestions';
 import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
 import { pickVoice, stripMarkdownForSpeech } from '../../utils/agentVoice';
 import {
+  backfillActivatedToolRequests,
   buildSummaryMarkdown,
   extractSessionActivatedTools,
+  reconstructActivatedToolsFromMessages,
   findMatchingMessage,
   GRAPH_ROUTE,
   normalizeChatErrorMessage,
@@ -55,7 +61,7 @@ interface UseChatPanelControllerResult {
   routeAgentId?: string;
   currentAgentId: string;
   currentSessionId: string | null;
-  sessionTitle: string | null;
+  currentSessionTitle: string | null;
   graphSessionId: string | null;
   loading: boolean;
   sending: boolean;
@@ -65,7 +71,7 @@ interface UseChatPanelControllerResult {
   editingIndex: number | null;
   editContent: string;
   artifactsInContext: string[];
-  allowedTools: string[];
+  toolEntries: AgentToolPermissionEntry[];
   activatedTools: SessionActivatedTool[];
   pendingQuestion: PendingQuestion | null;
   pendingInputAnswer: string;
@@ -132,6 +138,7 @@ interface UseChatPanelControllerResult {
   handleSwitchSession: (sessionId: string) => Promise<void>;
   handleDeleteSession: (deletedSessionId: string) => void;
   handleCreateSession: () => Promise<void>;
+  handleSaveSessionTitle: (title: string) => Promise<void>;
   handleOpenSessionGraph: (sessionId: string) => void;
   /** Slash-command autocomplete state */
   slashSuggestions: ChatCommandRegistryEntry[];
@@ -154,9 +161,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
+  const [currentSessionTitle, setCurrentSessionTitle] = useState<string | null>(null);
   const [artifactsInContext, setArtifactsInContext] = useState<string[]>([]);
-  const [allowedTools, setAllowedTools] = useState<string[]>([]);
+  const [toolEntries, setToolEntries] = useState<AgentToolPermissionEntry[]>([]);
   const [activatedTools, setActivatedTools] = useState<SessionActivatedTool[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
@@ -171,12 +178,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       return true;
     }
   });
-  const ttsEnabledRef = useRef(ttsEnabled);
-  useEffect(() => {
-    ttsEnabledRef.current = ttsEnabled;
-  }, [ttsEnabled]);
   const tts = useSpeechSynthesis();
   const ttsSentenceBuffer = useRef('');
+  const suppressAutoTtsForCurrentResponseRef = useRef(false);
   const [ttsRate, setTtsRateState] = useState<number>(() => {
     try {
       const stored = localStorage.getItem('ai-team.ttsRate');
@@ -218,14 +222,19 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const agent = agents.find((entry) => entry.id === currentAgentId);
 
-  const autoResizeTextarea = () => {
+  const autoResizeTextarea = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) {
       return;
     }
     textarea.style.height = 'auto';
     textarea.style.height = `${textarea.scrollHeight}px`;
-  };
+  }, []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(autoResizeTextarea);
+    return () => cancelAnimationFrame(frame);
+  }, [autoResizeTextarea, input]);
 
   const loadGreeting = async (targetAgentId: string, cancelled?: { value: boolean }) => {
     try {
@@ -242,7 +251,12 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       };
       setMessages([greetingMessage]);
       setIsEphemeral(true);
-      if (ttsEnabled && tts.supported && greetingMessage.content) {
+      if (
+        ttsEnabled &&
+        tts.supported &&
+        !suppressAutoTtsForCurrentResponseRef.current &&
+        greetingMessage.content
+      ) {
         const greetingAgent = agents.find((a) => a.id === greetingMessage.from);
         const voice = pickVoice(greetingAgent, tts.voices);
         const rate = greetingAgent?.ttsRate ?? ttsRateRef.current;
@@ -257,7 +271,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const resetSessionState = (targetAgentId: string) => {
     setCurrentSessionId(null);
-    setSessionTitle(null);
+    setCurrentSessionTitle(null);
     setArtifactsInContext([]);
     setActivatedTools([]);
     setCurrentAgentId(targetAgentId);
@@ -265,10 +279,25 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const applyLoadedSession = (targetAgentId: string, sessionWithMessages: any) => {
     setCurrentSessionId(sessionWithMessages.id);
-    setSessionTitle(sessionWithMessages.title ?? null);
+    setCurrentSessionTitle(
+      typeof sessionWithMessages.title === 'string' && sessionWithMessages.title.trim().length > 0
+        ? sessionWithMessages.title.trim()
+        : null
+    );
     setMessages(sessionWithMessages.messages || []);
     setArtifactsInContext(sessionWithMessages.artifacts || []);
-    setActivatedTools(extractSessionActivatedTools(sessionWithMessages.notes));
+    setActivatedTools(
+      backfillActivatedToolRequests(
+        // activatedTools is already hydrated by the backend from session meta;
+        // fall back to notes parsing, then reconstruct from messages for old sessions.
+        (sessionWithMessages.activatedTools as SessionActivatedTool[] | undefined)?.length
+          ? (sessionWithMessages.activatedTools as SessionActivatedTool[])
+          : extractSessionActivatedTools(sessionWithMessages.notes).length
+            ? extractSessionActivatedTools(sessionWithMessages.notes)
+            : reconstructActivatedToolsFromMessages(sessionWithMessages.messages || []),
+        sessionWithMessages.messages || []
+      )
+    );
     setCurrentAgentId(targetAgentId);
     setIsEphemeral(false);
   };
@@ -381,40 +410,33 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       getSessionPrimaryAgentId(sessionWithMessages, fallbackAgentId),
       sessionWithMessages
     );
-    await queryClient.invalidateQueries({
-      queryKey: contextPanelQueryKeys.contextEstimate(fallbackAgentId, sessionId),
-    });
     return sessionWithMessages;
   };
 
   useEffect(() => {
     if (!currentAgentId) {
-      setAllowedTools([]);
+      setToolEntries([]);
       return;
     }
 
     let cancelled = false;
-    const loadAllowedTools = async () => {
+    const loadToolEntries = async () => {
       try {
         const response = (await client.tools.list({ agent: currentAgentId })) as {
-          entries: Array<{ name: string; allowedForAgent?: boolean }>;
+          entries: AgentToolPermissionEntry[];
         };
         if (cancelled) {
           return;
         }
-        const allowed = response.entries
-          .filter((entry) => entry.allowedForAgent === true)
-          .map((entry) => entry.name)
-          .sort((left, right) => left.localeCompare(right));
-        setAllowedTools(allowed);
+        setToolEntries(response.entries ?? []);
       } catch {
         if (!cancelled) {
-          setAllowedTools([]);
+          setToolEntries([]);
         }
       }
     };
 
-    void loadAllowedTools();
+    void loadToolEntries();
     return () => {
       cancelled = true;
     };
@@ -649,6 +671,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const handleInterrupt = () => {
     rejectAndClearPendingQuestion(new Error('Question interrupted by user.'));
+    suppressAutoTtsForCurrentResponseRef.current = true;
+    ttsSentenceBuffer.current = '';
+    tts.cancel();
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -688,6 +713,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     });
     const sessionId = newSession.id as string;
     setCurrentSessionId(sessionId);
+    setCurrentSessionTitle(
+      typeof newSession.title === 'string' && newSession.title.trim().length > 0
+        ? newSession.title.trim()
+        : null
+    );
     setIsEphemeral(false);
     await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
     skipNextSessionLoadRef.current = sessionId;
@@ -738,9 +768,23 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         },
       ]);
       setCurrentSessionId(targetSessionId);
+      setCurrentSessionTitle(
+        typeof sessionWithMessages.title === 'string' && sessionWithMessages.title.trim().length > 0
+          ? sessionWithMessages.title.trim()
+          : null
+      );
       setCurrentAgentId(toAgentId);
       setArtifactsInContext(sessionWithMessages.artifacts || []);
-      setActivatedTools(extractSessionActivatedTools(sessionWithMessages.notes));
+      setActivatedTools(
+        backfillActivatedToolRequests(
+          (sessionWithMessages.activatedTools as SessionActivatedTool[] | undefined)?.length
+            ? (sessionWithMessages.activatedTools as SessionActivatedTool[])
+            : extractSessionActivatedTools(sessionWithMessages.notes).length
+              ? extractSessionActivatedTools(sessionWithMessages.notes)
+              : reconstructActivatedToolsFromMessages(sessionWithMessages.messages || []),
+          sessionWithMessages.messages || []
+        )
+      );
       await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
       skipNextSessionLoadRef.current = targetSessionId;
       navigate(`/chat/${toAgentId}/session/${targetSessionId}`, { replace: true });
@@ -839,13 +883,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const flushTtsBuffer = useCallback(
     (force: boolean, voice?: SpeechSynthesisVoice, rateOverride?: number) => {
-      if (!ttsEnabledRef.current || !tts.supported) {
-        console.debug(
-          '[TTS] flush skipped — enabled:',
-          ttsEnabledRef.current,
-          'supported:',
-          tts.supported
-        );
+      if (!ttsEnabled || !tts.supported) {
+        console.debug('[TTS] flush skipped — enabled:', ttsEnabled, 'supported:', tts.supported);
+        return;
+      }
+      if (suppressAutoTtsForCurrentResponseRef.current) {
         return;
       }
       const buf = ttsSentenceBuffer.current;
@@ -880,8 +922,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     // without waiting for React state to re-render.
     let activeAgentId = currentAgentId;
     const getActiveAgent = () => agents.find((a) => a.id === activeAgentId);
-    const getVoice = () =>
-      ttsEnabledRef.current ? pickVoice(getActiveAgent(), tts.voices) : undefined;
+    const getVoice = () => (ttsEnabled ? pickVoice(getActiveAgent(), tts.voices) : undefined);
     const getRate = () => getActiveAgent()?.ttsRate ?? ttsRateRef.current;
 
     for await (const event of stream) {
@@ -900,7 +941,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       if (event.kind === 'token') {
         accumulator += event.text;
         updateAssistantMessageContent(accumulator);
-        if (ttsEnabledRef.current) {
+        if (ttsEnabled && !suppressAutoTtsForCurrentResponseRef.current) {
           ttsSentenceBuffer.current += event.text;
           flushTtsBuffer(false, getVoice(), getRate());
         }
@@ -941,7 +982,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       if (event.kind === 'session_title_updated') {
-        setSessionTitle(event.title);
+        const eventTitle =
+          typeof event.title === 'string' && event.title.trim().length > 0
+            ? event.title.trim()
+            : null;
+        setCurrentSessionTitle(eventTitle);
         await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
         continue;
       }
@@ -952,7 +997,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     }
 
     // Flush any remaining buffered text after stream ends
-    if (ttsEnabledRef.current) {
+    if (ttsEnabled && !suppressAutoTtsForCurrentResponseRef.current) {
       flushTtsBuffer(true, getVoice(), getRate());
     }
 
@@ -968,6 +1013,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     // Cancel any in-flight TTS from the previous response
     tts.cancel();
     ttsSentenceBuffer.current = '';
+    suppressAutoTtsForCurrentResponseRef.current = false;
 
     const messageContent = composedMessage.trim();
     const pendingIntroductionContent = isEphemeral ? messages[0]?.content : undefined;
@@ -1147,18 +1193,6 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         return;
       }
     }
-    if (event.key === 'Enter' && event.ctrlKey) {
-      event.preventDefault();
-      const ta = event.currentTarget as HTMLTextAreaElement;
-      const start = ta.selectionStart ?? 0;
-      const end = ta.selectionEnd ?? start;
-      const pos = start + 1;
-      setInput(input.substring(0, start) + '\n' + input.substring(end));
-      requestAnimationFrame(() => {
-        ta.setSelectionRange(pos, pos);
-      });
-      return;
-    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       void handleSend();
@@ -1332,6 +1366,8 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   );
 
   const handleStopSpeaking = useCallback(() => {
+    suppressAutoTtsForCurrentResponseRef.current = true;
+    ttsSentenceBuffer.current = '';
     tts.cancel();
   }, [tts]);
 
@@ -1440,6 +1476,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const handleDeleteSession = (deletedSessionId: string) => {
     if (deletedSessionId === currentSessionId) {
       setCurrentSessionId(null);
+      setCurrentSessionTitle(null);
       setMessages([]);
       setArtifactsInContext([]);
       navigate(`/chat/${currentAgentId}`);
@@ -1448,6 +1485,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const handleCreateSession = async () => {
     setCurrentSessionId(null);
+    setCurrentSessionTitle(null);
     setArtifactsInContext([]);
     setActivatedTools([]);
     setMessages([]);
@@ -1481,9 +1519,24 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       if (sessionWithMessages) {
         setMessages(sessionWithMessages.messages || []);
         setCurrentSessionId(newSession.id);
+        setCurrentSessionTitle(
+          typeof sessionWithMessages.title === 'string' &&
+            sessionWithMessages.title.trim().length > 0
+            ? sessionWithMessages.title.trim()
+            : null
+        );
         setCurrentAgentId(targetAgentId);
         setArtifactsInContext(sessionWithMessages.artifacts || newSession.artifacts || []);
-        setActivatedTools(extractSessionActivatedTools(sessionWithMessages.notes));
+        setActivatedTools(
+          backfillActivatedToolRequests(
+            (sessionWithMessages.activatedTools as SessionActivatedTool[] | undefined)?.length
+              ? (sessionWithMessages.activatedTools as SessionActivatedTool[])
+              : extractSessionActivatedTools(sessionWithMessages.notes).length
+                ? extractSessionActivatedTools(sessionWithMessages.notes)
+                : reconstructActivatedToolsFromMessages(sessionWithMessages.messages || []),
+            sessionWithMessages.messages || []
+          )
+        );
       }
       navigate(`/chat/${targetAgentId}`);
     } catch (error) {
@@ -1493,6 +1546,32 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const handleOpenSessionGraph = (sessionId: string) => {
     navigate(`/chat/${currentAgentId}/session/${sessionId}/thread`);
+  };
+
+  const handleSaveSessionTitle = async (nextTitleRaw: string) => {
+    if (!currentSessionId) {
+      return;
+    }
+
+    const nextTitle = nextTitleRaw.trim();
+    if (!nextTitle) {
+      globalThis.alert('Title cannot be empty.');
+      return;
+    }
+
+    try {
+      const updated = await client.sessions.update(currentSessionId, { title: nextTitle });
+      const persistedTitle =
+        typeof (updated as { title?: unknown }).title === 'string' &&
+        (updated as { title: string }).title.trim().length > 0
+          ? (updated as { title: string }).title.trim()
+          : nextTitle;
+      setCurrentSessionTitle(persistedTitle);
+      await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
+    } catch (error) {
+      console.error('Failed to update session title:', error);
+      globalThis.alert('Failed to update session title. Please try again.');
+    }
   };
 
   const handleSelectSessionFromGraph = (
@@ -1540,7 +1619,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     routeAgentId: agentId,
     currentAgentId,
     currentSessionId,
-    sessionTitle,
+    currentSessionTitle,
     graphSessionId,
     loading,
     sending,
@@ -1550,7 +1629,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     editingIndex,
     editContent,
     artifactsInContext,
-    allowedTools,
+    toolEntries,
     activatedTools,
     pendingQuestion,
     pendingInputAnswer,
@@ -1613,6 +1692,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     handleSwitchSession,
     handleDeleteSession,
     handleCreateSession,
+    handleSaveSessionTitle,
     handleOpenSessionGraph,
     slashSuggestions,
     slashSelectedIndex,

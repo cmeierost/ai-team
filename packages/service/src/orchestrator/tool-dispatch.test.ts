@@ -301,7 +301,12 @@ describe('dispatchToolCall denial metadata', () => {
       execute: vi.fn(async () => ({ ok: false, error: 'Boom' })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const appendMessage = vi.fn(async () => undefined);
+
+    const ctx = makeContext({
+      toolManager,
+      sessionManager: { appendMessage } as any,
+    });
 
     const result = await dispatchToolCall(
       {
@@ -316,9 +321,27 @@ describe('dispatchToolCall denial metadata', () => {
     expect(result.denial).toBeDefined();
     expect(result.denial?.kind).toBe('execution-failed');
     expect(result.denial?.reasonCode).toBe('tool_execution_failed');
+
+    const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
+    const persisted = firstCall[1] as {
+      content?: string;
+      tool_calls?: Array<{ result?: unknown; resultLlm?: string }>;
+    };
+    expect(persisted.content).toBe('');
+    expect(persisted.tool_calls?.[0]?.resultLlm).toBe('Boom');
+    expect(persisted.tool_calls?.[0]?.result).toEqual(
+      expect.objectContaining({
+        status: 'error',
+        message: 'Boom',
+        denial: expect.objectContaining({
+          kind: 'execution-failed',
+          reasonCode: 'tool_execution_failed',
+        }),
+      })
+    );
   });
 
-  it('auto-trims very large tool output before persisting history', async () => {
+  it('keeps tool output out of message.content while preserving tool_calls payload', async () => {
     const large = Array.from({ length: 260 }, (_, idx) => `line-${idx + 1}`).join('\n');
     const toolManager = {
       get: vi.fn(() => undefined),
@@ -349,13 +372,16 @@ describe('dispatchToolCall denial metadata', () => {
     );
 
     const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
-    const persisted = (firstCall[1]?.content ?? '') as string;
-    expect(persisted).toContain('[filtered:auto-max-lines]');
-    expect(persisted).toContain('line-1');
-    expect(persisted).not.toContain('line-260');
+    const persisted = firstCall[1] as {
+      content?: string;
+      tool_calls?: Array<{ result?: unknown }>;
+    };
+    expect(persisted.content).toBe('');
+    expect(typeof persisted.tool_calls?.[0]?.result).toBe('string');
+    expect((persisted.tool_calls?.[0]?.result as string) || '').toContain('line-260');
   });
 
-  it('does not auto-trim large JSON output before persisting history', async () => {
+  it('persists JSON tool output in tool_calls only', async () => {
     const largeJson = {
       items: Array.from({ length: 260 }, (_, idx) => ({
         id: idx + 1,
@@ -392,13 +418,17 @@ describe('dispatchToolCall denial metadata', () => {
     );
 
     const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
-    const persisted = (firstCall[1]?.content ?? '') as string;
-    expect(persisted).not.toContain('[filtered:auto-max-lines]');
-    expect(persisted).not.toContain('[filtered:auto-max-chars]');
-    expect(persisted).toContain('"id": 260');
+    const persisted = firstCall[1] as {
+      content?: string;
+      tool_calls?: Array<{ result?: unknown }>;
+    };
+    expect(persisted.content).toBe('');
+    const items =
+      (persisted.tool_calls?.[0]?.result as { items?: Array<{ id: number }> })?.items ?? [];
+    expect(items.at(-1)?.id).toBe(260);
   });
 
-  it('uses llm summary transform when summary intent is present', async () => {
+  it('does not invoke history summary transform for persisted tool-call rows', async () => {
     const toolManager = {
       get: vi.fn(() => undefined),
       execute: vi.fn(async () => ({ ok: true, result: 'alpha\nbeta\ngamma' })),
@@ -430,11 +460,14 @@ describe('dispatchToolCall denial metadata', () => {
       ctx
     );
 
-    expect(rawChat).toHaveBeenCalledTimes(1);
+    expect(rawChat).not.toHaveBeenCalled();
     const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
-    const persisted = (firstCall[1]?.content ?? '') as string;
-    expect(persisted).toContain('[filtered:summary');
-    expect(persisted).toContain('key point A');
+    const persisted = firstCall[1] as {
+      content?: string;
+      tool_calls?: Array<{ result?: unknown }>;
+    };
+    expect(persisted.content).toBe('');
+    expect(persisted.tool_calls?.[0]?.result).toBe('alpha\nbeta\ngamma');
   });
 });
 

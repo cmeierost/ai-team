@@ -19,9 +19,7 @@ async function createTempWorkspace(): Promise<string> {
 
 afterEach(async () => {
   await Promise.all(
-    tempDirs.splice(0, tempDirs.length).map(dir =>
-      fs.rm(dir, { recursive: true, force: true }),
-    ),
+    tempDirs.splice(0, tempDirs.length).map((dir) => fs.rm(dir, { recursive: true, force: true }))
   );
 });
 
@@ -139,8 +137,8 @@ describe('SessionManager.getSessionChain', () => {
 
     const chain = await sessionManager.getSessionChain(s2.id);
     expect(chain).toHaveLength(2);
-    expect(chain[0].id).toBe(s1.id);  // root first
-    expect(chain[1].id).toBe(s2.id);  // leaf last
+    expect(chain[0].id).toBe(s1.id); // root first
+    expect(chain[1].id).toBe(s2.id); // leaf last
   });
 
   it('returns sessions ordered root → leaf for a three-session chain', async () => {
@@ -167,5 +165,188 @@ describe('SessionManager.getSessionChain', () => {
     expect(chainFromMiddle[0].id).toBe(s1.id);
     expect(chainFromMiddle[1].id).toBe(s2.id);
     expect(chainFromMiddle[2].id).toBe(s3.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// title generation + persistence
+// ---------------------------------------------------------------------------
+
+describe('SessionManager title generation', () => {
+  let sessionManager: SessionManager;
+
+  beforeEach(async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const storage = new SqliteMessageStorage(workspaceRoot);
+    await storage.migrate();
+    sessionManager = new SessionManager(workspaceRoot, storage);
+  });
+
+  afterEach(async () => {
+    await (sessionManager as any).storage.close();
+  });
+
+  it('persists a fallback title when llm returns whitespace', async () => {
+    const session = await sessionManager.createSession('michael-brown', 'dev-1');
+
+    await sessionManager.appendMessage(session.id, {
+      timestamp: new Date().toISOString(),
+      from: 'human',
+      to: 'michael-brown',
+      isHuman: true,
+      content: 'please fix session title generation behavior',
+    } as any);
+
+    const generatedTitle = await sessionManager.appendMessage(
+      session.id,
+      {
+        timestamp: new Date().toISOString(),
+        from: 'human',
+        to: 'michael-brown',
+        isHuman: true,
+        content: 'set a better title and persist it',
+      } as any,
+      {
+        generateTitle: async () => '   ',
+      }
+    );
+
+    expect(generatedTitle).toBeTruthy();
+    expect(generatedTitle!.trim().length).toBeGreaterThan(0);
+
+    const persisted = await sessionManager.getSession(session.id);
+    expect(persisted?.title).toBe(generatedTitle);
+    expect(persisted?.title).toMatch(
+      /^(Fix|Create|Add|Update|Improve|Refactor|Debug|Test|Write|Implement|Build|Generate|Set|Make)\b/
+    );
+  });
+
+  it('persists a fallback title when llm throws', async () => {
+    const session = await sessionManager.createSession('michael-brown', 'dev-1');
+
+    await sessionManager.appendMessage(session.id, {
+      timestamp: new Date().toISOString(),
+      from: 'human',
+      to: 'michael-brown',
+      isHuman: true,
+      content: 'fix the failing title prompt',
+    } as any);
+
+    const generatedTitle = await sessionManager.appendMessage(
+      session.id,
+      {
+        timestamp: new Date().toISOString(),
+        from: 'human',
+        to: 'michael-brown',
+        isHuman: true,
+        content: 'improve fallback behavior for bad responses',
+      } as any,
+      {
+        generateTitle: async () => {
+          throw new Error('LLM returned an empty title response');
+        },
+      }
+    );
+
+    expect(generatedTitle).toBeTruthy();
+    expect(generatedTitle!.trim().length).toBeGreaterThan(0);
+
+    const persisted = await sessionManager.getSession(session.id);
+    expect(persisted?.title).toBe(generatedTitle);
+  });
+
+  it('keeps a good generated title when llm provides one', async () => {
+    const session = await sessionManager.createSession('michael-brown', 'dev-1');
+
+    await sessionManager.appendMessage(session.id, {
+      timestamp: new Date().toISOString(),
+      from: 'human',
+      to: 'michael-brown',
+      isHuman: true,
+      content: 'improve session title quality',
+    } as any);
+
+    const generatedTitle = await sessionManager.appendMessage(
+      session.id,
+      {
+        timestamp: new Date().toISOString(),
+        from: 'human',
+        to: 'michael-brown',
+        isHuman: true,
+        content: 'make title generation more reliable',
+      } as any,
+      {
+        generateTitle: async () => 'Improve Session Title Reliability',
+      }
+    );
+
+    expect(generatedTitle).toBe('Improve Session Title Reliability');
+    const persisted = await sessionManager.getSession(session.id);
+    expect(persisted?.title).toBe('Improve Session Title Reliability');
+  });
+
+  it('replaces weak generated title text with a meaningful fallback', async () => {
+    const session = await sessionManager.createSession('michael-brown', 'dev-1');
+
+    await sessionManager.appendMessage(session.id, {
+      timestamp: new Date().toISOString(),
+      from: 'human',
+      to: 'michael-brown',
+      isHuman: true,
+      content: 'we want to plan how to retire agents',
+    } as any);
+
+    const generatedTitle = await sessionManager.appendMessage(
+      session.id,
+      {
+        timestamp: new Date().toISOString(),
+        from: 'human',
+        to: 'michael-brown',
+        isHuman: true,
+        content: 'archive old agent profiles and close lifecycle docs',
+      } as any,
+      {
+        generateTitle: async () => 'Let Plan Future Want',
+      }
+    );
+
+    expect(generatedTitle).not.toBe('Let Plan Future Want');
+    expect(generatedTitle).toBeTruthy();
+    expect(generatedTitle!).toMatch(/(Plan|Retire|Archive|Offboard|Decommission|Sunset)/);
+
+    const persisted = await sessionManager.getSession(session.id);
+    expect(persisted?.title).toBe(generatedTitle);
+  });
+
+  it('rejects titles that start with Let and uses fallback', async () => {
+    const session = await sessionManager.createSession('michael-brown', 'dev-1');
+
+    await sessionManager.appendMessage(session.id, {
+      timestamp: new Date().toISOString(),
+      from: 'human',
+      to: 'michael-brown',
+      isHuman: true,
+      content: 'test title generation quality for planning work',
+    } as any);
+
+    const generatedTitle = await sessionManager.appendMessage(
+      session.id,
+      {
+        timestamp: new Date().toISOString(),
+        from: 'human',
+        to: 'michael-brown',
+        isHuman: true,
+        content: 'plan a clean retirement strategy for agents',
+      } as any,
+      {
+        generateTitle: async () => 'Let Test Title Generated',
+      }
+    );
+
+    expect(generatedTitle).not.toBe('Let Test Title Generated');
+    expect(generatedTitle).toBeTruthy();
+
+    const persisted = await sessionManager.getSession(session.id);
+    expect(persisted?.title).toBe(generatedTitle);
   });
 });

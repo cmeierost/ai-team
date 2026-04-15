@@ -239,6 +239,7 @@ describe('SqliteMessageStorage', () => {
             tool: 'fs_read',
             params: { path: 'src/auth/login.ts' },
             result: { content: 'file content' },
+            resultLlm: 'File: src/auth/login.ts\nLines: 1-1 of 1\nFull file: yes\n\nfile content',
           },
         ],
         suggestions: [
@@ -261,8 +262,42 @@ describe('SqliteMessageStorage', () => {
       expect(messages[0].context).toContain('src/auth/jwt.ts');
       expect(messages[0].tool_calls).toHaveLength(1);
       expect(messages[0].tool_calls![0].tool).toBe('fs_read');
+      expect(messages[0].tool_calls![0].resultLlm).toBe(
+        'File: src/auth/login.ts\nLines: 1-1 of 1\nFull file: yes\n\nfile content'
+      );
       expect(messages[0].suggestions).toHaveLength(1);
       expect(messages[0].suggestions![0].file).toBe('src/auth/jwt.ts');
+    });
+
+    it('updates the readable result_llm text for a stored tool call', async () => {
+      await storage.insertMessage(sessionId, {
+        timestamp: new Date().toISOString(),
+        from: 'architect-agent',
+        isHuman: false,
+        content: '[tool:fs_read] original',
+        tool_calls: [
+          {
+            tool: 'fs_read',
+            params: { filePath: 'src/example.ts' },
+            result: { path: 'src/example.ts', content: 'const x = 1;' },
+            resultLlm: 'File: src/example.ts\nLines: 1-1 of 1\nFull file: yes\n\nconst x = 1;',
+          },
+        ],
+      });
+
+      const initialMessages = await storage.getSessionMessages(sessionId);
+      const toolCallId = initialMessages[0].tool_calls?.[0]?.id;
+      expect(toolCallId).toBeDefined();
+
+      await storage.updateToolCallLlmResult(
+        toolCallId!,
+        'File: src/example.ts\nLines: 1-1 of 1\nFull file: yes\n\nconst x = 2;'
+      );
+
+      const updatedMessages = await storage.getSessionMessages(sessionId);
+      expect(updatedMessages[0].tool_calls?.[0]?.resultLlm).toBe(
+        'File: src/example.ts\nLines: 1-1 of 1\nFull file: yes\n\nconst x = 2;'
+      );
     });
 
     it('maintains message order by timestamp', async () => {

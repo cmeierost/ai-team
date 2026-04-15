@@ -157,25 +157,73 @@ export class SqliteConnection {
   }
 
   /**
-   * Execute multiple SQL statements in a transaction
-   * If any statement fails, the entire transaction is rolled back
+   * Serialization lock — ensures no two transactions are open at the same time.
+   * Concurrent callers chain off the tail of this promise so they wait their turn.
    */
-  async transaction(statements: Array<{ sql: string; params?: any[] }>): Promise<void> {
+  private _txLock: Promise<void> = Promise.resolve();
+
+  /**
+   * Execute a callback inside a serialized BEGIN / COMMIT / ROLLBACK block.
+   * The callback receives a `run` helper that executes SQL and returns
+   * { lastID, changes } — identical to the top-level `run()`.
+   *
+   * Only one transaction is active at a time; concurrent callers are queued.
+   */
+  async runTransaction<T>(
+    callback: (
+      run: (sql: string, params?: any[]) => Promise<{ lastID: number; changes: number }>
+    ) => Promise<T>
+  ): Promise<T> {
+    let resolve!: () => void;
+    // The next caller will wait until this promise settles.
+    const lockPromise = new Promise<void>((res) => {
+      resolve = res;
+    });
+
+    const prev = this._txLock;
+    this._txLock = lockPromise;
+
+    await prev; // Wait for any in-flight transaction to finish.
+
     if (!this.db) {
+      resolve();
       throw new Error('Database not open. Call open() first.');
     }
 
     await this.run('BEGIN TRANSACTION');
-
     try {
-      for (const stmt of statements) {
-        await this.run(stmt.sql, stmt.params || []);
-      }
+      const result = await callback(this.run.bind(this));
       await this.run('COMMIT');
+      resolve();
+      return result;
     } catch (error) {
-      await this.run('ROLLBACK');
+      try {
+        await this.run('ROLLBACK');
+      } catch {
+        // Ignore rollback errors
+      }
+      resolve(); // Release lock even on failure so subsequent callers can proceed.
       throw error;
     }
+  }
+
+  /**
+   * Execute multiple SQL statements in a transaction.
+   * If any statement fails, the entire transaction is rolled back.
+   * Returns per-statement { lastID, changes } results.
+   * Concurrent calls are serialized — no "cannot start a transaction
+   * within a transaction" errors.
+   */
+  async transaction(
+    statements: Array<{ sql: string; params?: any[] }>
+  ): Promise<Array<{ lastID: number; changes: number }>> {
+    return this.runTransaction(async (run) => {
+      const results: Array<{ lastID: number; changes: number }> = [];
+      for (const stmt of statements) {
+        results.push(await run(stmt.sql, stmt.params || []));
+      }
+      return results;
+    });
   }
 
   /**

@@ -81,6 +81,7 @@ export interface UserConfig {
 
 export interface TeamConfig {
   version: string;
+  projectName?: string;
   providers?: Record<string, LlmProviderConfig>;
   /** Explicit default provider + model selection */
   defaultModel?: { provider: string; model: string; contextWindow?: number };

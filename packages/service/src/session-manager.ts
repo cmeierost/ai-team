@@ -9,6 +9,7 @@ export class SessionManager {
   private artifactsDir: string;
   private agentManager?: AgentManager;
   private storage: IMessageStorage;
+  private autoTitleLlmService?: any;
 
   private artifactsDirReady = false;
 
@@ -17,6 +18,10 @@ export class SessionManager {
     this.artifactsDir = path.join(workspaceRoot, '.ai-team', 'artifacts', 'briefs');
     this.agentManager = agentManager;
     this.storage = storage;
+  }
+
+  setAutoTitleLlmService(llmService: any): void {
+    this.autoTitleLlmService = llmService;
   }
 
   private async ensureArtifactsDir(): Promise<void> {
@@ -257,13 +262,22 @@ export class SessionManager {
   ): Promise<string | null> {
     await this.storage.insertMessage(sessionId, message);
 
-    if (!llmService) return null;
+    const effectiveLlmService = llmService ?? this.autoTitleLlmService;
+    if (!effectiveLlmService) return null;
 
     try {
       const session = await this.storage.getSession(sessionId);
       if (!session || session.title) return null;
 
-      return await this.generateTitle(sessionId, llmService);
+      // Generate only after we have enough user intent signal.
+      const humanMessages = await this.storage.queryMessages({
+        sessionId,
+        isHuman: true,
+        limit: 2,
+      });
+      if (humanMessages.length < 2) return null;
+
+      return await this.generateTitle(sessionId, effectiveLlmService);
     } catch (err) {
       console.error('[SessionManager] Auto-title generation failed:', err);
       return null;
@@ -463,12 +477,19 @@ ${summary}
     const humanMessages = await this.storage.queryMessages({ sessionId, isHuman: true, limit: 2 });
     const contextMessages = humanMessages.filter((m) => m.content?.trim());
 
-    if (contextMessages.length === 0) {
-      return 'New Conversation';
-    }
+    const fallbackTitle = this.buildFallbackActionTitle(contextMessages);
 
-    // Use LLM to generate title
-    const title = await llmService.generateTitle(contextMessages);
+    let title = fallbackTitle;
+    if (contextMessages.length > 0) {
+      try {
+        // Use LLM to generate title
+        const generated = await llmService.generateTitle(contextMessages);
+        const normalized = this.normalizeTitle(generated);
+        title = normalized && !this.isWeakGeneratedTitle(normalized) ? normalized : fallbackTitle;
+      } catch (error) {
+        console.warn('[SessionManager] Title generation failed, using fallback title.', error);
+      }
+    }
 
     // Update session with title
     const session = await this.getSession(sessionId);
@@ -478,6 +499,159 @@ ${summary}
     }
 
     return title;
+  }
+
+  private normalizeTitle(input: string | undefined | null): string {
+    if (!input) return '';
+    return input
+      .replaceAll(/[\r\n\t]+/g, ' ')
+      .replaceAll(/\s+/g, ' ')
+      .replaceAll(/^['"\u2018\u2019\u201C\u201D]+|['"\u2018\u2019\u201C\u201D]+$/g, '')
+      .trim();
+  }
+
+  private buildFallbackActionTitle(messages: ChatMessage[]): string {
+    const source = messages
+      .filter((m) => m.isHuman)
+      .map((m) => m.content ?? '')
+      .join(' ')
+      .toLowerCase();
+
+    const stopwords = new Set([
+      'a',
+      'an',
+      'and',
+      'are',
+      'as',
+      'at',
+      'be',
+      'by',
+      'for',
+      'from',
+      'how',
+      'i',
+      'in',
+      'is',
+      'it',
+      'let',
+      'lets',
+      'my',
+      'of',
+      'on',
+      'or',
+      'the',
+      'this',
+      'to',
+      'we',
+      'with',
+      'future',
+      'you',
+      'me',
+      'please',
+      'can',
+      'could',
+      'would',
+      'should',
+      'need',
+      'want',
+    ]);
+
+    const actionVerbMap: Record<string, string> = {
+      fix: 'Fix',
+      create: 'Create',
+      add: 'Add',
+      update: 'Update',
+      improve: 'Improve',
+      refactor: 'Refactor',
+      debug: 'Debug',
+      test: 'Test',
+      write: 'Write',
+      implement: 'Implement',
+      build: 'Build',
+      generate: 'Generate',
+      set: 'Set',
+      make: 'Make',
+      plan: 'Plan',
+      retire: 'Retire',
+      retiring: 'Retire',
+      archive: 'Archive',
+      offboard: 'Offboard',
+      decommission: 'Decommission',
+      sunset: 'Sunset',
+    };
+
+    const words = source
+      .replaceAll(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+
+    const hasAgentToken = words.some((w) => w === 'agent' || w === 'agents');
+    const hasRetirementToken = words.some((w) =>
+      [
+        'retire',
+        'retiring',
+        'retirement',
+        'archive',
+        'offboard',
+        'decommission',
+        'sunset',
+      ].includes(w)
+    );
+    if (hasAgentToken && hasRetirementToken) {
+      return 'Plan Agent Retirement';
+    }
+
+    let action = 'Improve';
+    const actionWord = words.find((w) => actionVerbMap[w]);
+    if (actionWord) {
+      action = actionVerbMap[actionWord];
+    }
+
+    const topicWords: string[] = [];
+    const seen = new Set<string>();
+    for (const word of words) {
+      if (word.length < 3 || stopwords.has(word) || actionVerbMap[word]) continue;
+      if (seen.has(word)) continue;
+      seen.add(word);
+      topicWords.push(word.charAt(0).toUpperCase() + word.slice(1));
+      if (topicWords.length >= 3) break;
+    }
+
+    if (topicWords.length === 0) {
+      return `${action} Request`;
+    }
+
+    return `${action} ${topicWords.join(' ')}`.trim();
+  }
+
+  private isWeakGeneratedTitle(title: string): boolean {
+    const normalized = title
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9\s]/g, ' ')
+      .replaceAll(/\s+/g, ' ')
+      .trim();
+
+    if (!normalized) return true;
+    if (normalized === 'let plan future want') return true;
+
+    const weakTitles = new Set([
+      'new conversation',
+      'conversation',
+      'general request',
+      'task request',
+      'title request',
+      'help request',
+    ]);
+    if (weakTitles.has(normalized)) return true;
+
+    const words = normalized.split(' ').filter(Boolean);
+    if (words.length < 2) return true;
+
+    if (words[0] === 'let' || words[0] === 'lets') return true;
+
+    const noisyWords = new Set(['let', 'lets', 'future', 'want', 'thing', 'things', 'stuff']);
+    const contentWords = words.filter((w) => !noisyWords.has(w));
+    return contentWords.length === 0;
   }
 
   /**

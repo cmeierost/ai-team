@@ -1,5 +1,6 @@
 import type { MouseEvent } from 'react';
 import type { Artifact, ChatSession, SessionActivatedTool, Task } from '../types';
+import type { AgentToolPermissionEntry } from '@ai-team/api-client';
 import type { SkillEntry } from '../hooks/useSkillsForAgent';
 import {
   ArtifactsSection,
@@ -20,7 +21,7 @@ export interface ContextPanelViewProps {
   agentId: string;
   sessionId?: string;
   artifacts: string[];
-  allowedTools: string[];
+  toolEntries: AgentToolPermissionEntry[];
   allArtifacts: Artifact[];
   sessions: ChatSession[];
   tasks: Task[];
@@ -52,7 +53,7 @@ export function ContextPanelView({
   agentId,
   sessionId,
   artifacts,
-  allowedTools,
+  toolEntries,
   allArtifacts,
   sessions,
   tasks,
@@ -126,7 +127,7 @@ export function ContextPanelView({
         />
 
         <ToolsSection
-          allowedTools={allowedTools}
+          toolEntries={toolEntries}
           recentToolEvents={recentToolEvents}
           activeToolNames={activeToolNames}
           expandedSection={expandedSection}

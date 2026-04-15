@@ -1,6 +1,13 @@
-import { useDeferredValue, useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
+import {
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
 import type { Agent, ChatMessage, Developer, SessionActivatedTool } from '../../types';
-import type { ChatCommandRegistryEntry } from '@ai-team/api-client';
+import type { AgentToolPermissionEntry, ChatCommandRegistryEntry } from '@ai-team/api-client';
 import { Avatar } from '../Avatar';
 import { getAgentHue } from '../../utils/color';
 import { ContextPanel } from '../ContextPanel';
@@ -71,7 +78,7 @@ interface ResponsiveContextPanelProps {
   agentId: string;
   sessionId?: string;
   artifacts: string[];
-  allowedTools: string[];
+  toolEntries: AgentToolPermissionEntry[];
   activatedTools: SessionActivatedTool[];
   onToggleArtifact: (artifactId: string) => void;
   onSwitchSession: (sessionId: string) => void;
@@ -88,7 +95,7 @@ function ResponsiveContextPanel({
   agentId,
   sessionId,
   artifacts,
-  allowedTools,
+  toolEntries,
   activatedTools,
   onToggleArtifact,
   onSwitchSession,
@@ -102,7 +109,7 @@ function ResponsiveContextPanel({
       agentId={agentId}
       sessionId={sessionId}
       artifacts={artifacts}
-      allowedTools={allowedTools}
+      toolEntries={toolEntries}
       activatedTools={activatedTools}
       onToggleArtifact={onToggleArtifact}
       onSwitchSession={onSwitchSession}
@@ -159,7 +166,7 @@ interface ChatPanelViewProps {
   routeAgentId?: string | null;
   currentAgentId: string;
   currentSessionId: string | null;
-  sessionTitle: string | null;
+  currentSessionTitle: string | null;
   graphSessionId: string | null;
   loading: boolean;
   sending: boolean;
@@ -187,7 +194,7 @@ interface ChatPanelViewProps {
   editingIndex: number | null;
   editContent: string;
   artifactsInContext: string[];
-  allowedTools: string[];
+  toolEntries: AgentToolPermissionEntry[];
   activatedTools: SessionActivatedTool[];
   messagesEndRef: RefObject<HTMLDivElement | null>;
   messagesContainerRef: RefObject<HTMLDivElement | null>;
@@ -232,6 +239,7 @@ interface ChatPanelViewProps {
   onSwitchSession: (sessionId: string) => void;
   onDeleteSession: (deletedSessionId: string) => void;
   onCreateSession: () => Promise<void>;
+  onSaveSessionTitle: (title: string) => Promise<void>;
   onOpenSessionGraph: (sessionId: string) => void;
   onSuggestedHandoff: (targetAgentId: string, task?: string) => void;
   /** Slash-command autocomplete */
@@ -248,7 +256,7 @@ export function ChatPanelView({
   routeAgentId,
   currentAgentId,
   currentSessionId,
-  sessionTitle,
+  currentSessionTitle,
   graphSessionId,
   loading,
   sending,
@@ -276,7 +284,7 @@ export function ChatPanelView({
   editingIndex,
   editContent,
   artifactsInContext,
-  allowedTools,
+  toolEntries,
   activatedTools,
   messagesEndRef,
   messagesContainerRef,
@@ -317,6 +325,7 @@ export function ChatPanelView({
   onSwitchSession,
   onDeleteSession,
   onCreateSession,
+  onSaveSessionTitle,
   onOpenSessionGraph,
   onSuggestedHandoff,
   slashSuggestions,
@@ -326,6 +335,10 @@ export function ChatPanelView({
 }: Readonly<ChatPanelViewProps>) {
   const isMobileViewport = useIsMobileViewport();
   const [isMobileContextOpen, setIsMobileContextOpen] = useState(false);
+  const [isEditingSessionTitle, setIsEditingSessionTitle] = useState(false);
+  const [sessionTitleDraft, setSessionTitleDraft] = useState(currentSessionTitle ?? '');
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const headerTitle = currentSessionTitle ?? `Chat with ${agent.name}`;
 
   // Defer heavy message-list re-renders so input updates always stay urgent.
   // When the user types while streaming, React will render the input first and
@@ -352,6 +365,63 @@ export function ChatPanelView({
     globalThis.addEventListener('keydown', handleKeyDown);
     return () => globalThis.removeEventListener('keydown', handleKeyDown);
   }, [isMobileContextOpen]);
+
+  useEffect(() => {
+    if (!isEditingSessionTitle) {
+      setSessionTitleDraft(currentSessionTitle ?? '');
+    }
+  }, [currentSessionTitle, isEditingSessionTitle]);
+
+  useEffect(() => {
+    if (!isEditingSessionTitle) {
+      return;
+    }
+
+    titleInputRef.current?.focus();
+    titleInputRef.current?.select();
+  }, [isEditingSessionTitle]);
+
+  const handleStartTitleEdit = () => {
+    if (!currentSessionId) {
+      return;
+    }
+    setSessionTitleDraft(currentSessionTitle ?? '');
+    setIsEditingSessionTitle(true);
+  };
+
+  const handleCancelTitleEdit = () => {
+    setSessionTitleDraft(currentSessionTitle ?? '');
+    setIsEditingSessionTitle(false);
+  };
+
+  const handleSubmitTitleEdit = async () => {
+    if (!currentSessionId) {
+      setIsEditingSessionTitle(false);
+      return;
+    }
+
+    const nextTitle = sessionTitleDraft.trim();
+    if (!nextTitle) {
+      globalThis.alert('Title cannot be empty.');
+      return;
+    }
+
+    await onSaveSessionTitle(nextTitle);
+    setIsEditingSessionTitle(false);
+  };
+
+  const handleTitleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void handleSubmitTitleEdit();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      handleCancelTitleEdit();
+    }
+  };
 
   const closeMobileContext = () => setIsMobileContextOpen(false);
 
@@ -409,9 +479,45 @@ export function ChatPanelView({
           <div className="chat-header-main">
             <Avatar agent={agent} size="medium" />
             <div className="chat-header-info">
-              <h2>Chat with {agent.name}</h2>
-              {sessionTitle ? <p className="chat-session-title">{sessionTitle}</p> : null}
-              <p className="agent-role">{agent.role}</p>
+              <div className="chat-header-title-row">
+                {isEditingSessionTitle ? (
+                  <input
+                    ref={titleInputRef}
+                    type="text"
+                    className="chat-title-input"
+                    value={sessionTitleDraft}
+                    onChange={(event) => setSessionTitleDraft(event.target.value)}
+                    onKeyDown={handleTitleInputKeyDown}
+                    onBlur={() => {
+                      void handleSubmitTitleEdit();
+                    }}
+                    aria-label="Session title"
+                    maxLength={120}
+                  />
+                ) : (
+                  <h2>{headerTitle}</h2>
+                )}
+                {currentSessionId ? (
+                  <button
+                    type="button"
+                    className="chat-title-edit-trigger"
+                    onClick={() => {
+                      if (isEditingSessionTitle) {
+                        handleCancelTitleEdit();
+                      } else {
+                        handleStartTitleEdit();
+                      }
+                    }}
+                    title="Edit session title"
+                    aria-label="Edit session title"
+                  >
+                    <i className="codicon codicon-edit" />
+                  </button>
+                ) : null}
+              </div>
+              <p className="agent-role">
+                {agent.name} · {agent.role}
+              </p>
               <ChatHeaderModelInfo agent={agent} />
             </div>
             {streaming ? <span className="streaming-indicator">●</span> : null}
@@ -522,89 +628,56 @@ export function ChatPanelView({
                 ) : null}
               </div>
               <div className="chat-input-actions">
+                {ttsSupported ? (
+                  <>
+                    <button
+                      onClick={onToggleTts}
+                      className={`chat-action-button ${ttsEnabled ? 'chat-tts-active' : ''}`}
+                      title={ttsEnabled ? 'Disable agent voice' : 'Enable agent voice'}
+                    >
+                      <i className={`codicon ${ttsEnabled ? 'codicon-unmute' : 'codicon-mute'}`} />
+                    </button>
+                    {ttsEnabled ? (
+                      <select
+                        className="chat-tts-rate"
+                        value={ttsRate}
+                        onChange={(e) => onSetTtsRate(parseFloat(e.target.value))}
+                        title="Speech speed"
+                      >
+                        <option value={0.75}>0.75×</option>
+                        <option value={1.0}>1×</option>
+                        <option value={1.25}>1.25×</option>
+                        <option value={1.5}>1.5×</option>
+                        <option value={2.0}>2×</option>
+                      </select>
+                    ) : null}
+                  </>
+                ) : null}
+                <button
+                  onClick={isRecording ? onStopRecording : onStartRecording}
+                  className={`chat-action-button ${isRecording ? 'chat-recording' : ''}`}
+                  title={isRecording ? 'Stop recording' : 'Voice input'}
+                  disabled={sending && !streaming}
+                >
+                  <i className={`codicon ${isRecording ? 'codicon-record' : 'codicon-mic'}`} />
+                </button>
                 {streaming ? (
-                  <>
-                    {ttsSupported ? (
-                      <>
-                        <button
-                          onClick={onToggleTts}
-                          className={`chat-action-button ${ttsEnabled ? 'chat-tts-active' : ''}`}
-                          title={ttsEnabled ? 'Disable agent voice' : 'Enable agent voice'}
-                        >
-                          <i
-                            className={`codicon ${ttsEnabled ? 'codicon-unmute' : 'codicon-mute'}`}
-                          />
-                        </button>
-                        {ttsEnabled ? (
-                          <select
-                            className="chat-tts-rate"
-                            value={ttsRate}
-                            onChange={(e) => onSetTtsRate(parseFloat(e.target.value))}
-                            title="Speech speed"
-                          >
-                            <option value={0.75}>0.75×</option>
-                            <option value={1.0}>1×</option>
-                            <option value={1.25}>1.25×</option>
-                            <option value={1.5}>1.5×</option>
-                            <option value={2.0}>2×</option>
-                          </select>
-                        ) : null}
-                      </>
-                    ) : null}
-                    <button
-                      onClick={onInterrupt}
-                      className="chat-action-button chat-interrupt-button"
-                      title="Stop generation"
-                    >
-                      <i className="codicon codicon-debug-stop" />
-                    </button>
-                  </>
+                  <button
+                    onClick={onInterrupt}
+                    className="chat-action-button chat-interrupt-button"
+                    title="Stop generation"
+                  >
+                    <i className="codicon codicon-debug-stop" />
+                  </button>
                 ) : (
-                  <>
-                    {ttsSupported ? (
-                      <>
-                        <button
-                          onClick={onToggleTts}
-                          className={`chat-action-button ${ttsEnabled ? 'chat-tts-active' : ''}`}
-                          title={ttsEnabled ? 'Disable agent voice' : 'Enable agent voice'}
-                        >
-                          <i
-                            className={`codicon ${ttsEnabled ? 'codicon-unmute' : 'codicon-mute'}`}
-                          />
-                        </button>
-                        {ttsEnabled ? (
-                          <select
-                            className="chat-tts-rate"
-                            value={ttsRate}
-                            onChange={(e) => onSetTtsRate(parseFloat(e.target.value))}
-                            title="Speech speed"
-                          >
-                            <option value={0.75}>0.75×</option>
-                            <option value={1.0}>1×</option>
-                            <option value={1.25}>1.25×</option>
-                            <option value={1.5}>1.5×</option>
-                            <option value={2.0}>2×</option>
-                          </select>
-                        ) : null}
-                      </>
-                    ) : null}
-                    <button
-                      onClick={isRecording ? onStopRecording : onStartRecording}
-                      className={`chat-action-button ${isRecording ? 'chat-recording' : ''}`}
-                      title={isRecording ? 'Stop recording' : 'Voice input'}
-                      disabled={sending}
-                    >
-                      <i className={`codicon ${isRecording ? 'codicon-record' : 'codicon-mic'}`} />
-                    </button>
-                    <button
-                      onClick={onSend}
-                      disabled={!input.trim() || sending}
-                      className="chat-action-button chat-send-button"
-                      title="Send message"
-                    >
-                      <i className="codicon codicon-send" />
-                    </button>
-                  </>
+                  <button
+                    onClick={onSend}
+                    disabled={!input.trim() || sending}
+                    className="chat-action-button chat-send-button"
+                    title="Send message"
+                  >
+                    <i className="codicon codicon-send" />
+                  </button>
                 )}
               </div>
             </div>
@@ -619,7 +692,7 @@ export function ChatPanelView({
         agentId={routeAgentId || currentAgentId}
         sessionId={currentSessionId ?? undefined}
         artifacts={artifactsInContext}
-        allowedTools={allowedTools}
+        toolEntries={toolEntries}
         activatedTools={activatedTools}
         onToggleArtifact={onToggleArtifact}
         onSwitchSession={handleSwitchSession}

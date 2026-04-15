@@ -237,6 +237,7 @@ export const TeamConfigSchema = z.object({
   randomAvatarUrls: z.array(z.string().url()).optional().default([]),
   fileTree: FileTreeConfigSchema.optional(),
   fileTypeGroups: z.record(z.string().min(1), FileTypeGroupConfigSchema).optional(),
+  projectName: z.string().min(1).optional(),
   modelKeys: z.record(z.string(), ModelKeyEntrySchema).optional(),
   systemModels: z
     .record(

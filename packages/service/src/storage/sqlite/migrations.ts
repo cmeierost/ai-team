@@ -260,7 +260,7 @@ export const MIGRATIONS: Migration[] = [
     version: 7,
     name: 'add_tool_call_llm_result',
     up: `
-      ALTER TABLE message_tool_calls ADD COLUMN result_llm_json TEXT;
+      ALTER TABLE message_tool_calls ADD COLUMN result_llm TEXT;
     `,
   },
 ];

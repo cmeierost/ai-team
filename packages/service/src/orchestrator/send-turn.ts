@@ -28,8 +28,9 @@ const TOOL_SCHEMA_CACHE = new WeakMap<object, Map<string, LlmToolDefinition>>();
 
 function getCachedToolSchema(
   ctx: OrchestratorContext,
-  toolName: string
-): LlmToolDefinition | undefined {
+  tool: AgentTool
+): LlmToolDefinition {
+  const toolName = toolKey(tool);
   const managerKey = ctx.toolManager as unknown as object;
   const cacheForManager = TOOL_SCHEMA_CACHE.get(managerKey) ?? new Map<string, LlmToolDefinition>();
   if (!TOOL_SCHEMA_CACHE.has(managerKey)) {
@@ -39,20 +40,28 @@ function getCachedToolSchema(
   const cached = cacheForManager.get(toolName);
   if (cached) return cached;
 
-  const schema = ctx.toolManager.toSchema(toolName);
-  if (schema) {
-    cacheForManager.set(toolName, schema);
-  }
+  const schema = ctx.toolManager.toSchema(toolName) ?? {
+    name: toolName,
+    description: tool.description,
+    parameters: zodSchemaToJsonSchema(tool.parameters),
+  };
+  cacheForManager.set(toolName, schema);
   return schema;
 }
 
 function buildToolDefinitions(ctx: OrchestratorContext, tools: AgentTool[]): LlmToolDefinition[] {
   const defs: LlmToolDefinition[] = [];
   for (const tool of tools) {
-    const schema = getCachedToolSchema(ctx, toolKey(tool));
-    if (schema) defs.push(schema);
+    defs.push(getCachedToolSchema(ctx, tool));
   }
   return defs;
+}
+
+function zodSchemaToJsonSchema(schema: unknown): Record<string, unknown> {
+  if (schema && typeof schema === 'object' && typeof (schema as any).toJSONSchema === 'function') {
+    return (schema as any).toJSONSchema() as Record<string, unknown>;
+  }
+  return { type: 'object', properties: {}, additionalProperties: true };
 }
 
 export interface SendTurnOptions {
@@ -98,7 +107,10 @@ export async function sendTurn(
     content: userMessage,
   };
   if (!options?.skipPersist) {
-    await sessionManager.appendMessage(sessionId, userMsg);
+    const generatedTitle = await sessionManager.appendMessage(sessionId, userMsg, ctx.llmService);
+    if (generatedTitle) {
+      hooks?.emit?.({ kind: 'session_title_updated', sessionId, title: generatedTitle });
+    }
   }
   ctx.history.push(userMsg);
 
@@ -251,15 +263,7 @@ export async function sendTurn(
     content: persistedContent,
     isHuman: false,
   };
-  // Pass llmService only once there are ≥ 2 human messages in history (userMsg already pushed).
-  const humanCount = ctx.history.filter((m) => m.isHuman).length;
-  const llmServiceForTitle = humanCount >= 2 ? ctx.llmService : undefined;
-  if (llmServiceForTitle) emitStatus(hooks, 'title', 'Generating title...');
-  const generatedTitle = await sessionManager.appendMessage(
-    sessionId,
-    agentMsg,
-    llmServiceForTitle
-  );
+  const generatedTitle = await sessionManager.appendMessage(sessionId, agentMsg, ctx.llmService);
   ctx.history.push(agentMsg);
 
   if (generatedTitle) {

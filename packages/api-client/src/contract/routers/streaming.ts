@@ -489,6 +489,7 @@ export interface ICommandDispatcher {
 export interface ToolRuntimePayloadEvent {
   toolName: string;
   outcome: 'result' | 'error' | 'denied';
+  request?: unknown;
   result?: unknown;
   /** LLM-formatted representation of result — what was injected into the model's context window. */
   resultLlm?: unknown;

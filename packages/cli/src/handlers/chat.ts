@@ -9,7 +9,7 @@ import type {
   QuestionPasswordRequest,
 } from '@ai-team/api-client';
 import { generateAgentColor, parseHslHue } from '@ai-team/infrastructure';
-import { createIdeAdapter } from '@ai-team/infrastructure';
+import { createIdeAdapter, loadTeamConfig } from '@ai-team/infrastructure';
 import { findWorkspaceRoot, IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
 import { checkbox, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
@@ -89,7 +89,8 @@ async function askLine(message: string, signal?: AbortSignal): Promise<string> {
 function createChatQuestionResponders(
   signal: AbortSignal,
   onAnswered?: () => void,
-  onQuestionStart?: () => void
+  onQuestionStart?: () => void,
+  projectNameFn?: () => Promise<string | undefined>
 ): Pick<
   InteractionContext,
   'questionInput' | 'questionConfirm' | 'questionSelect' | 'questionChecklist' | 'questionPassword'
@@ -118,6 +119,13 @@ function createChatQuestionResponders(
       onQuestionStart?.();
       while (true) {
         const answer = await askWithSlashSuggestions(request.message, signal);
+        const trimmed = answer.trim().toLowerCase();
+        if (trimmed === 'exit' || trimmed === '/exit' || trimmed === 'quit' || trimmed === '/quit' || trimmed === 'q' || trimmed === '/q') {
+          const resolvedName = await projectNameFn?.();
+          const team = resolvedName ? `the ${resolvedName} team` : 'the team';
+          process.stdout.write(`See you next time — ${team} will be here when you need us 👋\n`);
+          process.exit(0);
+        }
         if (request.validate) {
           const result = request.validate(answer);
           if (result !== true) {
@@ -778,7 +786,25 @@ export async function renderChat(
         },
       },
       {
-        ...createChatQuestionResponders(abortControl.signal, startSpinner, stopSpinner),
+        ...createChatQuestionResponders(
+          abortControl.signal,
+          startSpinner,
+          stopSpinner,
+          async () => {
+            const cfg = await loadTeamConfig(workspaceRoot);
+            const cfgName = (cfg as any)?.projectName as string | undefined;
+            if (cfgName) return cfgName;
+            // Fall back to package.json name
+            try {
+              const { readFile } = await import('node:fs/promises');
+              const { join } = await import('node:path');
+              const pkg = JSON.parse(await readFile(join(workspaceRoot, 'package.json'), 'utf8'));
+              return pkg.name as string | undefined;
+            } catch {
+              return undefined;
+            }
+          }
+        ),
         signal: abortControl.signal,
         logger:
           mediatorLoggerEnabled || frontendFileLogEnabled

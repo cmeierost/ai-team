@@ -504,16 +504,115 @@ body.context-panel-resizing {
 .context-tool-chip-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
+}
+
+/* Wrapper that adds padding to the whole tools section body */
+.context-tools-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 10px 10px;
+}
+
+/* Used tools — row layout with name + call-count badge */
+.context-tools-used {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.context-tool-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: #1f6b3a;
+  border: 1px solid #2d8a50;
+  font-size: 11.5px;
+  color: #ffffff;
+  gap: 8px;
+}
+
+.context-tool-row.is-running {
+  outline: 1px solid #4fc3f7;
+  outline-offset: 1px;
+}
+
+.context-tool-row-name {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-tool-call-badge {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #3fa860;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .context-tool-chip {
   font-size: 11px;
   border: 1px solid #3e3e42;
-  background: #1e1e1e;
-  color: #cccccc;
+  background: transparent;
+  color: #888;
   border-radius: 10px;
-  padding: 2px 8px;
+  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.context-tool-chip.is-allowed {
+  border-color: #2a5c38;
+  color: #8ecfa4;
+}
+
+.context-tool-chip.was-called {
+  border-color: #3fa861;
+  background: #1e5c35;
+  color: #a8f0c0;
+  font-weight: 500;
+}
+
+.context-tool-chip.is-denied {
+  border-color: #5a2424;
+  color: #a07070;
+  cursor: help;
+}
+
+.context-tool-chip.is-file-gated {
+  border-color: #3e3e42;
+  background: #1e1e1e;
+  color: #777;
+  cursor: help;
+}
+
+.context-tool-chip.is-running {
+  outline: 1px solid #4fc3f7;
+  outline-offset: 1px;
+}
+
+.context-tool-chip-group {
+  color: #888;
+  font-size: 10px;
+  margin-right: 1px;
 }
 
 .context-tool-chip.is-active {
@@ -972,6 +1071,90 @@ body.context-panel-resizing {
 }
 .ctx-pct--high {
   color: #e06c75;
+}
+
+/* ── Inline sub-rows (files, messages, tool calls under legend rows) ── */
+
+.ctx-sub-rows {
+  padding-left: 18px;
+  margin-bottom: 2px;
+}
+
+.ctx-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 0;
+  font-size: 10px;
+  color: #777;
+  min-width: 0;
+}
+
+.ctx-sub-row--muted {
+  opacity: 0.5;
+}
+
+.ctx-sub-row--clickable {
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.ctx-sub-row--clickable:hover {
+  color: #999;
+}
+
+.ctx-sub-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-sub-preview {
+  font-style: italic;
+}
+
+.ctx-sub-tokens {
+  font-size: 10px;
+  color: #666;
+  flex-shrink: 0;
+  text-align: right;
+  min-width: 32px;
+}
+
+/* ── Collapsible sections ── */
+
+.ctx-collapsible {
+  margin-bottom: 2px;
+}
+
+.ctx-collapsible-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 0;
+  font-size: 10px;
+  color: #777;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+
+.ctx-collapsible-toggle:hover {
+  color: #999;
+}
+
+.ctx-toggle-icon {
+  display: inline-block;
+  width: 10px;
+  text-align: center;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+  font-size: 7px;
+}
+
+.ctx-toggle-icon--expanded {
+  transform: rotate(90deg);
 }
 
 /* ── Context detail sections (instructions / skills / messages) ─── */

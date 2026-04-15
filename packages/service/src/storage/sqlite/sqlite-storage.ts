@@ -21,6 +21,7 @@ export class SqliteMessageStorage implements IMessageStorage {
   private readonly connection: SqliteConnection;
   private readonly migrations: MigrationManager;
   private ready = false;
+  private initPromise: Promise<SqliteConnection> | null = null;
 
   constructor(workspaceRoot: string) {
     this.connection = new SqliteConnection(workspaceRoot);
@@ -29,12 +30,20 @@ export class SqliteMessageStorage implements IMessageStorage {
 
   // ========== Lifecycle ==========
 
-  private async getConnection(): Promise<SqliteConnection> {
-    if (!this.ready) {
+  /**
+   * Return a ready connection, opening it and running any pending migrations on
+   * the first call.  Concurrent callers share the same init promise so the DB
+   * is only opened once.
+   */
+  private getConnection(): Promise<SqliteConnection> {
+    if (this.ready) return Promise.resolve(this.connection);
+    this.initPromise ??= (async () => {
       await this.connection.open();
+      await this.migrations.initialize();
       this.ready = true;
-    }
-    return this.connection;
+      return this.connection;
+    })();
+    return this.initPromise;
   }
 
   /**
@@ -56,94 +65,85 @@ export class SqliteMessageStorage implements IMessageStorage {
     await this.getConnection();
     const timestamp = message.timestamp || new Date().toISOString();
 
-    // Start transaction
-    const statements: Array<{ sql: string; params?: any[] }> = [];
+    return this.connection.runTransaction(async (run) => {
+      // Insert the message row first so we can capture its auto-generated ID.
+      const msgResult = await run(
+        `INSERT INTO messages (session_id, timestamp, from_id, to_id, is_human, content, archived, handoff_type, target_agent_id, handoff_from_session_id, handoff_to_session_id, handoff_id, importance)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          sessionId,
+          timestamp,
+          message.from,
+          message.to || null,
+          message.isHuman ? 1 : 0,
+          message.content,
+          message.archived ? 1 : 0,
+          message.handoffType || null,
+          message.targetAgentId || null,
+          message.handoffFromSessionId || null,
+          message.handoffToSessionId || null,
+          message.handoffId || null,
+          message.importance || null,
+        ]
+      );
 
-    // Insert message
-    const messageResult = await this.connection.run(
-      `INSERT INTO messages (session_id, timestamp, from_id, to_id, is_human, content, archived, handoff_type, target_agent_id, handoff_from_session_id, handoff_to_session_id, handoff_id, importance)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        sessionId,
-        timestamp,
-        message.from,
-        message.to || null,
-        message.isHuman ? 1 : 0,
-        message.content,
-        message.archived ? 1 : 0,
-        message.handoffType || null,
-        message.targetAgentId || null,
-        message.handoffFromSessionId || null,
-        message.handoffToSessionId || null,
-        message.handoffId || null,
-        message.importance || null,
-      ]
-    );
+      const messageId = msgResult.lastID;
 
-    const messageId = messageResult.lastID;
-
-    // Insert context files
-    if (message.context && message.context.length > 0) {
-      for (const filePath of message.context) {
-        statements.push({
-          sql: 'INSERT INTO message_files (message_id, file_path) VALUES (?, ?)',
-          params: [messageId, filePath],
-        });
-      }
-    }
-
-    // Insert tool calls
-    if (message.tool_calls && message.tool_calls.length > 0) {
-      for (const toolCall of message.tool_calls) {
-        statements.push({
-          sql: 'INSERT INTO message_tool_calls (message_id, tool_name, params_json, result_json, result_llm_json) VALUES (?, ?, ?, ?, ?)',
-          params: [
+      // Insert context files
+      if (message.context && message.context.length > 0) {
+        for (const filePath of message.context) {
+          await run('INSERT INTO message_files (message_id, file_path) VALUES (?, ?)', [
             messageId,
-            toolCall.tool,
-            JSON.stringify(toolCall.params),
-            toolCall.result !== undefined ? JSON.stringify(toolCall.result) : null,
-            toolCall.resultLlm !== undefined ? JSON.stringify(toolCall.resultLlm) : null,
-          ],
-        });
+            filePath,
+          ]);
+        }
       }
-    }
 
-    // Insert code suggestions
-    if (message.suggestions && message.suggestions.length > 0) {
-      for (const suggestion of message.suggestions) {
-        statements.push({
-          sql: 'INSERT INTO message_suggestions (message_id, suggestion_type, file_path, line_number, description, code) VALUES (?, ?, ?, ?, ?, ?)',
-          params: [
-            messageId,
-            suggestion.type,
-            suggestion.file,
-            suggestion.line || null,
-            suggestion.description,
-            suggestion.code || null,
-          ],
-        });
+      // Insert tool calls
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        for (const toolCall of message.tool_calls) {
+          await run(
+            'INSERT INTO message_tool_calls (message_id, tool_name, params_json, result_json, result_llm) VALUES (?, ?, ?, ?, ?)',
+            [
+              messageId,
+              toolCall.tool,
+              JSON.stringify(toolCall.params),
+              toolCall.result === undefined ? null : JSON.stringify(toolCall.result),
+              toolCall.resultLlm === undefined ? null : toolCall.resultLlm,
+            ]
+          );
+        }
       }
-    }
 
-    // Update session message count and last activity
-    statements.push({
-      sql: `UPDATE sessions 
+      // Insert code suggestions
+      if (message.suggestions && message.suggestions.length > 0) {
+        for (const suggestion of message.suggestions) {
+          await run(
+            'INSERT INTO message_suggestions (message_id, suggestion_type, file_path, line_number, description, code) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+              messageId,
+              suggestion.type,
+              suggestion.file,
+              suggestion.line || null,
+              suggestion.description,
+              suggestion.code || null,
+            ]
+          );
+        }
+      }
+
+      // Update session message count and last activity atomically with the insert.
+      await run(
+        `UPDATE sessions
             SET message_count = message_count + 1,
                 last_activity_at = ?,
                 updated_at = ?
             WHERE id = ?`,
-      params: [timestamp, timestamp, sessionId],
+        [timestamp, timestamp, sessionId]
+      );
+
+      return { messageId, timestamp };
     });
-
-    // Execute all statements in transaction
-    if (statements.length > 0) {
-      await this.connection.transaction(statements);
-    }
-
-    return {
-      messageId,
-      timestamp,
-    };
   }
 
   async getSessionMessages(
@@ -713,7 +713,7 @@ export class SqliteMessageStorage implements IMessageStorage {
 
     // Load tool calls
     const toolCallRows = await this.connection.all<any>(
-      'SELECT id, tool_name, params_json, result_json, result_llm_json FROM message_tool_calls WHERE message_id = ?',
+      'SELECT id, tool_name, params_json, result_json, result_llm FROM message_tool_calls WHERE message_id = ?',
       [messageId]
     );
     const tool_calls = toolCallRows.map((r) => ({
@@ -721,7 +721,7 @@ export class SqliteMessageStorage implements IMessageStorage {
       tool: r.tool_name,
       params: JSON.parse(r.params_json),
       result: r.result_json ? JSON.parse(r.result_json) : undefined,
-      resultLlm: r.result_llm_json ? JSON.parse(r.result_llm_json) : undefined,
+      resultLlm: r.result_llm ?? undefined,
     }));
 
     // Load suggestions
@@ -779,9 +779,9 @@ export class SqliteMessageStorage implements IMessageStorage {
         tool_name: string;
         params_json: string;
         result_json: string | null;
-        result_llm_json: string | null;
+        result_llm: string | null;
       }>(
-        `SELECT id, message_id, tool_name, params_json, result_json, result_llm_json
+        `SELECT id, message_id, tool_name, params_json, result_json, result_llm
          FROM message_tool_calls
          WHERE message_id IN (${placeholders})`,
         messageIds
@@ -813,7 +813,7 @@ export class SqliteMessageStorage implements IMessageStorage {
 
     const toolCallsByMessage = new Map<
       number,
-      Array<{ id: number; tool: string; params: unknown; result?: unknown; resultLlm?: unknown }>
+      Array<{ id: number; tool: string; params: unknown; result?: unknown; resultLlm?: string }>
     >();
     for (const row of toolCallRows) {
       const parsed = {
@@ -821,7 +821,7 @@ export class SqliteMessageStorage implements IMessageStorage {
         tool: row.tool_name,
         params: JSON.parse(row.params_json),
         result: row.result_json ? JSON.parse(row.result_json) : undefined,
-        resultLlm: row.result_llm_json ? JSON.parse(row.result_llm_json) : undefined,
+        resultLlm: row.result_llm ?? undefined,
       };
       const existing = toolCallsByMessage.get(row.message_id);
       if (existing) {
@@ -1147,8 +1147,8 @@ export class SqliteMessageStorage implements IMessageStorage {
 
   async updateToolCallLlmResult(toolCallId: number, newText: string): Promise<void> {
     await this.getConnection();
-    await this.connection.run('UPDATE message_tool_calls SET result_llm_json = ? WHERE id = ?', [
-      JSON.stringify(newText),
+    await this.connection.run('UPDATE message_tool_calls SET result_llm = ? WHERE id = ?', [
+      newText,
       toolCallId,
     ]);
   }

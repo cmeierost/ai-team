@@ -49,7 +49,7 @@ export function resolveApiBase(): string {
   }
 
   if (globalThis.location.hostname === 'localhost') {
-    return 'http://localhost:3002';
+    return 'http://127.0.0.1:3002';
   }
 
   return globalThis.location.origin;

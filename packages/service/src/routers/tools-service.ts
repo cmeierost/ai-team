@@ -5,6 +5,7 @@ import type {
 } from '@ai-team/api-client';
 import type { AgentManager } from '@ai-team/infrastructure';
 import type { ToolManager } from '../tools/tool-manager.js';
+import type { IMcpGateway } from '../orchestrator/pipeline.js';
 import {
   listToolsCommand,
   allowToolCommand,
@@ -17,11 +18,17 @@ import { BadRequestError } from '../http-errors.js';
 export class ToolsService implements IToolsService {
   constructor(
     private readonly agentManager: AgentManager,
-    private readonly toolManager: ToolManager
+    private readonly toolManager: ToolManager,
+    private readonly mcpGateway?: IMcpGateway
   ) {}
 
   async list(query?: { agent?: string }): Promise<ListToolsResponse> {
-    return listToolsCommand(this.agentManager, this.toolManager, { agent: query?.agent });
+    return listToolsCommand(
+      this.agentManager,
+      this.toolManager,
+      { agent: query?.agent },
+      this.mcpGateway
+    );
   }
 
   async allow(body: { agent: string; tool: string }): Promise<UpdateAgentToolResponse> {

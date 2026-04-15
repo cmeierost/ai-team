@@ -58,6 +58,7 @@ export interface ModelKeyEntry {
 
 export interface TeamConfig {
   version: string;
+  projectName?: string;
   llm?: LlmConfig;
   providers?: Record<string, LlmProviderConfig>;
   defaultModel?: { provider: string; model: string; contextWindow?: number };

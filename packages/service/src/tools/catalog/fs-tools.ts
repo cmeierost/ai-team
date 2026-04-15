@@ -136,6 +136,9 @@ function mapReadResult(
         path: filePath,
         content: result.content,
         totalLines: result.totalLines,
+        startLine: result.startLine,
+        endLine: result.endLine,
+        isFullFile: result.isFullFile,
         offset: result.offset,
         limit: result.limit,
         hasMore: result.hasMore,
@@ -153,7 +156,8 @@ export const fsReadFileTool: AgentTool = {
     'Read a file through access checks with structured access metadata.',
     'Reads line-by-line internally (never buffers the whole file into memory).',
     'Supports pagination via `offset` (1-based start line) and `limit` (max lines).',
-    'Output lines are prefixed with their 1-based line number, e.g. "42: content".',
+    'Text content is returned without inline line-number prefixes.',
+    'Structured results include `startLine`, `endLine`, and `isFullFile` so callers know which slice was returned.',
     'Lines longer than 2000 chars are truncated; output is capped at 50 KB.',
     'If the file is not found, suggests similar filenames the agent can access.',
     'If the path is a directory, returns a paginated listing (supports offset/limit).',
@@ -184,6 +188,33 @@ export const fsReadFileTool: AgentTool = {
       return failed(e, filePath, 'content');
     }
   },
+  formatForLlm(result: unknown): unknown {
+    const r = result as Record<string, unknown>;
+    if (typeof r.content !== 'string') return result;
+    const filePath = r.path as string;
+    const startLine = typeof r.startLine === 'number' ? r.startLine : undefined;
+    const endLine = typeof r.endLine === 'number' ? r.endLine : undefined;
+    const totalLines = typeof r.totalLines === 'number' ? r.totalLines : undefined;
+    const isFullFile = r.isFullFile === true;
+    let rangeText = 'unknown';
+
+    if (startLine !== undefined && endLine !== undefined) {
+      rangeText = `${startLine}-${endLine}`;
+      if (totalLines !== undefined) {
+        rangeText += ` of ${totalLines}`;
+      }
+    } else if (totalLines !== undefined) {
+      rangeText = `1-${totalLines} of ${totalLines}`;
+    }
+
+    return [
+      `File: ${filePath}`,
+      `Lines: ${rangeText}`,
+      `Full file: ${isFullFile ? 'yes' : 'no'}`,
+      '',
+      r.content,
+    ].join('\n');
+  },
 };
 
 // ─── fs_read_lines ────────────────────────────────────────────────────────────
@@ -192,7 +223,7 @@ export const fsReadLinesTool: AgentTool = {
   name: 'read_lines',
   group: 'fs',
   description:
-    'Read a range of lines from a file. Legacy compat — delegates to the streaming reader.',
+    'Read a range of raw lines from a file. Legacy compat — delegates to the streaming reader.',
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
     startLine: z.number().int().min(1).describe('1-based first line'),
@@ -385,6 +416,46 @@ export function matchesFsTreePreLlmIntent(message: string): boolean {
   return FS_TREE_PRE_LLM_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+interface FsTreeNodeRights {
+  l: boolean;
+  r: boolean;
+  w: boolean;
+}
+
+type FsTreeNodeWithRights = FileTreeNode & {
+  rights: FsTreeNodeRights;
+  children?: FsTreeNodeWithRights[];
+};
+
+function annotateFsTreeWithRights(
+  node: FileTreeNode,
+  fs: ReturnType<typeof wfs>
+): FsTreeNodeWithRights {
+  const relPath = node.relativePath === '.' ? '' : node.relativePath;
+  const childNodes = node.children?.map((child) => annotateFsTreeWithRights(child, fs));
+
+  const ownRights: FsTreeNodeRights = {
+    l: fs.canList(relPath),
+    r: fs.canRead(relPath),
+    w: fs.canWrite(relPath),
+  };
+
+  const rights: FsTreeNodeRights =
+    childNodes && childNodes.length > 0
+      ? {
+          l: ownRights.l || childNodes.some((child) => child.rights.l),
+          r: ownRights.r || childNodes.some((child) => child.rights.r),
+          w: ownRights.w || childNodes.some((child) => child.rights.w),
+        }
+      : ownRights;
+
+  return {
+    ...node,
+    rights,
+    children: childNodes,
+  };
+}
+
 export const fsTreeTool: AgentTool = {
   name: 'tree',
   group: 'fs',
@@ -434,7 +505,9 @@ export const fsTreeTool: AgentTool = {
             }
           : { allowed: true };
 
-    return { path: targetPath, tree: tree ?? null, denied, access };
+    const treeWithRights = tree ? annotateFsTreeWithRights(tree, fs) : null;
+
+    return { path: targetPath, tree: treeWithRights, denied, access };
   },
   formatForLlm(result: unknown): unknown {
     const r = result as {

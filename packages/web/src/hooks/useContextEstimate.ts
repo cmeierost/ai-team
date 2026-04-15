@@ -31,6 +31,12 @@ export interface ContextSessionSkill {
   isSessionSkill: boolean;
 }
 
+export interface ContextEstimateTool {
+  name: string;
+  description: string;
+  chars: number;
+}
+
 export interface ContextEstimateResponse {
   agentId: string;
   sessionId?: string;
@@ -39,14 +45,20 @@ export interface ContextEstimateResponse {
   instructionFiles: ContextInstructionFile[];
   messages: ContextMessage[];
   sessionSkills: ContextSessionSkill[];
+  tools: ContextEstimateTool[];
 }
 
 export function useContextEstimate(agentId: string | undefined, sessionId?: string) {
   const { client } = useTeam();
   return useQuery<ContextEstimateResponse>({
     queryKey: contextPanelQueryKeys.contextEstimate(agentId!, sessionId),
-    queryFn: () =>
-      client.context.getContextEstimate(agentId!, sessionId ? { sessionId } : undefined) as Promise<ContextEstimateResponse>,
+    queryFn: () => {
+      console.debug('[useContextEstimate] fetching', { agentId, sessionId });
+      return client.context.getContextEstimate(
+        agentId!,
+        sessionId ? { sessionId } : undefined
+      ) as Promise<ContextEstimateResponse>;
+    },
     enabled: !!agentId,
     staleTime: 15_000,
   });

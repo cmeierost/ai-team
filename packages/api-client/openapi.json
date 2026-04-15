@@ -249,6 +249,10 @@
                     "type": "string",
                     "nullable": true
                   },
+                  "projectName": {
+                    "type": "string",
+                    "nullable": true
+                  },
                   "llm": {
                     "$ref": "#/components/schemas/LlmConfig",
                     "nullable": true
@@ -5099,6 +5103,10 @@
           "version": {
             "type": "string"
           },
+          "projectName": {
+            "type": "string",
+            "nullable": true
+          },
           "llm": {
             "$ref": "#/components/schemas/LlmConfig",
             "nullable": true
@@ -6667,6 +6675,19 @@
               "type": "string"
             },
             "nullable": true
+          },
+          "fileRightsDependent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
           }
         },
         "required": [
@@ -7028,7 +7049,9 @@
               }
             ]
           },
+          "request": {},
           "result": {},
+          "resultLlm": {},
           "denial": {
             "$ref": "#/components/schemas/SessionToolDenial",
             "nullable": true

@@ -1,11 +1,4 @@
-import {
-  type KeyboardEvent,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AiTeamHttpClient } from '@ai-team/api-client';
@@ -193,14 +186,8 @@ export function PortfolioMarkdownSections({
   };
 
   const handleAddKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      void handleAddSection();
-    }
-    if (e.key === 'Escape') {
-      setAddingSection(false);
-      setNewHeading('');
-    }
+    if (e.key === 'Enter') { e.preventDefault(); void handleAddSection(); }
+    if (e.key === 'Escape') { setAddingSection(false); setNewHeading(''); }
   };
 
   const openAddForm = () => {
@@ -262,20 +249,10 @@ export function PortfolioMarkdownSections({
                 onChange={(e) => setNewHeading(e.target.value)}
                 onKeyDown={handleAddKeyDown}
               />
-              <button
-                className="btn-save"
-                onClick={() => void handleAddSection()}
-                disabled={!newHeading.trim()}
-              >
+              <button className="btn-save" onClick={() => void handleAddSection()} disabled={!newHeading.trim()}>
                 Add
               </button>
-              <button
-                className="btn-header-action"
-                onClick={() => {
-                  setAddingSection(false);
-                  setNewHeading('');
-                }}
-              >
+              <button className="btn-header-action" onClick={() => { setAddingSection(false); setNewHeading(''); }}>
                 Cancel
               </button>
             </div>

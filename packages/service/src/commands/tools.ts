@@ -2,6 +2,7 @@ import { type Agent, type AgentManager, type AgentTool } from '@ai-team/infrastr
 import type { ToolManager } from '../tools/tool-manager.js';
 import { toolKey } from '../tools/tool-manager.js';
 import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-client';
+import type { IMcpGateway } from '../orchestrator/pipeline.js';
 export interface ListToolsOptions {
   agent?: string;
 }
@@ -24,6 +25,7 @@ function buildCatalogEntry(
   },
   tool: AgentTool
 ) {
+  const permType = tool.permissionCheck?.type;
   return {
     name: tool.name,
     description: tool.description,
@@ -31,6 +33,7 @@ function buildCatalogEntry(
     schema: toolManager.toSchema(tool.name)?.parameters ?? {},
     tags: tool.tags,
     examples: tool.examples,
+    fileRightsDependent: permType === 'file-read' || permType === 'file-write',
   };
 }
 
@@ -54,20 +57,28 @@ async function resolveFullAgent(
 export async function listToolsCommand(
   agentManager: AgentManager,
   toolManager: ToolManager,
-  options: ListToolsOptions = {}
+  options: ListToolsOptions = {},
+  mcpGateway?: IMcpGateway
 ): Promise<ListToolsResponse> {
-  const allTools = sortToolsByName(toolManager.getAll());
+  const [staticTools, mcpTools] = await Promise.all([
+    Promise.resolve(sortToolsByName(toolManager.getAll())),
+    mcpGateway ? mcpGateway.discover() : Promise.resolve([] as AgentTool[]),
+  ]);
 
   if (!options.agent) {
+    const mcpEntries = mcpTools.map((tool) => ({
+      ...buildCatalogEntry(toolManager, tool),
+      allowedForAgent: true,
+    }));
     return {
-      entries: allTools.map((tool) => buildCatalogEntry(toolManager, tool)),
+      entries: [...staticTools.map((tool) => buildCatalogEntry(toolManager, tool)), ...mcpEntries],
       timestamp: new Date().toISOString(),
     };
   }
 
   const agent = await resolveFullAgent(agentManager, options.agent, 'list tools for agent');
-  const entries = await Promise.all(
-    allTools.map(async (tool) => {
+  const staticEntries = await Promise.all(
+    staticTools.map(async (tool) => {
       const permission = await toolManager.canExecute(agent, toolKey(tool), {});
       return {
         ...buildCatalogEntry(toolManager, tool),
@@ -76,9 +87,13 @@ export async function listToolsCommand(
       };
     })
   );
+  const mcpEntries = mcpTools.map((tool) => ({
+    ...buildCatalogEntry(toolManager, tool),
+    allowedForAgent: true,
+  }));
 
   return {
-    entries,
+    entries: [...staticEntries, ...mcpEntries],
     timestamp: new Date().toISOString(),
     agent: {
       id: agent.id,

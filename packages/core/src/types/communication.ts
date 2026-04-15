@@ -44,7 +44,7 @@ export interface ToolCall {
   tool: string;
   params: Record<string, unknown>;
   result?: unknown;
-  resultLlm?: unknown;
+  resultLlm?: string;
 }
 
 export interface CodeSuggestion {

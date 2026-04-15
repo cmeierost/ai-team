@@ -1,5 +1,5 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
-import type { LlmChatOptions } from '@ai-team/core';
+import type { LlmChatOptions } from './index.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -86,12 +86,17 @@ function writeLlmHeader(payload: LlmLogPayload): void {
   const agentLabel = payload.agent?.name ?? 'system';
   const model = payload.model ?? '?';
   const mode = payload.mode ?? '?';
-  const isError = Boolean(payload.error);
+  const isFallbackWarning =
+    Boolean(payload.error) &&
+    !!(payload.response?.raw &&
+      typeof payload.response.raw === 'object' &&
+      (payload.response.raw as { mode?: string }).mode === 'fallback');
+  const isError = Boolean(payload.error) && !isFallbackWarning;
   const durationMs = payload.durationMs;
   const durationLabel = durationMs === undefined ? '' : ` ${durationMs}ms`;
   const modeColor = llmModeColor(isError, mode);
-  const statusColor = isError ? C.red : C.green;
-  const statusLabel = isError ? 'error' : 'done';
+  const statusColor = isError ? C.red : isFallbackWarning ? C.cyan : C.green;
+  const statusLabel = isError ? 'error' : isFallbackWarning ? 'warning' : 'done';
 
   const parts = [
     `${C.gray}${time}${C.reset}`,
@@ -125,6 +130,14 @@ function writeLlmReplyPreview(payload: LlmLogPayload): void {
 function writeLlmError(payload: LlmLogPayload): void {
   if (!payload.error) return;
   const errMsg = payload.error.message ?? JSON.stringify(payload.error);
+  const isFallbackWarning =
+    !!(payload.response?.raw &&
+      typeof payload.response.raw === 'object' &&
+      (payload.response.raw as { mode?: string }).mode === 'fallback');
+  if (isFallbackWarning) {
+    process.stderr.write(`  ${C.cyan}warning: ${errMsg}${C.reset}\n`);
+    return;
+  }
   process.stderr.write(`  ${C.red}error: ${errMsg}${C.reset}\n`);
 }
 

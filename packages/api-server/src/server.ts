@@ -199,7 +199,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
 
   // Start server
   await new Promise<void>((resolve) => {
-    httpServer.listen(port, () => {
+    httpServer.listen(port, '::', () => {
       const addr = httpServer.address() as { port: number } | null;
       const actualPort = addr?.port ?? port;
       console.log(`✓ Server listening on http://localhost:${actualPort}`);

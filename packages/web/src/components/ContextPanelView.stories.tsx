@@ -1,7 +1,16 @@
 import { useState, type ComponentProps } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import type { AgentToolPermissionEntry } from '@ai-team/api-client';
 import { ContextPanelView, type ContextSection } from './ContextPanelView';
-import { TaskPriority, TaskStatus, TaskType, type Artifact, type ChatSession, type SessionActivatedTool, type Task } from '../types';
+import {
+  TaskPriority,
+  TaskStatus,
+  TaskType,
+  type Artifact,
+  type ChatSession,
+  type SessionActivatedTool,
+  type Task,
+} from '../types';
 import type { SkillEntry } from '../hooks/useSkillsForAgent';
 
 const sessions: ChatSession[] = [
@@ -157,7 +166,9 @@ const questionToolEvents: SessionActivatedTool[] = [
 type DemoArgs = ComponentProps<typeof ContextPanelView>;
 
 function ContextPanelStory(args: DemoArgs) {
-  const [expandedSection, setExpandedSection] = useState<ContextSection | null>(args.expandedSection);
+  const [expandedSection, setExpandedSection] = useState<ContextSection | null>(
+    args.expandedSection
+  );
   const [notesDraft, setNotesDraft] = useState(args.notesDraft);
   const [selectedArtifacts, setSelectedArtifacts] = useState(args.artifacts);
 
@@ -168,14 +179,16 @@ function ContextPanelStory(args: DemoArgs) {
         expandedSection={expandedSection}
         notesDraft={notesDraft}
         artifacts={selectedArtifacts}
-        onToggleSection={(section) => setExpandedSection((current) => (current === section ? null : section))}
+        onToggleSection={(section) =>
+          setExpandedSection((current) => (current === section ? null : section))
+        }
         onNotesDraftChange={setNotesDraft}
         onSaveNotes={() => undefined}
         onToggleArtifact={(artifactId) => {
           setSelectedArtifacts((current) =>
             current.includes(artifactId)
               ? current.filter((id) => id !== artifactId)
-              : [...current, artifactId],
+              : [...current, artifactId]
           );
         }}
       />
@@ -195,7 +208,31 @@ const meta = {
     agentId: 'daniel-navarro',
     sessionId: 'session-current',
     artifacts: ['artifact-1'],
-    allowedTools: ['read_file', 'apply_patch', 'run_in_terminal'],
+    toolEntries: [
+      {
+        name: 'read_file',
+        description: 'Read a file',
+        group: 'fs',
+        schema: {},
+        allowedForAgent: true,
+        fileRightsDependent: true,
+      },
+      {
+        name: 'apply_patch',
+        description: 'Apply a patch',
+        group: 'fs',
+        schema: {},
+        allowedForAgent: true,
+        fileRightsDependent: true,
+      },
+      {
+        name: 'run_in_terminal',
+        description: 'Run command',
+        group: 'exec',
+        schema: {},
+        allowedForAgent: true,
+      },
+    ] as AgentToolPermissionEntry[],
     allArtifacts: artifacts,
     sessions,
     tasks,
@@ -244,7 +281,31 @@ export const ToolsAndArtifacts: Story = {
 export const QuestionToolStructuredResults: Story = {
   args: {
     expandedSection: 'tools',
-    allowedTools: ['com_ask', 'read_file', 'apply_patch'],
+    toolEntries: [
+      {
+        name: 'com_ask',
+        description: 'Ask a question',
+        group: 'com',
+        schema: {},
+        allowedForAgent: true,
+      },
+      {
+        name: 'read_file',
+        description: 'Read a file',
+        group: 'fs',
+        schema: {},
+        allowedForAgent: true,
+        fileRightsDependent: true,
+      },
+      {
+        name: 'apply_patch',
+        description: 'Apply a patch',
+        group: 'fs',
+        schema: {},
+        allowedForAgent: false,
+        deniedReason: 'Not in agent tools list',
+      },
+    ] as AgentToolPermissionEntry[],
     recentToolEvents: questionToolEvents,
     activeToolNames: [],
   },

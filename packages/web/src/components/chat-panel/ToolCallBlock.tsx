@@ -2,14 +2,14 @@ import { useState } from 'react';
 import type { SessionActivatedTool } from '../../types';
 import { getToolPhaseClass, getToolPhaseLabel } from '../../utils/contextPanel';
 import { getRenderer } from './tool-renderers/index';
-import { ToolResultOverlay } from './ToolResultOverlay';
+import { ToolCallDetailsPanel } from './ToolCallDetailsPanel';
 
 interface ToolCallBlockProps {
   event: SessionActivatedTool;
 }
 
 export function ToolCallBlock({ event }: Readonly<ToolCallBlockProps>) {
-  const [overlayOpen, setOverlayOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const toolName = event.toolResult?.toolName ?? event.toolName;
   const phase = event.toolPhase;
   const phaseClass = getToolPhaseClass(phase);
@@ -30,14 +30,34 @@ export function ToolCallBlock({ event }: Readonly<ToolCallBlockProps>) {
       event.message ??
       (typeof event.toolResult?.result === 'string' ? event.toolResult.result : undefined) ??
       'Tool execution failed';
+    const canOpen =
+      event.toolResult?.result !== undefined || event.toolResult?.request !== undefined;
+    const toggleDetailsOpen = () => {
+      if (!canOpen) return;
+      setDetailsOpen((open) => !open);
+    };
     return (
-      <div className="tool-call-block tool-call-block--failed">
-        <span className="tool-call-icon" aria-hidden="true">
-          ⚠
-        </span>
-        <span className="tool-call-name">{toolName}</span>
-        <span className={`context-tool-phase ${phaseClass}`}>{phaseLabel}</span>
-        {msg && <span className="tool-call-inline-msg">{msg}</span>}
+      <div className={`tool-call-entry${detailsOpen ? ' tool-call-entry--open' : ''}`}>
+        <button
+          type="button"
+          className={`tool-call-block tool-call-block--failed${detailsOpen ? ' tool-call-block--details-open' : ''}${canOpen ? ' tool-call-block--clickable' : ''}`}
+          onClick={toggleDetailsOpen}
+          disabled={!canOpen}
+          aria-expanded={canOpen ? detailsOpen : undefined}
+        >
+          <span className="tool-call-icon" aria-hidden="true">
+            ⚠
+          </span>
+          <span className="tool-call-name">{toolName}</span>
+          <span className={`context-tool-phase ${phaseClass}`}>{phaseLabel}</span>
+          {msg && <span className="tool-call-inline-msg">{msg}</span>}
+          {canOpen && (
+            <span className="tool-call-details-toggle" aria-hidden="true">
+              {detailsOpen ? 'details ▴' : 'details ▾'}
+            </span>
+          )}
+        </button>
+        {detailsOpen && <ToolCallDetailsPanel event={event} />}
       </div>
     );
   }
@@ -61,55 +81,45 @@ export function ToolCallBlock({ event }: Readonly<ToolCallBlockProps>) {
     );
   }
 
-  // result phase — render inline if a rich renderer exists, otherwise clickable chip
+  // result phase
   const result = event.toolResult?.result;
-  const resultLlm = event.toolResult?.resultLlm;
   const renderer = getRenderer(toolName);
-  const richNode =
-    renderer && result !== undefined ? renderer.render(result, resultLlm, event) : null;
+  const hasRichRenderer = renderer !== undefined && result !== undefined;
+  const canOpen =
+    result !== undefined ||
+    event.toolResult?.resultLlm !== undefined ||
+    event.toolResult?.request !== undefined;
+  const toggleDetailsOpen = () => {
+    if (!canOpen) {
+      return;
+    }
+    setDetailsOpen((open) => !open);
+  };
 
-  if (richNode) {
-    return (
-      <>
-        <div className="tool-call-block tool-call-block--completed tool-call-block--rich">
-          <span className="tool-call-icon" aria-hidden="true">
-            🔧
-          </span>
-          <span className="tool-call-name">{toolName}</span>
-          <span className={`context-tool-phase ${phaseClass}`}>{phaseLabel}</span>
-          <button
-            type="button"
-            className="tool-call-open-hint tool-call-open-hint--btn"
-            onClick={() => setOverlayOpen(true)}
-            title={`View ${toolName} full result`}
-          >
-            view ↗
-          </button>
-        </div>
-        <div className="tool-call-rich-body">{richNode}</div>
-        {overlayOpen && <ToolResultOverlay event={event} onClose={() => setOverlayOpen(false)} />}
-      </>
-    );
-  }
-
-  const canOpen = result !== undefined;
   return (
-    <>
+    <div className={`tool-call-entry${detailsOpen ? ' tool-call-entry--open' : ''}`}>
       <button
         type="button"
-        className={`tool-call-block tool-call-block--completed${canOpen ? ' tool-call-block--clickable' : ''}`}
-        onClick={canOpen ? () => setOverlayOpen(true) : undefined}
-        title={canOpen ? `View ${toolName} result` : toolName}
+        className={`tool-call-block tool-call-block--completed${detailsOpen ? ' tool-call-block--details-open' : ''}${canOpen ? ' tool-call-block--clickable' : ''}`}
+        onClick={toggleDetailsOpen}
         disabled={!canOpen}
+        aria-expanded={detailsOpen}
       >
         <span className="tool-call-icon" aria-hidden="true">
           🔧
         </span>
         <span className="tool-call-name">{toolName}</span>
         <span className={`context-tool-phase ${phaseClass}`}>{phaseLabel}</span>
-        {canOpen && <span className="tool-call-open-hint">view ↗</span>}
+        {hasRichRenderer && !detailsOpen && (
+          <span className="tool-call-renderer-badge" aria-label="rendered view available" />
+        )}
+        {canOpen && (
+          <span className="tool-call-details-toggle" aria-hidden="true">
+            {detailsOpen ? 'details ▴' : 'details ▾'}
+          </span>
+        )}
       </button>
-      {overlayOpen && <ToolResultOverlay event={event} onClose={() => setOverlayOpen(false)} />}
-    </>
+      {detailsOpen && <ToolCallDetailsPanel event={event} />}
+    </div>
   );
 }

@@ -154,7 +154,8 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           const metaService = new MetaService(
             ctx.agentManager,
             ctx.sessionManager,
-            ctx.skillManager
+            ctx.skillManager,
+            ctx.toolManager
           );
           let estimate: import('../routers/meta-service.js').ContextEstimateResponse;
           try {
@@ -737,7 +738,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
 
           const currentText =
             entry.tc.resultLlm != null
-              ? String(entry.tc.resultLlm)
+              ? entry.tc.resultLlm
               : entry.tc.result != null
                 ? JSON.stringify(entry.tc.result, null, 2)
                 : '';
@@ -816,7 +817,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           toolName: string;
           params: Record<string, unknown>;
           result: unknown;
-          resultLlm: unknown;
+          resultLlm: string | undefined;
           idx: number;
         };
 

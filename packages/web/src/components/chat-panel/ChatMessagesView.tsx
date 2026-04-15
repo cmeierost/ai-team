@@ -8,6 +8,7 @@ import { SessionGraphLoader } from '../SessionGraph';
 import { MessageDivider } from './MessageDivider';
 import {
   formatDeveloperName,
+  getPersistedToolStatus,
   getMessageDisplayName,
   isHumanMessage,
   resolveNavigateAgent,
@@ -17,13 +18,27 @@ import { ToolCallBlock } from './ToolCallBlock';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+type PersistedToolCall = {
+  tool?: string;
+  params?: unknown;
+  result?: unknown;
+  resultLlm?: unknown;
+};
+
+function getPersistedToolCall(message: ChatMessage): PersistedToolCall | undefined {
+  const calls = (message as ChatMessage & { tool_calls?: PersistedToolCall[] }).tool_calls;
+  if (!Array.isArray(calls) || calls.length === 0) return undefined;
+  return calls[0];
+}
+
 function resolveToolEvent(
   message: ChatMessage,
   index: number,
   toolEventsByMessage: Map<number, SessionActivatedTool[]>
 ): SessionActivatedTool {
+  const persistedCall = getPersistedToolCall(message);
   const toolNameMatch = /^\[tool:([^\]]+)\]/.exec(message.content);
-  const extractedToolName = toolNameMatch?.[1] ?? 'unknown';
+  const extractedToolName = persistedCall?.tool ?? toolNameMatch?.[1] ?? 'unknown';
   const groupedEvents = toolEventsByMessage.get(index) ?? [];
   const matchingEvent = groupedEvents.find(
     (e) => (e.toolResult?.toolName ?? e.toolName) === extractedToolName
@@ -35,6 +50,24 @@ function resolveToolEvent(
     matchingEvent.toolPhase !== 'request'
   ) {
     return matchingEvent;
+  }
+
+  if (persistedCall) {
+    const status = getPersistedToolStatus(persistedCall);
+    return {
+      toolName: extractedToolName,
+      toolPhase: status.phase,
+      message: status.message,
+      timestamp: message.timestamp,
+      toolResult: {
+        toolName: extractedToolName,
+        outcome: status.outcome,
+        request: persistedCall.params,
+        result: persistedCall.result,
+        resultLlm: persistedCall.resultLlm,
+        denial: status.denial,
+      },
+    };
   }
 
   let rawContent = message.content.replace(/^\[tool:[^\]]+\]\s*/, '');
@@ -254,7 +287,9 @@ export function ChatMessagesView({
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i];
       const human = isHumanMessage(message);
-      const isTool = !human && message.content.startsWith('[tool:');
+      const isTool =
+        !human &&
+        (message.content.startsWith('[tool:') || getPersistedToolCall(message) !== undefined);
 
       if (isTool) {
         const senderAgent = agents.find((e) => e.id === message.from) ?? agent;
@@ -296,6 +331,18 @@ export function ChatMessagesView({
     }
     return groups;
   }, [messages, agents, agent, toolEventsByMessage]);
+
+  const liveInProgressTools = useMemo(() => {
+    const latestByTool = new Map<string, SessionActivatedTool>();
+    for (const event of activatedTools) {
+      const key = event.toolResult?.toolName ?? event.toolName;
+      latestByTool.set(key, event);
+    }
+
+    return Array.from(latestByTool.values()).filter(
+      (event) => event.toolPhase === 'start' || event.toolPhase === 'request'
+    );
+  }, [activatedTools]);
 
   return (
     <div className="chat-messages" ref={messagesContainerRef} onScroll={onScroll}>
@@ -484,21 +531,12 @@ export function ChatMessagesView({
                                   onStopSpeaking();
                                   setSpeakingKey(null);
                                 } else {
-                                  const sel = window.getSelection();
-                                  const selText = sel && sel.toString().trim();
-                                  const textToSpeak = selText || message.content;
                                   setSpeakingKey(key);
-                                  onSpeakMessage(textToSpeak, message.from);
+                                  onSpeakMessage(message.content, message.from);
                                 }
                               }}
                               className="btn-action"
-                              title={
-                                isThisSpeaking
-                                  ? 'Stop'
-                                  : window.getSelection()?.toString().trim()
-                                    ? 'Read selected text'
-                                    : 'Read aloud'
-                              }
+                              title={isThisSpeaking ? 'Stop' : 'Read aloud'}
                             >
                               <i
                                 className={`codicon ${isThisSpeaking ? 'codicon-debug-stop' : 'codicon-play'}`}
@@ -551,6 +589,21 @@ export function ChatMessagesView({
           </div>
         );
       })}
+
+      {streaming && liveInProgressTools.length > 0 && (
+        <div className="tool-call-live-strip" aria-live="polite">
+          <div className="tool-call-live-title">In progress</div>
+          <div className="tool-call-list">
+            {liveInProgressTools.map((toolEvent, i) => (
+              <ToolCallBlock
+                key={`${toolEvent.toolName}-${toolEvent.timestamp}-live-${i}`}
+                event={toolEvent}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       <div ref={messagesEndRef} />
     </div>
   );

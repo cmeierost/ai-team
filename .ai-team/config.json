@@ -558,8 +558,8 @@
     }
   },
   "defaultModel": {
-    "provider": "api-llmhub-infs-ai",
-    "model": "best-chat"
+    "provider": "openai",
+    "model": "gpt-5.4-2026-03-05"
   },
   "allowedCliTools": [
     "git",
@@ -577,6 +577,7 @@
   "fileTypeGroups": {
     "code": {
       "label": "Code",
+      "patterns": [],
       "extensions": [
         ".ts",
         ".tsx",
@@ -611,6 +612,7 @@
     },
     "documentation": {
       "label": "Documentation",
+      "patterns": [],
       "extensions": [
         ".md",
         ".mdx",
@@ -621,6 +623,7 @@
     },
     "configuration": {
       "label": "Configuration",
+      "patterns": [],
       "extensions": [
         ".json",
         ".jsonc",
@@ -637,12 +640,14 @@
     },
     "tests": {
       "label": "Tests",
+      "patterns": [],
       "extensions": [
         ".snap"
       ]
     },
     "binaries": {
       "label": "Binaries",
+      "patterns": [],
       "extensions": [
         ".png",
         ".jpg",
@@ -679,6 +684,7 @@
     },
     "assets": {
       "label": "Assets",
+      "patterns": [],
       "extensions": [
         ".png",
         ".jpg",
@@ -697,12 +703,14 @@
     },
     "other": {
       "label": "Other",
+      "patterns": [],
       "extensions": []
     }
   },
+  "projectName": "AI-Team",
   "modelKeys": {
     "cheap": {
-      "provider": "api-llmhub-infs-ai",
+      "provider": "o",
       "model": "best-chat",
       "contextWindow": 20000
     },

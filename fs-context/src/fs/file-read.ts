@@ -290,7 +290,7 @@ export async function safeStat(absolutePath: string): Promise<Stats | null> {
  * - `directory` — path is a directory; includes paginated listing
  * - `media` — image/PDF passthrough as base64
  * - `binary` — opaque binary; only size is returned
- * - `text` — streamed text with numbered lines
+ * - `text` — streamed text with start/end line metadata
  * - `offset-out-of-range` — requested offset exceeds total lines
  */
 export type ReadFileResult =
@@ -309,6 +309,9 @@ export type ReadFileResult =
       kind: 'text';
       content: string;
       totalLines: number;
+      startLine: number;
+      endLine: number;
+      isFullFile: boolean;
       offset: number;
       limit: number;
       hasMore: boolean;
@@ -371,7 +374,7 @@ export async function readFile(
   return readTextContent(absolutePath, offset, limit);
 }
 
-/** Internal: stream text, format numbered lines, and build result. */
+/** Internal: stream text and build a result with explicit line-range metadata. */
 async function readTextContent(
   absolutePath: string,
   offset: number,
@@ -387,14 +390,18 @@ async function readTextContent(
     return { kind: 'offset-out-of-range', totalLines, offset };
   }
 
-  const content = raw.map((line, i) => `${offset + i}: ${line}`).join('\n');
+  const content = raw.join('\n');
   const nextOffset = offset + raw.length;
   const hasMore = hasMoreLines || truncatedByBytes;
+  const endLine = offset + raw.length - 1;
 
   return {
     kind: 'text',
     content,
     totalLines,
+    startLine: offset,
+    endLine,
+    isFullFile: offset === 1 && !hasMore,
     offset,
     limit,
     hasMore,

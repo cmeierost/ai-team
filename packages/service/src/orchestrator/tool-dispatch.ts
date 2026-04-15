@@ -133,7 +133,7 @@ export async function dispatchToolCall(
 
   emitEvent(ctx.hooks, { kind: 'tool', toolName, toolPhase: 'request', message: label });
 
-  const deniedByUser = await requestExecutionApproval(toolName, label, ctx);
+  const deniedByUser = await requestExecutionApproval(toolName, label, args, ctx);
   if (deniedByUser) {
     return {
       toolCallId,
@@ -144,20 +144,26 @@ export async function dispatchToolCall(
     };
   }
 
-  emitToolEvent(ctx.hooks, toolName, 'start', 'Executing');
+  emitToolEvent(ctx.hooks, toolName, 'start', 'In progress');
 
-  const execResult = await ctx.toolManager.execute(ctx.agent, toolName, args, {
-    agentId: ctx.agent.id,
-    workspaceRoot: ctx.workspaceRoot,
-    currentFiles: contextFiles,
-    questionInput: ctx.hooks.questionInput,
-    questionConfirm: ctx.hooks.questionConfirm,
-    questionSelect: ctx.hooks.questionSelect,
-    questionPassword: ctx.hooks.questionPassword,
-    questionChecklist: ctx.hooks.questionChecklist,
-  }, {
-    timeoutMs: toolName === 'com_ask' ? INTERACTIVE_ASK_TIMEOUT_MS : undefined,
-  });
+  const execResult = await ctx.toolManager.execute(
+    ctx.agent,
+    toolName,
+    args,
+    {
+      agentId: ctx.agent.id,
+      workspaceRoot: ctx.workspaceRoot,
+      currentFiles: contextFiles,
+      questionInput: ctx.hooks.questionInput,
+      questionConfirm: ctx.hooks.questionConfirm,
+      questionSelect: ctx.hooks.questionSelect,
+      questionPassword: ctx.hooks.questionPassword,
+      questionChecklist: ctx.hooks.questionChecklist,
+    },
+    {
+      timeoutMs: toolName === 'com_ask' ? INTERACTIVE_ASK_TIMEOUT_MS : undefined,
+    }
+  );
 
   // ── Strip _fileChanges early — before serialisation, history, and events ──
   const fileChanges = execResult.ok ? extractFileChanges(execResult.result) : [];
@@ -173,29 +179,55 @@ export async function dispatchToolCall(
     ? serialise(llmResult)
     : (execResult.error ?? 'Tool execution failed');
 
-  await appendToolHistory(
-    ctx,
-    toolName,
-    outputText,
-    execResult.ok ? strippedResult : undefined,
-    execResult.ok && tool?.formatForLlm ? llmResult : undefined,
-    args
-  );
+  const persistedToolResult = execResult.ok
+    ? strippedResult
+    : {
+        status: 'error' as const,
+        message: outputText,
+        denial: {
+          kind: 'execution-failed' as const,
+          reasonCode: 'tool_execution_failed',
+        },
+      };
+  let persistedLlmResult: string | undefined;
+  if (execResult.ok) {
+    persistedLlmResult = tool?.formatForLlm ? outputText : undefined;
+  } else {
+    persistedLlmResult = outputText;
+  }
+
+  await appendToolHistory(ctx, toolName, outputText, persistedToolResult, persistedLlmResult, args);
 
   const denial = classifyToolDenial(execResult.ok, strippedResult, outputText);
 
-  const toolPhase =
-    denial?.kind === 'policy-denied' ? 'denied' : execResult.ok ? 'result' : 'error';
+  let outcome: ToolRuntimePayloadEvent['outcome'];
+  if (denial) {
+    outcome = 'denied';
+  } else if (execResult.ok) {
+    outcome = 'result';
+  } else {
+    outcome = 'error';
+  }
+
+  let toolPhase: 'result' | 'error' | 'denied';
+  if (denial?.kind === 'policy-denied') {
+    toolPhase = 'denied';
+  } else if (execResult.ok) {
+    toolPhase = 'result';
+  } else {
+    toolPhase = 'error';
+  }
 
   const toolEventMessage =
     denial?.message ?? (execResult.ok ? formatToolResultPreview(outputText) : outputText);
 
   const toolEventPayload = buildToolRuntimePayload(
     toolName,
-    denial ? 'denied' : execResult.ok ? 'result' : 'error',
+    outcome,
+    args,
     execResult.ok ? strippedResult : outputText,
     denial,
-    execResult.ok && tool?.formatForLlm ? llmResult : undefined
+    execResult.ok && tool?.formatForLlm ? outputText : undefined
   );
 
   emitToolEvent(
@@ -272,6 +304,7 @@ export async function dispatchToolCall(
 async function requestExecutionApproval(
   toolName: string,
   label: string,
+  args: unknown,
   ctx: OrchestratorContext
 ): Promise<ToolDenial | undefined> {
   if (!requiresConfirmation(toolName)) return undefined;
@@ -295,22 +328,38 @@ async function requestExecutionApproval(
     'denied',
     denied,
     toToolDenialEvent(denial),
-    buildToolRuntimePayload(toolName, 'denied', denied, denial)
+    buildToolRuntimePayload(toolName, 'denied', undefined, denied, denial)
   );
-  await appendToolHistory(ctx, toolName, denied);
+  await appendToolHistory(
+    ctx,
+    toolName,
+    denied,
+    {
+      status: 'denied',
+      message: denied,
+      denial: {
+        kind: denial.kind,
+        reasonCode: denial.reasonCode,
+      },
+    },
+    denied,
+    args
+  );
   return denial;
 }
 
 function buildToolRuntimePayload(
   toolName: string,
   outcome: ToolRuntimePayloadEvent['outcome'],
+  request: unknown,
   result: unknown,
   denial?: ToolDenial,
-  resultLlm?: unknown
+  resultLlm?: string
 ): ToolRuntimePayloadEvent {
   return {
     toolName,
     outcome,
+    request,
     result,
     resultLlm,
     denial: denial ? toToolDenialEvent(denial) : undefined,
@@ -410,14 +459,17 @@ async function appendToolHistory(
   toolName: string,
   output: string,
   rawResult?: unknown,
-  llmResult?: unknown,
+  llmResult?: string,
   callArgs?: unknown
 ): Promise<void> {
-  const prepared = await prepareToolOutputForHistory(ctx, toolName, output);
-  const content =
-    prepared.filtered && prepared.label
-      ? `[tool:${toolName}] [filtered:${prepared.label}] ${prepared.output}`
-      : `[tool:${toolName}] ${prepared.output}`;
+  let content = '';
+  if (rawResult === undefined) {
+    const prepared = await prepareToolOutputForHistory(ctx, toolName, output);
+    content =
+      prepared.filtered && prepared.label
+        ? `Tool ${toolName} [filtered:${prepared.label}] ${prepared.output}`
+        : `Tool ${toolName}: ${prepared.output}`;
+  }
 
   const toolCall =
     rawResult !== undefined

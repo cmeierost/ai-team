@@ -46,7 +46,9 @@ export interface SessionToolDenial {
 export interface SessionToolResult {
   toolName: string;
   outcome: 'result' | 'error' | 'denied';
+  request?: unknown;
   result?: unknown;
+  resultLlm?: unknown;
   denial?: SessionToolDenial;
 }
 

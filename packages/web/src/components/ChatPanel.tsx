@@ -17,7 +17,7 @@ export function ChatPanel() {
       routeAgentId={controller.routeAgentId}
       currentAgentId={controller.currentAgentId}
       currentSessionId={controller.currentSessionId}
-      sessionTitle={controller.sessionTitle}
+      currentSessionTitle={controller.currentSessionTitle}
       graphSessionId={controller.graphSessionId}
       loading={controller.loading}
       sending={controller.sending}
@@ -45,7 +45,7 @@ export function ChatPanel() {
       editingIndex={controller.editingIndex}
       editContent={controller.editContent}
       artifactsInContext={controller.artifactsInContext}
-      allowedTools={controller.allowedTools}
+      toolEntries={controller.toolEntries}
       activatedTools={controller.activatedTools}
       messagesEndRef={controller.messagesEndRef}
       messagesContainerRef={controller.messagesContainerRef}
@@ -86,6 +86,7 @@ export function ChatPanel() {
       onSwitchSession={controller.handleSwitchSession}
       onDeleteSession={controller.handleDeleteSession}
       onCreateSession={controller.handleCreateSession}
+      onSaveSessionTitle={controller.handleSaveSessionTitle}
       onOpenSessionGraph={controller.handleOpenSessionGraph}
       onSuggestedHandoff={controller.handleSuggestedToolHandoff}
       slashSuggestions={controller.slashSuggestions}

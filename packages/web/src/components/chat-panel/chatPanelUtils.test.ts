@@ -6,7 +6,9 @@ import {
   extractSessionActivatedTools,
   findMatchingMessage,
   findMatchingMessageIndex,
+  getPersistedToolStatus,
   normalizeChatErrorMessage,
+  reconstructActivatedToolsFromMessages,
   resolveRouteAgent,
   resolveNavigateAgent,
   SESSION_META_PREFIX,
@@ -37,6 +39,59 @@ describe('chatPanelUtils', () => {
     expect(extractSessionActivatedTools('plain text only')).toEqual([]);
   });
 
+  it('classifies persisted execution failures as error phase', () => {
+    const status = getPersistedToolStatus({
+      tool: 'http_fetch',
+      result: {
+        status: 'error',
+        message: 'fetch failed',
+        denial: {
+          kind: 'execution-failed',
+          reasonCode: 'tool_execution_failed',
+          message: 'fetch failed',
+        },
+      },
+      resultLlm: 'fetch failed',
+    });
+
+    expect(status.phase).toBe('error');
+    expect(status.outcome).toBe('error');
+    expect(status.message).toBe('fetch failed');
+  });
+
+  it('reconstructs tool events from persisted failed tool_calls', () => {
+    const events = reconstructActivatedToolsFromMessages([
+      {
+        from: 'agent-a',
+        isHuman: false,
+        timestamp: '2026-03-09T10:00:00.000Z',
+        content: '[tool:http_fetch] fetch failed',
+        tool_calls: [
+          {
+            tool: 'http_fetch',
+            params: { url: 'https://example.com' },
+            result: {
+              status: 'error',
+              message: 'fetch failed',
+              denial: {
+                kind: 'execution-failed',
+                reasonCode: 'tool_execution_failed',
+                message: 'fetch failed',
+              },
+            },
+            resultLlm: 'fetch failed',
+          },
+        ],
+      },
+    ]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].toolPhase).toBe('error');
+    expect(events[0].message).toBe('fetch failed');
+    expect(events[0].toolResult?.outcome).toBe('error');
+    expect(events[0].toolResult?.resultLlm).toBe('fetch failed');
+  });
+
   it('resolves forward handoff targets from handoff messages', () => {
     const handoffMessage: ChatMessage = {
       from: 'daniel-navarro',
@@ -46,7 +101,9 @@ describe('chatPanelUtils', () => {
       handoffToSessionId: 'session-clara-1',
     };
 
-    expect(resolveNavigateAgent(handoffMessage, agents, 'daniel-navarro', 'daniel-navarro')).toEqual({
+    expect(
+      resolveNavigateAgent(handoffMessage, agents, 'daniel-navarro', 'daniel-navarro')
+    ).toEqual({
       agent: agents[1],
       sessionId: 'session-clara-1',
     });
@@ -70,9 +127,11 @@ describe('chatPanelUtils', () => {
 
   it('normalizes timeout-style chat errors and preserves other errors', () => {
     expect(normalizeChatErrorMessage('Question timeout: no response received in time')).toBe(
-      'The request could not be completed. Please try again.',
+      'The request could not be completed. Please try again.'
     );
-    expect(normalizeChatErrorMessage('Something else went wrong')).toBe('Something else went wrong');
+    expect(normalizeChatErrorMessage('Something else went wrong')).toBe(
+      'Something else went wrong'
+    );
   });
 
   it('resolves route agent query by exact id', () => {

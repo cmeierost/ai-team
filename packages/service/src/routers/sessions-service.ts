@@ -245,7 +245,18 @@ export class SessionsService implements ISessionsService {
   async update(sessionId: string, body: Record<string, unknown>): Promise<ChatSession> {
     const existing = await this.sessionManager.getSession(sessionId);
     if (!existing) throw new NotFoundError('Session not found');
-    await this.sessionManager.saveSession({ ...(existing as any), ...body, id: sessionId } as any);
+
+    // When activatedTools are included, serialize them into the notes column as session meta.
+    const updates: Record<string, unknown> = { ...body };
+    if ('activatedTools' in body) {
+      const { cleanNotes } = readSessionMeta((existing as any).notes as string | undefined);
+      const meta = JSON.stringify({ activatedTools: body.activatedTools });
+      const metaBlock = `${SESSION_META_PREFIX}${meta}${SESSION_META_SUFFIX}`;
+      updates.notes = cleanNotes ? `${cleanNotes}\n${metaBlock}` : metaBlock;
+      delete updates.activatedTools;
+    }
+
+    await this.sessionManager.saveSession({ ...(existing as any), ...updates, id: sessionId } as any);
     const updated = await this.sessionManager.getSession(sessionId);
     return hydrateSession((updated ?? existing) as any);
   }
