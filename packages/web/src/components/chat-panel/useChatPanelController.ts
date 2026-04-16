@@ -154,6 +154,15 @@ interface UseChatPanelControllerResult {
   handlePauseSpeaking: () => void;
   handleResumeSpeaking: () => void;
   handleToggleArchive: (index: number, currentlyArchived: boolean) => Promise<void>;
+  handleToggleToolResultHidden: (
+    messageIndex: number,
+    hidden: boolean,
+    toolCallId?: number
+  ) => Promise<void>;
+  handleSummarizeToolResult: (
+    messageIndex: number,
+    options?: { toolCallId?: number; focusInstruction?: string; maxWords?: number }
+  ) => Promise<void>;
   handleDeleteMessage: (index: number) => Promise<void>;
   handleHandoffClick: (targetAgentId: string, existingSessionId?: string | null) => Promise<void>;
   handleOpenFileReference: (filePath: string) => Promise<void>;
@@ -1495,6 +1504,12 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         };
         return updated;
       });
+
+      if (currentSessionId) {
+        await queryClient.invalidateQueries({
+          queryKey: contextPanelQueryKeys.contextEstimate(currentAgentId, currentSessionId),
+        });
+      }
     } catch (error) {
       console.error('Failed to toggle archive:', error);
     }
@@ -1525,6 +1540,54 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     } catch (error) {
       console.error('Failed to create summary:', error);
       globalThis.alert('Failed to create brief. Check the console for details.');
+    }
+  };
+
+  const handleToggleToolResultHidden = async (
+    messageIndex: number,
+    hidden: boolean,
+    toolCallId?: number
+  ) => {
+    try {
+      await client.chat.setToolResultHidden(currentAgentId, String(messageIndex), {
+        hidden,
+        ...(typeof toolCallId === 'number' ? { toolCallId } : {}),
+      });
+
+      if (currentSessionId) {
+        await syncSessionState(currentSessionId, currentAgentId);
+        await queryClient.invalidateQueries({
+          queryKey: contextPanelQueryKeys.contextEstimate(currentAgentId, currentSessionId),
+        });
+      }
+    } catch (error) {
+      console.error('Failed to toggle tool result visibility:', error);
+      globalThis.alert('Failed to update tool result visibility. Please try again.');
+    }
+  };
+
+  const handleSummarizeToolResult = async (
+    messageIndex: number,
+    options?: { toolCallId?: number; focusInstruction?: string; maxWords?: number }
+  ) => {
+    try {
+      await client.chat.summarizeToolResult(currentAgentId, String(messageIndex), {
+        ...(typeof options?.toolCallId === 'number' ? { toolCallId: options.toolCallId } : {}),
+        ...(typeof options?.maxWords === 'number' ? { maxWords: options.maxWords } : {}),
+        ...(options?.focusInstruction?.trim()
+          ? { focusInstruction: options.focusInstruction.trim() }
+          : {}),
+      });
+
+      if (currentSessionId) {
+        await syncSessionState(currentSessionId, currentAgentId);
+        await queryClient.invalidateQueries({
+          queryKey: contextPanelQueryKeys.contextEstimate(currentAgentId, currentSessionId),
+        });
+      }
+    } catch (error) {
+      console.error('Failed to summarize tool result for LLM context:', error);
+      globalThis.alert('Failed to summarize tool result. Please try again.');
     }
   };
 
@@ -1880,6 +1943,8 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     handlePauseSpeaking,
     handleResumeSpeaking,
     handleToggleArchive,
+    handleToggleToolResultHidden,
+    handleSummarizeToolResult,
     handleDeleteMessage,
     handleHandoffClick,
     handleOpenFileReference,

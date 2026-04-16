@@ -130,6 +130,38 @@ export function ContextWindowSection({
       swatchClass: `ctx-swatch--c${i % SEGMENT_COLORS.length}` as const,
     }));
 
+  const messageCount = estimate?.messages.length ?? 0;
+  const toolResultCount =
+    estimate?.messages.filter((message) => message.toolCallCount > 0).length ?? 0;
+  const toolResultTokens =
+    Math.round(
+      (estimate?.messages.reduce((sum, message) => sum + message.toolChars, 0) ?? 0) / 4
+    ) ?? 0;
+  const toolResultSavedTokens =
+    Math.round(
+      (estimate?.messages.reduce((sum, message) => sum + (message.toolSavedChars ?? 0), 0) ?? 0) / 4
+    ) ?? 0;
+  const compactedToolResultCount =
+    estimate?.messages.reduce((sum, message) => sum + (message.compactedToolCallCount ?? 0), 0) ??
+    0;
+  const toolResultDeltaSign = toolResultSavedTokens > 0 ? '-' : '+';
+  const hasToolCompactionDelta = compactedToolResultCount > 0 && toolResultSavedTokens !== 0;
+  const toolResultsSummaryLabel = hasToolCompactionDelta
+    ? `${toolResultCount} results · ${toolResultTokens.toLocaleString()} tok · ${compactedToolResultCount} cmp ${toolResultDeltaSign}${Math.abs(toolResultSavedTokens).toLocaleString()} tok`
+    : `${toolResultCount} results · ${toolResultTokens.toLocaleString()} tok`;
+
+  const getSegmentSummaryLabel = (seg: { key: string; fractionOfWindow: number }) => {
+    if (seg.key === 'messages') {
+      return `${messageCount} msg`;
+    }
+
+    if (seg.key === 'tool_results') {
+      return toolResultsSummaryLabel;
+    }
+
+    return `${Math.round(seg.fractionOfWindow * 100)}%`;
+  };
+
   const donutEntries: DonutEntry[] = [
     ...segments.map((s) => ({
       id: `seg-${s.key}`,
@@ -172,7 +204,7 @@ export function ContextWindowSection({
                   <span className={`ctx-swatch ${seg.swatchClass}`} />
                   <span className="ctx-seg-name">{seg.label}</span>
                   <span className="ctx-seg-tokens">{seg.tokens.toLocaleString()}</span>
-                  <span className="ctx-seg-pct">{Math.round(seg.fractionOfWindow * 100)}%</span>
+                  <span className="ctx-seg-pct">{getSegmentSummaryLabel(seg)}</span>
                 </div>
 
                 {/* Instruction files sub-rows */}
@@ -265,46 +297,78 @@ export function ContextWindowSection({
                     </div>
                   )}
 
-                {/* Message sub-rows */}
-                {seg.key === 'messages' && estimate?.messages && estimate.messages.length > 0 && (
+                {/* Notes sub-rows */}
+                {seg.key === 'notes' && estimate?.notes && estimate.notes.length > 0 && (
                   <div className="ctx-sub-rows">
-                    {estimate.messages.map((msg, i) => (
-                      <div key={`msg-${i}-${msg.role}`} className="ctx-sub-row" title={msg.preview}>
-                        <span className={`ctx-msg-role ctx-msg-role--${msg.role}`}>
-                          {msg.role === 'user' ? 'U' : 'A'}
-                        </span>
+                    {estimate.notes.map((note) => (
+                      <div key={note.id} className="ctx-sub-row" title={note.preview}>
+                        <span className="ctx-msg-role ctx-msg-role--assistant">N</span>
                         <span className="ctx-sub-name ctx-sub-preview">
-                          {msg.preview}
-                          {msg.preview.length >= 80 ? '…' : ''}
+                          {note.title}
+                          {note.source === 'compacted' ? (
+                            <span className="ctx-detail-badge">compacted</span>
+                          ) : null}
                         </span>
                         <span className="ctx-sub-tokens">
-                          {Math.round(msg.chars / 4).toLocaleString()}
+                          {Math.round(note.chars / 4).toLocaleString()}
                         </span>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Tool results summary */}
-                {seg.key === 'tool_results' && estimate?.messages && (
+                {/* Plans sub-rows */}
+                {seg.key === 'plans' && estimate?.plans && estimate.plans.length > 0 && (
                   <div className="ctx-sub-rows">
-                    {estimate.messages
-                      .filter((m) => m.toolCallCount > 0)
-                      .map((msg) => (
-                        <div
-                          key={`tool-${msg.preview.slice(0, 40)}`}
-                          className="ctx-sub-row"
-                          title={msg.preview}
-                        >
-                          <span className="ctx-msg-role ctx-msg-role--assistant">A</span>
-                          <span className="ctx-sub-name ctx-sub-preview">
-                            {msg.toolCallCount}× tool {msg.toolCallCount === 1 ? 'call' : 'calls'}
-                          </span>
-                          <span className="ctx-sub-tokens">
-                            {Math.round(msg.toolChars / 4).toLocaleString()}
-                          </span>
-                        </div>
-                      ))}
+                    {estimate.plans.map((plan) => (
+                      <div key={plan.id} className="ctx-sub-row" title={plan.title}>
+                        <span className="ctx-msg-role ctx-msg-role--assistant">P</span>
+                        <span className="ctx-sub-name ctx-sub-preview">{plan.title}</span>
+                        <span className="ctx-sub-tokens">
+                          {Math.round(plan.chars / 4).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Tasks sub-rows */}
+                {seg.key === 'tasks' && estimate?.tasks && estimate.tasks.length > 0 && (
+                  <div className="ctx-sub-rows">
+                    {estimate.tasks.map((task) => (
+                      <div key={task.id} className="ctx-sub-row" title={task.title}>
+                        <span className="ctx-msg-role ctx-msg-role--assistant">T</span>
+                        <span className="ctx-sub-name ctx-sub-preview">
+                          {task.title}
+                          {task.status ? <span className="ctx-detail-badge">{task.status}</span> : null}
+                        </span>
+                        <span className="ctx-sub-tokens">
+                          {Math.round(task.chars / 4).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Todos sub-rows */}
+                {seg.key === 'todos' && estimate?.todos && estimate.todos.length > 0 && (
+                  <div className="ctx-sub-rows">
+                    {estimate.todos.map((todo) => (
+                      <div key={todo.id} className="ctx-sub-row" title={todo.content}>
+                        <span className="ctx-msg-role ctx-msg-role--assistant">✓</span>
+                        <span className="ctx-sub-name ctx-sub-preview">
+                          {todo.content}
+                          {todo.done ? (
+                            <span className="ctx-detail-badge">done</span>
+                          ) : (
+                            <span className="ctx-detail-badge">open</span>
+                          )}
+                        </span>
+                        <span className="ctx-sub-tokens">
+                          {Math.round(todo.chars / 4).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 )}
 

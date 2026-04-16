@@ -1070,6 +1070,10 @@ ${summary}
     return this.storage.listDashboardNotes(limit);
   }
 
+  async listAgentNotes(agentId: string): Promise<Note[]> {
+    return this.storage.listAgentNotes(agentId);
+  }
+
   async getNote(noteId: string): Promise<Note | null> {
     return this.storage.getNote(noteId);
   }
@@ -1220,10 +1224,11 @@ ${summary}
     const focus = focusInstruction?.trim();
     const focusSection = focus ? `\nFocus guidance: ${focus}\n` : '';
     return (
-      `Produce a compact Markdown summary. ` +
-      `Write at most ${maxWords} words. ` +
-      `Focus on key facts, decisions, and action items. ` +
-      `Use bullet points when listing multiple items. ` +
+      `Produce a compact Markdown summary that is clearly shorter than the source. ` +
+      `Write at most ${maxWords} words and avoid repeating source wording verbatim. ` +
+      `Keep only key facts, decisions, risks, and action items. ` +
+      `Drop examples, repetition, and filler text. ` +
+      `Use bullet points only when listing multiple distinct items. ` +
       focusSection
     );
   }
@@ -1331,7 +1336,7 @@ ${summary}
       `${this.buildSummaryInstructionText(maxWords, focusInstruction)}\n\n` +
       `Source:\n${sourceText}`;
     return llmService.chat(fakeAgent, [{ role: 'user', content: prompt }], {
-      maxTokens: Math.max(500, maxWords * 6),
+      maxTokens: Math.max(220, maxWords * 3),
     });
   }
 
@@ -1359,7 +1364,7 @@ ${summary}
     for (let index = 0; index < chunks.length; index += 1) {
       const chunkPrompt =
         `Summarize this section (${index + 1}/${chunks.length}) of a larger document. ` +
-        `Keep this section summary concise (90-140 words). ` +
+        `Keep this section summary concise (45-80 words) and strictly shorter than this section. ` +
         `Focus on facts, decisions, and actions.` +
         (focusInstruction?.trim() ? `\nFocus guidance: ${focusInstruction.trim()}\n` : '\n') +
         `\nSection:\n${chunks[index]}`;
@@ -1383,7 +1388,7 @@ ${summary}
       fakeAgent,
       [{ role: 'user', content: finalPrompt }],
       {
-        maxTokens: Math.max(600, maxWords * 6),
+        maxTokens: Math.max(260, maxWords * 3),
       }
     );
     return finalSummary.trim();

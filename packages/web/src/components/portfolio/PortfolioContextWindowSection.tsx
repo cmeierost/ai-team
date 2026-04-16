@@ -102,8 +102,16 @@ export function PortfolioContextWindowSection({ agent }: Readonly<Props>) {
 
   const messageChars = estimate.messages.reduce((sum, msg) => sum + msg.chars, 0);
   const toolResultChars = estimate.messages.reduce((sum, msg) => sum + msg.toolChars, 0);
+  const noteChars = estimate.notes.reduce((sum, note) => sum + note.chars, 0);
+  const planChars = estimate.plans.reduce((sum, plan) => sum + plan.chars, 0);
+  const taskChars = estimate.tasks.reduce((sum, task) => sum + task.chars, 0);
+  const todoChars = estimate.todos.reduce((sum, todo) => sum + todo.chars, 0);
   const messageTokens = Math.round(messageChars / 4);
   const toolResultTokens = Math.round(toolResultChars / 4);
+  const noteTokens = Math.round(noteChars / 4);
+  const planTokens = Math.round(planChars / 4);
+  const taskTokens = Math.round(taskChars / 4);
+  const todoTokens = Math.round(todoChars / 4);
   const toolCallCount = estimate.messages.reduce((sum, msg) => sum + msg.toolCallCount, 0);
 
   const normalizedSegments = [...estimate.segments];
@@ -131,6 +139,22 @@ export function PortfolioContextWindowSection({ agent }: Readonly<Props>) {
         key: 'tool_results',
         label: 'Tool Results',
         chars: toolResultChars,
+      });
+    }
+  }
+
+  const notesSegmentIndex = normalizedSegments.findIndex((seg) => seg.key === 'notes');
+  if (noteChars > 0) {
+    if (notesSegmentIndex >= 0) {
+      normalizedSegments[notesSegmentIndex] = {
+        ...normalizedSegments[notesSegmentIndex],
+        chars: noteChars,
+      };
+    } else {
+      normalizedSegments.push({
+        key: 'notes',
+        label: 'Notes',
+        chars: noteChars,
       });
     }
   }
@@ -222,8 +246,11 @@ export function PortfolioContextWindowSection({ agent }: Readonly<Props>) {
 
       <div className="ctx-window-bar">
         <div className="ctx-window-bar-header">
-          <span>Session message/tool usage</span>
-          <span>{(messageTokens + toolResultTokens).toLocaleString()} tokens</span>
+          <span>Session message/tool/note/plan usage</span>
+          <span>
+            {(messageTokens + toolResultTokens + noteTokens + planTokens + taskTokens + todoTokens).toLocaleString()}{' '}
+            tokens
+          </span>
         </div>
         <div className="ctx-legend">
           <div
@@ -240,6 +267,33 @@ export function PortfolioContextWindowSection({ agent }: Readonly<Props>) {
             <span className="ctx-seg-name">Tool Results</span>
             <span className="ctx-seg-tokens">{toolResultTokens.toLocaleString()}</span>
             <span className="ctx-seg-pct">{toolCallCount} calls</span>
+          </div>
+          <div
+            className="ctx-legend-row"
+            title="Visible notes included in context (compacted content preferred when available)"
+          >
+            <span className="ctx-swatch ctx-swatch--c0" />
+            <span className="ctx-seg-name">Notes</span>
+            <span className="ctx-seg-tokens">{noteTokens.toLocaleString()}</span>
+            <span className="ctx-seg-pct">{estimate.notes.length} notes</span>
+          </div>
+          <div className="ctx-legend-row" title="Session plans included in context">
+            <span className="ctx-swatch ctx-swatch--c1" />
+            <span className="ctx-seg-name">Plans</span>
+            <span className="ctx-seg-tokens">{planTokens.toLocaleString()}</span>
+            <span className="ctx-seg-pct">{estimate.plans.length} plans</span>
+          </div>
+          <div className="ctx-legend-row" title="Session tasks included in context">
+            <span className="ctx-swatch ctx-swatch--c2" />
+            <span className="ctx-seg-name">Tasks</span>
+            <span className="ctx-seg-tokens">{taskTokens.toLocaleString()}</span>
+            <span className="ctx-seg-pct">{estimate.tasks.length} tasks</span>
+          </div>
+          <div className="ctx-legend-row" title="Session todos included in context">
+            <span className="ctx-swatch ctx-swatch--c3" />
+            <span className="ctx-seg-name">Todos</span>
+            <span className="ctx-seg-tokens">{todoTokens.toLocaleString()}</span>
+            <span className="ctx-seg-pct">{estimate.todos.length} todos</span>
           </div>
         </div>
       </div>

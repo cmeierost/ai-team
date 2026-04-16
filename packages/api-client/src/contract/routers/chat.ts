@@ -11,6 +11,16 @@ export interface IChatService {
   editMessage(agentId: string, index: string, body: { content: string }): Promise<ChatMessage>;
   archiveMessage(agentId: string, index: string): Promise<{ ok: boolean }>;
   unarchiveMessage(agentId: string, index: string): Promise<{ ok: boolean }>;
+  setToolResultHidden(
+    agentId: string,
+    index: string,
+    body: { hidden: boolean; toolCallId?: number }
+  ): Promise<{ ok: boolean; hidden: boolean; toolCallId: number }>;
+  summarizeToolResult(
+    agentId: string,
+    index: string,
+    body?: { toolCallId?: number; maxWords?: number; focusInstruction?: string }
+  ): Promise<{ ok: boolean; toolCallId: number; summary: string }>;
   clearHistory(agentId: string): Promise<{ ok: boolean }>;
   getStats(agentId: string): Promise<MessageStats>;
 }
@@ -24,6 +34,8 @@ export const chatDesc: ApiDescription<IChatService> = {
     editMessage: { method: 'PUT', path: ':agentId/messages/:index' },
     archiveMessage: { method: 'DELETE', path: ':agentId/messages/:index', resultType: 'NONE' },
     unarchiveMessage: { method: 'PUT', path: ':agentId/messages/:index/unarchive' },
+    setToolResultHidden: { method: 'PUT', path: ':agentId/messages/:index/tool-result/hidden' },
+    summarizeToolResult: { method: 'POST', path: ':agentId/messages/:index/tool-result/summarize' },
     clearHistory: { method: 'DELETE', path: ':agentId', resultType: 'NONE' },
     getStats: { method: 'GET', path: ':agentId/stats' },
   },

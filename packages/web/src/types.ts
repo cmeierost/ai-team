@@ -422,6 +422,7 @@ export interface SessionActivatedTool {
   toolEventSeq?: number;
   message?: string;
   toolResult?: {
+    id?: number;
     toolName: string;
     outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
     request?: unknown;

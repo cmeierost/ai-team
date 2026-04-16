@@ -30,6 +30,7 @@ import { resolveTtsSpeechText, resolveTtsSelectionRange } from '../../utils/ttsS
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type PersistedToolCall = {
+  id?: number;
   tool?: string;
   params?: unknown;
   result?: unknown;
@@ -60,7 +61,16 @@ function resolveToolEvent(
     matchingEvent.toolPhase !== 'start' &&
     matchingEvent.toolPhase !== 'request'
   ) {
-    return matchingEvent;
+    return {
+      ...matchingEvent,
+      toolResult: {
+        id: persistedCall?.id,
+        ...(matchingEvent.toolResult ?? {
+          toolName: extractedToolName,
+          outcome: 'result',
+        }),
+      },
+    };
   }
 
   if (persistedCall) {
@@ -71,6 +81,7 @@ function resolveToolEvent(
       message: status.message,
       timestamp: message.timestamp,
       toolResult: {
+        id: persistedCall.id,
         toolName: extractedToolName,
         outcome: status.outcome,
         request: persistedCall.params,
@@ -249,6 +260,11 @@ interface ChatMessagesViewProps {
   onCancelEdit: () => void;
   onCopyMessage: (content: string) => void;
   onToggleArchive: (index: number, currentlyArchived: boolean) => void;
+  onToggleToolResultHidden: (messageIndex: number, hidden: boolean, toolCallId?: number) => void;
+  onSummarizeToolResult: (
+    messageIndex: number,
+    options?: { toolCallId?: number; focusInstruction?: string; maxWords?: number }
+  ) => void;
   onDeleteMessage: (index: number) => void;
   onHandoffClick: (targetAgentId: string, existingSessionId?: string | null) => void;
   onOpenFileReference: (filePath: string) => void;
@@ -333,6 +349,8 @@ export function ChatMessagesView({
   onCancelEdit,
   onCopyMessage,
   onToggleArchive,
+  onToggleToolResultHidden,
+  onSummarizeToolResult,
   onDeleteMessage,
   onHandoffClick,
   onOpenFileReference,
@@ -648,6 +666,10 @@ export function ChatMessagesView({
                                     : `${toolEvent.toolName}-${index}`)
                                 }
                                 event={toolEvent}
+                                messageIndex={index}
+                                canMutate={Boolean(currentSessionId)}
+                                onToggleHidden={onToggleToolResultHidden}
+                                onSummarize={onSummarizeToolResult}
                               />
                             ))}
                           </div>
@@ -934,6 +956,10 @@ export function ChatMessagesView({
                                         : `${toolEvent.toolName}-${toolEvent.timestamp}-${i}`)
                                     }
                                     event={toolEvent}
+                                    messageIndex={index}
+                                    canMutate={Boolean(currentSessionId)}
+                                    onToggleHidden={onToggleToolResultHidden}
+                                    onSummarize={onSummarizeToolResult}
                                   />
                                 ))}
                               </div>

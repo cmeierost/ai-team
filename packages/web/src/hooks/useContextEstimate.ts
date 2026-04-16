@@ -20,6 +20,9 @@ export interface ContextMessage {
   chars: number;
   toolCallCount: number;
   toolChars: number;
+  toolRawChars: number;
+  toolSavedChars: number;
+  compactedToolCallCount: number;
   archived: boolean;
 }
 
@@ -37,6 +40,35 @@ export interface ContextEstimateTool {
   chars: number;
 }
 
+export interface ContextEstimateNote {
+  id: string;
+  title: string;
+  sessionId?: string;
+  preview: string;
+  chars: number;
+  source: 'compacted' | 'content';
+}
+
+export interface ContextEstimatePlan {
+  id: string;
+  title: string;
+  chars: number;
+}
+
+export interface ContextEstimateTask {
+  id: string;
+  title: string;
+  chars: number;
+  status?: string;
+}
+
+export interface ContextEstimateTodo {
+  id: string;
+  content: string;
+  chars: number;
+  done: boolean;
+}
+
 export interface ContextEstimateResponse {
   agentId: string;
   sessionId?: string;
@@ -44,6 +76,10 @@ export interface ContextEstimateResponse {
   totalChars: number;
   instructionFiles: ContextInstructionFile[];
   messages: ContextMessage[];
+  notes: ContextEstimateNote[];
+  plans: ContextEstimatePlan[];
+  tasks: ContextEstimateTask[];
+  todos: ContextEstimateTodo[];
   sessionSkills: ContextSessionSkill[];
   tools: ContextEstimateTool[];
 }
@@ -54,10 +90,14 @@ export function useContextEstimate(agentId: string | undefined, sessionId?: stri
     queryKey: contextPanelQueryKeys.contextEstimate(agentId!, sessionId),
     queryFn: () => {
       console.debug('[useContextEstimate] fetching', { agentId, sessionId });
-      return client.context.getContextEstimate(
-        agentId!,
-        sessionId ? { sessionId } : undefined
-      ) as Promise<ContextEstimateResponse>;
+      if (sessionId) {
+        return client.context.getContextEstimateForSession(
+          agentId!,
+          sessionId
+        ) as Promise<ContextEstimateResponse>;
+      }
+
+      return client.context.getContextEstimate(agentId!) as Promise<ContextEstimateResponse>;
     },
     enabled: !!agentId,
     staleTime: 15_000,

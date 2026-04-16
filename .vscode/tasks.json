@@ -16,6 +16,49 @@
       ]
     },
     {
+      "label": "build:vscode",
+      "type": "shell",
+      "command": "pnpm",
+      "args": [
+        "--dir",
+        "packages/vscode",
+        "build"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "dev:vscode",
+      "type": "shell",
+      "command": "pnpm",
+      "args": [
+        "--dir",
+        "packages/vscode",
+        "dev"
+      ],
+      "isBackground": true,
+      "presentation": {
+        "label": "vscode extension dev",
+        "group": "dev",
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "^(.*)$",
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "\\[ai-team/vscode\\] Extension watch starting",
+          "endsPattern": "\\[ai-team/vscode\\] Extension watch ready"
+        }
+      }
+    },
+    {
       "label": "dev:web",
       "type": "shell",
       "command": "pnpm",

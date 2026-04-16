@@ -6511,6 +6511,161 @@
         }
       }
     },
+    "/api/chat/{agentId}/messages/{index}/tool-result/hidden": {
+      "put": {
+        "operationId": "setToolResultHidden",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "hidden": {
+                    "type": "boolean"
+                  },
+                  "toolCallId": {
+                    "type": "number",
+                    "nullable": true
+                  }
+                },
+                "required": [
+                  "hidden"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "hidden": {
+                      "type": "boolean"
+                    },
+                    "toolCallId": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "hidden",
+                    "toolCallId"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/chat/{agentId}/messages/{index}/tool-result/summarize": {
+      "post": {
+        "operationId": "summarizeToolResult",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "toolCallId": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "maxWords": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "focusInstruction": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                },
+                "nullable": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "toolCallId": {
+                      "type": "number"
+                    },
+                    "summary": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "toolCallId",
+                    "summary"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
     "/api/chat/{agentId}/stats": {
       "get": {
         "operationId": "getStats",
@@ -6620,6 +6775,42 @@
             "schema": {
               "type": "string",
               "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/context/context-estimate/{agentId}/session/{sessionId}": {
+      "get": {
+        "operationId": "getContextEstimateForSession",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -9065,6 +9256,10 @@
       "SessionToolResult": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "number",
+            "nullable": true
+          },
           "toolName": {
             "type": "string"
           },

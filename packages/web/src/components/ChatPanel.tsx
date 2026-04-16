@@ -64,6 +64,8 @@ export function ChatPanel() {
       onPauseSpeaking={controller.handlePauseSpeaking}
       onResumeSpeaking={controller.handleResumeSpeaking}
       onToggleArchive={controller.handleToggleArchive}
+      onToggleToolResultHidden={controller.handleToggleToolResultHidden}
+      onSummarizeToolResult={controller.handleSummarizeToolResult}
       onDeleteMessage={controller.handleDeleteMessage}
       onHandoffClick={controller.handleHandoffClick}
       onOpenFileReference={controller.handleOpenFileReference}

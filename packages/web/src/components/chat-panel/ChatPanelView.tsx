@@ -214,6 +214,11 @@ interface ChatPanelViewProps {
   onCancelEdit: () => void;
   onCopyMessage: (content: string) => void;
   onToggleArchive: (index: number, currentlyArchived: boolean) => void;
+  onToggleToolResultHidden: (messageIndex: number, hidden: boolean, toolCallId?: number) => void;
+  onSummarizeToolResult: (
+    messageIndex: number,
+    options?: { toolCallId?: number; focusInstruction?: string; maxWords?: number }
+  ) => void;
   onDeleteMessage: (index: number) => void;
   onHandoffClick: (targetAgentId: string, existingSessionId?: string | null) => void;
   onOpenFileReference: (filePath: string) => void;
@@ -308,6 +313,8 @@ export function ChatPanelView({
   onCancelEdit,
   onCopyMessage,
   onToggleArchive,
+  onToggleToolResultHidden,
+  onSummarizeToolResult,
   onDeleteMessage,
   onHandoffClick,
   onOpenFileReference,
@@ -586,6 +593,8 @@ export function ChatPanelView({
           onCancelEdit={onCancelEdit}
           onCopyMessage={onCopyMessage}
           onToggleArchive={onToggleArchive}
+          onToggleToolResultHidden={onToggleToolResultHidden}
+          onSummarizeToolResult={onSummarizeToolResult}
           onDeleteMessage={onDeleteMessage}
           onHandoffClick={onHandoffClick}
           onOpenFileReference={onOpenFileReference}

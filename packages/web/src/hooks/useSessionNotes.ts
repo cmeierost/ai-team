@@ -37,6 +37,16 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
     await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.notes(sessionId) });
   };
 
+  const invalidateContextEstimateAsync = async () => {
+    if (!sessionId || !agentId) {
+      return;
+    }
+
+    await queryClient.invalidateQueries({
+      queryKey: contextPanelQueryKeys.contextEstimate(agentId, sessionId),
+    });
+  };
+
   const createNoteMutation = useMutation({
     mutationFn: (input: {
       sessionId: string;
@@ -67,6 +77,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
     },
     onSuccess: async () => {
       await invalidateNotesAsync();
+      await invalidateContextEstimateAsync();
     },
   });
 
@@ -105,6 +116,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
     },
     onSuccess: async () => {
       await invalidateNotesAsync();
+      await invalidateContextEstimateAsync();
     },
   });
 
@@ -147,6 +159,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
     },
     onSuccess: async () => {
       await invalidateNotesAsync();
+      await invalidateContextEstimateAsync();
     },
   });
 
@@ -195,6 +208,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
     },
     onSuccess: async () => {
       await invalidateNotesAsync();
+      await invalidateContextEstimateAsync();
     },
   });
 
@@ -205,6 +219,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
       }) as Promise<Note>,
     onSuccess: async () => {
       await invalidateNotesAsync();
+      await invalidateContextEstimateAsync();
     },
   });
 
@@ -213,6 +228,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
       client.sessions.deleteNote(sessionId, noteId),
     onSuccess: async () => {
       await invalidateNotesAsync();
+      await invalidateContextEstimateAsync();
     },
   });
 

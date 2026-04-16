@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { matchesPattern } from 'fs-context';
-import type { IContextService } from '@ai-team/api-client';
+import type { IContextService, IPlanningService } from '@ai-team/api-client';
 import { loadAllInstructionFiles, loadAgentSkillFile } from '@ai-team/infrastructure';
 import type { AgentManager, AgentTool, SkillManager } from '@ai-team/infrastructure';
 import { toolKey, type LlmToolDefinition, type ToolManager } from '../tools/tool-manager.js';
@@ -27,6 +27,9 @@ export interface ContextEstimateMessage {
   chars: number;
   toolCallCount: number;
   toolChars: number;
+  toolRawChars: number;
+  toolSavedChars: number;
+  compactedToolCallCount: number;
   archived: boolean;
 }
 
@@ -44,6 +47,15 @@ export interface ContextEstimateTool {
   chars: number;
 }
 
+export interface ContextEstimateNote {
+  id: string;
+  title: string;
+  sessionId?: string;
+  preview: string;
+  chars: number;
+  source: 'compacted' | 'content';
+}
+
 export interface ContextEstimateResponse {
   agentId: string;
   sessionId?: string;
@@ -51,6 +63,10 @@ export interface ContextEstimateResponse {
   totalChars: number;
   instructionFiles: ContextEstimateInstructionFile[];
   messages: ContextEstimateMessage[];
+  notes: ContextEstimateNote[];
+  plans: Array<{ id: string; title: string; chars: number }>;
+  tasks: Array<{ id: string; title: string; chars: number; status?: string }>;
+  todos: Array<{ id: string; content: string; chars: number; done: boolean }>;
   sessionSkills: ContextEstimateSkill[];
   tools: ContextEstimateTool[];
 }
@@ -67,7 +83,8 @@ export class MetaService implements IContextService {
     private readonly sessionManager: SessionManager,
     private readonly skillManager: SkillManager,
     private readonly toolManager: ToolManager,
-    private readonly mcpGateway?: IMcpGateway
+    private readonly mcpGateway?: IMcpGateway,
+    private readonly planningService?: IPlanningService
   ) {}
 
   private async getToolsForAgent(
@@ -126,6 +143,10 @@ export class MetaService implements IContextService {
     const sessionId = query?.sessionId;
 
     let messages: ContextEstimateMessage[] = [];
+    let notes: ContextEstimateNote[] = [];
+    let plans: Array<{ id: string; title: string; chars: number }> = [];
+    let tasks: Array<{ id: string; title: string; chars: number; status?: string }> = [];
+    let todos: Array<{ id: string; content: string; chars: number; done: boolean }> = [];
     let sessionSkills: ContextEstimateSkill[] = [];
     let writtenFiles: string[] = [];
 
@@ -135,6 +156,11 @@ export class MetaService implements IContextService {
         this.loadSessionSkills(sessionId, workspaceRoot),
       ]);
       messages = this.mapSessionMessages(sessionMessages);
+      notes = await this.loadSessionNotesForEstimate(sessionId);
+      const planningEstimate = await this.loadSessionPlanningForEstimate(sessionId);
+      plans = planningEstimate.plans;
+      tasks = planningEstimate.tasks;
+      todos = planningEstimate.todos;
       sessionSkills = loadedSessionSkills;
       writtenFiles = this.extractWrittenFiles(sessionMessages, workspaceRoot);
     }
@@ -156,7 +182,7 @@ export class MetaService implements IContextService {
     );
 
     if (sessionId) {
-      this.appendSessionSegments(segments, messages, sessionSkills);
+      this.appendSessionSegments(segments, messages, notes, plans, tasks, todos, sessionSkills);
     }
 
     const totalChars = segments.reduce((s, x) => s + x.chars, 0);
@@ -166,11 +192,19 @@ export class MetaService implements IContextService {
       totalChars,
       instructionFiles,
       messages,
+      notes,
+      plans,
+      tasks,
+      todos,
       sessionSkills,
       tools,
     };
     if (sessionId) response.sessionId = sessionId;
     return response;
+  }
+
+  async getContextEstimateForSession(agentId: string, sessionId: string): Promise<unknown> {
+    return this.getContextEstimate(agentId, { sessionId });
   }
 
   private toToolDefinition(tool: AgentTool): LlmToolDefinition {
@@ -276,6 +310,7 @@ export class MetaService implements IContextService {
   private mapSessionMessages(
     sessionMessages: Array<{
       archived?: boolean;
+      hiddenFromLlm?: boolean;
       isHuman?: boolean;
       content: string;
       tool_calls?: Array<{
@@ -287,19 +322,189 @@ export class MetaService implements IContextService {
     }>
   ): ContextEstimateMessage[] {
     return sessionMessages
-      .filter((m) => !m.archived)
+      .filter((m) => !m.archived && m.hiddenFromLlm !== true)
       .map((msg) => {
         const toolCallCount = msg.tool_calls?.length ?? 0;
-        const toolChars = this.sumToolResultChars(msg.tool_calls ?? []);
+        const toolMetrics = this.calculateToolMetrics(msg.tool_calls ?? []);
         return {
           role: msg.isHuman ? ('user' as const) : ('assistant' as const),
           preview: msg.content.slice(0, 120),
           chars: msg.content.length,
           toolCallCount,
-          toolChars,
+          toolChars: toolMetrics.llmChars,
+          toolRawChars: toolMetrics.rawChars,
+          toolSavedChars: toolMetrics.savedChars,
+          compactedToolCallCount: toolMetrics.compactedCallCount,
           archived: false,
         };
       });
+  }
+
+  private getNoteContentForEstimate(note: {
+    content?: string;
+    compactedContent?: string;
+  }): { content: string; source: 'compacted' | 'content' } {
+    const compacted = note.compactedContent?.trim();
+    if (compacted) {
+      return {
+        content: compacted,
+        source: 'compacted',
+      };
+    }
+
+    return {
+      content: note.content ?? '',
+      source: 'content',
+    };
+  }
+
+  private async loadSessionNotesForEstimate(sessionId: string): Promise<ContextEstimateNote[]> {
+    const session = await this.sessionManager.getSession(sessionId);
+    if (!session) {
+      return [];
+    }
+
+    const allAgents = await this.agentManager.getAllAgentsAsync();
+
+    const notesById = new Map<
+      string,
+      {
+        note: ContextEstimateNote;
+        updatedAt: string;
+      }
+    >();
+
+    for (const agent of allAgents) {
+      const sessionNotes = await this.sessionManager.listAgentNotes(agent.id);
+      for (const note of sessionNotes) {
+        const ownerSessionId = note.sessionId;
+        const isVisibleToCurrentSession =
+          ownerSessionId === sessionId || (note.sharedSessionIds ?? []).includes(sessionId);
+
+        if (!isVisibleToCurrentSession || note.hiddenFromLlm === true) {
+          continue;
+        }
+
+        const { content, source } = this.getNoteContentForEstimate(note);
+        if (!content) {
+          continue;
+        }
+
+        notesById.set(note.id, {
+          note: {
+            id: note.id,
+            title: note.title?.trim() || 'Untitled note',
+            sessionId: ownerSessionId,
+            preview: content.slice(0, 120),
+            chars: content.length,
+            source,
+          },
+          updatedAt: note.updatedAt,
+        });
+      }
+    }
+
+    return Array.from(notesById.values())
+      .sort((left, right) => {
+        const updatedDiff = new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+        if (updatedDiff !== 0) {
+          return updatedDiff;
+        }
+        return left.note.id.localeCompare(right.note.id);
+      })
+      .map((entry) => entry.note);
+  }
+
+  private async loadSessionPlanningForEstimate(sessionId: string): Promise<{
+    plans: Array<{ id: string; title: string; chars: number }>;
+    tasks: Array<{ id: string; title: string; chars: number; status?: string }>;
+    todos: Array<{ id: string; content: string; chars: number; done: boolean }>;
+  }> {
+    if (!this.planningService) {
+      return { plans: [], tasks: [], todos: [] };
+    }
+
+    const planningTasks = (await this.planningService.listTasks({ sessionId })) as Array<{
+      id: string;
+      planId: string;
+      title?: string;
+      description?: string;
+      status?: string;
+      priority?: string;
+      assignedTo?: string;
+      sourceActionItem?: string;
+    }>;
+
+    const tasks = planningTasks.map((task) => {
+      const taskText = [
+        task.title ?? 'Untitled task',
+        task.description ?? '',
+        task.status ? `status:${task.status}` : '',
+        task.priority ? `priority:${task.priority}` : '',
+        task.assignedTo ? `assignedTo:${task.assignedTo}` : '',
+        task.sourceActionItem ? `source:${task.sourceActionItem}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      return {
+        id: task.id,
+        title: task.title?.trim() || 'Untitled task',
+        status: task.status,
+        chars: taskText.length,
+      };
+    });
+
+    const todos: Array<{ id: string; content: string; chars: number; done: boolean }> = [];
+    for (const task of planningTasks) {
+      const taskTodos = (await this.planningService.listTodos(task.id)) as Array<{
+        id: string;
+        content?: string;
+        done?: boolean;
+      }>;
+      for (const todo of taskTodos) {
+        const content = todo.content?.trim() || '(empty todo)';
+        const todoText = `${content}\ndone:${todo.done === true ? 'true' : 'false'}`;
+        todos.push({
+          id: todo.id,
+          content,
+          done: todo.done === true,
+          chars: todoText.length,
+        });
+      }
+    }
+
+    const plans = new Map<string, { id: string; title: string; chars: number }>();
+    for (const task of planningTasks) {
+      if (!task.planId || plans.has(task.planId)) continue;
+      const plan = (await this.planningService.getPlan(task.planId)) as {
+        id: string;
+        title?: string;
+        goal?: string;
+        status?: string;
+        priority?: string;
+      };
+      const title = plan.title?.trim() || 'Untitled plan';
+      const planText = [
+        title,
+        plan.goal ?? '',
+        plan.status ? `status:${plan.status}` : '',
+        plan.priority ? `priority:${plan.priority}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+      plans.set(task.planId, {
+        id: plan.id,
+        title,
+        chars: planText.length,
+      });
+    }
+
+    return {
+      plans: Array.from(plans.values()),
+      tasks,
+      todos,
+    };
   }
 
   private extractWrittenFiles(
@@ -401,21 +606,77 @@ export class MetaService implements IContextService {
     });
   }
 
+  private calculateToolMetrics(
+    toolCalls: Array<{ tool?: string; params?: unknown; result?: unknown; resultLlm?: string }>
+  ): {
+    llmChars: number;
+    rawChars: number;
+    savedChars: number;
+    compactedCallCount: number;
+  } {
+    return toolCalls.reduce(
+      (acc, tc) => {
+        const toolNameChars = tc.tool ? tc.tool.length : 0;
+        let paramsChars = 0;
+        if (tc.params !== undefined) {
+          const serializedParams =
+            typeof tc.params === 'string' ? tc.params : JSON.stringify(tc.params);
+          paramsChars = serializedParams.length;
+        }
+
+        let rawResultChars = 0;
+        if (tc.result !== undefined) {
+          const serializedRawResult =
+            typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result);
+          rawResultChars = serializedRawResult.length;
+        }
+
+        let llmResultChars = rawResultChars;
+        let compactedCallCount = 0;
+        if (tc.resultLlm !== undefined) {
+          llmResultChars = tc.resultLlm.length;
+          compactedCallCount = 1;
+        }
+
+        const rawChars = toolNameChars + paramsChars + rawResultChars;
+        const llmChars = toolNameChars + paramsChars + llmResultChars;
+
+        return {
+          llmChars: acc.llmChars + llmChars,
+          rawChars: acc.rawChars + rawChars,
+          savedChars: acc.savedChars + (rawChars - llmChars),
+          compactedCallCount: acc.compactedCallCount + compactedCallCount,
+        };
+      },
+      {
+        llmChars: 0,
+        rawChars: 0,
+        savedChars: 0,
+        compactedCallCount: 0,
+      }
+    );
+  }
+
   private sumToolResultChars(
     toolCalls: Array<{ tool?: string; params?: unknown; result?: unknown; resultLlm?: string }>
   ): number {
     return toolCalls.reduce((sum, tc) => {
       const toolNameChars = tc.tool ? tc.tool.length : 0;
-      const paramsChars =
-        tc.params === undefined
-          ? 0
-          : (typeof tc.params === 'string' ? tc.params : JSON.stringify(tc.params)).length;
+      let paramsChars = 0;
+      if (tc.params !== undefined) {
+        const serializedParams =
+          typeof tc.params === 'string' ? tc.params : JSON.stringify(tc.params);
+        paramsChars = serializedParams.length;
+      }
+
       const resultContent = tc.resultLlm ?? tc.result;
-      const resultChars =
-        resultContent === undefined
-          ? 0
-          : (typeof resultContent === 'string' ? resultContent : JSON.stringify(resultContent))
-              .length;
+      let resultChars = 0;
+      if (resultContent !== undefined) {
+        const serializedResult =
+          typeof resultContent === 'string' ? resultContent : JSON.stringify(resultContent);
+        resultChars = serializedResult.length;
+      }
+
       return sum + toolNameChars + paramsChars + resultChars;
     }, 0);
   }
@@ -451,6 +712,10 @@ export class MetaService implements IContextService {
   private appendSessionSegments(
     segments: ContextEstimateSegment[],
     messages: ContextEstimateMessage[],
+    notes: ContextEstimateNote[],
+    plans: Array<{ id: string; title: string; chars: number }>,
+    tasks: Array<{ id: string; title: string; chars: number; status?: string }>,
+    todos: Array<{ id: string; content: string; chars: number; done: boolean }>,
     sessionSkills: ContextEstimateSkill[]
   ): void {
     const activeSkillChars = sessionSkills
@@ -460,10 +725,18 @@ export class MetaService implements IContextService {
       segments.push({ key: 'session_skills', label: 'Session Skills', chars: activeSkillChars });
     const msgTextChars = messages.reduce((sum, m) => sum + m.chars, 0);
     const toolResultChars = messages.reduce((sum, m) => sum + m.toolChars, 0);
+    const noteChars = notes.reduce((sum, note) => sum + note.chars, 0);
+    const planChars = plans.reduce((sum, plan) => sum + plan.chars, 0);
+    const taskChars = tasks.reduce((sum, task) => sum + task.chars, 0);
+    const todoChars = todos.reduce((sum, todo) => sum + todo.chars, 0);
     if (msgTextChars > 0)
       segments.push({ key: 'messages', label: 'Chat Messages', chars: msgTextChars });
     if (toolResultChars > 0)
       segments.push({ key: 'tool_results', label: 'Tool Results', chars: toolResultChars });
+    if (noteChars > 0) segments.push({ key: 'notes', label: 'Notes', chars: noteChars });
+    if (planChars > 0) segments.push({ key: 'plans', label: 'Plans', chars: planChars });
+    if (taskChars > 0) segments.push({ key: 'tasks', label: 'Tasks', chars: taskChars });
+    if (todoChars > 0) segments.push({ key: 'todos', label: 'Todos', chars: todoChars });
   }
 }
 

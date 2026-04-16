@@ -1884,6 +1884,98 @@
   padding: 4px 0;
 }
 
+.tool-call-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tool-call-quick-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tool-call-quick-action {
+  color: var(--color-text-secondary, #aaa);
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.7;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
+}
+
+.tool-call-quick-action.message-visibility-toggle--hidden {
+  color: #f38ba8;
+  opacity: 1;
+}
+
+.tool-call-quick-action:hover:not(.tool-call-quick-action--disabled) {
+  opacity: 1;
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+.tool-call-quick-action--disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.tool-call-block--hidden {
+  opacity: 0.5;
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 100, 100, 0.7);
+}
+
+.tool-call-summarize-controls {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tool-call-summarize-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #aaa);
+}
+
+.tool-call-summarize-slider {
+  width: 140px;
+}
+
+.tool-call-summarize-hint {
+  min-width: 180px;
+  flex: 1;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.2));
+  border-radius: 5px;
+  background: var(--color-bg-secondary, rgba(0, 0, 0, 0.22));
+  color: var(--color-text-primary, #e0e0e0);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.tool-call-summarize-apply {
+  border: 1px solid rgba(129, 199, 132, 0.75);
+  background: rgba(102, 187, 106, 0.18);
+  color: var(--color-text-primary, #e0e0e0);
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.tool-call-summarize-apply:hover {
+  background: rgba(102, 187, 106, 0.28);
+}
+
 .tool-call-live-strip {
   margin: 8px 0 4px;
   padding: 8px 10px;

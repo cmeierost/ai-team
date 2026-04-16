@@ -240,7 +240,8 @@ function registerBaseServices(
         c.resolve(tokens.InteractionService),
         c.resolve(tokens.SessionManager),
         c.resolve(tokens.ChatManager),
-        c.resolve(tokens.ChatStorage)
+        c.resolve(tokens.ChatStorage),
+        c.resolve(tokens.LlmService)
       )
   );
   c.registerSingleton(
@@ -292,7 +293,8 @@ function registerBaseServices(
         c.resolve(tokens.SessionManager),
         c.resolve(tokens.SkillManager),
         c.resolve(tokens.ToolManager),
-        c.resolve(tokens.McpGateway)
+        c.resolve(tokens.McpGateway),
+        c.resolve(tokens.PlanningService)
       )
   );
   c.registerSingleton(tokens.CommandsService, () => new CommandsService());

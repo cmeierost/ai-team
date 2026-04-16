@@ -69,6 +69,24 @@
       }
     },
     {
+      "name": "VS Code Extension: Debug",
+      "type": "extensionHost",
+      "request": "launch",
+      "preLaunchTask": "dev:vscode",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode",
+        "--disable-extensions"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/packages/vscode/dist/**/*.js"
+      ],
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/packages/vscode/dist/**/*.js",
+        "!**/node_modules/**"
+      ],
+      "internalConsoleOptions": "openOnSessionStart"
+    },
+    {
       "name": "CLI: CPU Profile (dist)",
       "type": "node",
       "request": "launch",
@@ -95,6 +113,15 @@
       "configurations": [
         "Server: Debug (dev)",
         "Web: Debug (Chrome)"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "Full Stack: Debug + VS Code Extension",
+      "configurations": [
+        "Server: Debug (dev)",
+        "Web: Debug (Chrome)",
+        "VS Code Extension: Debug"
       ],
       "stopAll": true
     }
