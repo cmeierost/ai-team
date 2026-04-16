@@ -7,12 +7,37 @@ interface SectionFrameProps {
   title: ReactNode;
   count?: ReactNode;
   action?: ReactNode;
+  keepMounted?: boolean;
   onToggleSection: (section: ContextSection) => void;
   children: ReactNode;
 }
 
-export function ContextPanelSectionFrame({ section, expandedSection, title, count, action, onToggleSection, children }: Readonly<SectionFrameProps>) {
+export function ContextPanelSectionFrame({
+  section,
+  expandedSection,
+  title,
+  count,
+  action,
+  keepMounted,
+  onToggleSection,
+  children,
+}: Readonly<SectionFrameProps>) {
   const isExpanded = expandedSection === section;
+
+  let content: ReactNode;
+  if (keepMounted) {
+    content = (
+      <div
+        className={`context-section-content${isExpanded ? '' : ' context-section-content-hidden'}`}
+      >
+        {children}
+      </div>
+    );
+  } else if (isExpanded) {
+    content = <div className="context-section-content">{children}</div>;
+  } else {
+    content = null;
+  }
 
   return (
     <div className="context-section">
@@ -28,7 +53,7 @@ export function ContextPanelSectionFrame({ section, expandedSection, title, coun
         {action}
       </div>
 
-      {isExpanded ? <div className="context-section-content">{children}</div> : null}
+      {content}
     </div>
   );
 }

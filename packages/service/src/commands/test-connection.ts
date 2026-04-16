@@ -5,12 +5,15 @@ import {
   loadTeamConfig,
   resolveEffectiveLlmSettings,
   testLlmConnection,
-} from '@ai-team/core';
-import type { ResolvedLlmSettings } from '@ai-team/core';
+} from '@ai-team/infrastructure';
+import type { ResolvedLlmSettings } from '@ai-team/infrastructure';
 
-import { TestConnectionOptions } from '../contracts.js';
+import { TestConnectionOptions } from '@ai-team/api-client';
 
-export async function testConnectionCommand(workspaceRoot: string, options: TestConnectionOptions = {}): Promise<void> {
+export async function testConnectionCommand(
+  workspaceRoot: string,
+  options: TestConnectionOptions = {}
+): Promise<void> {
   if (options.model && options.modelKey) {
     throw new Error('Use either --model or --model-key, not both.');
   }
@@ -20,7 +23,9 @@ export async function testConnectionCommand(workspaceRoot: string, options: Test
   }
 
   if (options.all && options.employee) {
-    throw new Error('Do not combine --all with --employee. Use --employee for a single employee-specific test.');
+    throw new Error(
+      'Do not combine --all with --employee. Use --employee for a single employee-specific test.'
+    );
   }
 
   const config = await loadTeamConfig(workspaceRoot);
@@ -46,26 +51,26 @@ export async function testConnectionCommand(workspaceRoot: string, options: Test
 
     if (options.employee) {
       const employeeManager = new AgentManager(workspaceRoot);
-      await employeeManager.initialize();
-
-      const matches = employeeManager.resolveAgent(options.employee);
+      const matches = await employeeManager.resolveAgentAsync(options.employee);
       if (matches.length === 0) {
-        const allEmployees = employeeManager.getAllAgents();
+        const allEmployees = await employeeManager.getAllAgentsAsync();
         const available = allEmployees
-          .map(employee => `${employee.name} (${employee.role}) [${employee.id}]`)
+          .map((employee) => `${employee.name} (${employee.role}) [${employee.id}]`)
           .join(', ');
         throw new Error(
           available.length > 0
             ? `No employee found matching "${options.employee}". Available employees: ${available}`
-            : `No employee found matching "${options.employee}".`,
+            : `No employee found matching "${options.employee}".`
         );
       }
 
       if (matches.length > 1) {
         const choices = matches
-          .map(match => `${match.name} (${match.role}) [${match.id}]`)
+          .map((match) => `${match.name} (${match.role}) [${match.id}]`)
           .join(', ');
-        throw new Error(`Multiple employees match "${options.employee}": ${choices}. Please be more specific.`);
+        throw new Error(
+          `Multiple employees match "${options.employee}": ${choices}. Please be more specific.`
+        );
       }
 
       const employee = matches[0];
@@ -80,51 +85,58 @@ export async function testConnectionCommand(workspaceRoot: string, options: Test
       const mergedEmployeeProfile = {
         ...(employee.llm || {}),
         ...Object.fromEntries(
-          Object.entries(explicitProfile).filter(([, value]) => value !== undefined),
+          Object.entries(explicitProfile).filter(([, value]) => value !== undefined)
         ),
       };
 
       effective = resolveEffectiveLlmSettings(config, { llm: mergedEmployeeProfile }, skill);
     } else {
-      effective = resolveEffectiveLlmSettings(
-        config,
-        {
-          llm: explicitProfile,
-        },
-      );
+      effective = resolveEffectiveLlmSettings(config, {
+        llm: explicitProfile,
+      });
     }
   } catch (error) {
-    throw new Error(error instanceof Error ? error.message : 'No effective LLM configuration found.');
+    throw new Error(
+      error instanceof Error ? error.message : 'No effective LLM configuration found.'
+    );
   }
 
   const apiKeyName = effective.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-  const apiKey = env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
+  const apiKey =
+    env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
 
   try {
     await testLlmConnection(effective.config, apiKey);
     console.log('✓ Connection successful');
   } catch (error) {
     const baseMessage = error instanceof Error ? error.message : String(error);
-    const providerBaseUrl = effective.config.provider === 'openai-compatible'
-      ? effective.config.baseUrl
-      : undefined;
+    const providerBaseUrl =
+      effective.config.provider === 'openai-compatible' ? effective.config.baseUrl : undefined;
     const modelToTest = effective.config.model;
     const attemptDetails = formatAttemptDetails(effective, options, Boolean(apiKey));
     if (providerBaseUrl && modelToTest) {
-      const diagnostic = await diagnoseOpenAICompatibleFailure(providerBaseUrl, modelToTest, apiKey);
+      const diagnostic = await diagnoseOpenAICompatibleFailure(
+        providerBaseUrl,
+        modelToTest,
+        apiKey
+      );
       if (diagnostic) {
-        throw new Error(buildFailureMessage(baseMessage, attemptDetails, diagnostic, effective.config.provider));
+        throw new Error(
+          buildFailureMessage(baseMessage, attemptDetails, diagnostic, effective.config.provider)
+        );
       }
     }
 
-    throw new Error(buildFailureMessage(baseMessage, attemptDetails, undefined, effective.config.provider));
+    throw new Error(
+      buildFailureMessage(baseMessage, attemptDetails, undefined, effective.config.provider)
+    );
   }
 }
 
 function formatAttemptDetails(
   effective: ResolvedLlmSettings,
   options: TestConnectionOptions,
-  hasApiKey: boolean,
+  hasApiKey: boolean
 ): string[] {
   const lines = [
     `providerRef=${effective.providerRef}`,
@@ -150,7 +162,7 @@ function buildFailureMessage(
   baseMessage: string,
   attemptDetails: string[],
   diagnostic: string | undefined,
-  providerKind: string,
+  providerKind: string
 ): string {
   const lines = [baseMessage, `Attempt: ${attemptDetails.join(', ')}`];
   if (diagnostic) {
@@ -158,9 +170,16 @@ function buildFailureMessage(
   }
 
   const normalized = `${baseMessage}\n${diagnostic || ''}`.toLowerCase();
-  if (providerKind === 'openai-compatible' && normalized.includes('all connection attempts failed')) {
-    lines.push('Hint: The gateway is reachable, but it cannot connect to the backing model container.');
-    lines.push('Hint: Try a different model key with `ait test-connection --provider <ref> --model-key <key>`.');
+  if (
+    providerKind === 'openai-compatible' &&
+    normalized.includes('all connection attempts failed')
+  ) {
+    lines.push(
+      'Hint: The gateway is reachable, but it cannot connect to the backing model container.'
+    );
+    lines.push(
+      'Hint: Try a different model key with `ait test-connection --provider <ref> --model-key <key>`.'
+    );
   }
 
   if (providerKind === 'openai-compatible' && normalized.includes('401')) {
@@ -177,7 +196,7 @@ function buildFailureMessage(
 async function testAllConfiguredModels(
   config: NonNullable<Awaited<ReturnType<typeof loadTeamConfig>>>,
   env: Record<string, string>,
-  providerFilter?: string,
+  providerFilter?: string
 ): Promise<void> {
   const registry = config.providers;
   if (!registry || Object.keys(registry).length === 0) {
@@ -189,7 +208,9 @@ async function testAllConfiguredModels(
     : Object.entries(registry);
 
   if (providerFilter && !registry[providerFilter]) {
-    throw new Error(`Unknown provider '${providerFilter}'. Available: ${Object.keys(registry).join(', ')}`);
+    throw new Error(
+      `Unknown provider '${providerFilter}'. Available: ${Object.keys(registry).join(', ')}`
+    );
   }
 
   const allTargets: { providerRef: string; modelKey: string; modelId: string }[] = [];
@@ -212,23 +233,23 @@ async function testAllConfiguredModels(
   for (const target of allTargets) {
     let effective;
     try {
-      effective = resolveEffectiveLlmSettings(
-        config,
-        {
-          llm: {
-            provider: target.providerRef,
-            modelKey: target.modelKey,
-          },
+      effective = resolveEffectiveLlmSettings(config, {
+        llm: {
+          provider: target.providerRef,
+          modelKey: target.modelKey,
         },
-      );
+      });
     } catch (error) {
       failed += 1;
-      failureDetails.push(`${target.providerRef}/${target.modelKey}: ${error instanceof Error ? error.message : String(error)}`);
+      failureDetails.push(
+        `${target.providerRef}/${target.modelKey}: ${error instanceof Error ? error.message : String(error)}`
+      );
       continue;
     }
 
     const apiKeyName = effective.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-    const apiKey = env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
+    const apiKey =
+      env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
 
     try {
       await testLlmConnection(effective.config, apiKey);
@@ -238,11 +259,14 @@ async function testAllConfiguredModels(
       const parts: string[] = [
         `${target.providerRef}/${target.modelKey} (${target.modelId}): ${error instanceof Error ? error.message : String(error)}`,
       ];
-      const providerBaseUrl = effective.config.provider === 'openai-compatible'
-        ? effective.config.baseUrl
-        : undefined;
+      const providerBaseUrl =
+        effective.config.provider === 'openai-compatible' ? effective.config.baseUrl : undefined;
       if (providerBaseUrl) {
-        const diagnostic = await diagnoseOpenAICompatibleFailure(providerBaseUrl, target.modelId, apiKey);
+        const diagnostic = await diagnoseOpenAICompatibleFailure(
+          providerBaseUrl,
+          target.modelId,
+          apiKey
+        );
         if (diagnostic) {
           parts.push(`diagnostic: ${diagnostic}`);
         }
@@ -252,14 +276,16 @@ async function testAllConfiguredModels(
   }
 
   if (failed > 0) {
-    throw new Error(`Tested ${allTargets.length} configured model(s): ${passed} passed, ${failed} failed. ${failureDetails.join('; ')}`);
+    throw new Error(
+      `Tested ${allTargets.length} configured model(s): ${passed} passed, ${failed} failed. ${failureDetails.join('; ')}`
+    );
   }
 }
 
 async function diagnoseOpenAICompatibleFailure(
   baseUrl: string,
   model: string,
-  apiKey?: string,
+  apiKey?: string
 ): Promise<string | undefined> {
   const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
   const headers: Record<string, string> = {
@@ -271,9 +297,7 @@ async function diagnoseOpenAICompatibleFailure(
 
   const payload = {
     model,
-    messages: [
-      { role: 'user', content: 'Reply with exactly OK.' },
-    ],
+    messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
     max_tokens: 8,
   };
 

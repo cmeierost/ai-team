@@ -1,0 +1,27 @@
+{
+  "name": "@aspect/viewer-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone app for viewing @aspect architecture analysis results",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "analyze": "node generate-data.mjs"
+  },
+  "dependencies": {
+    "@aspect/viewer": "workspace:*",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@aspect/collector-typescript": "workspace:*",
+    "@aspect/structural": "workspace:*",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "puppeteer-core": "^24.40.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0"
+  }
+}

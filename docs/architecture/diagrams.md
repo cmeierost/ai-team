@@ -1,6 +1,12 @@
 # Architecture Diagrams
 
-These diagrams are the visual companion to [ARCHITECTURE.md](../../ARCHITECTURE.md). They focus on package responsibilities and the main runtime flows in the current March 2026 architecture.
+These diagrams are the visual companion to [ARCHITECTURE.md](../../ARCHITECTURE.md). They focus on package responsibilities and runtime flows in the **current implementation**, while the active transition backlog lives in [`.ai-team/tasks/`](../../.ai-team/tasks/).
+
+Use these diagrams together with the backlog to distinguish:
+
+- what is true in the code today
+- what is the intended target direction
+- what is actively being migrated
 
 ## Package and transport map
 
@@ -22,9 +28,9 @@ flowchart LR
   subgraph SharedRuntime[Shared runtime]
     LOCALCLIENT[@ai-team/api-client\nLocal typed client façade]
     IDE[@ai-team/ide-interface\nIDE bridge contracts]
-    SERVICE[@ai-team/service\nMediator, orchestration, runtime events]
+    SERVICE[@ai-team/service\nOrchestration + transitional mediator boundary]
     CORE[@ai-team/core\nUI-free domain logic]
-    ACCESS[@ai-team/permission\nFile-path permission rights policy engine]
+    FILECTX[file-context\nContextRuntime + parser + matcher]
   end
 
   STATE[.ai-team/*\nRuntime state]
@@ -36,7 +42,7 @@ flowchart LR
   APISERVER --> LOCALCLIENT
   LOCALCLIENT --> SERVICE
   SERVICE --> CORE
-  CORE --> ACCESS
+  CORE --> FILECTX
   CORE --> STATE
   SERVICE --> STATE
   SERVICE --> PROVIDERS
@@ -180,6 +186,45 @@ sequenceDiagram
   Service-->>Surface: done or error
 ```
 
+## Transition target (in progress)
+
+This diagram shows the target direction that the backlog is steering toward. It is **not** a claim that the code is already fully there.
+
+```mermaid
+flowchart LR
+  subgraph UISurfaces[UI surfaces]
+    CLI[CLI]
+    WEB[Web UI]
+  end
+
+  subgraph Boundary[Transport-independent boundary]
+    SVC[Service interfaces]
+    UIN[UI notifier]
+    MAN[Manual execution service\nplanned]
+  end
+
+  subgraph ServiceLayer[Service layer]
+    MED[Internal service-layer mediator]
+    ORCH[Chat / tasks / orchestration]
+  end
+
+  subgraph LowerLayers[Boundary interfaces + implementations]
+    CORE[@ai-team/core\nBoundary interfaces]
+    INFRA[@ai-team/infrastructure\nImplementations]
+  end
+
+  CLI --> SVC
+  WEB --> SVC
+  SVC --> MED
+  MED --> ORCH
+  ORCH --> UIN
+  UIN --> CLI
+  UIN --> WEB
+  MAN -. future explicit user path .-> ORCH
+  ORCH --> CORE
+  CORE --> INFRA
+```
+
 ## VS Code proposal review loop
 
 The VS Code extension is not a second service layer; it is the IDE-native review endpoint for proposal/open-file workflows.
@@ -206,15 +251,16 @@ This diagram shows how global file-tree defaults and per-agent `.perm` rules com
 
 ```mermaid
 flowchart TD
-  REQUEST[Path + right request\nread/write/create/delete/list] --> ENGINE[@ai-team/permission PermissionEngine]
+  REQUEST[Path + right request\nread/write/list] --> CM[packages/core/context/index.ts\nContextManager]
 
-  GLOBAL[.ai-team/config.json\nfileTree.read/write/create/delete paths] --> ENGINE
+  GLOBAL[.ai-team/config.json\nfileTree.read/write paths] --> CM
   AGENTCFG[.ai-team/agents/*.agent.md
-frontmatter: identity/tools/delegation metadata] --> ADAPTER[core permission adapter]
-  AGENTACCESS[.ai-team/agents/<agent-id>.perm\nper-agent path policies] --> ADAPTER
-  ADAPTER --> ENGINE
+frontmatter: identity/tools/delegation metadata] --> CM
+  AGENTACCESS[.ai-team/agents/<agent-id>.perm\nper-agent path policies] --> PARSE[loadAgentAccessPatterns + parseAccessFile]
+  PARSE --> CM
+  CM --> RUNTIME[file-context ContextRuntime]
 
-  ENGINE --> INHERIT[Rights inheritance\nwrite => read + list\nread => list]
+  RUNTIME --> INHERIT[Rights inheritance\nwrite => read + list\nread => list]
   INHERIT --> PRECEDENCE[Explicit deny precedence]
   PRECEDENCE --> VERDICT[Allowed or denied verdict\nwith path-level rationale]
 
@@ -227,5 +273,6 @@ frontmatter: identity/tools/delegation metadata] --> ADAPTER[core permission ada
 ## Notes
 
 - `@ai-team/api-client` and `@ai-team/api-client-http` are intentionally different client surfaces.
-- `@ai-team/service` is the shared orchestration boundary.
+- `@ai-team/service` is the shared orchestration boundary in the current implementation.
 - `@ai-team/vscode` is best understood as an IDE adapter reached through `@ai-team/ide-interface`, not as a peer orchestrator.
+- The target direction is tracked in the local backlog under [`.ai-team/tasks/`](../../.ai-team/tasks/).

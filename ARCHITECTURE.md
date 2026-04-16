@@ -4,6 +4,7 @@
 
 - [README.md](README.md) - repository front door, setup, and navigation.
 - [COPILOT-CONTEXT.md](COPILOT-CONTEXT.md) - tactical implementation briefing for coding agents.
+- [`.ai-team/tasks/`](.ai-team/tasks/) - local long-running backlog for architecture transitions and planned features.
 - [docs/architecture/overview.md](docs/architecture/overview.md) - concise human-readable summary of the current architecture.
 - [docs/architecture/diagrams.md](docs/architecture/diagrams.md) - Mermaid diagrams for package boundaries and runtime flows.
 - [docs/api/contracts.md](docs/api/contracts.md) - transport-facing API documentation for the API server surface.
@@ -21,36 +22,56 @@ The architecture optimizes for:
 - transport flexibility for local and remote clients
 - runtime state rooted under `.ai-team/`
 
+## Current state, target direction, and active backlog
+
+This document intentionally describes both the **current implementation shape** and the **target direction** for the in-progress architecture transition.
+
+- **Current state**
+  - Several paths still use mediator-oriented naming for both business calls and UI-facing streaming.
+  - `@ai-team/service` still references `@ai-team/infrastructure` directly in some places.
+  - The current web chat path is functional but still part of the architecture cleanup.
+- **Target direction**
+  - CLI and web should call transport-independent service interfaces.
+  - The internal service-layer mediator should stay inside `@ai-team/service`.
+  - Services should notify UI surfaces through a `UI notifier` stream.
+  - Dependency injection should be strict across the logic ↔ infrastructure boundary.
+  - `@ai-team/service` should depend on boundary interfaces in `@ai-team/core` rather than direct infrastructure implementations.
+- **Active local backlog**
+  - The durable backlog for this transition lives in [`.ai-team/tasks/`](.ai-team/tasks/).
+  - Keep that backlog updated with current state, target state, decisions, open questions, and next steps.
+  - The immediate roadmap is: docs/backlog alignment → messenger/mediator clarification → UI chat stabilization → DI and service/infrastructure decoupling.
+
 ## Implementation Entry Points
 
 Use this as a “where should I change code?” index.
 
-| What | Where |
-| --- | --- |
-| Mediator command payload/response/event contracts | [packages/service/src/contracts.ts](packages/service/src/contracts.ts) |
-| Service command dispatch, `invoke()`, `stream()`, and runtime event bridging | [packages/service/src/index.ts](packages/service/src/index.ts) |
-| Thin chat bootstrap: env checks, agent resolution, session selection, orchestrator setup | [packages/service/src/commands/chat/index.ts](packages/service/src/commands/chat/index.ts) |
-| Chat turn controller: slash commands, NL forwarding, handoffs, turn loop | [packages/service/src/orchestrator/chat-orchestrator.ts](packages/service/src/orchestrator/chat-orchestrator.ts) |
-| Single-turn LLM pipeline: context build, tool dispatch, handoff/hire detection | [packages/service/src/orchestrator/send-turn.ts](packages/service/src/orchestrator/send-turn.ts) |
-| Handoff protocol and context mutation | [packages/service/src/orchestrator/handoff.ts](packages/service/src/orchestrator/handoff.ts) |
-| Pipeline extension interfaces | [packages/service/src/orchestrator/pipeline.ts](packages/service/src/orchestrator/pipeline.ts) |
-| Workflow continuation persistence | [packages/service/src/workflow-state.ts](packages/service/src/workflow-state.ts) |
-| Session lifecycle and persisted chat behavior | [packages/service/src/session-manager.ts](packages/service/src/session-manager.ts) |
-| Task lifecycle and task-oriented state | [packages/service/src/task-manager.ts](packages/service/src/task-manager.ts) |
-| Local typed client façade and local service wiring | [packages/api-client/src/index.ts](packages/api-client/src/index.ts) |
-| Browser-safe HTTP/WebSocket client | [packages/api-client-http/src/index.ts](packages/api-client-http/src/index.ts) |
-| Browser WebSocket chat transport | [packages/api-client-http/src/websocket.ts](packages/api-client-http/src/websocket.ts) |
-| API server transport assembly | [packages/api-server/src/server.ts](packages/api-server/src/server.ts) |
-| API server HTTP routes | [packages/api-server/src/routes/](packages/api-server/src/routes/) |
-| API server WebSocket chat bridge | [packages/api-server/src/ws/chat-handler.ts](packages/api-server/src/ws/chat-handler.ts) |
-| File-path permission rights policy engine | [packages/permission/](packages/permission/) |
-| Core tools and question primitives | [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts) |
-| Permission adapter: Agent/FileTreeConfig → PermissionEngine bridge | [packages/core/src/context/permission-adapter.ts](packages/core/src/context/permission-adapter.ts) |
-| Model-facing command metadata | [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts) |
-| IDE bridge contracts and discovery file | [packages/ide-interface/src/index.ts](packages/ide-interface/src/index.ts) |
-| VS Code extension activation and IDE-local server | [packages/vscode/src/extension.ts](packages/vscode/src/extension.ts), [packages/vscode/src/ide-local-server.ts](packages/vscode/src/ide-local-server.ts) |
-| Web frontend bootstrap and routing | [packages/web/src/main.tsx](packages/web/src/main.tsx), [packages/web/src/App.tsx](packages/web/src/App.tsx) |
-| Current web chat/runtime hotspot | [packages/web/src/components/ChatPanel.tsx](packages/web/src/components/ChatPanel.tsx) |
+| What                                                                                     | Where                                                                                                                                                    |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mediator command payload/response/event contracts                                        | [packages/service/src/contracts.ts](packages/service/src/contracts.ts)                                                                                   |
+| Service command dispatch, `invoke()`, `stream()`, and runtime event bridging             | [packages/service/src/index.ts](packages/service/src/index.ts)                                                                                           |
+| Thin chat bootstrap: env checks, agent resolution, session selection, orchestrator setup | [packages/service/src/commands/chat/index.ts](packages/service/src/commands/chat/index.ts)                                                               |
+| Chat turn controller: slash commands, NL forwarding, handoffs, turn loop                 | [packages/service/src/orchestrator/chat-orchestrator.ts](packages/service/src/orchestrator/chat-orchestrator.ts)                                         |
+| Single-turn LLM pipeline: context build, tool dispatch, handoff/hire detection           | [packages/service/src/orchestrator/send-turn.ts](packages/service/src/orchestrator/send-turn.ts)                                                         |
+| Handoff protocol and context mutation                                                    | [packages/service/src/orchestrator/handoff.ts](packages/service/src/orchestrator/handoff.ts)                                                             |
+| Pipeline extension interfaces                                                            | [packages/service/src/orchestrator/pipeline.ts](packages/service/src/orchestrator/pipeline.ts)                                                           |
+| Workflow continuation persistence                                                        | [packages/service/src/workflow-state.ts](packages/service/src/workflow-state.ts)                                                                         |
+| Session lifecycle and persisted chat behavior                                            | [packages/service/src/session-manager.ts](packages/service/src/session-manager.ts)                                                                       |
+| Task lifecycle and task-oriented state                                                   | [packages/service/src/task-manager.ts](packages/service/src/task-manager.ts)                                                                             |
+| Local typed client façade and local service wiring                                       | [packages/api-client/src/index.ts](packages/api-client/src/index.ts)                                                                                     |
+| Browser-safe HTTP/WebSocket client                                                       | [packages/api-client-http/src/index.ts](packages/api-client-http/src/index.ts)                                                                           |
+| Browser WebSocket chat transport                                                         | [packages/api-client-http/src/websocket.ts](packages/api-client-http/src/websocket.ts)                                                                   |
+| API server transport assembly                                                            | [packages/api-server/src/server.ts](packages/api-server/src/server.ts)                                                                                   |
+| API server HTTP routes                                                                   | [packages/api-server/src/routes/](packages/api-server/src/routes/)                                                                                       |
+| API server WebSocket chat bridge                                                         | [packages/api-server/src/ws/chat-handler.ts](packages/api-server/src/ws/chat-handler.ts)                                                                 |
+| File-context permission runtime (`ContextRuntime`, parser, matcher)                      | [file-context/](file-context/)                                                                                                                           |
+| Core tools and question primitives                                                       | [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts)                                                                                     |
+| Context manager (Agent API adapter over `ContextRuntime`)                                | [packages/core/src/context/index.ts](packages/core/src/context/index.ts)                                                                                 |
+| DI container primitives and bootstrap helpers                                            | [packages/container/src/](packages/container/src/)                                                                                                       |
+| Model-facing command metadata                                                            | [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts)                                                                 |
+| IDE bridge contracts and discovery file                                                  | [packages/ide-interface/src/index.ts](packages/ide-interface/src/index.ts)                                                                               |
+| VS Code extension activation and IDE-local server                                        | [packages/vscode/src/extension.ts](packages/vscode/src/extension.ts), [packages/vscode/src/ide-local-server.ts](packages/vscode/src/ide-local-server.ts) |
+| Web frontend bootstrap and routing                                                       | [packages/web/src/main.tsx](packages/web/src/main.tsx), [packages/web/src/App.tsx](packages/web/src/App.tsx)                                             |
+| Current web chat/runtime hotspot                                                         | [packages/web/src/components/ChatPanel.tsx](packages/web/src/components/ChatPanel.tsx)                                                                   |
 
 ## System Model
 
@@ -74,14 +95,17 @@ Typed clients / integration contracts
   ├─ @ai-team/api-client
   └─ @ai-team/ide-interface
 
+Runtime composition primitives
+  └─ @ai-team/container
+
 Application orchestration
   └─ @ai-team/service
 
 UI-free domain + workspace logic
   └─ @ai-team/core
 
-Standalone policy engine
-  └─ @ai-team/permission
+Permission runtime library
+  └─ file-context
 
 Runtime state + external integrations
   ├─ .ai-team/*
@@ -96,13 +120,11 @@ Runtime state + external integrations
 
 ## Package Responsibilities
 
-### `@ai-team/permission`
+### `file-context`
 
-- Standalone file-path permission rights policy engine.
-- Provides layered, context-based access control with deny-before-allow semantics.
-- Operation-aware: understands shell command and tool call path extraction via `CommandRegistry` and `ToolRegistry`.
-- Returns structured verdicts with per-path breakdown, alternative-context suggestions, and delegation support.
-- Used by `@ai-team/core` through an opt-in adapter layer (`permission-adapter.ts`) that bridges `Agent`, `FileTreeConfig`, and built-in tool/command definitions.
+- Shared file-context runtime library in the repository root.
+- Provides `.perm` parsing helpers, glob matching, overlap analysis, and `ContextRuntime` for context/file rights lookups.
+- Used by `@ai-team/core` context management (`packages/core/src/context/index.ts`) as the underlying permission runtime.
 
 ### `@ai-team/core`
 
@@ -110,13 +132,22 @@ Runtime state + external integrations
 - Owns the core concepts for agents, teams, skills, context, tools, and file-backed runtime behavior under `.ai-team/`.
 - Must remain adapter-agnostic and UI-free.
 
+### `@ai-team/container`
+
+- Owns the lightweight runtime DI container (`ServiceContainer`), typed token key (`Token`), and container bootstrap helper primitives.
+- Current state: also contains default service bootstrap wiring used by local and API-server execution paths.
+- Target direction: should remain the place where startup chooses implementations while higher layers talk to interfaces.
+- Depends only on shared contracts (`@ai-team/core`) and remains transport/UI agnostic.
+
 ### `@ai-team/service`
 
 - Owns application orchestration on top of core.
-- Defines mediator contracts in `src/contracts.ts`.
-- Implements `invoke()` and `stream()` in `src/index.ts`.
+- Current state: defines mediator-style contracts in `src/contracts.ts` and implements `invoke()` / `stream()` in `src/index.ts`.
+- Target direction: exposes transport-independent service interfaces for UI callers, keeps the internal service-layer mediator private, and pushes UI-facing streaming into an explicit `UI notifier` concept.
 - Owns chat runtime orchestration, including slash command routing, NL forwarding, handoff flow, tool execution flow, question flow, and workflow continuation.
 - Owns backend managers such as sessions, tasks, workflow state, and proposal persistence used by adapters and transports.
+- Transition note: removing direct dependencies from `@ai-team/service` to `@ai-team/infrastructure` is active backlog work, not finished architecture.
+- Shortcut rule: **container command definitions may call `@ai-team/infrastructure` directly when the command is purely a config/data read with no orchestration logic, governance, or side-effects.** These commands do not need a service adapter layer. Commands with LLM orchestration, governance policy enforcement, agent mutation, or workflow state must continue to route through `@ai-team/service`.
 
 ### `@ai-team/api-client`
 
@@ -124,6 +155,7 @@ Runtime state + external integrations
 - Wraps `@ai-team/service` for command-style operations.
 - Exposes local convenience helpers for agent metadata, content editing, and other local workflows that are not pure remote mediator calls.
 - Provides `createLocalAiTeamClient()` as the standard local runtime entry point.
+- Target direction: should align with the same transport-independent service interfaces that the web can consume through different implementations.
 
 ### `@ai-team/api-server`
 
@@ -138,6 +170,7 @@ Runtime state + external integrations
 - Provides REST helpers plus WebSocket chat streaming for the web UI.
 - Shares service/core types where practical, but does not currently provide full parity with the local in-process client surface.
 - Should be treated as the **remote transport client**, not as the canonical client for every workflow.
+- Target direction: should implement the same higher-level service interfaces used by local clients so startup wiring can choose local vs remote without changing UI-facing calling code.
 
 ### `@ai-team/ide-interface`
 
@@ -164,6 +197,7 @@ Runtime state + external integrations
 - Uses the remote transport path through `@ai-team/api-client-http` and `@ai-team/api-server` rather than importing lower runtime layers directly into browser code.
 - Is currently a hybrid frontend architecture: some data access is extracted into query hooks, while several feature screens still combine fetching, orchestration, and rendering.
 - Target direction remains TanStack Query for persisted API-backed state, narrow runtime controllers/stores for live chat state, and prop-driven presentational views where practical.
+- Target direction also includes injecting client implementations at startup so the same UI can run against different local/remote hosts without rewriting feature code.
 
 ## Runtime State Model
 
@@ -181,12 +215,12 @@ Compatibility/bootstrap artifacts may also exist under `.github/`, but `.ai-team
 
 ## File-System Access Model
 
-The current file-path access model is centered on `@ai-team/permission` and per-agent `.perm` files.
+The current file-path access model is centered on `file-context` + per-agent `.perm` files, with `ContextManager` as the compatibility adapter consumed by service/API/CLI/tooling surfaces.
 
 - Agent frontmatter no longer carries file-path read/write/create/delete rules.
 - Per-agent path policy lives in `.ai-team/agents/<agent-id>.perm`.
-- Global file-tree defaults still come from `.ai-team/config.json` (`fileTree.readPaths`, `writePaths`, `createPaths`, `deletePaths`).
-- Effective evaluation is engine-based across CLI/service/API paths.
+- Global file-tree defaults still come from `.ai-team/config.json` (`fileTree.readPaths`, `writePaths`).
+- Effective evaluation is `ContextRuntime`-based across CLI/service/API paths.
 - Rights inheritance is enforced as:
   - `write => read + list`
   - `read => list`
@@ -194,12 +228,26 @@ The current file-path access model is centered on `@ai-team/permission` and per-
 
 ## Command and Transport Model
 
-`@ai-team/service` is the mediator boundary for application operations.
+### Current state
+
+`@ai-team/service` currently acts as the mediator boundary for application operations.
 
 - Request contract: `MediatorRequest<TCommand>`.
 - Unary execution: `invoke(request, context)`.
 - Streaming execution: `stream(request, context)`.
 - Stream contract: `MediatorEvent<TCommand>` with `started`, `status`, `progress`, `log`, `token`, `tool`, `question`, `handoff`, `result`, `error`, `done`, and `aborted` variants.
+
+### Target direction (in progress)
+
+- CLI and web should call shared transport-independent **service interfaces**.
+- The internal **service-layer mediator** should remain inside `@ai-team/service` and not be called directly from the UI.
+- Services should notify UI surfaces through a `UI notifier` stream.
+- Explicit user-triggered tool / MCP / CLI execution is a planned service surface that shapes the target architecture, but it is not part of the immediate refactor scope.
+- Slash-command execution can remain broad and server-parsed, while the UI still consumes typed slash-command metadata for discovery and autocomplete.
+
+### Active backlog link
+
+The durable local backlog for this transition lives in [`.ai-team/tasks/`](.ai-team/tasks/). Update those task files whenever the current state, target direction, or next steps change.
 
 ### Local adapters
 
@@ -244,17 +292,17 @@ chatCommand (commands/chat/index.ts)
 
 All orchestration extension seams are defined in [packages/service/src/orchestrator/pipeline.ts](packages/service/src/orchestrator/pipeline.ts).
 
-| Interface | Purpose |
-| --- | --- |
-| `ISlashCommand` | In-chat `/command` handler |
-| `IContextCompressor` | History compression / summarization seam |
-| `IContextBuilder` | Final prompt/context assembly |
-| `IContextEnricher` | Role-aware system-message enrichment |
-| `IRagProvider` | Retrieval-augmented context injection |
-| `IToolResolver` | Local tool resolution per turn |
-| `IMcpGateway` | External MCP tool discovery |
-| `ILlmSelector` | Provider/model selection per turn |
-| `IOutputHandler` | Completed-turn persistence and output routing |
+| Interface            | Purpose                                       |
+| -------------------- | --------------------------------------------- |
+| `ISlashCommand`      | In-chat `/command` handler                    |
+| `IContextCompressor` | History compression / summarization seam      |
+| `IContextBuilder`    | Final prompt/context assembly                 |
+| `IContextEnricher`   | Role-aware system-message enrichment          |
+| `IRagProvider`       | Retrieval-augmented context injection         |
+| `IToolResolver`      | Local tool resolution per turn                |
+| `IMcpGateway`        | External MCP tool discovery                   |
+| `ILlmSelector`       | Provider/model selection per turn             |
+| `IOutputHandler`     | Completed-turn persistence and output routing |
 
 ### Turn dispatch precedence
 
@@ -290,6 +338,7 @@ When adding or changing capabilities:
    - `@ai-team/ide-interface` for IDE-facing integration
 4. Wire UX in the appropriate adapter package (`cli`, `vscode`, or `web`).
 5. Update architecture docs in the same change when the architecture, boundaries, runtime storage, or execution path changes.
+6. When the change is part of an ongoing transition, update the relevant task files in [`.ai-team/tasks/`](.ai-team/tasks/) so the local backlog stays truthful.
 
 ## Related Reading
 

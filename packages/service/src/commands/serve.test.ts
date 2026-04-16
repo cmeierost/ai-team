@@ -64,7 +64,69 @@ describe('serveApiCommand', () => {
     expect(spawnOptions.stdio).toBe('inherit');
     expect(spawnOptions.env.NODE_ENV).toBe('production');
     expect(spawnOptions.env.PORT).toBe('4012');
-    expect(spawnOptions.env.AI_TEAM_WORKSPACE).toBe(path.resolve('c:/workspace-root', 'nested/workspace'));
+    expect(spawnOptions.env.AI_TEAM_WORKSPACE).toBe(
+      path.resolve('c:/workspace-root', 'nested/workspace')
+    );
+  });
+
+  it('launches UI in a detached process when ui option is enabled', async () => {
+    childProcessApi.spawn.mockImplementation((command: string, _args: string[]) => {
+      const child = new EventEmitter() as EventEmitter & { unref: () => void };
+      child.unref = vi.fn();
+
+      if (command === process.execPath) {
+        queueMicrotask(() => {
+          child.emit('exit', 0, null);
+        });
+      }
+
+      return child;
+    });
+
+    await serveApiCommand('c:/workspace-root', { ui: true, port: '4012' });
+
+    expect(childProcessApi.spawn).toHaveBeenCalledTimes(2);
+
+    const [apiCommand, apiArgs] = childProcessApi.spawn.mock.calls[0] as [string, string[]];
+    expect(apiCommand).toBe(process.execPath);
+    expect(apiArgs[0]).toMatch(/packages[\\/]api-server[\\/]dist[\\/]index\.js$/);
+
+    const [uiCommand, uiArgs, uiOptions] = childProcessApi.spawn.mock.calls[1] as [
+      string,
+      string[],
+      { detached: boolean; stdio: string; shell: boolean; windowsHide: boolean },
+    ];
+    expect(uiCommand).toBe(process.platform === 'win32' ? 'ait.cmd' : 'ait');
+    expect(uiArgs).toEqual(['ui', '--server-url', 'http://127.0.0.1:4012']);
+    expect(uiOptions.detached).toBe(true);
+    expect(uiOptions.stdio).toBe('ignore');
+    expect(uiOptions.shell).toBe(process.platform === 'win32');
+    expect(uiOptions.windowsHide).toBe(true);
+  });
+
+  it('keeps server running even when launching ui process fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    childProcessApi.spawn.mockImplementation((command: string, _args: string[]) => {
+      const child = new EventEmitter() as EventEmitter & { unref: () => void };
+      child.unref = vi.fn();
+
+      queueMicrotask(() => {
+        if (command === process.execPath) {
+          child.emit('exit', 0, null);
+          return;
+        }
+
+        child.emit('error', new Error('ENOENT'));
+      });
+
+      return child;
+    });
+
+    await expect(serveApiCommand('c:/workspace-root', { ui: true })).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+
+    warnSpy.mockRestore();
   });
 
   it('uses resolved workspace root and default port when options are omitted', async () => {

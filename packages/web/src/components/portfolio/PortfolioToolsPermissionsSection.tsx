@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PortfolioSectionCard } from './portfolioShared';
+import { getToolDisplayInfo } from '../../utils/toolDisplay';
 
 interface ToolEntry {
   name: string;
@@ -28,7 +29,7 @@ function groupEntries(entries: ToolEntry[]): Map<string, ToolEntry[]> {
       if (a === 'other') return 1;
       if (b === 'other') return -1;
       return a.localeCompare(b);
-    }),
+    })
   );
 }
 
@@ -79,19 +80,25 @@ export function PortfolioToolsPermissionsSection({
                   {tools.map((tool) => {
                     const isAllowed = tool.allowedForAgent === true;
                     const pending = actionPending === tool.name;
+                    const display = getToolDisplayInfo(tool.name, tool.group);
                     let chipIcon = isAllowed ? '✓' : '✕';
                     if (pending) chipIcon = '…';
                     return (
                       <button
                         key={tool.name}
                         type="button"
-                        title={tool.description}
+                        title={`${tool.description}\nID: ${display.canonicalId}`}
                         className={`tool-chip-toggle ${isAllowed ? 'tool-chip-allowed' : 'tool-chip-disallowed'}`}
                         onClick={() => onToggleTool(tool.name, isAllowed)}
                         disabled={pending || !!actionPending}
                       >
                         <span className="tool-chip-icon">{chipIcon}</span>
-                        {tool.name}
+                        <span className="tool-chip-text">
+                          <span className="tool-chip-label">{display.label}</span>
+                          {display.showCanonicalId ? (
+                            <span className="tool-chip-id">{display.canonicalId}</span>
+                          ) : null}
+                        </span>
                       </button>
                     );
                   })}
@@ -115,9 +122,21 @@ export function PortfolioToolsPermissionsSection({
                 <span className="tool-group-name">{group}</span>
               </div>
               <div className="tool-active-chips">
-                {tools.map((t) => (
-                  <span key={t.name} title={t.description} className="tool-tag tool-tag-active">{t.name}</span>
-                ))}
+                {tools.map((tool) => {
+                  const display = getToolDisplayInfo(tool.name, tool.group);
+                  return (
+                    <span
+                      key={tool.name}
+                      title={`${tool.description}\nID: ${display.canonicalId}`}
+                      className="tool-tag tool-tag-active"
+                    >
+                      <span className="tool-tag-label">{display.label}</span>
+                      {display.showCanonicalId ? (
+                        <span className="tool-tag-id">{display.canonicalId}</span>
+                      ) : null}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           ))
@@ -143,4 +162,3 @@ export function PortfolioToolsPermissionsSection({
     </PortfolioSectionCard>
   );
 }
-

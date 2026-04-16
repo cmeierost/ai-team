@@ -4,6 +4,12 @@
 
 Quick runtime briefing for coding agents. Keep this file short; use linked docs for deep detail.
 
+## Active local backlog
+
+- The durable long-term backlog lives in [`.ai-team/tasks/`](.ai-team/tasks/).
+- Use local task files as the source of truth for multi-session work; do not rely on chat history alone.
+- Architecture docs intentionally describe both current state and target direction while the transition is in progress.
+
 ## Project in one minute
 
 - TypeScript monorepo with CLI, Web, VS Code, and API surfaces.
@@ -14,9 +20,13 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 
 - Keep `@ai-team/core` UI-free.
 - Keep orchestration in `@ai-team/service`.
+- Keep container primitives in `@ai-team/container` and service-specific registrations in `@ai-team/service`.
 - Treat `@ai-team/api-client` (local/in-process) and `@ai-team/api-client-http` (remote/browser) as different clients.
 - Keep `@ai-team/vscode` as a thin IDE adapter over shared contracts.
 - In web: TanStack Query for server state; Zustand for live runtime client state.
+- Treat mediator-oriented naming as transitional: target direction is `service interfaces` + internal `service-layer mediator` + outward `UI notifier`.
+- Prefer strict dependency injection across the logic ↔ infrastructure boundary.
+- Prefer function injection where simpler; if parameter count grows beyond 5, inject a deps object or refactor to a class.
 
 ## Runtime paths
 
@@ -35,18 +45,19 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 
 ## Permission model essentials
 
-- File rights are enforced by `@ai-team/permission`.
+- File rights are enforced through `packages/core/src/context/index.ts`, backed by `file-context` (`ContextRuntime` + parsers/matchers).
 - Keep per-agent path rules in `.ai-team/agents/<agent-id>.perm` (not in frontmatter).
 - Inheritance: `write => read + list`, `read => list`; explicit deny wins.
 
 ## Read next (detailed docs)
 
 1. `ARCHITECTURE.md`
-2. `.github/copilot-instructions.md`
-3. `docs/architecture/overview.md`
-4. `docs/architecture/diagrams.md`
-5. `docs/api/contracts.md`
-6. `docs/implementation/web-state-architecture.md`
+2. `.ai-team/tasks/`
+3. `.github/copilot-instructions.md`
+4. `docs/architecture/overview.md`
+5. `docs/architecture/diagrams.md`
+6. `docs/api/contracts.md`
+7. `docs/implementation/web-state-architecture.md`
 
 ## High-value implementation hotspots
 
@@ -55,8 +66,8 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 - `packages/service/src/orchestrator/chat-orchestrator.ts`
 - `packages/service/src/orchestrator/send-turn.ts`
 - `packages/core/src/tools/index.ts`
-- `packages/core/src/context/permission-adapter.ts`
-- `packages/permission/src/engine.ts`
+- `packages/core/src/context/index.ts`
+- `file-context/src/context-runtime.ts`
 - `packages/api-server/src/server.ts`
 - `packages/api-client-http/src/websocket.ts`
 - `packages/vscode/src/extension.ts`
@@ -80,4 +91,5 @@ If architecture/boundaries/runtime storage changes, update:
 - `COPILOT-CONTEXT.md`
 - `docs/architecture/overview.md`
 - `docs/architecture/diagrams.md`
+- relevant files under `.ai-team/tasks/`
 - affected package `README.md`

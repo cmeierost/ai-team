@@ -1,8 +1,5 @@
 import { Agent } from '../types';
-
-const API_BASE = globalThis.location.hostname === 'localhost'
-  ? 'http://localhost:3002'
-  : globalThis.location.origin;
+import { API_BASE } from '../config/api-base';
 
 /**
  * Get the avatar URL for an agent
@@ -12,29 +9,29 @@ export function getAvatarUrl(agent: Agent | null | undefined): string | null {
   if (!agent?.avatar?.url) {
     return null;
   }
-  
+
   // If it's a relative path starting with .ai-team/avatars/, convert to API URL
   if (agent.avatar.url.startsWith('.ai-team/avatars/')) {
     const filename = agent.avatar.url.replace('.ai-team/avatars/', '');
     return `${API_BASE}/avatars/${filename}`;
   }
-  
+
   // If it's already a relative path like ../avatars/name.jpg, convert it
   if (agent.avatar.url.startsWith('../avatars/')) {
     const filename = agent.avatar.url.replace('../avatars/', '');
     return `${API_BASE}/avatars/${filename}`;
   }
-  
+
   // If it's an absolute URL, return it as is
   if (
-    agent.avatar.url.startsWith('http://')
-    || agent.avatar.url.startsWith('https://')
-    || agent.avatar.url.startsWith('data:')
-    || agent.avatar.url.startsWith('blob:')
+    agent.avatar.url.startsWith('http://') ||
+    agent.avatar.url.startsWith('https://') ||
+    agent.avatar.url.startsWith('data:') ||
+    agent.avatar.url.startsWith('blob:')
   ) {
     return agent.avatar.url;
   }
-  
+
   // Fallback: assume it's a filename
   const filename = agent.avatar.url.split('/').pop() || agent.avatar.url;
   return `${API_BASE}/avatars/${filename}`;

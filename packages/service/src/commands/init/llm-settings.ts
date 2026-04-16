@@ -1,13 +1,15 @@
 import ora from 'ora';
-import { fetchGitHubModels } from '@ai-team/core';
-import type { LlmConfig } from '@ai-team/core';
+import { fetchGitHubModels } from '@ai-team/infrastructure';
 import type {
   QuestionInputRequest,
   QuestionPasswordRequest,
   QuestionSelectRequest,
-} from '../../contracts.js';
+} from '@ai-team/api-client';
 
-export interface LlmSetupResult extends LlmConfig {
+export interface LlmSetupResult {
+  provider: string;
+  model?: string;
+  baseUrl?: string;
   apiKey?: string;
 }
 
@@ -89,9 +91,21 @@ async function askOpenAICompatibleSetup(io: LlmSettingsIo): Promise<LlmSetupResu
   });
 
   const presets: Record<string, { baseUrl: string; needsKey: boolean; models: string[] }> = {
-    openai: { baseUrl: 'https://api.openai.com/v1', needsKey: true, models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'] },
-    ollama: { baseUrl: 'http://localhost:11434/v1', needsKey: false, models: ['llama3', 'mistral', 'codellama', 'deepseek-coder'] },
-    lmstudio: { baseUrl: 'http://localhost:1234/v1', needsKey: false, models: ['(uses loaded model)'] },
+    openai: {
+      baseUrl: 'https://api.openai.com/v1',
+      needsKey: true,
+      models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'],
+    },
+    ollama: {
+      baseUrl: 'http://localhost:11434/v1',
+      needsKey: false,
+      models: ['llama3', 'mistral', 'codellama', 'deepseek-coder'],
+    },
+    lmstudio: {
+      baseUrl: 'http://localhost:1234/v1',
+      needsKey: false,
+      models: ['(uses loaded model)'],
+    },
     azure: { baseUrl: '', needsKey: true, models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'] },
   };
 

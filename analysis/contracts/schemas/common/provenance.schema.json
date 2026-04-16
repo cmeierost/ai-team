@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/common/provenance.schema.json",
+  "title": "Provenance",
+  "description": "Metadata describing how the analysis data was collected, including timing information and details of each tool invocation.",
+  "type": "object",
+  "properties": {
+    "collectionDuration": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total wall-clock time for the collection run, in milliseconds."
+    },
+    "toolRuns": {
+      "type": "array",
+      "description": "Ordered list of tool invocations that contributed to this collection.",
+      "items": {
+        "$ref": "#/definitions/ToolRun"
+      }
+    }
+  },
+  "required": ["collectionDuration", "toolRuns"],
+  "additionalProperties": false,
+  "definitions": {
+    "ToolRun": {
+      "type": "object",
+      "description": "Record of a single tool invocation during collection.",
+      "properties": {
+        "tool": {
+          "type": "string",
+          "description": "Name or identifier of the tool that was executed (e.g. 'ts-morph-collector', 'eslint')."
+        },
+        "version": {
+          "type": "string",
+          "description": "Semantic version of the tool."
+        },
+        "aspect": {
+          "type": "string",
+          "description": "Which analysis aspect this tool served (e.g. 'structure', 'complexity', 'dependencies')."
+        },
+        "exitCode": {
+          "type": "integer",
+          "description": "Process exit code returned by the tool. 0 indicates success."
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Wall-clock time for this tool run, in milliseconds."
+        },
+        "warnings": {
+          "type": "array",
+          "description": "Non-fatal warnings emitted by the tool during execution.",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["tool", "version", "aspect", "exitCode", "duration", "warnings"],
+      "additionalProperties": false
+    }
+  }
+}

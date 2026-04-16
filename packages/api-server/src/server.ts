@@ -2,33 +2,38 @@ import express from 'express';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'node:http';
-import { join, resolve, dirname } from 'node:path';
+import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import swaggerUi from 'swagger-ui-express';
-import { swaggerSpec } from './swagger-auto.js';
-import { generateAsyncApiSpec } from './asyncapi.js';
-import { createLocalAiTeamClient } from '@ai-team/api-client';
-import { AgentManager } from '@ai-team/core';
-import { SessionManager, createSqliteStorage, findWorkspaceRoot, getSystemInfo, getFileTreeCommand } from '@ai-team/service';
-import { createAgentsRouter } from './routes/agents.js';
-import { createTeamRouter } from './routes/team.js';
-import { createChatRouter } from './routes/chat.js';
-import { createSessionsRouter, createArtifactsRouter } from './routes/sessions.js';
-import { createTaskRoutes } from './routes/tasks.js';
-import { createDeveloperRouter } from './routes/developer.js';
-import { createFileTreeRouter } from './routes/file-tree.js';
-import { createIdeRouter } from './routes/ide.js';
-import { createSkillsRouter } from './routes/skills.js';
-import { createToolsRouter } from './routes/tools.js';
-import { createConfigRouter } from './routes/config.js';
-import { createMetaRouter } from './routes/meta.js';
-import { createCommandsRouter } from './routes/commands.js';
-import { createAccessRouter } from './routes/access.js';
+
+import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
+import { createSqliteStorage, findWorkspaceRoot, InteractionService } from '@ai-team/service';
+import { createExpressRouter } from '@ts-http/express';
+import {
+  systemDesc,
+  agentsDesc,
+  teamDesc,
+  chatDesc,
+  sessionsDesc,
+  artifactsDesc,
+  tasksDesc,
+  planningDesc,
+  developerDesc,
+  permissionDesc,
+  ideDesc,
+  skillsDesc,
+  toolsDesc,
+  configDesc,
+  contextDesc,
+  commandsDesc,
+  accessDesc,
+} from '@ai-team/api-client';
+
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { setupChatWebSocket } from './ws/chat-handler.js';
+import { asyncApiUi as serveApiDefinition } from './async-api-ui.js';
+import { serveStaticFiles } from './serve-static-files.js';
 
-// ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -40,8 +45,8 @@ export interface ServerOptions {
 
 export async function startServer(options: ServerOptions = {}): Promise<any> {
   const port = options.port ?? Number.parseInt(process.env.PORT || '3002', 10);
-  const workspaceRoot = options.workspaceRoot || process.env.AI_TEAM_WORKSPACE || findWorkspaceRoot();
-  const serveStaticFiles = options.serveStaticFiles ?? process.env.NODE_ENV === 'production';
+  const workspaceRoot =
+    options.workspaceRoot || process.env.AI_TEAM_WORKSPACE || findWorkspaceRoot();
 
   console.log(`Starting AI Team API Server...`);
   console.log(`Workspace: ${workspaceRoot}`);
@@ -54,209 +59,103 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     console.warn(`Make sure to run 'ait init' in your workspace first.`);
   }
 
-  // Create API client
-  const client = createLocalAiTeamClient(workspaceRoot);
-
-  // Create AgentManager for fuzzy agent resolution
-  const agentManager = new AgentManager(workspaceRoot);
-  try {
-    await agentManager.loadAllAgents();
-  } catch (error) {
-    console.warn('Failed to load agents:', error);
-  }
-
-  // Create SessionManager for WebSocket message persistence
   const storage = createSqliteStorage(workspaceRoot);
-  const sessionManager = new SessionManager(workspaceRoot, storage, agentManager);
-  await sessionManager.initialize();
+  await storage.migrate();
 
-  // Pre-warm the file tree cache in the background so the first web request
-  // gets a cache hit instead of waiting for a full directory walk.
-  getFileTreeCommand(workspaceRoot).catch(() => { /* best-effort */ });
+  const apiBaseUrl = `http://localhost:${port}`;
+
+  const interactionService = new InteractionService(workspaceRoot);
+
+  const container = createContainerWithBootstrap(
+    {
+      workspaceRoot,
+      apiBaseUrl,
+    },
+    (c) => {
+      // Provide the pre-migrated storage so the container doesn't re-create it.
+      c.registerInstance(TOKENS.MessageStorage, storage);
+      // Provide the actual API base URL for SystemService.
+      c.registerInstance(TOKENS.ApiBaseUrl, apiBaseUrl);
+      // Provide InteractionService to route services that need streaming.
+      c.registerInstance(TOKENS.InteractionService, interactionService);
+    }
+  );
+
+  const agentManager = container.resolve(TOKENS.AgentManager);
+  const sessionManager = container.resolve(TOKENS.SessionManager);
 
   // Create Express app
   const app = express();
 
   // Middleware
-  app.use(cors());
+  app.use(cors({ origin: true, credentials: true }));
   app.use(express.json());
 
-  // API Routes
-  app.use('/api/agents', createAgentsRouter(client, agentManager));
-  app.use('/api/team', createTeamRouter(client));
-  app.use('/api/chat', createChatRouter(client, workspaceRoot, agentManager, sessionManager));
-  app.use('/api/sessions', createSessionsRouter(workspaceRoot, agentManager, sessionManager));
-  app.use('/api/artifacts', createArtifactsRouter(workspaceRoot, sessionManager));
-  app.use('/api/tasks', createTaskRoutes(workspaceRoot, agentManager));
-  app.use('/api/developer', createDeveloperRouter(client, workspaceRoot));
-  app.use('/api/files', createFileTreeRouter(workspaceRoot));
-  app.use('/api/ide', createIdeRouter(workspaceRoot));
-  app.use('/api/skills', createSkillsRouter(client));
-  app.use('/api/tools', createToolsRouter(client));
-  app.use('/api/config', createConfigRouter(workspaceRoot));
-  app.use('/api/meta', createMetaRouter(workspaceRoot, agentManager));
-  app.use('/api/commands', createCommandsRouter());
-  app.use('/api/access', createAccessRouter(client));
-
-  // System info endpoint
-  /**
-   * @openapi
-   * /api/info:
-   *   get:
-   *     tags: [System]
-   *     summary: Get system information
-   *     description: Returns information about the API server and workspace
-   *     responses:
-   *       200:
-   *         description: System information
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 apiUrl:
-   *                   type: string
-   *                   description: API base URL
-   *                 workspace:
-   *                   type: string
-   *                   description: Workspace root path
-   *                 branch:
-   *                   type: string
-   *                   description: Current git branch
-   *                 package:
-   *                   type: object
-   *                   properties:
-   *                     name:
-   *                       type: string
-   *                     version:
-   *                       type: string
-   *                     description:
-   *                       type: string
-   */
-  app.get('/api/info', (req, res) => {
-    try {
-      const apiUrl = `${req.protocol}://${req.get('host')}`;
-      const systemInfo = getSystemInfo(workspaceRoot);
-
-      res.json({
-        apiUrl,
-        ...systemInfo
-      });
-    } catch (error) {
-      console.error('Error getting system info:', error);
-      res.status(500).json({ 
-        error: 'Failed to get system info',
-        message: error instanceof Error ? error.message : String(error)
-      });
-    }
-  });
-
-  // Health check
-  /**
-   * @openapi
-   * /api/health:
-   *   get:
-   *     tags: [Health]
-   *     summary: Health check endpoint
-   *     description: Returns the health status of the API server
-   *     responses:
-   *       200:
-   *         description: Server is healthy
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 status:
-   *                   type: string
-   *                   example: ok
-   *                 workspace:
-   *                   type: string
-   *                   description: Workspace root path
-   */
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', workspace: workspaceRoot });
-  });
-
-  // Swagger API documentation
-  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-    customCss: '.swagger-ui .topbar { display: none }',
-    customSiteTitle: 'AI Team API Documentation',
-  }));
-
-  // Swagger JSON spec endpoint
-  app.get('/api-docs.json', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.send(swaggerSpec);
-  });
+  // Wire each namespace: description + service instance → Express router
+  app.use(
+    systemDesc.subRoute!,
+    createExpressRouter(systemDesc, container.resolve(TOKENS.SystemService))
+  );
+  app.use(
+    agentsDesc.subRoute!,
+    createExpressRouter(agentsDesc, container.resolve(TOKENS.AgentsService))
+  );
+  app.use(teamDesc.subRoute!, createExpressRouter(teamDesc, container.resolve(TOKENS.TeamService)));
+  app.use(chatDesc.subRoute!, createExpressRouter(chatDesc, container.resolve(TOKENS.ChatService)));
+  app.use(
+    sessionsDesc.subRoute!,
+    createExpressRouter(sessionsDesc, container.resolve(TOKENS.SessionsService))
+  );
+  app.use(
+    artifactsDesc.subRoute!,
+    createExpressRouter(artifactsDesc, container.resolve(TOKENS.ArtifactsService))
+  );
+  app.use(
+    tasksDesc.subRoute!,
+    createExpressRouter(tasksDesc, container.resolve(TOKENS.TasksService))
+  );
+  app.use(
+    planningDesc.subRoute!,
+    createExpressRouter(planningDesc, container.resolve(TOKENS.PlanningService))
+  );
+  app.use(
+    developerDesc.subRoute!,
+    createExpressRouter(developerDesc, container.resolve(TOKENS.DeveloperService))
+  );
+  app.use(
+    permissionDesc.subRoute!,
+    createExpressRouter(permissionDesc, container.resolve(TOKENS.FilesService))
+  );
+  app.use(ideDesc.subRoute!, createExpressRouter(ideDesc, container.resolve(TOKENS.IdeService)));
+  app.use(
+    skillsDesc.subRoute!,
+    createExpressRouter(skillsDesc, container.resolve(TOKENS.SkillsService))
+  );
+  app.use(
+    toolsDesc.subRoute!,
+    createExpressRouter(toolsDesc, container.resolve(TOKENS.ToolsService))
+  );
+  app.use(
+    configDesc.subRoute!,
+    createExpressRouter(configDesc, container.resolve(TOKENS.ConfigService))
+  );
+  app.use(
+    contextDesc.subRoute!,
+    createExpressRouter(contextDesc, container.resolve(TOKENS.MetaService))
+  );
+  app.use(
+    commandsDesc.subRoute!,
+    createExpressRouter(commandsDesc, container.resolve(TOKENS.CommandsService))
+  );
+  app.use(
+    accessDesc.subRoute!,
+    createExpressRouter(accessDesc, container.resolve(TOKENS.AccessService))
+  );
 
   // AsyncAPI WebSocket documentation
-  const asyncApiSpec = generateAsyncApiSpec();
-  
-  app.get('/asyncapi.json', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.json(asyncApiSpec);
-  });
+  serveApiDefinition(app);
 
-  app.get('/asyncapi', (req, res) => {
-    res.send(`
-<!DOCTYPE html>
-<html>
-<head>
-  <title>AI Team WebSocket API Documentation</title>
-  <link rel="stylesheet" href="https://unpkg.com/@asyncapi/react-component@1.4.10/styles/default.min.css">
-  <style>
-    body { margin: 0; padding: 0; }
-    #asyncapi { height: 100vh; overflow: auto; }
-  </style>
-</head>
-<body>
-  <div id="asyncapi"></div>
-  <script src="https://unpkg.com/@asyncapi/react-component@1.4.10/browser/standalone/index.js"></script>
-  <script>
-    AsyncApiStandalone.render({
-      schema: {
-        url: '/asyncapi.json'
-      },
-      config: {
-        show: {
-          sidebar: true
-        }
-      }
-    }, document.getElementById('asyncapi'));
-  </script>
-</body>
-</html>
-    `);
-  });
-
-  // Serve avatars directory as static files
-  const avatarsPath = join(workspaceRoot, '.ai-team', 'avatars');
-  if (existsSync(avatarsPath)) {
-    app.use('/avatars', express.static(avatarsPath));
-    console.log(`Serving avatars from: ${avatarsPath}`);
-  }
-
-  // Serve static files from web build (production mode)
-  if (serveStaticFiles) {
-    const webDistPath = resolve(join(__dirname, '..', '..', 'web', 'dist'));
-    if (existsSync(webDistPath)) {
-      console.log(`Serving static files from: ${webDistPath}`);
-      app.use(express.static(webDistPath));
-      
-      // SPA fallback - serve index.html for all non-API routes
-      // Express 5 / path-to-regexp v8 requires named wildcards.
-      app.get('/{*splat}', (req, res, next) => {
-        if (req.path.startsWith('/api') || req.path.startsWith('/ws')) {
-          return next();
-        }
-        res.sendFile(join(webDistPath, 'index.html'));
-      });
-    } else {
-      console.warn(`Web dist directory not found at ${webDistPath}`);
-      console.warn(`Run 'pnpm --filter @ai-team/web build' to build the web UI.`);
-    }
-  }
+  serveStaticFiles(options, app, workspaceRoot);
 
   // Error handlers (must be last)
   app.use(notFoundHandler);
@@ -266,7 +165,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   const httpServer = createServer(app);
 
   // Setup WebSocket server (without path restriction to allow /ws/chat/:agentId)
-  const wss = new WebSocketServer({ 
+  const wss = new WebSocketServer({
     server: httpServer,
     noServer: false,
   });
@@ -292,12 +191,16 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     }
 
     console.log(`WebSocket connected: agent=${agentId}, session=${sessionId || 'none'}`);
-    setupChatWebSocket(ws, agentId, client, sessionManager, sessionId, agentManager, workspaceRoot);
+    setupChatWebSocket(ws, agentId, interactionService, sessionManager, sessionId, {
+      agentManager,
+      workspaceRoot,
+      llmService: container.resolve(TOKENS.LlmService),
+    });
   });
 
   // Start server
   await new Promise<void>((resolve) => {
-    httpServer.listen(port, () => {
+    httpServer.listen(port, '::', () => {
       const addr = httpServer.address() as { port: number } | null;
       const actualPort = addr?.port ?? port;
       console.log(`✓ Server listening on http://localhost:${actualPort}`);

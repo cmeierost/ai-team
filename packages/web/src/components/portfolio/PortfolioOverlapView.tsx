@@ -1,4 +1,4 @@
-import type { Agent, PermissionOverlapRegion, PermissionRight } from '../../types';
+import type { Agent, PermissionAgentResponsibilitySummary, PermissionOverlapRegion, PermissionRight } from '../../types';
 import { PermissionOverlapDiagram } from '../permissions/PermissionOverlapDiagram';
 import { PermissionOverlapInspector } from '../permissions/PermissionOverlapInspector';
 import { formatRightMetric, getRegionMetricValue } from '../../utils/permissionMetrics';
@@ -11,6 +11,8 @@ interface PortfolioOverlapViewProps {
   selectedRight: PermissionRight;
   onSelectedRightChange: (right: PermissionRight) => void;
   suggestions?: ReadonlyArray<{ id: string; title: string; rationale: string; severity: 'high' | 'medium' | 'low' }>;
+  agentResponsibilities?: Record<string, PermissionAgentResponsibilitySummary>;
+  workspaceFileCount?: number;
   selectedRegionId?: string;
   onSelectRegion: (regionId: string) => void;
 }
@@ -22,13 +24,14 @@ export function PortfolioOverlapView({
   selectedRight,
   onSelectedRightChange,
   suggestions = [],
+  agentResponsibilities,
+  workspaceFileCount = 0,
   selectedRegionId,
   onSelectRegion,
 }: Readonly<PortfolioOverlapViewProps>) {
   const filteredRegions = regions.filter((region) => getRegionMetricValue(region, selectedRight) > 0);
   const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
   const selectedRegion = filteredRegions.find((region) => region.id === selectedRegionId) ?? filteredRegions[0];
-  const strongestRegion = filteredRegions[0];
   const highestWriteRegion = [...filteredRegions]
     .sort((left, right) =>
       right.rightLineCounts.write - left.rightLineCounts.write
@@ -97,6 +100,9 @@ export function PortfolioOverlapView({
           regions={filteredRegions}
           selectedRight={selectedRight}
           onSelectAgent={() => {}}
+          responsibilityFileCountByAgentId={agentResponsibilities
+            ? Object.fromEntries(Object.entries(agentResponsibilities).map(([id, r]) => [id, r.rightFileCounts[selectedRight] ?? 0]))
+            : undefined}
           selectedRegionId={selectedRegion?.id}
           onSelectRegion={onSelectRegion}
           emptyLabel={`No ${selectedRight} overlap found for this agent.`}
@@ -104,7 +110,9 @@ export function PortfolioOverlapView({
         <PermissionOverlapInspector
           region={selectedRegion}
           agentsById={agentsById}
-          workspaceFileCount={0}
+          focusResponsibility={agentResponsibilities?.[focusAgent.id]}
+          peerResponsibility={selectedRegion ? agentResponsibilities?.[selectedRegion.peerAgentIds[0]] : undefined}
+          workspaceFileCount={workspaceFileCount}
         />
       </div>
 

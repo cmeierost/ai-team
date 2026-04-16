@@ -11,15 +11,15 @@
  * Does not touch session persistence, history, or handoff resolution.
  */
 
-import { withAbortSignal } from '@ai-team/core';
+import { withAbortSignal } from '@ai-team/infrastructure';
 import type {
   Agent,
   AgentTool,
   ChatCompletionMessageParam,
-  LlmToolDefinition,
   Skill,
   StructuredToolResult,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
+import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import { dispatchToolCall } from './tool-dispatch.js';
 import { extractStreamDeltaText } from './stream-events.js';
@@ -48,20 +48,22 @@ interface StreamFilterState {
   lineSafe: boolean;
 }
 
+type StreamTextSink = (text: string) => void;
+
 function makeFilterState(): StreamFilterState {
   return { lineBuf: '', lineSafe: false };
 }
 
-function writeFiltered(delta: string, state: StreamFilterState): void {
+function writeFiltered(delta: string, state: StreamFilterState, sink: StreamTextSink): void {
   let pos = 0;
   while (pos < delta.length) {
     if (state.lineSafe) {
       const nl = delta.indexOf('\n', pos);
       if (nl === -1) {
-        process.stdout.write(delta.slice(pos));
+        sink(delta.slice(pos));
         return;
       }
-      process.stdout.write(delta.slice(pos, nl + 1));
+      sink(delta.slice(pos, nl + 1));
       pos = nl + 1;
       state.lineSafe = false;
       state.lineBuf = '';
@@ -69,7 +71,7 @@ function writeFiltered(delta: string, state: StreamFilterState): void {
       const ch = delta[pos++];
       if (ch === '\n') {
         state.lineBuf += ch;
-        if (!HANDOFF_LINE_RE.test(state.lineBuf)) process.stdout.write(state.lineBuf);
+        if (!HANDOFF_LINE_RE.test(state.lineBuf)) sink(state.lineBuf);
         state.lineBuf = '';
         state.lineSafe = false;
       } else {
@@ -82,7 +84,7 @@ function writeFiltered(delta: string, state: StreamFilterState): void {
 
         if (trimmedUpper.length > 0 && !couldBecomeDirective) {
           state.lineSafe = true;
-          process.stdout.write(state.lineBuf);
+          sink(state.lineBuf);
           state.lineBuf = '';
         }
       }
@@ -90,9 +92,9 @@ function writeFiltered(delta: string, state: StreamFilterState): void {
   }
 }
 
-function flushFilter(state: StreamFilterState): void {
+function flushFilter(state: StreamFilterState, sink: StreamTextSink): void {
   if (state.lineBuf && !HANDOFF_LINE_RE.test(state.lineBuf)) {
-    process.stdout.write(state.lineBuf);
+    sink(state.lineBuf);
   }
   state.lineBuf = '';
   state.lineSafe = false;
@@ -101,11 +103,15 @@ function flushFilter(state: StreamFilterState): void {
 // ── Tool policy system message ────────────────────────────────────────────────
 
 function buildToolPolicyMessage(tools: AgentTool[]): ChatCompletionMessageParam {
+  const hasAskTool = tools.some((t) => t.group === 'com' && t.name === 'ask');
   return {
     role: 'system',
     content:
       `Tool-calling is available. Registered tools: ${tools.map((t) => t.name).join(', ')}. ` +
       'Do not invent tool names. ' +
+      (hasAskTool
+        ? 'If you need clarification or missing input from the developer, call com_ask instead of guessing. '
+        : '') +
       'If the developer asks about what tools you can use, what files you can read/write, or access/permissions, call a relevant introspection tool (for example tool_list, tool_can_i, fs_who_can) before answering. ' +
       'If the developer asks to list or show visible/readable files (or file tree), call fs_tree on path "." (or requested path) first, then explain results.',
   };
@@ -134,28 +140,36 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
   const state = makeFilterState();
   let fullResponse = '';
   const structuredResults: StructuredToolResult[] = [];
+  const writeToken = (text: string) => {
+    if (!text) {
+      return;
+    }
+    if (hooks?.emit) {
+      hooks.emit({ kind: 'token', text });
+      return;
+    }
+    process.stdout.write(text);
+  };
 
   const workingMessages: ChatCompletionMessageParam[] =
-    toolDefs.length > 0
-      ? [buildToolPolicyMessage(tools), ...messages]
-      : messages;
+    toolDefs.length > 0 ? [buildToolPolicyMessage(tools), ...messages] : messages;
 
   try {
     if (toolDefs.length === 0) {
       const stream = await withAbortSignal(
         llmService.streamChat(agent, workingMessages, undefined, skills, teamRoster),
         hooks?.signal,
-        'Chat streaming aborted.',
+        'Chat streaming aborted.'
       );
 
       for await (const chunk of stream) {
         const delta = extractStreamDeltaText(chunk as Parameters<typeof extractStreamDeltaText>[0]);
         if (delta) {
-          writeFiltered(delta, state);
+          writeFiltered(delta, state, writeToken);
           fullResponse += delta;
         }
       }
-      flushFilter(state);
+      flushFilter(state, writeToken);
     } else {
       const result = await withAbortSignal(
         llmService.chatWithTools(
@@ -165,7 +179,7 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
           async (toolCall) => {
             const response = await dispatchToolCall(
               { toolCallId: toolCall.toolCallId, toolName: toolCall.toolName, args: toolCall.args },
-              ctx,
+              ctx
             );
 
             if (response.structured) {
@@ -185,18 +199,23 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
           8,
           (delta: string) => {
             if (delta) {
-              writeFiltered(delta, state);
+              writeFiltered(delta, state, writeToken);
               fullResponse += delta;
             }
           },
-          ctx.instructions,
+          ctx.instructions
         ),
         hooks?.signal,
-        'Chat aborted.',
+        'Chat aborted.'
       );
 
-      flushFilter(state);
-      if (result?.text) fullResponse = result.text;
+      flushFilter(state, writeToken);
+      // Do NOT overwrite fullResponse with result.text here.
+      // fullResponse is accumulated across ALL rounds via the onToken delta callback,
+      // capturing text both before and after every tool call.
+      // result.text only contains the final round's assistantText — using it would
+      // silently drop any text the model emitted before the last tool call.
+      if (!fullResponse && result?.text) fullResponse = result.text;
     }
   } catch (err: unknown) {
     if (isAbortError(err)) throw err;

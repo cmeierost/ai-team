@@ -3,17 +3,30 @@
  * permissions. In view mode, shows which files are readable/listable/writable. In edit mode,
  * allows toggling read and write access per file.
  */
+import { useEffect } from 'react';
 import { FileTreeView } from './file-tree/FileTreeView';
 import { useFileTree } from './file-tree/useFileTree';
 import './FileTree.css';
+
+export interface FileTreeCounts {
+  readCount: number;
+  listCount: number;
+  writeCount: number;
+}
 
 interface FileTreeProps {
   agentId: string;
   editMode: boolean;
   highlightedPaths?: ReadonlySet<string>;
+  onCountsChange?: (counts: FileTreeCounts) => void;
 }
 
-export function FileTree({ agentId, editMode, highlightedPaths }: Readonly<FileTreeProps>) {
+export function FileTree({
+  agentId,
+  editMode,
+  highlightedPaths,
+  onCountsChange,
+}: Readonly<FileTreeProps>) {
   const {
     data,
     loading,
@@ -40,6 +53,10 @@ export function FileTree({ agentId, editMode, highlightedPaths }: Readonly<FileT
     addPattern,
     removePattern,
   } = useFileTree(agentId);
+
+  useEffect(() => {
+    onCountsChange?.({ readCount, listCount, writeCount });
+  }, [readCount, listCount, writeCount, onCountsChange]);
 
   return (
     <FileTreeView

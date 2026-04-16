@@ -4,16 +4,19 @@
     "type": "object",
     "properties": {
       "type": {
-        "description": "Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question",
+        "description": "Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question, 'interrupt' = hard interrupt, 'steer' = drift in message, 'summarize' = LLM-backed note summarize",
         "enum": [
           "answer",
           "cancel",
-          "message"
+          "interrupt",
+          "message",
+          "steer",
+          "summarize"
         ],
         "type": "string"
       },
       "content": {
-        "description": "Chat message content (required for 'message' type)",
+        "description": "Chat message content (required for 'message', 'steer' type)",
         "type": "string"
       },
       "options": {
@@ -31,13 +34,13 @@
             "description": "Answer value (string/bool/number/array/object depending on question type)",
             "anyOf": [
               {
+                "$ref": "#/definitions/Record%3Cstring%2Cstring%3E"
+              },
+              {
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
-              },
-              {
-                "$ref": "#/definitions/Record<string,string>"
               },
               {
                 "type": [
@@ -53,6 +56,38 @@
           "questionId",
           "value"
         ]
+      },
+      "operation": {
+        "description": "Summarize operation (required for 'summarize' type): 'compact' or 'crawl'",
+        "enum": [
+          "compact",
+          "crawl"
+        ],
+        "type": "string"
+      },
+      "noteId": {
+        "description": "Note ID to summarize (required for 'summarize' type)",
+        "type": "string"
+      },
+      "websiteUrl": {
+        "description": "Website URL to crawl (required for operation='crawl')",
+        "type": "string"
+      },
+      "maxPages": {
+        "description": "Max pages to crawl (optional for operation='crawl')",
+        "type": "number"
+      },
+      "maxWords": {
+        "description": "Max words for summary (optional for 'summarize' type)",
+        "type": "number"
+      },
+      "focusInstruction": {
+        "description": "Focus instruction for summarization (optional for 'summarize' type)",
+        "type": "string"
+      },
+      "generateTitle": {
+        "description": "Generate and apply a note title from summarized content",
+        "type": "boolean"
       }
     },
     "required": [
@@ -90,5 +125,5 @@
     ],
     "$schema": "http://json-schema.org/draft-07/schema#"
   },
-  "generatedAt": "2026-03-31T22:03:45.681Z"
+  "generatedAt": "2026-04-16T19:06:11.843Z"
 }

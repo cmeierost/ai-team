@@ -1,0 +1,44 @@
+{
+  "name": "@aspect/contracts",
+  "version": "0.1.0",
+  "description": "Technology-agnostic JSON Schema contracts for code analysis — collected data, protocol, and analyzed data schemas",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schemas/*": "./schemas/*"
+  },
+  "scripts": {
+    "generate": "tsx scripts/generate-types.ts",
+    "prebuild": "pnpm generate",
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "code-analysis",
+    "json-schema",
+    "contracts",
+    "static-analysis"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@vitest/coverage-v8": "^4.1.2",
+    "json-schema-to-typescript": "^15.0.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.2"
+  }
+}

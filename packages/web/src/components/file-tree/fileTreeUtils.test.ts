@@ -33,8 +33,8 @@ describe('fileTreeUtils', () => {
     expect(getAccessCounts(files)).toEqual({ readCount: 3, listCount: 2, writeCount: 1 });
 
     const patterns: FilePatternsResponse = {
-      global: { allowPaths: [], readPaths: ['docs/**'], writePaths: [], createPaths: [], deletePaths: [] },
-      agent: { id: 'daniel-navarro', readPaths: ['src/**'], writePaths: ['src/components/**'], createPaths: [], deletePaths: [] },
+      global: { allowPaths: [], readPaths: ['docs/**'], writePaths: [] },
+      agent: { id: 'daniel-navarro', readPaths: ['src/**'], writePaths: ['src/components/**'] },
     };
 
     expect(getVisiblePatternGroups({ agent: 'daniel-navarro', readPatterns: [], writePatterns: [], files }, patterns)).toEqual([

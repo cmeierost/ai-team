@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest",
+    "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
@@ -22,34 +22,11 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@ai-team/fs": "workspace:*",
-    "@ai-team/ide-interface": "workspace:*",
-    "@ai-team/permission": "workspace:*",
-    "@typescript-eslint/typescript-estree": "^8.56.0",
-    "chokidar": "^5.0.0",
-    "diff": "^8.0.3",
-    "fuzzysort": "3.1.0",
-    "glob": "^13.0.6",
-    "gray-matter": "^4.0.3",
+    "fs-context": "workspace:*",
     "minimatch": "^10.2.4",
-    "openai": "^6.27.0",
-    "parse-diff": "^0.11.1",
-    "sharp": "^0.34.5",
-    "tree-sitter-bash": "0.25.0",
-    "vscode-jsonrpc": "8.2.1",
     "web-tree-sitter": "^0.26.6",
     "zod": "^4.3.6",
     "zod-to-json-schema": "3.24.5"
-  },
-  "optionalDependencies": {
-    "@parcel/watcher": "2.5.1",
-    "@parcel/watcher-darwin-arm64": "2.5.1",
-    "@parcel/watcher-darwin-x64": "2.5.1",
-    "@parcel/watcher-linux-arm64-glibc": "2.5.1",
-    "@parcel/watcher-linux-arm64-musl": "2.5.1",
-    "@parcel/watcher-linux-x64-glibc": "2.5.1",
-    "@parcel/watcher-linux-x64-musl": "2.5.1",
-    "@parcel/watcher-win32-x64": "2.5.1"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

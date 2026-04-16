@@ -1,15 +1,9 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { createHttpAiTeamClient, type AiTeamHttpClient } from '@ai-team/api-client-http';
+import { createContext, useContext, useMemo, useState, useEffect, ReactNode } from 'react';
+import { createAiTeamClient, type AiTeamHttpClient } from '@ai-team/api-client';
 import { Agent, GraphData, Developer } from '../types';
-
-// Use window.location.origin in production, or default to localhost in dev
-const API_BASE = window.location.hostname === 'localhost' 
-  ? 'http://localhost:3002'
-  : window.location.origin;
-const client = createHttpAiTeamClient({ baseUrl: API_BASE });
-
-// Export API_BASE for use in other components
-export { API_BASE };
+import { useBackendConnectionStore } from '../stores/backendConnectionStore';
+import { API_BASE } from '../config/api-base';
+export { API_BASE } from '../config/api-base';
 
 interface TeamContextValue {
   agents: Agent[];
@@ -44,6 +38,21 @@ export function TeamProvider({
   initialLoading = false,
   initialError = null,
 }: TeamProviderProps) {
+  const client = useMemo(
+    () =>
+      createAiTeamClient({
+        baseUrl: API_BASE,
+        restOptions: {
+          onError: (error) => {
+            if (error instanceof Error) {
+              useBackendConnectionStore.getState().setReachable(false);
+            }
+            return false;
+          },
+        },
+      }),
+    []
+  );
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [agents, setAgents] = useState<Agent[]>(initialAgents || []);
   const [developer, setDeveloper] = useState<Developer | null>(null);
@@ -54,30 +63,30 @@ export function TeamProvider({
     try {
       setLoading(true);
       setError(null);
-      
+
       // Load team graph with resolved role references
-      const loadedGraphData = await client.getTeamGraph('hierarchy');
+      const loadedGraphData = (await client.team.getTeamGraph('hierarchy')) as GraphData;
       setGraphData(loadedGraphData);
-      
+
+      // Successfully connected to backend
+      useBackendConnectionStore.getState().setReachable(true);
+
       // Load agents from dedicated endpoint (includes resolvedLlm)
       try {
-        const agentsData = await client.listEmployees({});
-        setAgents(agentsData as Agent[]);
+        const agentsData = (await client.agents.list()) as Agent[];
+        setAgents(agentsData);
       } catch {
         // Fallback: derive from graph nodes
         const agentNodes = loadedGraphData.nodes
-          .filter(node => node.type === 'agent' && node.data.agent)
-          .map(node => node.data.agent!);
+          .filter((node) => node.type === 'agent' && node.data.agent)
+          .map((node) => node.data.agent!);
         setAgents(agentNodes);
       }
 
       // Load developer profile
       try {
-        const response = await fetch(`${API_BASE}/api/developer/me`);
-        if (response.ok) {
-          const devData = await response.json();
-          setDeveloper(devData);
-        }
+        const response = (await client.developer.getMe()) as Developer;
+        setDeveloper(response);
       } catch (err) {
         console.warn('Failed to load developer profile:', err);
       }

@@ -1,0 +1,127 @@
+[
+  {
+    "filePath": "/projects/my-app/src/index.ts",
+    "messages": [
+      {
+        "ruleId": "no-unused-vars",
+        "severity": 2,
+        "message": "'foo' is defined but never used.",
+        "line": 3,
+        "column": 7,
+        "endLine": 3,
+        "endColumn": 10,
+        "nodeType": "Identifier",
+        "messageId": "unusedVar"
+      },
+      {
+        "ruleId": "@typescript-eslint/no-explicit-any",
+        "severity": 1,
+        "message": "Unexpected any. Specify a different type.",
+        "line": 8,
+        "column": 22,
+        "endLine": 8,
+        "endColumn": 25,
+        "nodeType": "TSAnyKeyword",
+        "messageId": "unexpectedAny"
+      },
+      {
+        "ruleId": null,
+        "severity": 2,
+        "message": "Parsing error: Unexpected token",
+        "line": 15,
+        "column": 1,
+        "nodeType": null
+      }
+    ],
+    "suppressedMessages": [],
+    "errorCount": 2,
+    "warningCount": 1,
+    "fixableErrorCount": 0,
+    "fixableWarningCount": 0,
+    "source": "import { something } from './something.js';\n"
+  },
+  {
+    "filePath": "/projects/my-app/src/utils/helpers.ts",
+    "messages": [
+      {
+        "ruleId": "no-console",
+        "severity": 1,
+        "message": "Unexpected console statement.",
+        "line": 12,
+        "column": 3,
+        "endLine": 12,
+        "endColumn": 14,
+        "nodeType": "MemberExpression",
+        "messageId": "unexpected"
+      },
+      {
+        "ruleId": "eqeqeq",
+        "severity": 2,
+        "message": "Expected '===' and instead saw '=='.",
+        "line": 20,
+        "column": 11,
+        "nodeType": "BinaryExpression",
+        "messageId": "unexpected",
+        "fix": {
+          "range": [312, 314],
+          "text": "==="
+        }
+      },
+      {
+        "ruleId": "@typescript-eslint/no-floating-promises",
+        "severity": 2,
+        "message": "Promises must be awaited, end with a call to .catch, or end with a call to .then with a rejection handler.",
+        "line": 35,
+        "column": 3,
+        "nodeType": "ExpressionStatement",
+        "messageId": "floatingVoid"
+      }
+    ],
+    "suppressedMessages": [],
+    "errorCount": 2,
+    "warningCount": 1,
+    "fixableErrorCount": 1,
+    "fixableWarningCount": 0
+  },
+  {
+    "filePath": "/projects/my-app/src/components/Button.tsx",
+    "messages": [
+      {
+        "ruleId": "react/jsx-no-target-blank",
+        "severity": 2,
+        "message": "Using target=\"_blank\" without rel=\"noreferrer\" (which implies rel=\"noopener\") is a security risk.",
+        "line": 44,
+        "column": 5,
+        "nodeType": "JSXAttribute",
+        "messageId": "noTargetBlankWithoutNoreferrer"
+      },
+      {
+        "ruleId": "prefer-const",
+        "severity": 1,
+        "message": "'items' is never reassigned. Use 'const' instead.",
+        "line": 10,
+        "column": 7,
+        "nodeType": "Identifier",
+        "messageId": "useConst",
+        "fix": {
+          "range": [95, 98],
+          "text": "const"
+        }
+      }
+    ],
+    "suppressedMessages": [],
+    "errorCount": 1,
+    "warningCount": 1,
+    "fixableErrorCount": 0,
+    "fixableWarningCount": 1
+  },
+  {
+    "filePath": "/projects/my-app/src/types.ts",
+    "messages": [],
+    "suppressedMessages": [],
+    "errorCount": 0,
+    "warningCount": 0,
+    "fixableErrorCount": 0,
+    "fixableWarningCount": 0
+  }
+]

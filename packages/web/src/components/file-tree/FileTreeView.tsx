@@ -1,12 +1,11 @@
-import type { FileAccessFilter, PatternMode, PatternScope, TreeNode } from './fileTreeTypes';
+import type {
+  FileAccessFilter,
+  PatternGroup,
+  PatternMode,
+  PatternScope,
+  TreeNode,
+} from './fileTreeTypes';
 import { FileTreeNodeRow } from './FileTreeNodeRow';
-
-interface PatternGroup {
-  label: string;
-  scope: PatternScope;
-  mode: PatternMode;
-  values: string[];
-}
 
 interface FileTreeViewProps {
   editMode: boolean;
@@ -38,9 +37,38 @@ interface FileTreeViewProps {
   onTogglePermission: (path: string, mode: PatternMode, current: boolean) => void;
 }
 
-export function FileTreeView({ editMode, loading, error, hasData, readCount, listCount, writeCount, patternsOpen, visiblePatternGroups, pendingPatternKey, patternScope, patternMode, patternInput, filter, search, tree, highlightedPaths, pendingPaths, onRetry, onPatternScopeChange, onPatternModeChange, onPatternInputChange, onAddPattern, onRemovePattern, onSearchChange, onFilterChange, onTogglePermission }: Readonly<FileTreeViewProps>) {
+export function FileTreeView({
+  editMode,
+  loading,
+  error,
+  hasData,
+  readCount,
+  listCount,
+  writeCount,
+  patternsOpen,
+  visiblePatternGroups,
+  pendingPatternKey,
+  patternScope,
+  patternMode,
+  patternInput,
+  filter,
+  search,
+  tree,
+  highlightedPaths,
+  pendingPaths,
+  onRetry,
+  onPatternScopeChange,
+  onPatternModeChange,
+  onPatternInputChange,
+  onAddPattern,
+  onRemovePattern,
+  onSearchChange,
+  onFilterChange,
+  onTogglePermission,
+}: Readonly<FileTreeViewProps>) {
   const patternClassName = (mode: PatternMode): string => {
     if (mode === 'read') return 'ft-pattern-read';
+    if (mode === 'list') return 'ft-pattern-list';
     return 'ft-pattern-write';
   };
 
@@ -56,7 +84,9 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, lis
     return (
       <div className="ft-error">
         <i className="codicon codicon-error" /> {error}
-        <button className="ft-retry" onClick={onRetry}>Retry</button>
+        <button className="ft-retry" onClick={onRetry}>
+          Retry
+        </button>
       </div>
     );
   }
@@ -68,11 +98,11 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, lis
   return (
     <div className="ft-root">
       <div className="ft-summary">
-        <span className="ft-summary-item ft-summary-read">
-          <i className="codicon codicon-eye" /> {readCount} readable
-        </span>
         <span className="ft-summary-item ft-summary-list">
           <i className="codicon codicon-list-tree" /> {listCount} listable
+        </span>
+        <span className="ft-summary-item ft-summary-read">
+          <i className="codicon codicon-eye" /> {readCount} readable
         </span>
         <span className="ft-summary-item ft-summary-write">
           <i className="codicon codicon-edit" /> {writeCount} writable
@@ -83,16 +113,35 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, lis
             <div className="ft-pattern-list">
               {visiblePatternGroups.map((group) => (
                 <div key={`${group.scope}-${group.mode}`} className="ft-pattern-group">
-                  <span className="ft-pattern-group-label">{group.label}</span>
+                  <span className="ft-pattern-group-label">
+                    {group.mode === 'list' ? (
+                      <i
+                        className="codicon codicon-list-tree ft-summary-list"
+                        title={group.label}
+                      />
+                    ) : group.mode === 'read' ? (
+                      <i className="codicon codicon-eye ft-summary-read" title={group.label} />
+                    ) : (
+                      <i className="codicon codicon-edit ft-summary-write" title={group.label} />
+                    )}
+                  </span>
                   {group.values.map((value) => (
-                    <span key={`${group.scope}-${group.mode}-${value}`} className={`ft-pattern ${patternClassName(group.mode)}`}>
+                    <span
+                      key={`${group.scope}-${group.mode}-${value}`}
+                      className={`ft-pattern ${patternClassName(group.mode)}${group.isDefault ? ' ft-pattern-default' : ''}`}
+                      title={
+                        group.isDefault ? 'Default — no explicit pattern configured' : undefined
+                      }
+                    >
                       {value}
-                      {editMode ? (
+                      {editMode && !group.isDefault ? (
                         <button
                           type="button"
                           className="ft-pattern-remove"
                           onClick={() => onRemovePattern(group.scope, group.mode, value)}
-                          disabled={pendingPatternKey === `remove:${group.scope}:${group.mode}:${value}`}
+                          disabled={
+                            pendingPatternKey === `remove:${group.scope}:${group.mode}:${value}`
+                          }
                           title="Remove pattern"
                         >
                           ×
@@ -127,6 +176,7 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, lis
               aria-label="Pattern mode"
               onChange={(event) => onPatternModeChange(event.target.value as PatternMode)}
             >
+              <option value="list">List</option>
               <option value="read">Read</option>
               <option value="write">Write</option>
             </select>
@@ -162,20 +212,28 @@ export function FileTreeView({ editMode, loading, error, hasData, readCount, lis
           onChange={(event) => onSearchChange(event.target.value)}
         />
         <div className="ft-filter-group">
-          {(['all', 'read', 'list', 'write'] as const).map((value) => (
+          {(['all', 'list', 'read', 'write'] as const).map((value) => (
             <button
               key={value}
               type="button"
               className={`ft-filter-btn ${filter === value ? 'ft-filter-active' : ''}`}
               onClick={() => onFilterChange(value)}
             >
-              {value === 'all'
-                ? 'All'
-                : value === 'read'
-                  ? <><i className="codicon codicon-eye" /> Read</>
-                  : value === 'list'
-                    ? <><i className="codicon codicon-list-tree" /> List</>
-                  : <><i className="codicon codicon-edit" /> Write</>}
+              {value === 'all' ? (
+                'All'
+              ) : value === 'read' ? (
+                <>
+                  <i className="codicon codicon-eye" /> Read
+                </>
+              ) : value === 'list' ? (
+                <>
+                  <i className="codicon codicon-list-tree" /> List
+                </>
+              ) : (
+                <>
+                  <i className="codicon codicon-edit" /> Write
+                </>
+              )}
             </button>
           ))}
         </div>

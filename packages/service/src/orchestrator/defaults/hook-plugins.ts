@@ -2,7 +2,6 @@ import type {
   BeforePersistAssistantMessageHookPayload,
   IOrchestratorHookPlugin,
 } from '../pipeline.js';
-import { emitLog } from '../stream-events.js';
 import { stripHandoffDirective } from '../../commands/chat/index.js';
 
 /**
@@ -14,14 +13,16 @@ import { stripHandoffDirective } from '../../commands/chat/index.js';
 export class StripInternalHandoffDirectivePlugin implements IOrchestratorHookPlugin {
   readonly name = 'strip-internal-handoff-directive';
 
-  onBeforePersistAssistantMessage({ fullResponse, persistedContent, ctx }: BeforePersistAssistantMessageHookPayload): string {
+  onBeforePersistAssistantMessage({
+    fullResponse,
+    persistedContent,
+    ctx,
+  }: BeforePersistAssistantMessageHookPayload): string {
     const source = persistedContent || fullResponse;
     const filtered = stripHandoffDirective(source);
     if (filtered !== source) {
-      emitLog(
-        ctx.hooks,
-        'info',
-        '[filter] Stripped internal handoff directive before persisting assistant message.',
+      console.log(
+        '[filter] Stripped internal handoff directive before persisting assistant message.'
       );
     }
     return filtered;

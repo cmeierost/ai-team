@@ -1,6 +1,5 @@
-import type { Agent } from '@ai-team/core';
-import { createContainer, TOKENS } from '../container/index.js';
-import { resolveAgentForOperation } from '../utils/agent-resolution.js';
+import type { Agent, AgentManager } from '@ai-team/infrastructure';
+import { resolveAgentForOperationAsync } from '../utils/agent-resolution.js';
 
 export interface GovernanceRequest {
   /** Agent query (id/name) initiating the governance mutation. */
@@ -19,16 +18,12 @@ export function isDefaultGovernanceActor(agent: Agent): boolean {
 }
 
 export async function resolveGovernanceActor(
-  workspaceRoot: string,
+  agentManager: AgentManager,
   requestedBy: string,
   operation: string,
 ): Promise<Agent> {
-  const container = createContainer({ workspaceRoot });
-  const agentManager = container.resolve(TOKENS.AgentManager);
-  await agentManager.initialize();
-
-  const resolved = resolveAgentForOperation(agentManager, requestedBy, operation);
-  const actor = agentManager.getAgent(resolved.id);
+  const resolved = await resolveAgentForOperationAsync(agentManager, requestedBy, operation);
+  const actor = await agentManager.getAgentAsync(resolved.id);
   if (!actor) {
     throw new Error(`Governance actor not found: ${resolved.id}`);
   }

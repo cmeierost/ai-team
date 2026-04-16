@@ -2,6 +2,8 @@
 
 This document is the short, human-readable summary of the current AI Team architecture. For the canonical detail, see [ARCHITECTURE.md](../../ARCHITECTURE.md). For visual references, see [diagrams.md](./diagrams.md).
 
+The long-running local backlog for this transition lives in [`.ai-team/tasks/`](../../.ai-team/tasks/). Use that backlog together with this document to distinguish the **current implementation**, the **target direction**, and the **active work in progress**.
+
 ## What AI Team is
 
 AI Team is a TypeScript monorepo for running a file-backed virtual software organization across CLI, web, API, and VS Code surfaces.
@@ -12,6 +14,25 @@ The core design idea is simple:
 - keep **application orchestration** in one shared service layer
 - keep **transport and UX concerns** at the edges
 - keep **runtime state** rooted under `.ai-team/`
+
+## Current state vs target direction
+
+- **Current state**
+  - `@ai-team/service` still presents a mediator-oriented contract for both business calls and UI-facing streaming in several paths.
+  - `@ai-team/service` still has some direct dependencies on `@ai-team/infrastructure`.
+  - The web chat path is functional but part of the active cleanup work.
+- **Target direction**
+  - UI surfaces call transport-independent service interfaces.
+  - An internal service-layer mediator stays inside the service layer.
+  - UI-facing streaming is delivered through a `UI notifier` concept.
+  - Strict dependency injection is enforced at the logic ↔ infrastructure boundary.
+  - The same UI should be able to swap client implementations at startup.
+- **Active roadmap**
+  - docs/backlog alignment
+  - messenger / mediator clarification
+  - UI chat stabilization
+  - strict DI rollout
+  - service / infrastructure decoupling
 
 ## The current runtime at a glance
 
@@ -37,28 +58,24 @@ Editor-local workflows use a dedicated IDE bridge:
 
 ## Main package responsibilities
 
-### `@ai-team/permission`
+### `file-context`
 
-- standalone file-path permission rights policy engine
-- layered contexts with deny-before-allow semantics
-- operation-aware: shell command and tool call path extraction
-- structured verdicts with alternative-context suggestions for delegation
+- shared file-context library at repository root
+- provides `.perm` parsing, glob matching, overlap analysis, and `ContextRuntime`
 - powers per-agent `.ai-team/agents/<agent-id>.perm` path policies
+- used by `@ai-team/core` context management as the underlying rights runtime
 
 ### `@ai-team/core`
 
 - UI-free domain logic and shared types
 - workspace-backed file/domain operations
 - agent, team, skill, context, and tool primitives
-- adapter layer bridging Agent/FileTreeConfig types to `@ai-team/permission`
+- `ContextManager` compatibility API backed by `file-context` `ContextRuntime`
 
 ### `@ai-team/service`
 
-- mediator contracts
-- command dispatch
-- runtime event streaming
-- chat orchestration
-- session, task, workflow, and proposal state
+- current state: mediator contracts, command dispatch, runtime event streaming, chat orchestration, and session/task/workflow/proposal state
+- target direction: transport-independent service interfaces for callers, internal service-layer mediation kept private, and explicit UI notifier delivery for outward streaming
 
 ### `@ai-team/api-client`
 
@@ -67,10 +84,12 @@ Editor-local workflows use a dedicated IDE bridge:
 ### `@ai-team/api-client-http`
 
 - browser-safe remote client using REST and WebSocket transport
+- target direction: one possible implementation of the same service interfaces consumed by UI callers
 
 ### `@ai-team/api-server`
 
 - HTTP and WebSocket transport layer for browser/remote clients
+- target direction: bridge service interfaces and UI notifier delivery without becoming a second service layer
 
 ### `@ai-team/ide-interface`
 
@@ -81,6 +100,8 @@ Editor-local workflows use a dedicated IDE bridge:
 - `@ai-team/cli` - terminal UX and prompts
 - `@ai-team/vscode` - VS Code-native review/open-file integration
 - `@ai-team/web` - browser UI for dashboard, graph, portfolio, chat, sessions, and context/task surfaces
+
+The long-term goal for `@ai-team/web` is to receive its client implementations through startup composition so the same UI can run in different hosts.
 
 ## Mermaid package view
 
@@ -99,7 +120,7 @@ flowchart LR
     IDE[@ai-team/ide-interface]
     SERVICE[@ai-team/service]
     CORE[@ai-team/core]
-    ACCESS[@ai-team/permission]
+    FILECTX[file-context]
   end
 
   STATE[.ai-team/* runtime state]
@@ -111,7 +132,7 @@ flowchart LR
   APISERVER --> LOCALCLIENT
   LOCALCLIENT --> SERVICE
   SERVICE --> CORE
-  CORE --> ACCESS
+  CORE --> FILECTX
   CORE --> STATE
   SERVICE --> STATE
   SERVICE --> PROVIDERS
@@ -137,6 +158,15 @@ The shared chat behavior lives in `@ai-team/service`, not in the adapters.
 - workflow questions and runtime events
 
 That shared service-level orchestration keeps CLI and remote chat behavior aligned.
+
+`com_ask` is now a first-class orchestration tool in this shared runtime path. Question bridges (input/confirm/select/password/checklist) are injected at dispatch time so web and CLI surfaces can render native prompts while the orchestrator remains transport-agnostic.
+
+The active architecture transition is about separating:
+
+- business-facing **service interfaces**
+- internal **service-layer mediator** behavior
+- outward **UI notifier** delivery
+- UI-specific **surface handlers/controllers**
 
 ## What happens after you send a message to the server
 
@@ -209,7 +239,7 @@ In short: the architecture direction is clear, but the frontend is still mid-mig
 
 ## Access and file-system model (current)
 
-- File-path rights are evaluated by the `@ai-team/permission` engine via the core permission adapter.
+- File-path rights are evaluated through `ContextManager` (`packages/core/src/context/index.ts`) backed by `file-context` `ContextRuntime`.
 - Agent-specific path rules live in `.ai-team/agents/<agent-id>.perm`.
 - Agent frontmatter should not carry file-path access globs.
 - Rights inheritance:
@@ -220,6 +250,7 @@ In short: the architecture direction is clear, but the frontend is still mid-mig
 ## Where to go next
 
 - Canonical architecture and boundaries: [ARCHITECTURE.md](../../ARCHITECTURE.md)
+- Active local backlog: [`.ai-team/tasks/`](../../.ai-team/tasks/)
 - Mermaid diagrams: [docs/architecture/diagrams.md](./diagrams.md)
 - Orchestrator one-page brief: [docs/architecture/orchestrator-overview.md](./orchestrator-overview.md)
 - Web state guidance: [docs/implementation/web-state-architecture.md](../implementation/web-state-architecture.md)

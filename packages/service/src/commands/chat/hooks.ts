@@ -4,7 +4,7 @@
  * these callbacks so the command itself stays environment-agnostic.
  */
 import type {
-  MediatorRuntimeEvent,
+  RuntimeStreamEvent,
   QuestionChecklistRequest,
   QuestionConfirmRequest,
   QuestionInputRequest,
@@ -12,13 +12,13 @@ import type {
   QuestionSelectRequest,
   WorkflowFrame,
   WorkflowStateSnapshot,
-} from '../../contracts.js';
+} from '@ai-team/api-client';
 
 export interface ChatRuntimeHooks {
   /** Abort signal — any pending operation respects this. */
   signal?: AbortSignal;
   /** Emit a structured runtime event to the caller (replaces stdout in non-CLI contexts). */
-  emit?: (event: MediatorRuntimeEvent) => void;
+  emit?: (event: RuntimeStreamEvent) => void;
   /** Prompt the user for free-form text input. */
   questionInput?: (request: QuestionInputRequest) => Promise<string>;
   /** Prompt the user for a yes/no confirmation. */

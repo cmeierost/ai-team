@@ -1,5 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
 import { useContextEstimate } from '../../hooks/useContextEstimate';
 import { useConfig } from '../../hooks/useConfig';
+import { useTeam } from '../../context/TeamContext';
+import { contextPanelQueryKeys } from '../../hooks/contextPanelQueryKeys';
 import { PortfolioSectionCard } from './portfolioShared';
 import type { Agent } from '../../types';
 
@@ -54,8 +57,21 @@ function DonutChart({ entries }: Readonly<{ entries: ReadonlyArray<DonutEntry> }
 }
 
 export function PortfolioContextWindowSection({ agent }: Readonly<Props>) {
-  const { data: estimate, isLoading } = useContextEstimate(agent.id);
+  const { client } = useTeam();
+  const latestSessionQuery = useQuery({
+    queryKey: contextPanelQueryKeys.sessions(agent.id),
+    queryFn: () => client.sessions.list({ agentId: agent.id, limit: 1 }),
+    enabled: Boolean(agent.id),
+    staleTime: 15_000,
+  });
+  const latestSessionId = latestSessionQuery.data?.[0]?.id;
+  const { data: estimate, isLoading: estimateLoading } = useContextEstimate(
+    agent.id,
+    latestSessionId
+  );
   const { data: config } = useConfig();
+
+  const isLoading = latestSessionQuery.isLoading || estimateLoading;
 
   if (isLoading) {
     return (
@@ -84,11 +100,47 @@ export function PortfolioContextWindowSection({ agent }: Readonly<Props>) {
   const usedFractionOfWindow = Math.min(totalTokens / contextWindow, 1);
   const freeTokens = Math.max(contextWindow - totalTokens, 0);
 
-  const segments = estimate.segments.map((seg, i) => ({
+  const messageChars = estimate.messages.reduce((sum, msg) => sum + msg.chars, 0);
+  const toolResultChars = estimate.messages.reduce((sum, msg) => sum + msg.toolChars, 0);
+  const messageTokens = Math.round(messageChars / 4);
+  const toolResultTokens = Math.round(toolResultChars / 4);
+  const toolCallCount = estimate.messages.reduce((sum, msg) => sum + msg.toolCallCount, 0);
+
+  const normalizedSegments = [...estimate.segments];
+  const messageSegmentIndex = normalizedSegments.findIndex((seg) => seg.key === 'messages');
+  if (messageChars > 0) {
+    if (messageSegmentIndex >= 0) {
+      normalizedSegments[messageSegmentIndex] = {
+        ...normalizedSegments[messageSegmentIndex],
+        chars: messageChars,
+      };
+    } else {
+      normalizedSegments.push({ key: 'messages', label: 'Chat Messages', chars: messageChars });
+    }
+  }
+
+  const toolResultSegmentIndex = normalizedSegments.findIndex((seg) => seg.key === 'tool_results');
+  if (toolResultChars > 0) {
+    if (toolResultSegmentIndex >= 0) {
+      normalizedSegments[toolResultSegmentIndex] = {
+        ...normalizedSegments[toolResultSegmentIndex],
+        chars: toolResultChars,
+      };
+    } else {
+      normalizedSegments.push({
+        key: 'tool_results',
+        label: 'Tool Results',
+        chars: toolResultChars,
+      });
+    }
+  }
+
+  const segments = normalizedSegments.map((seg, i) => ({
     ...seg,
     tokens: Math.round(seg.chars / 4),
     fractionOfUsed: estimate.totalChars > 0 ? seg.chars / estimate.totalChars : 0,
-    fractionOfWindow: estimate.totalChars > 0 ? (seg.chars / estimate.totalChars) * usedFractionOfWindow : 0,
+    fractionOfWindow:
+      estimate.totalChars > 0 ? (seg.chars / estimate.totalChars) * usedFractionOfWindow : 0,
     color: SEGMENT_COLORS[i % SEGMENT_COLORS.length],
     swatchClass: `ctx-swatch--c${i % SEGMENT_COLORS.length}`,
   }));
@@ -127,7 +179,7 @@ export function PortfolioContextWindowSection({ agent }: Readonly<Props>) {
         </div>
 
         <div className="ctx-legend">
-          {segments.map(seg => (
+          {segments.map((seg) => (
             <div
               key={seg.key}
               className="ctx-legend-row"
@@ -153,13 +205,43 @@ export function PortfolioContextWindowSection({ agent }: Readonly<Props>) {
 
       <div className="ctx-window-bar">
         <div className="ctx-window-bar-header">
-          <span>Context window usage on start</span>
-          <span>{usePct}% of {(contextWindow / 1000).toFixed(0)}k tokens</span>
+          <span>
+            {latestSessionId ? 'Session context window usage' : 'Context window usage on start'}
+          </span>
+          <span>
+            {usePct}% of {(contextWindow / 1000).toFixed(0)}k tokens
+          </span>
         </div>
         <p className="ctx-window-note">
-          Represents what a call to the LLM uses before any user message is written.
+          {latestSessionId
+            ? 'Represents what the current session contributes to the LLM context for this agent.'
+            : 'Represents what a call to the LLM uses before any user message is written.'}
         </p>
         <progress className={`ctx-window-progress ${usageClass}`} max={100} value={usePct} />
+      </div>
+
+      <div className="ctx-window-bar">
+        <div className="ctx-window-bar-header">
+          <span>Session message/tool usage</span>
+          <span>{(messageTokens + toolResultTokens).toLocaleString()} tokens</span>
+        </div>
+        <div className="ctx-legend">
+          <div
+            className="ctx-legend-row"
+            title="User + assistant chat message text included in context"
+          >
+            <span className="ctx-swatch ctx-swatch--c5" />
+            <span className="ctx-seg-name">Chat Messages</span>
+            <span className="ctx-seg-tokens">{messageTokens.toLocaleString()}</span>
+            <span className="ctx-seg-pct">{estimate.messages.length} msg</span>
+          </div>
+          <div className="ctx-legend-row" title="Serialized tool outputs included in context">
+            <span className="ctx-swatch ctx-swatch--c6" />
+            <span className="ctx-seg-name">Tool Results</span>
+            <span className="ctx-seg-tokens">{toolResultTokens.toLocaleString()}</span>
+            <span className="ctx-seg-pct">{toolCallCount} calls</span>
+          </div>
+        </div>
       </div>
     </PortfolioSectionCard>
   );

@@ -5,9 +5,81 @@
       "label": "build:cli",
       "type": "shell",
       "command": "pnpm",
-      "args": ["--filter", "@ai-team/cli", "build"],
+      "args": [
+        "--filter",
+        "@ai-team/cli",
+        "build"
+      ],
       "group": "build",
-      "problemMatcher": ["$tsc"]
+      "problemMatcher": [
+        "$tsc"
+      ]
+    },
+    {
+      "label": "dev:web",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["--filter", "@ai-team/web", "dev"],
+      "isBackground": true,
+      "presentation": {
+        "label": "web dev",
+        "group": "dev",
+        "reveal": "silent",
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": {
+          "regexp": "^",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "Local:\\s+http://localhost"
+        }
+      }
+    },
+    {
+      "label": "Log: Tail backend",
+      "type": "shell",
+      "command": "node",
+      "args": [
+        "scripts/tail-log.mjs"
+      ],
+      "isBackground": true,
+      "presentation": {
+        "label": "backend.log",
+        "group": "logs",
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Log: Tail backend (all sources)",
+      "type": "shell",
+      "command": "node",
+      "args": [
+        "scripts/tail-log.mjs",
+        "--all"
+      ],
+      "isBackground": true,
+      "presentation": {
+        "label": "backend.log (all)",
+        "group": "logs",
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": []
     }
   ]
 }

@@ -1,0 +1,100 @@
+[
+  {
+    "id": "feature-implementation",
+    "name": "Feature Implementation",
+    "type": "feature",
+    "description": "Template for implementing a new feature",
+    "titleTemplate": "Implement {feature_name}",
+    "descriptionTemplate": "Implement the {feature_name} feature according to specifications.\n\n## Requirements\n{requirements}\n\n## Acceptance Criteria\n{acceptance_criteria}",
+    "priority": "medium",
+    "estimatedHours": 8,
+    "requiresApproval": true,
+    "workflowSteps": [
+      {
+        "title": "Design & Planning",
+        "autoAssign": false,
+        "order": 1
+      },
+      {
+        "title": "Implementation",
+        "autoAssign": true,
+        "order": 2,
+        "dependencies": [
+          "Design & Planning"
+        ]
+      },
+      {
+        "title": "Testing",
+        "autoAssign": true,
+        "order": 3,
+        "dependencies": [
+          "Implementation"
+        ]
+      },
+      {
+        "title": "Code Review",
+        "autoAssign": false,
+        "order": 4,
+        "dependencies": [
+          "Testing"
+        ]
+      }
+    ],
+    "tags": [
+      "feature",
+      "development"
+    ]
+  },
+  {
+    "id": "bug-fix",
+    "name": "Bug Fix",
+    "type": "bug",
+    "description": "Template for fixing a bug",
+    "titleTemplate": "Fix: {bug_summary}",
+    "descriptionTemplate": "## Bug Description\n{bug_description}\n\n## Steps to Reproduce\n{steps}\n\n## Expected Behavior\n{expected}\n\n## Actual Behavior\n{actual}",
+    "priority": "high",
+    "estimatedHours": 4,
+    "requiresApproval": false,
+    "workflowSteps": [
+      {
+        "title": "Investigate & Reproduce",
+        "autoAssign": true,
+        "order": 1
+      },
+      {
+        "title": "Fix Implementation",
+        "autoAssign": true,
+        "order": 2,
+        "dependencies": [
+          "Investigate & Reproduce"
+        ]
+      },
+      {
+        "title": "Verification",
+        "autoAssign": false,
+        "order": 3,
+        "dependencies": [
+          "Fix Implementation"
+        ]
+      }
+    ],
+    "tags": [
+      "bug",
+      "fix"
+    ]
+  },
+  {
+    "id": "documentation",
+    "name": "Documentation",
+    "type": "documentation",
+    "description": "Template for documentation tasks",
+    "titleTemplate": "Document {topic}",
+    "descriptionTemplate": "Create documentation for {topic}.\n\n## Scope\n{scope}\n\n## Target Audience\n{audience}",
+    "priority": "low",
+    "estimatedHours": 2,
+    "requiresApproval": false,
+    "tags": [
+      "documentation"
+    ]
+  }
+]

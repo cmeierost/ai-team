@@ -1,9 +1,11 @@
-import { AgentManager } from '@ai-team/core';
+import { AgentManager } from '@ai-team/infrastructure';
 
-import { Employee } from '../contracts.js';
+import { Employee } from '@ai-team/api-client';
 
-export async function resolveEmployeesCommand(workspaceRoot: string, query: string): Promise<Employee[]> {
+export async function resolveEmployeesCommand(
+  workspaceRoot: string,
+  query: string
+): Promise<Employee[]> {
   const employeeManager = new AgentManager(workspaceRoot);
-  await employeeManager.initialize();
-  return employeeManager.resolveAgent(query);
+  return employeeManager.resolveAgentAsync(query);
 }

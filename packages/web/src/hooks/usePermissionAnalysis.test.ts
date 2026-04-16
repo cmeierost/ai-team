@@ -61,24 +61,6 @@ function makeReport(): PermissionOverlapReport {
           },
         ],
       },
-      create: {
-        right: 'create',
-        totalFiles: 0,
-        uncoveredFiles: [{ path: 'docs/guide.md', extension: '.md', lineCount: 20, agentIds: [] }],
-        singlyOwnedFiles: [],
-        overlappingFiles: [],
-        agentResponsibilities: [],
-        pairs: [],
-      },
-      delete: {
-        right: 'delete',
-        totalFiles: 0,
-        uncoveredFiles: [{ path: 'docs/guide.md', extension: '.md', lineCount: 20, agentIds: [] }],
-        singlyOwnedFiles: [],
-        overlappingFiles: [],
-        agentResponsibilities: [],
-        pairs: [],
-      },
       list: {
         right: 'list',
         totalFiles: 12,
@@ -111,8 +93,6 @@ function makeReport(): PermissionOverlapReport {
         rights: {
           read: { fileCount: 1, lineCount: 20, files: [{ path: 'docs/guide.md', extension: '.md', lineCount: 20, agentIds: ['daniel-navarro'] }] },
           write: { fileCount: 0, lineCount: 0, files: [] },
-          create: { fileCount: 0, lineCount: 0, files: [] },
-          delete: { fileCount: 0, lineCount: 0, files: [] },
           list: { fileCount: 1, lineCount: 20, files: [{ path: 'docs/guide.md', extension: '.md', lineCount: 20, agentIds: ['daniel-navarro'] }] },
         },
       },
@@ -121,8 +101,6 @@ function makeReport(): PermissionOverlapReport {
         rights: {
           read: { fileCount: 0, lineCount: 0, files: [] },
           write: { fileCount: 0, lineCount: 0, files: [] },
-          create: { fileCount: 0, lineCount: 0, files: [] },
-          delete: { fileCount: 0, lineCount: 0, files: [] },
           list: { fileCount: 0, lineCount: 0, files: [] },
         },
       },
@@ -131,8 +109,6 @@ function makeReport(): PermissionOverlapReport {
         rights: {
           read: { fileCount: 0, lineCount: 0, files: [] },
           write: { fileCount: 0, lineCount: 0, files: [] },
-          create: { fileCount: 0, lineCount: 0, files: [] },
-          delete: { fileCount: 0, lineCount: 0, files: [] },
           list: { fileCount: 0, lineCount: 0, files: [] },
         },
       },
@@ -158,7 +134,6 @@ describe('buildPermissionAnalysisView', () => {
       totalFiles: 2,
     });
     expect(first.regions[0]?.rightLineCounts.write).toBe(100);
-    expect(first.regions[0]?.rightFolderCounts?.create).toBe(0);
     expect(first.regions[0]?.rightFolderCounts?.read).toBe(2);
     expect(first.regions[0]?.rightFileEndingSummary?.write?.[0]?.extension).toBe('.tsx');
     expect(first.defaultContextByRight.write).toBe(11);

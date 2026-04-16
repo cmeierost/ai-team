@@ -127,6 +127,14 @@ async function activateFull(
     if (event.kind === 'openFile') {
       try {
         const uri = vscode.Uri.file(event.filePath);
+        const stats = fs.existsSync(event.filePath) ? fs.statSync(event.filePath) : undefined;
+
+        if (stats?.isDirectory()) {
+          await vscode.commands.executeCommand('workbench.view.explorer');
+          await vscode.commands.executeCommand('revealInExplorer', uri);
+          return;
+        }
+
         const doc = await vscode.workspace.openTextDocument(uri);
         const opts: vscode.TextDocumentShowOptions = {};
         if (event.line !== undefined) {

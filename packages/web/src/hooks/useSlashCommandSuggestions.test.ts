@@ -1,14 +1,29 @@
 import { renderHook, act } from '@testing-library/react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-// Mock the registry so tests are independent of the real command list
-vi.mock('@ai-team/api-client-http', () => ({
-  IN_CHAT_COMMAND_REGISTRY: [
-    { key: 'help',    usage: '/help',              description: 'Show this help',      llmCallable: false },
-    { key: 'chat',    usage: '/chat <name|role>',   description: 'Switch to agent',    llmCallable: false },
-    { key: 'history', usage: '/history [n]',        description: 'Show messages',       llmCallable: false },
-    { key: 'run',     usage: '/run <command>',       description: 'Run shell command',  llmCallable: false, aliases: ['shell'] },
-  ],
+const mockSlashCommands = vi.hoisted(() => [
+  { key: 'help', usage: '/help', description: 'Show this help', llmCallable: false },
+  { key: 'chat', usage: '/chat <name|role>', description: 'Switch to agent', llmCallable: false },
+  { key: 'history', usage: '/history [n]', description: 'Show messages', llmCallable: false },
+  {
+    key: 'run',
+    usage: '/run <command>',
+    description: 'Run shell command',
+    llmCallable: false,
+    aliases: ['shell'],
+  },
+]);
+
+vi.mock('../context/TeamContext', () => ({
+  useTeam: () => ({
+    client: {
+      getSlashCommands: vi.fn(),
+    },
+  }),
+}));
+
+vi.mock('@tanstack/react-query', () => ({
+  useQuery: vi.fn(() => ({ data: mockSlashCommands })),
 }));
 
 import { useSlashCommandSuggestions } from './useSlashCommandSuggestions';

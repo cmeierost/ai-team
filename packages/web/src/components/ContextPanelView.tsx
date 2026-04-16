@@ -1,8 +1,8 @@
 import type { MouseEvent } from 'react';
-import type { Artifact, ChatSession, SessionActivatedTool, Task } from '../types';
+import type { ChatSession, SessionActivatedTool, Task } from '../types';
+import type { AgentToolPermissionEntry } from '@ai-team/api-client';
 import type { SkillEntry } from '../hooks/useSkillsForAgent';
 import {
-  ArtifactsSection,
   ContextWindowSection,
   FilesSection,
   NotesSection,
@@ -10,6 +10,7 @@ import {
   SkillsSection,
   TasksSection,
   ToolsSection,
+  type ContextPanelNoteItem,
   type ContextSection,
 } from './context-panel';
 import './ContextPanel.css';
@@ -19,28 +20,24 @@ export type { ContextSection } from './context-panel';
 export interface ContextPanelViewProps {
   agentId: string;
   sessionId?: string;
-  artifacts: string[];
-  allowedTools: string[];
-  allArtifacts: Artifact[];
+  toolEntries: AgentToolPermissionEntry[];
   sessions: ChatSession[];
   tasks: Task[];
   skillEntries: SkillEntry[];
   recentToolEvents: SessionActivatedTool[];
   activeToolNames: string[];
-  notesDraft: string;
+  notes: ContextPanelNoteItem[];
+  notesLoading: boolean;
+  sharingNoteId?: string | null;
   hasSession: boolean;
-  savingNotes: boolean;
-  notesError: string | null;
   skillsLoading: boolean;
   skillsError: string | null;
   skillActionPending: string | null;
-  loadingArtifacts: boolean;
   expandedSection: ContextSection | null;
   onToggleSection: (section: ContextSection) => void;
-  onNotesDraftChange: (value: string) => void;
-  onSaveNotes: () => void;
+  onSelectNote: (note: ContextPanelNoteItem) => void;
+  onNewNote: () => void;
   onToggleSkill: (skillName: string, assigned: boolean) => void;
-  onToggleArtifact: (artifactId: string) => void;
   onSwitchSession?: (sessionId: string) => void;
   onDeleteSession: (event: MouseEvent, sessionId: string) => void;
   onCreateSession?: () => void;
@@ -51,28 +48,24 @@ export interface ContextPanelViewProps {
 export function ContextPanelView({
   agentId,
   sessionId,
-  artifacts,
-  allowedTools,
-  allArtifacts,
+  toolEntries,
   sessions,
   tasks,
   skillEntries,
   recentToolEvents,
   activeToolNames,
-  notesDraft,
+  notes,
+  notesLoading,
+  sharingNoteId,
   hasSession,
-  savingNotes,
-  notesError,
   skillsLoading,
   skillsError,
   skillActionPending,
-  loadingArtifacts,
   expandedSection,
   onToggleSection,
-  onNotesDraftChange,
-  onSaveNotes,
+  onSelectNote,
+  onNewNote,
   onToggleSkill,
-  onToggleArtifact,
   onSwitchSession,
   onDeleteSession,
   onCreateSession,
@@ -99,19 +92,20 @@ export function ContextPanelView({
       <div className="context-sections">
         <ContextWindowSection
           agentId={agentId}
+          sessionId={sessionId}
           expandedSection={expandedSection}
           onToggleSection={onToggleSection}
         />
 
         <NotesSection
-          notesDraft={notesDraft}
+          notes={notes}
           hasSession={hasSession}
-          savingNotes={savingNotes}
-          notesError={notesError}
+          notesLoading={notesLoading}
+          sharingNoteId={sharingNoteId}
           expandedSection={expandedSection}
           onToggleSection={onToggleSection}
-          onNotesDraftChange={onNotesDraftChange}
-          onSaveNotes={onSaveNotes}
+          onSelectNote={onSelectNote}
+          onNewNote={onNewNote}
         />
 
         <SkillsSection
@@ -125,7 +119,7 @@ export function ContextPanelView({
         />
 
         <ToolsSection
-          allowedTools={allowedTools}
+          toolEntries={toolEntries}
           recentToolEvents={recentToolEvents}
           activeToolNames={activeToolNames}
           expandedSection={expandedSection}
@@ -137,15 +131,6 @@ export function ContextPanelView({
           tasks={tasks}
           expandedSection={expandedSection}
           onToggleSection={onToggleSection}
-        />
-
-        <ArtifactsSection
-          artifacts={artifacts}
-          allArtifacts={allArtifacts}
-          loadingArtifacts={loadingArtifacts}
-          expandedSection={expandedSection}
-          onToggleSection={onToggleSection}
-          onToggleArtifact={onToggleArtifact}
         />
 
         <FilesSection

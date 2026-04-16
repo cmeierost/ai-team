@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import type { McpServerEntry } from '@ai-team/api-client';
 import { useTeam } from '../context/TeamContext';
 import { PortfolioHeader } from './portfolio/PortfolioHeader';
 import { PortfolioIdentitySection } from './portfolio/PortfolioIdentitySection';
@@ -10,6 +11,7 @@ import { PortfolioHierarchyHandoffsSection } from './portfolio/PortfolioHierarch
 import { PortfolioReadFilesSection } from './portfolio/PortfolioReadFilesSection';
 import { PortfolioSkillAssignmentsSection } from './portfolio/PortfolioSkillAssignmentsSection';
 import { PortfolioToolsPermissionsSection } from './portfolio/PortfolioToolsPermissionsSection';
+import { PortfolioMcpSection } from './portfolio/PortfolioMcpSection';
 import { PortfolioFileAccessSection } from './portfolio/PortfolioFileAccessSection';
 import { PortfolioActivitySection } from './portfolio/PortfolioActivitySection';
 import { PortfolioContextWindowSection } from './portfolio/PortfolioContextWindowSection';
@@ -28,14 +30,38 @@ export function Portfolio() {
   const manager = agents.find((a) => a.id === agent?.reportsTo);
 
   // ── Tools & skills state ──
-  const [toolEntries, setToolEntries] = useState<Array<{ name: string; description: string; group?: string; allowedForAgent?: boolean }>>([]);
+  const [toolEntries, setToolEntries] = useState<
+    Array<{ name: string; description: string; group?: string; allowedForAgent?: boolean }>
+  >([]);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolActionPending, setToolActionPending] = useState<string | null>(null);
   const [toolsError, setToolsError] = useState<string | null>(null);
-  const [skillEntries, setSkillEntries] = useState<Array<{ name: string; description: string; assignedToAgent?: boolean }>>([]);
+  const [skillEntries, setSkillEntries] = useState<
+    Array<{ name: string; description: string; assignedToAgent?: boolean }>
+  >([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillActionPending, setSkillActionPending] = useState<string | null>(null);
   const [skillsError, setSkillsError] = useState<string | null>(null);
+
+  // ── MCP servers state ──
+  const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpError, setMcpError] = useState<string | null>(null);
+  const [mcpActionPending, setMcpActionPending] = useState<string | null>(null);
+
+  const loadMcpServers = async (targetAgentId: string, options?: { silent?: boolean }) => {
+    if (!options?.silent) setMcpLoading(true);
+    setMcpError(null);
+    try {
+      const response = await client.config.getMcpServers({ agent: targetAgentId });
+      setMcpServers(response.servers);
+    } catch (e: any) {
+      setMcpError(e?.message || 'Failed to load MCP servers');
+      setMcpServers([]);
+    } finally {
+      if (!options?.silent) setMcpLoading(false);
+    }
+  };
 
   const loadTools = async (targetAgentId: string, options?: { silent?: boolean }) => {
     if (!options?.silent) {
@@ -43,7 +69,14 @@ export function Portfolio() {
     }
     setToolsError(null);
     try {
-      const response = await client.listTools({ agent: targetAgentId });
+      const response = (await client.tools.list({ agent: targetAgentId })) as {
+        entries: Array<{
+          name: string;
+          description: string;
+          group?: string;
+          allowedForAgent?: boolean;
+        }>;
+      };
       setToolEntries(
         response.entries
           .map((entry) => ({
@@ -52,7 +85,7 @@ export function Portfolio() {
             group: entry.group,
             allowedForAgent: entry.allowedForAgent,
           }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
+          .sort((a, b) => a.name.localeCompare(b.name))
       );
     } catch (e: any) {
       setToolsError(e?.message || 'Failed to load tools');
@@ -68,7 +101,9 @@ export function Portfolio() {
     setSkillsLoading(true);
     setSkillsError(null);
     try {
-      const response = await client.searchSkills({ agent: targetAgentId });
+      const response = (await client.skills.search({ agent: targetAgentId })) as {
+        entries: Array<{ name: string; description: string; assignedToAgent?: boolean }>;
+      };
       setSkillEntries(
         response.entries
           .map((entry) => ({
@@ -76,7 +111,7 @@ export function Portfolio() {
             description: entry.description,
             assignedToAgent: entry.assignedToAgent,
           }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
+          .sort((a, b) => a.name.localeCompare(b.name))
       );
     } catch (e: any) {
       setSkillsError(e?.message || 'Failed to load skills');
@@ -94,15 +129,21 @@ export function Portfolio() {
     if (!agentId) return;
     void loadTools(agentId);
     void loadSkills(agentId);
+    void loadMcpServers(agentId);
   }, [agentId]);
 
-  if (loading && !agent) return <div className="portfolio-loading"><i className="codicon codicon-loading codicon-modifier-spin" /> Loading portfolio…</div>;
+  if (loading && !agent)
+    return (
+      <div className="portfolio-loading">
+        <i className="codicon codicon-loading codicon-modifier-spin" /> Loading portfolio…
+      </div>
+    );
   if (error) return <div className="portfolio-error">Error: {error.message}</div>;
   if (!agentId || !agent) return null;
 
   // ── Save helpers ──
   const saveAgentFields = async (fields: Record<string, unknown>) => {
-    await client.updateAgentFrontmatter(agent.id, fields as any);
+    await client.agents.updateFrontmatter(agent.id, fields);
     await refresh();
   };
 
@@ -112,18 +153,16 @@ export function Portfolio() {
 
     setToolEntries((prev) =>
       prev.map((entry) =>
-        entry.name === toolName
-          ? { ...entry, allowedForAgent: !currentlyAllowed }
-          : entry,
-      ),
+        entry.name === toolName ? { ...entry, allowedForAgent: !currentlyAllowed } : entry
+      )
     );
     setToolActionPending(toolName);
     setToolsError(null);
     try {
       if (currentlyAllowed) {
-        await client.disallowTool({ agent: agentId, tool: toolName });
+        await client.tools.disallow({ agent: agentId, tool: toolName });
       } else {
-        await client.allowTool({ agent: agentId, tool: toolName });
+        await client.tools.allow({ agent: agentId, tool: toolName });
       }
       await loadTools(agentId, { silent: true });
     } catch (e: any) {
@@ -140,9 +179,9 @@ export function Portfolio() {
     setSkillsError(null);
     try {
       if (currentlyAssigned) {
-        await client.removeSkill({ agent: agentId, skill: skillName });
+        await client.skills.remove({ agent: agentId, skill: skillName });
       } else {
-        await client.addSkill({ agent: agentId, skill: skillName });
+        await client.skills.add({ agent: agentId, skill: skillName });
       }
       await Promise.all([refresh(), loadSkills(agentId)]);
     } catch (e: any) {
@@ -158,30 +197,30 @@ export function Portfolio() {
         agent={agent}
         onOpenChat={() => navigate(`/chat/${agent.id}`)}
         onSave={({ role, color }) =>
-          saveAgentFields({ role, ...(color !== undefined ? { avatar: { ...agent.avatar, color } } : {}) })
+          saveAgentFields({
+            role,
+            ...(color !== undefined ? { avatar: { ...agent.avatar, color } } : {}),
+          })
         }
-        onUploadAvatar={async (data, ext) => {
-          await client.uploadAgentAvatar(agent.id, data, ext);
+        onUploadAvatar={async (data, _ext) => {
+          await client.agents.uploadAvatar(agent.id, { data, ext: _ext });
           await refresh();
         }}
         onBack={() => navigate('/employees')}
       />
 
       <div className="portfolio-content">
-        <PortfolioIdentitySection
-          type={agent.type}
-          contextLevel={agent.contextLevel}
-          pronouns={agent.pronouns}
-          onSave={(fields) => saveAgentFields(fields as Record<string, unknown>)}
-        />
-
-        <PortfolioMarkdownSections
-          agentId={agent.id}
-          specializations={agent.specializations ?? []}
-          client={client}
-          onUpdated={refresh}
-          onlyHeadings={['Introduction']}
-        />
+        <div style={{ marginBottom: '12px' }}>
+          <PortfolioIdentitySection
+            type={agent.type}
+            contextLevel={agent.contextLevel}
+            pronouns={agent.pronouns}
+            ttsVoice={agent.ttsVoice}
+            ttsRate={agent.ttsRate}
+            description={agent.description}
+            onSave={(fields) => saveAgentFields(fields as Record<string, unknown>)}
+          />
+        </div>
 
         <PortfolioPersonalitySection
           personality={agent.personality}
@@ -190,17 +229,14 @@ export function Portfolio() {
           onSave={(personality) => saveAgentFields({ personality })}
         />
 
-        <PortfolioLlmSection
-          llm={agent.llm}
-          onSave={(llm) => saveAgentFields({ llm })}
-        />
+        <PortfolioLlmSection llm={agent.llm} onSave={(llm) => saveAgentFields({ llm })} />
 
         <PortfolioMarkdownSections
           agentId={agent.id}
           specializations={agent.specializations ?? []}
           client={client}
           onUpdated={refresh}
-          excludeHeadings={['Introduction', 'Handoffs']}
+          showAddSection
         />
 
         <PortfolioHierarchyHandoffsSection
@@ -241,11 +277,44 @@ export function Portfolio() {
           onToggleTool={handleToggleTool}
         />
 
+        <PortfolioMcpSection
+          servers={mcpServers}
+          loading={mcpLoading}
+          error={mcpError}
+          actionPending={mcpActionPending}
+          onToggleServer={async (serverId, currentlyAllowed) => {
+            if (mcpActionPending) return;
+            const previousServers = [...mcpServers];
+            setMcpServers((prev) =>
+              prev.map((s) =>
+                s.id === serverId ? { ...s, allowedForAgent: !currentlyAllowed } : s
+              )
+            );
+            setMcpActionPending(serverId);
+            setMcpError(null);
+            try {
+              if (currentlyAllowed) {
+                await client.config.disallowMcpServer({ agent: agentId, server: serverId });
+              } else {
+                await client.config.allowMcpServer({ agent: agentId, server: serverId });
+              }
+              await loadMcpServers(agentId, { silent: true });
+            } catch (e: any) {
+              setMcpServers(previousServers);
+              setMcpError(
+                e?.message || `Failed to ${currentlyAllowed ? 'disallow' : 'allow'} MCP server`
+              );
+            } finally {
+              setMcpActionPending(null);
+            }
+          }}
+        />
+
         <PortfolioFileAccessSection agentId={agent.id} />
 
         <PortfolioContextWindowSection agent={agent} />
 
-        {(agent.conversationCount !== undefined || agent.lastInteraction || agent.createdAt) ? (
+        {agent.conversationCount !== undefined || agent.lastInteraction || agent.createdAt ? (
           <PortfolioActivitySection
             conversationCount={agent.conversationCount}
             lastInteraction={agent.lastInteraction}

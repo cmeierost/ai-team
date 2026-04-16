@@ -18,24 +18,37 @@ import {
   ChatMessage,
   Agent,
   LlmService,
-  ToolManager,
-  createPermissionEngine,
-  ContextManager,
+  SkillManager,
   loadSkill,
   loadEffectiveConfig,
   loadAllInstructionFiles,
-} from '@ai-team/core';
-import type { ChatOptions } from '../../contracts.js';
+} from '@ai-team/infrastructure';
+import { ToolManager } from '../../tools/tool-manager.js';
+import type { ChatOptions } from '@ai-team/api-client';
 import { getGitUserName, developerNameToId } from '../../utils/git.js';
 import { ensureUserEnvVars as ensureServiceUserEnvVars } from '../../utils/user-env.js';
 import { SessionManager } from '../../session-manager.js';
 import { createSqliteStorage } from '../../storage/index.js';
 import { ChatOrchestrator } from '../../orchestrator/chat-orchestrator.js';
 import { tryIntroduceUser as tryIntroduceUserNew } from '../../orchestrator/introduction.js';
-import { createContainer, resolvePlugins, TOKENS } from '../../container/index.js';
+import type { ResolvedPlugins } from '../../orchestrator/pipeline.js';
 import type { OrchestratorContext } from '../../orchestrator/pipeline-context.js';
 import { createToolManager } from '../../tools/create-tool-manager.js';
 import type { OrchestrationDeps } from '../../tools/create-tool-manager.js';
+import { NoOpCompressor } from '../../orchestrator/defaults/context-compressor.js';
+import { DefaultContextBuilder } from '../../orchestrator/defaults/context-builder.js';
+import {
+  WorkspaceOverviewEnricher,
+  TeamRosterEnricher,
+} from '../../orchestrator/defaults/context-enrichers.js';
+import { NoOpRagProvider } from '../../orchestrator/defaults/rag-provider.js';
+import { DefaultToolResolver } from '../../orchestrator/defaults/tool-resolver.js';
+import { NoOpMcpGateway } from '../../orchestrator/defaults/mcp-gateway.js';
+import { DefaultLlmSelector } from '../../orchestrator/defaults/llm-selector.js';
+import { DefaultOutputHandler } from '../../orchestrator/defaults/output-handler.js';
+import { buildDefaultHookPlugins } from '../../orchestrator/defaults/hook-plugins.js';
+import { buildDefaultTurnResultParsers } from '../../orchestrator/defaults/turn-result-parsers.js';
+import { buildDefaultSlashCommands } from '../../orchestrator/slash-commands.js';
 
 // ── Service modules ───────────────────────────────────────────────────────────
 export type { ChatRuntimeHooks } from './hooks.js';
@@ -51,10 +64,26 @@ export { requestInput, requestSelect } from './questions.js';
 
 // ── Internal service imports (used by chatCommand but not re-exported) ────────
 import type { ChatRuntimeHooks } from './hooks.js';
-import { emitRuntimeEvent, formatConsoleArgs, writeInfo, writeWarn, writeError, printSessionResume } from './emit.js';
-import { withTimeout, withAbortSignal, isAbortError, throwIfAborted } from '../../orchestrator/async-utils.js';
+import {
+  emitRuntimeEvent,
+  formatConsoleArgs,
+  writeInfo,
+  writeWarn,
+  writeError,
+  printSessionResume,
+} from './emit.js';
+import {
+  withTimeout,
+  withAbortSignal,
+  isAbortError,
+  throwIfAborted,
+} from '../../orchestrator/async-utils.js';
 import { requestInput, requestSelect } from './questions.js';
-import { selectDefaultTopAgent, formatUserPrompt, resolveDeveloperName } from '../../utils/agent-selection.js';
+import {
+  selectDefaultTopAgent,
+  formatUserPrompt,
+  resolveDeveloperName,
+} from '../../utils/agent-selection.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -77,10 +106,11 @@ export function stripHandoffDirective(text: string): string {
  * Returns the parsed fields, or null if no directive is present.
  */
 export function parseHandoffDirective(
-  text: string,
+  text: string
 ): { targetAgentId: string; note: string } | null {
   // Allow spaces in the agent name — LLMs write "Emily Davis", not "emily-davis".
-  const re = /(?:^|\n)\s*(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*(?:$|\n)|\s+(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*$/im;
+  const re =
+    /(?:^|\n)\s*(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*(?:$|\n)|\s+(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*$/im;
   const match = re.exec(text);
   if (!match) return null;
   const target = (match[1] ?? match[3] ?? '').trim();
@@ -103,13 +133,13 @@ async function runPreflightStep<T>(
   hooks: ChatRuntimeHooks | undefined,
   message: string,
   task: () => Promise<T>,
-  timeoutMs: number = PREFLIGHT_STEP_TIMEOUT_MS,
+  timeoutMs: number = PREFLIGHT_STEP_TIMEOUT_MS
 ): Promise<T> {
   writeInfo(hooks, message);
   return withAbortSignal(
     withTimeout(task(), timeoutMs, `${message} timed out after ${Math.floor(timeoutMs / 1000)}s.`),
     hooks?.signal,
-    `${message} aborted by user.`,
+    `${message} aborted by user.`
   );
 }
 
@@ -119,7 +149,7 @@ export async function chatCommand(
   workspaceRoot: string,
   agentId: string | undefined,
   options: ChatOptions,
-  hooks: ChatRuntimeHooks = {},
+  hooks: ChatRuntimeHooks = {}
 ) {
   const originalLog = console.log;
   const originalWarn = console.warn;
@@ -148,14 +178,23 @@ export async function chatCommand(
     // Navigation stack for /back — each entry is the session we came FROM
     const navStack: Array<{ agentId: string; sessionId: string; agentName: string }> = [];
 
-    sessionManager = new SessionManager(workspaceRoot, createSqliteStorage(workspaceRoot), agentManager);
-    await sessionManager.initialize();
+    sessionManager = new SessionManager(
+      workspaceRoot,
+      createSqliteStorage(workspaceRoot),
+      agentManager
+    );
 
-    const loadSessionMessagesWithTiming = async (sessionId: string, reason: 'startup' | 'back-nav'): Promise<ChatMessage[]> => {
+    const loadSessionMessagesWithTiming = async (
+      sessionId: string,
+      reason: 'startup' | 'back-nav'
+    ): Promise<ChatMessage[]> => {
       const startedAt = Date.now();
       const messages = await sessionManager.getSessionMessages(sessionId);
       const elapsedMs = Date.now() - startedAt;
-      writeInfo(hooks, `[perf] loaded ${messages.length} message(s) for session ${sessionId} in ${elapsedMs}ms (${reason})`);
+      writeInfo(
+        hooks,
+        `[perf] loaded ${messages.length} message(s) for session ${sessionId} in ${elapsedMs}ms (${reason})`
+      );
       return messages;
     };
 
@@ -181,51 +220,50 @@ export async function chatCommand(
       return [];
     };
 
-    const teamConfig = await runPreflightStep(
-      hooks,
-      'Loading team configuration...',
-      () => loadEffectiveConfig(workspaceRoot),
+    const teamConfig = await runPreflightStep(hooks, 'Loading team configuration...', () =>
+      loadEffectiveConfig(workspaceRoot)
     );
     const registry = teamConfig?.providers;
     const defaultProviderRef = registry
-      ? (teamConfig?.defaultModel?.provider && registry[teamConfig.defaultModel.provider]
-          ? teamConfig.defaultModel.provider
-          : Object.entries(registry).find(([, cfg]) => cfg.defaultModel)?.[0]
-            ?? Object.keys(registry)[0])
+      ? teamConfig?.defaultModel?.provider && registry[teamConfig.defaultModel.provider]
+        ? teamConfig.defaultModel.provider
+        : (Object.entries(registry).find(([, cfg]) => cfg.defaultModel)?.[0] ??
+          Object.keys(registry)[0])
       : undefined;
-    const defaultProviderKind = defaultProviderRef ? registry?.[defaultProviderRef]?.kind : undefined;
+    const defaultProviderKind = defaultProviderRef
+      ? registry?.[defaultProviderRef]?.kind
+      : undefined;
     const requiresApiKey = defaultProviderKind
       ? defaultProviderKind === 'openai-compatible'
       : teamConfig?.llm?.provider === 'openai-compatible';
-    const env = await runPreflightStep(
-      hooks,
-      'Validating user environment...',
-      () => ensureServiceUserEnvVars(
+    const env = await runPreflightStep(hooks, 'Validating user environment...', () =>
+      ensureServiceUserEnvVars(
         workspaceRoot,
         { developerName: true, apiKey: requiresApiKey },
-        { quiet: true },
-      ),
+        { quiet: true }
+      )
     );
     const developerName = resolveDeveloperName(env) ?? getGitUserName();
-
-    await runPreflightStep(hooks, 'Initializing agents...', () => agentManager.initialize());
 
     let resolvedAgent: Agent | undefined;
 
     if (!agentId || agentId.trim().length === 0) {
-      const all = agentManager.getAllAgents();
+      const all = await agentManager.getAllAgentsAsync();
       resolvedAgent = selectDefaultTopAgent(all);
       if (!resolvedAgent) {
         writeError(hooks, 'No agents found in this workspace.');
         writeInfo(hooks, 'Run ait init to initialize your team.');
         throw new Error('No agents found in this workspace. Run ait init to initialize your team.');
       }
-      writeInfo(hooks, `No agent specified; defaulting to ${resolvedAgent.name} (${resolvedAgent.role}).`);
+      writeInfo(
+        hooks,
+        `No agent specified; defaulting to ${resolvedAgent.name} (${resolvedAgent.role}).`
+      );
     } else {
-      const matches = agentManager.resolveAgent(agentId);
+      const matches = await agentManager.resolveAgentAsync(agentId);
       if (matches.length === 0) {
         writeError(hooks, `Agent not found: "${agentId}"`);
-        const all = agentManager.getAllAgents();
+        const all = await agentManager.getAllAgentsAsync();
         if (all.length > 0) {
           writeInfo(hooks, '');
           writeInfo(hooks, 'Available agents:');
@@ -239,9 +277,9 @@ export async function chatCommand(
       } else {
         const chosen = await requestSelect(hooks, {
           message: `Multiple agents match "${agentId}". Which one?`,
-          choices: matches.map(a => ({ name: `${a.name} — ${a.role} [${a.id}]`, value: a.id })),
+          choices: matches.map((a) => ({ name: `${a.name} — ${a.role} [${a.id}]`, value: a.id })),
         });
-        resolvedAgent = agentManager.getAgent(chosen);
+        resolvedAgent = await agentManager.getAgentAsync(chosen);
       }
     }
 
@@ -263,16 +301,17 @@ export async function chatCommand(
         withTimeout(
           llm.initialize(),
           CHAT_CONNECT_TIMEOUT_MS,
-          `LLM initialization timed out after ${CHAT_CONNECT_TIMEOUT_MS / 1000}s.`,
+          `LLM initialization timed out after ${CHAT_CONNECT_TIMEOUT_MS / 1000}s.`
         ),
         hooks?.signal,
-        'Chat connection aborted by user.',
+        'Chat connection aborted by user.'
       );
       if (spinner) {
         spinner.succeed(`Connected to ${llm.provider} using ${llm.modelName}`);
       } else {
         writeInfo(hooks, `Connected to ${llm.provider} using ${llm.modelName}`);
       }
+      sessionManager.setAutoTitleLlmService(llm);
     } catch (error) {
       if (spinner) spinner.fail('Could not connect to configured LLM');
       writeError(hooks, (error as Error).message);
@@ -345,44 +384,47 @@ export async function chatCommand(
     }
 
     // ── Build OrchestratorContext + ChatOrchestrator ─────────────────────────
-    const permissionEngine = createPermissionEngine({
-      workspaceRoot,
-      fileTreeConfig: teamConfig?.fileTree,
-      agents: agentManager.getAllAgents(),
-    });
 
     let chatToolManager: ToolManager;
     const toolDeps: OrchestrationDeps = {
       sessions: sessionManager,
       agents: agentManager,
       tools: {
-        whoCanExecute: (toolName, args, agents) => chatToolManager.whoCanExecute(toolName, args, agents),
+        whoCanExecute: (toolName, args, agents) =>
+          chatToolManager.whoCanExecute(toolName, args, agents),
         catalog: (agent) => chatToolManager.catalog(agent),
       },
     };
-    chatToolManager = createToolManager(workspaceRoot, toolDeps, permissionEngine);
+    chatToolManager = createToolManager(workspaceRoot, toolDeps);
 
-    const _container = createContainer({ workspaceRoot });
-    _container.registerInstance(TOKENS.AgentManager, agentManager);
-    _container.registerInstance(TOKENS.SessionManager, sessionManager);
-    _container.registerInstance(TOKENS.ToolManager, chatToolManager);
-    _container.registerInstance(TOKENS.ContextManager, new ContextManager(workspaceRoot, undefined, permissionEngine));
+    const skillManager = new SkillManager(workspaceRoot);
+    const _plugins: ResolvedPlugins = {
+      compressor: new NoOpCompressor(),
+      contextBuilder: new DefaultContextBuilder(),
+      enrichers: [new WorkspaceOverviewEnricher(), new TeamRosterEnricher()],
+      ragProvider: new NoOpRagProvider(),
+      toolResolver: new DefaultToolResolver(),
+      mcpGateway: new NoOpMcpGateway(),
+      llmSelector: new DefaultLlmSelector(),
+      outputHandler: new DefaultOutputHandler(),
+      slashCommands: buildDefaultSlashCommands(),
+      turnResultParsers: buildDefaultTurnResultParsers(),
+      hookPlugins: buildDefaultHookPlugins(),
+    };
 
     const _ctx: OrchestratorContext = {
       agent,
       workspaceRoot,
       sessionId: currentSessionId,
       hooks,
-      toolManager: _container.resolve(TOKENS.ToolManager),
+      toolManager: chatToolManager,
       sessionManager,
       agentManager,
-      skillManager: _container.resolve(TOKENS.SkillManager),
+      skillManager,
       llmService: llm,
-      contextManager: _container.resolve(TOKENS.ContextManager),
       history,
       instructions,
     };
-    const _plugins = resolvePlugins(_container);
     const _orchestrator = new ChatOrchestrator(_ctx, _plugins);
 
     // Single message mode
@@ -390,7 +432,7 @@ export async function chatCommand(
       await withAbortSignal(
         _orchestrator.run({ message: options.message, contextFiles: options.context }),
         hooks.signal,
-        'Chat request aborted by user.',
+        'Chat request aborted by user.'
       );
       agent = _ctx.agent;
       currentSessionId = _ctx.sessionId;
@@ -409,12 +451,12 @@ export async function chatCommand(
           validate: (val: string) => val.length > 0 || 'Message cannot be empty',
         }),
         hooks.signal,
-        'Chat input aborted by user.',
+        'Chat input aborted by user.'
       );
 
       if (message.toLowerCase() === 'exit') {
         writeInfo(hooks, 'Goodbye!');
-        break;
+        process.exit(0);
       }
 
       // /back — handled here so it has access to the local navStack
@@ -424,14 +466,14 @@ export async function chatCommand(
           writeInfo(hooks, '');
         } else {
           const prev = navStack.pop()!;
-          const prevAgent = agentManager.getAgent(prev.agentId);
+          const prevAgent = await agentManager.getAgentAsync(prev.agentId);
           if (!prevAgent) {
             writeError(hooks, `Previous agent ${prev.agentId} no longer found.`);
           } else {
             const prevHistory = await loadSessionMessagesWithTiming(prev.sessionId, 'back-nav');
-            (_ctx as any).agent     = prevAgent;
+            (_ctx as any).agent = prevAgent;
             (_ctx as any).sessionId = prev.sessionId;
-            (_ctx as any).history   = prevHistory;
+            (_ctx as any).history = prevHistory;
             agent = prevAgent;
             currentSessionId = prev.sessionId;
             history = prevHistory;
@@ -442,12 +484,12 @@ export async function chatCommand(
       }
 
       // Regular turn — delegate to ChatOrchestrator
-      const prevAgentId   = _ctx.agent.id;
+      const prevAgentId = _ctx.agent.id;
       const prevSessionId = _ctx.sessionId;
       await withAbortSignal(
         _orchestrator.run({ message, contextFiles: options.context }),
         hooks.signal,
-        'Chat request aborted by user.',
+        'Chat request aborted by user.'
       );
       if (_ctx.agent.id !== prevAgentId) {
         navStack.push({ agentId: prevAgentId, sessionId: prevSessionId, agentName: prevAgentId });
@@ -465,7 +507,9 @@ export async function chatCommand(
     throw new Error(error instanceof Error ? error.message : String(error));
   } finally {
     if (sessionManager) {
-      try { await sessionManager.close(); } catch {}
+      try {
+        await sessionManager.close();
+      } catch {}
     }
     if (hooks.emit) {
       console.log = originalLog;

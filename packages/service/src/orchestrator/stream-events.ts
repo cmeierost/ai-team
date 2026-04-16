@@ -5,10 +5,12 @@
  * All other modules go through emitEvent() rather than calling hooks.emit directly.
  */
 
-import type { MediatorRuntimeEvent } from '../contracts.js';
-import type { ChatRuntimeHooks } from '../contracts.js';
-import type { ToolDenialEvent } from '../contracts.js';
-import type { ToolRuntimePayloadEvent } from '../contracts.js';
+import type {
+  RuntimeStreamEvent,
+  ToolDenialEvent,
+  ToolRuntimePayloadEvent,
+} from '@ai-team/api-client';
+import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 
 // ── Delta extraction ──────────────────────────────────────────────────────────
 
@@ -37,7 +39,7 @@ function extractDeltaSegmentText(value: unknown): string {
   if (!Array.isArray(value)) return '';
 
   return value
-    .map(part => {
+    .map((part) => {
       if (typeof part === 'string') return part;
       if (!part || typeof part !== 'object') return '';
       const text = (part as { text?: unknown }).text;
@@ -51,17 +53,14 @@ function extractDeltaSegmentText(value: unknown): string {
 // ── Event emission ────────────────────────────────────────────────────────────
 
 /** Emit a runtime event through hooks, if a listener is registered. */
-export function emitEvent(
-  hooks: ChatRuntimeHooks | undefined,
-  event: MediatorRuntimeEvent,
-): void {
+export function emitEvent(hooks: ChatRuntimeHooks | undefined, event: RuntimeStreamEvent): void {
   hooks?.emit?.(event);
 }
 
 export function emitLog(
   hooks: ChatRuntimeHooks | undefined,
   level: 'info' | 'warn' | 'error',
-  message: string,
+  message: string
 ): void {
   emitEvent(hooks, { kind: 'log', level, message });
   if (!hooks?.emit) {
@@ -76,7 +75,7 @@ export function emitLog(
 export function emitStatus(
   hooks: ChatRuntimeHooks | undefined,
   phase: string,
-  message?: string,
+  message?: string
 ): void {
   emitEvent(hooks, { kind: 'status', phase, message });
 }
@@ -84,10 +83,19 @@ export function emitStatus(
 export function emitToolEvent(
   hooks: ChatRuntimeHooks | undefined,
   toolName: string,
+  toolCallId: string | undefined,
   toolPhase: 'start' | 'result' | 'error' | 'denied',
   message?: string,
   toolDenial?: ToolDenialEvent,
-  toolResult?: ToolRuntimePayloadEvent,
+  toolResult?: ToolRuntimePayloadEvent
 ): void {
-  emitEvent(hooks, { kind: 'tool', toolName, toolPhase, message, toolDenial, toolResult });
+  emitEvent(hooks, {
+    kind: 'tool',
+    toolName,
+    toolCallId,
+    toolPhase,
+    message,
+    toolDenial,
+    toolResult,
+  } as RuntimeStreamEvent);
 }

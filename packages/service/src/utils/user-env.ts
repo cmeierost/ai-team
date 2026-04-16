@@ -1,4 +1,4 @@
-import { loadEnvFile, saveEnvFile } from '@ai-team/core';
+import { loadEnvFile, saveEnvFile } from '@ai-team/infrastructure';
 import { getGitUserName } from './git.js';
 import { ServiceDomainError } from '../errors.js';
 

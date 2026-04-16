@@ -5,18 +5,19 @@
  * NOT for com_ask-style user questions (those are now inline notation).
  */
 
-import type { ChatRuntimeHooks, QuestionConfirmRequest } from '../contracts.js';
+import type { QuestionConfirmRequest } from '@ai-team/api-client';
+import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 
 // ── Tick helper — drains pending log events before prompting ─────────────────
 
 /** Give the stream consumer a full event-loop tick before writing a prompt. */
-const tick = () => new Promise<void>(r => setImmediate(r));
+const tick = () => new Promise<void>((r) => setImmediate(r));
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function requestConfirm(
   hooks: ChatRuntimeHooks | undefined,
-  request: QuestionConfirmRequest,
+  request: QuestionConfirmRequest
 ): Promise<boolean> {
   if (!hooks?.questionConfirm) {
     throw new Error('Confirm question requested but no questionConfirm responder is registered.');

@@ -26,8 +26,7 @@ export interface AgentFilesResponse {
   agent: string;
   readPatterns: string[];
   writePatterns: string[];
-  createPatterns?: string[];
-  deletePatterns?: string[];
+  listPatterns?: string[];
   files: AnnotatedFile[];
 }
 
@@ -36,15 +35,13 @@ export interface FilePatternsResponse {
     allowPaths: string[];
     readPaths: string[];
     writePaths: string[];
-    createPaths: string[];
-    deletePaths: string[];
+    listPaths?: string[];
   };
   agent?: {
     id: string;
     readPaths: string[];
     writePaths: string[];
-    createPaths?: string[];
-    deletePaths?: string[];
+    listPaths?: string[];
   };
 }
 
@@ -109,7 +106,14 @@ export interface Agent {
   id: string;
   name: string;
   role: string;
-  type?: 'executive' | 'leadership' | 'team-lead' | 'individual-contributor' | 'quality-gate' | 'cross-concern' | 'product';
+  type?:
+    | 'executive'
+    | 'leadership'
+    | 'team-lead'
+    | 'individual-contributor'
+    | 'quality-gate'
+    | 'cross-concern'
+    | 'product';
   contextLevel?: 'task' | 'module' | 'feature' | 'repository' | 'organization';
   reportsTo?: string;
   features?: string[];
@@ -120,10 +124,13 @@ export interface Agent {
   delegatesTo?: string[];
   availableFor?: string[];
   status?: 'available' | 'busy' | 'in-meeting' | 'offline';
-  markdown?: string;  // Portfolio/bio content
+  markdown?: string; // Portfolio/bio content
   avatar?: AvatarConfig;
   personality?: AgentPersonality;
   pronouns?: string;
+  ttsVoice?: string;
+  ttsRate?: number;
+  description?: string;
   workHours?: string;
   goal?: string;
   backstory?: string;
@@ -181,7 +188,7 @@ export interface GraphData {
   edges: GraphEdge[];
 }
 
-export type PermissionRight = 'read' | 'write' | 'create' | 'delete' | 'list';
+export type PermissionRight = 'read' | 'write' | 'list';
 
 export interface PermissionOverlapByExtension {
   extension: string;
@@ -276,7 +283,13 @@ export interface PatternPermissionOverlapReport {
 
 export type PermissionOverlapReport = FilePermissionOverlapReport | PatternPermissionOverlapReport;
 
-export type FileTypeCategory = 'code' | 'documentation' | 'configuration' | 'tests' | 'assets' | 'other';
+export type FileTypeCategory =
+  | 'code'
+  | 'documentation'
+  | 'configuration'
+  | 'tests'
+  | 'assets'
+  | 'other';
 
 export interface FileTypeSummary {
   category: FileTypeCategory;
@@ -370,7 +383,10 @@ export interface PermissionAnalysisView {
   uncoveredFileTypes: FileTypeSummary[];
   rightUncovered: Record<PermissionRight, PermissionRightUncoveredSummary>;
   agentResponsibilities: Record<string, PermissionAgentResponsibilitySummary>;
-  outsideDefaultContextByAgent: Record<string, Record<PermissionRight, OutsideDefaultContextRightSummary>>;
+  outsideDefaultContextByAgent: Record<
+    string,
+    Record<PermissionRight, OutsideDefaultContextRightSummary>
+  >;
   regions: PermissionOverlapRegion[];
   suggestions: PermissionSuggestion[];
   summary: PermissionAnalysisSummary;
@@ -383,21 +399,32 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   archived?: boolean;
+  hiddenFromLlm?: boolean;
   handoffType?: 'user-acknowledgment' | 'agent-briefing'; // Type of handoff message
   targetAgentId?: string; // Target agent for briefing messages
   // Cross-session handoff tracking (added with /thread API)
-  handoffId?: string;              // UUID shared by all messages in one handoff event
-  handoffFromSessionId?: string;   // Session this briefing came FROM
-  handoffToSessionId?: string;     // Session this briefing is directed TO
+  handoffId?: string; // UUID shared by all messages in one handoff event
+  handoffFromSessionId?: string; // Session this briefing came FROM
+  handoffToSessionId?: string; // Session this briefing is directed TO
+  tool_calls?: Array<{
+    id?: number;
+    tool: string;
+    params?: unknown;
+    result?: unknown;
+    resultLlm?: unknown;
+  }>;
 }
 
 export interface SessionActivatedTool {
   toolName: string;
+  toolCallId?: string;
   toolPhase?: 'request' | 'start' | 'result' | 'error' | 'denied';
+  toolEventSeq?: number;
   message?: string;
   toolResult?: {
     toolName: string;
-    outcome: 'result' | 'error' | 'denied';
+    outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
+    request?: unknown;
     result?: unknown;
     /** LLM-formatted representation — what was injected into the model's context window. */
     resultLlm?: unknown;
@@ -430,27 +457,67 @@ export interface SessionActivatedTool {
 }
 
 export interface ChatSession {
-  id: string;  // e.g., 'session-2026-02-27-abc123'
-  agentId: string;      // deprecated — use agentIds[0]
-  agentIds?: string[];  // Primary agent IDs for this session
-  developerId: string;  // e.g., 'clemens-meier'
-  title?: string;       // Optional session title
-  startedAt: string;    // ISO timestamp
-  lastActivityAt: string;  // ISO timestamp
+  id: string; // e.g., 'session-2026-02-27-abc123'
+  agentId: string; // deprecated — use agentIds[0]
+  agentIds?: string[]; // Primary agent IDs for this session
+  developerId: string; // e.g., 'clemens-meier'
+  title?: string; // Optional session title
+  startedAt: string; // ISO timestamp
+  lastActivityAt: string; // ISO timestamp
   messageCount: number;
-  artifacts: string[];  // Artifact IDs or paths in context
-  allowedFiles: string[];  // Files agent can access in this session
+  artifacts: string[]; // Artifact IDs or paths in context
+  allowedFiles: string[]; // Files agent can access in this session
   notes?: string;
   activatedTools?: SessionActivatedTool[];
-  previousSessionId?: string;      // ID of session this was handed off from
-  mergedFromSessionIds?: string[] | null;  // Sessions merged into this one
+  previousSessionId?: string; // ID of session this was handed off from
+  mergedFromSessionIds?: string[] | null; // Sessions merged into this one
+}
+
+export interface NoteAttachment {
+  id: string;
+  fileName: string;
+  filePath: string;
+  contentType?: string;
+  sizeBytes: number;
+  description?: string;
+}
+
+export interface NoteAttachmentInput {
+  fileName: string;
+  contentBase64: string;
+  contentType?: string;
+  sizeBytes?: number;
+  description?: string;
+}
+
+export interface RetainedNoteAttachmentInput {
+  id: string;
+}
+
+export type NoteAttachmentUpdateInput = NoteAttachmentInput | RetainedNoteAttachmentInput;
+
+export interface Note {
+  id: string;
+  agentId: string;
+  sessionId?: string;
+  sharedSessionIds?: string[];
+  title?: string;
+  content: string;
+  tags?: string[];
+  attachments?: NoteAttachment[];
+  attachment?: NoteAttachment;
+  compactedContent?: string;
+  hiddenFromLlm: boolean;
+  showOnDashboard: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** One directed handoff edge in the session thread graph */
 export interface HandoffEdge {
   handoffId: string;
-  fromSessionId: string | null;  // null if source session was deleted
-  toSessionId: string | null;    // null if target session was deleted
+  fromSessionId: string | null; // null if source session was deleted
+  toSessionId: string | null; // null if target session was deleted
   fromAgentIds: string[];
   toAgentIds: string[];
 }
@@ -479,47 +546,65 @@ export interface SessionThread {
   sessions: SessionNode[];
 }
 
+export interface SessionDeleteImpactTransfer {
+  noteId: string;
+  title?: string;
+  targetSessionId: string;
+  remainingSharedSessionIds: string[];
+}
+
+export interface SessionDeleteImpactBlockingNote {
+  noteId: string;
+  title?: string;
+}
+
+export interface SessionDeleteImpact {
+  sessionId: string;
+  transferableNotes: SessionDeleteImpactTransfer[];
+  unsharedOwnedNotes: SessionDeleteImpactBlockingNote[];
+}
+
 export interface Artifact {
-  id: string;  // e.g., 'brief-user-auth-design'
+  id: string; // e.g., 'brief-user-auth-design'
   type: 'brief' | 'summary' | 'record' | 'document';
   title: string;
-  content: string;  // Markdown content
+  content: string; // Markdown content
   createdAt: string;
-  createdBy: string;  // developer ID
-  sourceSessionId: string;  // Session where it was created
-  fromMessageIndex: number;  // Start of summarized range
-  toMessageIndex: number;  // End of summarized range
-  filepath: string;  // .ai-team/artifacts/briefs/{filename}.md
+  createdBy: string; // developer ID
+  sourceSessionId: string; // Session where it was created
+  fromMessageIndex: number; // Start of summarized range
+  toMessageIndex: number; // End of summarized range
+  filepath: string; // .ai-team/artifacts/briefs/{filename}.md
   tags?: string[];
 }
 
 // Task Management Types
 export enum TaskStatus {
-  NOT_STARTED = "not_started",
-  IN_PROGRESS = "in_progress",
-  BLOCKED = "blocked",
-  WAITING_APPROVAL = "waiting_approval",
-  COMPLETED = "completed",
-  CANCELLED = "cancelled",
-  DELEGATED = "delegated",
+  NOT_STARTED = 'not_started',
+  IN_PROGRESS = 'in_progress',
+  BLOCKED = 'blocked',
+  WAITING_APPROVAL = 'waiting_approval',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
+  DELEGATED = 'delegated',
 }
 
 export enum TaskPriority {
-  LOW = "low",
-  MEDIUM = "medium",
-  HIGH = "high",
-  URGENT = "urgent",
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+  URGENT = 'urgent',
 }
 
 export enum TaskType {
-  FEATURE = "feature",
-  BUG = "bug",
-  DOCUMENTATION = "documentation",
+  FEATURE = 'feature',
+  BUG = 'bug',
+  DOCUMENTATION = 'documentation',
 }
 
 export enum TaskExecutionMode {
-  SEQUENTIAL = "sequential",
-  PARALLEL = "parallel",
+  SEQUENTIAL = 'sequential',
+  PARALLEL = 'parallel',
 }
 
 export interface TimeLogEntry {
@@ -562,7 +647,7 @@ export interface Task {
   title: string;
   description?: string;
   createdBy: string;
-  createdByType: "human" | "agent";
+  createdByType: 'human' | 'agent';
   assignedTo?: string;
   status: TaskStatus;
   priority: TaskPriority;
@@ -602,7 +687,7 @@ export interface TaskTemplate {
   descriptionTemplate: string;
   priority: TaskPriority;
   estimatedHours?: number;
-  workflowSteps?: Omit<WorkflowStep, "id" | "status" | "completedAt">[];
+  workflowSteps?: Omit<WorkflowStep, 'id' | 'status' | 'completedAt'>[];
   tags?: string[];
   requiresApproval: boolean;
 }

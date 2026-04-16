@@ -1,12 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
-import {
-  AgentManager,
-  ContextLevel,
-  RoleType,
-  buildAgentMarkdown,
-} from '@ai-team/core';
-import type { HireOptions } from '../contracts.js';
+import { AgentManager, ContextLevel, RoleType, buildAgentMarkdown } from '@ai-team/infrastructure';
+import type { HireOptions, InteractionContext } from '@ai-team/api-client';
 
 export function getPersonalityForHire(role: string, roleType: RoleType) {
   const r = role.toLowerCase();
@@ -27,7 +22,8 @@ export function getPersonalityForHire(role: string, roleType: RoleType) {
   if (/hr|people|recruit|headhunt/.test(r)) {
     return {
       communication_style: 'supportive' as const,
-      expertise_level: roleType === RoleType.LEADERSHIP ? 'senior' as const : 'mid-level' as const,
+      expertise_level:
+        roleType === RoleType.LEADERSHIP ? ('senior' as const) : ('mid-level' as const),
       mentoring: true,
       profile: [
         'Friendly and people-oriented',
@@ -40,7 +36,8 @@ export function getPersonalityForHire(role: string, roleType: RoleType) {
   if (/qa|test|security|data|analyst/.test(r)) {
     return {
       communication_style: 'analytical' as const,
-      expertise_level: roleType === RoleType.TEAM_LEAD ? 'senior' as const : 'mid-level' as const,
+      expertise_level:
+        roleType === RoleType.TEAM_LEAD ? ('senior' as const) : ('mid-level' as const),
       mentoring: true,
       profile: [
         'Analytical and detail-oriented',
@@ -52,7 +49,7 @@ export function getPersonalityForHire(role: string, roleType: RoleType) {
 
   return {
     communication_style: 'collaborative' as const,
-    expertise_level: roleType === RoleType.TEAM_LEAD ? 'senior' as const : 'mid-level' as const,
+    expertise_level: roleType === RoleType.TEAM_LEAD ? ('senior' as const) : ('mid-level' as const),
     mentoring: true,
     profile: [
       'Motivated, practical, and reliable',
@@ -62,10 +59,13 @@ export function getPersonalityForHire(role: string, roleType: RoleType) {
   };
 }
 
-export async function hireCommand(workspaceRoot: string, options: HireOptions) {
+export async function hireCommand(
+  workspaceRoot: string,
+  options: HireOptions,
+  context: InteractionContext = {}
+) {
   try {
     const agentManager = new AgentManager(workspaceRoot);
-    await agentManager.initialize();
 
     if (!options.name || !options.role) {
       throw new Error('Hire requires --name and --role when service-side prompts are disabled.');
@@ -101,9 +101,7 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
     if (config.selectedSkills.length > 0) {
       for (const skillName of config.selectedSkills) {
         const content = await readSkillContent(workspaceRoot, skillName);
-        const body = content
-          ? content.replace(/^---[\s\S]*?---\s*/, '').trim()
-          : '';
+        const body = content ? content.replace(/^---[\s\S]*?---\s*/, '').trim() : '';
         skillEntries.push({ name: skillName, body });
       }
     }
@@ -114,7 +112,7 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
     });
 
     try {
-      await agentManager.createAgent(
+      await agentManager.createAgentAsync(
         {
           name: config.name,
           role: config.role,
@@ -129,15 +127,20 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
             expertise_level: personalityPreset.expertise_level,
             mentoring: personalityPreset.mentoring,
           },
-          // Note: Avatar is not set during hire - use `ait avatar <agent>` command
           llm: config.llm,
           cliTools: config.cliTools,
         },
-        { markdown },
+        { markdown }
       );
 
+      context.emit?.({
+        kind: 'log',
+        level: 'info',
+        message: `✓ ${config.name} has been hired as ${config.role}.`,
+      });
+
       if (config.reportsTo) {
-        agentManager.getAgent(config.reportsTo);
+        await agentManager.getAgentAsync(config.reportsTo);
       }
     } catch (error) {
       throw error;
@@ -147,7 +150,6 @@ export async function hireCommand(workspaceRoot: string, options: HireOptions) {
   }
 }
 
-
 async function readSkillContent(workspaceRoot: string, skillName: string): Promise<string | null> {
   const skillMdPath = path.join(workspaceRoot, '.ai-team', 'skills-catalog', skillName, 'SKILL.md');
   try {
@@ -156,4 +158,3 @@ async function readSkillContent(workspaceRoot: string, skillName: string): Promi
     return null;
   }
 }
-

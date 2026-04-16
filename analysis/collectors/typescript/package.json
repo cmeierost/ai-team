@@ -1,0 +1,36 @@
+{
+  "name": "@aspect/collector-typescript",
+  "version": "0.1.0",
+  "description": "TypeScript/JavaScript code analysis collector — extracts raw facts using dependency-cruiser, jscpd, eslint, and custom AST visitors",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "code-analysis",
+    "javascript",
+    "typescript",
+    "dependency-cruiser",
+    "jscpd"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@aspect/contracts": "workspace:*",
+    "@aspect/collector-shared": "workspace:*",
+    "dependency-cruiser": "^17.3.10",
+    "jscpd": "^4.0.8"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@vitest/coverage-v8": "^4.1.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.2"
+  }
+}

@@ -1266,6 +1266,22 @@ export function SettingsPage() {
 
       {activeTab === 'team' && (
         <>
+          <CollapsibleSection title="Project" meta="config.json">
+            <div className="user-profile-grid">
+              <label className="provider-field-row">
+                <span>Project Name</span>
+                <input
+                  type="text"
+                  value={teamDraft.projectName ?? ''}
+                  onChange={(e) =>
+                    patchTeam((d) => ({ ...d, projectName: e.target.value || undefined }))
+                  }
+                  placeholder="e.g. Acme Platform"
+                />
+              </label>
+            </div>
+          </CollapsibleSection>
+
           <FileTypeGroupEditorSection
             groups={teamDraft.fileTypeGroups ?? {}}
             onChange={(fileTypeGroups) => patchTeam((d) => ({ ...d, fileTypeGroups }))}

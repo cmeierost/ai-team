@@ -5,7 +5,7 @@ import type {
   QuestionAnswerValue,
   WorkflowFrame,
   WorkflowStateSnapshot,
-} from './contracts.js';
+} from '@ai-team/api-client';
 
 interface PersistedWorkflowState {
   version: 1;
@@ -46,7 +46,8 @@ export class WorkflowStateStore {
     }
 
     const snapshot = this.upsertWorkflow(state, workflowId);
-    const continuationToken = frame.continuationToken || frame.question?.workflow?.continuationToken;
+    const continuationToken =
+      frame.continuationToken || frame.question?.workflow?.continuationToken;
     if (continuationToken !== undefined) {
       snapshot.continuationToken = continuationToken;
     }
@@ -100,7 +101,8 @@ export class WorkflowStateStore {
         version: 1,
         commandWorkflows: parsed.commandWorkflows || {},
         workflows: parsed.workflows || {},
-        updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
+        updatedAt:
+          typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
       };
     } catch {
       return {

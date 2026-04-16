@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { API_BASE } from '../../context/TeamContext';
+import { useTeam } from '../../context/TeamContext';
 import { fileIcon } from './fileTreeUtils';
 import type { PatternMode, TreeNode } from './fileTreeTypes';
 
@@ -22,19 +22,28 @@ interface FilePermissionsProps {
   onToggle: (path: string, mode: PatternMode, current: boolean) => void;
 }
 
-async function openFileInIde(relativePath: string) {
+async function openFileInIde(client: ReturnType<typeof useTeam>['client'], relativePath: string) {
   try {
-    await fetch(`${API_BASE}/api/ide/open-file`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath: relativePath }),
-    });
+    await client.ide.openFile({ filePath: relativePath });
   } catch {
     // IDE bridge may not be connected.
   }
 }
 
-function FileTreeRowAction({ node, isDirectory, editMode, open, onToggleOpen }: Readonly<{ node: TreeNode; isDirectory: boolean; editMode: boolean; open: boolean; onToggleOpen: () => void }>) {
+function FileTreeRowAction({
+  node,
+  isDirectory,
+  editMode,
+  open,
+  onToggleOpen,
+}: Readonly<{
+  node: TreeNode;
+  isDirectory: boolean;
+  editMode: boolean;
+  open: boolean;
+  onToggleOpen: () => void;
+}>) {
+  const { client } = useTeam();
   if (isDirectory) {
     return (
       <button
@@ -54,7 +63,7 @@ function FileTreeRowAction({ node, isDirectory, editMode, open, onToggleOpen }: 
   return (
     <button
       className="ft-expand ft-open-btn"
-      onClick={() => void openFileInIde(node.path)}
+      onClick={() => void openFileInIde(client, node.path)}
       title="Open in IDE"
       aria-label="Open in IDE"
     >
@@ -63,35 +72,73 @@ function FileTreeRowAction({ node, isDirectory, editMode, open, onToggleOpen }: 
   );
 }
 
-function FileTreeRowName({ node, isDirectory, editMode }: Readonly<{ node: TreeNode; isDirectory: boolean; editMode: boolean }>) {
+function FileTreeRowName({
+  node,
+  isDirectory,
+  editMode,
+}: Readonly<{ node: TreeNode; isDirectory: boolean; editMode: boolean }>) {
+  const { client } = useTeam();
   if (isDirectory || editMode) {
-    return <span className="ft-name" title={node.path}>{node.name}</span>;
+    return (
+      <span className="ft-name" title={node.path}>
+        {node.name}
+      </span>
+    );
   }
 
   return (
     <button
       className="ft-name ft-name-link"
       title={`Open in IDE: ${node.path}`}
-      onClick={() => void openFileInIde(node.path)}
+      onClick={() => void openFileInIde(client, node.path)}
     >
       {node.name}
     </button>
   );
 }
 
-function FilePermissions({ path, editMode, isPending, readable, listable, writable, onToggle }: Readonly<FilePermissionsProps>) {
+function FilePermissions({
+  path,
+  editMode,
+  isPending,
+  readable,
+  listable,
+  writable,
+  onToggle,
+}: Readonly<FilePermissionsProps>) {
   if (!editMode) {
     return (
       <div className="ft-perms">
-        {readable ? <span className="ft-badge ft-badge-read" title="Readable">R</span> : null}
-        {listable ? <span className="ft-badge ft-badge-list" title="Listable">L</span> : null}
-        {writable ? <span className="ft-badge ft-badge-write" title="Writable">W</span> : null}
+        {listable ? (
+          <span className="ft-badge ft-badge-list" title="Listable">
+            L
+          </span>
+        ) : null}
+        {readable ? (
+          <span className="ft-badge ft-badge-read" title="Readable">
+            R
+          </span>
+        ) : null}
+        {writable ? (
+          <span className="ft-badge ft-badge-write" title="Writable">
+            W
+          </span>
+        ) : null}
       </div>
     );
   }
 
   return (
     <div className="ft-perms">
+      <button
+        type="button"
+        className={`ft-perm-btn ${listable ? 'ft-perm-on' : 'ft-perm-off'}`}
+        title={listable ? 'Revoke list access' : 'Grant list access'}
+        disabled={isPending}
+        onClick={() => onToggle(path, 'list', listable)}
+      >
+        <i className="codicon codicon-list-tree" /> L
+      </button>
       <button
         type="button"
         className={`ft-perm-btn ${readable ? 'ft-perm-on' : 'ft-perm-off'}`}
@@ -114,7 +161,14 @@ function FilePermissions({ path, editMode, isPending, readable, listable, writab
   );
 }
 
-export function FileTreeNodeRow({ node, depth, editMode, highlightedPaths, pendingPaths, onToggle }: Readonly<FileTreeNodeRowProps>) {
+export function FileTreeNodeRow({
+  node,
+  depth,
+  editMode,
+  highlightedPaths,
+  pendingPaths,
+  onToggle,
+}: Readonly<FileTreeNodeRowProps>) {
   const [open, setOpen] = useState(depth < 2);
   const file = node.file;
   const isDirectory = node.isDir;

@@ -1,16 +1,27 @@
 import type { WebSocket } from 'ws';
-import type { AiTeamClient } from '@ai-team/api-client';
-import type { MediatorEvent } from '@ai-team/api-client';
-import type { AgentManager } from '@ai-team/core';
 import type {
+  StreamEvent,
+  QuestionChecklistRequest,
   QuestionConfirmRequest,
+  QuestionInputRequest,
+  QuestionPasswordRequest,
+  QuestionSelectRequest,
+} from '@ai-team/api-client';
+import {
+  createIdeAdapter,
+  type IdeAdapter,
+  type AgentManager,
+  type LlmService,
+} from '@ai-team/infrastructure';
+import {
+  resolveAgentForOperationAsync,
+  SessionManager,
+  type IInteractionService,
 } from '@ai-team/service';
-import { resolveAgentForOperation, SessionManager } from '@ai-team/service';
-import { createIdeAdapter, type IdeAdapter } from '@ai-team/ide-interface';
 
 /**
  * Messages sent from client to server over WebSocket.
- * 
+ *
  * @example Send a chat message
  * ```json
  * {
@@ -19,14 +30,14 @@ import { createIdeAdapter, type IdeAdapter } from '@ai-team/ide-interface';
  *   "options": {}
  * }
  * ```
- * 
+ *
  * @example Cancel an ongoing operation
  * ```json
  * {
  *   "type": "cancel"
  * }
  * ```
- * 
+ *
  * @example Answer an agent question
  * ```json
  * {
@@ -39,9 +50,9 @@ import { createIdeAdapter, type IdeAdapter } from '@ai-team/ide-interface';
  * ```
  */
 export interface ChatWebSocketMessage {
-  /** Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question */
-  type: 'message' | 'cancel' | 'answer';
-  /** Chat message content (required for 'message' type) */
+  /** Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question, 'interrupt' = hard interrupt, 'steer' = drift in message, 'summarize' = LLM-backed note summarize */
+  type: 'message' | 'cancel' | 'answer' | 'interrupt' | 'steer' | 'summarize';
+  /** Chat message content (required for 'message', 'steer' type) */
   content?: string;
   /** Additional options for the chat interaction (optional for 'message' type) */
   options?: any;
@@ -52,11 +63,25 @@ export interface ChatWebSocketMessage {
     /** Answer value (string/bool/number/array/object depending on question type) */
     value: string | boolean | number | string[] | Record<string, string>;
   };
+  /** Summarize operation (required for 'summarize' type): 'compact' or 'crawl' */
+  operation?: 'compact' | 'crawl';
+  /** Note ID to summarize (required for 'summarize' type) */
+  noteId?: string;
+  /** Website URL to crawl (required for operation='crawl') */
+  websiteUrl?: string;
+  /** Max pages to crawl (optional for operation='crawl') */
+  maxPages?: number;
+  /** Max words for summary (optional for 'summarize' type) */
+  maxWords?: number;
+  /** Focus instruction for summarization (optional for 'summarize' type) */
+  focusInstruction?: string;
+  /** Generate and apply a note title from summarized content */
+  generateTitle?: boolean;
 }
 
 /**
  * Events sent from server to client over WebSocket.
- * 
+ *
  * @example Streaming token
  * ```json
  * {
@@ -64,7 +89,7 @@ export interface ChatWebSocketMessage {
  *   "data": { "token": "Hello" }
  * }
  * ```
- * 
+ *
  * @example Status update
  * ```json
  * {
@@ -72,7 +97,7 @@ export interface ChatWebSocketMessage {
  *   "data": { "status": "ready" }
  * }
  * ```
- * 
+ *
  * @example Agent question
  * ```json
  * {
@@ -84,7 +109,7 @@ export interface ChatWebSocketMessage {
  *   }
  * }
  * ```
- * 
+ *
  * @example Error
  * ```json
  * {
@@ -92,7 +117,7 @@ export interface ChatWebSocketMessage {
  *   "data": { "error": "Agent not found" }
  * }
  * ```
- * 
+ *
  * @example Completion
  * ```json
  * {
@@ -107,29 +132,42 @@ export interface ChatWebSocketEvent {
   data?: unknown;
 }
 
-type ChatMediatorEvent = MediatorEvent<'chat'>;
+type ChatStreamEvent = StreamEvent<'chat'>;
+type PendingAnswerValue = string | boolean | number | string[] | Record<string, string>;
 
-export function setupChatWebSocket(
+export interface ChatWebSocketSetupOptions {
+  agentManager?: AgentManager;
+  workspaceRoot?: string;
+  llmService?: LlmService;
+}
+
+export async function setupChatWebSocket(
   ws: WebSocket,
   agentQuery: string,
-  client: AiTeamClient,
+  interactionService: IInteractionService,
   sessionManager: SessionManager,
   sessionId: string | null,
-  agentManager?: AgentManager,
-  workspaceRoot?: string,
-): void {
+  options: ChatWebSocketSetupOptions = {}
+): Promise<void> {
+  const { agentManager, workspaceRoot, llmService } = options;
   // Resolve agent query to exact ID
   let agentId = agentQuery;
   if (agentManager) {
     try {
-      const resolved = resolveAgentForOperation(agentManager, agentQuery, 'WebSocket chat');
+      const resolved = await resolveAgentForOperationAsync(
+        agentManager,
+        agentQuery,
+        'WebSocket chat'
+      );
       agentId = resolved.id;
     } catch (error) {
       // Send error and close connection
-      ws.send(JSON.stringify({
-        type: 'error',
-        data: { error: error instanceof Error ? error.message : 'Failed to resolve agent' },
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          data: { error: error instanceof Error ? error.message : 'Failed to resolve agent' },
+        })
+      );
       ws.close();
       return;
     }
@@ -138,34 +176,55 @@ export function setupChatWebSocket(
   // Connect to VS Code plugin if it is running for this workspace (fire-and-forget init)
   let ideAdapter: IdeAdapter | null = null;
   if (workspaceRoot) {
-    createIdeAdapter(workspaceRoot, 'web').then(adapter => {
-      ideAdapter = adapter;
-    }).catch(() => { /* no IDE connected — silent */ });
+    createIdeAdapter(workspaceRoot, 'web')
+      .then((adapter) => {
+        ideAdapter = adapter;
+      })
+      .catch(() => {
+        /* no IDE connected — silent */
+      });
   }
 
   let currentAbortController: AbortController | null = null;
   let questionCounter = 0;
-  const pendingQuestions = new Map<string, {
-    resolve: (value: any) => void;
-    reject: (error: Error) => void;
-  }>();
+  const pendingQuestions = new Map<
+    string,
+    {
+      resolve: (value: PendingAnswerValue) => void;
+      reject: (error: Error) => void;
+    }
+  >();
 
   // Helper to wait for answer from client
-  const askQuestion = async (questionId: string, questionData: Record<string, unknown>): Promise<any> => {
+  const askQuestion = async (
+    questionId: string,
+    questionData: Record<string, unknown>
+  ): Promise<PendingAnswerValue> => {
     return new Promise((resolve, reject) => {
       pendingQuestions.set(questionId, { resolve, reject });
-      
-      // Send question to client
-      ws.send(JSON.stringify({
-        type: 'question',
-        data: {
-          questionId,
-          ...questionData,
-        },
-      }));
 
-        // No timeout: questions can remain pending until answered or connection closes.
+      // Send question to client
+      ws.send(
+        JSON.stringify({
+          type: 'question',
+          data: {
+            questionId,
+            ...questionData,
+          },
+        })
+      );
+
+      // No timeout: questions can remain pending until answered or connection closes.
     });
+  };
+
+  const createQuestionHandler = <TRequest extends object>(
+    kind: 'confirm' | 'input' | 'select' | 'password' | 'checklist'
+  ) => {
+    return async (request: TRequest): Promise<PendingAnswerValue> => {
+      const questionId = `q${++questionCounter}`;
+      return askQuestion(questionId, { kind, ...(request as Record<string, unknown>) });
+    };
   };
 
   ws.on('message', async (data: Buffer) => {
@@ -200,7 +259,9 @@ export function setupChatWebSocket(
 
       if (message.type === 'message') {
         if (!message.content) {
-          ws.send(JSON.stringify({ type: 'error', data: { error: 'Message content is required' } }));
+          ws.send(
+            JSON.stringify({ type: 'error', data: { error: 'Message content is required' } })
+          );
           return;
         }
 
@@ -224,7 +285,7 @@ export function setupChatWebSocket(
           // — no need to save user or assistant messages here.
 
           // Stream chat response with question handlers
-          const stream = client.stream(
+          const stream = interactionService.stream(
             {
               command: 'chat',
               payload: {
@@ -233,15 +294,27 @@ export function setupChatWebSocket(
                   message: message.content,
                   sessionId: sessionId ?? undefined,
                   ...message.options,
+                  oneShot: message.options?.oneShot ?? true,
                 },
               },
             },
             {
               signal: currentAbortController.signal,
-              questionConfirm: async (request: QuestionConfirmRequest) => {
-                const questionId = `q${++questionCounter}`;
-                return askQuestion(questionId, { kind: 'confirm', ...request });
-              },
+              questionConfirm: createQuestionHandler<QuestionConfirmRequest>('confirm') as (
+                request: QuestionConfirmRequest
+              ) => Promise<boolean>,
+              questionInput: createQuestionHandler<QuestionInputRequest>('input') as (
+                request: QuestionInputRequest
+              ) => Promise<string>,
+              questionSelect: createQuestionHandler<QuestionSelectRequest>('select') as (
+                request: QuestionSelectRequest
+              ) => Promise<string>,
+              questionPassword: createQuestionHandler<QuestionPasswordRequest>('password') as (
+                request: QuestionPasswordRequest
+              ) => Promise<string>,
+              questionChecklist: createQuestionHandler<QuestionChecklistRequest>('checklist') as (
+                request: QuestionChecklistRequest
+              ) => Promise<string[]>,
             }
           );
 
@@ -259,24 +332,28 @@ export function setupChatWebSocket(
             // Forward code-edit proposals to VS Code plugin
             if (event.kind === 'code_edit_proposal' && ideAdapter) {
               const e = event;
-              ideAdapter.notifyCodeEditProposal({
-                proposalId: e.proposalId ?? '',
-                agentName: e.agentName ?? agentId,
-                description: e.description ?? '',
-                files: (e.files ?? []).map((f) => ({
-                  filePath: f.filePath,
-                  oldContent: f.oldContent ?? '',
-                  newContent: f.newContent ?? '',
-                  additions: f.additions ?? 0,
-                  deletions: f.deletions ?? 0,
-                })),
-              }).catch(() => { /* best-effort */ });
+              ideAdapter
+                .notifyCodeEditProposal({
+                  proposalId: e.proposalId ?? '',
+                  agentName: e.agentName ?? agentId,
+                  description: e.description ?? '',
+                  files: (e.files ?? []).map((f) => ({
+                    filePath: f.filePath,
+                    oldContent: f.oldContent ?? '',
+                    newContent: f.newContent ?? '',
+                    additions: f.additions ?? 0,
+                    deletions: f.deletions ?? 0,
+                  })),
+                })
+                .catch(() => {
+                  /* best-effort */
+                });
             }
 
             // Send typed mediator event envelope to client
             const wsEvent: ChatWebSocketEvent = {
               type: 'mediator',
-              data: event as ChatMediatorEvent,
+              data: event as ChatStreamEvent,
             };
             ws.send(JSON.stringify(wsEvent));
           }
@@ -290,6 +367,91 @@ export function setupChatWebSocket(
         } finally {
           currentAbortController = null;
         }
+      }
+
+      if (message.type === 'summarize') {
+        if (!sessionId) {
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              data: { error: 'sessionId is required for summarize' },
+            })
+          );
+          return;
+        }
+        if (!message.noteId) {
+          ws.send(
+            JSON.stringify({ type: 'error', data: { error: 'noteId is required for summarize' } })
+          );
+          return;
+        }
+        if (!llmService) {
+          ws.send(JSON.stringify({ type: 'error', data: { error: 'LLM service not available' } }));
+          return;
+        }
+
+        ws.send(JSON.stringify({ type: 'ack' }));
+
+        if (currentAbortController) {
+          currentAbortController.abort();
+        }
+        pendingQuestions.forEach(({ reject }) => reject(new Error('New summarize started')));
+        pendingQuestions.clear();
+        currentAbortController = new AbortController();
+
+        try {
+          const send = (event: ChatStreamEvent) => {
+            if (!currentAbortController?.signal.aborted) {
+              ws.send(JSON.stringify({ type: 'mediator', data: event }));
+            }
+          };
+
+          await llmService.ensureInitialized();
+
+          if (message.operation === 'crawl') {
+            if (!message.websiteUrl) {
+              ws.send(
+                JSON.stringify({
+                  type: 'error',
+                  data: { error: 'websiteUrl is required for crawl operation' },
+                })
+              );
+              return;
+            }
+            send({ kind: 'status', status: 'Crawling website...' } as any);
+            const note = await sessionManager.summarizeWebsiteNoteAsync(
+              message.noteId,
+              llmService,
+              message.websiteUrl,
+              message.maxPages,
+              message.maxWords,
+              message.focusInstruction,
+              message.generateTitle === true
+            );
+            send({ kind: 'status', status: 'Done' } as any);
+            send({ kind: 'done', result: note } as any);
+          } else {
+            send({ kind: 'status', status: 'Summarizing note...' } as any);
+            const note = await sessionManager.compactNoteAsync(
+              message.noteId,
+              llmService,
+              message.maxWords,
+              message.focusInstruction,
+              message.generateTitle === true
+            );
+            send({ kind: 'status', status: 'Done' } as any);
+            send({ kind: 'done', result: note } as any);
+          }
+        } catch (error: any) {
+          if (error.name === 'AbortError' || currentAbortController?.signal.aborted) {
+            ws.send(JSON.stringify({ type: 'cancelled' }));
+          } else {
+            ws.send(JSON.stringify({ type: 'error', data: { error: error.message } }));
+          }
+        } finally {
+          currentAbortController = null;
+        }
+        return;
       }
     } catch (error: any) {
       ws.send(JSON.stringify({ type: 'error', data: { error: error.message } }));

@@ -19,7 +19,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { parseHandoffDirective, stripHandoffDirective } from '../commands/chat/index.js';
-import { sendTurn } from './send-turn.js';
+import { buildRetryableFailureMessage, sendTurn } from './send-turn.js';
 import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
 import type { OrchestratorContext } from './pipeline-context.js';
@@ -132,10 +132,18 @@ function makeCtx(llmResponse: string): { ctx: OrchestratorContext; appendMessage
       getSession: vi.fn().mockResolvedValue({ id: 'sess-emily-1', developerId: 'clemens' }),
     } as any,
     agentManager: {
-      recordInteraction: vi.fn().mockResolvedValue(undefined),
-      getAllAgents: vi.fn(() => knownAgents),
-      getAgent: vi.fn((id: string) => knownAgents.find((candidate) => candidate.id === id)),
-      resolveAgent: vi.fn((query: string) => {
+      recordInteractionAsync: vi.fn().mockResolvedValue(undefined),
+      getAllAgentsAsync: vi.fn(async () => knownAgents),
+      getAgent: (id: string) => knownAgents.find((candidate) => candidate.id === id),
+      getAgentAsync: vi.fn(async (id: string) => knownAgents.find((candidate) => candidate.id === id) ?? null),
+      resolveAgent: (query: string) => {
+        const normalized = query.trim().toLowerCase();
+        return knownAgents.filter((candidate) =>
+          candidate.id.toLowerCase() === normalized
+            || candidate.name.toLowerCase() === normalized,
+        );
+      },
+      resolveAgentAsync: vi.fn(async (query: string) => {
         const normalized = query.trim().toLowerCase();
         return knownAgents.filter((candidate) =>
           candidate.id.toLowerCase() === normalized
@@ -151,7 +159,6 @@ function makeCtx(llmResponse: string): { ctx: OrchestratorContext; appendMessage
         missingSkillNames: [],
       })),
     } as any,
-    contextManager: {} as any,
     llmService: {
       // send-turn uses streamChat (async generator, no tools path)
       streamChat: vi.fn(async function* (_agent: any, _msgs: any) {
@@ -355,6 +362,49 @@ describe('sendTurn — no directive (normal turn)', () => {
   });
 });
 
+describe('sendTurn — llm failure fallback', () => {
+  it('returns a retryable timeout message and persists it as archived when LLM invocation fails', async () => {
+    const { ctx, appendMessage } = makeCtx('unused');
+    (ctx.llmService as { streamChat: unknown }).streamChat = vi.fn(async () => {
+      throw new Error('LLM request timed out after 30s.');
+    });
+
+    const outputHandle = vi.fn(async () => {});
+    const plugins = {
+      ...makePlugins(),
+      outputHandler: { handle: outputHandle } as any,
+    };
+
+    const result = await sendTurn('hello', plugins, ctx);
+
+    expect(result.done).toBe(true);
+    expect(result.text).toBe("Sorry — I couldn't complete that request in time. Please try again.");
+    expect(outputHandle).toHaveBeenCalledOnce();
+
+    const persistedAgentMsg = appendMessage.mock.calls.find((call: unknown[]) => {
+      const msg = call[1] as ChatMessage | undefined;
+      return !!msg && !msg.isHuman && msg.to === 'human';
+    })?.[1] as ChatMessage | undefined;
+
+    expect(persistedAgentMsg?.content).toBe(
+      "Sorry — I couldn't complete that request in time. Please try again."
+    );
+    expect(persistedAgentMsg?.archived).toBe(true);
+  });
+});
+
+describe('buildRetryableFailureMessage', () => {
+  it('uses timeout-specific guidance for timeout errors', () => {
+    expect(buildRetryableFailureMessage('LLM request timed out after 30s.')).toContain(
+      "couldn't complete that request in time"
+    );
+  });
+
+  it('uses generic retry guidance for non-timeout errors', () => {
+    expect(buildRetryableFailureMessage('connection reset')).toContain('temporary issue');
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // sendTurn — spec path 3 (tool-calling path)
 //
@@ -437,8 +487,8 @@ function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
       getSession: vi.fn().mockResolvedValue({ id: 'sess-victor-1', developerId: 'clemens' }),
     } as any,
     agentManager: {
-      recordInteraction: vi.fn().mockResolvedValue(undefined),
-      getAllAgents: vi.fn(() => [agent]),
+      recordInteractionAsync: vi.fn().mockResolvedValue(undefined),
+      getAllAgentsAsync: vi.fn(async () => [agent]),
     } as any,
     skillManager: {
       resolveSkillsForAgent: vi.fn(() => ({
@@ -448,7 +498,6 @@ function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
         missingSkillNames: [],
       })),
     } as any,
-    contextManager: {} as any,
     llmService: {
       chatWithTools: chatWithToolsMock,
       streamChat: vi.fn(), // must NOT be called when tools are in play
@@ -529,6 +578,7 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
       'fs_read',
       { filePath: 'src/greet.ts' },
       expect.objectContaining({ workspaceRoot: '/workspace' }),
+      expect.any(Object),
     );
 
     // fs_apply_patch — called second with old/new file contents
@@ -543,6 +593,7 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
         ]),
       }),
       expect.objectContaining({ workspaceRoot: '/workspace' }),
+      expect.any(Object),
     );
 
     // ── Approval ────────────────────────────────────────────────────────────

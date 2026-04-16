@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Agent, AgentHandoff } from '../../types';
-import type { AiTeamHttpClient } from '@ai-team/api-client-http';
+import type { AiTeamHttpClient } from '@ai-team/api-client';
 import { Avatar } from '../Avatar';
 import { PortfolioSectionCard } from './portfolioShared';
 
@@ -27,9 +27,12 @@ export function PortfolioHandoffsSection({
     setGenerating(handoff.agent);
     setGenerateError(null);
     try {
-      const { prompt } = await client.generateHandoffPrompt(agentId, handoff.agent);
+      const { prompt } = (await client.agents.generateHandoffPrompt(
+        agentId,
+        { targetAgentId: handoff.agent },
+      )) as { prompt: string };
       const updated = handoffs.map((h) =>
-        h.agent === handoff.agent && h.label === handoff.label ? { ...h, prompt } : h,
+        h.agent === handoff.agent && h.label === handoff.label ? { ...h, prompt } : h
       );
       await onSave(updated);
     } catch (e: any) {
@@ -56,9 +59,7 @@ export function PortfolioHandoffsSection({
                   <span className="collab-view-name">{agent?.name ?? entry.agent}</span>
                   {agent?.role && <span className="collab-view-role">{agent.role}</span>}
                   <p className="collab-view-comment">{entry.label}</p>
-                  {entry.prompt && (
-                    <p className="collab-view-prompt">{entry.prompt}</p>
-                  )}
+                  {entry.prompt && <p className="collab-view-prompt">{entry.prompt}</p>}
                   <button
                     className="btn-generate-handoff"
                     onClick={() => handleGenerate(entry)}
@@ -66,9 +67,13 @@ export function PortfolioHandoffsSection({
                     title="Generate handoff prompt using AI"
                   >
                     {isGenerating ? (
-                      <><i className="codicon codicon-loading codicon-modifier-spin" /> Generating…</>
+                      <>
+                        <i className="codicon codicon-loading codicon-modifier-spin" /> Generating…
+                      </>
                     ) : (
-                      <><i className="codicon codicon-sparkle" /> Generate prompt</>
+                      <>
+                        <i className="codicon codicon-sparkle" /> Generate prompt
+                      </>
                     )}
                   </button>
                 </div>

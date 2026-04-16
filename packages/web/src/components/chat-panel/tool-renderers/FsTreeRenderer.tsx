@@ -6,15 +6,62 @@ interface TreeNode {
   name?: string;
   isDirectory?: boolean;
   children?: TreeNode[];
+  rights?: {
+    l?: boolean;
+    r?: boolean;
+    w?: boolean;
+  };
+}
+
+function renderRights(node: TreeNode): ReactNode {
+  const rights = node.rights;
+  if (!rights) return null;
+
+  return (
+    <span className="tc-tree-rights" aria-label="permissions">
+      {rights.l ? (
+        <span className="tc-tree-right tc-tree-right--list" title="Listable">
+          L
+        </span>
+      ) : null}
+      {rights.r ? (
+        <span className="tc-tree-right tc-tree-right--read" title="Readable">
+          R
+        </span>
+      ) : null}
+      {rights.w ? (
+        <span className="tc-tree-right tc-tree-right--write" title="Writable">
+          W
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 function renderNode(node: TreeNode, depth: number, idx: string): ReactNode {
-  const pad = '\u00a0\u00a0'.repeat(depth);
   const icon = node.isDirectory ? '📁' : '📄';
+  const label = (
+    <>
+      <span>{icon}</span>
+      <span>{node.name ?? '…'}</span>
+      {renderRights(node)}
+    </>
+  );
+
+  if (node.isDirectory) {
+    return (
+      <details key={idx} className="tc-tree-node-details" open={depth < 2}>
+        <summary className="tc-tree-node-summary">{label}</summary>
+        <div className="tc-tree-children">
+          {node.children?.map((child, i) => renderNode(child, depth + 1, `${idx}-${i}`))}
+        </div>
+      </details>
+    );
+  }
+
   return (
-    <div key={idx} className="tc-tree-node">
-      <span>{pad}{icon} {node.name ?? '…'}</span>
-      {node.children?.map((child, i) => renderNode(child, depth + 1, `${idx}-${i}`))}
+    <div key={idx} className="tc-tree-node tc-tree-node--file">
+      {label}
     </div>
   );
 }

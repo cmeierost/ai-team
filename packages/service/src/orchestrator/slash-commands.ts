@@ -10,7 +10,7 @@ import { exec } from 'node:child_process';
 import type { ISlashCommand } from './pipeline.js';
 import type { OrchestratorContext, NavStackEntry } from './pipeline-context.js';
 import { emitLog } from './stream-events.js';
-import { requestConfirm } from './question-io.js';
+
 import { developerNameToId } from '../utils/git.js';
 
 const execAsync = promisify(exec);
@@ -37,12 +37,11 @@ export interface ChatCommandRegistryEntry {
 
 export function buildDefaultSlashCommands(): ISlashCommand[] {
   return [
-
     // ── Meta ───────────────────────────────────────────────────────────────────
     {
       key: 'help',
       description: 'Show this help',
-      execute: async function(_args, ctx) {
+      execute: async function (_args, ctx) {
         const cmds = buildDefaultSlashCommands();
         const lines = ['\nAvailable commands:\n'];
         for (const c of cmds) {
@@ -68,9 +67,211 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
 
     {
       key: 'session',
-      description: 'Show session ID',
+      usage: '/session [messages|graph|context]',
+      description: 'Show session info; subcommands: messages, graph, context',
       llmCallable: false,
-      execute: async (_args, ctx) => write(ctx, ctx.sessionId),
+      execute: async (args, ctx) => {
+        const sub = args.trim().toLowerCase();
+
+        // ── /session messages ─────────────────────────────────────────────
+        if (sub === 'messages') {
+          const msgs = ctx.history;
+          if (msgs.length === 0) {
+            write(ctx, 'No messages in this session.');
+            return;
+          }
+          write(ctx, `\n─── Session messages (${msgs.length}) ─────────────────────────────`);
+          for (let i = 0; i < msgs.length; i++) {
+            const m = msgs[i];
+            const who = m.isHuman ? 'You' : (m.from ?? 'agent');
+            const ts = m.timestamp ? new Date(m.timestamp).toLocaleString() : '?';
+            const toolSuffix = m.tool_calls?.length ? ` [${m.tool_calls.length} tool call(s)]` : '';
+            write(ctx, `[${i + 1}] ${ts}  ${who}${toolSuffix}`);
+            write(ctx, `    ${String(m.content).replaceAll('\n', ' ').slice(0, 200)}`);
+          }
+          write(ctx, '──────────────────────────────────────────────────────────\n');
+          return;
+        }
+
+        // ── /session graph ────────────────────────────────────────────────
+        if (sub === 'graph') {
+          let chain: import('@ai-team/core').ChatSession[];
+          try {
+            chain = await ctx.sessionManager.getSessionChain(ctx.sessionId);
+          } catch {
+            write(ctx, 'Failed to load session chain.');
+            return;
+          }
+
+          if (chain.length === 0) {
+            write(ctx, 'No session chain found.');
+            return;
+          }
+
+          write(ctx, '\n─── Session handoff graph ──────────────────────────────────');
+          const childrenOf = new Map<string, import('@ai-team/core').ChatSession[]>();
+          for (const s of chain) {
+            if (s.previousSessionId) {
+              const kids = childrenOf.get(s.previousSessionId) ?? [];
+              kids.push(s);
+              childrenOf.set(s.previousSessionId, kids);
+            }
+          }
+
+          const roots = chain.filter((s) => !s.previousSessionId);
+
+          function printSessionNode(s: import('@ai-team/core').ChatSession, indent: number): void {
+            const prefix = '  '.repeat(indent);
+            const marker = s.id === ctx.sessionId ? ' ← current' : '';
+            const agentLabel = (s.agentIds?.length ? s.agentIds : [s.agentId])
+              .filter(Boolean)
+              .join(', ');
+            const msgCount = s.messageCount ?? '?';
+            const lastActivity = s.lastActivityAt
+              ? new Date(s.lastActivityAt).toLocaleString()
+              : '?';
+            write(
+              ctx,
+              `${prefix}${s.id.slice(0, 8)}…  agent: ${agentLabel}  msgs: ${msgCount}  last: ${lastActivity}${marker}`
+            );
+            for (const child of childrenOf.get(s.id) ?? []) {
+              printSessionNode(child, indent + 1);
+            }
+          }
+
+          for (const root of roots) {
+            printSessionNode(root, 0);
+          }
+          write(ctx, '──────────────────────────────────────────────────────────\n');
+          return;
+        }
+
+        // ── /session context ──────────────────────────────────────────────
+        if (sub === 'context') {
+          const { MetaService } = await import('../routers/meta-service.js');
+          const { loadEffectiveConfig, getEffectiveContextWindow } =
+            await import('@ai-team/infrastructure');
+          const metaService = new MetaService(
+            ctx.agentManager,
+            ctx.sessionManager,
+            ctx.skillManager,
+            ctx.toolManager
+          );
+          let estimate: import('../routers/meta-service.js').ContextEstimateResponse;
+          try {
+            estimate = (await metaService.getContextEstimate(ctx.agent.id, {
+              sessionId: ctx.sessionId,
+            })) as import('../routers/meta-service.js').ContextEstimateResponse;
+          } catch (err) {
+            write(
+              ctx,
+              `Failed to estimate context: ${err instanceof Error ? err.message : String(err)}`
+            );
+            return;
+          }
+
+          // Resolve active model name and its context window (in tokens).
+          // chars ÷ 4 is the standard approximation for token count.
+          let modelName: string | undefined;
+          let contextWindowTokens: number | undefined;
+          try {
+            await ctx.llmService.initializeForChat(ctx.agent);
+            modelName = ctx.llmService.modelName;
+            const teamConfig = await loadEffectiveConfig(ctx.workspaceRoot);
+            if (teamConfig) {
+              const registry = (teamConfig as any).providers as
+                | Record<
+                    string,
+                    {
+                      contextWindow?: number;
+                      models?: Array<{ name: string; contextWindow?: number }>;
+                    }
+                  >
+                | undefined;
+              if (registry) {
+                for (const providerCfg of Object.values(registry)) {
+                  const w = getEffectiveContextWindow(providerCfg, modelName);
+                  if (w !== undefined) {
+                    contextWindowTokens = w;
+                    break;
+                  }
+                }
+              }
+            }
+          } catch {
+            // model info unavailable — show estimate only
+          }
+
+          const kb = (n: number) => `${(n / 1000).toFixed(1)}k`;
+          const pct = (part: number, total: number) => `${Math.round((part / total) * 100)}%`;
+
+          // Summarise segments into groups
+          // Exclude message/tool segments (shown separately) and session_skills (shown on their own line)
+          const systemChars = estimate.segments
+            .filter((x) => !['messages', 'tool_results', 'session_skills'].includes(x.key))
+            .reduce((s, x) => s + x.chars, 0);
+          const msgChars = estimate.messages.reduce((s, m) => s + m.chars + m.toolChars, 0);
+          const skillChars = estimate.sessionSkills
+            .filter((s) => !s.paused)
+            .reduce((s, sk) => s + sk.chars, 0);
+          const total = estimate.totalChars;
+
+          write(ctx, '\n─── Context estimate ───────────────────────────────────────');
+          write(
+            ctx,
+            `  System prompt   ${kb(systemChars).padStart(7)}  (${pct(systemChars, total)})`
+          );
+          if (skillChars > 0) {
+            write(
+              ctx,
+              `  Session skills  ${kb(skillChars).padStart(7)}  (${pct(skillChars, total)})`
+            );
+          }
+          if (msgChars > 0) {
+            const toolCharsTotal = estimate.messages.reduce((s, m) => s + m.toolChars, 0);
+            const msgNote = toolCharsTotal > 0 ? `  incl. ${kb(toolCharsTotal)} tool data` : '';
+            write(
+              ctx,
+              `  Messages        ${kb(msgChars).padStart(7)}  (${pct(msgChars, total)})${msgNote}`
+            );
+          }
+          write(ctx, `  ${'─'.repeat(44)}`);
+          write(
+            ctx,
+            `  Total           ${kb(total).padStart(7)}  (~${Math.round(total / 4).toLocaleString()} tokens)`
+          );
+
+          if (contextWindowTokens !== undefined && modelName) {
+            const usedTokens = Math.round(total / 4);
+            const freeTokens = contextWindowTokens - usedTokens;
+            const usedPct = Math.round((usedTokens / contextWindowTokens) * 100);
+            const freePct = 100 - usedPct;
+            write(ctx, '');
+            write(ctx, `  Model           ${modelName}`);
+            write(ctx, `  Window          ${(contextWindowTokens / 1000).toFixed(0)}k tokens`);
+            write(ctx, `  Used            ${(usedTokens / 1000).toFixed(1)}k  (${usedPct}%)`);
+            write(ctx, `  Free            ${(freeTokens / 1000).toFixed(1)}k  (${freePct}%)`);
+          }
+          write(ctx, '──────────────────────────────────────────────────────────\n');
+          return;
+        }
+
+        // ── /session (default: info) ──────────────────────────────────────
+        const session = await ctx.sessionManager.getSession(ctx.sessionId);
+        const msgs = ctx.history;
+        const toolCallCount = msgs.reduce((n, m) => n + (m.tool_calls?.length ?? 0), 0);
+        const lastMsg = msgs.at(-1);
+        const lastMsgTime = lastMsg?.timestamp
+          ? new Date(lastMsg.timestamp).toLocaleString()
+          : 'none';
+        const title = session?.title ?? '(untitled)';
+
+        write(ctx, `\nSession  : ${ctx.sessionId}`);
+        write(ctx, `Title    : ${title}`);
+        write(ctx, `Messages : ${msgs.length}`);
+        write(ctx, `Tool calls: ${toolCallCount}`);
+        write(ctx, `Last msg : ${lastMsgTime}\n`);
+      },
     },
 
     // ── Session management ─────────────────────────────────────────────────────
@@ -84,6 +285,8 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
         (ctx as any).sessionId = fresh.id;
         (ctx as any).history = [];
         write(ctx, `New session started: ${fresh.id}`);
+        emitLog(ctx.hooks, 'info', `[session_switched] ${fresh.id}`);
+        ctx.hooks?.emit?.({ kind: 'session_switched', sessionId: fresh.id });
       },
     },
 
@@ -97,7 +300,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           ctx.agent,
           'team_list',
           {},
-          { agentId: ctx.agent.id, workspaceRoot: ctx.workspaceRoot },
+          { agentId: ctx.agent.id, workspaceRoot: ctx.workspaceRoot }
         );
 
         if (!result.ok) {
@@ -109,7 +312,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           members?: Array<{ agentId: string; agentName: string; agentRole: string }>;
         };
         const members = payload.members ?? [];
-        if (members.length === 0) { write(ctx, 'No agents found.'); return; }
+        if (members.length === 0) {
+          write(ctx, 'No agents found.');
+          return;
+        }
 
         write(ctx, '\nTeam members:');
         for (const member of members) {
@@ -127,22 +333,31 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       llmCallable: false,
       execute: async (args, ctx) => {
         const query = args.trim();
-        if (!query) { write(ctx, 'Usage: /chat <name|role>'); return; }
+        if (!query) {
+          write(ctx, 'Usage: /chat <name|role>');
+          return;
+        }
 
-        const matches = ctx.agentManager.resolveAgent(query);
-        if (matches.length === 0) { write(ctx, `No agent found matching: "${query}"`); return; }
+        const matches = await ctx.agentManager.resolveAgentAsync(query);
+        if (matches.length === 0) {
+          write(ctx, `No agent found matching: "${query}"`);
+          return;
+        }
 
-        const target = matches.find(a => a.id !== ctx.agent.id) ?? matches[0];
-        if (target.id === ctx.agent.id) { write(ctx, `Already talking to ${ctx.agent.name}.`); return; }
+        const target = matches.find((a) => a.id !== ctx.agent.id) ?? matches[0];
+        if (target.id === ctx.agent.id) {
+          write(ctx, `Already talking to ${ctx.agent.name}.`);
+          return;
+        }
 
         const current = await ctx.sessionManager.getSession(ctx.sessionId);
-        const devId   = (current as any)?.developerId ?? developerNameToId('developer');
-        const ts      = await ctx.sessionManager.getOrCreateLatestSession(target.id, devId);
-        const hist    = await ctx.sessionManager.getSessionMessages(ts.id);
+        const devId = (current as any)?.developerId ?? developerNameToId('developer');
+        const ts = await ctx.sessionManager.getOrCreateLatestSession(target.id, devId);
+        const hist = await ctx.sessionManager.getSessionMessages(ts.id);
 
-        (ctx as any).agent     = target;
+        (ctx as any).agent = target;
         (ctx as any).sessionId = ts.id;
-        (ctx as any).history   = hist;
+        (ctx as any).history = hist;
         write(ctx, `\nSwitched to ${target.name} (${target.role})\n`);
       },
     },
@@ -155,12 +370,15 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       llmCallable: false,
       execute: async (args, ctx) => {
         const limit = parseInt(args.trim(), 10) || 20;
-        const msgs  = ctx.history.slice(-limit);
-        if (msgs.length === 0) { write(ctx, 'No messages in this session.'); return; }
+        const msgs = ctx.history.slice(-limit);
+        if (msgs.length === 0) {
+          write(ctx, 'No messages in this session.');
+          return;
+        }
         write(ctx, `\n─── Last ${msgs.length} messages ─────────────────────────────────`);
         for (const m of msgs) {
           const who = m.isHuman ? 'You' : ctx.agent.name;
-          const ts  = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '?';
+          const ts = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '?';
           write(ctx, `[${ts}] ${who}: ${String(m.content).slice(0, 300)}`);
         }
         write(ctx, '──────────────────────────────────────────────────────────\n');
@@ -176,7 +394,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       execute: async (_args, ctx) => {
         const a = ctx.agent;
         write(ctx, `\n${a.name} (${a.role}).`);
-        if ((a as any).bio)   write(ctx, '\n' + (a as any).bio);
+        if ((a as any).bio) write(ctx, '\n' + (a as any).bio);
         if ((a as any).tools?.length) write(ctx, '\nTools: ' + (a as any).tools.join(', '));
         write(ctx, '');
       },
@@ -189,12 +407,18 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       llmCallable: true,
       execute: async (args, ctx) => {
         const query = args.trim();
-        if (!query) { write(ctx, 'Usage: /info <name|role>'); return; }
-        const agents = ctx.agentManager.resolveAgent(query);
-        if (agents.length === 0) { write(ctx, `No agent found matching: "${query}"`); return; }
+        if (!query) {
+          write(ctx, 'Usage: /info <name|role>');
+          return;
+        }
+        const agents = await ctx.agentManager.resolveAgentAsync(query);
+        if (agents.length === 0) {
+          write(ctx, `No agent found matching: "${query}"`);
+          return;
+        }
         for (const a of agents) {
           write(ctx, `\n${a.name} (${a.role}) [${a.id}]`);
-          if ((a as any).bio)   write(ctx, (a as any).bio);
+          if ((a as any).bio) write(ctx, (a as any).bio);
           if ((a as any).tools?.length) write(ctx, 'Tools: ' + (a as any).tools.join(', '));
         }
         write(ctx, '');
@@ -209,7 +433,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       execute: async (_args, ctx) => {
         const { hireCommand } = await import('../commands/hire.js');
         await hireCommand(ctx.workspaceRoot, {});
-        await ctx.agentManager.loadAllAgents();
+        await ctx.agentManager.refreshAsync();
       },
     },
 
@@ -219,10 +443,13 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       description: 'Interactive: remove a team member',
       llmCallable: true,
       execute: async (args, ctx) => {
-        if (!args.trim()) { write(ctx, 'Usage: /fire <name|id>'); return; }
+        if (!args.trim()) {
+          write(ctx, 'Usage: /fire <name|id>');
+          return;
+        }
         const { fireCommand } = await import('../commands/fire.js');
         await fireCommand(ctx.workspaceRoot, args.trim(), {});
-        await ctx.agentManager.loadAllAgents();
+        await ctx.agentManager.refreshAsync();
       },
     },
 
@@ -235,7 +462,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
         const type = (args.trim() || 'agent').split(/\s+/)[0];
         const { createCommand } = await import('../commands/create.js');
         await createCommand(ctx.workspaceRoot, type, { interactive: true });
-        await ctx.agentManager.loadAllAgents();
+        await ctx.agentManager.refreshAsync();
       },
     },
 
@@ -246,7 +473,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       execute: async (_args, ctx) => {
         const { initCommand } = await import('../commands/init.js');
         await initCommand(ctx.workspaceRoot, {});
-        await ctx.agentManager.loadAllAgents();
+        await ctx.agentManager.refreshAsync();
       },
     },
 
@@ -257,7 +484,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       llmCallable: true,
       execute: async (args, ctx) => {
         const sub = args.trim().toLowerCase();
-        if (sub !== 'refresh') { write(ctx, 'Usage: /hh refresh'); return; }
+        if (sub !== 'refresh') {
+          write(ctx, 'Usage: /hh refresh');
+          return;
+        }
         const { hhRefreshCommand } = await import('../commands/hh.js');
         await (hhRefreshCommand as (wr: string) => Promise<void>)(ctx.workspaceRoot);
       },
@@ -301,11 +531,18 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       execute: async (_args, ctx) => {
         try {
           const { getTeamGraphCommand } = await import('../commands/graph.js');
-          const g = await (getTeamGraphCommand as (wr: string, type: string) => Promise<{ nodes: unknown[]; edges: unknown[] }>)
-            (ctx.workspaceRoot, 'hierarchy');
+          const g = await (
+            getTeamGraphCommand as (
+              wr: string,
+              type: string
+            ) => Promise<{ nodes: unknown[]; edges: unknown[] }>
+          )(ctx.workspaceRoot, 'hierarchy');
           write(ctx, `\nTeam graph — ${g.nodes.length} nodes, ${g.edges.length} edges\n`);
         } catch (err) {
-          write(ctx, `Failed to generate graph: ${err instanceof Error ? err.message : String(err)}`);
+          write(
+            ctx,
+            `Failed to generate graph: ${err instanceof Error ? err.message : String(err)}`
+          );
         }
       },
     },
@@ -318,13 +555,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       description: 'Run a shell command → shared with agent',
       llmCallable: false,
       execute: async (args, ctx) => {
-        if (!args.trim()) { write(ctx, 'Usage: /run <command>'); return; }
-
-        const ok = await requestConfirm(ctx.hooks, {
-          message: `Run: ${args.trim()}?`,
-          default: false,
-        });
-        if (!ok) { write(ctx, 'Aborted.'); return; }
+        if (!args.trim()) {
+          write(ctx, 'Usage: /run <command>');
+          return;
+        }
 
         write(ctx, `\n$ ${args.trim()}`);
         try {
@@ -334,17 +568,15 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           });
           const out = [stdout.trim(), stderr.trim()].filter(Boolean).join('\n\n') || '(no output)';
           write(ctx, out);
-
-          const sysMsg = {
-            timestamp: new Date().toISOString(),
-            from: 'system' as const,
-            content: `Tool Output (shell: ${args.trim()}):\n${out.slice(0, 4_000)}`,
-          };
-          await ctx.sessionManager.appendMessage(ctx.sessionId, sysMsg);
-          ctx.history.push(sysMsg);
+          ctx.lastManualOutput = `Shell: ${args.trim()}\n\n${out}`;
+          write(ctx, '\n(Result not in context — use /context add to include it.)');
         } catch (err: any) {
-          const out = [err.stdout?.trim(), err.stderr?.trim(), err.message].filter(Boolean).join('\n');
+          const out = [err.stdout?.trim(), err.stderr?.trim(), err.message]
+            .filter(Boolean)
+            .join('\n');
           write(ctx, `Command failed:\n${out}`);
+          ctx.lastManualOutput = `Shell: ${args.trim()}\n\nCommand failed:\n${out}`;
+          write(ctx, '\n(Result not in context — use /context add to include it.)');
         }
       },
     },
@@ -375,28 +607,32 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           try {
             parsedArgs = JSON.parse(rawJson);
           } catch (error) {
-            write(ctx, `Invalid JSON args: ${error instanceof Error ? error.message : String(error)}`);
+            write(
+              ctx,
+              `Invalid JSON args: ${error instanceof Error ? error.message : String(error)}`
+            );
             return;
           }
         }
 
-        const result = await ctx.toolManager.execute(
-          ctx.agent,
-          toolName,
-          parsedArgs,
-          { agentId: ctx.agent.id, workspaceRoot: ctx.workspaceRoot },
-        );
+        const result = await ctx.toolManager.execute(ctx.agent, toolName, parsedArgs, {
+          agentId: ctx.agent.id,
+          workspaceRoot: ctx.workspaceRoot,
+        });
 
         if (!result.ok) {
           write(ctx, `Tool failed (${toolName}): ${result.error ?? 'unknown error'}`);
           return;
         }
 
-        const pretty = typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result, null, 2);
+        const pretty =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result, null, 2);
 
         write(ctx, `\nTool result (${toolName}):\n${pretty}`);
+        ctx.lastManualOutput = `Tool: ${toolName}\n\n${pretty}`;
+        write(ctx, '\n(Result not in context — use /context add to include it.)');
       },
     },
     // ── Navigation ──────────────────────────────────────────────────────────────
@@ -411,7 +647,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           return;
         }
         const prev = navStack.pop()!;
-        const prevAgent = ctx.agentManager.getAgent(prev.agentId);
+        const prevAgent = await ctx.agentManager.getAgentAsync(prev.agentId);
         if (!prevAgent) {
           emitLog(ctx.hooks, 'warn', `Previous agent ${prev.agentId} no longer found.`);
           return;
@@ -424,6 +660,291 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       },
     },
 
+    // ── Manual context control ────────────────────────────────────────────────
+    {
+      key: 'context',
+      usage:
+        '/context add [--message <id>] [--summarized [instruction]] | /context remove [--message <id>] | /context list | /context summarize [--message <id>] [--instruction <text>]',
+      description:
+        'Manage LLM context visibility for persisted messages and tool results (hide/unhide/list/summarize)',
+      llmCallable: false,
+      execute: async (args, ctx) => {
+        const tokenRegex = /"([^"]*)"|'([^']*)'|(\S+)/g;
+        const tokens: string[] = [];
+        let match = tokenRegex.exec(args);
+        while (match) {
+          tokens.push(match[1] ?? match[2] ?? match[3]);
+          match = tokenRegex.exec(args);
+        }
+
+        const first = tokens[0]?.toLowerCase();
+        const subCmd: 'add' | 'remove' | 'list' | 'summarize' =
+          first === 'add' || first === 'remove' || first === 'list' || first === 'summarize'
+            ? first
+            : 'add';
+        const argStart = first === subCmd ? 1 : 0;
+
+        let messageId: number | undefined;
+        let addSummaryInstruction: string | undefined;
+        let summarizeInstruction: string | undefined;
+        const positional: string[] = [];
+
+        for (let i = argStart; i < tokens.length; i++) {
+          const token = tokens[i];
+          if (token === '--message') {
+            const next = tokens[i + 1];
+            const parsed = Number.parseInt(next ?? '', 10);
+            if (!Number.isFinite(parsed)) {
+              write(ctx, 'Invalid --message value. Provide a numeric message id.');
+              return;
+            }
+            messageId = parsed;
+            i += 1;
+            continue;
+          }
+          if (token === '--summarized') {
+            const next = tokens[i + 1];
+            if (next && !next.startsWith('--')) {
+              addSummaryInstruction = next;
+              i += 1;
+            } else {
+              addSummaryInstruction = '';
+            }
+            continue;
+          }
+          if (token === '--instruction') {
+            const next = tokens[i + 1];
+            if (!next || next.startsWith('--')) {
+              write(ctx, 'Missing value for --instruction.');
+              return;
+            }
+            summarizeInstruction = next;
+            i += 1;
+            continue;
+          }
+          positional.push(token);
+        }
+
+        const allMessages = await ctx.sessionManager.listSessionMessages(ctx.sessionId);
+
+        const resolveTargetMessage = (): import('@ai-team/core').ChatMessage | undefined => {
+          if (messageId !== undefined) {
+            return allMessages.find((m) => m.id === messageId);
+          }
+
+          if (subCmd === 'add') {
+            return [...allMessages]
+              .reverse()
+              .find((m) => !m.isHuman && !m.archived && m.hiddenFromLlm === true);
+          }
+          if (subCmd === 'remove') {
+            return [...allMessages]
+              .reverse()
+              .find((m) => !m.isHuman && !m.archived && m.hiddenFromLlm !== true);
+          }
+          if (subCmd === 'summarize') {
+            return [...allMessages].reverse().find((m) => !m.isHuman && !m.archived);
+          }
+          return undefined;
+        };
+
+        if (subCmd === 'list') {
+          if (allMessages.length === 0) {
+            write(ctx, 'No persisted messages in this session yet.');
+            return;
+          }
+
+          write(
+            ctx,
+            `\n─── Context messages (${allMessages.length}) ─────────────────────────────`
+          );
+          for (const m of allMessages) {
+            const who = m.isHuman ? 'You' : (m.from ?? 'agent');
+            const hiddenLabel = m.hiddenFromLlm ? 'hidden' : 'visible';
+            const archivedLabel = m.archived ? 'archived' : 'active';
+            const toolCount = m.tool_calls?.length ?? 0;
+            const ts = m.timestamp ? new Date(m.timestamp).toLocaleString() : '?';
+            write(
+              ctx,
+              `#${m.id ?? '?'}  ${ts}  ${who}  [${hiddenLabel}, ${archivedLabel}]${toolCount > 0 ? `  tools:${toolCount}` : ''}`
+            );
+            write(ctx, `    ${String(m.content).replaceAll('\n', ' ').slice(0, 180)}`);
+            if (toolCount > 0) {
+              for (const tc of m.tool_calls ?? []) {
+                write(ctx, `    ↳ toolCall#${tc.id ?? '?'} ${tc.tool}`);
+              }
+            }
+          }
+          write(ctx, '──────────────────────────────────────────────────────────\n');
+          return;
+        }
+
+        const target = resolveTargetMessage();
+        if (!target || target.id == null) {
+          write(
+            ctx,
+            messageId !== undefined
+              ? `Message #${messageId} was not found in this session.`
+              : 'No matching message found for this operation.'
+          );
+          return;
+        }
+        const targetId = target.id;
+
+        const summarizeTargetAsync = async (instruction?: string): Promise<string> => {
+          const toolCall = [...(target.tool_calls ?? [])].reverse().find((tc) => tc.id != null);
+          const sourceText = toolCall
+            ? (toolCall.resultLlm ??
+              (toolCall.result != null ? JSON.stringify(toolCall.result, null, 2) : target.content))
+            : target.content;
+
+          const clipped =
+            sourceText.length > 24_000
+              ? `${sourceText.slice(0, 24_000)}\n...[clipped]`
+              : sourceText;
+
+          const summary = await ctx.sessionManager.summarizeForContextAsync(
+            ctx.llmService,
+            clipped,
+            200,
+            instruction?.trim() || undefined
+          );
+
+          if (toolCall?.id != null) {
+            await ctx.sessionManager.updateToolCallLlmResult(toolCall.id, summary.trim());
+          } else {
+            await ctx.sessionManager.updateMessageContent(targetId, summary.trim());
+          }
+
+          return summary.trim();
+        };
+
+        if (subCmd === 'remove') {
+          if (target.hiddenFromLlm) {
+            write(ctx, `Message #${targetId} is already hidden from LLM context.`);
+            return;
+          }
+          await ctx.sessionManager.setMessageHiddenFromLlm(targetId, true);
+          ctx.history = await ctx.sessionManager.getSessionMessages(ctx.sessionId);
+          write(ctx, `Message #${targetId} is now hidden from LLM context.`);
+          return;
+        }
+
+        if (subCmd === 'summarize') {
+          const positionalInstruction = positional.join(' ').trim();
+          const instruction = (summarizeInstruction ?? positionalInstruction) || undefined;
+          const summary = await summarizeTargetAsync(instruction);
+          ctx.history = await ctx.sessionManager.getSessionMessages(ctx.sessionId);
+          write(ctx, `Summary saved for message #${targetId}:\n\n${summary}`);
+          return;
+        }
+
+        // subCmd === 'add'
+        if (addSummaryInstruction !== undefined) {
+          const fallbackInstruction = positional.join(' ').trim();
+          const summary = await summarizeTargetAsync(
+            addSummaryInstruction || fallbackInstruction || undefined
+          );
+          await ctx.sessionManager.setMessageHiddenFromLlm(targetId, false);
+          ctx.history = await ctx.sessionManager.getSessionMessages(ctx.sessionId);
+          write(ctx, `Message #${targetId} added to LLM context with summary:\n\n${summary}`);
+          return;
+        }
+
+        if (target.hiddenFromLlm !== true) {
+          write(ctx, `Message #${targetId} is already included in LLM context.`);
+          return;
+        }
+
+        await ctx.sessionManager.setMessageHiddenFromLlm(targetId, false);
+        ctx.history = await ctx.sessionManager.getSessionMessages(ctx.sessionId);
+        write(ctx, `Message #${targetId} added back to LLM context.`);
+      },
+    },
+
+    // ── Tool inspection ────────────────────────────────────────────────────────
+    {
+      key: 'inspect',
+      usage: '/inspect [n]',
+      description: 'Inspect raw tool-call results from this session (select from list)',
+      llmCallable: false,
+      execute: async (args, ctx) => {
+        // Collect all tool calls from session history, oldest-first
+        type IndexedToolCall = {
+          msgTimestamp: string;
+          toolName: string;
+          params: Record<string, unknown>;
+          result: unknown;
+          resultLlm: string | undefined;
+          idx: number;
+        };
+
+        const allCalls: IndexedToolCall[] = [];
+        for (const msg of ctx.history) {
+          if (!msg.tool_calls?.length) continue;
+          for (const tc of msg.tool_calls) {
+            allCalls.push({
+              msgTimestamp: msg.timestamp,
+              toolName: tc.tool,
+              params: tc.params,
+              result: tc.result,
+              resultLlm: tc.resultLlm,
+              idx: allCalls.length,
+            });
+          }
+        }
+
+        if (allCalls.length === 0) {
+          write(ctx, 'No tool calls found in this session.');
+          return;
+        }
+
+        // If a numeric index was provided, skip the selection step
+        const argNum = parseInt(args.trim(), 10);
+        let selected: IndexedToolCall;
+
+        if (!isNaN(argNum) && argNum >= 1 && argNum <= allCalls.length) {
+          selected = allCalls[argNum - 1];
+        } else if (ctx.hooks.questionSelect) {
+          const choices = allCalls.map((tc, i) => ({
+            name: `${i + 1}) ${tc.toolName}  [${new Date(tc.msgTimestamp).toLocaleTimeString()}]`,
+            value: String(i),
+          }));
+
+          const picked = await ctx.hooks.questionSelect({
+            message: `Select a tool call to inspect (${allCalls.length} total):`,
+            choices,
+            default: '0',
+          });
+          selected = allCalls[parseInt(picked, 10)];
+        } else {
+          // fallback: show the latest one
+          selected = allCalls[allCalls.length - 1];
+        }
+
+        if (!selected) {
+          write(ctx, 'Invalid selection.');
+          return;
+        }
+
+        const formatJson = (v: unknown): string => {
+          try {
+            return JSON.stringify(v, null, 2);
+          } catch {
+            return String(v);
+          }
+        };
+
+        write(
+          ctx,
+          `\n─── Tool call #${selected.idx + 1}: ${selected.toolName} ────────────────────`
+        );
+        write(ctx, `Params:\n${formatJson(selected.params)}`);
+        write(ctx, `\nResult (LLM context):\n${formatJson(selected.resultLlm ?? selected.result)}`);
+        write(ctx, `\nResult (raw):\n${formatJson(selected.result)}`);
+        write(ctx, '─────────────────────────────────────────────────────────────\n');
+      },
+    },
   ];
 }
 
@@ -437,7 +958,7 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
  */
 export function buildChatCommandRegistry(): ChatCommandRegistryEntry[] {
   const cmds = buildDefaultSlashCommands();
-  const entries: ChatCommandRegistryEntry[] = cmds.map(c => ({
+  const entries: ChatCommandRegistryEntry[] = cmds.map((c) => ({
     key: c.key,
     usage: c.usage ?? `/${c.key}`,
     description: c.description,
@@ -461,4 +982,3 @@ export function buildChatCommandAliases(): Record<string, string> {
   }
   return result;
 }
-

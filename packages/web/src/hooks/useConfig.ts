@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { API_BASE } from '../context/TeamContext';
+import { useTeam } from '../context/TeamContext';
 
 export interface LlmProviderConfig {
-  kind: string;
+  kind: 'github-copilot' | 'openai-compatible';
   defaultModel?: string;
   models?: Array<{
     name: string;
@@ -24,7 +24,7 @@ export interface LlmProviderConfig {
 
 /** Clean provider connection info stored in config.user.json */
 export interface ProviderConfig {
-  kind: string;
+  kind: 'github-copilot' | 'openai-compatible';
   defaultModel?: string;
   models?: Array<{
     name: string;
@@ -73,11 +73,15 @@ export interface UserConfig {
   /** Explicit default provider + model selection */
   defaultModel?: { provider: string; model: string; contextWindow?: number };
   modelKeys?: Record<string, ModelKeyEntry>;
-  systemModels?: Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }>;
+  systemModels?: Record<
+    string,
+    { provider?: string; modelKey?: string; model?: string; contextWindow?: number }
+  >;
 }
 
 export interface TeamConfig {
   version: string;
+  projectName?: string;
   providers?: Record<string, LlmProviderConfig>;
   /** Explicit default provider + model selection */
   defaultModel?: { provider: string; model: string; contextWindow?: number };
@@ -85,19 +89,23 @@ export interface TeamConfig {
   allowedCliTools?: string[];
   /** Global named model key assignments */
   modelKeys?: Record<string, ModelKeyEntry>;
-  systemModels?: Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }>;
+  systemModels?: Record<
+    string,
+    { provider?: string; modelKey?: string; model?: string; contextWindow?: number }
+  >;
   fileTree?: {
     readPaths?: string[];
     writePaths?: string[];
-    createPaths?: string[];
-    deletePaths?: string[];
   };
-  fileTypeGroups?: Record<string, {
-    label?: string;
-    patterns?: string[];
-    /** Backward-compatible field; UI prefers `patterns`. */
-    extensions?: string[];
-  }>;
+  fileTypeGroups?: Record<
+    string,
+    {
+      label?: string;
+      patterns?: string[];
+      /** Backward-compatible field; UI prefers `patterns`. */
+      extensions?: string[];
+    }
+  >;
 }
 
 export const configQueryKeys = {
@@ -107,109 +115,20 @@ export const configQueryKeys = {
   envStatus: ['env-status'] as const,
 };
 
-async function fetchConfig(): Promise<TeamConfig> {
-  const response = await fetch(`${API_BASE}/api/config`);
-  if (!response.ok) throw new Error(`Failed to load config: ${response.statusText}`);
-  return response.json();
-}
-
-async function putConfig(partial: Partial<TeamConfig>): Promise<TeamConfig> {
-  const response = await fetch(`${API_BASE}/api/config`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(partial),
-  });
-  if (!response.ok) throw new Error(`Failed to save config: ${response.statusText}`);
-  return response.json();
-}
-
-async function fetchAgentModelKeys(): Promise<{ usedKeys: string[]; keysByAgent: Record<string, string> }> {
-  const response = await fetch(`${API_BASE}/api/config/agent-model-keys`);
-  if (!response.ok) throw new Error(`Failed to load agent model keys: ${response.statusText}`);
-  return response.json();
-}
-
-async function postRefreshProviderModels(providerRef: string): Promise<Array<{
-  name: string;
-  contextWindow?: number;
-  maxPromptTokens?: number;
-  maxContextWindowTokens?: number;
-  maxOutputTokens?: number;
-}>> {
-  const response = await fetch(
-    `${API_BASE}/api/config/providers/${encodeURIComponent(providerRef)}/models/refresh`,
-    { method: 'POST' },
-  );
-  if (!response.ok) throw new Error(`Failed to refresh models: ${response.statusText}`);
-  return response.json();
-}
-
-async function fetchUserConfig(): Promise<UserConfig> {
-  const response = await fetch(`${API_BASE}/api/config/user-config`);
-  if (!response.ok) throw new Error(`Failed to load user config: ${response.statusText}`);
-  return response.json();
-}
-
-async function putUserConfig(partial: Partial<UserConfig>): Promise<UserConfig> {
-  const response = await fetch(`${API_BASE}/api/config/user-config`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(partial),
-  });
-  if (!response.ok) throw new Error(`Failed to save user config: ${response.statusText}`);
-  return response.json();
-}
-
-async function postTestProviderConnection(providerRef: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
-  const response = await fetch(
-    `${API_BASE}/api/config/user-config/providers/${encodeURIComponent(providerRef)}/test`,
-    { method: 'POST' },
-  );
-  if (!response.ok) throw new Error(`Failed to test provider: ${response.statusText}`);
-  return response.json();
-}
-
-async function fetchEnvStatus(): Promise<Record<string, boolean>> {
-  const response = await fetch(`${API_BASE}/api/config/env-status`);
-  if (!response.ok) throw new Error(`Failed to load env status: ${response.statusText}`);
-  return response.json();
-}
-
-async function putEnvVar(args: { key: string; value: string }): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/config/env-key`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(args),
-  });
-  if (!response.ok) throw new Error(`Failed to set env var: ${response.statusText}`);
-}
-
-async function postRefreshDevProviderModels(providerRef: string): Promise<{ models: Array<{
-  name: string;
-  contextWindow?: number;
-  maxPromptTokens?: number;
-  maxContextWindowTokens?: number;
-  maxOutputTokens?: number;
-}> }> {
-  const response = await fetch(
-    `${API_BASE}/api/config/user-config/providers/${encodeURIComponent(providerRef)}/models/refresh`,
-    { method: 'POST' },
-  );
-  if (!response.ok) throw new Error(`Failed to refresh developer provider models: ${response.statusText}`);
-  return response.json();
-}
-
 export function useConfig() {
+  const { client } = useTeam();
   return useQuery({
     queryKey: configQueryKeys.config,
-    queryFn: fetchConfig,
+    queryFn: () => client.config.getConfig() as Promise<TeamConfig>,
   });
 }
 
 export function useSaveConfig() {
+  const { client } = useTeam();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: putConfig,
+    mutationFn: (partial: Partial<TeamConfig>) =>
+      client.config.updateConfig(partial) as Promise<TeamConfig>,
     onSuccess: (data) => {
       queryClient.setQueryData(configQueryKeys.config, data);
     },
@@ -217,16 +136,22 @@ export function useSaveConfig() {
 }
 
 export function useAgentModelKeys() {
+  const { client } = useTeam();
   return useQuery({
     queryKey: configQueryKeys.agentModelKeys,
-    queryFn: fetchAgentModelKeys,
+    queryFn: () =>
+      client.config.getAgentModelKeys() as Promise<{
+        usedKeys: string[];
+        keysByAgent: Record<string, string>;
+      }>,
   });
 }
 
 export function useRefreshProviderModels() {
+  const { client } = useTeam();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: postRefreshProviderModels,
+    mutationFn: (providerRef: string) => client.config.refreshProviderModels(providerRef),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: configQueryKeys.config });
     },
@@ -234,16 +159,19 @@ export function useRefreshProviderModels() {
 }
 
 export function useUserConfig() {
+  const { client } = useTeam();
   return useQuery({
     queryKey: configQueryKeys.userConfig,
-    queryFn: fetchUserConfig,
+    queryFn: () => client.config.getUserConfig() as Promise<UserConfig>,
   });
 }
 
 export function useSaveUserConfig() {
+  const { client } = useTeam();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: putUserConfig,
+    mutationFn: (partial: Partial<UserConfig>) =>
+      client.config.saveUserConfig(partial) as Promise<UserConfig>,
     onSuccess: (data) => {
       queryClient.setQueryData(configQueryKeys.userConfig, data);
     },
@@ -251,22 +179,26 @@ export function useSaveUserConfig() {
 }
 
 export function useTestProviderConnection() {
+  const { client } = useTeam();
   return useMutation({
-    mutationFn: postTestProviderConnection,
+    mutationFn: (providerRef: string) => client.config.testProviderConnection(providerRef),
   });
 }
 
 export function useEnvStatus() {
+  const { client } = useTeam();
   return useQuery({
     queryKey: configQueryKeys.envStatus,
-    queryFn: fetchEnvStatus,
+    queryFn: () => client.config.getEnvStatus() as Promise<Record<string, boolean>>,
   });
 }
 
 export function useSetEnvVar() {
+  const { client } = useTeam();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: putEnvVar,
+    mutationFn: ({ key, value }: { key: string; value: string }) =>
+      client.config.setEnvVar({ key, value }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: configQueryKeys.envStatus });
     },
@@ -274,12 +206,12 @@ export function useSetEnvVar() {
 }
 
 export function useRefreshDevProviderModels() {
+  const { client } = useTeam();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: postRefreshDevProviderModels,
+    mutationFn: (providerRef: string) => client.config.refreshUserProviderModels(providerRef),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: configQueryKeys.userConfig });
     },
   });
 }
-

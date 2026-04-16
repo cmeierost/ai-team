@@ -1,15 +1,24 @@
 import path from 'node:path';
-import { AgentManager, createPermissionEngine, loadTeamConfig } from '@ai-team/core';
+import {
+  AgentManager as AgentManagerImpl,
+  canReadPath,
+  canWritePath,
+  canListPath,
+} from '@ai-team/infrastructure';
+import type { Agent, AgentManager } from '@ai-team/infrastructure';
 import type {
   FilePermission,
   DoIHavePermissionOptions,
   DoIHavePermissionResponse,
   WhoHasPermissionOptions,
   WhoHasPermissionResponse,
-} from '../contracts.js';
-import { resolveAgentForOperation } from '../utils/agent-resolution.js';
+} from '@ai-team/api-client';
+import { resolveAgentForOperationAsync } from '../utils/agent-resolution.js';
 
-function resolvePathMeta(workspaceRoot: string, inputPath: string): {
+function resolvePathMeta(
+  workspaceRoot: string,
+  inputPath: string
+): {
   insideWorkspace: boolean;
   absolute: string;
   relative: string;
@@ -19,7 +28,8 @@ function resolvePathMeta(workspaceRoot: string, inputPath: string): {
     : path.resolve(workspaceRoot, inputPath);
 
   const relative = path.relative(workspaceRoot, absolute).replaceAll('\\', '/');
-  const insideWorkspace = relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  const insideWorkspace =
+    relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 
   return {
     insideWorkspace,
@@ -28,33 +38,28 @@ function resolvePathMeta(workspaceRoot: string, inputPath: string): {
   };
 }
 
-async function buildPermissionEngine(workspaceRoot: string) {
-  const [config, agentManager] = await Promise.all([
-    loadTeamConfig(workspaceRoot),
-    (async () => {
-      const manager = new AgentManager(workspaceRoot);
-      await manager.initialize();
-      return manager;
-    })(),
-  ]);
-
-  const agents = agentManager.getAllAgents();
-  const engine = createPermissionEngine({
-    workspaceRoot,
-    fileTreeConfig: config?.fileTree,
-    agents,
-  });
-
-  return {
-    engine,
-    agentManager,
-    agents,
-  };
+function checkRight(
+  workspaceRoot: string,
+  agent: Agent,
+  relativePath: string,
+  right: FilePermission
+): boolean {
+  switch (right) {
+    case 'read':
+      return canReadPath(workspaceRoot, agent.permissions, relativePath);
+    case 'write':
+      return canWritePath(workspaceRoot, agent.permissions, relativePath);
+    case 'list':
+      return canListPath(workspaceRoot, agent.permissions, relativePath);
+    default:
+      return false;
+  }
 }
 
 export async function whoHasAccessCommand(
   workspaceRoot: string,
-  options: WhoHasPermissionOptions,
+  agentManager: AgentManager,
+  options: WhoHasPermissionOptions
 ): Promise<WhoHasPermissionResponse> {
   const right: FilePermission = options.right ?? 'list';
   const pathMeta = resolvePathMeta(workspaceRoot, options.path);
@@ -73,12 +78,12 @@ export async function whoHasAccessCommand(
     };
   }
 
-  const { engine } = await buildPermissionEngine(workspaceRoot);
-  const contextIds = engine.whoCanAccess(options.path, right, workspaceRoot);
-  const contexts = contextIds.map((contextId) => ({
-    contextId,
-    label: engine.getContext(contextId)?.label,
-  }));
+  const agents = await agentManager.getAllAgentsAsync();
+  const matching = agents.filter((a: Agent) =>
+    checkRight(workspaceRoot, a, pathMeta.relative, right)
+  );
+  const contextIds = matching.map((a: Agent) => a.id);
+  const contexts = matching.map((a: Agent) => ({ contextId: a.id, label: a.name }));
 
   return {
     path: {
@@ -89,15 +94,17 @@ export async function whoHasAccessCommand(
     right,
     contextIds,
     contexts,
-    explanation: contextIds.length > 0
-      ? `${contextIds.length} context(s) can access this path with '${right}'.`
-      : `No context can access this path with '${right}'.`,
+    explanation:
+      contextIds.length > 0
+        ? `${contextIds.length} agent(s) can access this path with '${right}'.`
+        : `No agent can access this path with '${right}'.`,
   };
 }
 
 export async function doIHaveAccessCommand(
   workspaceRoot: string,
-  options: DoIHavePermissionOptions,
+  agentManager: AgentManager,
+  options: DoIHavePermissionOptions
 ): Promise<DoIHavePermissionResponse> {
   const right: FilePermission = options.right ?? 'list';
   const pathMeta = resolvePathMeta(workspaceRoot, options.path);
@@ -121,25 +128,32 @@ export async function doIHaveAccessCommand(
     };
   }
 
-  const { engine, agentManager, agents } = await buildPermissionEngine(workspaceRoot);
+  const agents = await agentManager.getAllAgentsAsync();
 
-  let contextId = '';
+  let agent: Agent;
   let selectedBy: DoIHavePermissionResponse['selectedBy'];
   if (options.agent && options.agent.trim().length > 0) {
-    contextId = resolveAgentForOperation(agentManager, options.agent, 'check access').id;
+    const resolved = await resolveAgentForOperationAsync(
+      agentManager,
+      options.agent,
+      'check access'
+    );
+    const found = await agentManager.getAgentAsync(resolved.id);
+    if (!found) throw new Error(`Agent not found: ${resolved.id}`);
+    agent = found;
     selectedBy = 'explicit';
   } else {
     const fallback = [...agents].sort((a, b) => a.id.localeCompare(b.id))[0];
-    if (!fallback) {
-      throw new Error('No agents available to evaluate access.');
-    }
-    contextId = fallback.id;
+    if (!fallback) throw new Error('No agents available to evaluate access.');
+    agent = fallback;
     selectedBy = 'default-first-agent';
   }
 
-  const verdict = engine.checkPath(options.path, right, workspaceRoot, contextId);
-  const allRightsMap = engine.whatCanContextDo(contextId, [options.path], workspaceRoot);
-  const allRights = [...(allRightsMap.get(pathMeta.relative) ?? new Set<FilePermission>())];
+  const allowed = checkRight(workspaceRoot, agent, pathMeta.relative, right);
+  const allRights: FilePermission[] = [];
+  if (checkRight(workspaceRoot, agent, pathMeta.relative, 'read')) allRights.push('read');
+  if (checkRight(workspaceRoot, agent, pathMeta.relative, 'write')) allRights.push('write');
+  if (checkRight(workspaceRoot, agent, pathMeta.relative, 'list')) allRights.push('list');
 
   return {
     path: {
@@ -148,18 +162,47 @@ export async function doIHaveAccessCommand(
       relative: pathMeta.relative,
     },
     right,
-    contextId,
-    contextLabel: engine.getContext(contextId)?.label,
+    contextId: agent.id,
+    contextLabel: agent.name,
     selectedBy,
-    allowed: verdict.allowed,
+    allowed,
     allRights,
-    explanation: verdict.explanation,
-    alternativeContexts: verdict.alternativeContexts,
-    deniedByIgnore: verdict.paths.some((pv) => pv.deniedByIgnore === true),
-    blockedByPatterns: Array.from(new Set(
-      verdict.paths
-        .filter((pv) => !pv.allowed && pv.deniedBy?.pathPattern)
-        .map((pv) => pv.deniedBy!.pathPattern),
-    )),
+    explanation: allowed
+      ? `Agent '${agent.id}' has ${right} access to '${pathMeta.relative}'.`
+      : `Agent '${agent.id}' does not have ${right} access to '${pathMeta.relative}'.`,
+    alternativeContexts: [],
+    deniedByIgnore: false,
+    blockedByPatterns: [],
   };
+}
+
+// ── Dispatcher-compatible handlers ──────────────────────────────────────────
+
+export async function accessWhoHandler(
+  workspaceRoot: string,
+  payload: { path: string; right?: FilePermission }
+): Promise<WhoHasPermissionResponse> {
+  if (!payload.path || payload.path.trim().length === 0) {
+    throw new Error('Missing required option --path');
+  }
+  const agentManager = new AgentManagerImpl(workspaceRoot);
+  return whoHasAccessCommand(workspaceRoot, agentManager, {
+    path: payload.path,
+    right: payload.right,
+  });
+}
+
+export async function accessCanHandler(
+  workspaceRoot: string,
+  payload: { path: string; right?: FilePermission; agent?: string }
+): Promise<DoIHavePermissionResponse> {
+  if (!payload.path || payload.path.trim().length === 0) {
+    throw new Error('Missing required option --path');
+  }
+  const agentManager = new AgentManagerImpl(workspaceRoot);
+  return doIHaveAccessCommand(workspaceRoot, agentManager, {
+    path: payload.path,
+    right: payload.right,
+    agent: payload.agent,
+  });
 }

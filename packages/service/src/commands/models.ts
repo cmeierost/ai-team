@@ -6,11 +6,18 @@ import {
   loadTeamConfig,
   saveUserConfig,
   saveTeamConfig,
-} from '@ai-team/core';
+} from '@ai-team/infrastructure';
 
-import { ProviderListOptions, ProviderModelsOptions, RefreshProviderModelsOptions } from '../contracts.js';
+import {
+  ProviderListOptions,
+  ProviderModelsOptions,
+  RefreshProviderModelsOptions,
+} from '@ai-team/api-client';
 
-export async function providerListCommand(workspaceRoot: string, options: ProviderListOptions = {}): Promise<void> {
+export async function providerListCommand(
+  workspaceRoot: string,
+  options: ProviderListOptions = {}
+): Promise<void> {
   const config = await loadTeamConfig(workspaceRoot);
   const developerConfig = await loadUserConfig(workspaceRoot);
 
@@ -23,7 +30,10 @@ export async function providerListCommand(workspaceRoot: string, options: Provid
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
   }
 
-  const defaultProviderRef = resolveProviderRef(registry, developerConfig?.defaultModel?.provider || config?.defaultModel?.provider);
+  const defaultProviderRef = resolveProviderRef(
+    registry,
+    developerConfig?.defaultModel?.provider || config?.defaultModel?.provider
+  );
   const providerEntries = Object.entries(registry).map(([providerRef, providerConfig]) => ({
     providerRef,
     kind: providerConfig.kind,
@@ -34,10 +44,16 @@ export async function providerListCommand(workspaceRoot: string, options: Provid
   }));
 
   if (options.json) {
-    console.log(JSON.stringify({
-      defaultProvider: defaultProviderRef,
-      providers: providerEntries,
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          defaultProvider: defaultProviderRef,
+          providers: providerEntries,
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
@@ -46,11 +62,16 @@ export async function providerListCommand(workspaceRoot: string, options: Provid
     const marker = provider.isDefault ? '*' : ' ';
     const base = provider.baseUrl ? `, baseUrl=${provider.baseUrl}` : '';
     const defaultModel = provider.defaultModel ? `, defaultModel=${provider.defaultModel}` : '';
-    console.log(`${marker} ${provider.providerRef} (${provider.kind}, models=${provider.modelsCount}${defaultModel}${base})`);
+    console.log(
+      `${marker} ${provider.providerRef} (${provider.kind}, models=${provider.modelsCount}${defaultModel}${base})`
+    );
   }
 }
 
-export async function providerModelsCommand(workspaceRoot: string, options: ProviderModelsOptions): Promise<void> {
+export async function providerModelsCommand(
+  workspaceRoot: string,
+  options: ProviderModelsOptions
+): Promise<void> {
   const config = await loadTeamConfig(workspaceRoot);
   const developerConfig = await loadUserConfig(workspaceRoot);
 
@@ -63,12 +84,15 @@ export async function providerModelsCommand(workspaceRoot: string, options: Prov
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
   }
 
-  const defaultProviderRef = resolveProviderRef(registry, developerConfig?.defaultModel?.provider || config?.defaultModel?.provider);
+  const defaultProviderRef = resolveProviderRef(
+    registry,
+    developerConfig?.defaultModel?.provider || config?.defaultModel?.provider
+  );
   const providerRefs = options.provider
     ? [resolveProviderRef(registry, config?.defaultModel?.provider, options.provider)]
     : Object.keys(registry);
 
-  const providerEntries = providerRefs.map(providerRef => {
+  const providerEntries = providerRefs.map((providerRef) => {
     const providerConfig = registry[providerRef];
     const models = providerConfig.models || [];
     const defaultModel = providerConfig.defaultModel;
@@ -84,19 +108,31 @@ export async function providerModelsCommand(workspaceRoot: string, options: Prov
   if (options.json) {
     if (options.provider) {
       const provider = providerEntries[0];
-      console.log(JSON.stringify({
-        providerRef: provider.providerRef,
-        kind: provider.kind,
-        defaultModel: provider.defaultModel,
-        models: provider.models,
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            providerRef: provider.providerRef,
+            kind: provider.kind,
+            defaultModel: provider.defaultModel,
+            models: provider.models,
+          },
+          null,
+          2
+        )
+      );
       return;
     }
 
-    console.log(JSON.stringify({
-      defaultProvider: defaultProviderRef,
-      providers: providerEntries,
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          defaultProvider: defaultProviderRef,
+          providers: providerEntries,
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
@@ -111,7 +147,9 @@ export async function providerModelsCommand(workspaceRoot: string, options: Prov
     const modelEntries = provider.models.map((m) => m.name);
     if (modelEntries.length === 0) {
       console.log('No model list found for this provider.');
-      console.log('Run `ait provider models refresh --provider <providerRef>` to fetch and persist available models.');
+      console.log(
+        'Run `ait provider models refresh --provider <providerRef>` to fetch and persist available models.'
+      );
       continue;
     }
 
@@ -127,7 +165,10 @@ export async function providerModelsCommand(workspaceRoot: string, options: Prov
   }
 }
 
-export async function providerModelsRefreshCommand(workspaceRoot: string, options: RefreshProviderModelsOptions): Promise<void> {
+export async function providerModelsRefreshCommand(
+  workspaceRoot: string,
+  options: RefreshProviderModelsOptions
+): Promise<void> {
   const config = await loadTeamConfig(workspaceRoot);
   const developerConfig = await loadUserConfig(workspaceRoot);
 
@@ -143,7 +184,11 @@ export async function providerModelsRefreshCommand(workspaceRoot: string, option
 
   let providerRef: string;
   try {
-    providerRef = resolveProviderRef(registry, developerConfig?.defaultModel?.provider || config?.defaultModel?.provider, options.provider);
+    providerRef = resolveProviderRef(
+      registry,
+      developerConfig?.defaultModel?.provider || config?.defaultModel?.provider,
+      options.provider
+    );
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : 'Invalid provider reference.');
   }
@@ -159,7 +204,7 @@ export async function providerModelsRefreshCommand(workspaceRoot: string, option
 
   if (providerConfig.kind === 'github-copilot') {
     const discovered = await fetchGitHubModels();
-    models = discovered.map(model => ({
+    models = discovered.map((model) => ({
       name: model.id,
       contextWindow: model.contextWindow,
       maxPromptTokens: model.maxPromptTokens,
@@ -173,9 +218,10 @@ export async function providerModelsRefreshCommand(workspaceRoot: string, option
 
     const env = await loadEnvFile(workspaceRoot);
     const apiKeyName = providerConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-    const apiKey = env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
+    const apiKey =
+      env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
     const discovered = await fetchOpenAICompatibleModelsDetailed(providerConfig.baseUrl, apiKey);
-    models = discovered.map(model => ({
+    models = discovered.map((model) => ({
       name: model.id,
       contextWindow: model.contextWindow,
       maxPromptTokens: model.maxPromptTokens,
@@ -189,9 +235,10 @@ export async function providerModelsRefreshCommand(workspaceRoot: string, option
   }
 
   models = buildModelsList(models);
-  const defaultModel = providerConfig.defaultModel && models.some((m) => m.name === providerConfig.defaultModel)
-    ? providerConfig.defaultModel
-    : models[0]?.name;
+  const defaultModel =
+    providerConfig.defaultModel && models.some((m) => m.name === providerConfig.defaultModel)
+      ? providerConfig.defaultModel
+      : models[0]?.name;
 
   registry[providerRef] = {
     ...providerConfig,
@@ -208,20 +255,25 @@ export async function providerModelsRefreshCommand(workspaceRoot: string, option
     await saveTeamConfig(workspaceRoot, nextConfig);
   }
 
-  await saveUserConfig(workspaceRoot, { providers: registry, defaultModel: { provider: providerRef, model: defaultModel } });
+  await saveUserConfig(workspaceRoot, {
+    providers: registry,
+    defaultModel: { provider: providerRef, model: defaultModel },
+  });
 }
 
 function resolveProviderRef(
   registry: Record<string, unknown>,
   defaultModelProvider: string | undefined,
-  requested?: string,
+  requested?: string
 ): string {
   if (requested && registry[requested]) {
     return requested;
   }
 
   if (requested && !registry[requested]) {
-    throw new Error(`Unknown provider '${requested}'. Available: ${Object.keys(registry).join(', ')}`);
+    throw new Error(
+      `Unknown provider '${requested}'. Available: ${Object.keys(registry).join(', ')}`
+    );
   }
 
   if (defaultModelProvider && registry[defaultModelProvider]) {
@@ -231,13 +283,15 @@ function resolveProviderRef(
   return Object.keys(registry)[0];
 }
 
-function buildModelsList(models: Array<{
-  name: string;
-  contextWindow?: number;
-  maxPromptTokens?: number;
-  maxContextWindowTokens?: number;
-  maxOutputTokens?: number;
-}>): Array<{
+function buildModelsList(
+  models: Array<{
+    name: string;
+    contextWindow?: number;
+    maxPromptTokens?: number;
+    maxContextWindowTokens?: number;
+    maxOutputTokens?: number;
+  }>
+): Array<{
   name: string;
   contextWindow?: number;
   maxPromptTokens?: number;

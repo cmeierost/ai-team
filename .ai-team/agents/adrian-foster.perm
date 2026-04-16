@@ -4,6 +4,8 @@ COPILOT-CONTEXT.md
 packages/vscode/**/*
 packages/core/**/*
 packages/service/**/*
+.ai-team/agents/adrian-foster.agent.md
+.ai-team/agents/adrian-foster.agent.yml
 
 [write]
 analysis/**/*
@@ -11,8 +13,4 @@ docs/architecture/**/*
 .ai-team/skills/orchestrator-ecosystem-research/**/*
 .ai-team/skills/document-research-briefing/**/*
 .ai-team/skills/knowledge-brief-writing/**/*
-.ai-team/agents/adrian-foster.agent.md
-.ai-team/agents/adrian-foster.agent.yml
 
-[create]
-analysis/**/*

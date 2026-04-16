@@ -1,0 +1,285 @@
+{
+  "modules": [
+    {
+      "source": "src/index.ts",
+      "dependencies": [
+        {
+          "module": "./services/user-service.js",
+          "resolved": "src/services/user-service.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": true
+        },
+        {
+          "module": "./utils/logger.js",
+          "resolved": "src/utils/logger.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": true
+        }
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "src/services/user-service.ts",
+      "dependencies": [
+        {
+          "module": "../models/user.js",
+          "resolved": "src/models/user.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": true
+        },
+        {
+          "module": "../utils/logger.js",
+          "resolved": "src/utils/logger.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": true
+        },
+        {
+          "module": "node:fs",
+          "resolved": "node:fs",
+          "coreModule": true,
+          "dependencyTypes": ["core"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": false
+        },
+        {
+          "module": "lodash",
+          "resolved": "node_modules/lodash/lodash.js",
+          "coreModule": false,
+          "dependencyTypes": ["npm"],
+          "moduleSystem": "cjs",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": false
+        },
+        {
+          "module": "../plugins/analytics.js",
+          "resolved": "src/plugins/analytics.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": true,
+          "valid": true,
+          "followable": true
+        }
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "src/services/order-service.ts",
+      "dependencies": [
+        {
+          "module": "../models/user.js",
+          "resolved": "src/models/user.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": true
+        }
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "src/models/user.ts",
+      "dependencies": [
+        {
+          "module": "../types/user-types.js",
+          "resolved": "src/types/user-types.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": true,
+          "typeOnly": true
+        }
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "src/types/user-types.ts",
+      "dependencies": [],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "src/utils/logger.ts",
+      "dependencies": [
+        {
+          "module": "node:util",
+          "resolved": "node:util",
+          "coreModule": true,
+          "dependencyTypes": ["core"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": false
+        },
+        {
+          "module": "../config.js",
+          "resolved": "src/config.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": true
+        }
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "src/config.ts",
+      "dependencies": [
+        {
+          "module": "dotenv",
+          "resolved": "node_modules/dotenv/lib/main.js",
+          "coreModule": false,
+          "dependencyTypes": ["npm"],
+          "moduleSystem": "cjs",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": false
+        }
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "src/controllers/api-controller.ts",
+      "dependencies": [
+        {
+          "module": "../services/user-service.js",
+          "resolved": "src/services/user-service.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": true
+        },
+        {
+          "module": "express",
+          "resolved": "node_modules/express/index.js",
+          "coreModule": false,
+          "dependencyTypes": ["npm"],
+          "moduleSystem": "cjs",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": false
+        }
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "src/middleware/auth.ts",
+      "dependencies": [
+        {
+          "module": "../utils/logger.js",
+          "resolved": "src/utils/logger.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": true,
+          "exoticallyRequired": false,
+          "circular": false,
+          "valid": true,
+          "followable": true
+        }
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "src/plugins/analytics.ts",
+      "dependencies": [
+        {
+          "module": "../services/user-service.js",
+          "resolved": "src/services/user-service.ts",
+          "coreModule": false,
+          "dependencyTypes": ["local"],
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "circular": true,
+          "valid": true,
+          "followable": true
+        }
+      ],
+      "orphan": false,
+      "valid": true
+    }
+  ],
+  "summary": {
+    "violations": [
+      {
+        "type": "cycle",
+        "from": "src/services/user-service.ts",
+        "to": "src/plugins/analytics.ts",
+        "rule": {
+          "severity": "warn",
+          "name": "no-circular"
+        }
+      }
+    ],
+    "totalCruised": 10,
+    "totalDependenciesCruised": 16,
+    "error": 0,
+    "warn": 1,
+    "info": 0,
+    "ignore": 0
+  }
+}

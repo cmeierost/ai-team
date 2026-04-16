@@ -64,7 +64,11 @@ export function fileIcon(name: string, isDir: boolean): string {
   return extensionIcons[getExt(name)] ?? '📄';
 }
 
-export function filterFiles(files: AgentFilesResponse['files'], filter: FileAccessFilter, search: string): FlatFile[] {
+export function filterFiles(
+  files: AgentFilesResponse['files'],
+  filter: FileAccessFilter,
+  search: string
+): FlatFile[] {
   const normalizedSearch = search.trim().toLowerCase();
 
   return files
@@ -99,17 +103,33 @@ export function getAccessCounts(files: AgentFilesResponse['files']) {
   };
 }
 
-export function getVisiblePatternGroups(data: AgentFilesResponse | null, patterns: FilePatternsResponse | null): PatternGroup[] {
+export function getVisiblePatternGroups(
+  data: AgentFilesResponse | null,
+  patterns: FilePatternsResponse | null
+): PatternGroup[] {
   const agentReadPatterns = patterns?.agent?.readPaths ?? data?.readPatterns ?? [];
   const agentWritePatterns = patterns?.agent?.writePaths ?? data?.writePatterns ?? [];
+  const agentListPatterns = patterns?.agent?.listPaths ?? data?.listPatterns ?? [];
   const globalReadPatterns = patterns?.global.readPaths ?? [];
   const globalWritePatterns = patterns?.global.writePaths ?? [];
+  const globalListPatterns = patterns?.global.listPaths ?? [];
+
+  // List permission defaults to all files (**) when no explicit pattern is configured.
+  const DEFAULT_LIST = ['**'];
 
   const groups: PatternGroup[] = [
-    { label: 'Agent Read', scope: 'agent', mode: 'read', values: agentReadPatterns },
-    { label: 'Agent Write', scope: 'agent', mode: 'write', values: agentWritePatterns },
+    {
+      label: 'List',
+      scope: 'agent',
+      mode: 'list',
+      values: agentListPatterns.length > 0 ? agentListPatterns : DEFAULT_LIST,
+      isDefault: agentListPatterns.length === 0,
+    },
+    { label: 'Read', scope: 'agent', mode: 'read', values: agentReadPatterns },
+    { label: 'Write', scope: 'agent', mode: 'write', values: agentWritePatterns },
     { label: 'Global Read', scope: 'global', mode: 'read', values: globalReadPatterns },
     { label: 'Global Write', scope: 'global', mode: 'write', values: globalWritePatterns },
+    // Global list is not agent-specific and defaults to ** — no need to show it.
   ];
 
   return groups.filter((group) => group.values.length > 0);

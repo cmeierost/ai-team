@@ -15,25 +15,22 @@
  * No other file needs to change — Open/Closed.
  */
 
-import { ToolManager, ALL_TOOLS } from '@ai-team/core';
-import type { LspProvider } from '@ai-team/ide-interface';
-import {
-  createOrchestrationTools,
-  type OrchestrationDeps,
-} from './orchestration-tools.js';
+import { ToolManager } from './tool-manager.js';
+import { ALL_TOOLS } from './catalog/index.js';
+import type { LspProvider } from '@ai-team/infrastructure';
+import { createOrchestrationTools, type OrchestrationDeps } from './orchestration-tools.js';
 
 export type { OrchestrationDeps } from './orchestration-tools.js';
 
 export interface CreateToolManagerOptions {
-  permissionEngine?: ConstructorParameters<typeof ToolManager>[1];
   lsp?: LspProvider;
 }
 
 /**
  * Create a ToolManager seeded with all built-in tools.
  *
- * @param workspaceRoot  Absolute path to the workspace root (used by ContextManager
- *                       inside ToolManager for permission checks).
+ * @param workspaceRoot  Absolute path to the workspace root (used by ToolManager
+ *                       for permission checks).
  * @param deps           Dependencies injected into the orchestration tools (sessions,
  *                       agents, tools). These are narrow interfaces — any compatible
  *                       implementation (e.g. a mock) can be used.
@@ -41,14 +38,11 @@ export interface CreateToolManagerOptions {
 export function createToolManager(
   workspaceRoot: string,
   deps: OrchestrationDeps,
-  permissionEngineOrOptions?: ConstructorParameters<typeof ToolManager>[1] | CreateToolManagerOptions,
+  options?: CreateToolManagerOptions
 ): ToolManager {
-  // Backward compat: accept bare PermissionEngine or options object
-  const opts: CreateToolManagerOptions = permissionEngineOrOptions && typeof permissionEngineOrOptions === 'object' && 'lsp' in permissionEngineOrOptions
-    ? permissionEngineOrOptions
-    : { permissionEngine: permissionEngineOrOptions as any };
+  const opts: CreateToolManagerOptions = options ?? {};
 
-  const manager = new ToolManager(workspaceRoot, opts.permissionEngine);
+  const manager = new ToolManager(workspaceRoot);
 
   if (opts.lsp) {
     manager.setLspProvider(opts.lsp);

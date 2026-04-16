@@ -1,13 +1,16 @@
-import type { Agent, Skill } from '@ai-team/core';
-import { parseMarkdownSections, replaceOrAppendMarkdownSection } from '@ai-team/core';
-import {
-  type SearchSkillsOptions,
-  type SearchSkillsResponse,
-  type UpdateAgentSkillOptions,
-  type UpdateAgentSkillResponse,
-} from '../contracts.js';
-import { createContainer, TOKENS } from '../container/index.js';
-import { resolveAgentForOperation } from '../utils/agent-resolution.js';
+import type { Agent, AgentManager, Skill, SkillManager } from '@ai-team/infrastructure';
+import { parseMarkdownSections, replaceOrAppendMarkdownSection } from '@ai-team/infrastructure';
+import { type SearchSkillsResponse, type UpdateAgentSkillResponse } from '@ai-team/api-client';
+import { resolveAgentForOperationAsync } from '../utils/agent-resolution.js';
+export interface SearchSkillsOptions {
+  query?: string;
+  agent?: string;
+}
+
+export interface UpdateAgentSkillOptions {
+  agent: string;
+  skill: string;
+}
 
 const SKILLS_LINE_RE = /^\*\*Skills:\*\*.*$/gm;
 
@@ -18,15 +21,17 @@ const SKILLS_LINE_RE = /^\*\*Skills:\*\*.*$/gm;
  */
 function syncSkillsLineInMarkdown(markdown: string, skills: string[]): string {
   const sections = parseMarkdownSections(markdown);
-  const scopeIdx = sections.findIndex(s => s.heading === 'Scope of Responsibility');
+  const scopeIdx = sections.findIndex((s) => s.heading === 'Scope of Responsibility');
   if (scopeIdx < 0 && skills.length === 0) return markdown;
 
   const currentContent = scopeIdx >= 0 ? sections[scopeIdx].content : '';
-  const stripped = currentContent.replaceAll(SKILLS_LINE_RE, '').replaceAll(/\n{3,}/g, '\n\n').trimEnd();
+  const stripped = currentContent
+    .replaceAll(SKILLS_LINE_RE, '')
+    .replaceAll(/\n{3,}/g, '\n\n')
+    .trimEnd();
 
-  const newContent = skills.length > 0
-    ? `${stripped}\n\n**Skills:** ${skills.join(' · ')}`
-    : stripped;
+  const newContent =
+    skills.length > 0 ? `${stripped}\n\n**Skills:** ${skills.join(' · ')}` : stripped;
 
   return replaceOrAppendMarkdownSection(markdown, 'Scope of Responsibility', newContent);
 }
@@ -47,13 +52,15 @@ function filterSkills(skills: Skill[], query?: string): Skill[] {
   }
 
   const q = query.trim().toLowerCase();
-  return skills.filter(skill => {
+  return skills.filter((skill) => {
     const haystack = [
       skill.name,
       skill.description,
       ...(skill.responsibilities ?? []),
       ...(skill.tools ?? []),
-    ].join(' ').toLowerCase();
+    ]
+      .join(' ')
+      .toLowerCase();
 
     return haystack.includes(q);
   });
@@ -63,46 +70,42 @@ function sortSkillsByName(skills: Skill[]): Skill[] {
   return [...skills].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function resolveFullAgent(workspaceRoot: string, query: string, operation: string): Promise<Agent> {
-  const container = createContainer({ workspaceRoot });
-  const agentManager = container.resolve(TOKENS.AgentManager);
-  await agentManager.initialize();
-  const resolved = resolveAgentForOperation(agentManager, query, operation);
-  const agent = agentManager.getAgent(resolved.id);
+async function resolveFullAgent(
+  agentManager: AgentManager,
+  query: string,
+  operation: string
+): Promise<Agent> {
+  const resolved = await resolveAgentForOperationAsync(agentManager, query, operation);
+  const agent = await agentManager.getAgentAsync(resolved.id);
   if (!agent) {
     throw new Error(`Agent not found: ${resolved.id}`);
   }
   return agent;
 }
 
-async function resolveSkillByName(workspaceRoot: string, query: string): Promise<Skill> {
-  const container = createContainer({ workspaceRoot });
-  const skillManager = container.resolve(TOKENS.SkillManager);
-  await skillManager.initialize();
-
-  const skills = skillManager.getAllSkills();
+async function resolveSkillByName(skillManager: SkillManager, query: string): Promise<Skill> {
+  const skills = await skillManager.getAllSkills();
   const normalized = query.trim().toLowerCase();
-  const exact = skills.find(skill => skill.name.toLowerCase() === normalized);
+  const exact = skills.find((skill: Skill) => skill.name.toLowerCase() === normalized);
   if (exact) return exact;
 
-  const partials = skills.filter(skill => skill.name.toLowerCase().includes(normalized));
+  const partials = skills.filter((skill: Skill) => skill.name.toLowerCase().includes(normalized));
   if (partials.length === 1) return partials[0];
   if (partials.length > 1) {
-    throw new Error(`Ambiguous skill "${query}" — matched: ${partials.map(s => s.name).join(', ')}`);
+    throw new Error(
+      `Ambiguous skill "${query}" — matched: ${partials.map((s: Skill) => s.name).join(', ')}`
+    );
   }
 
   throw new Error(`Skill not found: ${query}`);
 }
 
 export async function searchSkillsCommand(
-  workspaceRoot: string,
-  options: SearchSkillsOptions = {},
+  agentManager: AgentManager,
+  skillManager: SkillManager,
+  options: SearchSkillsOptions = {}
 ): Promise<SearchSkillsResponse> {
-  const container = createContainer({ workspaceRoot });
-  const skillManager = container.resolve(TOKENS.SkillManager);
-  await skillManager.initialize();
-
-  const all = skillManager.getAllSkills();
+  const all = await skillManager.getAllSkills();
   const filtered = sortSkillsByName(filterSkills(all, options.query));
 
   if (!options.agent) {
@@ -112,11 +115,11 @@ export async function searchSkillsCommand(
     };
   }
 
-  const agent = await resolveFullAgent(workspaceRoot, options.agent, 'search skills for agent');
-  const assigned = new Set((agent.specializations ?? []).map(s => s.toLowerCase()));
+  const agent = await resolveFullAgent(agentManager, options.agent, 'search skills for agent');
+  const assigned = new Set((agent.specializations ?? []).map((s: string) => s.toLowerCase()));
 
   return {
-    entries: filtered.map(skill => ({
+    entries: filtered.map((skill) => ({
       ...toSkillEntry(skill),
       assignedToAgent: assigned.has(skill.name.toLowerCase()),
     })),
@@ -130,23 +133,20 @@ export async function searchSkillsCommand(
 }
 
 export async function addSkillCommand(
-  workspaceRoot: string,
-  options: UpdateAgentSkillOptions,
+  agentManager: AgentManager,
+  skillManager: SkillManager,
+  options: UpdateAgentSkillOptions
 ): Promise<UpdateAgentSkillResponse> {
-  const container = createContainer({ workspaceRoot });
-  const agentManager = container.resolve(TOKENS.AgentManager);
-  await agentManager.initialize();
-
-  const resolved = resolveAgentForOperation(agentManager, options.agent, 'add skill');
-  const agent = agentManager.getAgent(resolved.id);
+  const resolved = await resolveFullAgent(agentManager, options.agent, 'add skill');
+  const agent = await agentManager.getAgentAsync(resolved.id);
   if (!agent) {
     throw new Error(`Agent not found: ${resolved.id}`);
   }
 
-  const skill = await resolveSkillByName(workspaceRoot, options.skill);
+  const skill = await resolveSkillByName(skillManager, options.skill);
 
   const current = agent.specializations ?? [];
-  const currentNormalized = new Set(current.map(s => s.toLowerCase()));
+  const currentNormalized = new Set(current.map((s: string) => s.toLowerCase()));
   const changed = !currentNormalized.has(skill.name.toLowerCase());
 
   const nextSkills = changed
@@ -154,7 +154,7 @@ export async function addSkillCommand(
     : [...current];
 
   const updated = changed
-    ? await agentManager.updateAgent(agent.id, {
+    ? await agentManager.updateAgentAsync(agent.id, {
         specializations: nextSkills,
         markdown: syncSkillsLineInMarkdown(agent.markdown ?? '', nextSkills),
       })
@@ -169,27 +169,24 @@ export async function addSkillCommand(
 }
 
 export async function removeSkillCommand(
-  workspaceRoot: string,
-  options: UpdateAgentSkillOptions,
+  agentManager: AgentManager,
+  skillManager: SkillManager,
+  options: UpdateAgentSkillOptions
 ): Promise<UpdateAgentSkillResponse> {
-  const container = createContainer({ workspaceRoot });
-  const agentManager = container.resolve(TOKENS.AgentManager);
-  await agentManager.initialize();
-
-  const resolved = resolveAgentForOperation(agentManager, options.agent, 'remove skill');
-  const agent = agentManager.getAgent(resolved.id);
+  const resolved = await resolveAgentForOperationAsync(agentManager, options.agent, 'remove skill');
+  const agent = await agentManager.getAgentAsync(resolved.id);
   if (!agent) {
     throw new Error(`Agent not found: ${resolved.id}`);
   }
 
-  const skill = await resolveSkillByName(workspaceRoot, options.skill);
+  const skill = await resolveSkillByName(skillManager, options.skill);
 
   const current = agent.specializations ?? [];
-  const nextSkills = current.filter(s => s.toLowerCase() !== skill.name.toLowerCase());
+  const nextSkills = current.filter((s: string) => s.toLowerCase() !== skill.name.toLowerCase());
   const changed = nextSkills.length !== current.length;
 
   const updated = changed
-    ? await agentManager.updateAgent(agent.id, {
+    ? await agentManager.updateAgentAsync(agent.id, {
         specializations: nextSkills,
         markdown: syncSkillsLineInMarkdown(agent.markdown ?? '', nextSkills),
       })

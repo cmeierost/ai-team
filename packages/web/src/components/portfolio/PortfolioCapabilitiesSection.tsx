@@ -65,10 +65,3 @@ export function PortfolioCapabilitiesSection({ capabilities, onSave }: Readonly<
   );
 }
 
-
-const capabilityKeys = ['streaming', 'multimodal', 'codeExecution', 'reasoning'] as const;
-
-function formatCapabilityLabel(capability: (typeof capabilityKeys)[number]) {
-  return capability.charAt(0).toUpperCase() + capability.split(/(?=[A-Z])/).join(' ').slice(1);
-}
-

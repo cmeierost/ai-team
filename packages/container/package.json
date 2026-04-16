@@ -1,0 +1,35 @@
+{
+    "name": "@ai-team/container",
+    "version": "0.1.0",
+    "description": "Dependency injection container and bootstrap helpers for AI Team runtime",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch",
+        "test": "vitest run --passWithNoTests",
+        "test:coverage": "vitest run --coverage",
+        "lint": "eslint src --ext .ts",
+        "clean": "rm -rf dist"
+    },
+    "keywords": [
+        "container",
+        "dependency-injection",
+        "bootstrap"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "@ai-team/api-client": "workspace:*",
+        "@ai-team/core": "workspace:*",
+        "@ai-team/infrastructure": "workspace:*",
+        "@ai-team/service": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "^25.5.0",
+        "@vitest/coverage-v8": "^4.1.2",
+        "typescript": "^5.9.3",
+        "vitest": "^4.1.2"
+    }
+}

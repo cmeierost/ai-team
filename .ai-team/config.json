@@ -1,5 +1,8 @@
 {
   "version": "0.1.0",
+  "mcpConfigFiles": [
+    ".vscode/mcp.json"
+  ],
   "providers": {
     "api-llmhub-infs-ai": {
       "kind": "openai-compatible",
@@ -559,7 +562,7 @@
   },
   "defaultModel": {
     "provider": "openai",
-    "model": "gpt-5.4"
+    "model": "gpt-5.4-2026-03-05"
   },
   "allowedCliTools": [
     "git",
@@ -572,13 +575,12 @@
   ],
   "fileTree": {
     "readPaths": [],
-    "writePaths": [],
-    "createPaths": [],
-    "deletePaths": []
+    "writePaths": []
   },
   "fileTypeGroups": {
     "code": {
       "label": "Code",
+      "patterns": [],
       "extensions": [
         ".ts",
         ".tsx",
@@ -613,6 +615,7 @@
     },
     "documentation": {
       "label": "Documentation",
+      "patterns": [],
       "extensions": [
         ".md",
         ".mdx",
@@ -623,6 +626,7 @@
     },
     "configuration": {
       "label": "Configuration",
+      "patterns": [],
       "extensions": [
         ".json",
         ".jsonc",
@@ -639,12 +643,14 @@
     },
     "tests": {
       "label": "Tests",
+      "patterns": [],
       "extensions": [
         ".snap"
       ]
     },
     "binaries": {
       "label": "Binaries",
+      "patterns": [],
       "extensions": [
         ".png",
         ".jpg",
@@ -681,6 +687,7 @@
     },
     "assets": {
       "label": "Assets",
+      "patterns": [],
       "extensions": [
         ".png",
         ".jpg",
@@ -699,12 +706,14 @@
     },
     "other": {
       "label": "Other",
+      "patterns": [],
       "extensions": []
     }
   },
+  "projectName": "AI-Team",
   "modelKeys": {
     "cheap": {
-      "provider": "api-llmhub-infs-ai",
+      "provider": "o",
       "model": "best-chat",
       "contextWindow": 20000
     },

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { AiTeamHttpClient } from '@ai-team/api-client-http';
-import type { AnnotatedFile } from '../../types';
+import type { AiTeamHttpClient } from '@ai-team/api-client';
+import type { AnnotatedFile } from '@ai-team/api-client';
 import { PortfolioSectionCard } from './portfolioShared';
 
 interface PortfolioReadFilesSectionProps {
@@ -48,15 +48,15 @@ export function PortfolioReadFilesSection({
 
   useEffect(() => {
     if (!isEditing || filesLoaded) return;
-    client
-      .getAgentFiles(agentId, { all: true })
-      .then((r) => {
-        setAvailableFiles(r.files);
+    const load = async () => {
+      try {
+        const result = await client.agents.getFiles(agentId);
+        setAvailableFiles(result.files);
+      } finally {
         setFilesLoaded(true);
-      })
-      .catch(() => {
-        setFilesLoaded(true);
-      });
+      }
+    };
+    void load();
   }, [isEditing, filesLoaded, agentId, client]);
 
   function moveUp(index: number) {

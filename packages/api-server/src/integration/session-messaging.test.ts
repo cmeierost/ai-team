@@ -14,10 +14,10 @@ let _lingering: { httpServer: Server; wss: any; storage: { close(): Promise<void
 async function closeServer(s: typeof _lingering): Promise<void> {
   if (!s) return;
   // Close WebSocket server first so in-flight connections drain.
-  if (s.wss) await new Promise<void>(r => s!.wss.close(r));
+  if (s.wss) await new Promise<void>((r) => s!.wss.close(r));
   // Close SQLite before HTTP so Windows does not report EBUSY.
   if (s.storage) await s.storage.close();
-  if (s.httpServer?.listening) await new Promise<void>(r => s!.httpServer.close(() => r()));
+  if (s.httpServer?.listening) await new Promise<void>((r) => s!.httpServer.close(() => r()));
 }
 
 describe('Session-Message Integration', () => {
@@ -32,12 +32,12 @@ describe('Session-Message Integration', () => {
 
     // Create temporary workspace
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-integration-test-'));
-    
+
     // Create .ai-team directory structure
     await fs.mkdir(path.join(workspaceRoot, '.ai-team', 'config'), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, '.ai-team', 'private', 'chats'), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, '.ai-team', 'agents'), { recursive: true });
-    
+
     // Create a test agent
     await fs.writeFile(
       path.join(workspaceRoot, '.ai-team', 'agents', 'test-agent.md'),
@@ -52,7 +52,7 @@ contextLevel: module
 A test agent for integration testing.
 `
     );
-    
+
     // Create basic config
     await fs.writeFile(
       path.join(workspaceRoot, '.ai-team', 'config', 'config.json'),
@@ -60,10 +60,10 @@ A test agent for integration testing.
         providers: [],
         models: [],
         defaultProvider: null,
-        defaultModel: null
+        defaultModel: null,
       })
     );
-    
+
     // Port 0 lets the OS assign a guaranteed-free ephemeral port.
     // Read the actual assigned port from httpServer.address() after listen.
     server = await startServer({
@@ -100,10 +100,10 @@ A test agent for integration testing.
       const error = await response.text();
       console.error('Failed to create session:', error);
     }
-    
+
     expect(response.ok).toBe(true);
     const session = await response.json();
-    
+
     expect(session).toBeDefined();
     expect(session.id).toBeDefined();
     expect(session.agentId).toBe('test-agent');
@@ -121,14 +121,14 @@ A test agent for integration testing.
         developerId: 'test-developer',
       }),
     });
-    
+
     expect(createResponse.ok).toBe(true);
     const session = await createResponse.json();
     const sessionId = session.id;
-    
+
     // Connect to WebSocket with sessionId
     const ws = new WebSocket(`ws://localhost:${port}/ws/chat/test-agent?sessionId=${sessionId}`);
-    
+
     // Set up message listener before waiting for connection to avoid race condition
     let readyEventReceived: any = null;
     ws.on('message', (data) => {
@@ -140,7 +140,7 @@ A test agent for integration testing.
         console.error('WebSocket error event:', event);
       }
     });
-    
+
     // Wait for connection and ready event
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -148,7 +148,7 @@ A test agent for integration testing.
           reject(new Error('Ready event timeout'));
         }
       }, 5000);
-      
+
       ws.on('open', () => {
         // Give a small delay for the ready event to arrive
         setTimeout(() => {
@@ -160,23 +160,23 @@ A test agent for integration testing.
           }
         }, 100);
       });
-      
+
       ws.on('error', (err) => {
         clearTimeout(timeout);
         reject(err);
       });
     });
-    
+
     expect(readyEventReceived).toBeDefined();
     expect(readyEventReceived.type).toBe('ready');
-    
+
     // Note: Sending a message would trigger the chat command which requires
     // a full LLM setup. For this test, we'll just verify the session was created
     // and the WebSocket connection works with sessionId parameter.
-    
+
     // Close WebSocket
     ws.close();
-    
+
     // Verify session still exists
     const sessionResponse = await fetch(`http://localhost:${port}/api/sessions/${sessionId}`);
     expect(sessionResponse.ok).toBe(true);
@@ -194,15 +194,17 @@ A test agent for integration testing.
         developerId: 'test-developer',
       }),
     });
-    
+
     expect(createResponse.ok).toBe(true);
     const session = await createResponse.json();
     const sessionId = session.id;
-    
+
     // Load messages (should be empty initially)
-    const messagesResponse = await fetch(`http://localhost:${port}/api/sessions/${sessionId}/messages`);
+    const messagesResponse = await fetch(
+      `http://localhost:${port}/api/sessions/${sessionId}/messages`
+    );
     expect(messagesResponse.ok).toBe(true);
-    
+
     const messages = await messagesResponse.json();
     expect(Array.isArray(messages)).toBe(true);
     expect(messages.length).toBe(0);
@@ -218,7 +220,7 @@ A test agent for integration testing.
         developerId: 'test-developer',
       }),
     });
-    
+
     await fetch(`http://localhost:${port}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -227,15 +229,15 @@ A test agent for integration testing.
         developerId: 'test-developer',
       }),
     });
-    
+
     // List sessions
     const listResponse = await fetch(`http://localhost:${port}/api/sessions?agentId=test-agent`);
     expect(listResponse.ok).toBe(true);
-    
+
     const sessions = await listResponse.json();
     expect(Array.isArray(sessions)).toBe(true);
     expect(sessions.length).toBeGreaterThanOrEqual(2);
-    
+
     // Verify all sessions are for the correct agent
     sessions.forEach((s: any) => {
       expect(s.agentId).toBe('test-agent');
@@ -253,14 +255,14 @@ A test agent for integration testing.
         developerId: 'test-developer',
       }),
     });
-    
+
     expect(createResponse.ok).toBe(true);
     const newSession = await createResponse.json();
-    
+
     // Get latest session
     const latestResponse = await fetch(`http://localhost:${port}/api/sessions/test-agent/latest`);
     expect(latestResponse.ok).toBe(true);
-    
+
     const latestSession = await latestResponse.json();
     expect(latestSession.id).toBe(newSession.id);
   });
@@ -275,10 +277,10 @@ A test agent for integration testing.
         developerId: 'test-developer',
       }),
     });
-    
+
     expect(createResponse.ok).toBe(true);
     const session = await createResponse.json();
-    
+
     // Create handoff session
     const handoffResponse = await fetch(`http://localhost:${port}/api/sessions/handoff`, {
       method: 'POST',
@@ -291,10 +293,10 @@ A test agent for integration testing.
         transferAllowedFiles: true,
       }),
     });
-    
+
     expect(handoffResponse.ok).toBe(true);
     const handoffSession = await handoffResponse.json();
-    
+
     expect(handoffSession.id).toBeDefined();
     expect(handoffSession.previousSessionId).toBe(session.id);
     expect(handoffSession.developerId).toBe('test-developer');

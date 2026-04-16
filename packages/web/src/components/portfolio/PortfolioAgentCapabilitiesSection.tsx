@@ -68,11 +68,3 @@ export function PortfolioAgentCapabilitiesSection({ capabilities, onSave }: Read
   );
 }
 
-
-const agentCapabilities = [
-  ['streaming', 'Streaming'],
-  ['multimodal', 'Multimodal'],
-  ['codeExecution', 'Code Execution'],
-  ['reasoning', 'Reasoning'],
-] as const;
-

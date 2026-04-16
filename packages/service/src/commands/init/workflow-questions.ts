@@ -1,5 +1,5 @@
 import type {
-  MediatorRuntimeEvent,
+  RuntimeStreamEvent,
   QuestionAnswerValue,
   QuestionChecklistRequest,
   QuestionConfirmRequest,
@@ -8,11 +8,17 @@ import type {
   QuestionSelectRequest,
   WorkflowFrame,
   WorkflowStateSnapshot,
-} from '../../contracts.js';
+} from '@ai-team/api-client';
+import {
+  resolveWorkflowAnswer as _resolveWorkflowAnswer,
+  emitWorkflowQuestionFrame as _emitWorkflowQuestionFrame,
+  emitWorkflowResultFrame as _emitWorkflowResultFrame,
+  ensureNotAborted as _ensureNotAborted,
+} from '../../workflow/helpers.js';
 
 export interface InitRuntimeHooks {
   signal?: AbortSignal;
-  emit?: (event: MediatorRuntimeEvent) => void;
+  emit?: (event: RuntimeStreamEvent) => void;
   questionInput?: (request: QuestionInputRequest) => Promise<string>;
   questionConfirm?: (request: QuestionConfirmRequest) => Promise<boolean>;
   questionSelect?: (request: QuestionSelectRequest) => Promise<string>;
@@ -22,21 +28,14 @@ export interface InitRuntimeHooks {
   onWorkflowFrame?: (frame: WorkflowFrame) => void;
 }
 
+// Thin wrappers that delegate to the shared workflow helpers.
+// InitRuntimeHooks is structurally compatible with InteractionContext.
+
 function resolveWorkflowAnswer(
   hooks: InitRuntimeHooks | undefined,
-  request: { workflow?: { workflowId?: string; questionId?: string } },
+  request: { workflow?: { workflowId?: string; questionId?: string } }
 ): QuestionAnswerValue | undefined {
-  const workflowId = request.workflow?.workflowId;
-  const questionId = request.workflow?.questionId;
-  if (!workflowId || !questionId) {
-    return undefined;
-  }
-
-  if (hooks?.workflowState?.workflowId !== workflowId) {
-    return undefined;
-  }
-
-  return hooks.workflowState.answers[questionId];
+  return _resolveWorkflowAnswer(hooks, request);
 }
 
 function emitWorkflowQuestionFrame(
@@ -46,53 +45,34 @@ function emitWorkflowQuestionFrame(
     | ({ kind: 'confirm' } & QuestionConfirmRequest)
     | ({ kind: 'select' } & QuestionSelectRequest)
     | ({ kind: 'password' } & QuestionPasswordRequest)
-    | ({ kind: 'checklist' } & QuestionChecklistRequest),
+    | ({ kind: 'checklist' } & QuestionChecklistRequest)
 ): void {
-  const workflowId = request.workflow?.workflowId;
-  if (!workflowId) {
-    return;
-  }
-
-  hooks?.onWorkflowFrame?.({
-    workflowId,
-    stepId: request.workflow?.stepId || 'question',
-    continuationToken: request.workflow?.continuationToken,
-    question: request,
-  });
+  _emitWorkflowQuestionFrame(hooks, request);
 }
 
 function emitWorkflowResultFrame(
   hooks: InitRuntimeHooks | undefined,
-  request: { workflow?: { workflowId?: string; stepId?: string; continuationToken?: string; questionId?: string } },
-  result: QuestionAnswerValue,
+  request: {
+    workflow?: {
+      workflowId?: string;
+      stepId?: string;
+      continuationToken?: string;
+      questionId?: string;
+    };
+  },
+  result: QuestionAnswerValue
 ): void {
-  const workflowId = request.workflow?.workflowId;
-  if (!workflowId) {
-    return;
-  }
-
-  hooks?.onWorkflowFrame?.({
-    workflowId,
-    stepId: request.workflow?.stepId || 'question',
-    continuationToken: request.workflow?.continuationToken,
-    question: request.workflow?.questionId
-      ? {
-          kind: 'input',
-          message: '',
-          workflow: request.workflow,
-        }
-      : undefined,
-    result,
-  });
+  _emitWorkflowResultFrame(hooks, request, result);
 }
 
 function ensureNotAborted(hooks: InitRuntimeHooks | undefined): void {
-  if (hooks?.signal?.aborted) {
-    throw new Error('Init command aborted');
-  }
+  _ensureNotAborted(hooks);
 }
 
-function resolveSelectAnswer(input: string, choices: Array<{ name: string; value: string }>): string | undefined {
+function resolveSelectAnswer(
+  input: string,
+  choices: Array<{ name: string; value: string }>
+): string | undefined {
   const trimmed = input.trim();
   if (!trimmed) {
     return undefined;
@@ -103,12 +83,12 @@ function resolveSelectAnswer(input: string, choices: Array<{ name: string; value
     return choices[numeric - 1].value;
   }
 
-  const exactValue = choices.find(choice => choice.value.toLowerCase() === trimmed.toLowerCase());
+  const exactValue = choices.find((choice) => choice.value.toLowerCase() === trimmed.toLowerCase());
   if (exactValue) {
     return exactValue.value;
   }
 
-  const exactName = choices.find(choice => choice.name.toLowerCase() === trimmed.toLowerCase());
+  const exactName = choices.find((choice) => choice.name.toLowerCase() === trimmed.toLowerCase());
   if (exactName) {
     return exactName.value;
   }
@@ -116,7 +96,10 @@ function resolveSelectAnswer(input: string, choices: Array<{ name: string; value
   return undefined;
 }
 
-export async function requestInput(hooks: InitRuntimeHooks | undefined, request: QuestionInputRequest): Promise<string> {
+export async function requestInput(
+  hooks: InitRuntimeHooks | undefined,
+  request: QuestionInputRequest
+): Promise<string> {
   ensureNotAborted(hooks);
   emitWorkflowQuestionFrame(hooks, { kind: 'input', ...request });
   hooks?.emit?.({
@@ -140,7 +123,10 @@ export async function requestInput(hooks: InitRuntimeHooks | undefined, request:
   return answer;
 }
 
-export async function requestConfirm(hooks: InitRuntimeHooks | undefined, request: QuestionConfirmRequest): Promise<boolean> {
+export async function requestConfirm(
+  hooks: InitRuntimeHooks | undefined,
+  request: QuestionConfirmRequest
+): Promise<boolean> {
   ensureNotAborted(hooks);
   emitWorkflowQuestionFrame(hooks, { kind: 'confirm', ...request });
   hooks?.emit?.({
@@ -156,7 +142,9 @@ export async function requestConfirm(hooks: InitRuntimeHooks | undefined, reques
   }
 
   if (!hooks?.questionConfirm) {
-    throw new Error('Confirm question requested but no client questionConfirm responder is available.');
+    throw new Error(
+      'Confirm question requested but no client questionConfirm responder is available.'
+    );
   }
   await Promise.resolve();
   const answer = await hooks.questionConfirm(request);
@@ -164,7 +152,10 @@ export async function requestConfirm(hooks: InitRuntimeHooks | undefined, reques
   return answer;
 }
 
-export async function requestSelect(hooks: InitRuntimeHooks | undefined, request: QuestionSelectRequest): Promise<string> {
+export async function requestSelect(
+  hooks: InitRuntimeHooks | undefined,
+  request: QuestionSelectRequest
+): Promise<string> {
   ensureNotAborted(hooks);
   emitWorkflowQuestionFrame(hooks, { kind: 'select', ...request });
   hooks?.emit?.({
@@ -205,19 +196,26 @@ export async function requestSelect(hooks: InitRuntimeHooks | undefined, request
       return resolved;
     }
 
-    throw new Error('Select question requested but no client questionSelect or compatible questionInput responder is available.');
+    throw new Error(
+      'Select question requested but no client questionSelect or compatible questionInput responder is available.'
+    );
   }
   await Promise.resolve();
   const answer = await hooks.questionSelect(request);
   const resolved = resolveSelectAnswer(answer, request.choices);
   if (!resolved) {
-    throw new Error('Select responder returned an invalid choice. Please choose one of the listed options.');
+    throw new Error(
+      'Select responder returned an invalid choice. Please choose one of the listed options.'
+    );
   }
   emitWorkflowResultFrame(hooks, request, resolved);
   return resolved;
 }
 
-export async function requestPassword(hooks: InitRuntimeHooks | undefined, request: QuestionPasswordRequest): Promise<string> {
+export async function requestPassword(
+  hooks: InitRuntimeHooks | undefined,
+  request: QuestionPasswordRequest
+): Promise<string> {
   ensureNotAborted(hooks);
   emitWorkflowQuestionFrame(hooks, { kind: 'password', ...request });
   hooks?.emit?.({
@@ -233,7 +231,9 @@ export async function requestPassword(hooks: InitRuntimeHooks | undefined, reque
   }
 
   if (!hooks?.questionPassword) {
-    throw new Error('Password question requested but no client questionPassword responder is available.');
+    throw new Error(
+      'Password question requested but no client questionPassword responder is available.'
+    );
   }
   await Promise.resolve();
   const answer = await hooks.questionPassword(request);
@@ -243,11 +243,11 @@ export async function requestPassword(hooks: InitRuntimeHooks | undefined, reque
 
 function parseChecklistAnswer(
   input: string,
-  choices: Array<{ name: string; value: string }>,
+  choices: Array<{ name: string; value: string }>
 ): string[] {
   const tokens = input
     .split(',')
-    .map(token => token.trim())
+    .map((token) => token.trim())
     .filter(Boolean);
 
   if (tokens.length === 0) {
@@ -263,13 +263,13 @@ function parseChecklistAnswer(
       continue;
     }
 
-    const exactValue = choices.find(choice => choice.value.toLowerCase() === token.toLowerCase());
+    const exactValue = choices.find((choice) => choice.value.toLowerCase() === token.toLowerCase());
     if (exactValue) {
       selected.add(exactValue.value);
       continue;
     }
 
-    const exactName = choices.find(choice => choice.name.toLowerCase() === token.toLowerCase());
+    const exactName = choices.find((choice) => choice.name.toLowerCase() === token.toLowerCase());
     if (exactName) {
       selected.add(exactName.value);
       continue;
@@ -283,7 +283,7 @@ function parseChecklistAnswer(
 
 export async function requestChecklist(
   hooks: InitRuntimeHooks | undefined,
-  request: QuestionChecklistRequest,
+  request: QuestionChecklistRequest
 ): Promise<string[]> {
   ensureNotAborted(hooks);
   emitWorkflowQuestionFrame(hooks, { kind: 'checklist', ...request });
@@ -295,7 +295,7 @@ export async function requestChecklist(
   });
 
   const resumed = resolveWorkflowAnswer(hooks, request);
-  if (Array.isArray(resumed) && resumed.every(value => typeof value === 'string')) {
+  if (Array.isArray(resumed) && resumed.every((value) => typeof value === 'string')) {
     emitWorkflowResultFrame(hooks, request, resumed);
     return resumed;
   }
@@ -331,5 +331,7 @@ export async function requestChecklist(
     return parsed;
   }
 
-  throw new Error('Checklist question requested but no client questionChecklist or compatible questionInput responder is available.');
+  throw new Error(
+    'Checklist question requested but no client questionChecklist or compatible questionInput responder is available.'
+  );
 }

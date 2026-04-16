@@ -1,5 +1,5 @@
 # Managed by AI Team. Edit with care.
-# Section names map to permission modes: [read], [write], [create], [delete].
+# Section names map to permission modes: [read], [write].
 
 [read]
 .github/copilot-instructions.md

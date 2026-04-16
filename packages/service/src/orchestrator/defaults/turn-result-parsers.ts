@@ -14,8 +14,8 @@
  * appropriate position in buildDefaultTurnResultParsers().
  */
 
-import { isHandoffRequest, isHireResult, type StructuredToolResult } from '@ai-team/core';
-import type { Agent } from '@ai-team/core';
+import { isHandoffRequest, isHireResult, type StructuredToolResult } from '@ai-team/infrastructure';
+import type { Agent } from '@ai-team/infrastructure';
 import type { ITurnResultParser, TurnResult } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
 import { parseHandoffDirective } from '../../commands/chat/index.js';

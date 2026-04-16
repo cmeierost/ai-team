@@ -8,9 +8,65 @@
       "preLaunchTask": "build:cli",
       "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/packages/cli/dist/cli.js",
-      "args": ["chat"],
+      "args": [
+        "chat"
+      ],
       "console": "integratedTerminal",
-      "skipFiles": ["<node_internals>/**"]
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "env": {
+        "AI_TEAM_BACKEND_FILE_LOG": "1",
+        "AI_TEAM_FRONTEND_FILE_LOG": "1",
+        "AI_TEAM_STREAM_PERF": "1"
+      }
+    },
+    {
+      "name": "CLI: Attach",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Server: Debug (dev)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/packages/api-server",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "dev:debug"
+      ],
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "env": {
+        "AI_TEAM_CONSOLE_LOG": "1",
+        "AI_TEAM_BACKEND_FILE_LOG": "0"
+      }
+    },
+    {
+      "name": "Server: Attach",
+      "type": "node",
+      "request": "attach",
+      "port": 9230,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Web: Debug (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "preLaunchTask": "dev:web",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/packages/web/src",
+      "sourceMapPathOverrides": {
+        "/src/*": "${workspaceFolder}/packages/web/src/*"
+      }
     },
     {
       "name": "CLI: CPU Profile (dist)",
@@ -24,9 +80,23 @@
         "--cpu-prof-name=cli.cpuprofile"
       ],
       "program": "${workspaceFolder}/packages/cli/dist/cli.js",
-      "args": ["--help"],
+      "args": [
+        "--help"
+      ],
       "console": "integratedTerminal",
-      "skipFiles": ["<node_internals>/**"]
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack: Debug",
+      "configurations": [
+        "Server: Debug (dev)",
+        "Web: Debug (Chrome)"
+      ],
+      "stopAll": true
     }
   ]
 }

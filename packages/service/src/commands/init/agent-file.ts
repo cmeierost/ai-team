@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { buildAgentMarkdown, loadAgent, saveAgent } from '@ai-team/core';
-import type { Agent, ContextLevel, RoleType } from '@ai-team/core';
+import { buildAgentMarkdown, loadAgent, saveAgent } from '@ai-team/infrastructure';
+import type { Agent, ContextLevel, RoleType } from '@ai-team/infrastructure';
 
 export interface AgentSeed {
   name: string;

@@ -13,9 +13,8 @@ async function waitForFileLine(filePath: string, timeoutMs = 500): Promise<strin
       if (line) {
         return line;
       }
-    } catch {
-    }
-    await new Promise(resolve => setTimeout(resolve, 10));
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
 
   return undefined;
@@ -65,9 +64,12 @@ describe('backend debug log', () => {
     process.env.AI_TEAM_BACKEND_FILE_LOG = '0';
     writeBackendDebugLog(workspaceRoot, { source: 'disabled' });
 
-    await new Promise(resolve => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 30));
     const filePath = path.join(workspaceRoot, '.ai-team', 'logs', 'backend.log');
-    const exists = await fs.stat(filePath).then(() => true).catch(() => false);
+    const exists = await fs
+      .stat(filePath)
+      .then(() => true)
+      .catch(() => false);
     expect(exists).toBe(false);
   });
 

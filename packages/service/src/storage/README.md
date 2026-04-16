@@ -29,14 +29,13 @@ erDiagram
     sessions ||--o{ session_agents : "has"
     sessions ||--o{ session_artifacts : "tracks"
     sessions ||--o{ session_files : "includes"
-    sessions ||--o{ session_tasks : "manages"
     sessions ||--o{ session_merged_from : "merged"
     sessions ||--o| session_rag_config : "configures"
-    
+
     messages ||--o{ message_files : "references"
     messages ||--o{ message_tool_calls : "invokes"
     messages ||--o{ message_suggestions : "suggests"
-    
+
     sessions {
         TEXT id PK
         TEXT developer_id
@@ -49,7 +48,7 @@ erDiagram
         TEXT created_at
         TEXT updated_at
     }
-    
+
     messages {
         INTEGER id PK "AUTOINCREMENT"
         TEXT session_id FK
@@ -62,17 +61,17 @@ erDiagram
         TEXT handoff_type
         TEXT target_agent_id
     }
-    
+
     session_agents {
         TEXT session_id PK_FK
         TEXT agent_id PK
     }
-    
+
     message_files {
         INTEGER message_id PK_FK
         TEXT file_path PK
     }
-    
+
     message_tool_calls {
         INTEGER id PK "AUTOINCREMENT"
         INTEGER message_id FK
@@ -80,7 +79,7 @@ erDiagram
         TEXT params_json
         TEXT result_json
     }
-    
+
     message_suggestions {
         INTEGER id PK "AUTOINCREMENT"
         INTEGER message_id FK
@@ -90,33 +89,28 @@ erDiagram
         TEXT description
         TEXT code
     }
-    
+
     session_artifacts {
         TEXT session_id PK_FK
         TEXT artifact_path PK
     }
-    
+
     session_files {
         TEXT session_id PK_FK
         TEXT file_path PK
         INTEGER is_prioritized
     }
-    
-    session_tasks {
-        TEXT session_id PK_FK
-        TEXT task_id PK
-    }
-    
+
     session_merged_from {
         TEXT session_id PK_FK
         TEXT merged_session_id PK
     }
-    
+
     session_rag_config {
         TEXT session_id PK_FK
         TEXT config_json
     }
-    
+
     notes {
         TEXT id PK
         TEXT agent_id
@@ -167,7 +161,7 @@ const messages = await storage.getMessages(sessionId);
 
 // Filter messages by agent
 const agentMessages = await storage.getMessages(sessionId, {
-  fromId: 'architect-agent'
+  fromId: 'architect-agent',
 });
 
 // Search messages by content
@@ -175,7 +169,7 @@ const searchResults = await storage.searchMessages(sessionId, 'error handling');
 
 // Get archived messages only
 const archived = await storage.getMessages(sessionId, {
-  archived: true
+  archived: true,
 });
 ```
 
@@ -199,7 +193,7 @@ const note = await storage.createNote({
   agentId: 'architect-agent',
   title: 'Refactor auth module',
   content: 'Consider using JWT tokens instead of session cookies. Review security implications.',
-  tags: ['security', 'authentication', 'refactoring']
+  tags: ['security', 'authentication', 'refactoring'],
 });
 
 // List all notes for an agent
@@ -211,7 +205,7 @@ const searchResults = await storage.searchNotes('authentication', 'architect-age
 // Update a note
 await storage.updateNote(note.id, {
   content: 'Updated implementation plan...',
-  tags: ['security', 'authentication', 'refactoring', 'high-priority']
+  tags: ['security', 'authentication', 'refactoring', 'high-priority'],
 });
 
 // Delete a note
@@ -236,6 +230,7 @@ export const MIGRATIONS: Migration[] = [
 ### Auto-Migration
 
 Migrations run automatically on `storage.initialize()`:
+
 - Checks current schema version in `schema_version` table
 - Applies any pending migrations in order
 - Tracks applied migrations to prevent double-application

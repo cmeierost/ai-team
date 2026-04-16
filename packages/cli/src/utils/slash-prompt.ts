@@ -27,12 +27,42 @@ const MAX_VISIBLE = 7;
 
 type CommandEntry = (typeof IN_CHAT_COMMAND_REGISTRY)[number];
 
+/** Strip ANSI escape codes to measure visible character width. */
+function visibleLength(str: string): number {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').length;
+}
+
+/** How many terminal rows does a piece of text occupy when printed (no leading \n). */
+function textRows(text: string, columns: number): number {
+  const len = visibleLength(text);
+  return Math.max(1, Math.ceil(len / columns));
+}
+
+function measureInputRows(promptText: string, buf: string): number {
+  const columns = Math.max(1, output.columns ?? 80);
+  const textLen = Math.max(1, promptText.length + 1 + buf.length);
+  return Math.max(1, Math.ceil(textLen / columns));
+}
+
+function resolveCursorPosition(
+  promptText: string,
+  buf: string
+): { rowOffset: number; column: number } {
+  const columns = Math.max(1, output.columns ?? 80);
+  const absoluteCol = promptText.length + 1 + buf.length;
+  return {
+    rowOffset: Math.floor(absoluteCol / columns),
+    column: absoluteCol % columns,
+  };
+}
+
 function getSuggestions(buf: string): CommandEntry[] {
   if (!buf.startsWith('/')) return [];
   const fragment = buf.slice(1).toLowerCase();
-  return IN_CHAT_COMMAND_REGISTRY.filter(cmd => {
+  return IN_CHAT_COMMAND_REGISTRY.filter((cmd) => {
     const keys = [cmd.key, ...(cmd.aliases ?? [])];
-    return keys.some(k => k.startsWith(fragment));
+    return keys.some((k) => k.startsWith(fragment));
   });
 }
 
@@ -45,37 +75,63 @@ function renderAll(
   buf: string,
   suggs: CommandEntry[],
   selectedIdx: number,
+  previousInputRows: number
 ): number {
+  if (previousInputRows > 1) {
+    moveCursor(output, 0, -(previousInputRows - 1));
+  }
   cursorTo(output, 0);
   clearScreenDown(output);
   output.write(`${promptText} ${buf}`);
 
-  const visible = suggs.slice(0, MAX_VISIBLE);
+  const inputRows = measureInputRows(promptText, buf);
+
+  // Compute a scroll window so the selected item is always visible.
+  const clampedIdx = Math.max(0, selectedIdx);
+  const windowStart = Math.min(
+    Math.max(0, clampedIdx - MAX_VISIBLE + 1),
+    Math.max(0, suggs.length - MAX_VISIBLE)
+  );
+  const visible = suggs.slice(windowStart, windowStart + MAX_VISIBLE);
+  const columns = Math.max(1, output.columns ?? 80);
   let rows = 0;
+
+  if (windowStart > 0) {
+    const line = chalk.dim(`  ↑ ${windowStart} more above`);
+    output.write(`\n${line}`);
+    rows += textRows(line, columns);
+  }
 
   for (let i = 0; i < visible.length; i++) {
     const cmd = visible[i];
     const usage = cmd.usage ?? `/${cmd.key}`;
-    const isSelected = i === selectedIdx;
+    const isSelected = windowStart + i === selectedIdx;
     const line = isSelected
       ? chalk.bgBlue.white(` ${usage.padEnd(26)} `) + chalk.dim(`  ${cmd.description}`)
       : chalk.cyan(` ${usage}`) + chalk.dim(`  ${cmd.description}`);
     output.write(`\n${line}`);
-    rows++;
+    rows += textRows(line, columns);
   }
 
-  if (suggs.length > MAX_VISIBLE) {
-    output.write(`\n${chalk.dim(`  … ${suggs.length - MAX_VISIBLE} more`)}`);
-    rows++;
+  const remaining = suggs.length - (windowStart + visible.length);
+  if (remaining > 0) {
+    const line = chalk.dim(`  ↓ ${remaining} more below`);
+    output.write(`\n${line}`);
+    rows += textRows(line, columns);
   }
 
   // Move cursor back to end of user input
   if (rows > 0) {
     moveCursor(output, 0, -rows);
   }
-  cursorTo(output, promptText.length + 1 + buf.length);
 
-  return rows;
+  const cursor = resolveCursorPosition(promptText, buf);
+  if (cursor.rowOffset > 0) {
+    moveCursor(output, 0, cursor.rowOffset);
+  }
+  cursorTo(output, cursor.column);
+
+  return inputRows;
 }
 
 /**
@@ -84,7 +140,7 @@ function renderAll(
  */
 export async function askWithSlashSuggestions(
   promptText: string,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<string> {
   if (!process.stdin.isTTY) {
     const rl = createInterface({ input, output });
@@ -103,11 +159,12 @@ export async function askWithSlashSuggestions(
     let buffer = '';
     let selectedIdx = -1;
     let dismissed = false;
+    let currentInputRows = 1;
 
     const rerender = () => {
       const suggs = dismissed ? [] : getSuggestions(buffer);
       selectedIdx = suggs.length === 0 ? -1 : Math.min(selectedIdx, suggs.length - 1);
-      renderAll(promptText, buffer, suggs, selectedIdx);
+      currentInputRows = renderAll(promptText, buffer, suggs, selectedIdx, currentInputRows);
     };
 
     const applySelection = (): boolean => {
@@ -124,6 +181,9 @@ export async function askWithSlashSuggestions(
     };
 
     const finish = (value: string) => {
+      if (currentInputRows > 1) {
+        moveCursor(output, 0, -(currentInputRows - 1));
+      }
       cursorTo(output, 0);
       clearScreenDown(output);
       output.write(`${promptText} ${value}\n`);
@@ -132,6 +192,9 @@ export async function askWithSlashSuggestions(
     };
 
     const abort = () => {
+      if (currentInputRows > 1) {
+        moveCursor(output, 0, -(currentInputRows - 1));
+      }
       cursorTo(output, 0);
       clearScreenDown(output);
       output.write('\n');
@@ -148,7 +211,10 @@ export async function askWithSlashSuggestions(
     const onKey = (_str: string | undefined, key: Key) => {
       if (!key) return;
 
-      if (signal?.aborted) { abort(); return; }
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
 
       // Ctrl+C / Ctrl+D
       if (key.ctrl && (key.name === 'c' || key.name === 'd')) {
@@ -175,7 +241,7 @@ export async function askWithSlashSuggestions(
         if (suggs.length > 0) {
           dismissed = false;
           selectedIdx = selectedIdx <= 0 ? suggs.length - 1 : selectedIdx - 1;
-          renderAll(promptText, buffer, suggs, selectedIdx);
+          currentInputRows = renderAll(promptText, buffer, suggs, selectedIdx, currentInputRows);
         }
         return;
       }
@@ -186,7 +252,7 @@ export async function askWithSlashSuggestions(
         if (suggs.length > 0) {
           dismissed = false;
           selectedIdx = selectedIdx >= suggs.length - 1 ? 0 : selectedIdx + 1;
-          renderAll(promptText, buffer, suggs, selectedIdx);
+          currentInputRows = renderAll(promptText, buffer, suggs, selectedIdx, currentInputRows);
         }
         return;
       }

@@ -1,35 +1,21 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import ora from 'ora';
 import {
-  ensureAiTeamDirectory,
-  loadTeamConfig,
-  resolveEffectiveLlmSettings,
-  saveUserConfig,
-  saveTeamConfig,
-  saveEnvFile,
   saveAgentAccessPatterns,
   loadSkill,
   loadAllInstructionFiles,
-  testLlmConnection,
   LlmService,
-  ChatManager,
-  loadEnvFile,
+  ChatStorage,
   AgentManager,
   buildAgentMarkdown,
   ContextLevel,
   RoleType,
-} from '@ai-team/core';
-import type { UserConfig, TeamConfig, Agent, ChatMessage, ChatCompletionMessageParam } from '@ai-team/core';
+} from '@ai-team/infrastructure';
+import type { Agent, ChatMessage, ChatCompletionMessageParam } from '@ai-team/infrastructure';
 import { getPersonalityForHire } from './hire.js';
-import type {
-  InitOptions,
-} from '../contracts.js';
+import type { InitOptions } from '@ai-team/api-client';
 import { getGitUserName, developerNameToId } from '../utils/git.js';
 import { listEmployeesCommand } from './list.js';
-import { updateWorkspaceSettings } from './init/update-workspace-settings.js';
-import { updateGitignore } from './init/update-gitignore.js';
-import { askLlmSetup, type LlmSetupResult, type LlmSettingsIo } from './init/llm-settings.js';
 import {
   createRoleTemplates,
   createBootstrapWorkspaceFiles,
@@ -51,7 +37,6 @@ import {
   requestInput,
   requestConfirm,
   requestSelect,
-  requestPassword,
   requestChecklist,
 } from './init/workflow-questions.js';
 import { pickAgentName } from './init/name-picking.js';
@@ -61,7 +46,6 @@ import {
   getGuidedInitialSuggestions,
   getGuidedDependentSuggestions,
 } from './init/guided-onboarding.js';
-
 
 function writeToken(hooks: InitRuntimeHooks | undefined, text: string) {
   hooks?.emit?.({ kind: 'token', text });
@@ -98,73 +82,7 @@ function writeDebug(hooks: InitRuntimeHooks | undefined, message: string) {
   }
 }
 
-function buildLlmSettingsIo(hooks: InitRuntimeHooks | undefined): LlmSettingsIo {
-  return {
-    select: request => requestSelect(hooks, request),
-    input: request => requestInput(hooks, request),
-    password: request => requestPassword(hooks, request),
-    writeLine: message => writeLine(hooks, message),
-    writeWarn: message => writeWarn(hooks, message),
-  };
-}
-
 const FORCE_KEEP = new Set(['config.json', '.env']);
-const DEFAULT_SKILL_SOURCES = [
-  'https://github.com/anthropics/skills',
-];
-
-function inferDefaultProviderRef(setup: LlmSetupResult): string {
-  if (setup.provider === 'github-copilot') {
-    return 'copilot';
-  }
-
-  const baseUrl = setup.baseUrl?.toLowerCase() ?? '';
-  if (baseUrl.includes('api.openai.com')) {
-    return 'openai';
-  }
-
-  if (baseUrl.includes('localhost')) {
-    return 'local';
-  }
-
-  return 'personal-openai';
-}
-
-function buildUserConfigFromInit(setup: LlmSetupResult): UserConfig {
-  const gitDeveloperName = getGitUserName();
-  const providerRef = inferDefaultProviderRef(setup);
-
-  const providerEntry = setup.provider === 'github-copilot'
-    ? {
-        kind: 'github-copilot' as const,
-        ...(setup.model ? { defaultModel: setup.model } : {}),
-        ...(setup.model ? { models: [{ name: setup.model }] } : {}),
-      }
-    : {
-        kind: 'openai-compatible' as const,
-        ...(setup.baseUrl ? { baseUrl: setup.baseUrl } : {}),
-        ...(setup.model ? { defaultModel: setup.model } : {}),
-        ...(setup.model ? { models: [{ name: setup.model }] } : {}),
-        ...(setup.apiKey ? { apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY' } : {}),
-      };
-
-  return {
-    ...(gitDeveloperName
-      ? {
-          developer: {
-            id: developerNameToId(gitDeveloperName),
-            name: gitDeveloperName,
-          },
-        }
-      : {}),
-    defaultModel: setup.model
-      ? { provider: providerRef, model: setup.model }
-      : undefined,
-    providers: {
-      [providerRef]: providerEntry,
-    },
-  };
-}
 
 async function clearAiTeamDirectory(workspaceRoot: string, hooks?: InitRuntimeHooks) {
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
@@ -182,14 +100,20 @@ async function clearAiTeamDirectory(workspaceRoot: string, hooks?: InitRuntimeHo
       await fs.rm(target, { recursive: true, force: true });
       writeLine(hooks, `  Removed: ${entry.name}`);
     } catch (err) {
-      writeWarn(hooks, `  Could not remove ${entry.name}: ${err instanceof Error ? err.message : String(err)}`);
+      writeWarn(
+        hooks,
+        `  Could not remove ${entry.name}: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 }
 
-export async function initCommand(workspaceRoot: string, options: InitOptions, hooks?: InitRuntimeHooks) {
+export async function initCommand(
+  workspaceRoot: string,
+  options: InitOptions,
+  hooks?: InitRuntimeHooks
+) {
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
-  const existingConfig = await loadTeamConfig(workspaceRoot);
 
   try {
     const stats = await fs.stat(aiTeamDir);
@@ -206,152 +130,19 @@ export async function initCommand(workspaceRoot: string, options: InitOptions, h
       writeWarn(hooks, '  Force flag detected - reinitializing...');
       await clearAiTeamDirectory(workspaceRoot, hooks);
     }
-  } catch {
-  }
+  } catch {}
 
-  let reusedExistingLlm = false;
-  let llmConfig: LlmSetupResult;
-  let existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined;
-
-  try {
-    if (existingConfig) {
-      existingResolvedLlm = resolveEffectiveLlmSettings(existingConfig);
-    }
-  } catch {
-    existingResolvedLlm = undefined;
-  }
-
-  // Ask LLM reuse BEFORE writing any log messages so the confirm prompt
-  // is not clobbered by buffered events delivered to the CLI concurrently.
-  if (options.force && existingResolvedLlm) {
-    const providerLabel = existingResolvedLlm.config.provider === 'github-copilot'
-      ? 'GitHub Copilot'
-      : `OpenAI-compatible (${existingResolvedLlm.config.baseUrl ?? 'custom base URL'})`;
-    const providerRefSuffix = existingResolvedLlm.providerRef
-      ? ` [${existingResolvedLlm.providerRef}]`
-      : '';
-
-    writeLine(hooks, `  Current LLM: ${providerLabel}${providerRefSuffix}`);
-    const reuse = await requestConfirm(hooks, {
-      message: 'Reuse existing default LLM connection?',
-      default: true,
-    });
-
-    if (reuse) {
-      if (existingResolvedLlm.config.provider === 'openai-compatible') {
-        const envVars = await loadEnvFile(workspaceRoot);
-        const keyEnvVar = existingResolvedLlm.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-        const existingKey = envVars[keyEnvVar] || envVars['AI_TEAM_LLM_API_KEY'] || envVars['LLM_API_KEY'] || envVars['OPENAI_API_KEY'];
-        if (existingKey) {
-          llmConfig = { ...existingResolvedLlm.config, apiKey: existingKey };
-          reusedExistingLlm = true;
-          writeLine(hooks, 'Reusing existing OpenAI-compatible configuration.');
-        } else {
-          writeWarn(hooks, 'Existing OpenAI-compatible provider has no API key saved; re-running setup...');
-          llmConfig = await askLlmSetup(buildLlmSettingsIo(hooks));
-        }
-      } else {
-        llmConfig = { ...existingResolvedLlm.config };
-        reusedExistingLlm = true;
-        writeLine(hooks, 'Reusing existing GitHub Copilot configuration.');
-      }
-    } else {
-      llmConfig = await askLlmSetup(buildLlmSettingsIo(hooks));
-    }
-  } else {
-    llmConfig = await askLlmSetup(buildLlmSettingsIo(hooks));
-  }
+  // Phase 1: LLM setup
+  const { setupCommand } = await import('./setup.js');
+  await setupCommand(workspaceRoot, { force: options.force }, hooks);
 
   writeLine(hooks, '');
   writeLine(hooks, 'Welcome to AI Team!');
   writeLine(hooks, "Let's set up your virtual development team.");
 
-  const spinner = ora('Initializing AI Team workspace...').start();
-
-  try {
-    await ensureAiTeamDirectory(workspaceRoot);
-    spinner.text = 'Created .ai-team directory structure';
-
-    const { apiKey, ...safeLlmConfig } = llmConfig;
-    const teamConfig: TeamConfig = existingConfig
-      ? {
-          ...existingConfig,
-          llm: safeLlmConfig,
-          skillSources: existingConfig.skillSources?.length ? existingConfig.skillSources : DEFAULT_SKILL_SOURCES,
-        }
-      : {
-          version: '0.1.0',
-          randomAvatarUrls: [],
-          llm: safeLlmConfig,
-          skillSources: DEFAULT_SKILL_SOURCES,
-        };
-    await saveTeamConfig(workspaceRoot, teamConfig);
-
-    if (apiKey && !reusedExistingLlm) {
-      await saveEnvFile(workspaceRoot, { AI_TEAM_LLM_API_KEY: apiKey });
-    }
-
-    await saveUserConfig(workspaceRoot, buildUserConfigFromInit(llmConfig));
-    spinner.text = 'Saved LLM configuration';
-
-    await updateWorkspaceSettings(workspaceRoot);
-    spinner.text = 'Updated workspace Copilot settings';
-
-    await updateGitignore(workspaceRoot);
-    spinner.text = 'Updated .gitignore';
-
-    spinner.succeed('AI Team initialized successfully!');
-
-    writeLine(hooks, '');
-    writeLine(hooks, 'LLM Configuration:');
-    if (llmConfig.provider === 'github-copilot') {
-      writeLine(hooks, '  Provider: GitHub Copilot');
-      if (llmConfig.model) {
-        writeLine(hooks, `  Model:    ${llmConfig.model}`);
-      }
-    } else {
-      writeLine(hooks, '  Provider: OpenAI-compatible');
-      writeLine(hooks, `  Base URL: ${llmConfig.baseUrl}`);
-      if (llmConfig.model) {
-        writeLine(hooks, `  Model:    ${llmConfig.model}`);
-      }
-      writeLine(hooks, `  API Key:  ${apiKey ? 'saved to .ai-team/.env' : 'not set'}`);
-    }
-
-    const testSpinner = ora('Testing LLM connection...').start();
-    try {
-      const reply = await testLlmConnection(safeLlmConfig, apiKey);
-      testSpinner.succeed('LLM connection working!');
-      writeLine(hooks, `  Response: ${reply}`);
-    } catch (testError) {
-      testSpinner.fail('LLM connection failed');
-      if (testError instanceof Error) {
-        writeError(hooks, `  ${testError.message}`);
-      }
-      writeLine(hooks, '');
-      writeLine(hooks, '  You can retry later with: ait test-connection');
-      writeLine(hooks, '');
-      writeLine(hooks, '  Skipping team onboarding (requires working LLM).');
-      showNextSteps(hooks);
-      return;
-    }
-
-    const llm = new LlmService(workspaceRoot);
-    llm.initializeFromConfig(safeLlmConfig, apiKey);
-
-    await runOnboarding(workspaceRoot, llm, hooks);
-  } catch (error) {
-    spinner.fail('Failed to initialize AI Team');
-    writeError(hooks, error instanceof Error ? error.message : String(error));
-    throw new Error(error instanceof Error ? error.message : 'Failed to initialize AI Team');
-  }
-}
-
-function showNextSteps(hooks?: InitRuntimeHooks) {
-  writeLine(hooks, '');
-  writeLine(hooks, 'Next steps:');
-  writeLine(hooks, '  1. Run ait list to see your team');
-  writeLine(hooks, '  2. Run ait chat <agent-id> to start chatting');
+  // Phase 2: Team onboarding (requires working LLM)
+  const { onboardCommand } = await import('./onboard.js');
+  await onboardCommand(workspaceRoot, { template: options.template }, hooks);
 }
 
 async function writeFileIfMissing(filePath: string, content: string): Promise<void> {
@@ -364,7 +155,11 @@ async function writeFileIfMissing(filePath: string, content: string): Promise<vo
   }
 }
 
-async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: InitRuntimeHooks) {
+export async function runOnboarding(
+  workspaceRoot: string,
+  llm: LlmService,
+  hooks?: InitRuntimeHooks
+) {
   writeLine(hooks, '');
   writeLine(hooks, '--- Team Onboarding ---');
   writeLine(hooks, "Let's set up your founding team.");
@@ -406,7 +201,11 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     role: 'ceo',
     type: 'executive',
     contextLevel: 'organization',
-    personality: { communication_style: 'strategic', expertise_level: 'executive', mentoring: true },
+    personality: {
+      communication_style: 'strategic',
+      expertise_level: 'executive',
+      mentoring: true,
+    },
     introduction: renderTemplate(templates.ceoAgentIntroduction, { ceoName, hrName }).trim(),
     personalityProfile: parseTemplateBulletList(templates.ceoAgentPersonality),
   });
@@ -418,20 +217,24 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     type: 'executive',
     contextLevel: 'organization',
     reportsTo: 'ceo',
-    personality: { communication_style: 'supportive', expertise_level: 'executive', mentoring: true },
+    personality: {
+      communication_style: 'supportive',
+      expertise_level: 'executive',
+      mentoring: true,
+    },
     introduction: renderTemplate(templates.hrAgentIntroduction, { ceoName, hrName }).trim(),
     personalityProfile: parseTemplateBulletList(templates.hrAgentPersonality),
   });
   writeLine(hooks, `  ${hrName} has joined as HR Director`);
 
   await saveAgentAccessPatterns(workspaceRoot, ceoAgent.id, {
+    list: ['**/*'],
     read: ['**/*'],
     write: ['.ai-team/**/*', '.github/copilot-instructions.md', 'AGENTS.md', 'docs/**/*'],
-    create: [],
-    delete: [],
   });
 
   await saveAgentAccessPatterns(workspaceRoot, hrAgent.id, {
+    list: ['**/*'],
     read: ['**/*'],
     write: [
       '.ai-team/**/*',
@@ -441,17 +244,19 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
       'AGENTS.md',
       'docs/**/*',
     ],
-    create: [],
-    delete: [],
   });
 
   writeLine(hooks, '--- Business Definition ---');
-  writeLine(hooks, `\n${ceoName} (CEO): Welcome. I'm ${ceoName}, your CEO. I keep things strategic, outcome-focused, and short. Let's define what this software is about — start with your idea in plain text.\n`);
+  writeLine(
+    hooks,
+    `\n${ceoName} (CEO): Welcome. I'm ${ceoName}, your CEO. I keep things strategic, outcome-focused, and short. Let's define what this software is about — start with your idea in plain text.\n`
+  );
   const ideaText = await requestInput(hooks, {
     message: 'Describe your idea in your own words (2-6 sentences):',
     validate: (value: string) => {
       const trimmed = value.trim();
-      if (trimmed.length < 20) return 'Please add a little more detail so we can generate useful options.';
+      if (trimmed.length < 20)
+        return 'Please add a little more detail so we can generate useful options.';
       if (trimmed.length > 4000) return 'Please keep it concise (max ~4000 characters).';
       return true;
     },
@@ -462,7 +267,8 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     message: clarifier.question,
     validate: (value: string) => {
       const trimmed = value.trim();
-      if (trimmed.length < 20) return 'Please include both product type and the first pain point to eliminate.';
+      if (trimmed.length < 20)
+        return 'Please include both product type and the first pain point to eliminate.';
       if (trimmed.length > 4000) return 'Please keep it concise (max ~4000 characters).';
       return true;
     },
@@ -474,7 +280,10 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     `Product target + first pain point: ${productIntentAndPainPoint.trim()}`,
   ].join('\n');
 
-  writeLine(hooks, `\n${ceoName} (CEO): Good. I have enough to work with. Shall I ask you a few focused questions to sharpen the plan, or do you want to skip straight to discussion?`);
+  writeLine(
+    hooks,
+    `\n${ceoName} (CEO): Good. I have enough to work with. Shall I ask you a few focused questions to sharpen the plan, or do you want to skip straight to discussion?`
+  );
   const guidedMode = await requestConfirm(hooks, {
     message: 'Let the CEO guide you with focused questions?',
     default: true,
@@ -487,18 +296,17 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
   businessSeed.push(`- Idea summary (developer): ${ideaText.trim()}`);
   businessSeed.push(`- Product target and first pain point: ${productIntentAndPainPoint.trim()}`);
   if (guidedMode) {
-    let dynamicProductModes:
-      | Array<{ name: string; value: string }>
-      | undefined;
-    let dynamicPriorities:
-      | Array<{ name: string; value: string }>
-      | undefined;
+    let dynamicProductModes: Array<{ name: string; value: string }> | undefined;
+    let dynamicPriorities: Array<{ name: string; value: string }> | undefined;
     try {
       const initialSuggestions = await getGuidedInitialSuggestions(llm, guidedIdeaContext);
       dynamicProductModes = initialSuggestions.productModes;
       dynamicPriorities = initialSuggestions.priorities;
     } catch (error) {
-      writeWarn(hooks, `Could not generate inspiring guided options yet; switching to text input for this step. (${error instanceof Error ? error.message : String(error)})`);
+      writeWarn(
+        hooks,
+        `Could not generate inspiring guided options yet; switching to text input for this step. (${error instanceof Error ? error.message : String(error)})`
+      );
     }
 
     const businessFocus = dynamicProductModes
@@ -508,7 +316,7 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
         })
       : await requestInput(hooks, {
           message: 'What product direction best fits your idea right now?',
-          validate: value => value.trim().length > 0 || 'Please provide a product direction.',
+          validate: (value) => value.trim().length > 0 || 'Please provide a product direction.',
         });
 
     const priorities = dynamicPriorities
@@ -516,13 +324,15 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
           message: 'Pick top priorities that should drive decisions:',
           choices: dynamicPriorities,
         })
-      : (await requestInput(hooks, {
-          message: 'List your top priorities (comma-separated):',
-          validate: value => value.trim().length > 0 || 'Please provide at least one priority.',
-        }))
-        .split(',')
-        .map(value => value.trim())
-        .filter(Boolean);
+      : (
+          await requestInput(hooks, {
+            message: 'List your top priorities (comma-separated):',
+            validate: (value) => value.trim().length > 0 || 'Please provide at least one priority.',
+          })
+        )
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean);
 
     let constraints: string[] = [];
     try {
@@ -536,12 +346,17 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
         choices: dependentSuggestions.constraints,
       });
     } catch (error) {
-      writeWarn(hooks, `Could not tailor constraints from your selections; switching to text input. (${error instanceof Error ? error.message : String(error)})`);
-      constraints = (await requestInput(hooks, {
-        message: 'List key constraints (comma-separated, optional; press enter to skip):',
-      }))
+      writeWarn(
+        hooks,
+        `Could not tailor constraints from your selections; switching to text input. (${error instanceof Error ? error.message : String(error)})`
+      );
+      constraints = (
+        await requestInput(hooks, {
+          message: 'List key constraints (comma-separated, optional; press enter to skip):',
+        })
+      )
         .split(',')
-        .map(value => value.trim())
+        .map((value) => value.trim())
         .filter(Boolean);
     }
 
@@ -589,7 +404,10 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     }
     writeToken(hooks, '\n\n');
   } catch (err) {
-    writeWarn(hooks, `Could not generate plan summary: ${err instanceof Error ? err.message : String(err)}`);
+    writeWarn(
+      hooks,
+      `Could not generate plan summary: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
   writeLine(hooks, 'Discuss the plan with the CEO. Critique it, praise it, or refine it.');
@@ -609,10 +427,12 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     [
       renderTemplate(templates.onboardingCeoSystemPrompt, { hrName }),
       businessSeed.length > 0 ? `\n## Guided onboarding answers\n${businessSeed.join('\n')}` : '',
-    ].join('\n').trim(),
+    ]
+      .join('\n')
+      .trim(),
     developerName,
     hooks,
-    seedMessages,
+    seedMessages
   );
 
   if (businessContext.length > 0) {
@@ -643,13 +463,18 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
         choices: dependentSuggestions.mustHaveRoles,
       });
     } catch (error) {
-      writeWarn(hooks, `Could not generate role options from previous selections; switching to text input. (${error instanceof Error ? error.message : String(error)})`);
-      mustHaveRoles = (await requestInput(hooks, {
-        message: 'List must-have roles for first hiring wave (comma-separated):',
-        validate: value => value.trim().length > 0 || 'Please provide at least one role.',
-      }))
+      writeWarn(
+        hooks,
+        `Could not generate role options from previous selections; switching to text input. (${error instanceof Error ? error.message : String(error)})`
+      );
+      mustHaveRoles = (
+        await requestInput(hooks, {
+          message: 'List must-have roles for first hiring wave (comma-separated):',
+          validate: (value) => value.trim().length > 0 || 'Please provide at least one role.',
+        })
+      )
         .split(',')
-        .map(value => value.trim())
+        .map((value) => value.trim())
         .filter(Boolean);
     }
 
@@ -666,9 +491,11 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
     [
       renderTemplate(templates.onboardingHrSystemPrompt, { hrName }),
       hiringSeed.length > 0 ? `\n## Guided hiring inputs\n${hiringSeed.join('\n')}` : '',
-    ].join('\n').trim(),
+    ]
+      .join('\n')
+      .trim(),
     developerName,
-    hooks,
+    hooks
   );
 
   // Parse HIRE: directives from HR conversation and execute them
@@ -676,14 +503,22 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
   if (hireDirectives.length > 0) {
     writeLine(hooks, '');
     writeLine(hooks, '--- Hiring Team ---');
-    const hiredAgents = await executeOnboardingHires(workspaceRoot, hireDirectives, ceoAgent.id, hooks);
+    const hiredAgents = await executeOnboardingHires(
+      workspaceRoot,
+      hireDirectives,
+      ceoAgent.id,
+      hooks
+    );
     writeLine(hooks, '');
     if (hiredAgents.length > 0) {
       writeLine(hooks, `✓ ${hiredAgents.length} agent(s) hired and ready.`);
     }
   } else {
     writeLine(hooks, '');
-    writeLine(hooks, 'No HIRE: directives found in HR conversation. You can hire agents later with `ait hire` or by chatting with your HR director.');
+    writeLine(
+      hooks,
+      'No HIRE: directives found in HR conversation. You can hire agents later with `ait hire` or by chatting with your HR director.'
+    );
   }
 
   writeLine(hooks, '');
@@ -693,15 +528,20 @@ async function runOnboarding(workspaceRoot: string, llm: LlmService, hooks?: Ini
 
   // Import chatCommand lazily to avoid circular dependency issues
   const { chatCommand: startChat } = await import('./chat/index.js');
-  await startChat(workspaceRoot, ceoAgent.id, {}, {
-    signal: hooks?.signal,
-    emit: hooks?.emit,
-    questionInput: hooks?.questionInput,
-    questionConfirm: hooks?.questionConfirm,
-    questionSelect: hooks?.questionSelect,
-    questionPassword: hooks?.questionPassword,
-    questionChecklist: hooks?.questionChecklist,
-  });
+  await startChat(
+    workspaceRoot,
+    ceoAgent.id,
+    {},
+    {
+      signal: hooks?.signal,
+      emit: hooks?.emit,
+      questionInput: hooks?.questionInput,
+      questionConfirm: hooks?.questionConfirm,
+      questionSelect: hooks?.questionSelect,
+      questionPassword: hooks?.questionPassword,
+      questionChecklist: hooks?.questionChecklist,
+    }
+  );
 }
 
 // ── HIRE: directive parsing ──────────────────────────────────────────────────
@@ -742,12 +582,11 @@ async function executeOnboardingHires(
   workspaceRoot: string,
   hires: HireDirective[],
   ceoAgentId: string,
-  hooks?: InitRuntimeHooks,
+  hooks?: InitRuntimeHooks
 ): Promise<Agent[]> {
   if (hires.length === 0) return [];
 
   const agentManager = new AgentManager(workspaceRoot);
-  await agentManager.initialize();
 
   const hiredAgents: Agent[] = [];
   for (const hire of hires) {
@@ -759,7 +598,7 @@ async function executeOnboardingHires(
     if (/architect|cto/.test(hire.role.toLowerCase())) {
       reportsTo = ceoAgentId;
     } else {
-      const architect = hiredAgents.find(a => /architect|cto/.test(a.role));
+      const architect = hiredAgents.find((a) => /architect|cto/.test(a.role));
       reportsTo = architect?.id ?? ceoAgentId;
     }
 
@@ -768,12 +607,13 @@ async function executeOnboardingHires(
     });
 
     try {
-      const agent = await agentManager.createAgent(
+      const agent = await agentManager.createAgentAsync(
         {
           name: hire.name,
           role: hire.role,
           type: roleType,
-          contextLevel: roleType === RoleType.EXECUTIVE ? ContextLevel.ORGANIZATION : ContextLevel.MODULE,
+          contextLevel:
+            roleType === RoleType.EXECUTIVE ? ContextLevel.ORGANIZATION : ContextLevel.MODULE,
           reportsTo,
           personality: {
             communication_style: preset.communication_style,
@@ -781,21 +621,23 @@ async function executeOnboardingHires(
             mentoring: preset.mentoring,
           },
         },
-        { markdown },
+        { markdown }
       );
 
       // Set up access: read all, write under .ai-team and docs
       await saveAgentAccessPatterns(workspaceRoot, agent.id, {
+        list: ['**/*'],
         read: ['**/*'],
         write: ['.ai-team/**/*', 'docs/**/*'],
-        create: [],
-        delete: [],
       });
 
       hiredAgents.push(agent);
       writeLine(hooks, `  ✓ Hired ${agent.name} as ${agent.role} (reports to ${reportsTo})`);
     } catch (err) {
-      writeWarn(hooks, `  ✗ Could not hire ${hire.name} as ${hire.role}: ${err instanceof Error ? err.message : String(err)}`);
+      writeWarn(
+        hooks,
+        `  ✗ Could not hire ${hire.name} as ${hire.role}: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
@@ -827,11 +669,11 @@ const ONBOARDING_FORWARD_PATTERNS = [
 ];
 
 function isForwardingRequest(message: string): boolean {
-  return ONBOARDING_FORWARD_PATTERNS.some(p => p.test(message));
+  return ONBOARDING_FORWARD_PATTERNS.some((p) => p.test(message));
 }
 
 function isCompletionIntent(message: string): boolean {
-  return ONBOARDING_COMPLETION_PATTERNS.some(p => p.test(message));
+  return ONBOARDING_COMPLETION_PATTERNS.some((p) => p.test(message));
 }
 
 async function onboardingChat(
@@ -842,9 +684,9 @@ async function onboardingChat(
   extraSystemContext: string,
   developerName: string | undefined,
   hooks?: InitRuntimeHooks,
-  seedMessages?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  seedMessages?: Array<{ role: 'user' | 'assistant'; content: string }>
 ): Promise<ChatMessage[]> {
-  const chatManager = new ChatManager(workspaceRoot);
+  const chatStorage = new ChatStorage(workspaceRoot);
   const history: ChatMessage[] = [];
   const messages: ChatCompletionMessageParam[] = [];
 
@@ -883,8 +725,7 @@ async function onboardingChat(
       personaParts.push('## Business Context');
       personaParts.push(bizCtx);
     }
-  } catch {
-  }
+  } catch {}
 
   if (instructions.length > 0) {
     personaParts.push('');
@@ -909,7 +750,7 @@ async function onboardingChat(
           content: seed.content,
         };
         history.push(agentMsg);
-        await chatManager.appendMessage(agent.id, agentMsg);
+        await chatStorage.appendMessage(agent.id, agentMsg);
       }
     }
   }
@@ -957,7 +798,10 @@ async function onboardingChat(
         writeLine(hooks, 'Moving on...');
         break;
       } else {
-        writeLine(hooks, `Unknown command: /${cmd}. Available in this mode: /list (show team), /done (end conversation).`);
+        writeLine(
+          hooks,
+          `Unknown command: /${cmd}. Available in this mode: /list (show team), /done (end conversation).`
+        );
         continue;
       }
     }
@@ -970,7 +814,7 @@ async function onboardingChat(
       content: userText,
     };
     history.push(userMsg);
-    await chatManager.appendMessage(agent.id, userMsg);
+    await chatStorage.appendMessage(agent.id, userMsg);
     messages.push({ role: 'user' as const, content: userText });
 
     writeToken(hooks, `\n${agent.name} (${agent.role}): `);
@@ -997,7 +841,7 @@ async function onboardingChat(
       content: fullReply.trim(),
     };
     history.push(agentMsg);
-    await chatManager.appendMessage(agent.id, agentMsg);
+    await chatStorage.appendMessage(agent.id, agentMsg);
     messages.push({ role: 'assistant' as const, content: fullReply.trim() });
   }
 
@@ -1015,4 +859,3 @@ async function saveBusinessContext(workspaceRoot: string, history: ChatMessage[]
   const filePath = path.join(workspaceRoot, '.ai-team', 'business.md');
   await fs.writeFile(filePath, lines.join('\n'), 'utf-8');
 }
-
