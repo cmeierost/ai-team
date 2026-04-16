@@ -7,7 +7,12 @@ import type {
   QuestionPasswordRequest,
   QuestionSelectRequest,
 } from '@ai-team/api-client';
-import { createIdeAdapter, type IdeAdapter, type AgentManager, type LlmService } from '@ai-team/infrastructure';
+import {
+  createIdeAdapter,
+  type IdeAdapter,
+  type AgentManager,
+  type LlmService,
+} from '@ai-team/infrastructure';
 import {
   resolveAgentForOperationAsync,
   SessionManager,
@@ -366,11 +371,18 @@ export async function setupChatWebSocket(
 
       if (message.type === 'summarize') {
         if (!sessionId) {
-          ws.send(JSON.stringify({ type: 'error', data: { error: 'sessionId is required for summarize' } }));
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              data: { error: 'sessionId is required for summarize' },
+            })
+          );
           return;
         }
         if (!message.noteId) {
-          ws.send(JSON.stringify({ type: 'error', data: { error: 'noteId is required for summarize' } }));
+          ws.send(
+            JSON.stringify({ type: 'error', data: { error: 'noteId is required for summarize' } })
+          );
           return;
         }
         if (!llmService) {
@@ -398,7 +410,12 @@ export async function setupChatWebSocket(
 
           if (message.operation === 'crawl') {
             if (!message.websiteUrl) {
-              ws.send(JSON.stringify({ type: 'error', data: { error: 'websiteUrl is required for crawl operation' } }));
+              ws.send(
+                JSON.stringify({
+                  type: 'error',
+                  data: { error: 'websiteUrl is required for crawl operation' },
+                })
+              );
               return;
             }
             send({ kind: 'status', status: 'Crawling website...' } as any);
