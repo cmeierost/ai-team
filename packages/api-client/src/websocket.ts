@@ -286,6 +286,7 @@ export interface SummarizeNoteWebSocketOptions {
   maxPages?: number;
   maxWords?: number;
   focusInstruction?: string;
+  generateTitle?: boolean;
   signal?: AbortSignal;
   /** Called for each status/progress event */
   onStatus?: (status: string) => void;
@@ -420,6 +421,7 @@ export async function* summarizeNoteViaWebSocket(
       noteId: options.noteId,
       maxWords: options.maxWords,
       focusInstruction: options.focusInstruction,
+      generateTitle: options.generateTitle,
     };
     if (options.operation === 'crawl') {
       payload.websiteUrl = options.websiteUrl;

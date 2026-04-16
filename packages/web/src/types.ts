@@ -399,6 +399,7 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   archived?: boolean;
+  hiddenFromLlm?: boolean;
   handoffType?: 'user-acknowledgment' | 'agent-briefing'; // Type of handoff message
   targetAgentId?: string; // Target agent for briefing messages
   // Cross-session handoff tracking (added with /thread API)

@@ -15,6 +15,7 @@ import { ChatMessagesView } from './ChatMessagesView';
 import { PendingQuestionForm } from './PendingQuestionForm';
 import { SlashCommandDropdown } from './SlashCommandDropdown';
 import type { PendingQuestion } from './chatPanelTypes';
+import type { MessageGroupSelectionPayload } from './ChatMessagesView';
 
 function ChatHeaderModelInfo({ agent }: Readonly<{ agent: Agent }>) {
   const info = agent.resolvedLlm;
@@ -244,6 +245,9 @@ interface ChatPanelViewProps {
   onOpenNote: (noteId: string, options?: { sessionId?: string; agentId?: string }) => void;
   onNoteBack: () => void;
   onNewNote: () => void;
+  selectedMessageGroupKeys: string[];
+  onToggleMessageGroupSelection: (selection: MessageGroupSelectionPayload) => void;
+  onClearMessageGroupSelection: () => void;
   onSaveInputAsNote: () => void;
   noteRouteId: string | null;
   onSuggestedHandoff: (targetAgentId: string, task?: string) => void;
@@ -335,6 +339,9 @@ export function ChatPanelView({
   onOpenNote,
   onNoteBack,
   onNewNote,
+  selectedMessageGroupKeys,
+  onToggleMessageGroupSelection,
+  onClearMessageGroupSelection,
   onSaveInputAsNote,
   noteRouteId,
   onSuggestedHandoff,
@@ -594,6 +601,8 @@ export function ChatPanelView({
           ttsSpeakingOccurrence={ttsSpeakingOccurrence}
           activatedTools={activatedTools}
           streaming={streaming}
+          selectedMessageGroupKeys={selectedMessageGroupKeys}
+          onToggleMessageGroupSelection={onToggleMessageGroupSelection}
         />
 
         <div className="chat-input-area">
@@ -681,11 +690,25 @@ export function ChatPanelView({
                 <button
                   onClick={onSaveInputAsNote}
                   className="chat-action-button"
-                  title="Save as note"
-                  disabled={!input.trim() || sending}
+                  title={
+                    selectedMessageGroupKeys.length > 0
+                      ? `Create note from ${selectedMessageGroupKeys.length} selected bubble${selectedMessageGroupKeys.length > 1 ? 's' : ''}`
+                      : 'Save input as note'
+                  }
+                  disabled={(!input.trim() && selectedMessageGroupKeys.length === 0) || sending}
                 >
                   <i className="codicon codicon-note" />
                 </button>
+                {selectedMessageGroupKeys.length > 0 ? (
+                  <button
+                    onClick={onClearMessageGroupSelection}
+                    className="chat-action-button"
+                    title="Clear selected message bubbles"
+                    disabled={sending}
+                  >
+                    <i className="codicon codicon-close" />
+                  </button>
+                ) : null}
                 {streaming ? (
                   <button
                     onClick={onInterrupt}

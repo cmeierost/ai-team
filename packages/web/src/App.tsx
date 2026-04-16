@@ -10,6 +10,7 @@ import { SessionGraphPreview } from './components/SessionGraphPreview';
 import { TeamProvider } from './context/TeamContext';
 import { SettingsPage } from './pages/SettingsPage';
 import { PermissionsAnalysisPage } from './pages/PermissionsAnalysisPage';
+import { PlanningPage } from './pages/PlanningPage';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import './App.css';
 
@@ -31,6 +32,7 @@ export function App() {
               <Route path="/analysis/permissions/overlap" element={<PermissionsAnalysisPage />} />
               <Route path="/analysis/permissions/relations" element={<PermissionsAnalysisPage />} />
               <Route path="/dev/session-graph" element={<SessionGraphPreview />} />
+              <Route path="/planning" element={<PlanningPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

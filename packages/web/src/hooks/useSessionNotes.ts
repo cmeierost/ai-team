@@ -76,6 +76,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
       noteId: string;
       title?: string;
       content?: string;
+      compactedContent?: string | null;
       sharedSessionIds?: string[] | null;
       hiddenFromLlm?: boolean;
       showOnDashboard?: boolean;
@@ -85,6 +86,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
       const body: Record<string, unknown> = {
         title: input.title,
         content: input.content,
+        compactedContent: input.compactedContent,
         sharedSessionIds: input.sharedSessionIds,
         hiddenFromLlm: input.hiddenFromLlm,
         showOnDashboard: input.showOnDashboard,
@@ -112,12 +114,14 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
       noteId,
       maxWords,
       focusInstruction,
+      generateTitle,
       onStatus,
     }: {
       sessionId: string;
       noteId: string;
       maxWords?: number;
       focusInstruction?: string;
+      generateTitle?: boolean;
       onStatus?: (status: string) => void;
     }): Promise<Note> => {
       const effectiveAgentId = agentId ?? 'default';
@@ -129,6 +133,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
         operation: 'compact',
         maxWords,
         focusInstruction,
+        generateTitle,
         onStatus,
       })) {
         if (event.kind === 'done') {
@@ -153,6 +158,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
       maxPages,
       maxWords,
       focusInstruction,
+      generateTitle,
       onStatus,
     }: {
       sessionId: string;
@@ -161,6 +167,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
       maxPages?: number;
       maxWords?: number;
       focusInstruction?: string;
+      generateTitle?: boolean;
       onStatus?: (status: string) => void;
     }): Promise<Note> => {
       const effectiveAgentId = agentId ?? 'default';
@@ -174,6 +181,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
         maxPages,
         maxWords,
         focusInstruction,
+        generateTitle,
         onStatus,
       })) {
         if (event.kind === 'done') {

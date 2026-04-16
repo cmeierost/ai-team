@@ -181,6 +181,13 @@ interface UseChatPanelControllerResult {
   handleOpenSessionGraph: (sessionId: string) => void;
   handleOpenNote: (noteId: string, options?: { sessionId?: string; agentId?: string }) => void;
   handleNoteBack: () => void;
+  selectedMessageGroupKeys: string[];
+  handleToggleMessageGroupSelection: (selection: {
+    key: string;
+    label: string;
+    markdown: string;
+  }) => void;
+  handleClearMessageGroupSelection: () => void;
   handleSaveInputAsNote: () => Promise<void>;
   /** Slash-command autocomplete state */
   slashSuggestions: ChatCommandRegistryEntry[];
@@ -239,6 +246,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const [pendingSelectAnswer, setPendingSelectAnswer] = useState('');
   const [pendingChecklistAnswer, setPendingChecklistAnswer] = useState<string[]>([]);
   const [pendingFormAnswer, setPendingFormAnswer] = useState<Record<string, string>>({});
+  const [selectedMessageGroups, setSelectedMessageGroups] = useState<
+    Array<{ key: string; label: string; markdown: string }>
+  >([]);
   const [scrollToHandoffId, setScrollToHandoffId] = useState<string | null>(null);
   const [isEphemeral, setIsEphemeral] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1470,6 +1480,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
   const handleToggleArchive = async (index: number, currentlyArchived: boolean) => {
     try {
+      const nextHidden = !currentlyArchived;
       if (currentlyArchived) {
         await client.chat.unarchiveMessage(currentAgentId, String(index));
       } else {
@@ -1477,7 +1488,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
       setMessages((previous) => {
         const updated = [...previous];
-        updated[index] = { ...updated[index], archived: !currentlyArchived };
+        updated[index] = {
+          ...updated[index],
+          archived: nextHidden,
+          hiddenFromLlm: nextHidden,
+        };
         return updated;
       });
     } catch (error) {
@@ -1660,10 +1675,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     navigate(`/chat/${currentAgentId}/session/${sessionId}/thread`);
   };
 
-  const handleOpenNote = (
-    noteId: string,
-    options?: { sessionId?: string; agentId?: string }
-  ) => {
+  const handleOpenNote = (noteId: string, options?: { sessionId?: string; agentId?: string }) => {
     const targetSessionId = options?.sessionId ?? currentSessionId;
     const targetAgentId = options?.agentId ?? currentAgentId;
     if (!targetSessionId) return;
@@ -1677,8 +1689,41 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const handleSaveInputAsNote = async () => {
-    if (!currentSessionId || !input.trim()) return;
+    if (!currentSessionId) return;
     try {
+      if (selectedMessageGroups.length > 0) {
+        const comment = input.trim();
+        const noteSections: string[] = [];
+        if (comment) {
+          noteSections.push('## Comment\n\n' + comment);
+        }
+        noteSections.push(...selectedMessageGroups.map((group) => group.markdown.trim()));
+        const noteContent = noteSections.filter(Boolean).join('\n\n---\n\n').trim();
+
+        if (!noteContent) {
+          globalThis.alert('Selected messages did not produce note content.');
+          return;
+        }
+
+        const created = await client.sessions.createNote(currentSessionId, {
+          agentId: currentAgentId,
+          title:
+            selectedMessageGroups.length === 1
+              ? `Message note: ${selectedMessageGroups[0].label}`
+              : `Message note (${selectedMessageGroups.length} messages)`,
+          content: noteContent,
+        });
+
+        setSelectedMessageGroups([]);
+        handleInputChange('');
+        navigate(
+          `/chat/${currentAgentId}/session/${currentSessionId}/note/${(created as { id: string }).id}`
+        );
+        return;
+      }
+
+      if (!input.trim()) return;
+
       const created = await client.sessions.createNote(currentSessionId, {
         agentId: currentAgentId,
         content: input.trim(),
@@ -1691,6 +1736,24 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       console.error('Failed to save input as note:', error);
       globalThis.alert('Failed to save note. Please try again.');
     }
+  };
+
+  const handleToggleMessageGroupSelection = (selection: {
+    key: string;
+    label: string;
+    markdown: string;
+  }) => {
+    setSelectedMessageGroups((previous) => {
+      const existing = previous.find((entry) => entry.key === selection.key);
+      if (existing) {
+        return previous.filter((entry) => entry.key !== selection.key);
+      }
+      return [...previous, selection];
+    });
+  };
+
+  const handleClearMessageGroupSelection = () => {
+    setSelectedMessageGroups([]);
   };
 
   const handleSaveSessionTitle = async (nextTitleRaw: string) => {
@@ -1844,6 +1907,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     handleOpenSessionGraph,
     handleOpenNote,
     handleNoteBack,
+    selectedMessageGroupKeys: selectedMessageGroups.map((entry) => entry.key),
+    handleToggleMessageGroupSelection,
+    handleClearMessageGroupSelection,
     handleSaveInputAsNote,
     slashSuggestions,
     slashSelectedIndex,

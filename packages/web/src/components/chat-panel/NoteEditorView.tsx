@@ -88,6 +88,7 @@ function getNoteAttachments(
 function buildDraftSnapshot(input: {
   title: string;
   content: string;
+  compactedContent: string | null;
   attachmentDescription: string;
   pendingAttachmentSignature: string | null;
   storedAttachmentSignature: string | null;
@@ -99,6 +100,7 @@ function buildDraftSnapshot(input: {
   return JSON.stringify({
     title: input.title,
     content: input.content,
+    compactedContent: input.compactedContent,
     attachmentDescription: input.attachmentDescription,
     pendingAttachmentSignature: input.pendingAttachmentSignature,
     storedAttachmentSignature: input.storedAttachmentSignature,
@@ -122,12 +124,10 @@ export function NoteEditorView({
     updateNote,
     compactNote,
     crawlSummarizeWebsite,
-    saveCompactedContent,
     exportNoteMarkdown,
     deleteNote,
     compactingNote,
     crawlSummarizingWebsite,
-    savingCompactedContent,
     exportingNoteMarkdown,
     deletingNote,
   } = useSessionNotes(sessionId, agentId);
@@ -156,6 +156,7 @@ export function NoteEditorView({
   const [crawlMaxPages, setCrawlMaxPages] = useState(5);
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [focusInstruction, setFocusInstruction] = useState('');
+  const [generateTitleOnSummarize, setGenerateTitleOnSummarize] = useState(false);
   const [editedCompacted, setEditedCompacted] = useState<string | null>(null);
 
   // Track which note ID we've already initialised fields for so that a background
@@ -197,6 +198,7 @@ export function NoteEditorView({
       lastAutosavedSnapshotRef.current = buildDraftSnapshot({
         title: existingNote.title ?? '',
         content: existingNote.content ?? '',
+        compactedContent: existingNote.compactedContent ?? null,
         attachmentDescription: '',
         pendingAttachmentSignature: null,
         storedAttachmentSignature: getAttachmentListSignature(getNoteAttachments(existingNote)),
@@ -220,6 +222,7 @@ export function NoteEditorView({
       lastAutosavedSnapshotRef.current = buildDraftSnapshot({
         title: '',
         content: '',
+        compactedContent: null,
         attachmentDescription: '',
         pendingAttachmentSignature: null,
         storedAttachmentSignature: null,
@@ -242,6 +245,7 @@ export function NoteEditorView({
   const currentDraftSnapshot = buildDraftSnapshot({
     title,
     content,
+    compactedContent: editedCompacted,
     attachmentDescription,
     pendingAttachmentSignature: getAttachmentListSignature(pendingAttachments),
     storedAttachmentSignature: getAttachmentListSignature(keptCurrentAttachments),
@@ -318,6 +322,7 @@ export function NoteEditorView({
           noteId: activeNoteId,
           title: title.trim() || undefined,
           content,
+          compactedContent: editedCompacted,
           sharedSessionIds: sharedSessionIds.length > 0 ? sharedSessionIds : null,
           hiddenFromLlm,
           showOnDashboard,
@@ -345,6 +350,7 @@ export function NoteEditorView({
       lastAutosavedSnapshotRef.current = buildDraftSnapshot({
         title,
         content,
+        compactedContent: editedCompacted,
         attachmentDescription,
         pendingAttachmentSignature: null,
         storedAttachmentSignature: savedAttachmentSignature,
@@ -411,6 +417,7 @@ export function NoteEditorView({
         noteId: noteIdForSummarize,
         maxWords,
         focusInstruction: selectedFocusInstruction,
+        generateTitle: generateTitleOnSummarize,
         onStatus: (s) => setSummarizeStatus(s),
       });
       setActiveTab('compacted');
@@ -461,6 +468,7 @@ export function NoteEditorView({
         maxPages: crawlMaxPages,
         maxWords,
         focusInstruction: selectedFocusInstruction,
+        generateTitle: generateTitleOnSummarize,
         onStatus: (s) => setSummarizeStatus(s),
       });
       setActiveTab('compacted');
@@ -469,20 +477,6 @@ export function NoteEditorView({
       setCompactError('Failed to crawl and summarize website. Check URL and LLM connection.');
     } finally {
       setSummarizeStatus(null);
-    }
-  };
-
-  const handleSaveCompacted = async () => {
-    if (!activeNoteId) return;
-    setSaveError(null);
-    try {
-      await saveCompactedContent({
-        sessionId,
-        noteId: activeNoteId,
-        compactedContent: editedCompacted,
-      });
-    } catch {
-      setSaveError('Failed to save compacted note. Please try again.');
     }
   };
 
@@ -794,6 +788,14 @@ export function NoteEditorView({
                       />
                       {compactingNote ? 'Compacting…' : 'Compact note'}
                     </button>
+                    <label className="note-editor-inline-toggle" title="Generate a title from the summarized content">
+                      <input
+                        type="checkbox"
+                        checked={generateTitleOnSummarize}
+                        onChange={(e) => setGenerateTitleOnSummarize(e.target.checked)}
+                      />
+                      <span>Generate title</span>
+                    </label>
                   </div>
                 </div>
               ) : null}
@@ -850,6 +852,14 @@ export function NoteEditorView({
                       />
                       {crawlSummarizingWebsite ? 'Crawling…' : 'Crawl + Summarize'}
                     </button>
+                    <label className="note-editor-inline-toggle" title="Generate a title from the summarized content">
+                      <input
+                        type="checkbox"
+                        checked={generateTitleOnSummarize}
+                        onChange={(e) => setGenerateTitleOnSummarize(e.target.checked)}
+                      />
+                      <span>Generate title</span>
+                    </label>
                   </div>
                 </div>
               ) : null}
@@ -872,22 +882,6 @@ export function NoteEditorView({
                       title="Copy compacted version"
                     >
                       <i className="codicon codicon-copy" /> Copy
-                    </button>
-                    <button
-                      type="button"
-                      className="note-editor-compact-save-btn"
-                      onClick={() => void handleSaveCompacted()}
-                      disabled={savingCompactedContent}
-                      title="Save the compacted version"
-                    >
-                      <i
-                        className={`codicon ${
-                          savingCompactedContent
-                            ? 'codicon-loading codicon-modifier-spin'
-                            : 'codicon-save'
-                        }`}
-                      />
-                      {savingCompactedContent ? 'Saving…' : 'Save compacted'}
                     </button>
                   </div>
                 </>

@@ -6,10 +6,7 @@ export {
   ConflictError,
   InternalError,
 } from './http-errors.js';
-export {
-  IN_CHAT_COMMAND_ALIASES,
-  IN_CHAT_COMMAND_REGISTRY,
-} from './command-registry.js';
+export { IN_CHAT_COMMAND_ALIASES, IN_CHAT_COMMAND_REGISTRY } from './command-registry.js';
 export type { ChatCommandRegistryEntry } from './command-registry.js';
 
 export {

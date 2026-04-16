@@ -91,6 +91,9 @@ export function ChatPanel() {
       onOpenNote={controller.handleOpenNote}
       onNoteBack={controller.handleNoteBack}
       onNewNote={() => controller.handleOpenNote('new')}
+      selectedMessageGroupKeys={controller.selectedMessageGroupKeys}
+      onToggleMessageGroupSelection={controller.handleToggleMessageGroupSelection}
+      onClearMessageGroupSelection={controller.handleClearMessageGroupSelection}
       onSaveInputAsNote={controller.handleSaveInputAsNote}
       noteRouteId={controller.noteRouteId}
       onSuggestedHandoff={controller.handleSuggestedToolHandoff}

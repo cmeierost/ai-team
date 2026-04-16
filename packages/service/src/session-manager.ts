@@ -1580,7 +1580,8 @@ ${summary}
     websiteUrl: string,
     maxPages = 5,
     maxWords = 200,
-    focusInstruction?: string
+    focusInstruction?: string,
+    generateTitle = false
   ): Promise<Note | null> {
     const note = await this.storage.getNote(noteId);
     if (!note) return null;
@@ -1628,14 +1629,24 @@ ${summary}
       compactedContent: urlSections.join('\n\n').trim(),
     });
 
-    return this.storage.getNote(noteId);
+    const updatedNote = await this.storage.getNote(noteId);
+    if (!updatedNote) {
+      return null;
+    }
+
+    if (!generateTitle) {
+      return updatedNote;
+    }
+
+    return this.generateNoteTitleAsync(noteId, llmService, updatedNote, focusInstruction);
   }
 
   async compactNoteAsync(
     noteId: string,
     llmService: any,
     maxWords = 200,
-    focusInstruction?: string
+    focusInstruction?: string,
+    generateTitle = false
   ): Promise<Note | null> {
     const note = await this.storage.getNote(noteId);
     if (!note) return null;
@@ -1643,7 +1654,13 @@ ${summary}
     const attachments = this.getNoteAttachments(note);
     const hasAttachment = attachments.length > 0;
     const contentLines = note.content.split('\n').length;
-    if (!hasAttachment && contentLines <= 10) return note;
+    if (!hasAttachment && contentLines <= 10) {
+      if (!generateTitle) {
+        return note;
+      }
+
+      return this.generateNoteTitleAsync(noteId, llmService, note, focusInstruction);
+    }
 
     try {
       const compactedSections: string[] = [];
@@ -1679,9 +1696,95 @@ ${summary}
 
       const compactedContent = compactedSections.join('\n\n');
       await this.storage.updateNote(noteId, { compactedContent: compactedContent.trim() });
-      return this.storage.getNote(noteId);
+      const updatedNote = await this.storage.getNote(noteId);
+      if (!updatedNote) {
+        return null;
+      }
+
+      if (!generateTitle) {
+        return updatedNote;
+      }
+
+      return this.generateNoteTitleAsync(noteId, llmService, updatedNote, focusInstruction);
     } catch (error) {
       throw error;
+    }
+  }
+
+  private async generateNoteTitleAsync(
+    noteId: string,
+    llmService: any,
+    existingNote?: Note,
+    focusInstruction?: string
+  ): Promise<Note | null> {
+    const note = existingNote ?? (await this.storage.getNote(noteId));
+    if (!note) {
+      return null;
+    }
+
+    const source = [note.compactedContent?.trim(), note.content?.trim()]
+      .filter((value): value is string => Boolean(value && value.length > 0))
+      .join('\n\n');
+
+    if (!source) {
+      return note;
+    }
+
+    try {
+      const focus = focusInstruction?.trim();
+      const clippedSource = source.slice(0, 8000);
+
+      let generated = '';
+      if (typeof llmService.rawChat === 'function') {
+        const systemPrompt =
+          'You generate concise, specific note titles. Always reason over the user focus instruction first (if provided), then ground the title in the note content. Return only the title.';
+        const userPrompt = [
+          'Create one short note title (3-8 words).',
+          '- Prefer concrete nouns from the note content.',
+          '- If a focus instruction is provided, prioritize it.',
+          '- Avoid generic titles like "Create Conversation Title".',
+          '- No quotes, no punctuation suffix, title only.',
+          '',
+          `Focus instruction: ${focus && focus.length > 0 ? focus : '(none)'}`,
+          '',
+          'Note content:',
+          clippedSource,
+        ].join('\n');
+
+        generated = await llmService.rawChat(
+          systemPrompt,
+          [{ role: 'user', content: userPrompt }],
+          {
+            temperature: 0.2,
+            maxTokens: 24,
+          }
+        );
+      } else {
+        const fallbackPromptParts = [
+          focus && focus.length > 0 ? `Focus: ${focus}` : null,
+          clippedSource,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join('\n\n');
+        generated = await llmService.generateTitle([
+          {
+            from: 'human',
+            content: fallbackPromptParts,
+            timestamp: new Date().toISOString(),
+          } as ChatMessage,
+        ]);
+      }
+
+      const normalized = this.normalizeTitle(generated);
+      if (!normalized) {
+        return note;
+      }
+
+      await this.storage.updateNote(noteId, { title: normalized });
+      return this.storage.getNote(noteId);
+    } catch (error) {
+      console.warn('[SessionManager] Note title generation failed, leaving current title.', error);
+      return note;
     }
   }
 

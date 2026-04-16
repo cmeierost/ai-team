@@ -799,6 +799,41 @@
   min-width: 0;
 }
 
+.note-editor-inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  user-select: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg-tertiary, #3c3c3c) 75%, transparent);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.note-editor-inline-toggle input[type='checkbox'] {
+  margin: 0;
+  accent-color: var(--color-accent-blue, #89b4fa);
+}
+
+.note-editor-inline-toggle:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover, #5a5a5a);
+  background: var(--color-bg-tertiary, #3c3c3c);
+}
+
+.note-editor-inline-toggle:has(input[type='checkbox']:checked) {
+  color: var(--color-text-primary);
+  border-color: color-mix(in srgb, var(--color-accent-blue, #89b4fa) 70%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent-blue, #89b4fa) 16%, transparent);
+}
+
 .note-editor-max-words-input--typing-only {
   -moz-appearance: textfield;
 }
@@ -964,29 +999,6 @@
   display: flex;
   justify-content: flex-end;
   padding-top: 6px;
-}
-
-.note-editor-compact-save-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--color-border);
-  border-radius: 5px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 11px;
-  padding: 3px 10px;
-  cursor: pointer;
-}
-
-.note-editor-compact-save-btn:hover:not(:disabled) {
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover, #5a5a5a);
-}
-
-.note-editor-compact-save-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .note-editor-max-words-input {
@@ -1319,6 +1331,58 @@
   font-size: 14px;
 }
 
+.message-bubble.message-bubble-selected {
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px rgba(137, 180, 250, 0.9),
+    0 0 14px rgba(137, 180, 250, 0.35);
+}
+
+.message-select-toggle {
+  margin-left: 6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.message-select-toggle:hover {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.message-select-toggle--active {
+  color: var(--color-accent-blue, #007fd4);
+}
+
+.message-visibility-toggle--hidden {
+  color: #f38ba8;
+}
+
+.message-visibility-icon {
+  position: relative;
+  display: inline-block;
+}
+
+.message-visibility-icon--hidden::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 50%;
+  height: 1.8px;
+  background: currentColor;
+  transform: rotate(-35deg);
+  transform-origin: center;
+  border-radius: 2px;
+}
+
 .message-content-body {
   min-width: 0;
 }
@@ -1354,6 +1418,11 @@
 .message-user:hover .message-bubble {
   --user-message-color-opacity: var(--user-message-color-opacity-hover);
   border-color: rgba(255, 255, 255, 0.58);
+}
+
+.message-user .message-bubble.message-bubble-selected {
+  --user-message-color-opacity: 0.24;
+  border-color: rgba(137, 180, 250, 0.95);
 }
 
 .message-user .message-content {
@@ -1393,18 +1462,29 @@
   --message-color-opacity: var(--message-color-opacity-hover);
 }
 
+.message-assistant .message-bubble.message-bubble-selected {
+  --message-color-opacity: 0.42;
+  border-color: rgba(137, 180, 250, 0.95);
+}
+
 /* Message operations */
 .message-archived {
-  opacity: 0.5;
+  opacity: 0.78;
 }
 
 .message-archived .message-bubble {
-  background-color: #1a1a1a !important;
-  border: 1px dashed #555;
+  background-color: rgba(20, 24, 32, 0.38) !important;
+  border: 1px solid rgba(180, 200, 255, 0.26);
+  -webkit-backdrop-filter: blur(14px) saturate(0.82);
+  backdrop-filter: blur(14px) saturate(0.82);
 }
 
 .message-archived .message-bubble::after {
-  display: none;
+  opacity: 0.08;
+}
+
+.message-archived .message-content {
+  opacity: 0.82;
 }
 
 .archived-badge {

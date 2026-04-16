@@ -71,13 +71,39 @@ export class ChatService implements IChatService {
 
   async archiveMessage(agentId: string, index: string): Promise<{ ok: boolean }> {
     const idx = parseInt(index, 10);
-    await this.mgr.archiveMessage(agentId, idx);
+    if (isNaN(idx)) throw new BadRequestError('invalid index');
+
+    const session = await this.sessionManager.getLatestSession(agentId);
+    if (!session) throw new NotFoundError('session not found');
+
+    const messages = await this.sessionManager.listSessionMessages(session.id);
+    if (idx < 0 || idx >= messages.length) throw new NotFoundError('message not found');
+
+    const targetMessage = messages[idx];
+    if (typeof targetMessage.id !== 'number') throw new NotFoundError('message id not found');
+
+    const ok = await this.sessionManager.setMessageHiddenFromLlm(targetMessage.id, true);
+    if (!ok) throw new NotFoundError('message not found');
+
     return { ok: true };
   }
 
   async unarchiveMessage(agentId: string, index: string): Promise<{ ok: boolean }> {
     const idx = parseInt(index, 10);
-    await this.mgr.unarchiveMessage(agentId, idx);
+    if (isNaN(idx)) throw new BadRequestError('invalid index');
+
+    const session = await this.sessionManager.getLatestSession(agentId);
+    if (!session) throw new NotFoundError('session not found');
+
+    const messages = await this.sessionManager.listSessionMessages(session.id);
+    if (idx < 0 || idx >= messages.length) throw new NotFoundError('message not found');
+
+    const targetMessage = messages[idx];
+    if (typeof targetMessage.id !== 'number') throw new NotFoundError('message id not found');
+
+    const ok = await this.sessionManager.setMessageHiddenFromLlm(targetMessage.id, false);
+    if (!ok) throw new NotFoundError('message not found');
+
     return { ok: true };
   }
 

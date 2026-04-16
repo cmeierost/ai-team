@@ -13,4 +13,7 @@ export const contextPanelQueryKeys = {
     ['context-panel', 'permissions-analysis', 'agent', agentId] as const,
   contextEstimate: (agentId: string, sessionId?: string) =>
     ['meta', 'context-estimate', agentId, sessionId] as const,
+  planningIntake: (status?: string) => ['planning', 'intake', status] as const,
+  planningPlans: (status?: string) => ['planning', 'plans', status] as const,
+  planningPlan: (planId: string) => ['planning', 'plan', planId] as const,
 };

@@ -112,6 +112,84 @@ type ToolGroup = {
 type SingleMessage = { type: 'message'; index: number; message: ChatMessage };
 type RenderGroup = ToolGroup | SingleMessage;
 
+function stringifyForNote(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value.trim();
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function summarizeToolEventForNote(toolEvent: SessionActivatedTool): string {
+  const name = toolEvent.toolResult?.toolName ?? toolEvent.toolName;
+  const phase = toolEvent.toolPhase;
+  const outcome = toolEvent.toolResult?.outcome;
+  const requestText = stringifyForNote(toolEvent.toolResult?.request);
+  const resultText = stringifyForNote(
+    toolEvent.toolResult?.resultLlm ?? toolEvent.toolResult?.result
+  );
+  const messageText = stringifyForNote(toolEvent.message);
+
+  const parts: string[] = [`- **${name}**`];
+  if (outcome || phase) {
+    parts.push(`(${outcome ?? phase})`);
+  }
+  if (requestText) {
+    parts.push(`\n  - request: ${requestText}`);
+  }
+  if (resultText) {
+    parts.push(`\n  - result: ${resultText}`);
+  } else if (messageText) {
+    parts.push(`\n  - message: ${messageText}`);
+  }
+
+  return parts.join(' ');
+}
+
+function buildSingleMessageMarkdown(
+  message: ChatMessage,
+  displayName: string,
+  toolEvents: SessionActivatedTool[]
+): string {
+  const sections: string[] = [
+    `## ${displayName} (${new Date(message.timestamp).toLocaleString()})`,
+  ];
+
+  if (toolEvents.length > 0) {
+    sections.push(`### Tool calls\n${toolEvents.map(summarizeToolEventForNote).join('\n')}`);
+  }
+
+  if (message.content.trim()) {
+    sections.push(`### Message\n${message.content.trim()}`);
+  }
+
+  return sections.join('\n\n');
+}
+
+function buildToolGroupMarkdown(group: ToolGroup): string {
+  const sections: string[] = [
+    `## ${group.senderAgent.name} (${new Date(group.items[0].message.timestamp).toLocaleString()})`,
+  ];
+
+  sections.push(
+    `### Tool calls\n${group.items.map((item) => summarizeToolEventForNote(item.toolEvent)).join('\n')}`
+  );
+
+  if (group.trailingMessage?.message.content.trim()) {
+    sections.push(`### Message\n${group.trailingMessage.message.content.trim()}`);
+  }
+
+  return sections.join('\n\n');
+}
+
+export interface MessageGroupSelectionPayload {
+  key: string;
+  label: string;
+  markdown: string;
+}
+
 interface MessageShellProps {
   className: string;
   handoffId?: string;
@@ -186,6 +264,8 @@ interface ChatMessagesViewProps {
   ttsSpeakingOccurrence: number | null;
   activatedTools: SessionActivatedTool[];
   streaming?: boolean;
+  selectedMessageGroupKeys: string[];
+  onToggleMessageGroupSelection: (selection: MessageGroupSelectionPayload) => void;
 }
 
 function resolveSelectionForButton(buttonElement: HTMLButtonElement, fallbackText: string) {
@@ -268,6 +348,8 @@ export function ChatMessagesView({
   ttsSpeakingOccurrence,
   activatedTools,
   streaming,
+  selectedMessageGroupKeys,
+  onToggleMessageGroupSelection,
 }: Readonly<ChatMessagesViewProps>) {
   const [speakingKey, setSpeakingKey] = useState<string | null>(null);
   const [speakingSelectionRange, setSpeakingSelectionRange] = useState<{
@@ -347,7 +429,7 @@ export function ChatMessagesView({
         if (last?.type === 'tool-group' && last.senderAgent.id === senderAgent.id) {
           last.items.push({ index: i, message, toolEvent });
         } else {
-          const messageClassName = `message message-assistant${message.archived ? ' message-archived' : ''}`;
+          const messageClassName = `message message-assistant${message.archived || message.hiddenFromLlm ? ' message-archived' : ''}`;
           const messageColor = getAgentColor(senderAgent);
           groups.push({
             type: 'tool-group',
@@ -399,6 +481,10 @@ export function ChatMessagesView({
 
   const virtualItems = virtualizer.getVirtualItems();
   const totalVirtualHeight = virtualizer.getTotalSize();
+  const selectedKeySet = useMemo(
+    () => new Set(selectedMessageGroupKeys),
+    [selectedMessageGroupKeys]
+  );
 
   if (noteRouteId && currentSessionId) {
     return (
@@ -465,6 +551,7 @@ export function ChatMessagesView({
               const actionMessage =
                 group.trailingMessage?.message ?? items[items.length - 1].message;
               const groupTtsKey = `${actionMessage.from}-${actionIndex}`;
+              const isGroupSelected = selectedKeySet.has(groupKey);
               const isGroupLastAgentMsg = actionIndex === lastAssistantMessageIndex;
               const isGroupSpeaking =
                 ttsSpeaking &&
@@ -502,10 +589,53 @@ export function ChatMessagesView({
                       <div className="message-avatar">
                         <Avatar agent={senderAgent} size="small" />
                       </div>
-                      <div className="message-bubble">
+                      <div
+                        className={`message-bubble${isGroupSelected ? ' message-bubble-selected' : ''}`}
+                      >
                         <div className="message-header">
                           <strong>{displayName}</strong>
                           <RelativeTime timestamp={firstTs} className="message-time" />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onToggleArchive(
+                                actionIndex,
+                                actionMessage.hiddenFromLlm || actionMessage.archived || false
+                              )
+                            }
+                            className={`message-select-toggle message-visibility-toggle${actionMessage.hiddenFromLlm || actionMessage.archived ? ' message-visibility-toggle--hidden' : ''}`}
+                            title={
+                              actionMessage.hiddenFromLlm || actionMessage.archived
+                                ? 'Show to LLM'
+                                : 'Hide from LLM'
+                            }
+                            aria-label={
+                              actionMessage.hiddenFromLlm || actionMessage.archived
+                                ? 'Show to LLM'
+                                : 'Hide from LLM'
+                            }
+                          >
+                            <i
+                              className={`codicon codicon-eye message-visibility-icon${actionMessage.hiddenFromLlm || actionMessage.archived ? ' message-visibility-icon--hidden' : ''}`}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onToggleMessageGroupSelection({
+                                key: groupKey,
+                                label: `${displayName} @ ${new Date(firstTs).toLocaleString()}`,
+                                markdown: buildToolGroupMarkdown(group),
+                              })
+                            }
+                            className={`message-select-toggle${isGroupSelected ? ' message-select-toggle--active' : ''}`}
+                            title={isGroupSelected ? 'Unselect bubble' : 'Select bubble'}
+                            aria-label={isGroupSelected ? 'Unselect bubble' : 'Select bubble'}
+                          >
+                            <i
+                              className={`codicon ${isGroupSelected ? 'codicon-pass-filled' : 'codicon-circle-large-outline'}`}
+                            />
+                          </button>
                         </div>
                         <div className="message-content">
                           <div className="tool-call-list">
@@ -629,21 +759,6 @@ export function ChatMessagesView({
                               );
                             })()}
                           <button
-                            onClick={() =>
-                              onToggleArchive(actionIndex, actionMessage.archived || false)
-                            }
-                            className="btn-action"
-                            title={
-                              actionMessage.archived
-                                ? 'Unarchive'
-                                : 'Archive (hide from LLM context)'
-                            }
-                          >
-                            <i
-                              className={`codicon ${actionMessage.archived ? 'codicon-archive' : 'codicon-inbox'}`}
-                            />
-                          </button>
-                          <button
                             onClick={() => onDeleteMessage(actionIndex)}
                             className="btn-action btn-delete"
                             title="Delete message"
@@ -682,6 +797,8 @@ export function ChatMessagesView({
             const messageSelectionRange = speakingKey === ttsKey ? speakingSelectionRange : null;
             const shouldShowTtsWordHighlight =
               isThisSpeaking && (speakingKey === null || speakingKey === ttsKey);
+            const singleGroupKey = `message-${index}`;
+            const isSingleGroupSelected = selectedKeySet.has(singleGroupKey);
             const groupedMessageToolEvents = toolEventsByMessage.get(index) ?? [];
             const fallbackPersistedToolEvent = getPersistedToolCall(message)
               ? [resolveToolEvent(message, index, toolEventsByMessage)]
@@ -692,7 +809,7 @@ export function ChatMessagesView({
                 : fallbackPersistedToolEvent;
             const showThinkingIndicator =
               !human && streaming && index === messages.length - 1 && message.content.length === 0;
-            const messageClassName = `message message-${human ? 'user' : 'assistant'}${message.archived ? ' message-archived' : ''}${isThisSpeaking ? ' message-speaking' : ''}`;
+            const messageClassName = `message message-${human ? 'user' : 'assistant'}${message.archived || message.hiddenFromLlm ? ' message-archived' : ''}${isThisSpeaking ? ' message-speaking' : ''}`;
             const messageColor = human
               ? undefined
               : senderAgent
@@ -733,13 +850,57 @@ export function ChatMessagesView({
                         <Avatar agent={senderAgent} size="small" />
                       )}
                     </div>
-                    <div className="message-bubble">
+                    <div
+                      className={`message-bubble${isSingleGroupSelected ? ' message-bubble-selected' : ''}`}
+                    >
                       <div className="message-header">
                         <strong>{displayName}</strong>
                         <RelativeTime timestamp={message.timestamp} className="message-time" />
-                        {message.archived ? (
-                          <span className="archived-badge">📦 Archived</span>
-                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onToggleArchive(
+                              index,
+                              message.hiddenFromLlm || message.archived || false
+                            )
+                          }
+                          className={`message-select-toggle message-visibility-toggle${message.hiddenFromLlm || message.archived ? ' message-visibility-toggle--hidden' : ''}`}
+                          title={
+                            message.hiddenFromLlm || message.archived
+                              ? 'Show to LLM'
+                              : 'Hide from LLM'
+                          }
+                          aria-label={
+                            message.hiddenFromLlm || message.archived
+                              ? 'Show to LLM'
+                              : 'Hide from LLM'
+                          }
+                        >
+                          <i
+                            className={`codicon codicon-eye message-visibility-icon${message.hiddenFromLlm || message.archived ? ' message-visibility-icon--hidden' : ''}`}
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onToggleMessageGroupSelection({
+                              key: singleGroupKey,
+                              label: `${displayName} @ ${new Date(message.timestamp).toLocaleString()}`,
+                              markdown: buildSingleMessageMarkdown(
+                                message,
+                                displayName,
+                                messageToolEvents
+                              ),
+                            })
+                          }
+                          className={`message-select-toggle${isSingleGroupSelected ? ' message-select-toggle--active' : ''}`}
+                          title={isSingleGroupSelected ? 'Unselect bubble' : 'Select bubble'}
+                          aria-label={isSingleGroupSelected ? 'Unselect bubble' : 'Select bubble'}
+                        >
+                          <i
+                            className={`codicon ${isSingleGroupSelected ? 'codicon-pass-filled' : 'codicon-circle-large-outline'}`}
+                          />
+                        </button>
                       </div>
                       <div className="message-content">
                         {isEditingMessage ? (
@@ -896,17 +1057,6 @@ export function ChatMessagesView({
                                 </>
                               );
                             })()}
-                          <button
-                            onClick={() => onToggleArchive(index, message.archived || false)}
-                            className="btn-action"
-                            title={
-                              message.archived ? 'Unarchive' : 'Archive (hide from LLM context)'
-                            }
-                          >
-                            <i
-                              className={`codicon ${message.archived ? 'codicon-archive' : 'codicon-inbox'}`}
-                            />
-                          </button>
                           <button
                             onClick={() => onDeleteMessage(index)}
                             className="btn-action btn-delete"

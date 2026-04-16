@@ -38,7 +38,9 @@ export class PlanningService implements IPlanningService {
   private get planningStorage(): IPlanningStorage {
     const candidate = this.storage as unknown as IPlanningStorage;
     if (typeof candidate.listPlanningPlansAsync !== 'function') {
-      throw new InternalError('Planning storage is not available in the configured storage backend');
+      throw new InternalError(
+        'Planning storage is not available in the configured storage backend'
+      );
     }
     return candidate;
   }
@@ -342,7 +344,8 @@ export class PlanningService implements IPlanningService {
       orderIndex: body.orderIndex,
       done: body.done,
       completedAt: body.done === true ? now : body.done === false ? undefined : undefined,
-      completedBy: body.done === true ? body.completedBy : body.done === false ? undefined : undefined,
+      completedBy:
+        body.done === true ? body.completedBy : body.done === false ? undefined : undefined,
       updatedAt: now,
     });
 

@@ -266,7 +266,7 @@ export class SessionsService implements ISessionsService {
   async compactNote(
     sessionId: string,
     noteId: string,
-    body?: { maxWords?: number; focusInstruction?: string }
+    body?: { maxWords?: number; focusInstruction?: string; generateTitle?: boolean }
   ): Promise<Note> {
     const note = await this.sessionManager.getNote(noteId);
     if (note?.sessionId !== sessionId) throw new NotFoundError('Note not found');
@@ -279,7 +279,8 @@ export class SessionsService implements ISessionsService {
       noteId,
       this.llmService,
       maxWords,
-      focusInstruction
+      focusInstruction,
+      body?.generateTitle === true
     );
     if (!updated) throw new NotFoundError('Note not found');
     return updated;
@@ -293,6 +294,7 @@ export class SessionsService implements ISessionsService {
       maxPages?: number;
       maxWords?: number;
       focusInstruction?: string;
+      generateTitle?: boolean;
     }
   ): Promise<Note> {
     const note = await this.sessionManager.getNote(noteId);
@@ -317,7 +319,8 @@ export class SessionsService implements ISessionsService {
       body.websiteUrl,
       maxPages,
       maxWords,
-      focusInstruction
+      focusInstruction,
+      body.generateTitle === true
     );
 
     if (!updated) throw new NotFoundError('Note not found');

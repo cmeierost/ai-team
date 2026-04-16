@@ -1,0 +1,162 @@
+.planning-page {
+  padding: 1.25rem;
+  max-width: 900px;
+  margin: 0 auto;
+  color: var(--vscode-foreground, #cdd6f4);
+}
+
+.planning-header {
+  margin-bottom: 1.5rem;
+}
+
+.planning-header h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* ── Tabs ── */
+
+.planning-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--vscode-panel-border, #313244);
+}
+
+.planning-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  color: var(--vscode-descriptionForeground, #a6adc8);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.planning-tab:hover {
+  color: var(--vscode-foreground, #cdd6f4);
+}
+
+.planning-tab-active {
+  color: #89b4fa;
+  font-weight: 600;
+  border-bottom-color: #89b4fa;
+  text-shadow: 0 0 8px rgba(137, 180, 250, 0.5);
+}
+
+/* ── List ── */
+
+.planning-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.planning-list-item {
+  background: var(--vscode-editor-background, #1e1e2e);
+  border: 1px solid var(--vscode-panel-border, #313244);
+  border-radius: 6px;
+  padding: 0.875rem 1rem;
+}
+
+.planning-list-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.planning-list-item-title {
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.planning-list-item-sub {
+  font-size: 0.825rem;
+  color: var(--vscode-descriptionForeground, #a6adc8);
+  margin: 0.25rem 0 0.5rem;
+}
+
+.planning-list-item-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: var(--vscode-descriptionForeground, #a6adc8);
+  opacity: 0.8;
+}
+
+/* ── Status badges ── */
+
+.planning-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.planning-badge-active {
+  background: #1a3a2a;
+  color: #a6e3a1;
+}
+.planning-badge-draft {
+  background: #2a2a3a;
+  color: #89b4fa;
+}
+.planning-badge-completed {
+  background: #1a2a3a;
+  color: #74c7ec;
+}
+.planning-badge-cancelled {
+  background: #3a2a2a;
+  color: #f38ba8;
+}
+.planning-badge-blocked {
+  background: #3a2a1a;
+  color: #fab387;
+}
+.planning-badge-new {
+  background: #2a2a3a;
+  color: #cba6f7;
+}
+.planning-badge-triaged {
+  background: #2a3a2a;
+  color: #a6e3a1;
+}
+.planning-badge-converted {
+  background: #1a3a2a;
+  color: #94e2d5;
+}
+.planning-badge-dismissed {
+  background: #2a2a2a;
+  color: #6c7086;
+}
+.planning-badge-default {
+  background: #2a2a2a;
+  color: #a6adc8;
+}
+
+/* ── States ── */
+
+.planning-loading,
+.planning-empty,
+.planning-error {
+  padding: 2rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--vscode-descriptionForeground, #a6adc8);
+}
+
+.planning-error {
+  color: var(--vscode-errorForeground, #f38ba8);
+}

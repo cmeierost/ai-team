@@ -70,6 +70,8 @@ export interface ChatWebSocketMessage {
   maxWords?: number;
   /** Focus instruction for summarization (optional for 'summarize' type) */
   focusInstruction?: string;
+  /** Generate and apply a note title from summarized content */
+  generateTitle?: boolean;
 }
 
 /**
@@ -406,7 +408,8 @@ export async function setupChatWebSocket(
               message.websiteUrl,
               message.maxPages,
               message.maxWords,
-              message.focusInstruction
+              message.focusInstruction,
+              message.generateTitle === true
             );
             send({ kind: 'status', status: 'Done' } as any);
             send({ kind: 'done', result: note } as any);
@@ -416,7 +419,8 @@ export async function setupChatWebSocket(
               message.noteId,
               llmService,
               message.maxWords,
-              message.focusInstruction
+              message.focusInstruction,
+              message.generateTitle === true
             );
             send({ kind: 'status', status: 'Done' } as any);
             send({ kind: 'done', result: note } as any);

@@ -19,14 +19,24 @@ export function Sidebar() {
   const { agents } = useTeam();
   const { recentSessions } = useRecentSessions(1);
 
-  const chatPath = useMemo(() => resolveSidebarChatPath(recentSessions, agents), [recentSessions, agents]);
+  const chatPath = useMemo(
+    () => resolveSidebarChatPath(recentSessions, agents),
+    [recentSessions, agents]
+  );
 
   const navItems: NavItem[] = [
     { path: '/', icon: 'home', label: 'Dashboard' },
     { path: '/organization', icon: 'organization', label: 'Organization' },
     { path: '/employees', icon: 'person', label: 'Employees' },
     { path: '/analysis/permissions', icon: 'graph', label: 'Permissions' },
-    { path: chatPath ?? '/chat', icon: 'comment', label: 'Chat', disabled: chatPath === null, matchPrefix: '/chat/' },
+    {
+      path: chatPath ?? '/chat',
+      icon: 'comment',
+      label: 'Chat',
+      disabled: chatPath === null,
+      matchPrefix: '/chat/',
+    },
+    { path: '/planning', icon: 'checklist', label: 'Planning' },
     { path: '/tasks', icon: 'checklist', label: 'Tasks', disabled: true },
     { path: '/settings', icon: 'settings-gear', label: 'Settings' },
   ];
@@ -40,7 +50,8 @@ export function Sidebar() {
             to={item.path}
             className={({ isActive }) => {
               const matchesPrefix = item.matchPrefix
-                ? location.pathname === item.matchPrefix.slice(0, -1) || location.pathname.startsWith(item.matchPrefix)
+                ? location.pathname === item.matchPrefix.slice(0, -1) ||
+                  location.pathname.startsWith(item.matchPrefix)
                 : false;
               const active = isActive || matchesPrefix;
 
