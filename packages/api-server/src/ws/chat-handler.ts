@@ -7,13 +7,12 @@ import type {
   QuestionPasswordRequest,
   QuestionSelectRequest,
 } from '@ai-team/api-client';
-import type { AgentManager } from '@ai-team/infrastructure';
+import { createIdeAdapter, type IdeAdapter, type AgentManager, type LlmService } from '@ai-team/infrastructure';
 import {
   resolveAgentForOperationAsync,
   SessionManager,
   type IInteractionService,
 } from '@ai-team/service';
-import { createIdeAdapter, type IdeAdapter } from '@ai-team/infrastructure';
 
 /**
  * Messages sent from client to server over WebSocket.
@@ -46,8 +45,8 @@ import { createIdeAdapter, type IdeAdapter } from '@ai-team/infrastructure';
  * ```
  */
 export interface ChatWebSocketMessage {
-  /** Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question, 'interrupt' = hard interrupt, 'steer' = drift in message */
-  type: 'message' | 'cancel' | 'answer' | 'interrupt' | 'steer';
+  /** Message type: 'message' = chat message, 'cancel' = abort operation, 'answer' = respond to question, 'interrupt' = hard interrupt, 'steer' = drift in message, 'summarize' = LLM-backed note summarize */
+  type: 'message' | 'cancel' | 'answer' | 'interrupt' | 'steer' | 'summarize';
   /** Chat message content (required for 'message', 'steer' type) */
   content?: string;
   /** Additional options for the chat interaction (optional for 'message' type) */
@@ -59,6 +58,18 @@ export interface ChatWebSocketMessage {
     /** Answer value (string/bool/number/array/object depending on question type) */
     value: string | boolean | number | string[] | Record<string, string>;
   };
+  /** Summarize operation (required for 'summarize' type): 'compact' or 'crawl' */
+  operation?: 'compact' | 'crawl';
+  /** Note ID to summarize (required for 'summarize' type) */
+  noteId?: string;
+  /** Website URL to crawl (required for operation='crawl') */
+  websiteUrl?: string;
+  /** Max pages to crawl (optional for operation='crawl') */
+  maxPages?: number;
+  /** Max words for summary (optional for 'summarize' type) */
+  maxWords?: number;
+  /** Focus instruction for summarization (optional for 'summarize' type) */
+  focusInstruction?: string;
 }
 
 /**
@@ -117,15 +128,21 @@ export interface ChatWebSocketEvent {
 type ChatStreamEvent = StreamEvent<'chat'>;
 type PendingAnswerValue = string | boolean | number | string[] | Record<string, string>;
 
+export interface ChatWebSocketSetupOptions {
+  agentManager?: AgentManager;
+  workspaceRoot?: string;
+  llmService?: LlmService;
+}
+
 export async function setupChatWebSocket(
   ws: WebSocket,
   agentQuery: string,
   interactionService: IInteractionService,
   sessionManager: SessionManager,
   sessionId: string | null,
-  agentManager?: AgentManager,
-  workspaceRoot?: string
+  options: ChatWebSocketSetupOptions = {}
 ): Promise<void> {
+  const { agentManager, workspaceRoot, llmService } = options;
   // Resolve agent query to exact ID
   let agentId = agentQuery;
   if (agentManager) {
@@ -343,6 +360,77 @@ export async function setupChatWebSocket(
         } finally {
           currentAbortController = null;
         }
+      }
+
+      if (message.type === 'summarize') {
+        if (!sessionId) {
+          ws.send(JSON.stringify({ type: 'error', data: { error: 'sessionId is required for summarize' } }));
+          return;
+        }
+        if (!message.noteId) {
+          ws.send(JSON.stringify({ type: 'error', data: { error: 'noteId is required for summarize' } }));
+          return;
+        }
+        if (!llmService) {
+          ws.send(JSON.stringify({ type: 'error', data: { error: 'LLM service not available' } }));
+          return;
+        }
+
+        ws.send(JSON.stringify({ type: 'ack' }));
+
+        if (currentAbortController) {
+          currentAbortController.abort();
+        }
+        pendingQuestions.forEach(({ reject }) => reject(new Error('New summarize started')));
+        pendingQuestions.clear();
+        currentAbortController = new AbortController();
+
+        try {
+          const send = (event: ChatStreamEvent) => {
+            if (!currentAbortController?.signal.aborted) {
+              ws.send(JSON.stringify({ type: 'mediator', data: event }));
+            }
+          };
+
+          await llmService.ensureInitialized();
+
+          if (message.operation === 'crawl') {
+            if (!message.websiteUrl) {
+              ws.send(JSON.stringify({ type: 'error', data: { error: 'websiteUrl is required for crawl operation' } }));
+              return;
+            }
+            send({ kind: 'status', status: 'Crawling website...' } as any);
+            const note = await sessionManager.summarizeWebsiteNoteAsync(
+              message.noteId,
+              llmService,
+              message.websiteUrl,
+              message.maxPages,
+              message.maxWords,
+              message.focusInstruction
+            );
+            send({ kind: 'status', status: 'Done' } as any);
+            send({ kind: 'done', result: note } as any);
+          } else {
+            send({ kind: 'status', status: 'Summarizing note...' } as any);
+            const note = await sessionManager.compactNoteAsync(
+              message.noteId,
+              llmService,
+              message.maxWords,
+              message.focusInstruction
+            );
+            send({ kind: 'status', status: 'Done' } as any);
+            send({ kind: 'done', result: note } as any);
+          }
+        } catch (error: any) {
+          if (error.name === 'AbortError' || currentAbortController?.signal.aborted) {
+            ws.send(JSON.stringify({ type: 'cancelled' }));
+          } else {
+            ws.send(JSON.stringify({ type: 'error', data: { error: error.message } }));
+          }
+        } finally {
+          currentAbortController = null;
+        }
+        return;
       }
     } catch (error: any) {
       ws.send(JSON.stringify({ type: 'error', data: { error: error.message } }));

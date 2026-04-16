@@ -14,6 +14,7 @@ import { Avatar } from '../Avatar';
 import { MarkdownMessage } from '../MarkdownMessage';
 import { RelativeTime } from '../RelativeTime';
 import { SessionGraphLoader } from '../SessionGraph';
+import { NoteEditorView } from './NoteEditorView';
 import { MessageDivider } from './MessageDivider';
 import {
   formatDeveloperName,
@@ -148,6 +149,7 @@ interface ChatMessagesViewProps {
   routeAgentId?: string | null;
   currentSessionId: string | null;
   graphSessionId: string | null;
+  noteRouteId: string | null;
   messages: ChatMessage[];
   editingIndex: number | null;
   editContent: string;
@@ -155,6 +157,8 @@ interface ChatMessagesViewProps {
   messagesEndRef: RefObject<HTMLDivElement | null>;
   onScroll: () => void;
   onGraphBack: () => void;
+  onNoteBack: () => void;
+  onOpenNote: (noteId: string, options?: { sessionId?: string; agentId?: string }) => void;
   onSelectSessionFromGraph: (
     targetSessionId: string,
     targetAgentId: string,
@@ -231,6 +235,7 @@ export function ChatMessagesView({
   routeAgentId,
   currentSessionId,
   graphSessionId,
+  noteRouteId,
   messages,
   editingIndex,
   editContent,
@@ -238,6 +243,8 @@ export function ChatMessagesView({
   messagesEndRef,
   onScroll,
   onGraphBack,
+  onNoteBack,
+  onOpenNote,
   onSelectSessionFromGraph,
   onSummarize,
   onSplitSession,
@@ -392,6 +399,18 @@ export function ChatMessagesView({
 
   const virtualItems = virtualizer.getVirtualItems();
   const totalVirtualHeight = virtualizer.getTotalSize();
+
+  if (noteRouteId && currentSessionId) {
+    return (
+      <NoteEditorView
+        noteId={noteRouteId}
+        sessionId={currentSessionId}
+        agentId={currentAgentId}
+        onBack={onNoteBack}
+        onNoteCreated={onOpenNote}
+      />
+    );
+  }
 
   if (graphSessionId) {
     return (
@@ -663,7 +682,14 @@ export function ChatMessagesView({
             const messageSelectionRange = speakingKey === ttsKey ? speakingSelectionRange : null;
             const shouldShowTtsWordHighlight =
               isThisSpeaking && (speakingKey === null || speakingKey === ttsKey);
-            const messageToolEvents = !human ? (toolEventsByMessage.get(index) ?? []) : [];
+            const groupedMessageToolEvents = toolEventsByMessage.get(index) ?? [];
+            const fallbackPersistedToolEvent = getPersistedToolCall(message)
+              ? [resolveToolEvent(message, index, toolEventsByMessage)]
+              : [];
+            const messageToolEvents =
+              groupedMessageToolEvents.length > 0
+                ? groupedMessageToolEvents
+                : fallbackPersistedToolEvent;
             const showThinkingIndicator =
               !human && streaming && index === messages.length - 1 && message.content.length === 0;
             const messageClassName = `message message-${human ? 'user' : 'assistant'}${message.archived ? ' message-archived' : ''}${isThisSpeaking ? ' message-speaking' : ''}`;

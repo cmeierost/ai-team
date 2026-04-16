@@ -2,12 +2,13 @@ import { useState, type ComponentProps } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { AgentToolPermissionEntry } from '@ai-team/api-client';
 import { ContextPanelView, type ContextSection } from './ContextPanelView';
+import type { ContextPanelNoteItem } from '../utils/contextPanel';
 import {
   TaskPriority,
   TaskStatus,
   TaskType,
-  type Artifact,
   type ChatSession,
+  type Note,
   type SessionActivatedTool,
   type Task,
 } from '../types';
@@ -75,33 +76,6 @@ const skillEntries: SkillEntry[] = [
   },
 ];
 
-const artifacts: Artifact[] = [
-  {
-    id: 'artifact-1',
-    type: 'summary',
-    title: 'ContextPanel first-slice brief',
-    content: 'Summary content',
-    createdAt: '2026-03-09T08:10:00.000Z',
-    createdBy: 'clemens-meier',
-    sourceSessionId: 'session-current',
-    fromMessageIndex: 2,
-    toMessageIndex: 12,
-    filepath: '.ai-team/artifacts/briefs/context-panel-first-slice.md',
-  },
-  {
-    id: 'artifact-2',
-    type: 'brief',
-    title: 'Chat runtime follow-up',
-    content: 'Follow-up content',
-    createdAt: '2026-03-08T15:00:00.000Z',
-    createdBy: 'clemens-meier',
-    sourceSessionId: 'session-previous',
-    fromMessageIndex: 0,
-    toMessageIndex: 8,
-    filepath: '.ai-team/artifacts/briefs/chat-runtime-follow-up.md',
-  },
-];
-
 const recentToolEvents: SessionActivatedTool[] = [
   {
     toolName: 'apply_patch',
@@ -114,6 +88,108 @@ const recentToolEvents: SessionActivatedTool[] = [
     toolPhase: 'start',
     message: 'Inspecting ContextPanel CSS.',
     timestamp: '2026-03-09T08:55:00.000Z',
+  },
+];
+
+const baseNotes: Note[] = [
+  {
+    id: 'note-1',
+    agentId: 'daniel-navarro',
+    sessionId: 'session-current',
+    title: 'Context panel delivery notes',
+    content: 'Keep server state in Query and drafts local.',
+    hiddenFromLlm: false,
+    showOnDashboard: true,
+    createdAt: '2026-03-09T08:20:00.000Z',
+    updatedAt: '2026-03-09T08:52:00.000Z',
+  },
+  {
+    id: 'note-2',
+    agentId: 'daniel-navarro',
+    sessionId: 'session-current',
+    content: 'Attachment only note',
+    attachment: {
+      id: 'note-2-attachment-1',
+      fileName: 'context-panel-wireframe.png',
+      filePath: '.ai-team/private/note-attachments/context-panel-wireframe.png',
+      sizeBytes: 24576,
+      description: 'Draft wireframe',
+    },
+    hiddenFromLlm: false,
+    showOnDashboard: false,
+    createdAt: '2026-03-09T08:24:00.000Z',
+    updatedAt: '2026-03-09T08:54:00.000Z',
+  },
+  {
+    id: 'note-3',
+    agentId: 'leah-brooks',
+    sessionId: 'session-previous',
+    title: 'Thread runtime follow-up',
+    content: 'This one is visible in the thread but not yet shared.',
+    hiddenFromLlm: false,
+    showOnDashboard: false,
+    createdAt: '2026-03-09T08:10:00.000Z',
+    updatedAt: '2026-03-09T08:56:00.000Z',
+  },
+];
+
+const notes: ContextPanelNoteItem[] = [
+  {
+    note: baseNotes[0]!,
+    ownerSession: {
+      sessionId: 'session-current',
+      agentIds: ['daniel-navarro'],
+      agentNames: ['Daniel Navarro'],
+      developerId: 'clemens-meier',
+      title: 'ContextPanel refactor',
+      startedAt: '2026-03-09T07:45:00.000Z',
+      lastActivityAt: '2026-03-09T08:58:00.000Z',
+      previousSessionId: null,
+      mergedFromSessionIds: null,
+      messageCount: 18,
+      messages: [],
+    },
+    isOwnedByCurrentSession: true,
+    isSharedWithCurrentSession: true,
+    canPullIntoCurrentSession: false,
+  },
+  {
+    note: baseNotes[1]!,
+    ownerSession: {
+      sessionId: 'session-current',
+      agentIds: ['daniel-navarro'],
+      agentNames: ['Daniel Navarro'],
+      developerId: 'clemens-meier',
+      title: 'ContextPanel refactor',
+      startedAt: '2026-03-09T07:45:00.000Z',
+      lastActivityAt: '2026-03-09T08:58:00.000Z',
+      previousSessionId: null,
+      mergedFromSessionIds: null,
+      messageCount: 18,
+      messages: [],
+    },
+    isOwnedByCurrentSession: true,
+    isSharedWithCurrentSession: true,
+    canPullIntoCurrentSession: false,
+  },
+  {
+    note: baseNotes[2]!,
+    ownerSession: {
+      sessionId: 'session-previous',
+      agentIds: ['leah-brooks'],
+      agentNames: ['Leah Brooks'],
+      developerId: 'clemens-meier',
+      title: 'Runtime follow-up',
+      startedAt: '2026-03-09T08:10:00.000Z',
+      lastActivityAt: '2026-03-09T08:56:00.000Z',
+      previousSessionId: 'session-current',
+      mergedFromSessionIds: null,
+      messageCount: 12,
+      messages: [],
+    },
+    isOwnedByCurrentSession: false,
+    isSharedWithCurrentSession: false,
+    canPullIntoCurrentSession: true,
   },
 ];
 
@@ -163,34 +239,21 @@ const questionToolEvents: SessionActivatedTool[] = [
   },
 ];
 
-type DemoArgs = ComponentProps<typeof ContextPanelView>;
-
-function ContextPanelStory(args: DemoArgs) {
+function ContextPanelStory(args: ComponentProps<typeof ContextPanelView>) {
   const [expandedSection, setExpandedSection] = useState<ContextSection | null>(
     args.expandedSection
   );
-  const [notesDraft, setNotesDraft] = useState(args.notesDraft);
-  const [selectedArtifacts, setSelectedArtifacts] = useState(args.artifacts);
 
   return (
     <div className="context-panel-story-shell">
       <ContextPanelView
         {...args}
         expandedSection={expandedSection}
-        notesDraft={notesDraft}
-        artifacts={selectedArtifacts}
         onToggleSection={(section) =>
           setExpandedSection((current) => (current === section ? null : section))
         }
-        onNotesDraftChange={setNotesDraft}
-        onSaveNotes={() => undefined}
-        onToggleArtifact={(artifactId) => {
-          setSelectedArtifacts((current) =>
-            current.includes(artifactId)
-              ? current.filter((id) => id !== artifactId)
-              : [...current, artifactId]
-          );
-        }}
+        onSelectNote={() => undefined}
+        onNewNote={() => undefined}
       />
     </div>
   );
@@ -207,7 +270,6 @@ const meta = {
   args: {
     agentId: 'daniel-navarro',
     sessionId: 'session-current',
-    artifacts: ['artifact-1'],
     toolEntries: [
       {
         name: 'read_file',
@@ -233,26 +295,23 @@ const meta = {
         allowedForAgent: true,
       },
     ] as AgentToolPermissionEntry[],
-    allArtifacts: artifacts,
     sessions,
     tasks,
     skillEntries,
     recentToolEvents,
     activeToolNames: ['read_file'],
-    notesDraft: 'Keep the panel prop-driven so Storybook can review it without API wiring.',
+    notes,
+    notesLoading: false,
+    sharingNoteId: null,
     hasSession: true,
-    savingNotes: false,
-    notesError: null,
     skillsLoading: false,
     skillsError: null,
     skillActionPending: null,
-    loadingArtifacts: false,
     expandedSection: 'sessions',
     onToggleSection: () => undefined,
-    onNotesDraftChange: () => undefined,
-    onSaveNotes: () => undefined,
+    onSelectNote: () => undefined,
+    onNewNote: () => undefined,
     onToggleSkill: () => undefined,
-    onToggleArtifact: () => undefined,
     onSwitchSession: () => undefined,
     onDeleteSession: () => undefined,
     onCreateSession: () => undefined,
@@ -264,7 +323,9 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const SessionsOverview: Story = {};
+export const SessionsOverview: Story = {
+  args: {},
+};
 
 export const NotesFocused: Story = {
   args: {

@@ -8,8 +8,8 @@ import type { SqliteConnection } from './connection.js';
 export interface Migration {
   version: number;
   name: string;
-  up: string;  // SQL to apply migration
-  down?: string;  // SQL to rollback migration (optional)
+  up: string; // SQL to apply migration
+  down?: string; // SQL to rollback migration (optional)
 }
 
 /**
@@ -263,14 +263,249 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE message_tool_calls ADD COLUMN result_llm TEXT;
     `,
   },
+  {
+    version: 8,
+    name: 'add_notes_attachments_and_message_session_links',
+    up: `
+      ALTER TABLE notes ADD COLUMN session_id TEXT;
+      ALTER TABLE notes ADD COLUMN attachment_name TEXT;
+      ALTER TABLE notes ADD COLUMN attachment_path TEXT;
+      ALTER TABLE notes ADD COLUMN attachment_content_type TEXT;
+      ALTER TABLE notes ADD COLUMN attachment_size_bytes INTEGER;
+      ALTER TABLE notes ADD COLUMN attachment_description TEXT;
+
+      CREATE INDEX IF NOT EXISTS idx_notes_session ON notes(session_id);
+
+      CREATE TABLE IF NOT EXISTS message_session_links (
+        message_id INTEGER NOT NULL,
+        session_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (message_id, session_id),
+        FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_message_session_links_session ON message_session_links(session_id);
+    `,
+  },
+  {
+    version: 9,
+    name: 'add_note_session_shares',
+    up: `
+      CREATE TABLE IF NOT EXISTS note_session_shares (
+        note_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (note_id, session_id),
+        FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_note_session_shares_note ON note_session_shares(note_id);
+      CREATE INDEX IF NOT EXISTS idx_note_session_shares_session ON note_session_shares(session_id);
+    `,
+  },
+  {
+    version: 10,
+    name: 'add_notes_compacted_and_hidden',
+    up: `
+      ALTER TABLE notes ADD COLUMN compacted_content TEXT;
+      ALTER TABLE notes ADD COLUMN hidden_from_llm INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 11,
+    name: 'add_notes_show_on_dashboard',
+    up: `
+      ALTER TABLE notes ADD COLUMN show_on_dashboard INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 12,
+    name: 'drop_legacy_session_tasks_table',
+    up: `
+      DROP TABLE IF EXISTS session_tasks;
+    `,
+  },
+  {
+    version: 13,
+    name: 'create_planning_pipeline_schema',
+    up: `
+      CREATE TABLE IF NOT EXISTS planning_intake_items (
+        id TEXT PRIMARY KEY,
+        source_type TEXT NOT NULL,
+        source_ref TEXT NOT NULL,
+        source_url TEXT,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_planning_intake_source
+        ON planning_intake_items(source_type, source_ref);
+      CREATE INDEX IF NOT EXISTS idx_planning_intake_status
+        ON planning_intake_items(status);
+
+      CREATE TABLE IF NOT EXISTS planning_plans (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        goal TEXT,
+        status TEXT NOT NULL,
+        priority TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_by_type TEXT NOT NULL,
+        assigned_to TEXT,
+        origin_type TEXT NOT NULL,
+        origin_session_id TEXT,
+        origin_note_id TEXT,
+        markdown_snapshot TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_planning_plans_status
+        ON planning_plans(status);
+      CREATE INDEX IF NOT EXISTS idx_planning_plans_assigned_to
+        ON planning_plans(assigned_to);
+
+      CREATE TABLE IF NOT EXISTS planning_plan_intake_items (
+        plan_id TEXT NOT NULL,
+        intake_item_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (plan_id, intake_item_id),
+        FOREIGN KEY (plan_id) REFERENCES planning_plans(id) ON DELETE CASCADE,
+        FOREIGN KEY (intake_item_id) REFERENCES planning_intake_items(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS planning_tasks (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        priority TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_by_type TEXT NOT NULL,
+        assigned_to TEXT,
+        source_action_item TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (plan_id) REFERENCES planning_plans(id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_planning_tasks_plan_id
+        ON planning_tasks(plan_id);
+      CREATE INDEX IF NOT EXISTS idx_planning_tasks_session_id
+        ON planning_tasks(session_id);
+      CREATE INDEX IF NOT EXISTS idx_planning_tasks_assigned_to
+        ON planning_tasks(assigned_to);
+
+      CREATE TABLE IF NOT EXISTS planning_todos (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        order_index INTEGER NOT NULL,
+        done INTEGER NOT NULL DEFAULT 0,
+        completed_at TEXT,
+        completed_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (task_id) REFERENCES planning_tasks(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_planning_todos_task_id
+        ON planning_todos(task_id);
+
+      CREATE TABLE IF NOT EXISTS planning_task_delegations (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        from_agent_id TEXT NOT NULL,
+        to_agent_id TEXT NOT NULL,
+        reason TEXT,
+        delegated_at TEXT NOT NULL,
+        accepted INTEGER NOT NULL DEFAULT 0,
+        accepted_at TEXT,
+        FOREIGN KEY (task_id) REFERENCES planning_tasks(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_planning_task_delegations_task_id
+        ON planning_task_delegations(task_id);
+    `,
+  },
+  {
+    version: 14,
+    name: 'add_messages_hidden_from_llm',
+    up: `
+      ALTER TABLE messages ADD COLUMN hidden_from_llm INTEGER NOT NULL DEFAULT 0;
+      CREATE INDEX IF NOT EXISTS idx_messages_hidden_from_llm ON messages(hidden_from_llm);
+    `,
+  },
+  {
+    version: 15,
+    name: 'add_note_attachments_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS note_attachments (
+        id TEXT PRIMARY KEY,
+        note_id TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        content_type TEXT,
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        description TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_note_attachments_note ON note_attachments(note_id, sort_order);
+
+      INSERT INTO note_attachments (
+        id,
+        note_id,
+        file_name,
+        file_path,
+        content_type,
+        size_bytes,
+        description,
+        sort_order,
+        created_at
+      )
+      SELECT
+        n.id || '-legacy-0',
+        n.id,
+        n.attachment_name,
+        n.attachment_path,
+        n.attachment_content_type,
+        COALESCE(n.attachment_size_bytes, 0),
+        n.attachment_description,
+        0,
+        COALESCE(n.updated_at, n.created_at, datetime('now'))
+      FROM notes n
+      WHERE n.attachment_path IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM note_attachments na
+          WHERE na.note_id = n.id
+        );
+    `,
+  },
 ];
 
 /**
  * Schema migration manager
  */
 export class MigrationManager {
-  constructor(private db: SqliteConnection) {}
-  
+  constructor(private readonly db: SqliteConnection) {}
+
   /**
    * Get the current schema version
    * @returns Current version number or 0 if no version table exists
@@ -286,16 +521,14 @@ export class MigrationManager {
       return 0;
     }
   }
-  
+
   /**
    * Get the target schema version (latest migration)
    */
   getTargetVersion(): number {
-    return MIGRATIONS.length > 0
-      ? Math.max(...MIGRATIONS.map(m => m.version))
-      : 0;
+    return MIGRATIONS.length > 0 ? Math.max(...MIGRATIONS.map((m) => m.version)) : 0;
   }
-  
+
   /**
    * Check if migrations are needed
    */
@@ -304,62 +537,63 @@ export class MigrationManager {
     const target = this.getTargetVersion();
     return current < target;
   }
-  
+
   /**
    * Get pending migrations
    */
   async getPendingMigrations(): Promise<Migration[]> {
     const currentVersion = await this.getCurrentVersion();
-    return MIGRATIONS.filter(m => m.version > currentVersion)
-      .sort((a, b) => a.version - b.version);
+    return MIGRATIONS.filter((m) => m.version > currentVersion).sort(
+      (a, b) => a.version - b.version
+    );
   }
-  
+
   /**
    * Apply all pending migrations
    * @returns Number of migrations applied
    */
   async migrate(): Promise<number> {
     const pending = await this.getPendingMigrations();
-    
+
     if (pending.length === 0) {
       return 0;
     }
-    
+
     for (const migration of pending) {
       await this.applyMigration(migration);
     }
-    
+
     return pending.length;
   }
-  
+
   /**
    * Apply a single migration
    */
   private async applyMigration(migration: Migration): Promise<void> {
     const now = new Date().toISOString();
-    
+
     // Execute migration SQL in a transaction
     await this.db.run('BEGIN TRANSACTION');
-    
+
     try {
       // Execute the migration SQL (may contain multiple statements including triggers)
       await this.db.exec(migration.up);
-      
+
       // Track the migration version
-      await this.db.run(
-        'INSERT INTO schema_version (version, applied_at) VALUES (?, ?)',
-        [migration.version, now]
-      );
-      
+      await this.db.run('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)', [
+        migration.version,
+        now,
+      ]);
+
       await this.db.run('COMMIT');
-      
+
       console.log(`Applied migration v${migration.version}: ${migration.name}`);
     } catch (error) {
       await this.db.run('ROLLBACK');
       throw error;
     }
   }
-  
+
   private initialized = false;
 
   /**
@@ -373,7 +607,7 @@ export class MigrationManager {
 
     const applied = await this.migrate();
     this.initialized = true;
-    
+
     if (applied > 0) {
       console.log(`Database initialized: applied ${applied} migration(s)`);
     }

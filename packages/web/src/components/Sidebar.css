@@ -29,20 +29,25 @@
 
 /* Scrollbar styling */
 .sidebar-nav::-webkit-scrollbar {
-  width: 6px;
+  width: var(--scrollbar-size);
 }
 
 .sidebar-nav::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--color-scrollbar-track);
 }
 
 .sidebar-nav::-webkit-scrollbar-thumb {
-  background: var(--color-bg-tertiary);
-  border-radius: 3px;
+  background: var(--color-scrollbar-thumb-hidden);
+  border-radius: var(--scrollbar-radius);
+  border: 2px solid var(--color-scrollbar-track);
+}
+
+.sidebar-nav:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar-thumb);
 }
 
 .sidebar-nav::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-primary);
+  background: var(--color-scrollbar-thumb-hover);
 }
 
 .sidebar-item {

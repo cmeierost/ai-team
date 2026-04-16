@@ -10,6 +10,7 @@ export { ConfigService } from './config-service.js';
 export { FilesService } from './files-service.js';
 export { AgentsService } from './agents-service.js';
 export { TasksService } from './tasks-service.js';
+export { PlanningService } from './planning-service.js';
 export { ArtifactsService } from './artifacts-service.js';
 export { ChatService } from './chat-service.js';
 export { SessionsService } from './sessions-service.js';

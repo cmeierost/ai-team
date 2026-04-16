@@ -275,3 +275,175 @@ export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
     }
   }
 }
+
+export interface SummarizeNoteWebSocketOptions {
+  /** API base URL (http/https — will be converted to ws/wss automatically) */
+  url: string;
+  sessionId: string;
+  noteId: string;
+  operation: 'compact' | 'crawl';
+  websiteUrl?: string;
+  maxPages?: number;
+  maxWords?: number;
+  focusInstruction?: string;
+  signal?: AbortSignal;
+  /** Called for each status/progress event */
+  onStatus?: (status: string) => void;
+}
+
+/**
+ * Runs an LLM-backed note summarize operation over WebSocket and yields stream events.
+ * The caller should listen for a `done` event with `result` being the updated Note.
+ */
+export async function* summarizeNoteViaWebSocket(
+  agentId: string,
+  options: SummarizeNoteWebSocketOptions
+): AsyncIterable<StreamEvent<'chat'>> {
+  const httpBase = options.url.replace(/\/$/, '');
+  const wsBase = httpBase.replace(/^http/, 'ws');
+  const encodedAgentId = encodeURIComponent(agentId);
+  const wsUrl = `${wsBase}/ws/chat/${encodedAgentId}?sessionId=${encodeURIComponent(options.sessionId)}`;
+
+  const ws = new WebSocket(wsUrl);
+  const events: StreamEvent<'chat'>[] = [];
+  let error: Error | null = null;
+  let done = false;
+  let eventWaiter: (() => void) | null = null;
+  let abortHandler: (() => void) | null = null;
+  let readyResolve: (() => void) | null = null;
+  const readyPromise = new Promise<void>((resolve) => {
+    readyResolve = resolve;
+  });
+
+  const wakeEventWaiter = () => {
+    const waiter = eventWaiter;
+    eventWaiter = null;
+    waiter?.();
+  };
+
+  const waitForNextEvent = () =>
+    new Promise<void>((resolve) => {
+      eventWaiter = () => {
+        eventWaiter = null;
+        resolve();
+      };
+      if (events.length > 0 || done || error) {
+        wakeEventWaiter();
+      }
+    });
+
+  ws.onmessage = (event) => {
+    try {
+      const wsEvent: { type: string; data?: unknown } = JSON.parse(event.data);
+
+      if (wsEvent.type === 'ready') {
+        readyResolve?.();
+        return;
+      }
+
+      if (wsEvent.type === 'ack' || wsEvent.type === 'cancelled') {
+        if (wsEvent.type === 'cancelled') {
+          done = true;
+          wakeEventWaiter();
+        }
+        return;
+      }
+
+      if (wsEvent.type === 'error') {
+        const message = (wsEvent.data as { error?: string } | undefined)?.error;
+        error = new Error(message || 'WebSocket summarize error');
+        done = true;
+        wakeEventWaiter();
+        return;
+      }
+
+      if (wsEvent.type === 'mediator') {
+        const streamEvent = wsEvent.data as StreamEvent<'chat'>;
+        if (streamEvent.kind === 'status') {
+          options.onStatus?.((streamEvent as any).status ?? '');
+        }
+        if (streamEvent.kind === 'done') {
+          events.push(streamEvent);
+          done = true;
+          ws.close();
+          wakeEventWaiter();
+          return;
+        }
+        events.push(streamEvent);
+        if (streamEvent.kind === 'aborted' || streamEvent.kind === 'error') {
+          done = true;
+        }
+        wakeEventWaiter();
+      }
+    } catch (err) {
+      error = err instanceof Error ? err : new Error('Failed to parse WebSocket message');
+      wakeEventWaiter();
+    }
+  };
+
+  ws.onerror = () => {
+    error = new Error('WebSocket error');
+    done = true;
+    wakeEventWaiter();
+  };
+
+  ws.onclose = () => {
+    done = true;
+    wakeEventWaiter();
+  };
+
+  try {
+    abortHandler = () => {
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'cancel' }));
+        }
+      } finally {
+        done = true;
+        wakeEventWaiter();
+      }
+    };
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        abortHandler();
+      } else {
+        options.signal.addEventListener('abort', abortHandler, { once: true });
+      }
+    }
+
+    await readyPromise;
+
+    const payload: Record<string, unknown> = {
+      type: 'summarize',
+      operation: options.operation,
+      noteId: options.noteId,
+      maxWords: options.maxWords,
+      focusInstruction: options.focusInstruction,
+    };
+    if (options.operation === 'crawl') {
+      payload.websiteUrl = options.websiteUrl;
+      payload.maxPages = options.maxPages;
+    }
+    ws.send(JSON.stringify(payload));
+
+    while (!done || events.length > 0) {
+      if (error) {
+        throw error;
+      }
+      if (events.length > 0) {
+        const ev = events.shift()!;
+        yield ev;
+      } else if (!done) {
+        await waitForNextEvent();
+      }
+    }
+  } finally {
+    if (options.signal && abortHandler) {
+      options.signal.removeEventListener('abort', abortHandler);
+    }
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close();
+    }
+  }
+}

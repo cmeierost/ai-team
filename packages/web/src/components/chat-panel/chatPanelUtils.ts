@@ -5,6 +5,7 @@ import type { ExtractedSessionMeta, NavigateAgentTarget } from './chatPanelTypes
 
 export const SESSION_ROUTE = '/chat/:agentId/session/:sessionId';
 export const GRAPH_ROUTE = '/chat/:agentId/session/:sessionId/thread';
+export const NOTE_ROUTE = '/chat/:agentId/session/:sessionId/note/:noteId';
 export const SESSION_META_PREFIX = '<!-- ai-team:session-meta ';
 export const SESSION_META_SUFFIX = ' -->';
 

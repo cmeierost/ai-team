@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react';
 import { SessionActivatedTool } from '../types';
 import type { AgentToolPermissionEntry } from '@ai-team/api-client';
-import { useArtifactsQuery } from '../hooks/useArtifactsQuery';
 import { useSessionsForAgent } from '../hooks/useSessionsForAgent';
+import { useThreadNotes } from '../hooks/useThreadNotes';
 import { useSkillsForAgent } from '../hooks/useSkillsForAgent';
 import { useTasksForAgent } from '../hooks/useTasksForAgent';
-import { getActiveToolNames, stripSessionMetaNotes } from '../utils/contextPanel';
+import type { ContextPanelNoteItem } from '../utils/contextPanel';
+import { getActiveToolNames } from '../utils/contextPanel';
 import { ContextPanelView, type ContextSection } from './ContextPanelView';
 
 const CONTEXT_PANEL_WIDTH_KEY = 'ai-team.context-panel.width';
@@ -17,34 +18,63 @@ function clampContextPanelWidth(width: number): number {
   return Math.min(MAX_CONTEXT_PANEL_WIDTH, Math.max(MIN_CONTEXT_PANEL_WIDTH, width));
 }
 
+function formatOwnedNoteLabel(title?: string): string {
+  return title?.trim() || 'Untitled note';
+}
+
+function buildDeleteConfirmationMessage(
+  transferableCount: number,
+  unsharedTitles: string[]
+): string {
+  const messageParts = ['Delete this session? This cannot be undone.'];
+
+  if (transferableCount > 0) {
+    const transferSuffix = transferableCount === 1 ? '' : 's';
+    messageParts.push(
+      `${transferableCount} shared note${transferSuffix} will move to another shared session owner.`
+    );
+  }
+
+  if (unsharedTitles.length > 0) {
+    const unsharedSuffix = unsharedTitles.length === 1 ? '' : 's';
+    const preview = unsharedTitles.slice(0, 3).map((title) => `- ${title}`).join('\n');
+    let unsharedMessage = `${unsharedTitles.length} unshared note${unsharedSuffix} will be deleted if you continue.`;
+    if (preview) {
+      unsharedMessage += `\n${preview}`;
+    }
+    messageParts.push(unsharedMessage);
+  }
+
+  return messageParts.join('\n\n');
+}
+
 interface ContextPanelProps {
   agentId: string;
   sessionId?: string;
-  artifacts: string[]; // Artifact IDs in context
   toolEntries: AgentToolPermissionEntry[];
   activatedTools: SessionActivatedTool[];
-  onToggleArtifact: (artifactId: string) => void;
   onSwitchSession?: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onCreateSession?: () => void;
   onOpenSessionGraph?: (sessionId: string) => void;
+  onOpenNote?: (noteId: string, options?: { sessionId?: string; agentId?: string }) => void;
+  onNewNote?: () => void;
   onSuggestedHandoff?: (targetAgentId: string, task?: string) => void;
 }
 
 export function ContextPanel({
   agentId,
   sessionId,
-  artifacts,
   toolEntries,
   activatedTools,
-  onToggleArtifact,
   onSwitchSession,
   onDeleteSession,
   onCreateSession,
   onOpenSessionGraph,
+  onOpenNote,
+  onNewNote,
   onSuggestedHandoff,
 }: Readonly<ContextPanelProps>) {
-  const [notesDraft, setNotesDraft] = useState('');
   const [expandedSection, setExpandedSection] = useState<ContextSection | null>(null);
   const [panelWidth, setPanelWidth] = useState(() => {
     if (globalThis.window === undefined) {
@@ -60,27 +90,13 @@ export function ContextPanel({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  const artifactsQuery = useArtifactsQuery();
-  const {
-    sessions,
-    saveNotes: persistNotes,
-    savingNotes,
-    notesError,
-    deleteSession: removeSession,
-  } = useSessionsForAgent(agentId);
+  const { sessions, deleteSession: removeSession, getDeleteImpact } = useSessionsForAgent(agentId);
+  const { notes, notesLoading, shareNoteToSession, sharingNoteId } = useThreadNotes(sessionId);
   const tasksQuery = useTasksForAgent(agentId);
   const { skillEntries, skillsLoading, skillsError, skillActionPending, toggleSkill } =
     useSkillsForAgent(agentId);
 
-  const allArtifacts = artifactsQuery.data ?? [];
   const tasks = tasksQuery.data ?? [];
-  const loadingArtifacts = artifactsQuery.isLoading;
-
-  const currentSession = sessions.find((s) => s.id === sessionId);
-
-  useEffect(() => {
-    setNotesDraft(stripSessionMetaNotes(currentSession?.notes));
-  }, [sessionId, currentSession?.notes]);
 
   useEffect(() => {
     shellRef.current?.style.setProperty('--context-panel-width', `${panelWidth}px`);
@@ -121,24 +137,22 @@ export function ContextPanel({
     };
   }, [isResizing]);
 
-  const saveNotes = async () => {
-    if (!sessionId) return;
-    try {
-      await persistNotes(sessionId, notesDraft);
-    } catch (error) {
-      console.error('Failed to save notes:', error);
-    }
-  };
-
   const handleDeleteSession = async (e: MouseEvent, sessionIdToDelete: string) => {
     e.stopPropagation();
 
-    if (!globalThis.confirm('Delete this session? This cannot be undone.')) {
-      return;
-    }
-
     try {
-      await removeSession(sessionIdToDelete);
+      const impact = await getDeleteImpact(sessionIdToDelete);
+      const transferableCount = impact.transferableNotes.length;
+      const unsharedTitles = impact.unsharedOwnedNotes.map((note) => formatOwnedNoteLabel(note.title));
+      const confirmationMessage = buildDeleteConfirmationMessage(transferableCount, unsharedTitles);
+
+      if (!globalThis.confirm(confirmationMessage)) {
+        return;
+      }
+
+      await removeSession(sessionIdToDelete, {
+        deleteUnsharedOwnedNotes: unsharedTitles.length > 0,
+      });
       if (sessionIdToDelete === sessionId && onDeleteSession) {
         onDeleteSession(sessionIdToDelete);
       }
@@ -177,12 +191,29 @@ export function ContextPanel({
   };
 
   const recentToolEvents = activatedTools;
-
   const activeToolNames = getActiveToolNames(activatedTools);
   const hasSession = Boolean(sessionId);
 
+  const handleSelectNote = async (note: ContextPanelNoteItem) => {
+    if (note.canPullIntoCurrentSession) {
+      try {
+        await shareNoteToSession(note);
+      } catch (error) {
+        console.error('Failed to share note with current session:', error);
+        globalThis.alert('Failed to pull the note into this session. Please try again.');
+      }
+      return;
+    }
+
+    onOpenNote?.(note.note.id, {
+      sessionId: note.note.sessionId,
+      agentId: note.note.agentId,
+    });
+  };
+
   return (
     <div ref={shellRef} className={`context-panel-shell${isResizing ? ' is-resizing' : ''}`}>
+      {' '}
       <button
         type="button"
         className="context-panel-resize-handle"
@@ -194,32 +225,30 @@ export function ContextPanel({
       <ContextPanelView
         agentId={agentId}
         sessionId={sessionId}
-        artifacts={artifacts}
         toolEntries={toolEntries}
-        allArtifacts={allArtifacts}
         sessions={sessions}
         tasks={tasks}
         skillEntries={skillEntries}
         recentToolEvents={recentToolEvents}
         activeToolNames={activeToolNames}
-        notesDraft={notesDraft}
+        notes={notes}
+        notesLoading={notesLoading}
+        sharingNoteId={sharingNoteId}
         hasSession={hasSession}
-        savingNotes={savingNotes}
-        notesError={notesError}
         skillsLoading={skillsLoading}
         skillsError={skillsError}
         skillActionPending={skillActionPending}
-        loadingArtifacts={loadingArtifacts}
         expandedSection={expandedSection}
         onToggleSection={toggleSection}
-        onNotesDraftChange={setNotesDraft}
-        onSaveNotes={saveNotes}
+        onSelectNote={(note) => {
+          void handleSelectNote(note);
+        }}
+        onNewNote={() => onNewNote?.()}
         onToggleSkill={(skillName, assigned) => {
           toggleSkill(skillName, assigned).catch((error) => {
             console.error('Failed to update skill assignment:', error);
           });
         }}
-        onToggleArtifact={onToggleArtifact}
         onSwitchSession={onSwitchSession}
         onDeleteSession={handleDeleteSession}
         onCreateSession={onCreateSession}

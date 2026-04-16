@@ -8,6 +8,7 @@ export * from './skills.js';
 export * from './system.js';
 export * from './team.js';
 export * from './tasks.js';
+export * from './planning.js';
 export * from './tools.js';
 export * from './developer.js';
 export * from './chat.js';

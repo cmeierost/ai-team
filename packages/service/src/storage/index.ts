@@ -6,6 +6,7 @@
 // Contracts
 export type {
   IMessageStorage,
+  IPlanningStorage,
   MessageFilter,
   SessionFilter,
   StorageStats,
@@ -13,6 +14,9 @@ export type {
   MessageStorageFactory,
   Note,
   SessionSkill,
+  PlanningIntakeFilter,
+  PlanningPlanFilter,
+  PlanningTaskFilter,
 } from './contracts.js';
 
 // SQLite implementation

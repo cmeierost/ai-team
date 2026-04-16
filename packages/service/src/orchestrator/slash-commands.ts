@@ -663,144 +663,202 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
     // ── Manual context control ────────────────────────────────────────────────
     {
       key: 'context',
-      usage: '/context add [label] | /context edit [n] | /context summarize [n]',
+      usage:
+        '/context add [--message <id>] [--summarized [instruction]] | /context remove [--message <id>] | /context list | /context summarize [--message <id>] [--instruction <text>]',
       description:
-        'Manage tool call context: add last /run result, edit or summarize a stored tool result',
+        'Manage LLM context visibility for persisted messages and tool results (hide/unhide/list/summarize)',
       llmCallable: false,
       execute: async (args, ctx) => {
-        const sub = args.trim().split(/\s+/);
-        const subCmd = sub[0]?.toLowerCase();
+        const tokenRegex = /"([^"]*)"|'([^']*)'|(\S+)/g;
+        const tokens: string[] = [];
+        let match = tokenRegex.exec(args);
+        while (match) {
+          tokens.push(match[1] ?? match[2] ?? match[3]);
+          match = tokenRegex.exec(args);
+        }
 
-        if (subCmd === 'add' || subCmd === '') {
-          if (!ctx.lastManualOutput) {
-            write(ctx, 'Nothing to add — run /run or /tool first.');
+        const first = tokens[0]?.toLowerCase();
+        const subCmd: 'add' | 'remove' | 'list' | 'summarize' =
+          first === 'add' || first === 'remove' || first === 'list' || first === 'summarize'
+            ? first
+            : 'add';
+        const argStart = first === subCmd ? 1 : 0;
+
+        let messageId: number | undefined;
+        let addSummaryInstruction: string | undefined;
+        let summarizeInstruction: string | undefined;
+        const positional: string[] = [];
+
+        for (let i = argStart; i < tokens.length; i++) {
+          const token = tokens[i];
+          if (token === '--message') {
+            const next = tokens[i + 1];
+            const parsed = Number.parseInt(next ?? '', 10);
+            if (!Number.isFinite(parsed)) {
+              write(ctx, 'Invalid --message value. Provide a numeric message id.');
+              return;
+            }
+            messageId = parsed;
+            i += 1;
+            continue;
+          }
+          if (token === '--summarized') {
+            const next = tokens[i + 1];
+            if (next && !next.startsWith('--')) {
+              addSummaryInstruction = next;
+              i += 1;
+            } else {
+              addSummaryInstruction = '';
+            }
+            continue;
+          }
+          if (token === '--instruction') {
+            const next = tokens[i + 1];
+            if (!next || next.startsWith('--')) {
+              write(ctx, 'Missing value for --instruction.');
+              return;
+            }
+            summarizeInstruction = next;
+            i += 1;
+            continue;
+          }
+          positional.push(token);
+        }
+
+        const allMessages = await ctx.sessionManager.listSessionMessages(ctx.sessionId);
+
+        const resolveTargetMessage = (): import('@ai-team/core').ChatMessage | undefined => {
+          if (messageId !== undefined) {
+            return allMessages.find((m) => m.id === messageId);
+          }
+
+          if (subCmd === 'add') {
+            return [...allMessages]
+              .reverse()
+              .find((m) => !m.isHuman && !m.archived && m.hiddenFromLlm === true);
+          }
+          if (subCmd === 'remove') {
+            return [...allMessages]
+              .reverse()
+              .find((m) => !m.isHuman && !m.archived && m.hiddenFromLlm !== true);
+          }
+          if (subCmd === 'summarize') {
+            return [...allMessages].reverse().find((m) => !m.isHuman && !m.archived);
+          }
+          return undefined;
+        };
+
+        if (subCmd === 'list') {
+          if (allMessages.length === 0) {
+            write(ctx, 'No persisted messages in this session yet.');
             return;
           }
-          const label = sub.slice(1).join(' ').trim() || ctx.lastManualOutput.split('\n')[0];
-          const sysMsg = {
-            timestamp: new Date().toISOString(),
-            from: 'system' as const,
-            content: `User-provided context (${label}):\n${ctx.lastManualOutput.slice(0, 8_000)}`,
-          };
-          await ctx.sessionManager.appendMessage(ctx.sessionId, sysMsg);
-          ctx.history.push(sysMsg);
-          ctx.lastManualOutput = undefined;
-          write(ctx, 'Added to context.');
+
+          write(
+            ctx,
+            `\n─── Context messages (${allMessages.length}) ─────────────────────────────`
+          );
+          for (const m of allMessages) {
+            const who = m.isHuman ? 'You' : (m.from ?? 'agent');
+            const hiddenLabel = m.hiddenFromLlm ? 'hidden' : 'visible';
+            const archivedLabel = m.archived ? 'archived' : 'active';
+            const toolCount = m.tool_calls?.length ?? 0;
+            const ts = m.timestamp ? new Date(m.timestamp).toLocaleString() : '?';
+            write(
+              ctx,
+              `#${m.id ?? '?'}  ${ts}  ${who}  [${hiddenLabel}, ${archivedLabel}]${toolCount > 0 ? `  tools:${toolCount}` : ''}`
+            );
+            write(ctx, `    ${String(m.content).replaceAll('\n', ' ').slice(0, 180)}`);
+            if (toolCount > 0) {
+              for (const tc of m.tool_calls ?? []) {
+                write(ctx, `    ↳ toolCall#${tc.id ?? '?'} ${tc.tool}`);
+              }
+            }
+          }
+          write(ctx, '──────────────────────────────────────────────────────────\n');
           return;
         }
 
-        if (subCmd === 'edit' || subCmd === 'summarize') {
-          // Collect tool calls from history that have an id
-          const allCalls: Array<{
-            tc: import('@ai-team/core').ToolCall;
-            msgIdx: number;
-            tcIdx: number;
-          }> = [];
-          for (let mi = 0; mi < ctx.history.length; mi++) {
-            const msg = ctx.history[mi];
-            if (!msg.tool_calls?.length) continue;
-            for (let ti = 0; ti < msg.tool_calls.length; ti++) {
-              const tc = msg.tool_calls[ti];
-              if (tc.id != null) allCalls.push({ tc, msgIdx: mi, tcIdx: ti });
-            }
-          }
+        const target = resolveTargetMessage();
+        if (!target || target.id == null) {
+          write(
+            ctx,
+            messageId !== undefined
+              ? `Message #${messageId} was not found in this session.`
+              : 'No matching message found for this operation.'
+          );
+          return;
+        }
+        const targetId = target.id;
 
-          if (allCalls.length === 0) {
-            write(ctx, 'No tool calls with stored results found in this session.');
-            return;
-          }
-
-          // Resolve which call to target — numeric arg or interactive pick
-          const argNum = parseInt(sub[1] ?? '', 10);
-          let entry: (typeof allCalls)[number];
-
-          if (!isNaN(argNum) && argNum >= 1 && argNum <= allCalls.length) {
-            entry = allCalls[argNum - 1];
-          } else if (ctx.hooks.questionSelect) {
-            const choices = allCalls.map((e, i) => ({
-              name: `${i + 1}) ${e.tc.tool}`,
-              value: String(i),
-            }));
-            const picked = await ctx.hooks.questionSelect({
-              message: `Select a tool call to ${subCmd} (${allCalls.length} total):`,
-              choices,
-              default: '0',
-            });
-            entry = allCalls[parseInt(picked, 10)];
-          } else {
-            entry = allCalls[allCalls.length - 1];
-          }
-
-          if (!entry) {
-            write(ctx, 'No tool call selected.');
-            return;
-          }
-
-          const currentText =
-            entry.tc.resultLlm != null
-              ? entry.tc.resultLlm
-              : entry.tc.result != null
-                ? JSON.stringify(entry.tc.result, null, 2)
-                : '';
-
-          if (subCmd === 'edit') {
-            if (!ctx.hooks.questionInput) {
-              write(ctx, 'Interactive input not available in this surface.');
-              return;
-            }
-            const newText = await ctx.hooks.questionInput({
-              message: `Edit result for tool "${entry.tc.tool}" (tool call id=${entry.tc.id}):`,
-            });
-            if (!newText.trim()) {
-              write(ctx, 'Edit cancelled — empty input.');
-              return;
-            }
-            await ctx.sessionManager.updateToolCallLlmResult(entry.tc.id!, newText.trim());
-            ctx.history[entry.msgIdx].tool_calls![entry.tcIdx].resultLlm = newText.trim();
-            write(ctx, `Tool call ${entry.tc.id} updated.`);
-            return;
-          }
-
-          // subCmd === 'summarize'
-          write(ctx, `Summarizing result for tool "${entry.tc.tool}"…`);
-          const llm = ctx.llmService as {
-            rawChat?: (
-              systemPrompt: string,
-              messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
-              options?: { maxTokens?: number; temperature?: number }
-            ) => Promise<string>;
-          };
-
-          if (typeof llm.rawChat !== 'function') {
-            write(ctx, 'LLM not available for summarization.');
-            return;
-          }
+        const summarizeTargetAsync = async (instruction?: string): Promise<string> => {
+          const toolCall = [...(target.tool_calls ?? [])].reverse().find((tc) => tc.id != null);
+          const sourceText = toolCall
+            ? (toolCall.resultLlm ??
+              (toolCall.result != null ? JSON.stringify(toolCall.result, null, 2) : target.content))
+            : target.content;
 
           const clipped =
-            currentText.length > 20_000
-              ? `${currentText.slice(0, 20_000)}\n...[clipped]`
-              : currentText;
+            sourceText.length > 24_000
+              ? `${sourceText.slice(0, 24_000)}\n...[clipped]`
+              : sourceText;
 
-          let summary: string;
-          try {
-            summary = await llm.rawChat(
-              'Summarize this tool output faithfully and concisely. Keep key facts, counts, errors, and file paths. Do not invent details. Max 12 bullets.',
-              [{ role: 'user', content: `Tool: ${entry.tc.tool}\n\n${clipped}` }],
-              { maxTokens: 450, temperature: 0.1 }
-            );
-          } catch (err: unknown) {
-            write(ctx, `Summarization failed: ${err instanceof Error ? err.message : String(err)}`);
-            return;
+          const summary = await ctx.sessionManager.summarizeForContextAsync(
+            ctx.llmService,
+            clipped,
+            200,
+            instruction?.trim() || undefined
+          );
+
+          if (toolCall?.id != null) {
+            await ctx.sessionManager.updateToolCallLlmResult(toolCall.id, summary.trim());
+          } else {
+            await ctx.sessionManager.updateMessageContent(targetId, summary.trim());
           }
 
-          summary = summary.trim();
-          await ctx.sessionManager.updateToolCallLlmResult(entry.tc.id!, summary);
-          ctx.history[entry.msgIdx].tool_calls![entry.tcIdx].resultLlm = summary;
-          write(ctx, `Summary stored for tool call ${entry.tc.id}:\n\n${summary}`);
+          return summary.trim();
+        };
+
+        if (subCmd === 'remove') {
+          if (target.hiddenFromLlm) {
+            write(ctx, `Message #${targetId} is already hidden from LLM context.`);
+            return;
+          }
+          await ctx.sessionManager.setMessageHiddenFromLlm(targetId, true);
+          ctx.history = await ctx.sessionManager.getSessionMessages(ctx.sessionId);
+          write(ctx, `Message #${targetId} is now hidden from LLM context.`);
           return;
         }
 
-        write(ctx, 'Usage: /context add [label] | /context edit [n] | /context summarize [n]');
+        if (subCmd === 'summarize') {
+          const positionalInstruction = positional.join(' ').trim();
+          const instruction = (summarizeInstruction ?? positionalInstruction) || undefined;
+          const summary = await summarizeTargetAsync(instruction);
+          ctx.history = await ctx.sessionManager.getSessionMessages(ctx.sessionId);
+          write(ctx, `Summary saved for message #${targetId}:\n\n${summary}`);
+          return;
+        }
+
+        // subCmd === 'add'
+        if (addSummaryInstruction !== undefined) {
+          const fallbackInstruction = positional.join(' ').trim();
+          const summary = await summarizeTargetAsync(
+            addSummaryInstruction || fallbackInstruction || undefined
+          );
+          await ctx.sessionManager.setMessageHiddenFromLlm(targetId, false);
+          ctx.history = await ctx.sessionManager.getSessionMessages(ctx.sessionId);
+          write(ctx, `Message #${targetId} added to LLM context with summary:\n\n${summary}`);
+          return;
+        }
+
+        if (target.hiddenFromLlm !== true) {
+          write(ctx, `Message #${targetId} is already included in LLM context.`);
+          return;
+        }
+
+        await ctx.sessionManager.setMessageHiddenFromLlm(targetId, false);
+        ctx.history = await ctx.sessionManager.getSessionMessages(ctx.sessionId);
+        write(ctx, `Message #${targetId} added back to LLM context.`);
       },
     },
 

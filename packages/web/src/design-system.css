@@ -24,6 +24,15 @@
   --color-border-hover: #007acc;
   --color-border: #3e3e42;
 
+  /* Colors - Scrollbars */
+  --color-scrollbar-track: #1e1e1e;
+  --color-scrollbar-thumb-hidden: rgba(90, 90, 94, 0.45);
+  --color-scrollbar-thumb: rgba(110, 110, 114, 0.85);
+  --color-scrollbar-thumb-hover: #8a8a90;
+  --color-scrollbar-thumb-active: #a0a0a6;
+  --scrollbar-size: 10px;
+  --scrollbar-radius: 999px;
+
   /* Colors - Text */
   --color-text-primary: #cccccc;
   --color-text-secondary: #a0a0a0;

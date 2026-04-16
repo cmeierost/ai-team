@@ -2,8 +2,8 @@ import { useNavigate } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
 import { Logo } from './Logo';
 import { Avatar } from './Avatar';
-import { useMemo, useEffect, useState } from 'react';
-import { TaskStatistics, SystemInfo, ChatSession, Agent } from '../types';
+import { useMemo, useEffect, useState, type CSSProperties } from 'react';
+import { TaskStatistics, SystemInfo, ChatSession, Agent, Note } from '../types';
 import { getAgentColor } from '../utils/color';
 import { API_BASE, hasStartupApiBaseOverride } from '../config/api-base';
 import {
@@ -20,6 +20,7 @@ export function Dashboard() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [recentSessions, setRecentSessions] = useState<ChatSession[]>([]);
+  const [dashboardNotes, setDashboardNotes] = useState<Note[]>([]);
   const [savedServerUrls, setSavedServerUrls] = useState<string[]>([]);
   const [selectedServerUrl, setSelectedServerUrl] = useState(API_BASE);
   const [newServerUrl, setNewServerUrl] = useState('');
@@ -139,6 +140,22 @@ export function Dashboard() {
     fetchRecentSessions();
   }, [client]);
 
+  useEffect(() => {
+    async function fetchDashboardNotes() {
+      try {
+        const notes = await client.sessions.listDashboardNotes({ limit: 6 });
+        setDashboardNotes(
+          (notes as Note[]).filter((note): note is Note & { sessionId: string } =>
+            Boolean(note.sessionId)
+          )
+        );
+      } catch (error) {
+        console.error('Failed to fetch dashboard notes:', error);
+      }
+    }
+    fetchDashboardNotes();
+  }, [client]);
+
   // Calculate agent activity stats
   const agentStats = useMemo(() => {
     if (loading || agents.length === 0) return null;
@@ -164,6 +181,13 @@ export function Dashboard() {
 
   const handleViewEmployees = () => {
     navigate('/employees');
+  };
+
+  const handleOpenDashboardNote = (note: Note) => {
+    if (!note.sessionId) {
+      return;
+    }
+    navigate(`/chat/${note.agentId}/session/${note.sessionId}/note/${note.id}`);
   };
 
   const handleConnectSelectedServer = () => {
@@ -207,7 +231,7 @@ export function Dashboard() {
               <button
                 key={agent.id}
                 className="featured-agent-card"
-                style={{ '--agent-color': getAgentColor(agent) } as React.CSSProperties}
+                style={{ '--agent-color': getAgentColor(agent) } as CSSProperties}
                 onClick={() => handleChatWithAgent(agent.id)}
               >
                 <Avatar agent={agent} size="medium" />
@@ -294,6 +318,48 @@ export function Dashboard() {
             </div>
           </div>
         </div>
+
+        {dashboardNotes.length > 0 ? (
+          <section className="dashboard-notes">
+            <div className="dashboard-notes-header">
+              <h2 className="dashboard-notes-title">Important notes for you</h2>
+              <span className="dashboard-notes-subtitle">
+                Pinned by the team for the developer start page
+              </span>
+            </div>
+            <div className="dashboard-notes-grid">
+              {dashboardNotes.map((note) => {
+                const agent = agents.find((candidate) => candidate.id === note.agentId);
+                return (
+                  <button
+                    key={note.id}
+                    className="dashboard-note-card"
+                    onClick={() => handleOpenDashboardNote(note)}
+                    style={
+                      agent
+                        ? ({ '--agent-color': getAgentColor(agent) } as CSSProperties)
+                        : undefined
+                    }
+                  >
+                    <div className="dashboard-note-card-header">
+                      <span className="dashboard-note-badge">
+                        <i className="codicon codicon-home" /> Start page
+                      </span>
+                      {agent ? (
+                        <span className="dashboard-note-agent">
+                          <Avatar agent={agent} size="small" />
+                          <span>{agent.name}</span>
+                        </span>
+                      ) : null}
+                    </div>
+                    <h3 className="dashboard-note-title">{note.title?.trim() || 'Untitled note'}</h3>
+                    <p className="dashboard-note-preview">{note.content.trim() || 'No note content.'}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <div className="system-info">
           <h2 className="system-info-title">System Information</h2>

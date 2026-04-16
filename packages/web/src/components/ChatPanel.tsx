@@ -44,7 +44,6 @@ export function ChatPanel() {
       messages={controller.messages}
       editingIndex={controller.editingIndex}
       editContent={controller.editContent}
-      artifactsInContext={controller.artifactsInContext}
       toolEntries={controller.toolEntries}
       activatedTools={controller.activatedTools}
       messagesEndRef={controller.messagesEndRef}
@@ -84,12 +83,16 @@ export function ChatPanel() {
       onToggleTts={controller.toggleTts}
       onSend={controller.handleSend}
       onInterrupt={controller.handleInterrupt}
-      onToggleArtifact={controller.handleToggleArtifact}
       onSwitchSession={controller.handleSwitchSession}
       onDeleteSession={controller.handleDeleteSession}
       onCreateSession={controller.handleCreateSession}
       onSaveSessionTitle={controller.handleSaveSessionTitle}
       onOpenSessionGraph={controller.handleOpenSessionGraph}
+      onOpenNote={controller.handleOpenNote}
+      onNoteBack={controller.handleNoteBack}
+      onNewNote={() => controller.handleOpenNote('new')}
+      onSaveInputAsNote={controller.handleSaveInputAsNote}
+      noteRouteId={controller.noteRouteId}
       onSuggestedHandoff={controller.handleSuggestedToolHandoff}
       slashSuggestions={controller.slashSuggestions}
       slashSelectedIndex={controller.slashSelectedIndex}

@@ -125,6 +125,7 @@ export {
   FilesService,
   AgentsService,
   TasksService,
+  PlanningService,
   ArtifactsService,
   ChatService,
   SessionsService,

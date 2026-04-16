@@ -5,6 +5,7 @@ The AI Team platform provides comprehensive chat context management features tha
 ## Overview
 
 Chat context management enables you to:
+
 - **Edit** message content to correct or refine information
 - **Delete** messages that are no longer relevant
 - **Copy** raw message content (Markdown) for reuse
@@ -26,7 +27,6 @@ Chat context management enables you to:
 - **Archive**: Preserve the message for reference but exclude it from LLM context
   - Use for: smalltalk, resolved issues, outdated information
   - Visual: 50% opacity with dashed border and "📦 Archived" badge
-  
 - **Delete**: Completely remove the message from history
   - Use for: mistakes, duplicates, truly irrelevant content
   - Permanent action (cannot be undone)
@@ -54,6 +54,7 @@ Hover over any message to reveal action buttons:
 ### Copying Messages
 
 Click the **📋** button to copy the raw message content (typically Markdown format) to your clipboard. Useful for:
+
 - Extracting code snippets
 - Reusing explanations in other contexts
 - Creating documentation from chat sessions
@@ -61,12 +62,14 @@ Click the **📋** button to copy the raw message content (typically Markdown fo
 ### Archiving Messages
 
 Click the **📦** button to archive a message:
+
 - Message remains visible with reduced opacity and dashed border
 - "📦 Archived" badge appears in the message header
 - Message is **NOT included** in context sent to LLM
 - Click **📂** to unarchive and restore to active state
 
 **Use cases**:
+
 - Hide resolved troubleshooting discussions
 - Remove casual conversation while preserving history
 - Exclude outdated technical decisions
@@ -75,6 +78,7 @@ Click the **📦** button to archive a message:
 ### Deleting Messages
 
 Click the **🗑️** button to permanently delete a message:
+
 - Confirmation dialog appears ("Delete this message?")
 - Message is removed from the JSONL chat history file
 - Cannot be recovered after deletion
@@ -85,6 +89,7 @@ Click the **🗑️** button to permanently delete a message:
 All chat context operations are available via REST API endpoints.
 
 ### Base URL
+
 ```
 http://localhost:3002/api/chat
 ```
@@ -92,14 +97,17 @@ http://localhost:3002/api/chat
 ### Endpoints
 
 #### Load Chat History
+
 ```http
 GET /api/chat/:agentId?includeArchived=true
 ```
 
 **Query Parameters**:
+
 - `includeArchived` (optional, boolean) - Include archived messages in response (default: `false`)
 
 **Response**: Array of chat messages
+
 ```json
 [
   {
@@ -117,6 +125,7 @@ GET /api/chat/:agentId?includeArchived=true
 ```
 
 #### Edit Message
+
 ```http
 PUT /api/chat/:agentId/messages/:index
 Content-Type: application/json
@@ -127,57 +136,69 @@ Content-Type: application/json
 ```
 
 **Parameters**:
+
 - `:agentId` - Agent identifier (e.g., "michael-brown")
 - `:index` - Zero-based message index in chat history
 
 **Response**:
+
 ```json
 { "success": true }
 ```
 
 #### Delete Message
+
 ```http
 DELETE /api/chat/:agentId/messages/:index
 ```
 
 **Parameters**:
+
 - `:agentId` - Agent identifier
 - `:index` - Zero-based message index
 
 **Response**:
+
 ```json
 { "success": true }
 ```
 
 #### Archive Message
+
 ```http
 PATCH /api/chat/:agentId/messages/:index/archive
 ```
 
 **Parameters**:
+
 - `:agentId` - Agent identifier
 - `:index` - Zero-based message index
 
 **Response**:
+
 ```json
 { "success": true }
 ```
 
 #### Unarchive Message
+
 ```http
 PATCH /api/chat/:agentId/messages/:index/unarchive
 ```
 
 **Parameters**:
+
 - `:agentId` - Agent identifier
 - `:index` - Zero-based message index
 
 **Response**:
+
 ```json
 { "success": true }
 ```
 
 #### Add Annotation to Message
+
 ```http
 POST /api/chat/:agentId/messages/:index/annotate
 Content-Type: application/json
@@ -190,20 +211,24 @@ Content-Type: application/json
 ```
 
 **Parameters**:
+
 - `:agentId` - Agent identifier
 - `:index` - Zero-based message index
 
 **Body**:
+
 - `type` (required) - Annotation type: `summary`, `anti-pattern`, `highlight`, or `note`
 - `content` (required) - Annotation text
 - `tags` (optional) - Array of tag strings
 
 **Response**:
+
 ```json
 { "success": true }
 ```
 
 #### Create Summary from Selected Messages
+
 ```http
 POST /api/chat/:agentId/summary
 Content-Type: application/json
@@ -216,14 +241,17 @@ Content-Type: application/json
 ```
 
 **Parameters**:
+
 - `:agentId` - Agent identifier
 
 **Body**:
+
 - `messageIndices` (required) - Array of message indices to include
 - `title` (required) - Summary title
 - `tags` (optional) - Array of tag strings
 
 **Response**:
+
 ```json
 {
   "id": "summary-1709069400000",
@@ -241,14 +269,17 @@ Content-Type: application/json
 **Storage**: Summaries are saved as Markdown files with frontmatter in `.ai-team/artifacts/summaries/`
 
 #### Get Message Statistics
+
 ```http
 GET /api/chat/:agentId/stats
 ```
 
 **Parameters**:
+
 - `:agentId` - Agent identifier
 
 **Response**:
+
 ```json
 {
   "total": 42,
@@ -261,11 +292,13 @@ GET /api/chat/:agentId/stats
 ```
 
 #### List All Summaries
+
 ```http
 GET /api/chat/summaries
 ```
 
 **Response**: Array of all saved summaries
+
 ```json
 [
   {
@@ -291,6 +324,7 @@ The `ChatContextManager` class (from `@ai-team/core`) provides all context manag
 **Location**: `packages/core/src/chat/chat-context-manager.ts`
 
 **Usage**:
+
 ```typescript
 import { ChatContextManager } from '@ai-team/core';
 
@@ -346,10 +380,11 @@ const allMessages = await chatManager.loadChatHistory('agent-id', true);
 **Schema**: Normalized relational model with sessions, messages, and related entities
 
 **Key Tables**:
+
 - `sessions` - Session metadata (ID, agent, developer, timestamps, artifacts, etc.)
 - `messages` - Chat messages (content, timestamps, handoff info, archived flag)
 - `session_agents` - Multi-agent session tracking
-- `session_artifacts`, `session_files`, `session_tasks` - Session context
+- `session_artifacts`, `session_files` - Session context
 - `message_files`, `message_tool_calls`, `message_suggestions` - Message metadata
 
 **Access**: Via `SessionManager` and `SqliteMessageStorage` (see `packages/service/src/storage/`)
@@ -363,6 +398,7 @@ const allMessages = await chatManager.loadChatHistory('agent-id', true);
 **Format**: Markdown with YAML frontmatter
 
 **Example**:
+
 ```markdown
 ---
 id: summary-1709069400000
@@ -389,19 +425,21 @@ tags:
 ## Types Reference
 
 ### ChatMessage
+
 ```typescript
 interface ChatMessage {
   timestamp: string;
-  from: 'human' | string;  // 'human' or agent ID
+  from: 'human' | string; // 'human' or agent ID
   content: string;
-  context?: string[];      // File paths referenced
+  context?: string[]; // File paths referenced
   tool_calls?: ToolCall[];
   suggestions?: CodeSuggestion[];
-  archived?: boolean;      // If true, not sent to LLM
+  archived?: boolean; // If true, not sent to LLM
 }
 ```
 
 ### MessageAnnotation
+
 ```typescript
 interface MessageAnnotation {
   type: 'summary' | 'anti-pattern' | 'highlight' | 'note';
@@ -412,6 +450,7 @@ interface MessageAnnotation {
 ```
 
 ### AnnotatedChatMessage
+
 ```typescript
 interface AnnotatedChatMessage extends ChatMessage {
   annotations?: MessageAnnotation[];
@@ -419,6 +458,7 @@ interface AnnotatedChatMessage extends ChatMessage {
 ```
 
 ### ChatSummary
+
 ```typescript
 interface ChatSummary {
   id: string;
@@ -434,6 +474,7 @@ interface ChatSummary {
 ```
 
 ### MessageStats
+
 ```typescript
 interface MessageStats {
   total: number;
@@ -448,6 +489,7 @@ interface MessageStats {
 ### When to Archive
 
 ✅ **Good candidates for archiving**:
+
 - Casual greetings and goodbyes
 - Troubleshooting steps that led to dead ends
 - Resolved error discussions
@@ -456,6 +498,7 @@ interface MessageStats {
 - Duplicate or clarifying questions
 
 ❌ **Keep active**:
+
 - Current project requirements
 - Recent technical decisions
 - Active troubleshooting context
@@ -496,6 +539,7 @@ interface MessageStats {
 **Issue**: Clicking delete doesn't remove the message from UI
 
 **Solution**:
+
 1. Hard refresh the browser (Ctrl+F5 or Ctrl+Shift+R)
 2. Check browser console for errors
 3. Verify API server is running (check for logs in server terminal)
@@ -506,6 +550,7 @@ interface MessageStats {
 **Issue**: Edits or archive changes revert on page reload
 
 **Solution**:
+
 1. Ensure API server is running the latest built code
 2. Rebuild API server: `pnpm --filter @ai-team/api-server build`
 3. Restart API server
@@ -516,6 +561,7 @@ interface MessageStats {
 **Issue**: Archived messages still appear in LLM responses
 
 **Solution**:
+
 - Archive only affects new messages sent after archiving
 - Existing LLM responses may reference previously unarchived content
 - Start a fresh conversation to verify archive is working

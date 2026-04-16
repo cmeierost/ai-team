@@ -227,6 +227,31 @@ describe('SqliteMessageStorage', () => {
       expect(messages[0].isHuman).toBe(true);
     });
 
+    it('stores message id and hiddenFromLlm flag and allows toggling by id', async () => {
+      const inserted = await storage.insertMessage(sessionId, {
+        timestamp: new Date().toISOString(),
+        from: 'architect-agent',
+        isHuman: false,
+        content: 'Temporary context row',
+        hiddenFromLlm: true,
+      });
+
+      const all = await storage.queryMessages({ sessionId });
+      expect(all).toHaveLength(1);
+      expect(all[0].id).toBe(inserted.messageId);
+      expect(all[0].hiddenFromLlm).toBe(true);
+
+      const byId = await storage.getMessageById(Number(inserted.messageId));
+      expect(byId?.id).toBe(inserted.messageId);
+      expect(byId?.hiddenFromLlm).toBe(true);
+
+      const updated = await storage.setMessageHiddenFromLlm(Number(inserted.messageId), false);
+      expect(updated).toBe(true);
+
+      const afterToggle = await storage.getMessageById(Number(inserted.messageId));
+      expect(afterToggle?.hiddenFromLlm).toBeUndefined();
+    });
+
     it('preserves message metadata (context, tool_calls, suggestions)', async () => {
       const message: ChatMessage = {
         timestamp: new Date().toISOString(),
@@ -519,6 +544,181 @@ describe('SqliteMessageStorage', () => {
       expect(retrieved?.tags).toEqual(['authentication', 'jwt', 'refactoring']);
     });
 
+    it('persists shared session visibility when creating notes', async () => {
+      const ownerSession = await storage.createSession({
+        agentIds: ['architect-agent'],
+        agentId: 'architect-agent',
+        developerId: 'developer-1',
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        artifacts: [],
+        allowedFiles: [],
+      });
+
+      const sharedSession = await storage.createSession({
+        agentIds: ['backend-agent'],
+        agentId: 'backend-agent',
+        developerId: 'developer-1',
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        artifacts: [],
+        allowedFiles: [],
+      });
+
+      const note = await storage.createNote({
+        agentId: 'architect-agent',
+        sessionId: ownerSession.id,
+        sharedSessionIds: [sharedSession.id],
+        title: 'Shared architecture note',
+        content: 'This note should be visible to another session.',
+        hiddenFromLlm: true,
+        showOnDashboard: true,
+      });
+
+      expect(note.sharedSessionIds).toEqual([sharedSession.id]);
+      expect(note.hiddenFromLlm).toBe(true);
+      expect(note.showOnDashboard).toBe(true);
+
+      const retrieved = await storage.getNote(note.id);
+      expect(retrieved?.sharedSessionIds).toEqual([sharedSession.id]);
+      expect(retrieved?.hiddenFromLlm).toBe(true);
+      expect(retrieved?.showOnDashboard).toBe(true);
+
+      const sessionNotes = await storage.listSessionNotes(ownerSession.id);
+      expect(sessionNotes[0]?.sharedSessionIds).toEqual([sharedSession.id]);
+    });
+
+    it('reports session delete impact and blocks deleting unshared owner notes', async () => {
+      const ownerSession = await storage.createSession({
+        agentIds: ['architect-agent'],
+        agentId: 'architect-agent',
+        developerId: 'developer-1',
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        artifacts: [],
+        allowedFiles: [],
+      });
+
+      const sharedSession = await storage.createSession({
+        agentIds: ['backend-agent'],
+        agentId: 'backend-agent',
+        developerId: 'developer-1',
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        artifacts: [],
+        allowedFiles: [],
+      });
+
+      const sharedNote = await storage.createNote({
+        agentId: 'architect-agent',
+        sessionId: ownerSession.id,
+        sharedSessionIds: [sharedSession.id],
+        title: 'Shared note',
+        content: 'Reassign me when the owner session is deleted.',
+      });
+
+      const unsharedNote = await storage.createNote({
+        agentId: 'architect-agent',
+        sessionId: ownerSession.id,
+        title: 'Private note',
+        content: 'Deleting the owner session should warn first.',
+      });
+
+      const impact = await storage.getSessionDeleteImpact(ownerSession.id);
+      expect(impact.transferableNotes).toEqual([
+        {
+          noteId: sharedNote.id,
+          title: 'Shared note',
+          targetSessionId: sharedSession.id,
+          remainingSharedSessionIds: [],
+        },
+      ]);
+      expect(impact.unsharedOwnedNotes).toEqual([
+        {
+          noteId: unsharedNote.id,
+          title: 'Private note',
+        },
+      ]);
+
+      await expect(storage.deleteSession(ownerSession.id)).rejects.toThrow(/unshared note/);
+      expect(await storage.getSession(ownerSession.id)).not.toBeNull();
+      expect(await storage.getNote(sharedNote.id)).not.toBeNull();
+      expect(await storage.getNote(unsharedNote.id)).not.toBeNull();
+    });
+
+    it('transfers a shared note to the next owner when deleting the owner session', async () => {
+      const ownerSession = await storage.createSession({
+        agentIds: ['architect-agent'],
+        agentId: 'architect-agent',
+        developerId: 'developer-1',
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        artifacts: [],
+        allowedFiles: [],
+      });
+
+      const firstSharedSession = await storage.createSession({
+        agentIds: ['backend-agent'],
+        agentId: 'backend-agent',
+        developerId: 'developer-1',
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        artifacts: [],
+        allowedFiles: [],
+      });
+
+      const secondSharedSession = await storage.createSession({
+        agentIds: ['qa-agent'],
+        agentId: 'qa-agent',
+        developerId: 'developer-1',
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        artifacts: [],
+        allowedFiles: [],
+      });
+
+      const note = await storage.createNote({
+        agentId: 'architect-agent',
+        sessionId: ownerSession.id,
+        sharedSessionIds: [firstSharedSession.id, secondSharedSession.id],
+        title: 'Transfer ownership note',
+        content: 'Move me to the next shared session.',
+      });
+
+      const deleted = await storage.deleteSession(ownerSession.id);
+      expect(deleted).toBe(true);
+      expect(await storage.getSession(ownerSession.id)).toBeNull();
+
+      const moved = await storage.getNote(note.id);
+      expect(moved?.sessionId).toBe(firstSharedSession.id);
+      expect(moved?.sharedSessionIds).toEqual([secondSharedSession.id]);
+
+      const firstSharedNotes = await storage.listSessionNotes(firstSharedSession.id);
+      expect(firstSharedNotes.map((entry) => entry.id)).toContain(note.id);
+    });
+
+    it('lists notes pinned to the dashboard', async () => {
+      const pinned = await storage.createNote({
+        agentId: 'architect-agent',
+        sessionId: 'session-a',
+        title: 'Pinned for developer',
+        content: 'Show this on the start page.',
+        showOnDashboard: true,
+      });
+
+      await storage.createNote({
+        agentId: 'backend-agent',
+        sessionId: 'session-b',
+        title: 'Regular note',
+        content: 'Do not show this on the dashboard.',
+        showOnDashboard: false,
+      });
+
+      const dashboardNotes = await storage.listDashboardNotes();
+      expect(dashboardNotes.map((note) => note.id)).toEqual([pinned.id]);
+      expect(dashboardNotes[0]?.showOnDashboard).toBe(true);
+    });
+
     it('lists notes by agent', async () => {
       await storage.createNote({
         agentId: 'architect-agent',
@@ -562,6 +762,69 @@ describe('SqliteMessageStorage', () => {
       expect(updated?.content).toBe('Updated content with more details');
       expect(updated?.tags).toEqual(['tag1', 'tag2', 'updated']);
       expect(updated?.updatedAt).not.toBe(note.updatedAt);
+    });
+
+    it('lists session notes and persists attachments', async () => {
+      const session = await storage.createSession({
+        agentIds: ['architect-agent'],
+        agentId: 'architect-agent',
+        developerId: 'developer-1',
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        artifacts: [],
+        allowedFiles: [],
+      });
+
+      const note = await storage.createNote({
+        agentId: 'architect-agent',
+        sessionId: session.id,
+        title: 'Session upload',
+        content: 'Attached a sketch for the session.',
+        attachment: {
+          fileName: 'architecture-sketch.md',
+          contentBase64: Buffer.from('# sketch').toString('base64'),
+          contentType: 'text/markdown',
+          description: 'Initial architecture sketch',
+        },
+      });
+
+      const sessionNotes = await storage.listSessionNotes(session.id);
+      expect(sessionNotes).toHaveLength(1);
+      expect(sessionNotes[0].id).toBe(note.id);
+      expect(sessionNotes[0].attachment?.fileName).toBe('architecture-sketch.md');
+      expect(sessionNotes[0].attachment?.description).toBe('Initial architecture sketch');
+
+      const attachmentPath = path.join(workspaceRoot, sessionNotes[0].attachment!.filePath);
+      const attachmentContent = await fs.readFile(attachmentPath, 'utf-8');
+      expect(attachmentContent).toBe('# sketch');
+    });
+
+    it('replaces and removes note attachments on update', async () => {
+      const note = await storage.createNote({
+        agentId: 'architect-agent',
+        content: 'Attachment lifecycle',
+        attachment: {
+          fileName: 'old.txt',
+          contentBase64: Buffer.from('old-content').toString('base64'),
+        },
+      });
+
+      const originalAttachmentPath = path.join(workspaceRoot, note.attachment!.filePath);
+
+      await storage.updateNote(note.id, {
+        attachment: {
+          fileName: 'new.txt',
+          contentBase64: Buffer.from('new-content').toString('base64'),
+        },
+      });
+
+      const replaced = await storage.getNote(note.id);
+      expect(replaced?.attachment?.fileName).toBe('new.txt');
+      await expect(fs.access(originalAttachmentPath)).rejects.toThrow();
+
+      await storage.updateNote(note.id, { attachment: null });
+      const withoutAttachment = await storage.getNote(note.id);
+      expect(withoutAttachment?.attachment).toBeUndefined();
     });
 
     it('deletes notes', async () => {
@@ -681,6 +944,37 @@ describe('SqliteMessageStorage', () => {
       expect(phraseResults).toHaveLength(1);
       expect(phraseResults[0].content).toContain('rate limiting');
     });
+
+    it('creates and removes message-session links', async () => {
+      const session = await storage.createSession({
+        agentIds: ['architect-agent'],
+        agentId: 'architect-agent',
+        developerId: 'developer-1',
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        artifacts: [],
+        allowedFiles: [],
+      });
+
+      const insertResult = await storage.insertMessage(session.id, {
+        timestamp: new Date().toISOString(),
+        from: 'developer-1',
+        isHuman: true,
+        content: 'Please keep this message handy.',
+      });
+      const messageId = Number(insertResult.messageId);
+
+      const link = await storage.createMessageSessionLink(messageId, session.id);
+      expect(link.messageId).toBe(messageId);
+
+      const links = await storage.listMessageSessionLinks(session.id);
+      expect(links).toHaveLength(1);
+      expect(links[0].messageId).toBe(messageId);
+
+      const deleted = await storage.deleteMessageSessionLink(messageId, session.id);
+      expect(deleted).toBe(true);
+      expect(await storage.listMessageSessionLinks(session.id)).toHaveLength(0);
+    });
   });
 
   describe('Statistics', () => {
@@ -731,7 +1025,7 @@ describe('SqliteMessageStorage', () => {
       const stats = await storage.getStats();
       expect(stats.totalSessions).toBe(2);
       expect(stats.totalMessages).toBe(3);
-      expect(stats.schemaVersion).toBe(7);
+      expect(stats.schemaVersion).toBe(14);
       expect(stats.storageSize).toBeGreaterThan(0);
     });
 

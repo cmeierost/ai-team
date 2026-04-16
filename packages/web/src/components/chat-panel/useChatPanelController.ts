@@ -26,6 +26,7 @@ import {
   reconstructActivatedToolsFromMessages,
   findMatchingMessage,
   GRAPH_ROUTE,
+  NOTE_ROUTE,
   normalizeChatErrorMessage,
   resolveRouteAgent,
   SESSION_ROUTE,
@@ -94,6 +95,7 @@ interface UseChatPanelControllerResult {
   currentSessionId: string | null;
   currentSessionTitle: string | null;
   graphSessionId: string | null;
+  noteRouteId: string | null;
   loading: boolean;
   sending: boolean;
   streaming: boolean;
@@ -177,6 +179,9 @@ interface UseChatPanelControllerResult {
   handleCreateSession: () => Promise<void>;
   handleSaveSessionTitle: (title: string) => Promise<void>;
   handleOpenSessionGraph: (sessionId: string) => void;
+  handleOpenNote: (noteId: string, options?: { sessionId?: string; agentId?: string }) => void;
+  handleNoteBack: () => void;
+  handleSaveInputAsNote: () => Promise<void>;
   /** Slash-command autocomplete state */
   slashSuggestions: ChatCommandRegistryEntry[];
   slashSelectedIndex: number;
@@ -253,10 +258,16 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const lastGreetingSpeechRef = useRef<{ fingerprint: string; at: number } | null>(null);
 
   const graphRouteMatch = useMatch(GRAPH_ROUTE);
+  const noteRouteMatch = useMatch(NOTE_ROUTE);
   const sessionRouteMatch = useMatch(SESSION_ROUTE);
   const urlSessionId =
-    graphRouteMatch?.params?.sessionId ?? sessionRouteMatch?.params?.sessionId ?? null;
+    graphRouteMatch?.params?.sessionId ??
+    noteRouteMatch?.params?.sessionId ??
+    sessionRouteMatch?.params?.sessionId ??
+    null;
   const graphSessionId = graphRouteMatch?.params?.sessionId ?? null;
+  /** `'new'` when creating, a note ID string when editing, `null` when not in note view */
+  const noteRouteId = noteRouteMatch?.params?.noteId ?? null;
 
   const agent = agents.find((entry) => entry.id === currentAgentId);
 
@@ -1649,6 +1660,39 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     navigate(`/chat/${currentAgentId}/session/${sessionId}/thread`);
   };
 
+  const handleOpenNote = (
+    noteId: string,
+    options?: { sessionId?: string; agentId?: string }
+  ) => {
+    const targetSessionId = options?.sessionId ?? currentSessionId;
+    const targetAgentId = options?.agentId ?? currentAgentId;
+    if (!targetSessionId) return;
+    navigate(`/chat/${targetAgentId}/session/${targetSessionId}/note/${noteId}`);
+  };
+
+  const handleNoteBack = () => {
+    navigate(
+      `/chat/${currentAgentId}/session/${currentSessionId ?? ''}`.replace(/\/session\/$/, '')
+    );
+  };
+
+  const handleSaveInputAsNote = async () => {
+    if (!currentSessionId || !input.trim()) return;
+    try {
+      const created = await client.sessions.createNote(currentSessionId, {
+        agentId: currentAgentId,
+        content: input.trim(),
+      });
+      handleInputChange('');
+      navigate(
+        `/chat/${currentAgentId}/session/${currentSessionId}/note/${(created as { id: string }).id}`
+      );
+    } catch (error) {
+      console.error('Failed to save input as note:', error);
+      globalThis.alert('Failed to save note. Please try again.');
+    }
+  };
+
   const handleSaveSessionTitle = async (nextTitleRaw: string) => {
     if (!currentSessionId) {
       return;
@@ -1722,6 +1766,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     currentSessionId,
     currentSessionTitle,
     graphSessionId,
+    noteRouteId,
     loading,
     sending,
     streaming,
@@ -1797,6 +1842,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     handleCreateSession,
     handleSaveSessionTitle,
     handleOpenSessionGraph,
+    handleOpenNote,
+    handleNoteBack,
+    handleSaveInputAsNote,
     slashSuggestions,
     slashSelectedIndex,
     slashIsOpen,

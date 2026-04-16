@@ -17,6 +17,34 @@ body {
   overflow: hidden;
 }
 
+/* Global scrollbar theming (VS Code-inspired dark) */
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--color-scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar-thumb-hidden);
+  border-radius: var(--scrollbar-radius);
+  border: 2px solid var(--color-scrollbar-track);
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar-thumb);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: var(--color-scrollbar-thumb-active);
+}
+
 .app {
   display: grid;
   grid-template-columns: auto 1fr;

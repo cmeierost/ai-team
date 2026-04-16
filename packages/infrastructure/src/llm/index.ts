@@ -624,9 +624,11 @@ export class LlmService {
     onToken: ((token: string) => void) | undefined,
     collectedResults: LlmToolResult[]
   ): Promise<LlmToolChatResult> {
-    const responseClient = (this.client as unknown as {
-      responses?: { create?: (args: Record<string, unknown>) => Promise<unknown> };
-    }).responses;
+    const responseClient = (
+      this.client as unknown as {
+        responses?: { create?: (args: Record<string, unknown>) => Promise<unknown> };
+      }
+    ).responses;
     if (typeof responseClient?.create !== 'function') {
       throw new TypeError('Responses API is unavailable on the configured client.');
     }
@@ -694,7 +696,11 @@ export class LlmService {
         };
       }
 
-      const toolOutputItems: Array<{ type: 'function_call_output'; call_id: string; output: string }> = [];
+      const toolOutputItems: Array<{
+        type: 'function_call_output';
+        call_id: string;
+        output: string;
+      }> = [];
       for (const call of functionCalls) {
         const args = parseToolCallArguments(call.rawArgs);
         const toolResult = await executeTool({
@@ -736,7 +742,7 @@ export class LlmService {
    */
   static historyToMessages(history: ChatMessage[], agentId: string): ChatCompletionMessageParam[] {
     return history
-      .filter((msg) => !msg.archived)
+      .filter((msg) => !msg.archived && !msg.hiddenFromLlm)
       .map((msg) => ({
         role: msg.from === 'human' ? ('user' as const) : ('assistant' as const),
         content: msg.content,
@@ -1872,7 +1878,9 @@ function extractResponseOutputItems(response: unknown): ResponseInputItem[] {
       const toolName =
         typeof record.name === 'string' && record.name.trim().length > 0 ? record.name : undefined;
       const argumentsValue =
-        typeof record.arguments === 'string' ? record.arguments : JSON.stringify(record.arguments ?? {});
+        typeof record.arguments === 'string'
+          ? record.arguments
+          : JSON.stringify(record.arguments ?? {});
       if (!toolName) {
         continue;
       }
@@ -1922,7 +1930,11 @@ function extractResponsesMessageText(record: Record<string, unknown>): string {
       continue;
     }
     const item = part as Record<string, unknown>;
-    if (item.type === 'output_text' && typeof item.text === 'string' && item.text.trim().length > 0) {
+    if (
+      item.type === 'output_text' &&
+      typeof item.text === 'string' &&
+      item.text.trim().length > 0
+    ) {
       parts.push(item.text.trim());
       continue;
     }
@@ -2006,7 +2018,9 @@ function extractResponseFunctionCalls(
           : randomUUID();
 
     const rawArgs =
-      typeof record.arguments === 'string' ? record.arguments : JSON.stringify(record.arguments ?? {});
+      typeof record.arguments === 'string'
+        ? record.arguments
+        : JSON.stringify(record.arguments ?? {});
 
     calls.push({
       callId,
@@ -2524,9 +2538,15 @@ export function deriveFallbackTitle(messages: ChatMessage[]): string {
 
   const hasAgentToken = words.some((w) => w === 'agent' || w === 'agents');
   const hasRetirementToken = words.some((w) =>
-    ['retire', 'retiring', 'retirement', 'offboard', 'offboarding', 'decommission', 'sunset'].includes(
-      w
-    )
+    [
+      'retire',
+      'retiring',
+      'retirement',
+      'offboard',
+      'offboarding',
+      'decommission',
+      'sunset',
+    ].includes(w)
   );
 
   if (hasAgentToken && hasRetirementToken) {

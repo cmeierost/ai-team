@@ -17,6 +17,7 @@ import { developerDesc } from './contract/routers/developer.js';
 import { permissionDesc } from './contract/routers/files.js';
 import { ideDesc } from './contract/routers/ide.js';
 import { contextDesc } from './contract/routers/meta.js';
+import { planningDesc } from './contract/routers/planning.js';
 import { sessionsDesc } from './contract/routers/sessions.js';
 import { skillsDesc } from './contract/routers/skills.js';
 import { systemDesc } from './contract/routers/system.js';
@@ -25,7 +26,8 @@ import { teamDesc } from './contract/routers/team.js';
 import { toolsDesc } from './contract/routers/tools.js';
 
 export type { WebSocketStreamOptions } from './websocket.js';
-export { streamViaWebSocket } from './websocket.js';
+export { streamViaWebSocket, summarizeNoteViaWebSocket } from './websocket.js';
+export type { SummarizeNoteWebSocketOptions } from './websocket.js';
 
 // ─── Error type ───────────────────────────────────────────────────────────────
 
@@ -126,6 +128,11 @@ export function createAiTeamClient({ baseUrl, wsUrl, restOptions }: CreateAiTeam
     baseUrl,
     restOptions
   );
+  const planning = makeRestClient<import('./contract/routers/planning.js').IPlanningService>(
+    planningDesc,
+    baseUrl,
+    restOptions
+  );
   const skills = makeRestClient<import('./contract/routers/skills.js').ISkillsService>(
     skillsDesc,
     baseUrl,
@@ -164,6 +171,7 @@ export function createAiTeamClient({ baseUrl, wsUrl, restOptions }: CreateAiTeam
     ide,
     context,
     sessions,
+    planning,
     skills,
     system,
     tasks,

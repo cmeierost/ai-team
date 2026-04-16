@@ -126,7 +126,7 @@ describe('buildRuntimeToolEvidence', () => {
 });
 
 describe('LlmService.historyToMessages', () => {
-  it('excludes archived messages from LLM context conversion', () => {
+  it('excludes archived and hidden messages from LLM context conversion', () => {
     const messages = [
       {
         timestamp: '2026-04-15T00:00:00.000Z',
@@ -134,6 +134,14 @@ describe('LlmService.historyToMessages', () => {
         to: 'agent',
         isHuman: true,
         content: 'keep this',
+      },
+      {
+        timestamp: '2026-04-15T00:00:00.500Z',
+        from: 'agent',
+        to: 'human',
+        isHuman: false,
+        content: 'manually hidden context',
+        hiddenFromLlm: true,
       },
       {
         timestamp: '2026-04-15T00:00:01.000Z',

@@ -77,14 +77,14 @@ interface ResponsiveContextPanelProps {
   onCloseMobileContext: () => void;
   agentId: string;
   sessionId?: string;
-  artifacts: string[];
   toolEntries: AgentToolPermissionEntry[];
   activatedTools: SessionActivatedTool[];
-  onToggleArtifact: (artifactId: string) => void;
   onSwitchSession: (sessionId: string) => void;
   onDeleteSession: (deletedSessionId: string) => void;
   onCreateSession: () => Promise<void>;
   onOpenSessionGraph: (sessionId: string) => void;
+  onOpenNote: (noteId: string) => void;
+  onNewNote: () => void;
   onSuggestedHandoff: (targetAgentId: string, task?: string) => void;
 }
 
@@ -94,28 +94,28 @@ function ResponsiveContextPanel({
   onCloseMobileContext,
   agentId,
   sessionId,
-  artifacts,
   toolEntries,
   activatedTools,
-  onToggleArtifact,
   onSwitchSession,
   onDeleteSession,
   onCreateSession,
   onOpenSessionGraph,
+  onOpenNote,
+  onNewNote,
   onSuggestedHandoff,
 }: Readonly<ResponsiveContextPanelProps>) {
   const contextPanel = (
     <ContextPanel
       agentId={agentId}
       sessionId={sessionId}
-      artifacts={artifacts}
       toolEntries={toolEntries}
       activatedTools={activatedTools}
-      onToggleArtifact={onToggleArtifact}
       onSwitchSession={onSwitchSession}
       onDeleteSession={onDeleteSession}
       onCreateSession={onCreateSession}
       onOpenSessionGraph={onOpenSessionGraph}
+      onOpenNote={onOpenNote}
+      onNewNote={onNewNote}
       onSuggestedHandoff={onSuggestedHandoff}
     />
   );
@@ -193,7 +193,6 @@ interface ChatPanelViewProps {
   messages: ChatMessage[];
   editingIndex: number | null;
   editContent: string;
-  artifactsInContext: string[];
   toolEntries: AgentToolPermissionEntry[];
   activatedTools: SessionActivatedTool[];
   messagesEndRef: RefObject<HTMLDivElement | null>;
@@ -237,12 +236,16 @@ interface ChatPanelViewProps {
   onToggleTts: () => void;
   onSend: () => void;
   onInterrupt: () => void;
-  onToggleArtifact: (artifactId: string) => void;
   onSwitchSession: (sessionId: string) => void;
   onDeleteSession: (deletedSessionId: string) => void;
   onCreateSession: () => Promise<void>;
   onSaveSessionTitle: (title: string) => Promise<void>;
   onOpenSessionGraph: (sessionId: string) => void;
+  onOpenNote: (noteId: string, options?: { sessionId?: string; agentId?: string }) => void;
+  onNoteBack: () => void;
+  onNewNote: () => void;
+  onSaveInputAsNote: () => void;
+  noteRouteId: string | null;
   onSuggestedHandoff: (targetAgentId: string, task?: string) => void;
   /** Slash-command autocomplete */
   slashSuggestions: ChatCommandRegistryEntry[];
@@ -285,7 +288,6 @@ export function ChatPanelView({
   messages,
   editingIndex,
   editContent,
-  artifactsInContext,
   toolEntries,
   activatedTools,
   messagesEndRef,
@@ -325,12 +327,16 @@ export function ChatPanelView({
   onToggleTts,
   onSend,
   onInterrupt,
-  onToggleArtifact,
   onSwitchSession,
   onDeleteSession,
   onCreateSession,
   onSaveSessionTitle,
   onOpenSessionGraph,
+  onOpenNote,
+  onNoteBack,
+  onNewNote,
+  onSaveInputAsNote,
+  noteRouteId,
   onSuggestedHandoff,
   slashSuggestions,
   slashSelectedIndex,
@@ -555,6 +561,9 @@ export function ChatPanelView({
           routeAgentId={routeAgentId}
           currentSessionId={currentSessionId}
           graphSessionId={graphSessionId}
+          noteRouteId={noteRouteId}
+          onNoteBack={onNoteBack}
+          onOpenNote={onOpenNote}
           messages={deferredMessages}
           editingIndex={editingIndex}
           editContent={editContent}
@@ -669,6 +678,14 @@ export function ChatPanelView({
                 >
                   <i className={`codicon ${isRecording ? 'codicon-record' : 'codicon-mic'}`} />
                 </button>
+                <button
+                  onClick={onSaveInputAsNote}
+                  className="chat-action-button"
+                  title="Save as note"
+                  disabled={!input.trim() || sending}
+                >
+                  <i className="codicon codicon-note" />
+                </button>
                 {streaming ? (
                   <button
                     onClick={onInterrupt}
@@ -699,14 +716,14 @@ export function ChatPanelView({
         onCloseMobileContext={closeMobileContext}
         agentId={routeAgentId || currentAgentId}
         sessionId={currentSessionId ?? undefined}
-        artifacts={artifactsInContext}
         toolEntries={toolEntries}
         activatedTools={activatedTools}
-        onToggleArtifact={onToggleArtifact}
         onSwitchSession={handleSwitchSession}
         onDeleteSession={onDeleteSession}
         onCreateSession={handleCreateSession}
         onOpenSessionGraph={handleOpenSessionGraph}
+        onOpenNote={onOpenNote}
+        onNewNote={onNewNote}
         onSuggestedHandoff={onSuggestedHandoff}
       />
     </div>

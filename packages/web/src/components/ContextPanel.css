@@ -402,20 +402,25 @@ body.context-panel-resizing {
 
 /* Scrollbar styling */
 .context-sections::-webkit-scrollbar {
-  width: 8px;
+  width: var(--scrollbar-size);
 }
 
 .context-sections::-webkit-scrollbar-track {
-  background: #1e1e1e;
+  background: var(--color-scrollbar-track);
 }
 
 .context-sections::-webkit-scrollbar-thumb {
-  background: #3e3e42;
-  border-radius: 4px;
+  background: var(--color-scrollbar-thumb-hidden);
+  border-radius: var(--scrollbar-radius);
+  border: 2px solid var(--color-scrollbar-track);
+}
+
+.context-sections:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar-thumb);
 }
 
 .context-sections::-webkit-scrollbar-thumb:hover {
-  background: #4e4e52;
+  background: var(--color-scrollbar-thumb-hover);
 }
 
 /* Task-specific styles */
@@ -739,6 +744,154 @@ body.context-panel-resizing {
   gap: 8px;
 }
 
+.context-notes-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.context-note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.context-note-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  background: #1e1e1e;
+  color: #cccccc;
+  cursor: pointer;
+  text-align: left;
+}
+
+.context-note-list-item.is-muted {
+  opacity: 0.68;
+  border-style: dashed;
+}
+
+.context-note-list-item:hover,
+.context-note-list-item.is-selected {
+  border-color: #007acc;
+  background: #22313f;
+}
+
+.context-note-list-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.context-note-list-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-note-list-subtitle {
+  font-size: 11px;
+  color: #9fa4ad;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-note-list-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.context-note-list-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8ecfa4;
+}
+
+.context-note-list-badge--muted {
+  color: #d3bb7b;
+}
+
+.context-note-list-badge--shared {
+  color: #8fc4ff;
+}
+
+.context-note-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.context-note-title-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1e1e1e;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  color: #cccccc;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.context-note-title-input:focus,
+.context-note-file-input:focus,
+.context-notes-input:focus {
+  outline: none;
+  border-color: #007acc;
+}
+
+.context-note-dropzone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px dashed #4e4e52;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.context-note-dropzone-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #cccccc;
+}
+
+.context-note-dropzone-copy {
+  font-size: 11px;
+  color: #9fa4ad;
+}
+
+.context-note-file-input {
+  color: #cccccc;
+  font-size: 12px;
+}
+
+.context-note-attachment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: #cccccc;
+}
+
+.context-notes-link {
+  background: transparent;
+  border: none;
+  color: #8fc4ff;
+  cursor: pointer;
+  padding: 0;
+  font-size: 11px;
+}
+
 .context-notes-input {
   width: 100%;
   box-sizing: border-box;
@@ -776,6 +929,21 @@ body.context-panel-resizing {
 
 .context-notes-save:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.context-notes-delete {
+  border: 1px solid rgba(244, 67, 54, 0.35);
+  border-radius: 6px;
+  background: transparent;
+  color: #ef9a9a;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.context-notes-delete:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 

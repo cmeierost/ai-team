@@ -50,8 +50,48 @@ describe('ChatOrchestrator slash handling', () => {
 
     expect(result).toBe('');
     expect(sendTurn).not.toHaveBeenCalled();
-    expect((ctx.hooks.emit as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'log', level: 'warn' }),
+    expect(ctx.hooks.emit as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'log', level: 'warn' })
     );
+  });
+
+  it('persists executed slash commands as hidden tool-call messages', async () => {
+    const appendMessage = vi.fn(async () => null);
+    const ctx = makeContext();
+    (ctx.sessionManager as any) = { appendMessage };
+
+    const plugins = makePlugins();
+    plugins.slashCommands = [
+      {
+        key: 'who',
+        description: 'whoami',
+        execute: vi.fn(async (_args: string, slashCtx: OrchestratorContext) => {
+          slashCtx.hooks.emit?.({ kind: 'log', level: 'info', message: 'whoami result' } as any);
+        }),
+      } as any,
+    ];
+
+    const orchestrator = new ChatOrchestrator(ctx, plugins);
+    const result = await orchestrator.run({ message: '/who' });
+
+    expect(result).toBe('');
+    expect(appendMessage).toHaveBeenCalledWith(
+      'sess-1',
+      expect.objectContaining({
+        from: 'human',
+        isHuman: true,
+        content: '/who',
+        hiddenFromLlm: true,
+        tool_calls: [
+          expect.objectContaining({
+            tool: 'slash_who',
+            result: expect.objectContaining({
+              output: expect.stringContaining('whoami result'),
+            }),
+          }),
+        ],
+      })
+    );
+    expect(sendTurn).not.toHaveBeenCalled();
   });
 });

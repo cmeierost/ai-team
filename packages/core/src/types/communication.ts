@@ -22,6 +22,7 @@ export interface FileContext {
 }
 
 export interface ChatMessage {
+  id?: number;
   timestamp: string;
   from: string;
   to?: string;
@@ -31,6 +32,7 @@ export interface ChatMessage {
   tool_calls?: ToolCall[];
   suggestions?: CodeSuggestion[];
   archived?: boolean;
+  hiddenFromLlm?: boolean;
   handoffType?: 'user-acknowledgment' | 'agent-briefing';
   targetAgentId?: string;
   handoffFromSessionId?: string;

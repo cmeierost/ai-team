@@ -6,6 +6,7 @@ import type {
 } from '@ai-team/api-client';
 import type { AgentManager, LlmService } from '@ai-team/infrastructure';
 import type { SessionManager } from '../session-manager.js';
+import type { MessageSessionLink, Note, SessionDeleteImpact } from '../storage/contracts.js';
 import { BadRequestError, NotFoundError } from '../http-errors.js';
 
 // ── Session meta helpers ──────────────────────────────────────────────────────
@@ -152,6 +153,219 @@ export class SessionsService implements ISessionsService {
     } as unknown as SessionThread;
   }
 
+  async listNotes(sessionId: string): Promise<Note[]> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    return this.sessionManager.listSessionNotes(sessionId);
+  }
+
+  async getDeleteImpact(sessionId: string): Promise<SessionDeleteImpact> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    return this.sessionManager.getSessionDeleteImpact(sessionId);
+  }
+
+  async listDashboardNotes(query?: { limit?: number }): Promise<Note[]> {
+    return this.sessionManager.listDashboardNotes(query?.limit);
+  }
+
+  async createNote(
+    sessionId: string,
+    body: {
+      agentId: string;
+      sharedSessionIds?: string[];
+      title?: string;
+      content?: string;
+      hiddenFromLlm?: boolean;
+      showOnDashboard?: boolean;
+      tags?: string[];
+      attachments?: Array<{
+        fileName: string;
+        contentBase64: string;
+        contentType?: string;
+        sizeBytes?: number;
+        description?: string;
+      }>;
+      attachment?: {
+        fileName: string;
+        contentBase64: string;
+        contentType?: string;
+        sizeBytes?: number;
+        description?: string;
+      };
+    }
+  ): Promise<Note> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    if (!body?.agentId) throw new BadRequestError('agentId is required');
+    return this.sessionManager.createNote({
+      agentId: body.agentId,
+      sessionId,
+      sharedSessionIds: body.sharedSessionIds,
+      title: body.title,
+      content: body.content,
+      hiddenFromLlm: body.hiddenFromLlm,
+      showOnDashboard: body.showOnDashboard,
+      tags: body.tags,
+      attachments: body.attachments,
+      attachment: body.attachment,
+    });
+  }
+
+  async getNote(sessionId: string, noteId: string): Promise<Note> {
+    const note = await this.sessionManager.getNote(noteId);
+    if (note?.sessionId !== sessionId) throw new NotFoundError('Note not found');
+    return note;
+  }
+
+  async updateNote(
+    sessionId: string,
+    noteId: string,
+    body: {
+      title?: string;
+      content?: string;
+      compactedContent?: string | null;
+      tags?: string[];
+      sharedSessionIds?: string[] | null;
+      hiddenFromLlm?: boolean;
+      showOnDashboard?: boolean;
+      attachments?: Array<
+        | {
+            id: string;
+          }
+        | {
+            fileName: string;
+            contentBase64: string;
+            contentType?: string;
+            sizeBytes?: number;
+            description?: string;
+          }
+      > | null;
+      attachment?: {
+        fileName: string;
+        contentBase64: string;
+        contentType?: string;
+        sizeBytes?: number;
+        description?: string;
+      } | null;
+    }
+  ): Promise<Note> {
+    const note = await this.sessionManager.getNote(noteId);
+    if (note?.sessionId !== sessionId) throw new NotFoundError('Note not found');
+    const updated = await this.sessionManager.updateNote(noteId, {
+      ...body,
+      sharedSessionIds: body.sharedSessionIds,
+      hiddenFromLlm: body.hiddenFromLlm,
+      showOnDashboard: body.showOnDashboard,
+      attachments: body.attachments,
+    });
+    if (!updated) throw new NotFoundError('Note not found');
+    return updated;
+  }
+
+  async compactNote(
+    sessionId: string,
+    noteId: string,
+    body?: { maxWords?: number; focusInstruction?: string }
+  ): Promise<Note> {
+    const note = await this.sessionManager.getNote(noteId);
+    if (note?.sessionId !== sessionId) throw new NotFoundError('Note not found');
+    await this.llmService.ensureInitialized();
+    const maxWords =
+      typeof body?.maxWords === 'number' && body.maxWords > 0 ? body.maxWords : undefined;
+    const focusInstruction =
+      typeof body?.focusInstruction === 'string' ? body.focusInstruction.trim() : undefined;
+    const updated = await this.sessionManager.compactNoteAsync(
+      noteId,
+      this.llmService,
+      maxWords,
+      focusInstruction
+    );
+    if (!updated) throw new NotFoundError('Note not found');
+    return updated;
+  }
+
+  async crawlSummarizeWebsiteNote(
+    sessionId: string,
+    noteId: string,
+    body: {
+      websiteUrl: string;
+      maxPages?: number;
+      maxWords?: number;
+      focusInstruction?: string;
+    }
+  ): Promise<Note> {
+    const note = await this.sessionManager.getNote(noteId);
+    if (note?.sessionId !== sessionId) throw new NotFoundError('Note not found');
+    if (!body?.websiteUrl?.trim()) {
+      throw new BadRequestError('websiteUrl is required');
+    }
+
+    await this.llmService.ensureInitialized();
+    const maxPages =
+      typeof body?.maxPages === 'number' && body.maxPages > 0
+        ? Math.min(20, Math.floor(body.maxPages))
+        : undefined;
+    const maxWords =
+      typeof body?.maxWords === 'number' && body.maxWords > 0 ? body.maxWords : undefined;
+    const focusInstruction =
+      typeof body?.focusInstruction === 'string' ? body.focusInstruction.trim() : undefined;
+
+    const updated = await this.sessionManager.summarizeWebsiteNoteAsync(
+      noteId,
+      this.llmService,
+      body.websiteUrl,
+      maxPages,
+      maxWords,
+      focusInstruction
+    );
+
+    if (!updated) throw new NotFoundError('Note not found');
+    return updated;
+  }
+
+  async exportNoteMarkdown(
+    sessionId: string,
+    noteId: string
+  ): Promise<{ markdownPath: string; attachmentPath?: string }> {
+    const note = await this.sessionManager.getNote(noteId);
+    if (note?.sessionId !== sessionId) throw new NotFoundError('Note not found');
+
+    const exported = await this.sessionManager.exportNoteAsMarkdownAsync(noteId);
+    if (!exported) throw new NotFoundError('Note not found');
+    return exported;
+  }
+
+  async deleteNote(sessionId: string, noteId: string): Promise<void> {
+    const note = await this.sessionManager.getNote(noteId);
+    if (note?.sessionId !== sessionId) throw new NotFoundError('Note not found');
+    await this.sessionManager.deleteNote(noteId);
+  }
+
+  async listMessageLinks(sessionId: string): Promise<MessageSessionLink[]> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    return this.sessionManager.listMessageSessionLinks(sessionId);
+  }
+
+  async createMessageLink(
+    sessionId: string,
+    body: { messageId: number }
+  ): Promise<MessageSessionLink> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    if (typeof body?.messageId !== 'number') throw new BadRequestError('messageId is required');
+    return this.sessionManager.createMessageSessionLink(body.messageId, sessionId);
+  }
+
+  async deleteMessageLink(sessionId: string, messageId: string): Promise<void> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    const parsedMessageId = Number.parseInt(messageId, 10);
+    if (Number.isNaN(parsedMessageId)) throw new BadRequestError('messageId must be numeric');
+    await this.sessionManager.deleteMessageSessionLink(parsedMessageId, sessionId);
+  }
+
   async summarize(
     sessionId: string,
     body: {
@@ -234,18 +448,44 @@ export class SessionsService implements ISessionsService {
       delete updates.title;
     }
 
-    await this.sessionManager.saveSession({
-      ...(existing as any),
+    const nextSession = {
+      ...existing,
       ...updates,
       id: sessionId,
-    } as any);
+    };
+    await this.sessionManager.saveSession(nextSession as any);
     const updated = await this.sessionManager.getSession(sessionId);
     return hydrateSession((updated ?? existing) as any);
+  }
+
+  async deleteWithOptions(
+    sessionId: string,
+    body?: { deleteUnsharedOwnedNotes?: boolean }
+  ): Promise<void> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    const impact = await this.sessionManager.getSessionDeleteImpact(sessionId);
+    if (impact.unsharedOwnedNotes.length > 0 && !body?.deleteUnsharedOwnedNotes) {
+      throw new BadRequestError(
+        'Session owns notes that are not shared with another session. Confirm deletion to remove those notes.'
+      );
+    }
+
+    await this.sessionManager.deleteSession(sessionId, {
+      deleteUnsharedOwnedNotes: body?.deleteUnsharedOwnedNotes,
+    });
   }
 
   async delete(sessionId: string): Promise<void> {
     const existing = await this.sessionManager.getSession(sessionId);
     if (!existing) throw new NotFoundError('Session not found');
+    const impact = await this.sessionManager.getSessionDeleteImpact(sessionId);
+    if (impact.unsharedOwnedNotes.length > 0) {
+      throw new BadRequestError(
+        'Session owns notes that are not shared with another session. Confirm deletion to remove those notes.'
+      );
+    }
+
     await this.sessionManager.deleteSession(sessionId);
   }
 }

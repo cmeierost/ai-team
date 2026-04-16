@@ -21,6 +21,7 @@ import { dispatchToolCall } from './tool-dispatch.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import type { ChatMessage } from '@ai-team/infrastructure';
+import type { RuntimeStreamEvent } from '@ai-team/api-client';
 
 /** Options for a single run() call. */
 export interface RunOptions {
@@ -39,7 +40,7 @@ export interface RunOptions {
 export class ChatOrchestrator {
   constructor(
     private readonly ctx: OrchestratorContext,
-    private readonly plugins: ResolvedPlugins,
+    private readonly plugins: ResolvedPlugins
   ) {}
 
   /**
@@ -69,7 +70,7 @@ export class ChatOrchestrator {
         emitLog(
           this.ctx.hooks,
           'info',
-          `${this.ctx.agent.name} hired ${result.hired.name} (${result.hired.role}).`,
+          `${this.ctx.agent.name} hired ${result.hired.name} (${result.hired.role}).`
         );
         // Hiring is a side-effect — the turn is still considered complete.
         break;
@@ -81,30 +82,27 @@ export class ChatOrchestrator {
           this.ctx,
           result.handoffTargetId,
           result.handoffTargetSessionId,
-          result.handoffNote,
+          result.handoffNote
         );
 
         if (!switched) {
           emitLog(
             this.ctx.hooks,
             'warn',
-            `Handoff requested to unknown agent "${result.handoffTargetId}" — staying with ${this.ctx.agent.name}.`,
+            `Handoff requested to unknown agent "${result.handoffTargetId}" — staying with ${this.ctx.agent.name}.`
           );
           break;
         }
 
-        emitStatus(
-          this.ctx.hooks,
-          'handoff',
-          `${this.ctx.agent.name} taking over.`,
-        );
+        emitStatus(this.ctx.hooks, 'handoff', `${this.ctx.agent.name} taking over.`);
 
         // The new agent has the LLM briefing in their session history.
         // Auto-run a turn so the recipient reacts to the handoff context
         // and asks the developer how to proceed.  skipPersist keeps the
         // synthetic prompt out of the DB.
-        const autoMsg = `[Handoff received] You have just been handed this conversation. `
-          + `Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.`;
+        const autoMsg =
+          `[Handoff received] You have just been handed this conversation. ` +
+          `Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.`;
         const autoResult = await sendTurn(autoMsg, this.plugins, this.ctx, { skipPersist: true });
         lastText = autoResult.text;
         // If the auto-react itself triggers another handoff, the next
@@ -122,7 +120,7 @@ export class ChatOrchestrator {
 
   private async tryPreTurnInterceptors(
     message: string,
-    contextFiles?: string[],
+    contextFiles?: string[]
   ): Promise<string | undefined> {
     // ── Slash command intercept ─────────────────────────────────────────────
     const slashResult = await this.trySlashCommand(message);
@@ -139,8 +137,9 @@ export class ChatOrchestrator {
     if (nlResult === 'forwarded') {
       // Handoff succeeded — auto-run a turn so the new agent reacts to
       // the briefing and asks the developer how to proceed.
-      const autoMsg = `[Handoff received] You have just been handed this conversation. `
-        + `Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.`;
+      const autoMsg =
+        `[Handoff received] You have just been handed this conversation. ` +
+        `Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.`;
       await sendTurn(autoMsg, this.plugins, this.ctx, { skipPersist: true });
       return '';
     }
@@ -166,7 +165,7 @@ export class ChatOrchestrator {
     const rawArgs = rest.join(' ');
 
     const command = this.plugins.slashCommands.find(
-      c => c.key === key || c.aliases?.includes(key),
+      (c) => c.key === key || c.aliases?.includes(key)
     );
 
     if (!command) {
@@ -174,8 +173,112 @@ export class ChatOrchestrator {
       return '';
     }
 
-    await command.execute(rawArgs, this.ctx);
-    return '';   // Slash commands handle their own output via hooks / stdout.
+    const { executionResult, capturedEvents } = await this.executeSlashCommandWithCapture(
+      command.execute.bind(command),
+      rawArgs
+    );
+    await this.persistSlashCommandExecution(key, rawArgs, executionResult, capturedEvents);
+    return ''; // Slash commands handle their own output via hooks / stdout.
+  }
+
+  private async executeSlashCommandWithCapture(
+    execute: (rawArgs: string, ctx: OrchestratorContext) => Promise<unknown>,
+    rawArgs: string
+  ): Promise<{ executionResult: unknown; capturedEvents: RuntimeStreamEvent[] }> {
+    const capturedEvents: RuntimeStreamEvent[] = [];
+    const originalEmit = this.ctx.hooks.emit;
+
+    if (originalEmit) {
+      this.ctx.hooks.emit = (event) => {
+        capturedEvents.push(event);
+        originalEmit(event);
+      };
+    }
+
+    try {
+      const executionResult = await execute(rawArgs, this.ctx);
+      return { executionResult, capturedEvents };
+    } finally {
+      if (originalEmit) {
+        this.ctx.hooks.emit = originalEmit;
+      }
+    }
+  }
+
+  private formatCapturedSlashOutput(
+    executionResult: unknown,
+    capturedEvents: RuntimeStreamEvent[]
+  ): string | undefined {
+    const eventLines = capturedEvents
+      .map((event) => {
+        if (event.kind === 'log' && event.message) {
+          return event.message;
+        }
+        if (event.kind === 'status' && event.message) {
+          return event.message;
+        }
+        if (event.kind === 'progress' && event.message) {
+          return event.message;
+        }
+        if (event.kind === 'tool') {
+          const toolResultText =
+            event.toolResult?.resultLlm ??
+            event.toolResult?.result ??
+            (event.toolResult ? JSON.stringify(event.toolResult) : undefined);
+          return event.message ?? (typeof toolResultText === 'string' ? toolResultText : undefined);
+        }
+        return undefined;
+      })
+      .filter((line): line is string => Boolean(line))
+      .slice(0, 120);
+
+    const executionResultText =
+      executionResult === undefined
+        ? undefined
+        : typeof executionResult === 'string'
+          ? executionResult
+          : JSON.stringify(executionResult, null, 2);
+
+    if (!executionResultText && eventLines.length === 0) {
+      return undefined;
+    }
+
+    return [executionResultText, ...eventLines]
+      .filter((chunk): chunk is string => Boolean(chunk && chunk.trim()))
+      .join('\n\n')
+      .slice(0, 20_000);
+  }
+
+  private async persistSlashCommandExecution(
+    key: string,
+    rawArgs: string,
+    executionResult: unknown,
+    capturedEvents: RuntimeStreamEvent[]
+  ): Promise<void> {
+    const rendered = rawArgs.trim() ? `/${key} ${rawArgs.trim()}` : `/${key}`;
+    const output = this.formatCapturedSlashOutput(executionResult, capturedEvents);
+    const persisted: ChatMessage = {
+      timestamp: new Date().toISOString(),
+      from: 'human',
+      to: this.ctx.agent.id,
+      isHuman: true,
+      content: rendered,
+      hiddenFromLlm: true,
+      tool_calls: [
+        {
+          tool: `slash_${key}`,
+          params: { args: rawArgs },
+          result: {
+            status: 'executed',
+            command: rendered,
+            output,
+          },
+        },
+      ],
+    };
+
+    await this.ctx.sessionManager.appendMessage(this.ctx.sessionId, persisted);
+    this.ctx.history.push(persisted);
   }
 
   /**
@@ -184,7 +287,10 @@ export class ChatOrchestrator {
    * IMPORTANT: tool execution is routed through dispatchToolCall(), which
    * preserves policy enforcement and dangerous-tool confirmation prompts.
    */
-  private async tryRegexToolIntent(message: string, contextFiles?: string[]): Promise<string | null> {
+  private async tryRegexToolIntent(
+    message: string,
+    contextFiles?: string[]
+  ): Promise<string | null> {
     const intent = resolvePreLlmIntent(message);
     if (!intent) return null;
 
@@ -222,7 +328,7 @@ export class ChatOrchestrator {
   private async executeRegexToolIntent(
     toolName: string,
     args: unknown,
-    contextFiles?: string[],
+    contextFiles?: string[]
   ): Promise<void> {
     await dispatchToolCall(
       {
@@ -231,9 +337,7 @@ export class ChatOrchestrator {
         args,
       },
       this.ctx,
-      contextFiles,
+      contextFiles
     );
   }
-
 }
-

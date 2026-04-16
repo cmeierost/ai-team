@@ -1,4 +1,12 @@
-import type { ChatSession, SessionActivatedTool, TaskPriority, TaskStatus } from '../types';
+import type {
+  ChatSession,
+  Note,
+  SessionActivatedTool,
+  SessionNode,
+  SessionThread,
+  TaskPriority,
+  TaskStatus,
+} from '../types';
 
 const SESSION_META_PREFIX = '<!-- ai-team:session-meta ';
 
@@ -85,6 +93,59 @@ export function getSessionTitle(session: ChatSession): string {
   if (session.title) return session.title;
   const date = new Date(session.startedAt);
   return `Session ${date.toLocaleDateString()} ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+export interface ContextPanelNoteItem {
+  note: Note;
+  ownerSession: SessionNode;
+  isOwnedByCurrentSession: boolean;
+  isSharedWithCurrentSession: boolean;
+  canPullIntoCurrentSession: boolean;
+}
+
+export function buildThreadContextNotes(
+  thread: SessionThread,
+  notesBySessionId: Record<string, Note[]>,
+  currentSessionId: string
+): ContextPanelNoteItem[] {
+  const sessionMap = new Map(thread.sessions.map((session) => [session.sessionId, session]));
+  const notes = new Map<string, ContextPanelNoteItem>();
+
+  for (const [ownerSessionId, sessionNotes] of Object.entries(notesBySessionId)) {
+    const ownerSession = sessionMap.get(ownerSessionId);
+    if (!ownerSession) {
+      continue;
+    }
+
+    for (const note of sessionNotes) {
+      const resolvedOwnerSessionId = note.sessionId ?? ownerSessionId;
+      const resolvedOwnerSession = sessionMap.get(resolvedOwnerSessionId) ?? ownerSession;
+      const sharedSessionIds = note.sharedSessionIds ?? [];
+      const isOwnedByCurrentSession = resolvedOwnerSession.sessionId === currentSessionId;
+      const isSharedWithCurrentSession =
+        isOwnedByCurrentSession || sharedSessionIds.includes(currentSessionId);
+
+      notes.set(note.id, {
+        note: {
+          ...note,
+          sessionId: resolvedOwnerSession.sessionId,
+        },
+        ownerSession: resolvedOwnerSession,
+        isOwnedByCurrentSession,
+        isSharedWithCurrentSession,
+        canPullIntoCurrentSession: !isOwnedByCurrentSession && !isSharedWithCurrentSession,
+      });
+    }
+  }
+
+  return Array.from(notes.values()).sort((left, right) => {
+    const updatedDiff =
+      new Date(right.note.updatedAt).getTime() - new Date(left.note.updatedAt).getTime();
+    if (updatedDiff !== 0) {
+      return updatedDiff;
+    }
+    return left.note.id.localeCompare(right.note.id);
+  });
 }
 
 export function getTaskStatusIcon(status: TaskStatus): string {

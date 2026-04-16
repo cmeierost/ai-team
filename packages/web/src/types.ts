@@ -472,6 +472,46 @@ export interface ChatSession {
   mergedFromSessionIds?: string[] | null; // Sessions merged into this one
 }
 
+export interface NoteAttachment {
+  id: string;
+  fileName: string;
+  filePath: string;
+  contentType?: string;
+  sizeBytes: number;
+  description?: string;
+}
+
+export interface NoteAttachmentInput {
+  fileName: string;
+  contentBase64: string;
+  contentType?: string;
+  sizeBytes?: number;
+  description?: string;
+}
+
+export interface RetainedNoteAttachmentInput {
+  id: string;
+}
+
+export type NoteAttachmentUpdateInput = NoteAttachmentInput | RetainedNoteAttachmentInput;
+
+export interface Note {
+  id: string;
+  agentId: string;
+  sessionId?: string;
+  sharedSessionIds?: string[];
+  title?: string;
+  content: string;
+  tags?: string[];
+  attachments?: NoteAttachment[];
+  attachment?: NoteAttachment;
+  compactedContent?: string;
+  hiddenFromLlm: boolean;
+  showOnDashboard: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** One directed handoff edge in the session thread graph */
 export interface HandoffEdge {
   handoffId: string;
@@ -503,6 +543,24 @@ export interface SessionThread {
   depth: number;
   handoffs: HandoffEdge[];
   sessions: SessionNode[];
+}
+
+export interface SessionDeleteImpactTransfer {
+  noteId: string;
+  title?: string;
+  targetSessionId: string;
+  remainingSharedSessionIds: string[];
+}
+
+export interface SessionDeleteImpactBlockingNote {
+  noteId: string;
+  title?: string;
+}
+
+export interface SessionDeleteImpact {
+  sessionId: string;
+  transferableNotes: SessionDeleteImpactTransfer[];
+  unsharedOwnedNotes: SessionDeleteImpactBlockingNote[];
 }
 
 export interface Artifact {

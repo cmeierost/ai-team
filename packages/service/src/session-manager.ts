@@ -1,9 +1,25 @@
-import { promises as fs } from 'fs';
-import path from 'path';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { ChatMessage, ChatSession, Artifact, type AgentManager } from '@ai-team/infrastructure';
 import type { HandoffEdge } from '@ai-team/api-client';
 import { resolveAgentForOperationAsync } from './utils/agent-resolution.js';
-import type { IMessageStorage, SessionSkill } from './storage/contracts.js';
+import {
+  extractAttachmentContentAsync,
+  isImageAttachment,
+  readAttachmentAsDataUrlAsync,
+  splitIntoChunks,
+} from './notes/note-attachment-reader.js';
+import type {
+  IMessageStorage,
+  MessageSessionLink,
+  Note,
+  NoteAttachment,
+  NoteCreateInput,
+  NoteUpdateInput,
+  SessionDeleteImpact,
+  SessionDeleteOptions,
+  SessionSkill,
+} from './storage/contracts.js';
 
 export interface SessionThreadGraphSession {
   sessionId: string;
@@ -162,13 +178,11 @@ export class SessionManager {
     const session = await this.createHandoffSession(targetAgentId, developerId, currentSessionId);
     return { session, isNew: true };
   }
-
   /**
    * Get the latest (most recent) session for an agent
    * @param agentQuery - Agent ID, role, name, or partial match
    */
   async getLatestSession(agentQuery: string): Promise<ChatSession | null> {
-    // Resolve agent query to exact ID if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
       const resolved = await resolveAgentForOperationAsync(
@@ -268,6 +282,41 @@ export class SessionManager {
     } catch (error) {
       // If session doesn't exist, return empty array
       return [];
+    }
+  }
+
+  /**
+   * Get all persisted messages for a session, including archived ones.
+   */
+  async listSessionMessages(sessionId: string): Promise<ChatMessage[]> {
+    try {
+      return await this.storage.queryMessages({ sessionId });
+    } catch {
+      return [];
+    }
+  }
+
+  async getMessageById(messageId: number): Promise<ChatMessage | null> {
+    try {
+      return await this.storage.getMessageById(messageId);
+    } catch {
+      return null;
+    }
+  }
+
+  async setMessageHiddenFromLlm(messageId: number, hidden: boolean): Promise<boolean> {
+    try {
+      return await this.storage.setMessageHiddenFromLlm(messageId, hidden);
+    } catch {
+      return false;
+    }
+  }
+
+  async updateMessageContent(messageId: number, newContent: string): Promise<boolean> {
+    try {
+      return await this.storage.updateMessageContent(messageId, newContent);
+    } catch {
+      return false;
     }
   }
 
@@ -780,6 +829,17 @@ ${summary}
       allowedFiles: [...new Set([...olderSession.allowedFiles, ...newerSession.allowedFiles])],
     });
 
+    // Move notes to the surviving session before deleting the merged-away session.
+    const newerSessionNotes = await this.storage.listSessionNotes(newerSessionId);
+    for (const note of newerSessionNotes) {
+      await this.storage.updateNote(note.id, {
+        sessionId: olderSessionId,
+        sharedSessionIds: (note.sharedSessionIds ?? []).filter(
+          (sharedSessionId) => sharedSessionId !== olderSessionId
+        ),
+      });
+    }
+
     // Delete newer session
     await this.storage.deleteSession(newerSessionId);
 
@@ -992,8 +1052,658 @@ ${summary}
    * Delete a session and all its messages
    * @param sessionId - Session ID to delete
    */
-  async deleteSession(sessionId: string): Promise<void> {
-    await this.storage.deleteSession(sessionId);
+  async getSessionDeleteImpact(sessionId: string): Promise<SessionDeleteImpact> {
+    return this.storage.getSessionDeleteImpact(sessionId);
+  }
+
+  async deleteSession(sessionId: string, options?: SessionDeleteOptions): Promise<void> {
+    await this.storage.deleteSession(sessionId, options);
+  }
+
+  // ========== Notes ==========
+
+  async listSessionNotes(sessionId: string): Promise<Note[]> {
+    return this.storage.listSessionNotes(sessionId);
+  }
+
+  async listDashboardNotes(limit?: number): Promise<Note[]> {
+    return this.storage.listDashboardNotes(limit);
+  }
+
+  async getNote(noteId: string): Promise<Note | null> {
+    return this.storage.getNote(noteId);
+  }
+
+  async createNote(note: NoteCreateInput): Promise<Note> {
+    return this.storage.createNote(note);
+  }
+
+  async updateNote(noteId: string, updates: NoteUpdateInput): Promise<Note | null> {
+    await this.storage.updateNote(noteId, updates);
+    return this.storage.getNote(noteId);
+  }
+
+  private normalizeWorkspaceRelativePath(relPath: string): string {
+    return relPath.replaceAll('\\', '/');
+  }
+
+  private sanitizeFileName(name: string): string {
+    return name.replaceAll(/[^a-zA-Z0-9._-]/g, '-');
+  }
+
+  private createNoteSlug(note: Note): string {
+    const base = (note.title || `note-${note.id.slice(0, 8)}`).trim().toLowerCase();
+    const slug = base
+      .replaceAll(/[^a-z0-9]+/g, '-')
+      .replaceAll(/(^-|-$)/g, '')
+      .slice(0, 64);
+    return slug || `note-${note.id.slice(0, 8)}`;
+  }
+
+  private async moveFileAsync(sourceAbsPath: string, targetAbsPath: string): Promise<void> {
+    await fs.mkdir(path.dirname(targetAbsPath), { recursive: true });
+    try {
+      await fs.rename(sourceAbsPath, targetAbsPath);
+      return;
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err?.code !== 'EXDEV') {
+        throw error;
+      }
+    }
+
+    await fs.copyFile(sourceAbsPath, targetAbsPath);
+    await fs.rm(sourceAbsPath, { force: true });
+  }
+
+  async exportNoteAsMarkdownAsync(
+    noteId: string
+  ): Promise<{ markdownPath: string; attachmentPath?: string; attachmentPaths?: string[] } | null> {
+    const note = await this.storage.getNote(noteId);
+    if (!note) return null;
+
+    const exportDirAbs = path.join(this.workspaceRoot, '.ai-team', 'notes');
+    const filesDirAbs = path.join(exportDirAbs, 'files');
+    await fs.mkdir(exportDirAbs, { recursive: true });
+
+    const slug = this.createNoteSlug(note);
+    const noteBaseName = `${slug}-${note.id.slice(0, 8)}`;
+    const markdownAbsPath = path.join(exportDirAbs, `${noteBaseName}.md`);
+
+    const attachments = note.attachments ?? (note.attachment ? [note.attachment] : []);
+    const updatedAttachments: NoteAttachment[] = [];
+    const linkedAttachments: Array<{ attachment: NoteAttachment; markdownLink: string }> = [];
+
+    for (const attachment of attachments) {
+      const attachmentRelPath = this.normalizeWorkspaceRelativePath(attachment.filePath);
+      const inIgnoredPrivateFolder = attachmentRelPath.startsWith('.ai-team/private/');
+
+      let finalAttachmentRelPath = attachmentRelPath;
+      if (inIgnoredPrivateFolder) {
+        const sourceAbsPath = path.join(this.workspaceRoot, attachmentRelPath);
+        const safeOriginalName = this.sanitizeFileName(attachment.fileName || 'attachment');
+        const movedFileName = `${noteBaseName}-${attachment.id}-${safeOriginalName}`;
+        const targetAbsPath = path.join(filesDirAbs, movedFileName);
+
+        await this.moveFileAsync(sourceAbsPath, targetAbsPath);
+
+        finalAttachmentRelPath = this.normalizeWorkspaceRelativePath(
+          path.relative(this.workspaceRoot, targetAbsPath)
+        );
+      }
+
+      const updatedAttachment: NoteAttachment = {
+        ...attachment,
+        filePath: finalAttachmentRelPath,
+      };
+      updatedAttachments.push(updatedAttachment);
+      linkedAttachments.push({
+        attachment: updatedAttachment,
+        markdownLink: this.normalizeWorkspaceRelativePath(
+          path.relative(
+            path.dirname(markdownAbsPath),
+            path.join(this.workspaceRoot, finalAttachmentRelPath)
+          )
+        ),
+      });
+    }
+
+    if (updatedAttachments.length > 0) {
+      await this.storage.setNoteAttachmentsAsync(note.id, updatedAttachments);
+    }
+
+    const lines: string[] = [];
+    lines.push(`# ${note.title?.trim() || `Note ${note.id.slice(0, 8)}`}`);
+    lines.push('');
+    lines.push(`- **Agent:** ${note.agentId}`);
+    if (note.sessionId) {
+      lines.push(`- **Session:** ${note.sessionId}`);
+    }
+    lines.push(`- **Created:** ${note.createdAt}`);
+    lines.push(`- **Updated:** ${note.updatedAt}`);
+    lines.push('');
+    lines.push('## Content');
+    lines.push('');
+    lines.push(note.content || '');
+
+    if (note.compactedContent) {
+      lines.push('');
+      lines.push('## Compacted Content');
+      lines.push('');
+      lines.push(note.compactedContent);
+    }
+
+    if (linkedAttachments.length > 0) {
+      lines.push('');
+      lines.push('## Linked Files');
+      lines.push('');
+      for (const linkedAttachment of linkedAttachments) {
+        lines.push(`- [${linkedAttachment.attachment.fileName}](${linkedAttachment.markdownLink})`);
+        if (linkedAttachment.attachment.description) {
+          lines.push(`  - ${linkedAttachment.attachment.description}`);
+        }
+      }
+    }
+
+    await fs.writeFile(markdownAbsPath, `${lines.join('\n')}\n`, 'utf-8');
+
+    return {
+      markdownPath: this.normalizeWorkspaceRelativePath(
+        path.relative(this.workspaceRoot, markdownAbsPath)
+      ),
+      attachmentPath: updatedAttachments[0]?.filePath,
+      attachmentPaths: updatedAttachments.map((attachment) => attachment.filePath),
+    };
+  }
+
+  private buildSummaryInstructionText(maxWords: number, focusInstruction?: string): string {
+    const focus = focusInstruction?.trim();
+    const focusSection = focus ? `\nFocus guidance: ${focus}\n` : '';
+    return (
+      `Produce a compact Markdown summary. ` +
+      `Write at most ${maxWords} words. ` +
+      `Focus on key facts, decisions, and action items. ` +
+      `Use bullet points when listing multiple items. ` +
+      focusSection
+    );
+  }
+
+  private getNoteAttachments(note: Note): NoteAttachment[] {
+    return note.attachments ?? (note.attachment ? [note.attachment] : []);
+  }
+
+  private normalizeSummaryHeading(heading: string): string {
+    const normalized = heading.replaceAll(/\r?\n+/g, ' ').trim();
+    return normalized.length > 0 ? normalized : 'Summary';
+  }
+
+  private buildCompactedSection(
+    heading: string,
+    body: string,
+    link?: { label: string; url: string }
+  ): string {
+    const normalizedHeading = this.normalizeSummaryHeading(heading);
+    const normalizedBody = body.trim();
+    const lines = [`[${normalizedHeading}]`];
+    if (link) {
+      lines.push(`- [${link.label}](${link.url})`);
+    }
+    lines.push('', normalizedBody);
+    return lines.join('\n');
+  }
+
+  private async describeImageAttachmentAsync(
+    llmService: any,
+    note: Note,
+    attachment: NoteAttachment,
+    maxWords: number,
+    focusInstruction?: string
+  ): Promise<string> {
+    const dataUrl = await readAttachmentAsDataUrlAsync(attachment);
+    const prompt = [
+      `Describe this image in Markdown with at most ${maxWords} words.`,
+      'Focus on visible text, structure, layout, diagram relationships, and key signals.',
+      note.title ? `Note title: ${note.title}` : null,
+      attachment.description ? `Attachment description: ${attachment.description}` : null,
+      focusInstruction?.trim() ? `Focus guidance: ${focusInstruction.trim()}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    return llmService.rawChat(
+      'You describe images for compact note context. Return concise Markdown only.',
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: dataUrl } },
+          ],
+        } as any,
+      ],
+      {
+        maxTokens: Math.max(500, maxWords * 6),
+      }
+    );
+  }
+
+  private async summarizeAttachmentAsync(
+    llmService: any,
+    note: Note,
+    attachment: NoteAttachment,
+    maxWords: number,
+    focusInstruction?: string
+  ): Promise<string> {
+    if (isImageAttachment(attachment)) {
+      return this.describeImageAttachmentAsync(
+        llmService,
+        note,
+        attachment,
+        maxWords,
+        focusInstruction
+      );
+    }
+
+    const sourceTextPreamble = [
+      note.title ? `Note title: ${note.title}` : null,
+      `Attachment name: ${attachment.fileName}`,
+      attachment.description ? `Attachment description: ${attachment.description}` : null,
+      '',
+      'Attachment content:',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const attachmentText = await extractAttachmentContentAsync(attachment);
+    const sourceText = `${sourceTextPreamble}\n${attachmentText}`;
+
+    return this.summarizeHierarchicalAsync(llmService, sourceText, maxWords, focusInstruction);
+  }
+
+  private async summarizeTextAsync(
+    llmService: any,
+    sourceText: string,
+    maxWords: number,
+    focusInstruction?: string
+  ): Promise<string> {
+    const fakeAgent = { id: 'system', name: 'System', role: 'system', systemPrompt: '' };
+    const prompt =
+      `${this.buildSummaryInstructionText(maxWords, focusInstruction)}\n\n` +
+      `Source:\n${sourceText}`;
+    return llmService.chat(fakeAgent, [{ role: 'user', content: prompt }], {
+      maxTokens: Math.max(500, maxWords * 6),
+    });
+  }
+
+  private async summarizeHierarchicalAsync(
+    llmService: any,
+    sourceText: string,
+    maxWords: number,
+    focusInstruction?: string
+  ): Promise<string> {
+    const chunks = splitIntoChunks(sourceText, 5000);
+
+    if (chunks.length <= 1) {
+      const summary = await this.summarizeTextAsync(
+        llmService,
+        sourceText,
+        maxWords,
+        focusInstruction
+      );
+      return summary.trim();
+    }
+
+    const fakeAgent = { id: 'system', name: 'System', role: 'system', systemPrompt: '' };
+    const chunkSummaries: string[] = [];
+
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunkPrompt =
+        `Summarize this section (${index + 1}/${chunks.length}) of a larger document. ` +
+        `Keep this section summary concise (90-140 words). ` +
+        `Focus on facts, decisions, and actions.` +
+        (focusInstruction?.trim() ? `\nFocus guidance: ${focusInstruction.trim()}\n` : '\n') +
+        `\nSection:\n${chunks[index]}`;
+
+      const chunkSummary = await llmService.chat(
+        fakeAgent,
+        [{ role: 'user', content: chunkPrompt }],
+        {
+          maxTokens: 420,
+        }
+      );
+      chunkSummaries.push(chunkSummary.trim());
+    }
+
+    const finalPrompt =
+      `${this.buildSummaryInstructionText(maxWords, focusInstruction)}\n\n` +
+      `Combine these section summaries into one final summary:\n` +
+      chunkSummaries.map((summary, index) => `\nSection ${index + 1}:\n${summary}`).join('\n');
+
+    const finalSummary = await llmService.chat(
+      fakeAgent,
+      [{ role: 'user', content: finalPrompt }],
+      {
+        maxTokens: Math.max(600, maxWords * 6),
+      }
+    );
+    return finalSummary.trim();
+  }
+
+  private normalizeWebsiteUrl(url: string): string {
+    const candidate = url.trim();
+    const withProtocol = /^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`;
+    const parsed = new URL(withProtocol);
+    parsed.hash = '';
+    return parsed.toString();
+  }
+
+  private extractHtmlTitle(html: string): string | undefined {
+    const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+    if (!titleMatch?.[1]) return undefined;
+    return titleMatch[1].replaceAll(/\s+/g, ' ').trim() || undefined;
+  }
+
+  private extractHtmlLinks(baseUrl: string, html: string): string[] {
+    const links: string[] = [];
+    const hrefRegex = /href\s*=\s*["']([^"'#]+)["']/gi;
+    let match = hrefRegex.exec(html);
+
+    while (match) {
+      const href = match[1]?.trim();
+      if (href) {
+        try {
+          const resolved = new URL(href, baseUrl);
+          if (resolved.protocol === 'http:' || resolved.protocol === 'https:') {
+            resolved.hash = '';
+            links.push(resolved.toString());
+          }
+        } catch {
+          // Ignore invalid URLs from page markup.
+        }
+      }
+      match = hrefRegex.exec(html);
+    }
+
+    return links;
+  }
+
+  private htmlToPlainText(html: string): string {
+    return html
+      .replaceAll(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replaceAll(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replaceAll(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+      .replaceAll(/<[^>]+>/g, ' ')
+      .replaceAll(/&nbsp;/gi, ' ')
+      .replaceAll(/&amp;/gi, '&')
+      .replaceAll(/&lt;/gi, '<')
+      .replaceAll(/&gt;/gi, '>')
+      .replaceAll(/\s+/g, ' ')
+      .trim();
+  }
+
+  private async fetchWebsitePageAsync(url: string): Promise<{
+    url: string;
+    title?: string;
+    text: string;
+    links: string[];
+  }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        redirect: 'follow',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'ai-team-note-crawler/1.0',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
+      }
+
+      const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+      if (!contentType.includes('text/html') && !contentType.includes('text/plain')) {
+        throw new Error(`Unsupported content type for ${url}: ${contentType || 'unknown'}`);
+      }
+
+      const raw = await response.text();
+      const title = contentType.includes('text/html') ? this.extractHtmlTitle(raw) : undefined;
+      const text = contentType.includes('text/html') ? this.htmlToPlainText(raw) : raw.trim();
+      const links = contentType.includes('text/html') ? this.extractHtmlLinks(url, raw) : [];
+
+      return {
+        url,
+        title,
+        text: text.slice(0, 24_000),
+        links,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async crawlWebsiteAsync(
+    startUrl: string,
+    maxPages: number
+  ): Promise<Array<{ url: string; title?: string; text: string }>> {
+    const normalizedStart = this.normalizeWebsiteUrl(startUrl);
+    const startOrigin = new URL(normalizedStart).origin;
+
+    const visited = new Set<string>();
+    const queued = new Set<string>([normalizedStart]);
+    const queue: string[] = [normalizedStart];
+    const pages: Array<{ url: string; title?: string; text: string }> = [];
+
+    while (queue.length > 0 && pages.length < maxPages) {
+      const currentUrl = queue.shift();
+      if (!currentUrl || visited.has(currentUrl)) {
+        continue;
+      }
+      visited.add(currentUrl);
+
+      try {
+        const page = await this.fetchWebsitePageAsync(currentUrl);
+        if (!page.text) {
+          continue;
+        }
+
+        pages.push({ url: page.url, title: page.title, text: page.text });
+
+        for (const link of page.links) {
+          try {
+            const normalizedLink = this.normalizeWebsiteUrl(link);
+            if (new URL(normalizedLink).origin !== startOrigin) {
+              continue;
+            }
+            if (visited.has(normalizedLink) || queued.has(normalizedLink)) {
+              continue;
+            }
+            queue.push(normalizedLink);
+            queued.add(normalizedLink);
+          } catch {
+            // Ignore invalid links.
+          }
+        }
+      } catch {
+        // Skip failed pages and continue crawling.
+      }
+    }
+
+    return pages;
+  }
+
+  private buildWebsiteSourceText(
+    pages: Array<{ url: string; title?: string; text: string }>
+  ): string {
+    return pages
+      .map((page, index) => {
+        const heading = page.title ? `${page.title} (${page.url})` : page.url;
+        return `Page ${index + 1}: ${heading}\n${page.text}`;
+      })
+      .join('\n\n');
+  }
+
+  private buildWebsiteNotesSection(
+    sourceUrl: string,
+    pages: Array<{ url: string; title?: string; text: string }>,
+    focusInstruction?: string
+  ): string {
+    const lines = [
+      '## Website Crawl Notes',
+      '',
+      `- **Source URL:** ${sourceUrl}`,
+      `- **Crawled at:** ${new Date().toISOString()}`,
+      `- **Pages summarized:** ${pages.length}`,
+    ];
+
+    if (focusInstruction?.trim()) {
+      lines.push(`- **Focus:** ${focusInstruction.trim()}`);
+    }
+
+    lines.push('', '### Pages', '');
+    lines.push(
+      ...pages.map((page) => {
+        const title = page.title || page.url;
+        return `- [${title}](${page.url})`;
+      })
+    );
+
+    return `${lines.join('\n')}\n`;
+  }
+
+  async summarizeWebsiteNoteAsync(
+    noteId: string,
+    llmService: any,
+    websiteUrl: string,
+    maxPages = 5,
+    maxWords = 200,
+    focusInstruction?: string
+  ): Promise<Note | null> {
+    const note = await this.storage.getNote(noteId);
+    if (!note) return null;
+
+    const normalizedUrl = this.normalizeWebsiteUrl(websiteUrl);
+    const safeMaxPages = Math.max(1, Math.min(20, maxPages));
+    const pages = await this.crawlWebsiteAsync(normalizedUrl, safeMaxPages);
+
+    if (pages.length === 0) {
+      throw new Error('Could not crawl readable pages from the provided website URL.');
+    }
+
+    const sourceText = this.buildWebsiteSourceText(pages);
+    const summary = await this.summarizeHierarchicalAsync(
+      llmService,
+      sourceText,
+      maxWords,
+      focusInstruction
+    );
+
+    const urlSections: string[] = [this.buildCompactedSection('summary of the text', summary)];
+    for (const [index, page] of pages.entries()) {
+      const pageSummary = await this.summarizeHierarchicalAsync(
+        llmService,
+        `URL: ${page.url}\nTitle: ${page.title || 'n/a'}\n\n${page.text}`,
+        Math.max(80, Math.floor(maxWords / 2)),
+        focusInstruction
+      );
+      urlSections.push(
+        this.buildCompactedSection(`url ${index + 1}`, pageSummary, {
+          label: page.title || page.url,
+          url: page.url,
+        })
+      );
+    }
+
+    const notesSection = this.buildWebsiteNotesSection(normalizedUrl, pages, focusInstruction);
+    const existingContent = note.content?.trim();
+    const combinedContent = existingContent
+      ? `${existingContent}\n\n---\n\n${notesSection}`
+      : notesSection;
+
+    await this.storage.updateNote(noteId, {
+      content: combinedContent,
+      compactedContent: urlSections.join('\n\n').trim(),
+    });
+
+    return this.storage.getNote(noteId);
+  }
+
+  async compactNoteAsync(
+    noteId: string,
+    llmService: any,
+    maxWords = 200,
+    focusInstruction?: string
+  ): Promise<Note | null> {
+    const note = await this.storage.getNote(noteId);
+    if (!note) return null;
+
+    const attachments = this.getNoteAttachments(note);
+    const hasAttachment = attachments.length > 0;
+    const contentLines = note.content.split('\n').length;
+    if (!hasAttachment && contentLines <= 10) return note;
+
+    try {
+      const compactedSections: string[] = [];
+
+      if (note.content.trim()) {
+        const titleSection = note.title ? `Title: ${note.title}\n` : '';
+        const contentSummary = await this.summarizeHierarchicalAsync(
+          llmService,
+          `${titleSection}Note content:\n${note.content}`,
+          maxWords,
+          focusInstruction
+        );
+        compactedSections.push(this.buildCompactedSection('summary of the text', contentSummary));
+      }
+
+      for (const [index, attachment] of attachments.entries()) {
+        const summary = await this.summarizeAttachmentAsync(
+          llmService,
+          note,
+          attachment,
+          maxWords,
+          focusInstruction
+        );
+        const headingPrefix = isImageAttachment(attachment) ? 'image' : 'file';
+        const sectionHeading = `${headingPrefix} ${index + 1}`;
+        compactedSections.push(
+          this.buildCompactedSection(sectionHeading, summary, {
+            label: attachment.fileName,
+            url: this.normalizeWorkspaceRelativePath(attachment.filePath),
+          })
+        );
+      }
+
+      const compactedContent = compactedSections.join('\n\n');
+      await this.storage.updateNote(noteId, { compactedContent: compactedContent.trim() });
+      return this.storage.getNote(noteId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async deleteNote(noteId: string): Promise<boolean> {
+    return this.storage.deleteNote(noteId);
+  }
+
+  // ========== Message ↔ Session Links ==========
+
+  async createMessageSessionLink(
+    messageId: number,
+    sessionId: string
+  ): Promise<MessageSessionLink> {
+    return this.storage.createMessageSessionLink(messageId, sessionId);
+  }
+
+  async listMessageSessionLinks(sessionId: string): Promise<MessageSessionLink[]> {
+    return this.storage.listMessageSessionLinks(sessionId);
+  }
+
+  async deleteMessageSessionLink(messageId: number, sessionId: string): Promise<boolean> {
+    return this.storage.deleteMessageSessionLink(messageId, sessionId);
   }
 
   // ========== Session Skills ==========
@@ -1016,5 +1726,14 @@ ${summary}
 
   async updateToolCallLlmResult(toolCallId: number, newText: string): Promise<void> {
     await this.storage.updateToolCallLlmResult(toolCallId, newText);
+  }
+
+  async summarizeForContextAsync(
+    llmService: any,
+    sourceText: string,
+    maxWords = 200,
+    focusInstruction?: string
+  ): Promise<string> {
+    return this.summarizeHierarchicalAsync(llmService, sourceText, maxWords, focusInstruction);
   }
 }

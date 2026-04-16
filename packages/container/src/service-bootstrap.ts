@@ -54,6 +54,7 @@ import {
   SessionsService,
   ArtifactsService,
   TasksService,
+  PlanningService,
   DeveloperService,
   FilesService,
   IdeService,
@@ -96,6 +97,7 @@ export const TOKENS = {
   SessionsService: new Token<SessionsService>('SessionsService'),
   ArtifactsService: new Token<ArtifactsService>('ArtifactsService'),
   TasksService: new Token<TasksService>('TasksService'),
+  PlanningService: new Token<PlanningService>('PlanningService'),
   DeveloperService: new Token<DeveloperService>('DeveloperService'),
   FilesService: new Token<FilesService>('FilesService'),
   IdeService: new Token<IdeService>('IdeService'),
@@ -257,6 +259,10 @@ function registerBaseServices(
   c.registerSingleton(
     tokens.TasksService,
     (c) => new TasksService(c.resolve(tokens.WorkspaceRoot), c.resolve(tokens.AgentManager))
+  );
+  c.registerSingleton(
+    tokens.PlanningService,
+    (c) => new PlanningService(c.resolve(tokens.MessageStorage))
   );
   c.registerSingleton(tokens.DeveloperService, () => new DeveloperService());
   c.registerSingleton(

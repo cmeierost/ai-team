@@ -17,6 +17,7 @@ import {
   sessionsDesc,
   artifactsDesc,
   tasksDesc,
+  planningDesc,
   developerDesc,
   permissionDesc,
   ideDesc,
@@ -114,6 +115,10 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     createExpressRouter(tasksDesc, container.resolve(TOKENS.TasksService))
   );
   app.use(
+    planningDesc.subRoute!,
+    createExpressRouter(planningDesc, container.resolve(TOKENS.PlanningService))
+  );
+  app.use(
     developerDesc.subRoute!,
     createExpressRouter(developerDesc, container.resolve(TOKENS.DeveloperService))
   );
@@ -186,15 +191,11 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     }
 
     console.log(`WebSocket connected: agent=${agentId}, session=${sessionId || 'none'}`);
-    setupChatWebSocket(
-      ws,
-      agentId,
-      interactionService,
-      sessionManager,
-      sessionId,
+    setupChatWebSocket(ws, agentId, interactionService, sessionManager, sessionId, {
       agentManager,
-      workspaceRoot
-    );
+      workspaceRoot,
+      llmService: container.resolve(TOKENS.LlmService),
+    });
   });
 
   // Start server
