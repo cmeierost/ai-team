@@ -106,7 +106,8 @@ export interface ContextPanelNoteItem {
 export function buildThreadContextNotes(
   thread: SessionThread,
   notesBySessionId: Record<string, Note[]>,
-  currentSessionId: string
+  currentSessionId: string,
+  sharedNoteIdsInCurrentSession?: ReadonlySet<string>
 ): ContextPanelNoteItem[] {
   const sessionMap = new Map(thread.sessions.map((session) => [session.sessionId, session]));
   const notes = new Map<string, ContextPanelNoteItem>();
@@ -122,8 +123,9 @@ export function buildThreadContextNotes(
       const resolvedOwnerSession = sessionMap.get(resolvedOwnerSessionId) ?? ownerSession;
       const sharedSessionIds = note.sharedSessionIds ?? [];
       const isOwnedByCurrentSession = resolvedOwnerSession.sessionId === currentSessionId;
-      const isSharedWithCurrentSession =
-        isOwnedByCurrentSession || sharedSessionIds.includes(currentSessionId);
+      const isSharedWithCurrentSession = sharedNoteIdsInCurrentSession
+        ? sharedNoteIdsInCurrentSession.has(note.id)
+        : sharedSessionIds.includes(currentSessionId);
 
       notes.set(note.id, {
         note: {

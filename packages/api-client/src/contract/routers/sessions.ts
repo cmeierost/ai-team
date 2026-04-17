@@ -9,6 +9,7 @@ import type {
   NoteAttachmentUpdateInput,
   MessageSessionLink,
   NoteMarkdownExportResult,
+  NoteSessionShare,
 } from '../shared-types.js';
 
 export interface ISessionsService {
@@ -77,6 +78,23 @@ export interface ISessionsService {
   ): Promise<Note>;
   exportNoteMarkdown(sessionId: string, noteId: string): Promise<NoteMarkdownExportResult>;
   deleteNote(sessionId: string, noteId: string): Promise<void>;
+  listNoteShares(sessionId: string): Promise<NoteSessionShare[]>;
+  linkNote(
+    sessionId: string,
+    noteId: string,
+    body: { anchorMessageId: number }
+  ): Promise<NoteSessionShare>;
+  unlinkNote(sessionId: string, noteId: string): Promise<void>;
+  compressContext(
+    sessionId: string,
+    body: {
+      toIndex: number;
+      mode?: 'selected' | 'visible';
+      selectedMarkdown?: string;
+      compactPercent?: number;
+      focusInstruction?: string;
+    }
+  ): Promise<{ note: Note; share: NoteSessionShare }>;
   listMessageLinks(sessionId: string): Promise<MessageSessionLink[]>;
   createMessageLink(sessionId: string, body: { messageId: number }): Promise<MessageSessionLink>;
   deleteMessageLink(sessionId: string, messageId: string): Promise<void>;
@@ -128,6 +146,10 @@ export const sessionsDesc: ApiDescription<ISessionsService> = {
     },
     exportNoteMarkdown: { method: 'POST', path: ':sessionId/notes/:noteId/export-markdown' },
     deleteNote: { method: 'DELETE', path: ':sessionId/notes/:noteId', resultType: 'NONE' },
+    listNoteShares: { method: 'GET', path: ':sessionId/note-shares' },
+    linkNote: { method: 'POST', path: ':sessionId/notes/:noteId/link' },
+    unlinkNote: { method: 'DELETE', path: ':sessionId/notes/:noteId/link', resultType: 'NONE' },
+    compressContext: { method: 'POST', path: ':sessionId/compress-context' },
     listMessageLinks: { method: 'GET', path: ':sessionId/message-links' },
     createMessageLink: { method: 'POST', path: ':sessionId/message-links' },
     deleteMessageLink: {

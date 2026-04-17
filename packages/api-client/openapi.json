@@ -4520,6 +4520,209 @@
         }
       }
     },
+    "/api/sessions/{sessionId}/note-shares": {
+      "get": {
+        "operationId": "listNoteShares",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NoteSessionShare"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/sessions/{sessionId}/notes/{noteId}/link": {
+      "post": {
+        "operationId": "linkNote",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "noteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "anchorMessageId": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "anchorMessageId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteSessionShare"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "unlinkNote",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "noteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/api/sessions/{sessionId}/compress-context": {
+      "post": {
+        "operationId": "compressContext",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "toIndex": {
+                    "type": "number"
+                  },
+                  "mode": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "selectedMarkdown": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "compactPercent": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "focusInstruction": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                },
+                "required": [
+                  "toIndex"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "note": {
+                      "$ref": "#/components/schemas/Note"
+                    },
+                    "share": {
+                      "$ref": "#/components/schemas/NoteSessionShare"
+                    }
+                  },
+                  "required": [
+                    "note",
+                    "share"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
     "/api/sessions/{sessionId}/message-links": {
       "get": {
         "operationId": "listMessageLinks",
@@ -9894,6 +10097,54 @@
         },
         "required": [
           "markdownPath"
+        ]
+      },
+      "NoteSessionShare": {
+        "type": "object",
+        "properties": {
+          "noteId": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "anchorMessageId": {
+            "type": "number",
+            "nullable": true
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "fromMessageId": {
+            "type": "number",
+            "nullable": true
+          },
+          "toMessageId": {
+            "type": "number",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "noteId",
+          "sessionId",
+          "active",
+          "createdAt"
         ]
       },
       "MessageSessionLink": {

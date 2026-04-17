@@ -19,6 +19,8 @@ import type {
   SessionDeleteImpact,
   SessionDeleteOptions,
   SessionSkill,
+  NoteSessionShare,
+  NoteSessionShareKind,
 } from './storage/contracts.js';
 
 export interface SessionThreadGraphSession {
@@ -1716,6 +1718,14 @@ ${summary}
     }
   }
 
+  async generateNoteTitleForNoteAsync(
+    noteId: string,
+    llmService: any,
+    focusInstruction?: string
+  ): Promise<Note | null> {
+    return this.generateNoteTitleAsync(noteId, llmService, undefined, focusInstruction);
+  }
+
   private async generateNoteTitleAsync(
     noteId: string,
     llmService: any,
@@ -1843,5 +1853,34 @@ ${summary}
     focusInstruction?: string
   ): Promise<string> {
     return this.summarizeHierarchicalAsync(llmService, sourceText, maxWords, focusInstruction);
+  }
+
+  async listNoteSessionSharesAsync(sessionId: string): Promise<NoteSessionShare[]> {
+    try {
+      return await this.storage.listNoteSessionSharesBySessionAsync(sessionId);
+    } catch {
+      return [];
+    }
+  }
+
+  async setNoteAnchorAsync(
+    sessionId: string,
+    noteId: string,
+    anchorMessageId: number,
+    kind: NoteSessionShareKind,
+    fromMessageId?: number,
+    toMessageId?: number
+  ): Promise<void> {
+    await this.storage.updateNoteSessionShareAsync(noteId, sessionId, {
+      anchorMessageId,
+      kind,
+      active: true,
+      fromMessageId: fromMessageId ?? null,
+      toMessageId: toMessageId ?? null,
+    });
+  }
+
+  async deactivateNoteShareAsync(sessionId: string, noteId: string): Promise<void> {
+    await this.storage.updateNoteSessionShareAsync(noteId, sessionId, { active: false });
   }
 }

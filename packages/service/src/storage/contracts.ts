@@ -42,6 +42,27 @@ export interface RetainedNoteAttachmentInput {
 
 export type NoteAttachmentUpdateInput = NoteAttachmentInput | RetainedNoteAttachmentInput;
 
+export type NoteSessionShareKind = 'compression' | 'linked';
+
+export interface NoteSessionShare {
+  noteId: string;
+  sessionId: string;
+  anchorMessageId?: number;
+  kind?: NoteSessionShareKind;
+  active: boolean;
+  fromMessageId?: number;
+  toMessageId?: number;
+  createdAt: string;
+}
+
+export interface NoteSessionShareUpdateInput {
+  anchorMessageId?: number | null;
+  kind?: NoteSessionShareKind | null;
+  active?: boolean;
+  fromMessageId?: number | null;
+  toMessageId?: number | null;
+}
+
 export interface Note {
   id: string; // Auto-generated ID
   agentId: string; // Agent this note belongs to (e.g., 'architect-agent')
@@ -397,6 +418,23 @@ export interface IMessageStorage {
    * @param agentId Optional: limit search to specific agent
    */
   searchNotes(query: string, agentId?: string): Promise<Note[]>;
+
+  // ========== Note ↔ Session Shares ==========
+
+  /**
+   * List all note-session share rows for a session, including anchor metadata.
+   */
+  listNoteSessionSharesBySessionAsync(sessionId: string): Promise<NoteSessionShare[]>;
+
+  /**
+   * Upsert anchor/kind/active metadata on a note_session_shares row.
+   * Creates the share row if it does not already exist.
+   */
+  updateNoteSessionShareAsync(
+    noteId: string,
+    sessionId: string,
+    updates: NoteSessionShareUpdateInput
+  ): Promise<void>;
 
   // ========== Message ↔ Session Links ==========
 

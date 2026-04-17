@@ -22,6 +22,7 @@ export function ChatPanel() {
       loading={controller.loading}
       sending={controller.sending}
       streaming={controller.streaming}
+      compressionInProgress={controller.compressionInProgress}
       pendingQuestion={controller.pendingQuestion}
       pendingInputAnswer={controller.pendingInputAnswer}
       pendingPasswordAnswer={controller.pendingPasswordAnswer}
@@ -55,6 +56,9 @@ export function ChatPanel() {
       onScrollMessages={controller.handleScroll}
       onSummarize={controller.handleSummarize}
       onSplitSession={controller.handleSplitSession}
+      onLinkNote={controller.handleLinkNote}
+      onUnlinkNote={controller.handleUnlinkNote}
+      noteSharesByMessageIndex={controller.noteSharesByMessageIndex}
       onEditContentChange={controller.setEditContent}
       onEditMessage={controller.handleEditMessage}
       onCancelEdit={controller.handleCancelEdit}

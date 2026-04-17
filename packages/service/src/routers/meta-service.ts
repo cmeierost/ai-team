@@ -340,10 +340,10 @@ export class MetaService implements IContextService {
       });
   }
 
-  private getNoteContentForEstimate(note: {
-    content?: string;
-    compactedContent?: string;
-  }): { content: string; source: 'compacted' | 'content' } {
+  private getNoteContentForEstimate(note: { content?: string; compactedContent?: string }): {
+    content: string;
+    source: 'compacted' | 'content';
+  } {
     const compacted = note.compactedContent?.trim();
     if (compacted) {
       return {
@@ -364,24 +364,40 @@ export class MetaService implements IContextService {
       return [];
     }
 
+    // Load anchor/active metadata from note_session_shares for this session
+    const shares = await this.sessionManager.listNoteSessionSharesAsync(sessionId);
+    const activeShareByNoteId = new Map(shares.filter((s) => s.active).map((s) => [s.noteId, s]));
+
     const allAgents = await this.agentManager.getAllAgentsAsync();
 
-    const notesById = new Map<
-      string,
-      {
-        note: ContextEstimateNote;
-        updatedAt: string;
-      }
-    >();
+    const noteEntries: Array<{
+      note: ContextEstimateNote;
+      updatedAt: string;
+      anchorMessageId: number | undefined;
+    }> = [];
+
+    const seenNoteIds = new Set<string>();
 
     for (const agent of allAgents) {
       const sessionNotes = await this.sessionManager.listAgentNotes(agent.id);
       for (const note of sessionNotes) {
-        const ownerSessionId = note.sessionId;
-        const isVisibleToCurrentSession =
-          ownerSessionId === sessionId || (note.sharedSessionIds ?? []).includes(sessionId);
+        if (seenNoteIds.has(note.id)) continue;
 
+        const ownerSessionId = note.sessionId;
+        const isOwned = ownerSessionId === sessionId;
+        const isShared = (note.sharedSessionIds ?? []).includes(sessionId);
+        const hasActiveShare = activeShareByNoteId.has(note.id);
+
+        // A note is visible if it's owned/shared AND not hidden from LLM.
+        // For anchored compression/linked notes the active flag governs inclusion.
+        const isVisibleToCurrentSession = isOwned || isShared || hasActiveShare;
         if (!isVisibleToCurrentSession || note.hiddenFromLlm === true) {
+          continue;
+        }
+
+        // If the note has a share row for this session, respect the active flag
+        const share = activeShareByNoteId.get(note.id);
+        if (share === undefined && !isOwned && !isShared) {
           continue;
         }
 
@@ -390,7 +406,8 @@ export class MetaService implements IContextService {
           continue;
         }
 
-        notesById.set(note.id, {
+        seenNoteIds.add(note.id);
+        noteEntries.push({
           note: {
             id: note.id,
             title: note.title?.trim() || 'Untitled note',
@@ -400,16 +417,22 @@ export class MetaService implements IContextService {
             source,
           },
           updatedAt: note.updatedAt,
+          anchorMessageId: share?.anchorMessageId,
         });
       }
     }
 
-    return Array.from(notesById.values())
+    // Sort: anchored notes by anchorMessageId ASC (null/undefined last), then by updatedAt DESC
+    return noteEntries
       .sort((left, right) => {
-        const updatedDiff = new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-        if (updatedDiff !== 0) {
-          return updatedDiff;
-        }
+        const la = left.anchorMessageId;
+        const ra = right.anchorMessageId;
+        if (la != null && ra != null) return la - ra;
+        if (la != null) return -1;
+        if (ra != null) return 1;
+        const updatedDiff =
+          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+        if (updatedDiff !== 0) return updatedDiff;
         return left.note.id.localeCompare(right.note.id);
       })
       .map((entry) => entry.note);

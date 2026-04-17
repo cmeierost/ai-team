@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTeam } from '../context/TeamContext';
 import { buildThreadContextNotes, type ContextPanelNoteItem } from '../utils/contextPanel';
 import type { Note, SessionThread } from '../types';
+import type { NoteSessionShare } from '@ai-team/api-client';
 import { contextPanelQueryKeys } from './contextPanelQueryKeys';
 
 function getErrorMessage(error: unknown, fallback: string): string | null {
@@ -29,7 +30,17 @@ export function useThreadNotes(sessionId?: string) {
         })
       );
 
-      return buildThreadContextNotes(thread, Object.fromEntries(notesBySessionEntries), sessionId!);
+      const currentSessionShares = (await client.sessions.listNoteShares(
+        sessionId!
+      )) as NoteSessionShare[];
+      const activeSharedNoteIds = new Set(currentSessionShares.map((share) => share.noteId));
+
+      return buildThreadContextNotes(
+        thread,
+        Object.fromEntries(notesBySessionEntries),
+        sessionId!,
+        activeSharedNoteIds
+      );
     },
     enabled: Boolean(sessionId),
   });
@@ -60,14 +71,58 @@ export function useThreadNotes(sessionId?: string) {
     },
   });
 
+  const toggleNoteHiddenMutation = useMutation({
+    mutationFn: async ({
+      noteItem,
+      hidden,
+    }: {
+      noteItem: ContextPanelNoteItem;
+      hidden: boolean;
+    }) => {
+      return (await client.sessions.updateNote(noteItem.ownerSession.sessionId, noteItem.note.id, {
+        hiddenFromLlm: hidden,
+      })) as Note;
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['context-panel', 'notes'] }),
+        sessionId
+          ? queryClient.invalidateQueries({
+              queryKey: contextPanelQueryKeys.threadNotes(sessionId),
+            })
+          : Promise.resolve(),
+      ]);
+    },
+  });
+
+  const deleteNoteMutation = useMutation({
+    mutationFn: async (noteItem: ContextPanelNoteItem) => {
+      return client.sessions.deleteNote(noteItem.ownerSession.sessionId, noteItem.note.id);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['context-panel', 'notes'] }),
+        sessionId
+          ? queryClient.invalidateQueries({
+              queryKey: contextPanelQueryKeys.threadNotes(sessionId),
+            })
+          : Promise.resolve(),
+      ]);
+    },
+  });
+
   return {
     notes: notesQuery.data ?? [],
     notesLoading: notesQuery.isLoading,
     notesError:
       getErrorMessage(notesQuery.error, 'Failed to load thread notes') ??
-      getErrorMessage(shareNoteMutation.error, 'Failed to share note with this session'),
+      getErrorMessage(shareNoteMutation.error, 'Failed to share note with this session') ??
+      getErrorMessage(deleteNoteMutation.error, 'Failed to delete note'),
     shareNoteToSession: shareNoteMutation.mutateAsync,
     sharingNoteId: shareNoteMutation.variables?.note.id ?? null,
     sharingNote: shareNoteMutation.isPending,
+    toggleNoteHiddenFromLlm: toggleNoteHiddenMutation.mutateAsync,
+    deleteNoteFromThread: deleteNoteMutation.mutateAsync,
+    deletingNoteId: deleteNoteMutation.variables?.note.id ?? null,
   };
 }

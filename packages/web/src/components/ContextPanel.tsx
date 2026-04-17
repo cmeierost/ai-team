@@ -37,7 +37,10 @@ function buildDeleteConfirmationMessage(
 
   if (unsharedTitles.length > 0) {
     const unsharedSuffix = unsharedTitles.length === 1 ? '' : 's';
-    const preview = unsharedTitles.slice(0, 3).map((title) => `- ${title}`).join('\n');
+    const preview = unsharedTitles
+      .slice(0, 3)
+      .map((title) => `- ${title}`)
+      .join('\n');
     let unsharedMessage = `${unsharedTitles.length} unshared note${unsharedSuffix} will be deleted if you continue.`;
     if (preview) {
       unsharedMessage += `\n${preview}`;
@@ -91,7 +94,15 @@ export function ContextPanel({
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { sessions, deleteSession: removeSession, getDeleteImpact } = useSessionsForAgent(agentId);
-  const { notes, notesLoading, shareNoteToSession, sharingNoteId } = useThreadNotes(sessionId);
+  const {
+    notes,
+    notesLoading,
+    shareNoteToSession,
+    sharingNoteId,
+    toggleNoteHiddenFromLlm,
+    deleteNoteFromThread,
+    deletingNoteId,
+  } = useThreadNotes(sessionId);
   const tasksQuery = useTasksForAgent(agentId);
   const { skillEntries, skillsLoading, skillsError, skillActionPending, toggleSkill } =
     useSkillsForAgent(agentId);
@@ -143,7 +154,9 @@ export function ContextPanel({
     try {
       const impact = await getDeleteImpact(sessionIdToDelete);
       const transferableCount = impact.transferableNotes.length;
-      const unsharedTitles = impact.unsharedOwnedNotes.map((note) => formatOwnedNoteLabel(note.title));
+      const unsharedTitles = impact.unsharedOwnedNotes.map((note) =>
+        formatOwnedNoteLabel(note.title)
+      );
       const confirmationMessage = buildDeleteConfirmationMessage(transferableCount, unsharedTitles);
 
       if (!globalThis.confirm(confirmationMessage)) {
@@ -234,6 +247,7 @@ export function ContextPanel({
         notes={notes}
         notesLoading={notesLoading}
         sharingNoteId={sharingNoteId}
+        deletingNoteId={deletingNoteId}
         hasSession={hasSession}
         skillsLoading={skillsLoading}
         skillsError={skillsError}
@@ -243,7 +257,21 @@ export function ContextPanel({
         onSelectNote={(note) => {
           void handleSelectNote(note);
         }}
+        onDeleteNote={(noteItem) => {
+          const label = noteItem.note.title?.trim() || 'this note';
+          if (!globalThis.confirm(`Delete "${label}"?`)) {
+            return;
+          }
+          deleteNoteFromThread(noteItem).catch((error) => {
+            console.error('Failed to delete note:', error);
+          });
+        }}
         onNewNote={() => onNewNote?.()}
+        onToggleNoteHidden={(noteItem, hidden) => {
+          toggleNoteHiddenFromLlm({ noteItem, hidden }).catch((error) => {
+            console.error('Failed to toggle note visibility:', error);
+          });
+        }}
         onToggleSkill={(skillName, assigned) => {
           toggleSkill(skillName, assigned).catch((error) => {
             console.error('Failed to update skill assignment:', error);

@@ -755,9 +755,24 @@ body.context-panel-resizing {
   gap: 6px;
 }
 
+.context-note-list-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.context-note-list-row.is-pinned {
+  position: relative;
+}
+
+.context-note-list-row.is-unpinned .context-note-list-item {
+  border-style: dashed;
+}
+
 .context-note-list-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
@@ -770,9 +785,39 @@ body.context-panel-resizing {
   text-align: left;
 }
 
+.context-note-owner-avatar {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.context-note-owner-avatar .avatar {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.context-note-list-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.context-note-pin-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.context-note-pin-icon.is-pinned {
+  color: #8ecfa4;
+}
+
+.context-note-pin-icon.is-unpinned {
+  color: #777;
+}
+
 .context-note-list-item.is-muted {
   opacity: 0.68;
-  border-style: dashed;
 }
 
 .context-note-list-item:hover,
@@ -782,6 +827,7 @@ body.context-panel-resizing {
 }
 
 .context-note-list-copy {
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -789,9 +835,14 @@ body.context-panel-resizing {
 }
 
 .context-note-list-title {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.25;
 }
 
 .context-note-list-subtitle {
@@ -807,6 +858,9 @@ body.context-panel-resizing {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  max-width: 92px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .context-note-list-badge {
@@ -822,6 +876,48 @@ body.context-panel-resizing {
 
 .context-note-list-badge--shared {
   color: #8fc4ff;
+}
+
+.context-note-list-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.context-note-row-action {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #3e3e42;
+  background: #1f1f21;
+  color: #aeb4bf;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.context-note-row-action:hover:not(:disabled) {
+  border-color: #5a5f69;
+  color: #d0d5de;
+  background: #25272b;
+}
+
+.context-note-eye-toggle {
+  color: #8fc4ff;
+}
+
+.context-note-delete-toggle {
+  color: #ef9a9a;
+}
+
+.context-note-row-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .context-note-editor {

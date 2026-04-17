@@ -29,6 +29,7 @@ export interface ContextPanelViewProps {
   notes: ContextPanelNoteItem[];
   notesLoading: boolean;
   sharingNoteId?: string | null;
+  deletingNoteId?: string | null;
   hasSession: boolean;
   skillsLoading: boolean;
   skillsError: string | null;
@@ -36,7 +37,9 @@ export interface ContextPanelViewProps {
   expandedSection: ContextSection | null;
   onToggleSection: (section: ContextSection) => void;
   onSelectNote: (note: ContextPanelNoteItem) => void;
+  onDeleteNote?: (note: ContextPanelNoteItem) => void;
   onNewNote: () => void;
+  onToggleNoteHidden?: (note: ContextPanelNoteItem, hidden: boolean) => void;
   onToggleSkill: (skillName: string, assigned: boolean) => void;
   onSwitchSession?: (sessionId: string) => void;
   onDeleteSession: (event: MouseEvent, sessionId: string) => void;
@@ -57,6 +60,7 @@ export function ContextPanelView({
   notes,
   notesLoading,
   sharingNoteId,
+  deletingNoteId,
   hasSession,
   skillsLoading,
   skillsError,
@@ -64,7 +68,9 @@ export function ContextPanelView({
   expandedSection,
   onToggleSection,
   onSelectNote,
+  onDeleteNote,
   onNewNote,
+  onToggleNoteHidden,
   onToggleSkill,
   onSwitchSession,
   onDeleteSession,
@@ -102,9 +108,12 @@ export function ContextPanelView({
           hasSession={hasSession}
           notesLoading={notesLoading}
           sharingNoteId={sharingNoteId}
+          deletingNoteId={deletingNoteId}
           expandedSection={expandedSection}
           onToggleSection={onToggleSection}
           onSelectNote={onSelectNote}
+          onDeleteNote={onDeleteNote}
+          onToggleNoteHidden={onToggleNoteHidden}
           onNewNote={onNewNote}
         />
 

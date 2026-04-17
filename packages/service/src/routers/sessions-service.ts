@@ -6,7 +6,12 @@ import type {
 } from '@ai-team/api-client';
 import type { AgentManager, LlmService } from '@ai-team/infrastructure';
 import type { SessionManager } from '../session-manager.js';
-import type { MessageSessionLink, Note, SessionDeleteImpact } from '../storage/contracts.js';
+import type {
+  MessageSessionLink,
+  Note,
+  SessionDeleteImpact,
+  NoteSessionShare,
+} from '../storage/contracts.js';
 import { BadRequestError, NotFoundError } from '../http-errors.js';
 
 // ── Session meta helpers ──────────────────────────────────────────────────────
@@ -343,6 +348,148 @@ export class SessionsService implements ISessionsService {
     const note = await this.sessionManager.getNote(noteId);
     if (note?.sessionId !== sessionId) throw new NotFoundError('Note not found');
     await this.sessionManager.deleteNote(noteId);
+  }
+
+  async listNoteShares(sessionId: string): Promise<NoteSessionShare[]> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    return this.sessionManager.listNoteSessionSharesAsync(sessionId);
+  }
+
+  async linkNote(
+    sessionId: string,
+    noteId: string,
+    body: { anchorMessageId: number }
+  ): Promise<NoteSessionShare> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    if (typeof body?.anchorMessageId !== 'number')
+      throw new BadRequestError('anchorMessageId is required');
+    await this.sessionManager.setNoteAnchorAsync(sessionId, noteId, body.anchorMessageId, 'linked');
+    const shares = await this.sessionManager.listNoteSessionSharesAsync(sessionId);
+    const share = shares.find((s) => s.noteId === noteId);
+    if (!share) throw new NotFoundError('Share not found');
+    return share;
+  }
+
+  async unlinkNote(sessionId: string, noteId: string): Promise<void> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    await this.sessionManager.deactivateNoteShareAsync(sessionId, noteId);
+  }
+
+  async compressContext(
+    sessionId: string,
+    body: {
+      toIndex: number;
+      mode?: 'selected' | 'visible';
+      selectedMarkdown?: string;
+      compactPercent?: number;
+      focusInstruction?: string;
+    }
+  ): Promise<{ note: Note; share: NoteSessionShare }> {
+    const existing = await this.sessionManager.getSession(sessionId);
+    if (!existing) throw new NotFoundError('Session not found');
+    if (typeof body?.toIndex !== 'number') throw new BadRequestError('toIndex is required');
+    await this.llmService.ensureInitialized();
+
+    const allMessages = await this.sessionManager.listSessionMessages(sessionId);
+    // Messages up to and including toIndex
+    const boundedMessages = allMessages.slice(0, body.toIndex + 1);
+
+    // Build source text
+    let sourceText: string;
+    if (body.mode === 'selected' && body.selectedMarkdown?.trim()) {
+      sourceText = body.selectedMarkdown.trim();
+    } else {
+      const visibleMessages = boundedMessages.filter(
+        (m) => !(m as any).archived && (m as any).hiddenFromLlm !== true
+      );
+      // If everything in the selected range is currently hidden from LLM,
+      // still allow compression by using non-archived bounded messages.
+      const sourceMessages =
+        visibleMessages.length > 0
+          ? visibleMessages
+          : boundedMessages.filter((m) => !(m as any).archived);
+      if (sourceMessages.length === 0) throw new BadRequestError('No messages to compress');
+      sourceText = sourceMessages
+        .map((m) => {
+          const role = (m as any).role ?? ((m as any).isHuman ? 'user' : 'assistant');
+          const content =
+            typeof (m as any).content === 'string'
+              ? (m as any).content
+              : JSON.stringify((m as any).content ?? '');
+          return `[${role}]: ${content}`;
+        })
+        .join('\n\n');
+    }
+
+    const sourceWordCount = sourceText
+      .replaceAll(/\s+/g, ' ')
+      .trim()
+      .split(' ')
+      .filter(Boolean).length;
+    const requestedCompactPercent =
+      typeof body?.compactPercent === 'number' ? Math.floor(body.compactPercent) : 35;
+    const clampedCompactPercent = Math.max(10, Math.min(90, requestedCompactPercent));
+    const byPercent = Math.max(1, Math.round((sourceWordCount * clampedCompactPercent) / 100));
+    const boundedByRaw = sourceWordCount > 1 ? Math.min(byPercent, sourceWordCount - 1) : byPercent;
+    const maxWords = Math.max(1, Math.min(500, boundedByRaw));
+
+    // Summarize via LLM
+    const summary = await this.sessionManager.summarizeForContextAsync(
+      this.llmService,
+      sourceText,
+      maxWords,
+      body?.focusInstruction
+    );
+
+    // Create note with summary
+    const agentId = (existing as any).agentId ?? (existing as any).agent_id ?? 'unknown';
+    const note = await this.sessionManager.createNote({
+      agentId,
+      sessionId,
+      title: 'Context summary',
+      content: summary,
+    });
+
+    const titledNote = await this.sessionManager.generateNoteTitleForNoteAsync(
+      note.id,
+      this.llmService,
+      body?.focusInstruction
+    );
+    const finalNote = titledNote ?? note;
+
+    // Anchor to the message at toIndex
+    const anchorMessage = boundedMessages[boundedMessages.length - 1];
+    const anchorMessageId = (anchorMessage as any).id as number | undefined;
+    if (!anchorMessageId) throw new BadRequestError('Could not determine anchor message id');
+
+    const fromMessage = boundedMessages[0];
+    const fromMessageId = (fromMessage as any).id as number | undefined;
+
+    await this.sessionManager.setNoteAnchorAsync(
+      sessionId,
+      note.id,
+      anchorMessageId,
+      'compression',
+      fromMessageId,
+      anchorMessageId
+    );
+
+    // Hide all bounded messages from LLM
+    await Promise.all(
+      boundedMessages.map((m) =>
+        (m as any).id != null
+          ? this.sessionManager.setMessageHiddenFromLlm((m as any).id as number, true)
+          : Promise.resolve(false)
+      )
+    );
+
+    const shares = await this.sessionManager.listNoteSessionSharesAsync(sessionId);
+    const share = shares.find((s) => s.noteId === finalNote.id);
+    if (!share) throw new NotFoundError('Share not found after creation');
+    return { note: finalNote, share };
   }
 
   async listMessageLinks(sessionId: string): Promise<MessageSessionLink[]> {

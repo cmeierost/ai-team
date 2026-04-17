@@ -6,22 +6,23 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMatch, useNavigate, useParams } from 'react-router-dom';
 import { useTeam } from '../../context/TeamContext';
 import { contextPanelQueryKeys } from '../../hooks/contextPanelQueryKeys';
-import type { ChatMessage, SessionActivatedTool } from '../../types';
+import type { ChatMessage, SessionActivatedTool, SessionThread } from '../../types';
 import type {
   AgentToolPermissionEntry,
   IdeEditSession,
   ChatCommandRegistryEntry,
+  Note,
+  NoteSessionShare,
 } from '@ai-team/api-client';
 import { useSlashCommandSuggestions } from '../../hooks/useSlashCommandSuggestions';
 import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
 import { pickVoice, stripMarkdownForSpeech } from '../../utils/agentVoice';
 import {
   backfillActivatedToolRequests,
-  buildSummaryMarkdown,
   extractSessionActivatedTools,
   reconstructActivatedToolsFromMessages,
   findMatchingMessage,
@@ -58,6 +59,13 @@ interface CancelToken {
   value: boolean;
 }
 
+interface ThreadNoteLookupEntry {
+  title: string;
+  sizeLabel: string;
+  sessionId: string;
+  agentId: string;
+}
+
 const GREETING_DEDUPE_WINDOW_MS = 2000;
 
 export async function awaitUnlessCancelled<T>(
@@ -89,6 +97,19 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatNoteSizeLabel(note: Note): string {
+  const contentBytes = new Blob([note.content ?? '']).size;
+  const legacyAttachmentBytes = note.attachment?.sizeBytes ?? 0;
+  const attachmentsBytes = (note.attachments ?? []).reduce(
+    (sum, attachment) => sum + attachment.sizeBytes,
+    0
+  );
+  const totalBytes = contentBytes + attachmentsBytes + legacyAttachmentBytes;
+  const totalKb = totalBytes / 1024;
+  const normalizedKb = totalKb >= 10 ? totalKb.toFixed(0) : totalKb.toFixed(1);
+  return `${normalizedKb} KB`;
+}
+
 interface UseChatPanelControllerResult {
   routeAgentId?: string;
   currentAgentId: string;
@@ -99,6 +120,7 @@ interface UseChatPanelControllerResult {
   loading: boolean;
   sending: boolean;
   streaming: boolean;
+  compressionInProgress: boolean;
   messages: ChatMessage[];
   input: string;
   editingIndex: number | null;
@@ -139,7 +161,13 @@ interface UseChatPanelControllerResult {
     handoffId?: string
   ) => void;
   handleScroll: () => void;
-  handleSummarize: (toIndex: number) => Promise<void>;
+  handleSummarize: (
+    toIndex: number,
+    options?: { compactPercent?: number; focusInstruction?: string }
+  ) => Promise<void>;
+  handleLinkNote: (messageIndex: number, noteId: string) => Promise<void>;
+  handleUnlinkNote: (messageIndex: number, noteId: string) => Promise<void>;
+  noteSharesByMessageIndex: Record<number, Array<{ noteId: string; label: string }>>;
   handleSplitSession: (atIndex: number) => Promise<void>;
   setEditContent: (value: string) => void;
   handleEditMessage: (index: number) => Promise<void>;
@@ -214,11 +242,47 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  const [compressionInProgress, setCompressionInProgress] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentAgentId, setCurrentAgentId] = useState(agentId || '');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+
+  const noteSharesQuery = useQuery<NoteSessionShare[]>({
+    queryKey: ['noteShares', currentSessionId],
+    queryFn: () => client.sessions.listNoteShares(currentSessionId!) as Promise<NoteSessionShare[]>,
+    enabled: Boolean(currentSessionId),
+  });
+  const threadNoteLookupQuery = useQuery<Record<string, ThreadNoteLookupEntry>>({
+    queryKey: ['threadNoteLookup', currentSessionId],
+    queryFn: async () => {
+      const lookup: Record<string, ThreadNoteLookupEntry> = {};
+      const thread = (await client.sessions.getThread(currentSessionId!)) as SessionThread;
+      const notesBySession = await Promise.all(
+        thread.sessions.map(async (session) => {
+          const notes = await client.sessions.listNotes(session.sessionId);
+          return [session.sessionId, session.agentIds[0] ?? currentAgentId, notes] as const;
+        })
+      );
+
+      for (const [sessionId, fallbackAgentId, notes] of notesBySession) {
+        for (const note of notes) {
+          const title = note.title?.trim() || note.attachment?.fileName || note.id;
+          const ownerSessionId = note.sessionId ?? sessionId;
+          lookup[note.id] = {
+            title,
+            sizeLabel: formatNoteSizeLabel(note),
+            sessionId: ownerSessionId,
+            agentId: note.agentId || fallbackAgentId,
+          };
+        }
+      }
+
+      return lookup;
+    },
+    enabled: Boolean(currentSessionId),
+  });
   const [currentSessionTitle, setCurrentSessionTitle] = useState<string | null>(null);
   const [artifactsInContext, setArtifactsInContext] = useState<string[]>([]);
   const [toolEntries, setToolEntries] = useState<AgentToolPermissionEntry[]>([]);
@@ -1515,31 +1579,77 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     }
   };
 
-  const handleSummarize = async (toIndex: number) => {
+  const handleLinkNote = async (messageIndex: number, noteId: string) => {
+    if (!currentSessionId) return;
+    try {
+      const targetMessageId = (messages[messageIndex] as { id?: unknown } | undefined)?.id;
+      if (typeof targetMessageId !== 'number') {
+        console.warn('Cannot link note: missing numeric message id for index', messageIndex);
+        return;
+      }
+      await client.sessions.linkNote(currentSessionId, noteId, {
+        anchorMessageId: targetMessageId,
+      });
+      await queryClient.invalidateQueries({ queryKey: ['noteShares', currentSessionId] });
+    } catch (error) {
+      console.error('Failed to link note:', error);
+    }
+  };
+
+  const handleUnlinkNote = async (messageIndex: number, noteId: string) => {
+    if (!currentSessionId) return;
+    try {
+      await client.sessions.unlinkNote(currentSessionId, noteId);
+      await queryClient.invalidateQueries({ queryKey: ['noteShares', currentSessionId] });
+    } catch (error) {
+      console.error('Failed to unlink note:', error);
+    }
+  };
+
+  const handleSummarize = async (
+    toIndex: number,
+    options?: { compactPercent?: number; focusInstruction?: string }
+  ) => {
+    setCompressionInProgress(true);
     try {
       if (!currentSessionId) {
         globalThis.alert('No active session. Please start a chat first.');
         return;
       }
-      const title = globalThis.prompt('Enter a title for this brief:');
-      if (!title) {
-        return;
-      }
-      const summary = buildSummaryMarkdown(
-        messages.slice(0, toIndex + 1),
-        developer?.name || undefined
-      );
-      await client.sessions.summarize(currentSessionId, {
-        fromIndex: 0,
+
+      const mode = selectedMessageGroups.length > 0 ? 'selected' : 'visible';
+      const selectedMarkdown =
+        mode === 'selected' ? selectedMessageGroups.map((g) => g.markdown).join('\n\n') : undefined;
+
+      await client.sessions.compressContext(currentSessionId, {
         toIndex,
-        title,
-        summary,
-        developerId: developer?.id || 'clemens-meier',
+        mode,
+        selectedMarkdown,
+        ...(typeof options?.compactPercent === 'number'
+          ? { compactPercent: options.compactPercent }
+          : {}),
+        ...(options?.focusInstruction?.trim()
+          ? { focusInstruction: options.focusInstruction.trim() }
+          : {}),
       });
-      globalThis.alert(`Brief "${title}" created successfully!`);
+
+      setSelectedMessageGroups([]);
+
+      if (currentSessionId) {
+        await queryClient.invalidateQueries({ queryKey: ['sessionNotes', currentSessionId] });
+        await queryClient.invalidateQueries({ queryKey: ['noteShares', currentSessionId] });
+        await syncSessionState(currentSessionId, currentAgentId);
+        await queryClient.invalidateQueries({
+          queryKey: contextPanelQueryKeys.contextEstimate(currentAgentId, currentSessionId),
+        });
+        await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
+      }
     } catch (error) {
-      console.error('Failed to create summary:', error);
-      globalThis.alert('Failed to create brief. Check the console for details.');
+      console.error('Failed to compress context:', error);
+      const rawMessage = error instanceof Error ? error.message : String(error ?? '');
+      globalThis.alert(normalizeChatErrorMessage(rawMessage) || 'Failed to compress context.');
+    } finally {
+      setCompressionInProgress(false);
     }
   };
 
@@ -1739,8 +1849,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   };
 
   const handleOpenNote = (noteId: string, options?: { sessionId?: string; agentId?: string }) => {
-    const targetSessionId = options?.sessionId ?? currentSessionId;
-    const targetAgentId = options?.agentId ?? currentAgentId;
+    const inferredTarget = threadNoteLookupQuery.data?.[noteId];
+    const targetSessionId = options?.sessionId ?? inferredTarget?.sessionId ?? currentSessionId;
+    const targetAgentId = options?.agentId ?? inferredTarget?.agentId ?? currentAgentId;
     if (!targetSessionId) return;
     navigate(`/chat/${targetAgentId}/session/${targetSessionId}/note/${noteId}`);
   };
@@ -1886,6 +1997,37 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     );
   };
 
+  const messageIndexById = new Map<number, number>();
+  messages.forEach((message, index) => {
+    const messageId = (message as { id?: unknown }).id;
+    if (typeof messageId === 'number') {
+      messageIndexById.set(messageId, index);
+    }
+  });
+
+  const noteSharesByMessageIndex = (noteSharesQuery.data ?? [])
+    .filter((share) => share.active && share.anchorMessageId != null)
+    .reduce<Record<number, Array<{ noteId: string; label: string }>>>((accumulator, share) => {
+      const anchorMessageId = share.anchorMessageId;
+      if (anchorMessageId == null) {
+        return accumulator;
+      }
+
+      const messageIndex = messageIndexById.get(anchorMessageId);
+      if (typeof messageIndex !== 'number') {
+        return accumulator;
+      }
+      const noteMeta = threadNoteLookupQuery.data?.[share.noteId];
+      const baseLabel = noteMeta?.title ?? share.noteId;
+      const label = share.kind === 'compression' ? `summarized context - ${baseLabel}` : baseLabel;
+      const labelWithSize = noteMeta?.sizeLabel ? `${label} · ${noteMeta.sizeLabel}` : label;
+      const existing = accumulator[messageIndex] ?? [];
+      if (!existing.some((entry) => entry.noteId === share.noteId)) {
+        accumulator[messageIndex] = [...existing, { noteId: share.noteId, label: labelWithSize }];
+      }
+      return accumulator;
+    }, {});
+
   return {
     routeAgentId: agentId,
     currentAgentId,
@@ -1896,6 +2038,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     loading,
     sending,
     streaming,
+    compressionInProgress,
     messages,
     input,
     editingIndex,
@@ -1934,6 +2077,9 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     handleScroll,
     handleSummarize,
     handleSplitSession,
+    handleLinkNote,
+    handleUnlinkNote,
+    noteSharesByMessageIndex,
     setEditContent,
     handleEditMessage,
     handleCancelEdit,

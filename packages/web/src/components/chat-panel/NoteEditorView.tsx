@@ -18,6 +18,7 @@ interface NoteEditorViewProps {
   sessionId: string;
   agentId: string;
   onBack: () => void;
+  compressionInProgress?: boolean;
   /** Called with the real note ID after a new note is first saved, so the caller can update the URL. */
   onNoteCreated?: (noteId: string) => void;
 }
@@ -116,6 +117,7 @@ export function NoteEditorView({
   sessionId,
   agentId,
   onBack,
+  compressionInProgress,
   onNoteCreated,
 }: Readonly<NoteEditorViewProps>) {
   const {
@@ -369,6 +371,18 @@ export function NoteEditorView({
     }
   };
 
+  const saveDraftIfDirtyAsync = async (): Promise<void> => {
+    if (currentDraftSnapshot === lastAutosavedSnapshotRef.current) {
+      return;
+    }
+    await saveDraftAsync();
+  };
+
+  const handleBackAsync = async (): Promise<void> => {
+    await saveDraftIfDirtyAsync();
+    onBack();
+  };
+
   const handleDelete = async () => {
     if (!activeNoteId) return;
     const label = title.trim() || keptCurrentAttachments[0]?.fileName || 'this note';
@@ -569,7 +583,7 @@ export function NoteEditorView({
   return (
     <>
       <div className="graph-view-header">
-        <button className="graph-view-back" onClick={onBack}>
+        <button className="graph-view-back" onClick={() => void handleBackAsync()}>
           <i className="codicon codicon-arrow-left" /> Back to chat
         </button>
         <span className="graph-view-header-title">
@@ -579,10 +593,25 @@ export function NoteEditorView({
 
       <div className="note-editor-view">
         <div className="note-editor-body">
+          {compressionInProgress ? (
+            <div className="note-editor-streaming-status" role="status" aria-live="polite">
+              <i className="codicon codicon-note" aria-hidden="true" />
+              <span>Generating summary note…</span>
+              <span className="typing-indicator" aria-label="Summary is streaming">
+                <span />
+                <span />
+                <span />
+              </span>
+            </div>
+          ) : null}
+
           <input
             className="note-editor-title-input"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            onBlur={() => {
+              void saveDraftIfDirtyAsync();
+            }}
             placeholder="Note title (optional)"
           />
 
@@ -788,7 +817,10 @@ export function NoteEditorView({
                       />
                       {compactingNote ? 'Compacting…' : 'Compact note'}
                     </button>
-                    <label className="note-editor-inline-toggle" title="Generate a title from the summarized content">
+                    <label
+                      className="note-editor-inline-toggle"
+                      title="Generate a title from the summarized content"
+                    >
                       <input
                         type="checkbox"
                         checked={generateTitleOnSummarize}
@@ -852,7 +884,10 @@ export function NoteEditorView({
                       />
                       {crawlSummarizingWebsite ? 'Crawling…' : 'Crawl + Summarize'}
                     </button>
-                    <label className="note-editor-inline-toggle" title="Generate a title from the summarized content">
+                    <label
+                      className="note-editor-inline-toggle"
+                      title="Generate a title from the summarized content"
+                    >
                       <input
                         type="checkbox"
                         checked={generateTitleOnSummarize}

@@ -498,6 +498,20 @@ export const MIGRATIONS: Migration[] = [
         );
     `,
   },
+  {
+    version: 16,
+    name: 'extend_note_session_shares_anchor',
+    up: `
+      ALTER TABLE note_session_shares ADD COLUMN anchor_message_id INTEGER;
+      ALTER TABLE note_session_shares ADD COLUMN kind TEXT;
+      ALTER TABLE note_session_shares ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE note_session_shares ADD COLUMN from_message_id INTEGER;
+      ALTER TABLE note_session_shares ADD COLUMN to_message_id INTEGER;
+
+      CREATE INDEX IF NOT EXISTS idx_note_session_shares_anchor
+        ON note_session_shares(session_id, active, anchor_message_id);
+    `,
+  },
 ];
 
 /**

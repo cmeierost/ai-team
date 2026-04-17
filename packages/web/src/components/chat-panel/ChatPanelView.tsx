@@ -172,6 +172,7 @@ interface ChatPanelViewProps {
   loading: boolean;
   sending: boolean;
   streaming: boolean;
+  compressionInProgress: boolean;
   pendingQuestion: PendingQuestion | null;
   pendingInputAnswer: string;
   pendingPasswordAnswer: string;
@@ -207,7 +208,13 @@ interface ChatPanelViewProps {
     handoffId?: string
   ) => void;
   onScrollMessages: () => void;
-  onSummarize: (toIndex: number) => void;
+  onSummarize: (
+    toIndex: number,
+    options?: { compactPercent?: number; focusInstruction?: string }
+  ) => void;
+  onLinkNote?: (messageIndex: number, noteId: string) => void;
+  onUnlinkNote?: (messageIndex: number, noteId: string) => void;
+  noteSharesByMessageIndex?: Record<number, Array<{ noteId: string; label: string }>>;
   onSplitSession: (atIndex: number) => void;
   onEditContentChange: (value: string) => void;
   onEditMessage: (index: number) => void;
@@ -275,6 +282,7 @@ export function ChatPanelView({
   loading,
   sending,
   streaming,
+  compressionInProgress,
   pendingQuestion,
   pendingInputAnswer,
   pendingPasswordAnswer,
@@ -308,6 +316,9 @@ export function ChatPanelView({
   onScrollMessages,
   onSummarize,
   onSplitSession,
+  onLinkNote,
+  onUnlinkNote,
+  noteSharesByMessageIndex,
   onEditContentChange,
   onEditMessage,
   onCancelEdit,
@@ -588,6 +599,9 @@ export function ChatPanelView({
           onSelectSessionFromGraph={onSelectSessionFromGraph}
           onSummarize={onSummarize}
           onSplitSession={onSplitSession}
+          onLinkNote={onLinkNote}
+          onUnlinkNote={onUnlinkNote}
+          noteSharesByMessageIndex={noteSharesByMessageIndex}
           onEditContentChange={onEditContentChange}
           onEditMessage={onEditMessage}
           onCancelEdit={onCancelEdit}
@@ -610,6 +624,7 @@ export function ChatPanelView({
           ttsSpeakingOccurrence={ttsSpeakingOccurrence}
           activatedTools={activatedTools}
           streaming={streaming}
+          compressionInProgress={compressionInProgress}
           selectedMessageGroupKeys={selectedMessageGroupKeys}
           onToggleMessageGroupSelection={onToggleMessageGroupSelection}
         />

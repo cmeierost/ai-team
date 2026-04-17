@@ -131,6 +131,19 @@ export interface NoteMarkdownExportResult {
   attachmentPaths?: string[];
 }
 
+export type NoteSessionShareKind = 'compression' | 'linked';
+
+export interface NoteSessionShare {
+  noteId: string;
+  sessionId: string;
+  anchorMessageId?: number;
+  kind?: NoteSessionShareKind;
+  active: boolean;
+  fromMessageId?: number;
+  toMessageId?: number;
+  createdAt: string;
+}
+
 export type IntakeSourceType = 'local_folder' | 'github' | 'gitlab' | 'jira' | 'other';
 export type IntakeItemStatus = 'new' | 'triaged' | 'converted_to_plan' | 'dismissed';
 export type PlanStatus = 'draft' | 'active' | 'blocked' | 'completed' | 'cancelled';

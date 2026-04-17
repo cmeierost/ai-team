@@ -12,6 +12,8 @@ import type {
   NoteAttachmentUpdateInput,
   NoteCreateInput,
   NoteUpdateInput,
+  NoteSessionShare,
+  NoteSessionShareUpdateInput,
   RetainedNoteAttachmentInput,
   MessageSessionLink,
   SessionDeleteImpact,
@@ -1700,6 +1702,69 @@ export class SqliteMessageStorage implements IMessageStorage, IPlanningStorage {
     );
 
     return rows.map((row) => this.rowToNote(row, attachmentsByNoteId.get(row.id) ?? []));
+  }
+
+  async listNoteSessionSharesBySessionAsync(sessionId: string): Promise<NoteSessionShare[]> {
+    await this.getConnection();
+    const rows = await this.connection.all<any>(
+      `SELECT note_id, session_id, anchor_message_id, kind, active, from_message_id, to_message_id, created_at
+         FROM note_session_shares
+        WHERE session_id = ?
+        ORDER BY CASE WHEN anchor_message_id IS NULL THEN 1 ELSE 0 END, anchor_message_id ASC`,
+      [sessionId]
+    );
+    return rows.map((row) => ({
+      noteId: row.note_id as string,
+      sessionId: row.session_id as string,
+      anchorMessageId:
+        row.anchor_message_id != null ? (row.anchor_message_id as number) : undefined,
+      kind: row.kind ?? undefined,
+      active: row.active === 1,
+      fromMessageId: row.from_message_id != null ? (row.from_message_id as number) : undefined,
+      toMessageId: row.to_message_id != null ? (row.to_message_id as number) : undefined,
+      createdAt: row.created_at as string,
+    }));
+  }
+
+  async updateNoteSessionShareAsync(
+    noteId: string,
+    sessionId: string,
+    updates: NoteSessionShareUpdateInput
+  ): Promise<void> {
+    await this.getConnection();
+    const now = new Date().toISOString();
+    // Ensure the share row exists first
+    await this.connection.run(
+      `INSERT OR IGNORE INTO note_session_shares (note_id, session_id, created_at) VALUES (?, ?, ?)`,
+      [noteId, sessionId, now]
+    );
+    const setParts: string[] = [];
+    const params: unknown[] = [];
+    if ('anchorMessageId' in updates) {
+      setParts.push('anchor_message_id = ?');
+      params.push(updates.anchorMessageId ?? null);
+    }
+    if ('kind' in updates) {
+      setParts.push('kind = ?');
+      params.push(updates.kind ?? null);
+    }
+    if ('active' in updates && updates.active !== undefined) {
+      setParts.push('active = ?');
+      params.push(updates.active ? 1 : 0);
+    }
+    if ('fromMessageId' in updates) {
+      setParts.push('from_message_id = ?');
+      params.push(updates.fromMessageId ?? null);
+    }
+    if ('toMessageId' in updates) {
+      setParts.push('to_message_id = ?');
+      params.push(updates.toMessageId ?? null);
+    }
+    if (setParts.length === 0) return;
+    await this.connection.run(
+      `UPDATE note_session_shares SET ${setParts.join(', ')} WHERE note_id = ? AND session_id = ?`,
+      [...params, noteId, sessionId]
+    );
   }
 
   async createMessageSessionLink(
