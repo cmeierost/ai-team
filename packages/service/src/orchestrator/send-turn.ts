@@ -329,7 +329,7 @@ export async function sendTurn(
   // ── 9. Interpret turn result via registered parsers ───────────────────────────
   //
   // Parsers are checked in registration order; the first non-null return wins.
-  // Handoff (tool) > handoff (text directive) > hire (tool) — see defaults/turn-result-parsers.ts
+  // Handoff (tool) > handoff (text directive) — see defaults/turn-result-parsers.ts
   //
   for (const parser of plugins.turnResultParsers) {
     const override = parser.parse(structuredResults, fullResponse, persistedContent, ctx);

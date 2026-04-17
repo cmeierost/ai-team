@@ -293,3 +293,31 @@ export interface ApiError {
   message?: string;
   details?: unknown;
 }
+
+export interface WorkflowDefinitionTransition {
+  event: string;
+  target?: string;
+  guard?: string;
+}
+
+export interface WorkflowDefinitionState {
+  type?: 'final';
+  invoke?: {
+    src?: string;
+  };
+  transitions: WorkflowDefinitionTransition[];
+}
+
+export interface WorkflowDefinitionDocument {
+  format: 'workflow/v1';
+  id: string;
+  initial: string;
+  states: Record<string, WorkflowDefinitionState>;
+}
+
+export interface WorkflowDefinitionApiResponse {
+  workflowId: string;
+  format: 'workflow/v1';
+  definitionJson: WorkflowDefinitionDocument;
+  definitionYaml: string;
+}

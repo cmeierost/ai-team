@@ -7031,6 +7031,36 @@
           }
         }
       }
+    },
+    "/api/context/workflows/{workflowId}/definition": {
+      "get": {
+        "operationId": "getWorkflowDefinition",
+        "parameters": [
+          {
+            "name": "workflowId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDefinitionApiResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10641,6 +10671,53 @@
           "archived",
           "active",
           "byAgent"
+        ]
+      },
+      "WorkflowDefinitionDocument": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "initial": {
+            "type": "string"
+          },
+          "states": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": [
+          "format",
+          "id",
+          "initial",
+          "states"
+        ]
+      },
+      "WorkflowDefinitionApiResponse": {
+        "type": "object",
+        "properties": {
+          "workflowId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "definitionJson": {
+            "$ref": "#/components/schemas/WorkflowDefinitionDocument"
+          },
+          "definitionYaml": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflowId",
+          "format",
+          "definitionJson",
+          "definitionYaml"
         ]
       }
     }

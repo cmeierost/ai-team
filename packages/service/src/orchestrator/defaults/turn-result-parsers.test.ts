@@ -9,7 +9,6 @@
  * Coverage:
  *   HandoffToolResultParser — structured result from com_handoff tool
  *   TextHandoffParser       — HANDOFF:/FORWARD_TO: directive in response text
- *   HireResultParser        — structured result from hr_hire tool
  *   buildDefaultTurnResultParsers — priority order of the default set
  *   Parser chain integration — first-non-null-wins semantics
  */
@@ -19,7 +18,6 @@ import type { Agent, StructuredToolResult } from '@ai-team/core';
 import type { OrchestratorContext } from '../pipeline-context.js';
 import {
   HandoffToolResultParser,
-  HireResultParser,
   TextHandoffParser,
   buildDefaultTurnResultParsers,
 } from './turn-result-parsers.js';
@@ -58,15 +56,17 @@ function handoffResult(targetAgentId: string, extra?: Partial<StructuredToolResu
   } as StructuredToolResult;
 }
 
-function hireResult(agentId: string): StructuredToolResult {
-  return {
-    type: 'hire',
-    agentId,
-    name: 'New Agent',
-    role: 'engineer',
-    specializations: [],
-    timestamp: new Date().toISOString(),
-  } as StructuredToolResult;
+function runChain(
+  structuredResults: StructuredToolResult[],
+  fullResponse: string,
+  persistedContent: string,
+  ctx: OrchestratorContext,
+) {
+  for (const parser of buildDefaultTurnResultParsers()) {
+    const override = parser.parse(structuredResults, fullResponse, persistedContent, ctx);
+    if (override !== null) return override;
+  }
+  return null;
 }
 
 // ── HandoffToolResultParser ───────────────────────────────────────────────────
@@ -80,7 +80,7 @@ describe('HandoffToolResultParser', () => {
   });
 
   it('returns null when structuredResults contains only non-handoff entries', () => {
-    const result = parser.parse([hireResult('x')], 'text', 'text', makeCtx());
+    const result = parser.parse([{ type: 'tool_list_result' } as StructuredToolResult], 'text', 'text', makeCtx());
     expect(result).toBeNull();
   });
 
@@ -223,38 +223,12 @@ describe('TextHandoffParser', () => {
   });
 });
 
-// ── HireResultParser ──────────────────────────────────────────────────────────
-
-describe('HireResultParser', () => {
-  const parser = new HireResultParser();
-
-  it('returns null when structuredResults contains no hire entry', () => {
-    const result = parser.parse([], '', 'text', makeCtx());
-    expect(result).toBeNull();
-  });
-
-  it('returns null when structuredResults contains only handoff entries', () => {
-    const result = parser.parse([handoffResult('x')], '', 'text', makeCtx());
-    expect(result).toBeNull();
-  });
-
-  it('returns hired result when a HireResult is present', () => {
-    const result = parser.parse([hireResult('new-agent')], '', 'persisted', makeCtx());
-
-    expect(result).toEqual({
-      text: 'persisted',
-      done: false,
-      hired: { agentId: 'new-agent', name: 'New Agent', role: 'engineer' },
-    });
-  });
-});
-
 // ── buildDefaultTurnResultParsers ─────────────────────────────────────────────
 
 describe('buildDefaultTurnResultParsers', () => {
-  it('returns an array of three parsers', () => {
+  it('returns an array of two parsers', () => {
     const parsers = buildDefaultTurnResultParsers();
-    expect(parsers).toHaveLength(3);
+    expect(parsers).toHaveLength(2);
   });
 
   it('first parser is HandoffToolResultParser', () => {
@@ -266,29 +240,11 @@ describe('buildDefaultTurnResultParsers', () => {
     const [, second] = buildDefaultTurnResultParsers();
     expect(second).toBeInstanceOf(TextHandoffParser);
   });
-
-  it('third parser is HireResultParser', () => {
-    const [, , third] = buildDefaultTurnResultParsers();
-    expect(third).toBeInstanceOf(HireResultParser);
-  });
 });
 
 // ── Parser chain — first-non-null-wins ────────────────────────────────────────
 
 describe('Parser chain priority', () => {
-  function runChain(
-    structuredResults: StructuredToolResult[],
-    fullResponse: string,
-    persistedContent: string,
-    ctx: OrchestratorContext,
-  ) {
-    for (const parser of buildDefaultTurnResultParsers()) {
-      const override = parser.parse(structuredResults, fullResponse, persistedContent, ctx);
-      if (override !== null) return override;
-    }
-    return null;
-  }
-
   it('tool handoff takes priority over a text handoff directive when both present', () => {
     const ctx = makeCtx('current-agent');
     const result = runChain(
@@ -312,18 +268,6 @@ describe('Parser chain priority', () => {
     );
 
     expect(result).toMatchObject({ handedOff: true, handoffTargetId: 'target-agent' });
-  });
-
-  it('falls through to HireResultParser when no handoff of any kind is present', () => {
-    const ctx = makeCtx('current-agent');
-    const result = runChain(
-      [hireResult('new-agent')],
-      'Normal response text.',
-      'Normal response text.',
-      ctx,
-    );
-
-    expect(result).toMatchObject({ hired: { agentId: 'new-agent' } });
   });
 
   it('returns null (no override) when no parser matches', () => {

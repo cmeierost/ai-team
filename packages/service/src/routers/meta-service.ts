@@ -1,12 +1,21 @@
 import path from 'node:path';
 import { matchesPattern } from 'fs-context';
-import type { IContextService, IPlanningService } from '@ai-team/api-client';
+import type {
+  IContextService,
+  IPlanningService,
+  WorkflowDefinitionApiResponse,
+  WorkflowDefinitionDocument,
+} from '@ai-team/api-client';
 import { loadAllInstructionFiles, loadAgentSkillFile } from '@ai-team/infrastructure';
 import type { AgentManager, AgentTool, SkillManager } from '@ai-team/infrastructure';
 import { toolKey, type LlmToolDefinition, type ToolManager } from '../tools/tool-manager.js';
 import type { IMcpGateway } from '../orchestrator/pipeline.js';
 import type { SessionManager } from '../session-manager.js';
 import { NotFoundError } from '../http-errors.js';
+import {
+  getChatLoopWorkflowDefinitionJson,
+  getChatLoopWorkflowDefinitionYaml,
+} from '../workflow/index.js';
 
 export interface ContextEstimateSegment {
   label: string;
@@ -77,6 +86,21 @@ export class MetaService implements IContextService {
     { tools: ContextEstimateTool[]; chars: number; at: number }
   >();
   private static readonly TOOL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+  private readonly workflowDefinitionResolvers: Record<
+    string,
+    {
+      format: 'workflow/v1';
+      getJson: () => WorkflowDefinitionDocument;
+      getYaml: () => string;
+    }
+  > = {
+    'chat-full-loop': {
+      format: 'workflow/v1',
+      getJson: () => getChatLoopWorkflowDefinitionJson(),
+      getYaml: () => getChatLoopWorkflowDefinitionYaml(),
+    },
+  };
 
   constructor(
     private readonly agentManager: AgentManager,
@@ -205,6 +229,20 @@ export class MetaService implements IContextService {
 
   async getContextEstimateForSession(agentId: string, sessionId: string): Promise<unknown> {
     return this.getContextEstimate(agentId, { sessionId });
+  }
+
+  async getWorkflowDefinition(workflowId: string): Promise<WorkflowDefinitionApiResponse> {
+    const resolver = this.workflowDefinitionResolvers[workflowId];
+    if (!resolver) {
+      throw new NotFoundError(`Workflow definition '${workflowId}' is not available.`);
+    }
+
+    return {
+      workflowId,
+      format: resolver.format,
+      definitionJson: resolver.getJson(),
+      definitionYaml: resolver.getYaml(),
+    };
   }
 
   private toToolDefinition(tool: AgentTool): LlmToolDefinition {

@@ -70,6 +70,7 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
       getSessionMessages: async () => sessionMessages,
       getSessionSkills: async () => [],
       listAgentNotes: async (agentId: string) => options?.notesByAgentId?.[agentId] ?? [],
+      listNoteSessionSharesAsync: async () => [],
     } as any;
 
     const skillManager = {
@@ -303,5 +304,28 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
     expect(plansSegment?.chars).toBeGreaterThan(0);
     expect(tasksSegment?.chars).toBeGreaterThan(0);
     expect(todosSegment?.chars).toBeGreaterThan(0);
+  });
+
+  it('returns chat workflow definition in both JSON and YAML formats', async () => {
+    const service = createService([], ['packages/service/**/*']);
+
+    const definition = await service.getWorkflowDefinition('chat-full-loop');
+
+    expect(definition.workflowId).toBe('chat-full-loop');
+    expect(definition.format).toBe('workflow/v1');
+    expect(definition.definitionJson).toMatchObject({
+      id: 'chat-full-loop',
+      initial: 'preturn',
+    });
+    expect(definition.definitionYaml).toContain('id: chat-full-loop');
+    expect(definition.definitionYaml).toContain('states:');
+  });
+
+  it('throws for unknown workflow definitions', async () => {
+    const service = createService([], ['packages/service/**/*']);
+
+    await expect(service.getWorkflowDefinition('unknown-workflow')).rejects.toThrow(
+      "Workflow definition 'unknown-workflow' is not available."
+    );
   });
 });

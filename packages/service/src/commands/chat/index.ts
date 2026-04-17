@@ -29,7 +29,7 @@ import { getGitUserName, developerNameToId } from '../../utils/git.js';
 import { ensureUserEnvVars as ensureServiceUserEnvVars } from '../../utils/user-env.js';
 import { SessionManager } from '../../session-manager.js';
 import { createSqliteStorage } from '../../storage/index.js';
-import { ChatOrchestrator } from '../../orchestrator/chat-orchestrator.js';
+import { XStateChatOrchestrator } from '../../orchestrator/xstate-chat-orchestrator.js';
 import { tryIntroduceUser as tryIntroduceUserNew } from '../../orchestrator/introduction.js';
 import type { ResolvedPlugins } from '../../orchestrator/pipeline.js';
 import type { OrchestratorContext } from '../../orchestrator/pipeline-context.js';
@@ -425,7 +425,7 @@ export async function chatCommand(
       history,
       instructions,
     };
-    const _orchestrator = new ChatOrchestrator(_ctx, _plugins);
+    const _orchestrator = new XStateChatOrchestrator(_ctx, _plugins);
 
     // Single message mode
     if (options.message) {

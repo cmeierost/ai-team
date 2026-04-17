@@ -148,7 +148,6 @@ export interface IOutputHandler {
  * Default parsers (in priority order):
  *   1. HandoffToolResultParser — tool-originated handoff (com_handoff)
  *   2. TextHandoffParser       — text directive (HANDOFF: / FORWARD_TO:)
- *   3. HireResultParser        — tool-originated hire (hire_agent)
  */
 export interface ITurnResultParser {
   parse(
@@ -307,6 +306,4 @@ export interface TurnResult {
   handoffTargetSessionId?: string;
   /** Briefing note the handing-off agent provided. */
   handoffNote?: string;
-  /** Set when hire_agent was called and succeeded. */
-  hired?: { agentId: string; name: string; role: string };
 }

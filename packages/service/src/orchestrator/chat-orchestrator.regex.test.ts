@@ -13,11 +13,22 @@ vi.mock('./tool-dispatch.js', () => ({
   })),
 }));
 
-import { ChatOrchestrator } from './chat-orchestrator.js';
+import { XStateChatOrchestrator } from './xstate-chat-orchestrator.js';
 import { sendTurn } from './send-turn.js';
 import { dispatchToolCall } from './tool-dispatch.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
+
+type OrchestratorCtor = new (
+  ctx: OrchestratorContext,
+  plugins: ResolvedPlugins
+) => {
+  run(options: { message: string; contextFiles?: string[]; maxHops?: number }): Promise<string>;
+};
+
+const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: OrchestratorCtor }> = [
+  { name: 'xstate-drop-in', Orchestrator: XStateChatOrchestrator },
+];
 
 function makeContext(): OrchestratorContext {
   const appendMessage = vi.fn(async () => null);
@@ -50,112 +61,115 @@ function makePlugins(): ResolvedPlugins {
   };
 }
 
-describe('ChatOrchestrator regex tool intents', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
+  'ChatOrchestrator regex tool intents [$name]',
+  ({ Orchestrator }) => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
 
-  it('runs fs_tree before LLM for file-visibility requests', async () => {
-    const ctx = makeContext();
-    const plugins = makePlugins();
-    const orchestrator = new ChatOrchestrator(ctx, plugins);
+    it('runs fs_tree before LLM for file-visibility requests', async () => {
+      const ctx = makeContext();
+      const plugins = makePlugins();
+      const orchestrator = new Orchestrator(ctx, plugins);
 
-    const result = await orchestrator.run({ message: 'show your visible file tree' });
+      const result = await orchestrator.run({ message: 'show your visible file tree' });
 
-    expect(result).toBe('');
-    expect(dispatchToolCall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolName: 'fs_tree',
-        args: { path: '.', maxDepth: 6, includeHidden: true },
-      }),
-      ctx,
-      undefined
-    );
-    expect(ctx.sessionManager.appendMessage).toHaveBeenCalledWith(
-      'sess-1',
-      expect.objectContaining({
-        from: 'human',
-        to: 'michael-brown',
-        isHuman: true,
-        content: 'show your visible file tree',
-      }),
-      ctx.llmService
-    );
-    expect(ctx.history).toContainEqual(
-      expect.objectContaining({
-        from: 'human',
-        to: 'michael-brown',
-        content: 'show your visible file tree',
-      })
-    );
-    expect(sendTurn).not.toHaveBeenCalled();
-  });
+      expect(result).toBe('');
+      expect(dispatchToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolName: 'fs_tree',
+          args: { path: '.', maxDepth: 6, includeHidden: true },
+        }),
+        ctx,
+        undefined
+      );
+      expect(ctx.sessionManager.appendMessage).toHaveBeenCalledWith(
+        'sess-1',
+        expect.objectContaining({
+          from: 'human',
+          to: 'michael-brown',
+          isHuman: true,
+          content: 'show your visible file tree',
+        }),
+        ctx.llmService
+      );
+      expect(ctx.history).toContainEqual(
+        expect.objectContaining({
+          from: 'human',
+          to: 'michael-brown',
+          content: 'show your visible file tree',
+        })
+      );
+      expect(sendTurn).not.toHaveBeenCalled();
+    });
 
-  it('runs tool_list before LLM for tool-capability requests', async () => {
-    const ctx = makeContext();
-    const plugins = makePlugins();
-    const orchestrator = new ChatOrchestrator(ctx, plugins);
+    it('runs tool_list before LLM for tool-capability requests', async () => {
+      const ctx = makeContext();
+      const plugins = makePlugins();
+      const orchestrator = new Orchestrator(ctx, plugins);
 
-    const result = await orchestrator.run({ message: 'what tools can you use?' });
+      const result = await orchestrator.run({ message: 'what tools can you use?' });
 
-    expect(result).toBe('');
-    expect(dispatchToolCall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolName: 'tool_list',
-        args: {},
-      }),
-      ctx,
-      undefined
-    );
-    expect(sendTurn).not.toHaveBeenCalled();
-  });
+      expect(result).toBe('');
+      expect(dispatchToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolName: 'tool_list',
+          args: {},
+        }),
+        ctx,
+        undefined
+      );
+      expect(sendTurn).not.toHaveBeenCalled();
+    });
 
-  it('falls through to LLM turn when no regex intent matches', async () => {
-    const ctx = makeContext();
-    const plugins = makePlugins();
-    const orchestrator = new ChatOrchestrator(ctx, plugins);
+    it('falls through to LLM turn when no regex intent matches', async () => {
+      const ctx = makeContext();
+      const plugins = makePlugins();
+      const orchestrator = new Orchestrator(ctx, plugins);
 
-    const result = await orchestrator.run({ message: 'help me refactor this module' });
+      const result = await orchestrator.run({ message: 'help me refactor this module' });
 
-    expect(result).toBe('llm-called');
-    expect(sendTurn).toHaveBeenCalled();
-  });
+      expect(result).toBe('llm-called');
+      expect(sendTurn).toHaveBeenCalled();
+    });
 
-  it('runs team_list before LLM for employee-list questions', async () => {
-    const ctx = makeContext();
-    const plugins = makePlugins();
-    const orchestrator = new ChatOrchestrator(ctx, plugins);
+    it('runs team_list before LLM for employee-list questions', async () => {
+      const ctx = makeContext();
+      const plugins = makePlugins();
+      const orchestrator = new Orchestrator(ctx, plugins);
 
-    const result = await orchestrator.run({ message: 'what employees do we have?' });
+      const result = await orchestrator.run({ message: 'what employees do we have?' });
 
-    expect(result).toBe('');
-    expect(dispatchToolCall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolName: 'team_list',
-        args: {},
-      }),
-      ctx,
-      undefined
-    );
-    expect(sendTurn).not.toHaveBeenCalled();
-  });
+      expect(result).toBe('');
+      expect(dispatchToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolName: 'team_list',
+          args: {},
+        }),
+        ctx,
+        undefined
+      );
+      expect(sendTurn).not.toHaveBeenCalled();
+    });
 
-  it('matches team roster phrasing variants', async () => {
-    const ctx = makeContext();
-    const plugins = makePlugins();
-    const orchestrator = new ChatOrchestrator(ctx, plugins);
+    it('matches team roster phrasing variants', async () => {
+      const ctx = makeContext();
+      const plugins = makePlugins();
+      const orchestrator = new Orchestrator(ctx, plugins);
 
-    const result = await orchestrator.run({ message: 'who is on the team?' });
+      const result = await orchestrator.run({ message: 'who is on the team?' });
 
-    expect(result).toBe('');
-    expect(dispatchToolCall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolName: 'team_list',
-        args: {},
-      }),
-      ctx,
-      undefined
-    );
-    expect(sendTurn).not.toHaveBeenCalled();
-  });
-});
+      expect(result).toBe('');
+      expect(dispatchToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolName: 'team_list',
+          args: {},
+        }),
+        ctx,
+        undefined
+      );
+      expect(sendTurn).not.toHaveBeenCalled();
+    });
+  }
+);

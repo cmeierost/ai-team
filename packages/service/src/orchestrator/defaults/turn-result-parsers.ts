@@ -8,14 +8,12 @@
  * Registration order = priority:
  *   1. HandoffToolResultParser — tool-originated handoff wins over text
  *   2. TextHandoffParser       — text directive (HANDOFF:/FORWARD_TO:)
- *   3. HireResultParser        — tool-originated hire (hire_agent)
  *
  * Add new parsers by implementing ITurnResultParser and inserting them at the
  * appropriate position in buildDefaultTurnResultParsers().
  */
 
-import { isHandoffRequest, isHireResult, type StructuredToolResult } from '@ai-team/infrastructure';
-import type { Agent } from '@ai-team/infrastructure';
+import { isHandoffRequest, type Agent, type StructuredToolResult } from '@ai-team/infrastructure';
 import type { ITurnResultParser, TurnResult } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
 import { parseHandoffDirective } from '../../commands/chat/index.js';
@@ -104,26 +102,6 @@ export class TextHandoffParser implements ITurnResultParser {
   }
 }
 
-// ── 3. Hire result from tool call ─────────────────────────────────────────────
-
-export class HireResultParser implements ITurnResultParser {
-  parse(
-    structuredResults: StructuredToolResult[],
-    _fullResponse: string,
-    persistedContent: string,
-    _ctx: OrchestratorContext,
-  ): Partial<TurnResult> | null {
-    const hireResult = structuredResults.find(isHireResult);
-    if (!hireResult || !isHireResult(hireResult)) return null;
-
-    return {
-      text: persistedContent,
-      done: false,
-      hired: { agentId: hireResult.agentId, name: hireResult.name, role: hireResult.role },
-    };
-  }
-}
-
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /** Returns the default ordered set of turn-result parsers. */
@@ -131,6 +109,5 @@ export function buildDefaultTurnResultParsers(): ITurnResultParser[] {
   return [
     new HandoffToolResultParser(),
     new TextHandoffParser(),
-    new HireResultParser(),
   ];
 }

@@ -1,121 +1,144 @@
 /**
- * ChatOrchestrator — the stateful session controller.
+ * XStateChatOrchestrator — drop-in compatibility surface for chat loop migration.
  *
- * One instance per active session. Accepts a single user message, runs
- * through the pipeline, handles handoff / hire / slash commands, and
- * returns when the turn is complete.
- *
- * The orchestrator itself knows nothing about:
- *   - HTTP, WebSockets, CLI readline — those are in the adapter layer.
- *   - Specific tool implementations — those are in core / service tools.
- *   - Storage format — delegated to SessionManager + ChatRuntimeHooks.
- *
- * To extend: register pipeline plugins via OrchestratorPlugins before calling run().
+ * IMPORTANT:
+ * - It intentionally exposes the exact same constructor + run() contract as ChatOrchestrator.
+ * - It now uses the XState chat loop engine as the runtime control flow while
+ *   preserving the legacy public API and behavior.
  */
 
-import { emitStatus, emitLog } from './stream-events.js';
-import { resolvePreLlmIntent } from '../tools/pre-llm-intents.js';
-import { sendTurn } from './send-turn.js';
-import { executeHandoff, tryNlForward } from './handoff.js';
-import { dispatchToolCall } from './tool-dispatch.js';
-import type { OrchestratorContext } from './pipeline-context.js';
-import type { ResolvedPlugins } from './pipeline.js';
 import type { ChatMessage } from '@ai-team/infrastructure';
 import type { RuntimeStreamEvent } from '@ai-team/api-client';
 
-/** Options for a single run() call. */
+import { emitLog, emitStatus } from './stream-events.js';
+import { resolvePreLlmIntent } from '../tools/pre-llm-intents.js';
+import { dispatchToolCall } from './tool-dispatch.js';
+import { executeHandoff, tryNlForward } from './handoff.js';
+import { sendTurn } from './send-turn.js';
+import type { OrchestratorContext } from './pipeline-context.js';
+import type { ResolvedPlugins, TurnResult } from './pipeline.js';
+import { runChatLoopWorkflowAsync } from '../workflow/xstate-chat-loop-engine.js';
+
+const AUTO_REACT_MESSAGE =
+  '[Handoff received] You have just been handed this conversation. Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.';
+
 export interface RunOptions {
-  /** Raw user message (may start with a slash command). */
   message: string;
-  /** Files the user has open / selected in the IDE. */
   contextFiles?: string[];
-  /**
-   * Maximum number of automatic handoff hops allowed before the loop stops
-   * and returns control to the caller. Prevents infinite handoff chains.
-   * Default: 10.
-   */
   maxHops?: number;
 }
 
-export class ChatOrchestrator {
+export class XStateChatOrchestrator {
   constructor(
     private readonly ctx: OrchestratorContext,
     private readonly plugins: ResolvedPlugins
   ) {}
 
-  /**
-   * Execute one user turn. Returns the final response text.
-   *
-   * The loop continues across handoffs (agent switches) until:
-   *   - The responding agent does NOT request a handoff, OR
-   *   - The maximum hop count is reached.
-   */
   async run(options: RunOptions): Promise<string> {
-    const { message, maxHops = 10 } = options;
+    let lastTurnResult: TurnResult | undefined;
+    let wasForwardedInPreturn = false;
 
-    const preTurnResult = await this.tryPreTurnInterceptors(message, options.contextFiles);
-    if (preTurnResult !== undefined) return preTurnResult;
+    const workflowOutput = await runChatLoopWorkflowAsync(
+      {
+        message: options.message,
+        maxHops: options.maxHops,
+        autoReactMessage: AUTO_REACT_MESSAGE,
+      },
+      {
+        runPreturnInterceptorsAsync: async ({ message }) => {
+          const preturn = await this.tryPreTurnInterceptors(message, options.contextFiles);
+          if (preturn === undefined) return { outcome: 'continue' as const };
+          if (preturn === 'forwarded') {
+            wasForwardedInPreturn = true;
+            return {
+              outcome: 'forwarded' as const,
+              autoMessage: AUTO_REACT_MESSAGE,
+            };
+          }
+          return {
+            outcome: 'consumed' as const,
+            text: preturn,
+          };
+        },
+        runSendTurnAsync: async ({ message, hop }) => {
+          const result = await sendTurn(message, this.plugins, this.ctx, {
+            skipPersist: hop > 0 || message === AUTO_REACT_MESSAGE,
+          });
+          lastTurnResult = result;
+          return {
+            text: result.text,
+            toolRoundNeeded: false,
+          };
+        },
+        runPostTurnResolutionAsync: async ({ text }) => {
+          const current = lastTurnResult;
+          if (!current?.handedOff || !current.handoffTargetId) {
+            return {
+              outcome: 'normal_complete' as const,
+            };
+          }
 
-    // ── Turn loop (handles handoff chains) ──────────────────────────────────
-    let currentMessage = message;
-    let lastText = '';
+          const targetKnown =
+            (await this.ctx.agentManager.getAgentAsync(current.handoffTargetId)) ||
+            (await this.ctx.agentManager.resolveAgentAsync(current.handoffTargetId)).find(
+              (agent) => agent.id !== this.ctx.agent.id
+            );
 
-    for (let hops = 0; hops < maxHops; hops++) {
-      const result = await sendTurn(currentMessage, this.plugins, this.ctx);
-      lastText = result.text;
+          if (!targetKnown) {
+            emitLog(
+              this.ctx.hooks,
+              'warn',
+              `Handoff requested to unknown agent "${current.handoffTargetId}" — staying with ${this.ctx.agent.name}.`
+            );
+            return {
+              outcome: 'normal_complete' as const,
+              handoffNote: current.handoffNote,
+              handoffTargetId: current.handoffTargetId,
+              handoffTargetSessionId: current.handoffTargetSessionId,
+            };
+          }
 
-      // ── Hire: reload agents, notify surface, continue ─────────────────────
-      if (result.hired) {
-        await this.ctx.agentManager.refreshAsync();
-        emitLog(
-          this.ctx.hooks,
-          'info',
-          `${this.ctx.agent.name} hired ${result.hired.name} (${result.hired.role}).`
-        );
-        // Hiring is a side-effect — the turn is still considered complete.
-        break;
-      }
+          return {
+            outcome: 'handoff_required' as const,
+            handoffTargetId: current.handoffTargetId,
+            handoffTargetSessionId: current.handoffTargetSessionId,
+            handoffNote: current.handoffNote,
+          };
+        },
+        runHandoffTransitionAsync: async ({ handoff }) => {
+          if (!handoff.handoffTargetId) return {};
 
-      // ── Handoff: switch agent, auto-react ──────────────────────────────────
-      if (result.handedOff && result.handoffTargetId) {
-        const switched = await executeHandoff(
-          this.ctx,
-          result.handoffTargetId,
-          result.handoffTargetSessionId,
-          result.handoffNote
-        );
-
-        if (!switched) {
-          emitLog(
-            this.ctx.hooks,
-            'warn',
-            `Handoff requested to unknown agent "${result.handoffTargetId}" — staying with ${this.ctx.agent.name}.`
+          const switched = await executeHandoff(
+            this.ctx,
+            handoff.handoffTargetId,
+            handoff.handoffTargetSessionId,
+            handoff.handoffNote
           );
-          break;
-        }
 
-        emitStatus(this.ctx.hooks, 'handoff', `${this.ctx.agent.name} taking over.`);
+          if (!switched) {
+            throw new Error(
+              `Handoff requested to unknown agent "${handoff.handoffTargetId}" and could not be executed.`
+            );
+          }
 
-        // The new agent has the LLM briefing in their session history.
-        // Auto-run a turn so the recipient reacts to the handoff context
-        // and asks the developer how to proceed.  skipPersist keeps the
-        // synthetic prompt out of the DB.
-        const autoMsg =
-          `[Handoff received] You have just been handed this conversation. ` +
-          `Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.`;
-        const autoResult = await sendTurn(autoMsg, this.plugins, this.ctx, { skipPersist: true });
-        lastText = autoResult.text;
-        // If the auto-react itself triggers another handoff, the next
-        // iteration of the loop will handle it.
-        if (!autoResult.handedOff) break;
-        continue;
+          emitStatus(this.ctx.hooks, 'handoff', `${this.ctx.agent.name} taking over.`);
+          return { autoMessage: AUTO_REACT_MESSAGE };
+        },
+        runFailureAsync: async ({ error, state }) => {
+          emitLog(this.ctx.hooks, 'error', `[xstate-chat-loop] ${state}: ${error}`);
+        },
       }
+    );
 
-      // Normal turn — no handoff, we're done.
-      break;
+    if (workflowOutput.status === 'failed') {
+      throw new Error(workflowOutput.error ?? 'Chat workflow failed');
     }
 
-    return lastText;
+    if (wasForwardedInPreturn) {
+      return '';
+    }
+
+    return workflowOutput.text;
   }
 
   private async tryPreTurnInterceptors(
@@ -135,23 +158,13 @@ export class ChatOrchestrator {
     if (nlResult === null) return undefined;
 
     if (nlResult === 'forwarded') {
-      // Handoff succeeded — auto-run a turn so the new agent reacts to
-      // the briefing and asks the developer how to proceed.
-      const autoMsg =
-        `[Handoff received] You have just been handed this conversation. ` +
-        `Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.`;
-      await sendTurn(autoMsg, this.plugins, this.ctx, { skipPersist: true });
-      return '';
+      // Engine routes this to prepareForwardedAutoReact → sendTurn.
+      return 'forwarded';
     }
 
     return nlResult;
   }
 
-  // ── Slash command handling ──────────────────────────────────────────────────
-
-  /**
-   * Returns the response string if a slash command was matched, null otherwise.
-   */
   private async trySlashCommand(message: string): Promise<string | null> {
     const trimmed = message.trim();
     if (!trimmed.startsWith('/')) return null;
@@ -178,7 +191,7 @@ export class ChatOrchestrator {
       rawArgs
     );
     await this.persistSlashCommandExecution(key, rawArgs, executionResult, capturedEvents);
-    return ''; // Slash commands handle their own output via hooks / stdout.
+    return '';
   }
 
   private async executeSlashCommandWithCapture(
@@ -232,19 +245,21 @@ export class ChatOrchestrator {
       .filter((line): line is string => Boolean(line))
       .slice(0, 120);
 
-    const executionResultText =
-      executionResult === undefined
-        ? undefined
-        : typeof executionResult === 'string'
-          ? executionResult
-          : JSON.stringify(executionResult, null, 2);
+    let executionResultText: string | undefined;
+    if (executionResult === undefined) {
+      executionResultText = undefined;
+    } else if (typeof executionResult === 'string') {
+      executionResultText = executionResult;
+    } else {
+      executionResultText = JSON.stringify(executionResult, null, 2);
+    }
 
     if (!executionResultText && eventLines.length === 0) {
       return undefined;
     }
 
     return [executionResultText, ...eventLines]
-      .filter((chunk): chunk is string => Boolean(chunk && chunk.trim()))
+      .filter((chunk): chunk is string => Boolean(chunk?.trim()))
       .join('\n\n')
       .slice(0, 20_000);
   }
@@ -281,12 +296,6 @@ export class ChatOrchestrator {
     this.ctx.history.push(persisted);
   }
 
-  /**
-   * Deterministic tool intent layer checked before LLM turn execution.
-   *
-   * IMPORTANT: tool execution is routed through dispatchToolCall(), which
-   * preserves policy enforcement and dangerous-tool confirmation prompts.
-   */
   private async tryRegexToolIntent(
     message: string,
     contextFiles?: string[]
