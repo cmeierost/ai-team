@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('./send-turn.js', () => ({
-  sendTurn: vi.fn(async () => ({ text: 'llm-called', done: false })),
+vi.mock('../workflow/send-turn-machine.js', () => ({
+  runSendTurnMachineAsync: vi.fn(async () => ({
+    chatResult: { text: 'llm-called', toolRoundNeeded: false },
+    turnResult: { text: 'llm-called', done: false },
+  })),
 }));
 
-import { XStateChatOrchestrator } from './xstate-chat-orchestrator.js';
-import { sendTurn } from './send-turn.js';
+import { XStateChatOrchestrator } from './xstate-chat-orchestrator';
+import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
 
@@ -31,7 +34,6 @@ function makeContext(): OrchestratorContext {
     agentManager: { loadAllAgents: vi.fn(async () => {}) } as any,
     skillManager: {} as any,
     llmService: {} as any,
-    contextManager: {} as any,
     history: [],
   };
 }
@@ -62,7 +64,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
       const result = await orchestrator.run({ message: '/doesnotexist' });
 
       expect(result).toBe('');
-      expect(sendTurn).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
       expect(ctx.hooks.emit as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
         expect.objectContaining({ kind: 'log', level: 'warn' })
       );
@@ -105,7 +107,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
           ],
         })
       );
-      expect(sendTurn).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
     });
   }
 );

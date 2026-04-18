@@ -36,6 +36,7 @@ export function Sidebar() {
       disabled: chatPath === null,
       matchPrefix: '/chat/',
     },
+    { path: '/workflows', icon: 'git-branch', label: 'Workflows' },
     { path: '/planning', icon: 'checklist', label: 'Planning' },
     { path: '/tasks', icon: 'checklist', label: 'Tasks', disabled: true },
     { path: '/settings', icon: 'settings-gear', label: 'Settings' },

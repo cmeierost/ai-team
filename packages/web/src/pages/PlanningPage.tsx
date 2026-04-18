@@ -29,7 +29,7 @@ const STATUS_COLORS: Record<string, string> = {
   dismissed: 'planning-badge-dismissed',
 };
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: Readonly<{ status: string }>) {
   return (
     <span className={`planning-badge ${STATUS_COLORS[status] ?? 'planning-badge-default'}`}>
       {STATUS_LABELS[status] ?? status}
@@ -115,7 +115,10 @@ export function PlanningPage() {
         </button>
       </div>
 
-      <div className="planning-content">{activeTab === 'plans' ? <PlansTab /> : <IntakeTab />}</div>
+      <div className="planning-content">
+        {activeTab === 'plans' ? <PlansTab /> : null}
+        {activeTab === 'intake' ? <IntakeTab /> : null}
+      </div>
     </div>
   );
 }

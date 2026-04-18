@@ -1,68 +1,24 @@
 /**
- * send-turn.ts — executes one LLM turn through the full pipeline.
+ * send-turn.ts — compatibility wrapper for one full turn.
  *
- * Responsibilities:
- *   1. Persist the user message to session history.
- *   2. Build the message list via IContextCompressor + IContextBuilder.
- *   3. Collect tool definitions via IToolResolver.
- *   4. Delegate the LLM call to llm-invoke.ts (streaming filter, tool dispatch).
- *   5. Run structured results + response text through the ITurnResultParser chain.
- *   6. Return a TurnResult for the chat loop.
+ * NOTE: Implementation has been decomposed into explicit lifecycle steps in
+ * `send-turn-steps.ts` so it can be executed by a dedicated XState sub-machine.
  */
 
-import path from 'node:path';
-import type { ChatMessage, Skill, StructuredToolResult, AgentTool } from '@ai-team/infrastructure';
-import type { LlmToolDefinition } from '../tools/tool-manager.js';
-import { toolKey } from '../tools/tool-manager.js';
+import type { StructuredToolResult } from '@ai-team/infrastructure';
 import type { OrchestratorContext } from './pipeline-context.js';
-import type {
-  BeforePersistAssistantMessageHookPayload,
-  IOrchestratorHookPlugin,
-  ResolvedPlugins,
-  TurnResult,
-} from './pipeline.js';
-import { emitLog, emitStatus } from './stream-events.js';
-import { invokeLlm } from './llm-invoke.js';
-
-const TOOL_SCHEMA_CACHE = new WeakMap<object, Map<string, LlmToolDefinition>>();
-
-function getCachedToolSchema(
-  ctx: OrchestratorContext,
-  tool: AgentTool
-): LlmToolDefinition {
-  const toolName = toolKey(tool);
-  const managerKey = ctx.toolManager as unknown as object;
-  const cacheForManager = TOOL_SCHEMA_CACHE.get(managerKey) ?? new Map<string, LlmToolDefinition>();
-  if (!TOOL_SCHEMA_CACHE.has(managerKey)) {
-    TOOL_SCHEMA_CACHE.set(managerKey, cacheForManager);
-  }
-
-  const cached = cacheForManager.get(toolName);
-  if (cached) return cached;
-
-  const schema = ctx.toolManager.toSchema(toolName) ?? {
-    name: toolName,
-    description: tool.description,
-    parameters: zodSchemaToJsonSchema(tool.parameters),
-  };
-  cacheForManager.set(toolName, schema);
-  return schema;
-}
-
-function buildToolDefinitions(ctx: OrchestratorContext, tools: AgentTool[]): LlmToolDefinition[] {
-  const defs: LlmToolDefinition[] = [];
-  for (const tool of tools) {
-    defs.push(getCachedToolSchema(ctx, tool));
-  }
-  return defs;
-}
-
-function zodSchemaToJsonSchema(schema: unknown): Record<string, unknown> {
-  if (schema && typeof schema === 'object' && typeof (schema as any).toJSONSchema === 'function') {
-    return (schema as any).toJSONSchema() as Record<string, unknown>;
-  }
-  return { type: 'object', properties: {}, additionalProperties: true };
-}
+import type { ResolvedPlugins, TurnResult } from './pipeline.js';
+import {
+  ensureTurnStartAsync,
+  finalizeTurnResultAsync,
+  handleLlmFailureAsync,
+  invokeTurnLlmAsync,
+  parseTurnResultAsync,
+  persistAssistantMessageAsync,
+  persistUserMessageAsync,
+  prepareMessagesAsync,
+  resolveSkillsAndToolsAsync,
+} from './send-turn-steps.js';
 
 export interface SendTurnOptions {
   /**
@@ -79,357 +35,43 @@ export async function sendTurn(
   ctx: OrchestratorContext,
   options?: SendTurnOptions
 ): Promise<TurnResult> {
-  const { agent, hooks, sessionManager, sessionId } = ctx;
-  const hookPlugins = plugins.hookPlugins ?? [];
+  await ensureTurnStartAsync(userMessage, plugins, ctx, options);
+  await persistUserMessageAsync(userMessage, ctx, options);
 
-  // ── Abort guard ────────────────────────────────────────────────────────────
-  if (hooks?.signal?.aborted) {
-    throw new DOMException('Chat request aborted by user.', 'AbortError');
-  }
+  const messages = await prepareMessagesAsync(userMessage, plugins, ctx);
+  const resolved = await resolveSkillsAndToolsAsync(userMessage, plugins, ctx);
 
-  await runVoidHook(
-    hookPlugins,
-    'onTurnStart',
-    {
-      userMessage,
-      options: options ? { skipPersist: options.skipPersist } : undefined,
-      ctx,
-    },
-    hooks
-  );
-
-  // ── 1. Persist user message ────────────────────────────────────────────────
-  const userMsg: ChatMessage = {
-    timestamp: new Date().toISOString(),
-    from: 'human',
-    to: agent.id,
-    isHuman: true,
-    content: userMessage,
-  };
-  if (!options?.skipPersist) {
-    const generatedTitle = await sessionManager.appendMessage(sessionId, userMsg, ctx.llmService);
-    if (generatedTitle) {
-      hooks?.emit?.({ kind: 'session_title_updated', sessionId, title: generatedTitle });
-    }
-  }
-  ctx.history.push(userMsg);
-
-  emitStatus(hooks, 'thinking');
-
-  // ── 2. Compress history + build message list ───────────────────────────────
-  const compressed = await plugins.compressor.compress(ctx.history, ctx);
-  const messages = await plugins.contextBuilder.build(compressed, ctx);
-
-  // ── 3. Inject enrichments ──────────────────────────────────────────────────
-  for (const enricher of plugins.enrichers) {
-    const extra = await enricher.enrich(ctx);
-    if (extra) {
-      messages.unshift({ role: 'system', content: extra });
-    }
-  }
-
-  // ── 4. RAG supplement ──────────────────────────────────────────────────────
-  const ragSnippet = await plugins.ragProvider.retrieve(userMessage, ctx);
-  if (ragSnippet) {
-    messages.push({ role: 'system', content: `## Relevant context\n${ragSnippet}` });
-  }
-
-  await runVoidHook(hookPlugins, 'onMessagesPrepared', { messages, ctx }, hooks);
-
-  // ── 5. Configure LLM + collect tools ──────────────────────────────────────
-  // Load role template skill and any agent-specific specialization skills via SkillManager
-  const resolvedSkills = await ctx.skillManager.resolveSkillsForAgent(ctx.agent);
-  if (resolvedSkills.roleSkill) {
-    emitLog(hooks, 'info', `[skills] Loaded role skill: ${resolvedSkills.roleSkill.name}`);
-  }
-  for (const skill of resolvedSkills.specializationSkills) {
-    emitLog(hooks, 'info', `[skills] Loaded specialization skill: ${skill.name}`);
-  }
-  for (const missing of resolvedSkills.missingSkillNames) {
-    emitLog(hooks, 'warn', `[skills] Skill not found: ${missing}`);
-  }
-
-  await runVoidHook(
-    hookPlugins,
-    'onSkillsResolved',
-    {
-      skills: resolvedSkills.skills,
-      missingSkillNames: resolvedSkills.missingSkillNames,
-      ctx,
-    },
-    hooks
-  );
-
-  // ── 5b. Session skill detection — load SKILL.md files on demand ────────────
-  // Allowed skill IDs come from agent.yml → skills[].id
-  const allowedSkillIds = (ctx.agent.skills ?? []).map((s: { id: string }) => s.id);
-  let sessionSkillFiles: import('@ai-team/infrastructure').AgentSkillFile[] = [];
-  if (allowedSkillIds.length > 0) {
-    const existingSessionSkills = await sessionManager.getSessionSkills(sessionId);
-    const loadedRecords = existingSessionSkills.map((r) => ({
-      skillPath: r.skillPath,
-      paused: r.paused,
-    }));
-    const { newlyLoaded, activeSkills } = await ctx.skillManager.resolveSessionSkills(
-      allowedSkillIds,
-      loadedRecords,
-      userMessage
-    );
-    for (const skill of newlyLoaded) {
-      const relPath = path.relative(ctx.workspaceRoot, skill.filePath).replace(/\\/g, '/');
-      await sessionManager.addSessionSkill(sessionId, relPath);
-      emitLog(hooks, 'info', `[session-skills] Triggered: ${skill.name}`);
-    }
-    for (const skill of activeSkills) {
-      if (!newlyLoaded.includes(skill)) {
-        emitLog(hooks, 'info', `[session-skills] Active: ${skill.name}`);
-      }
-    }
-    sessionSkillFiles = activeSkills;
-  }
-
-  // Merge role/specialization skills with active session skill files.
-  // AgentSkillFile has `instructions` but not the full SkillConfig shape;
-  // cast to Skill so buildSystemPrompt can read `.instructions`.
-  const skills: Skill[] = [...resolvedSkills.skills, ...(sessionSkillFiles as unknown as Skill[])];
-  const teamRoster = await ctx.agentManager.getAllAgentsAsync();
-  const discoverMcpTools = (plugins.mcpGateway as { discover?: () => Promise<AgentTool[]> })
-    .discover;
-  const [tools, mcpTools] = await Promise.all([
-    plugins.toolResolver.resolve(ctx),
-    typeof discoverMcpTools === 'function'
-      ? discoverMcpTools.call(plugins.mcpGateway)
-      : Promise.resolve([] as AgentTool[]),
-  ]);
-  const allTools = [...tools, ...mcpTools];
-
-  // Select model (may mutate agent's llmOptions in place)
-  await plugins.llmSelector.select(ctx);
-
-  const toolDefs = buildToolDefinitions(ctx, allTools);
-
-  await runVoidHook(
-    hookPlugins,
-    'onToolsResolved',
-    {
-      tools: allTools,
-      toolDefs,
-      ctx,
-    },
-    hooks
-  );
-
-  // ── 6 + 7. Invoke LLM (policy message + streaming + tool dispatch) ─────────
   let fullResponse = '';
-  const structuredResults: StructuredToolResult[] = [];
+  let structuredResults: StructuredToolResult[] = [];
 
   try {
-    const invoked = await invokeLlm({
-      messages,
-      tools: allTools,
-      toolDefs,
-      skills,
-      teamRoster,
-      ctx,
-    });
+    const invoked = await invokeTurnLlmAsync(messages, resolved, ctx);
     fullResponse = invoked.fullResponse;
-    structuredResults.push(...invoked.structuredResults);
-  } catch (err: unknown) {
-    if (isAbortError(err)) throw err;
-
-    // LLM unavailable — surface useful error
-    const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`\n[LLM error] ${message}\n`);
-    emitStatus(hooks, 'error', message);
-
-    const fallbackContent = buildRetryableFailureMessage(message);
-    const persistedContent = await runBeforePersistMessageHooks(
-      hookPlugins,
-      {
-        fullResponse: '',
-        persistedContent: fallbackContent,
-        ctx,
-      },
-      hooks
-    );
-
-    const failedAgentMsg: ChatMessage = {
-      timestamp: new Date().toISOString(),
-      from: agent.id,
-      to: 'human',
-      content: persistedContent,
-      isHuman: false,
-      archived: true,
-    };
-
-    if (!options?.skipPersist) {
-      await sessionManager.appendMessage(sessionId, failedAgentMsg);
-    }
-    ctx.history.push(failedAgentMsg);
-
-    const failedTurnResult: TurnResult = { text: persistedContent, done: true };
-    await plugins.outputHandler.handle(failedTurnResult, ctx);
-
-    await runVoidHook(
-      hookPlugins,
-      'onTurnCompleted',
-      {
-        fullResponse: '',
-        persistedContent,
-        structuredResults,
-        turnResult: failedTurnResult,
-        ctx,
-      },
-      hooks
-    );
-
-    return failedTurnResult;
+    structuredResults = invoked.structuredResults;
+  } catch (error) {
+    return handleLlmFailureAsync(error, plugins, ctx, options, structuredResults);
   }
 
   process.stdout.write('\n');
 
-  // ── 8. Persist agent reply ─────────────────────────────────────────────────
-  const persistedContent = await runBeforePersistMessageHooks(
-    hookPlugins,
-    {
-      fullResponse,
-      persistedContent: fullResponse,
-      ctx,
-    },
-    hooks
-  );
-  const agentMsg: ChatMessage = {
-    timestamp: new Date().toISOString(),
-    from: agent.id,
-    to: 'human',
-    content: persistedContent,
-    isHuman: false,
-  };
-  const generatedTitle = await sessionManager.appendMessage(sessionId, agentMsg, ctx.llmService);
-  ctx.history.push(agentMsg);
-
-  if (generatedTitle) {
-    hooks?.emit?.({ kind: 'session_title_updated', sessionId, title: generatedTitle });
-  }
-
-  await runVoidHook(
-    hookPlugins,
-    'onAfterPersistAssistantMessage',
-    {
-      fullResponse,
-      persistedContent,
-      persistedMessage: agentMsg,
-      ctx,
-    },
-    hooks
+  const persisted = await persistAssistantMessageAsync(fullResponse, plugins, ctx);
+  const parsed = await parseTurnResultAsync(
+    structuredResults,
+    fullResponse,
+    persisted.persistedContent,
+    plugins,
+    ctx
   );
 
-  await ctx.agentManager.recordInteractionAsync(agent.id);
-
-  // ── 9. Interpret turn result via registered parsers ───────────────────────────
-  //
-  // Parsers are checked in registration order; the first non-null return wins.
-  // Handoff (tool) > handoff (text directive) — see defaults/turn-result-parsers.ts
-  //
-  for (const parser of plugins.turnResultParsers) {
-    const override = parser.parse(structuredResults, fullResponse, persistedContent, ctx);
-    if (override !== null) {
-      const parsedResult = override as TurnResult;
-      await runVoidHook(
-        hookPlugins,
-        'onTurnCompleted',
-        {
-          fullResponse,
-          persistedContent,
-          structuredResults,
-          turnResult: parsedResult,
-          ctx,
-        },
-        hooks
-      );
-      return parsedResult;
-    }
-  }
-
-  // ── 10. Delegate to IOutputHandler ────────────────────────────────────────
-  const turnResult: TurnResult = { text: persistedContent, done: false };
-  await plugins.outputHandler.handle(turnResult, ctx);
-
-  await runVoidHook(
-    hookPlugins,
-    'onTurnCompleted',
-    {
-      fullResponse,
-      persistedContent,
-      structuredResults,
-      turnResult,
-      ctx,
-    },
-    hooks
+  const turnResult: TurnResult = parsed ?? { text: persisted.persistedContent, done: false };
+  return finalizeTurnResultAsync(
+    turnResult,
+    fullResponse,
+    persisted.persistedContent,
+    structuredResults,
+    plugins,
+    ctx
   );
-
-  return turnResult;
 }
 
-function isAbortError(err: unknown): boolean {
-  if (err instanceof Error) {
-    return err.name === 'AbortError' || err.message.includes('aborted');
-  }
-  return false;
-}
-
-export function buildRetryableFailureMessage(rawMessage: string): string {
-  const normalized = rawMessage.toLowerCase();
-
-  if (normalized.includes('timed out') || normalized.includes('timeout')) {
-    return "Sorry — I couldn't complete that request in time. Please try again.";
-  }
-
-  return "Sorry — I ran into a temporary issue while processing your request. Please try again.";
-}
-
-async function runVoidHook<T extends keyof IOrchestratorHookPlugin>(
-  hookPlugins: IOrchestratorHookPlugin[],
-  hookName: T,
-  payload: unknown,
-  hooks: OrchestratorContext['hooks']
-): Promise<void> {
-  for (const plugin of hookPlugins) {
-    const hook = plugin[hookName];
-    if (typeof hook !== 'function') continue;
-    try {
-      await (hook as (p: typeof payload) => Promise<void> | void)(payload);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      emitLog(hooks, 'warn', `[plugin:${plugin.name}] Hook ${String(hookName)} failed: ${message}`);
-    }
-  }
-}
-
-async function runBeforePersistMessageHooks(
-  hookPlugins: IOrchestratorHookPlugin[],
-  payload: BeforePersistAssistantMessageHookPayload,
-  hooks: OrchestratorContext['hooks']
-): Promise<string> {
-  let persistedContent = payload.persistedContent;
-
-  for (const plugin of hookPlugins) {
-    const hook = plugin.onBeforePersistAssistantMessage;
-    if (typeof hook !== 'function') continue;
-    try {
-      const maybeNext = await hook({ ...payload, persistedContent });
-      if (typeof maybeNext === 'string') {
-        persistedContent = maybeNext;
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      emitLog(
-        hooks,
-        'warn',
-        `[plugin:${plugin.name}] Hook onBeforePersistAssistantMessage failed: ${message}`
-      );
-    }
-  }
-
-  return persistedContent;
-}
+export { buildRetryableFailureMessage } from './send-turn-steps.js';

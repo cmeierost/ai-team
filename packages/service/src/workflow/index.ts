@@ -72,6 +72,13 @@ export {
   runChatLoopWorkflowAsync,
 } from './xstate-chat-loop-engine.js';
 
+export {
+  createSendTurnMachine,
+  getSendTurnWorkflowDefinitionJson,
+  getSendTurnWorkflowDefinitionYaml,
+  runSendTurnMachineAsync,
+} from './send-turn-machine.js';
+
 export type {
   ChatLoopMachineOptions,
   ChatLoopWorkflowDefinitionJson,
@@ -84,3 +91,10 @@ export type {
   ChatLoopWorkflowTransitionJson,
   ChatLoopWorkflowServices,
 } from './xstate-chat-loop-engine.js';
+
+export type {
+  SendTurnMachineOutput,
+  SendTurnWorkflowDefinitionJson,
+  SendTurnWorkflowStateJson,
+  SendTurnWorkflowTransitionJson,
+} from './send-turn-machine.js';

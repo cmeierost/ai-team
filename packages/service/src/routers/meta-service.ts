@@ -15,6 +15,8 @@ import { NotFoundError } from '../http-errors.js';
 import {
   getChatLoopWorkflowDefinitionJson,
   getChatLoopWorkflowDefinitionYaml,
+  getSendTurnWorkflowDefinitionJson,
+  getSendTurnWorkflowDefinitionYaml,
 } from '../workflow/index.js';
 
 export interface ContextEstimateSegment {
@@ -99,6 +101,11 @@ export class MetaService implements IContextService {
       format: 'workflow/v1',
       getJson: () => getChatLoopWorkflowDefinitionJson(),
       getYaml: () => getChatLoopWorkflowDefinitionYaml(),
+    },
+    'chat-send-turn': {
+      format: 'workflow/v1',
+      getJson: () => getSendTurnWorkflowDefinitionJson(),
+      getYaml: () => getSendTurnWorkflowDefinitionYaml(),
     },
   };
 

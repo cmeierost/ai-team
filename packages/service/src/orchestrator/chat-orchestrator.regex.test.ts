@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./send-turn.js', () => ({
-  sendTurn: vi.fn(async () => ({ text: 'llm-called', done: false })),
+vi.mock('../workflow/send-turn-machine.js', () => ({
+  runSendTurnMachineAsync: vi.fn(async () => ({
+    chatResult: { text: 'llm-called', toolRoundNeeded: false },
+    turnResult: { text: 'llm-called', done: false },
+  })),
 }));
 
 vi.mock('./tool-dispatch.js', () => ({
@@ -13,8 +16,8 @@ vi.mock('./tool-dispatch.js', () => ({
   })),
 }));
 
-import { XStateChatOrchestrator } from './xstate-chat-orchestrator.js';
-import { sendTurn } from './send-turn.js';
+import { XStateChatOrchestrator } from './xstate-chat-orchestrator';
+import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import { dispatchToolCall } from './tool-dispatch.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
@@ -101,7 +104,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
           content: 'show your visible file tree',
         })
       );
-      expect(sendTurn).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
     });
 
     it('runs tool_list before LLM for tool-capability requests', async () => {
@@ -120,7 +123,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         ctx,
         undefined
       );
-      expect(sendTurn).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
     });
 
     it('falls through to LLM turn when no regex intent matches', async () => {
@@ -131,7 +134,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
       const result = await orchestrator.run({ message: 'help me refactor this module' });
 
       expect(result).toBe('llm-called');
-      expect(sendTurn).toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).toHaveBeenCalled();
     });
 
     it('runs team_list before LLM for employee-list questions', async () => {
@@ -150,7 +153,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         ctx,
         undefined
       );
-      expect(sendTurn).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
     });
 
     it('matches team roster phrasing variants', async () => {
@@ -169,7 +172,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         ctx,
         undefined
       );
-      expect(sendTurn).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
     });
   }
 );

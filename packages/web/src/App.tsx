@@ -11,6 +11,7 @@ import { TeamProvider } from './context/TeamContext';
 import { SettingsPage } from './pages/SettingsPage';
 import { PermissionsAnalysisPage } from './pages/PermissionsAnalysisPage';
 import { PlanningPage } from './pages/PlanningPage';
+import { WorkflowsPage } from './pages/WorkflowsPage';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import './App.css';
 
@@ -33,6 +34,7 @@ export function App() {
               <Route path="/analysis/permissions/relations" element={<PermissionsAnalysisPage />} />
               <Route path="/dev/session-graph" element={<SessionGraphPreview />} />
               <Route path="/planning" element={<PlanningPage />} />
+              <Route path="/workflows" element={<WorkflowsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

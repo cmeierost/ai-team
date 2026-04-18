@@ -19,6 +19,7 @@
 
 .planning-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
   margin-bottom: 1.25rem;
   border-bottom: 1px solid var(--vscode-panel-border, #313244);
@@ -159,4 +160,8 @@
 
 .planning-error {
   color: var(--vscode-errorForeground, #f38ba8);
+}
+
+.planning-content {
+  min-height: 0;
 }

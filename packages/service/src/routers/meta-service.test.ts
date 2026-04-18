@@ -321,6 +321,21 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
     expect(definition.definitionYaml).toContain('states:');
   });
 
+  it('returns send-turn workflow definition in both JSON and YAML formats', async () => {
+    const service = createService([], ['packages/service/**/*']);
+
+    const definition = await service.getWorkflowDefinition('chat-send-turn');
+
+    expect(definition.workflowId).toBe('chat-send-turn');
+    expect(definition.format).toBe('workflow/v1');
+    expect(definition.definitionJson).toMatchObject({
+      id: 'chat-send-turn',
+      initial: 'ensureTurnStart',
+    });
+    expect(definition.definitionYaml).toContain('id: chat-send-turn');
+    expect(definition.definitionYaml).toContain('states:');
+  });
+
   it('throws for unknown workflow definitions', async () => {
     const service = createService([], ['packages/service/**/*']);
 

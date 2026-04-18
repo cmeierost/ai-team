@@ -14,10 +14,10 @@ import { emitLog, emitStatus } from './stream-events.js';
 import { resolvePreLlmIntent } from '../tools/pre-llm-intents.js';
 import { dispatchToolCall } from './tool-dispatch.js';
 import { executeHandoff, tryNlForward } from './handoff.js';
-import { sendTurn } from './send-turn.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
 import { runChatLoopWorkflowAsync } from '../workflow/xstate-chat-loop-engine.js';
+import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 
 const AUTO_REACT_MESSAGE =
   '[Handoff received] You have just been handed this conversation. Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.';
@@ -61,16 +61,20 @@ export class XStateChatOrchestrator {
           };
         },
         runSendTurnAsync: async ({ message, hop }) => {
-          const result = await sendTurn(message, this.plugins, this.ctx, {
-            skipPersist: hop > 0 || message === AUTO_REACT_MESSAGE,
+          const output = await runSendTurnMachineAsync({
+            userMessage: message,
+            hop,
+            ctx: this.ctx,
+            plugins: this.plugins,
+            options: {
+              skipPersist: hop > 0 || message === AUTO_REACT_MESSAGE,
+            },
           });
-          lastTurnResult = result;
-          return {
-            text: result.text,
-            toolRoundNeeded: false,
-          };
+
+          lastTurnResult = output.turnResult;
+          return output.chatResult;
         },
-        runPostTurnResolutionAsync: async ({ text }) => {
+        runPostTurnResolutionAsync: async () => {
           const current = lastTurnResult;
           if (!current?.handedOff || !current.handoffTargetId) {
             return {

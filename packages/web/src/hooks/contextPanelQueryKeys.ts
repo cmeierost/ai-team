@@ -16,4 +16,5 @@ export const contextPanelQueryKeys = {
   planningIntake: (status?: string) => ['planning', 'intake', status] as const,
   planningPlans: (status?: string) => ['planning', 'plans', status] as const,
   planningPlan: (planId: string) => ['planning', 'plan', planId] as const,
+  workflowDefinition: (workflowId: string) => ['workflow', 'definition', workflowId] as const,
 };
