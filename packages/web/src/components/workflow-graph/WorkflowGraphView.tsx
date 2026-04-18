@@ -32,14 +32,14 @@ export function WorkflowGraphView({
     () => ({
       workflowCallNode: WorkflowCallNode,
     }),
-    [],
+    []
   );
 
   const edgeTypes = useMemo<EdgeTypes>(
     () => ({
       workflowOrthogonal: WorkflowOrthogonalEdge,
     }),
-    [],
+    []
   );
 
   const { nodes: initialNodes, edges: initialEdges } = useMemo(

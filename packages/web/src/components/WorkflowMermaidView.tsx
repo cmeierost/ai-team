@@ -26,7 +26,7 @@ export function WorkflowMermaidView({ definition }: Readonly<WorkflowMermaidView
 
   const mermaidBaseId = useMemo(
     () => `workflow-mermaid-${sanitizeMermaidDomId(generatedId)}`,
-    [generatedId],
+    [generatedId]
   );
 
   useEffect(() => {

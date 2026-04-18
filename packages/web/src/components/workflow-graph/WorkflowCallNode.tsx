@@ -54,7 +54,9 @@ export function WorkflowCallNode({ data }: Readonly<NodeProps<WorkflowCallFlowNo
         <div className="workflow-node-card-badges">
           <span className="workflow-node-badge workflow-node-badge-call">call</span>
           {nodeData.hasErrorHandler ? (
-            <span className="workflow-node-badge workflow-node-badge-error-handler">error handler</span>
+            <span className="workflow-node-badge workflow-node-badge-error-handler">
+              error handler
+            </span>
           ) : null}
         </div>
       </div>

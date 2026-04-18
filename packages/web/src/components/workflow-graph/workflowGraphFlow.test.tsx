@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkflowDefinitionDocument } from '@ai-team/api-client';
-import { buildWorkflowCallFlowMermaid, transformWorkflowDefinitionToReactFlow } from './workflowCallGraphFlow';
+import {
+  buildWorkflowCallFlowMermaid,
+  transformWorkflowDefinitionToReactFlow,
+} from './workflowCallGraphFlow';
 
 const definition: WorkflowDefinitionDocument = {
   format: 'workflow/v1',
@@ -215,7 +218,7 @@ describe('transformWorkflowDefinitionToReactFlow', () => {
       expect.objectContaining({
         sourceHandle: 'out-success-left',
         targetHandle: 'in-left',
-      }),
+      })
     );
   });
 
@@ -243,7 +246,7 @@ describe('transformWorkflowDefinitionToReactFlow', () => {
     const result = transformWorkflowDefinitionToReactFlow(definitionWithRightwardEdge);
 
     const alphaToBetaEdge = result.edges.find(
-      (edge) => edge.source === 'alpha' && edge.target === 'beta',
+      (edge) => edge.source === 'alpha' && edge.target === 'beta'
     );
 
     expect(alphaToBetaEdge).toBeDefined();
@@ -251,7 +254,7 @@ describe('transformWorkflowDefinitionToReactFlow', () => {
       expect.objectContaining({
         sourceHandle: 'out-success-right',
         targetHandle: 'in-left',
-      }),
+      })
     );
   });
 
@@ -259,7 +262,7 @@ describe('transformWorkflowDefinitionToReactFlow', () => {
     const result = transformWorkflowDefinitionToReactFlow(definitionWithReturnEdge);
 
     const returnEdge = result.edges.find(
-      (edge) => edge.source === 'second' && edge.target === 'first',
+      (edge) => edge.source === 'second' && edge.target === 'first'
     );
 
     expect(returnEdge).toBeDefined();
@@ -284,9 +287,14 @@ describe('transformWorkflowDefinitionToReactFlow', () => {
     });
 
     expect(result.nodes.map((node) => node.id)).toEqual(['main']);
-    expect(result.edges.every((edge) => !String(edge.className).includes('workflow-graph-edge-error'))).toBe(true);
+    expect(
+      result.edges.every((edge) => !String(edge.className).includes('workflow-graph-edge-error'))
+    ).toBe(true);
 
-    const nodeData = result.nodes[0]?.data as { hasErrorHandler?: boolean; showErrorDetails?: boolean };
+    const nodeData = result.nodes[0]?.data as {
+      hasErrorHandler?: boolean;
+      showErrorDetails?: boolean;
+    };
     expect(nodeData.hasErrorHandler).toBe(true);
     expect(nodeData.showErrorDetails).toBe(false);
   });
@@ -303,7 +311,7 @@ describe('transformWorkflowDefinitionToReactFlow', () => {
   it('uses guard names for post-done branch labels', () => {
     const graphResult = transformWorkflowDefinitionToReactFlow(definitionWithGuardedDone);
     const workerToRetryEdge = graphResult.edges.find(
-      (edge) => edge.source === 'worker' && edge.target === 'retry',
+      (edge) => edge.source === 'worker' && edge.target === 'retry'
     );
 
     expect(workerToRetryEdge).toBeDefined();
@@ -317,7 +325,7 @@ describe('transformWorkflowDefinitionToReactFlow', () => {
   it('keeps guarded branch labels even when branch reaches call through a bridge state', () => {
     const graphResult = transformWorkflowDefinitionToReactFlow(definitionWithGuardedDoneViaBridge);
     const workerToSendTurnEdge = graphResult.edges.find(
-      (edge) => edge.source === 'worker' && edge.target === 'sendTurn',
+      (edge) => edge.source === 'worker' && edge.target === 'sendTurn'
     );
 
     expect(workerToSendTurnEdge).toBeDefined();

@@ -97,7 +97,8 @@ export function WorkflowOrthogonalEdge({
   data,
 }: Readonly<EdgeProps>) {
   const edgeData = (data ?? {}) as WorkflowEdgeData;
-  const laneX = typeof edgeData.laneX === 'number' ? edgeData.laneX : sourceX + (targetX - sourceX) / 2;
+  const laneX =
+    typeof edgeData.laneX === 'number' ? edgeData.laneX : sourceX + (targetX - sourceX) / 2;
 
   const sourceExitX =
     sourcePosition === Position.Left || sourcePosition === Position.Right

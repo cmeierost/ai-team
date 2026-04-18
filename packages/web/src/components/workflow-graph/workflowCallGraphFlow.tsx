@@ -69,7 +69,9 @@ function escapeMermaidLabel(value: string): string {
   return value.replaceAll('"', String.raw`\"`);
 }
 
-function mapCallStateToMermaidNodeIds(callFlowEntries: WorkflowCallFlowEntry[]): Map<string, string> {
+function mapCallStateToMermaidNodeIds(
+  callFlowEntries: WorkflowCallFlowEntry[]
+): Map<string, string> {
   return new Map(callFlowEntries.map((entry, index) => [entry.stateId, `n${index + 1}`]));
 }
 
@@ -114,7 +116,7 @@ function getStateDepths(definition: WorkflowDefinitionDocument): Map<string, num
 function reorderLayersToReduceCrossings(
   definition: WorkflowDefinitionDocument,
   layers: Map<number, string[]>,
-  depths: Map<string, number>,
+  depths: Map<string, number>
 ): void {
   const sortedDepths = [...layers.keys()].sort((left, right) => left - right);
 
@@ -140,7 +142,7 @@ function reorderLayersToReduceCrossings(
         }
 
         const targetsCurrentState = sourceState.transitions.some(
-          (transition) => transition.target === stateId,
+          (transition) => transition.target === stateId
         );
         if (!targetsCurrentState) {
           continue;
@@ -173,7 +175,7 @@ function reorderLayersToReduceCrossings(
 
     layers.set(
       depth,
-      scored.map((entry) => entry.stateId),
+      scored.map((entry) => entry.stateId)
     );
   }
 }
@@ -219,7 +221,7 @@ function mapStatesToLayers(definition: WorkflowDefinitionDocument): {
 }
 
 export function computeWorkflowStateOrder(
-  definition: WorkflowDefinitionDocument,
+  definition: WorkflowDefinitionDocument
 ): WorkflowStateOrderEntry[] {
   const { layers, depths } = mapStatesToLayers(definition);
   const sortedDepths = [...layers.keys()].sort((left, right) => left - right);
@@ -249,7 +251,9 @@ function isFailureEvent(eventName: string): boolean {
   return /(fail|error|deny|denied|abort|cancel|timeout|invalid)/i.test(eventName);
 }
 
-function formatTransitionBranchLabel(transition: WorkflowDefinitionState['transitions'][number]): string {
+function formatTransitionBranchLabel(
+  transition: WorkflowDefinitionState['transitions'][number]
+): string {
   const eventName = transition.event;
   const guardName = transition.guard;
 
@@ -296,10 +300,12 @@ function splitOutgoingBranchesByOutcome(state: WorkflowDefinitionState): {
   };
 }
 
-export function computeWorkflowCallFlow(definition: WorkflowDefinitionDocument): WorkflowCallFlowEntry[] {
+export function computeWorkflowCallFlow(
+  definition: WorkflowDefinitionDocument
+): WorkflowCallFlowEntry[] {
   const orderedStates = computeWorkflowStateOrder(definition);
   const callStates = orderedStates.filter(
-    (entry) => typeof entry.invokeSrc === 'string' && entry.invokeSrc.length > 0,
+    (entry) => typeof entry.invokeSrc === 'string' && entry.invokeSrc.length > 0
   );
 
   if (callStates.length === 0) {
@@ -333,7 +339,7 @@ export function computeWorkflowCallFlow(definition: WorkflowDefinitionDocument):
       order: entry.order,
       invokeSrc: entry.invokeSrc ?? 'unknown-call',
       beforeEvents: mapBranchCountsToSortedList(
-        beforeEventCountsByState.get(entry.stateId) ?? new Map<string, number>(),
+        beforeEventCountsByState.get(entry.stateId) ?? new Map<string, number>()
       ),
       afterEvents,
       failureEvents,
@@ -343,7 +349,7 @@ export function computeWorkflowCallFlow(definition: WorkflowDefinitionDocument):
 
 export function buildWorkflowCallFlowMermaid(
   definition: WorkflowDefinitionDocument,
-  options: WorkflowVisualizationOptions = {},
+  options: WorkflowVisualizationOptions = {}
 ): string {
   const includeErrorPaths = options.includeErrorPaths ?? true;
   const callFlowEntries = computeWorkflowCallFlow(definition);
@@ -371,9 +377,8 @@ export function buildWorkflowCallFlowMermaid(
     }
 
     const hasErrorHandler = entry.failureEvents.length > 0;
-    const handlerSuffix = hasErrorHandler && !includeErrorPaths
-      ? `${MERMAID_LINE_BREAK}⚠ error handler`
-      : '';
+    const handlerSuffix =
+      hasErrorHandler && !includeErrorPaths ? `${MERMAID_LINE_BREAK}⚠ error handler` : '';
     const nodeLabel = `${entry.order}. ${entry.stateId}${MERMAID_LINE_BREAK}${entry.invokeSrc}${handlerSuffix}`;
     let nodeClass = 'wfCall';
     if (isErrorCallFlowEntry(entry)) {
@@ -382,10 +387,7 @@ export function buildWorkflowCallFlowMermaid(
       nodeClass = 'wfHasError';
     }
 
-    lines.push(
-      `  ${nodeId}["${escapeMermaidLabel(nodeLabel)}"]`,
-      `  class ${nodeId} ${nodeClass}`,
-    );
+    lines.push(`  ${nodeId}["${escapeMermaidLabel(nodeLabel)}"]`, `  class ${nodeId} ${nodeClass}`);
   });
 
   callFlowEntries.forEach((entry) => {
@@ -412,7 +414,7 @@ export function buildWorkflowCallFlowMermaid(
 
       if (isFailure) {
         errorLinkStyles.push(
-          `  linkStyle ${edgeIndex} stroke:#f38ba8,stroke-width:3px,color:#fce7ef,stroke-dasharray: 6 4`,
+          `  linkStyle ${edgeIndex} stroke:#f38ba8,stroke-width:3px,color:#fce7ef,stroke-dasharray: 6 4`
         );
       }
 
@@ -427,7 +429,11 @@ export function buildWorkflowCallFlowMermaid(
   return lines.join('\n');
 }
 
-function getNodeClassNames(stateId: string, state: WorkflowDefinitionState, initialStateId: string) {
+function getNodeClassNames(
+  stateId: string,
+  state: WorkflowDefinitionState,
+  initialStateId: string
+) {
   return [
     'workflow-graph-node',
     stateId === initialStateId ? 'workflow-graph-node-initial' : '',
@@ -446,17 +452,19 @@ function findNearestCallTargetsWithLabels(
   definition: WorkflowDefinitionDocument,
   startStateId: string,
   callStateIds: Set<string>,
-  fallbackLabel: string,
+  fallbackLabel: string
 ): WorkflowNearestCallTarget[] {
   if (!definition.states[startStateId]) {
     return [];
   }
 
   const discovered = new Map<string, Set<string>>();
-  const queue: Array<{ stateId: string; firstLabel?: string }> = [{
-    stateId: startStateId,
-    firstLabel: undefined,
-  }];
+  const queue: Array<{ stateId: string; firstLabel?: string }> = [
+    {
+      stateId: startStateId,
+      firstLabel: undefined,
+    },
+  ];
   const visitedByStateAndLabel = new Set<string>();
 
   while (queue.length > 0) {
@@ -505,7 +513,7 @@ function findNearestCallTargetsWithLabels(
 function getSimplifiedNextCallTargets(
   definition: WorkflowDefinitionDocument,
   sourceCallStateId: string,
-  callStateIds: Set<string>,
+  callStateIds: Set<string>
 ): WorkflowCallEdgeTarget[] {
   const sourceState = definition.states[sourceCallStateId];
   if (!sourceState) {
@@ -524,7 +532,7 @@ function getSimplifiedNextCallTargets(
       definition,
       transition.target,
       callStateIds,
-      fallbackLabel,
+      fallbackLabel
     );
 
     if (targets.length === 0) {
@@ -568,7 +576,7 @@ function getSimplifiedNextCallTargets(
 function getHorizontalDirection(
   sourceX: number,
   targetX: number,
-  isFailure: boolean,
+  isFailure: boolean
 ): HorizontalDirection {
   if (Math.abs(sourceX - targetX) < 8) {
     return isFailure ? 'right' : 'left';
@@ -583,7 +591,7 @@ function computeEdgeLaneX(
   direction: HorizontalDirection,
   isFailure: boolean,
   isBackward: boolean,
-  edgeIndex: number,
+  edgeIndex: number
 ): number {
   const sourceRight = sourceX + NODE_HALF_WIDTH;
   const sourceLeft = sourceX - NODE_HALF_WIDTH;
@@ -596,11 +604,11 @@ function computeEdgeLaneX(
   if (direction === 'right') {
     if (isBackward) {
       return (
-        Math.max(sourceRight, targetRight, ERROR_LANE_X)
-        + EDGE_DETOUR_CLEARANCE
-        + RETURN_EDGE_OUTER_PUSH
-        + failureOffset
-        + perEdgeOffset
+        Math.max(sourceRight, targetRight, ERROR_LANE_X) +
+        EDGE_DETOUR_CLEARANCE +
+        RETURN_EDGE_OUTER_PUSH +
+        failureOffset +
+        perEdgeOffset
       );
     }
 
@@ -611,16 +619,21 @@ function computeEdgeLaneX(
       return rightCorridorStart + (rightCorridorEnd - rightCorridorStart) / 2 + edgeIndex * 12;
     }
 
-    return Math.max(sourceRight, targetRight, ERROR_LANE_X) + EDGE_DETOUR_CLEARANCE + failureOffset + perEdgeOffset;
+    return (
+      Math.max(sourceRight, targetRight, ERROR_LANE_X) +
+      EDGE_DETOUR_CLEARANCE +
+      failureOffset +
+      perEdgeOffset
+    );
   }
 
   if (isBackward) {
     return (
-      Math.min(sourceLeft, targetLeft)
-      - EDGE_DETOUR_CLEARANCE
-      - RETURN_EDGE_OUTER_PUSH
-      - failureOffset
-      - perEdgeOffset
+      Math.min(sourceLeft, targetLeft) -
+      EDGE_DETOUR_CLEARANCE -
+      RETURN_EDGE_OUTER_PUSH -
+      failureOffset -
+      perEdgeOffset
     );
   }
 
@@ -652,7 +665,7 @@ function getTargetHandleId(laneX: number, targetX: number): string {
 function avoidNodeColumns(
   laneX: number,
   direction: HorizontalDirection,
-  occupiedNodeCenters: readonly number[],
+  occupiedNodeCenters: readonly number[]
 ): number {
   const minimumColumnClearance = NODE_HALF_WIDTH + 30;
   const nudgeStep = 26;
@@ -661,8 +674,10 @@ function avoidNodeColumns(
   let attempts = 0;
 
   while (
-    attempts < 40
-    && occupiedNodeCenters.some((centerX) => Math.abs(adjustedLaneX - centerX) < minimumColumnClearance)
+    attempts < 40 &&
+    occupiedNodeCenters.some(
+      (centerX) => Math.abs(adjustedLaneX - centerX) < minimumColumnClearance
+    )
   ) {
     adjustedLaneX += direction === 'right' ? nudgeStep : -nudgeStep;
     attempts += 1;
@@ -673,7 +688,7 @@ function avoidNodeColumns(
 
 export function transformWorkflowDefinitionToReactFlow(
   definition: WorkflowDefinitionDocument,
-  options: WorkflowVisualizationOptions = {},
+  options: WorkflowVisualizationOptions = {}
 ) {
   const includeErrorPaths = options.includeErrorPaths ?? true;
   const callFlowEntries = computeWorkflowCallFlow(definition);
@@ -686,11 +701,13 @@ export function transformWorkflowDefinitionToReactFlow(
   const nodes: Node[] = [];
   const edges: Edge[] = [];
 
-  const mainCallFlowEntries = visibleCallFlowEntries.filter((entry) => !isErrorCallFlowEntry(entry));
+  const mainCallFlowEntries = visibleCallFlowEntries.filter(
+    (entry) => !isErrorCallFlowEntry(entry)
+  );
   const errorCallFlowEntries = includeErrorPaths
     ? visibleCallFlowEntries
-    .filter((entry) => isErrorCallFlowEntry(entry))
-    .sort((left, right) => left.order - right.order)
+        .filter((entry) => isErrorCallFlowEntry(entry))
+        .sort((left, right) => left.order - right.order)
     : [];
 
   const entriesByDepth = new Map<number, WorkflowCallFlowEntry[]>();
@@ -767,7 +784,9 @@ export function transformWorkflowDefinitionToReactFlow(
     nodeXByStateId.set(entry.stateId, x);
   });
 
-  const orderByStateId = new Map(visibleCallFlowEntries.map((entry) => [entry.stateId, entry.order]));
+  const orderByStateId = new Map(
+    visibleCallFlowEntries.map((entry) => [entry.stateId, entry.order])
+  );
   const occupiedNodeCenters = [...new Set(nodeXByStateId.values())];
 
   visibleCallFlowEntries.forEach((entry) => {
@@ -788,7 +807,7 @@ export function transformWorkflowDefinitionToReactFlow(
       const laneX = avoidNodeColumns(
         computeEdgeLaneX(sourceX, targetX, direction, isFailure, isBackward, index),
         direction,
-        occupiedNodeCenters,
+        occupiedNodeCenters
       );
       const edgeLabel = isFailure
         ? `error: ${target.triggerEvents.join(', ')}`
