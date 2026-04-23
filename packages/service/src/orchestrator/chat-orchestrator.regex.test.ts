@@ -107,6 +107,28 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
       expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
     });
 
+    it('passes contextFiles to regex tool intents', async () => {
+      const ctx = makeContext();
+      const plugins = makePlugins();
+      const orchestrator = new Orchestrator(ctx, plugins);
+
+      const result = await orchestrator.run({
+        message: 'show your visible file tree',
+        contextFiles: ['packages/service/src/orchestrator/xstate-chat-orchestrator.ts'],
+      });
+
+      expect(result).toBe('');
+      expect(dispatchToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolName: 'fs_tree',
+          args: { path: '.', maxDepth: 6, includeHidden: true },
+        }),
+        ctx,
+        ['packages/service/src/orchestrator/xstate-chat-orchestrator.ts']
+      );
+      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
+    });
+
     it('runs tool_list before LLM for tool-capability requests', async () => {
       const ctx = makeContext();
       const plugins = makePlugins();

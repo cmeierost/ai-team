@@ -9,12 +9,14 @@ import type {
   WorkflowFrame,
   WorkflowStateSnapshot,
 } from '@ai-team/api-client';
+import type { Agent, ToolContext } from '@ai-team/infrastructure';
 import {
   resolveWorkflowAnswer as _resolveWorkflowAnswer,
   emitWorkflowQuestionFrame as _emitWorkflowQuestionFrame,
   emitWorkflowResultFrame as _emitWorkflowResultFrame,
   ensureNotAborted as _ensureNotAborted,
 } from '../../workflow/helpers.js';
+import { createAskUserTool } from '../../tools/orchestration-tools.js';
 
 export interface InitRuntimeHooks {
   signal?: AbortSignal;
@@ -26,6 +28,72 @@ export interface InitRuntimeHooks {
   questionChecklist?: (request: QuestionChecklistRequest) => Promise<string[]>;
   workflowState?: WorkflowStateSnapshot;
   onWorkflowFrame?: (frame: WorkflowFrame) => void;
+}
+
+type AskKind = 'input' | 'confirm' | 'select' | 'password' | 'checklist';
+
+const INIT_ASK_AGENT: Agent = {
+  id: 'init-system',
+  name: 'Init System',
+  role: 'setup orchestrator',
+  type: 'executive' as Agent['type'],
+  contextLevel: 'organization' as Agent['contextLevel'],
+  filePath: '',
+  skillPath: '',
+  createdAt: new Date().toISOString(),
+};
+
+const askUserTool = createAskUserTool();
+
+function createAskToolContext(
+  hooks: InitRuntimeHooks | undefined,
+  overrides?: Partial<Pick<ToolContext, 'questionInput'>>
+): ToolContext {
+  const fallbackQuestionInput = hooks?.questionInput
+    ? async (request: { message: string }) => hooks.questionInput!({ message: request.message })
+    : undefined;
+
+  return {
+    agent: INIT_ASK_AGENT,
+    agentId: INIT_ASK_AGENT.id,
+    workspaceRoot: '',
+    questionInput: overrides?.questionInput ?? fallbackQuestionInput,
+    questionConfirm: hooks?.questionConfirm,
+    questionSelect: hooks?.questionSelect,
+    questionPassword: hooks?.questionPassword,
+    questionChecklist: hooks?.questionChecklist,
+  };
+}
+
+async function askViaTool(
+  hooks: InitRuntimeHooks | undefined,
+  params: {
+    kind: AskKind;
+    message: string;
+    workflow?: {
+      workflowId?: string;
+      stepId?: string;
+      continuationToken?: string;
+      questionId?: string;
+    };
+    defaultText?: string;
+    defaultBoolean?: boolean;
+    choices?: Array<{ name: string; value: string; description?: string; recommended?: boolean }>;
+    defaultChecklist?: string[];
+    allowOther?: boolean;
+    otherLabel?: string;
+    otherPrompt?: string;
+    minSelections?: number;
+    maxSelections?: number;
+    mask?: string;
+  },
+  overrides?: Partial<Pick<ToolContext, 'questionInput'>>
+): Promise<unknown> {
+  const result = await askUserTool.execute(params, createAskToolContext(hooks, overrides));
+  if (!result || typeof result !== 'object' || !('answer' in result)) {
+    throw new Error('com_ask returned an unexpected response shape.');
+  }
+  return (result as { answer: unknown }).answer;
 }
 
 // Thin wrappers that delegate to the shared workflow helpers.
@@ -117,8 +185,34 @@ export async function requestInput(
   if (!hooks?.questionInput) {
     throw new Error('Input question requested but no client questionInput responder is available.');
   }
-  await Promise.resolve();
-  const answer = await hooks.questionInput(request);
+
+  const answer = await askViaTool(
+    hooks,
+    {
+      kind: 'input',
+      message: request.message,
+      workflow: request.workflow,
+    },
+    {
+      questionInput: async (inputRequest) =>
+        hooks.questionInput?.({
+          ...request,
+          message: inputRequest.message,
+        }) ?? '',
+    }
+  );
+
+  if (typeof answer !== 'string') {
+    throw new Error('Input question expected a string answer from com_ask.');
+  }
+
+  if (request.validate) {
+    const validationResult = request.validate(answer);
+    if (validationResult !== true) {
+      throw new Error(typeof validationResult === 'string' ? validationResult : 'Invalid input.');
+    }
+  }
+
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -141,13 +235,17 @@ export async function requestConfirm(
     return resumed;
   }
 
-  if (!hooks?.questionConfirm) {
-    throw new Error(
-      'Confirm question requested but no client questionConfirm responder is available.'
-    );
+  const answer = await askViaTool(hooks, {
+    kind: 'confirm',
+    message: request.message,
+    workflow: request.workflow,
+    defaultBoolean: request.default,
+  });
+
+  if (typeof answer !== 'boolean') {
+    throw new Error('Confirm question expected a boolean answer from com_ask.');
   }
-  await Promise.resolve();
-  const answer = await hooks.questionConfirm(request);
+
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -171,37 +269,21 @@ export async function requestSelect(
     return resumed;
   }
 
-  if (!hooks?.questionSelect) {
-    if (hooks?.questionInput) {
-      const choiceLines = request.choices
-        .map((choice, index) => `${index + 1}. ${choice.name}`)
-        .join('\n');
+  const answer = await askViaTool(hooks, {
+    kind: 'select',
+    message: request.message,
+    choices: request.choices,
+    workflow: request.workflow,
+    defaultText: request.default,
+    allowOther: request.allowOther,
+    otherLabel: request.otherLabel,
+    otherPrompt: request.otherPrompt,
+  });
 
-      await Promise.resolve();
-      const answer = await hooks.questionInput({
-        message: `${request.message}\n${choiceLines}\nEnter number or option value:`,
-        workflow: request.workflow,
-        validate: (value: string) => {
-          const resolved = resolveSelectAnswer(value, request.choices);
-          return resolved ? true : 'Please enter a valid option number, name, or value.';
-        },
-      });
-
-      const resolved = resolveSelectAnswer(answer, request.choices);
-      if (!resolved) {
-        throw new Error('Invalid selection answer for select question.');
-      }
-
-      emitWorkflowResultFrame(hooks, request, resolved);
-      return resolved;
-    }
-
-    throw new Error(
-      'Select question requested but no client questionSelect or compatible questionInput responder is available.'
-    );
+  if (typeof answer !== 'string') {
+    throw new Error('Select question expected a string answer from com_ask.');
   }
-  await Promise.resolve();
-  const answer = await hooks.questionSelect(request);
+
   const resolved = resolveSelectAnswer(answer, request.choices);
   if (!resolved) {
     throw new Error(
@@ -230,13 +312,17 @@ export async function requestPassword(
     return resumed;
   }
 
-  if (!hooks?.questionPassword) {
-    throw new Error(
-      'Password question requested but no client questionPassword responder is available.'
-    );
+  const answer = await askViaTool(hooks, {
+    kind: 'password',
+    message: request.message,
+    workflow: request.workflow,
+    mask: request.mask,
+  });
+
+  if (typeof answer !== 'string') {
+    throw new Error('Password question expected a string answer from com_ask.');
   }
-  await Promise.resolve();
-  const answer = await hooks.questionPassword(request);
+
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
 }
@@ -300,38 +386,32 @@ export async function requestChecklist(
     return resumed;
   }
 
-  if (hooks?.questionChecklist) {
-    await Promise.resolve();
-    const answer = await hooks.questionChecklist(request);
-    emitWorkflowResultFrame(hooks, request, answer);
-    return answer;
+  const answer = await askViaTool(hooks, {
+    kind: 'checklist',
+    message: request.message,
+    choices: request.choices,
+    workflow: request.workflow,
+    defaultChecklist: request.default,
+    minSelections: request.minSelections,
+    maxSelections: request.maxSelections,
+    allowOther: request.allowOther,
+    otherLabel: request.otherLabel,
+    otherPrompt: request.otherPrompt,
+  });
+
+  if (!Array.isArray(answer) || !answer.every((value) => typeof value === 'string')) {
+    throw new Error('Checklist question expected a string[] answer from com_ask.');
   }
 
-  if (hooks?.questionInput) {
-    const choiceLines = request.choices
-      .map((choice, index) => `${index + 1}. ${choice.name}`)
-      .join('\n');
-
-    await Promise.resolve();
-    const answer = await hooks.questionInput({
-      message: `${request.message}\n${choiceLines}\nEnter one or more values (comma-separated).`,
-      workflow: request.workflow,
-      validate: (value: string) => {
-        try {
-          parseChecklistAnswer(value, request.choices);
-          return true;
-        } catch {
-          return 'Please enter valid option numbers, names, or values (comma-separated).';
-        }
-      },
-    });
-
-    const parsed = parseChecklistAnswer(answer, request.choices);
-    emitWorkflowResultFrame(hooks, request, parsed);
-    return parsed;
+  const parsed = hooks?.questionChecklist ? answer : answer.map((value) => value.trim());
+  if (!hooks?.questionChecklist) {
+    for (const value of parsed) {
+      if (!request.choices.some((choice) => choice.value === value)) {
+        throw new Error(`Invalid checklist option: "${value}".`);
+      }
+    }
   }
 
-  throw new Error(
-    'Checklist question requested but no client questionChecklist or compatible questionInput responder is available.'
-  );
+  emitWorkflowResultFrame(hooks, request, parsed);
+  return parsed;
 }

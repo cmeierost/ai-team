@@ -46,6 +46,7 @@ import {
   getGuidedInitialSuggestions,
   getGuidedDependentSuggestions,
 } from './init/guided-onboarding.js';
+import { runInitWorkflowAsync } from './init-workflow.js';
 
 function writeToken(hooks: InitRuntimeHooks | undefined, text: string) {
   hooks?.emit?.({ kind: 'token', text });
@@ -113,36 +114,11 @@ export async function initCommand(
   options: InitOptions,
   hooks?: InitRuntimeHooks
 ) {
-  const aiTeamDir = path.join(workspaceRoot, '.ai-team');
-
-  try {
-    const stats = await fs.stat(aiTeamDir);
-    if (stats.isDirectory()) {
-      writeWarn(hooks, 'AI Team is already initialized in this workspace');
-      writeLine(hooks, `  Location: ${aiTeamDir}`);
-      writeLine(hooks, '  Use --force to fully reinitialize team onboarding.');
-
-      if (!options.force) {
-        writeLine(hooks, '  Skipping initialization.');
-        return;
-      }
-
-      writeWarn(hooks, '  Force flag detected - reinitializing...');
-      await clearAiTeamDirectory(workspaceRoot, hooks);
-    }
-  } catch {}
-
-  // Phase 1: LLM setup
-  const { setupCommand } = await import('./setup.js');
-  await setupCommand(workspaceRoot, { force: options.force }, hooks);
-
-  writeLine(hooks, '');
-  writeLine(hooks, 'Welcome to AI Team!');
-  writeLine(hooks, "Let's set up your virtual development team.");
-
-  // Phase 2: Team onboarding (requires working LLM)
-  const { onboardCommand } = await import('./onboard.js');
-  await onboardCommand(workspaceRoot, { template: options.template }, hooks);
+  await runInitWorkflowAsync(workspaceRoot, options, hooks, {
+    writeLine,
+    writeWarn,
+    clearAiTeamDirectory,
+  });
 }
 
 async function writeFileIfMissing(filePath: string, content: string): Promise<void> {
