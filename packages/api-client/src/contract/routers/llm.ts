@@ -6,6 +6,7 @@ export interface TestConnectionOptions {
   model?: string;
   all?: boolean;
   employee?: string;
+  toolCall?: boolean;
 }
 
 export interface ConfigureProviderOptions {

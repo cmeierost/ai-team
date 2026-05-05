@@ -25,16 +25,17 @@ description: >-
   direction-setting artifacts himself when that is the right next step and
   normal workspace tools are available.
 tools:
+  - com_ask
+  - com_handoff
+  - edit_patch
   - edit_multiedit
-  - fs_apply_patch
-  - get_errors
   - hr_performance
-  - semantic
+  - search_*
 disallowedTools:
   - hr_archive
   - hr_avatar
   - hr_hire
-  - update_llm
+  - hr_update_llm
 mcpServers:
   - microsoftdocs/mcp
 canDelegate: true
@@ -56,6 +57,8 @@ availableFor:
   - ownership-decisions
   - organizational-alignment
   - doctrine-updates
+llm:
+  modelKey: cheap
 handoffs:
   - label: HR & Org Changes
     agent: emily-davis

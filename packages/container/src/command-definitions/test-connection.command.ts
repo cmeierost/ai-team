@@ -22,6 +22,10 @@ export const testConnectionCliMetadata: CliCommandMetadata = {
       flags: '--all',
       description: 'Test all configured model keys (optionally scoped by --provider)',
     },
+    {
+      flags: '--tool-call',
+      description: 'Also verify a simple tool-call roundtrip against the selected model/provider',
+    },
   ],
 };
 
@@ -29,7 +33,8 @@ export const testConnectionCommandDefinition = createFactoryCommandDefinition(
   'testConnection',
   testConnectionCliMetadata,
   async (container, payload) => {
-    const { testConnectionCommand } = await import('@ai-team/service/src/commands/test-connection.js');
+    const { testConnectionCommand } =
+      await import('@ai-team/service/src/commands/test-connection.js');
     return testConnectionCommand(container.workspaceRoot, payload.options);
   }
 );

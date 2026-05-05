@@ -15,6 +15,7 @@ import {
   saveUserConfig,
   loadEnvFile,
   saveEnvFile,
+  testLlmConnection,
 } from '@ai-team/infrastructure';
 import { TeamConfigSchema } from '@ai-team/core';
 import { BadRequestError } from '../http-errors.js';
@@ -60,10 +61,59 @@ export class ConfigService implements IConfigService {
   async testProviderConnection(
     providerRef: string
   ): Promise<{ ok: boolean; latencyMs?: number; error?: string; message?: string }> {
-    return {
-      ok: false,
-      error: `testProviderConnection not supported in-process for '${providerRef}'`,
-    };
+    const userConfig = await loadUserConfig(this.workspaceRoot);
+    const teamConfig = await loadTeamConfig(this.workspaceRoot);
+    const provider =
+      (userConfig as any)?.providers?.[providerRef] ??
+      (teamConfig as any)?.providers?.[providerRef];
+
+    if (!provider) {
+      return {
+        ok: false,
+        error: `Unknown provider '${providerRef}'.`,
+      };
+    }
+
+    const model = provider.defaultModel ?? provider.models?.[0]?.name;
+    if (!model) {
+      return {
+        ok: false,
+        error: `Provider '${providerRef}' has no model configured. Set defaultModel or add models[].`,
+      };
+    }
+
+    if (provider.kind === 'openai-compatible' && !provider.baseUrl) {
+      return {
+        ok: false,
+        error: `Provider '${providerRef}' is openai-compatible but has no baseUrl.`,
+      };
+    }
+
+    const llmConfig = {
+      provider: provider.kind,
+      model,
+      baseUrl: provider.baseUrl,
+      params: provider.params,
+    } as const;
+
+    const envVars = await loadEnvFile(this.workspaceRoot);
+    const apiKey = resolveProviderApiKey(provider, envVars);
+
+    const startedAt = Date.now();
+    try {
+      const message = await testLlmConnection(llmConfig, apiKey);
+      return {
+        ok: true,
+        latencyMs: Date.now() - startedAt,
+        message,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async refreshUserProviderModels(providerRef: string): Promise<unknown> {
@@ -229,4 +279,24 @@ export class ConfigService implements IConfigService {
       changed,
     };
   }
+}
+
+function resolveProviderApiKey(provider: any, envVars: Record<string, string>): string | undefined {
+  if (provider?.kind !== 'openai-compatible') {
+    return undefined;
+  }
+
+  const apiKeyEnvVar = provider?.apiKeyEnvVar;
+  const candidates: string[] = apiKeyEnvVar
+    ? [apiKeyEnvVar, 'AI_TEAM_LLM_API_KEY', 'LLM_API_KEY', 'OPENAI_API_KEY']
+    : ['AI_TEAM_LLM_API_KEY', 'LLM_API_KEY', 'OPENAI_API_KEY'];
+
+  for (const key of candidates) {
+    const value = envVars[key] || process.env[key];
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
 }

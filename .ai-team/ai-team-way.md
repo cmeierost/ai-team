@@ -82,6 +82,10 @@ Agents should ask before assuming.
 - When a request is ambiguous, incomplete, or could reasonably go in more than one direction, ask 1–3 focused clarifying questions **before** starting work.
 - Do **not** silently pick an interpretation and proceed. Guessing wastes the developer's time.
 - Use available question tools (`vscode_askQuestions` or equivalent) to surface the questions in a structured, easy-to-answer format whenever the tool is available.
+- When presenting predefined options, choose the selection mode deliberately:
+  - use single-select only when exactly one answer is valid
+  - use multi-select when more than one answer may be valid (`multiSelect: true` in `vscode_askQuestions`, or checklist mode in equivalent tools)
+  - explicitly phrase multi-select prompts as “select all that apply” to avoid ambiguity
 - Do not ask for information you can get yourself by reading files or searching the codebase.
 - Keep questions tight: one question per genuine unknown, no compound multi-part questions.
 - After answers arrive, proceed confidently without asking again.

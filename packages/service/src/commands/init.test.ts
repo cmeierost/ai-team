@@ -30,6 +30,10 @@ const chatApi = vi.hoisted(() => ({
   chatCommand: vi.fn(),
 }));
 
+const connectionApi = vi.hoisted(() => ({
+  testConnectionCommand: vi.fn(),
+}));
+
 vi.mock('@ai-team/core', () => {
   class LlmService {
     constructor(_workspaceRoot: string) {}
@@ -59,6 +63,10 @@ vi.mock('./chat.js', () => ({
   chatCommand: chatApi.chatCommand,
 }));
 
+vi.mock('./test-connection.js', () => ({
+  testConnectionCommand: connectionApi.testConnectionCommand,
+}));
+
 vi.mock('ora', () => {
   const spinner = {
     start: vi.fn().mockReturnThis(),
@@ -77,15 +85,15 @@ import { initCommand } from './init.js';
 /** Collect all events emitted through hooks.emit. */
 function createEventCollector() {
   const events: Array<Record<string, unknown>> = [];
-  const emit = (event: Record<string, unknown>) => { events.push(event); };
+  const emit = (event: Record<string, unknown>) => {
+    events.push(event);
+  };
   return { events, emit };
 }
 
 /** Return log-level messages for easy assertion on output text / ordering. */
 function logMessages(events: Array<Record<string, unknown>>): string[] {
-  return events
-    .filter(e => e.kind === 'log')
-    .map(e => String(e.message));
+  return events.filter((e) => e.kind === 'log').map((e) => String(e.message));
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -99,34 +107,39 @@ describe('initCommand', () => {
     coreApi.loadTeamConfig.mockResolvedValue(undefined);
     coreApi.resolveEffectiveLlmSettings.mockReturnValue(undefined);
     coreApi.loadEnvFile.mockResolvedValue({});
+    connectionApi.testConnectionCommand.mockResolvedValue(undefined);
     coreApi.saveAgent.mockResolvedValue(undefined);
-    coreApi.saveAgentAccessPatterns.mockImplementation(async (
-      root: string,
-      agentId: string,
-      patterns: { read?: string[]; write?: string[] },
-    ) => {
-      const filePath = path.join(root, '.ai-team', 'agents', `${agentId}.perm`);
-      const lines = [
-        '# Migrated from .agent.yml permissions',
-        '[read]',
-        ...(patterns.read ?? []),
-        '',
-        '[write]',
-        ...(patterns.write ?? []),
-        '',
-      ];
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, lines.join('\n'), 'utf-8');
-    });
-    coreApi.buildAgentMarkdown.mockImplementation(({ introduction = '', personalityProfile = [] }: {
-      introduction?: string;
-      personalityProfile?: string[];
-    }) => {
-      const profile = personalityProfile.length > 0
-        ? `\n## Personality Profile\n${personalityProfile.map(line => `- ${line}`).join('\n')}`
-        : '';
-      return `## Introduction\n${introduction}${profile}`;
-    });
+    coreApi.saveAgentAccessPatterns.mockImplementation(
+      async (root: string, agentId: string, patterns: { read?: string[]; write?: string[] }) => {
+        const filePath = path.join(root, '.ai-team', 'agents', `${agentId}.perm`);
+        const lines = [
+          '# Migrated from .agent.yml permissions',
+          '[read]',
+          ...(patterns.read ?? []),
+          '',
+          '[write]',
+          ...(patterns.write ?? []),
+          '',
+        ];
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, lines.join('\n'), 'utf-8');
+      }
+    );
+    coreApi.buildAgentMarkdown.mockImplementation(
+      ({
+        introduction = '',
+        personalityProfile = [],
+      }: {
+        introduction?: string;
+        personalityProfile?: string[];
+      }) => {
+        const profile =
+          personalityProfile.length > 0
+            ? `\n## Personality Profile\n${personalityProfile.map((line) => `- ${line}`).join('\n')}`
+            : '';
+        return `## Introduction\n${introduction}${profile}`;
+      }
+    );
     coreApi.loadAgent.mockImplementation(async (filePath: string) => {
       const id = path.basename(filePath).replace(/\.agent\.md$/, '');
       return {
@@ -154,7 +167,9 @@ describe('initCommand', () => {
 
   describe('already-initialized workspace without --force', () => {
     beforeEach(async () => {
-      await fs.mkdir(path.join(workspaceRoot, '.ai-team'), { recursive: true });
+      const agentsDir = path.join(workspaceRoot, '.ai-team', 'agents');
+      await fs.mkdir(agentsDir, { recursive: true });
+      await fs.writeFile(path.join(agentsDir, 'john-smith.agent.md'), '# seeded\n', 'utf-8');
     });
 
     it('returns early without prompting', async () => {
@@ -174,8 +189,74 @@ describe('initCommand', () => {
       await initCommand(workspaceRoot, {}, { emit });
 
       const messages = logMessages(events);
-      expect(messages.some(m => m.includes('already initialized'))).toBe(true);
-      expect(messages.some(m => m.includes('Skipping'))).toBe(true);
+      expect(messages.some((m) => m.includes('already initialized'))).toBe(true);
+      expect(messages.some((m) => m.includes('Skipping'))).toBe(true);
+    });
+  });
+
+  describe('partial .ai-team scaffold without agents', () => {
+    beforeEach(async () => {
+      await fs.mkdir(path.join(workspaceRoot, '.ai-team'), { recursive: true });
+      await fs.writeFile(path.join(workspaceRoot, '.ai-team', 'config.json'), '{}', 'utf-8');
+    });
+
+    it('continues initialization instead of skipping', async () => {
+      const { events, emit } = createEventCollector();
+      const questionSelect = vi.fn().mockRejectedValue(new Error('abort'));
+
+      try {
+        await initCommand(workspaceRoot, {}, { emit, questionSelect });
+      } catch {
+        // expected — abort in askLlmSetup
+      }
+
+      expect(questionSelect).toHaveBeenCalled();
+
+      const messages = logMessages(events);
+      expect(messages.some((m) => m.includes('continuing initialization'))).toBe(true);
+      expect(messages.some((m) => m.includes('Skipping initialization'))).toBe(false);
+    });
+  });
+
+  describe('empty .ai-team directory', () => {
+    beforeEach(async () => {
+      await fs.mkdir(path.join(workspaceRoot, '.ai-team'), { recursive: true });
+    });
+
+    it('continues initialization without emitting partial-scaffold warning', async () => {
+      const { events, emit } = createEventCollector();
+      const questionSelect = vi.fn().mockRejectedValue(new Error('abort'));
+
+      try {
+        await initCommand(workspaceRoot, {}, { emit, questionSelect });
+      } catch {
+        // expected — abort in askLlmSetup
+      }
+
+      expect(questionSelect).toHaveBeenCalled();
+
+      const messages = logMessages(events);
+      expect(messages.some((m) => m.includes('continuing initialization'))).toBe(false);
+      expect(messages.some((m) => m.includes('Skipping initialization'))).toBe(false);
+    });
+
+    it('continues without warning when only runtime-generated artifacts exist', async () => {
+      const { events, emit } = createEventCollector();
+      await fs.mkdir(path.join(workspaceRoot, '.ai-team', 'logs'), { recursive: true });
+      await fs.writeFile(path.join(workspaceRoot, '.ai-team', 'logs', 'backend.log'), '', 'utf-8');
+      const questionSelect = vi.fn().mockRejectedValue(new Error('abort'));
+
+      try {
+        await initCommand(workspaceRoot, {}, { emit, questionSelect });
+      } catch {
+        // expected — abort in askLlmSetup
+      }
+
+      expect(questionSelect).toHaveBeenCalled();
+
+      const messages = logMessages(events);
+      expect(messages.some((m) => m.includes('continuing initialization'))).toBe(false);
+      expect(messages.some((m) => m.includes('Skipping initialization'))).toBe(false);
     });
   });
 
@@ -202,17 +283,25 @@ describe('initCommand', () => {
       const questionInput = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, { force: true }, {
-          emit,
-          questionSelect,
-          questionInput,
-        });
+        await initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            emit,
+            questionSelect,
+            questionInput,
+          }
+        );
       } catch {
         // expected — we aborted askLlmSetup
       }
 
       const aiDir = path.join(workspaceRoot, '.ai-team');
-      const exists = async (p: string) => fs.stat(p).then(() => true, () => false);
+      const exists = async (p: string) =>
+        fs.stat(p).then(
+          () => true,
+          () => false
+        );
 
       // Preserved
       expect(await exists(path.join(aiDir, 'config.json'))).toBe(true);
@@ -225,9 +314,9 @@ describe('initCommand', () => {
 
       // Verify "Removed:" messages emitted
       const messages = logMessages(events);
-      expect(messages.some(m => m.includes('Removed: README.md'))).toBe(true);
-      expect(messages.some(m => m.includes('Removed: agents'))).toBe(true);
-      expect(messages.some(m => m.includes('Removed: skills-catalog'))).toBe(true);
+      expect(messages.some((m) => m.includes('Removed: README.md'))).toBe(true);
+      expect(messages.some((m) => m.includes('Removed: agents'))).toBe(true);
+      expect(messages.some((m) => m.includes('Removed: skills-catalog'))).toBe(true);
     });
   });
 
@@ -255,9 +344,15 @@ describe('initCommand', () => {
       const questionInput = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, { force: true }, {
-          emit, questionConfirm, questionInput,
-        });
+        await initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            emit,
+            questionConfirm,
+            questionInput,
+          }
+        );
       } catch {
         // expected
       }
@@ -266,20 +361,20 @@ describe('initCommand', () => {
       expect(questionConfirm).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('Reuse existing default LLM connection'),
-        }),
+        })
       );
 
       // Critical ordering: confirm question event must precede "Welcome" log
-      const allKinds = events.map(e => ({
+      const allKinds = events.map((e) => ({
         kind: e.kind,
         msg: String(e.message ?? e.text ?? ''),
       }));
 
       const confirmIdx = allKinds.findIndex(
-        e => e.kind === 'question' && e.msg.includes('Reuse'),
+        (e) => e.kind === 'question' && e.msg.includes('Reuse')
       );
       const welcomeIdx = allKinds.findIndex(
-        e => e.kind === 'log' && e.msg.includes('Welcome to AI Team'),
+        (e) => e.kind === 'log' && e.msg.includes('Welcome to AI Team')
       );
 
       expect(confirmIdx).toBeGreaterThanOrEqual(0);
@@ -295,15 +390,21 @@ describe('initCommand', () => {
       const questionInput = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, { force: true }, {
-          emit, questionConfirm, questionInput,
-        });
+        await initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            emit,
+            questionConfirm,
+            questionInput,
+          }
+        );
       } catch {
         // expected
       }
 
       const messages = logMessages(events);
-      expect(messages.some(m => m.includes('Reusing existing OpenAI-compatible'))).toBe(true);
+      expect(messages.some((m) => m.includes('Reusing existing OpenAI-compatible'))).toBe(true);
     });
 
     it('runs fresh LLM setup when user declines reuse', async () => {
@@ -312,9 +413,15 @@ describe('initCommand', () => {
       const questionInput = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, { force: true }, {
-          questionConfirm, questionSelect, questionInput,
-        });
+        await initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            questionConfirm,
+            questionSelect,
+            questionInput,
+          }
+        );
       } catch {
         // expected — we aborted askLlmSetup
       }
@@ -350,16 +457,22 @@ describe('initCommand', () => {
       const questionInput = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, { force: true }, {
-          emit, questionConfirm, questionInput,
-        });
+        await initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            emit,
+            questionConfirm,
+            questionInput,
+          }
+        );
       } catch {
         // expected — aborted during onboarding
       }
 
-      const logs = events.filter(e => e.kind === 'log');
+      const logs = events.filter((e) => e.kind === 'log');
       expect(logs.length).toBeGreaterThan(0);
-      expect(logs.some(e => String(e.message).includes('Welcome to AI Team'))).toBe(true);
+      expect(logs.some((e) => String(e.message).includes('Welcome to AI Team'))).toBe(true);
     });
 
     it('all emitted events have a valid kind property', async () => {
@@ -372,7 +485,7 @@ describe('initCommand', () => {
         // expected
       }
 
-      expect(events.every(e => typeof e.kind === 'string')).toBe(true);
+      expect(events.every((e) => typeof e.kind === 'string')).toBe(true);
     });
   });
 
@@ -396,16 +509,23 @@ describe('initCommand', () => {
       const questionInput = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, { force: true }, {
-          questionConfirm,
-          questionInput,
-        });
+        await initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            questionConfirm,
+            questionInput,
+          }
+        );
       } catch {
         // expected — abort during onboarding after bootstrap work is done
       }
 
       const settingsPath = path.join(workspaceRoot, '.vscode', 'settings.json');
-      const settings = JSON.parse(await fs.readFile(settingsPath, 'utf-8')) as Record<string, Record<string, boolean>>;
+      const settings = JSON.parse(await fs.readFile(settingsPath, 'utf-8')) as Record<
+        string,
+        Record<string, boolean>
+      >;
 
       expect(settings['chat.promptFilesLocations']?.['.ai-team/prompts']).toBe(true);
       expect(settings['chat.instructionsFilesLocations']?.['.ai-team/instructions']).toBe(true);
@@ -418,47 +538,78 @@ describe('initCommand', () => {
       await fs.mkdir(path.join(workspaceRoot, '.vscode'), { recursive: true });
       await fs.writeFile(
         path.join(workspaceRoot, '.vscode', 'settings.json'),
-        JSON.stringify({
-          'files.associations': {
-            '**/.ai-team/agents/*.agent.md': 'markdown',
+        JSON.stringify(
+          {
+            'files.associations': {
+              '**/.ai-team/agents/*.agent.md': 'markdown',
+            },
+            'chat.promptFilesLocations': {
+              '.existing/prompts': true,
+            },
+            'chat.agentFilesLocations': {
+              '.existing/agents': true,
+            },
+            'chat.agentSkillsLocations': {
+              '.existing/skills': true,
+            },
           },
-          'chat.promptFilesLocations': {
-            '.existing/prompts': true,
-          },
-          'chat.agentFilesLocations': {
-            '.existing/agents': true,
-          },
-          'chat.agentSkillsLocations': {
-            '.existing/skills': true,
-          },
-        }, null, 4),
-        'utf-8',
+          null,
+          4
+        ),
+        'utf-8'
       );
 
       const questionConfirm = vi.fn().mockResolvedValue(true);
       const questionInput = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, { force: true }, {
-          questionConfirm,
-          questionInput,
-        });
+        await initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            questionConfirm,
+            questionInput,
+          }
+        );
       } catch {
         // expected — abort during onboarding after bootstrap work is done
       }
 
       const settingsPath = path.join(workspaceRoot, '.vscode', 'settings.json');
-      const settings = JSON.parse(await fs.readFile(settingsPath, 'utf-8')) as Record<string, Record<string, boolean> | Record<string, string>>;
+      const settings = JSON.parse(await fs.readFile(settingsPath, 'utf-8')) as Record<
+        string,
+        Record<string, boolean> | Record<string, string>
+      >;
 
-      expect((settings['files.associations'] as Record<string, string>)['**/.ai-team/agents/*.agent.md']).toBe('markdown');
-      expect((settings['chat.promptFilesLocations'] as Record<string, boolean>)['.existing/prompts']).toBe(true);
-      expect((settings['chat.promptFilesLocations'] as Record<string, boolean>)['.ai-team/prompts']).toBe(true);
-      expect((settings['chat.agentFilesLocations'] as Record<string, boolean>)['.existing/agents']).toBe(true);
-      expect((settings['chat.agentFilesLocations'] as Record<string, boolean>)['.ai-team/agents']).toBe(true);
-      expect((settings['chat.agentSkillsLocations'] as Record<string, boolean>)['.existing/skills']).toBe(true);
-      expect((settings['chat.agentSkillsLocations'] as Record<string, boolean>)['.ai-team/skills']).toBe(true);
-      expect((settings['chat.instructionsFilesLocations'] as Record<string, boolean>)['.ai-team/instructions']).toBe(true);
-      expect((settings['chat.hookFilesLocations'] as Record<string, boolean>)['.ai-team/hooks']).toBe(true);
+      expect(
+        (settings['files.associations'] as Record<string, string>)['**/.ai-team/agents/*.agent.md']
+      ).toBe('markdown');
+      expect(
+        (settings['chat.promptFilesLocations'] as Record<string, boolean>)['.existing/prompts']
+      ).toBe(true);
+      expect(
+        (settings['chat.promptFilesLocations'] as Record<string, boolean>)['.ai-team/prompts']
+      ).toBe(true);
+      expect(
+        (settings['chat.agentFilesLocations'] as Record<string, boolean>)['.existing/agents']
+      ).toBe(true);
+      expect(
+        (settings['chat.agentFilesLocations'] as Record<string, boolean>)['.ai-team/agents']
+      ).toBe(true);
+      expect(
+        (settings['chat.agentSkillsLocations'] as Record<string, boolean>)['.existing/skills']
+      ).toBe(true);
+      expect(
+        (settings['chat.agentSkillsLocations'] as Record<string, boolean>)['.ai-team/skills']
+      ).toBe(true);
+      expect(
+        (settings['chat.instructionsFilesLocations'] as Record<string, boolean>)[
+          '.ai-team/instructions'
+        ]
+      ).toBe(true);
+      expect(
+        (settings['chat.hookFilesLocations'] as Record<string, boolean>)['.ai-team/hooks']
+      ).toBe(true);
     });
   });
 
@@ -482,15 +633,30 @@ describe('initCommand', () => {
       const questionConfirm = vi.fn().mockResolvedValue(true);
       const questionSelect = vi.fn().mockRejectedValue(new Error('abort-bootstrap-check'));
 
-      await expect(initCommand(workspaceRoot, { force: true }, {
-        questionConfirm,
-        questionSelect,
-      })).rejects.toThrow('abort-bootstrap-check');
+      await expect(
+        initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            questionConfirm,
+            questionSelect,
+          }
+        )
+      ).rejects.toThrow('abort-bootstrap-check');
 
       const agentsMd = await fs.readFile(path.join(workspaceRoot, 'AGENTS.md'), 'utf-8');
-      const copilotInstructions = await fs.readFile(path.join(workspaceRoot, '.github', 'copilot-instructions.md'), 'utf-8');
-      const aiTeamWay = await fs.readFile(path.join(workspaceRoot, '.ai-team', 'ai-team-way.md'), 'utf-8');
-      const agentsInstructions = await fs.readFile(path.join(workspaceRoot, '.ai-team', 'instructions', 'agents.instructions.md'), 'utf-8');
+      const copilotInstructions = await fs.readFile(
+        path.join(workspaceRoot, '.github', 'copilot-instructions.md'),
+        'utf-8'
+      );
+      const aiTeamWay = await fs.readFile(
+        path.join(workspaceRoot, '.ai-team', 'ai-team-way.md'),
+        'utf-8'
+      );
+      const agentsInstructions = await fs.readFile(
+        path.join(workspaceRoot, '.ai-team', 'instructions', 'agents.instructions.md'),
+        'utf-8'
+      );
 
       expect(agentsMd).toContain('.ai-team/ai-team-way.md');
       expect(copilotInstructions).toContain('thin compatibility bridge');
@@ -501,18 +667,32 @@ describe('initCommand', () => {
     it('does not overwrite existing AGENTS.md or .github/copilot-instructions.md', async () => {
       await fs.mkdir(path.join(workspaceRoot, '.github'), { recursive: true });
       await fs.writeFile(path.join(workspaceRoot, 'AGENTS.md'), 'existing agents file\n', 'utf-8');
-      await fs.writeFile(path.join(workspaceRoot, '.github', 'copilot-instructions.md'), 'existing instructions file\n', 'utf-8');
+      await fs.writeFile(
+        path.join(workspaceRoot, '.github', 'copilot-instructions.md'),
+        'existing instructions file\n',
+        'utf-8'
+      );
 
       const questionConfirm = vi.fn().mockResolvedValue(true);
       const questionSelect = vi.fn().mockRejectedValue(new Error('abort-preserve-check'));
 
-      await expect(initCommand(workspaceRoot, { force: true }, {
-        questionConfirm,
-        questionSelect,
-      })).rejects.toThrow('abort-preserve-check');
+      await expect(
+        initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            questionConfirm,
+            questionSelect,
+          }
+        )
+      ).rejects.toThrow('abort-preserve-check');
 
-      await expect(fs.readFile(path.join(workspaceRoot, 'AGENTS.md'), 'utf-8')).resolves.toBe('existing agents file\n');
-      await expect(fs.readFile(path.join(workspaceRoot, '.github', 'copilot-instructions.md'), 'utf-8')).resolves.toBe('existing instructions file\n');
+      await expect(fs.readFile(path.join(workspaceRoot, 'AGENTS.md'), 'utf-8')).resolves.toBe(
+        'existing agents file\n'
+      );
+      await expect(
+        fs.readFile(path.join(workspaceRoot, '.github', 'copilot-instructions.md'), 'utf-8')
+      ).resolves.toBe('existing instructions file\n');
     });
   });
 
@@ -536,12 +716,24 @@ describe('initCommand', () => {
       const questionConfirm = vi.fn().mockResolvedValue(true);
       const questionSelect = vi.fn().mockRejectedValue(new Error('abort-name-pick'));
 
-      await expect(initCommand(workspaceRoot, { force: true }, {
-        questionConfirm,
-        questionSelect,
-      })).rejects.toThrow('abort-name-pick');
+      await expect(
+        initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            questionConfirm,
+            questionSelect,
+          }
+        )
+      ).rejects.toThrow('abort-name-pick');
 
-      const skillPath = path.join(workspaceRoot, '.ai-team', 'skills', 'agent-authoring', 'SKILL.md');
+      const skillPath = path.join(
+        workspaceRoot,
+        '.ai-team',
+        'skills',
+        'agent-authoring',
+        'SKILL.md'
+      );
       const skillContent = await fs.readFile(skillPath, 'utf-8');
 
       expect(skillContent).toContain('name: agent-authoring');
@@ -577,12 +769,18 @@ describe('initCommand', () => {
 
       const questionInput = vi.fn().mockRejectedValue(new Error('abort-after-access-seed'));
 
-      await expect(initCommand(workspaceRoot, { force: true }, {
-        questionConfirm,
-        questionSelect,
-        questionChecklist,
-        questionInput,
-      })).rejects.toThrow('abort-after-access-seed');
+      await expect(
+        initCommand(
+          workspaceRoot,
+          { force: true },
+          {
+            questionConfirm,
+            questionSelect,
+            questionChecklist,
+            questionInput,
+          }
+        )
+      ).rejects.toThrow('abort-after-access-seed');
 
       const ceoAccessPath = path.join(workspaceRoot, '.ai-team', 'agents', 'john-smith.perm');
       const hrAccessPath = path.join(workspaceRoot, '.ai-team', 'agents', 'emily-davis.perm');

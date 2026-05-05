@@ -600,8 +600,6 @@ export class MigrationManager {
       ]);
 
       await this.db.run('COMMIT');
-
-      console.log(`Applied migration v${migration.version}: ${migration.name}`);
     } catch (error) {
       await this.db.run('ROLLBACK');
       throw error;
@@ -619,11 +617,7 @@ export class MigrationManager {
       return;
     }
 
-    const applied = await this.migrate();
+    await this.migrate();
     this.initialized = true;
-
-    if (applied > 0) {
-      console.log(`Database initialized: applied ${applied} migration(s)`);
-    }
   }
 }

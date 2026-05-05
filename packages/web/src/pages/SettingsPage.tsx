@@ -1,8 +1,13 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import {
-  useConfig, useSaveConfig, useAgentModelKeys,
-  useUserConfig, useSaveUserConfig,
-  useTestProviderConnection, useEnvStatus, useSetEnvVar,
+  useConfig,
+  useSaveConfig,
+  useAgentModelKeys,
+  useUserConfig,
+  useSaveUserConfig,
+  useTestProviderConnection,
+  useEnvStatus,
+  useSetEnvVar,
   useRefreshDevProviderModels,
 } from '../hooks/useConfig';
 import type { TeamConfig, UserConfig, ProviderConfig, ModelKeyEntry } from '../hooks/useConfig';
@@ -33,25 +38,39 @@ function getUserModelKeys(config: UserConfig): Record<string, ModelKeyEntry> {
   return config.modelKeys ?? {};
 }
 
-function getUserSystemModels(config: UserConfig): Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }> {
+function getUserSystemModels(
+  config: UserConfig
+): Record<
+  string,
+  { provider?: string; modelKey?: string; model?: string; contextWindow?: number }
+> {
   return config.systemModels ?? {};
 }
 
-function setUserProviders(config: UserConfig, providers: Record<string, ProviderConfig>): UserConfig {
+function setUserProviders(
+  config: UserConfig,
+  providers: Record<string, ProviderConfig>
+): UserConfig {
   return {
     ...config,
     providers,
   };
 }
 
-function setUserProfile(config: UserConfig, profile: NonNullable<UserConfig['developer']>): UserConfig {
+function setUserProfile(
+  config: UserConfig,
+  profile: NonNullable<UserConfig['developer']>
+): UserConfig {
   return {
     ...config,
     developer: profile,
   };
 }
 
-function setUserModelKeys(config: UserConfig, modelKeys: Record<string, ModelKeyEntry>): UserConfig {
+function setUserModelKeys(
+  config: UserConfig,
+  modelKeys: Record<string, ModelKeyEntry>
+): UserConfig {
   return {
     ...config,
     modelKeys,
@@ -60,7 +79,10 @@ function setUserModelKeys(config: UserConfig, modelKeys: Record<string, ModelKey
 
 function setUserSystemModels(
   config: UserConfig,
-  systemModels: Record<string, { provider?: string; modelKey?: string; model?: string; contextWindow?: number }>,
+  systemModels: Record<
+    string,
+    { provider?: string; modelKey?: string; model?: string; contextWindow?: number }
+  >
 ): UserConfig {
   return {
     ...config,
@@ -68,10 +90,17 @@ function setUserSystemModels(
   };
 }
 
-function setUserDefaultProvider(config: UserConfig, providerRef?: string, modelId?: string, contextWindow?: number): UserConfig {
+function setUserDefaultProvider(
+  config: UserConfig,
+  providerRef?: string,
+  modelId?: string,
+  contextWindow?: number
+): UserConfig {
   return {
     ...config,
-    defaultModel: providerRef ? { provider: providerRef, model: modelId ?? '', ...(contextWindow ? { contextWindow } : {}) } : undefined,
+    defaultModel: providerRef
+      ? { provider: providerRef, model: modelId ?? '', ...(contextWindow ? { contextWindow } : {}) }
+      : undefined,
   };
 }
 
@@ -120,7 +149,7 @@ function setProviderModels(
     maxPromptTokens?: number;
     maxContextWindowTokens?: number;
     maxOutputTokens?: number;
-  }>,
+  }>
 ): ProviderConfig {
   return {
     ...provider,
@@ -151,7 +180,7 @@ function formatDateTime(value: string | undefined): string {
 function setDefaultModelForProvider(
   config: UserConfig,
   providerRef: string | undefined,
-  modelId: string | undefined,
+  modelId: string | undefined
 ): UserConfig {
   if (!providerRef || !modelId) {
     return config;
@@ -185,9 +214,8 @@ function getProviderContextWindow(provider: ProviderConfig | undefined, modelId?
 
   if (modelId) {
     const model = getProviderModels(provider).find((m) => m.name === modelId);
-    const explicit = model?.contextWindow
-      ?? model?.maxPromptTokens
-      ?? model?.maxContextWindowTokens;
+    const explicit =
+      model?.contextWindow ?? model?.maxPromptTokens ?? model?.maxContextWindowTokens;
     if (typeof explicit === 'number' && explicit > 0) {
       return explicit;
     }
@@ -221,7 +249,9 @@ function ApiKeyField({ envVarName, isSet, onSave, saving }: Readonly<ApiKeyField
 
   return (
     <div className="api-key-field">
-      <span className={`api-key-status ${isSet ? 'api-key-status--set' : 'api-key-status--missing'}`}>
+      <span
+        className={`api-key-status ${isSet ? 'api-key-status--set' : 'api-key-status--missing'}`}
+      >
         {isSet ? '✓' : '✗'}
       </span>
       <code className="api-key-varname">{envVarName}</code>
@@ -240,11 +270,23 @@ function ApiKeyField({ envVarName, isSet, onSave, saving }: Readonly<ApiKeyField
             placeholder="Paste API key…"
             onKeyDown={(e) => e.key === 'Enter' && handleSave()}
           />
-          <button type="button" className="btn-primary btn-sm" onClick={handleSave} disabled={saving || !value.trim()}>
+          <button
+            type="button"
+            className="btn-primary btn-sm"
+            onClick={handleSave}
+            disabled={saving || !value.trim()}
+          >
             {saving ? 'Saving…' : 'Save'}
           </button>
           {editing && (
-            <button type="button" className="btn-secondary btn-sm" onClick={() => { setEditing(false); setValue(''); }}>
+            <button
+              type="button"
+              className="btn-secondary btn-sm"
+              onClick={() => {
+                setEditing(false);
+                setValue('');
+              }}
+            >
               Cancel
             </button>
           )}
@@ -261,7 +303,12 @@ interface CollapsibleSectionProps {
   children: ReactNode;
 }
 
-function CollapsibleSection({ title, meta, defaultOpen = true, children }: Readonly<CollapsibleSectionProps>) {
+function CollapsibleSection({
+  title,
+  meta,
+  defaultOpen = true,
+  children,
+}: Readonly<CollapsibleSectionProps>) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -274,7 +321,9 @@ function CollapsibleSection({ title, meta, defaultOpen = true, children }: Reado
         <span className="settings-section-title">{title}</span>
         <span className="settings-section-toggle-right">
           {meta && <span className="settings-section-meta">{meta}</span>}
-          <span className="settings-section-chevron" aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
+          <span className="settings-section-chevron" aria-hidden="true">
+            {isOpen ? '▾' : '▸'}
+          </span>
         </span>
       </button>
       {isOpen && <div className="settings-section-body">{children}</div>}
@@ -288,10 +337,23 @@ interface DevProviderCardProps {
   envStatus: Record<string, boolean>;
   onChange: (p: ProviderConfig) => void;
   onSave: () => void;
+  allowProviderEdit?: boolean;
 }
 
-function DevProviderCard({ providerRef, provider, envStatus, onChange, onSave }: Readonly<DevProviderCardProps>) {
-  const { mutate: testConn, isPending: testing, data: testResult, reset: resetTest } = useTestProviderConnection();
+function DevProviderCard({
+  providerRef,
+  provider,
+  envStatus,
+  onChange,
+  onSave,
+  allowProviderEdit = true,
+}: Readonly<DevProviderCardProps>) {
+  const {
+    mutate: testConn,
+    isPending: testing,
+    data: testResult,
+    reset: resetTest,
+  } = useTestProviderConnection();
   const { mutate: refreshModels, isPending: refreshing } = useRefreshDevProviderModels();
   const { mutate: setEnvVar, isPending: savingKey } = useSetEnvVar();
   const isOpenAiCompatible = provider.kind === 'openai-compatible';
@@ -338,7 +400,10 @@ function DevProviderCard({ providerRef, provider, envStatus, onChange, onSave }:
 
   const setDefaultContextWindow = (value: string) => {
     const parsed = Number.parseInt(value, 10);
-    onChange({ ...provider, contextWindow: Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed });
+    onChange({
+      ...provider,
+      contextWindow: Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed,
+    });
   };
 
   const modelDiscovery = provider.modelDiscovery ?? {};
@@ -355,10 +420,18 @@ function DevProviderCard({ providerRef, provider, envStatus, onChange, onSave }:
             {providerRef}
             <span className="provider-badge">{provider.kind}</span>
           </span>
-          <span className="provider-card-chevron" aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
+          <span className="provider-card-chevron" aria-hidden="true">
+            {isOpen ? '▾' : '▸'}
+          </span>
         </button>
         <div className="provider-card-actions">
-          <button type="button" className="btn-secondary" onClick={handleRefresh} disabled={refreshing}>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={handleRefresh}
+            disabled={refreshing || !allowProviderEdit}
+            title={allowProviderEdit ? 'Refresh provider models' : 'Team provider is read-only here'}
+          >
             {refreshing ? 'Refreshing…' : '⟳ Refresh models'}
           </button>
           <button type="button" className="btn-secondary" onClick={handleTest} disabled={testing}>
@@ -367,151 +440,204 @@ function DevProviderCard({ providerRef, provider, envStatus, onChange, onSave }:
         </div>
       </div>
 
-      {isOpen && testResult && (
-        <div className={`test-result test-result-compact ${testResult.ok ? 'test-result--ok' : 'test-result--error'}`}>
-          {testResult.ok
-            ? `✓ Connected (${testResult.latencyMs}ms)`
-            : `✗ ${testResult.error ?? 'Connection failed'}`}
+      {testResult && (
+        <div
+          className={`test-result test-result-compact ${testResult.ok ? 'test-result--ok' : 'test-result--error'}`}
+        >
+          <span>
+            {testResult.ok
+              ? `✓ Connected (${testResult.latencyMs}ms)`
+              : `✗ ${testResult.error ?? 'Connection failed'}`}
+          </span>
+          <button
+            type="button"
+            className="test-result-remove"
+            onClick={resetTest}
+            aria-label="Remove test result message"
+            title="Remove message"
+          >
+            ✕
+          </button>
         </div>
       )}
 
-      {isOpen && <div className="provider-card-body">
-        {isOpenAiCompatible && (
-          <label className="provider-field-row">
-            <span>Base URL</span>
-            <input
-              type="url"
-              value={provider.baseUrl ?? ''}
-              onChange={(e) => onChange({ ...provider, baseUrl: e.target.value || undefined })}
-              placeholder="https://api.openai.com/v1"
-            />
-          </label>
-        )}
-        {isOpenAiCompatible && (
-          <label className="provider-field-row">
-            <span>API key env var</span>
-            <input
-              type="text"
-              value={provider.apiKeyEnvVar ?? ''}
-              onChange={(e) => onChange({ ...provider, apiKeyEnvVar: e.target.value || undefined })}
-              placeholder="e.g. AI_TEAM_LLM_API_KEY"
-            />
-          </label>
-        )}
-        {isOpenAiCompatible && provider.apiKeyEnvVar && (
-          <div className="provider-field-row">
-            <span>API key value</span>
-            <ApiKeyField
-              envVarName={provider.apiKeyEnvVar}
-              isSet={envStatus[provider.apiKeyEnvVar] ?? false}
-              onSave={handleEnvSave}
-              saving={savingKey}
-            />
-          </div>
-        )}
-        {isGithubCopilot && (
-          <div className="provider-field-row">
-            <span>Authentication</span>
-            <span className="provider-model-list">Uses GitHub OAuth/CLI auth. No API key env var required.</span>
-          </div>
-        )}
-        <div className="provider-field-row provider-field-row-stack">
-          <span>Provider models</span>
-          <div className="provider-models-panel">
-            <p className="settings-help-text provider-model-limits-help">
-              Prompt budget is what AI Team can fill per turn for context usage tracking.
+      {isOpen && (
+        <div className="provider-card-body">
+          {!allowProviderEdit && (
+            <p className="settings-help-text">
+              This provider is managed in <code>.ai-team/config.json</code>. You can still set its
+              API key value below.
             </p>
-            {providerModelIds.length > 0 ? (
-              <div className="provider-model-contexts">
-                {providerModelIds.map((modelId) => (
-                  <div key={modelId} className="provider-model-context-row">
-                    <div className="provider-model-main">
-                      <code>{modelId}</code>
-                      {(() => {
-                        const model = getProviderModels(provider).find((entry) => entry.name === modelId);
-                        if (!model) return null;
+          )}
 
-                        const effective = formatTokens(model.maxPromptTokens ?? model.contextWindow ?? provider.contextWindow);
-                        const total = formatTokens(model.maxContextWindowTokens);
-                        const output = formatTokens(model.maxOutputTokens);
-
-                        if (!effective && !total && !output) return null;
-
-                        const parts: string[] = [];
-                        if (effective) parts.push(`prompt ${effective}`);
-                        if (total) parts.push(`context ${total}`);
-                        if (output) parts.push(`output ${output}`);
-
-                        return <span className="provider-model-limits">{parts.join(' · ')}</span>;
-                      })()}
-                    </div>
-                    <span className="provider-model-context-readonly">
-                      {formatTokens(getProviderContextWindow(provider, modelId)) ?? '—'}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn-icon"
-                      onClick={() => removeProviderModel(modelId)}
-                      title={`Remove ${modelId}`}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="settings-muted-text">No models added yet.</p>
-            )}
-            <div className="provider-model-add-row">
+          {isOpenAiCompatible && (
+            <label className="provider-field-row">
+              <span>Base URL</span>
+              <input
+                type="url"
+                value={provider.baseUrl ?? ''}
+                onChange={(e) => onChange({ ...provider, baseUrl: e.target.value || undefined })}
+                placeholder="https://api.openai.com/v1"
+                disabled={!allowProviderEdit}
+              />
+            </label>
+          )}
+          {isOpenAiCompatible && (
+            <label className="provider-field-row">
+              <span>API key env var</span>
               <input
                 type="text"
-                value={newModelId}
-                onChange={(e) => setNewModelId(e.target.value)}
-                placeholder="e.g. gpt-4.1"
-                onKeyDown={(e) => e.key === 'Enter' && addProviderModel()}
+                value={provider.apiKeyEnvVar ?? ''}
+                onChange={(e) =>
+                  onChange({ ...provider, apiKeyEnvVar: e.target.value || undefined })
+                }
+                placeholder="e.g. AI_TEAM_LLM_API_KEY"
+                disabled={!allowProviderEdit}
               />
-              <button type="button" className="btn-secondary" onClick={addProviderModel} disabled={!newModelId.trim()}>
-                + Add model
-              </button>
+            </label>
+          )}
+          {isOpenAiCompatible && provider.apiKeyEnvVar && (
+            <div className="provider-field-row">
+              <span>API key value</span>
+              <ApiKeyField
+                envVarName={provider.apiKeyEnvVar}
+                isSet={envStatus[provider.apiKeyEnvVar] ?? false}
+                onSave={handleEnvSave}
+                saving={savingKey}
+              />
+            </div>
+          )}
+          {isGithubCopilot && (
+            <div className="provider-field-row">
+              <span>Authentication</span>
+              <span className="provider-model-list">
+                Uses GitHub OAuth/CLI auth. No API key env var required.
+              </span>
+            </div>
+          )}
+          <div className="provider-field-row provider-field-row-stack">
+            <span>Provider models</span>
+            <div className="provider-models-panel">
+              <p className="settings-help-text provider-model-limits-help">
+                Prompt budget is what AI Team can fill per turn for context usage tracking.
+              </p>
+              {providerModelIds.length > 0 ? (
+                <div className="provider-model-contexts">
+                  {providerModelIds.map((modelId) => (
+                    <div key={modelId} className="provider-model-context-row">
+                      <div className="provider-model-main">
+                        <code>{modelId}</code>
+                        {(() => {
+                          const model = getProviderModels(provider).find(
+                            (entry) => entry.name === modelId
+                          );
+                          if (!model) return null;
+
+                          const effective = formatTokens(
+                            model.maxPromptTokens ?? model.contextWindow ?? provider.contextWindow
+                          );
+                          const total = formatTokens(model.maxContextWindowTokens);
+                          const output = formatTokens(model.maxOutputTokens);
+
+                          if (!effective && !total && !output) return null;
+
+                          const parts: string[] = [];
+                          if (effective) parts.push(`prompt ${effective}`);
+                          if (total) parts.push(`context ${total}`);
+                          if (output) parts.push(`output ${output}`);
+
+                          return <span className="provider-model-limits">{parts.join(' · ')}</span>;
+                        })()}
+                      </div>
+                      <span className="provider-model-context-readonly">
+                        {formatTokens(getProviderContextWindow(provider, modelId)) ?? '—'}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        onClick={() => removeProviderModel(modelId)}
+                        title={`Remove ${modelId}`}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="settings-muted-text">No models added yet.</p>
+              )}
+              <div className="provider-model-add-row">
+                <input
+                  type="text"
+                  value={newModelId}
+                  onChange={(e) => setNewModelId(e.target.value)}
+                  placeholder="e.g. gpt-4.1"
+                  onKeyDown={(e) => e.key === 'Enter' && addProviderModel()}
+                  disabled={!allowProviderEdit}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={addProviderModel}
+                  disabled={!newModelId.trim() || !allowProviderEdit}
+                >
+                  + Add model
+                </button>
+              </div>
+            </div>
+          </div>
+          <label className="provider-field-row">
+            <span>Default context window</span>
+            <input
+              type="number"
+              value={provider.contextWindow ?? ''}
+              onChange={(e) => setDefaultContextWindow(e.target.value)}
+              min={1}
+              placeholder={String(DEFAULT_CONTEXT_WINDOW)}
+              disabled={!allowProviderEdit}
+            />
+          </label>
+
+          <div className="provider-field-row provider-field-row-stack">
+            <span>Refresh status</span>
+            <div className="provider-refresh-meta">
+              <span>Last refresh: {formatDateTime(modelDiscovery.lastRefreshedAt)}</span>
+              <span>
+                Status:{' '}
+                {modelDiscovery.lastRefreshStatus === 'error'
+                  ? 'Error'
+                  : modelDiscovery.lastRefreshStatus === 'ok'
+                    ? 'OK'
+                    : 'Unknown'}
+              </span>
+              {modelDiscovery.lastRefreshError && (
+                <span className="provider-refresh-error">
+                  Last error: {modelDiscovery.lastRefreshError}
+                </span>
+              )}
             </div>
           </div>
         </div>
-        <label className="provider-field-row">
-          <span>Default context window</span>
-          <input
-            type="number"
-            value={provider.contextWindow ?? ''}
-            onChange={(e) => setDefaultContextWindow(e.target.value)}
-            min={1}
-            placeholder={String(DEFAULT_CONTEXT_WINDOW)}
-          />
-        </label>
-
-        <div className="provider-field-row provider-field-row-stack">
-          <span>Refresh status</span>
-          <div className="provider-refresh-meta">
-            <span>Last refresh: {formatDateTime(modelDiscovery.lastRefreshedAt)}</span>
-            <span>
-              Status: {modelDiscovery.lastRefreshStatus === 'error' ? 'Error' : modelDiscovery.lastRefreshStatus === 'ok' ? 'OK' : 'Unknown'}
-            </span>
-            {modelDiscovery.lastRefreshError && (
-              <span className="provider-refresh-error">Last error: {modelDiscovery.lastRefreshError}</span>
-            )}
-          </div>
-        </div>
-      </div>}
+      )}
     </div>
   );
 }
 
 interface UserProvidersSectionProps {
   devDraft: UserConfig;
+  teamProviders: Record<string, ProviderConfig>;
   envStatus: Record<string, boolean>;
   onChange: (d: UserConfig) => void;
   onRefreshEnv: () => void;
 }
 
-function UserProvidersSection({ devDraft, envStatus, onChange, onRefreshEnv }: Readonly<UserProvidersSectionProps>) {
+function UserProvidersSection({
+  devDraft,
+  teamProviders,
+  envStatus,
+  onChange,
+  onRefreshEnv,
+}: Readonly<UserProvidersSectionProps>) {
   const [newRef, setNewRef] = useState('');
 
   const addProvider = () => {
@@ -523,39 +649,50 @@ function UserProvidersSection({ devDraft, envStatus, onChange, onRefreshEnv }: R
   };
 
   const providers = getUserProviders(devDraft);
+  const mergedProviders: Record<string, ProviderConfig> = {
+    ...teamProviders,
+    ...providers,
+  };
 
   return (
-    <CollapsibleSection
-      title="My Providers"
-      meta="config.user.json · git-ignored"
-    >
-        {Object.entries(providers).map(([ref, provider]) => (
-          <DevProviderCard
-            key={ref}
-            providerRef={ref}
-            provider={provider}
-            envStatus={envStatus}
-            onChange={(p) => onChange(setUserProviders(devDraft, { ...providers, [ref]: p }))}
-            onSave={onRefreshEnv}
-          />
-        ))}
-        {Object.keys(providers).length === 0 && (
-          <p className="settings-muted-text">
-            No providers configured. Add one below.
-          </p>
-        )}
-        <div className="tag-add-row tag-add-row-spaced">
-          <input
-            type="text"
-            value={newRef}
-            onChange={(e) => setNewRef(e.target.value)}
-            placeholder="Provider name (e.g. openai, my-local)"
-            onKeyDown={(e) => e.key === 'Enter' && addProvider()}
-          />
-          <button type="button" className="btn-secondary" onClick={addProvider} disabled={!newRef.trim()}>
-            + Add provider
-          </button>
-        </div>
+    <CollapsibleSection title="My Providers" meta="config.user.json · git-ignored">
+      {Object.entries(mergedProviders).map(([ref, provider]) => {
+        const isUserProvider = Boolean(providers[ref]);
+        return (
+        <DevProviderCard
+          key={ref}
+          providerRef={ref}
+          provider={provider}
+          envStatus={envStatus}
+          allowProviderEdit={isUserProvider}
+          onChange={(p) => {
+            if (!isUserProvider) return;
+            onChange(setUserProviders(devDraft, { ...providers, [ref]: p }));
+          }}
+          onSave={onRefreshEnv}
+        />
+        );
+      })}
+      {Object.keys(mergedProviders).length === 0 && (
+        <p className="settings-muted-text">No providers configured. Add one below.</p>
+      )}
+      <div className="tag-add-row tag-add-row-spaced">
+        <input
+          type="text"
+          value={newRef}
+          onChange={(e) => setNewRef(e.target.value)}
+          placeholder="Provider name (e.g. openai, my-local)"
+          onKeyDown={(e) => e.key === 'Enter' && addProvider()}
+        />
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={addProvider}
+          disabled={!newRef.trim()}
+        >
+          + Add provider
+        </button>
+      </div>
     </CollapsibleSection>
   );
 }
@@ -573,30 +710,27 @@ function UserProfileSection({ devDraft, onChange }: Readonly<UserProfileSectionP
   };
 
   return (
-    <CollapsibleSection
-      title="My Profile"
-      meta="config.user.json · git-ignored"
-    >
-        <div className="user-profile-grid">
-          <label className="provider-field-row">
-            <span>Name</span>
-            <input
-              type="text"
-              value={profile.name ?? ''}
-              onChange={(e) => patch('name', e.target.value)}
-              placeholder="Your display name"
-            />
-          </label>
-          <label className="provider-field-row">
-            <span>Email</span>
-            <input
-              type="email"
-              value={profile.email ?? ''}
-              onChange={(e) => patch('email', e.target.value)}
-              placeholder="you@company.com"
-            />
-          </label>
-        </div>
+    <CollapsibleSection title="My Profile" meta="config.user.json · git-ignored">
+      <div className="user-profile-grid">
+        <label className="provider-field-row">
+          <span>Name</span>
+          <input
+            type="text"
+            value={profile.name ?? ''}
+            onChange={(e) => patch('name', e.target.value)}
+            placeholder="Your display name"
+          />
+        </label>
+        <label className="provider-field-row">
+          <span>Email</span>
+          <input
+            type="email"
+            value={profile.email ?? ''}
+            onChange={(e) => patch('email', e.target.value)}
+            placeholder="you@company.com"
+          />
+        </label>
+      </div>
     </CollapsibleSection>
   );
 }
@@ -623,7 +757,9 @@ function UnifiedModelSection({
     ...Object.keys(devDraft.systemModels ?? {}).filter((k) => !(k in SYSTEM_MODEL_KEY_LABELS)),
   ];
 
-  const [rows, setRows] = useState<ModelKeyRow[]>(() => rowsFromModelKeys(getUserModelKeys(devDraft)));
+  const [rows, setRows] = useState<ModelKeyRow[]>(() =>
+    rowsFromModelKeys(getUserModelKeys(devDraft))
+  );
 
   useEffect(() => {
     const incomingModelKeys = getUserModelKeys(devDraft);
@@ -635,33 +771,63 @@ function UnifiedModelSection({
   }, [devDraft, providerConfigs, rows]);
 
   const storedDefaultProvider = devDraft.defaultModel?.provider;
-  const defaultProviderRef = (storedDefaultProvider && providerRefs.includes(storedDefaultProvider)) ? storedDefaultProvider : '';
-  const defaultProviderConfig = defaultProviderRef ? providerConfigs[defaultProviderRef] : undefined;
-  const defaultModelList = defaultProviderRef ? (providerAvailableModels[defaultProviderRef] ?? []) : [];
-  const currentDefaultModel = devDraft.defaultModel?.model ?? defaultProviderConfig?.defaultModel ?? '';
+  const defaultProviderRef =
+    storedDefaultProvider && providerRefs.includes(storedDefaultProvider)
+      ? storedDefaultProvider
+      : '';
+  const defaultProviderConfig = defaultProviderRef
+    ? providerConfigs[defaultProviderRef]
+    : undefined;
+  const defaultModelList = defaultProviderRef
+    ? (providerAvailableModels[defaultProviderRef] ?? [])
+    : [];
+  const currentDefaultModel =
+    devDraft.defaultModel?.model ?? defaultProviderConfig?.defaultModel ?? '';
   const defaultContextWindow = devDraft.defaultModel?.contextWindow;
-  const defaultFallbackContext = getProviderContextWindow(defaultProviderConfig, currentDefaultModel);
+  const defaultFallbackContext = getProviderContextWindow(
+    defaultProviderConfig,
+    currentDefaultModel
+  );
 
   const updateDefaultProvider = (providerRef: string) => {
     onChange(setUserDefaultProvider(devDraft, providerRef || undefined, undefined, undefined));
   };
 
   const updateDefaultModel = (modelId: string) => {
-    const withDefault = setUserDefaultProvider(devDraft, defaultProviderRef || undefined, modelId || undefined, defaultContextWindow);
-    onChange(setDefaultModelForProvider(withDefault, defaultProviderRef || undefined, modelId || undefined));
+    const withDefault = setUserDefaultProvider(
+      devDraft,
+      defaultProviderRef || undefined,
+      modelId || undefined,
+      defaultContextWindow
+    );
+    onChange(
+      setDefaultModelForProvider(withDefault, defaultProviderRef || undefined, modelId || undefined)
+    );
   };
 
   const updateDefaultContextWindow = (value: string) => {
     const parsed = Number.parseInt(value, 10);
     const cw = Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed;
-    onChange(setUserDefaultProvider(devDraft, defaultProviderRef || undefined, currentDefaultModel || undefined, cw));
+    onChange(
+      setUserDefaultProvider(
+        devDraft,
+        defaultProviderRef || undefined,
+        currentDefaultModel || undefined,
+        cw
+      )
+    );
   };
 
   const systemModels = getUserSystemModels(devDraft);
 
-  const updateSystemModel = (purposeKey: string, patch: Partial<{ provider?: string; model?: string; contextWindow?: number }>) => {
+  const updateSystemModel = (
+    purposeKey: string,
+    patch: Partial<{ provider?: string; model?: string; contextWindow?: number }>
+  ) => {
     const existing = systemModels[purposeKey] ?? {};
-    onChange(setUserSystemModels(devDraft, { ...systemModels, [purposeKey]: { ...existing, ...patch } }));
+    onChange(
+      setUserSystemModels(devDraft, { ...systemModels, [purposeKey]: { ...existing, ...patch } })
+    );
   };
 
   const updateRow = (i: number, patch: Partial<ModelKeyRow>) => {
@@ -676,7 +842,11 @@ function UnifiedModelSection({
     onChange(setUserModelKeys(devDraft, rowsToModelKeys(next, providerConfigs)));
   };
 
-  const addRow = () => setRows([...rows, { id: createModelKeyRowId(), keyName: '', provider: '', model: '', contextWindow: '' }]);
+  const addRow = () =>
+    setRows([
+      ...rows,
+      { id: createModelKeyRowId(), keyName: '', provider: '', model: '', contextWindow: '' },
+    ]);
 
   return (
     <CollapsibleSection title="Models" meta="config.user.json · git-ignored">
@@ -692,7 +862,11 @@ function UnifiedModelSection({
         </thead>
         <tbody>
           <tr>
-            <td><span className="fixed-key" title="Default model key">default</span></td>
+            <td>
+              <span className="fixed-key" title="Default model key">
+                default
+              </span>
+            </td>
             <td>
               <select
                 value={defaultProviderRef}
@@ -701,7 +875,11 @@ function UnifiedModelSection({
                 title="Select default provider"
               >
                 <option value="">(none)</option>
-                {providerRefs.map((ref) => <option key={ref} value={ref}>{ref}</option>)}
+                {providerRefs.map((ref) => (
+                  <option key={ref} value={ref}>
+                    {ref}
+                  </option>
+                ))}
               </select>
             </td>
             <td>
@@ -714,7 +892,11 @@ function UnifiedModelSection({
                   title="Select default model"
                 >
                   <option value="">(none)</option>
-                  {defaultModelList.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {defaultModelList.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
                 </select>
               ) : (
                 <input
@@ -744,42 +926,66 @@ function UnifiedModelSection({
             const label = SYSTEM_MODEL_KEY_LABELS[purposeKey] ?? purposeKey;
             const providerRef = entry?.provider ?? '';
             const availableModels = providerRef ? (providerAvailableModels[providerRef] ?? []) : [];
-            const fallbackContext = getProviderContextWindow(providerConfigs[providerRef], entry?.model);
+            const fallbackContext = getProviderContextWindow(
+              providerConfigs[providerRef],
+              entry?.model
+            );
             return (
               <tr key={purposeKey}>
-                <td><span className="fixed-key" title={purposeKey}>{label}</span></td>
+                <td>
+                  <span className="fixed-key" title={purposeKey}>
+                    {label}
+                  </span>
+                </td>
                 <td>
                   <select
                     value={providerRef}
-                    onChange={(e) => updateSystemModel(purposeKey, { provider: e.target.value || undefined, model: undefined })}
+                    onChange={(e) =>
+                      updateSystemModel(purposeKey, {
+                        provider: e.target.value || undefined,
+                        model: undefined,
+                      })
+                    }
                     aria-label={`Provider for ${label}`}
                     title={`Select provider for ${label}`}
                   >
                     <option value="">(default provider)</option>
-                    {providerRefs.map((ref) => <option key={ref} value={ref}>{ref}</option>)}
+                    {providerRefs.map((ref) => (
+                      <option key={ref} value={ref}>
+                        {ref}
+                      </option>
+                    ))}
                   </select>
                 </td>
                 <td>
                   {availableModels.length > 0 ? (
                     <select
                       value={entry?.model ?? ''}
-                      onChange={(e) => updateSystemModel(purposeKey, {
-                        model: e.target.value || undefined,
-                        contextWindow: e.target.value
-                          ? getProviderContextWindow(providerConfigs[providerRef], e.target.value)
-                          : undefined,
-                      })}
+                      onChange={(e) =>
+                        updateSystemModel(purposeKey, {
+                          model: e.target.value || undefined,
+                          contextWindow: e.target.value
+                            ? getProviderContextWindow(providerConfigs[providerRef], e.target.value)
+                            : undefined,
+                        })
+                      }
                       aria-label={`Model for ${label}`}
                       title={`Select model for ${label}`}
                     >
                       <option value="">(default model)</option>
-                      {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                      {availableModels.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
                     </select>
                   ) : (
                     <input
                       type="text"
                       value={entry?.model ?? ''}
-                      onChange={(e) => updateSystemModel(purposeKey, { model: e.target.value || undefined })}
+                      onChange={(e) =>
+                        updateSystemModel(purposeKey, { model: e.target.value || undefined })
+                      }
                       placeholder="e.g. gpt-4.1"
                     />
                   )}
@@ -791,7 +997,9 @@ function UnifiedModelSection({
                     value={entry?.contextWindow ?? ''}
                     onChange={(e) => {
                       const parsed = Number.parseInt(e.target.value, 10);
-                      updateSystemModel(purposeKey, { contextWindow: Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed });
+                      updateSystemModel(purposeKey, {
+                        contextWindow: Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed,
+                      });
                     }}
                     placeholder={String(fallbackContext)}
                     aria-label={`Context window for ${label}`}
@@ -803,7 +1011,9 @@ function UnifiedModelSection({
             );
           })}
           {rows.map((row, i) => {
-            const availableModels = row.provider ? (providerAvailableModels[row.provider] ?? []) : [];
+            const availableModels = row.provider
+              ? (providerAvailableModels[row.provider] ?? [])
+              : [];
             return (
               <tr key={row.id}>
                 <td>
@@ -813,7 +1023,11 @@ function UnifiedModelSection({
                     onChange={(e) => updateRow(i, { keyName: e.target.value })}
                     placeholder="e.g. fast"
                   />
-                  {usedKeys.has(row.keyName) && <span className="in-use-badge" title="Used by an agent">in use</span>}
+                  {usedKeys.has(row.keyName) && (
+                    <span className="in-use-badge" title="Used by an agent">
+                      in use
+                    </span>
+                  )}
                 </td>
                 <td>
                   <select
@@ -823,7 +1037,11 @@ function UnifiedModelSection({
                     title="Select provider"
                   >
                     <option value="">(select provider)</option>
-                    {providerRefs.map((ref) => <option key={ref} value={ref}>{ref}</option>)}
+                    {providerRefs.map((ref) => (
+                      <option key={ref} value={ref}>
+                        {ref}
+                      </option>
+                    ))}
                   </select>
                 </td>
                 <td>
@@ -835,7 +1053,11 @@ function UnifiedModelSection({
                       title="Select model"
                     >
                       <option value="">(select model)</option>
-                      {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                      {availableModels.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
                     </select>
                   ) : (
                     <input
@@ -856,14 +1078,23 @@ function UnifiedModelSection({
                   />
                 </td>
                 <td>
-                  <button type="button" className="btn-icon" onClick={() => deleteRow(i)} title="Remove">✕</button>
+                  <button
+                    type="button"
+                    className="btn-icon"
+                    onClick={() => deleteRow(i)}
+                    title="Remove"
+                  >
+                    ✕
+                  </button>
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      <button type="button" className="btn-add" onClick={addRow}>+ Add model key</button>
+      <button type="button" className="btn-add" onClick={addRow}>
+        + Add model key
+      </button>
     </CollapsibleSection>
   );
 }
@@ -895,16 +1126,17 @@ function rowsFromModelKeys(modelKeys: Record<string, ModelKeyEntry>): ModelKeyRo
 
 function rowsToModelKeys(
   rows: ModelKeyRow[],
-  providerConfigs: Record<string, ProviderConfig>,
+  providerConfigs: Record<string, ProviderConfig>
 ): Record<string, ModelKeyEntry> {
   const result: Record<string, ModelKeyEntry> = {};
   for (const row of rows) {
     if (!row.keyName.trim() || !row.provider.trim() || !row.model.trim()) continue;
     const entry: ModelKeyEntry = { provider: row.provider.trim(), model: row.model.trim() };
     const cw = Number.parseInt(row.contextWindow, 10);
-    entry.contextWindow = !Number.isNaN(cw) && cw > 0
-      ? cw
-      : getProviderContextWindow(providerConfigs[row.provider.trim()], row.model.trim());
+    entry.contextWindow =
+      !Number.isNaN(cw) && cw > 0
+        ? cw
+        : getProviderContextWindow(providerConfigs[row.provider.trim()], row.model.trim());
     result[row.keyName.trim()] = entry;
   }
   return result;
@@ -914,15 +1146,9 @@ function canonicalModelKeys(modelKeys: Record<string, ModelKeyEntry>): string {
   return JSON.stringify(
     Object.entries(modelKeys)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, value]) => [key, value.provider, value.model, value.contextWindow ?? null]),
+      .map(([key, value]) => [key, value.provider, value.model, value.contextWindow ?? null])
   );
 }
-
-
-
-
-
-
 
 interface TagListSectionProps {
   title: string;
@@ -933,36 +1159,147 @@ interface TagListSectionProps {
 
 interface FileTypeGroupEditorSectionProps {
   groups: Record<string, { label?: string; patterns?: string[]; extensions?: string[] }>;
-  onChange: (groups: Record<string, { label?: string; patterns?: string[]; extensions?: string[] }>) => void;
+  onChange: (
+    groups: Record<string, { label?: string; patterns?: string[]; extensions?: string[] }>
+  ) => void;
 }
 
 const DEFAULT_FILE_TYPE_GROUPS: Record<string, { label: string; patterns: string[] }> = {
-  code: { label: 'Code', patterns: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.mjs', '*.cjs', '*.py', '*.go', '*.rs', '*.java', '*.cs', '*.cpp', '*.c', '*.h', '*.hpp', '*.rb', '*.php', '*.swift', '*.kt', '*.sql', '*.sh', '*.ps1', '*.html', '*.css', '*.scss', '*.sass', '*.less', '*.vue', '*.svelte'] },
-  documentation: { label: 'Documentation', patterns: ['*.md', '*.mdx', '*.txt', '*.rst', '*.adoc'] },
-  configuration: { label: 'Configuration', patterns: ['*.json', '*.jsonc', '*.yaml', '*.yml', '*.toml', '*.ini', '*.env', '*.conf', '*.config', '*.properties', '*.lock'] },
+  code: {
+    label: 'Code',
+    patterns: [
+      '*.ts',
+      '*.tsx',
+      '*.js',
+      '*.jsx',
+      '*.mjs',
+      '*.cjs',
+      '*.py',
+      '*.go',
+      '*.rs',
+      '*.java',
+      '*.cs',
+      '*.cpp',
+      '*.c',
+      '*.h',
+      '*.hpp',
+      '*.rb',
+      '*.php',
+      '*.swift',
+      '*.kt',
+      '*.sql',
+      '*.sh',
+      '*.ps1',
+      '*.html',
+      '*.css',
+      '*.scss',
+      '*.sass',
+      '*.less',
+      '*.vue',
+      '*.svelte',
+    ],
+  },
+  documentation: {
+    label: 'Documentation',
+    patterns: ['*.md', '*.mdx', '*.txt', '*.rst', '*.adoc'],
+  },
+  configuration: {
+    label: 'Configuration',
+    patterns: [
+      '*.json',
+      '*.jsonc',
+      '*.yaml',
+      '*.yml',
+      '*.toml',
+      '*.ini',
+      '*.env',
+      '*.conf',
+      '*.config',
+      '*.properties',
+      '*.lock',
+    ],
+  },
   tests: { label: 'Tests', patterns: ['*.test.*', '*.spec.*', '**/__tests__/**', '*.snap'] },
-  binaries: { label: 'Binaries', patterns: ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.ico', '*.bmp', '*.svg', '*.pdf', '*.zip', '*.gz', '*.tar', '*.7z', '*.jar', '*.db', '*.sqlite', '*.sqlite3', '*.woff', '*.woff2', '*.ttf', '*.otf', '*.eot', '*.mp3', '*.mp4', '*.mov', '*.avi', '*.wav', '*.exe', '*.dll', '*.so', '*.dylib'] },
-  assets: { label: 'Assets', patterns: ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.ico', '*.bmp', '*.svg', '*.mp3', '*.mp4', '*.mov', '*.avi', '*.wav'] },
+  binaries: {
+    label: 'Binaries',
+    patterns: [
+      '*.png',
+      '*.jpg',
+      '*.jpeg',
+      '*.gif',
+      '*.webp',
+      '*.ico',
+      '*.bmp',
+      '*.svg',
+      '*.pdf',
+      '*.zip',
+      '*.gz',
+      '*.tar',
+      '*.7z',
+      '*.jar',
+      '*.db',
+      '*.sqlite',
+      '*.sqlite3',
+      '*.woff',
+      '*.woff2',
+      '*.ttf',
+      '*.otf',
+      '*.eot',
+      '*.mp3',
+      '*.mp4',
+      '*.mov',
+      '*.avi',
+      '*.wav',
+      '*.exe',
+      '*.dll',
+      '*.so',
+      '*.dylib',
+    ],
+  },
+  assets: {
+    label: 'Assets',
+    patterns: [
+      '*.png',
+      '*.jpg',
+      '*.jpeg',
+      '*.gif',
+      '*.webp',
+      '*.ico',
+      '*.bmp',
+      '*.svg',
+      '*.mp3',
+      '*.mp4',
+      '*.mov',
+      '*.avi',
+      '*.wav',
+    ],
+  },
   other: { label: 'Other', patterns: [] },
 };
 
 function parsePatternsInput(value: string): string[] {
-  return [...new Set(
-    value
-      .split(',')
-      .map((part) => part.trim().toLowerCase())
-      .filter((part) => part.length > 0),
-  )];
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map((part) => part.trim().toLowerCase())
+        .filter((part) => part.length > 0)
+    ),
+  ];
 }
 
-function FileTypeGroupEditorSection({ groups, onChange }: Readonly<FileTypeGroupEditorSectionProps>) {
+function FileTypeGroupEditorSection({
+  groups,
+  onChange,
+}: Readonly<FileTypeGroupEditorSectionProps>) {
   const mergedGroups = Object.fromEntries(
     [...new Set([...Object.keys(DEFAULT_FILE_TYPE_GROUPS), ...Object.keys(groups)])].map((id) => {
       const defaults = DEFAULT_FILE_TYPE_GROUPS[id];
       const configured = groups[id];
-      const configuredPatterns = configured?.patterns && configured.patterns.length > 0
-        ? configured.patterns
-        : (configured?.extensions ?? []);
+      const configuredPatterns =
+        configured?.patterns && configured.patterns.length > 0
+          ? configured.patterns
+          : (configured?.extensions ?? []);
       return [
         id,
         {
@@ -970,7 +1307,7 @@ function FileTypeGroupEditorSection({ groups, onChange }: Readonly<FileTypeGroup
           patterns: configuredPatterns.length > 0 ? configuredPatterns : (defaults?.patterns ?? []),
         },
       ];
-    }),
+    })
   ) as Record<string, { label?: string; patterns?: string[]; extensions?: string[] }>;
   const missingDefaultIds = Object.keys(DEFAULT_FILE_TYPE_GROUPS).filter((id) => !(id in groups));
   const [groupId, setGroupId] = useState('');
@@ -1027,15 +1364,17 @@ function FileTypeGroupEditorSection({ groups, onChange }: Readonly<FileTypeGroup
   };
 
   return (
-    <CollapsibleSection title="File Type Groups" meta={`${Object.keys(mergedGroups).length} groups`}>
+    <CollapsibleSection
+      title="File Type Groups"
+      meta={`${Object.keys(mergedGroups).length} groups`}
+    >
       <p className="settings-help-text">
-        Configure reusable file-type groups with glob patterns (for example: `*.md`, `*.test.*`, `**/docs/**`, `*.agent.md`). “All files” is always available automatically.
+        Configure reusable file-type groups with glob patterns (for example: `*.md`, `*.test.*`,
+        `**/docs/**`, `*.agent.md`). “All files” is always available automatically.
       </p>
       {missingDefaultIds.length > 0 ? (
         <div className="settings-filetype-defaults-hint">
-          <span>
-            Missing recommended defaults: {missingDefaultIds.join(', ')}
-          </span>
+          <span>Missing recommended defaults: {missingDefaultIds.join(', ')}</span>
           <button type="button" className="btn-secondary" onClick={applyMissingDefaults}>
             Apply missing defaults
           </button>
@@ -1043,32 +1382,47 @@ function FileTypeGroupEditorSection({ groups, onChange }: Readonly<FileTypeGroup
       ) : null}
       <div className="settings-filetype-list">
         {Object.entries(mergedGroups).map(([id, group]) => {
-          const groupValue = group as { label?: string; patterns?: string[]; extensions?: string[] };
+          const groupValue = group as {
+            label?: string;
+            patterns?: string[];
+            extensions?: string[];
+          };
           return (
-          <div key={id} className="settings-filetype-group">
-            <div className="settings-filetype-group-header">
-              <strong>{id}</strong>
-              {id in DEFAULT_FILE_TYPE_GROUPS
-                ? <span className="settings-section-meta">default (not removable)</span>
-                : <button type="button" className="btn-icon" onClick={() => removeGroup(id)} title="Remove group">✕</button>}
+            <div key={id} className="settings-filetype-group">
+              <div className="settings-filetype-group-header">
+                <strong>{id}</strong>
+                {id in DEFAULT_FILE_TYPE_GROUPS ? (
+                  <span className="settings-section-meta">default (not removable)</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-icon"
+                    onClick={() => removeGroup(id)}
+                    title="Remove group"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <div className="tag-add-row">
+                <input
+                  type="text"
+                  value={groupValue.label ?? ''}
+                  onChange={(event) => updateGroup(id, { label: event.target.value })}
+                  placeholder="Display label"
+                />
+              </div>
+              <div className="tag-add-row settings-filetype-extensions-row">
+                <input
+                  type="text"
+                  value={(groupValue.patterns ?? groupValue.extensions ?? []).join(', ')}
+                  onChange={(event) =>
+                    updateGroup(id, { patterns: parsePatternsInput(event.target.value) })
+                  }
+                  placeholder="*.ts, *.test.*, **/docs/**, *.agent.md"
+                />
+              </div>
             </div>
-            <div className="tag-add-row">
-              <input
-                type="text"
-                value={groupValue.label ?? ''}
-                onChange={(event) => updateGroup(id, { label: event.target.value })}
-                placeholder="Display label"
-              />
-            </div>
-            <div className="tag-add-row settings-filetype-extensions-row">
-              <input
-                type="text"
-                value={((groupValue.patterns ?? groupValue.extensions ?? [])).join(', ')}
-                onChange={(event) => updateGroup(id, { patterns: parsePatternsInput(event.target.value) })}
-                placeholder="*.ts, *.test.*, **/docs/**, *.agent.md"
-              />
-            </div>
-          </div>
           );
         })}
       </div>
@@ -1094,7 +1448,9 @@ function FileTypeGroupEditorSection({ groups, onChange }: Readonly<FileTypeGroup
             placeholder="Initial globs (comma separated)"
             className="settings-filetype-extensions-input"
           />
-          <button type="button" className="btn-secondary" onClick={addGroup}>Add group</button>
+          <button type="button" className="btn-secondary" onClick={addGroup}>
+            Add group
+          </button>
         </div>
       </div>
     </CollapsibleSection>
@@ -1116,24 +1472,33 @@ function TagListSection({ title, items, placeholder, onChange }: Readonly<TagLis
 
   return (
     <CollapsibleSection title={title}>
-        <div className="tags-list">
-          {items.map((item) => (
-            <span key={item} className="tag-item">
-              {item}
-              <button type="button" className="tag-remove" onClick={() => remove(item)} title="Remove">✕</button>
-            </span>
-          ))}
-        </div>
-        <div className="tag-add-row">
-          <input
-            type="text"
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            placeholder={placeholder}
-            onKeyDown={(e) => e.key === 'Enter' && add()}
-          />
-          <button type="button" className="btn-secondary" onClick={add}>Add</button>
-        </div>
+      <div className="tags-list">
+        {items.map((item) => (
+          <span key={item} className="tag-item">
+            {item}
+            <button
+              type="button"
+              className="tag-remove"
+              onClick={() => remove(item)}
+              title="Remove"
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="tag-add-row">
+        <input
+          type="text"
+          value={newValue}
+          onChange={(e) => setNewValue(e.target.value)}
+          placeholder={placeholder}
+          onKeyDown={(e) => e.key === 'Enter' && add()}
+        />
+        <button type="button" className="btn-secondary" onClick={add}>
+          Add
+        </button>
+      </div>
     </CollapsibleSection>
   );
 }
@@ -1188,7 +1553,12 @@ export function SettingsPage() {
   }, [teamDraft, teamDirty]);
 
   if (configLoading || devLoading) return <div className="settings-loading">Loading settings…</div>;
-  if (configError) return <div className="settings-error">Failed to load settings: {(configError as Error).message}</div>;
+  if (configError)
+    return (
+      <div className="settings-error">
+        Failed to load settings: {(configError as Error).message}
+      </div>
+    );
   if (!teamDraft || !devDraft) return null;
 
   const patchTeam = (updater: (d: TeamConfig) => TeamConfig) => {
@@ -1202,9 +1572,11 @@ export function SettingsPage() {
   };
 
   // Build merged provider refs for model key dropdowns
-  const teamProviders = teamDraft.providers ?? {};
+  const teamProviders: Record<string, ProviderConfig> = teamDraft.providers ?? {};
   const devProviders = getUserProviders(devDraft);
-  const allProviderRefs = [...new Set([...Object.keys(teamProviders), ...Object.keys(devProviders)])];
+  const allProviderRefs = [
+    ...new Set([...Object.keys(teamProviders), ...Object.keys(devProviders)]),
+  ];
   const providerAvailableModels: Record<string, string[]> = {};
   for (const [ref, p] of Object.entries(devProviders)) {
     const ids = getProviderModelIds(p);
@@ -1241,13 +1613,11 @@ export function SettingsPage() {
 
       {activeTab === 'user' && (
         <>
-          <UserProfileSection
-            devDraft={devDraft}
-            onChange={patchDev}
-          />
+          <UserProfileSection devDraft={devDraft} onChange={patchDev} />
 
           <UserProvidersSection
             devDraft={devDraft}
+            teamProviders={teamProviders}
             envStatus={envStatus}
             onChange={patchDev}
             onRefreshEnv={() => {}}
@@ -1304,5 +1674,3 @@ export function SettingsPage() {
     </div>
   );
 }
-
-

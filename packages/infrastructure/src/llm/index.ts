@@ -148,6 +148,13 @@ export interface LlmToolChatResult {
   toolResults: LlmToolResult[];
 }
 
+export interface LlmDiagnosticMessage {
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+}
+
+export type LlmDiagnosticReporter = (entry: LlmDiagnosticMessage) => void;
+
 import type { LlmLogPayload, SerializedError } from './llm-console-log.js';
 import { isLlmConsoleLogEnabled, writeLlmLogToConsole } from './llm-console-log.js';
 
@@ -170,10 +177,15 @@ export class LlmService {
   private initialized = false;
   private logDir: string;
   private logDirReady = false;
+  private diagnosticReporter?: LlmDiagnosticReporter;
 
   constructor(workspaceRoot: string) {
     this.workspaceRoot = workspaceRoot;
     this.logDir = path.join(this.workspaceRoot, '.ai-team', 'logs', 'llm');
+  }
+
+  setDiagnosticReporter(reporter?: LlmDiagnosticReporter): void {
+    this.diagnosticReporter = reporter;
   }
 
   /**
@@ -208,9 +220,17 @@ export class LlmService {
     this.model = getDefaultModel(this.config);
 
     const env = await loadEnvFile(this.workspaceRoot);
-    const apiKeyName = resolved.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-    const apiKey =
-      env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
+    const apiKeyResolution = resolveApiKeyFromEnv(env, resolved.apiKeyEnvVar);
+
+    for (const diagnostic of buildApiKeyResolutionDiagnostics(
+      apiKeyResolution,
+      this.config,
+      this.providerRef
+    )) {
+      this.emitDiagnostic(diagnostic);
+    }
+
+    const apiKey = apiKeyResolution.apiKey;
 
     this.client = createLlmClient(this.config, apiKey);
     this.initialized = true;
@@ -276,22 +296,40 @@ export class LlmService {
     const logBase = this.buildLogBase('chat', agent, allMessages, options, skills, teamRoster);
 
     try {
-      const response = await withTimeout(
-        createChatCompletion(this.client, this.config, {
-          model: options?.model ?? this.model,
-          messages: allMessages,
-          max_tokens: options?.maxTokens,
-          temperature: options?.temperature,
-          top_p: options?.topP,
-          presence_penalty: options?.presencePenalty,
-          frequency_penalty: options?.frequencyPenalty,
-          stop: options?.stop,
-        }),
+      const requestPayload: ChatCompletionRequestPayload = {
+        model: options?.model ?? this.model,
+        messages: allMessages,
+        max_tokens: options?.maxTokens,
+        temperature: options?.temperature,
+        top_p: options?.topP,
+        presence_penalty: options?.presencePenalty,
+        frequency_penalty: options?.frequencyPenalty,
+        stop: options?.stop,
+      };
+
+      let response = await withTimeout(
+        createChatCompletion(this.client, this.config, requestPayload),
         requestTimeoutMs,
         `LLM request timed out after ${requestTimeoutMs / 1000}s.`
       );
 
-      const text = extractChatCompletionText(response);
+      let text = extractChatCompletionText(response);
+
+      if (!text) {
+        const recovered = await tryRecoverCompletionWithThinkingDisabled(
+          this.client,
+          this.config,
+          requestPayload,
+          response,
+          requestTimeoutMs,
+          `LLM request timed out after ${requestTimeoutMs / 1000}s.`
+        );
+        if (recovered) {
+          response = recovered.response;
+          text = recovered.text;
+        }
+      }
+
       if (!text) {
         throw new Error('LLM returned an empty response');
       }
@@ -520,7 +558,7 @@ export class LlmService {
           .filter((toolCall) => toolCall.function.name.trim().length > 0);
 
         if (toolCalls.length === 0) {
-          const fallbackCalls = parseBracketToolCalls(
+          const fallbackCalls = parseTextToolCalls(
             assistantText,
             new Set(tools.map((tool) => tool.name))
           );
@@ -776,22 +814,40 @@ export class LlmService {
     const logBase = this.buildRawLogBase('raw-chat', allMessages, options);
 
     try {
-      const response = await withTimeout(
-        createChatCompletion(this.client, this.config, {
-          model: options?.model ?? this.model,
-          messages: allMessages,
-          max_tokens: options?.maxTokens,
-          temperature: options?.temperature,
-          top_p: options?.topP,
-          presence_penalty: options?.presencePenalty,
-          frequency_penalty: options?.frequencyPenalty,
-          stop: options?.stop,
-        }),
+      const requestPayload: ChatCompletionRequestPayload = {
+        model: options?.model ?? this.model,
+        messages: allMessages,
+        max_tokens: options?.maxTokens,
+        temperature: options?.temperature,
+        top_p: options?.topP,
+        presence_penalty: options?.presencePenalty,
+        frequency_penalty: options?.frequencyPenalty,
+        stop: options?.stop,
+      };
+
+      let response = await withTimeout(
+        createChatCompletion(this.client, this.config, requestPayload),
         requestTimeoutMs,
         `LLM request timed out after ${requestTimeoutMs / 1000}s.`
       );
 
-      const text = extractChatCompletionText(response);
+      let text = extractChatCompletionText(response);
+
+      if (!text) {
+        const recovered = await tryRecoverCompletionWithThinkingDisabled(
+          this.client,
+          this.config,
+          requestPayload,
+          response,
+          requestTimeoutMs,
+          `LLM request timed out after ${requestTimeoutMs / 1000}s.`
+        );
+        if (recovered) {
+          response = recovered.response;
+          text = recovered.text;
+        }
+      }
+
       if (!text) {
         throw new Error('LLM returned an empty response');
       }
@@ -1108,6 +1164,10 @@ ${excerpts}`;
       throw new Error('LlmService not initialized. Call initialize() first.');
     }
   }
+
+  private emitDiagnostic(entry: LlmDiagnosticMessage): void {
+    this.diagnosticReporter?.(entry);
+  }
 }
 
 // ============================================================================
@@ -1394,6 +1454,83 @@ function profileToOptions(params?: LlmGenerationParams): LlmChatOptions {
     frequencyPenalty: params.frequencyPenalty,
     stop: params.stop,
   };
+}
+
+export interface ApiKeyResolutionResult {
+  preferredEnvVar: string;
+  lookupOrder: string[];
+  selectedEnvVar?: string;
+  apiKey?: string;
+  foundPreferred: boolean;
+}
+
+export function buildApiKeyResolutionDiagnostics(
+  apiKeyResolution: ApiKeyResolutionResult,
+  config: Pick<LlmConfig, 'provider' | 'baseUrl'>,
+  providerRef?: string
+): LlmDiagnosticMessage[] {
+  const diagnostics: LlmDiagnosticMessage[] = [];
+
+  if (!apiKeyResolution.foundPreferred && apiKeyResolution.selectedEnvVar) {
+    diagnostics.push({
+      level: 'warn',
+      message:
+        `[LLM] Preferred API key env var '${apiKeyResolution.preferredEnvVar}' was not found. ` +
+        `Using fallback '${apiKeyResolution.selectedEnvVar}'. ` +
+        `Looked in order: ${apiKeyResolution.lookupOrder.join(', ')}`,
+    });
+  }
+
+  if (
+    config.provider === 'openai-compatible' &&
+    shouldWarnWhenApiKeyMissing(config.baseUrl) &&
+    !apiKeyResolution.selectedEnvVar
+  ) {
+    diagnostics.push({
+      level: 'warn',
+      message:
+        `[LLM] API key not found for provider '${providerRef ?? config.provider}'. ` +
+        `Looked in order: ${apiKeyResolution.lookupOrder.join(', ')}`,
+    });
+  }
+
+  return diagnostics;
+}
+
+export function resolveApiKeyFromEnv(
+  env: Record<string, string>,
+  preferredEnvVar?: string
+): ApiKeyResolutionResult {
+  const normalizedPreferred = preferredEnvVar?.trim() || 'AI_TEAM_LLM_API_KEY';
+  const lookupOrder = Array.from(
+    new Set([normalizedPreferred, 'AI_TEAM_LLM_API_KEY', 'LLM_API_KEY', 'OPENAI_API_KEY'])
+  );
+
+  const selectedEnvVar = lookupOrder.find((envVar) => {
+    const value = env[envVar];
+    return typeof value === 'string' && value.length > 0;
+  });
+
+  return {
+    preferredEnvVar: normalizedPreferred,
+    lookupOrder,
+    selectedEnvVar,
+    apiKey: selectedEnvVar ? env[selectedEnvVar] : undefined,
+    foundPreferred: Boolean(env[normalizedPreferred]),
+  };
+}
+
+function shouldWarnWhenApiKeyMissing(baseUrl?: string): boolean {
+  if (!baseUrl) {
+    return true;
+  }
+
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase();
+    return hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '::1';
+  } catch {
+    return true;
+  }
 }
 
 function getProviderModels(
@@ -2115,6 +2252,132 @@ export function parseBracketToolCalls(
   return calls;
 }
 
+export function parseTextToolCalls(
+  assistantText: string,
+  knownToolNames: Set<string>
+): LlmToolCall[] {
+  const bracketCalls = parseBracketToolCalls(assistantText, knownToolNames);
+  if (bracketCalls.length > 0) {
+    return bracketCalls;
+  }
+
+  const jsonFallback = parseJsonObjectToolCall(assistantText, knownToolNames);
+  return jsonFallback ? [jsonFallback] : [];
+}
+
+function parseJsonObjectToolCall(
+  assistantText: string,
+  knownToolNames: Set<string>
+): LlmToolCall | undefined {
+  const normalized = assistantText.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const candidates = [normalized];
+  const fenced = normalized.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced?.[1]) {
+    candidates.push(fenced[1].trim());
+  }
+
+  for (const candidate of candidates) {
+    const parsed = tryParseJson(candidate);
+    if (parsed === undefined) {
+      continue;
+    }
+
+    const call = jsonValueToToolCall(parsed, knownToolNames);
+    if (call) {
+      return call;
+    }
+  }
+
+  return undefined;
+}
+
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function jsonValueToToolCall(
+  payload: unknown,
+  knownToolNames: Set<string>
+): LlmToolCall | undefined {
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const nested = jsonValueToToolCall(item, knownToolNames);
+      if (nested) {
+        return nested;
+      }
+    }
+    return undefined;
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const functionRecord =
+    record.function && typeof record.function === 'object'
+      ? (record.function as Record<string, unknown>)
+      : undefined;
+
+  const toolNameCandidate =
+    readString(record.name) ||
+    readString(record.toolName) ||
+    readString(record.tool) ||
+    readString(functionRecord?.name);
+
+  if (!toolNameCandidate || !knownToolNames.has(toolNameCandidate)) {
+    return undefined;
+  }
+
+  const rawArgs =
+    record.arguments ??
+    record.args ??
+    record.parameters ??
+    functionRecord?.arguments ??
+    functionRecord?.args ??
+    functionRecord?.parameters ??
+    {};
+
+  const args = normalizeToolArgs(rawArgs);
+
+  return {
+    toolCallId: randomUUID(),
+    toolName: toolNameCandidate,
+    args,
+  };
+}
+
+function normalizeToolArgs(rawArgs: unknown): Record<string, unknown> {
+  let parsed = rawArgs;
+
+  if (typeof parsed === 'string') {
+    const parsedJson = tryParseJson(parsed.trim());
+    parsed = parsedJson === undefined ? {} : parsedJson;
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {};
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+function readString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function serializeError(error: unknown): SerializedError {
   if (error instanceof Error) {
     return {
@@ -2151,6 +2414,62 @@ function extractDeltaText(delta: unknown): string {
 }
 
 type ChatCompletionRequestPayload = Record<string, unknown>;
+
+export function hasReasoningOnlyCompletion(response: unknown): boolean {
+  const choices = (response as { choices?: unknown[] } | undefined)?.choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    return false;
+  }
+
+  return choices.some((choice) => {
+    const message =
+      (choice as { message?: { content?: unknown; reasoning?: unknown; reasoning_content?: unknown } })
+        ?.message;
+
+    const messageText = extractMessageContentText(message?.content);
+    if (messageText) {
+      return false;
+    }
+
+    const directText = (choice as { text?: unknown } | undefined)?.text;
+    if (typeof directText === 'string' && directText.trim().length > 0) {
+      return false;
+    }
+
+    const reasoningText =
+      extractMessageContentText(message?.reasoning) ||
+      extractMessageContentText(message?.reasoning_content);
+
+    return reasoningText.length > 0;
+  });
+}
+
+export function buildDisableThinkingFallbackRequest(
+  config: LlmConfig,
+  request: ChatCompletionRequestPayload,
+  response: unknown
+): ChatCompletionRequestPayload | undefined {
+  if (config.provider !== 'openai-compatible') {
+    return undefined;
+  }
+
+  if (!hasReasoningOnlyCompletion(response)) {
+    return undefined;
+  }
+
+  const existing = toRecord(request.chat_template_kwargs);
+  if (existing.enable_thinking === false) {
+    return undefined;
+  }
+
+  return {
+    ...request,
+    chat_template_kwargs: {
+      ...existing,
+      enable_thinking: false,
+    },
+  };
+}
 
 export function normalizeMessagesForProvider(
   request: ChatCompletionRequestPayload,
@@ -2234,6 +2553,40 @@ async function createChatCompletion(
   }
 
   throw lastError;
+}
+
+async function tryRecoverCompletionWithThinkingDisabled(
+  client: OpenAI,
+  config: LlmConfig,
+  request: ChatCompletionRequestPayload,
+  response: unknown,
+  requestTimeoutMs: number,
+  timeoutMessage: string
+): Promise<{ response: unknown; text: string } | undefined> {
+  const retryRequest = buildDisableThinkingFallbackRequest(config, request, response);
+  if (!retryRequest) {
+    return undefined;
+  }
+
+  try {
+    const retryResponse = await withTimeout(
+      createChatCompletion(client, config, retryRequest),
+      requestTimeoutMs,
+      timeoutMessage
+    );
+
+    const retryText = extractChatCompletionText(retryResponse);
+    if (!retryText) {
+      return undefined;
+    }
+
+    return {
+      response: retryResponse,
+      text: retryText,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function buildFallbackRequests(
@@ -2424,6 +2777,33 @@ function extractChatCompletionText(response: unknown): string {
 function extractMessageContentText(content: unknown): string {
   if (typeof content === 'string') {
     return content.trim();
+  }
+
+  if (content && typeof content === 'object') {
+    const contentObject = content as {
+      text?: unknown;
+      value?: unknown;
+      content?: unknown;
+    };
+
+    if (typeof contentObject.text === 'string' && contentObject.text.trim().length > 0) {
+      return contentObject.text.trim();
+    }
+
+    if (contentObject.text && typeof contentObject.text === 'object') {
+      const nestedValue = (contentObject.text as { value?: unknown }).value;
+      if (typeof nestedValue === 'string' && nestedValue.trim().length > 0) {
+        return nestedValue.trim();
+      }
+    }
+
+    if (typeof contentObject.value === 'string' && contentObject.value.trim().length > 0) {
+      return contentObject.value.trim();
+    }
+
+    if (typeof contentObject.content === 'string' && contentObject.content.trim().length > 0) {
+      return contentObject.content.trim();
+    }
   }
 
   if (!Array.isArray(content)) {
@@ -2623,21 +3003,25 @@ function hasNonTextCompletionSignal(response: unknown): boolean {
   }
 
   return choices.some((choice) => {
-    const message = (
-      choice as
-        | {
-            message?: {
-              reasoning_content?: unknown;
-              tool_calls?: unknown;
-              function_call?: unknown;
-            };
-            finish_reason?: unknown;
-          }
-        | undefined
-    )?.message;
+    const message =
+      (
+        choice as
+          | {
+              message?: {
+                reasoning?: unknown;
+                reasoning_content?: unknown;
+                tool_calls?: unknown;
+                function_call?: unknown;
+              };
+              finish_reason?: unknown;
+            }
+          | undefined
+      )?.message;
 
-    const reasoning = message?.reasoning_content;
-    if (typeof reasoning === 'string' && reasoning.trim().length > 0) {
+    const reasoning =
+      extractMessageContentText(message?.reasoning) ||
+      extractMessageContentText(message?.reasoning_content);
+    if (reasoning.length > 0) {
       return true;
     }
 

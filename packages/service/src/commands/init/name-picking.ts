@@ -22,8 +22,14 @@ const DEFAULT_NAME_SUGGESTIONS = [
 ];
 
 export interface NamePickingIo {
-  requestSelect: (hooks: InitRuntimeHooks | undefined, request: { message: string; choices: Array<{ name: string; value: string }> }) => Promise<string>;
-  requestInput: (hooks: InitRuntimeHooks | undefined, request: { message: string; validate?: (value: string) => true | string }) => Promise<string>;
+  requestSelect: (
+    hooks: InitRuntimeHooks | undefined,
+    request: { message: string; choices: Array<{ name: string; value: string }> }
+  ) => Promise<string>;
+  requestInput: (
+    hooks: InitRuntimeHooks | undefined,
+    request: { message: string; validate?: (value: string) => true | string }
+  ) => Promise<string>;
   writeWarn: (hooks: InitRuntimeHooks | undefined, message: string) => void;
 }
 
@@ -33,34 +39,63 @@ export async function pickAgentName(
   roleLabel: string,
   selectedNames: string[] = [],
   hooks: InitRuntimeHooks | undefined,
-  io: NamePickingIo,
+  io: NamePickingIo
 ): Promise<string> {
   const spinner = ora(`Generating name suggestions for ${roleLabel}...`).start();
   let suggestions: string[] = [];
+  let lastError: unknown;
 
   try {
-    const selectedContext = selectedNames.length > 0
-      ? `Already selected names: ${selectedNames.join(', ')}. `
-      : '';
+    const selectedContext =
+      selectedNames.length > 0 ? `Already selected names: ${selectedNames.join(', ')}. ` : '';
 
-    const firstRaw = await llm.rawChat(
-      templates.nameSystemPrompt.trim(),
-      [{ role: 'user', content: renderTemplate(templates.nameRequestPrompt, { selectedContext, roleLabel }).trim() }],
-      { temperature: 1.2, maxTokens: 120 },
-    );
-
-    suggestions = parseNameSuggestions(firstRaw, selectedNames).slice(0, 5);
-    if (suggestions.length === 0) {
-      const strictRaw = await llm.rawChat(
+    try {
+      const firstRaw = await llm.rawChat(
         templates.nameSystemPrompt.trim(),
-        [{
-          role: 'user',
-          content: renderTemplate(templates.nameRequestStrictPrompt, { selectedContext, roleLabel }).trim(),
-        }],
-        { maxTokens: 120 },
+        [
+          {
+            role: 'user',
+            content: renderTemplate(templates.nameRequestPrompt, {
+              selectedContext,
+              roleLabel,
+            }).trim(),
+          },
+        ],
+        { temperature: 1.2, maxTokens: 120 }
       );
 
-      suggestions = parseNameSuggestions(strictRaw, selectedNames).slice(0, 5);
+      suggestions = parseNameSuggestions(firstRaw, selectedNames).slice(0, 5);
+    } catch (error) {
+      lastError = error;
+      suggestions = [];
+    }
+
+    if (suggestions.length === 0) {
+      try {
+        const strictRaw = await llm.rawChat(
+          templates.nameSystemPrompt.trim(),
+          [
+            {
+              role: 'user',
+              content: renderTemplate(templates.nameRequestStrictPrompt, {
+                selectedContext,
+                roleLabel,
+              }).trim(),
+            },
+          ],
+          { maxTokens: 120 }
+        );
+
+        suggestions = parseNameSuggestions(strictRaw, selectedNames).slice(0, 5);
+      } catch (error) {
+        lastError = error;
+        suggestions = [];
+      }
+
+      if (suggestions.length === 0 && lastError) {
+        throw lastError;
+      }
+
       if (suggestions.length === 0) {
         throw new Error('Name generation returned no usable suggestions after strict retry.');
       }
@@ -70,7 +105,10 @@ export async function pickAgentName(
   } catch (error) {
     spinner.stop();
     const reason = error instanceof Error ? error.message : String(error);
-    io.writeWarn(hooks, `  Could not generate names from LLM (${reason}). Using fallback suggestions.`);
+    io.writeWarn(
+      hooks,
+      `  Could not generate names from LLM (${reason}). Using fallback suggestions.`
+    );
     suggestions = buildFallbackNameSuggestions(selectedNames, 5);
   }
 
@@ -100,12 +138,20 @@ function parseNameSuggestions(raw: string, selectedNames: string[]): string[] {
   const parsed = parseJsonArrayFromRawText(raw);
 
   return parsed
-    .map(value => typeof value === 'string' ? value.trim() : '')
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
     .filter((value): value is string => value.length > 0)
-    .map(value => value.replace(/^[-*\d.)\s]+/, '').replace(/[`"']/g, '').trim())
-    .filter(value => /^[A-Za-z]+(?:[\s-][A-Za-z]+)+$/.test(value))
-    .filter(value => !hasTokenCollision(value, selectedTokens))
-    .filter((value, index, all) => all.findIndex(entry => entry.toLowerCase() === value.toLowerCase()) === index);
+    .map((value) =>
+      value
+        .replace(/^[-*\d.)\s]+/, '')
+        .replace(/[`"']/g, '')
+        .trim()
+    )
+    .filter((value) => /^[A-Za-z]+(?:[\s-][A-Za-z]+)+$/.test(value))
+    .filter((value) => !hasTokenCollision(value, selectedTokens))
+    .filter(
+      (value, index, all) =>
+        all.findIndex((entry) => entry.toLowerCase() === value.toLowerCase()) === index
+    );
 }
 
 function parseJsonArrayFromRawText(raw: string): unknown[] {
@@ -146,9 +192,9 @@ function tryParseJsonArray(input: string): unknown[] | undefined {
 
 function buildFallbackNameSuggestions(selectedNames: string[], count: number): string[] {
   const selectedTokens = buildUsedNameTokenSet(selectedNames);
-  const fallback = DEFAULT_NAME_SUGGESTIONS
-    .filter(name => !hasTokenCollision(name, selectedTokens))
-    .slice(0, count);
+  const fallback = DEFAULT_NAME_SUGGESTIONS.filter(
+    (name) => !hasTokenCollision(name, selectedTokens)
+  ).slice(0, count);
 
   if (fallback.length >= count) {
     return fallback;
@@ -182,6 +228,6 @@ function buildUsedNameTokenSet(selectedNames: string[]): Set<string> {
 function hasTokenCollision(name: string, usedTokens: Set<string>): boolean {
   return name
     .split(/\s+/)
-    .map(part => part.trim().toLowerCase())
-    .some(part => part.length > 0 && usedTokens.has(part));
+    .map((part) => part.trim().toLowerCase())
+    .some((part) => part.length > 0 && usedTokens.has(part));
 }

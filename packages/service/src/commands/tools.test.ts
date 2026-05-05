@@ -104,4 +104,30 @@ describe('commands/tools', () => {
       })
     ).rejects.toThrow('Unknown tool: totally_unknown_tool');
   });
+
+  it('allows wildcard tool selector when it matches registered tools', async () => {
+    const agent = { id: 'ceo', name: 'CEO', role: 'CEO', tools: [], disallowedTools: [] };
+    const agentManager = createAgentManager(agent);
+    const toolManager = createToolManager();
+
+    const result = await allowToolCommand(agentManager, toolManager, {
+      agent: 'ceo',
+      tool: 'hr_*',
+    });
+
+    expect(result.tool).toBe('hr_*');
+    expect(result.tools).toContain('hr_*');
+  });
+
+  it('rejects wildcard selector when it matches no registered tool', async () => {
+    const agentManager = createAgentManager({ id: 'ceo', name: 'CEO', role: 'CEO' });
+    const toolManager = createToolManager();
+
+    await expect(
+      allowToolCommand(agentManager, toolManager, {
+        agent: 'ceo',
+        tool: 'totally_unknown_*',
+      })
+    ).rejects.toThrow('Unknown tool: totally_unknown_*');
+  });
 });

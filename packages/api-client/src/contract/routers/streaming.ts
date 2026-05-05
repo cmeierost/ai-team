@@ -317,6 +317,16 @@ export interface ChatOptions {
    * message, without triggering a second LLM call. Mutually exclusive with the CLI introduction flow.
    */
   pendingIntroduction?: string;
+
+  /**
+   * Workflow mode: keeps normal chat runtime/orchestrator, but allows tailored onboarding prompts
+   * and workflow-aware exit behavior.
+   */
+  workflowMode?: boolean;
+  workflowSystemPrompt?: string;
+  workflowExitWords?: string[];
+  suppressAutoIntroduction?: boolean;
+  disableProcessExit?: boolean;
 }
 
 export interface HireOptions {

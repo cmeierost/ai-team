@@ -76,24 +76,39 @@ function inferDefaultProviderRef(setup: LlmSetupResult): string {
   return 'personal-openai';
 }
 
-function buildUserConfigFromSetup(setup: LlmSetupResult): UserConfig {
-  const gitDeveloperName = getGitUserName();
-  const providerRef = inferDefaultProviderRef(setup);
+function buildProviderRegistrationFromSetup(setup: LlmSetupResult): {
+  providerRef: string;
+  providerEntry: NonNullable<TeamConfig['providers']>[string];
+  defaultModel?: NonNullable<TeamConfig['defaultModel']>;
+} {
+  const providerRef = setup.providerRef || inferDefaultProviderRef(setup);
+  const apiKeyEnvVar = setup.apiKeyEnvVar || (setup.apiKey ? 'AI_TEAM_LLM_API_KEY' : undefined);
 
-  const providerEntry =
+  const providerEntry: NonNullable<TeamConfig['providers']>[string] =
     setup.provider === 'github-copilot'
       ? {
-          kind: 'github-copilot' as const,
+          kind: 'github-copilot',
           ...(setup.model ? { defaultModel: setup.model } : {}),
           ...(setup.model ? { models: [{ name: setup.model }] } : {}),
         }
       : {
-          kind: 'openai-compatible' as const,
+          kind: 'openai-compatible',
           ...(setup.baseUrl ? { baseUrl: setup.baseUrl } : {}),
           ...(setup.model ? { defaultModel: setup.model } : {}),
           ...(setup.model ? { models: [{ name: setup.model }] } : {}),
-          ...(setup.apiKey ? { apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY' } : {}),
+          ...(apiKeyEnvVar ? { apiKeyEnvVar } : {}),
         };
+
+  return {
+    providerRef,
+    providerEntry,
+    ...(setup.model ? { defaultModel: { provider: providerRef, model: setup.model } } : {}),
+  };
+}
+
+function buildUserConfigFromSetup(setup: LlmSetupResult): UserConfig {
+  const gitDeveloperName = getGitUserName();
+  const registration = buildProviderRegistrationFromSetup(setup);
 
   return {
     ...(gitDeveloperName
@@ -104,9 +119,9 @@ function buildUserConfigFromSetup(setup: LlmSetupResult): UserConfig {
           },
         }
       : {}),
-    defaultModel: setup.model ? { provider: providerRef, model: setup.model } : undefined,
+    defaultModel: registration.defaultModel,
     providers: {
-      [providerRef]: providerEntry,
+      [registration.providerRef]: registration.providerEntry,
     },
   };
 }
@@ -177,7 +192,12 @@ export async function setupCommand(
           envVars['LLM_API_KEY'] ||
           envVars['OPENAI_API_KEY'];
         if (existingKey) {
-          llmConfig = { ...existingResolvedLlm.config, apiKey: existingKey };
+          llmConfig = {
+            ...existingResolvedLlm.config,
+            providerRef: existingResolvedLlm.providerRef,
+            apiKeyEnvVar: keyEnvVar,
+            apiKey: existingKey,
+          };
           reusedExistingLlm = true;
           writeLine(hooks, 'Reusing existing OpenAI-compatible configuration.');
         } else {
@@ -185,7 +205,10 @@ export async function setupCommand(
           llmConfig = await askLlmSetup(buildLlmSettingsIo(hooks));
         }
       } else {
-        llmConfig = { ...existingResolvedLlm.config };
+        llmConfig = {
+          ...existingResolvedLlm.config,
+          providerRef: existingResolvedLlm.providerRef,
+        };
         reusedExistingLlm = true;
         writeLine(hooks, 'Reusing existing GitHub Copilot configuration.');
       }
@@ -199,11 +222,26 @@ export async function setupCommand(
   // Ensure directory and save config
   await ensureAiTeamDirectory(workspaceRoot);
 
-  const { apiKey, ...safeLlmConfig } = llmConfig;
+  const registration = buildProviderRegistrationFromSetup(llmConfig);
+  const {
+    apiKey,
+    providerRef: _providerRef,
+    apiKeyEnvVar: _apiKeyEnvVar,
+    ...safeLlmConfig
+  } = llmConfig;
   const teamConfig: TeamConfig = existingConfig
     ? {
         ...existingConfig,
         llm: safeLlmConfig,
+        providers: existingConfig.providers
+          ? {
+              ...existingConfig.providers,
+              [registration.providerRef]: registration.providerEntry,
+            }
+          : {
+              [registration.providerRef]: registration.providerEntry,
+            },
+        defaultModel: registration.defaultModel ?? existingConfig.defaultModel,
         skillSources: existingConfig.skillSources?.length
           ? existingConfig.skillSources
           : DEFAULT_SKILL_SOURCES,
@@ -212,12 +250,18 @@ export async function setupCommand(
         version: '0.1.0',
         randomAvatarUrls: [],
         llm: safeLlmConfig,
+        providers: {
+          [registration.providerRef]: registration.providerEntry,
+        },
+        defaultModel: registration.defaultModel,
         skillSources: DEFAULT_SKILL_SOURCES,
       };
   await saveTeamConfig(workspaceRoot, teamConfig);
 
   if (apiKey && !reusedExistingLlm) {
-    await saveEnvFile(workspaceRoot, { AI_TEAM_LLM_API_KEY: apiKey });
+    await saveEnvFile(workspaceRoot, {
+      [llmConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY']: apiKey,
+    });
   }
 
   await saveUserConfig(workspaceRoot, buildUserConfigFromSetup(llmConfig));
@@ -240,7 +284,10 @@ export async function setupCommand(
     if (llmConfig.model) {
       writeLine(hooks, `  Model:    ${llmConfig.model}`);
     }
-    writeLine(hooks, `  API Key:  ${apiKey ? 'saved to .ai-team/.env' : 'not set'}`);
+    const apiKeyStatus = apiKey
+      ? `saved to .ai-team/.env (${llmConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY'})`
+      : 'not set';
+    writeLine(hooks, `  API Key:  ${apiKeyStatus}`);
   }
 
   // Test connection

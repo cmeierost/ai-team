@@ -90,6 +90,16 @@ import {
 const CHAT_CONNECT_TIMEOUT_MS = 20_000;
 const PREFLIGHT_STEP_TIMEOUT_MS = 15_000;
 
+interface WorkflowChatOptions {
+  workflowMode?: boolean;
+  workflowSystemPrompt?: string;
+  workflowExitWords?: string[];
+  suppressAutoIntroduction?: boolean;
+  disableProcessExit?: boolean;
+}
+
+type ChatCommandOptions = ChatOptions & WorkflowChatOptions;
+
 /** Strip HANDOFF:/FORWARD_TO: directive lines from agent text before persisting. */
 export function stripHandoffDirective(text: string): string {
   let cleaned = text.replaceAll(/\s*(?:HANDOFF|FORWARD_TO):\s*[^|\n]+(?:\s*\|\s*[^\n]*)?/gim, '');
@@ -143,12 +153,28 @@ async function runPreflightStep<T>(
   );
 }
 
+function wireLlmDiagnostics(llm: LlmService, hooks: ChatRuntimeHooks | undefined): void {
+  llm.setDiagnosticReporter((entry) => {
+    if (entry.level === 'error') {
+      writeError(hooks, entry.message);
+      return;
+    }
+
+    if (entry.level === 'warn') {
+      writeWarn(hooks, entry.message);
+      return;
+    }
+
+    writeInfo(hooks, entry.message);
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function chatCommand(
   workspaceRoot: string,
   agentId: string | undefined,
-  options: ChatOptions,
+  options: ChatCommandOptions,
   hooks: ChatRuntimeHooks = {}
 ) {
   const originalLog = console.log;
@@ -233,6 +259,9 @@ export async function chatCommand(
     const defaultProviderKind = defaultProviderRef
       ? registry?.[defaultProviderRef]?.kind
       : undefined;
+    const defaultProviderApiKeyEnvVar = defaultProviderRef
+      ? registry?.[defaultProviderRef]?.apiKeyEnvVar
+      : undefined;
     const requiresApiKey = defaultProviderKind
       ? defaultProviderKind === 'openai-compatible'
       : teamConfig?.llm?.provider === 'openai-compatible';
@@ -240,7 +269,7 @@ export async function chatCommand(
       ensureServiceUserEnvVars(
         workspaceRoot,
         { developerName: true, apiKey: requiresApiKey },
-        { quiet: true }
+        { quiet: true, apiKeyEnvVar: defaultProviderApiKeyEnvVar }
       )
     );
     const developerName = resolveDeveloperName(env) ?? getGitUserName();
@@ -292,6 +321,7 @@ export async function chatCommand(
 
     // Initialize LLM service
     const llm = new LlmService(workspaceRoot);
+    wireLlmDiagnostics(llm, hooks);
     const useSpinner = !hooks?.emit && Boolean(process.stderr.isTTY);
     const spinner = useSpinner ? ora('Connecting to LLM...').start() : undefined;
     if (!spinner) writeInfo(hooks, 'Connecting to LLM...');
@@ -329,7 +359,17 @@ export async function chatCommand(
     }
 
     // Load workspace instruction files
-    const instructions = await loadAllInstructionFiles(workspaceRoot);
+    let instructions = await loadAllInstructionFiles(workspaceRoot);
+    if (options.workflowSystemPrompt?.trim()) {
+      instructions = [
+        ...instructions,
+        {
+          filePath: '.ai-team/workflow-chat.instructions.md',
+          applyTo: '**/*',
+          instructions: options.workflowSystemPrompt.trim(),
+        },
+      ];
+    }
     if (instructions.length > 0) {
       writeInfo(hooks, `Loaded ${instructions.length} instruction file(s)`);
     }
@@ -346,6 +386,10 @@ export async function chatCommand(
     writeInfo(hooks, 'Type "/help" to see available in-chat commands');
     writeInfo(hooks, 'Ask to be forwarded or type "/chat <name>" to switch agents');
     writeInfo(hooks, 'Use "#tool_name {json}" or "/tool tool_name {json}" for direct tool calls');
+    if (options.workflowMode && (options.workflowExitWords?.length ?? 0) > 0) {
+      const exitWords = options.workflowExitWords?.filter(Boolean).join(', ');
+      if (exitWords) writeInfo(hooks, `Type ${exitWords} to continue to the next workflow step`);
+    }
 
     // Load chat history
     let history = await loadHistory(agent.id);
@@ -354,7 +398,7 @@ export async function chatCommand(
     }
 
     // Agent introduces themselves on first contact
-    if (history.length === 0 && !options.pendingIntroduction) {
+    if (history.length === 0 && !options.pendingIntroduction && !options.suppressAutoIntroduction) {
       await tryIntroduceUserNew({
         llm,
         agentManager,
@@ -454,9 +498,21 @@ export async function chatCommand(
         'Chat input aborted by user.'
       );
 
-      if (message.toLowerCase() === 'exit') {
+      const normalizedMessage = message.trim().toLowerCase();
+      if (normalizedMessage === 'exit') {
         writeInfo(hooks, 'Goodbye!');
+        if (options.disableProcessExit || options.workflowMode) {
+          return;
+        }
         process.exit(0);
+      }
+
+      if (
+        options.workflowMode &&
+        options.workflowExitWords?.some((word) => word.trim().toLowerCase() === normalizedMessage)
+      ) {
+        writeInfo(hooks, 'Moving to the next workflow step...');
+        return;
       }
 
       // /back — handled here so it has access to the local navStack

@@ -19,6 +19,8 @@ export interface InitWorkflowDependencies {
   clearAiTeamDirectory: (workspaceRoot: string, hooks?: InitRuntimeHooks) => Promise<void>;
 }
 
+const INIT_RUNTIME_ARTIFACTS = new Set(['agents', 'logs', 'private', '.ide-server.json']);
+
 export function createInitWorkflowDefinition(
   deps: InitWorkflowDependencies
 ): WorkflowDefinition<InitWorkflowState> {
@@ -33,11 +35,43 @@ export function createInitWorkflowDefinition(
             const fs = await import('node:fs/promises');
             const stats = await fs.stat(state.aiTeamDir);
             if (stats.isDirectory()) {
-              deps.writeWarn(state.hooks, 'AI Team is already initialized in this workspace');
-              deps.writeLine(state.hooks, `  Location: ${state.aiTeamDir}`);
-              deps.writeLine(state.hooks, '  Use --force to fully reinitialize team onboarding.');
+              const agentsDir = path.join(state.aiTeamDir, 'agents');
+              let hasAgentFiles = false;
+              let hasNonAgentArtifacts = false;
 
-              if (!state.options.force) {
+              try {
+                const rootEntries = await fs.readdir(state.aiTeamDir, { withFileTypes: true });
+                hasNonAgentArtifacts = rootEntries.some(
+                  (entry) => !INIT_RUNTIME_ARTIFACTS.has(entry.name)
+                );
+              } catch {
+                hasNonAgentArtifacts = false;
+              }
+
+              try {
+                const entries = await fs.readdir(agentsDir);
+                hasAgentFiles = entries.some((entry) => entry.endsWith('.agent.md'));
+              } catch {
+                hasAgentFiles = false;
+              }
+
+              if (state.options.force) {
+                deps.writeWarn(
+                  state.hooks,
+                  hasAgentFiles
+                    ? '  Force flag detected - reinitializing...'
+                    : '  Force flag detected - clearing existing AI Team scaffold...'
+                );
+                return {
+                  ...state,
+                  shouldClear: true,
+                };
+              }
+
+              if (hasAgentFiles) {
+                deps.writeWarn(state.hooks, 'AI Team is already initialized in this workspace');
+                deps.writeLine(state.hooks, `  Location: ${state.aiTeamDir}`);
+                deps.writeLine(state.hooks, '  Use --force to fully reinitialize team onboarding.');
                 deps.writeLine(state.hooks, '  Skipping initialization.');
                 return {
                   ...state,
@@ -45,11 +79,14 @@ export function createInitWorkflowDefinition(
                 };
               }
 
-              deps.writeWarn(state.hooks, '  Force flag detected - reinitializing...');
-              return {
-                ...state,
-                shouldClear: true,
-              };
+              if (!hasNonAgentArtifacts) {
+                return state;
+              }
+
+              deps.writeWarn(
+                state.hooks,
+                `Found existing .ai-team scaffold without agents at ${state.aiTeamDir}; continuing initialization.`
+              );
             }
           } catch {
             // Missing .ai-team directory is expected on first init.
@@ -74,6 +111,18 @@ export function createInitWorkflowDefinition(
         execute: async (state) => {
           const { setupCommand } = await import('./setup.js');
           await setupCommand(state.workspaceRoot, { force: state.options.force }, state.hooks);
+          return state;
+        },
+      },
+      {
+        id: 'test-llm-connection',
+        kind: 'action',
+        skipWhen: (state) => state.shouldSkip,
+        execute: async (state) => {
+          deps.writeLine(state.hooks, '');
+          deps.writeLine(state.hooks, 'Verifying LLM connection...');
+          const { testConnectionCommand } = await import('./test-connection.js');
+          await testConnectionCommand(state.workspaceRoot, {});
           return state;
         },
       },

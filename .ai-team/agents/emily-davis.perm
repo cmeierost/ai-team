@@ -1,5 +1,2 @@
 [write]
-.ai-team/**/*.agent.md
-.github/skills/**/*
-AGENTS.md
-docs/**/*
+.ai-team/**/*

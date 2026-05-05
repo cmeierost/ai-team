@@ -2,7 +2,8 @@ import {
   AgentManager,
   loadEnvFile,
   loadSkill,
-  loadTeamConfig,
+  parseTextToolCalls,
+  loadEffectiveConfig,
   resolveEffectiveLlmSettings,
   testLlmConnection,
 } from '@ai-team/infrastructure';
@@ -28,7 +29,11 @@ export async function testConnectionCommand(
     );
   }
 
-  const config = await loadTeamConfig(workspaceRoot);
+  if (options.all && options.toolCall) {
+    throw new Error('Do not combine --all with --tool-call.');
+  }
+
+  const config = await loadEffectiveConfig(workspaceRoot);
   if (!config) {
     throw new Error('No LLM configured. Run ait init first.');
   }
@@ -108,6 +113,11 @@ export async function testConnectionCommand(
   try {
     await testLlmConnection(effective.config, apiKey);
     console.log('✓ Connection successful');
+
+    if (options.toolCall) {
+      await testToolCallBehavior(effective, apiKey);
+      console.log('✓ Tool-call behavior is compatible');
+    }
   } catch (error) {
     const baseMessage = error instanceof Error ? error.message : String(error);
     const providerBaseUrl =
@@ -131,6 +141,168 @@ export async function testConnectionCommand(
       buildFailureMessage(baseMessage, attemptDetails, undefined, effective.config.provider)
     );
   }
+}
+
+async function testToolCallBehavior(
+  effective: ResolvedLlmSettings,
+  apiKey?: string
+): Promise<void> {
+  const baseUrl = requireToolProbeBaseUrl(effective);
+  const model = requireToolProbeModel(effective);
+  const probeToolName = '__ait_ping_tool';
+  const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
+
+  const response = await sendToolCallProbeRequest(endpoint, model, probeToolName, apiKey);
+  const json = await readToolCallProbeJson(response);
+  const message = json.choices?.[0]?.message;
+
+  if (hasRecognizableToolCall(message, probeToolName)) {
+    return;
+  }
+
+  const textContent = typeof message?.content === 'string' ? message.content : '';
+  const preview = textContent.trim().slice(0, 400);
+  throw new Error(buildMissingToolCallMessage(probeToolName, preview));
+}
+
+function requireToolProbeBaseUrl(effective: ResolvedLlmSettings): string {
+  if (effective.config.provider !== 'openai-compatible' || !effective.config.baseUrl) {
+    throw new Error('Tool-call probe currently supports openai-compatible providers only.');
+  }
+  return effective.config.baseUrl;
+}
+
+function requireToolProbeModel(effective: ResolvedLlmSettings): string {
+  if (!effective.config.model) {
+    throw new Error('Tool-call probe requires a concrete model ID.');
+  }
+  return effective.config.model;
+}
+
+function buildToolCallProbePayload(model: string, probeToolName: string) {
+  return {
+    model,
+    messages: [
+      {
+        role: 'user',
+        content:
+          'Call the __ait_ping_tool function exactly once with argument {"text":"ok"}. Do not answer with prose.',
+      },
+    ],
+    tools: [
+      {
+        type: 'function',
+        function: {
+          name: probeToolName,
+          description: 'Echo tool used only for probing model tool-call behavior.',
+          parameters: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+            },
+            required: ['text'],
+            additionalProperties: false,
+          },
+        },
+      },
+    ],
+    tool_choice: 'auto',
+    temperature: 0,
+    max_tokens: 96,
+  };
+}
+
+function buildToolCallProbeHeaders(apiKey?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  return headers;
+}
+
+async function sendToolCallProbeRequest(
+  endpoint: string,
+  model: string,
+  probeToolName: string,
+  apiKey?: string
+): Promise<Response> {
+  const payload = buildToolCallProbePayload(model, probeToolName);
+  const headers = buildToolCallProbeHeaders(apiKey);
+
+  try {
+    return await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    throw new Error(
+      `Tool-call probe request failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+async function readToolCallProbeJson(response: Response): Promise<{
+  choices?: Array<{
+    message?: {
+      tool_calls?: Array<{ function?: { name?: string } }>;
+      function_call?: { name?: string };
+      content?: unknown;
+    };
+  }>;
+}> {
+  if (response.ok) {
+    return (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          tool_calls?: Array<{ function?: { name?: string } }>;
+          function_call?: { name?: string };
+          content?: unknown;
+        };
+      }>;
+    };
+  }
+
+  const bodyText = await response.text();
+  const suffix = bodyText ? `: ${bodyText}` : '';
+  throw new Error(`Tool-call probe failed with HTTP ${response.status}${suffix}`);
+}
+
+function hasRecognizableToolCall(
+  message:
+    | {
+        tool_calls?: Array<{ function?: { name?: string } }>;
+        function_call?: { name?: string };
+        content?: unknown;
+      }
+    | undefined,
+  probeToolName: string
+): boolean {
+  const structuredToolCalls = message?.tool_calls;
+  if (
+    Array.isArray(structuredToolCalls) &&
+    structuredToolCalls.some((call) => call?.function?.name?.trim() === probeToolName)
+  ) {
+    return true;
+  }
+
+  if (message?.function_call?.name?.trim() === probeToolName) {
+    return true;
+  }
+
+  const textContent = typeof message?.content === 'string' ? message.content : '';
+  const textCalls = parseTextToolCalls(textContent, new Set([probeToolName]));
+  return textCalls.length > 0;
+}
+
+function buildMissingToolCallMessage(probeToolName: string, preview: string): string {
+  const base = `Tool-call probe did not find a recognizable tool call for '${probeToolName}'.`;
+  if (!preview) {
+    return base;
+  }
+  return `${base} Response preview: ${preview}`;
 }
 
 function formatAttemptDetails(
@@ -194,7 +366,7 @@ function buildFailureMessage(
 }
 
 async function testAllConfiguredModels(
-  config: NonNullable<Awaited<ReturnType<typeof loadTeamConfig>>>,
+  config: NonNullable<Awaited<ReturnType<typeof loadEffectiveConfig>>>,
   env: Record<string, string>,
   providerFilter?: string
 ): Promise<void> {

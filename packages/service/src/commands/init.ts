@@ -2,20 +2,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   saveAgentAccessPatterns,
-  loadSkill,
-  loadAllInstructionFiles,
   LlmService,
-  ChatStorage,
   AgentManager,
   buildAgentMarkdown,
   ContextLevel,
   RoleType,
 } from '@ai-team/infrastructure';
-import type { Agent, ChatMessage, ChatCompletionMessageParam } from '@ai-team/infrastructure';
+import type { Agent, ChatMessage } from '@ai-team/infrastructure';
 import { getPersonalityForHire } from './hire.js';
 import type { InitOptions } from '@ai-team/api-client';
-import { getGitUserName, developerNameToId } from '../utils/git.js';
-import { listEmployeesCommand } from './list.js';
+import { getGitUserName } from '../utils/git.js';
+import { SessionManager } from '../session-manager.js';
+import { createSqliteStorage } from '../storage/index.js';
 import {
   createRoleTemplates,
   createBootstrapWorkspaceFiles,
@@ -37,23 +35,16 @@ import {
   requestInput,
   requestConfirm,
   requestSelect,
-  requestChecklist,
 } from './init/workflow-questions.js';
 import { pickAgentName } from './init/name-picking.js';
 import { createAgentFile } from './init/agent-file.js';
-import {
-  getIdeaClarifierQuestion,
-  getGuidedInitialSuggestions,
-  getGuidedDependentSuggestions,
-} from './init/guided-onboarding.js';
+import { saveOnboardingTranscriptAsync } from './init/onboarding-docs.js';
 import { runInitWorkflowAsync } from './init-workflow.js';
-
-function writeToken(hooks: InitRuntimeHooks | undefined, text: string) {
-  hooks?.emit?.({ kind: 'token', text });
-  if (!hooks?.emit) {
-    process.stdout.write(text);
-  }
-}
+import {
+  loadOnboardingWorkflowDefinitionFromTemplates,
+  getOnboardingPhase,
+  type OnboardingWorkflowPhase,
+} from './init/onboarding-workflow-definition.js';
 
 function writeLine(hooks: InitRuntimeHooks | undefined, message: string) {
   hooks?.emit?.({ kind: 'log', level: 'info', message });
@@ -66,20 +57,6 @@ function writeWarn(hooks: InitRuntimeHooks | undefined, message: string) {
   hooks?.emit?.({ kind: 'log', level: 'warn', message });
   if (!hooks?.emit) {
     process.stdout.write(`${message}\n`);
-  }
-}
-
-function writeError(hooks: InitRuntimeHooks | undefined, message: string) {
-  hooks?.emit?.({ kind: 'log', level: 'error', message });
-  if (!hooks?.emit) {
-    process.stderr.write(`${message}\n`);
-  }
-}
-
-function writeDebug(hooks: InitRuntimeHooks | undefined, message: string) {
-  hooks?.emit?.({ kind: 'log', level: 'debug', message });
-  if (!hooks?.emit) {
-    process.stdout.write(`\x1b[2m${message}\x1b[0m\n`);
   }
 }
 
@@ -222,257 +199,67 @@ export async function runOnboarding(
     ],
   });
 
-  writeLine(hooks, '--- Business Definition ---');
-  writeLine(
-    hooks,
-    `\n${ceoName} (CEO): Welcome. I'm ${ceoName}, your CEO. I keep things strategic, outcome-focused, and short. Let's define what this software is about — start with your idea in plain text.\n`
-  );
-  const ideaText = await requestInput(hooks, {
-    message: 'Describe your idea in your own words (2-6 sentences):',
-    validate: (value: string) => {
-      const trimmed = value.trim();
-      if (trimmed.length < 20)
-        return 'Please add a little more detail so we can generate useful options.';
-      if (trimmed.length > 4000) return 'Please keep it concise (max ~4000 characters).';
-      return true;
-    },
-  });
-
-  const clarifier = await getIdeaClarifierQuestion(llm, ideaText);
-  const productIntentAndPainPoint = await requestInput(hooks, {
-    message: clarifier.question,
-    validate: (value: string) => {
-      const trimmed = value.trim();
-      if (trimmed.length < 20)
-        return 'Please include both product type and the first pain point to eliminate.';
-      if (trimmed.length > 4000) return 'Please keep it concise (max ~4000 characters).';
-      return true;
-    },
-  });
-
-  const guidedIdeaContext = [
-    ideaText.trim(),
-    '',
-    `Product target + first pain point: ${productIntentAndPainPoint.trim()}`,
-  ].join('\n');
-
-  writeLine(
-    hooks,
-    `\n${ceoName} (CEO): Good. I have enough to work with. Shall I ask you a few focused questions to sharpen the plan, or do you want to skip straight to discussion?`
-  );
-  const guidedMode = await requestConfirm(hooks, {
-    message: 'Let the CEO guide you with focused questions?',
-    default: true,
-  });
-
-  const businessSeed: string[] = [];
-  let guidedSelectionContext:
-    | { mode: string; priorities: string[]; constraints: string[] }
-    | undefined;
-  businessSeed.push(`- Idea summary (developer): ${ideaText.trim()}`);
-  businessSeed.push(`- Product target and first pain point: ${productIntentAndPainPoint.trim()}`);
-  if (guidedMode) {
-    let dynamicProductModes: Array<{ name: string; value: string }> | undefined;
-    let dynamicPriorities: Array<{ name: string; value: string }> | undefined;
-    try {
-      const initialSuggestions = await getGuidedInitialSuggestions(llm, guidedIdeaContext);
-      dynamicProductModes = initialSuggestions.productModes;
-      dynamicPriorities = initialSuggestions.priorities;
-    } catch (error) {
-      writeWarn(
-        hooks,
-        `Could not generate inspiring guided options yet; switching to text input for this step. (${error instanceof Error ? error.message : String(error)})`
-      );
-    }
-
-    const businessFocus = dynamicProductModes
-      ? await requestSelect(hooks, {
-          message: 'Which product direction fits best right now?',
-          choices: dynamicProductModes,
-        })
-      : await requestInput(hooks, {
-          message: 'What product direction best fits your idea right now?',
-          validate: (value) => value.trim().length > 0 || 'Please provide a product direction.',
-        });
-
-    const priorities = dynamicPriorities
-      ? await requestChecklist(hooks, {
-          message: 'Pick top priorities that should drive decisions:',
-          choices: dynamicPriorities,
-        })
-      : (
-          await requestInput(hooks, {
-            message: 'List your top priorities (comma-separated):',
-            validate: (value) => value.trim().length > 0 || 'Please provide at least one priority.',
-          })
-        )
-          .split(',')
-          .map((value) => value.trim())
-          .filter(Boolean);
-
-    let constraints: string[] = [];
-    try {
-      const dependentSuggestions = await getGuidedDependentSuggestions(llm, {
-        ideaText: guidedIdeaContext,
-        selectedProductMode: businessFocus,
-        selectedPriorities: priorities,
-      });
-      constraints = await requestChecklist(hooks, {
-        message: 'Pick key constraints (optional):',
-        choices: dependentSuggestions.constraints,
-      });
-    } catch (error) {
-      writeWarn(
-        hooks,
-        `Could not tailor constraints from your selections; switching to text input. (${error instanceof Error ? error.message : String(error)})`
-      );
-      constraints = (
-        await requestInput(hooks, {
-          message: 'List key constraints (comma-separated, optional; press enter to skip):',
-        })
-      )
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean);
-    }
-
-    guidedSelectionContext = {
-      mode: businessFocus,
-      priorities,
-      constraints,
-    };
-
-    businessSeed.push(`- Product mode: ${businessFocus}`);
-    if (priorities.length > 0) {
-      businessSeed.push(`- Priorities: ${priorities.join(', ')}`);
-    }
-    if (constraints.length > 0) {
-      businessSeed.push(`- Constraints: ${constraints.join(', ')}`);
-    }
-  }
-
-  // CEO presents a business plan summary based on gathered inputs
-  writeLine(hooks, `\n${ceoName} (CEO): Here is my take on the business plan.\n`);
   const developerName = getGitUserName();
-  const planSystemPrompt = [
-    `You are ${ceoName}, CEO. Based on the developer's inputs below, present a clear, structured business plan summary.`,
-    'Use numbered bullets. Cover: problem, target users, value proposition, success criteria, and key constraints.',
-    'End by inviting the developer to critique, refine, or approve the plan.',
-    'Be concise — executive style, no fluff.',
-    '',
-    '## Developer inputs',
-    businessSeed.join('\n'),
-  ].join('\n');
-  const planMessages: Array<{ role: 'user'; content: string }> = [
-    { role: 'user', content: 'Present the business plan based on what we discussed.' },
-  ];
-
-  let planSummary = '';
-  try {
-    writeToken(hooks, `${ceoName} (CEO): `);
-    const planStream = await llm.rawStreamChat(planSystemPrompt, planMessages);
-    for await (const chunk of planStream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (delta) {
-        writeToken(hooks, delta);
-        planSummary += delta;
-      }
-    }
-    writeToken(hooks, '\n\n');
-  } catch (err) {
-    writeWarn(
-      hooks,
-      `Could not generate plan summary: ${err instanceof Error ? err.message : String(err)}`
-    );
-  }
-
-  writeLine(hooks, 'Discuss the plan with the CEO. Critique it, praise it, or refine it.');
-  writeLine(hooks, 'Say "done" or "let\'s move on" when you are ready to continue.\n');
-
-  // Seed the chat history with the plan so the CEO remembers it
-  const seedMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-  if (planSummary.trim()) {
-    seedMessages.push({ role: 'assistant', content: planSummary.trim() });
-  }
-
-  const businessContext = await onboardingChat(
-    workspaceRoot,
-    llm,
-    ceoAgent,
-    'done',
-    [
-      renderTemplate(templates.onboardingCeoSystemPrompt, { hrName }),
-      businessSeed.length > 0 ? `\n## Guided onboarding answers\n${businessSeed.join('\n')}` : '',
-    ]
-      .join('\n')
-      .trim(),
+  const onboardingWorkflow = loadOnboardingWorkflowDefinitionFromTemplates({
+    templates,
+    ceoName,
+    hrName,
     developerName,
-    hooks,
-    seedMessages
+  });
+
+  const businessPhase = getOnboardingPhase(onboardingWorkflow, 'business-definition');
+  const businessAgent = resolveOnboardingPhaseAgent(businessPhase, ceoAgent, hrAgent);
+
+  writeLine(hooks, `--- ${businessPhase.heading} ---`);
+  for (const line of businessPhase.introLines) {
+    writeLine(hooks, line);
+  }
+
+  const businessContext = await runWorkflowChatPhase(
+    workspaceRoot,
+    businessAgent,
+    developerName,
+    businessPhase,
+    hooks
   );
 
   if (businessContext.length > 0) {
-    await saveBusinessContext(workspaceRoot, businessContext);
-    writeLine(hooks, 'Business context saved to .ai-team/business.md');
+    await saveOnboardingPhaseTranscript(
+      workspaceRoot,
+      businessContext,
+      businessAgent,
+      developerName,
+      businessPhase
+    );
+    writeLine(hooks, `Transcript saved to ${businessPhase.transcript.relativePath}`);
   }
 
-  writeLine(hooks, '--- Team Planning ---');
-  writeLine(hooks, `Talk with ${hrName} about what roles you need on the team.`);
-  writeLine(hooks, 'Say "done" or "let\'s go" when you are finished.');
+  const planningPhase = getOnboardingPhase(onboardingWorkflow, 'team-planning');
+  const planningAgent = resolveOnboardingPhaseAgent(planningPhase, ceoAgent, hrAgent);
 
-  const hiringSeed: string[] = [];
-  if (guidedMode) {
-    let mustHaveRoles: string[] = [];
-    try {
-      const selectedProductMode = guidedSelectionContext?.mode ?? 'unknown';
-      const selectedPriorities = guidedSelectionContext?.priorities ?? [];
-      const selectedConstraints = guidedSelectionContext?.constraints ?? [];
-
-      const dependentSuggestions = await getGuidedDependentSuggestions(llm, {
-        ideaText: guidedIdeaContext,
-        selectedProductMode,
-        selectedPriorities,
-        selectedConstraints,
-      });
-      mustHaveRoles = await requestChecklist(hooks, {
-        message: 'Pick must-have roles for first hiring wave:',
-        choices: dependentSuggestions.mustHaveRoles,
-      });
-    } catch (error) {
-      writeWarn(
-        hooks,
-        `Could not generate role options from previous selections; switching to text input. (${error instanceof Error ? error.message : String(error)})`
-      );
-      mustHaveRoles = (
-        await requestInput(hooks, {
-          message: 'List must-have roles for first hiring wave (comma-separated):',
-          validate: (value) => value.trim().length > 0 || 'Please provide at least one role.',
-        })
-      )
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean);
-    }
-
-    if (mustHaveRoles.length > 0) {
-      hiringSeed.push(`- First-wave roles: ${mustHaveRoles.join(', ')}`);
-    }
+  writeLine(hooks, `--- ${planningPhase.heading} ---`);
+  for (const line of planningPhase.introLines) {
+    writeLine(hooks, line);
   }
 
-  const hrHistory = await onboardingChat(
+  const hrHistory = await runWorkflowChatPhase(
     workspaceRoot,
-    llm,
-    hrAgent,
-    'done',
-    [
-      renderTemplate(templates.onboardingHrSystemPrompt, { hrName }),
-      hiringSeed.length > 0 ? `\n## Guided hiring inputs\n${hiringSeed.join('\n')}` : '',
-    ]
-      .join('\n')
-      .trim(),
+    planningAgent,
     developerName,
+    planningPhase,
     hooks
   );
+
+  if (hrHistory.length > 0) {
+    await saveOnboardingPhaseTranscript(
+      workspaceRoot,
+      hrHistory,
+      planningAgent,
+      developerName,
+      planningPhase
+    );
+    writeLine(hooks, `Transcript saved to ${planningPhase.transcript.relativePath}`);
+  }
 
   // Parse HIRE: directives from HR conversation and execute them
   const hireDirectives = parseHireDirectives(hrHistory);
@@ -497,9 +284,20 @@ export async function runOnboarding(
     );
   }
 
+  const handoffSummary =
+    hireDirectives.length > 0
+      ? `Hiring wave completed with ${hireDirectives.length} proposed role(s). Team planning notes are saved in ${planningPhase.transcript.relativePath}.`
+      : 'Initial onboarding and team planning are complete. No hires were executed yet.';
+
+  writeLine(hooks, '');
+  writeLine(hooks, `${hrName} (hr-director): HANDOFF: ${ceoName} | ${handoffSummary}`);
+
   writeLine(hooks, '');
   writeLine(hooks, '--- Onboarding Complete ---');
-  writeLine(hooks, `Your CEO ${ceoAgent.name} is ready to chat. Entering interactive mode...`);
+  writeLine(
+    hooks,
+    `Handing off to ${ceoAgent.name} (ceo) for execution planning in the normal chat flow...`
+  );
   writeLine(hooks, '');
 
   // Import chatCommand lazily to avoid circular dependency issues
@@ -507,7 +305,9 @@ export async function runOnboarding(
   await startChat(
     workspaceRoot,
     ceoAgent.id,
-    {},
+    {
+      pendingIntroduction: `${hrName} handed off to ${ceoName}. ${handoffSummary}`,
+    },
     {
       signal: hooks?.signal,
       emit: hooks?.emit,
@@ -565,7 +365,17 @@ async function executeOnboardingHires(
   const agentManager = new AgentManager(workspaceRoot);
 
   const hiredAgents: Agent[] = [];
-  for (const hire of hires) {
+  for (const [index, hire] of hires.entries()) {
+    const shouldHire = await requestConfirm(hooks, {
+      message: `Hire now (${index + 1}/${hires.length}): ${hire.name} as ${hire.role}?`,
+      default: true,
+    });
+
+    if (!shouldHire) {
+      writeLine(hooks, `  - Skipped ${hire.name} (${hire.role})`);
+      continue;
+    }
+
     const roleType = inferRoleType(hire.role);
     const preset = getPersonalityForHire(hire.role, roleType);
 
@@ -620,218 +430,100 @@ async function executeOnboardingHires(
   return hiredAgents;
 }
 
-// ── Onboarding exit detection ───────────────────────────────────────────────
+function resolveOnboardingPhaseAgent(
+  phase: OnboardingWorkflowPhase,
+  ceoAgent: Agent,
+  hrAgent: Agent
+): Agent {
+  if (phase.agentRole === 'ceo') {
+    return ceoAgent;
+  }
 
-const ONBOARDING_COMPLETION_PATTERNS = [
-  /\blet'?s\s+(?:start|begin|go|move\b|proceed|continue|do\s+it|roll|get\s+started)/i,
-  /\bthat'?s\s+(?:enough|all|it|good|fine|great|perfect)\b/i,
-  /\bwe'?(?:re|r)\s+(?:good|ready|done|set|all\s+set)/i,
-  /\bi'?(?:m|am)\s+(?:ready|good|done|satisfied|happy\s+with)/i,
-  /\b(?:go\s+ahead|go\s+for\s+it|sounds?\s+good|looks?\s+good)\b/i,
-  /\b(?:wrap\s+(?:it\s+)?up|finish\s+up|move\s+on|move\s+forward)\b/i,
-  /\b(?:that\s+covers?\s+it|that\s+should\s+(?:do|be\s+enough))\b/i,
-  /\b(?:i\s+think\s+we\s+(?:have|got)\s+enough)\b/i,
-  /\b(?:start\s+(?:with\s+)?(?:the\s+)?hiring|begin\s+hiring|hire\s+(?:them|everyone|the\s+team))\b/i,
-  /\b(?:nothing\s+(?:else|more)|no\s+(?:more\s+)?(?:changes?|questions?|additions?))\b/i,
-];
-
-const ONBOARDING_FORWARD_PATTERNS = [
-  /(?:forward|transfer|connect|switch|redirect)\s+(?:me\s+)?(?:to|over\s+to)\s+/i,
-  /(?:let me|i(?:'d| would) like to)\s+(?:talk|speak|chat)\s+(?:to|with)\s+/i,
-  /(?:can (?:you|i)|please)\s+(?:forward|transfer|connect|switch|redirect)\s+(?:me\s+)?(?:to|with)\s+/i,
-  /(?:put me through|patch me through|hand me off)\s+(?:to)\s+/i,
-  /(?:i (?:want|need) to (?:talk|speak|chat) (?:to|with))\s+/i,
-  /(?:take me to|send me to|bring me to)\s+/i,
-];
-
-function isForwardingRequest(message: string): boolean {
-  return ONBOARDING_FORWARD_PATTERNS.some((p) => p.test(message));
+  return hrAgent;
 }
 
-function isCompletionIntent(message: string): boolean {
-  return ONBOARDING_COMPLETION_PATTERNS.some((p) => p.test(message));
+function buildStrictWorkflowPrompt(phase: OnboardingWorkflowPhase): string {
+  return [
+    phase.strictSystemPrompt.trim(),
+    '',
+    '## Workflow goal (strict)',
+    phase.goal,
+    '',
+    '## Runtime contract',
+    '- Stay in role and keep this phase focused on its goal.',
+    '- If the developer indicates completion, give a concise recap and let them continue.',
+    '- Keep responses concise and decision-oriented by default.',
+  ]
+    .join('\n')
+    .trim();
 }
 
-async function onboardingChat(
+async function runWorkflowChatPhase(
   workspaceRoot: string,
-  llm: LlmService,
   agent: Agent,
-  exitWord: string,
-  extraSystemContext: string,
   developerName: string | undefined,
-  hooks?: InitRuntimeHooks,
-  seedMessages?: Array<{ role: 'user' | 'assistant'; content: string }>
+  phase: OnboardingWorkflowPhase,
+  hooks?: InitRuntimeHooks
 ): Promise<ChatMessage[]> {
-  const chatStorage = new ChatStorage(workspaceRoot);
-  const history: ChatMessage[] = [];
-  const messages: ChatCompletionMessageParam[] = [];
+  const { chatCommand: startChat } = await import('./chat/index.js');
+  await startChat(
+    workspaceRoot,
+    agent.id,
+    {
+      createNewSession: true,
+      workflowMode: true,
+      workflowSystemPrompt: buildStrictWorkflowPrompt(phase),
+      workflowExitWords: phase.exitWords,
+      suppressAutoIntroduction: phase.suppressAutoIntroduction,
+      disableProcessExit: true,
+      pendingIntroduction: developerName
+        ? `Workflow phase started: ${phase.heading}. Developer: ${developerName}.`
+        : `Workflow phase started: ${phase.heading}.`,
+    },
+    {
+      signal: hooks?.signal,
+      emit: hooks?.emit,
+      questionInput: hooks?.questionInput,
+      questionConfirm: hooks?.questionConfirm,
+      questionSelect: hooks?.questionSelect,
+      questionPassword: hooks?.questionPassword,
+      questionChecklist: hooks?.questionChecklist,
+    }
+  );
 
-  let skill;
+  const sessionManager = new SessionManager(
+    workspaceRoot,
+    createSqliteStorage(workspaceRoot),
+    new AgentManager(workspaceRoot)
+  );
+
   try {
-    skill = await loadSkill(agent.skillPath);
-    writeDebug(hooks, `Loaded skill: ${skill.name} (${agent.skillPath})`);
-  } catch {
-    // Skill file may not exist — that's fine during onboarding
-  }
-
-  // Load workspace instruction files
-  const instructions = await loadAllInstructionFiles(workspaceRoot);
-  if (instructions.length > 0) {
-    writeDebug(hooks, `Loaded ${instructions.length} instruction file(s)`);
-  }
-
-  const personaParts: string[] = [];
-  personaParts.push(`You are ${agent.name}, ${agent.role}.`);
-  if (agent.personality?.communication_style) {
-    personaParts.push(`Communication style: ${agent.personality.communication_style}`);
-  }
-  if (skill?.instructions) {
-    personaParts.push(skill.instructions);
-  }
-  if (agent.markdown?.trim()) {
-    personaParts.push(agent.markdown.trim());
-  }
-  personaParts.push('');
-  personaParts.push(extraSystemContext);
-
-  try {
-    const bizCtx = await fs.readFile(path.join(workspaceRoot, '.ai-team', 'business.md'), 'utf-8');
-    if (bizCtx.trim()) {
-      personaParts.push('');
-      personaParts.push('## Business Context');
-      personaParts.push(bizCtx);
-    }
-  } catch {}
-
-  if (instructions.length > 0) {
-    personaParts.push('');
-    personaParts.push('## Workspace Instructions');
-    for (const inst of instructions) {
-      personaParts.push(`### ${inst.filePath} (applies to: ${inst.applyTo})`);
-      personaParts.push(inst.instructions);
-    }
-  }
-
-  const systemPrompt = personaParts.join('\n');
-
-  // Seed the LLM message history (e.g. the CEO's pre-generated plan summary)
-  if (seedMessages?.length) {
-    for (const seed of seedMessages) {
-      messages.push({ role: seed.role, content: seed.content });
-      if (seed.role === 'assistant') {
-        const agentMsg: ChatMessage = {
-          timestamp: new Date().toISOString(),
-          from: agent.id,
-          to: 'human',
-          content: seed.content,
-        };
-        history.push(agentMsg);
-        await chatStorage.appendMessage(agent.id, agentMsg);
-      }
-    }
-  }
-
-  while (true) {
-    const userText = await requestInput(hooks, {
-      message: 'You:',
-      validate: (v: string) => v.length > 0 || 'Message cannot be empty',
-    });
-
-    const lower = userText.toLowerCase().trim();
-    if (lower === exitWord || lower === 'exit' || lower === 'quit') {
-      writeLine(hooks, 'Moving on...');
-      break;
+    const latestSession = await sessionManager.getLatestSession(agent.id);
+    if (!latestSession) {
+      return [];
     }
 
-    // Natural language forwarding — treat "forward me to X" as done
-    if (isForwardingRequest(userText)) {
-      writeLine(hooks, `Moving on to the next phase...`);
-      break;
-    }
-
-    // Natural language completion — "let's go", "sounds good", "wrap it up", etc.
-    if (isCompletionIntent(userText)) {
-      writeLine(hooks, 'Moving on to the next phase...');
-      break;
-    }
-
-    // Slash command interception
-    if (userText.startsWith('/')) {
-      const [rawCmd] = userText.slice(1).split(/\s+/);
-      const cmd = rawCmd?.toLowerCase() ?? '';
-      if (cmd === 'list') {
-        const employees = await listEmployeesCommand(workspaceRoot, {});
-        if (employees.length === 0) {
-          writeLine(hooks, 'No employees found.');
-        } else {
-          writeLine(hooks, '\nEmployees:\n');
-          for (const emp of employees) {
-            writeLine(hooks, `  ${emp.name} (${emp.role}) [${emp.id}]`);
-          }
-        }
-        continue;
-      } else if (cmd === 'exit' || cmd === 'quit' || cmd === 'done') {
-        writeLine(hooks, 'Moving on...');
-        break;
-      } else {
-        writeLine(
-          hooks,
-          `Unknown command: /${cmd}. Available in this mode: /list (show team), /done (end conversation).`
-        );
-        continue;
-      }
-    }
-
-    const developerId = developerName ? developerNameToId(developerName) : 'human';
-    const userMsg: ChatMessage = {
-      timestamp: new Date().toISOString(),
-      from: developerId,
-      isHuman: true,
-      content: userText,
-    };
-    history.push(userMsg);
-    await chatStorage.appendMessage(agent.id, userMsg);
-    messages.push({ role: 'user' as const, content: userText });
-
-    writeToken(hooks, `\n${agent.name} (${agent.role}): `);
-    let fullReply = '';
-    try {
-      const stream = await llm.rawStreamChat(systemPrompt, messages);
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          writeToken(hooks, delta);
-          fullReply += delta;
-        }
-      }
-    } catch (err) {
-      writeError(hooks, `LLM error: ${err instanceof Error ? err.message : String(err)}`);
-      continue;
-    }
-    writeToken(hooks, '\n\n');
-
-    const agentMsg: ChatMessage = {
-      timestamp: new Date().toISOString(),
-      from: agent.id,
-      to: 'human',
-      content: fullReply.trim(),
-    };
-    history.push(agentMsg);
-    await chatStorage.appendMessage(agent.id, agentMsg);
-    messages.push({ role: 'assistant' as const, content: fullReply.trim() });
+    const history = await sessionManager.getSessionMessages(latestSession.id);
+    return history;
+  } finally {
+    await sessionManager.close();
   }
-
-  return history;
 }
 
-async function saveBusinessContext(workspaceRoot: string, history: ChatMessage[]) {
-  const lines: string[] = ['# Business Definition\n'];
-  lines.push('> The core business problem this software solves.\n');
-  lines.push('> Generated during `ait init` onboarding with the CEO.\n');
-  for (const msg of history) {
-    const speaker = msg.from === 'human' ? 'Developer' : msg.from;
-    lines.push(`**${speaker}:** ${msg.content}\n`);
-  }
-  const filePath = path.join(workspaceRoot, '.ai-team', 'business.md');
-  await fs.writeFile(filePath, lines.join('\n'), 'utf-8');
+async function saveOnboardingPhaseTranscript(
+  workspaceRoot: string,
+  history: ChatMessage[],
+  agent: Agent,
+  developerName: string | undefined,
+  phase: OnboardingWorkflowPhase
+) {
+  await saveOnboardingTranscriptAsync({
+    workspaceRoot,
+    relativePath: phase.transcript.relativePath,
+    title: phase.transcript.title,
+    intro: phase.transcript.intro,
+    history,
+    developerLabel: developerName,
+    agentLabel: `${agent.name} (${agent.role})`,
+  });
 }

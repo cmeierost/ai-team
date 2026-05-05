@@ -55,7 +55,11 @@
 }
 
 .settings-tab:hover {
-  background: color-mix(in srgb, var(--vscode-button-secondaryBackground, #313244) 55%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--vscode-button-secondaryBackground, #313244) 55%,
+    transparent
+  );
   color: var(--vscode-foreground, #cdd6f4);
 }
 
@@ -112,7 +116,11 @@
 }
 
 .settings-section-toggle:hover {
-  background: color-mix(in srgb, var(--vscode-sideBar-background, #181825) 82%, var(--vscode-button-secondaryBackground, #313244));
+  background: color-mix(
+    in srgb,
+    var(--vscode-sideBar-background, #181825) 82%,
+    var(--vscode-button-secondaryBackground, #313244)
+  );
 }
 
 .settings-section-toggle-right {
@@ -359,6 +367,27 @@
 
 .test-result {
   border-top: 1px solid var(--vscode-panel-border, #313244);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.test-result-remove {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.8;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.9rem;
+}
+
+.test-result-remove:hover,
+.test-result-remove:focus-visible {
+  opacity: 1;
 }
 
 .test-result--ok {

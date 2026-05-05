@@ -14,6 +14,7 @@ export const INIT_TEMPLATE_FILE_MAP = {
   hrAgentPersonality: 'hr-agent-personality.template.md',
   onboardingCeoSystemPrompt: 'onboarding-ceo-system.template.md',
   onboardingHrSystemPrompt: 'onboarding-hr-system.template.md',
+  onboardingWorkflowDefinition: 'onboarding-workflow.template.yaml',
   bootstrapAgentsFile: 'bootstrap-agents.template.md',
   bootstrapCopilotInstructionsFile: 'bootstrap-copilot-instructions.template.md',
   bootstrapAiTeamWayFile: 'bootstrap-ai-team-way.template.md',

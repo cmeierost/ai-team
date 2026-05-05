@@ -7,6 +7,7 @@
     "api-llmhub-infs-ai": {
       "kind": "openai-compatible",
       "defaultModel": "best-chat",
+      "apiKeyEnvVar": "LLM_HUB_API_KEY",
       "models": [
         {
           "name": "apertus-70b-instruct-2509-qx64-mlx"
@@ -558,11 +559,39 @@
       ],
       "baseUrl": "https://api.openai.com/v1",
       "apiKeyEnvVar": "OPENAI_API_KEY"
+    },
+    "ollama-local": {
+      "kind": "openai-compatible",
+      "defaultModel": "qwen2.5-coder:7b",
+      "models": [
+        {
+          "name": "glm-4.7-flash:latest"
+        },
+        {
+          "name": "qwen3.5:latest"
+        },
+        {
+          "name": "gemma3:4b"
+        },
+        {
+          "name": "deepseek-r1:8b"
+        },
+        {
+          "name": "qwen2.5-coder:7b"
+        },
+        {
+          "name": "qwen3-coder:30b"
+        },
+        {
+          "name": "qwen3:8b"
+        }
+      ],
+      "baseUrl": "http://localhost:11434/v1"
     }
   },
   "defaultModel": {
-    "provider": "openai",
-    "model": "gpt-5.4-2026-03-05"
+    "provider": "api-llmhub-infs-ai",
+    "model": "best-chat"
   },
   "allowedCliTools": [
     "git",
@@ -718,8 +747,8 @@
       "contextWindow": 20000
     },
     "best": {
-      "provider": "copilot",
-      "model": "claude-sonnet-4.6",
+      "provider": "openai",
+      "model": "gpt-5.3-codex",
       "contextWindow": 128000
     },
     "coding": {

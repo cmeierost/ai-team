@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseBracketToolCalls } from './index.js';
+import { parseBracketToolCalls, parseTextToolCalls } from './index.js';
 
 describe('parseBracketToolCalls', () => {
   it('parses [tool:name] JSON blocks for known tools', () => {
@@ -34,5 +34,27 @@ describe('parseBracketToolCalls', () => {
 
     expect(parsed).toHaveLength(1);
     expect(parsed[0]?.args).toEqual({ kind: 'input', message: 'hello' });
+  });
+
+  it('parses plain JSON text with name/arguments shape', () => {
+    const parsed = parseTextToolCalls(
+      '{"name":"com_ask","arguments":{"kind":"input","message":"hello"}}',
+      new Set(['com_ask'])
+    );
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.toolName).toBe('com_ask');
+    expect(parsed[0]?.args).toEqual({ kind: 'input', message: 'hello' });
+  });
+
+  it('parses fenced JSON text with nested function shape', () => {
+    const parsed = parseTextToolCalls(
+      '```json\n{"function":{"name":"com_ask","arguments":"{\\"kind\\":\\"confirm\\",\\"message\\":\\"Proceed?\\"}"}}\n```',
+      new Set(['com_ask'])
+    );
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.toolName).toBe('com_ask');
+    expect(parsed[0]?.args).toEqual({ kind: 'confirm', message: 'Proceed?' });
   });
 });

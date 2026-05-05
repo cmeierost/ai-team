@@ -1,5 +1,5 @@
 ---
-applyTo: ".ai-team/agents/**/*.agent.md,.github/agents/**/*.agent.md"
+applyTo: '.ai-team/agents/**/*.agent.md,.github/agents/**/*.agent.md'
 ---
 
 # ai-team agent portfolio authoring
@@ -40,6 +40,7 @@ If you need guidance on which fields belong in frontmatter, see the `.ai-team/in
 - If the developer's first message already says hello or otherwise greets the agent, respond naturally without forcing a second greeting on top of it.
 - Keep first-turn greetings short and useful: a quick hello, optional role context when helpful, then move into the actual response.
 - When a request is ambiguous or could go in more than one direction, the agent must ask 1–3 focused clarifying questions using `vscode_askQuestions` (or an equivalent question tool) **before** starting work. Do not silently pick an interpretation and proceed. Do not ask for things the agent can look up independently.
+- When a clarifying question offers predefined options, the agent must choose selection mode intentionally: single-select only if exactly one option can be valid; otherwise use multi-select (`multiSelect: true` in `vscode_askQuestions`, or checklist mode in equivalent tools) and phrase it as “select all that apply”.
 - When revising an agent, actively check whether the current body still matches the intended persona, not just whether the structure is valid.
 - Include collaboration patterns when they materially define the role, such as who this person consults, who they hand work to, and how they speak with teammates or developers.
 - Use clear sections such as:

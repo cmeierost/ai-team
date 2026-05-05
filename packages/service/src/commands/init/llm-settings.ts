@@ -8,6 +8,8 @@ import type {
 
 export interface LlmSetupResult {
   provider: string;
+  providerRef?: string;
+  apiKeyEnvVar?: string;
   model?: string;
   baseUrl?: string;
   apiKey?: string;
@@ -26,12 +28,12 @@ export async function askLlmSetup(io: LlmSettingsIo): Promise<LlmSetupResult> {
     message: 'Which LLM provider do you want to use?',
     choices: [
       {
-        name: 'GitHub Copilot  — uses your existing Copilot subscription',
-        value: 'github-copilot' as const,
-      },
-      {
         name: 'OpenAI-compatible — any endpoint that speaks the OpenAI API (OpenAI, Ollama, LM Studio, Azure, etc.)',
         value: 'openai-compatible' as const,
+      },
+      {
+        name: 'GitHub Copilot  — uses your existing Copilot subscription',
+        value: 'github-copilot' as const,
       },
     ],
   });
@@ -41,6 +43,21 @@ export async function askLlmSetup(io: LlmSettingsIo): Promise<LlmSetupResult> {
   }
 
   return askOpenAICompatibleSetup(io);
+}
+
+export function providerNameToProviderRef(providerName: string): string {
+  const normalized = providerName.trim().toLowerCase();
+  const slug = normalized.replaceAll(/[^a-z0-9]+/g, '-').replaceAll(/^-+|-+$/g, '');
+  return slug || 'openai-compatible';
+}
+
+export function providerRefToApiKeyEnvVar(providerRef: string): string {
+  const normalized = providerRef
+    .trim()
+    .toUpperCase()
+    .replaceAll(/[^A-Z0-9]+/g, '_')
+    .replaceAll(/^_+|_+$/g, '');
+  return `${normalized || 'OPENAI_COMPATIBLE'}_API_KEY`;
 }
 
 async function askGitHubCopilotSetup(io: LlmSettingsIo): Promise<LlmSetupResult> {
@@ -79,68 +96,40 @@ async function askGitHubCopilotSetup(io: LlmSettingsIo): Promise<LlmSetupResult>
 }
 
 async function askOpenAICompatibleSetup(io: LlmSettingsIo): Promise<LlmSetupResult> {
-  const preset = await io.select({
-    message: 'Which service?',
-    choices: [
-      { name: 'OpenAI              (api.openai.com)', value: 'openai' },
-      { name: 'Ollama — local      (localhost:11434)', value: 'ollama' },
-      { name: 'LM Studio — local   (localhost:1234)', value: 'lmstudio' },
-      { name: 'Azure OpenAI', value: 'azure' },
-      { name: 'Custom URL', value: 'custom' },
-    ],
+  const providerName = await io.input({
+    message: 'Provider name:',
+    validate: (value: string) => value.trim().length > 0 || 'Provider name is required.',
   });
 
-  const presets: Record<string, { baseUrl: string; needsKey: boolean; models: string[] }> = {
-    openai: {
-      baseUrl: 'https://api.openai.com/v1',
-      needsKey: true,
-      models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'],
+  const providerRef = providerNameToProviderRef(providerName);
+  const apiKeyEnvVar = providerRefToApiKeyEnvVar(providerRef);
+
+  io.writeLine(`  Provider key: ${providerRef}`);
+
+  const baseUrl = await io.input({
+    message: 'Base URL:',
+    validate: (val: string) => {
+      try {
+        new URL(val);
+        return true;
+      } catch {
+        return 'Please enter a valid URL';
+      }
     },
-    ollama: {
-      baseUrl: 'http://localhost:11434/v1',
-      needsKey: false,
-      models: ['llama3', 'mistral', 'codellama', 'deepseek-coder'],
-    },
-    lmstudio: {
-      baseUrl: 'http://localhost:1234/v1',
-      needsKey: false,
-      models: ['(uses loaded model)'],
-    },
-    azure: { baseUrl: '', needsKey: true, models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'] },
-  };
+  });
 
-  const info = presets[preset];
+  io.writeLine(`  API key will be saved under ${apiKeyEnvVar} in .ai-team/.env.`);
 
-  let baseUrl: string;
-  if (preset === 'custom' || preset === 'azure') {
-    baseUrl = await io.input({
-      message: preset === 'azure' ? 'Azure endpoint URL:' : 'Base URL:',
-      validate: (val: string) => {
-        try {
-          new URL(val);
-          return true;
-        } catch {
-          return 'Please enter a valid URL';
-        }
-      },
-    });
-  } else {
-    baseUrl = info.baseUrl;
-  }
+  const apiKey = await io.password({
+    message: `API key for ${apiKeyEnvVar}:`,
+    mask: '*',
+  });
 
-  let apiKey = '';
-  const needsKey = info ? info.needsKey : true;
-  if (needsKey) {
-    apiKey = await io.password({
-      message: 'API key:',
-      mask: '*',
-    });
-  }
-
-  const modelChoices = (info?.models || ['gpt-4o']).map((m) => ({ name: m, value: m }));
-  if (preset !== 'lmstudio') {
-    modelChoices.push({ name: 'Other (type manually)', value: '__custom__' });
-  }
+  const modelChoices = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'].map((m) => ({
+    name: m,
+    value: m,
+  }));
+  modelChoices.push({ name: 'Other (type manually)', value: '__custom__' });
 
   const modelChoice = await io.select({
     message: 'Which model?',
@@ -158,6 +147,8 @@ async function askOpenAICompatibleSetup(io: LlmSettingsIo): Promise<LlmSetupResu
 
   return {
     provider: 'openai-compatible',
+    providerRef,
+    apiKeyEnvVar,
     baseUrl,
     ...(apiKey ? { apiKey } : {}),
     ...(model ? { model } : {}),

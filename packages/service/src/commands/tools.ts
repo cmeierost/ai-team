@@ -1,6 +1,6 @@
 import { type Agent, type AgentManager, type AgentTool } from '@ai-team/infrastructure';
 import type { ToolManager } from '../tools/tool-manager.js';
-import { toolKey } from '../tools/tool-manager.js';
+import { matchesToolSelector, toolKey } from '../tools/tool-manager.js';
 import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-client';
 import type { IMcpGateway } from '../orchestrator/pipeline.js';
 export interface ListToolsOptions {
@@ -59,9 +59,24 @@ function resolveToolIdentifier(
   toolManager: Pick<ToolManager, 'get' | 'getAll'>,
   requestedTool: string
 ): string {
+  const normalizedRequestedTool = requestedTool.trim();
+  if (!normalizedRequestedTool) {
+    throw new Error('Tool selector cannot be empty.');
+  }
+
+  if (normalizedRequestedTool.includes('*')) {
+    const hasMatch = toolManager
+      .getAll()
+      .some((tool) => matchesToolSelector(normalizedRequestedTool, tool));
+    if (!hasMatch) {
+      throw new Error(`Unknown tool: ${normalizedRequestedTool}`);
+    }
+    return normalizedRequestedTool;
+  }
+
   // Preferred: canonical lookup key (e.g., "hr_hire").
-  if (toolManager.get(requestedTool)) {
-    return requestedTool;
+  if (toolManager.get(normalizedRequestedTool)) {
+    return normalizedRequestedTool;
   }
 
   // Backward compatibility: accept short names returned by older API payloads
@@ -70,7 +85,7 @@ function resolveToolIdentifier(
     new Set(
       toolManager
         .getAll()
-        .filter((tool) => tool.name === requestedTool)
+        .filter((tool) => tool.name === normalizedRequestedTool)
         .map((tool) => toolKey(tool))
     )
   );
@@ -81,11 +96,11 @@ function resolveToolIdentifier(
 
   if (canonicalMatches.length > 1) {
     throw new Error(
-      `Ambiguous tool name: ${requestedTool}. Use one of: ${canonicalMatches.join(', ')}`
+      `Ambiguous tool name: ${normalizedRequestedTool}. Use one of: ${canonicalMatches.join(', ')}`
     );
   }
 
-  throw new Error(`Unknown tool: ${requestedTool}`);
+  throw new Error(`Unknown tool: ${normalizedRequestedTool}`);
 }
 
 export async function listToolsCommand(

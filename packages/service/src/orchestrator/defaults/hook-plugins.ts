@@ -16,15 +16,9 @@ export class StripInternalHandoffDirectivePlugin implements IOrchestratorHookPlu
   onBeforePersistAssistantMessage({
     fullResponse,
     persistedContent,
-    ctx,
   }: BeforePersistAssistantMessageHookPayload): string {
     const source = persistedContent || fullResponse;
     const filtered = stripHandoffDirective(source);
-    if (filtered !== source) {
-      console.log(
-        '[filter] Stripped internal handoff directive before persisting assistant message.'
-      );
-    }
     return filtered;
   }
 }

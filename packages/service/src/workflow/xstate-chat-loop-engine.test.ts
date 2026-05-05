@@ -24,6 +24,7 @@ function createAgent(): Agent {
     role: 'frontend-developer',
     systemPrompt: 'You are Emily',
     contextLevel: ContextLevel.FEATURE,
+    tools: ['fs_*'],
   };
 }
 

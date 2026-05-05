@@ -14,12 +14,12 @@ import {
   Agent,
   AgentTool,
   ContextLevel,
+  type LspProvider,
   PermissionResult,
   ToolCatalogEntry,
   ToolContext,
   type PermissionDescriptor,
 } from '@ai-team/core';
-import type { LspProvider } from '@ai-team/core';
 import { assertCanReadPath, assertCanWritePath } from '@ai-team/infrastructure';
 
 // Re-export for convenience so callers only import from 'tools'.
@@ -60,26 +60,42 @@ export interface ToolExecutionOptions {
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
-const ALWAYS_ALLOWED_TOOLS = new Set<string>([
-  'com_delegate',
-  'com_handoff',
-  'tool_list',
-  'team_list',
-  'access_can_i',
-]);
-
-const TOOL_ROLE_GATED = new Set<string>(['tool_run', 'tool_register_cli', 'tool_get_errors']);
-
-const ANALYZE_TOOLS = new Set<string>(['code_complexity', 'hr_performance']);
-
-const HR_ROLE_TOOLS = new Set<string>(['hr_hire', 'hr_archive', 'hr_avatar', 'hr_update_llm']);
-
-function isHrRole(agent: Agent): boolean {
-  return agent.role.toLowerCase().includes('hr');
+function normalizeToolSelector(selector: string): string {
+  return selector.trim();
 }
 
-function isCeoRole(agent: Agent): boolean {
-  return agent.role.toLowerCase() === 'ceo';
+function selectorToRegExp(selector: string): RegExp {
+  const escaped = selector
+    .replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`)
+    .replaceAll('*', '.*');
+  return new RegExp(`^${escaped}$`);
+}
+
+function matchesSelectorValue(selector: string, value: string): boolean {
+  if (!selector.includes('*')) {
+    return selector === value;
+  }
+  return selectorToRegExp(selector).test(value);
+}
+
+/**
+ * Match a tool selector against a tool.
+ * Supports:
+ * - exact canonical names (e.g. fs_tree)
+ * - exact short names (e.g. tree)
+ * - wildcard selectors (e.g. fs_*, *_list)
+ */
+export function matchesToolSelector(
+  selector: string,
+  tool: Pick<AgentTool, 'name' | 'group'>
+): boolean {
+  const normalized = normalizeToolSelector(selector);
+  if (!normalized) {
+    return false;
+  }
+
+  const key = toolKey(tool);
+  return matchesSelectorValue(normalized, key) || matchesSelectorValue(normalized, tool.name);
 }
 
 function pushIfMissing(result: AgentTool[], tool: AgentTool): void {
@@ -87,24 +103,6 @@ function pushIfMissing(result: AgentTool[], tool: AgentTool): void {
   if (!result.some((t) => toolKey(t) === key)) {
     result.push(tool);
   }
-}
-
-function isDefaultAllowedTool(agent: Agent, tool: AgentTool, canManageAgents: boolean): boolean {
-  const hasElevatedContext =
-    agent.contextLevel === ContextLevel.ORGANIZATION ||
-    agent.contextLevel === ContextLevel.REPOSITORY;
-  const isHr = isHrRole(agent);
-  const isCeo = isCeoRole(agent);
-  const key = toolKey(tool);
-
-  if (ALWAYS_ALLOWED_TOOLS.has(key)) return true;
-  if (tool.group === 'fs' || tool.group === 'search') return true;
-  if (ANALYZE_TOOLS.has(key) && isCeo) return true;
-  if ((HR_ROLE_TOOLS.has(key) || tool.tags?.includes('hr')) && (isHr || canManageAgents))
-    return true;
-  if (TOOL_ROLE_GATED.has(key) && hasElevatedContext) return true;
-
-  return false;
 }
 
 function evaluatePermissionDescriptor(
@@ -210,42 +208,31 @@ export class ToolManager {
 
   /**
    * Tools available to a specific agent.
-   * Combines explicit agent.tools[] grant with HR permission check.
-   * Orchestration tools (type: none, no 'hr' tag) are always included.
+   * Strict allow-list policy:
+   * - everything is denied by default
+   * - only selectors in agent.tools[] are granted
+   * - selectors support exact names and wildcard patterns (e.g. fs_*)
+   * - agent.disallowedTools[] takes precedence over allows
    */
   getForAgent(agent: Agent): AgentTool[] {
     const result: AgentTool[] = [];
-    const canManageAgents = agent.contextLevel === ContextLevel.ORGANIZATION;
-    const denied = new Set<string>(agent.disallowedTools ?? []);
+    const allowedSelectors = (agent.tools ?? [])
+      .map(normalizeToolSelector)
+      .filter((selector) => selector.length > 0);
+    if (allowedSelectors.length === 0) {
+      return result;
+    }
+
+    const deniedSelectors = (agent.disallowedTools ?? [])
+      .map(normalizeToolSelector)
+      .filter((selector) => selector.length > 0);
 
     for (const tool of this.tools.values()) {
-      // Explicit deny list takes precedence over any allow.
-      // Accept both the full key (fs_tree) and short name (tree) for backward compat.
-      const key = toolKey(tool);
-      if (denied.has(key) || denied.has(tool.name)) {
+      if (deniedSelectors.some((selector) => matchesToolSelector(selector, tool))) {
         continue;
       }
 
-      // Explicit grants are always included.
-      // Accept both the full key (fs_tree) and short name (tree) for backward compat.
-      if (agent.tools?.includes(key) || agent.tools?.includes(tool.name)) {
-        pushIfMissing(result, tool);
-        continue;
-      }
-
-      if (isDefaultAllowedTool(agent, tool, canManageAgents)) {
-        result.push(tool);
-        continue;
-      }
-
-      // HR tools: require manage_agents permission
-      if (tool.tags?.includes('hr') && !canManageAgents) {
-        continue;
-      }
-
-      // Tools with type 'none' permission and no hr tag are universally available
-      const check: PermissionDescriptor = tool.permissionCheck ?? { type: 'none' };
-      if (check.type === 'none' && !tool.tags?.includes('hr')) {
+      if (allowedSelectors.some((selector) => matchesToolSelector(selector, tool))) {
         pushIfMissing(result, tool);
       }
     }

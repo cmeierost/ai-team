@@ -466,16 +466,21 @@ export function createAskUserTool(): AgentTool {
     name: 'ask',
     group: 'com',
     description:
-      'Ask the user for missing clarification as an LLM tool call. Use this instead of guessing when required information is unknown. Choose kind=input|confirm|select|password|checklist. For select/checklist, provide machine-stable option values and clear labels.',
+      'Ask the user for missing clarification as an LLM tool call. Use this instead of guessing when required information is unknown. Choose kind=input|confirm|select|password|checklist. Use select only when exactly one option may be chosen. Use checklist when multiple options may be valid (select all that apply). For select/checklist, provide machine-stable option values and clear labels.',
     permissionCheck: { type: 'none' },
     parameters: z.object({
       kind: z
         .enum(['input', 'confirm', 'select', 'password', 'checklist'])
         .default('input')
         .describe(
-          'Question kind: input (free text), confirm (yes/no), select (single choice), password (sensitive text), checklist (multi-select).'
+          'Question kind: input (free text), confirm (yes/no), select (single choice), password (sensitive text), checklist (multi-select). Prefer checklist when more than one option can be valid.'
         ),
-      message: z.string().min(1).describe('User-visible prompt text.'),
+      message: z
+        .string()
+        .min(1)
+        .describe(
+          'User-visible prompt text. For checklist prompts, phrase as "select all that apply".'
+        ),
       workflow: z
         .object({
           workflowId: z.string().optional().describe('Workflow ID for stateful flows.'),
@@ -503,11 +508,11 @@ export function createAskUserTool(): AgentTool {
           })
         )
         .optional()
-        .describe('Required for select/checklist prompts.'),
+        .describe('Required for select/checklist prompts. Include every valid option.'),
       defaultChecklist: z
         .array(z.string())
         .optional()
-        .describe('Default selected values for checklist prompts.'),
+        .describe('Default selected values for checklist prompts (kind=checklist only).'),
       allowOther: z
         .boolean()
         .optional()
@@ -539,7 +544,7 @@ export function createAskUserTool(): AgentTool {
       'com_ask({ kind: "input", message: "Which environment should I use?" })',
       'com_ask({ kind: "confirm", message: "Proceed with this migration?", defaultBoolean: false })',
       'com_ask({ kind: "select", message: "Pick target", choices: [{ name: "Web", value: "web" }, { name: "CLI", value: "cli" }] })',
-      'com_ask({ kind: "checklist", message: "Pick release channels", choices: [{ name: "Stable", value: "stable" }, { name: "Preview", value: "preview" }] })',
+      'com_ask({ kind: "checklist", message: "Select all release channels that apply", choices: [{ name: "Stable", value: "stable" }, { name: "Preview", value: "preview" }, { name: "Canary", value: "canary" }] })',
     ],
     async execute(params: unknown, context: ToolContext): Promise<unknown> {
       return executeAskUser(params as AskUserParams, context);
