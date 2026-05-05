@@ -100,21 +100,23 @@ async function readInitTemplate(workspaceRoot: string, key: InitTemplateKey): Pr
 
 export async function loadInitTemplates(workspaceRoot: string): Promise<InitTemplates> {
   const entries = await Promise.all(
-    (Object.keys(INIT_TEMPLATE_FILE_MAP) as InitTemplateKey[])
-      .map(async (key) => {
-        const rawTemplate = await readInitTemplate(workspaceRoot, key);
-        const normalizedTemplate = TEMPLATE_BODY_ONLY_KEYS.has(key)
-          ? extractTemplateBody(rawTemplate)
-          : rawTemplate;
-        return [key, normalizedTemplate] as const;
-      }),
+    (Object.keys(INIT_TEMPLATE_FILE_MAP) as InitTemplateKey[]).map(async (key) => {
+      const rawTemplate = await readInitTemplate(workspaceRoot, key);
+      const normalizedTemplate = TEMPLATE_BODY_ONLY_KEYS.has(key)
+        ? extractTemplateBody(rawTemplate)
+        : rawTemplate;
+      return [key, normalizedTemplate] as const;
+    })
   );
 
   return Object.fromEntries(entries) as InitTemplates;
 }
 
 export function renderTemplate(template: string, values: Record<string, string>): string {
-  return template.replaceAll(/\{\{\s*(\w+)\s*\}\}/g, (_match, token: string) => values[token] ?? '');
+  return template.replaceAll(
+    /\{\{\s*(\w+)\s*\}\}/g,
+    (_match, token: string) => values[token] ?? ''
+  );
 }
 
 export function extractTemplateBody(template: string): string {
@@ -132,8 +134,8 @@ export function extractTemplateBody(template: string): string {
 export function parseTemplateBulletList(template: string): string[] {
   return template
     .split(/\r?\n/)
-    .map(line => line.trim())
+    .map((line) => line.trim())
     .filter(Boolean)
-    .map(line => line.startsWith('- ') ? line.slice(2).trim() : line)
+    .map((line) => (line.startsWith('- ') ? line.slice(2).trim() : line))
     .filter(Boolean);
 }

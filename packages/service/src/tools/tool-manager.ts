@@ -65,9 +65,7 @@ function normalizeToolSelector(selector: string): string {
 }
 
 function selectorToRegExp(selector: string): RegExp {
-  const escaped = selector
-    .replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`)
-    .replaceAll('*', '.*');
+  const escaped = selector.replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`).replaceAll('*', '.*');
   return new RegExp(`^${escaped}$`);
 }
 

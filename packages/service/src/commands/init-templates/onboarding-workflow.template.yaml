@@ -5,7 +5,7 @@ phases:
     heading: Business Definition
     introLines:
       - "{{ceoName}} (CEO): I'm {{ceoName}}. Let's define the business clearly and get to execution-ready decisions."
-      - "Talk directly with the CEO from the start. Type /help for in-chat commands."
+      - 'Talk directly with the CEO from the start. Type /help for in-chat commands.'
       - "When you're ready to continue, say: done, let's move on, or move on."
     goal: Align on problem, target users, value proposition, success criteria, and constraints.
     strictSystemPrompt: |
@@ -41,13 +41,13 @@ phases:
       relativePath: .ai-team/business.md
       title: Business Definition
       intro:
-        - "> Developer and CEO discussion captured during onboarding workflow."
+        - '> Developer and CEO discussion captured during onboarding workflow.'
 
   - id: team-planning
     agentRole: hr-director
     heading: Team Planning
     introLines:
-      - "Now continue with {{hrName}} (HR Director) to define the first hiring wave."
+      - 'Now continue with {{hrName}} (HR Director) to define the first hiring wave.'
       - "When you're ready to continue, say: done, let's go, or move on."
     goal: Produce first-wave hires aligned to the business plan and execution sequence.
     strictSystemPrompt: |
@@ -76,5 +76,5 @@ phases:
       relativePath: .ai-team/meetings/team-planning.md
       title: Team Planning
       intro:
-        - "> Discussion between developer and HR Director during onboarding workflow."
-        - "> Captures hiring intent and role planning before first hiring wave."
+        - '> Discussion between developer and HR Director during onboarding workflow.'
+        - '> Captures hiring intent and role planning before first hiring wave.'
