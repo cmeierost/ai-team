@@ -7,15 +7,13 @@
  * planned as a dedicated workflow rather than a side-effect in normal chat turns.
  */
 
-import type { AgentTool } from '@ai-team/infrastructure';
+import type { AgentTool } from '@ai-team/core';
 import type { IToolResolver } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
 import { toolKey } from '../../tools/tool-manager.js';
 
 export class DefaultToolResolver implements IToolResolver {
   async resolve(ctx: OrchestratorContext): Promise<AgentTool[]> {
-    return ctx.toolManager
-      .getForAgent(ctx.agent)
-      .filter((tool) => toolKey(tool) !== 'hr_hire');
+    return ctx.toolManager.getForAgent(ctx.agent).filter((tool) => toolKey(tool) !== 'hr_hire');
   }
 }

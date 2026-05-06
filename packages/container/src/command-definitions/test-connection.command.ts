@@ -33,8 +33,12 @@ export const testConnectionCommandDefinition = createFactoryCommandDefinition(
   'testConnection',
   testConnectionCliMetadata,
   async (container, payload) => {
-    const { testConnectionCommand } =
+    const { TestConnectionCommand } =
       await import('@ai-team/service/src/commands/test-connection.js');
-    return testConnectionCommand(container.workspaceRoot, payload.options);
+    const { COMMAND_FACTORY_TOKENS } = await import('@ai-team/service/src/commands/definitions/types.js');
+    return new TestConnectionCommand(
+      container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage)
+    ).executeAsync(container.workspaceRoot, payload.options);
   }
 );

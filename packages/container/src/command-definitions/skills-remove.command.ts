@@ -25,6 +25,7 @@ export const skillsRemoveCommandDefinition = createResolverCommandDefinition(
       return removeSkillCommand(
         resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
         resolver.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
+        resolver.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
         {
           agent: payload.agent,
           skill: payload.skill,

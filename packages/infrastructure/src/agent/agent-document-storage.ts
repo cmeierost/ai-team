@@ -28,6 +28,10 @@ export class AgentDocumentStorage implements IAgentDocumentStorage {
     private readonly workspaceDiscoveryStorage: IWorkspaceDiscoveryStorage
   ) {}
 
+  public buildAgentMarkdown(parts: import('@ai-team/core').AgentMarkdownParts): string {
+    return this.markdownSectionService.buildAgentMarkdown(parts);
+  }
+
   public async loadAgentAsync(filePath: string): Promise<Agent> {
     try {
       const markdownPath = this.isYamlAgentFile(filePath)

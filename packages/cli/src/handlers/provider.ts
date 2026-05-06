@@ -2,7 +2,7 @@ import type {
   ConfigureProviderOptions,
   AddProviderOptions,
   SetProviderOptions,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { runCommandStream } from './stream-runner.js';
 

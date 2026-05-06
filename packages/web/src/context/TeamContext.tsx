@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, useEffect, ReactNode } from 'react';
-import { createAiTeamClient, type AiTeamHttpClient } from '@ai-team/api-client';
+import { createAiTeamClient, type AiTeamHttpClient } from '@ai-team/api-contracts';
 import { Agent, GraphData, Developer } from '../types';
 import { useBackendConnectionStore } from '../stores/backendConnectionStore';
 import { API_BASE } from '../config/api-base';

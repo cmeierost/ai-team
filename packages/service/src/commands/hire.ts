@@ -1,7 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { AgentManager, ContextLevel, RoleType, buildAgentMarkdown } from '@ai-team/infrastructure';
-import type { HireOptions, InteractionContext } from '@ai-team/api-client';
+import { ContextLevel, RoleType } from '@ai-team/core';
+import type { IAgentManager, IMarkdownSectionService } from '@ai-team/core';
+import type { HireOptions, InteractionContext } from '@ai-team/api-contracts';
 
 export function getPersonalityForHire(role: string, roleType: RoleType) {
   const r = role.toLowerCase();
@@ -59,14 +60,24 @@ export function getPersonalityForHire(role: string, roleType: RoleType) {
   };
 }
 
-export async function hireCommand(
-  workspaceRoot: string,
+export class HireCommand {
+  constructor(
+    private readonly agentManager: IAgentManager,
+    private readonly markdownSectionService: IMarkdownSectionService
+  ) {}
+
+  async execute(options: HireOptions, context: InteractionContext = {}): Promise<void> {
+    return hireCommandImpl(this.agentManager, this.markdownSectionService, options, context);
+  }
+}
+
+async function hireCommandImpl(
+  agentManager: IAgentManager,
+  markdownSectionService: IMarkdownSectionService,
   options: HireOptions,
   context: InteractionContext = {}
 ) {
   try {
-    const agentManager = new AgentManager(workspaceRoot);
-
     if (!options.name || !options.role) {
       throw new Error('Hire requires --name and --role when service-side prompts are disabled.');
     }
@@ -100,13 +111,13 @@ export async function hireCommand(
     const skillEntries: Array<{ name: string; body: string }> = [];
     if (config.selectedSkills.length > 0) {
       for (const skillName of config.selectedSkills) {
-        const content = await readSkillContent(workspaceRoot, skillName);
+        const content = await readSkillContent(agentManager.workspaceRoot, skillName);
         const body = content ? content.replace(/^---[\s\S]*?---\s*/, '').trim() : '';
         skillEntries.push({ name: skillName, body });
       }
     }
 
-    const markdown = buildAgentMarkdown({
+    const markdown = markdownSectionService.buildAgentMarkdown({
       personalityProfile: personalityPreset.profile,
       skills: skillEntries.length > 0 ? skillEntries : undefined,
     });

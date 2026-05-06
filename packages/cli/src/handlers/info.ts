@@ -7,7 +7,7 @@ import { promisify } from 'util';
 import { platform } from 'os';
 import { resolve } from 'path';
 import chalk from 'chalk';
-import type { Agent } from '@ai-team/api-client';
+import type { Agent } from '@ai-team/api-contracts';
 
 const execAsync = promisify(exec);
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Agent, AgentHandoff } from '../../types';
-import type { AiTeamHttpClient } from '@ai-team/api-client';
+import type { AiTeamHttpClient } from '@ai-team/api-contracts';
 import { Avatar } from '../Avatar';
 import { PortfolioSectionCard } from './portfolioShared';
 
@@ -27,10 +27,9 @@ export function PortfolioHandoffsSection({
     setGenerating(handoff.agent);
     setGenerateError(null);
     try {
-      const { prompt } = (await client.agents.generateHandoffPrompt(
-        agentId,
-        { targetAgentId: handoff.agent },
-      )) as { prompt: string };
+      const { prompt } = (await client.agents.generateHandoffPrompt(agentId, {
+        targetAgentId: handoff.agent,
+      })) as { prompt: string };
       const updated = handoffs.map((h) =>
         h.agent === handoff.agent && h.label === handoff.label ? { ...h, prompt } : h
       );

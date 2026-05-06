@@ -1,7 +1,13 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { ChatMessage, ChatSession, Artifact, type AgentManager } from '@ai-team/infrastructure';
-import type { HandoffEdge } from '@ai-team/api-client';
+import { ChatMessage, ChatSession, Artifact } from '@ai-team/core';
+import type {
+  IMessagesRepository,
+  ISessionsRepository,
+  INotesRepository,
+  IAgentManager,
+} from '@ai-team/core';
+import type { HandoffEdge } from '@ai-team/api-contracts';
 import { resolveAgentForOperationAsync } from './utils/agent-resolution.js';
 import {
   extractAttachmentContentAsync,
@@ -10,7 +16,6 @@ import {
   splitIntoChunks,
 } from './notes/note-attachment-reader.js';
 import type {
-  IMessageStorage,
   MessageSessionLink,
   Note,
   NoteAttachment,
@@ -46,17 +51,27 @@ export interface SessionThreadGraphData {
 export class SessionManager {
   private workspaceRoot: string;
   private artifactsDir: string;
-  private agentManager?: AgentManager;
-  private storage: IMessageStorage;
+  private agentManager?: IAgentManager;
+  private messages: IMessagesRepository;
+  private sessions: ISessionsRepository;
+  private notes: INotesRepository;
   private autoTitleLlmService?: any;
 
   private artifactsDirReady = false;
 
-  constructor(workspaceRoot: string, storage: IMessageStorage, agentManager?: AgentManager) {
+  constructor(
+    workspaceRoot: string,
+    messages: IMessagesRepository,
+    sessions: ISessionsRepository,
+    notes: INotesRepository,
+    agentManager?: IAgentManager
+  ) {
     this.workspaceRoot = workspaceRoot;
     this.artifactsDir = path.join(workspaceRoot, '.ai-team', 'artifacts', 'briefs');
     this.agentManager = agentManager;
-    this.storage = storage;
+    this.messages = messages;
+    this.sessions = sessions;
+    this.notes = notes;
   }
 
   setAutoTitleLlmService(llmService: any): void {
@@ -71,10 +86,10 @@ export class SessionManager {
   }
 
   /**
-   * Close storage connections
+   * Close storage connections - no-op here; lifecycle managed by container
    */
   async close(): Promise<void> {
-    await this.storage.close();
+    // lifecycle managed by container via SqliteMessageStorage
   }
 
   /**
@@ -95,7 +110,7 @@ export class SessionManager {
     }
 
     const now = new Date().toISOString();
-    const session = await this.storage.createSession({
+    const session = await this.sessions.createSession({
       agentIds: [agentId], // Primary field - array for multi-agent support
       agentId, // Backward compatibility
       developerId,
@@ -137,7 +152,7 @@ export class SessionManager {
     const previousSession = await this.getSession(previousSessionId);
 
     const now = new Date().toISOString();
-    const newSession = await this.storage.createSession({
+    const newSession = await this.sessions.createSession({
       agentIds: [toAgentId], // Primary field - array for multi-agent support
       agentId: toAgentId, // Backward compatibility
       developerId,
@@ -196,7 +211,7 @@ export class SessionManager {
     }
 
     try {
-      const sessions = await this.storage.listSessions({
+      const sessions = await this.sessions.listSessions({
         agentId,
         sortBy: 'lastActivityAt',
         sortOrder: 'desc',
@@ -216,7 +231,7 @@ export class SessionManager {
    */
   async listRecentSessions(limit = 10): Promise<ChatSession[]> {
     try {
-      return await this.storage.listSessions({
+      return await this.sessions.listSessions({
         sortBy: 'lastActivityAt',
         sortOrder: 'desc',
         limit,
@@ -245,7 +260,7 @@ export class SessionManager {
     }
 
     try {
-      return await this.storage.listSessions({
+      return await this.sessions.listSessions({
         agentId,
         sortBy: 'lastActivityAt',
         sortOrder: 'desc',
@@ -262,7 +277,7 @@ export class SessionManager {
    */
   async getSession(sessionId: string): Promise<ChatSession | null> {
     try {
-      return await this.storage.getSession(sessionId);
+      return await this.sessions.getSession(sessionId);
     } catch (error) {
       return null;
     }
@@ -272,7 +287,7 @@ export class SessionManager {
    * Save session metadata
    */
   async saveSession(session: ChatSession): Promise<void> {
-    await this.storage.updateSession(session.id, session);
+    await this.sessions.updateSession(session.id, session);
   }
 
   /**
@@ -280,7 +295,7 @@ export class SessionManager {
    */
   async getSessionMessages(sessionId: string): Promise<ChatMessage[]> {
     try {
-      return await this.storage.getSessionMessages(sessionId);
+      return await this.messages.getSessionMessages(sessionId);
     } catch (error) {
       // If session doesn't exist, return empty array
       return [];
@@ -292,7 +307,7 @@ export class SessionManager {
    */
   async listSessionMessages(sessionId: string): Promise<ChatMessage[]> {
     try {
-      return await this.storage.queryMessages({ sessionId });
+      return await this.messages.queryMessages({ sessionId });
     } catch {
       return [];
     }
@@ -300,7 +315,7 @@ export class SessionManager {
 
   async getMessageById(messageId: number): Promise<ChatMessage | null> {
     try {
-      return await this.storage.getMessageById(messageId);
+      return await this.messages.getMessageById(messageId);
     } catch {
       return null;
     }
@@ -308,7 +323,7 @@ export class SessionManager {
 
   async setMessageHiddenFromLlm(messageId: number, hidden: boolean): Promise<boolean> {
     try {
-      return await this.storage.setMessageHiddenFromLlm(messageId, hidden);
+      return await this.messages.setMessageHiddenFromLlm(messageId, hidden);
     } catch {
       return false;
     }
@@ -316,7 +331,7 @@ export class SessionManager {
 
   async updateMessageContent(messageId: number, newContent: string): Promise<boolean> {
     try {
-      return await this.storage.updateMessageContent(messageId, newContent);
+      return await this.messages.updateMessageContent(messageId, newContent);
     } catch {
       return false;
     }
@@ -333,13 +348,13 @@ export class SessionManager {
     message: ChatMessage,
     llmService?: any
   ): Promise<string | null> {
-    await this.storage.insertMessage(sessionId, message);
+    await this.messages.insertMessage(sessionId, message);
 
     const effectiveLlmService = llmService ?? this.autoTitleLlmService;
     if (!effectiveLlmService) return null;
 
     try {
-      const session = await this.storage.getSession(sessionId);
+      const session = await this.sessions.getSession(sessionId);
       if (!session || session.title) return null;
 
       const existingThreadTitle = await this.getExistingThreadTitle(sessionId);
@@ -349,7 +364,7 @@ export class SessionManager {
       }
 
       // Generate only after we have enough user intent signal.
-      const humanMessages = await this.storage.queryMessages({
+      const humanMessages = await this.messages.queryMessages({
         sessionId,
         isHuman: true,
         limit: 2,
@@ -368,7 +383,7 @@ export class SessionManager {
    * Returns true if a message was deleted.
    */
   async deleteSessionMessage(sessionId: string, messageTimestamp: string): Promise<boolean> {
-    return this.storage.deleteMessage(sessionId, messageTimestamp);
+    return this.messages.deleteMessage(sessionId, messageTimestamp);
   }
 
   /**
@@ -402,7 +417,7 @@ export class SessionManager {
     // Delete messages from old session (split point onwards)
     // Since we don't have a bulk delete, we need to delete from the end
     for (let i = messages.length - 1; i >= atIndex; i--) {
-      await this.storage.deleteMessage(sessionId, messages[i].timestamp);
+      await this.messages.deleteMessage(sessionId, messages[i].timestamp);
     }
 
     return newSession;
@@ -559,7 +574,7 @@ ${summary}
     }
 
     // Use only the first 2 human messages — agent intro messages add noise, not signal.
-    const humanMessages = await this.storage.queryMessages({ sessionId, isHuman: true, limit: 2 });
+    const humanMessages = await this.messages.queryMessages({ sessionId, isHuman: true, limit: 2 });
     const contextMessages = humanMessages.filter((m) => m.content?.trim());
 
     const fallbackTitle = this.buildFallbackActionTitle(contextMessages);
@@ -606,7 +621,7 @@ ${summary}
     await Promise.all(
       chain
         .filter((session) => this.normalizeTitle(session.title ?? '') !== normalizedTitle)
-        .map((session) => this.storage.updateSession(session.id, { title: normalizedTitle }))
+        .map((session) => this.sessions.updateSession(session.id, { title: normalizedTitle }))
     );
   }
 
@@ -769,10 +784,10 @@ ${summary}
    * @param agentId - Agent ID to add
    */
   async addAgentToSession(sessionId: string, agentId: string): Promise<ChatSession> {
-    await this.storage.addSessionAgent(sessionId, agentId);
+    await this.sessions.addSessionAgent(sessionId, agentId);
 
     // Update lastActivityAt
-    await this.storage.updateSession(sessionId, {
+    await this.sessions.updateSession(sessionId, {
       lastActivityAt: new Date().toISOString(),
     });
 
@@ -807,14 +822,14 @@ ${summary}
     // Load messages from newer session and copy to older
     const newerMessages = await this.getSessionMessages(newerSessionId);
     for (const message of newerMessages) {
-      await this.storage.insertMessage(olderSessionId, message);
+      await this.messages.insertMessage(olderSessionId, message);
     }
 
     // Merge agentIds arrays
     const mergedAgentIds = new Set([...olderSession.agentIds, ...newerSession.agentIds]);
 
     for (const agentId of mergedAgentIds) {
-      await this.storage.addSessionAgent(olderSessionId, agentId);
+      await this.sessions.addSessionAgent(olderSessionId, agentId);
     }
 
     // Track merge history and merge artifacts/files
@@ -824,7 +839,7 @@ ${summary}
       ...(newerSession.mergedFromSessionIds || []),
     ];
 
-    await this.storage.updateSession(olderSessionId, {
+    await this.sessions.updateSession(olderSessionId, {
       lastActivityAt: new Date().toISOString(),
       mergedFromSessionIds,
       artifacts: [...new Set([...olderSession.artifacts, ...newerSession.artifacts])],
@@ -832,9 +847,9 @@ ${summary}
     });
 
     // Move notes to the surviving session before deleting the merged-away session.
-    const newerSessionNotes = await this.storage.listSessionNotes(newerSessionId);
+    const newerSessionNotes = await this.notes.listSessionNotes(newerSessionId);
     for (const note of newerSessionNotes) {
-      await this.storage.updateNote(note.id, {
+      await this.notes.updateNote(note.id, {
         sessionId: olderSessionId,
         sharedSessionIds: (note.sharedSessionIds ?? []).filter(
           (sharedSessionId) => sharedSessionId !== olderSessionId
@@ -843,7 +858,7 @@ ${summary}
     }
 
     // Delete newer session
-    await this.storage.deleteSession(newerSessionId);
+    await this.sessions.deleteSession(newerSessionId);
 
     const updatedSession = await this.getSession(olderSessionId);
     if (!updatedSession) {
@@ -879,7 +894,7 @@ ${summary}
     // 2. BFS downward from root to collect all descendants.
     // This gives the full connected graph the caller is part of, regardless
     // of which session they started from.
-    const allSessions = await this.storage.listSessions(
+    const allSessions = await this.sessions.listSessions(
       root.developerId ? { developerId: root.developerId } : undefined
     );
 
@@ -1055,38 +1070,38 @@ ${summary}
    * @param sessionId - Session ID to delete
    */
   async getSessionDeleteImpact(sessionId: string): Promise<SessionDeleteImpact> {
-    return this.storage.getSessionDeleteImpact(sessionId);
+    return this.sessions.getSessionDeleteImpact(sessionId);
   }
 
   async deleteSession(sessionId: string, options?: SessionDeleteOptions): Promise<void> {
-    await this.storage.deleteSession(sessionId, options);
+    await this.sessions.deleteSession(sessionId, options);
   }
 
   // ========== Notes ==========
 
   async listSessionNotes(sessionId: string): Promise<Note[]> {
-    return this.storage.listSessionNotes(sessionId);
+    return this.notes.listSessionNotes(sessionId);
   }
 
   async listDashboardNotes(limit?: number): Promise<Note[]> {
-    return this.storage.listDashboardNotes(limit);
+    return this.notes.listDashboardNotes(limit);
   }
 
   async listAgentNotes(agentId: string): Promise<Note[]> {
-    return this.storage.listAgentNotes(agentId);
+    return this.notes.listAgentNotes(agentId);
   }
 
   async getNote(noteId: string): Promise<Note | null> {
-    return this.storage.getNote(noteId);
+    return this.notes.getNote(noteId);
   }
 
   async createNote(note: NoteCreateInput): Promise<Note> {
-    return this.storage.createNote(note);
+    return this.notes.createNote(note);
   }
 
   async updateNote(noteId: string, updates: NoteUpdateInput): Promise<Note | null> {
-    await this.storage.updateNote(noteId, updates);
-    return this.storage.getNote(noteId);
+    await this.notes.updateNote(noteId, updates);
+    return this.notes.getNote(noteId);
   }
 
   private normalizeWorkspaceRelativePath(relPath: string): string {
@@ -1125,7 +1140,7 @@ ${summary}
   async exportNoteAsMarkdownAsync(
     noteId: string
   ): Promise<{ markdownPath: string; attachmentPath?: string; attachmentPaths?: string[] } | null> {
-    const note = await this.storage.getNote(noteId);
+    const note = await this.notes.getNote(noteId);
     if (!note) return null;
 
     const exportDirAbs = path.join(this.workspaceRoot, '.ai-team', 'notes');
@@ -1175,7 +1190,7 @@ ${summary}
     }
 
     if (updatedAttachments.length > 0) {
-      await this.storage.setNoteAttachmentsAsync(note.id, updatedAttachments);
+      await this.notes.setNoteAttachmentsAsync(note.id, updatedAttachments);
     }
 
     const lines: string[] = [];
@@ -1590,7 +1605,7 @@ ${summary}
     focusInstruction?: string,
     generateTitle = false
   ): Promise<Note | null> {
-    const note = await this.storage.getNote(noteId);
+    const note = await this.notes.getNote(noteId);
     if (!note) return null;
 
     const normalizedUrl = this.normalizeWebsiteUrl(websiteUrl);
@@ -1631,12 +1646,12 @@ ${summary}
       ? `${existingContent}\n\n---\n\n${notesSection}`
       : notesSection;
 
-    await this.storage.updateNote(noteId, {
+    await this.notes.updateNote(noteId, {
       content: combinedContent,
       compactedContent: urlSections.join('\n\n').trim(),
     });
 
-    const updatedNote = await this.storage.getNote(noteId);
+    const updatedNote = await this.notes.getNote(noteId);
     if (!updatedNote) {
       return null;
     }
@@ -1655,7 +1670,7 @@ ${summary}
     focusInstruction?: string,
     generateTitle = false
   ): Promise<Note | null> {
-    const note = await this.storage.getNote(noteId);
+    const note = await this.notes.getNote(noteId);
     if (!note) return null;
 
     const attachments = this.getNoteAttachments(note);
@@ -1702,8 +1717,8 @@ ${summary}
       }
 
       const compactedContent = compactedSections.join('\n\n');
-      await this.storage.updateNote(noteId, { compactedContent: compactedContent.trim() });
-      const updatedNote = await this.storage.getNote(noteId);
+      await this.notes.updateNote(noteId, { compactedContent: compactedContent.trim() });
+      const updatedNote = await this.notes.getNote(noteId);
       if (!updatedNote) {
         return null;
       }
@@ -1732,7 +1747,7 @@ ${summary}
     existingNote?: Note,
     focusInstruction?: string
   ): Promise<Note | null> {
-    const note = existingNote ?? (await this.storage.getNote(noteId));
+    const note = existingNote ?? (await this.notes.getNote(noteId));
     if (!note) {
       return null;
     }
@@ -1795,8 +1810,8 @@ ${summary}
         return note;
       }
 
-      await this.storage.updateNote(noteId, { title: normalized });
-      return this.storage.getNote(noteId);
+      await this.notes.updateNote(noteId, { title: normalized });
+      return this.notes.getNote(noteId);
     } catch (error) {
       console.warn('[SessionManager] Note title generation failed, leaving current title.', error);
       return note;
@@ -1804,7 +1819,7 @@ ${summary}
   }
 
   async deleteNote(noteId: string): Promise<boolean> {
-    return this.storage.deleteNote(noteId);
+    return this.notes.deleteNote(noteId);
   }
 
   // ========== Message ↔ Session Links ==========
@@ -1813,25 +1828,25 @@ ${summary}
     messageId: number,
     sessionId: string
   ): Promise<MessageSessionLink> {
-    return this.storage.createMessageSessionLink(messageId, sessionId);
+    return this.messages.createMessageSessionLink(messageId, sessionId);
   }
 
   async listMessageSessionLinks(sessionId: string): Promise<MessageSessionLink[]> {
-    return this.storage.listMessageSessionLinks(sessionId);
+    return this.messages.listMessageSessionLinks(sessionId);
   }
 
   async deleteMessageSessionLink(messageId: number, sessionId: string): Promise<boolean> {
-    return this.storage.deleteMessageSessionLink(messageId, sessionId);
+    return this.messages.deleteMessageSessionLink(messageId, sessionId);
   }
 
   // ========== Session Skills ==========
 
   async addSessionSkill(sessionId: string, skillPath: string): Promise<void> {
-    await this.storage.addSessionSkill(sessionId, skillPath);
+    await this.messages.addSessionSkill(sessionId, skillPath);
   }
 
   async getSessionSkills(sessionId: string): Promise<SessionSkill[]> {
-    return this.storage.getSessionSkills(sessionId);
+    return this.messages.getSessionSkills(sessionId);
   }
 
   async setSessionSkillPaused(
@@ -1839,11 +1854,11 @@ ${summary}
     skillPath: string,
     paused: boolean
   ): Promise<void> {
-    await this.storage.setSessionSkillPaused(sessionId, skillPath, paused);
+    await this.messages.setSessionSkillPaused(sessionId, skillPath, paused);
   }
 
   async updateToolCallLlmResult(toolCallId: number, newText: string): Promise<void> {
-    await this.storage.updateToolCallLlmResult(toolCallId, newText);
+    await this.messages.updateToolCallLlmResult(toolCallId, newText);
   }
 
   async summarizeForContextAsync(
@@ -1857,7 +1872,7 @@ ${summary}
 
   async listNoteSessionSharesAsync(sessionId: string): Promise<NoteSessionShare[]> {
     try {
-      return await this.storage.listNoteSessionSharesBySessionAsync(sessionId);
+      return await this.notes.listNoteSessionSharesBySessionAsync(sessionId);
     } catch {
       return [];
     }
@@ -1871,7 +1886,7 @@ ${summary}
     fromMessageId?: number,
     toMessageId?: number
   ): Promise<void> {
-    await this.storage.updateNoteSessionShareAsync(noteId, sessionId, {
+    await this.notes.updateNoteSessionShareAsync(noteId, sessionId, {
       anchorMessageId,
       kind,
       active: true,
@@ -1881,6 +1896,6 @@ ${summary}
   }
 
   async deactivateNoteShareAsync(sessionId: string, noteId: string): Promise<void> {
-    await this.storage.updateNoteSessionShareAsync(noteId, sessionId, { active: false });
+    await this.notes.updateNoteSessionShareAsync(noteId, sessionId, { active: false });
   }
 }

@@ -14,7 +14,12 @@ export const fireCommandDefinition = createFactoryCommandDefinition(
   'fire',
   fireCliMetadata,
   async (container, payload, context) => {
-    const { fireCommand } = await import('@ai-team/service/src/commands/fire.js');
-    return fireCommand(container.workspaceRoot, payload.employeeQuery, payload.options, context);
+    const { FireCommand } = await import('@ai-team/service/src/commands/fire.js');
+    const { COMMAND_FACTORY_TOKENS } = await import('@ai-team/service/src/commands/definitions/types.js');
+    return new FireCommand(container.resolve(COMMAND_FACTORY_TOKENS.AgentManager)).execute(
+      payload.employeeQuery,
+      payload.options,
+      context
+    );
   }
 );

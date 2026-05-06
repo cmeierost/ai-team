@@ -4,24 +4,25 @@
  */
 
 import {
-  parseMarkdownSections,
   type Agent,
-  type AgentManager,
+  type IAgentManager,
   type ChatMessage,
-  type Skill,
-  type LlmService,
-} from '@ai-team/infrastructure';
+  type IMarkdownSectionService,
+} from '@ai-team/core';
 import type { SessionManager } from '../session-manager.js';
 import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 
 const DEFAULT_GREETING_TEMPLATE =
   "Hi {{developerName}}, I'm {{agentName}} ({{agentRole}}). How can I help today?";
 
-function resolveGreetingTemplate(agent: Agent): string {
+function resolveGreetingTemplate(
+  markdownSectionService: IMarkdownSectionService,
+  agent: Agent
+): string {
   const markdown = agent.markdown?.trim();
   if (!markdown) return DEFAULT_GREETING_TEMPLATE;
 
-  const sections = parseMarkdownSections(markdown);
+  const sections = markdownSectionService.parseMarkdownSections(markdown);
   const greetingSection = sections.find((section) => {
     const heading = section.heading.trim().toLowerCase();
     return heading === 'greeting' || heading === 'greeting template' || heading === 'welcome';
@@ -54,15 +55,13 @@ function renderGreetingTemplate(
  * Supports placeholders like {{developerName}}, {{agentName}}, and {{agentRole}}.
  */
 export async function generateIntroduction(
-  _llm: LlmService,
-  _agentManager: AgentManager,
+  markdownSectionService: IMarkdownSectionService,
   agent: Agent,
-  _skill: Skill | undefined,
   developerName: string | undefined,
   _signal?: AbortSignal,
   _onChunk?: (delta: string) => void
 ): Promise<string> {
-  const template = resolveGreetingTemplate(agent);
+  const template = resolveGreetingTemplate(markdownSectionService, agent);
   return renderGreetingTemplate(template, agent, developerName);
 }
 
@@ -71,11 +70,10 @@ export async function generateIntroduction(
  * This path is deterministic and does not call the LLM.
  */
 export interface TryIntroduceUserRequest {
-  llm: LlmService;
-  agentManager: AgentManager;
+  agentManager: IAgentManager;
+  markdownSectionService: IMarkdownSectionService;
   agent: Agent;
   history: ChatMessage[];
-  skill: Skill | undefined;
   developerName: string | undefined;
   sessionManager: SessionManager;
   sessionId: string;
@@ -84,11 +82,10 @@ export interface TryIntroduceUserRequest {
 
 export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promise<void> {
   const {
-    llm,
     agentManager,
+    markdownSectionService,
     agent,
     history,
-    skill,
     developerName,
     sessionManager,
     sessionId,
@@ -100,10 +97,8 @@ export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promis
   }
 
   const text = await generateIntroduction(
-    llm,
-    agentManager,
+    markdownSectionService,
     agent,
-    skill,
     developerName,
     hooks.signal
   );

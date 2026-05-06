@@ -7,7 +7,7 @@ import type {
   RightOverlapSummary,
   FilePermissionOverlapReport,
   PatternOverlapReport,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
 interface JsonOption {
   json?: boolean;

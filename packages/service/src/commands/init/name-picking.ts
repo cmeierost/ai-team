@@ -1,5 +1,5 @@
 import ora from 'ora';
-import type { LlmService } from '@ai-team/infrastructure';
+import type { ILlmService } from '@ai-team/core';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 import { renderTemplate, type InitTemplates } from './template-utils.js';
 
@@ -34,7 +34,7 @@ export interface NamePickingIo {
 }
 
 export async function pickAgentName(
-  llm: LlmService,
+  llm: ILlmService,
   templates: InitTemplates,
   roleLabel: string,
   selectedNames: string[] = [],

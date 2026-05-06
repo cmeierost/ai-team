@@ -1,15 +1,24 @@
 import { z } from 'zod';
-import type { AgentTool, ToolContext } from '@ai-team/core';
-import {
-  loadTeamConfig,
-  AgentManager,
-  downloadRandomAvatar,
-  generateAvatarWithAI,
-  buildAvatarPrompt,
-  saveAvatarPreview,
-  finalizeAvatar,
-  updateAgentAvatar,
-} from '@ai-team/infrastructure';
+import type { AgentTool, IAvatarManager, IAgentManager, ToolContext } from '@ai-team/core';
+import { TOOL_SERVICE_TOKENS as T } from '@ai-team/core';
+
+function resolveAgentManager(context: ToolContext): IAgentManager {
+  if (!context.resolve) {
+    throw new Error(
+      'ToolContext.resolve is not available. Ensure the DI container is wired into ToolManager.'
+    );
+  }
+  return context.resolve(T.AgentManager);
+}
+
+function resolveAvatarManager(context: ToolContext): IAvatarManager {
+  if (!context.resolve) {
+    throw new Error(
+      'ToolContext.resolve is not available. Ensure the DI container is wired into ToolManager.'
+    );
+  }
+  return context.resolve(T.AvatarManager);
+}
 
 /**
  * Create a new agent
@@ -123,14 +132,18 @@ export const addPictureTool: AgentTool = {
     };
 
     // Resolve target agent
-    const agentManager = new AgentManager(context.workspaceRoot);
+    const agentManager = resolveAgentManager(context);
     const targetAgent = await agentManager.resolveAgentOrThrowAsync(agentName);
 
     // Load team config
-    const teamConfig = await loadTeamConfig(context.workspaceRoot);
+    const teamConfig = await context.resolve!(T.ConfigurationStorage).loadTeamConfigAsync(
+      context.workspaceRoot
+    );
     if (!teamConfig) {
       throw new Error('Team config not found. Run `ait init` first.');
     }
+    // Resolve avatar manager
+    const av = resolveAvatarManager(context);
     let imageData: Buffer;
 
     if (source === 'random') {
@@ -148,7 +161,7 @@ export const addPictureTool: AgentTool = {
       }
 
       const urlTemplate = randomUrls[urlIndex];
-      imageData = await downloadRandomAvatar(urlTemplate, targetAgent);
+      imageData = await av.downloadRandomAvatar(urlTemplate, targetAgent);
     } else {
       // Generate with AI
       // Find first provider with imageModels configured
@@ -173,15 +186,15 @@ export const addPictureTool: AgentTool = {
       }
 
       // Generate prompt if not provided
-      const finalPrompt = prompt || buildAvatarPrompt(targetAgent);
+      const finalPrompt = prompt || av.buildAvatarPrompt(targetAgent);
 
-      imageData = await generateAvatarWithAI(finalPrompt, providerConfig, modelName, apiKey);
+      imageData = await av.generateAvatarWithAI(finalPrompt, providerConfig, modelName, apiKey);
     }
 
     // Save and finalize avatar
-    await saveAvatarPreview(targetAgent.id, imageData, context.workspaceRoot);
-    const avatarPath = await finalizeAvatar(targetAgent.id, context.workspaceRoot);
-    await updateAgentAvatar(targetAgent, avatarPath, context.workspaceRoot);
+    await av.saveAvatarPreview(targetAgent.id, imageData, context.workspaceRoot);
+    const avatarPath = await av.finalizeAvatar(targetAgent.id, context.workspaceRoot);
+    await av.updateAgentAvatar(targetAgent, avatarPath, context.workspaceRoot);
 
     return {
       action: 'hr_avatar',

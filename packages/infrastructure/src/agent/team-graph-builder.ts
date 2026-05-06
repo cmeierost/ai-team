@@ -2,13 +2,22 @@
  * Team graph builder - constructs organization graph from agents
  */
 
-import { Agent, GraphNode, GraphEdge, GraphData, EdgeType, ViewMode, Feature } from '@ai-team/core';
-import { AgentManager } from './agent-manager.js';
+import {
+  Agent,
+  GraphNode,
+  GraphEdge,
+  GraphData,
+  EdgeType,
+  ViewMode,
+  Feature,
+  IAgentManager,
+  ITeamGraphBuilder,
+} from '@ai-team/core';
 
-export class TeamGraphBuilder {
-  private agentManager: AgentManager;
+export class TeamGraphBuilder implements ITeamGraphBuilder {
+  private readonly agentManager: IAgentManager;
 
-  constructor(agentManager: AgentManager) {
+  constructor(agentManager: IAgentManager) {
     this.agentManager = agentManager;
   }
 

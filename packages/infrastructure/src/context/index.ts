@@ -8,9 +8,17 @@ import {
   WorkspaceFs,
   WorkspaceCodeEdit,
   WorkspaceSearch,
+  getCachedFileTree,
 } from 'fs-context';
 import type { AccessPatternSet, PermissionChecker } from 'fs-context';
-import { type PermissionConfig, type AnnotatedFile } from '@ai-team/core';
+import {
+  type PermissionConfig,
+  type AnnotatedFile,
+  type IFileAnnotationService,
+  type IFileTreeService,
+  type FileTreeNode,
+  type GetFileTreeOptions,
+} from '@ai-team/core';
 
 function toPatternSet(permissions: PermissionConfig | undefined): AccessPatternSet {
   return {
@@ -220,4 +228,36 @@ export function createWorkspaceSearch(
     agentId,
     new PatternPermissionChecker(workspaceRoot, permissions)
   );
+}
+
+export class FileAnnotationServiceImpl implements IFileAnnotationService {
+  getAnnotatedFiles(
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    allFiles: string[]
+  ): AnnotatedFile[] {
+    return getAnnotatedFiles(workspaceRoot, permissions, allFiles);
+  }
+
+  getWritableFiles(
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    allFiles: string[]
+  ): string[] {
+    return getWritableFiles(workspaceRoot, permissions, allFiles);
+  }
+
+  getReadableFiles(
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    allFiles: string[]
+  ): string[] {
+    return getReadableFiles(workspaceRoot, permissions, allFiles);
+  }
+}
+
+export class FileTreeServiceImpl implements IFileTreeService {
+  getCachedFileTree(workspaceRoot: string, options?: GetFileTreeOptions): Promise<FileTreeNode> {
+    return getCachedFileTree(workspaceRoot, options ?? {}) as Promise<FileTreeNode>;
+  }
 }

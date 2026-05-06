@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { AiTeamHttpClient } from '@ai-team/api-client';
-import type { AnnotatedFile } from '@ai-team/api-client';
+import type { AiTeamHttpClient } from '@ai-team/api-contracts';
+import type { AnnotatedFile } from '@ai-team/api-contracts';
 import { PortfolioSectionCard } from './portfolioShared';
 
 interface PortfolioReadFilesSectionProps {

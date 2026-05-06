@@ -14,11 +14,11 @@
 
 import type {
   AgentTool,
-  ChatCompletionMessageParam,
   ChatMessage,
+  ILlmChatMessageParam,
   Skill,
   StructuredToolResult,
-} from '@ai-team/infrastructure';
+} from '@ai-team/core';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 
@@ -46,7 +46,7 @@ export interface IContextCompressor {
  * Future: inject RAG results, apply per-agent formatting rules.
  */
 export interface IContextBuilder {
-  build(history: ChatMessage[], ctx: OrchestratorContext): Promise<ChatCompletionMessageParam[]>;
+  build(history: ChatMessage[], ctx: OrchestratorContext): Promise<ILlmChatMessageParam[]>;
 }
 
 // ── 3. Context Enricher ───────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ export interface TurnStartHookPayload {
 }
 
 export interface MessagesPreparedHookPayload {
-  messages: ChatCompletionMessageParam[];
+  messages: ILlmChatMessageParam[];
   ctx: OrchestratorContext;
 }
 

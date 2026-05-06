@@ -1,7 +1,11 @@
 import { z } from 'zod';
-import { resolveInsideWorkspace, toWorkspaceRelativePath, type FileTreeNode, type Right } from 'fs-context';
+import {
+  resolveInsideWorkspace,
+  toWorkspaceRelativePath,
+  type FileTreeNode,
+  type Right,
+} from 'fs-context';
 import type { ToolContext } from '@ai-team/core';
-import { canListPath, canReadPath, canWritePath } from '@ai-team/infrastructure';
 
 export interface FsPathAccessEnvelope {
   allowed: boolean;
@@ -14,8 +18,17 @@ export interface FsPathAccessEnvelope {
 export const accessRightSchema = z.enum(['read', 'write', 'list']);
 export type AccessRight = z.infer<typeof accessRightSchema>;
 
+function getPathPermissionChecker(context: ToolContext) {
+  const checker = (context as any).pathPermissionChecker;
+  if (!checker) {
+    throw new Error('ToolContext.pathPermissionChecker is required for fs access checks.');
+  }
+  return checker;
+}
+
 export function canListViaContextManager(context: ToolContext, targetPath: string): boolean {
-  return canListPath(context.workspaceRoot, context.agent.permissions, targetPath);
+  const checker = getPathPermissionChecker(context);
+  return checker.canListPath(context.workspaceRoot, context.agent.permissions, targetPath);
 }
 
 /** Count leaf (file) nodes in a tree. */
@@ -106,13 +119,16 @@ export function toFsPathAccessEnvelope(
   let right: string;
 
   if (writingTools.has(toolName)) {
-    allowed = canWritePath(context.workspaceRoot, context.agent.permissions, targetPath);
+    const checker = getPathPermissionChecker(context);
+    allowed = checker.canWritePath(context.workspaceRoot, context.agent.permissions, targetPath);
     right = 'write';
   } else if (listingTools.has(toolName)) {
-    allowed = canListPath(context.workspaceRoot, context.agent.permissions, targetPath);
+    const checker = getPathPermissionChecker(context);
+    allowed = checker.canListPath(context.workspaceRoot, context.agent.permissions, targetPath);
     right = 'list';
   } else {
-    allowed = canReadPath(context.workspaceRoot, context.agent.permissions, targetPath);
+    const checker = getPathPermissionChecker(context);
+    allowed = checker.canReadPath(context.workspaceRoot, context.agent.permissions, targetPath);
     right = 'read';
   }
 
@@ -121,9 +137,7 @@ export function toFsPathAccessEnvelope(
     explanation: allowed
       ? `Agent '${context.agent.id}' has ${right} access to '${targetPath}'.`
       : `Agent '${context.agent.id}' does not have ${right} access to '${targetPath}'.`,
-    alternativeContexts: allowed
-      ? []
-      : getAlternativeContexts(context, targetPath, right as Right),
+    alternativeContexts: allowed ? [] : getAlternativeContexts(context, targetPath, right as Right),
   };
 }
 
@@ -134,7 +148,7 @@ export function toFsPathAccessEnvelope(
 function getAlternativeContexts(
   _context: ToolContext,
   _targetPath: string,
-  _right: Right,
+  _right: Right
 ): Array<{ contextId: string; allowedPaths: string[] }> {
   return [];
 }

@@ -2,7 +2,7 @@ import type {
   AiTeamCommandName,
   AiTeamCommandResponseMap,
   InteractionRequest,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { exec } from 'node:child_process';
 import chalk from 'chalk';

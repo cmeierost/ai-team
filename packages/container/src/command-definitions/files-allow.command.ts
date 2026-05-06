@@ -12,7 +12,10 @@ export const filesAllowCliMetadata: CliCommandMetadata = {
   llmCallable: true,
   directCli: true,
   options: [
-    { flags: '--agent <id>', description: 'Scope to a specific agent (updates their .md permissions)' },
+    {
+      flags: '--agent <id>',
+      description: 'Scope to a specific agent (updates their .md permissions)',
+    },
     {
       flags: '--requested-by <agent>',
       description:
@@ -32,9 +35,8 @@ export const filesAllowCommandDefinition = createResolverCommandDefinition(
   filesAllowCliMetadata,
   (container, handlerToken) => {
     container.registerTransient(handlerToken, (resolver) => async (payload, context) => {
-      const { permissionAllowCommand, allowPathCommand } = await import(
-        '@ai-team/service/src/commands/file-tree.js'
-      );
+      const { permissionAllowCommand, allowPathCommand } =
+        await import('@ai-team/service/src/commands/file-tree.js');
 
       const mode =
         payload.mode === 'write' || payload.mode === 'create' || payload.mode === 'delete'
@@ -51,6 +53,7 @@ export const filesAllowCommandDefinition = createResolverCommandDefinition(
         const result = await permissionAllowCommand(
           container.workspaceRoot,
           resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+          resolver.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
           payload.agent,
           payload.path,
           {
@@ -67,7 +70,12 @@ export const filesAllowCommandDefinition = createResolverCommandDefinition(
         return { paths: result.paths };
       }
 
-      const paths = await allowPathCommand(container.workspaceRoot, payload.path, mode);
+      const paths = await allowPathCommand(
+        container.workspaceRoot,
+        resolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+        payload.path,
+        mode
+      );
       return { paths };
     });
   }

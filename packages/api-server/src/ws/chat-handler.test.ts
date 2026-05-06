@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { InteractionContext, InteractionRequest } from '@ai-team/api-client';
+import type { InteractionContext, InteractionRequest } from '@ai-team/api-contracts';
 import type { IInteractionService } from '@ai-team/service';
 import { setupChatWebSocket } from './chat-handler.js';
 

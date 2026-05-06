@@ -3,39 +3,31 @@
  */
 
 import path from 'node:path';
-import type { Agent, AgentSkillFile, Skill, SkillConfig } from '@ai-team/core';
-import {
-  loadSkill,
-  loadAgentSkillFile,
-  resolveAgentSkillFilePath,
-  saveSkill,
-  findSkillFiles,
-} from '../agent/storage.js';
-
-export interface ResolvedAgentSkills {
-  roleSkill?: Skill;
-  specializationSkills: Skill[];
-  skills: Skill[];
-  missingSkillNames: string[];
-}
-
-export interface SessionSkillRecord {
-  skillPath: string;
-  paused: boolean;
-}
-
-export interface ResolvedSessionSkillsResult {
-  /** Skills that were newly matched and must be persisted to the DB. */
-  newlyLoaded: AgentSkillFile[];
-  /** All active (non-paused) session skill files ready to inject into the prompt. */
-  activeSkills: AgentSkillFile[];
-}
+import type {
+  Agent,
+  AgentSkillFile,
+  IAgentDocumentStorage,
+  IWorkspaceDiscoveryStorage,
+  ResolvedAgentSkills,
+  ResolvedSessionSkillsResult,
+  SessionSkillRecord,
+  Skill,
+  SkillConfig,
+} from '@ai-team/core';
+import { AgentDocumentStorage } from '../agent/agent-document-storage.js';
+import { MarkdownSectionService } from '../agent/markdown-service.js';
+import { WorkspaceDiscoveryStorage } from '../agent/workspace-discovery-storage.js';
+import { WorkspaceStorage } from '../agent/workspace-storage.js';
 
 export class SkillManager {
   private skills: Map<string, Skill> | undefined;
   private readonly workspaceRoot: string;
 
-  constructor(workspaceRoot: string) {
+  constructor(
+    workspaceRoot: string,
+    private readonly agentDocumentStorage: IAgentDocumentStorage,
+    private readonly workspaceDiscoveryStorage: IWorkspaceDiscoveryStorage
+  ) {
     this.workspaceRoot = workspaceRoot;
   }
 
@@ -59,12 +51,12 @@ export class SkillManager {
    * Load all skill templates from workspace
    */
   private async loadAllSkills(): Promise<Map<string, Skill>> {
-    const skillFiles = await findSkillFiles(this.workspaceRoot);
+    const skillFiles = await this.workspaceDiscoveryStorage.findSkillFilesAsync(this.workspaceRoot);
     const skills = new Map<string, Skill>();
 
     for (const filePath of skillFiles) {
       try {
-        const skill = await loadSkill(filePath);
+        const skill = await this.agentDocumentStorage.loadSkillAsync(filePath);
         skills.set(skill.name, skill);
       } catch (error) {
         console.error(`Failed to load skill from ${filePath}:`, error);
@@ -131,7 +123,7 @@ export class SkillManager {
       ...config,
     };
 
-    await saveSkill(skill);
+    await this.agentDocumentStorage.saveSkillAsync(skill);
     skills.set(config.name, skill);
 
     return skill;
@@ -161,7 +153,7 @@ export class SkillManager {
       instructions: instructions || skill.instructions,
     };
 
-    await saveSkill(updatedSkill);
+    await this.agentDocumentStorage.saveSkillAsync(updatedSkill);
     skills.set(name, updatedSkill);
 
     return updatedSkill;
@@ -212,7 +204,7 @@ export class SkillManager {
       if (record.paused) continue;
       try {
         const absPath = path.join(this.workspaceRoot, record.skillPath);
-        const skill = await loadAgentSkillFile(absPath);
+        const skill = await this.agentDocumentStorage.loadAgentSkillFileAsync(absPath);
         activeByPath.set(record.skillPath, skill);
       } catch {
         // File was deleted or moved — skip silently
@@ -221,13 +213,16 @@ export class SkillManager {
 
     // Check each allowed skill not yet in the session
     for (const skillId of allowedSkillIds) {
-      const absPath = resolveAgentSkillFilePath(this.workspaceRoot, skillId);
+      const absPath = this.workspaceDiscoveryStorage.resolveAgentSkillFilePath(
+        this.workspaceRoot,
+        skillId
+      );
       const relPath = path.relative(this.workspaceRoot, absPath).replaceAll('\\', '/');
       if (loadedPaths.has(relPath) || pausedPaths.has(relPath)) continue;
 
       let skillFile: AgentSkillFile;
       try {
-        skillFile = await loadAgentSkillFile(absPath);
+        skillFile = await this.agentDocumentStorage.loadAgentSkillFileAsync(absPath);
       } catch {
         continue; // SKILL.md does not exist for this id
       }
@@ -241,4 +236,17 @@ export class SkillManager {
 
     return { newlyLoaded, activeSkills: Array.from(activeByPath.values()) };
   }
+}
+
+export function createSkillManager(workspaceRoot: string): SkillManager {
+  const markdownSectionService = new MarkdownSectionService();
+  const workspaceStorage = new WorkspaceStorage();
+  const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
+  const agentDocumentStorage = new AgentDocumentStorage(
+    markdownSectionService,
+    workspaceStorage,
+    workspaceDiscoveryStorage
+  );
+
+  return new SkillManager(workspaceRoot, agentDocumentStorage, workspaceDiscoveryStorage);
 }

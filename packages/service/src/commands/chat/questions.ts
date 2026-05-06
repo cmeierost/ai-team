@@ -6,7 +6,7 @@
  * now inline notation rendered client-side).
  */
 import type { ChatRuntimeHooks } from './hooks.js';
-import type { QuestionInputRequest, QuestionSelectRequest } from '@ai-team/api-client';
+import type { QuestionInputRequest, QuestionSelectRequest } from '@ai-team/api-contracts';
 
 // ── Public question helpers ───────────────────────────────────────────────────
 

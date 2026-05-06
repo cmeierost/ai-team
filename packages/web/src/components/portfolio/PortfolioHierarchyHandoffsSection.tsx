@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Agent, AgentHandoff } from '../../types';
-import type { AiTeamHttpClient } from '@ai-team/api-client';
+import type { AiTeamHttpClient } from '@ai-team/api-contracts';
 import { Avatar } from '../Avatar';
 import { PortfolioSectionCard } from './portfolioShared';
 import { getAgentColor } from '../../utils/color';
@@ -165,10 +165,9 @@ export function PortfolioHierarchyHandoffsSection({
     setGenerating(targetAgentId);
     setGenerateError(null);
     try {
-      const { prompt } = (await client.agents.generateHandoffPrompt(
-        agentId,
-        { targetAgentId },
-      )) as { prompt: string };
+      const { prompt } = (await client.agents.generateHandoffPrompt(agentId, {
+        targetAgentId,
+      })) as { prompt: string };
       const existing = handoffs.find((h) => h.agent === targetAgentId && h.label === existingLabel);
       let updated: AgentHandoff[];
       if (existing) {

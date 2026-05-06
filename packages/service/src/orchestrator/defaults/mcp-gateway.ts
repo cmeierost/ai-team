@@ -4,7 +4,7 @@
  * without touching the orchestrator.
  */
 
-import type { AgentTool } from '@ai-team/infrastructure';
+import type { AgentTool } from '@ai-team/core';
 import type { IMcpGateway } from '../pipeline.js';
 
 export class NoOpMcpGateway implements IMcpGateway {

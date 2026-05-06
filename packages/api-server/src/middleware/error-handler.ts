@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { AmbiguousAgentQueryError, HttpError } from '@ai-team/service';
-import { AgentNotFoundError } from '@ai-team/infrastructure';
+import { AgentNotFoundError } from '@ai-team/core';
 
 export interface ApiError {
   error: string;
@@ -8,12 +8,7 @@ export interface ApiError {
   statusCode?: number;
 }
 
-export function errorHandler(
-  err: Error,
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void {
+export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction): void {
   console.error('API Error:', err);
 
   // Check if headers already sent

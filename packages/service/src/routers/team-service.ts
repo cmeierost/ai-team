@@ -1,14 +1,15 @@
-import type { ITeamGraphService, GraphData, ViewMode } from '@ai-team/api-client';
+import type { ITeamGraphService, GraphData, ViewMode } from '@ai-team/api-contracts';
+import type { ITeamGraphBuilder } from '@ai-team/core';
 import { getTeamGraphCommand, getOrganizationGraphCommand } from '../commands/graph.js';
 
 export class TeamService implements ITeamGraphService {
-  constructor(private readonly workspaceRoot: string) {}
+  constructor(private readonly teamGraphBuilder: ITeamGraphBuilder) {}
 
   async getTeamGraph(mode?: ViewMode): Promise<GraphData> {
-    return getTeamGraphCommand(this.workspaceRoot, mode ?? 'hierarchy');
+    return getTeamGraphCommand(this.teamGraphBuilder, mode ?? 'hierarchy');
   }
 
   async getOrganizationGraph(): Promise<GraphData> {
-    return getOrganizationGraphCommand(this.workspaceRoot);
+    return getOrganizationGraphCommand(this.teamGraphBuilder);
   }
 }

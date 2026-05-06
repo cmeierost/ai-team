@@ -9,7 +9,7 @@ import type {
   RuntimeStreamEvent,
   ToolDenialEvent,
   ToolRuntimePayloadEvent,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 
 // ── Delta extraction ──────────────────────────────────────────────────────────

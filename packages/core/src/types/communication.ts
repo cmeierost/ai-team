@@ -71,6 +71,7 @@ export interface AgentMarkdownParts {
 }
 
 export interface AgentAccessPatternSet {
+  list: string[];
   read: string[];
   write: string[];
 }
@@ -96,21 +97,12 @@ export interface IWorkspaceDiscoveryStorage {
 export interface IAgentDocumentStorage {
   loadAgentAsync(filePath: string): Promise<Agent>;
   saveAgentAsync(agent: Agent): Promise<void>;
+  buildAgentMarkdown(parts: AgentMarkdownParts): string;
   loadSkillAsync(filePath: string): Promise<Skill>;
   saveSkillAsync(skill: Skill): Promise<void>;
   loadAgentSkillFileAsync(filePath: string): Promise<AgentSkillFile>;
   loadInstructionFileAsync(filePath: string): Promise<InstructionFile>;
   loadAllInstructionFilesAsync(workspaceRoot: string): Promise<InstructionFile[]>;
-}
-
-export interface IAgentPermissionStorage {
-  getAgentPermissionFilePath(workspaceRoot: string, agentId: string): string;
-  loadAgentPermissionsAsync(workspaceRoot: string, agentId: string): Promise<AgentAccessPatternSet>;
-  saveAgentPermissionsAsync(
-    workspaceRoot: string,
-    agentId: string,
-    patterns: AgentAccessPatternSet
-  ): Promise<void>;
 }
 
 export interface IConfigurationStorage {
@@ -127,6 +119,11 @@ export interface IEnvironmentStorage {
   getEnvPath(workspaceRoot: string): string;
   loadEnvFileAsync(workspaceRoot: string): Promise<Record<string, string>>;
   saveEnvFileAsync(workspaceRoot: string, vars: Record<string, string>): Promise<void>;
+}
+
+export interface IPermissionStorage {
+  loadAsync(agentId: string): Promise<AgentAccessPatternSet>;
+  saveAsync(agentId: string, patterns: AgentAccessPatternSet): Promise<void>;
 }
 
 export interface SessionRagConfig {

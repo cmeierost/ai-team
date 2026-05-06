@@ -1,4 +1,4 @@
-import type { ISystemService, SystemInfo } from '@ai-team/api-client';
+import type { ISystemService, SystemInfo } from '@ai-team/api-contracts';
 import { getSystemInfo } from '../utils/system-info.js';
 
 export class SystemService implements ISystemService {

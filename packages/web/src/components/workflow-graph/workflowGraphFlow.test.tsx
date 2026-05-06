@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkflowDefinitionDocument } from '@ai-team/api-client';
+import type { WorkflowDefinitionDocument } from '@ai-team/api-contracts';
 import {
   buildWorkflowCallFlowMermaid,
   transformWorkflowDefinitionToReactFlow,

@@ -6,12 +6,11 @@ import type {
   QuestionInputRequest,
   QuestionPasswordRequest,
   QuestionSelectRequest,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
+import type { IAgentManager } from '@ai-team/core';
 import {
   createIdeAdapter,
   type IdeAdapter,
-  type AgentManager,
-  type LlmService,
 } from '@ai-team/infrastructure';
 import {
   resolveAgentForOperationAsync,
@@ -136,9 +135,9 @@ type ChatStreamEvent = StreamEvent<'chat'>;
 type PendingAnswerValue = string | boolean | number | string[] | Record<string, string>;
 
 export interface ChatWebSocketSetupOptions {
-  agentManager?: AgentManager;
+  agentManager?: IAgentManager;
   workspaceRoot?: string;
-  llmService?: LlmService;
+  llmService?: { ensureInitialized(): Promise<void> };
 }
 
 export async function setupChatWebSocket(

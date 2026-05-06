@@ -13,7 +13,7 @@
  * appropriate position in buildDefaultTurnResultParsers().
  */
 
-import { isHandoffRequest, type Agent, type StructuredToolResult } from '@ai-team/infrastructure';
+import { isHandoffRequest, type Agent, type StructuredToolResult } from '@ai-team/core';
 import type { ITurnResultParser, TurnResult } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
 import { parseHandoffDirective } from '../../commands/chat/index.js';
@@ -25,16 +25,14 @@ import { parseHandoffDirective } from '../../commands/chat/index.js';
  * Tries exact lookup first, then fuzzy resolution via resolveAgent.
  * Returns undefined when no valid non-self target can be found.
  */
-function resolveNonSelfAgent(
-  targetId: string,
-  ctx: OrchestratorContext,
-): Agent | undefined {
-  const getAgent = (ctx.agentManager as { getAgent?: (query: string) => Agent | undefined }).getAgent;
-  const resolveAgent = (ctx.agentManager as { resolveAgent?: (query: string) => Agent[] }).resolveAgent;
+function resolveNonSelfAgent(targetId: string, ctx: OrchestratorContext): Agent | undefined {
+  const getAgent = (ctx.agentManager as { getAgent?: (query: string) => Agent | undefined })
+    .getAgent;
+  const resolveAgent = (ctx.agentManager as { resolveAgent?: (query: string) => Agent[] })
+    .resolveAgent;
 
-  const exact = typeof getAgent === 'function'
-    ? getAgent.call(ctx.agentManager, targetId)
-    : undefined;
+  const exact =
+    typeof getAgent === 'function' ? getAgent.call(ctx.agentManager, targetId) : undefined;
 
   if (exact && exact.id !== ctx.agent.id) return exact;
 
@@ -50,7 +48,7 @@ export class HandoffToolResultParser implements ITurnResultParser {
     structuredResults: StructuredToolResult[],
     _fullResponse: string,
     persistedContent: string,
-    ctx: OrchestratorContext,
+    ctx: OrchestratorContext
   ): Partial<TurnResult> | null {
     const handoffReq = structuredResults.find(isHandoffRequest);
     if (!handoffReq || !isHandoffRequest(handoffReq)) return null;
@@ -79,7 +77,7 @@ export class TextHandoffParser implements ITurnResultParser {
     _structuredResults: StructuredToolResult[],
     fullResponse: string,
     persistedContent: string,
-    ctx: OrchestratorContext,
+    ctx: OrchestratorContext
   ): Partial<TurnResult> | null {
     const textHandoff = parseHandoffDirective(fullResponse);
     if (!textHandoff) return null;
@@ -106,8 +104,5 @@ export class TextHandoffParser implements ITurnResultParser {
 
 /** Returns the default ordered set of turn-result parsers. */
 export function buildDefaultTurnResultParsers(): ITurnResultParser[] {
-  return [
-    new HandoffToolResultParser(),
-    new TextHandoffParser(),
-  ];
+  return [new HandoffToolResultParser(), new TextHandoffParser()];
 }

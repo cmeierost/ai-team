@@ -1,4 +1,5 @@
-import { AgentManager, SkillManager, ContextLevel, RoleType } from '@ai-team/infrastructure';
+import { ContextLevel, RoleType } from '@ai-team/core';
+import type { IAgentManager, ISkillManager } from '@ai-team/core';
 import type {
   CreateAgentSetupInput,
   CreateOptions,
@@ -6,92 +7,89 @@ import type {
   InteractionContext,
   LlmProfile,
   LlmGenerationParams,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
-export async function createCommand(
-  workspaceRoot: string,
-  type: string,
-  options: CreateOptions,
-  context: InteractionContext = {}
-) {
-  try {
-    switch (type) {
-      case 'agent':
-        await createAgentAsync(workspaceRoot, options, context);
-        break;
-      case 'skill':
-        await createSkillAsync(workspaceRoot, options, context);
-        break;
-      default:
-        throw new Error(`Unknown type: ${type}. Usage: ai-team create <agent|skill>`);
+export class CreateCommand {
+  constructor(
+    private readonly agentManager: IAgentManager,
+    private readonly skillManager: ISkillManager
+  ) {}
+
+  async execute(
+    type: string,
+    options: CreateOptions,
+    context: InteractionContext = {}
+  ): Promise<void> {
+    try {
+      switch (type) {
+        case 'agent':
+          await this.createAgentAsync(options, context);
+          break;
+        case 'skill':
+          await this.createSkillAsync(options, context);
+          break;
+        default:
+          throw new Error(`Unknown type: ${type}. Usage: ai-team create <agent|skill>`);
+      }
+    } catch (error) {
+      throw new Error(`Error creating: ${error instanceof Error ? error.message : String(error)}`);
     }
-  } catch (error) {
-    throw new Error(`Error creating: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-// ── Agent creation ────────────────────────────────────────────────────────────
-
-async function createAgentAsync(
-  workspaceRoot: string,
-  options: CreateOptions,
-  context: InteractionContext
-) {
-  const agentManager = new AgentManager(workspaceRoot);
-
-  if (options.setup?.kind === 'agent') {
-    await createAgentFromSetupAsync(agentManager, options.setup);
-    emitLog(context, `✓ Agent "${options.setup.name}" created.`);
-    return;
   }
 
-  if (options.interactive || (!options.name && !options.role)) {
-    const setup = await askAgentSetupAsync(context);
-    await createAgentFromSetupAsync(agentManager, setup);
-    emitLog(context, `✓ Agent "${setup.name}" created.`);
-    return;
+  // ── Agent creation ──────────────────────────────────────────────────────────
+
+  private async createAgentAsync(options: CreateOptions, context: InteractionContext) {
+    if (options.setup?.kind === 'agent') {
+      await createAgentFromSetupAsync(this.agentManager, options.setup);
+      emitLog(context, `✓ Agent "${options.setup.name}" created.`);
+      return;
+    }
+
+    if (options.interactive || (!options.name && !options.role)) {
+      const setup = await askAgentSetupAsync(context);
+      await createAgentFromSetupAsync(this.agentManager, setup);
+      emitLog(context, `✓ Agent "${setup.name}" created.`);
+      return;
+    }
+
+    if (!options.name || !options.role) {
+      throw new Error('--name and --role are required in non-interactive mode');
+    }
+
+    await this.agentManager.createAgentAsync({
+      name: options.name,
+      role: options.role,
+      contextLevel: ContextLevel.MODULE,
+    });
+    emitLog(context, `✓ Agent "${options.name}" created.`);
   }
 
-  if (!options.name || !options.role) {
-    throw new Error('--name and --role are required in non-interactive mode');
+  // ── Skill creation ──────────────────────────────────────────────────────────
+
+  private async createSkillAsync(options: CreateOptions, context: InteractionContext) {
+    if (options.setup?.kind === 'skill') {
+      await createSkillFromSetupAsync(this.skillManager, options.setup);
+      emitLog(context, `✓ Skill "${options.setup.name}" created.`);
+      return;
+    }
+
+    if (options.interactive || !options.name) {
+      const setup = await askSkillSetupAsync(context);
+      await createSkillFromSetupAsync(this.skillManager, setup);
+      emitLog(context, `✓ Skill "${setup.name}" created.`);
+      return;
+    }
+
+    throw new Error('Skill creation requires --name or interactive mode.');
   }
-
-  await agentManager.createAgentAsync({
-    name: options.name,
-    role: options.role,
-    contextLevel: ContextLevel.MODULE,
-  });
-  emitLog(context, `✓ Agent "${options.name}" created.`);
-}
-
-// ── Skill creation ────────────────────────────────────────────────────────────
-
-async function createSkillAsync(
-  workspaceRoot: string,
-  options: CreateOptions,
-  context: InteractionContext
-) {
-  const skillManager = new SkillManager(workspaceRoot);
-
-  if (options.setup?.kind === 'skill') {
-    await createSkillFromSetupAsync(skillManager, options.setup);
-    emitLog(context, `✓ Skill "${options.setup.name}" created.`);
-    return;
-  }
-
-  if (options.interactive || !options.name) {
-    const setup = await askSkillSetupAsync(context);
-    await createSkillFromSetupAsync(skillManager, setup);
-    emitLog(context, `✓ Skill "${setup.name}" created.`);
-    return;
-  }
-
-  throw new Error('Skill creation requires --name or interactive mode.');
 }
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
 
-async function createAgentFromSetupAsync(agentManager: AgentManager, setup: CreateAgentSetupInput) {
+async function createAgentFromSetupAsync(
+  agentManager: IAgentManager,
+  setup: CreateAgentSetupInput
+) {
   await agentManager.createAgentAsync({
     name: setup.name,
     role: setup.role,
@@ -102,7 +100,10 @@ async function createAgentFromSetupAsync(agentManager: AgentManager, setup: Crea
   });
 }
 
-async function createSkillFromSetupAsync(skillManager: SkillManager, setup: CreateSkillSetupInput) {
+async function createSkillFromSetupAsync(
+  skillManager: ISkillManager,
+  setup: CreateSkillSetupInput
+) {
   await skillManager.createSkillAsync(
     {
       name: setup.name,

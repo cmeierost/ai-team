@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Agent, ChatMessage } from '@ai-team/infrastructure';
+import type { Agent, ChatMessage } from '@ai-team/core';
 import { emitEvent, emitLog } from './stream-events.js';
 import { detectForwardRequestWithFallbackAsync, extractForwardNote } from './forward-detection.js';
 import type { OrchestratorContext } from './pipeline-context.js';
@@ -30,7 +30,7 @@ import type { OrchestratorContext } from './pipeline-context.js';
  */
 export async function tryNlForward(
   message: string,
-  ctx: OrchestratorContext,
+  ctx: OrchestratorContext
 ): Promise<string | null> {
   const { resolved, looksLikeForward } = await detectForwardRequestWithFallbackAsync(
     message,
@@ -38,7 +38,7 @@ export async function tryNlForward(
     ctx.agent.id,
     ctx.llmService,
     ctx.agent,
-    ctx.history,
+    ctx.history
   );
 
   if (resolved) {
@@ -64,7 +64,7 @@ export async function tryNlForward(
     emitLog(
       ctx.hooks,
       'warn',
-      `I couldn't find anyone on your team matching that request. Try using their name directly.`,
+      `I couldn't find anyone on your team matching that request. Try using their name directly.`
     );
     // Return null so the message still flows through sendTurn — it gets
     // persisted to the DB and the current agent processes the content.
@@ -86,13 +86,13 @@ export async function executeHandoff(
   ctx: OrchestratorContext,
   targetAgentId: string,
   targetSessionId?: string,
-  handoffNote?: string,
+  handoffNote?: string
 ): Promise<boolean> {
   // getAgent uses exact ID matching; fall back to fuzzy resolveAgent so LLMs
   // that write "Emily Davis" (name) instead of "emily-davis" (id) still work.
   const target =
-    await ctx.agentManager.getAgentAsync(targetAgentId)
-    ?? (await ctx.agentManager.resolveAgentAsync(targetAgentId)).find(a => a.id !== ctx.agent.id);
+    (await ctx.agentManager.getAgentAsync(targetAgentId)) ??
+    (await ctx.agentManager.resolveAgentAsync(targetAgentId)).find((a) => a.id !== ctx.agent.id);
   if (!target) return false;
 
   const currentSession = await ctx.sessionManager.getSession(ctx.sessionId);
@@ -113,7 +113,7 @@ export async function executeHandoff(
     const { session } = await ctx.sessionManager.resolveHandoffSession(
       target.id,
       fromSessionId,
-      developerId,
+      developerId
     );
     toSessionId = session.id;
   }
@@ -129,7 +129,7 @@ export async function executeHandoff(
     fromAgent,
     target,
     developerId,
-    handoffNote ?? '',
+    handoffNote ?? ''
   );
   const briefingMsg: ChatMessage = {
     from: fromAgent.id,
@@ -166,9 +166,9 @@ export async function executeHandoff(
   });
 
   // ── 6. Mutate context ────────────────────────────────────────────────────
-  (ctx as any).agent     = target;
+  (ctx as any).agent = target;
   (ctx as any).sessionId = toSessionId;
-  (ctx as any).history   = history;
+  (ctx as any).history = history;
 
   return true;
 }
@@ -187,33 +187,33 @@ async function generateHandoffBriefing(
   fromAgent: Agent,
   toAgent: Agent,
   developerName: string,
-  triggerMessage: string,
+  triggerMessage: string
 ): Promise<string> {
   try {
     const recentHistory = ctx.history.slice(-12);
     const historyText = recentHistory
-      .map(m => `${m.isHuman ? developerName : m.from}: ${m.content}`)
+      .map((m) => `${m.isHuman ? developerName : m.from}: ${m.content}`)
       .join('\n');
 
-    const agentTitle = fromAgent.role
-      ? `${fromAgent.name} (${fromAgent.role})`
-      : fromAgent.name;
+    const agentTitle = fromAgent.role ? `${fromAgent.name} (${fromAgent.role})` : fromAgent.name;
 
     const reply = await ctx.llmService.chat(
       fromAgent,
-      [{
-        role: 'user',
-        content:
-          `You are ${agentTitle}. `
-          + `Write a handoff briefing for ${toAgent.name}.\n`
-          + (triggerMessage ? `${developerName} said: "${triggerMessage}"\n\n` : '')
-          + (historyText ? `Recent conversation:\n${historyText}\n\n` : '')
-          + `Write 2-10 sentences in first person as ${fromAgent.name}: summarise what you and `
-          + `${developerName} discussed, what ${developerName}'s goal is, and why you are `
-          + `forwarding them to ${toAgent.name}. `
-          + `Do not repeat the request word-for-word. Do not add a subject line or greeting.`,
-      }],
-      { maxTokens: 250 },
+      [
+        {
+          role: 'user',
+          content:
+            `You are ${agentTitle}. ` +
+            `Write a handoff briefing for ${toAgent.name}.\n` +
+            (triggerMessage ? `${developerName} said: "${triggerMessage}"\n\n` : '') +
+            (historyText ? `Recent conversation:\n${historyText}\n\n` : '') +
+            `Write 2-10 sentences in first person as ${fromAgent.name}: summarise what you and ` +
+            `${developerName} discussed, what ${developerName}'s goal is, and why you are ` +
+            `forwarding them to ${toAgent.name}. ` +
+            `Do not repeat the request word-for-word. Do not add a subject line or greeting.`,
+        },
+      ],
+      { maxTokens: 250 }
     );
     return reply.trim();
   } catch {

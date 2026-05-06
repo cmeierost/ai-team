@@ -1,14 +1,20 @@
-import sqlite3 from 'sqlite3';
+import Database from 'better-sqlite3';
+import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { sql, type SQL } from 'drizzle-orm';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
+import * as schema from './schema.js';
+
+export type SqliteDrizzleDatabase = BetterSQLite3Database<typeof schema>;
 
 /**
  * Promisified SQLite database wrapper
- * Wraps the callback-based sqlite3 API with Promises for async/await usage
+ * Wraps Drizzle + better-sqlite3 with Promise-based methods for async/await usage
  */
 export class SqliteConnection {
-  private db: sqlite3.Database | null = null;
-  private dbPath: string;
+  private db: Database.Database | null = null;
+  private drizzleDb: SqliteDrizzleDatabase | null = null;
+  private readonly dbPath: string;
 
   constructor(workspaceRoot: string, dbFileName: string = 'ai-team.db') {
     const dbDir = path.join(workspaceRoot, '.ai-team', 'private');
@@ -29,31 +35,21 @@ export class SqliteConnection {
     const dbDir = path.dirname(this.dbPath);
     await fs.mkdir(dbDir, { recursive: true });
 
-    return new Promise((resolve, reject) => {
-      this.db = new sqlite3.Database(this.dbPath, (err) => {
-        if (err) {
-          reject(new Error(`Failed to open database at ${this.dbPath}: ${err.message}`));
-          return;
-        }
+    try {
+      this.db = new Database(this.dbPath);
+      this.drizzleDb = drizzle(this.db, { schema });
 
-        // Enable WAL mode for concurrent reads/writes
-        this.db!.run('PRAGMA journal_mode = WAL;', (walErr) => {
-          if (walErr) {
-            reject(new Error(`Failed to enable WAL mode: ${walErr.message}`));
-            return;
-          }
-
-          // Enable foreign keys
-          this.db!.run('PRAGMA foreign_keys = ON;', (fkErr) => {
-            if (fkErr) {
-              reject(new Error(`Failed to enable foreign keys: ${fkErr.message}`));
-              return;
-            }
-            resolve();
-          });
-        });
-      });
-    });
+      // Enable WAL mode for concurrent reads/writes
+      this.db.pragma('journal_mode = WAL');
+      // Enable foreign keys
+      this.db.pragma('foreign_keys = ON');
+    } catch (error) {
+      this.db = null;
+      this.drizzleDb = null;
+      throw new Error(
+        `Failed to open database at ${this.dbPath}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /**
@@ -64,16 +60,50 @@ export class SqliteConnection {
       return;
     }
 
-    return new Promise((resolve, reject) => {
-      this.db!.close((err) => {
-        this.db = null;
-        if (err) {
-          reject(new Error(`Failed to close database: ${err.message}`));
-        } else {
-          resolve();
-        }
-      });
-    });
+    try {
+      this.db.close();
+    } catch (error) {
+      throw new Error(
+        `Failed to close database: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      this.db = null;
+      this.drizzleDb = null;
+    }
+  }
+
+  private ensureDrizzleDb(): SqliteDrizzleDatabase {
+    if (!this.db || !this.drizzleDb) {
+      throw new Error('Database not open. Call open() first.');
+    }
+    return this.drizzleDb;
+  }
+
+  getDrizzleDb(): SqliteDrizzleDatabase {
+    return this.ensureDrizzleDb();
+  }
+
+  private toParameterizedSql(sqlText: string, params: any[] = []): SQL {
+    if (params.length === 0) {
+      return sql.raw(sqlText);
+    }
+
+    const parts = sqlText.split('?');
+    if (parts.length !== params.length + 1) {
+      throw new Error(
+        `SQL parameter mismatch: expected ${parts.length - 1} parameter(s) but received ${params.length}. SQL: ${sqlText}`
+      );
+    }
+
+    const chunks: SQL[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      chunks.push(sql.raw(parts[i] || ''));
+      if (i < params.length) {
+        chunks.push(sql`${params[i]}`);
+      }
+    }
+
+    return sql.join(chunks, sql.raw(''));
   }
 
   /**
@@ -81,19 +111,30 @@ export class SqliteConnection {
    * @returns Object with lastID and changes count
    */
   async run(sql: string, params: any[] = []): Promise<{ lastID: number; changes: number }> {
-    if (!this.db) {
-      throw new Error('Database not open. Call open() first.');
-    }
+    const db = this.ensureDrizzleDb();
 
-    return new Promise((resolve, reject) => {
-      this.db!.run(sql, params, function (err) {
-        if (err) {
-          reject(new Error(`SQL run error: ${err.message}\nSQL: ${sql}`));
-        } else {
-          resolve({ lastID: this.lastID, changes: this.changes });
-        }
-      });
-    });
+    try {
+      const result = db.run(this.toParameterizedSql(sql, params)) as {
+        changes?: number;
+        lastInsertRowid?: number | bigint;
+      };
+
+      const rawLastInsertRowid = result.lastInsertRowid;
+      let lastID = 0;
+      if (rawLastInsertRowid !== undefined) {
+        lastID =
+          typeof rawLastInsertRowid === 'bigint' ? Number(rawLastInsertRowid) : rawLastInsertRowid;
+      }
+
+      return {
+        lastID,
+        changes: result.changes ?? 0,
+      };
+    } catch (error) {
+      throw new Error(
+        `SQL run error: ${error instanceof Error ? error.message : String(error)}\nSQL: ${sql}`
+      );
+    }
   }
 
   /**
@@ -101,19 +142,16 @@ export class SqliteConnection {
    * @returns The first row or null if no results
    */
   async get<T = any>(sql: string, params: any[] = []): Promise<T | null> {
-    if (!this.db) {
-      throw new Error('Database not open. Call open() first.');
-    }
+    const db = this.ensureDrizzleDb();
 
-    return new Promise((resolve, reject) => {
-      this.db!.get(sql, params, (err, row) => {
-        if (err) {
-          reject(new Error(`SQL get error: ${err.message}\nSQL: ${sql}`));
-        } else {
-          resolve((row as T) || null);
-        }
-      });
-    });
+    try {
+      const row = db.get(this.toParameterizedSql(sql, params)) as T | undefined;
+      return row ?? null;
+    } catch (error) {
+      throw new Error(
+        `SQL get error: ${error instanceof Error ? error.message : String(error)}\nSQL: ${sql}`
+      );
+    }
   }
 
   /**
@@ -121,19 +159,15 @@ export class SqliteConnection {
    * @returns Array of rows (empty array if no results)
    */
   async all<T = any>(sql: string, params: any[] = []): Promise<T[]> {
-    if (!this.db) {
-      throw new Error('Database not open. Call open() first.');
-    }
+    const db = this.ensureDrizzleDb();
 
-    return new Promise((resolve, reject) => {
-      this.db!.all(sql, params, (err, rows) => {
-        if (err) {
-          reject(new Error(`SQL all error: ${err.message}\nSQL: ${sql}`));
-        } else {
-          resolve((rows as T[]) || []);
-        }
-      });
-    });
+    try {
+      return (db.all(this.toParameterizedSql(sql, params)) as T[]) || [];
+    } catch (error) {
+      throw new Error(
+        `SQL all error: ${error instanceof Error ? error.message : String(error)}\nSQL: ${sql}`
+      );
+    }
   }
 
   /**
@@ -145,15 +179,11 @@ export class SqliteConnection {
       throw new Error('Database not open. Call open() first.');
     }
 
-    return new Promise((resolve, reject) => {
-      this.db!.exec(sql, (err) => {
-        if (err) {
-          reject(new Error(`SQL exec error: ${err.message}`));
-        } else {
-          resolve();
-        }
-      });
-    });
+    try {
+      this.db.exec(sql);
+    } catch (error) {
+      throw new Error(`SQL exec error: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /**

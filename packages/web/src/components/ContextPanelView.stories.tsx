@@ -1,6 +1,6 @@
 import { useState, type ComponentProps } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import type { AgentToolPermissionEntry } from '@ai-team/api-client';
+import type { AgentToolPermissionEntry } from '@ai-team/api-contracts';
 import { ContextPanelView, type ContextSection } from './ContextPanelView';
 import type { ContextPanelNoteItem } from '../utils/contextPanel';
 import {

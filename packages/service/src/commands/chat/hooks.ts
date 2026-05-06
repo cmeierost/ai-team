@@ -12,7 +12,7 @@ import type {
   QuestionSelectRequest,
   WorkflowFrame,
   WorkflowStateSnapshot,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
 export interface ChatRuntimeHooks {
   /** Abort signal — any pending operation respects this. */

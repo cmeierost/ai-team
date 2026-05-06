@@ -3,9 +3,9 @@
  * These wrap the hook's emit() and fall back to raw stdout/stderr for CLI.
  */
 import { format as formatMessage } from 'util';
-import type { ChatMessage } from '@ai-team/infrastructure';
+import type { ChatMessage } from '@ai-team/core';
 import type { ChatRuntimeHooks } from './hooks.js';
-import type { RuntimeStreamEvent } from '@ai-team/api-client';
+import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
 
 export function emitRuntimeEvent(
   hooks: ChatRuntimeHooks | undefined,

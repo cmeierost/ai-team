@@ -1,11 +1,10 @@
-import { AgentManager } from '@ai-team/infrastructure';
+import type { IAgentManager } from '@ai-team/core';
+import type { Employee } from '@ai-team/api-contracts';
 
-import { Employee } from '@ai-team/api-client';
+export class ResolveEmployeesCommand {
+  constructor(private readonly agentManager: IAgentManager) {}
 
-export async function resolveEmployeesCommand(
-  workspaceRoot: string,
-  query: string
-): Promise<Employee[]> {
-  const employeeManager = new AgentManager(workspaceRoot);
-  return employeeManager.resolveAgentAsync(query);
+  async execute(query: string): Promise<Employee[]> {
+    return this.agentManager.resolveAgentAsync(query);
+  }
 }

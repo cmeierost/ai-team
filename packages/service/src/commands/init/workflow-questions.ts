@@ -8,8 +8,8 @@ import type {
   QuestionSelectRequest,
   WorkflowFrame,
   WorkflowStateSnapshot,
-} from '@ai-team/api-client';
-import type { Agent, ToolContext } from '@ai-team/infrastructure';
+} from '@ai-team/api-contracts';
+import type { Agent, ToolContext } from '@ai-team/core';
 import {
   resolveWorkflowAnswer as _resolveWorkflowAnswer,
   emitWorkflowQuestionFrame as _emitWorkflowQuestionFrame,

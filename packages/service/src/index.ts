@@ -34,7 +34,7 @@ export {
 
 export { generateIntroduction } from './orchestrator/introduction.js';
 export { generateDefaultHandoffPrompt } from './orchestrator/generate-handoff-prompt.js';
-export { chatCommand, type ChatRuntimeHooks } from './commands/chat/index.js';
+export { type ChatRuntimeHooks } from './commands/chat/index.js';
 export { serveApiCommand, type ServeApiOptions } from './commands/serve.js';
 export { runUiCommand, type UiCommandOptions } from './commands/ui.js';
 export {
@@ -55,23 +55,18 @@ export { CommandDispatcher, createCommandDispatcher } from './command-dispatcher
 
 // Storage abstraction layer
 export {
-  type IMessageStorage,
+  type IPlanningStorage,
   type MessageFilter,
   type SessionFilter,
   type StorageStats,
   type MessageInsertResult,
-  type MessageStorageFactory,
-  SqliteMessageStorage,
-  SqliteConnection,
-  MigrationManager,
-  createSqliteStorage,
 } from './storage/index.js';
 export {
   ProposalStore,
   type StoredProposal,
   type StoredProposalFile,
 } from './storage/proposal-store.js';
-export type { AgentFilesResponse } from '@ai-team/api-client';
+export type { AgentFilesResponse } from '@ai-team/api-contracts';
 
 export { createToolManager, type OrchestrationDeps } from './tools/create-tool-manager.js';
 export { ToolManager } from './tools/tool-manager.js';

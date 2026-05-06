@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import type { SearchSkillsResponse, UpdateAgentSkillResponse } from '@ai-team/api-client';
+import type { SearchSkillsResponse, UpdateAgentSkillResponse } from '@ai-team/api-contracts';
 
 interface SkillsRenderOptions {
   json?: boolean;

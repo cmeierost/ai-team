@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Agent } from '@ai-team/api-client';
+import type { Agent } from '@ai-team/api-contracts';
 
 import { renderAgentList } from './list.js';
 
@@ -17,9 +17,7 @@ describe('list command', () => {
   });
 
   it('prints JSON output for filtered agents', async () => {
-    const employees: Agent[] = [
-      { name: 'Maya', role: 'engineer', features: ['auth'] },
-    ];
+    const employees: Agent[] = [{ name: 'Maya', role: 'engineer', features: ['auth'] }];
 
     renderAgentList(employees, { json: true });
 

@@ -3,7 +3,7 @@ import type {
   WorkflowDefinitionDocument,
   WorkflowDefinitionState,
   WorkflowDefinitionTransition,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import { inspect } from 'node:util';
 import { assign, createActor, fromPromise, setup, toPromise } from 'xstate';
 

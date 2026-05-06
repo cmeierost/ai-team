@@ -14,7 +14,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { ContextLevel } from '@ai-team/infrastructure';
+import { ContextLevel } from '@ai-team/core';
 import type { IContextEnricher } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
 
@@ -28,7 +28,7 @@ export class WorkspaceOverviewEnricher implements IContextEnricher {
   async enrich(ctx: OrchestratorContext): Promise<string | null> {
     const role = ctx.agent.role.toLowerCase();
     const isHighContextAgent =
-      ARCHITECT_ROLES.some(r => role.includes(r)) ||
+      ARCHITECT_ROLES.some((r) => role.includes(r)) ||
       ctx.agent.contextLevel === ContextLevel.ORGANIZATION ||
       ctx.agent.contextLevel === ContextLevel.REPOSITORY;
 
@@ -52,14 +52,18 @@ export class TeamRosterEnricher implements IContextEnricher {
 
   async enrich(ctx: OrchestratorContext): Promise<string | null> {
     const role = ctx.agent.role.toLowerCase();
-    const isHrRole = HR_ROLES.some(r => role.includes(r));
+    const isHrRole = HR_ROLES.some((r) => role.includes(r));
 
     if (!isHrRole) return null;
 
-    const agents = (await ctx.agentManager.getAllAgentsAsync()).filter(a => a.id !== ctx.agent.id);
+    const agents = (await ctx.agentManager.getAllAgentsAsync()).filter(
+      (a) => a.id !== ctx.agent.id
+    );
     if (agents.length === 0) return null;
 
-    const lines = agents.map(a => `- **${a.name}** (${a.role}) [${a.id}]${a.status ? ` — ${a.status}` : ''}`);
+    const lines = agents.map(
+      (a) => `- **${a.name}** (${a.role}) [${a.id}]${a.status ? ` — ${a.status}` : ''}`
+    );
     return `## Current team roster\n${lines.join('\n')}`;
   }
 }
@@ -69,7 +73,15 @@ export class TeamRosterEnricher implements IContextEnricher {
 async function buildDirectoryTree(dir: string, maxDepth: number, depth = 0): Promise<string> {
   if (depth >= maxDepth) return '';
 
-  const IGNORE = new Set(['.git', 'node_modules', '.ai-team', 'dist', '.next', 'coverage', '.turbo']);
+  const IGNORE = new Set([
+    '.git',
+    'node_modules',
+    '.ai-team',
+    'dist',
+    '.next',
+    'coverage',
+    '.turbo',
+  ]);
   const indent = '  '.repeat(depth);
   const lines: string[] = [];
 
@@ -77,12 +89,12 @@ async function buildDirectoryTree(dir: string, maxDepth: number, depth = 0): Pro
   try {
     const raw = await fs.readdir(dir, { withFileTypes: true });
     entries = raw
-      .filter(e => !IGNORE.has(e.name) && !e.name.startsWith('.'))
+      .filter((e) => !IGNORE.has(e.name) && !e.name.startsWith('.'))
       .sort((a, b) => {
         if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
         return a.name.localeCompare(b.name);
       })
-      .map(e => ({ name: e.name, isDir: e.isDirectory() }));
+      .map((e) => ({ name: e.name, isDir: e.isDirectory() }));
   } catch {
     return '';
   }

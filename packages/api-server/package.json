@@ -17,7 +17,7 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "@ai-team/api-client": "workspace:*",
+    "@ai-team/api-contracts": "workspace:*",
     "@ai-team/container": "workspace:*",
     "@ai-team/core": "workspace:*",
     "@ai-team/infrastructure": "workspace:*",

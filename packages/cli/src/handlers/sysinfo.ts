@@ -3,7 +3,7 @@
  */
 
 import chalk from 'chalk';
-import type { SystemInfoResponse } from '@ai-team/api-client';
+import type { SystemInfoResponse } from '@ai-team/api-contracts';
 
 interface SysInfoOptions {
   json?: boolean;

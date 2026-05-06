@@ -1,4 +1,6 @@
+import path from 'node:path';
 import type { CliCommandMetadata } from '@ai-team/infrastructure';
+import { TOKENS } from '../service-bootstrap.js';
 import { createFactoryCommandDefinition } from './shared.js';
 
 export const dbStatusCliMetadata: CliCommandMetadata = {
@@ -14,6 +16,8 @@ export const dbStatusCommandDefinition = createFactoryCommandDefinition(
   dbStatusCliMetadata,
   async (container) => {
     const { dbStatusCommandAsync } = await import('@ai-team/service/src/commands/db.js');
-    return dbStatusCommandAsync(container.workspaceRoot);
+    const backend = container.resolve(TOKENS.SqliteBackend);
+    const dbPath = path.join(container.workspaceRoot, '.ai-team', 'private', 'ai-team.db');
+    return dbStatusCommandAsync(backend, dbPath);
   }
 );

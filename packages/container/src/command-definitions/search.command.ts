@@ -27,8 +27,9 @@ export const searchCommandDefinition = createFactoryCommandDefinition(
   'searchAgents',
   searchCliMetadata,
   async (container, payload) => {
-    const { searchAgentsCommand } = await import('@ai-team/service/src/commands/search.js');
-    return searchAgentsCommand(container.workspaceRoot, {
+    const { SearchAgentsCommand } = await import('@ai-team/service/src/commands/search.js');
+    const { COMMAND_FACTORY_TOKENS } = await import('@ai-team/service/src/commands/definitions/types.js');
+    return new SearchAgentsCommand(container.resolve(COMMAND_FACTORY_TOKENS.AgentManager)).execute({
       query: payload.query,
       role: payload.role as any,
       type: payload.type as any,

@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { IServiceContainer } from './runtime-contracts.js';
 
 /**
  * Slim tool execution context carrying only what file-level tools need.
@@ -7,9 +8,44 @@ import type { z } from 'zod';
 export interface ToolContext {
   agentId: string;
   workspaceRoot: string;
+  /**
+   * DI container resolver. Injected by ToolManager at execute time.
+   * Tools should use this to resolve services (e.g. IAgentManager) instead of
+   * constructing dependencies directly.
+   */
+  resolve?: IServiceContainer['resolve'];
+  /** Optional path permission checker injected by runtime. */
+  pathPermissionChecker?: {
+    canReadPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+    canWritePath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+    canListPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+    assertCanReadPath(
+      workspaceRoot: string,
+      contextId: string,
+      permissions: unknown,
+      filePath: string
+    ): void;
+    assertCanWritePath(
+      workspaceRoot: string,
+      contextId: string,
+      permissions: unknown,
+      filePath: string
+    ): void;
+  };
+  /** Optional agent manager bridge for tools needing cross-agent introspection. */
+  agentManager?: {
+    getAllAgentsAsync(): Promise<Array<{ id: string; name: string; permissions?: unknown }>>;
+    getAgentAsync(
+      agentId: string
+    ): Promise<{ id: string; name: string; permissions?: unknown } | null>;
+  };
   /** Optional user-question bridges provided by the active runtime surface (web/CLI). */
   questionInput?: (request: { message: string }) => Promise<string>;
-  questionConfirm?: (request: { message: string; default?: boolean; style?: 'confirm' | 'allow' }) => Promise<boolean>;
+  questionConfirm?: (request: {
+    message: string;
+    default?: boolean;
+    style?: 'confirm' | 'allow';
+  }) => Promise<boolean>;
   questionSelect?: (request: {
     message: string;
     choices: Array<{ name: string; value: string; description?: string; recommended?: boolean }>;

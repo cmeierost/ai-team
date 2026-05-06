@@ -1,4 +1,4 @@
-import type { ChatCommandRegistryEntry } from '@ai-team/api-client';
+import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 import './SlashCommandDropdown.css';
 
 interface SlashCommandDropdownProps {

@@ -25,7 +25,14 @@ export const filesTreeCommandDefinition = createFactoryCommandDefinition(
   'filesTree',
   filesTreeCliMetadata,
   async (container, payload) => {
-    const { filesTreeCommandAsync } = await import('@ai-team/service/src/commands/file-tree.js');
-    return filesTreeCommandAsync(container.workspaceRoot, payload);
+    const { FileTreeCommand } = await import('@ai-team/service/src/commands/file-tree.js');
+    const { COMMAND_FACTORY_TOKENS } = await import('@ai-team/service/src/commands/definitions/types.js');
+    return new FileTreeCommand(
+      container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      container.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
+      container.resolve(COMMAND_FACTORY_TOKENS.FileTreeService),
+      container.resolve(COMMAND_FACTORY_TOKENS.FileAnnotationService)
+    ).filesTree(payload);
   }
 );

@@ -3,7 +3,7 @@
  */
 
 import chalk from 'chalk';
-import type { Agent } from '@ai-team/api-client';
+import type { Agent } from '@ai-team/api-contracts';
 
 interface ListRenderOptions {
   json?: boolean;

@@ -1,25 +1,4 @@
-export interface CommandOptionMetadata {
-  flags: string;
-  description: string;
-  defaultValue?: string | boolean | string[];
-}
-
-export interface CommandArgumentMetadata {
-  syntax: string;
-  description: string;
-}
-
-export interface CliCommandMetadata {
-  key: string;
-  command: string;
-  description: string;
-  llmCallable: boolean;
-  directCli?: boolean;
-  parentKey?: string;
-  aliases?: string[];
-  options?: CommandOptionMetadata[];
-  arguments?: CommandArgumentMetadata[];
-}
+import { CliCommandMetadata } from '@ai-team/core';
 
 const cliCommandCatalog = new Map<string, CliCommandMetadata>();
 
@@ -31,7 +10,7 @@ export function registerCliCommandCatalog(commands: CliCommandMetadata[]): void 
 }
 
 export function getCliCommandCatalog(): CliCommandMetadata[] {
-  return [...cliCommandCatalog.values()].map(command => ({
+  return [...cliCommandCatalog.values()].map((command) => ({
     ...command,
     aliases: command.aliases ? [...command.aliases] : undefined,
     options: command.options ? [...command.options] : undefined,
@@ -40,5 +19,5 @@ export function getCliCommandCatalog(): CliCommandMetadata[] {
 }
 
 export function getLlmCallableCliCommandsFromCatalog(): CliCommandMetadata[] {
-  return getCliCommandCatalog().filter(command => command.llmCallable);
+  return getCliCommandCatalog().filter((command) => command.llmCallable);
 }

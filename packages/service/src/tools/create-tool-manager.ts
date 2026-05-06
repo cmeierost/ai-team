@@ -17,13 +17,34 @@
 
 import { ToolManager } from './tool-manager.js';
 import { ALL_TOOLS } from './catalog/index.js';
-import type { LspProvider } from '@ai-team/infrastructure';
+import type { IServiceContainer, LspProvider } from '@ai-team/core';
 import { createOrchestrationTools, type OrchestrationDeps } from './orchestration-tools.js';
 
 export type { OrchestrationDeps } from './orchestration-tools.js';
 
+export interface PathPermissionCheckerLike {
+  canReadPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+  canWritePath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+  canListPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+  assertCanReadPath(
+    workspaceRoot: string,
+    contextId: string,
+    permissions: unknown,
+    filePath: string
+  ): void;
+  assertCanWritePath(
+    workspaceRoot: string,
+    contextId: string,
+    permissions: unknown,
+    filePath: string
+  ): void;
+}
+
 export interface CreateToolManagerOptions {
   lsp?: LspProvider;
+  pathPermissionChecker: PathPermissionCheckerLike;
+  /** DI container forwarded into every tool's ToolContext.resolve. */
+  container?: IServiceContainer;
 }
 
 /**
@@ -40,12 +61,19 @@ export function createToolManager(
   deps: OrchestrationDeps,
   options?: CreateToolManagerOptions
 ): ToolManager {
-  const opts: CreateToolManagerOptions = options ?? {};
+  if (!options?.pathPermissionChecker) {
+    throw new Error('createToolManager requires options.pathPermissionChecker');
+  }
+  const opts: CreateToolManagerOptions = options;
 
-  const manager = new ToolManager(workspaceRoot);
+  const manager = new ToolManager(workspaceRoot, opts.pathPermissionChecker);
 
   if (opts.lsp) {
     manager.setLspProvider(opts.lsp);
+  }
+
+  if (opts.container) {
+    manager.setContainer(opts.container);
   }
 
   // 1. Core domain tools (file, search, code-analysis, agent, hr intrinsics)

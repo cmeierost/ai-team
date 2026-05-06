@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatOptions } from '@ai-team/api-client';
+import type { ChatOptions } from '@ai-team/api-contracts';
 import { InteractionService } from '@ai-team/service';
 
 describe('InteractionService', () => {

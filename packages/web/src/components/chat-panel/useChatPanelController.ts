@@ -17,7 +17,7 @@ import type {
   ChatCommandRegistryEntry,
   Note,
   NoteSessionShare,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import { useSlashCommandSuggestions } from '../../hooks/useSlashCommandSuggestions';
 import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
 import { pickVoice, stripMarkdownForSpeech } from '../../utils/agentVoice';

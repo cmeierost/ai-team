@@ -1,5 +1,5 @@
 import type { CliCommandMetadata } from '@ai-team/infrastructure';
-import type { PermissionOverlapReport } from '@ai-team/api-client';
+import type { PermissionOverlapReport } from '@ai-team/api-contracts';
 import { createFactoryCommandDefinition } from './shared.js';
 
 export const accessOverlapCliMetadata: CliCommandMetadata = {

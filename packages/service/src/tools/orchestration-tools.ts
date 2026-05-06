@@ -32,7 +32,7 @@ import {
   FindCapableAgentResult,
   TeamListResult,
   ToolCatalogResult,
-} from '@ai-team/infrastructure';
+} from '@ai-team/core';
 
 // ── DI contracts — each tool depends only on what it needs ───────────────────
 

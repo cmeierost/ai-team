@@ -10,7 +10,7 @@
  *   2. Progressively shorter word-prefix slices of the extracted name
  *   3. LLM fallback (ask the model which roster entry the user means)
  */
-import type { AgentManager, Agent, LlmService, ChatMessage } from '@ai-team/infrastructure';
+import type { IAgentManager, Agent, ILlmService, ChatMessage } from '@ai-team/core';
 
 const FORWARD_PATTERNS = [
   /(?:forward|transfer|connect|switch|redirect)\s+(?:me\s+)?(?:to|over\s+to)\s+(.+)/i,
@@ -35,8 +35,8 @@ const FORWARD_TARGET_ALIASES: Record<string, string[]> = {
 
 async function resolveForwardTargetCandidatesAsync(
   target: string,
-  agentManager: AgentManager,
-  currentAgentId: string,
+  agentManager: IAgentManager,
+  currentAgentId: string
 ): Promise<Agent[]> {
   const normalized = target.trim().toLowerCase();
   const queries = new Set<string>([normalized]);
@@ -66,7 +66,10 @@ function extractForwardTargetName(message: string): string | undefined {
   for (const pattern of FORWARD_PATTERNS) {
     const match = message.match(pattern);
     if (!match) continue;
-    let target = match[1].replace(/[?.!,]+$/, '').replace(/^the\s+/i, '').trim();
+    let target = match[1]
+      .replace(/[?.!,]+$/, '')
+      .replace(/^the\s+/i, '')
+      .trim();
     if (!target) continue;
     target = target.replace(/\b(?:and|but|so|then|because|while|plus)\b.*$/i, '').trim();
     target = target.replace(/\b(?:please|thanks|thank you)\b.*$/i, '').trim();
@@ -92,7 +95,7 @@ export function extractForwardNote(message: string, agentName: string): string |
   // If full name wasn't found, try individual name parts (first name, last name)
   // so "connect me to michael" matches agent "Michael Brown".
   if (afterName === trimmedMsg) {
-    const nameParts = agentName.split(/\s+/).filter(p => p.length >= 2);
+    const nameParts = agentName.split(/\s+/).filter((p) => p.length >= 2);
     for (const part of nameParts) {
       const partEscaped = part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const result = message.replace(new RegExp(`^.*?${partEscaped}`, 'i'), '').trim();
@@ -113,8 +116,8 @@ export function extractForwardNote(message: string, agentName: string): string |
 
 async function detectForwardRequestAsync(
   message: string,
-  agentManager: AgentManager,
-  currentAgentId: string,
+  agentManager: IAgentManager,
+  currentAgentId: string
 ): Promise<Agent | undefined> {
   const target = extractForwardTargetName(message);
   if (!target) return undefined;
@@ -124,9 +127,20 @@ async function detectForwardRequestAsync(
 
 /** Third-person pronouns and vague references that cannot be resolved without context. */
 export const REFERENCE_PRONOUNS = new Set([
-  'him', 'her', 'them', 'they', 'he', 'she',
-  'that person', 'this person', 'that agent', 'the agent',
-  'that team member', 'this team member', 'that one', 'this one',
+  'him',
+  'her',
+  'them',
+  'they',
+  'he',
+  'she',
+  'that person',
+  'this person',
+  'that agent',
+  'the agent',
+  'that team member',
+  'this team member',
+  'that one',
+  'this one',
 ]);
 
 /**
@@ -135,11 +149,11 @@ export const REFERENCE_PRONOUNS = new Set([
  */
 export async function detectForwardRequestWithFallbackAsync(
   message: string,
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
   currentAgentId: string,
-  llm: LlmService,
+  llm: ILlmService,
   agent: Agent,
-  history: ChatMessage[] = [],
+  history: ChatMessage[] = []
 ): Promise<{ resolved: Agent | undefined; looksLikeForward: boolean }> {
   // Phase 1: exact/fuzzy regex match
   const direct = await detectForwardRequestAsync(message, agentManager, currentAgentId);
@@ -155,7 +169,9 @@ export async function detectForwardRequestWithFallbackAsync(
     const words = rawTarget.trim().split(/\s+/);
     for (let len = words.length - 1; len >= 1; len--) {
       const candidate = words.slice(0, len).join(' ');
-      const matches = (await agentManager.resolveAgentAsync(candidate)).filter(a => a.id !== currentAgentId);
+      const matches = (await agentManager.resolveAgentAsync(candidate)).filter(
+        (a) => a.id !== currentAgentId
+      );
       if (matches.length > 0) return { resolved: matches[0], looksLikeForward: true };
     }
   }
@@ -163,37 +179,43 @@ export async function detectForwardRequestWithFallbackAsync(
   // Phase 3: LLM fallback — let the model identify the target from the roster.
   // Always include recent conversation history so pronouns and implicit references
   // ("her", "him", "the one you mentioned") can be resolved from context.
-  const candidates = (await agentManager.getAllAgentsAsync()).filter(a => a.id !== currentAgentId);
+  const candidates = (await agentManager.getAllAgentsAsync()).filter(
+    (a) => a.id !== currentAgentId
+  );
   if (candidates.length > 0) {
     try {
-      const nameList = candidates.map(a => `${a.name} (${a.role})`).join(', ');
+      const nameList = candidates.map((a) => `${a.name} (${a.role})`).join(', ');
       let contextBlock = '';
       if (history.length > 0) {
         const recentTurns = history.slice(-6);
         contextBlock =
-          '\nRecent conversation (last few messages):\n'
-          + recentTurns.map(m => `${m.isHuman ? 'Developer' : m.from}: ${m.content}`).join('\n')
-          + '\n';
+          '\nRecent conversation (last few messages):\n' +
+          recentTurns.map((m) => `${m.isHuman ? 'Developer' : m.from}: ${m.content}`).join('\n') +
+          '\n';
       }
       const pronounHint = isPronouns
         ? `The word "${rawTarget}" is a pronoun — use the conversation history to identify who it refers to.\n`
         : '';
       const reply = await llm.chat(
         agent,
-        [{
-          role: 'user',
-          content:
-            `The developer said: "${message}"\n`
-            + pronounHint
-            + contextBlock
-            + `\nWhich of these team members are they referring to? Options: ${nameList}\n`
-            + 'Reply with just the exact name from the list, or "none" if it is unclear.',
-        }],
-        { maxTokens: 20 },
+        [
+          {
+            role: 'user',
+            content:
+              `The developer said: "${message}"\n` +
+              pronounHint +
+              contextBlock +
+              `\nWhich of these team members are they referring to? Options: ${nameList}\n` +
+              'Reply with just the exact name from the list, or "none" if it is unclear.',
+          },
+        ],
+        { maxTokens: 20 }
       );
       const answer = reply.trim().replace(/^["']|["'.!?]$/g, '');
       if (answer.toLowerCase() !== 'none' && answer.length > 0) {
-        const matches = (await agentManager.resolveAgentAsync(answer)).filter(a => a.id !== currentAgentId);
+        const matches = (await agentManager.resolveAgentAsync(answer)).filter(
+          (a) => a.id !== currentAgentId
+        );
         if (matches.length > 0) return { resolved: matches[0], looksLikeForward: true };
       }
     } catch {

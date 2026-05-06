@@ -1,6 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import { generateIntroduction } from './introduction.js';
 
+const markdownSectionService = {
+  parseMarkdownSections: (markdown: string) => {
+    const lines = markdown.split(/\r?\n/);
+    const sections: Array<{ heading: string; content: string }> = [];
+    let currentHeading = '';
+    let buffer: string[] = [];
+
+    const pushCurrent = () => {
+      sections.push({ heading: currentHeading, content: buffer.join('\n').trim() });
+      buffer = [];
+    };
+
+    const headingRegex = /^##\s+(.+)$/;
+    for (const line of lines) {
+      const match = headingRegex.exec(line);
+      if (match) {
+        pushCurrent();
+        currentHeading = match[1].trim();
+        continue;
+      }
+      buffer.push(line);
+    }
+
+    pushCurrent();
+    return sections;
+  },
+} as any;
+
 describe('generateIntroduction', () => {
   it('uses Greeting section template with developer placeholder', async () => {
     const agent = {
@@ -13,13 +41,7 @@ describe('generateIntroduction', () => {
       ].join('\n\n'),
     } as any;
 
-    const text = await generateIntroduction(
-      {} as any,
-      {} as any,
-      agent,
-      undefined,
-      'Clemens',
-    );
+    const text = await generateIntroduction(markdownSectionService, agent, 'Clemens');
 
     expect(text).toBe('Hi Clemens, I am Michael Brown (ceo). What should we focus on first?');
   });
@@ -32,13 +54,7 @@ describe('generateIntroduction', () => {
       markdown: '## Introduction\n\nI am Michael Brown.',
     } as any;
 
-    const text = await generateIntroduction(
-      {} as any,
-      {} as any,
-      agent,
-      undefined,
-      'Clemens',
-    );
+    const text = await generateIntroduction(markdownSectionService, agent, 'Clemens');
 
     expect(text).toContain('Hi Clemens');
     expect(text).toContain('Michael Brown');
@@ -53,13 +69,7 @@ describe('generateIntroduction', () => {
       markdown: '## Greeting\n\nHello {{developerName}}.',
     } as any;
 
-    const text = await generateIntroduction(
-      {} as any,
-      {} as any,
-      agent,
-      undefined,
-      undefined,
-    );
+    const text = await generateIntroduction(markdownSectionService, agent, undefined);
 
     expect(text).toBe('Hello there.');
   });

@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { type ChatCommandRegistryEntry } from '@ai-team/api-client';
+import { type ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 import { useTeam } from '../context/TeamContext';
 
 export interface SlashCommandSuggestionsState {

@@ -1,23 +1,21 @@
-import { AgentManager } from '@ai-team/infrastructure';
+import type { IAgentManager } from '@ai-team/core';
+import type { Employee, ListEmployeesRequest } from '@ai-team/api-contracts';
 
-import { Employee, ListEmployeesRequest } from '@ai-team/api-client';
+export class ListEmployeesCommand {
+  constructor(private readonly agentManager: IAgentManager) {}
 
-export async function listEmployeesCommand(
-  workspaceRoot: string,
-  request: ListEmployeesRequest
-): Promise<Employee[]> {
-  const agentManager = new AgentManager(workspaceRoot);
+  async execute(request: ListEmployeesRequest): Promise<Employee[]> {
+    let employees = await this.agentManager.getAllAgentsAsync();
 
-  let employees = await agentManager.getAllAgentsAsync();
+    if (request.role) {
+      employees = employees.filter((employee) => employee.role === request.role);
+    }
 
-  if (request.role) {
-    employees = employees.filter((employee) => employee.role === request.role);
+    if (request.feature) {
+      const feature = request.feature;
+      employees = employees.filter((employee) => employee.features?.includes(feature));
+    }
+
+    return employees;
   }
-
-  if (request.feature) {
-    const feature = request.feature;
-    employees = employees.filter((employee) => employee.features?.includes(feature));
-  }
-
-  return employees;
 }

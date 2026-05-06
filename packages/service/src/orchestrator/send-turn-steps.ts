@@ -4,11 +4,11 @@ import type {
   Agent,
   AgentSkillFile,
   AgentTool,
-  ChatCompletionMessageParam,
   ChatMessage,
+  ILlmChatMessageParam,
   Skill,
   StructuredToolResult,
-} from '@ai-team/infrastructure';
+} from '@ai-team/core';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import { toolKey } from '../tools/tool-manager.js';
 import type { OrchestratorContext } from './pipeline-context.js';
@@ -159,7 +159,7 @@ export async function prepareMessagesAsync(
   userMessage: string,
   plugins: ResolvedPlugins,
   ctx: OrchestratorContext
-): Promise<ChatCompletionMessageParam[]> {
+): Promise<ILlmChatMessageParam[]> {
   const compressed = await plugins.compressor.compress(ctx.history, ctx);
   const messages = await plugins.contextBuilder.build(compressed, ctx);
 
@@ -284,7 +284,7 @@ export async function resolveSkillsAndToolsAsync(
 }
 
 export async function invokeTurnLlmAsync(
-  messages: ChatCompletionMessageParam[],
+  messages: ILlmChatMessageParam[],
   resolved: SendTurnResolvedSkillsAndTools,
   ctx: OrchestratorContext
 ): Promise<SendTurnLlmInvocationResult> {

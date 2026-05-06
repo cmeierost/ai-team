@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { McpServerEntry } from '@ai-team/api-client';
+import type { McpServerEntry } from '@ai-team/api-contracts';
 import { useTeam } from '../context/TeamContext';
 import { PortfolioHeader } from './portfolio/PortfolioHeader';
 import { PortfolioIdentitySection } from './portfolio/PortfolioIdentitySection';

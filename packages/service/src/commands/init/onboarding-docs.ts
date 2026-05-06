@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ChatMessage } from '@ai-team/infrastructure';
+import type { ChatMessage } from '@ai-team/core';
 
 export interface OnboardingTranscriptOptions {
   workspaceRoot: string;

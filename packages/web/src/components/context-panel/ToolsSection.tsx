@@ -1,4 +1,4 @@
-import type { AgentToolPermissionEntry } from '@ai-team/api-client';
+import type { AgentToolPermissionEntry } from '@ai-team/api-contracts';
 import type { SessionActivatedTool } from '../../types';
 import { ContextPanelSectionFrame } from './ContextPanelSectionFrame';
 import type { ContextSection } from './contextPanelTypes';

@@ -1,5 +1,6 @@
 import type { CliCommandMetadata } from '@ai-team/infrastructure';
 import { createFactoryCommandDefinition } from './shared.js';
+import { TOKENS } from '../service-bootstrap.js';
 
 export const accessCanCliMetadata: CliCommandMetadata = {
   key: 'access.can',
@@ -24,7 +25,12 @@ export const accessCanCommandDefinition = createFactoryCommandDefinition(
   'accessCan',
   accessCanCliMetadata,
   async (container, payload) => {
-    const { accessCanHandler } = await import('@ai-team/service/src/commands/access.js');
-    return accessCanHandler(container.workspaceRoot, payload);
+    const { doIHaveAccessCommand } = await import('@ai-team/service/src/commands/access.js');
+    return doIHaveAccessCommand(
+      container.workspaceRoot,
+      container.resolve(TOKENS.AgentManager),
+      container.resolve(TOKENS.PathPermissionChecker),
+      payload
+    );
   }
 );

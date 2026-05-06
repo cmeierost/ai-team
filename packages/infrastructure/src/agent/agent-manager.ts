@@ -1,6 +1,10 @@
 import path from 'node:path';
 import {
   IAgentManager,
+  IAgentDocumentStorage,
+  IWorkspaceStorage,
+  IWorkspaceDiscoveryStorage,
+  IPermissionStorage,
   Agent,
   AgentConfig,
   ValidationError,
@@ -10,15 +14,7 @@ import {
   AgentSearchResult,
   RankedAgentResult,
 } from '@ai-team/core';
-import { rankAgentsByIdentity, filterAndRankAgents } from './agent-search.js';
-import {
-  ensureAiTeamDirectory,
-  saveAgent,
-  findAgentFiles,
-  loadAgent,
-  loadAgentAccessPatterns,
-} from './storage.js';
-import { levenshtein } from '../utils/str.js';
+import { rankAgents, rankAgentsByIdentity, filterAndRankAgents } from './agent-search.js';
 
 export class AgentManager implements IAgentManager {
   private agents: Map<string, Agent> = new Map();
@@ -34,7 +30,13 @@ export class AgentManager implements IAgentManager {
   // -------------------------------------------------------------------------
   private static readonly AUTO_HANDOFF_TAG = '[auto]';
 
-  constructor(workspaceRoot: string) {
+  constructor(
+    workspaceRoot: string,
+    private readonly agentStorage: IAgentDocumentStorage,
+    private readonly workspaceStorage: IWorkspaceStorage,
+    private readonly discoveryStorage: IWorkspaceDiscoveryStorage,
+    private readonly permRegistry: IPermissionStorage
+  ) {
     this.workspaceRoot = workspaceRoot;
   }
 
@@ -44,7 +46,7 @@ export class AgentManager implements IAgentManager {
   async getAgentsAsync(): Promise<Map<string, Agent>> {
     if (!this.agentsLoaded) {
       this.agentsLoaded = true;
-      await ensureAiTeamDirectory(this.workspaceRoot);
+      await this.workspaceStorage.ensureAiTeamDirectoryAsync(this.workspaceRoot);
       this.agents = await this.loadAllAgentsAsync();
     }
     return this.agents;
@@ -61,104 +63,7 @@ export class AgentManager implements IAgentManager {
   }
 
   async rankAgents(query: string | undefined): Promise<RankedAgentResult[]> {
-    const agents = await this.getAgentsAsync();
-    if (!query || query.trim() === '') {
-      return Array.from(agents.values()).map((agent) => ({ agent, score: 50, matches: [] }));
-    }
-
-    const q = query.toLowerCase().trim();
-    const results: RankedAgentResult[] = [];
-
-    for (const agent of agents.values()) {
-      let score = 0;
-      const matches: string[] = [];
-
-      // ── Base tier ────────────────────────────────────────────────────────────
-      if (agent.id === q) {
-        score = 100;
-        matches.push('id');
-      } else if (agent.name.toLowerCase() === q) {
-        score = 95;
-        matches.push('name');
-      } else if (agent.role.toLowerCase() === q) {
-        score = 90;
-        matches.push('role');
-      } else if (agent.name.toLowerCase().includes(q)) {
-        score = 85;
-        matches.push('name');
-      } else if (agent.id.includes(q)) {
-        score = 80;
-        matches.push('id');
-      } else if (agent.role.toLowerCase().includes(q)) {
-        score = 75;
-        matches.push('role');
-      } else if (levenshtein(agent.name.toLowerCase(), q) <= 2) {
-        score = 70 + (2 - levenshtein(agent.name.toLowerCase(), q)) * 2.5;
-        matches.push('name');
-      } else {
-        const firstName = agent.name.toLowerCase().split(/\s+/)[0];
-        if (levenshtein(firstName, q) <= 2) {
-          score = 65 + (2 - levenshtein(firstName, q)) * 2.5;
-          matches.push('name');
-        }
-      }
-
-      // ── Boosters ─────────────────────────────────────────────────────────────
-      if (agent.specializations) {
-        for (const spec of agent.specializations) {
-          const s = spec.toLowerCase();
-          if (s === q) {
-            score = Math.max(score, 70);
-            if (!matches.includes('specializations')) matches.push('specializations');
-          } else if (s.includes(q)) {
-            score = Math.max(score, 60);
-            if (!matches.includes('specializations')) matches.push('specializations');
-          } else if (q.length > 3 && levenshtein(s, q) <= 2) {
-            score = Math.max(score, 55);
-            if (!matches.includes('specializations')) matches.push('specializations');
-          }
-        }
-      }
-
-      if (agent.features) {
-        for (const feature of agent.features) {
-          const f = feature.toLowerCase();
-          if (f.includes(q) || q.includes(f)) {
-            score = Math.max(score, 55);
-            if (!matches.includes('features')) matches.push('features');
-          }
-        }
-      }
-
-      const agentTools = [...(agent.tools ?? []), ...(agent.cliTools ?? [])];
-      for (const tool of agentTools) {
-        const t = tool.toLowerCase();
-        if (t === q) {
-          score = Math.max(score, 50);
-          if (!matches.includes('tools')) matches.push('tools');
-        } else if (t.includes(q)) {
-          score = Math.max(score, 45);
-          if (!matches.includes('tools')) matches.push('tools');
-        }
-      }
-
-      if (agent.markdown) {
-        const c = agent.markdown.toLowerCase();
-        if (c.includes(q)) {
-          score = Math.max(score, q.length > 5 ? 40 : 35);
-          if (!matches.includes('markdown')) matches.push('markdown');
-        }
-      }
-      // ─────────────────────────────────────────────────────────────────────────
-
-      if (score > 0) {
-        results.push({ agent, score, matches });
-      }
-    }
-
-    // Highest score first
-    results.sort((a, b) => b.score - a.score);
-    return results;
+    return rankAgents(query, Array.from((await this.getAgentsAsync()).values()));
   }
 
   /**
@@ -211,7 +116,7 @@ export class AgentManager implements IAgentManager {
     const boss = this.agents!.get(bossId);
     if (!boss) return;
     this.syncHandoffs(boss);
-    await saveAgent(boss);
+    await this.agentStorage.saveAgentAsync(boss);
   }
 
   private toAgentId(config: AgentConfig): string {
@@ -248,17 +153,17 @@ export class AgentManager implements IAgentManager {
    * Load all agents from workspace
    */
   private async loadAllAgentsAsync(): Promise<Map<string, Agent>> {
-    const agentFiles = await findAgentFiles(this.workspaceRoot);
+    const agentFiles = await this.discoveryStorage.findAgentFilesAsync(this.workspaceRoot);
     const agents = new Map<string, Agent>();
 
     this.clearIndexes();
 
     for (const filePath of agentFiles) {
       try {
-        const agent = await loadAgent(filePath);
+        const agent = await this.agentStorage.loadAgentAsync(filePath);
 
         // Merge fallback permissions from the .perm file alongside any YAML-specified permissions
-        const accessPatterns = await loadAgentAccessPatterns(this.workspaceRoot, agent.id);
+        const accessPatterns = await this.permRegistry.loadAsync(agent.id);
         agent.permissions = {
           list: [...new Set([...(agent.permissions?.list ?? []), ...accessPatterns.list])],
           read: [...new Set([...(agent.permissions?.read ?? []), ...accessPatterns.read])],
@@ -424,7 +329,7 @@ export class AgentManager implements IAgentManager {
     };
 
     this.syncHandoffs(agent);
-    await saveAgent(agent);
+    await this.agentStorage.saveAgentAsync(agent);
     agents.set(id, agent);
     this.indexAgent(agent);
 
@@ -453,7 +358,7 @@ export class AgentManager implements IAgentManager {
     Object.assign(agent, updates, { lastInteraction: new Date().toISOString() });
 
     this.syncHandoffs(agent);
-    await saveAgent(agent);
+    await this.agentStorage.saveAgentAsync(agent);
     this.indexAgent(agent);
 
     // If reportsTo changed, resync the old and new bosses so their
@@ -546,7 +451,7 @@ export class AgentManager implements IAgentManager {
       lastInteraction: new Date().toISOString(),
     };
 
-    await saveAgent(updatedAgent);
+    await this.agentStorage.saveAgentAsync(updatedAgent);
     this.deindexAgent(agent);
     agents.set(id, updatedAgent);
     this.indexAgent(updatedAgent);

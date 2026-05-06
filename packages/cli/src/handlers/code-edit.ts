@@ -3,9 +3,12 @@
  */
 
 import chalk from 'chalk';
-import type { CodeEditListResponse, CodeEditProposalSummary } from '@ai-team/api-client';
+import type { CodeEditListResponse, CodeEditProposalSummary } from '@ai-team/api-contracts';
 
-export function renderCodeEditList(data: CodeEditListResponse, options: { json?: boolean } = {}): void {
+export function renderCodeEditList(
+  data: CodeEditListResponse,
+  options: { json?: boolean } = {}
+): void {
   if (options.json) {
     console.log(JSON.stringify(data, null, 2));
     return;
@@ -73,9 +76,7 @@ function displayProposal(proposal: CodeEditProposalSummary): void {
   console.log(`  ${chalk.bold(proposal.id.substring(0, 12))}...`);
   console.log(`  ${proposal.description}`);
   console.log(
-    chalk.gray(
-      `  By ${proposal.agentName} • ${new Date(proposal.timestamp).toLocaleString()}`
-    )
+    chalk.gray(`  By ${proposal.agentName} • ${new Date(proposal.timestamp).toLocaleString()}`)
   );
   console.log(
     `  📁 ${proposal.filesChanged} file${proposal.filesChanged !== 1 ? 's' : ''} • ${chalk.green(`+${proposal.additions}`)} ${chalk.red(`-${proposal.deletions}`)}`
@@ -91,22 +92,34 @@ function displayProposal(proposal: CodeEditProposalSummary): void {
 
 function getStatusIcon(status: string): string {
   switch (status) {
-    case 'PENDING': return '⏳';
-    case 'APPROVED': return '✅';
-    case 'APPLIED': return '🚀';
-    case 'REJECTED': return '❌';
-    case 'FAILED': return '💥';
-    default: return '📦';
+    case 'PENDING':
+      return '⏳';
+    case 'APPROVED':
+      return '✅';
+    case 'APPLIED':
+      return '🚀';
+    case 'REJECTED':
+      return '❌';
+    case 'FAILED':
+      return '💥';
+    default:
+      return '📦';
   }
 }
 
 function getStatusColor(status: string) {
   switch (status) {
-    case 'PENDING': return chalk.yellow;
-    case 'APPROVED': return chalk.blue;
-    case 'APPLIED': return chalk.green;
-    case 'REJECTED': return chalk.red;
-    case 'FAILED': return chalk.red.bold;
-    default: return chalk.white;
+    case 'PENDING':
+      return chalk.yellow;
+    case 'APPROVED':
+      return chalk.blue;
+    case 'APPLIED':
+      return chalk.green;
+    case 'REJECTED':
+      return chalk.red;
+    case 'FAILED':
+      return chalk.red.bold;
+    default:
+      return chalk.white;
   }
 }

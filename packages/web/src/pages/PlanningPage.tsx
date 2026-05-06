@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { usePlanningIntake, usePlans } from '../hooks/usePlanning';
-import type { PlanningIntakeItem, PlanningPlan } from '@ai-team/api-client';
+import type { PlanningIntakeItem, PlanningPlan } from '@ai-team/api-contracts';
 import './PlanningPage.css';
 
 type TabId = 'plans' | 'intake';

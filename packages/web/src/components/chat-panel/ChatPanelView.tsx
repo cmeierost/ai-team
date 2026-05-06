@@ -7,7 +7,7 @@ import {
   type RefObject,
 } from 'react';
 import type { Agent, ChatMessage, Developer, SessionActivatedTool } from '../../types';
-import type { AgentToolPermissionEntry, ChatCommandRegistryEntry } from '@ai-team/api-client';
+import type { AgentToolPermissionEntry, ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 import { Avatar } from '../Avatar';
 import { getAgentHue } from '../../utils/color';
 import { ContextPanel } from '../ContextPanel';

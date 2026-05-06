@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { McpServerEntry } from '@ai-team/api-client';
+import type { McpServerEntry } from '@ai-team/api-contracts';
 import { PortfolioSectionCard } from './portfolioShared';
 
 interface PortfolioMcpSectionProps {
@@ -112,11 +112,7 @@ export function PortfolioMcpSection({
               </div>
               <div className="tool-active-chips">
                 {groupServers.map((s) => (
-                  <span
-                    key={s.id}
-                    className="tool-tag tool-tag-active"
-                    title={serverTitle(s)}
-                  >
+                  <span key={s.id} className="tool-tag tool-tag-active" title={serverTitle(s)}>
                     {s.id}
                   </span>
                 ))}

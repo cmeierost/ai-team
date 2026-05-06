@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { AgentManager } from './index.js';
+import { createAgentManager } from './index.js';
 
 const createdDirs: string[] = [];
 
@@ -12,7 +12,12 @@ async function createWorkspace(): Promise<string> {
   return dir;
 }
 
-async function writeAgentMd(root: string, id: string, frontmatter: string, body = ''): Promise<void> {
+async function writeAgentMd(
+  root: string,
+  id: string,
+  frontmatter: string,
+  body = ''
+): Promise<void> {
   const absolutePath = path.join(root, `.ai-team/agents/${id}.agent.md`);
   await fs.mkdir(path.dirname(absolutePath), { recursive: true });
   const content = `---\n${frontmatter}\n---\n${body}`;
@@ -21,7 +26,9 @@ async function writeAgentMd(root: string, id: string, frontmatter: string, body 
 
 afterEach(async () => {
   await Promise.all(
-    createdDirs.splice(0, createdDirs.length).map((dir) => fs.rm(dir, { recursive: true, force: true })),
+    createdDirs
+      .splice(0, createdDirs.length)
+      .map((dir) => fs.rm(dir, { recursive: true, force: true }))
   );
 });
 
@@ -29,70 +36,89 @@ describe('AgentManager syncHandoffs', () => {
   it('generates upward and downward auto-handoffs on load', async () => {
     const root = await createWorkspace();
     await writeAgentMd(root, 'ceo', 'name: CEO\nrole: chief\ncontextLevel: organization');
-    await writeAgentMd(root, 'lead', 'name: Lead\nrole: team-lead\ncontextLevel: feature\nreportsTo: ceo');
+    await writeAgentMd(
+      root,
+      'lead',
+      'name: Lead\nrole: team-lead\ncontextLevel: feature\nreportsTo: ceo'
+    );
 
-    const mgr = new AgentManager(root);
+    const mgr = createAgentManager(root);
 
     const ceo = (await mgr.getAgentAsync('ceo'))!;
     const lead = (await mgr.getAgentAsync('lead'))!;
 
     // Lead has upward handoff to CEO
-    expect(lead.handoffs?.some(h => h.agent === 'ceo' && h.label.startsWith('[auto]'))).toBe(true);
+    expect(lead.handoffs?.some((h) => h.agent === 'ceo' && h.label.startsWith('[auto]'))).toBe(
+      true
+    );
     // CEO has downward handoff to Lead
-    expect(ceo.handoffs?.some(h => h.agent === 'lead' && h.label.startsWith('[auto]'))).toBe(true);
+    expect(ceo.handoffs?.some((h) => h.agent === 'lead' && h.label.startsWith('[auto]'))).toBe(
+      true
+    );
   });
 
   it('cascades handoff resync to old and new boss on reportsTo change', async () => {
     const root = await createWorkspace();
     await writeAgentMd(root, 'alice', 'name: Alice\nrole: boss-a\ncontextLevel: feature');
     await writeAgentMd(root, 'bob', 'name: Bob\nrole: boss-b\ncontextLevel: feature');
-    await writeAgentMd(root, 'charlie', 'name: Charlie\nrole: worker\ncontextLevel: task\nreportsTo: alice');
+    await writeAgentMd(
+      root,
+      'charlie',
+      'name: Charlie\nrole: worker\ncontextLevel: task\nreportsTo: alice'
+    );
 
-    const mgr = new AgentManager(root);
-    
+    const mgr = createAgentManager(root);
+
     const alice = (await mgr.getAgentAsync('alice'))!;
     const bob = (await mgr.getAgentAsync('bob'))!;
     const charlie = (await mgr.getAgentAsync('charlie'))!;
 
     // Before: Alice has downward handoff to Charlie
-    expect(alice.handoffs?.some(h => h.agent === 'charlie')).toBe(true);
+    expect(alice.handoffs?.some((h) => h.agent === 'charlie')).toBe(true);
     // Before: Bob has no downward handoff to Charlie
-    expect(bob.handoffs?.some(h => h.agent === 'charlie')).toBe(false);
+    expect(bob.handoffs?.some((h) => h.agent === 'charlie')).toBe(false);
 
     // Move Charlie from Alice → Bob
     await mgr.updateAgentAsync('charlie', { reportsTo: 'bob' });
 
-
     // Charlie's upward handoff now points to Bob
-    expect(charlie.handoffs?.some(h => h.agent === 'bob' && h.label.startsWith('[auto]'))).toBe(true);
-    expect(charlie.handoffs?.some(h => h.agent === 'alice')).toBe(false);
+    expect(charlie.handoffs?.some((h) => h.agent === 'bob' && h.label.startsWith('[auto]'))).toBe(
+      true
+    );
+    expect(charlie.handoffs?.some((h) => h.agent === 'alice')).toBe(false);
 
     // Alice no longer has downward handoff to Charlie
-    expect(alice.handoffs?.some(h => h.agent === 'charlie')).toBe(false);
+    expect(alice.handoffs?.some((h) => h.agent === 'charlie')).toBe(false);
 
     // Bob now has downward handoff to Charlie
-    expect(bob.handoffs?.some(h => h.agent === 'charlie' && h.label.startsWith('[auto]'))).toBe(true);
+    expect(bob.handoffs?.some((h) => h.agent === 'charlie' && h.label.startsWith('[auto]'))).toBe(
+      true
+    );
   });
 
   it('preserves manual handoffs during resync', async () => {
     const root = await createWorkspace();
     await writeAgentMd(root, 'boss', 'name: Boss\nrole: boss\ncontextLevel: feature');
-    await writeAgentMd(root, 'worker', [
-      'name: Worker',
-      'role: IC',
-      'contextLevel: task',
-      'reportsTo: boss',
-      'handoffs:',
-      '  - label: "Custom handoff"',
-      '    agent: boss',
-      '    prompt: "my custom prompt"',
-    ].join('\n'));
+    await writeAgentMd(
+      root,
+      'worker',
+      [
+        'name: Worker',
+        'role: IC',
+        'contextLevel: task',
+        'reportsTo: boss',
+        'handoffs:',
+        '  - label: "Custom handoff"',
+        '    agent: boss',
+        '    prompt: "my custom prompt"',
+      ].join('\n')
+    );
 
-    const mgr = new AgentManager(root);
+    const mgr = createAgentManager(root);
 
     const worker = (await mgr.getAgentAsync('worker'))!;
-    const manual = worker.handoffs?.filter(h => !h.label.startsWith('[auto]'));
-    const auto = worker.handoffs?.filter(h => h.label.startsWith('[auto]'));
+    const manual = worker.handoffs?.filter((h) => !h.label.startsWith('[auto]'));
+    const auto = worker.handoffs?.filter((h) => h.label.startsWith('[auto]'));
 
     expect(manual).toHaveLength(1);
     expect(manual![0].label).toBe('Custom handoff');

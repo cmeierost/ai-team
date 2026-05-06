@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { agentManagerMock } = vi.hoisted(() => {
+const { agentManagerMock, pathPermissionCheckerMock } = vi.hoisted(() => {
   const agents = [
     {
       id: 'agent-a',
@@ -24,7 +24,24 @@ const { agentManagerMock } = vi.hoisted(() => {
       .fn()
       .mockImplementation((id: string) => agents.find((a) => a.id === id) ?? null),
   };
-  return { agentManagerMock };
+  const pathPermissionCheckerMock = {
+    canReadPath: vi.fn((_workspaceRoot: string, permissions: any, filePath: string) =>
+      (permissions?.read ?? []).some((pattern: string) =>
+        filePath.startsWith(pattern.replace('/**/*', '/'))
+      )
+    ),
+    canWritePath: vi.fn((_workspaceRoot: string, permissions: any, filePath: string) =>
+      (permissions?.write ?? []).some((pattern: string) =>
+        filePath.startsWith(pattern.replace('/**/*', '/'))
+      )
+    ),
+    canListPath: vi.fn((_workspaceRoot: string, permissions: any, filePath: string) =>
+      (permissions?.read ?? []).some((pattern: string) =>
+        filePath.startsWith(pattern.replace('/**/*', '/'))
+      )
+    ),
+  };
+  return { agentManagerMock, pathPermissionCheckerMock };
 });
 
 vi.mock('@ai-team/core', async (importOriginal) => {
@@ -62,17 +79,27 @@ describe('access command handlers', () => {
   });
 
   it('whoHasAccessCommand defaults right to list', async () => {
-    const result = await whoHasAccessCommand('c:/workspace', agentManagerMock as any, {
-      path: 'docs/readme.md',
-    });
+    const result = await whoHasAccessCommand(
+      'c:/workspace',
+      agentManagerMock as any,
+      pathPermissionCheckerMock as any,
+      {
+        path: 'docs/readme.md',
+      }
+    );
     expect(result.right).toBe('list');
   });
 
   it('doIHaveAccessCommand resolves explicit agent override', async () => {
-    const result = await doIHaveAccessCommand('c:/workspace', agentManagerMock as any, {
-      path: 'src/app.ts',
-      agent: 'agent-b',
-    });
+    const result = await doIHaveAccessCommand(
+      'c:/workspace',
+      agentManagerMock as any,
+      pathPermissionCheckerMock as any,
+      {
+        path: 'src/app.ts',
+        agent: 'agent-b',
+      }
+    );
     expect(result.contextId).toBe('agent-b');
     expect(result.selectedBy).toBe('explicit');
   });

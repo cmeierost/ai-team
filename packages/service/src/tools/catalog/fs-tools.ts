@@ -4,12 +4,12 @@ import { z } from 'zod';
 import { FileTime, READ_DEFAULT_LIMIT, PermissionError, renderAsciiTree } from 'fs-context';
 import type { ReadFileResult, FileTreeNode } from 'fs-context';
 import type { AgentTool, ToolContext } from '@ai-team/core';
-import { createWorkspaceFs } from '@ai-team/infrastructure';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
 /** Build a WorkspaceFs for the executing agent. Cheap — no file scanning. */
-function wfs(ctx: ToolContext) {
+async function wfs(ctx: ToolContext) {
+  const { createWorkspaceFs } = await import('@ai-team/infrastructure');
   return createWorkspaceFs(ctx.workspaceRoot, ctx.agent.id, ctx.agent.permissions);
 }
 
@@ -44,7 +44,7 @@ export const fsExistsTool: AgentTool = {
   async execute(params, context) {
     const { path: targetPath } = params as { path: string };
     try {
-      const fs = wfs(context);
+      const fs = await wfs(context);
       const exists = await fs.existsPath(targetPath);
       return { path: targetPath, exists, access: { allowed: true } };
     } catch (e) {
@@ -68,7 +68,7 @@ export const fsInfoTool: AgentTool = {
   async execute(params, context) {
     const { path: targetPath } = params as { path: string };
     try {
-      const fs = wfs(context);
+      const fs = await wfs(context);
       const info = await fs.getPathInfo(targetPath);
       return { path: targetPath, exists: info !== null, info, access: { allowed: true } };
     } catch (e) {
@@ -86,9 +86,9 @@ export const fsInfoTool: AgentTool = {
 function mapReadResult(
   result: ReadFileResult,
   filePath: string,
-  context: ToolContext
+  agentId: string,
+  fs: { canRead: (path: string) => boolean; toAbsolutePath: (path: string) => string }
 ): Record<string, unknown> {
-  const fs = wfs(context);
   switch (result.kind) {
     case 'not-found': {
       const filtered = result.suggestions.filter((s) => fs.canRead(s)).slice(0, 3);
@@ -132,7 +132,7 @@ function mapReadResult(
       };
     }
     case 'text': {
-      FileTime.record(context.agent.id, fs.toAbsolutePath(filePath));
+      FileTime.record(agentId, fs.toAbsolutePath(filePath));
       return {
         path: filePath,
         content: result.content,
@@ -178,13 +178,13 @@ export const fsReadFileTool: AgentTool = {
       limit = READ_DEFAULT_LIMIT,
     } = params as { filePath: string; offset?: number; limit?: number };
     try {
-      const fs = wfs(context);
+      const fs = await wfs(context);
       const result = await fs.readFile(filePath, {
         offset,
         limit,
         workspaceRoot: context.workspaceRoot,
       });
-      return mapReadResult(result, filePath, context);
+      return mapReadResult(result, filePath, context.agent.id, fs);
     } catch (e) {
       return failed(e, filePath, 'content');
     }
@@ -250,7 +250,7 @@ export const fsCreateFileTool: AgentTool = {
       createDirectories = false,
     } = params as { filePath: string; content?: string; createDirectories?: boolean };
     try {
-      const fs = wfs(context);
+      const fs = await wfs(context);
       const { bytes } = await fs.createFile(filePath, content, { createDirectories });
       return { path: filePath, created: true, bytes };
     } catch (e) {
@@ -272,7 +272,7 @@ export const fsWriteFileTool: AgentTool = {
   async execute(params, context) {
     const { filePath, content } = params as { filePath: string; content: string };
     try {
-      const workspaceFs = wfs(context);
+      const workspaceFs = await wfs(context);
       const absolutePath = workspaceFs.toAbsolutePath(filePath);
 
       let oldContent = '';
@@ -308,7 +308,7 @@ export const fsDeletePathTool: AgentTool = {
   async execute(params, context) {
     const { path: targetPath, recursive = true } = params as { path: string; recursive?: boolean };
     try {
-      const fs = wfs(context);
+      const fs = await wfs(context);
       await fs.deletePath(targetPath, { recursive });
       return { path: targetPath, deleted: true };
     } catch (e) {
@@ -330,7 +330,7 @@ export const fsMkdirTool: AgentTool = {
   async execute(params, context) {
     const { path: targetPath, recursive = true } = params as { path: string; recursive?: boolean };
     try {
-      const fs = wfs(context);
+      const fs = await wfs(context);
       await fs.createDirectory(targetPath, { recursive });
       return { path: targetPath, created: true };
     } catch (e) {
@@ -365,7 +365,7 @@ export const fsListTool: AgentTool = {
       includeHidden?: boolean;
     };
 
-    const fs = wfs(context);
+    const fs = await wfs(context);
     // Use maxDepth:2 so directories' children are evaluated when filtering by permission.
     // With maxDepth:1, directories are treated as leaves and won't show if only
     // their children match the access pattern (e.g. allowed-dir/**).
@@ -430,7 +430,7 @@ type FsTreeNodeWithRights = FileTreeNode & {
 
 function annotateFsTreeWithRights(
   node: FileTreeNode,
-  fs: ReturnType<typeof wfs>
+  fs: Awaited<ReturnType<typeof wfs>>
 ): FsTreeNodeWithRights {
   const relPath = node.relativePath === '.' ? '' : node.relativePath;
   const childNodes = node.children?.map((child) => annotateFsTreeWithRights(child, fs));
@@ -483,7 +483,7 @@ export const fsTreeTool: AgentTool = {
       includeHidden?: boolean;
     };
 
-    const fs = wfs(context);
+    const fs = await wfs(context);
     const { tree, denied } = await fs.getFileTreeWithStats({
       rootSubPath: targetPath,
       maxDepth,
@@ -544,7 +544,7 @@ export const fsSearchContentTool: AgentTool = {
       caseSensitive = false,
     } = params as { path?: string; query: string; maxResults?: number; caseSensitive?: boolean };
 
-    const fs = wfs(context);
+    const fs = await wfs(context);
     const { matches: rawMatches, denied } = await fs.grepWithStats(query, {
       caseInsensitive: !caseSensitive,
     });
@@ -634,7 +634,7 @@ export const fsSearchMetadataTool: AgentTool = {
     } = params as { pattern: string; path?: string; maxResults?: number };
 
     const { Ripgrep, safeStat } = await import('fs-context');
-    const fs = wfs(context);
+    const fs = await wfs(context);
     const cwd = path.resolve(context.workspaceRoot, targetPath);
 
     const matches: Array<{ path: string; size: number; mtime: string }> = [];

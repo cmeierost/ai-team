@@ -1,5 +1,5 @@
 import { MarkerType, Position, type Edge, type Node } from '@xyflow/react';
-import type { WorkflowDefinitionDocument, WorkflowDefinitionState } from '@ai-team/api-client';
+import type { WorkflowDefinitionDocument, WorkflowDefinitionState } from '@ai-team/api-contracts';
 
 const COLUMN_GAP = 420;
 const ROW_GAP = 420;

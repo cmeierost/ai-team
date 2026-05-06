@@ -1,12 +1,14 @@
-import { AgentManager, TeamGraphBuilder, ViewMode } from '@ai-team/infrastructure';
+import type { ITeamGraphBuilder, ViewMode, GraphData } from '@ai-team/core';
 
-export async function getTeamGraphCommand(workspaceRoot: string, mode: ViewMode): Promise<Awaited<ReturnType<TeamGraphBuilder['buildGraph']>>> {
-  const employeeManager = new AgentManager(workspaceRoot);
-
-  const graphBuilder = new TeamGraphBuilder(employeeManager);
-  return graphBuilder.buildGraph(mode);
+export async function getTeamGraphCommand(
+  teamGraphBuilder: ITeamGraphBuilder,
+  mode: ViewMode
+): Promise<GraphData> {
+  return teamGraphBuilder.buildGraph(mode);
 }
 
-export async function getOrganizationGraphCommand(workspaceRoot: string): Promise<ReturnType<TeamGraphBuilder['buildGraph']>> {
-  return getTeamGraphCommand(workspaceRoot, 'hierarchy');
+export async function getOrganizationGraphCommand(
+  teamGraphBuilder: ITeamGraphBuilder
+): Promise<GraphData> {
+  return getTeamGraphCommand(teamGraphBuilder, 'hierarchy');
 }

@@ -5,8 +5,8 @@ import type {
   InteractionContext,
   StreamEvent,
   InteractionRequest,
-} from '@ai-team/api-client';
-import { chatCommand, type ChatRuntimeHooks } from './commands/chat/index.js';
+} from '@ai-team/api-contracts';
+import type { ChatRuntimeHooks } from './commands/chat/index.js';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
 import { streamInteraction } from './interaction-stream.js';
 
@@ -38,7 +38,7 @@ type ChatRunner = (
 export class InteractionService implements IInteractionService {
   constructor(
     private readonly workspaceRoot: string,
-    private readonly runChat: ChatRunner = chatCommand
+    private readonly runChat: ChatRunner
   ) {}
 
   async *stream<TCommand extends AiTeamCommandName>(

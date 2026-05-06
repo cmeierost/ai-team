@@ -11,18 +11,45 @@
  * Does not touch session persistence, history, or handoff resolution.
  */
 
-import { withAbortSignal } from '@ai-team/infrastructure';
 import type {
   Agent,
   AgentTool,
-  ChatCompletionMessageParam,
+  ILlmChatMessageParam,
+  ILlmService,
   Skill,
   StructuredToolResult,
-} from '@ai-team/infrastructure';
+} from '@ai-team/core';
+import { withAbortSignal } from './async-utils.js';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import { dispatchToolCall } from './tool-dispatch.js';
 import { extractStreamDeltaText } from './stream-events.js';
+
+type RuntimeLlmService = ILlmService & {
+  streamChat(
+    agent: Agent,
+    messages: ILlmChatMessageParam[],
+    options?: unknown,
+    skills?: Skill[],
+    teamRoster?: Agent[]
+  ): AsyncIterable<unknown>;
+  chatWithTools(
+    agent: Agent,
+    messages: ILlmChatMessageParam[],
+    tools: LlmToolDefinition[],
+    executeTool: (toolCall: {
+      toolCallId: string;
+      toolName: string;
+      args: unknown;
+    }) => Promise<{ toolCallId: string; toolName: string; result: unknown; isError?: boolean }>,
+    options?: unknown,
+    skills?: Skill[],
+    teamRoster?: Agent[],
+    maxToolRounds?: number,
+    onToken?: (delta: string) => void,
+    instructions?: unknown
+  ): Promise<{ text: string }>;
+};
 
 // ── Streaming filter ──────────────────────────────────────────────────────────
 //
@@ -102,7 +129,7 @@ function flushFilter(state: StreamFilterState, sink: StreamTextSink): void {
 
 // ── Tool policy system message ────────────────────────────────────────────────
 
-function buildToolPolicyMessage(tools: AgentTool[]): ChatCompletionMessageParam {
+function buildToolPolicyMessage(tools: AgentTool[]): ILlmChatMessageParam {
   const hasAskTool = tools.some((t) => t.group === 'com' && t.name === 'ask');
   return {
     role: 'system',
@@ -120,7 +147,7 @@ function buildToolPolicyMessage(tools: AgentTool[]): ChatCompletionMessageParam 
 // ── Public interface ──────────────────────────────────────────────────────────
 
 export interface LlmInvokeParams {
-  messages: ChatCompletionMessageParam[];
+  messages: ILlmChatMessageParam[];
   tools: AgentTool[];
   toolDefs: LlmToolDefinition[];
   skills: Skill[];
@@ -136,6 +163,7 @@ export interface LlmInvokeResult {
 export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResult> {
   const { messages, tools, toolDefs, skills, teamRoster, ctx } = params;
   const { agent, hooks, llmService } = ctx;
+  const runtimeLlm = llmService as RuntimeLlmService;
 
   const state = makeFilterState();
   let fullResponse = '';
@@ -151,16 +179,18 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
     process.stdout.write(text);
   };
 
-  const workingMessages: ChatCompletionMessageParam[] =
+  const workingMessages: ILlmChatMessageParam[] =
     toolDefs.length > 0 ? [buildToolPolicyMessage(tools), ...messages] : messages;
 
   try {
     if (toolDefs.length === 0) {
-      const stream = await withAbortSignal(
-        llmService.streamChat(agent, workingMessages, undefined, skills, teamRoster),
+      const stream = (await withAbortSignal(
+        Promise.resolve(
+          runtimeLlm.streamChat(agent, workingMessages, undefined, skills, teamRoster)
+        ),
         hooks?.signal,
         'Chat streaming aborted.'
-      );
+      )) as AsyncIterable<unknown>;
 
       for await (const chunk of stream) {
         const delta = extractStreamDeltaText(chunk as Parameters<typeof extractStreamDeltaText>[0]);
@@ -172,7 +202,7 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
       flushFilter(state, writeToken);
     } else {
       const result = await withAbortSignal(
-        llmService.chatWithTools(
+        runtimeLlm.chatWithTools(
           agent,
           workingMessages,
           toolDefs,

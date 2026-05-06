@@ -1,5 +1,4 @@
-import type { Agent } from '@ai-team/infrastructure';
-import { LlmService } from '@ai-team/infrastructure';
+import type { Agent, ILlmService } from '@ai-team/core';
 
 /**
  * Generates a default handoff prompt from one agent to another using the LLM.
@@ -9,16 +8,12 @@ import { LlmService } from '@ai-team/infrastructure';
  * Falls back to a generic prompt if the LLM is unavailable.
  */
 export async function generateDefaultHandoffPrompt(
-  llm: LlmService,
+  llm: Pick<ILlmService, 'rawChat'>,
   fromAgent: Agent,
-  toAgent: Agent,
+  toAgent: Agent
 ): Promise<string> {
-  const fromTitle = fromAgent.role
-    ? `${fromAgent.name} (${fromAgent.role})`
-    : fromAgent.name;
-  const toTitle = toAgent.role
-    ? `${toAgent.name} (${toAgent.role})`
-    : toAgent.name;
+  const fromTitle = fromAgent.role ? `${fromAgent.name} (${fromAgent.role})` : fromAgent.name;
+  const toTitle = toAgent.role ? `${toAgent.name} (${toAgent.role})` : toAgent.name;
 
   const fromContext = fromAgent.description ?? '';
   const toContext = toAgent.description ?? '';

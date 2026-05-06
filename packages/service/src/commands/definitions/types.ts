@@ -1,8 +1,25 @@
-import type { IContainerToken, IServiceContainer } from '@ai-team/core';
-import type { AiTeamCommandName } from '@ai-team/api-client';
-import type { AgentManager, CliCommandMetadata, SkillManager } from '@ai-team/infrastructure';
+import type {
+  IContainerToken,
+  IServiceContainer,
+  IModelDiscoveryRegistry,
+  ILlmProviderTester,
+  IAgentManager,
+  ISkillManager,
+  IConfigurationStorage,
+  IEnvironmentStorage,
+  IPermissionStorage,
+  IMarkdownSectionService,
+  IWorkspaceStorage,
+  ITeamGraphBuilder,
+  IFileTreeService,
+  IFileAnnotationService,
+  IAgentDocumentStorage,
+  CliCommandMetadata,
+} from '@ai-team/core';
+import type { AiTeamCommandName } from '@ai-team/api-contracts';
 import type { CommandRegistration } from '../../command-dispatcher.js';
 import type { ToolManager } from '../../tools/tool-manager.js';
+import type { SessionManager } from '../../session-manager.js';
 
 function createContainerToken<T>(id: string): IContainerToken<T> {
   return {
@@ -13,9 +30,21 @@ function createContainerToken<T>(id: string): IContainerToken<T> {
 
 export const COMMAND_FACTORY_TOKENS = {
   WorkspaceRoot: createContainerToken<string>('WorkspaceRoot'),
-  AgentManager: createContainerToken<AgentManager>('AgentManager'),
-  SkillManager: createContainerToken<SkillManager>('SkillManager'),
+  AgentManager: createContainerToken<IAgentManager>('AgentManager'),
+  SkillManager: createContainerToken<ISkillManager>('SkillManager'),
   ToolManager: createContainerToken<ToolManager>('ToolManager'),
+  SessionManager: createContainerToken<SessionManager>('SessionManager'),
+  ConfigurationStorage: createContainerToken<IConfigurationStorage>('ConfigurationStorage'),
+  EnvironmentStorage: createContainerToken<IEnvironmentStorage>('EnvironmentStorage'),
+  PermissionStorage: createContainerToken<IPermissionStorage>('PermissionStorage'),
+  MarkdownSectionService: createContainerToken<IMarkdownSectionService>('MarkdownSectionService'),
+  WorkspaceStorage: createContainerToken<IWorkspaceStorage>('WorkspaceStorage'),
+  ModelDiscoveryRegistry: createContainerToken<IModelDiscoveryRegistry>('ModelDiscoveryRegistry'),
+  LlmProviderTester: createContainerToken<ILlmProviderTester>('LlmProviderTester'),
+  TeamGraphBuilder: createContainerToken<ITeamGraphBuilder>('TeamGraphBuilder'),
+  FileTreeService: createContainerToken<IFileTreeService>('FileTreeService'),
+  FileAnnotationService: createContainerToken<IFileAnnotationService>('FileAnnotationService'),
+  AgentDocumentStorage: createContainerToken<IAgentDocumentStorage>('AgentDocumentStorage'),
 } as const;
 
 export interface CommandFactoryContainer {

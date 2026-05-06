@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTeam } from '../context/TeamContext';
-import type { PlanningIntakeItem, PlanningPlan } from '@ai-team/api-client';
+import type { PlanningIntakeItem, PlanningPlan } from '@ai-team/api-contracts';
 import { contextPanelQueryKeys } from './contextPanelQueryKeys';
 
 export function usePlanningIntake(status?: string) {

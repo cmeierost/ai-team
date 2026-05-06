@@ -1,16 +1,16 @@
-import type { IChatService, ChatSummary, ChatMessage, MessageStats } from '@ai-team/api-client';
+import type { IChatService, ChatSummary, ChatMessage, MessageStats } from '@ai-team/api-contracts';
 import type { SessionManager } from '../session-manager.js';
 import { BadRequestError, NotFoundError } from '../http-errors.js';
-import { ChatManager, ChatStorage, type LlmService } from '@ai-team/infrastructure';
+import type { ILlmService, IChatManager, IChatStorage } from '@ai-team/core';
 import type { IInteractionService } from '../interaction-service.js';
 
 export class ChatService implements IChatService {
   constructor(
     private readonly interactionService: IInteractionService,
     private readonly sessionManager: SessionManager,
-    private readonly mgr: ChatManager,
-    private readonly storage: ChatStorage,
-    private readonly llmService: LlmService
+    private readonly mgr: IChatManager,
+    private readonly storage: IChatStorage,
+    private readonly llmService: ILlmService
   ) {}
 
   private parseIndex(index: string): number {

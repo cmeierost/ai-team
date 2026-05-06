@@ -1,18 +1,24 @@
 import type { Dirent } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { listWorkspaceFiles, type FlatFileEntry } from 'fs-context';
 import {
   analyzePermOverlap,
+  listWorkspaceFiles,
   matchesPattern,
   parseAccessFile,
   type AgentRuleMap,
+  type FlatFileEntry,
   type PermissionOverlapReport as PatternPermissionOverlapReport,
   type RightOverlapSummary,
+  PermFileRegistry,
 } from 'fs-context';
 import type { PermissionRule, Right, FileTypeGroupConfig, TeamConfig } from '@ai-team/core';
-import { AgentManager } from '../agent/agent-manager.js';
-import { loadAgentAccessPatterns, loadTeamConfig } from '../agent/storage.js';
+import { AgentDocumentStorage } from '../agent/agent-document-storage.js';
+import { MarkdownSectionService } from '../agent/markdown-service.js';
+import { WorkspaceDiscoveryStorage } from '../agent/workspace-discovery-storage.js';
+import { WorkspaceStorage } from '../agent/workspace-storage.js';
+import { AgentManager } from '../agent/index.js';
+import { ConfigurationStorage } from '../agent/configuration-storage.js';
 
 export type PermissionOverlapMode = 'files' | 'patterns';
 
@@ -423,11 +429,12 @@ function mergeUniquePatterns(...groups: ReadonlyArray<readonly string[]>): strin
 
 async function mergeAgentAccessPatterns(
   workspaceRoot: string,
+  permRegistry: PermFileRegistry,
   agents: readonly Awaited<ReturnType<AgentManager['getAllAgentsAsync']>>[number][]
 ): Promise<Awaited<ReturnType<AgentManager['getAllAgentsAsync']>>> {
   return Promise.all(
     agents.map(async (agent) => {
-      const persistedPatterns = await loadAgentAccessPatterns(workspaceRoot, agent.id);
+      const persistedPatterns = await permRegistry.loadAsync(agent.id);
 
       return {
         ...agent,
@@ -701,11 +708,23 @@ export async function analyzeWorkspacePermissionOverlap(
     return buildPatternReport(analyzePermOverlap(rulesByAgent));
   }
 
-  const config = await loadTeamConfig(workspaceRoot);
+  const config = await new ConfigurationStorage().loadTeamConfigAsync(workspaceRoot);
   const fileTypeGroups = normalizeFileTypeGroups(config);
-  const agentManager = new AgentManager(workspaceRoot);
+  const agentManager = new AgentManager(
+    workspaceRoot,
+    new AgentDocumentStorage(
+      new MarkdownSectionService(),
+      new WorkspaceStorage(),
+      new WorkspaceDiscoveryStorage()
+    ),
+    new WorkspaceStorage(),
+    new WorkspaceDiscoveryStorage(),
+    new PermFileRegistry(workspaceRoot)
+  );
+  const permRegistry = new PermFileRegistry(workspaceRoot);
   const agents = await mergeAgentAccessPatterns(
     workspaceRoot,
+    permRegistry,
     await agentManager.getAllAgentsAsync()
   );
   const agentIds = filterAgentIds(

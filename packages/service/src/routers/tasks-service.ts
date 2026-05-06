@@ -1,12 +1,12 @@
-import type { ITasksService } from '@ai-team/api-client';
-import type { AgentManager } from '@ai-team/infrastructure';
+import type { ITasksService } from '@ai-team/api-contracts';
+import type { IAgentManager } from '@ai-team/core';
 import { TaskManager } from '../task-manager.js';
 import { NotFoundError } from '../http-errors.js';
 
 export class TasksService implements ITasksService {
   private readonly taskManager: TaskManager;
 
-  constructor(workspaceRoot: string, agentManager: AgentManager) {
+  constructor(workspaceRoot: string, agentManager: IAgentManager) {
     this.taskManager = new TaskManager(workspaceRoot, agentManager);
   }
 

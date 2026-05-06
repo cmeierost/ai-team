@@ -7,10 +7,22 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadTeamConfig, resolveEffectiveLlmSettings } from '@ai-team/infrastructure';
-import type { SystemStatus } from '@ai-team/api-client';
+import type { IConfigurationStorage } from '@ai-team/core';
+import type { SystemStatus } from '@ai-team/api-contracts';
+import { resolveEffectiveLlmSettings } from '@ai-team/core';
 
-export async function getSystemStatusAsync(workspaceRoot: string): Promise<SystemStatus> {
+export class SystemStatusCommand {
+  constructor(private readonly configurationStorage: IConfigurationStorage) {}
+
+  async executeAsync(workspaceRoot: string): Promise<SystemStatus> {
+    return getSystemStatusAsync(workspaceRoot, this.configurationStorage);
+  }
+}
+
+async function getSystemStatusAsync(
+  workspaceRoot: string,
+  configurationStorage: IConfigurationStorage
+): Promise<SystemStatus> {
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
 
   // Check if .ai-team directory exists
@@ -26,7 +38,7 @@ export async function getSystemStatusAsync(workspaceRoot: string): Promise<Syste
   let hasLlmConfig = false;
   if (initialized) {
     try {
-      const teamConfig = await loadTeamConfig(workspaceRoot);
+      const teamConfig = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
       if (teamConfig) {
         resolveEffectiveLlmSettings(teamConfig);
         hasLlmConfig = true;

@@ -7,10 +7,20 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 import OpenAI from 'openai';
-import type { Agent, LlmProviderConfig, IAvatarManager } from '@ai-team/core';
-import { saveAgent } from './storage.js';
+import type {
+  Agent,
+  LlmProviderConfig,
+  IAgentDocumentStorage,
+  IAvatarManager,
+} from '@ai-team/core';
+import { AgentDocumentStorage } from './agent-document-storage.js';
+import { MarkdownSectionService } from './markdown-service.js';
+import { WorkspaceDiscoveryStorage } from './workspace-discovery-storage.js';
+import { WorkspaceStorage } from './workspace-storage.js';
 
 export class AvatarManager implements IAvatarManager {
+  constructor(private readonly agentDocumentStorage: IAgentDocumentStorage) {}
+
   /**
    * Generate a deterministic hue (0-359) from a string using a simple hash.
    * Matches the algorithm used by the web UI so colours are consistent.
@@ -187,11 +197,24 @@ export class AvatarManager implements IAvatarManager {
       agent.markdown = imageMarkdown;
     }
 
-    await saveAgent(agent);
+    await this.agentDocumentStorage.saveAgentAsync(agent);
   }
 }
 
-export const avatarManager = new AvatarManager();
+export function createAvatarManager(): AvatarManager {
+  const markdownSectionService = new MarkdownSectionService();
+  const workspaceStorage = new WorkspaceStorage();
+  const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
+  const agentDocumentStorage = new AgentDocumentStorage(
+    markdownSectionService,
+    workspaceStorage,
+    workspaceDiscoveryStorage
+  );
+
+  return new AvatarManager(agentDocumentStorage);
+}
+
+export const avatarManager = createAvatarManager();
 export const generateAgentColor = avatarManager.generateAgentColor.bind(avatarManager);
 export const parseHslHue = avatarManager.parseHslHue.bind(avatarManager);
 export const substituteUrlPlaceholders =

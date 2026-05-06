@@ -51,6 +51,7 @@ export const filesDenyCommandDefinition = createResolverCommandDefinition(
         const result = await permissionDenyCommand(
           container.workspaceRoot,
           resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+          resolver.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
           payload.agent,
           payload.path,
           {
@@ -67,7 +68,12 @@ export const filesDenyCommandDefinition = createResolverCommandDefinition(
         return { paths: result.paths };
       }
 
-      const paths = await disallowPathCommand(container.workspaceRoot, payload.path, mode);
+      const paths = await disallowPathCommand(
+        container.workspaceRoot,
+        resolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+        payload.path,
+        mode
+      );
       return { paths };
     });
   }

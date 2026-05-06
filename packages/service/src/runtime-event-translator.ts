@@ -1,4 +1,4 @@
-import type { AiTeamCommandName, RuntimeStreamEvent, StreamEvent } from '@ai-team/api-client';
+import type { AiTeamCommandName, RuntimeStreamEvent, StreamEvent } from '@ai-team/api-contracts';
 
 export function runtimeEventToStreamEvent<TCommand extends AiTeamCommandName>(
   event: RuntimeStreamEvent,

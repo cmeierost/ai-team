@@ -1,4 +1,4 @@
-import type { InteractionContext } from '@ai-team/api-client';
+import type { InteractionContext } from '@ai-team/api-contracts';
 
 // ─── Step kinds ───────────────────────────────────────────────────────────────
 

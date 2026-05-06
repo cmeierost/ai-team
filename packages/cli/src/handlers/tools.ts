@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-client';
+import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { runCommandStream } from './stream-runner.js';
 

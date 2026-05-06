@@ -1,6 +1,6 @@
-import { loadEnvFile, saveEnvFile } from '@ai-team/infrastructure';
 import { getGitUserName } from './git.js';
 import { ServiceDomainError } from '../errors.js';
+import type { IEnvironmentStorage } from '@ai-team/core';
 
 export interface UserEnvRequirements {
   developerName?: boolean;
@@ -26,9 +26,10 @@ export class MissingUserInputError extends ServiceDomainError {
       {
         kind: 'env-var',
         key: envVar,
-        prompt: envVar === 'AI_TEAM_USER_NAME'
-          ? 'Enter your name (shared with agents):'
-          : `Enter API key for ${envVar}:`,
+        prompt:
+          envVar === 'AI_TEAM_USER_NAME'
+            ? 'Enter your name (shared with agents):'
+            : `Enter API key for ${envVar}:`,
       }
     );
     this.name = 'MissingUserInputError';
@@ -38,17 +39,18 @@ export class MissingUserInputError extends ServiceDomainError {
 export async function ensureUserEnvVars(
   workspaceRoot: string,
   requirements: UserEnvRequirements,
-  options: EnsureOptions = {}
+  options: EnsureOptions = {},
+  environmentStorage: IEnvironmentStorage
 ): Promise<Record<string, string>> {
-  const envVars = await loadEnvFile(workspaceRoot);
+  const envVars = await environmentStorage.loadEnvFileAsync(workspaceRoot);
   const updates = { ...envVars };
   let dirty = false;
 
   if (requirements.developerName && (options.force || !updates.AI_TEAM_USER_NAME)) {
     const developerName =
-      options.preset?.AI_TEAM_USER_NAME?.trim()
-      || updates.AI_TEAM_USER_NAME?.trim()
-      || getGitUserName();
+      options.preset?.AI_TEAM_USER_NAME?.trim() ||
+      updates.AI_TEAM_USER_NAME?.trim() ||
+      getGitUserName();
     if (!developerName) {
       throw new MissingUserInputError(
         'AI_TEAM_USER_NAME',
@@ -66,12 +68,7 @@ export async function ensureUserEnvVars(
 
   if (requirements.apiKey && (options.force || !updates[preferredApiKeyEnvVar])) {
     const apiKeyLookupOrder = Array.from(
-      new Set([
-        preferredApiKeyEnvVar,
-        'AI_TEAM_LLM_API_KEY',
-        'LLM_API_KEY',
-        'OPENAI_API_KEY',
-      ])
+      new Set([preferredApiKeyEnvVar, 'AI_TEAM_LLM_API_KEY', 'LLM_API_KEY', 'OPENAI_API_KEY'])
     );
 
     const apiKey =
@@ -96,7 +93,7 @@ export async function ensureUserEnvVars(
   }
 
   if (dirty) {
-    await saveEnvFile(workspaceRoot, updates);
+    await environmentStorage.saveEnvFileAsync(workspaceRoot, updates);
   }
 
   return updates;

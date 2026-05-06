@@ -11,7 +11,7 @@ import {
   useNodesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import type { WorkflowDefinitionDocument } from '@ai-team/api-client';
+import type { WorkflowDefinitionDocument } from '@ai-team/api-contracts';
 import { transformWorkflowDefinitionToReactFlow } from './workflowCallGraphFlow';
 import { WorkflowCallNode } from './WorkflowCallNode';
 import { WorkflowOrthogonalEdge } from './WorkflowOrthogonalEdge';

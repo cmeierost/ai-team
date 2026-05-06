@@ -1,19 +1,48 @@
-import {
-  AgentManager,
-  loadEnvFile,
-  loadSkill,
-  parseTextToolCalls,
-  loadEffectiveConfig,
-  resolveEffectiveLlmSettings,
-  testLlmConnection,
-} from '@ai-team/infrastructure';
-import type { ResolvedLlmSettings } from '@ai-team/infrastructure';
+import type {
+  IConfigurationStorage,
+  IEnvironmentStorage,
+  TeamConfig,
+  ResolvedLlmSettings,
+} from '@ai-team/core';
+import { resolveEffectiveLlmSettings } from '@ai-team/core';
+import { TestConnectionOptions } from '@ai-team/api-contracts';
+import { PermFileRegistry } from 'fs-context';
+import type { CommandExecute } from './command-contract.js';
 
-import { TestConnectionOptions } from '@ai-team/api-client';
+export interface TestConnectionCommandParams {
+  workspaceRoot: string;
+  options?: TestConnectionOptions;
+}
 
-export async function testConnectionCommand(
+export class TestConnectionCommand implements CommandExecute<
+  TestConnectionCommandParams,
+  undefined,
+  void
+> {
+  constructor(
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly environmentStorage: IEnvironmentStorage
+  ) {}
+
+  async execute(params: TestConnectionCommandParams): Promise<void> {
+    return testConnectionCommandAsync(
+      params.workspaceRoot,
+      params.options ?? {},
+      this.configurationStorage,
+      this.environmentStorage
+    );
+  }
+
+  async executeAsync(workspaceRoot: string, options: TestConnectionOptions = {}): Promise<void> {
+    return this.execute({ workspaceRoot, options });
+  }
+}
+
+async function testConnectionCommandAsync(
   workspaceRoot: string,
-  options: TestConnectionOptions = {}
+  options: TestConnectionOptions = {},
+  configurationStorage: IConfigurationStorage,
+  environmentStorage: IEnvironmentStorage
 ): Promise<void> {
   if (options.model && options.modelKey) {
     throw new Error('Use either --model or --model-key, not both.');
@@ -33,12 +62,12 @@ export async function testConnectionCommand(
     throw new Error('Do not combine --all with --tool-call.');
   }
 
-  const config = await loadEffectiveConfig(workspaceRoot);
+  const config = await configurationStorage.loadEffectiveConfigAsync(workspaceRoot);
   if (!config) {
     throw new Error('No LLM configured. Run ait init first.');
   }
 
-  const env = await loadEnvFile(workspaceRoot);
+  const env = await environmentStorage.loadEnvFileAsync(workspaceRoot);
 
   if (options.all) {
     await testAllConfiguredModels(config, env, options.provider);
@@ -55,7 +84,26 @@ export async function testConnectionCommand(
     };
 
     if (options.employee) {
-      const employeeManager = new AgentManager(workspaceRoot);
+      const {
+        WorkspaceStorage,
+        WorkspaceDiscoveryStorage,
+        AgentDocumentStorage,
+        AgentManager,
+        MarkdownSectionService,
+      } = await import('@ai-team/infrastructure');
+      const workspaceStorage = new WorkspaceStorage();
+      const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
+      const employeeManager = new AgentManager(
+        workspaceRoot,
+        new AgentDocumentStorage(
+          new MarkdownSectionService(),
+          workspaceStorage,
+          workspaceDiscoveryStorage
+        ),
+        workspaceStorage,
+        workspaceDiscoveryStorage,
+        new PermFileRegistry(workspaceRoot)
+      );
       const matches = await employeeManager.resolveAgentAsync(options.employee);
       if (matches.length === 0) {
         const allEmployees = await employeeManager.getAllAgentsAsync();
@@ -80,13 +128,6 @@ export async function testConnectionCommand(
 
       const employee = matches[0];
 
-      let skill;
-      try {
-        skill = await loadSkill(employee.skillPath);
-      } catch {
-        skill = undefined;
-      }
-
       const mergedEmployeeProfile = {
         ...(employee.llm || {}),
         ...Object.fromEntries(
@@ -94,7 +135,7 @@ export async function testConnectionCommand(
         ),
       };
 
-      effective = resolveEffectiveLlmSettings(config, { llm: mergedEmployeeProfile }, skill);
+      effective = resolveEffectiveLlmSettings(config, { llm: mergedEmployeeProfile });
     } else {
       effective = resolveEffectiveLlmSettings(config, {
         llm: explicitProfile,
@@ -111,6 +152,7 @@ export async function testConnectionCommand(
     env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
 
   try {
+    const { testLlmConnection } = await import('@ai-team/infrastructure');
     await testLlmConnection(effective.config, apiKey);
     console.log('✓ Connection successful');
 
@@ -156,7 +198,8 @@ async function testToolCallBehavior(
   const json = await readToolCallProbeJson(response);
   const message = json.choices?.[0]?.message;
 
-  if (hasRecognizableToolCall(message, probeToolName)) {
+  const { parseTextToolCalls } = await import('@ai-team/infrastructure');
+  if (hasRecognizableToolCall(message, probeToolName, parseTextToolCalls)) {
     return;
   }
 
@@ -278,7 +321,8 @@ function hasRecognizableToolCall(
         content?: unknown;
       }
     | undefined,
-  probeToolName: string
+  probeToolName: string,
+  parseTextToolCallsFn: (text: string, tools: Set<string>) => unknown[]
 ): boolean {
   const structuredToolCalls = message?.tool_calls;
   if (
@@ -293,7 +337,7 @@ function hasRecognizableToolCall(
   }
 
   const textContent = typeof message?.content === 'string' ? message.content : '';
-  const textCalls = parseTextToolCalls(textContent, new Set([probeToolName]));
+  const textCalls = parseTextToolCallsFn(textContent, new Set([probeToolName]));
   return textCalls.length > 0;
 }
 
@@ -366,7 +410,7 @@ function buildFailureMessage(
 }
 
 async function testAllConfiguredModels(
-  config: NonNullable<Awaited<ReturnType<typeof loadEffectiveConfig>>>,
+  config: TeamConfig,
   env: Record<string, string>,
   providerFilter?: string
 ): Promise<void> {
@@ -424,7 +468,8 @@ async function testAllConfiguredModels(
       env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
 
     try {
-      await testLlmConnection(effective.config, apiKey);
+      const { testLlmConnection: _testLlm } = await import('@ai-team/infrastructure');
+      await _testLlm(effective.config, apiKey);
       passed += 1;
     } catch (error) {
       failed += 1;

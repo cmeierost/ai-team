@@ -32,8 +32,21 @@ import type {
   ChatMessage,
   TeamConfig,
   LlmGenerationParams,
+  IConfigurationStorage,
+  IEnvironmentStorage,
 } from '@ai-team/core';
-import { loadEffectiveConfig, loadEnvFile } from '../agent/storage.js';
+import {
+  resolveEffectiveLlmSettings,
+  resolveSystemLlmSettings,
+  getEffectiveContextWindow,
+} from '@ai-team/core';
+import type {
+  LlmChatOptions,
+  LlmDiagnosticMessage,
+  LlmDiagnosticReporter,
+} from '@ai-team/core';
+import { ConfigurationStorage } from '../agent/configuration-storage.js';
+import { EnvironmentStorage } from '../agent/environment-storage.js';
 
 const GITHUB_COPILOT_API_URL = 'https://api.individual.githubcopilot.com';
 const GITHUB_COPILOT_MODELS_URL = 'https://api.individual.githubcopilot.com/models';
@@ -94,25 +107,6 @@ const TITLE_REQUEST_TIMEOUT_MS = 8_000;
 // LlmService — high-level abstraction for any configured provider
 // ============================================================================
 
-export interface LlmChatOptions {
-  /** Override the model for this call */
-  model?: string;
-  /** Max tokens in the response */
-  maxTokens?: number;
-  /** Temperature (0-2) */
-  temperature?: number;
-  /** Top-p nucleus sampling (0-1) */
-  topP?: number;
-  /** Presence penalty (-2 to 2) */
-  presencePenalty?: number;
-  /** Frequency penalty (-2 to 2) */
-  frequencyPenalty?: number;
-  /** Stop sequences */
-  stop?: string[];
-  /** Whether to stream the response */
-  stream?: boolean;
-}
-
 export interface LlmToolDefinition {
   name: string;
   description: string;
@@ -148,13 +142,6 @@ export interface LlmToolChatResult {
   toolResults: LlmToolResult[];
 }
 
-export interface LlmDiagnosticMessage {
-  level: 'info' | 'warn' | 'error' | 'debug';
-  message: string;
-}
-
-export type LlmDiagnosticReporter = (entry: LlmDiagnosticMessage) => void;
-
 import type { LlmLogPayload, SerializedError } from './llm-console-log.js';
 import { isLlmConsoleLogEnabled, writeLlmLogToConsole } from './llm-console-log.js';
 
@@ -179,7 +166,11 @@ export class LlmService {
   private logDirReady = false;
   private diagnosticReporter?: LlmDiagnosticReporter;
 
-  constructor(workspaceRoot: string) {
+  constructor(
+    workspaceRoot: string,
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly environmentStorage: IEnvironmentStorage
+  ) {
     this.workspaceRoot = workspaceRoot;
     this.logDir = path.join(this.workspaceRoot, '.ai-team', 'logs', 'llm');
   }
@@ -209,7 +200,7 @@ export class LlmService {
     skill?: Pick<Skill, 'llm'>,
     runtimeOverrides?: LlmChatOptions
   ): Promise<LlmChatOptions> {
-    const teamConfig = await loadEffectiveConfig(this.workspaceRoot);
+    const teamConfig = await this.configurationStorage.loadEffectiveConfigAsync(this.workspaceRoot);
     if (!teamConfig) {
       throw new Error('No LLM configuration found. Run "ait init" to configure a provider.');
     }
@@ -219,7 +210,7 @@ export class LlmService {
     this.providerRef = resolved.providerRef;
     this.model = getDefaultModel(this.config);
 
-    const env = await loadEnvFile(this.workspaceRoot);
+    const env = await this.environmentStorage.loadEnvFileAsync(this.workspaceRoot);
     const apiKeyResolution = resolveApiKeyFromEnv(env, resolved.apiKeyEnvVar);
 
     for (const diagnostic of buildApiKeyResolutionDiagnostics(
@@ -1170,6 +1161,10 @@ ${excerpts}`;
   }
 }
 
+export function createLlmService(workspaceRoot: string): LlmService {
+  return new LlmService(workspaceRoot, new ConfigurationStorage(), new EnvironmentStorage());
+}
+
 // ============================================================================
 // System prompt builder
 // ============================================================================
@@ -1374,13 +1369,7 @@ interface LlmProviderAdapter {
   getDefaultModel(config: LlmConfig): string;
 }
 
-export interface ResolvedLlmSettings {
-  config: LlmConfig;
-  options: LlmChatOptions;
-  providerRef?: string;
-  apiKeyEnvVar?: string;
-  contextWindow?: number;
-}
+export type { ResolvedLlmSettings } from '@ai-team/core';
 
 const llmProviderAdapters = new Map<string, LlmProviderAdapter>();
 
@@ -1666,24 +1655,7 @@ function findModelKeyForModel(
   return provider.models.find((m) => m.name === modelId)?.name;
 }
 
-export function getEffectiveContextWindow(
-  providerConfig:
-    | {
-        contextWindow?: number;
-        models?: Array<{ name: string; contextWindow?: number }>;
-      }
-    | undefined,
-  modelKey?: string
-): number | undefined {
-  if (!providerConfig) return undefined;
-  if (modelKey) {
-    const arrayModelContext = providerConfig.models?.find(
-      (m) => m.name === modelKey
-    )?.contextWindow;
-    if (arrayModelContext !== undefined) return arrayModelContext;
-  }
-  return providerConfig.contextWindow;
-}
+export { getEffectiveContextWindow } from '@ai-team/core';
 
 function findDefaultProviderRef(teamConfig?: TeamConfig): string | undefined {
   const registry = getProviderRegistry(teamConfig);
@@ -1706,83 +1678,7 @@ function findDefaultProviderRef(teamConfig?: TeamConfig): string | undefined {
   return Object.keys(registry)[0];
 }
 
-export function resolveEffectiveLlmSettings(
-  teamConfig: TeamConfig,
-  agent?: Pick<Agent, 'llm'>,
-  skill?: Pick<Skill, 'llm'>,
-  runtimeOverrides?: LlmChatOptions
-): ResolvedLlmSettings {
-  let providerRef: string | undefined;
-  let apiKeyEnvVar: string | undefined;
-  const registry = getProviderRegistry(teamConfig);
-
-  let baseConfig: LlmConfig | undefined = teamConfig.llm;
-  const defaultProviderRef = findDefaultProviderRef(teamConfig);
-  if (defaultProviderRef && registry?.[defaultProviderRef]) {
-    const providerConfig = registry[defaultProviderRef];
-    providerRef = defaultProviderRef;
-    apiKeyEnvVar = providerConfig.apiKeyEnvVar;
-    baseConfig = {
-      provider: providerConfig.kind,
-      model: teamConfig.defaultModel?.model ?? resolveProviderDefaultModel(providerConfig),
-      baseUrl: providerConfig.baseUrl,
-      params: providerConfig.params,
-    };
-  }
-
-  if (!baseConfig) {
-    throw new Error(
-      'No effective LLM configuration found. Set `defaultModel` or `providers` in .ai-team/config.json'
-    );
-  }
-
-  let merged = applyProfile(baseConfig, skill?.llm, teamConfig);
-  if (merged.providerRef) {
-    providerRef = merged.providerRef;
-  }
-  if (merged.apiKeyEnvVar) {
-    apiKeyEnvVar = merged.apiKeyEnvVar;
-  }
-
-  merged = applyProfile(merged.config, agent?.llm, teamConfig);
-  if (merged.providerRef) {
-    providerRef = merged.providerRef;
-  }
-  if (merged.apiKeyEnvVar) {
-    apiKeyEnvVar = merged.apiKeyEnvVar;
-  }
-
-  const profileOptions = profileToOptions(merged.config.params);
-  const options: LlmChatOptions = {
-    ...profileOptions,
-    ...(runtimeOverrides || {}),
-  };
-
-  const finalProvider = providerRef ? registry?.[providerRef] : undefined;
-  const effectiveModelKey = findModelKeyForModel(finalProvider, merged.config.model || '');
-  const contextWindow =
-    teamConfig.defaultModel?.contextWindow ??
-    getEffectiveContextWindow(finalProvider, effectiveModelKey);
-
-  return {
-    config: merged.config,
-    options,
-    providerRef,
-    apiKeyEnvVar,
-    contextWindow,
-  };
-}
-
-export function resolveSystemLlmSettings(
-  teamConfig: TeamConfig,
-  purposeKey: string
-): ResolvedLlmSettings {
-  const profile = teamConfig.systemModels?.[purposeKey];
-  const agent = profile
-    ? { llm: { provider: profile.provider, modelKey: profile.modelKey } }
-    : undefined;
-  return resolveEffectiveLlmSettings(teamConfig, agent as any);
-}
+export { resolveEffectiveLlmSettings, resolveSystemLlmSettings } from '@ai-team/core';
 
 /**
  * Create an OpenAI-compatible client from LLM config
@@ -2422,9 +2318,11 @@ export function hasReasoningOnlyCompletion(response: unknown): boolean {
   }
 
   return choices.some((choice) => {
-    const message =
-      (choice as { message?: { content?: unknown; reasoning?: unknown; reasoning_content?: unknown } })
-        ?.message;
+    const message = (
+      choice as {
+        message?: { content?: unknown; reasoning?: unknown; reasoning_content?: unknown };
+      }
+    )?.message;
 
     const messageText = extractMessageContentText(message?.content);
     if (messageText) {
@@ -3003,20 +2901,19 @@ function hasNonTextCompletionSignal(response: unknown): boolean {
   }
 
   return choices.some((choice) => {
-    const message =
-      (
-        choice as
-          | {
-              message?: {
-                reasoning?: unknown;
-                reasoning_content?: unknown;
-                tool_calls?: unknown;
-                function_call?: unknown;
-              };
-              finish_reason?: unknown;
-            }
-          | undefined
-      )?.message;
+    const message = (
+      choice as
+        | {
+            message?: {
+              reasoning?: unknown;
+              reasoning_content?: unknown;
+              tool_calls?: unknown;
+              function_call?: unknown;
+            };
+            finish_reason?: unknown;
+          }
+        | undefined
+    )?.message;
 
     const reasoning =
       extractMessageContentText(message?.reasoning) ||

@@ -1,5 +1,6 @@
 import type { CliCommandMetadata } from '@ai-team/infrastructure';
 import { createFactoryCommandDefinition } from './shared.js';
+import { TOKENS } from '../service-bootstrap.js';
 
 export const graphCliMetadata: CliCommandMetadata = {
   key: 'graph',
@@ -22,6 +23,9 @@ export const graphCommandDefinition = createFactoryCommandDefinition(
   graphCliMetadata,
   async (container, payload) => {
     const { getTeamGraphCommand } = await import('@ai-team/service/src/commands/graph.js');
-    return getTeamGraphCommand(container.workspaceRoot, payload.mode ?? 'hierarchy');
+    return getTeamGraphCommand(
+      container.resolve(TOKENS.TeamGraphBuilder),
+      payload.mode ?? 'hierarchy'
+    );
   }
 );

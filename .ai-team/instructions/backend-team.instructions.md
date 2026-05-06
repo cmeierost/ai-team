@@ -1,5 +1,5 @@
 ---
-applyTo: "packages/core/**/*,packages/service/**/*,packages/api-server/**/*,packages/api-client/**/*,packages/api-client-http/**/*,packages/ide-interface/**/*,packages/cli/**/*,docs/api/**/*,docs/architecture/**/*,docs/implementation/**/*"
+applyTo: 'packages/core/**/*,packages/service/**/*,packages/api-server/**/*,packages/api-client/**/*,packages/api-client-http/**/*,packages/ide-interface/**/*,packages/cli/**/*,docs/api/**/*,docs/architecture/**/*,docs/implementation/**/*'
 ---
 
 # Backend team delivery rules
@@ -13,8 +13,7 @@ This instruction applies to:
 - `packages/core/**/*`
 - `packages/service/**/*`
 - `packages/api-server/**/*`
-- `packages/api-client/**/*`
-- `packages/api-client-http/**/*`
+- `packages/api-contracts/**/*`
 - `packages/ide-interface/**/*`
 - `packages/cli/**/*`
 - backend-facing documentation under `docs/api/**/*`
@@ -34,16 +33,16 @@ Before implementing a meaningful backend feature or backend refactor:
 1. identify the backend outcome clearly
 2. decide which package owns the behavior
 3. decide whether the work belongs in core/service or in a backend-owned adapter surface
-3. break the work into clean delegation-ready slices when multiple backend specialists are involved
-4. note which contracts, workflows, persistence paths, or provider behaviors will change
-5. decide which documentation must move with the change
+4. break the work into clean delegation-ready slices when multiple backend specialists are involved
+5. note which contracts, workflows, persistence paths, or provider behaviors will change
+6. decide which documentation must move with the change
 
 ## Package-boundary rules
 
 - keep `packages/core` UI-free
-- prefer reusable business logic in `packages/core/src/**`
-- keep orchestration behavior in `packages/service` unless it clearly belongs in shared core logic
-- treat `packages/api-server`, `packages/api-client`, `packages/api-client-http`, `packages/ide-interface`, and `packages/cli` as backend-owned adapter surfaces around the core/service runtime path
+- prefer reusable business logic in `packages/service/src/**`
+- keep orchestration behavior in `packages/service` unless it clearly belongs in shared infrastructure logic
+- treat `packages/api-server`, `packages/api-contracts`, `packages/ide-interface`, and `packages/cli` as backend-owned adapter surfaces around the service/co runtime path
 - preserve the main runtime path instead of inventing sideways shortcuts across layers
 - when changing shared contracts, validate the downstream fallout explicitly
 

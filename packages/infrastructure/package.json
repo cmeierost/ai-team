@@ -10,6 +10,9 @@
     "dev": "tsc --watch",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
+    "db:push": "drizzle-kit push --config drizzle.config.ts",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },
@@ -24,6 +27,8 @@
   "dependencies": {
     "@ai-team/core": "workspace:*",
     "fs-context": "workspace:*",
+    "better-sqlite3": "^12.2.0",
+    "drizzle-orm": "^0.44.7",
     "@typescript-eslint/typescript-estree": "^8.56.0",
     "chokidar": "^5.0.0",
     "diff": "^8.0.3",
@@ -52,11 +57,13 @@
     "@parcel/watcher-win32-x64": "2.5.1"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.5.0",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.57.0",
     "@typescript-eslint/parser": "^8.56.0",
     "@vitest/coverage-v8": "^4.1.2",
+    "drizzle-kit": "^0.31.7",
     "eslint": "^10.0.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.2",

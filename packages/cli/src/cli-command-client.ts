@@ -16,7 +16,7 @@ import {
   StreamEvent,
   InteractionRequest,
   RuntimeStreamEvent,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -66,7 +66,7 @@ export class CliCommandClient implements ICliCommandClient {
   public readonly workspaceRoot: string;
   private readonly dispatcher: CommandDispatcher;
 
-  constructor(workspaceRoot: string, resolver?: IServiceContainer) {
+  constructor(workspaceRoot: string, resolver: IServiceContainer) {
     this.workspaceRoot = workspaceRoot;
     this.dispatcher = createCommandDispatcher(workspaceRoot, resolver);
   }

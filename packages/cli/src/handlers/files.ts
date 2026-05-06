@@ -4,7 +4,7 @@
 
 import chalk from 'chalk';
 import type { FileTreeNode } from '@ai-team/infrastructure';
-import type { FilesTreeResponse, FilesPatternsResponse } from '@ai-team/api-client';
+import type { FilesTreeResponse, FilesPatternsResponse } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { runCommandStream } from './stream-runner.js';
 

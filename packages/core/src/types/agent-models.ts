@@ -68,6 +68,7 @@ export interface AgentSearchResult {
 }
 
 export interface IAgentManager {
+  readonly workspaceRoot: string;
   getAgentsAsync(): Promise<Map<string, Agent>>;
   refreshAsync(): Promise<void>;
   getAllAgentsAsync(): Promise<Agent[]>;
@@ -83,6 +84,7 @@ export interface IAgentManager {
     id: string,
     updates: Partial<AgentConfig> & { markdown?: string }
   ): Promise<Agent>;
+  recordInteractionAsync(id: string): Promise<void>;
   archiveAgentAsync(id: string): Promise<void>;
   getAgentsByRoleAsync(role: string): Promise<Agent[]>;
   getDirectReportsAsync(managerId: string): Promise<Agent[]>;

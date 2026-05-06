@@ -3,7 +3,7 @@
  */
 
 import chalk from 'chalk';
-import type { DbStatusResponse, DbMigrateResponse } from '@ai-team/api-client';
+import type { DbStatusResponse, DbMigrateResponse } from '@ai-team/api-contracts';
 
 export function renderDbStatus(data: DbStatusResponse): void {
   console.log('\nDatabase Status:');
@@ -24,9 +24,9 @@ export function renderDbStatus(data: DbStatusResponse): void {
 
 export function renderDbMigrate(data: DbMigrateResponse): void {
   if (data.applied > 0) {
-    console.log(chalk.green(`✓ Applied ${data.applied} migration(s)`));
+    console.log(chalk.green('✓ Database reset and baseline schema initialized'));
   } else {
-    console.log(chalk.green('✓ Database is up to date'));
+    console.log(chalk.green('✓ Database baseline schema already initialized'));
   }
   console.log(`Current schema version: v${data.schemaVersion}`);
 }

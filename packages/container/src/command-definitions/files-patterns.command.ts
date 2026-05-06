@@ -1,6 +1,7 @@
 import type { CliCommandMetadata } from '@ai-team/infrastructure';
-import type { FilesPatternsResponse } from '@ai-team/api-client';
+import type { FilesPatternsResponse } from '@ai-team/api-contracts';
 import { createFactoryCommandDefinition } from './shared.js';
+import { TOKENS } from '../service-bootstrap.js';
 
 export const filesPatternsCliMetadata: CliCommandMetadata = {
   key: 'files.patterns',
@@ -19,10 +20,8 @@ export const filesPatternsCommandDefinition = createFactoryCommandDefinition(
   'filesPatterns',
   filesPatternsCliMetadata,
   async (container, payload) => {
-    const { AgentManager, loadAgentAccessPatterns, loadTeamConfig } =
-      await import('@ai-team/infrastructure');
-
-    const config = await loadTeamConfig(container.workspaceRoot);
+    const configStorage = container.resolve(TOKENS.ConfigurationStorage);
+    const config = await configStorage.loadTeamConfigAsync(container.workspaceRoot);
     const global = {
       read: config?.fileTree?.readPaths ?? [],
       write: config?.fileTree?.writePaths ?? [],
@@ -32,13 +31,14 @@ export const filesPatternsCommandDefinition = createFactoryCommandDefinition(
       return { global } as FilesPatternsResponse;
     }
 
-    const manager = new AgentManager(container.workspaceRoot);
-    const matches = await manager.resolveAgentAsync(payload.agent);
+    const agentManager = container.resolve(TOKENS.AgentManager);
+    const matches = await agentManager.resolveAgentAsync(payload.agent);
     if (matches.length === 0) {
       throw new Error(`Agent not found: "${payload.agent}"`);
     }
     const agent = matches[0];
-    const patterns = await loadAgentAccessPatterns(container.workspaceRoot, agent.id);
+    const permStorage = container.resolve(TOKENS.PermissionStorage);
+    const patterns = await permStorage.loadAsync(agent.id);
 
     return {
       global,

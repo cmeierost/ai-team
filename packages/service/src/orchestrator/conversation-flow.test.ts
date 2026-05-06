@@ -20,7 +20,7 @@ import type { Agent, ChatMessage } from '@ai-team/core';
 import { XStateChatOrchestrator } from './xstate-chat-orchestrator.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
-import type { RuntimeStreamEvent } from '@ai-team/api-client';
+import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
 import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
 

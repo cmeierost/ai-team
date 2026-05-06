@@ -1,8 +1,12 @@
-import { createIdeAdapter, NoopIdeAdapter } from '@ai-team/infrastructure';
-import type { IIdeService } from '@ai-team/api-client';
+import type { IIdeService } from '@ai-team/api-contracts';
+import type { IdeAdapter } from '@ai-team/core';
 import { join, resolve, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { watch } from 'node:fs';
+import {
+  InfrastructureIdeAdapterFactory,
+  type IIdeAdapterFactory,
+} from '../runtime/infrastructure-adapters.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../http-errors.js';
 
 // ─── Edit session types ───────────────────────────────────────────────────────
@@ -26,13 +30,24 @@ interface EditSession {
 // ─── IdeService ───────────────────────────────────────────────────────────────
 
 export class IdeService implements IIdeService {
-  private adapter: Awaited<ReturnType<typeof createIdeAdapter>>;
+  private adapter: IdeAdapter = {
+    lsp: {
+      execute: async () => ({ kind: 'locations' as const, locations: [] }),
+      isAvailable: () => false,
+    },
+    openFile: async () => {},
+    notifyCodeEditProposal: async () => {},
+    isConnected: () => false,
+    onAck: () => {},
+    dispose: () => {},
+  };
   private reconnecting = false;
   private readonly editSessions = new Map<string, EditSession>();
 
-  constructor(private readonly workspaceRoot: string) {
-    this.adapter = new NoopIdeAdapter() as Awaited<ReturnType<typeof createIdeAdapter>>;
-
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly ideAdapterFactory: IIdeAdapterFactory = new InfrastructureIdeAdapterFactory()
+  ) {
     const aiTeamDir = join(workspaceRoot, '.ai-team');
     try {
       watch(aiTeamDir, { persistent: false }, (_e, filename) => {
@@ -50,7 +65,7 @@ export class IdeService implements IIdeService {
     this.reconnecting = true;
     try {
       if ('dispose' in this.adapter) (this.adapter as any).dispose();
-      this.adapter = await createIdeAdapter(this.workspaceRoot, 'web');
+      this.adapter = await this.ideAdapterFactory.createAsync(this.workspaceRoot, 'web');
     } finally {
       this.reconnecting = false;
     }

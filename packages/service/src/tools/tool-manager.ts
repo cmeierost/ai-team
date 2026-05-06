@@ -15,12 +15,30 @@ import {
   AgentTool,
   ContextLevel,
   type LspProvider,
+  type IServiceContainer,
   PermissionResult,
   ToolCatalogEntry,
   ToolContext,
   type PermissionDescriptor,
 } from '@ai-team/core';
-import { assertCanReadPath, assertCanWritePath } from '@ai-team/infrastructure';
+
+interface PathPermissionCheckerLike {
+  canReadPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+  canWritePath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+  canListPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+  assertCanReadPath(
+    workspaceRoot: string,
+    contextId: string,
+    permissions: unknown,
+    filePath: string
+  ): void;
+  assertCanWritePath(
+    workspaceRoot: string,
+    contextId: string,
+    permissions: unknown,
+    filePath: string
+  ): void;
+}
 
 // Re-export for convenience so callers only import from 'tools'.
 export type { PermissionResult, ToolCatalogEntry } from '@ai-team/core';
@@ -107,7 +125,8 @@ function evaluatePermissionDescriptor(
   workspaceRoot: string,
   agent: Agent,
   descriptor: PermissionDescriptor,
-  args: unknown
+  args: unknown,
+  pathPermissionChecker: PathPermissionCheckerLike
 ): PermissionResult {
   switch (descriptor.type) {
     case 'none':
@@ -116,14 +135,19 @@ function evaluatePermissionDescriptor(
     case 'file-read': {
       const filePath = resolveArgsPath(args, descriptor.argsPath);
       if (!filePath) return { allowed: true };
-      assertCanReadPath(workspaceRoot, agent.id, agent.permissions, filePath);
+      pathPermissionChecker.assertCanReadPath(workspaceRoot, agent.id, agent.permissions, filePath);
       return { allowed: true };
     }
 
     case 'file-write': {
       const filePath = resolveArgsPath(args, descriptor.argsPath);
       if (!filePath) return { allowed: true };
-      assertCanWritePath(workspaceRoot, agent.id, agent.permissions, filePath);
+      pathPermissionChecker.assertCanWritePath(
+        workspaceRoot,
+        agent.id,
+        agent.permissions,
+        filePath
+      );
       return { allowed: true };
     }
 
@@ -167,16 +191,33 @@ function evaluatePermissionDescriptor(
 export class ToolManager {
   private readonly tools = new Map<string, AgentTool>();
   private readonly workspaceRoot: string;
+  private readonly pathPermissionChecker: PathPermissionCheckerLike;
   /** Optional LSP provider injected into tool context. */
   private _lsp?: LspProvider;
+  /** Optional DI container forwarded into tool context via toolContext.resolve. */
+  private _container?: IServiceContainer;
 
-  constructor(workspaceRoot: string) {
+  constructor(workspaceRoot: string, pathPermissionChecker?: PathPermissionCheckerLike) {
     this.workspaceRoot = workspaceRoot;
+    this.pathPermissionChecker =
+      pathPermissionChecker ??
+      ({
+        canReadPath: () => true,
+        canWritePath: () => true,
+        canListPath: () => true,
+        assertCanReadPath: () => undefined,
+        assertCanWritePath: () => undefined,
+      } as PathPermissionCheckerLike);
   }
 
   /** Set the LSP provider that tools will receive in their context. */
   setLspProvider(lsp: LspProvider): void {
     this._lsp = lsp;
+  }
+
+  /** Set the DI container forwarded to tools via context.resolve. */
+  setContainer(container: IServiceContainer): void {
+    this._container = container;
   }
 
   // ── Registration ─────────────────────────────────────────────────────────
@@ -263,7 +304,13 @@ export class ToolManager {
     const descriptor: PermissionDescriptor = tool.permissionCheck ?? { type: 'none' };
 
     try {
-      return evaluatePermissionDescriptor(this.workspaceRoot, agent, descriptor, args);
+      return evaluatePermissionDescriptor(
+        this.workspaceRoot,
+        agent,
+        descriptor,
+        args,
+        this.pathPermissionChecker
+      );
     } catch (error) {
       return {
         allowed: false,
@@ -320,6 +367,8 @@ export class ToolManager {
       agent,
       agentId: agent.id,
       lsp: this._lsp,
+      pathPermissionChecker: this.pathPermissionChecker,
+      resolve: this._container ? this._container.resolve.bind(this._container) : undefined,
     } as ToolContext;
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 

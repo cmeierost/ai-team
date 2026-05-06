@@ -1,25 +1,50 @@
-import {
-  fetchGitHubModels,
-  loadUserConfig,
-  fetchOpenAICompatibleModelsDetailed,
-  loadEnvFile,
-  loadTeamConfig,
-  saveUserConfig,
-  saveTeamConfig,
-} from '@ai-team/infrastructure';
-
+import type {
+  IConfigurationStorage,
+  IEnvironmentStorage,
+  IModelDiscoveryRegistry,
+} from '@ai-team/core';
 import {
   ProviderListOptions,
   ProviderModelsOptions,
   RefreshProviderModelsOptions,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
-export async function providerListCommand(
+export class ModelsCommand {
+  constructor(
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly environmentStorage: IEnvironmentStorage,
+    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry
+  ) {}
+
+  async providerListAsync(workspaceRoot: string, options: ProviderListOptions = {}): Promise<void> {
+    return providerListCommandAsync(workspaceRoot, options, this.configurationStorage);
+  }
+
+  async providerModelsAsync(workspaceRoot: string, options: ProviderModelsOptions): Promise<void> {
+    return providerModelsCommandAsync(workspaceRoot, options, this.configurationStorage);
+  }
+
+  async providerModelsRefreshAsync(
+    workspaceRoot: string,
+    options: RefreshProviderModelsOptions
+  ): Promise<void> {
+    return providerModelsRefreshCommandAsync(
+      workspaceRoot,
+      options,
+      this.configurationStorage,
+      this.environmentStorage,
+      this.modelDiscoveryRegistry
+    );
+  }
+}
+
+async function providerListCommandAsync(
   workspaceRoot: string,
-  options: ProviderListOptions = {}
+  options: ProviderListOptions = {},
+  configurationStorage: IConfigurationStorage
 ): Promise<void> {
-  const config = await loadTeamConfig(workspaceRoot);
-  const developerConfig = await loadUserConfig(workspaceRoot);
+  const config = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
+  const developerConfig = await configurationStorage.loadUserConfigAsync(workspaceRoot);
 
   if (!config && !developerConfig) {
     throw new Error('No LLM configured. Run ait init first.');
@@ -68,12 +93,13 @@ export async function providerListCommand(
   }
 }
 
-export async function providerModelsCommand(
+async function providerModelsCommandAsync(
   workspaceRoot: string,
-  options: ProviderModelsOptions
+  options: ProviderModelsOptions,
+  configurationStorage: IConfigurationStorage
 ): Promise<void> {
-  const config = await loadTeamConfig(workspaceRoot);
-  const developerConfig = await loadUserConfig(workspaceRoot);
+  const config = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
+  const developerConfig = await configurationStorage.loadUserConfigAsync(workspaceRoot);
 
   if (!config && !developerConfig) {
     throw new Error('No LLM configured. Run ait init first.');
@@ -165,12 +191,15 @@ export async function providerModelsCommand(
   }
 }
 
-export async function providerModelsRefreshCommand(
+async function providerModelsRefreshCommandAsync(
   workspaceRoot: string,
-  options: RefreshProviderModelsOptions
+  options: RefreshProviderModelsOptions,
+  configurationStorage: IConfigurationStorage,
+  environmentStorage: IEnvironmentStorage,
+  modelDiscoveryRegistry: IModelDiscoveryRegistry
 ): Promise<void> {
-  const config = await loadTeamConfig(workspaceRoot);
-  const developerConfig = await loadUserConfig(workspaceRoot);
+  const config = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
+  const developerConfig = await configurationStorage.loadUserConfigAsync(workspaceRoot);
 
   if (!config && !developerConfig) {
     throw new Error('No LLM configured. Run ait init first.');
@@ -194,41 +223,38 @@ export async function providerModelsRefreshCommand(
   }
   const providerConfig = registry[providerRef];
 
+  const discoveryService = modelDiscoveryRegistry.getForKind(providerConfig.kind);
+  if (!discoveryService) {
+    throw new Error(
+      `No model discovery service registered for provider kind '${providerConfig.kind}'.`
+    );
+  }
+
+  let apiKey: string | undefined;
+  if (providerConfig.kind === 'openai-compatible') {
+    if (!providerConfig.baseUrl) {
+      throw new Error(`Provider '${providerRef}' is openai-compatible but has no baseUrl.`);
+    }
+    const env = await environmentStorage.loadEnvFileAsync(workspaceRoot);
+    const apiKeyName = providerConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
+    apiKey =
+      env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
+  }
+
+  const discovered = await discoveryService.fetchModelsAsync(providerConfig.baseUrl, apiKey);
   let models: Array<{
     name: string;
     contextWindow?: number;
     maxPromptTokens?: number;
     maxContextWindowTokens?: number;
     maxOutputTokens?: number;
-  }> = [];
-
-  if (providerConfig.kind === 'github-copilot') {
-    const discovered = await fetchGitHubModels();
-    models = discovered.map((model) => ({
-      name: model.id,
-      contextWindow: model.contextWindow,
-      maxPromptTokens: model.maxPromptTokens,
-      maxContextWindowTokens: model.maxContextWindowTokens,
-      maxOutputTokens: model.maxOutputTokens,
-    }));
-  } else if (providerConfig.kind === 'openai-compatible') {
-    if (!providerConfig.baseUrl) {
-      throw new Error(`Provider '${providerRef}' is openai-compatible but has no baseUrl.`);
-    }
-
-    const env = await loadEnvFile(workspaceRoot);
-    const apiKeyName = providerConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-    const apiKey =
-      env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
-    const discovered = await fetchOpenAICompatibleModelsDetailed(providerConfig.baseUrl, apiKey);
-    models = discovered.map((model) => ({
-      name: model.id,
-      contextWindow: model.contextWindow,
-      maxPromptTokens: model.maxPromptTokens,
-      maxContextWindowTokens: model.maxContextWindowTokens,
-      maxOutputTokens: model.maxOutputTokens,
-    }));
-  }
+  }> = discovered.map((m) => ({
+    name: m.name,
+    contextWindow: m.contextWindow,
+    maxPromptTokens: m.maxPromptTokens,
+    maxContextWindowTokens: m.maxContextWindowTokens,
+    maxOutputTokens: m.maxOutputTokens,
+  }));
 
   if (models.length === 0) {
     throw new Error('No models returned from provider endpoint.');
@@ -252,10 +278,10 @@ export async function providerModelsRefreshCommand(
       providers: registry,
       defaultModel: { provider: providerRef, model: defaultModel },
     };
-    await saveTeamConfig(workspaceRoot, nextConfig);
+    await configurationStorage.saveTeamConfigAsync(workspaceRoot, nextConfig);
   }
 
-  await saveUserConfig(workspaceRoot, {
+  await configurationStorage.saveUserConfigAsync(workspaceRoot, {
     providers: registry,
     defaultModel: { provider: providerRef, model: defaultModel },
   });

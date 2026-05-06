@@ -7,8 +7,8 @@
  *   preserving the legacy public API and behavior.
  */
 
-import type { ChatMessage } from '@ai-team/infrastructure';
-import type { RuntimeStreamEvent } from '@ai-team/api-client';
+import type { ChatMessage } from '@ai-team/core';
+import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
 
 import { emitLog, emitStatus } from './stream-events.js';
 import { resolvePreLlmIntent } from '../tools/pre-llm-intents.js';

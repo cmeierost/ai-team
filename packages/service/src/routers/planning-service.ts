@@ -19,9 +19,9 @@ import type {
   PlanningTask,
   PlanningTaskDelegation,
   PlanningTodo,
-} from '@ai-team/api-client';
-import type { IMessageStorage, IPlanningStorage } from '../storage/contracts.js';
-import { BadRequestError, InternalError, NotFoundError } from '../http-errors.js';
+} from '@ai-team/api-contracts';
+import type { IPlanningStorage } from '../storage/contracts.js';
+import { BadRequestError, NotFoundError } from '../http-errors.js';
 import { randomBytes } from 'node:crypto';
 
 function nowIso(): string {
@@ -33,17 +33,7 @@ function createId(prefix: string): string {
 }
 
 export class PlanningService implements IPlanningService {
-  constructor(private readonly storage: IMessageStorage) {}
-
-  private get planningStorage(): IPlanningStorage {
-    const candidate = this.storage as unknown as IPlanningStorage;
-    if (typeof candidate.listPlanningPlansAsync !== 'function') {
-      throw new InternalError(
-        'Planning storage is not available in the configured storage backend'
-      );
-    }
-    return candidate;
-  }
+  constructor(private readonly planningStorage: IPlanningStorage) {}
 
   async listIntake(query?: {
     status?: string | string[];
@@ -339,13 +329,15 @@ export class PlanningService implements IPlanningService {
     if (!todoId?.trim()) throw new BadRequestError('todoId is required');
 
     const now = nowIso();
+    const completedAt = body.done === true ? now : undefined;
+    const completedBy = body.done === true ? body.completedBy : undefined;
+
     await this.planningStorage.updatePlanningTodoAsync(todoId, {
       content: body.content,
       orderIndex: body.orderIndex,
       done: body.done,
-      completedAt: body.done === true ? now : body.done === false ? undefined : undefined,
-      completedBy:
-        body.done === true ? body.completedBy : body.done === false ? undefined : undefined,
+      completedAt,
+      completedBy,
       updatedAt: now,
     });
 

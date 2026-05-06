@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTeam } from '../context/TeamContext';
 import { buildThreadContextNotes, type ContextPanelNoteItem } from '../utils/contextPanel';
 import type { Note, SessionThread } from '../types';
-import type { NoteSessionShare } from '@ai-team/api-client';
+import type { NoteSessionShare } from '@ai-team/api-contracts';
 import { contextPanelQueryKeys } from './contextPanelQueryKeys';
 
 function getErrorMessage(error: unknown, fallback: string): string | null {

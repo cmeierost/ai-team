@@ -14,7 +14,8 @@ export const resolveEmployeesCommandDefinition = createFactoryCommandDefinition(
   'resolveEmployees',
   resolveEmployeesCliMetadata,
   async (container, payload) => {
-    const { resolveEmployeesCommand } = await import('@ai-team/service/src/commands/info.js');
-    return resolveEmployeesCommand(container.workspaceRoot, payload.query);
+    const { ResolveEmployeesCommand } = await import('@ai-team/service/src/commands/info.js');
+    const { COMMAND_FACTORY_TOKENS } = await import('@ai-team/service/src/commands/definitions/types.js');
+    return new ResolveEmployeesCommand(container.resolve(COMMAND_FACTORY_TOKENS.AgentManager)).execute(payload.query);
   }
 );

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { AgentToolPermissionEntry } from '@ai-team/api-client';
+import type { AgentToolPermissionEntry } from '@ai-team/api-contracts';
 import { ToolsSection } from './ToolsSection';
 
 describe('ToolsSection', () => {

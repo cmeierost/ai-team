@@ -1,9 +1,15 @@
 import path from 'node:path';
 import { z } from 'zod';
 import { Ripgrep } from 'fs-context';
-import type { LspOperation, LspProvider, LspResult } from '@ai-team/core';
-import type { AgentTool, ToolContext } from '@ai-team/core';
-import { assertCanReadPath, validateEditProposal } from '@ai-team/infrastructure';
+import type { LspOperation, LspProvider, LspResult, AgentTool, ToolContext } from '@ai-team/core';
+
+function getPathPermissionChecker(context: ToolContext) {
+  const checker = (context as any).pathPermissionChecker;
+  if (!checker) {
+    throw new Error('ToolContext.pathPermissionChecker is required for code tools.');
+  }
+  return checker;
+}
 
 // ── Helper: resolve LspProvider from context ──────────────────────────────
 
@@ -404,20 +410,20 @@ export const analyzeComplexityTool: AgentTool = {
       .describe('Specific function to analyze (omit for all functions)'),
   }),
   async execute(params, context: ToolContext) {
-    const { TypeScriptAnalyzer } = await import('@ai-team/infrastructure');
     const { filePath, functionName } = params as any;
 
     const absolutePath = path.isAbsolute(filePath)
       ? filePath
       : path.join(context.workspaceRoot, filePath);
 
-    assertCanReadPath(
+    getPathPermissionChecker(context).assertCanReadPath(
       context.workspaceRoot,
       context.agent.id,
       context.agent.permissions,
       absolutePath
     );
 
+    const { TypeScriptAnalyzer } = await import('@ai-team/infrastructure');
     const analyzer = new TypeScriptAnalyzer();
 
     if (functionName) {
@@ -452,9 +458,9 @@ export const applyCodeEditTool: AgentTool = {
       .describe('List of file changes to apply'),
   }),
   async execute(params, context: ToolContext) {
-    const { CodeEditManager } = await import('@ai-team/infrastructure');
     const { description, changes } = params as any;
 
+    const { CodeEditManager } = await import('@ai-team/infrastructure');
     const editManager = new CodeEditManager();
 
     // Convert paths to absolute
@@ -467,12 +473,19 @@ export const applyCodeEditTool: AgentTool = {
 
     // Validate permissions for all files
     const filePaths = absoluteChanges.map((c: any) => c.filePath);
-    const validation = validateEditProposal(
-      context.workspaceRoot,
-      context.agent.id,
-      context.agent.permissions,
-      filePaths
+    const checker = getPathPermissionChecker(context);
+    const blockedFiles = filePaths.filter(
+      (filePath: string) =>
+        !checker.canWritePath(context.workspaceRoot, context.agent.permissions, filePath)
     );
+    const validation = {
+      allowed: blockedFiles.length === 0,
+      blockedFiles,
+      message:
+        blockedFiles.length === 0
+          ? 'Allowed'
+          : `Agent '${context.agent.id}' has no write access to ${blockedFiles.length} file(s).`,
+    };
 
     if (!validation.allowed) {
       return {

@@ -3,7 +3,7 @@
  */
 
 import chalk from 'chalk';
-import type { SearchAgentsResponse } from '@ai-team/api-client';
+import type { SearchAgentsResponse } from '@ai-team/api-contracts';
 
 export interface SearchRenderOptions {
   query?: string;

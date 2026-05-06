@@ -1,10 +1,10 @@
 import { inspect } from 'node:util';
-import type { ChatCompletionMessageParam, StructuredToolResult } from '@ai-team/infrastructure';
+import type { ILlmChatMessageParam, StructuredToolResult } from '@ai-team/core';
 import type {
   WorkflowDefinitionDocument,
   WorkflowDefinitionState,
   WorkflowDefinitionTransition,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import { assign, createActor, fromPromise, setup, toPromise } from 'xstate';
 
 import type { TurnResult } from '../orchestrator/pipeline.js';
@@ -256,7 +256,7 @@ export function createSendTurnMachine() {
         await persistUserMessageAsync(input.userMessage, input.ctx, input.options);
       }),
       prepareMessages: fromPromise<
-        ChatCompletionMessageParam[],
+        ILlmChatMessageParam[],
         Pick<SendTurnMachineContext, 'userMessage' | 'plugins' | 'ctx'>
       >(async ({ input }) => prepareMessagesAsync(input.userMessage, input.plugins, input.ctx)),
       resolveSkillsTools: fromPromise<

@@ -22,16 +22,29 @@ export * from './agent/index.js';
 export * from './skill/index.js';
 export * from './agent/team-graph-builder.js';
 export * from './context/index.js';
+export * from './context/path-permission-checker.js';
 export * from './context/perm-overlap.js';
+export { PermFileRegistry } from 'fs-context';
 export * from './chat/index.js';
 export * from './command-catalog/index.js';
 export { withAbortSignal, isAbortError, throwIfAborted } from './utils/async.js';
 export * from './agent/storage.js';
 export * from './llm/index.js';
+export {
+  GitHubModelDiscoveryService,
+  OpenAICompatibleModelDiscoveryService,
+  ModelDiscoveryRegistry,
+  createModelDiscoveryRegistry,
+} from './llm/model-discovery.js';
+export { LlmProviderTester } from './llm/provider-tester.js';
 export * from './code-analysis/index.js';
 export * from './code-edit/index.js';
-export * from './code-edit/edit-proposal.js';
 export * from './ide/index.js';
+export * from './storage/index.js';
+export { MessagesRepository } from './repositories/messages-repository.js';
+export { SessionsRepository } from './repositories/sessions-repository.js';
+export { NotesRepository } from './repositories/notes-repository.js';
+export { PlanningRepository } from './repositories/planning-repository.js';
 
 // Avatar module
 export {

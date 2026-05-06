@@ -5,7 +5,7 @@
  * `send-turn-steps.ts` so it can be executed by a dedicated XState sub-machine.
  */
 
-import type { StructuredToolResult } from '@ai-team/infrastructure';
+import type { StructuredToolResult } from '@ai-team/core';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
 import {

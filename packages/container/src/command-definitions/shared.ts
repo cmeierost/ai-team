@@ -1,4 +1,4 @@
-import type { AiTeamCommandName, CommandAvailability } from '@ai-team/api-client';
+import type { AiTeamCommandName, CommandAvailability } from '@ai-team/api-contracts';
 import type { IContainerToken } from '@ai-team/core';
 import type { CliCommandMetadata } from '@ai-team/infrastructure';
 import type { CommandRegistration } from '@ai-team/service/src/command-dispatcher.js';

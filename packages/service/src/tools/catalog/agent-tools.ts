@@ -2,11 +2,41 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import type { AgentTool } from '@ai-team/core';
-import { loadAgent, loadTeamConfig, saveAgent, AgentManager } from '@ai-team/infrastructure';
+import type {
+  AgentTool,
+  IAgentManager,
+  IAgentDocumentStorage,
+  IServiceContainer,
+} from '@ai-team/core';
+import { TOOL_SERVICE_TOKENS as T } from '@ai-team/core';
 import { withTimeout } from './tool-utils.js';
 
 const execFileAsync = promisify(execFile);
+
+function getResolve(context: {
+  resolve?: IServiceContainer['resolve'];
+}): IServiceContainer['resolve'] {
+  if (!context.resolve) {
+    throw new Error(
+      'ToolContext.resolve is not available. Ensure the DI container is wired into ToolManager.'
+    );
+  }
+  return context.resolve;
+}
+
+function resolveAgentManager(context: { resolve?: IServiceContainer['resolve'] }): IAgentManager {
+  return getResolve(context)(T.AgentManager);
+}
+
+function resolveAgentDocStorage(context: {
+  resolve?: IServiceContainer['resolve'];
+}): IAgentDocumentStorage {
+  return getResolve(context)(T.AgentDocumentStorage);
+}
+
+function resolveConfigStorage(context: { resolve?: IServiceContainer['resolve'] }) {
+  return getResolve(context)(T.ConfigurationStorage);
+}
 
 /**
  * Delegate task to another agent
@@ -56,10 +86,12 @@ export const registerCliTool: AgentTool = {
     const { command, employee } = params as { command: string; employee?: string };
     const normalized = normalizeExecutableName(command);
     if (!normalized) {
-      throw new Error('Invalid command name. Provide executable only (for example: git).');
+      throw new Error('Invalid command name. Provide executable only (for example: git)');
     }
 
-    const teamConfig = await loadTeamConfig(context.workspaceRoot);
+    const teamConfig = await resolveConfigStorage(context).loadTeamConfigAsync(
+      context.workspaceRoot
+    );
     const allowedGlobal = teamConfig?.allowedCliTools;
     if (allowedGlobal && allowedGlobal.length > 0) {
       const normalizedGlobal = new Set(
@@ -74,7 +106,7 @@ export const registerCliTool: AgentTool = {
 
     let targetAgent = context.agent;
     if (employee && employee.trim().length > 0) {
-      const agentManager = new AgentManager(context.workspaceRoot);
+      const agentManager = resolveAgentManager(context);
       const matches = await agentManager.resolveAgentAsync(employee.trim());
 
       if (matches.length === 0) {
@@ -96,7 +128,8 @@ export const registerCliTool: AgentTool = {
       targetAgent = candidate;
     }
 
-    const agentRecord = await loadAgent(targetAgent.filePath);
+    const agentDocStorage = resolveAgentDocStorage(context);
+    const agentRecord = await agentDocStorage.loadAgentAsync(targetAgent.filePath);
     const current = new Set(
       (agentRecord.cliTools || [])
         .map((entry) => normalizeExecutableName(entry))
@@ -105,7 +138,7 @@ export const registerCliTool: AgentTool = {
     current.add(normalized);
 
     agentRecord.cliTools = [...current].sort();
-    await saveAgent(agentRecord);
+    await agentDocStorage.saveAgentAsync(agentRecord);
 
     if (targetAgent.id === context.agent.id) {
       context.agent.cliTools = agentRecord.cliTools;
@@ -167,7 +200,7 @@ export const updateEmployeeLlmTool: AgentTool = {
       stop?: string[];
     };
 
-    const agentManager = new AgentManager(context.workspaceRoot);
+    const agentManager = resolveAgentManager(context);
     const matches = await agentManager.resolveAgentAsync(employee.trim());
     if (matches.length === 0) {
       throw new Error(`No employee found matching '${employee}'.`);
@@ -184,7 +217,8 @@ export const updateEmployeeLlmTool: AgentTool = {
       throw new Error(`Agent ${context.agent.id} cannot update LLM settings for ${target.id}.`);
     }
 
-    const record = await loadAgent(target.filePath);
+    const agentDocStorage = resolveAgentDocStorage(context);
+    const record = await agentDocStorage.loadAgentAsync(target.filePath);
     const currentProfile = record.llm || {};
     const currentParams = currentProfile.params || {};
 
@@ -208,7 +242,7 @@ export const updateEmployeeLlmTool: AgentTool = {
     };
 
     record.llm = nextProfile;
-    await saveAgent(record);
+    await agentDocStorage.saveAgentAsync(record);
 
     return {
       employee: target.id,

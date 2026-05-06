@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { AiTeamHttpClient } from '@ai-team/api-client';
+import type { AiTeamHttpClient } from '@ai-team/api-contracts';
 import type { AgentPersonality } from '../../types';
 import { LEVEL_CHIP, MarkdownEditor, PortfolioSectionCard, STYLE_ICONS } from './portfolioShared';
 

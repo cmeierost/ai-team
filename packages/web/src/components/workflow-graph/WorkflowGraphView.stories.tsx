@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import type { WorkflowDefinitionDocument } from '@ai-team/api-client';
+import type { WorkflowDefinitionDocument } from '@ai-team/api-contracts';
 import { WorkflowGraphView } from './WorkflowGraphView';
 
 const workflowDefinition: WorkflowDefinitionDocument = {

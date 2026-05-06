@@ -5,8 +5,7 @@
  * (orchestrator, CLI, VS Code, API server) can use it without importing
  * from a chat-specific module.
  */
-import type { Agent } from '@ai-team/infrastructure';
-import { RoleType } from '@ai-team/infrastructure';
+import { type Agent, RoleType } from '@ai-team/core';
 
 /**
  * Select the best top-level agent when none is explicitly specified.
@@ -16,17 +15,22 @@ import { RoleType } from '@ai-team/infrastructure';
 export function selectDefaultTopAgent(agents: Agent[]): Agent | undefined {
   if (agents.length === 0) return undefined;
 
-  const ids = new Set(agents.map(a => a.id));
-  const roots = agents.filter(a => !a.reportsTo || !ids.has(a.reportsTo));
+  const ids = new Set(agents.map((a) => a.id));
+  const roots = agents.filter((a) => !a.reportsTo || !ids.has(a.reportsTo));
   const candidates = roots.length > 0 ? roots : agents;
 
   const rankType = (a: Agent): number => {
     switch (a.type) {
-      case RoleType.EXECUTIVE: return 0;
-      case RoleType.LEADERSHIP: return 1;
-      case RoleType.TEAM_LEAD: return 2;
-      case RoleType.INDIVIDUAL_CONTRIBUTOR: return 3;
-      default: return 4;
+      case RoleType.EXECUTIVE:
+        return 0;
+      case RoleType.LEADERSHIP:
+        return 1;
+      case RoleType.TEAM_LEAD:
+        return 2;
+      case RoleType.INDIVIDUAL_CONTRIBUTOR:
+        return 3;
+      default:
+        return 4;
     }
   };
 
@@ -56,7 +60,9 @@ export function formatUserPrompt(agent: Agent, developerName?: string | null): s
 
 /** Extract the developer's display name from user-env vars. */
 export function resolveDeveloperName(env: Record<string, string>): string | undefined {
-  return env['AI_TEAM_USER_NAME']?.trim()
-    || env['AI_TEAM_USER']?.trim()
-    || env['AI_TEAM_DEVELOPER']?.trim();
+  return (
+    env['AI_TEAM_USER_NAME']?.trim() ||
+    env['AI_TEAM_USER']?.trim() ||
+    env['AI_TEAM_DEVELOPER']?.trim()
+  );
 }

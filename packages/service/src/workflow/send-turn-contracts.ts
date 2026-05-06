@@ -1,4 +1,4 @@
-import type { ChatCompletionMessageParam, StructuredToolResult } from '@ai-team/infrastructure';
+import type { ILlmChatMessageParam, StructuredToolResult } from '@ai-team/core';
 import { z } from 'zod';
 
 import type { SendTurnResolvedSkillsAndTools } from '../orchestrator/send-turn-steps.js';
@@ -30,7 +30,7 @@ export interface SendTurnMachineContext {
   options?: SendTurnOptions;
   ctx: OrchestratorContext;
   plugins: ResolvedPlugins;
-  messages: ChatCompletionMessageParam[];
+  messages: ILlmChatMessageParam[];
   resolved?: SendTurnResolvedSkillsAndTools;
   fullResponse: string;
   structuredResults: StructuredToolResult[];

@@ -3,7 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SessionManager } from './session-manager.js';
-import { SqliteMessageStorage } from './storage/sqlite/sqlite-storage.js';
+import {
+  SqliteBackend,
+  MessagesRepository,
+  SessionsRepository,
+  NotesRepository,
+} from '@ai-team/infrastructure';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,17 +34,21 @@ afterEach(async () => {
 
 describe('SessionManager.findAgentSessionInChain', () => {
   let sessionManager: SessionManager;
+  let backend: SqliteBackend;
 
   beforeEach(async () => {
     const workspaceRoot = await createTempWorkspace();
-    const storage = new SqliteMessageStorage(workspaceRoot);
-    await storage.migrate();
+    backend = new SqliteBackend(workspaceRoot);
+    await backend.migrate();
+    const notes = new NotesRepository(workspaceRoot, backend.ensureReadyAsync, backend.getDb);
+    const messages = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
+    const sessions = new SessionsRepository(backend.ensureReadyAsync, backend.getDb, notes);
     // No AgentManager — IDs are used verbatim
-    sessionManager = new SessionManager(workspaceRoot, storage);
+    sessionManager = new SessionManager(workspaceRoot, messages, sessions, notes);
   });
 
   afterEach(async () => {
-    await (sessionManager as any).storage.close();
+    await backend.close();
   });
 
   it('returns the session when the root session belongs to the target agent', async () => {
@@ -111,16 +120,20 @@ describe('SessionManager.findAgentSessionInChain', () => {
 
 describe('SessionManager.getSessionChain', () => {
   let sessionManager: SessionManager;
+  let backend: SqliteBackend;
 
   beforeEach(async () => {
     const workspaceRoot = await createTempWorkspace();
-    const storage = new SqliteMessageStorage(workspaceRoot);
-    await storage.migrate();
-    sessionManager = new SessionManager(workspaceRoot, storage);
+    backend = new SqliteBackend(workspaceRoot);
+    await backend.migrate();
+    const notes = new NotesRepository(workspaceRoot, backend.ensureReadyAsync, backend.getDb);
+    const messages = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
+    const sessions = new SessionsRepository(backend.ensureReadyAsync, backend.getDb, notes);
+    sessionManager = new SessionManager(workspaceRoot, messages, sessions, notes);
   });
 
   afterEach(async () => {
-    await (sessionManager as any).storage.close();
+    await backend.close();
   });
 
   it('returns a single-session chain for a root session', async () => {
@@ -174,16 +187,20 @@ describe('SessionManager.getSessionChain', () => {
 
 describe('SessionManager title generation', () => {
   let sessionManager: SessionManager;
+  let backend: SqliteBackend;
 
   beforeEach(async () => {
     const workspaceRoot = await createTempWorkspace();
-    const storage = new SqliteMessageStorage(workspaceRoot);
-    await storage.migrate();
-    sessionManager = new SessionManager(workspaceRoot, storage);
+    backend = new SqliteBackend(workspaceRoot);
+    await backend.migrate();
+    const notes = new NotesRepository(workspaceRoot, backend.ensureReadyAsync, backend.getDb);
+    const messages = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
+    const sessions = new SessionsRepository(backend.ensureReadyAsync, backend.getDb, notes);
+    sessionManager = new SessionManager(workspaceRoot, messages, sessions, notes);
   });
 
   afterEach(async () => {
-    await (sessionManager as any).storage.close();
+    await backend.close();
   });
 
   it('persists a fallback title when llm returns whitespace', async () => {
@@ -398,16 +415,20 @@ describe('SessionManager title generation', () => {
 
 describe('SessionManager.getThreadGraphData', () => {
   let sessionManager: SessionManager;
+  let backend: SqliteBackend;
 
   beforeEach(async () => {
     const workspaceRoot = await createTempWorkspace();
-    const storage = new SqliteMessageStorage(workspaceRoot);
-    await storage.migrate();
-    sessionManager = new SessionManager(workspaceRoot, storage);
+    backend = new SqliteBackend(workspaceRoot);
+    await backend.migrate();
+    const notes = new NotesRepository(workspaceRoot, backend.ensureReadyAsync, backend.getDb);
+    const messages = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
+    const sessions = new SessionsRepository(backend.ensureReadyAsync, backend.getDb, notes);
+    sessionManager = new SessionManager(workspaceRoot, messages, sessions, notes);
   });
 
   afterEach(async () => {
-    await (sessionManager as any).storage.close();
+    await backend.close();
   });
 
   it('filters handoff bridge messages and keeps timeline messages sorted', async () => {

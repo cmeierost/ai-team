@@ -25,6 +25,7 @@ export const skillsAddCommandDefinition = createResolverCommandDefinition(
       return addSkillCommand(
         resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
         resolver.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
+        resolver.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
         {
           agent: payload.agent,
           skill: payload.skill,

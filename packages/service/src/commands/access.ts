@@ -1,19 +1,31 @@
 import path from 'node:path';
-import {
-  AgentManager as AgentManagerImpl,
-  canReadPath,
-  canWritePath,
-  canListPath,
-} from '@ai-team/infrastructure';
-import type { Agent, AgentManager } from '@ai-team/infrastructure';
+import type { Agent, IAgentManager, PermissionConfig } from '@ai-team/core';
 import type {
   FilePermission,
   DoIHavePermissionOptions,
   DoIHavePermissionResponse,
   WhoHasPermissionOptions,
   WhoHasPermissionResponse,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import { resolveAgentForOperationAsync } from '../utils/agent-resolution.js';
+
+interface IPathPermissionChecker {
+  canReadPath(
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    filePath: string
+  ): boolean;
+  canWritePath(
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    filePath: string
+  ): boolean;
+  canListPath(
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    filePath: string
+  ): boolean;
+}
 
 function resolvePathMeta(
   workspaceRoot: string,
@@ -40,17 +52,18 @@ function resolvePathMeta(
 
 function checkRight(
   workspaceRoot: string,
+  pathPermissionChecker: IPathPermissionChecker,
   agent: Agent,
   relativePath: string,
   right: FilePermission
 ): boolean {
   switch (right) {
     case 'read':
-      return canReadPath(workspaceRoot, agent.permissions, relativePath);
+      return pathPermissionChecker.canReadPath(workspaceRoot, agent.permissions, relativePath);
     case 'write':
-      return canWritePath(workspaceRoot, agent.permissions, relativePath);
+      return pathPermissionChecker.canWritePath(workspaceRoot, agent.permissions, relativePath);
     case 'list':
-      return canListPath(workspaceRoot, agent.permissions, relativePath);
+      return pathPermissionChecker.canListPath(workspaceRoot, agent.permissions, relativePath);
     default:
       return false;
   }
@@ -58,7 +71,8 @@ function checkRight(
 
 export async function whoHasAccessCommand(
   workspaceRoot: string,
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
+  pathPermissionChecker: IPathPermissionChecker,
   options: WhoHasPermissionOptions
 ): Promise<WhoHasPermissionResponse> {
   const right: FilePermission = options.right ?? 'list';
@@ -80,7 +94,7 @@ export async function whoHasAccessCommand(
 
   const agents = await agentManager.getAllAgentsAsync();
   const matching = agents.filter((a: Agent) =>
-    checkRight(workspaceRoot, a, pathMeta.relative, right)
+    checkRight(workspaceRoot, pathPermissionChecker, a, pathMeta.relative, right)
   );
   const contextIds = matching.map((a: Agent) => a.id);
   const contexts = matching.map((a: Agent) => ({ contextId: a.id, label: a.name }));
@@ -103,7 +117,8 @@ export async function whoHasAccessCommand(
 
 export async function doIHaveAccessCommand(
   workspaceRoot: string,
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
+  pathPermissionChecker: IPathPermissionChecker,
   options: DoIHavePermissionOptions
 ): Promise<DoIHavePermissionResponse> {
   const right: FilePermission = options.right ?? 'list';
@@ -149,11 +164,14 @@ export async function doIHaveAccessCommand(
     selectedBy = 'default-first-agent';
   }
 
-  const allowed = checkRight(workspaceRoot, agent, pathMeta.relative, right);
+  const allowed = checkRight(workspaceRoot, pathPermissionChecker, agent, pathMeta.relative, right);
   const allRights: FilePermission[] = [];
-  if (checkRight(workspaceRoot, agent, pathMeta.relative, 'read')) allRights.push('read');
-  if (checkRight(workspaceRoot, agent, pathMeta.relative, 'write')) allRights.push('write');
-  if (checkRight(workspaceRoot, agent, pathMeta.relative, 'list')) allRights.push('list');
+  if (checkRight(workspaceRoot, pathPermissionChecker, agent, pathMeta.relative, 'read'))
+    allRights.push('read');
+  if (checkRight(workspaceRoot, pathPermissionChecker, agent, pathMeta.relative, 'write'))
+    allRights.push('write');
+  if (checkRight(workspaceRoot, pathPermissionChecker, agent, pathMeta.relative, 'list'))
+    allRights.push('list');
 
   return {
     path: {
@@ -176,33 +194,27 @@ export async function doIHaveAccessCommand(
   };
 }
 
-// ── Dispatcher-compatible handlers ──────────────────────────────────────────
+export class AccessCommand {
+  constructor(
+    private readonly agentManager: IAgentManager,
+    private readonly pathPermissionChecker: IPathPermissionChecker
+  ) {}
 
-export async function accessWhoHandler(
-  workspaceRoot: string,
-  payload: { path: string; right?: FilePermission }
-): Promise<WhoHasPermissionResponse> {
-  if (!payload.path || payload.path.trim().length === 0) {
-    throw new Error('Missing required option --path');
+  async whoHasAccess(options: WhoHasPermissionOptions): Promise<WhoHasPermissionResponse> {
+    return whoHasAccessCommand(
+      this.agentManager.workspaceRoot,
+      this.agentManager,
+      this.pathPermissionChecker,
+      options
+    );
   }
-  const agentManager = new AgentManagerImpl(workspaceRoot);
-  return whoHasAccessCommand(workspaceRoot, agentManager, {
-    path: payload.path,
-    right: payload.right,
-  });
-}
 
-export async function accessCanHandler(
-  workspaceRoot: string,
-  payload: { path: string; right?: FilePermission; agent?: string }
-): Promise<DoIHavePermissionResponse> {
-  if (!payload.path || payload.path.trim().length === 0) {
-    throw new Error('Missing required option --path');
+  async doIHaveAccess(options: DoIHavePermissionOptions): Promise<DoIHavePermissionResponse> {
+    return doIHaveAccessCommand(
+      this.agentManager.workspaceRoot,
+      this.agentManager,
+      this.pathPermissionChecker,
+      options
+    );
   }
-  const agentManager = new AgentManagerImpl(workspaceRoot);
-  return doIHaveAccessCommand(workspaceRoot, agentManager, {
-    path: payload.path,
-    right: payload.right,
-    agent: payload.agent,
-  });
 }

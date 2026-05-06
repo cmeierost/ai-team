@@ -1,4 +1,4 @@
-import type { ChatOptions, StreamEvent, AiTeamCommandName } from '@ai-team/api-client';
+import type { ChatOptions, StreamEvent, AiTeamCommandName } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import type {
   InteractionContext,
@@ -7,9 +7,8 @@ import type {
   QuestionSelectRequest,
   QuestionChecklistRequest,
   QuestionPasswordRequest,
-} from '@ai-team/api-client';
-import { generateAgentColor, parseHslHue } from '@ai-team/infrastructure';
-import { createIdeAdapter, loadTeamConfig } from '@ai-team/infrastructure';
+} from '@ai-team/api-contracts';
+import { generateAgentColor, parseHslHue, createIdeAdapter, ConfigurationStorage } from '@ai-team/infrastructure';
 import { findWorkspaceRoot, IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
 import { checkbox, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
@@ -120,7 +119,14 @@ function createChatQuestionResponders(
       while (true) {
         const answer = await askWithSlashSuggestions(request.message, signal);
         const trimmed = answer.trim().toLowerCase();
-        if (trimmed === 'exit' || trimmed === '/exit' || trimmed === 'quit' || trimmed === '/quit' || trimmed === 'q' || trimmed === '/q') {
+        if (
+          trimmed === 'exit' ||
+          trimmed === '/exit' ||
+          trimmed === 'quit' ||
+          trimmed === '/quit' ||
+          trimmed === 'q' ||
+          trimmed === '/q'
+        ) {
           const resolvedName = await projectNameFn?.();
           const team = resolvedName ? `the ${resolvedName} team` : 'the team';
           process.stdout.write(`See you next time — ${team} will be here when you need us 👋\n`);
@@ -791,7 +797,7 @@ export async function renderChat(
           startSpinner,
           stopSpinner,
           async () => {
-            const cfg = await loadTeamConfig(workspaceRoot);
+            const cfg = await new ConfigurationStorage().loadTeamConfigAsync(workspaceRoot);
             const cfgName = (cfg as any)?.projectName as string | undefined;
             if (cfgName) return cfgName;
             // Fall back to package.json name

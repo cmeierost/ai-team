@@ -1,7 +1,7 @@
-import { type Agent, type AgentManager, type AgentTool } from '@ai-team/infrastructure';
+import type { Agent, IAgentManager, AgentTool } from '@ai-team/core';
 import type { ToolManager } from '../tools/tool-manager.js';
 import { matchesToolSelector, toolKey } from '../tools/tool-manager.js';
-import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-client';
+import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-contracts';
 import type { IMcpGateway } from '../orchestrator/pipeline.js';
 export interface ListToolsOptions {
   agent?: string;
@@ -43,7 +43,7 @@ function sortToolsByName(tools: AgentTool[]): AgentTool[] {
 }
 
 async function resolveFullAgent(
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
   query: string,
   operation: string
 ): Promise<Agent> {
@@ -104,7 +104,7 @@ function resolveToolIdentifier(
 }
 
 export async function listToolsCommand(
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
   toolManager: ToolManager,
   options: ListToolsOptions = {},
   mcpGateway?: IMcpGateway
@@ -153,7 +153,7 @@ export async function listToolsCommand(
 }
 
 export async function allowToolCommand(
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
   toolManager: ToolManager,
   options: UpdateAgentToolOptions
 ): Promise<UpdateAgentToolResponse> {
@@ -199,7 +199,7 @@ export async function allowToolCommand(
  * Alias for allowToolCommand using governance naming.
  */
 export async function toolAllowCommand(
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
   toolManager: ToolManager,
   options: UpdateAgentToolOptions,
   governance: GovernanceRequest
@@ -215,7 +215,7 @@ export async function toolAllowCommand(
 }
 
 export async function disallowToolCommand(
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
   toolManager: ToolManager,
   options: UpdateAgentToolOptions
 ): Promise<UpdateAgentToolResponse> {
@@ -263,7 +263,7 @@ export async function disallowToolCommand(
  * Alias for disallowToolCommand using governance naming.
  */
 export async function toolDenyCommand(
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
   toolManager: ToolManager,
   options: UpdateAgentToolOptions,
   governance: GovernanceRequest

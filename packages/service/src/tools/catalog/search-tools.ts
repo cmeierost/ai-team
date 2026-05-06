@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { glob } from 'glob';
 import { z } from 'zod';
 import type { AgentTool } from '@ai-team/core';
-import { getReadableFiles } from '@ai-team/infrastructure';
+import { TOOL_SERVICE_TOKENS } from '@ai-team/core';
 import { withTimeout } from './tool-utils.js';
 
 const execFileAsync = promisify(execFile);
@@ -41,7 +41,13 @@ export const semanticSearchTool: AgentTool = {
       ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
     });
 
-    const readableFiles = getReadableFiles(context.workspaceRoot, context.agent.permissions, files);
+    const fileAnnotationService = context.resolve?.(TOOL_SERVICE_TOKENS.FileAnnotationService);
+    if (!fileAnnotationService) throw new Error('FileAnnotationService not available in context');
+    const readableFiles = fileAnnotationService.getReadableFiles(
+      context.workspaceRoot,
+      context.agent.permissions,
+      files
+    );
 
     const tokens: string[] = query
       .toLowerCase()

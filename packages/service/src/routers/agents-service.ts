@@ -6,22 +6,21 @@ import type {
   MarkdownSection,
   SearchAgentsResponse,
   IAgentsService,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import { generateIntroduction } from '../orchestrator/introduction.js';
-import type { AgentManager } from '@ai-team/infrastructure';
-import {
-  AgentSchema,
-  loadEffectiveConfig,
-  resolveEffectiveLlmSettings,
-  getAnnotatedFiles,
-  loadAgentAccessPatterns,
-  listCachedWorkspaceFiles,
-  parseMarkdownSections,
-  replaceOrAppendMarkdownSection,
-} from '@ai-team/infrastructure';
+import type {
+  IAgentManager,
+  IConfigurationStorage,
+  IFileAnnotationService,
+  IMarkdownSectionService,
+  IPermissionStorage,
+} from '@ai-team/core';
+import { listCachedWorkspaceFiles } from 'fs-context';
+import { AgentSchema } from '@ai-team/core';
 import { join } from 'node:path';
 import { BadRequestError, NotFoundError } from '../http-errors.js';
 import { ToolManager } from '../tools/tool-manager.js';
+import { resolveEffectiveLlmSettings } from '@ai-team/core';
 
 function parseArrayParam(param: unknown): string[] | undefined {
   if (!param) return undefined;
@@ -31,13 +30,19 @@ function parseArrayParam(param: unknown): string[] | undefined {
 export class AgentsService implements IAgentsService {
   constructor(
     private readonly workspaceRoot: string,
-    private readonly agentManager: AgentManager,
-    private readonly toolManager: ToolManager
+    private readonly agentManager: IAgentManager,
+    private readonly toolManager: ToolManager,
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly permRegistry: IPermissionStorage,
+    private readonly markdownSectionService: IMarkdownSectionService,
+    private readonly fileAnnotationService: IFileAnnotationService
   ) {}
 
   async list(): Promise<Agent[]> {
     const agents = await this.agentManager.getAllAgentsAsync();
-    const effectiveConfig = await loadEffectiveConfig(this.agentManager.workspaceRoot);
+    const effectiveConfig = await this.configurationStorage.loadEffectiveConfigAsync(
+      this.agentManager.workspaceRoot
+    );
     return agents.map((agent) => {
       if (!effectiveConfig) return agent as Agent;
       try {
@@ -117,7 +122,7 @@ export class AgentsService implements IAgentsService {
   async getSections(id: string): Promise<MarkdownSection[]> {
     const matches = await this.agentManager.resolveAgentAsync(id);
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
-    return parseMarkdownSections((matches[0] as any).markdown || '');
+    return this.markdownSectionService.parseMarkdownSections((matches[0] as any).markdown || '');
   }
 
   async updateSection(id: string, heading: string, body: { content: string }): Promise<Agent> {
@@ -125,19 +130,25 @@ export class AgentsService implements IAgentsService {
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
     if (typeof body.content !== 'string') throw new BadRequestError('content is required');
     const existing = matches[0] as any;
-    const updated = replaceOrAppendMarkdownSection(existing.markdown || '', heading, body.content);
+    const updated = this.markdownSectionService.replaceOrAppendMarkdownSection(
+      existing.markdown || '',
+      heading,
+      body.content
+    );
     return this.agentManager.updateAgentAsync(existing.id, { markdown: updated });
   }
 
   async getBio(id: string): Promise<{ bio: string | null }> {
     const matches = await this.agentManager.resolveAgentAsync(id);
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
-    const sections = parseMarkdownSections((matches[0] as any).markdown || '');
+    const sections = this.markdownSectionService.parseMarkdownSections(
+      (matches[0] as any).markdown || ''
+    );
     const preamble = sections.find((s) => s.heading === '');
     if (!preamble) return { bio: null };
     const bio = preamble.content
-      .replace(/^!\[[^\]]*\]\([^)]*\)\n*/m, '')  // strip avatar image line
-      .replace(/^#+[^\n]*\n*/m, '')               // strip h1 heading
+      .replace(/^!\[[^\]]*\]\([^)]*\)\n*/m, '') // strip avatar image line
+      .replace(/^#+[^\n]*\n*/m, '') // strip h1 heading
       .trimStart();
     return { bio: bio || null };
   }
@@ -147,7 +158,7 @@ export class AgentsService implements IAgentsService {
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
     if (typeof body.bio !== 'string') throw new BadRequestError('bio is required');
     const existing = matches[0] as any;
-    const sections = parseMarkdownSections(existing.markdown || '');
+    const sections = this.markdownSectionService.parseMarkdownSections(existing.markdown || '');
     const preamble = sections.find((s) => s.heading === '');
     // Preserve any existing avatar line and h1 heading from the current preamble
     let prefix = '';
@@ -159,7 +170,11 @@ export class AgentsService implements IAgentsService {
     }
     if (!prefix) prefix = `# ${(existing as any).name ?? id}\n\n`;
     const newContent = `${prefix}${body.bio.trim()}`;
-    const updated = replaceOrAppendMarkdownSection(existing.markdown || '', '', newContent);
+    const updated = this.markdownSectionService.replaceOrAppendMarkdownSection(
+      existing.markdown || '',
+      '',
+      newContent
+    );
     return this.agentManager.updateAgentAsync(existing.id, { markdown: updated });
   }
 
@@ -176,16 +191,25 @@ export class AgentsService implements IAgentsService {
     return this.agentManager.updateAgentAsync(matches[0].id, { markdown: body.markdown });
   }
 
-  async getFiles(id: string): Promise<{ files: AnnotatedFile[]; readPatterns: string[]; writePatterns: string[]; listPatterns: string[] }> {
+  async getFiles(id: string): Promise<{
+    files: AnnotatedFile[];
+    readPatterns: string[];
+    writePatterns: string[];
+    listPatterns: string[];
+  }> {
     const matches = await this.agentManager.resolveAgentAsync(id);
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
     const agent = matches[0] as any;
     const [allEntries, accessPatterns] = await Promise.all([
       listCachedWorkspaceFiles(this.workspaceRoot),
-      loadAgentAccessPatterns(this.workspaceRoot, id),
+      this.permRegistry.loadAsync(id),
     ]);
     const allFiles = allEntries.filter((e) => !e.isDirectory).map((e) => e.relativePath);
-    const annotated = getAnnotatedFiles(this.workspaceRoot, agent.permissions, allFiles);
+    const annotated = this.fileAnnotationService.getAnnotatedFiles(
+      this.workspaceRoot,
+      agent.permissions,
+      allFiles
+    );
     const withAccess = annotated.filter((f) => f.readable || f.listable || f.writable);
     return {
       files: withAccess as AnnotatedFile[],
@@ -218,13 +242,9 @@ export class AgentsService implements IAgentsService {
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
     const agent = matches[0] as any;
     const content = await generateIntroduction(
-      null as any,
-      null as any,
+      this.markdownSectionService,
       agent,
-      undefined,
-      query?.developerName,
-      undefined,
-      undefined
+      query?.developerName
     );
     return { agentId: agent.id, content, timestamp: new Date().toISOString() };
   }

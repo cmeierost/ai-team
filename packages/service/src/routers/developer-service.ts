@@ -1,4 +1,4 @@
-import type { IDeveloperService } from '@ai-team/api-client';
+import type { IDeveloperService } from '@ai-team/api-contracts';
 import { getGitUserName, getGitUserEmail, developerNameToId } from '../utils/git.js';
 
 export class DeveloperService implements IDeveloperService {

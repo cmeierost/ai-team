@@ -4,9 +4,9 @@ import { generateAsyncApiSpec } from './asyncapi.js';
 import swaggerUi from 'swagger-ui-express';
 
 export function asyncApiUi(app: Application) {
-  // OpenAPI spec — generated at build time by @ai-team/api-client (ts-http-openapi)
+  // OpenAPI spec — generated at build time by @ai-team/api-contracts (ts-http-openapi)
   const _require = createRequire(import.meta.url);
-  const swaggerSpec = _require('@ai-team/api-client/openapi.json');
+  const swaggerSpec = _require('@ai-team/api-contracts/openapi.json');
 
   // Swagger API documentation
   app.use(

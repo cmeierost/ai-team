@@ -5,7 +5,7 @@ import type {
   StreamEvent,
   InteractionRequest,
   RuntimeStreamEvent,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
 
 export interface StreamInteractionOptions<

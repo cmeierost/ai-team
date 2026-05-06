@@ -1,32 +1,83 @@
-import {
-  loadUserConfig,
-  loadEnvFile,
-  loadTeamConfig,
-  resolveEffectiveLlmSettings,
-  saveUserConfig,
-  saveEnvFile,
-  saveTeamConfig,
-  testLlmConnection,
-  fetchGitHubModels,
-} from '@ai-team/infrastructure';
-import type { UserConfig, LlmConfig, LlmProviderConfig, TeamConfig } from '@ai-team/infrastructure';
+import type {
+  UserConfig,
+  LlmConfig,
+  LlmProviderConfig,
+  TeamConfig,
+  IConfigurationStorage,
+  IEnvironmentStorage,
+  ILlmProviderTester,
+  IModelDiscoveryRegistry,
+} from '@ai-team/core';
 import type {
   AddProviderOptions,
   ConfigureProviderOptions,
   InteractionContext,
   ProviderSetupInput,
   SetProviderOptions,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
 type ProviderSetupResult = ProviderSetupInput;
 
-export async function providerConfigureCommand(
+export class ProviderCommand {
+  constructor(
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly environmentStorage: IEnvironmentStorage,
+    private readonly providerTester: ILlmProviderTester,
+    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry
+  ) {}
+
+  async configureAsync(
+    workspaceRoot: string,
+    options: ConfigureProviderOptions = {},
+    context: InteractionContext = {}
+  ) {
+    return providerConfigureCommandAsync(
+      workspaceRoot,
+      options,
+      context,
+      this.configurationStorage,
+      this.environmentStorage,
+      this.providerTester,
+      this.modelDiscoveryRegistry
+    );
+  }
+
+  async addAsync(
+    workspaceRoot: string,
+    options: AddProviderOptions = {},
+    context: InteractionContext = {}
+  ) {
+    return providerAddCommandAsync(
+      workspaceRoot,
+      options,
+      context,
+      this.configurationStorage,
+      this.environmentStorage,
+      this.providerTester,
+      this.modelDiscoveryRegistry
+    );
+  }
+
+  async setAsync(
+    workspaceRoot: string,
+    options: SetProviderOptions = {},
+    context: InteractionContext = {}
+  ) {
+    return this.configureAsync(workspaceRoot, options, context);
+  }
+}
+
+async function providerConfigureCommandAsync(
   workspaceRoot: string,
   options: ConfigureProviderOptions = {},
-  context: InteractionContext = {}
+  context: InteractionContext = {},
+  configurationStorage: IConfigurationStorage,
+  environmentStorage: IEnvironmentStorage,
+  providerTester: ILlmProviderTester,
+  modelDiscoveryRegistry: IModelDiscoveryRegistry
 ) {
-  const existing = await loadTeamConfig(workspaceRoot);
-  const existingUserConfig = await loadUserConfig(workspaceRoot);
+  const existing = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
+  const existingUserConfig = await configurationStorage.loadUserConfigAsync(workspaceRoot);
 
   const currentDefault = resolveCurrentDefaultProvider(existing);
 
@@ -41,42 +92,99 @@ export async function providerConfigureCommand(
         message: `Current default provider is '${currentDefault.ref}' (${currentDefault.config.kind}). Keep it?`,
       });
       if (keep) {
-        await testConfiguredProvider(workspaceRoot, existing, currentDefault.ref);
+        const keepSetup: ProviderSetupResult = {
+          providerRef: currentDefault.ref,
+          providerConfig: currentDefault.config,
+          legacyLlm: {
+            provider:
+              currentDefault.config.kind === 'github-copilot'
+                ? 'github-copilot'
+                : 'openai-compatible',
+          },
+        };
+        if (existing) {
+          await providerTester.testConnectionAsync(
+            workspaceRoot,
+            existing,
+            keepSetup.providerRef,
+            keepSetup.apiKey
+          );
+        }
         return;
       }
     }
   }
 
   if (currentDefault && options.keepCurrentDefault) {
-    if (!options.fromInit) {
-      await testConfiguredProvider(workspaceRoot, existing, currentDefault.ref);
+    if (!options.fromInit && existing) {
+      const keepSetup: ProviderSetupResult = {
+        providerRef: currentDefault.ref,
+        providerConfig: currentDefault.config,
+        legacyLlm: {
+          provider:
+            currentDefault.config.kind === 'github-copilot'
+              ? 'github-copilot'
+              : 'openai-compatible',
+        },
+      };
+      await providerTester.testConnectionAsync(
+        workspaceRoot,
+        existing,
+        keepSetup.providerRef,
+        keepSetup.apiKey
+      );
     }
     return;
   }
 
   const setup =
     options.setup ??
-    (await askProviderSetupAsync(workspaceRoot, existing, { mode: 'configure' }, context));
+    (await askProviderSetupAsync(
+      workspaceRoot,
+      existing,
+      { mode: 'configure' },
+      context,
+      environmentStorage,
+      modelDiscoveryRegistry
+    ));
 
   const next = applyProviderConfiguration(existing, setup, true);
   const nextUserConfig = applyProviderConfigurationToUserConfig(existingUserConfig, setup, true);
-  await saveTeamConfig(workspaceRoot, next);
-  await saveUserConfig(workspaceRoot, nextUserConfig);
-  await persistApiKeyIfProvided(workspaceRoot, setup);
-  await testConfiguredProvider(workspaceRoot, next, setup.providerRef, setup.apiKey);
+  await configurationStorage.saveTeamConfigAsync(workspaceRoot, next);
+  await configurationStorage.saveUserConfigAsync(workspaceRoot, nextUserConfig);
+  await persistApiKeyIfProvidedAsync(workspaceRoot, setup, environmentStorage);
+  if (existing) {
+    await providerTester.testConnectionAsync(
+      workspaceRoot,
+      existing,
+      setup.providerRef,
+      setup.apiKey
+    );
+  }
 }
 
-export async function providerAddCommand(
+async function providerAddCommandAsync(
   workspaceRoot: string,
   options: AddProviderOptions = {},
-  context: InteractionContext = {}
+  context: InteractionContext = {},
+  configurationStorage: IConfigurationStorage,
+  environmentStorage: IEnvironmentStorage,
+  providerTester: ILlmProviderTester,
+  modelDiscoveryRegistry: IModelDiscoveryRegistry
 ) {
-  const existing = await loadTeamConfig(workspaceRoot);
-  const existingUserConfig = await loadUserConfig(workspaceRoot);
+  const existing = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
+  const existingUserConfig = await configurationStorage.loadUserConfigAsync(workspaceRoot);
 
   const setup =
     options.setup ??
-    (await askProviderSetupAsync(workspaceRoot, existing, { mode: 'add' }, context));
+    (await askProviderSetupAsync(
+      workspaceRoot,
+      existing,
+      { mode: 'add' },
+      context,
+      environmentStorage,
+      modelDiscoveryRegistry
+    ));
 
   let makeDefault = Boolean(options.makeDefault);
   if (options.setup === undefined && options.makeDefault === undefined && context.questionConfirm) {
@@ -91,19 +199,10 @@ export async function providerAddCommand(
     setup,
     makeDefault
   );
-  await saveTeamConfig(workspaceRoot, next);
-  await saveUserConfig(workspaceRoot, nextUserConfig);
-  await persistApiKeyIfProvided(workspaceRoot, setup);
-
-  await testConfiguredProvider(workspaceRoot, next, setup.providerRef, setup.apiKey);
-}
-
-export async function providerSetCommand(
-  workspaceRoot: string,
-  options: SetProviderOptions = {},
-  context: InteractionContext = {}
-) {
-  await providerConfigureCommand(workspaceRoot, options, context);
+  await configurationStorage.saveTeamConfigAsync(workspaceRoot, next);
+  await configurationStorage.saveUserConfigAsync(workspaceRoot, nextUserConfig);
+  await persistApiKeyIfProvidedAsync(workspaceRoot, setup, environmentStorage);
+  await providerTester.testConnectionAsync(workspaceRoot, next, setup.providerRef, setup.apiKey);
 }
 
 function applyProviderConfiguration(
@@ -164,55 +263,18 @@ function applyProviderConfigurationToUserConfig(
   };
 }
 
-async function persistApiKeyIfProvided(
+async function persistApiKeyIfProvidedAsync(
   workspaceRoot: string,
-  setup: ProviderSetupResult
+  setup: ProviderSetupResult,
+  environmentStorage: IEnvironmentStorage
 ): Promise<void> {
   if (!setup.apiKey || !setup.apiKeyEnvVar) {
     return;
   }
 
-  const envVars = await loadEnvFile(workspaceRoot);
+  const envVars = await environmentStorage.loadEnvFileAsync(workspaceRoot);
   envVars[setup.apiKeyEnvVar] = setup.apiKey;
-  await saveEnvFile(workspaceRoot, envVars);
-}
-
-async function testConfiguredProvider(
-  workspaceRoot: string,
-  config: TeamConfig | undefined,
-  providerRef: string,
-  injectedApiKey?: string
-) {
-  if (!config) {
-    return;
-  }
-
-  try {
-    const registry = config.providers || {};
-    const providerConfig = registry[providerRef];
-    const model = providerConfig?.defaultModel;
-
-    const tempConfig: TeamConfig = {
-      ...config,
-      providers: registry,
-      defaultModel: model ? { provider: providerRef, model } : config.defaultModel,
-    };
-
-    const resolved = resolveEffectiveLlmSettings(tempConfig, undefined, undefined, {
-      model: undefined,
-    });
-    const env = await loadEnvFile(workspaceRoot);
-    const apiKeyName = resolved.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-    const apiKey =
-      injectedApiKey ||
-      env[apiKeyName] ||
-      env.AI_TEAM_LLM_API_KEY ||
-      env.LLM_API_KEY ||
-      env.OPENAI_API_KEY;
-    await testLlmConnection(resolved.config, apiKey);
-  } catch (error) {
-    throw new Error(error instanceof Error ? error.message : 'LLM connection failed.');
-  }
+  await environmentStorage.saveEnvFileAsync(workspaceRoot, envVars);
 }
 
 function resolveCurrentDefaultProvider(
@@ -338,7 +400,9 @@ async function askProviderSetupAsync(
   workspaceRoot: string,
   existing: TeamConfig | undefined,
   options: { mode: 'configure' | 'add' },
-  context: InteractionContext
+  context: InteractionContext,
+  environmentStorage: IEnvironmentStorage,
+  modelDiscoveryRegistry: IModelDiscoveryRegistry
 ): Promise<ProviderSetupResult> {
   const selectQ = requireSelect(context);
   const inputQ = requireInput(context);
@@ -352,22 +416,31 @@ async function askProviderSetupAsync(
   });
 
   if (providerKind === 'github-copilot') {
-    return askGitHubCopilotSetupAsync(existing, context, selectQ, inputQ);
+    return askGitHubCopilotSetupAsync(existing, context, selectQ, inputQ, modelDiscoveryRegistry);
   }
 
-  return askOpenAiCompatibleSetupAsync(workspaceRoot, existing, context, selectQ, inputQ);
+  return askOpenAiCompatibleSetupAsync(
+    workspaceRoot,
+    existing,
+    context,
+    selectQ,
+    inputQ,
+    environmentStorage
+  );
 }
 
 async function askGitHubCopilotSetupAsync(
   existing: TeamConfig | undefined,
   _context: InteractionContext,
   selectQ: NonNullable<InteractionContext['questionSelect']>,
-  inputQ: NonNullable<InteractionContext['questionInput']>
+  inputQ: NonNullable<InteractionContext['questionInput']>,
+  modelDiscoveryRegistry: IModelDiscoveryRegistry
 ): Promise<ProviderSetupResult> {
-  const models = await fetchGitHubModels();
+  const discoveryService = modelDiscoveryRegistry.getForKind('github-copilot');
+  const models = discoveryService ? await discoveryService.fetchModelsAsync() : [];
   const modelChoices =
     models.length > 0
-      ? models.map((model) => ({ name: model.name, value: model.id }))
+      ? models.map((model) => ({ name: model.name, value: model.name }))
       : [
           { name: 'GPT-4o', value: 'gpt-4o' },
           { name: 'GPT-4o mini', value: 'gpt-4o-mini' },
@@ -399,7 +472,8 @@ async function askOpenAiCompatibleSetupAsync(
   existing: TeamConfig | undefined,
   context: InteractionContext,
   selectQ: NonNullable<InteractionContext['questionSelect']>,
-  inputQ: NonNullable<InteractionContext['questionInput']>
+  inputQ: NonNullable<InteractionContext['questionInput']>,
+  environmentStorage: IEnvironmentStorage
 ): Promise<ProviderSetupResult> {
   const preset = await selectQ({ message: 'Which service?', choices: PRESET_CHOICES });
   const presetInfo = PRESETS[preset];
@@ -453,7 +527,7 @@ async function askOpenAiCompatibleSetupAsync(
   let apiKey: string | undefined;
 
   if (needsKey) {
-    const envVars = await loadEnvFile(workspaceRoot);
+    const envVars = await environmentStorage.loadEnvFileAsync(workspaceRoot);
     const existingRefConfig = (existing?.providers || {})[providerRef || suggestedRef];
     const defaultEnvVar =
       existingRefConfig?.apiKeyEnvVar ||

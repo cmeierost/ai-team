@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { TeamGraphBuilder } from './team-graph-builder.js';
 import { AgentManager } from './agent-manager.js';
+import { createAgentManager } from './index.js';
 import { Agent, EdgeType, RoleType, ContextLevel, AgentStatus } from '@ai-team/core';
 
 function makeAgent(p: Partial<Agent> & { id: string; name: string; role: string }): Agent {
@@ -12,7 +13,7 @@ describe('TeamGraphBuilder', () => {
   let graphBuilder: TeamGraphBuilder;
 
   beforeEach(() => {
-    agentManager = new AgentManager('/workspace');
+    agentManager = createAgentManager('/workspace');
     graphBuilder = new TeamGraphBuilder(agentManager);
   });
 

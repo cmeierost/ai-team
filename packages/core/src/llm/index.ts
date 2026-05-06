@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   TeamConfig,
 } from '../types/index.js';
+import type { ResolvedLlmSettings } from './settings.js';
 
 // ============================================================================
 // LlmService — high-level abstraction for any configured provider
@@ -59,6 +60,13 @@ export interface OpenAIAdapter {}
 
 export type ChatCompletionMessageParams = {};
 
+export interface LlmDiagnosticMessage {
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+}
+
+export type LlmDiagnosticReporter = (entry: LlmDiagnosticMessage) => void;
+
 /**
  * High-level LLM service that reads workspace config and exposes a
  * provider-agnostic chat interface.
@@ -76,6 +84,12 @@ export interface ILlmService {
    * @throws If no LLM config is found
    */
   initialize(): Promise<void>;
+
+  /**
+   * Initialize if not already initialized, then verify the client is ready.
+   * Safe to call multiple times.
+   */
+  ensureInitialized(): Promise<void>;
 
   initializeForChat(
     agent?: Pick<Agent, 'llm'>,
@@ -201,6 +215,11 @@ export interface ILlmService {
    * config.json may not exist yet).
    */
   initializeFromConfig(config: LlmConfig, apiKey?: string): void;
+
+  /**
+   * Register a reporter for diagnostic messages (e.g. warnings, errors during init).
+   */
+  setDiagnosticReporter(reporter?: LlmDiagnosticReporter): void;
 }
 
 interface LlmProviderAdapter {
@@ -209,13 +228,7 @@ interface LlmProviderAdapter {
   getDefaultModel(config: LlmConfig): string;
 }
 
-export interface ResolvedLlmSettings {
-  config: LlmConfig;
-  options: LlmChatOptions;
-  providerRef?: string;
-  apiKeyEnvVar?: string;
-  contextWindow?: number;
-}
+export type { ResolvedLlmSettings } from './settings.js';
 
 export interface IProviderRegistry {
   registerBuiltInAdapters(): void;

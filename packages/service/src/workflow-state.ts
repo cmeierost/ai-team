@@ -5,7 +5,7 @@ import type {
   QuestionAnswerValue,
   WorkflowFrame,
   WorkflowStateSnapshot,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
 interface PersistedWorkflowState {
   version: 1;

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { NoteAttachment } from '../storage/contracts.js';
-import type { LlmToolDefinition, LlmToolCall, LlmToolResult } from '@ai-team/infrastructure';
+import type { ILlmToolDefinition, ILlmToolCall, ILlmToolResult } from '@ai-team/core';
 
 const TEXT_EXTENSIONS = new Set([
   '.txt',
@@ -119,15 +119,15 @@ export async function extractAttachmentContentAsync(attachment: NoteAttachment):
 }
 
 export interface AttachmentReaderTool {
-  toolDef: LlmToolDefinition;
-  executeTool: (toolCall: LlmToolCall) => Promise<LlmToolResult>;
+  toolDef: ILlmToolDefinition;
+  executeTool: (toolCall: ILlmToolCall) => Promise<ILlmToolResult>;
 }
 
 /**
  * Builds a one-shot `read_attachment_file` tool scoped to a specific note attachment.
  */
 export function buildAttachmentReaderTool(attachment: NoteAttachment): AttachmentReaderTool {
-  const toolDef: LlmToolDefinition = {
+  const toolDef: ILlmToolDefinition = {
     name: 'read_attachment_file',
     description: `Read the full contents of the note's attached file "${attachment.fileName}". Use this to understand the file content before writing the summary.`,
     parameters: {
@@ -137,7 +137,7 @@ export function buildAttachmentReaderTool(attachment: NoteAttachment): Attachmen
     },
   };
 
-  const executeTool = async (toolCall: LlmToolCall): Promise<LlmToolResult> => {
+  const executeTool = async (toolCall: ILlmToolCall): Promise<ILlmToolResult> => {
     try {
       const content = await extractAttachmentContentAsync(attachment);
       return {

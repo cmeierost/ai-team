@@ -7,20 +7,21 @@
  * Both CLI and web client can drive this through the question protocol.
  */
 
+import type {
+  UserConfig,
+  TeamConfig,
+  IConfigurationStorage,
+  IEnvironmentStorage,
+} from '@ai-team/core';
+import type { SetupOptions } from '@ai-team/api-contracts';
 import {
-  ensureAiTeamDirectory,
-  loadTeamConfig,
+  WorkspaceStorage,
   resolveEffectiveLlmSettings,
-  saveUserConfig,
-  saveTeamConfig,
-  saveEnvFile,
   testLlmConnection,
-  loadEnvFile,
 } from '@ai-team/infrastructure';
-import type { UserConfig, TeamConfig } from '@ai-team/infrastructure';
-import type { SetupOptions } from '@ai-team/api-client';
 import { getGitUserName, developerNameToId } from '../utils/git.js';
 import { updateWorkspaceSettings } from './init/update-workspace-settings.js';
+import type { CommandExecute } from './command-contract.js';
 import { updateGitignore } from './init/update-gitignore.js';
 import { askLlmSetup, type LlmSetupResult, type LlmSettingsIo } from './init/llm-settings.js';
 import {
@@ -128,12 +129,48 @@ function buildUserConfigFromSetup(setup: LlmSetupResult): UserConfig {
 
 // ── Main command ──────────────────────────────────────────────────────────────
 
-export async function setupCommand(
+export interface SetupCommandParams {
+  workspaceRoot: string;
+  options?: SetupOptions;
+}
+
+export class SetupCommand implements CommandExecute<
+  SetupCommandParams,
+  InitRuntimeHooks | undefined,
+  void
+> {
+  constructor(
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly environmentStorage: IEnvironmentStorage
+  ) {}
+
+  async execute(params: SetupCommandParams, hooks?: InitRuntimeHooks): Promise<void> {
+    return setupCommandAsync(
+      params.workspaceRoot,
+      params.options,
+      hooks,
+      this.configurationStorage,
+      this.environmentStorage
+    );
+  }
+
+  async executeAsync(
+    workspaceRoot: string,
+    options?: SetupOptions,
+    hooks?: InitRuntimeHooks
+  ): Promise<void> {
+    return this.execute({ workspaceRoot, options }, hooks);
+  }
+}
+
+async function setupCommandAsync(
   workspaceRoot: string,
   options?: SetupOptions,
-  hooks?: InitRuntimeHooks
+  hooks?: InitRuntimeHooks,
+  configurationStorage?: IConfigurationStorage,
+  environmentStorage?: IEnvironmentStorage
 ) {
-  const existingConfig = await loadTeamConfig(workspaceRoot);
+  const existingConfig = await configurationStorage!.loadTeamConfigAsync(workspaceRoot);
 
   // Check if already configured
   let reusedExistingLlm = false;
@@ -184,7 +221,7 @@ export async function setupCommand(
 
     if (reuse) {
       if (existingResolvedLlm.config.provider === 'openai-compatible') {
-        const envVars = await loadEnvFile(workspaceRoot);
+        const envVars = await environmentStorage!.loadEnvFileAsync(workspaceRoot);
         const keyEnvVar = existingResolvedLlm.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
         const existingKey =
           envVars[keyEnvVar] ||
@@ -220,7 +257,7 @@ export async function setupCommand(
   }
 
   // Ensure directory and save config
-  await ensureAiTeamDirectory(workspaceRoot);
+  await new WorkspaceStorage().ensureAiTeamDirectoryAsync(workspaceRoot);
 
   const registration = buildProviderRegistrationFromSetup(llmConfig);
   const {
@@ -256,15 +293,18 @@ export async function setupCommand(
         defaultModel: registration.defaultModel,
         skillSources: DEFAULT_SKILL_SOURCES,
       };
-  await saveTeamConfig(workspaceRoot, teamConfig);
+  await configurationStorage!.saveTeamConfigAsync(workspaceRoot, teamConfig);
 
   if (apiKey && !reusedExistingLlm) {
-    await saveEnvFile(workspaceRoot, {
+    await environmentStorage!.saveEnvFileAsync(workspaceRoot, {
       [llmConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY']: apiKey,
     });
   }
 
-  await saveUserConfig(workspaceRoot, buildUserConfigFromSetup(llmConfig));
+  await configurationStorage!.saveUserConfigAsync(
+    workspaceRoot,
+    buildUserConfigFromSetup(llmConfig)
+  );
   writeLine(hooks, 'Saved LLM configuration.');
 
   await updateWorkspaceSettings(workspaceRoot);

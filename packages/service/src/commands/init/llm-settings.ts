@@ -1,10 +1,9 @@
 import ora from 'ora';
-import { fetchGitHubModels } from '@ai-team/infrastructure';
 import type {
   QuestionInputRequest,
   QuestionPasswordRequest,
   QuestionSelectRequest,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
 export interface LlmSetupResult {
   provider: string;
@@ -65,6 +64,7 @@ async function askGitHubCopilotSetup(io: LlmSettingsIo): Promise<LlmSetupResult>
   io.writeLine('  GitHub Copilot will use your active VS Code / CLI session.');
 
   const spinner = ora('Fetching available models from GitHub Copilot…').start();
+  const { fetchGitHubModels } = await import('@ai-team/infrastructure');
   const models = await fetchGitHubModels();
   spinner.stop();
 

@@ -1,6 +1,6 @@
 import type { MouseEvent } from 'react';
 import type { ChatSession, SessionActivatedTool, Task } from '../types';
-import type { AgentToolPermissionEntry } from '@ai-team/api-client';
+import type { AgentToolPermissionEntry } from '@ai-team/api-contracts';
 import type { SkillEntry } from '../hooks/useSkillsForAgent';
 import {
   ContextWindowSection,

@@ -1,38 +1,50 @@
 import fs from 'node:fs/promises';
-import {
-  AgentManager,
-  loadTeamConfig,
-  loadEnvFile,
-  downloadRandomAvatar,
-  generateAvatarWithAI,
-  buildAvatarPrompt,
-  saveAvatarPreview,
-  finalizeAvatar,
-  updateAgentAvatar,
-  cleanupPreview,
-} from '@ai-team/infrastructure';
-import type { Agent, TeamConfig, LlmProviderConfig } from '@ai-team/infrastructure';
-import type { AvatarOptions, InteractionContext, QuestionSelectChoice } from '@ai-team/api-client';
+import type {
+  Agent,
+  TeamConfig,
+  LlmProviderConfig,
+  IAgentManager,
+  IConfigurationStorage,
+  IEnvironmentStorage,
+  IAvatarManager,
+} from '@ai-team/core';
+import type {
+  AvatarOptions,
+  InteractionContext,
+  QuestionSelectChoice,
+} from '@ai-team/api-contracts';
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
-export async function avatarCommand(
-  workspaceRoot: string,
-  options: AvatarOptions,
-  context: InteractionContext = {}
-) {
-  const agentManager = new AgentManager(workspaceRoot);
-  const agent = await agentManager.resolveAgentOrThrowAsync(options.agentQuery);
-  emitLog(context, `Found agent: ${agent.name}`);
+export class AvatarCommand {
+  constructor(
+    private readonly agentManager: IAgentManager,
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly environmentStorage: IEnvironmentStorage,
+    private readonly avatarManager: IAvatarManager
+  ) {}
 
-  const teamConfig = await loadTeamConfig(workspaceRoot);
-  if (!teamConfig) {
-    throw new Error('Team config not found. Run `ait init` first.');
-  }
+  async execute(options: AvatarOptions, context: InteractionContext = {}): Promise<void> {
+    const workspaceRoot = this.agentManager.workspaceRoot;
+    const agent = await this.agentManager.resolveAgentOrThrowAsync(options.agentQuery);
+    emitLog(context, `Found agent: ${agent.name}`);
 
-  const success = await avatarSelectionFlow(agent, workspaceRoot, teamConfig, context);
-  if (!success) {
-    emitLog(context, 'Avatar selection cancelled.');
+    const teamConfig = await this.configurationStorage.loadTeamConfigAsync(workspaceRoot);
+    if (!teamConfig) {
+      throw new Error('Team config not found. Run `ait init` first.');
+    }
+
+    const success = await avatarSelectionFlow(
+      agent,
+      workspaceRoot,
+      teamConfig,
+      context,
+      this.environmentStorage,
+      this.avatarManager
+    );
+    if (!success) {
+      emitLog(context, 'Avatar selection cancelled.');
+    }
   }
 }
 
@@ -51,7 +63,9 @@ async function avatarSelectionFlow(
   agent: Agent,
   workspaceRoot: string,
   teamConfig: TeamConfig,
-  context: InteractionContext
+  context: InteractionContext,
+  environmentStorage: IEnvironmentStorage,
+  avatarManager: IAvatarManager
 ): Promise<boolean> {
   if (!context.questionSelect || !context.questionConfirm || !context.questionInput) {
     throw new Error('Avatar selection requires question responders.');
@@ -72,7 +86,7 @@ async function avatarSelectionFlow(
       const randomUrls = teamConfig.randomAvatarUrls || [];
       source.urlIndex = await askRandomUrl(randomUrls, context);
     } else if (sourceType === 'generate') {
-      const aiConfig = await askAiGeneration(agent, teamConfig, context);
+      const aiConfig = await askAiGeneration(agent, teamConfig, context, avatarManager);
       source.provider = aiConfig.provider;
       source.modelName = aiConfig.modelName;
       source.prompt = aiConfig.prompt;
@@ -93,19 +107,27 @@ async function avatarSelectionFlow(
     }
 
     // Step 3: Preview and approval loop
-    const approved = await previewAndApproveLoop(agent, source, teamConfig, workspaceRoot, context);
+    const approved = await previewAndApproveLoop(
+      agent,
+      source,
+      teamConfig,
+      workspaceRoot,
+      context,
+      environmentStorage,
+      avatarManager
+    );
     if (!approved) return false;
 
     // Step 4: Finalize
     emitLog(context, 'Finalizing avatar...');
-    const avatarPath = await finalizeAvatar(agent.id, workspaceRoot);
-    await updateAgentAvatar(agent, avatarPath, workspaceRoot);
+    const avatarPath = await avatarManager.finalizeAvatar(agent.id, workspaceRoot);
+    await avatarManager.updateAgentAvatar(agent, avatarPath, workspaceRoot);
     emitLog(context, `✓ Avatar saved for ${agent.name}`);
     emitLog(context, `  Path: ${avatarPath}`);
     return true;
   } catch (error) {
     emitLog(context, `✗ Error: ${(error as Error).message}`, 'error');
-    await cleanupPreview(agent.id, workspaceRoot);
+    await avatarManager.cleanupPreview(agent.id, workspaceRoot);
     return false;
   }
 }
@@ -174,7 +196,8 @@ async function askRandomUrl(randomUrls: string[], context: InteractionContext): 
 async function askAiGeneration(
   agent: Agent,
   teamConfig: TeamConfig,
-  context: InteractionContext
+  context: InteractionContext,
+  avatarManager: IAvatarManager
 ): Promise<{ provider: [string, LlmProviderConfig]; modelName: string; prompt: string }> {
   const providers = teamConfig.providers || {};
   const imageCapableProviders = Object.entries(providers).filter(
@@ -221,7 +244,7 @@ async function askAiGeneration(
   }
 
   // Prompt
-  const defaultPrompt = buildAvatarPrompt(agent);
+  const defaultPrompt = avatarManager.buildAvatarPrompt(agent);
   emitLog(context, `Default prompt: ${defaultPrompt}`);
 
   const promptValue = await context.questionInput!({
@@ -242,14 +265,23 @@ async function previewAndApproveLoop(
   source: AvatarSource,
   teamConfig: TeamConfig,
   workspaceRoot: string,
-  context: InteractionContext
+  context: InteractionContext,
+  environmentStorage: IEnvironmentStorage,
+  avatarManager: IAvatarManager
 ): Promise<boolean> {
   while (true) {
     emitLog(context, 'Generating avatar...');
 
     try {
-      const imageData = await generateAvatarImage(source, agent, teamConfig, workspaceRoot);
-      const previewPath = await saveAvatarPreview(agent.id, imageData, workspaceRoot);
+      const imageData = await generateAvatarImage(
+        source,
+        agent,
+        teamConfig,
+        workspaceRoot,
+        environmentStorage,
+        avatarManager
+      );
+      const previewPath = await avatarManager.saveAvatarPreview(agent.id, imageData, workspaceRoot);
       emitLog(context, `✓ Preview saved: ${previewPath}`);
 
       // Emit avatar-preview event so the adapter can display it
@@ -276,11 +308,11 @@ async function previewAndApproveLoop(
 
       if (approved) return true;
 
-      await cleanupPreview(agent.id, workspaceRoot);
+      await avatarManager.cleanupPreview(agent.id, workspaceRoot);
       emitLog(context, "Let's try another one...");
     } catch (error) {
       emitLog(context, `✗ Error generating avatar: ${(error as Error).message}`, 'error');
-      await cleanupPreview(agent.id, workspaceRoot);
+      await avatarManager.cleanupPreview(agent.id, workspaceRoot);
 
       const retry = await context.questionConfirm!({
         message: 'Try again?',
@@ -296,18 +328,20 @@ async function generateAvatarImage(
   source: AvatarSource,
   agent: Agent,
   teamConfig: TeamConfig,
-  workspaceRoot: string
+  workspaceRoot: string,
+  environmentStorage: IEnvironmentStorage,
+  avatarManager: IAvatarManager
 ): Promise<Buffer> {
   const randomUrls = teamConfig.randomAvatarUrls || [];
 
   if (source.type === 'random') {
     const urlTemplate = randomUrls[source.urlIndex || 0];
     emitLog({ emit: undefined }, ''); // Intentionally not logging URL to avoid leaking
-    return downloadRandomAvatar(urlTemplate, agent);
+    return avatarManager.downloadRandomAvatar(urlTemplate, agent);
   }
 
   if (source.type === 'custom') {
-    return downloadRandomAvatar(source.customUrl!, agent);
+    return avatarManager.downloadRandomAvatar(source.customUrl!, agent);
   }
 
   // AI generation
@@ -315,7 +349,7 @@ async function generateAvatarImage(
   const apiKeyVar = providerConfig.apiKeyEnvVar || 'OPENAI_API_KEY';
 
   // Try .env file first, then process.env
-  const envFile = await loadEnvFile(workspaceRoot);
+  const envFile = await environmentStorage.loadEnvFileAsync(workspaceRoot);
   const apiKey = envFile[apiKeyVar] || process.env[apiKeyVar];
 
   if (!apiKey) {
@@ -325,7 +359,7 @@ async function generateAvatarImage(
     );
   }
 
-  return generateAvatarWithAI(source.prompt!, providerConfig, source.modelName!, apiKey);
+  return avatarManager.generateAvatarWithAI(source.prompt!, providerConfig, source.modelName!, apiKey);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

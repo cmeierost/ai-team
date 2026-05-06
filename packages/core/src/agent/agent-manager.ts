@@ -9,6 +9,7 @@ export type RankedAgentResult = {
 };
 
 export interface IAgentManager {
+  readonly workspaceRoot: string;
   rankAgents(query: string | undefined): RankedAgentResult[];
   rankAgentsByIdentity(query: string | undefined): RankedAgentResult[];
   filterAndRankAgents(options: AgentSearchOptions, agents: Agent[]): AgentSearchResult[];

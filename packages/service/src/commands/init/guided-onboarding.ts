@@ -1,4 +1,4 @@
-import type { LlmService } from '@ai-team/infrastructure';
+import type { ILlmService } from '@ai-team/core';
 
 export interface GuidedChoice {
   name: string;
@@ -37,7 +37,7 @@ function sanitizeValue(value: string): string {
 function normalizeChoices(
   choices: Array<{ name?: string; value?: string }> | undefined,
   min: number,
-  max: number,
+  max: number
 ): GuidedChoice[] | undefined {
   if (!choices || choices.length === 0) {
     return undefined;
@@ -83,31 +83,39 @@ function sanitizeQuestion(value: string): string | undefined {
   return normalized;
 }
 
-function getRawChat(llm: LlmService): ((systemPrompt: string, messages: Array<{ role: 'user'; content: string }>, options?: { maxTokens?: number; temperature?: number }) => Promise<string>) {
+function getRawChat(
+  llm: ILlmService
+): (
+  systemPrompt: string,
+  messages: Array<{ role: 'user'; content: string }>,
+  options?: { maxTokens?: number; temperature?: number }
+) => Promise<string> {
   return llm.rawChat.bind(llm);
 }
 
 export async function getIdeaClarifierQuestion(
-  llm: LlmService,
-  ideaText: string,
+  llm: ILlmService,
+  ideaText: string
 ): Promise<IdeaClarifierQuestion> {
   const rawChat = getRawChat(llm);
   const response = await rawChat(
     'You craft one high-quality product discovery question. Return plain text only.',
-    [{
-      role: 'user',
-      content: [
-        'Based on the idea below, write exactly ONE concise follow-up onboarding question.',
-        'The question must be tailored to the idea domain (game/app/tool/platform/etc.).',
-        'Do not mention "AI team" unless the idea explicitly mentions it.',
-        'Ask for product target + first pain point in a natural way.',
-        'Return only the question text, nothing else.',
-        '',
-        'Idea:',
-        ideaText,
-      ].join('\n'),
-    }],
-    { temperature: 0.4, maxTokens: 120 },
+    [
+      {
+        role: 'user',
+        content: [
+          'Based on the idea below, write exactly ONE concise follow-up onboarding question.',
+          'The question must be tailored to the idea domain (game/app/tool/platform/etc.).',
+          'Do not mention "AI team" unless the idea explicitly mentions it.',
+          'Ask for product target + first pain point in a natural way.',
+          'Return only the question text, nothing else.',
+          '',
+          'Idea:',
+          ideaText,
+        ].join('\n'),
+      },
+    ],
+    { temperature: 0.4, maxTokens: 120 }
   );
 
   const question = sanitizeQuestion(response);
@@ -122,12 +130,12 @@ export async function getIdeaClarifierQuestion(
 
 async function requestStrictJsonPayload(
   rawChat: ReturnType<typeof getRawChat>,
-  promptLines: string[],
+  promptLines: string[]
 ): Promise<GuidedSuggestionPayload> {
   const firstResponse = await rawChat(
     'You are a product strategy expert. Return JSON only with no markdown or commentary.',
     [{ role: 'user', content: promptLines.join('\n') }],
-    { temperature: 0.85, maxTokens: 900 },
+    { temperature: 0.85, maxTokens: 900 }
   );
 
   const firstPayload = tryParsePayload(firstResponse);
@@ -137,15 +145,17 @@ async function requestStrictJsonPayload(
 
   const strictResponse = await rawChat(
     'Return JSON only. No prose, no markdown, no code fences.',
-    [{
-      role: 'user',
-      content: [
-        ...promptLines,
-        '',
-        'IMPORTANT: Return a valid JSON object only. Do not include any text outside JSON.',
-      ].join('\n'),
-    }],
-    { temperature: 0.2, maxTokens: 900 },
+    [
+      {
+        role: 'user',
+        content: [
+          ...promptLines,
+          '',
+          'IMPORTANT: Return a valid JSON object only. Do not include any text outside JSON.',
+        ].join('\n'),
+      },
+    ],
+    { temperature: 0.2, maxTokens: 900 }
   );
 
   const strictPayload = tryParsePayload(strictResponse);
@@ -157,8 +167,8 @@ async function requestStrictJsonPayload(
 }
 
 export async function getGuidedInitialSuggestions(
-  llm: LlmService,
-  ideaText: string,
+  llm: ILlmService,
+  ideaText: string
 ): Promise<GuidedInitialSuggestions> {
   const rawChat = getRawChat(llm);
   const payload = await requestStrictJsonPayload(rawChat, [
@@ -190,13 +200,13 @@ export async function getGuidedInitialSuggestions(
 }
 
 export async function getGuidedDependentSuggestions(
-  llm: LlmService,
+  llm: ILlmService,
   input: {
     ideaText: string;
     selectedProductMode: string;
     selectedPriorities: string[];
     selectedConstraints?: string[];
-  },
+  }
 ): Promise<GuidedDependentSuggestions> {
   const rawChat = getRawChat(llm);
   const payload = await requestStrictJsonPayload(rawChat, [

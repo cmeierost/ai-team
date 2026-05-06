@@ -5,7 +5,7 @@
  * NOT for com_ask-style user questions (those are now inline notation).
  */
 
-import type { QuestionConfirmRequest } from '@ai-team/api-client';
+import type { QuestionConfirmRequest } from '@ai-team/api-contracts';
 import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 
 // ── Tick helper — drains pending log events before prompting ─────────────────

@@ -18,6 +18,7 @@ export const orgCommandDefinition = createFactoryCommandDefinition(
   orgCliMetadata,
   async (container) => {
     const { getOrganizationGraphCommand } = await import('@ai-team/service/src/commands/graph.js');
-    return getOrganizationGraphCommand(container.workspaceRoot);
+    const { COMMAND_FACTORY_TOKENS } = await import('@ai-team/service/src/commands/definitions/types.js');
+    return getOrganizationGraphCommand(container.resolve(COMMAND_FACTORY_TOKENS.TeamGraphBuilder));
   }
 );

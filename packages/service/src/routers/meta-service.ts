@@ -5,9 +5,8 @@ import type {
   IPlanningService,
   WorkflowDefinitionApiResponse,
   WorkflowDefinitionDocument,
-} from '@ai-team/api-client';
-import { loadAllInstructionFiles, loadAgentSkillFile } from '@ai-team/infrastructure';
-import type { AgentManager, AgentTool, SkillManager } from '@ai-team/infrastructure';
+} from '@ai-team/api-contracts';
+import type { IAgentManager, AgentTool, IAgentDocumentStorage, ISkillManager } from '@ai-team/core';
 import { toolKey, type LlmToolDefinition, type ToolManager } from '../tools/tool-manager.js';
 import type { IMcpGateway } from '../orchestrator/pipeline.js';
 import type { SessionManager } from '../session-manager.js';
@@ -110,10 +109,11 @@ export class MetaService implements IContextService {
   };
 
   constructor(
-    private readonly agentManager: AgentManager,
+    private readonly agentManager: IAgentManager,
     private readonly sessionManager: SessionManager,
-    private readonly skillManager: SkillManager,
+    private readonly skillManager: ISkillManager,
     private readonly toolManager: ToolManager,
+    private readonly agentDocumentStorage: IAgentDocumentStorage,
     private readonly mcpGateway?: IMcpGateway,
     private readonly planningService?: IPlanningService
   ) {}
@@ -264,11 +264,11 @@ export class MetaService implements IContextService {
   }
 
   private buildSystemPromptSegments(
-    agent: Awaited<ReturnType<AgentManager['getAgentAsync']>> & object,
+    agent: Awaited<ReturnType<IAgentManager['getAgentAsync']>> & object,
     agentId: string,
     instructionFiles: ContextEstimateInstructionFile[],
-    allAgents: Awaited<ReturnType<AgentManager['getAllAgentsAsync']>>,
-    resolvedSkills: Awaited<ReturnType<SkillManager['resolveSkillsForAgent']>>,
+    allAgents: Awaited<ReturnType<IAgentManager['getAllAgentsAsync']>>,
+    resolvedSkills: Awaited<ReturnType<ISkillManager['resolveSkillsForAgent']>>,
     toolChars: number = 0
   ): ContextEstimateSegment[] {
     const identityChars = this.estimateIdentityChars(agent);
@@ -319,7 +319,7 @@ export class MetaService implements IContextService {
 
   private async loadInstructionFiles(
     workspaceRoot: string,
-    agent: Awaited<ReturnType<AgentManager['getAgentAsync']>> & object,
+    agent: Awaited<ReturnType<IAgentManager['getAgentAsync']>> & object,
     writtenFiles: string[]
   ): Promise<ContextEstimateInstructionFile[]> {
     try {
@@ -337,11 +337,11 @@ export class MetaService implements IContextService {
         return [];
       }
 
-      const files = await loadAllInstructionFiles(workspaceRoot);
+      const files = await this.agentDocumentStorage.loadAllInstructionFilesAsync(workspaceRoot);
       return files
-        .filter((f) => f.instructions?.trim())
-        .filter((f) => this.isInstructionRelevant(f.applyTo, writePatterns, writtenFiles))
-        .map((f) => ({
+        .filter((f: any) => f.instructions?.trim())
+        .filter((f: any) => this.isInstructionRelevant(f.applyTo, writePatterns, writtenFiles))
+        .map((f: any) => ({
           path: path.relative(workspaceRoot, f.filePath).replaceAll('\\', '/'),
           label: path.basename(f.filePath),
           chars: f.instructions.length,
@@ -760,7 +760,7 @@ export class MetaService implements IContextService {
       let skillName = sk.skillPath;
       try {
         const fullPath = path.join(workspaceRoot, sk.skillPath);
-        const file = await loadAgentSkillFile(fullPath);
+        const file = await this.agentDocumentStorage.loadAgentSkillFileAsync(fullPath);
         chars = file.instructions?.length ?? 0;
         skillName = file.name ?? skillName;
       } catch {

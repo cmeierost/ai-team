@@ -7,7 +7,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
-import { createSqliteStorage, findWorkspaceRoot, InteractionService } from '@ai-team/service';
+import { findWorkspaceRoot } from '@ai-team/service';
+import { SqliteBackend } from '@ai-team/infrastructure';
 import { createExpressRouter } from '@ts-http/express';
 import {
   systemDesc,
@@ -27,7 +28,7 @@ import {
   contextDesc,
   commandsDesc,
   accessDesc,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { setupChatWebSocket } from './ws/chat-handler.js';
@@ -59,12 +60,10 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     console.warn(`Make sure to run 'ait init' in your workspace first.`);
   }
 
-  const storage = createSqliteStorage(workspaceRoot);
-  await storage.migrate();
+  const backend = new SqliteBackend(workspaceRoot);
+  await backend.migrate();
 
   const apiBaseUrl = `http://localhost:${port}`;
-
-  const interactionService = new InteractionService(workspaceRoot);
 
   const container = createContainerWithBootstrap(
     {
@@ -72,17 +71,16 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
       apiBaseUrl,
     },
     (c) => {
-      // Provide the pre-migrated storage so the container doesn't re-create it.
-      c.registerInstance(TOKENS.MessageStorage, storage);
+      // Provide the pre-migrated backend so the container doesn't re-create it.
+      c.registerInstance(TOKENS.SqliteBackend, backend);
       // Provide the actual API base URL for SystemService.
       c.registerInstance(TOKENS.ApiBaseUrl, apiBaseUrl);
-      // Provide InteractionService to route services that need streaming.
-      c.registerInstance(TOKENS.InteractionService, interactionService);
     }
   );
 
   const agentManager = container.resolve(TOKENS.AgentManager);
   const sessionManager = container.resolve(TOKENS.SessionManager);
+  const interactionService = container.resolve(TOKENS.InteractionService);
 
   // Create Express app
   const app = express();
@@ -216,7 +214,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   const shutdown = async () => {
     console.log('\nShutting down server...');
     wss.close();
-    await storage.close();
+    await backend.close();
     httpServer.close(() => {
       console.log('Server closed');
       process.exit(0);
@@ -226,7 +224,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  return { app, httpServer, wss, storage };
+  return { app, httpServer, wss, storage: backend };
 }
 
 // Start server if this file is run directly

@@ -1,26 +1,45 @@
 import type { ToolContext as BaseToolContext, AgentTool as BaseAgentTool } from './tool-types.js';
-import type { Agent, Skill } from './agent-models.js';
+import type { Agent, Skill, PermissionConfig } from './agent-models.js';
 import type { ChatMessage } from './communication.js';
-import type { GraphData } from './graph.js';
-import type { SkillConfig } from './schemas.js';
+import type { LlmConfig, SkillConfig, TeamConfig } from './schemas.js';
 import type { StructuredToolResult } from './tool-results.js';
-import type { ViewMode } from './taxonomy.js';
-
-export interface ITeamGraphBuilder {
-  buildGraphDataAsync(viewMode?: ViewMode): Promise<GraphData>;
-}
 
 export interface IChatStorage {
   getMessagesAsync(agentId: string): Promise<ChatMessage[]>;
   appendMessageAsync(agentId: string, message: ChatMessage): Promise<void>;
   overwriteMessagesAsync(agentId: string, messages: ChatMessage[]): Promise<void>;
   clearMessagesAsync(agentId: string): Promise<void>;
+  archiveMessageAsync(agentId: string, messageIndex: number): Promise<void>;
 }
 
-export interface IChatManager {
-  getHistoryAsync(agentId: string): Promise<ChatMessage[]>;
-  appendMessageAsync(agentId: string, message: ChatMessage): Promise<void>;
-  archiveMessageAsync(agentId: string, messageIndex: number): Promise<void>;
+export interface IPathPermissionChecker {
+  canReadPath(
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    filePath: string
+  ): boolean;
+  canWritePath(
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    filePath: string
+  ): boolean;
+  canListPath(
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    filePath: string
+  ): boolean;
+  assertCanReadPath(
+    workspaceRoot: string,
+    contextId: string,
+    permissions: PermissionConfig | undefined,
+    filePath: string
+  ): void;
+  assertCanWritePath(
+    workspaceRoot: string,
+    contextId: string,
+    permissions: PermissionConfig | undefined,
+    filePath: string
+  ): void;
 }
 
 export interface ILlmChatOptions {
@@ -68,6 +87,7 @@ export interface ILlmChatMessageParam {
 
 export interface ILlmService {
   initialize(): Promise<void>;
+  ensureInitialized(): Promise<void>;
   initializeForChat(
     agent?: Pick<Agent, 'llm'>,
     skill?: Pick<Skill, 'llm'>,
@@ -79,6 +99,11 @@ export interface ILlmService {
     options?: ILlmChatOptions,
     skills?: Skill[],
     teamRoster?: Agent[]
+  ): Promise<string>;
+  rawChat(
+    systemPrompt: string,
+    messages: ILlmChatMessageParam[],
+    options?: ILlmChatOptions
   ): Promise<string>;
 }
 
@@ -259,4 +284,31 @@ export interface IServiceContainer {
   tryResolve<T>(token: IContainerToken<T>): T | undefined;
   has(token: IContainerToken<unknown>): boolean;
   child(): IServiceContainer;
+}
+
+export interface DiscoveredModel {
+  name: string;
+  contextWindow?: number;
+  maxPromptTokens?: number;
+  maxContextWindowTokens?: number;
+  maxOutputTokens?: number;
+}
+
+export interface IModelDiscoveryService {
+  readonly kind: string;
+  fetchModelsAsync(baseUrl?: string, apiKey?: string): Promise<DiscoveredModel[]>;
+}
+
+export interface IModelDiscoveryRegistry {
+  getForKind(kind: string): IModelDiscoveryService | undefined;
+}
+
+export interface ILlmProviderTester {
+  testConnectionAsync(
+    workspaceRoot: string,
+    config: TeamConfig,
+    providerRef: string,
+    injectedApiKey?: string
+  ): Promise<void>;
+  testLlmConnectionAsync(config: LlmConfig, apiKey?: string): Promise<string>;
 }

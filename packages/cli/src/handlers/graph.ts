@@ -3,7 +3,7 @@
  */
 
 import chalk from 'chalk';
-import type { GraphData } from '@ai-team/api-client';
+import type { GraphData } from '@ai-team/api-contracts';
 
 interface GraphRenderOptions {
   mode?: string;

@@ -1,5 +1,6 @@
 import type { CliCommandMetadata } from '@ai-team/infrastructure';
 import { createFactoryCommandDefinition } from './shared.js';
+import { TOKENS } from '../service-bootstrap.js';
 
 export const createCliMetadata: CliCommandMetadata = {
   key: 'create',
@@ -18,7 +19,11 @@ export const createCommandDefinition = createFactoryCommandDefinition(
   'create',
   createCliMetadata,
   async (container, payload, context) => {
-    const { createCommand } = await import('@ai-team/service/src/commands/create.js');
-    return createCommand(container.workspaceRoot, payload.type, payload.options, context);
+    const { CreateCommand } = await import('@ai-team/service/src/commands/create.js');
+    const cmd = new CreateCommand(
+      container.resolve(TOKENS.AgentManager),
+      container.resolve(TOKENS.SkillManager)
+    );
+    return cmd.execute(payload.type, payload.options, context);
   }
 );

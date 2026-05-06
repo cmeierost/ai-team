@@ -1,28 +1,31 @@
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const coreApi = vi.hoisted(() => ({
-  buildAgentMarkdown: vi.fn(),
-  saveAgent: vi.fn(),
-  loadAgent: vi.fn(),
-}));
-
-vi.mock('@ai-team/core', () => ({
-  ...coreApi,
-}));
+import type { IAgentDocumentStorage } from '@ai-team/core';
 
 import { createAgentFile } from './agent-file.js';
 
-describe('createAgentFile default governance permissions', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-
-    coreApi.buildAgentMarkdown.mockReturnValue('## Introduction\nhello');
-    coreApi.saveAgent.mockResolvedValue(undefined);
-    coreApi.loadAgent.mockImplementation(async (filePath: string) => ({
+function makeMockStorage(): IAgentDocumentStorage {
+  return {
+    buildAgentMarkdown: vi.fn().mockReturnValue('## Introduction\nhello'),
+    saveAgentAsync: vi.fn().mockResolvedValue(undefined),
+    loadAgentAsync: vi.fn().mockImplementation(async (filePath: string) => ({
       id: path.basename(filePath).replace(/\.agent\.md$/, ''),
       filePath,
-    }));
+    })),
+    loadSkillAsync: vi.fn(),
+    saveSkillAsync: vi.fn(),
+    loadAgentSkillFileAsync: vi.fn(),
+    loadInstructionFileAsync: vi.fn(),
+    loadAllInstructionFilesAsync: vi.fn(),
+  } as unknown as IAgentDocumentStorage;
+}
+
+describe('createAgentFile default governance permissions', () => {
+  let mockStorage: IAgentDocumentStorage;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStorage = makeMockStorage();
   });
 
   it('grants manage_agents by default for CEO', async () => {
@@ -33,10 +36,10 @@ describe('createAgentFile default governance permissions', () => {
       contextLevel: 'organization',
       introduction: 'intro',
       personalityProfile: [],
-    });
+    }, mockStorage);
 
-    expect(coreApi.saveAgent).toHaveBeenCalledTimes(1);
-    const saved = coreApi.saveAgent.mock.calls[0][0];
+    expect(mockStorage.saveAgentAsync).toHaveBeenCalledTimes(1);
+    const saved = (mockStorage.saveAgentAsync as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(saved.permissions.manage_agents).toBe(true);
   });
 
@@ -48,9 +51,9 @@ describe('createAgentFile default governance permissions', () => {
       contextLevel: 'organization',
       introduction: 'intro',
       personalityProfile: [],
-    });
+    }, mockStorage);
 
-    const saved = coreApi.saveAgent.mock.calls[0][0];
+    const saved = (mockStorage.saveAgentAsync as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(saved.permissions.manage_agents).toBe(true);
   });
 
@@ -62,9 +65,9 @@ describe('createAgentFile default governance permissions', () => {
       contextLevel: 'organization',
       introduction: 'intro',
       personalityProfile: [],
-    });
+    }, mockStorage);
 
-    const saved = coreApi.saveAgent.mock.calls[0][0];
+    const saved = (mockStorage.saveAgentAsync as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(saved.permissions.manage_agents).toBeUndefined();
   });
 });

@@ -10,12 +10,13 @@
 
 import type {
   Agent,
-  AgentManager,
   ChatMessage,
   InstructionFile,
-  LlmService,
-  SkillManager,
-} from '@ai-team/infrastructure';
+  IAgentManager,
+  IConfigurationStorage,
+  ILlmService,
+  ISkillManager,
+} from '@ai-team/core';
 import type { ToolManager } from '../tools/tool-manager.js';
 import type { SessionManager } from '../session-manager.js';
 import type { ChatRuntimeHooks } from '../commands/chat/index.js';
@@ -45,9 +46,10 @@ export interface OrchestratorContext {
   // ── Managers (injected at construction, shared across the whole session) ──
   toolManager: ToolManager;
   sessionManager: SessionManager;
-  agentManager: AgentManager;
-  skillManager: SkillManager;
-  llmService: LlmService;
+  agentManager: IAgentManager;
+  skillManager: ISkillManager;
+  llmService: ILlmService;
+  configurationStorage: IConfigurationStorage;
 
   /** Message history for the current agent session. */
   history: ChatMessage[];

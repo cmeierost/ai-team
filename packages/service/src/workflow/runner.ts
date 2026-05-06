@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { InteractionContext } from '@ai-team/api-client';
+import type { InteractionContext } from '@ai-team/api-contracts';
 import type { WorkflowDefinition, WorkflowResult, WorkflowStep } from './types.js';
 import {
   ensureNotAborted,

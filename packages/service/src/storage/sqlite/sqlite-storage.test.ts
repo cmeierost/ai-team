@@ -2,7 +2,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SqliteMessageStorage } from './sqlite-storage.js';
+import {
+  SqliteBackend,
+  MessagesRepository,
+  SessionsRepository,
+  NotesRepository,
+} from '@ai-team/infrastructure';
 import type { ChatMessage } from '@ai-team/core';
 
 const tempDirs: string[] = [];
@@ -20,22 +25,28 @@ afterEach(async () => {
 });
 
 describe('SqliteMessageStorage', () => {
-  let storage: SqliteMessageStorage;
+  let backend: SqliteBackend;
+  let messages: MessagesRepository;
+  let sessions: SessionsRepository;
+  let notes: NotesRepository;
   let workspaceRoot: string;
 
   beforeEach(async () => {
     workspaceRoot = await createTempWorkspace();
-    storage = new SqliteMessageStorage(workspaceRoot);
-    await storage.migrate();
+    backend = new SqliteBackend(workspaceRoot);
+    await backend.migrate();
+    notes = new NotesRepository(workspaceRoot, backend.ensureReadyAsync, backend.getDb);
+    messages = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
+    sessions = new SessionsRepository(backend.ensureReadyAsync, backend.getDb, notes);
   });
 
   afterEach(async () => {
-    await storage.close();
+    await backend.close();
   });
 
   describe('Sessions', () => {
     it('creates and retrieves a session', async () => {
-      const session = await storage.createSession({
+      const session = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -49,7 +60,7 @@ describe('SqliteMessageStorage', () => {
       expect(session.agentIds).toEqual(['architect-agent']);
       expect(session.developerId).toBe('developer-1');
 
-      const retrieved = await storage.getSession(session.id);
+      const retrieved = await sessions.getSession(session.id);
       expect(retrieved).toBeDefined();
       expect(retrieved?.id).toBe(session.id);
       expect(retrieved?.agentIds).toEqual(['architect-agent']);
@@ -57,7 +68,7 @@ describe('SqliteMessageStorage', () => {
 
     it('lists sessions with filtering', async () => {
       // Create multiple sessions
-      const session1 = await storage.createSession({
+      const session1 = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -67,7 +78,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      await storage.createSession({
+      await sessions.createSession({
         agentIds: ['backend-agent'],
         agentId: 'backend-agent',
         developerId: 'developer-1',
@@ -77,7 +88,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      await storage.createSession({
+      await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-2',
@@ -88,19 +99,19 @@ describe('SqliteMessageStorage', () => {
       });
 
       // List all sessions
-      const allSessions = await storage.listSessions();
+      const allSessions = await sessions.listSessions();
       expect(allSessions).toHaveLength(3);
 
       // Filter by agent
-      const architectSessions = await storage.listSessions({ agentId: 'architect-agent' });
+      const architectSessions = await sessions.listSessions({ agentId: 'architect-agent' });
       expect(architectSessions).toHaveLength(2);
 
       // Filter by developer
-      const dev1Sessions = await storage.listSessions({ developerId: 'developer-1' });
+      const dev1Sessions = await sessions.listSessions({ developerId: 'developer-1' });
       expect(dev1Sessions).toHaveLength(2);
 
       // Filter by both
-      const filtered = await storage.listSessions({
+      const filtered = await sessions.listSessions({
         agentId: 'architect-agent',
         developerId: 'developer-1',
       });
@@ -109,7 +120,7 @@ describe('SqliteMessageStorage', () => {
     });
 
     it('updates session metadata', async () => {
-      const session = await storage.createSession({
+      const session = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -119,14 +130,14 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      await storage.updateSession(session.id, {
+      await sessions.updateSession(session.id, {
         title: 'Authentication Refactor',
         notes: 'Planning JWT implementation',
         artifacts: ['brief-auth-design'],
         allowedFiles: ['src/auth/**'],
       });
 
-      const updated = await storage.getSession(session.id);
+      const updated = await sessions.getSession(session.id);
       expect(updated?.title).toBe('Authentication Refactor');
       expect(updated?.notes).toBe('Planning JWT implementation');
       expect(updated?.artifacts).toEqual(['brief-auth-design']);
@@ -134,7 +145,7 @@ describe('SqliteMessageStorage', () => {
     });
 
     it('deletes a session and its messages', async () => {
-      const session = await storage.createSession({
+      const session = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -145,7 +156,7 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Add a message
-      await storage.insertMessage(session.id, {
+      await messages.insertMessage(session.id, {
         timestamp: new Date().toISOString(),
         from: 'developer-1',
         isHuman: true,
@@ -153,20 +164,20 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Delete session
-      const deleted = await storage.deleteSession(session.id);
+      const deleted = await sessions.deleteSession(session.id);
       expect(deleted).toBe(true);
 
       // Verify session is gone
-      const retrieved = await storage.getSession(session.id);
+      const retrieved = await sessions.getSession(session.id);
       expect(retrieved).toBeNull();
 
       // Verify messages are gone too
-      const messages = await storage.getSessionMessages(session.id);
+      const messages = await messages.getSessionMessages(session.id);
       expect(messages).toHaveLength(0);
     });
 
     it('adds and removes agents from session', async () => {
-      const session = await storage.createSession({
+      const session = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -177,16 +188,16 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Add another agent
-      await storage.addSessionAgent(session.id, 'backend-agent');
+      await sessions.addSessionAgent(session.id, 'backend-agent');
 
-      const updated = await storage.getSession(session.id);
+      const updated = await sessions.getSession(session.id);
       expect(updated?.agentIds).toContain('architect-agent');
       expect(updated?.agentIds).toContain('backend-agent');
 
       // Remove an agent
-      await storage.removeSessionAgent(session.id, 'architect-agent');
+      await sessions.removeSessionAgent(session.id, 'architect-agent');
 
-      const final = await storage.getSession(session.id);
+      const final = await sessions.getSession(session.id);
       expect(final?.agentIds).not.toContain('architect-agent');
       expect(final?.agentIds).toContain('backend-agent');
     });
@@ -196,7 +207,7 @@ describe('SqliteMessageStorage', () => {
     let sessionId: string;
 
     beforeEach(async () => {
-      const session = await storage.createSession({
+      const session = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -216,11 +227,11 @@ describe('SqliteMessageStorage', () => {
         content: 'How do I implement authentication?',
       };
 
-      const result = await storage.insertMessage(sessionId, message);
+      const result = await messages.insertMessage(sessionId, message);
       expect(result.messageId).toBeDefined();
       expect(result.timestamp).toBeDefined();
 
-      const messages = await storage.getSessionMessages(sessionId);
+      const messages = await messages.getSessionMessages(sessionId);
       expect(messages).toHaveLength(1);
       expect(messages[0].content).toBe('How do I implement authentication?');
       expect(messages[0].from).toBe('developer-1');
@@ -228,7 +239,7 @@ describe('SqliteMessageStorage', () => {
     });
 
     it('stores message id and hiddenFromLlm flag and allows toggling by id', async () => {
-      const inserted = await storage.insertMessage(sessionId, {
+      const inserted = await messages.insertMessage(sessionId, {
         timestamp: new Date().toISOString(),
         from: 'architect-agent',
         isHuman: false,
@@ -236,19 +247,19 @@ describe('SqliteMessageStorage', () => {
         hiddenFromLlm: true,
       });
 
-      const all = await storage.queryMessages({ sessionId });
+      const all = await messages.queryMessages({ sessionId });
       expect(all).toHaveLength(1);
       expect(all[0].id).toBe(inserted.messageId);
       expect(all[0].hiddenFromLlm).toBe(true);
 
-      const byId = await storage.getMessageById(Number(inserted.messageId));
+      const byId = await messages.getMessageById(Number(inserted.messageId));
       expect(byId?.id).toBe(inserted.messageId);
       expect(byId?.hiddenFromLlm).toBe(true);
 
-      const updated = await storage.setMessageHiddenFromLlm(Number(inserted.messageId), false);
+      const updated = await messages.setMessageHiddenFromLlm(Number(inserted.messageId), false);
       expect(updated).toBe(true);
 
-      const afterToggle = await storage.getMessageById(Number(inserted.messageId));
+      const afterToggle = await messages.getMessageById(Number(inserted.messageId));
       expect(afterToggle?.hiddenFromLlm).toBeUndefined();
     });
 
@@ -278,9 +289,9 @@ describe('SqliteMessageStorage', () => {
         ],
       };
 
-      await storage.insertMessage(sessionId, message);
+      await messages.insertMessage(sessionId, message);
 
-      const messages = await storage.getSessionMessages(sessionId);
+      const messages = await messages.getSessionMessages(sessionId);
       expect(messages).toHaveLength(1);
       expect(messages[0].context).toHaveLength(2);
       expect(messages[0].context).toContain('src/auth/login.ts');
@@ -295,7 +306,7 @@ describe('SqliteMessageStorage', () => {
     });
 
     it('updates the readable result_llm text for a stored tool call', async () => {
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: new Date().toISOString(),
         from: 'architect-agent',
         isHuman: false,
@@ -310,16 +321,16 @@ describe('SqliteMessageStorage', () => {
         ],
       });
 
-      const initialMessages = await storage.getSessionMessages(sessionId);
+      const initialMessages = await messages.getSessionMessages(sessionId);
       const toolCallId = initialMessages[0].tool_calls?.[0]?.id;
       expect(toolCallId).toBeDefined();
 
-      await storage.updateToolCallLlmResult(
+      await messages.updateToolCallLlmResult(
         toolCallId!,
         'File: src/example.ts\nScope: full-file\n\nconst x = 2;'
       );
 
-      const updatedMessages = await storage.getSessionMessages(sessionId);
+      const updatedMessages = await messages.getSessionMessages(sessionId);
       expect(updatedMessages[0].tool_calls?.[0]?.resultLlm).toBe(
         'File: src/example.ts\nScope: full-file\n\nconst x = 2;'
       );
@@ -333,7 +344,7 @@ describe('SqliteMessageStorage', () => {
       ];
 
       for (const timestamp of timestamps) {
-        await storage.insertMessage(sessionId, {
+        await messages.insertMessage(sessionId, {
           timestamp,
           from: 'developer-1',
           isHuman: true,
@@ -341,7 +352,7 @@ describe('SqliteMessageStorage', () => {
         });
       }
 
-      const messages = await storage.getSessionMessages(sessionId);
+      const messages = await messages.getSessionMessages(sessionId);
       expect(messages).toHaveLength(3);
       expect(messages[0].timestamp).toBe(timestamps[0]);
       expect(messages[1].timestamp).toBe(timestamps[1]);
@@ -350,7 +361,7 @@ describe('SqliteMessageStorage', () => {
 
     it('archives and unarchives messages', async () => {
       const timestamp = new Date().toISOString();
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp,
         from: 'developer-1',
         isHuman: true,
@@ -358,63 +369,63 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Get all messages (including archived)
-      let messages = await storage.getSessionMessages(sessionId, true);
+      let messages = await messages.getSessionMessages(sessionId, true);
       expect(messages[0].archived).toBeUndefined();
 
       // Archive the message
-      await storage.archiveMessage(sessionId, timestamp);
+      await messages.archiveMessage(sessionId, timestamp);
 
       // Check archived flag
-      messages = await storage.getSessionMessages(sessionId, true);
+      messages = await messages.getSessionMessages(sessionId, true);
       expect(messages[0].archived).toBe(true);
 
       // Default excludes archived
-      messages = await storage.getSessionMessages(sessionId);
+      messages = await messages.getSessionMessages(sessionId);
       expect(messages).toHaveLength(0);
     });
 
     it('deletes messages', async () => {
       const timestamp = new Date().toISOString();
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp,
         from: 'developer-1',
         isHuman: true,
         content: 'Test message',
       });
 
-      let messages = await storage.getSessionMessages(sessionId);
+      let messages = await messages.getSessionMessages(sessionId);
       expect(messages).toHaveLength(1);
 
-      const deleted = await storage.deleteMessage(sessionId, timestamp);
+      const deleted = await messages.deleteMessage(sessionId, timestamp);
       expect(deleted).toBe(true);
 
-      messages = await storage.getSessionMessages(sessionId);
+      messages = await messages.getSessionMessages(sessionId);
       expect(messages).toHaveLength(0);
     });
 
     it('filters messages by sender', async () => {
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:00:00.000Z',
         from: 'developer-1',
         isHuman: true,
         content: 'Human message',
       });
 
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:01:00.000Z',
         from: 'architect-agent',
         isHuman: false,
         content: 'Agent message',
       });
 
-      const humanMessages = await storage.queryMessages({
+      const humanMessages = await messages.queryMessages({
         sessionId,
         isHuman: true,
       });
       expect(humanMessages).toHaveLength(1);
       expect(humanMessages[0].from).toBe('developer-1');
 
-      const agentMessages = await storage.queryMessages({
+      const agentMessages = await messages.queryMessages({
         sessionId,
         fromId: 'architect-agent',
       });
@@ -423,56 +434,56 @@ describe('SqliteMessageStorage', () => {
     });
 
     it('searches messages by content', async () => {
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:00:00.000Z',
         from: 'developer-1',
         isHuman: true,
         content: 'How do I implement JWT authentication?',
       });
 
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:01:00.000Z',
         from: 'architect-agent',
         isHuman: false,
         content: 'For authentication, use the jsonwebtoken library.',
       });
 
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:02:00.000Z',
         from: 'developer-1',
         isHuman: true,
         content: 'What about error handling?',
       });
 
-      const results = await storage.searchMessages('authentication', sessionId);
+      const results = await messages.searchMessages('authentication', sessionId);
       expect(results).toHaveLength(2);
       expect(results.some((m) => m.content.includes('JWT'))).toBe(true);
       expect(results.some((m) => m.content.includes('jsonwebtoken'))).toBe(true);
     });
 
     it('searches messages with FTS5 boolean operators', async () => {
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:00:00.000Z',
         from: 'developer-1',
         isHuman: true,
         content: 'How do I implement JWT authentication?',
       });
 
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:01:00.000Z',
         from: 'architect-agent',
         isHuman: false,
         content: 'Use the jsonwebtoken library for authentication.',
       });
 
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:02:00.000Z',
         from: 'developer-1',
         isHuman: true,
         content: 'What about JWT validation and error handling?',
       });
 
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:03:00.000Z',
         from: 'architect-agent',
         isHuman: false,
@@ -480,36 +491,36 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Boolean AND: both terms must be present
-      const andResults = await storage.searchMessages('JWT AND validation', sessionId);
+      const andResults = await messages.searchMessages('JWT AND validation', sessionId);
       expect(andResults).toHaveLength(1);
       expect(andResults[0].content).toContain('validation');
 
       // Boolean OR: either term can be present
-      const orResults = await storage.searchMessages('JWT OR OAuth2', sessionId);
+      const orResults = await messages.searchMessages('JWT OR OAuth2', sessionId);
       expect(orResults.length).toBeGreaterThanOrEqual(3);
 
       // Boolean NOT: exclude term
-      const notResults = await storage.searchMessages('authentication NOT OAuth2', sessionId);
+      const notResults = await messages.searchMessages('authentication NOT OAuth2', sessionId);
       expect(notResults.every((m) => !m.content.includes('OAuth2'))).toBe(true);
       expect(notResults.length).toBeGreaterThan(0);
     });
 
     it('searches messages with phrase queries', async () => {
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:00:00.000Z',
         from: 'developer-1',
         isHuman: true,
         content: 'I need help with error handling strategies.',
       });
 
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:01:00.000Z',
         from: 'architect-agent',
         isHuman: false,
         content: 'For error handling, use try-catch blocks.',
       });
 
-      await storage.insertMessage(sessionId, {
+      await messages.insertMessage(sessionId, {
         timestamp: '2026-03-01T10:02:00.000Z',
         from: 'developer-1',
         isHuman: true,
@@ -517,7 +528,7 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Phrase query: exact phrase match
-      const results = await storage.searchMessages('"error handling"', sessionId);
+      const results = await messages.searchMessages('"error handling"', sessionId);
       expect(results).toHaveLength(2);
       expect(results.every((m) => m.content.toLowerCase().includes('error handling'))).toBe(true);
     });
@@ -525,7 +536,7 @@ describe('SqliteMessageStorage', () => {
 
   describe('Notes', () => {
     it('creates and retrieves notes', async () => {
-      const note = await storage.createNote({
+      const note = await notes.createNote({
         agentId: 'architect-agent',
         title: 'Authentication Refactor',
         content: 'Consider migrating from session cookies to JWT tokens for better scalability.',
@@ -538,14 +549,14 @@ describe('SqliteMessageStorage', () => {
       expect(note.createdAt).toBeDefined();
       expect(note.updatedAt).toBeDefined();
 
-      const retrieved = await storage.getNote(note.id);
+      const retrieved = await notes.getNote(note.id);
       expect(retrieved).toBeDefined();
       expect(retrieved?.content).toBe(note.content);
       expect(retrieved?.tags).toEqual(['authentication', 'jwt', 'refactoring']);
     });
 
     it('persists shared session visibility when creating notes', async () => {
-      const ownerSession = await storage.createSession({
+      const ownerSession = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -555,7 +566,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const sharedSession = await storage.createSession({
+      const sharedSession = await sessions.createSession({
         agentIds: ['backend-agent'],
         agentId: 'backend-agent',
         developerId: 'developer-1',
@@ -565,7 +576,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const note = await storage.createNote({
+      const note = await notes.createNote({
         agentId: 'architect-agent',
         sessionId: ownerSession.id,
         sharedSessionIds: [sharedSession.id],
@@ -579,17 +590,17 @@ describe('SqliteMessageStorage', () => {
       expect(note.hiddenFromLlm).toBe(true);
       expect(note.showOnDashboard).toBe(true);
 
-      const retrieved = await storage.getNote(note.id);
+      const retrieved = await notes.getNote(note.id);
       expect(retrieved?.sharedSessionIds).toEqual([sharedSession.id]);
       expect(retrieved?.hiddenFromLlm).toBe(true);
       expect(retrieved?.showOnDashboard).toBe(true);
 
-      const sessionNotes = await storage.listSessionNotes(ownerSession.id);
+      const sessionNotes = await notes.listSessionNotes(ownerSession.id);
       expect(sessionNotes[0]?.sharedSessionIds).toEqual([sharedSession.id]);
     });
 
     it('reports session delete impact and blocks deleting unshared owner notes', async () => {
-      const ownerSession = await storage.createSession({
+      const ownerSession = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -599,7 +610,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const sharedSession = await storage.createSession({
+      const sharedSession = await sessions.createSession({
         agentIds: ['backend-agent'],
         agentId: 'backend-agent',
         developerId: 'developer-1',
@@ -609,7 +620,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const sharedNote = await storage.createNote({
+      const sharedNote = await notes.createNote({
         agentId: 'architect-agent',
         sessionId: ownerSession.id,
         sharedSessionIds: [sharedSession.id],
@@ -617,14 +628,14 @@ describe('SqliteMessageStorage', () => {
         content: 'Reassign me when the owner session is deleted.',
       });
 
-      const unsharedNote = await storage.createNote({
+      const unsharedNote = await notes.createNote({
         agentId: 'architect-agent',
         sessionId: ownerSession.id,
         title: 'Private note',
         content: 'Deleting the owner session should warn first.',
       });
 
-      const impact = await storage.getSessionDeleteImpact(ownerSession.id);
+      const impact = await sessions.getSessionDeleteImpact(ownerSession.id);
       expect(impact.transferableNotes).toEqual([
         {
           noteId: sharedNote.id,
@@ -640,14 +651,14 @@ describe('SqliteMessageStorage', () => {
         },
       ]);
 
-      await expect(storage.deleteSession(ownerSession.id)).rejects.toThrow(/unshared note/);
-      expect(await storage.getSession(ownerSession.id)).not.toBeNull();
-      expect(await storage.getNote(sharedNote.id)).not.toBeNull();
-      expect(await storage.getNote(unsharedNote.id)).not.toBeNull();
+      await expect(sessions.deleteSession(ownerSession.id)).rejects.toThrow(/unshared note/);
+      expect(await sessions.getSession(ownerSession.id)).not.toBeNull();
+      expect(await notes.getNote(sharedNote.id)).not.toBeNull();
+      expect(await notes.getNote(unsharedNote.id)).not.toBeNull();
     });
 
     it('transfers a shared note to the next owner when deleting the owner session', async () => {
-      const ownerSession = await storage.createSession({
+      const ownerSession = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -657,7 +668,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const firstSharedSession = await storage.createSession({
+      const firstSharedSession = await sessions.createSession({
         agentIds: ['backend-agent'],
         agentId: 'backend-agent',
         developerId: 'developer-1',
@@ -667,7 +678,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const secondSharedSession = await storage.createSession({
+      const secondSharedSession = await sessions.createSession({
         agentIds: ['qa-agent'],
         agentId: 'qa-agent',
         developerId: 'developer-1',
@@ -677,7 +688,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const note = await storage.createNote({
+      const note = await notes.createNote({
         agentId: 'architect-agent',
         sessionId: ownerSession.id,
         sharedSessionIds: [firstSharedSession.id, secondSharedSession.id],
@@ -685,20 +696,20 @@ describe('SqliteMessageStorage', () => {
         content: 'Move me to the next shared session.',
       });
 
-      const deleted = await storage.deleteSession(ownerSession.id);
+      const deleted = await sessions.deleteSession(ownerSession.id);
       expect(deleted).toBe(true);
-      expect(await storage.getSession(ownerSession.id)).toBeNull();
+      expect(await sessions.getSession(ownerSession.id)).toBeNull();
 
-      const moved = await storage.getNote(note.id);
+      const moved = await notes.getNote(note.id);
       expect(moved?.sessionId).toBe(firstSharedSession.id);
       expect(moved?.sharedSessionIds).toEqual([secondSharedSession.id]);
 
-      const firstSharedNotes = await storage.listSessionNotes(firstSharedSession.id);
+      const firstSharedNotes = await notes.listSessionNotes(firstSharedSession.id);
       expect(firstSharedNotes.map((entry) => entry.id)).toContain(note.id);
     });
 
     it('lists notes pinned to the dashboard', async () => {
-      const pinned = await storage.createNote({
+      const pinned = await notes.createNote({
         agentId: 'architect-agent',
         sessionId: 'session-a',
         title: 'Pinned for developer',
@@ -706,7 +717,7 @@ describe('SqliteMessageStorage', () => {
         showOnDashboard: true,
       });
 
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'backend-agent',
         sessionId: 'session-b',
         title: 'Regular note',
@@ -714,36 +725,36 @@ describe('SqliteMessageStorage', () => {
         showOnDashboard: false,
       });
 
-      const dashboardNotes = await storage.listDashboardNotes();
+      const dashboardNotes = await notes.listDashboardNotes();
       expect(dashboardNotes.map((note) => note.id)).toEqual([pinned.id]);
       expect(dashboardNotes[0]?.showOnDashboard).toBe(true);
     });
 
     it('lists notes by agent', async () => {
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'architect-agent',
         content: 'Note 1 for architect',
       });
 
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'architect-agent',
         content: 'Note 2 for architect',
       });
 
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'backend-agent',
         content: 'Note for backend',
       });
 
-      const architectNotes = await storage.listAgentNotes('architect-agent');
+      const architectNotes = await notes.listAgentNotes('architect-agent');
       expect(architectNotes).toHaveLength(2);
 
-      const backendNotes = await storage.listAgentNotes('backend-agent');
+      const backendNotes = await notes.listAgentNotes('backend-agent');
       expect(backendNotes).toHaveLength(1);
     });
 
     it('updates notes', async () => {
-      const note = await storage.createNote({
+      const note = await notes.createNote({
         agentId: 'architect-agent',
         title: 'Initial Title',
         content: 'Initial content',
@@ -751,13 +762,13 @@ describe('SqliteMessageStorage', () => {
       });
 
       await new Promise((r) => setTimeout(r, 5));
-      await storage.updateNote(note.id, {
+      await notes.updateNote(note.id, {
         title: 'Updated Title',
         content: 'Updated content with more details',
         tags: ['tag1', 'tag2', 'updated'],
       });
 
-      const updated = await storage.getNote(note.id);
+      const updated = await notes.getNote(note.id);
       expect(updated?.title).toBe('Updated Title');
       expect(updated?.content).toBe('Updated content with more details');
       expect(updated?.tags).toEqual(['tag1', 'tag2', 'updated']);
@@ -765,7 +776,7 @@ describe('SqliteMessageStorage', () => {
     });
 
     it('lists session notes and persists attachments', async () => {
-      const session = await storage.createSession({
+      const session = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -775,7 +786,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const note = await storage.createNote({
+      const note = await notes.createNote({
         agentId: 'architect-agent',
         sessionId: session.id,
         title: 'Session upload',
@@ -788,7 +799,7 @@ describe('SqliteMessageStorage', () => {
         },
       });
 
-      const sessionNotes = await storage.listSessionNotes(session.id);
+      const sessionNotes = await notes.listSessionNotes(session.id);
       expect(sessionNotes).toHaveLength(1);
       expect(sessionNotes[0].id).toBe(note.id);
       expect(sessionNotes[0].attachment?.fileName).toBe('architecture-sketch.md');
@@ -800,7 +811,7 @@ describe('SqliteMessageStorage', () => {
     });
 
     it('replaces and removes note attachments on update', async () => {
-      const note = await storage.createNote({
+      const note = await notes.createNote({
         agentId: 'architect-agent',
         content: 'Attachment lifecycle',
         attachment: {
@@ -811,51 +822,51 @@ describe('SqliteMessageStorage', () => {
 
       const originalAttachmentPath = path.join(workspaceRoot, note.attachment!.filePath);
 
-      await storage.updateNote(note.id, {
+      await notes.updateNote(note.id, {
         attachment: {
           fileName: 'new.txt',
           contentBase64: Buffer.from('new-content').toString('base64'),
         },
       });
 
-      const replaced = await storage.getNote(note.id);
+      const replaced = await notes.getNote(note.id);
       expect(replaced?.attachment?.fileName).toBe('new.txt');
       await expect(fs.access(originalAttachmentPath)).rejects.toThrow();
 
-      await storage.updateNote(note.id, { attachment: null });
-      const withoutAttachment = await storage.getNote(note.id);
+      await notes.updateNote(note.id, { attachment: null });
+      const withoutAttachment = await notes.getNote(note.id);
       expect(withoutAttachment?.attachment).toBeUndefined();
     });
 
     it('deletes notes', async () => {
-      const note = await storage.createNote({
+      const note = await notes.createNote({
         agentId: 'architect-agent',
         content: 'Test note',
       });
 
-      const deleted = await storage.deleteNote(note.id);
+      const deleted = await notes.deleteNote(note.id);
       expect(deleted).toBe(true);
 
-      const retrieved = await storage.getNote(note.id);
+      const retrieved = await notes.getNote(note.id);
       expect(retrieved).toBeNull();
     });
 
     it('searches notes by content', async () => {
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'architect-agent',
         title: 'JWT Authentication',
         content: 'Implement JWT-based authentication system',
         tags: ['security'],
       });
 
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'architect-agent',
         title: 'Database Migration',
         content: 'Plan migration from MySQL to PostgreSQL',
         tags: ['database'],
       });
 
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'backend-agent',
         title: 'API Authentication',
         content: 'Add OAuth2 authentication to REST API',
@@ -863,24 +874,24 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Search all notes
-      const allResults = await storage.searchNotes('authentication');
+      const allResults = await notes.searchNotes('authentication');
       expect(allResults).toHaveLength(2);
 
       // Search notes for specific agent
-      const architectResults = await storage.searchNotes('authentication', 'architect-agent');
+      const architectResults = await notes.searchNotes('authentication', 'architect-agent');
       expect(architectResults).toHaveLength(1);
       expect(architectResults[0].title).toBe('JWT Authentication');
     });
 
     it('searches notes with FTS5 features', async () => {
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'developer-1',
         title: 'API Testing Guide',
         content: 'We need to test all API endpoints and validate responses.',
         tags: ['testing', 'api'],
       });
 
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'developer-1',
         title: 'Unit Test Configuration',
         content:
@@ -888,7 +899,7 @@ describe('SqliteMessageStorage', () => {
         tags: ['testing', 'config'],
       });
 
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'developer-1',
         title: 'Deployment Guide',
         content: 'Deploy the application to production after running tests.',
@@ -896,34 +907,34 @@ describe('SqliteMessageStorage', () => {
       });
 
       // FTS5 word matching: "test" should match all notes containing the word "test" (case insensitive)
-      const testResults = await storage.searchNotes('test', 'developer-1');
+      const testResults = await notes.searchNotes('test', 'developer-1');
       expect(testResults.length).toBeGreaterThanOrEqual(2); // Found in title and content
 
       // FTS5 word matching: "testing" should match notes with that exact word in title or content
-      const testingResults = await storage.searchNotes('testing', 'developer-1');
+      const testingResults = await notes.searchNotes('testing', 'developer-1');
       expect(testingResults.length).toBeGreaterThanOrEqual(1); // Found in title (note: tags are not indexed)
 
       // FTS5 word matching: "API" should match by title
-      const apiResults = await storage.searchNotes('API', 'developer-1');
+      const apiResults = await notes.searchNotes('API', 'developer-1');
       expect(apiResults.length).toBeGreaterThanOrEqual(2); // Found in title and content
     });
 
     it('searches notes with FTS5 operators', async () => {
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'developer-1',
         title: 'API Security Best Practices',
         content: 'Implement HTTPS and JWT authentication for API endpoints.',
         tags: ['security', 'api'],
       });
 
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'developer-1',
         title: 'Database Security',
         content: 'Use encryption for sensitive data in the database.',
         tags: ['security', 'database'],
       });
 
-      await storage.createNote({
+      await notes.createNote({
         agentId: 'developer-1',
         title: 'API Rate Limiting',
         content: 'Configure rate limiting for public API endpoints.',
@@ -931,22 +942,22 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Boolean AND
-      const andResults = await storage.searchNotes('API AND security', 'developer-1');
+      const andResults = await notes.searchNotes('API AND security', 'developer-1');
       expect(andResults).toHaveLength(1);
       expect(andResults[0].title).toContain('API Security');
 
       // Boolean OR
-      const orResults = await storage.searchNotes('authentication OR encryption', 'developer-1');
+      const orResults = await notes.searchNotes('authentication OR encryption', 'developer-1');
       expect(orResults).toHaveLength(2);
 
       // Phrase query
-      const phraseResults = await storage.searchNotes('"rate limiting"', 'developer-1');
+      const phraseResults = await notes.searchNotes('"rate limiting"', 'developer-1');
       expect(phraseResults).toHaveLength(1);
       expect(phraseResults[0].content).toContain('rate limiting');
     });
 
     it('creates and removes message-session links', async () => {
-      const session = await storage.createSession({
+      const session = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -956,7 +967,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const insertResult = await storage.insertMessage(session.id, {
+      const insertResult = await messages.insertMessage(session.id, {
         timestamp: new Date().toISOString(),
         from: 'developer-1',
         isHuman: true,
@@ -964,23 +975,23 @@ describe('SqliteMessageStorage', () => {
       });
       const messageId = Number(insertResult.messageId);
 
-      const link = await storage.createMessageSessionLink(messageId, session.id);
+      const link = await messages.createMessageSessionLink(messageId, session.id);
       expect(link.messageId).toBe(messageId);
 
-      const links = await storage.listMessageSessionLinks(session.id);
+      const links = await messages.listMessageSessionLinks(session.id);
       expect(links).toHaveLength(1);
       expect(links[0].messageId).toBe(messageId);
 
-      const deleted = await storage.deleteMessageSessionLink(messageId, session.id);
+      const deleted = await messages.deleteMessageSessionLink(messageId, session.id);
       expect(deleted).toBe(true);
-      expect(await storage.listMessageSessionLinks(session.id)).toHaveLength(0);
+      expect(await messages.listMessageSessionLinks(session.id)).toHaveLength(0);
     });
   });
 
   describe('Statistics', () => {
     it('returns accurate storage statistics', async () => {
       // Create sessions
-      const session1 = await storage.createSession({
+      const session1 = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -990,7 +1001,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const session2 = await storage.createSession({
+      const session2 = await sessions.createSession({
         agentIds: ['backend-agent'],
         agentId: 'backend-agent',
         developerId: 'developer-1',
@@ -1001,36 +1012,36 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Add messages
-      await storage.insertMessage(session1.id, {
+      await messages.insertMessage(session1.id, {
         timestamp: new Date().toISOString(),
         from: 'developer-1',
         isHuman: true,
         content: 'Message 1',
       });
 
-      await storage.insertMessage(session1.id, {
+      await messages.insertMessage(session1.id, {
         timestamp: new Date().toISOString(),
         from: 'architect-agent',
         isHuman: false,
         content: 'Message 2',
       });
 
-      await storage.insertMessage(session2.id, {
+      await messages.insertMessage(session2.id, {
         timestamp: new Date().toISOString(),
         from: 'developer-1',
         isHuman: true,
         content: 'Message 3',
       });
 
-      const stats = await storage.getStats();
+      const stats = await backend.getStats();
       expect(stats.totalSessions).toBe(2);
       expect(stats.totalMessages).toBe(3);
-      expect(stats.schemaVersion).toBe(16);
+      expect(stats.schemaVersion).toBe(1);
       expect(stats.storageSize).toBeGreaterThan(0);
     });
 
     it('stores and retrieves message importance field', async () => {
-      const session = await storage.createSession({
+      const session = await sessions.createSession({
         agentIds: ['agent-1'],
         agentId: 'agent-1',
         developerId: 'developer-1',
@@ -1040,14 +1051,14 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      await storage.insertMessage(session.id, {
+      await messages.insertMessage(session.id, {
         timestamp: new Date().toISOString(),
         from: 'agent-1',
         content: 'Hi there! How can I help?',
         importance: 'low',
       });
 
-      await storage.insertMessage(session.id, {
+      await messages.insertMessage(session.id, {
         timestamp: new Date().toISOString(),
         from: 'developer-1',
         isHuman: true,
@@ -1055,17 +1066,17 @@ describe('SqliteMessageStorage', () => {
         // importance omitted → undefined (normal)
       });
 
-      const messages = await storage.getSessionMessages(session.id);
-      expect(messages).toHaveLength(2);
-      expect(messages[0].importance).toBe('low');
-      expect(messages[1].importance).toBeUndefined();
+      const retrievedMessages = await messages.getSessionMessages(session.id);
+      expect(retrievedMessages).toHaveLength(2);
+      expect(retrievedMessages[0].importance).toBe('low');
+      expect(retrievedMessages[1].importance).toBeUndefined();
     });
   });
 
   describe('Complex Operations', () => {
     it('handles session merge scenario', async () => {
       // Create two sessions
-      const session1 = await storage.createSession({
+      const session1 = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -1075,7 +1086,7 @@ describe('SqliteMessageStorage', () => {
         allowedFiles: [],
       });
 
-      const session2 = await storage.createSession({
+      const session2 = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -1086,14 +1097,14 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Add messages to both sessions
-      await storage.insertMessage(session1.id, {
+      await messages.insertMessage(session1.id, {
         timestamp: '2026-03-01T10:01:00.000Z',
         from: 'developer-1',
         isHuman: true,
         content: 'Session 1 message',
       });
 
-      await storage.insertMessage(session2.id, {
+      await messages.insertMessage(session2.id, {
         timestamp: '2026-03-01T11:01:00.000Z',
         from: 'developer-1',
         isHuman: true,
@@ -1101,35 +1112,35 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Merge session2 messages into session1
-      const session2Messages = await storage.getSessionMessages(session2.id);
+      const session2Messages = await messages.getSessionMessages(session2.id);
       for (const msg of session2Messages) {
-        await storage.insertMessage(session1.id, msg);
+        await messages.insertMessage(session1.id, msg);
       }
 
       // Update session1 metadata
-      await storage.updateSession(session1.id, {
+      await sessions.updateSession(session1.id, {
         lastActivityAt: '2026-03-01T11:01:00.000Z',
         mergedFromSessionIds: [session2.id],
       });
 
       // Delete session2
-      await storage.deleteSession(session2.id);
+      await sessions.deleteSession(session2.id);
 
       // Verify
-      const session1Messages = await storage.getSessionMessages(session1.id);
+      const session1Messages = await messages.getSessionMessages(session1.id);
       expect(session1Messages).toHaveLength(2);
 
-      const session2Exists = await storage.getSession(session2.id);
+      const session2Exists = await sessions.getSession(session2.id);
       expect(session2Exists).toBeNull();
 
-      const merged = await storage.getSession(session1.id);
+      const merged = await sessions.getSession(session1.id);
       expect(merged?.mergedFromSessionIds).toBeDefined();
       expect(merged?.mergedFromSessionIds).toContain(session2.id);
     });
 
     it('handles multi-agent session workflow', async () => {
       // Create session with one agent
-      const session = await storage.createSession({
+      const session = await sessions.createSession({
         agentIds: ['architect-agent'],
         agentId: 'architect-agent',
         developerId: 'developer-1',
@@ -1140,7 +1151,7 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Add messages from first agent
-      await storage.insertMessage(session.id, {
+      await messages.insertMessage(session.id, {
         timestamp: '2026-03-01T10:00:00.000Z',
         from: 'architect-agent',
         isHuman: false,
@@ -1148,10 +1159,10 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Add second agent to session
-      await storage.addSessionAgent(session.id, 'backend-agent');
+      await sessions.addSessionAgent(session.id, 'backend-agent');
 
       // Add handoff message
-      await storage.insertMessage(session.id, {
+      await messages.insertMessage(session.id, {
         timestamp: '2026-03-01T10:01:00.000Z',
         from: 'architect-agent',
         to: 'backend-agent',
@@ -1162,7 +1173,7 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Add message from second agent
-      await storage.insertMessage(session.id, {
+      await messages.insertMessage(session.id, {
         timestamp: '2026-03-01T10:02:00.000Z',
         from: 'backend-agent',
         isHuman: false,
@@ -1170,22 +1181,22 @@ describe('SqliteMessageStorage', () => {
       });
 
       // Verify session has both agents
-      const updated = await storage.getSession(session.id);
+      const updated = await sessions.getSession(session.id);
       expect(updated?.agentIds).toContain('architect-agent');
       expect(updated?.agentIds).toContain('backend-agent');
 
       // Verify all messages are there
-      const messages = await storage.getSessionMessages(session.id);
-      expect(messages).toHaveLength(3);
+      const allMessages = await messages.getSessionMessages(session.id);
+      expect(allMessages).toHaveLength(3);
 
       // Filter messages by agent
-      const architectMessages = await storage.queryMessages({
+      const architectMessages = await messages.queryMessages({
         sessionId: session.id,
         fromId: 'architect-agent',
       });
       expect(architectMessages).toHaveLength(2);
 
-      const backendMessages = await storage.queryMessages({
+      const backendMessages = await messages.queryMessages({
         sessionId: session.id,
         fromId: 'backend-agent',
       });
@@ -1193,3 +1204,4 @@ describe('SqliteMessageStorage', () => {
     });
   });
 });
+

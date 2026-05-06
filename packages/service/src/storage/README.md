@@ -9,8 +9,8 @@ The storage layer follows the **Repository Pattern** with dependency injection:
 - **Interface**: `IMessageStorage` defines the contract for all storage implementations
 - **Implementation**: `SqliteMessageStorage` provides SQLite-based persistence
 - **Factory**: `createSqliteStorage()` creates configured instances
-- **Connection**: `SqliteConnection` wraps sqlite3 with Promise-based API
-- **Migrations**: `MigrationManager` handles schema evolution
+- **Connection**: `SqliteConnection` wraps Drizzle + `better-sqlite3` behind Promise-based methods
+- **Migrations**: `MigrationManager` enforces alpha baseline schema initialization and legacy reset
 
 ### Why Abstract Storage?
 
@@ -140,7 +140,7 @@ erDiagram
 import { createSqliteStorage } from '@ai-team/service/storage';
 
 const storage = createSqliteStorage('/path/to/workspace');
-await storage.initialize(); // Creates DB, runs migrations
+await storage.migrate(); // Ensures baseline schema is initialized
 ```
 
 ### Dependency Injection into SessionManager
@@ -157,29 +157,21 @@ const sessionManager = new SessionManager(workspaceRoot, storage);
 
 ```typescript
 // Get all messages for a session
-const messages = await storage.getMessages(sessionId);
+const messages = await storage.getSessionMessages(sessionId);
 
 // Filter messages by agent
-const agentMessages = await storage.getMessages(sessionId, {
+const agentMessages = await storage.queryMessages({
+  sessionId,
   fromId: 'architect-agent',
 });
 
 // Search messages by content
-const searchResults = await storage.searchMessages(sessionId, 'error handling');
+const searchResults = await storage.searchMessages('error handling', sessionId);
 
 // Get archived messages only
-const archived = await storage.getMessages(sessionId, {
+const archived = await storage.queryMessages({
+  sessionId,
   archived: true,
-});
-```
-
-### Transactions
-
-```typescript
-await storage.transaction(async () => {
-  await storage.appendMessage(sessionId, message1);
-  await storage.appendMessage(sessionId, message2);
-  // Both messages committed together, or both rolled back on error
 });
 ```
 
@@ -214,34 +206,33 @@ await storage.deleteNote(note.id);
 
 ## Migrations
 
-Schema changes are versioned and tracked in `sqlite/migrations.ts`:
+Schema initialization is handled by `sqlite/migrations.ts` with an **alpha baseline policy**:
 
 ```typescript
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,
-    name: 'initial_schema',
+    name: 'initial_alpha_baseline_schema',
     up: `CREATE TABLE ...`,
   },
-  // Future migrations go here with version 2, 3, etc.
 ];
 ```
 
-### Auto-Migration
+### Auto-initialization
 
-Migrations run automatically on `storage.initialize()`:
+Baseline initialization runs automatically on first storage usage:
 
 - Checks current schema version in `schema_version` table
-- Applies any pending migrations in order
-- Tracks applied migrations to prevent double-application
+- Applies baseline schema when missing
+- Auto-resets legacy alpha schemas/data if incompatible versions are detected
 
-### Manual Migration (via CLI)
+### Manual reset/init (via CLI)
 
 ```bash
 # Check current schema version
 ait db:status
 
-# Apply pending migrations (usually not needed - auto-runs on init)
+# Reset database and re-initialize baseline schema (alpha behavior)
 ait db:migrate
 ```
 
@@ -265,7 +256,7 @@ storage/
 ├── index.ts                   # Public exports
 └── sqlite/
     ├── connection.ts          # SqliteConnection wrapper
-    ├── migrations.ts          # Schema versions and MigrationManager
+    ├── migrations.ts          # Alpha baseline schema + reset-aware MigrationManager
     └── sqlite-storage.ts      # SqliteMessageStorage implementation
 ```
 
@@ -288,24 +279,16 @@ To add PostgreSQL, MySQL, or cloud storage:
 3. Add factory function `createPostgresStorage()`
 4. Update service initialization to choose storage type
 
-### Schema Evolution
+### Schema Evolution (Post-Alpha)
 
-To add new fields or tables:
+Versioned incremental migrations are intentionally deferred until the product exits alpha.
 
-1. Add migration to `MIGRATIONS` array with next version number
-2. Write `up` SQL for schema changes
-3. Optionally write `down` SQL for rollback
-4. Test migration on copy of production data
-5. Deploy - migrations auto-apply on next `initialize()`
+When enabling post-alpha migrations:
 
-### Migration Strategy
-
-- Current design uses forward migrations
-- For production use, consider adding:
-  - Migration rollback command (`db:rollback`)
-  - Data transformation migrations (not just DDL)
-  - Schema validation tests
-  - Backup/restore utilities
+1. Extend `sqlite/migrations.ts` with versioned entries above baseline `v1`
+2. Remove alpha reset-only assumptions from CLI wording and operator docs
+3. Add migration-specific tests for upgrade paths between released versions
+4. Add rollback/backfill policy as part of production hardening
 
 ## Related Documentation
 

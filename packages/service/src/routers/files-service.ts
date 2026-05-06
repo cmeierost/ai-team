@@ -4,9 +4,13 @@ import type {
   UpdateGlobalPathResponse,
   UpdateAgentPathResponse,
   PathMode,
-} from '@ai-team/api-client';
-import type { AgentManager } from '@ai-team/infrastructure';
-import { loadTeamConfig, loadAgentAccessPatterns } from '@ai-team/infrastructure';
+} from '@ai-team/api-contracts';
+import type {
+  IAgentManager,
+  IConfigurationStorage,
+  IPermissionStorage,
+  IFileTreeService,
+} from '@ai-team/core';
 import {
   getFileTreeCommand,
   allowPathCommand,
@@ -28,11 +32,14 @@ function resolvePathMode(mode: string | undefined): PathMode {
 export class FilesService implements IPermissionService {
   constructor(
     private readonly workspaceRoot: string,
-    private readonly agentManager: AgentManager
+    private readonly agentManager: IAgentManager,
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly permRegistry: IPermissionStorage,
+    private readonly fileTreeService: IFileTreeService
   ) {}
 
   async getPatterns(query?: { agent?: string }): Promise<GetFilePatternsResponse> {
-    const config = await loadTeamConfig(this.workspaceRoot);
+    const config = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
     const globalPatterns = {
       allowPaths: Array.from(
         new Set([...(config?.fileTree?.readPaths ?? []), ...(config?.fileTree?.writePaths ?? [])])
@@ -44,7 +51,7 @@ export class FilesService implements IPermissionService {
     if (!query?.agent) return { global: globalPatterns };
     const matches = await this.agentManager.resolveAgentAsync(query.agent);
     if (matches.length === 0) return { global: globalPatterns };
-    const accessPatterns = await loadAgentAccessPatterns(this.workspaceRoot, matches[0].id);
+    const accessPatterns = await this.permRegistry.loadAsync(matches[0].id);
     return {
       global: globalPatterns,
       agent: {
@@ -61,7 +68,7 @@ export class FilesService implements IPermissionService {
     includeHidden?: boolean;
     rootSubPath?: string;
   }): Promise<unknown> {
-    return getFileTreeCommand(this.workspaceRoot, {
+    return getFileTreeCommand(this.workspaceRoot, this.configurationStorage, this.fileTreeService, {
       maxDepth: query?.maxDepth,
       includeHidden: query?.includeHidden,
       rootSubPath: query?.rootSubPath,
@@ -71,14 +78,24 @@ export class FilesService implements IPermissionService {
   async allowAll(body: { path: string; mode?: PathMode }): Promise<UpdateGlobalPathResponse> {
     if (!body.path) throw new BadRequestError('"path" is required');
     const mode = resolvePathMode(body.mode);
-    const paths = await allowPathCommand(this.workspaceRoot, body.path, mode);
+    const paths = await allowPathCommand(
+      this.workspaceRoot,
+      this.configurationStorage,
+      body.path,
+      mode
+    );
     return { mode, paths };
   }
 
   async disallowAll(body: { path: string; mode?: PathMode }): Promise<UpdateGlobalPathResponse> {
     if (!body.path) throw new BadRequestError('"path" is required');
     const mode = resolvePathMode(body.mode);
-    const paths = await disallowPathCommand(this.workspaceRoot, body.path, mode);
+    const paths = await disallowPathCommand(
+      this.workspaceRoot,
+      this.configurationStorage,
+      body.path,
+      mode
+    );
     return { mode, paths };
   }
 
@@ -94,6 +111,7 @@ export class FilesService implements IPermissionService {
     const result = await agentPermissionPathCommand(
       this.workspaceRoot,
       this.agentManager,
+      this.permRegistry,
       body.agent,
       body.path,
       mode
@@ -117,6 +135,7 @@ export class FilesService implements IPermissionService {
     const result = await agentDisallowPathCommand(
       this.workspaceRoot,
       this.agentManager,
+      this.permRegistry,
       body.agent,
       body.path,
       mode
@@ -138,6 +157,7 @@ export class FilesService implements IPermissionService {
     const result = await permissionAllowCommand(
       this.workspaceRoot,
       this.agentManager,
+      this.permRegistry,
       body.agent,
       body.path,
       {
@@ -162,6 +182,7 @@ export class FilesService implements IPermissionService {
     const result = await permissionDenyCommand(
       this.workspaceRoot,
       this.agentManager,
+      this.permRegistry,
       body.agent,
       body.path,
       {

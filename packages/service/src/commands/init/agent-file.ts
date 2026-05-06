@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { buildAgentMarkdown, loadAgent, saveAgent } from '@ai-team/infrastructure';
-import type { Agent, ContextLevel, RoleType } from '@ai-team/infrastructure';
+import type { Agent, ContextLevel, RoleType, IAgentDocumentStorage } from '@ai-team/core';
 
 export interface AgentSeed {
   name: string;
@@ -29,22 +28,27 @@ function shouldGrantManageAgentsByDefault(seed: AgentSeed): boolean {
   return role === 'ceo' || role === 'hr-director';
 }
 
-export async function createAgentFile(workspaceRoot: string, seed: AgentSeed): Promise<Agent> {
+export async function createAgentFile(
+  workspaceRoot: string,
+  seed: AgentSeed,
+  agentDocumentStorage: IAgentDocumentStorage
+): Promise<Agent> {
   const id = seed.name.toLowerCase().replaceAll(/\s+/g, '-');
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
   const filePath = path.join(aiTeamDir, 'agents', `${id}.agent.md`);
 
-  const permissions = seed.type === 'executive'
-    ? {
-        read: ['**/*'],
-        write: ['.ai-team/**/*', 'docs/**/*'],
-        create: [],
-        delete: [],
-        ...(shouldGrantManageAgentsByDefault(seed) ? { manage_agents: true } : {}),
-      }
-    : { read: ['.ai-team/**/*'], write: ['.ai-team/**/*'], create: [], delete: [] };
+  const permissions =
+    seed.type === 'executive'
+      ? {
+          read: ['**/*'],
+          write: ['.ai-team/**/*', 'docs/**/*'],
+          create: [],
+          delete: [],
+          ...(shouldGrantManageAgentsByDefault(seed) ? { manage_agents: true } : {}),
+        }
+      : { read: ['.ai-team/**/*'], write: ['.ai-team/**/*'], create: [], delete: [] };
 
-  const markdown = buildAgentMarkdown({
+  const markdown = agentDocumentStorage.buildAgentMarkdown({
     introduction: seed.introduction,
     personalityProfile: seed.personalityProfile,
   });
@@ -71,7 +75,7 @@ export async function createAgentFile(workspaceRoot: string, seed: AgentSeed): P
   };
 
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await saveAgent(agent);
+  await agentDocumentStorage.saveAgentAsync(agent);
 
-  return loadAgent(filePath);
+  return agentDocumentStorage.loadAgentAsync(filePath);
 }

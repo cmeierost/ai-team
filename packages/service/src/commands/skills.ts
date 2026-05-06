@@ -1,6 +1,11 @@
-import type { Agent, AgentManager, Skill, SkillManager } from '@ai-team/infrastructure';
-import { parseMarkdownSections, replaceOrAppendMarkdownSection } from '@ai-team/infrastructure';
-import { type SearchSkillsResponse, type UpdateAgentSkillResponse } from '@ai-team/api-client';
+import type {
+  IAgentManager,
+  ISkillManager,
+  IMarkdownSectionService,
+  Agent,
+  Skill,
+} from '@ai-team/core';
+import { type SearchSkillsResponse, type UpdateAgentSkillResponse } from '@ai-team/api-contracts';
 import { resolveAgentForOperationAsync } from '../utils/agent-resolution.js';
 export interface SearchSkillsOptions {
   query?: string;
@@ -19,8 +24,12 @@ const SKILLS_LINE_RE = /^\*\*Skills:\*\*.*$/gm;
  * markdown section to match the given skill list.
  * When `skills` is empty the line is removed entirely.
  */
-function syncSkillsLineInMarkdown(markdown: string, skills: string[]): string {
-  const sections = parseMarkdownSections(markdown);
+function syncSkillsLineInMarkdown(
+  markdownSvc: IMarkdownSectionService,
+  markdown: string,
+  skills: string[]
+): string {
+  const sections = markdownSvc.parseMarkdownSections(markdown);
   const scopeIdx = sections.findIndex((s) => s.heading === 'Scope of Responsibility');
   if (scopeIdx < 0 && skills.length === 0) return markdown;
 
@@ -33,7 +42,11 @@ function syncSkillsLineInMarkdown(markdown: string, skills: string[]): string {
   const newContent =
     skills.length > 0 ? `${stripped}\n\n**Skills:** ${skills.join(' · ')}` : stripped;
 
-  return replaceOrAppendMarkdownSection(markdown, 'Scope of Responsibility', newContent);
+  return markdownSvc.replaceOrAppendMarkdownSection(
+    markdown,
+    'Scope of Responsibility',
+    newContent
+  );
 }
 
 function toSkillEntry(skill: Skill) {
@@ -71,7 +84,7 @@ function sortSkillsByName(skills: Skill[]): Skill[] {
 }
 
 async function resolveFullAgent(
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
   query: string,
   operation: string
 ): Promise<Agent> {
@@ -83,7 +96,7 @@ async function resolveFullAgent(
   return agent;
 }
 
-async function resolveSkillByName(skillManager: SkillManager, query: string): Promise<Skill> {
+async function resolveSkillByName(skillManager: ISkillManager, query: string): Promise<Skill> {
   const skills = await skillManager.getAllSkills();
   const normalized = query.trim().toLowerCase();
   const exact = skills.find((skill: Skill) => skill.name.toLowerCase() === normalized);
@@ -100,9 +113,29 @@ async function resolveSkillByName(skillManager: SkillManager, query: string): Pr
   throw new Error(`Skill not found: ${query}`);
 }
 
+export class SkillsCommand {
+  constructor(
+    private readonly agentManager: IAgentManager,
+    private readonly skillManager: ISkillManager,
+    private readonly markdownSvc: IMarkdownSectionService
+  ) {}
+
+  async search(options: SearchSkillsOptions = {}): Promise<SearchSkillsResponse> {
+    return searchSkillsCommand(this.agentManager, this.skillManager, options);
+  }
+
+  async add(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
+    return addSkillCommand(this.agentManager, this.skillManager, this.markdownSvc, options);
+  }
+
+  async remove(options: UpdateAgentSkillOptions): Promise<UpdateAgentSkillResponse> {
+    return removeSkillCommand(this.agentManager, this.skillManager, this.markdownSvc, options);
+  }
+}
+
 export async function searchSkillsCommand(
-  agentManager: AgentManager,
-  skillManager: SkillManager,
+  agentManager: IAgentManager,
+  skillManager: ISkillManager,
   options: SearchSkillsOptions = {}
 ): Promise<SearchSkillsResponse> {
   const all = await skillManager.getAllSkills();
@@ -133,8 +166,9 @@ export async function searchSkillsCommand(
 }
 
 export async function addSkillCommand(
-  agentManager: AgentManager,
-  skillManager: SkillManager,
+  agentManager: IAgentManager,
+  skillManager: ISkillManager,
+  markdownSvc: IMarkdownSectionService,
   options: UpdateAgentSkillOptions
 ): Promise<UpdateAgentSkillResponse> {
   const resolved = await resolveFullAgent(agentManager, options.agent, 'add skill');
@@ -156,7 +190,7 @@ export async function addSkillCommand(
   const updated = changed
     ? await agentManager.updateAgentAsync(agent.id, {
         specializations: nextSkills,
-        markdown: syncSkillsLineInMarkdown(agent.markdown ?? '', nextSkills),
+        markdown: syncSkillsLineInMarkdown(markdownSvc, agent.markdown ?? '', nextSkills),
       })
     : agent;
 
@@ -169,8 +203,9 @@ export async function addSkillCommand(
 }
 
 export async function removeSkillCommand(
-  agentManager: AgentManager,
-  skillManager: SkillManager,
+  agentManager: IAgentManager,
+  skillManager: ISkillManager,
+  markdownSvc: IMarkdownSectionService,
   options: UpdateAgentSkillOptions
 ): Promise<UpdateAgentSkillResponse> {
   const resolved = await resolveAgentForOperationAsync(agentManager, options.agent, 'remove skill');
@@ -188,7 +223,7 @@ export async function removeSkillCommand(
   const updated = changed
     ? await agentManager.updateAgentAsync(agent.id, {
         specializations: nextSkills,
-        markdown: syncSkillsLineInMarkdown(agent.markdown ?? '', nextSkills),
+        markdown: syncSkillsLineInMarkdown(markdownSvc, agent.markdown ?? '', nextSkills),
       })
     : agent;
 

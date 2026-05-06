@@ -6,7 +6,7 @@ import type {
   QuestionInputRequest,
   QuestionPasswordRequest,
   QuestionSelectRequest,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
 export function resolveWorkflowAnswer(
   context: InteractionContext | undefined,

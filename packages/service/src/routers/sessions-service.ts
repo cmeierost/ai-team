@@ -3,8 +3,8 @@ import type {
   ChatSession,
   ChatMessage,
   SessionThread,
-} from '@ai-team/api-client';
-import type { AgentManager, LlmService } from '@ai-team/infrastructure';
+} from '@ai-team/api-contracts';
+import type { IAgentManager, ILlmService } from '@ai-team/core';
 import type { SessionManager } from '../session-manager.js';
 import type {
   MessageSessionLink,
@@ -49,8 +49,8 @@ function hydrateSession(session: Record<string, unknown>): ChatSession {
 export class SessionsService implements ISessionsService {
   constructor(
     private readonly sessionManager: SessionManager,
-    private readonly agentManager: AgentManager,
-    private readonly llmService: LlmService
+    private readonly agentManager: IAgentManager,
+    private readonly llmService: ILlmService
   ) {}
 
   async recent(query?: { limit?: number }): Promise<ChatSession[]> {

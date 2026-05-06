@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { WorkflowDefinitionApiResponse } from '@ai-team/api-client';
+import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
 import { useTeam } from '../context/TeamContext';
 import { contextPanelQueryKeys } from './contextPanelQueryKeys';
 

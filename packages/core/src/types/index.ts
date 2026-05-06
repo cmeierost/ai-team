@@ -19,3 +19,5 @@ export * from './graph.js';
 export * from './runtime-contracts.js';
 export * from './errors.js';
 export * from './ide.js';
+export * from './tool-tokens.js';
+export * from './cli.js';

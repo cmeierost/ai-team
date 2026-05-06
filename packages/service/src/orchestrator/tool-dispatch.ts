@@ -19,13 +19,17 @@ import {
   isToolCatalogResult,
   isTeamListResult,
   type StructuredToolResult,
-} from '@ai-team/infrastructure';
+} from '@ai-team/core';
 import type { FsPathAccessEnvelope } from '../tools/catalog/fs-access.js';
 import { ProposalStore } from '../storage/proposal-store.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import { requestConfirm } from './question-io.js';
 import { emitEvent, emitToolEvent } from './stream-events.js';
-import type { RuntimeStreamEvent, ToolDenialEvent, ToolRuntimePayloadEvent } from '@ai-team/api-client';
+import type {
+  RuntimeStreamEvent,
+  ToolDenialEvent,
+  ToolRuntimePayloadEvent,
+} from '@ai-team/api-contracts';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 

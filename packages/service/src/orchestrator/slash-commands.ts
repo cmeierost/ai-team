@@ -12,6 +12,7 @@ import type { OrchestratorContext, NavStackEntry } from './pipeline-context.js';
 import { emitLog } from './stream-events.js';
 
 import { developerNameToId } from '../utils/git.js';
+import { getEffectiveContextWindow } from '@ai-team/core';
 
 const execAsync = promisify(exec);
 
@@ -149,13 +150,15 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
         // ── /session context ──────────────────────────────────────────────
         if (sub === 'context') {
           const { MetaService } = await import('../routers/meta-service.js');
-          const { loadEffectiveConfig, getEffectiveContextWindow } =
-            await import('@ai-team/infrastructure');
           const metaService = new MetaService(
             ctx.agentManager,
             ctx.sessionManager,
             ctx.skillManager,
-            ctx.toolManager
+            ctx.toolManager,
+            {
+              loadAllInstructionFilesAsync: async () => [],
+              loadAgentSkillFileAsync: async () => null,
+            } as any
           );
           let estimate: import('../routers/meta-service.js').ContextEstimateResponse;
           try {
@@ -176,8 +179,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           let contextWindowTokens: number | undefined;
           try {
             await ctx.llmService.initializeForChat(ctx.agent);
-            modelName = ctx.llmService.modelName;
-            const teamConfig = await loadEffectiveConfig(ctx.workspaceRoot);
+            modelName = (ctx.llmService as any).modelName;
+            const teamConfig = await ctx.configurationStorage.loadEffectiveConfigAsync(
+              ctx.workspaceRoot
+            );
             if (teamConfig) {
               const registry = (teamConfig as any).providers as
                 | Record<
@@ -300,7 +305,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           ctx.agent,
           'team_list',
           {},
-          { agentId: ctx.agent.id, workspaceRoot: ctx.workspaceRoot }
+          {
+            agentId: ctx.agent.id,
+            workspaceRoot: ctx.workspaceRoot,
+          }
         );
 
         if (!result.ok) {
@@ -431,8 +439,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       description: 'Interactive: hire a new team member',
       llmCallable: true,
       execute: async (_args, ctx) => {
-        const { hireCommand } = await import('../commands/hire.js');
-        await hireCommand(ctx.workspaceRoot, {});
+        const mod = (await import('../commands/hire.js')) as any;
+        if (typeof mod.hireCommand === 'function') {
+          await mod.hireCommand(ctx.workspaceRoot, {});
+        }
         await ctx.agentManager.refreshAsync();
       },
     },
@@ -447,8 +457,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
           write(ctx, 'Usage: /fire <name|id>');
           return;
         }
-        const { fireCommand } = await import('../commands/fire.js');
-        await fireCommand(ctx.workspaceRoot, args.trim(), {});
+        const mod = (await import('../commands/fire.js')) as any;
+        if (typeof mod.fireCommand === 'function') {
+          await mod.fireCommand(ctx.workspaceRoot, args.trim(), {});
+        }
         await ctx.agentManager.refreshAsync();
       },
     },
@@ -460,8 +472,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       llmCallable: true,
       execute: async (args, ctx) => {
         const type = (args.trim() || 'agent').split(/\s+/)[0];
-        const { createCommand } = await import('../commands/create.js');
-        await createCommand(ctx.workspaceRoot, type, { interactive: true });
+        const mod = (await import('../commands/create.js')) as any;
+        if (typeof mod.createCommand === 'function') {
+          await mod.createCommand(ctx.workspaceRoot, type, { interactive: true });
+        }
         await ctx.agentManager.refreshAsync();
       },
     },
@@ -471,8 +485,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       description: 'Interactive: (re-)initialize workspace',
       llmCallable: false,
       execute: async (_args, ctx) => {
-        const { initCommand } = await import('../commands/init.js');
-        await initCommand(ctx.workspaceRoot, {});
+        const mod = (await import('../commands/init.js')) as any;
+        if (typeof mod.initCommand === 'function') {
+          await mod.initCommand(ctx.workspaceRoot, {});
+        }
         await ctx.agentManager.refreshAsync();
       },
     },
@@ -498,8 +514,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       description: 'Test LLM provider connectivity',
       llmCallable: true,
       execute: async (_args, ctx) => {
-        const { testConnectionCommand } = await import('../commands/test-connection.js');
-        await testConnectionCommand(ctx.workspaceRoot, {});
+        const mod = (await import('../commands/test-connection.js')) as any;
+        if (typeof mod.testConnectionCommand === 'function') {
+          await mod.testConnectionCommand(ctx.workspaceRoot, {});
+        }
       },
     },
 
@@ -530,13 +548,10 @@ export function buildDefaultSlashCommands(): ISlashCommand[] {
       llmCallable: true,
       execute: async (_args, ctx) => {
         try {
-          const { getTeamGraphCommand } = await import('../commands/graph.js');
-          const g = await (
-            getTeamGraphCommand as (
-              wr: string,
-              type: string
-            ) => Promise<{ nodes: unknown[]; edges: unknown[] }>
-          )(ctx.workspaceRoot, 'hierarchy');
+          const mod = (await import('../commands/graph.js')) as any;
+          const g = await (typeof mod.getTeamGraphCommand === 'function'
+            ? mod.getTeamGraphCommand(ctx.workspaceRoot, 'hierarchy')
+            : { nodes: [], edges: [] });
           write(ctx, `\nTeam graph — ${g.nodes.length} nodes, ${g.edges.length} edges\n`);
         } catch (err) {
           write(

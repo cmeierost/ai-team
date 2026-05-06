@@ -4,41 +4,46 @@ import type {
   TeamConfig,
   GetMcpServersResponse,
   UpdateMcpServerResponse,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import {
-  AgentManager,
-  loadTeamConfig,
-  saveTeamConfig,
-  loadUserConfig,
-  saveUserConfig,
-  loadEnvFile,
-  saveEnvFile,
-  testLlmConnection,
-} from '@ai-team/infrastructure';
+import type {
+  IAgentManager,
+  IConfigurationStorage,
+  IEnvironmentStorage,
+  ILlmProviderTester,
+} from '@ai-team/core';
 import { TeamConfigSchema } from '@ai-team/core';
 import { BadRequestError } from '../http-errors.js';
 
 export class ConfigService implements IConfigService {
-  constructor(private readonly workspaceRoot: string) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly agentManager: IAgentManager,
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly environmentStorage: IEnvironmentStorage,
+    private readonly llmProviderTester: ILlmProviderTester
+  ) {}
 
   async getConfig(): Promise<TeamConfig> {
-    return (await loadTeamConfig(this.workspaceRoot)) ?? TeamConfigSchema.parse({ version: '1' });
+    return (
+      (await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot)) ??
+      TeamConfigSchema.parse({ version: '1' })
+    );
   }
 
   async updateConfig(body: Partial<TeamConfig>): Promise<TeamConfig> {
     const existing =
-      (await loadTeamConfig(this.workspaceRoot)) ?? TeamConfigSchema.parse({ version: '1' });
+      (await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot)) ??
+      TeamConfigSchema.parse({ version: '1' });
     const merged = { ...existing, ...body } as TeamConfig;
-    await saveTeamConfig(this.workspaceRoot, merged as any);
+    await this.configurationStorage.saveTeamConfigAsync(this.workspaceRoot, merged as any);
     return merged;
   }
 
   async getAgentModelKeys(): Promise<{ usedKeys: string[]; keysByAgent: Record<string, string> }> {
-    const mgr = new AgentManager(this.workspaceRoot);
-    await mgr.refreshAsync();
-    const agents = await mgr.getAllAgentsAsync();
+    await this.agentManager.refreshAsync();
+    const agents = await this.agentManager.getAllAgentsAsync();
     const keysByAgent: Record<string, string> = {};
     const usedKeySet = new Set<string>();
     for (const agent of agents) {
@@ -51,18 +56,18 @@ export class ConfigService implements IConfigService {
   }
 
   async getUserConfig(): Promise<UserConfig> {
-    return (await loadUserConfig(this.workspaceRoot)) ?? {};
+    return (await this.configurationStorage.loadUserConfigAsync(this.workspaceRoot)) ?? {};
   }
 
   async saveUserConfig(body: Partial<UserConfig>): Promise<UserConfig> {
-    return saveUserConfig(this.workspaceRoot, body as any);
+    return this.configurationStorage.saveUserConfigAsync(this.workspaceRoot, body as any);
   }
 
   async testProviderConnection(
     providerRef: string
   ): Promise<{ ok: boolean; latencyMs?: number; error?: string; message?: string }> {
-    const userConfig = await loadUserConfig(this.workspaceRoot);
-    const teamConfig = await loadTeamConfig(this.workspaceRoot);
+    const userConfig = await this.configurationStorage.loadUserConfigAsync(this.workspaceRoot);
+    const teamConfig = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
     const provider =
       (userConfig as any)?.providers?.[providerRef] ??
       (teamConfig as any)?.providers?.[providerRef];
@@ -96,12 +101,12 @@ export class ConfigService implements IConfigService {
       params: provider.params,
     } as const;
 
-    const envVars = await loadEnvFile(this.workspaceRoot);
+    const envVars = await this.environmentStorage.loadEnvFileAsync(this.workspaceRoot);
     const apiKey = resolveProviderApiKey(provider, envVars);
 
     const startedAt = Date.now();
     try {
-      const message = await testLlmConnection(llmConfig, apiKey);
+      const message = await this.llmProviderTester.testLlmConnectionAsync(llmConfig, apiKey);
       return {
         ok: true,
         latencyMs: Date.now() - startedAt,
@@ -117,19 +122,19 @@ export class ConfigService implements IConfigService {
   }
 
   async refreshUserProviderModels(providerRef: string): Promise<unknown> {
-    const config = await loadUserConfig(this.workspaceRoot);
+    const config = await this.configurationStorage.loadUserConfigAsync(this.workspaceRoot);
     return (config as any)?.providers?.[providerRef]?.models ?? [];
   }
 
   async refreshProviderModels(providerRef: string): Promise<unknown> {
-    const config = await loadTeamConfig(this.workspaceRoot);
+    const config = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
     return (config as any)?.providers?.[providerRef]?.models ?? [];
   }
 
   async getEnvStatus(): Promise<Record<string, boolean>> {
-    const envVars = await loadEnvFile(this.workspaceRoot);
-    const teamConfig = await loadTeamConfig(this.workspaceRoot);
-    const userConfig = await loadUserConfig(this.workspaceRoot);
+    const envVars = await this.environmentStorage.loadEnvFileAsync(this.workspaceRoot);
+    const teamConfig = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
+    const userConfig = await this.configurationStorage.loadUserConfigAsync(this.workspaceRoot);
     const allProviders: Record<string, any> = {};
     if ((teamConfig as any)?.providers) Object.assign(allProviders, (teamConfig as any).providers);
     if ((userConfig as any)?.providers) Object.assign(allProviders, (userConfig as any).providers);
@@ -155,14 +160,14 @@ export class ConfigService implements IConfigService {
 
   async setEnvVar(body: { key: string; value: string }): Promise<{ ok: boolean }> {
     if (!body.key) throw new BadRequestError('key is required');
-    const existing = await loadEnvFile(this.workspaceRoot);
+    const existing = await this.environmentStorage.loadEnvFileAsync(this.workspaceRoot);
     existing[body.key] = body.value;
-    await saveEnvFile(this.workspaceRoot, existing);
+    await this.environmentStorage.saveEnvFileAsync(this.workspaceRoot, existing);
     return { ok: true };
   }
 
   async getMcpServers(query?: { agent?: string }): Promise<GetMcpServersResponse> {
-    const config = await loadTeamConfig(this.workspaceRoot);
+    const config = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
     const mcpConfigFiles: string[] = (config as any)?.mcpConfigFiles ?? [];
     const servers: GetMcpServersResponse['servers'] = [];
     for (const relPath of mcpConfigFiles) {
@@ -194,9 +199,8 @@ export class ConfigService implements IConfigService {
     }
 
     if (query?.agent) {
-      const mgr = new AgentManager(this.workspaceRoot);
-      await mgr.refreshAsync();
-      const agent = await mgr.getAgentAsync(query.agent);
+      await this.agentManager.refreshAsync();
+      const agent = await this.agentManager.getAgentAsync(query.agent);
       if (agent) {
         const allowed: string[] = (agent as any).mcpServers ?? [];
         const disallowed: string[] = (agent as any).disallowedMcpServers ?? [];
@@ -215,9 +219,8 @@ export class ConfigService implements IConfigService {
 
   async allowMcpServer(body: { agent: string; server: string }): Promise<UpdateMcpServerResponse> {
     if (!body.agent || !body.server) throw new BadRequestError('agent and server are required');
-    const mgr = new AgentManager(this.workspaceRoot);
-    await mgr.refreshAsync();
-    const agent = await mgr.getAgentAsync(body.agent);
+    await this.agentManager.refreshAsync();
+    const agent = await this.agentManager.getAgentAsync(body.agent);
     if (!agent) throw new BadRequestError(`Agent not found: ${body.agent}`);
 
     const currentAllowed: string[] = (agent as any).mcpServers ?? [];
@@ -232,7 +235,7 @@ export class ConfigService implements IConfigService {
     const changed = !alreadyAllowed || wasDenied;
 
     if (changed) {
-      await mgr.updateAgentAsync(agent.id, {
+      await this.agentManager.updateAgentAsync(agent.id, {
         mcpServers: nextAllowed,
         disallowedMcpServers: nextDisallowed.length > 0 ? nextDisallowed : undefined,
       } as any);
@@ -251,9 +254,8 @@ export class ConfigService implements IConfigService {
     server: string;
   }): Promise<UpdateMcpServerResponse> {
     if (!body.agent || !body.server) throw new BadRequestError('agent and server are required');
-    const mgr = new AgentManager(this.workspaceRoot);
-    await mgr.refreshAsync();
-    const agent = await mgr.getAgentAsync(body.agent);
+    await this.agentManager.refreshAsync();
+    const agent = await this.agentManager.getAgentAsync(body.agent);
     if (!agent) throw new BadRequestError(`Agent not found: ${body.agent}`);
 
     const currentAllowed: string[] = (agent as any).mcpServers ?? [];
@@ -266,7 +268,7 @@ export class ConfigService implements IConfigService {
     const changed = nextAllowed.length !== currentAllowed.length || !alreadyDenied;
 
     if (changed) {
-      await mgr.updateAgentAsync(agent.id, {
+      await this.agentManager.updateAgentAsync(agent.id, {
         mcpServers: nextAllowed.length > 0 ? nextAllowed : undefined,
         disallowedMcpServers: nextDisallowed,
       } as any);

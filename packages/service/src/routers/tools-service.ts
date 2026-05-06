@@ -2,8 +2,8 @@ import type {
   IToolsService,
   ListToolsResponse,
   UpdateAgentToolResponse,
-} from '@ai-team/api-client';
-import type { AgentManager } from '@ai-team/infrastructure';
+} from '@ai-team/api-contracts';
+import type { IAgentManager } from '@ai-team/core';
 import type { ToolManager } from '../tools/tool-manager.js';
 import type { IMcpGateway } from '../orchestrator/pipeline.js';
 import {
@@ -17,7 +17,7 @@ import { BadRequestError } from '../http-errors.js';
 
 export class ToolsService implements IToolsService {
   constructor(
-    private readonly agentManager: AgentManager,
+    private readonly agentManager: IAgentManager,
     private readonly toolManager: ToolManager,
     private readonly mcpGateway?: IMcpGateway
   ) {}

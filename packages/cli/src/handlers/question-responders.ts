@@ -6,15 +6,18 @@ import type {
   QuestionInputRequest,
   QuestionPasswordRequest,
   QuestionSelectRequest,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 
 export function createQuestionResponders(): Pick<
   InteractionContext,
   'questionInput' | 'questionConfirm' | 'questionSelect' | 'questionPassword' | 'questionChecklist'
 > {
-  const readTrimmedString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+  const readTrimmedString = (value: unknown): string =>
+    typeof value === 'string' ? value.trim() : '';
 
-  const parseChoice = (item: unknown): { name: string; value: string; description?: string } | undefined => {
+  const parseChoice = (
+    item: unknown
+  ): { name: string; value: string; description?: string } | undefined => {
     if (typeof item === 'string') {
       const value = readTrimmedString(item);
       return value ? { name: value, value } : undefined;
@@ -42,7 +45,9 @@ export function createQuestionResponders(): Pick<
     };
   };
 
-  const normalizeSelectChoices = (rawChoices: unknown): Array<{ name: string; value: string; description?: string }> => {
+  const normalizeSelectChoices = (
+    rawChoices: unknown
+  ): Array<{ name: string; value: string; description?: string }> => {
     let source: unknown = rawChoices;
 
     if (typeof source === 'string') {
@@ -59,7 +64,9 @@ export function createQuestionResponders(): Pick<
 
     return source
       .map(parseChoice)
-      .filter((entry): entry is { name: string; value: string; description?: string } => Boolean(entry));
+      .filter((entry): entry is { name: string; value: string; description?: string } =>
+        Boolean(entry)
+      );
   };
 
   return {
@@ -116,7 +123,9 @@ export function createQuestionResponders(): Pick<
     },
     questionChecklist: async (request: QuestionChecklistRequest) => {
       const defaultValues = Array.isArray(request.default)
-        ? request.default.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        ? request.default.filter(
+            (value): value is string => typeof value === 'string' && value.trim().length > 0
+          )
         : undefined;
       const answer = await inquirer.prompt<{ value: string[] }>([
         {

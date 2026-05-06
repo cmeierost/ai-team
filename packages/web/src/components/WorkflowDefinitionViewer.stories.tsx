@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { WorkflowDefinitionApiResponse } from '@ai-team/api-client';
+import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { ReactNode } from 'react';
 import { TeamProvider } from '../context/TeamContext';

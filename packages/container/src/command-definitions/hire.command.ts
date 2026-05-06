@@ -24,7 +24,11 @@ export const hireCommandDefinition = createFactoryCommandDefinition(
   'hire',
   hireCliMetadata,
   async (container, payload, context) => {
-    const { hireCommand } = await import('@ai-team/service/src/commands/hire.js');
-    return hireCommand(container.workspaceRoot, payload.options, context);
+    const { HireCommand } = await import('@ai-team/service/src/commands/hire.js');
+    const { COMMAND_FACTORY_TOKENS } = await import('@ai-team/service/src/commands/definitions/types.js');
+    return new HireCommand(
+      container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      container.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
+    ).execute(payload.options, context);
   }
 );

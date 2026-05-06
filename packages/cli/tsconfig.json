@@ -10,7 +10,7 @@
   },
   "references": [
     { "path": "../core" },
-    { "path": "../api-client" }
+    { "path": "../api-contracts" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]

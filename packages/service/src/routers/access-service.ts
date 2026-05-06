@@ -5,20 +5,21 @@ import type {
   DoIHavePermissionResponse,
   PermissionOverlapReport,
   FilePermission,
-} from '@ai-team/api-client';
+} from '@ai-team/api-contracts';
 import { ContextRuntime, listCachedWorkspaceFiles } from 'fs-context';
+import { IAgentManager } from '@ai-team/core';
 import {
-  AgentManager,
-  analyzeWorkspacePermissionOverlap,
-  createAgentRuntime,
-} from '@ai-team/infrastructure';
+  InfrastructureWorkspaceAccessRuntime,
+  type IWorkspaceAccessRuntime,
+} from '../runtime/infrastructure-adapters.js';
 
 export class AccessService implements IAccessService {
   #populatePromise: Promise<void> | null = null;
 
   constructor(
     private readonly ctx: ContextRuntime,
-    private readonly agentManager: AgentManager
+    private readonly agentManager: IAgentManager,
+    private readonly accessRuntime: IWorkspaceAccessRuntime = new InfrastructureWorkspaceAccessRuntime()
   ) {}
 
   private ensurePopulatedAsync(): Promise<void> {
@@ -36,7 +37,12 @@ export class AccessService implements IAccessService {
     ]);
     const allFiles = entries.map((e) => e.relativePath);
     for (const agent of agents) {
-      const single = createAgentRuntime(agent.id, workspaceRoot, agent.permissions, allFiles);
+      const single = await this.accessRuntime.createAgentRuntime(
+        agent.id,
+        workspaceRoot,
+        agent.permissions,
+        allFiles
+      );
       const resolved = single.getResolved(agent.id);
       if (resolved) {
         this.ctx.register(agent.id, resolved);
@@ -144,11 +150,14 @@ export class AccessService implements IAccessService {
     agent?: string;
     maxDepth?: number;
   }): Promise<PermissionOverlapReport> {
-    const result = await analyzeWorkspacePermissionOverlap(this.agentManager.workspaceRoot, {
-      mode: query?.mode as any,
-      agentId: query?.agent,
-      maxDepth: query?.maxDepth,
-    });
+    const result = await this.accessRuntime.analyzeWorkspacePermissionOverlapAsync(
+      this.agentManager.workspaceRoot,
+      {
+        mode: query?.mode as any,
+        agentId: query?.agent,
+        maxDepth: query?.maxDepth,
+      }
+    );
     return result as unknown as PermissionOverlapReport;
   }
 }

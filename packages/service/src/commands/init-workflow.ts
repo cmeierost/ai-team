@@ -1,5 +1,6 @@
 import path from 'node:path';
-import type { InitOptions, InteractionContext } from '@ai-team/api-client';
+import type { InitOptions, InteractionContext } from '@ai-team/api-contracts';
+import type { SessionManager } from '../session-manager.js';
 import { runWorkflowAsync } from '../workflow/runner.js';
 import type { WorkflowDefinition } from '../workflow/types.js';
 import type { InitRuntimeHooks } from './init/workflow-questions.js';
@@ -13,10 +14,35 @@ export interface InitWorkflowState {
   shouldClear: boolean;
 }
 
+interface OnboardExecutor {
+  execute(
+    params: {
+      options?: { template?: string };
+      injected?: { sessionManager?: SessionManager };
+    },
+    context?: InitRuntimeHooks
+  ): Promise<void>;
+}
+
+interface SetupExecutor {
+  execute(
+    params: { workspaceRoot: string; options?: { force?: boolean } },
+    context?: InitRuntimeHooks
+  ): Promise<void>;
+}
+
+interface TestConnectionExecutor {
+  execute(params: { workspaceRoot: string; options?: Record<string, never> }): Promise<void>;
+}
+
 export interface InitWorkflowDependencies {
   writeLine: (hooks: InitRuntimeHooks | undefined, message: string) => void;
   writeWarn: (hooks: InitRuntimeHooks | undefined, message: string) => void;
   clearAiTeamDirectory: (workspaceRoot: string, hooks?: InitRuntimeHooks) => Promise<void>;
+  onboard: OnboardExecutor;
+  setup: SetupExecutor;
+  testConnection: TestConnectionExecutor;
+  sessionManager?: SessionManager;
 }
 
 const INIT_RUNTIME_ARTIFACTS = new Set(['agents', 'logs', 'private', '.ide-server.json']);
@@ -109,8 +135,10 @@ export function createInitWorkflowDefinition(
         kind: 'action',
         skipWhen: (state) => state.shouldSkip,
         execute: async (state) => {
-          const { setupCommand } = await import('./setup.js');
-          await setupCommand(state.workspaceRoot, { force: state.options.force }, state.hooks);
+          await deps.setup.execute(
+            { workspaceRoot: state.workspaceRoot, options: { force: state.options.force } },
+            state.hooks
+          );
           return state;
         },
       },
@@ -121,8 +149,7 @@ export function createInitWorkflowDefinition(
         execute: async (state) => {
           deps.writeLine(state.hooks, '');
           deps.writeLine(state.hooks, 'Verifying LLM connection...');
-          const { testConnectionCommand } = await import('./test-connection.js');
-          await testConnectionCommand(state.workspaceRoot, {});
+          await deps.testConnection.execute({ workspaceRoot: state.workspaceRoot, options: {} });
           return state;
         },
       },
@@ -142,10 +169,11 @@ export function createInitWorkflowDefinition(
         kind: 'action',
         skipWhen: (state) => state.shouldSkip,
         execute: async (state) => {
-          const { onboardCommand } = await import('./onboard.js');
-          await onboardCommand(
-            state.workspaceRoot,
-            { template: state.options.template },
+          await deps.onboard.execute(
+            {
+              options: { template: state.options.template },
+              injected: { sessionManager: deps.sessionManager },
+            },
             state.hooks
           );
           return state;

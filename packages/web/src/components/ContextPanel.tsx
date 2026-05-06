@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react';
 import { SessionActivatedTool } from '../types';
-import type { AgentToolPermissionEntry } from '@ai-team/api-client';
+import type { AgentToolPermissionEntry } from '@ai-team/api-contracts';
 import { useSessionsForAgent } from '../hooks/useSessionsForAgent';
 import { useThreadNotes } from '../hooks/useThreadNotes';
 import { useSkillsForAgent } from '../hooks/useSkillsForAgent';

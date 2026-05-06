@@ -1,11 +1,11 @@
 import fs from 'node:fs/promises';
-import { AgentManager } from '@ai-team/infrastructure';
-import type { FireOptions, InteractionContext } from '@ai-team/api-client';
+import type { IAgentManager } from '@ai-team/core';
+import type { FireOptions, InteractionContext } from '@ai-team/api-contracts';
 import type { WorkflowDefinition } from '../workflow/types.js';
 import { runWorkflowAsync } from '../workflow/runner.js';
 
 interface FireWorkflowState {
-  workspaceRoot: string;
+  agentManager: IAgentManager;
   agentQuery: string;
   options: FireOptions;
   agent?: { name: string; id: string; role: string; filePath: string };
@@ -18,8 +18,7 @@ const fireWorkflow: WorkflowDefinition<FireWorkflowState> = {
       id: 'resolve',
       kind: 'action',
       execute: async (state) => {
-        const agentManager = new AgentManager(state.workspaceRoot);
-        const matches = await agentManager.resolveAgentAsync(state.agentQuery);
+        const matches = await state.agentManager.resolveAgentAsync(state.agentQuery);
 
         if (matches.length === 0) {
           throw new Error(`No agent found matching "${state.agentQuery}".`);
@@ -58,11 +57,18 @@ const fireWorkflow: WorkflowDefinition<FireWorkflowState> = {
   ],
 };
 
-export async function fireCommand(
-  workspaceRoot: string,
-  agentQuery: string,
-  options: FireOptions,
-  context: InteractionContext = {}
-) {
-  await runWorkflowAsync(fireWorkflow, { workspaceRoot, agentQuery, options }, context);
+export class FireCommand {
+  constructor(private readonly agentManager: IAgentManager) {}
+
+  async execute(
+    agentQuery: string,
+    options: FireOptions,
+    context: InteractionContext = {}
+  ): Promise<void> {
+    await runWorkflowAsync(
+      fireWorkflow,
+      { agentManager: this.agentManager, agentQuery, options },
+      context
+    );
+  }
 }

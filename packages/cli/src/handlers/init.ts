@@ -1,4 +1,4 @@
-import type { InitOptions } from '@ai-team/api-client';
+import type { InitOptions } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import chalk from 'chalk';
 import { createQuestionResponders } from './question-responders.js';

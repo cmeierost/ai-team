@@ -1,4 +1,6 @@
-import type { CliCommandMetadata } from '@ai-team/infrastructure';
+import type { CliCommandMetadata, ILlmService } from '@ai-team/core';
+import { AgentDocumentStorage, WorkspaceDiscoveryStorage } from '@ai-team/infrastructure';
+import { TOKENS } from '../service-bootstrap.js';
 import { createFactoryCommandDefinition } from './shared.js';
 
 export const chatCliMetadata: CliCommandMetadata = {
@@ -23,17 +25,40 @@ export const chatCommandDefinition = createFactoryCommandDefinition(
   'chat',
   chatCliMetadata,
   async (container, payload, context) => {
-    const { chatCommand } = await import('@ai-team/service/src/commands/chat/index.js');
-    return chatCommand(container.workspaceRoot, payload.employeeId, payload.options, {
-      signal: context.signal,
-      emit: context.emit,
-      questionInput: context.questionInput,
-      questionConfirm: context.questionConfirm,
-      questionSelect: context.questionSelect,
-      questionPassword: context.questionPassword,
-      questionChecklist: context.questionChecklist,
-      workflowState: context.workflowState,
-      onWorkflowFrame: context.onWorkflowFrame,
-    });
+    const { ChatCommand } = await import('@ai-team/service/src/commands/chat/index.js');
+    const agentDocStorage = new AgentDocumentStorage(
+      container.resolve(TOKENS.MarkdownSectionService),
+      container.resolve(TOKENS.WorkspaceStorage),
+      new WorkspaceDiscoveryStorage()
+    );
+    const cmd = new ChatCommand(
+      container.resolve(TOKENS.ConfigurationStorage),
+      container.resolve(TOKENS.EnvironmentStorage),
+      agentDocStorage
+    );
+    return cmd.execute(
+      container.workspaceRoot,
+      payload.employeeId,
+      payload.options,
+      {
+        signal: context.signal,
+        emit: context.emit,
+        questionInput: context.questionInput,
+        questionConfirm: context.questionConfirm,
+        questionSelect: context.questionSelect,
+        questionPassword: context.questionPassword,
+        questionChecklist: context.questionChecklist,
+        workflowState: context.workflowState,
+        onWorkflowFrame: context.onWorkflowFrame,
+      },
+      {
+        sessionManager: container.resolve(TOKENS.SessionManager),
+        agentManager: container.resolve(TOKENS.AgentManager),
+        llmService: container.resolve(TOKENS.LlmService) as unknown as ILlmService,
+        skillManager: container.resolve(TOKENS.SkillManager),
+        markdownSectionService: container.resolve(TOKENS.MarkdownSectionService),
+        pathPermissionChecker: container.resolve(TOKENS.PathPermissionChecker),
+      }
+    );
   }
 );

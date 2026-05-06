@@ -319,7 +319,7 @@ interface ChatMessage {
 
 | File | Change |
 |---|---|
-| `packages/service/src/storage/sqlite/migrations.ts` | v3: adds `handoff_from_session_id`, `handoff_to_session_id`; v4: adds `handoff_id` + index |
+| `packages/service/src/storage/sqlite/migrations.ts` | Baseline schema includes `handoff_from_session_id`, `handoff_to_session_id`, and `handoff_id` + index |
 | `packages/core/src/types/index.ts` | Added `handoffFromSessionId`, `handoffToSessionId`, `handoffId` to `ChatMessage` |
 | `packages/service/src/storage/sqlite/sqlite-storage.ts` | `insertMessage` + `rowToMessage` + `deleteSession` updated |
 | `packages/service/src/commands/chat.ts` | `appendHandoffNote` rewrote to LLM briefing; `acknowledgeHandoff` gets `handoffId`; all 4 paths generate UUID and stamp messages; `detectForwardRequestWithFallback` with 3-phase resolution |

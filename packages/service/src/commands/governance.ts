@@ -1,4 +1,4 @@
-import type { Agent, AgentManager } from '@ai-team/infrastructure';
+import type { Agent, IAgentManager } from '@ai-team/core';
 import { resolveAgentForOperationAsync } from '../utils/agent-resolution.js';
 
 export interface GovernanceRequest {
@@ -18,9 +18,9 @@ export function isDefaultGovernanceActor(agent: Agent): boolean {
 }
 
 export async function resolveGovernanceActor(
-  agentManager: AgentManager,
+  agentManager: IAgentManager,
   requestedBy: string,
-  operation: string,
+  operation: string
 ): Promise<Agent> {
   const resolved = await resolveAgentForOperationAsync(agentManager, requestedBy, operation);
   const actor = await agentManager.getAgentAsync(resolved.id);
@@ -34,14 +34,14 @@ export async function resolveGovernanceActor(
 export function assertDefaultGovernancePolicy(actor: Agent): void {
   if (!isDefaultGovernanceActor(actor)) {
     throw new Error(
-      `Permission governance denied for '${actor.id}' (${actor.role}). Only CEO and HR Director are allowed by default.`,
+      `Permission governance denied for '${actor.id}' (${actor.role}). Only CEO and HR Director are allowed by default.`
     );
   }
 }
 
 export async function requireUserApproval(
   request: GovernanceRequest,
-  message: string,
+  message: string
 ): Promise<void> {
   const approved = await request.confirmUserApproval(message);
   if (!approved) {

@@ -1,5 +1,5 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
-import type { LlmChatOptions } from './index.js';
+import type { LlmChatOptions } from '@ai-team/core';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
