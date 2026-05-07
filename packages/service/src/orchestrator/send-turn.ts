@@ -9,6 +9,7 @@ import type { StructuredToolResult } from '@ai-team/core';
 import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
 import {
+  buildRetryableFailureMessage as buildRetryableFailureMessageImpl,
   ensureTurnStartAsync,
   finalizeTurnResultAsync,
   handleLlmFailureAsync,
@@ -74,4 +75,4 @@ export async function sendTurn(
   );
 }
 
-export { buildRetryableFailureMessage } from './send-turn-steps.js';
+export const buildRetryableFailureMessage = buildRetryableFailureMessageImpl;

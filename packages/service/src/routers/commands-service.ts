@@ -4,6 +4,6 @@ import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 
 export class CommandsService implements ICommandsService {
   async list(): Promise<ChatCommandRegistryEntry[]> {
-    return IN_CHAT_COMMAND_REGISTRY as ChatCommandRegistryEntry[];
+    return IN_CHAT_COMMAND_REGISTRY;
   }
 }

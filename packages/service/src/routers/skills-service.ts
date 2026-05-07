@@ -4,8 +4,12 @@ import type {
   UpdateAgentSkillResponse,
 } from '@ai-team/api-contracts';
 import type { IAgentManager, ISkillManager, IMarkdownSectionService } from '@ai-team/core';
-import { searchSkillsCommand, addSkillCommand, removeSkillCommand } from '../commands/skills.js';
-import { BadRequestError } from '../http-errors.js';
+import {
+  searchSkillsCommand,
+  addSkillCommand,
+  removeSkillCommand,
+} from '../commands/skills/skills.js';
+import { BadRequestError } from '@ai-team/core';
 
 export class SkillsService implements ISkillsService {
   constructor(

@@ -6,8 +6,8 @@
  * assembles the canonical tool registries (CORE_TOOLS, HR_TOOLS, ALL_TOOLS).
  */
 
-import { type AgentTool, type ToolContext } from '@ai-team/core';
-import { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './tool-utils.js';
+import { type AgentTool, type CommandRuntime, type ToolContext } from '@ai-team/core';
+import { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './with-timeout.js';
 
 // ---------------------------------------------------------------------------
 // Sub-module re-exports (every exported tool is available to consumers)
@@ -17,7 +17,7 @@ export {
   whoHasAccessTool,
   doIHaveAccessTool,
   analyzePermissionOverlapTool,
-} from './access-introspection-tools.js';
+} from '../../commands/fs/access-introspection-tools.js';
 
 export {
   fsExistsTool,
@@ -34,25 +34,25 @@ export {
   fsSearchMetadataTool,
   FS_TREE_PRE_LLM_PATTERNS,
   matchesFsTreePreLlmIntent,
-} from './fs-tools.js';
+} from '../../commands/fs/fs-tools.js';
 
-export { type FsPathAccessEnvelope, toFsPathAccessEnvelope } from './fs-access.js';
+export { type FsPathAccessEnvelope, toFsPathAccessEnvelope } from '../../commands/fs/fs-access.js';
 
-export { semanticSearchTool, getErrorsTool } from './search-tools.js';
+export { semanticSearchTool, getErrorsTool } from '../../commands/edit/search-tools.js';
 
 export {
   delegateToAgentTool,
-  registerCliTool,
-  updateEmployeeLlmTool,
   runCliTool,
-} from './agent-tools.js';
+  createAgentManagementTools,
+  type AgentManagementToolDependencies,
+} from '../../commands/agents/agent-tools.js';
 
 export {
   createAgentTool,
   archiveAgentTool,
   assessPerformanceTool,
   addPictureTool,
-} from './hr-tools.js';
+} from '../../commands/hr/hr-tools.js';
 
 export {
   findSymbolTool,
@@ -61,15 +61,15 @@ export {
   grepCodeTool,
   analyzeComplexityTool,
   applyCodeEditTool,
-} from './code-tools.js';
+} from '../../commands/edit/code-tools.js';
 
-export { httpFetchTool, httpCrawlTool } from './http-tools.js';
+export { httpFetchTool, httpCrawlTool } from '../../commands/http/http-tools.js';
 
-export { codeSearchTool } from './codesearch-tool.js';
+export { codeSearchTool } from '../../commands/edit/codesearch-tool.js';
 
-export { applyPatchTool, multiEditTool, fsEditTool } from './edit-tools.js';
+export { applyPatchTool, multiEditTool, fsEditTool } from '../../commands/fs/edit-tools.js';
 
-export { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './tool-utils.js';
+export { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './with-timeout.js';
 
 // ---------------------------------------------------------------------------
 // Internal imports (used only by the registries below)
@@ -79,7 +79,7 @@ import {
   whoHasAccessTool,
   doIHaveAccessTool,
   analyzePermissionOverlapTool,
-} from './access-introspection-tools.js';
+} from '../../commands/fs/access-introspection-tools.js';
 import {
   fsExistsTool,
   fsInfoTool,
@@ -93,15 +93,9 @@ import {
   fsTreeTool,
   fsSearchContentTool,
   fsSearchMetadataTool,
-} from './fs-tools.js';
-import { semanticSearchTool, getErrorsTool } from './search-tools.js';
-import {
-  delegateToAgentTool,
-  registerCliTool,
-  updateEmployeeLlmTool,
-  runCliTool,
-} from './agent-tools.js';
-import { archiveAgentTool, assessPerformanceTool, addPictureTool } from './hr-tools.js';
+} from '../../commands/fs/fs-tools.js';
+import { semanticSearchTool, getErrorsTool } from '../../commands/edit/search-tools.js';
+import { archiveAgentTool, assessPerformanceTool, addPictureTool } from '../../commands/hr/hr-tools.js';
 import {
   findSymbolTool,
   findReferencesTool,
@@ -109,10 +103,10 @@ import {
   grepCodeTool,
   analyzeComplexityTool,
   applyCodeEditTool,
-} from './code-tools.js';
-import { httpFetchTool, httpCrawlTool } from './http-tools.js';
-import { codeSearchTool } from './codesearch-tool.js';
-import { applyPatchTool, multiEditTool, fsEditTool } from './edit-tools.js';
+} from '../../commands/edit/code-tools.js';
+import { httpFetchTool, httpCrawlTool } from '../../commands/http/http-tools.js';
+import { codeSearchTool } from '../../commands/edit/codesearch-tool.js';
+import { applyPatchTool, multiEditTool, fsEditTool } from '../../commands/fs/edit-tools.js';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -158,10 +152,6 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   analyze_permission_overlap: analyzePermissionOverlapTool,
   semantic: semanticSearchTool,
   get_errors: getErrorsTool,
-  register_cli: registerCliTool,
-  update_llm: updateEmployeeLlmTool,
-  run: runCliTool,
-  delegate: delegateToAgentTool,
   find_symbol: findSymbolTool,
   find_references: findReferencesTool,
   lsp: lspTool,
@@ -249,8 +239,23 @@ export async function executeAgentTool(
 
   try {
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+    const runtime: CommandRuntime = {
+      invocationSurface: 'tool',
+      workspaceRoot: context.workspaceRoot,
+      resolve:
+        context.resolve ??
+        (() => {
+          throw new Error('Tool runtime resolver is not available.');
+        }),
+      agentId: context.agentId,
+      questionInput: context.questionInput,
+      questionConfirm: context.questionConfirm,
+      questionSelect: context.questionSelect,
+      questionPassword: context.questionPassword,
+      questionChecklist: context.questionChecklist,
+    };
     const result = await withTimeout(
-      tool.execute(parsed.data, context),
+      tool.execute(parsed.data, context, runtime),
       timeoutMs,
       `Tool ${toolName} timed out`
     );

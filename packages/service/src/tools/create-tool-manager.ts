@@ -19,6 +19,7 @@ import { ToolManager } from './tool-manager.js';
 import { ALL_TOOLS } from './catalog/index.js';
 import type { IServiceContainer, LspProvider } from '@ai-team/core';
 import { createOrchestrationTools, type OrchestrationDeps } from './orchestration-tools.js';
+import { createAgentManagementTools, type AgentManagementToolDependencies } from './catalog/index.js';
 
 export type { OrchestrationDeps } from './orchestration-tools.js';
 
@@ -45,6 +46,8 @@ export interface CreateToolManagerOptions {
   pathPermissionChecker: PathPermissionCheckerLike;
   /** DI container forwarded into every tool's ToolContext.resolve. */
   container?: IServiceContainer;
+  /** Narrow dependency bag for tools that mutate agent/config documents. */
+  agentManagementDeps?: AgentManagementToolDependencies;
 }
 
 /**
@@ -79,6 +82,12 @@ export function createToolManager(
   // 1. Core domain tools (file, search, code-analysis, agent, hr intrinsics)
   for (const tool of Object.values(ALL_TOOLS)) {
     manager.register(tool);
+  }
+
+  if (opts.agentManagementDeps) {
+    for (const tool of createAgentManagementTools(opts.agentManagementDeps)) {
+      manager.register(tool);
+    }
   }
 
   // 2. Orchestration tools — factory-constructed with injected dependencies

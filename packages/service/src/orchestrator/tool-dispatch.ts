@@ -20,12 +20,12 @@ import {
   isTeamListResult,
   type StructuredToolResult,
 } from '@ai-team/core';
-import type { FsPathAccessEnvelope } from '../tools/catalog/fs-access.js';
-import { ProposalStore } from '../storage/proposal-store.js';
+import type { FsPathAccessEnvelope } from '../tools/catalog/index.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import { requestConfirm } from './question-io.js';
 import { emitEvent, emitToolEvent } from './stream-events.js';
 import type {
+  CommandResponse,
   RuntimeStreamEvent,
   ToolDenialEvent,
   ToolRuntimePayloadEvent,
@@ -243,7 +243,12 @@ export async function dispatchToolCall(
     toolName,
     outcome,
     args,
-    execResult.ok ? strippedResult : outputText,
+    buildToolCommandResponse(
+      toolName,
+      toolEventMessage,
+      execResult.ok ? strippedResult : outputText,
+      denial
+    ),
     denial,
     execResult.ok && tool?.formatForLlm ? outputText : undefined
   );
@@ -349,7 +354,13 @@ async function requestExecutionApproval(
     'denied',
     denied,
     toToolDenialEvent(denial),
-    buildToolRuntimePayload(toolName, 'denied', undefined, denied, denial)
+    buildToolRuntimePayload(
+      toolName,
+      'denied',
+      undefined,
+      buildToolCommandResponse(toolName, denied, denied, denial),
+      denial
+    )
   );
   await appendToolHistory(
     ctx,
@@ -373,7 +384,7 @@ function buildToolRuntimePayload(
   toolName: string,
   outcome: ToolRuntimePayloadEvent['outcome'],
   request: unknown,
-  result: unknown,
+  commandResponse: CommandResponse | undefined,
   denial?: ToolDenial,
   resultLlm?: string
 ): ToolRuntimePayloadEvent {
@@ -381,7 +392,7 @@ function buildToolRuntimePayload(
     toolName,
     outcome,
     request,
-    result,
+    commandResponse,
     resultLlm,
     denial: denial ? toToolDenialEvent(denial) : undefined,
   };
@@ -396,9 +407,40 @@ function buildPendingToolRuntimePayload(
     toolName,
     outcome: phase as unknown as ToolRuntimePayloadEvent['outcome'],
     request,
-    result: undefined,
+    commandResponse: undefined,
     resultLlm: undefined,
     denial: undefined,
+  };
+}
+
+function buildToolCommandResponse(
+  toolName: string,
+  message: string,
+  result: unknown,
+  denial?: ToolDenial
+): CommandResponse {
+  if (denial) {
+    return {
+      status: 'error',
+      message,
+      data: result,
+      error: {
+        code: denial.reasonCode,
+        details: {
+          toolName,
+          kind: denial.kind,
+          blockedPaths: denial.blockedPaths,
+          alternativeContexts: denial.alternativeContexts,
+        },
+      },
+    };
+  }
+
+  return {
+    status: 'ok',
+    message,
+    data: result,
+    saveable: result,
   };
 }
 
@@ -775,7 +817,10 @@ async function persistCodeEditProposal(
     });
   }
 
-  const store = new ProposalStore(ctx.workspaceRoot);
+  const store = ctx.proposalStoreFactory?.create(ctx.workspaceRoot);
+  if (!store) {
+    throw new Error('Proposal store factory is not configured for code edit proposal persistence.');
+  }
   store.save({
     proposalId,
     agentName: ctx.agent.name,

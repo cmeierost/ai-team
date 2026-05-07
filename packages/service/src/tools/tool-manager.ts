@@ -13,6 +13,7 @@
 import {
   Agent,
   AgentTool,
+  CommandRuntime,
   ContextLevel,
   type LspProvider,
   type IServiceContainer,
@@ -43,13 +44,18 @@ interface PathPermissionCheckerLike {
 // Re-export for convenience so callers only import from 'tools'.
 export type { PermissionResult, ToolCatalogEntry } from '@ai-team/core';
 
+type ToolIdentityField = 'key' | 'group';
+
 /**
  * Canonical lookup key for a tool.
- * When the tool has a group, the key is `${group}_${name}` (e.g. `fs_tree`).
- * Without a group the short name is used as-is (e.g. `lsp`).
  */
-export function toolKey(tool: Pick<AgentTool, 'name' | 'group'>): string {
-  return tool.group ? `${tool.group}_${tool.name}` : tool.name;
+export function toolKey(tool: Pick<AgentTool, ToolIdentityField>): string {
+  const key = typeof tool.key === 'string' ? tool.key.trim() : '';
+  if (!key) {
+    throw new Error('Tool must define a non-empty `key`.');
+  }
+  const group = typeof tool.group === 'string' ? tool.group.trim() : '';
+  return group ? `${group}_${key}` : key;
 }
 
 /**
@@ -103,15 +109,14 @@ function matchesSelectorValue(selector: string, value: string): boolean {
  */
 export function matchesToolSelector(
   selector: string,
-  tool: Pick<AgentTool, 'name' | 'group'>
+  tool: Pick<AgentTool, ToolIdentityField>
 ): boolean {
   const normalized = normalizeToolSelector(selector);
   if (!normalized) {
     return false;
   }
 
-  const key = toolKey(tool);
-  return matchesSelectorValue(normalized, key) || matchesSelectorValue(normalized, tool.name);
+  return matchesSelectorValue(normalized, toolKey(tool));
 }
 
 function pushIfMissing(result: AgentTool[], tool: AgentTool): void {
@@ -225,8 +230,7 @@ export class ToolManager {
   /**
    * Register a tool. Calling register() with the same name replaces the
    * previous entry — this is the Open/Closed plugin seam.
-   * Tools are stored under their canonical key: `${group}_${name}` when a group
-   * is present (e.g. `fs_tree`), or just `name` when there is no group.
+    * Tools are stored under their canonical key (`tool.key`).
    */
   register(tool: AgentTool): this {
     this.tools.set(toolKey(tool), tool);
@@ -352,7 +356,10 @@ export class ToolManager {
     }
 
     // Zod validation
-    const parsed = tool.parameters.safeParse(args);
+    const parsed =
+      tool.parameters && typeof tool.parameters.safeParse === 'function'
+        ? tool.parameters.safeParse(args)
+        : { success: true as const, data: args };
     if (!parsed.success) {
       return {
         ok: false,
@@ -368,13 +375,24 @@ export class ToolManager {
       agentId: agent.id,
       lsp: this._lsp,
       pathPermissionChecker: this.pathPermissionChecker,
-      resolve: this._container ? this._container.resolve.bind(this._container) : undefined,
+      resolve:
+        context.resolve ??
+        (this._container ? this._container.resolve.bind(this._container) : undefined),
     } as ToolContext;
+    const runtime: CommandRuntime = {
+      invocationSurface: 'tool',
+      workspaceRoot: this.workspaceRoot,
+      agentId: agent.id,
+    };
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     try {
       const result = await withTimeout(
-        tool.execute(parsed.data, toolContext),
+        (tool.execute as (params: unknown, context: ToolContext, runtime?: CommandRuntime) => Promise<unknown>)(
+          parsed.data,
+          toolContext,
+          runtime
+        ),
         timeoutMs,
         `Tool ${toolName} timed out after ${timeoutMs}ms`
       );
@@ -429,7 +447,7 @@ export class ToolManager {
       const key = toolKey(tool);
       return {
         name: key,
-        description: tool.description,
+        description: tool.summary ?? tool.description,
         group: tool.group,
         schema: this.toSchema(key)?.parameters ?? {},
         tags: tool.tags,
@@ -448,7 +466,7 @@ export class ToolManager {
 
     return {
       name: toolName,
-      description: tool.description,
+      description: tool.summary ?? tool.description,
       parameters: zodSchemaToJsonSchema(tool.parameters),
     };
   }

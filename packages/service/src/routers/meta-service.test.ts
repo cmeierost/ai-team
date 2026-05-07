@@ -87,6 +87,21 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
       toSchema: () => undefined,
     } as any;
 
+    const agentDocumentStorage = {
+      loadAllInstructionFilesAsync: async () => [
+        {
+          filePath: path.join(workspaceRoot, '.ai-team', 'instructions', 'backend-team.instructions.md'),
+          applyTo: 'packages/service/**/*,packages/api-server/**/*',
+          instructions: 'Backend instruction content.',
+        },
+        {
+          filePath: path.join(workspaceRoot, '.ai-team', 'instructions', 'frontend-team.instructions.md'),
+          applyTo: 'packages/web/**/*',
+          instructions: 'Frontend instruction content.',
+        },
+      ],
+    } as any;
+
     const planningService = {
       listTasks: async () => options?.planning?.tasks ?? [],
       getPlan: async (planId: string) => options?.planning?.plansById?.[planId],
@@ -98,6 +113,7 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
       sessionManager,
       skillManager,
       toolManager,
+      agentDocumentStorage,
       undefined,
       planningService
     );

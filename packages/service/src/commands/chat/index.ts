@@ -22,9 +22,10 @@ import type {
   IAgentDocumentStorage,
   ILlmService,
   IMarkdownSectionService,
+  IProposalStoreFactory,
   ISkillManager,
 } from '@ai-team/core';
-import type { ChatOptions } from '@ai-team/api-contracts';
+import type { ChatOptions, IContextService } from '@ai-team/api-contracts';
 import { getGitUserName, developerNameToId } from '../../utils/git.js';
 import { ensureUserEnvVars as ensureServiceUserEnvVars } from '../../utils/user-env.js';
 import { SessionManager } from '../../session-manager.js';
@@ -34,7 +35,10 @@ import type { ResolvedPlugins } from '../../orchestrator/pipeline.js';
 import type { OrchestratorContext } from '../../orchestrator/pipeline-context.js';
 import { createToolManager } from '../../tools/create-tool-manager.js';
 import type { ToolManager } from '../../tools/tool-manager.js';
-import type { OrchestrationDeps } from '../../tools/create-tool-manager.js';
+import type {
+  OrchestrationDeps,
+  PathPermissionCheckerLike,
+} from '../../tools/create-tool-manager.js';
 import { NoOpCompressor } from '../../orchestrator/defaults/context-compressor.js';
 import { DefaultContextBuilder } from '../../orchestrator/defaults/context-builder.js';
 import {
@@ -49,7 +53,6 @@ import { DefaultOutputHandler } from '../../orchestrator/defaults/output-handler
 import { buildDefaultHookPlugins } from '../../orchestrator/defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from '../../orchestrator/defaults/turn-result-parsers.js';
 import { buildDefaultSlashCommands } from '../../orchestrator/slash-commands.js';
-import type { PathPermissionCheckerLike } from '../../tools/create-tool-manager.js';
 
 // ── Service modules ───────────────────────────────────────────────────────────
 export type { ChatRuntimeHooks } from './hooks.js';
@@ -173,29 +176,36 @@ function wireLlmDiagnostics(llm: ILlmService, hooks: ChatRuntimeHooks | undefine
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class ChatCommand {
+
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
     private readonly environmentStorage: IEnvironmentStorage,
-    private readonly agentDocumentStorage: IAgentDocumentStorage
+    private readonly agentDocumentStorage: IAgentDocumentStorage,
+    private readonly agentManager: IAgentManager,
+    private readonly llmService: ILlmService,
+    private readonly skillManager: ISkillManager,
+    private readonly markdownSectionService: IMarkdownSectionService,
+    private readonly pathPermissionChecker: PathPermissionCheckerLike,
+    private readonly proposalStoreFactory: IProposalStoreFactory,
+    private readonly contextService: Pick<IContextService, 'getContextEstimate'>,
+    private readonly sessionManager?: SessionManager,
   ) {}
 
   async execute(
     workspaceRoot: string,
     agentId: string | undefined,
     options: ChatCommandOptions,
-    hooks: ChatRuntimeHooks = {},
-    injected?: {
-      sessionManager?: SessionManager;
-      agentManager?: IAgentManager;
-      llmService?: ILlmService;
-      skillManager?: ISkillManager;
-      markdownSectionService?: IMarkdownSectionService;
-      pathPermissionChecker?: PathPermissionCheckerLike;
-    }
+    hooks: ChatRuntimeHooks = {}
   ) {
     const originalLog = console.log;
     const originalWarn = console.warn;
     const originalError = console.error;
+    const sessionManager = this.sessionManager;
+    const agentManager = this.agentManager;
+
+    if (!sessionManager) {
+      throw new Error('ChatCommand: sessionManager is required but was not provided');
+    }
 
     // Note: process.stdout.write is already patched by the invoke() wrapper in
     // AiTeamService when context.emit is present. Do NOT add a second patch here
@@ -212,20 +222,11 @@ export class ChatCommand {
         emitRuntimeEvent(hooks, { kind: 'log', level: 'error', message: formatConsoleArgs(args) });
     }
 
-    let sessionManager!: SessionManager;
     let currentSessionId!: string;
 
     try {
-      const agentManager = injected?.agentManager;
-      if (!agentManager) throw new Error('ChatCommand: agentManager must be provided via injected');
       // Navigation stack for /back — each entry is the session we came FROM
       const navStack: Array<{ agentId: string; sessionId: string; agentName: string }> = [];
-
-      if (injected?.sessionManager) {
-        sessionManager = injected.sessionManager;
-      } else {
-        throw new Error('ChatCommand: sessionManager must be provided via injected');
-      }
 
       const loadSessionMessagesWithTiming = async (
         sessionId: string,
@@ -340,13 +341,8 @@ export class ChatCommand {
       let agent: Agent = resolvedAgent;
 
       // Initialize LLM service
-      if (!injected?.llmService) {
-        throw new Error(
-          'ChatCommand.execute() requires an injected llmService. ' +
-            'Pass it via the `injected` parameter when constructing ChatCommand.'
-        );
-      }
-      const llm = injected.llmService;
+      const llm = this.llmService;
+      if (!llm) throw new Error('ChatCommand: llmService is required but was not provided');
       wireLlmDiagnostics(llm, hooks);
       const useSpinner = !hooks?.emit && Boolean(process.stderr.isTTY);
       const spinner = useSpinner ? ora('Connecting to LLM...').start() : undefined;
@@ -435,7 +431,7 @@ export class ChatCommand {
       ) {
         await tryIntroduceUserNew({
           agentManager,
-          markdownSectionService: injected!.markdownSectionService!,
+          markdownSectionService: this.markdownSectionService,
           agent,
           history,
           developerName,
@@ -473,17 +469,18 @@ export class ChatCommand {
         },
       };
       chatToolManager = createToolManager(workspaceRoot, toolDeps, {
-        pathPermissionChecker:
-          injected?.pathPermissionChecker ??
-          ((() => {
-            throw new Error('pathPermissionChecker is required but was not injected');
-          })() as PathPermissionCheckerLike),
+        pathPermissionChecker: this.pathPermissionChecker,
+        agentManagementDeps: {
+          configurationStorage: this.configurationStorage,
+          agentManager,
+          agentDocumentStorage: this.agentDocumentStorage,
+        },
       });
 
       const skillManager: ISkillManager =
-        injected?.skillManager ??
+        this.skillManager ??
         (() => {
-          throw new Error('skillManager is required but was not injected');
+          throw new Error('ChatCommand: skillManager is required but was not provided');
         })();
       const _plugins: ResolvedPlugins = {
         compressor: new NoOpCompressor(),
@@ -510,6 +507,7 @@ export class ChatCommand {
         skillManager,
         llmService: llm as any,
         configurationStorage: this.configurationStorage,
+        proposalStoreFactory: this.proposalStoreFactory,
         history,
         instructions,
       };

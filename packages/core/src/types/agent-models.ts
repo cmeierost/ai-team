@@ -1,5 +1,9 @@
 import { AgentStatus, ContextLevel, RoleType } from './taxonomy.js';
 import type { AgentConfig, FeatureConfig, SkillConfig } from './schemas.js';
+import type {
+  AnalyzePermissionOverlapOptions,
+  PermissionOverlapReport,
+} from '../context/perm-overlap.js';
 
 export interface PermissionConfig {
   list?: string[];
@@ -76,6 +80,14 @@ export interface IAgentManager {
   getAgentOrThrowAsync(id: string): Promise<Agent>;
   resolveAgentAsync(query: string): Promise<Agent[]>;
   resolveAgentOrThrowAsync(query: string): Promise<Agent>;
+  resolveAgentForOperationAsync(
+    query: string,
+    operation: string
+  ): Promise<{ id: string; name: string; role: string }>;
+  resolveAgentSafeAsync(query: string): Promise<{ id: string; name: string; role: string } | null>;
+  analyzeWorkspacePermissionOverlap(
+    options?: AnalyzePermissionOverlapOptions
+  ): Promise<PermissionOverlapReport>;
   createAgentAsync(
     config: AgentConfig,
     options?: { markdown?: string; targetPath?: string } | string

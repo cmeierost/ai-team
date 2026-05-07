@@ -11,6 +11,7 @@ import {
   IdePluginMessage,
   IdeCallerMessage,
   IdeServerFile,
+  type IIdeAdapterFactory,
 } from '@ai-team/core';
 
 export class NoopLspProvider implements LspProvider {
@@ -275,4 +276,10 @@ export async function createIdeAdapter(
       });
     });
   });
+}
+
+export class InfrastructureIdeAdapterFactory implements IIdeAdapterFactory {
+  createAsync(workspaceRoot: string, channel: 'cli' | 'web'): Promise<IdeAdapter> {
+    return createIdeAdapter(workspaceRoot, channel);
+  }
 }

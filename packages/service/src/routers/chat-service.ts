@@ -1,6 +1,6 @@
 import type { IChatService, ChatSummary, ChatMessage, MessageStats } from '@ai-team/api-contracts';
 import type { SessionManager } from '../session-manager.js';
-import { BadRequestError, NotFoundError } from '../http-errors.js';
+import { BadRequestError, NotFoundError } from '@ai-team/core';
 import type { ILlmService, IChatManager, IChatStorage } from '@ai-team/core';
 import type { IInteractionService } from '../interaction-service.js';
 

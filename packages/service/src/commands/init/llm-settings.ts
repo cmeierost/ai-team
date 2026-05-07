@@ -4,6 +4,7 @@ import type {
   QuestionPasswordRequest,
   QuestionSelectRequest,
 } from '@ai-team/api-contracts';
+import type { IModelDiscoveryRegistry } from '@ai-team/core';
 
 export interface LlmSetupResult {
   provider: string;
@@ -22,7 +23,10 @@ export interface LlmSettingsIo {
   writeWarn(message: string): void;
 }
 
-export async function askLlmSetup(io: LlmSettingsIo): Promise<LlmSetupResult> {
+export async function askLlmSetup(
+  io: LlmSettingsIo,
+  modelDiscoveryRegistry: IModelDiscoveryRegistry
+): Promise<LlmSetupResult> {
   const provider = await io.select({
     message: 'Which LLM provider do you want to use?',
     choices: [
@@ -38,7 +42,7 @@ export async function askLlmSetup(io: LlmSettingsIo): Promise<LlmSetupResult> {
   });
 
   if (provider === 'github-copilot') {
-    return askGitHubCopilotSetup(io);
+    return askGitHubCopilotSetup(io, modelDiscoveryRegistry);
   }
 
   return askOpenAICompatibleSetup(io);
@@ -59,13 +63,16 @@ export function providerRefToApiKeyEnvVar(providerRef: string): string {
   return `${normalized || 'OPENAI_COMPATIBLE'}_API_KEY`;
 }
 
-async function askGitHubCopilotSetup(io: LlmSettingsIo): Promise<LlmSetupResult> {
+async function askGitHubCopilotSetup(
+  io: LlmSettingsIo,
+  modelDiscoveryRegistry: IModelDiscoveryRegistry
+): Promise<LlmSetupResult> {
   io.writeLine('');
   io.writeLine('  GitHub Copilot will use your active VS Code / CLI session.');
 
   const spinner = ora('Fetching available models from GitHub Copilot…').start();
-  const { fetchGitHubModels } = await import('@ai-team/infrastructure');
-  const models = await fetchGitHubModels();
+  const discovery = modelDiscoveryRegistry.getForKind('github-copilot');
+  const models = discovery ? await discovery.fetchModelsAsync() : [];
   spinner.stop();
 
   let choices: { name: string; value: string }[];
@@ -73,7 +80,7 @@ async function askGitHubCopilotSetup(io: LlmSettingsIo): Promise<LlmSetupResult>
   if (models.length > 0) {
     choices = models.map((m) => ({
       name: m.name,
-      value: m.id,
+      value: m.name,
     }));
   } else {
     io.writeWarn('  Could not fetch models - showing defaults.');

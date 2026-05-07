@@ -1,6 +1,9 @@
 import type {
   IContainerToken,
   IServiceContainer,
+  ICodeEditManager,
+  IIdeAdapterFactory,
+  ITypeScriptAnalyzer,
   IModelDiscoveryRegistry,
   ILlmProviderTester,
   IAgentManager,
@@ -14,12 +17,23 @@ import type {
   IFileTreeService,
   IFileAnnotationService,
   IAgentDocumentStorage,
+  INoteAttachmentReader,
+  IPathPermissionChecker,
+  IMessageStorage,
+  ILlmService,
+  ITextToolCallParser,
+  IAvatarManager,
+  IProposalStoreFactory,
+  IWorkspaceFsFactory,
   CliCommandMetadata,
 } from '@ai-team/core';
-import type { AiTeamCommandName } from '@ai-team/api-contracts';
+import type { IContextService } from '@ai-team/api-contracts';
 import type { CommandRegistration } from '../../command-dispatcher.js';
 import type { ToolManager } from '../../tools/tool-manager.js';
 import type { SessionManager } from '../../session-manager.js';
+import type { AvatarService } from '../hr/avatar.js';
+import type { AccessService as AccessCommandService } from '../access/access-service.js';
+import type { CodeEditService } from '../edit/code-edit.js';
 
 function createContainerToken<T>(id: string): IContainerToken<T> {
   return {
@@ -45,6 +59,21 @@ export const COMMAND_FACTORY_TOKENS = {
   FileTreeService: createContainerToken<IFileTreeService>('FileTreeService'),
   FileAnnotationService: createContainerToken<IFileAnnotationService>('FileAnnotationService'),
   AgentDocumentStorage: createContainerToken<IAgentDocumentStorage>('AgentDocumentStorage'),
+  PathPermissionChecker: createContainerToken<IPathPermissionChecker>('PathPermissionChecker'),
+  AvatarManager: createContainerToken<IAvatarManager>('AvatarManager'),
+  AvatarService: createContainerToken<AvatarService>('AvatarService'),
+  CodeEditManager: createContainerToken<ICodeEditManager>('CodeEditManager'),
+  TypeScriptAnalyzer: createContainerToken<ITypeScriptAnalyzer>('TypeScriptAnalyzer'),
+  CodeEditService: createContainerToken<CodeEditService>('CodeEditService'),
+  IdeAdapterFactory: createContainerToken<IIdeAdapterFactory>('IdeAdapterFactory'),
+  ProposalStoreFactory: createContainerToken<IProposalStoreFactory>('ProposalStoreFactory'),
+  WorkspaceFsFactory: createContainerToken<IWorkspaceFsFactory>('WorkspaceFsFactory'),
+  NoteAttachmentReader: createContainerToken<INoteAttachmentReader>('NoteAttachmentReader'),
+  LlmService: createContainerToken<ILlmService>('LlmService'),
+  TextToolCallParser: createContainerToken<ITextToolCallParser>('TextToolCallParser'),
+  AccessCommandService: createContainerToken<AccessCommandService>('AccessCommandService'),
+  ContextService: createContainerToken<Pick<IContextService, 'getContextEstimate'>>('ContextService'),
+  MessageStorage: createContainerToken<IMessageStorage>('SqliteBackend'),
 } as const;
 
 export interface CommandFactoryContainer {
@@ -57,16 +86,16 @@ export interface CommandFactoryContainer {
   ): void;
 }
 
-export type CommandFactory<TCommand extends AiTeamCommandName = AiTeamCommandName> = (
+export type CommandFactory<TCommand extends string = string> = (
   container: CommandFactoryContainer
 ) => CommandRegistration<TCommand>;
 
-export type CurriedCommandHandler<TCommand extends AiTeamCommandName = AiTeamCommandName> = (
+export type CurriedCommandHandler<TCommand extends string = string> = (
   payload: Parameters<CommandRegistration<TCommand>['handler']>[1],
   context: Parameters<CommandRegistration<TCommand>['handler']>[2]
 ) => ReturnType<CommandRegistration<TCommand>['handler']>;
 
-export interface ResolverCommandDefinition<TCommand extends AiTeamCommandName = AiTeamCommandName> {
+export interface ResolverCommandDefinition<TCommand extends string = string> {
   registration: Omit<CommandRegistration<TCommand>, 'handler'>;
   handlerToken: IContainerToken<CurriedCommandHandler<TCommand>>;
   register(container: CommandFactoryContainer): void;

@@ -15,6 +15,7 @@ import type {
   IAgentManager,
   IConfigurationStorage,
   ILlmService,
+  IProposalStoreFactory,
   ISkillManager,
 } from '@ai-team/core';
 import type { ToolManager } from '../tools/tool-manager.js';
@@ -50,6 +51,7 @@ export interface OrchestratorContext {
   skillManager: ISkillManager;
   llmService: ILlmService;
   configurationStorage: IConfigurationStorage;
+  proposalStoreFactory?: IProposalStoreFactory;
 
   /** Message history for the current agent session. */
   history: ChatMessage[];

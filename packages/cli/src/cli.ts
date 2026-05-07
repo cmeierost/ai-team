@@ -39,8 +39,8 @@ import {
   renderFilesAllow,
   renderFilesDeny,
 } from './handlers/files.js';
-import { renderAccessCan, renderAccessOverlap, renderAccessWho } from './handlers/access.js';
 import { runCommandStream } from './handlers/stream-runner.js';
+import { registerCliResultHandlers } from './handlers/result-renderers.js';
 import { renderToolsAllow, renderToolsList, renderToolsDeny } from './handlers/tools.js';
 import { renderSkillsList, renderSkillsAdd, renderSkillsRemove } from './handlers/skills.js';
 import { renderSearchResults } from './handlers/search.js';
@@ -132,6 +132,7 @@ function applyCommandMetadata(command: Command, metadata: CliCommandMetadata): C
 const workspaceRoot = findWorkspaceRoot();
 
 const commandContainer = createContainerWithBootstrap({ workspaceRoot }, () => {});
+registerCliResultHandlers(commandContainer as unknown as IServiceContainer);
 const commandClient = new CliCommandClient(
   workspaceRoot,
   commandContainer.child() as unknown as IServiceContainer
@@ -157,17 +158,40 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
       command: 'create',
       payload: { type: type.toLowerCase(), options },
     }),
-  chat: (
-    agentId: string | undefined,
-    messageParts: string[] | undefined,
-    options: {
+  chat: (...rawArgs: unknown[]) => {
+    let agentId: string | undefined;
+    let messageParts: string[] | undefined;
+    let options: {
       message?: string;
       context?: string[];
       mediatorLog?: boolean;
       new?: boolean;
       session?: string;
+    } = {};
+
+    for (const arg of rawArgs) {
+      if (typeof arg === 'string') {
+        if (!agentId) {
+          agentId = arg;
+        }
+        continue;
+      }
+
+      if (Array.isArray(arg) && arg.every((part) => typeof part === 'string')) {
+        messageParts = arg as string[];
+        continue;
+      }
+
+      if (arg instanceof Command) {
+        options = { ...options, ...(arg.opts() as typeof options) };
+        continue;
+      }
+
+      if (arg && typeof arg === 'object') {
+        options = { ...options, ...(arg as Partial<typeof options>) };
+      }
     }
-  ) => {
+
     const { mediatorLog, new: createNew, session, ...chatOptions } = options;
     const inlineMessage =
       messageParts && messageParts.length > 0 ? messageParts.join(' ') : undefined;
@@ -457,7 +481,8 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
         payload: { path: options.path ?? '', right: options.right },
       },
       {
-        resultHandler: (data) => renderAccessWho(data, options),
+        serviceContainer: commandContainer as unknown as IServiceContainer,
+        rendererOptions: options,
       }
     ),
   'access.can': (options: {
@@ -473,7 +498,8 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
         payload: { path: options.path ?? '', right: options.right, agent: options.agent },
       },
       {
-        resultHandler: (data) => renderAccessCan(data, options),
+        serviceContainer: commandContainer as unknown as IServiceContainer,
+        rendererOptions: options,
       }
     ),
   'access.overlap': (options: {
@@ -489,7 +515,8 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
         payload: { mode: options.mode, right: options.right, agent: options.agent },
       },
       {
-        resultHandler: (data) => renderAccessOverlap(data, options),
+        serviceContainer: commandContainer as unknown as IServiceContainer,
+        rendererOptions: options,
       }
     ),
   'tools.allow': (options: {

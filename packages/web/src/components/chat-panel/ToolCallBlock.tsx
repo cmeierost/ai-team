@@ -48,7 +48,7 @@ function formatKb(bytes: number): string {
 }
 
 function resultSizeLabel(event: SessionActivatedTool): string | null {
-  const rawResultBytes = toBytes(serializeForSize(event.toolResult?.result));
+  const rawResultBytes = toBytes(serializeForSize(event.toolResult?.commandResponse?.data));
   const compactedResultBytes = toBytes(serializeForSize(event.toolResult?.resultLlm));
 
   if (rawResultBytes === null && compactedResultBytes === null) {
@@ -123,11 +123,14 @@ export function ToolCallBlock({
   if (phase === 'error') {
     const msg =
       event.message ??
-      (typeof event.toolResult?.result === 'string' ? event.toolResult.result : undefined) ??
+      event.toolResult?.commandResponse?.message ??
+      (typeof event.toolResult?.commandResponse?.data === 'string'
+        ? event.toolResult.commandResponse.data
+        : undefined) ??
       'Tool execution failed';
     const userFacingMessage = /^error:\s*/i.test(msg) ? msg : `Error: ${msg}`;
     const canOpen =
-      event.toolResult?.result !== undefined || event.toolResult?.request !== undefined;
+      event.toolResult?.commandResponse !== undefined || event.toolResult?.request !== undefined;
     const toggleDetailsOpen = () => {
       if (!canOpen) return;
       setDetailsOpen((open) => !open);
@@ -183,7 +186,7 @@ export function ToolCallBlock({
   }
 
   // result phase
-  const result = event.toolResult?.result;
+  const result = event.toolResult?.commandResponse?.data;
   const sizeLabel = resultSizeLabel(event);
   const renderer = getRenderer(toolName);
   const hasRichRenderer = renderer !== undefined && result !== undefined;
@@ -199,7 +202,7 @@ export function ToolCallBlock({
   };
 
   const toolCallId = event.toolResult?.id;
-  const rawResultText = serializeForSize(event.toolResult?.result);
+  const rawResultText = serializeForSize(event.toolResult?.commandResponse?.data);
   const hasRawResult = rawResultText !== null && rawResultText.length > 0;
   const isHiddenFromLlm = event.toolResult?.resultLlm === '';
   const canMutateToolResult = canMutate && typeof toolCallId === 'number' && hasRawResult;

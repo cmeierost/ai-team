@@ -1,4 +1,4 @@
-import { matchesFsTreePreLlmIntent } from './catalog/fs-tools.js';
+import { matchesFsTreePreLlmIntent } from './catalog/index.js';
 import { matchesTeamListPreLlmIntent, matchesToolListPreLlmIntent } from './orchestration-tools.js';
 
 export type PreLlmIntent = {

@@ -6,8 +6,15 @@
 export type { Right, Effect, PermissionRule } from './rights.js';
 export { ALL_RIGHTS } from './rights.js';
 
-export type { PermissionDescriptor } from './tool-types.js';
+export type {
+	PermissionDescriptor,
+	ToolIntentMatcher,
+	ITool,
+	AgentTool,
+} from './tool-types.js';
 export * from './tool-results.js';
+export * from './command-types.js';
+export * from './command-registry.js';
 
 export * from './taxonomy.js';
 export * from './schemas.js';

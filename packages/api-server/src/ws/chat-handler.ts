@@ -13,7 +13,6 @@ import {
   type IdeAdapter,
 } from '@ai-team/infrastructure';
 import {
-  resolveAgentForOperationAsync,
   SessionManager,
   type IInteractionService,
 } from '@ai-team/service';
@@ -153,11 +152,7 @@ export async function setupChatWebSocket(
   let agentId = agentQuery;
   if (agentManager) {
     try {
-      const resolved = await resolveAgentForOperationAsync(
-        agentManager,
-        agentQuery,
-        'WebSocket chat'
-      );
+      const resolved = await agentManager.resolveAgentForOperationAsync(agentQuery, 'WebSocket chat');
       agentId = resolved.id;
     } catch (error) {
       // Send error and close connection

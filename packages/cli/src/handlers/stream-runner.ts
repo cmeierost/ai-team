@@ -3,14 +3,21 @@ import type {
   AiTeamCommandResponseMap,
   InteractionRequest,
 } from '@ai-team/api-contracts';
+import type { IServiceContainer } from '@ai-team/core';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { exec } from 'node:child_process';
 import chalk from 'chalk';
 import { createQuestionResponders } from './question-responders.js';
+import {
+  CLI_RESULT_HANDLER_REGISTRY_TOKEN,
+  type ICliResultHandlerRegistry,
+} from './result-renderers.js';
 
 interface StreamRunnerOptions<TCommand extends AiTeamCommandName = AiTeamCommandName> {
   showStatus?: boolean;
   resultHandler?: (data: AiTeamCommandResponseMap[TCommand]) => void;
+  serviceContainer?: IServiceContainer;
+  rendererOptions?: unknown;
 }
 
 function setupAbortController() {
@@ -96,6 +103,19 @@ export async function runCommandStream<TCommand extends AiTeamCommandName>(
       }
 
       if (event.kind === 'avatar-preview') {
+        const resultHandlerRegistry = options.serviceContainer?.tryResolve(
+          CLI_RESULT_HANDLER_REGISTRY_TOKEN
+        ) as ICliResultHandlerRegistry | undefined;
+        const avatarPreviewHandler = resultHandlerRegistry?.resolveAvatarPreview();
+
+        if (avatarPreviewHandler) {
+          await avatarPreviewHandler({
+            agentName: event.agentName,
+            previewPath: event.previewPath,
+          });
+          continue;
+        }
+
         process.stdout.write(
           chalk.cyan(`\n🖼  Avatar preview for ${event.agentName}: ${event.previewPath}\n`)
         );
@@ -105,9 +125,26 @@ export async function runCommandStream<TCommand extends AiTeamCommandName>(
 
       if (event.kind === 'result') {
         resultData = event.data as AiTeamCommandResponseMap[TCommand];
-        if (options.resultHandler && resultData !== undefined) {
-          options.resultHandler(resultData);
+        if (resultData === undefined) {
+          continue;
         }
+
+        if (options.resultHandler) {
+          options.resultHandler(resultData);
+          continue;
+        }
+
+        const resultHandlerRegistry = options.serviceContainer?.tryResolve(
+          CLI_RESULT_HANDLER_REGISTRY_TOKEN
+        ) as ICliResultHandlerRegistry | undefined;
+        const resultHandler = resultHandlerRegistry?.resolve(request.command);
+
+        if (resultHandler) {
+          await resultHandler(resultData, options.rendererOptions);
+          continue;
+        }
+
+        process.stdout.write(`${JSON.stringify(resultData, null, 2)}\n`);
         continue;
       }
 

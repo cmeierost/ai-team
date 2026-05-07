@@ -1,3 +1,5 @@
+import { AmbiguousAgentQueryError as CoreAmbiguousAgentQueryError } from '@ai-team/core';
+
 export type ServiceErrorCode =
   | 'INPUT_REQUIRED'
   | 'VALIDATION'
@@ -36,16 +38,4 @@ export function toServiceDomainError(error: unknown, fallbackMessage: string): S
   return new ServiceDomainError('INTERNAL', fallbackMessage);
 }
 
-/**
- * Error thrown when an agent query matches multiple agents
- */
-export class AmbiguousAgentQueryError extends Error {
-  constructor(
-    public readonly query: string,
-    public readonly matches: Array<{ id: string; name: string; role: string }>,
-  ) {
-    const matchList = matches.map(m => `  - ${m.name} (${m.role}) [id: ${m.id}]`).join('\n');
-    super(`Query "${query}" matches multiple agents:\n${matchList}\nPlease be more specific.`);
-    this.name = 'AmbiguousAgentQueryError';
-  }
-}
+export const AmbiguousAgentQueryError = CoreAmbiguousAgentQueryError;

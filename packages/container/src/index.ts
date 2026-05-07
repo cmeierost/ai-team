@@ -18,7 +18,5 @@ export {
   type ExtendedServiceContainer,
 } from './service-bootstrap.js';
 export {
-  CLI_COMMAND_METADATA_BY_KEY,
-  DEFAULT_COMMAND_DEFINITIONS,
   registerDefaultCommandDefinitions,
 } from './command-definitions/index.js';

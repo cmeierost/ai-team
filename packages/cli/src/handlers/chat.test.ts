@@ -204,9 +204,13 @@ describe('chat command', () => {
           toolResult: {
             toolName: 'com_ask',
             outcome: 'result',
-            result: {
-              request: { questionType: 'select' },
-              response: { questionType: 'select', answer: 'alex-morgan' },
+            commandResponse: {
+              status: 'ok',
+              message: 'Question answered',
+              data: {
+                request: { questionType: 'select' },
+                response: { questionType: 'select', answer: 'alex-morgan' },
+              },
             },
           },
         };
@@ -254,9 +258,13 @@ describe('chat command', () => {
           toolResult: {
             toolName: 'com_ask',
             outcome: 'result',
-            result: {
-              request: { questionType: 'select' },
-              response: { questionType: 'select', answer: 'emily-davis' },
+            commandResponse: {
+              status: 'ok',
+              message: 'Question answered',
+              data: {
+                request: { questionType: 'select' },
+                response: { questionType: 'select', answer: 'emily-davis' },
+              },
             },
           },
         };

@@ -6,27 +6,21 @@ import type {
   ISessionsRepository,
   INotesRepository,
   IAgentManager,
+  INoteAttachmentReader,
 } from '@ai-team/core';
 import type { HandoffEdge } from '@ai-team/api-contracts';
-import { resolveAgentForOperationAsync } from './utils/agent-resolution.js';
-import {
-  extractAttachmentContentAsync,
-  isImageAttachment,
-  readAttachmentAsDataUrlAsync,
-  splitIntoChunks,
-} from './notes/note-attachment-reader.js';
 import type {
   MessageSessionLink,
   Note,
   NoteAttachment,
   NoteCreateInput,
   NoteUpdateInput,
+  NoteSessionShare,
+  NoteSessionShareKind,
   SessionDeleteImpact,
   SessionDeleteOptions,
   SessionSkill,
-  NoteSessionShare,
-  NoteSessionShareKind,
-} from './storage/contracts.js';
+} from '@ai-team/core';
 
 export interface SessionThreadGraphSession {
   sessionId: string;
@@ -49,29 +43,27 @@ export interface SessionThreadGraphData {
 }
 
 export class SessionManager {
-  private workspaceRoot: string;
-  private artifactsDir: string;
-  private agentManager?: IAgentManager;
-  private messages: IMessagesRepository;
-  private sessions: ISessionsRepository;
-  private notes: INotesRepository;
+  private readonly artifactsDir: string;
   private autoTitleLlmService?: any;
 
   private artifactsDirReady = false;
 
   constructor(
-    workspaceRoot: string,
-    messages: IMessagesRepository,
-    sessions: ISessionsRepository,
-    notes: INotesRepository,
-    agentManager?: IAgentManager
+    private readonly workspaceRoot: string,
+    private readonly messages: IMessagesRepository,
+    private readonly sessions: ISessionsRepository,
+    private readonly notes: INotesRepository,
+    private readonly agentManager?: IAgentManager,
+    private readonly attachmentReader?: INoteAttachmentReader
   ) {
-    this.workspaceRoot = workspaceRoot;
-    this.artifactsDir = path.join(workspaceRoot, '.ai-team', 'artifacts', 'briefs');
-    this.agentManager = agentManager;
-    this.messages = messages;
-    this.sessions = sessions;
-    this.notes = notes;
+    this.artifactsDir = path.join(this.workspaceRoot, '.ai-team', 'artifacts', 'briefs');
+  }
+
+  private getAttachmentReader(): INoteAttachmentReader {
+    if (!this.attachmentReader) {
+      throw new Error('SessionManager requires an attachment reader for note attachment workflows.');
+    }
+    return this.attachmentReader;
   }
 
   setAutoTitleLlmService(llmService: any): void {
@@ -101,8 +93,7 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = await resolveAgentForOperationAsync(
-        this.agentManager,
+      const resolved = await this.agentManager.resolveAgentForOperationAsync(
         agentQuery,
         'create session'
       );
@@ -141,8 +132,7 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let toAgentId = toAgentQuery;
     if (this.agentManager) {
-      const resolved = await resolveAgentForOperationAsync(
-        this.agentManager,
+      const resolved = await this.agentManager.resolveAgentForOperationAsync(
         toAgentQuery,
         'create handoff session'
       );
@@ -202,8 +192,7 @@ export class SessionManager {
   async getLatestSession(agentQuery: string): Promise<ChatSession | null> {
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = await resolveAgentForOperationAsync(
-        this.agentManager,
+      const resolved = await this.agentManager.resolveAgentForOperationAsync(
         agentQuery,
         'get latest session'
       );
@@ -251,8 +240,7 @@ export class SessionManager {
     // Resolve agent query to exact ID if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = await resolveAgentForOperationAsync(
-        this.agentManager,
+      const resolved = await this.agentManager.resolveAgentForOperationAsync(
         agentQuery,
         'list sessions'
       );
@@ -1281,7 +1269,7 @@ ${summary}
     maxWords: number,
     focusInstruction?: string
   ): Promise<string> {
-    const dataUrl = await readAttachmentAsDataUrlAsync(attachment);
+    const dataUrl = await this.getAttachmentReader().readAttachmentAsDataUrlAsync(attachment);
     const prompt = [
       `Describe this image in Markdown with at most ${maxWords} words.`,
       'Focus on visible text, structure, layout, diagram relationships, and key signals.',
@@ -1316,7 +1304,7 @@ ${summary}
     maxWords: number,
     focusInstruction?: string
   ): Promise<string> {
-    if (isImageAttachment(attachment)) {
+    if (this.getAttachmentReader().isImageAttachment(attachment)) {
       return this.describeImageAttachmentAsync(
         llmService,
         note,
@@ -1336,7 +1324,7 @@ ${summary}
       .filter(Boolean)
       .join('\n');
 
-    const attachmentText = await extractAttachmentContentAsync(attachment);
+    const attachmentText = await this.getAttachmentReader().extractAttachmentContentAsync(attachment);
     const sourceText = `${sourceTextPreamble}\n${attachmentText}`;
 
     return this.summarizeHierarchicalAsync(llmService, sourceText, maxWords, focusInstruction);
@@ -1363,7 +1351,7 @@ ${summary}
     maxWords: number,
     focusInstruction?: string
   ): Promise<string> {
-    const chunks = splitIntoChunks(sourceText, 5000);
+    const chunks = this.getAttachmentReader().splitIntoChunks(sourceText, 5000);
 
     if (chunks.length <= 1) {
       const summary = await this.summarizeTextAsync(
@@ -1706,7 +1694,7 @@ ${summary}
           maxWords,
           focusInstruction
         );
-        const headingPrefix = isImageAttachment(attachment) ? 'image' : 'file';
+        const headingPrefix = this.getAttachmentReader().isImageAttachment(attachment) ? 'image' : 'file';
         const sectionHeading = `${headingPrefix} ${index + 1}`;
         compactedSections.push(
           this.buildCompactedSection(sectionHeading, summary, {

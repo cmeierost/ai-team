@@ -30,6 +30,7 @@ import {
   NOTE_ROUTE,
   normalizeChatErrorMessage,
   resolveRouteAgent,
+  resolveRuntimeToolEventMessage,
   SESSION_ROUTE,
 } from './chatPanelUtils';
 import type {
@@ -1122,7 +1123,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
           toolCallId: event.toolCallId,
           toolPhase: event.toolPhase,
           toolEventSeq: event.toolEventSeq,
-          message: event.message,
+          message: resolveRuntimeToolEventMessage({
+            toolName: event.toolName,
+            message: event.message,
+            toolResult: event.toolResult,
+          }),
           toolResult: event.toolResult,
           toolDenial: event.toolDenial,
           timestamp: event.timestamp || new Date().toISOString(),

@@ -7,11 +7,7 @@ import type {
   FilePermission,
 } from '@ai-team/api-contracts';
 import { ContextRuntime, listCachedWorkspaceFiles } from 'fs-context';
-import { IAgentManager } from '@ai-team/core';
-import {
-  InfrastructureWorkspaceAccessRuntime,
-  type IWorkspaceAccessRuntime,
-} from '../runtime/infrastructure-adapters.js';
+import { IAgentManager, type IWorkspaceAccessRuntime } from '@ai-team/core';
 
 export class AccessService implements IAccessService {
   #populatePromise: Promise<void> | null = null;
@@ -19,7 +15,7 @@ export class AccessService implements IAccessService {
   constructor(
     private readonly ctx: ContextRuntime,
     private readonly agentManager: IAgentManager,
-    private readonly accessRuntime: IWorkspaceAccessRuntime = new InfrastructureWorkspaceAccessRuntime()
+    private readonly accessRuntime: IWorkspaceAccessRuntime
   ) {}
 
   private ensurePopulatedAsync(): Promise<void> {

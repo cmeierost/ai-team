@@ -1,4 +1,4 @@
-import { AiTeamCommandName, StreamEvent } from './contract/index.js';
+import { StreamEvent } from './contract/index.js';
 
 export interface WebSocketStreamOptions {
   url: string;
@@ -37,7 +37,7 @@ function normalizeQuestionPayload(payload: Record<string, unknown>) {
   };
 }
 
-export async function* streamViaWebSocket<TCommand extends AiTeamCommandName>(
+export async function* streamViaWebSocket<TCommand extends string = string>(
   agentId: string,
   message: string,
   options: WebSocketStreamOptions

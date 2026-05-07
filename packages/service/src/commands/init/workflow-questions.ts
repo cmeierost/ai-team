@@ -16,7 +16,7 @@ import {
   emitWorkflowResultFrame as _emitWorkflowResultFrame,
   ensureNotAborted as _ensureNotAborted,
 } from '../../workflow/helpers.js';
-import { createAskUserTool } from '../../tools/orchestration-tools.js';
+import { AskUserTool } from '../../tools/orchestration-tools.js';
 
 export interface InitRuntimeHooks {
   signal?: AbortSignal;
@@ -43,7 +43,7 @@ const INIT_ASK_AGENT: Agent = {
   createdAt: new Date().toISOString(),
 };
 
-const askUserTool = createAskUserTool();
+const askUserTool = new AskUserTool();
 
 function createAskToolContext(
   hooks: InitRuntimeHooks | undefined,

@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
-import { AmbiguousAgentQueryError, HttpError } from '@ai-team/service';
-import { AgentNotFoundError } from '@ai-team/core';
+import { AmbiguousAgentQueryError } from '@ai-team/service';
+import { AgentNotFoundError, ApplicationError } from '@ai-team/core';
 
 export interface ApiError {
   error: string;
@@ -36,8 +36,8 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return;
   }
 
-  // Handle HttpError (thrown by route handlers)
-  if (err instanceof HttpError) {
+  // Handle ApplicationError (thrown by route handlers)
+  if (err instanceof ApplicationError) {
     res.status(err.statusCode).json({ error: err.message } as ApiError);
     return;
   }

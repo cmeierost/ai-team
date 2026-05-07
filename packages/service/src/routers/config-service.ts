@@ -14,7 +14,7 @@ import type {
   ILlmProviderTester,
 } from '@ai-team/core';
 import { TeamConfigSchema } from '@ai-team/core';
-import { BadRequestError } from '../http-errors.js';
+import { BadRequestError } from '@ai-team/core';
 
 export class ConfigService implements IConfigService {
   constructor(

@@ -31,7 +31,71 @@ export interface GetFileTreeOptions {
   allowPaths?: string[];
 }
 
+import type { ContextRuntime, ReadFileResult } from 'fs-context';
+import type { IdeAdapter } from '../types/ide.js';
 import type { PermissionConfig } from '../types/agent-models.js';
+
+export interface IIdeAdapterFactory {
+  createAsync(workspaceRoot: string, channel: 'cli' | 'web'): Promise<IdeAdapter>;
+}
+
+export interface IWorkspaceAccessRuntime {
+  createAgentRuntime(
+    contextId: string,
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    allFiles: readonly string[]
+  ): Promise<ContextRuntime>;
+  analyzeWorkspacePermissionOverlapAsync(
+    workspaceRoot: string,
+    options?: {
+      mode?: 'files' | 'patterns';
+      agentId?: string;
+      maxDepth?: number;
+    }
+  ): Promise<unknown>;
+}
+
+export interface IWorkspaceFs {
+  existsPath(path: string): Promise<boolean>;
+  getPathInfo(path: string): Promise<unknown>;
+  readFile(
+    filePath: string,
+    options?: { offset?: number; limit?: number; workspaceRoot?: string }
+  ): Promise<ReadFileResult>;
+  createFile(
+    filePath: string,
+    content: string,
+    options?: { createDirectories?: boolean }
+  ): Promise<{ bytes: number }>;
+  writeFile(filePath: string, content: string): Promise<{ bytes: number }>;
+  deletePath(path: string, options?: { recursive?: boolean }): Promise<void>;
+  createDirectory(path: string, options?: { recursive?: boolean }): Promise<void>;
+  getFileTreeWithStats(options?: {
+    rootSubPath?: string;
+    maxDepth?: number;
+    includeHidden?: boolean;
+  }): Promise<{ tree: FileTreeNode | null; denied: number }>;
+  grepWithStats(
+    query: string,
+    options?: { caseInsensitive?: boolean }
+  ): Promise<{
+    matches: Array<{ filePath: string; line: number; lineText: string }>;
+    denied: number;
+  }>;
+  canList(path: string): boolean;
+  canRead(path: string): boolean;
+  canWrite(path: string): boolean;
+  toAbsolutePath(path: string): string;
+}
+
+export interface IWorkspaceFsFactory {
+  create(
+    workspaceRoot: string,
+    agentId: string,
+    permissions: PermissionConfig | undefined
+  ): Promise<IWorkspaceFs>;
+}
 
 export interface IFileTreeService {
   getCachedFileTree(workspaceRoot: string, options?: GetFileTreeOptions): Promise<FileTreeNode>;
@@ -54,3 +118,5 @@ export interface IFileAnnotationService {
     allFiles: string[]
   ): string[];
 }
+
+export * from './access-evaluation.js';

@@ -1,5 +1,4 @@
 import type {
-  AiTeamCommandName,
   IInteractionStream,
   QuestionEventName,
   QuestionHandlerMap,
@@ -14,7 +13,7 @@ import type {
  * whatever transport or service context it uses internally.
  */
 export class InteractionStream<
-  TCommand extends AiTeamCommandName,
+  TCommand extends string = string,
 > implements IInteractionStream<TCommand> {
   private readonly handlers: Partial<QuestionHandlerMap> = {};
 

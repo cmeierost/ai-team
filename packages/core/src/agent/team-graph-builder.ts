@@ -14,6 +14,11 @@ export interface ITeamGraphBuilder {
   buildGraph(viewMode: ViewMode, features?: Map<string, Feature>): Promise<GraphData>;
 
   /**
+   * Build the default organization hierarchy graph.
+   */
+  buildOrganizationGraph(): Promise<GraphData>;
+
+  /**
    * Calculate layout positions for hierarchical view
    * Uses a simple tree layout algorithm
    */

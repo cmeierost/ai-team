@@ -1,6 +1,4 @@
 import type {
-  AiTeamCommandName,
-  AiTeamCommandPayloadMap,
   InteractionRequest,
   StreamEvent,
   IStreamingClient,
@@ -11,6 +9,7 @@ import type {
   QuestionPasswordRequest,
   QuestionChecklistRequest,
   QuestionInputRequest,
+  ChatOptions,
 } from './contract/routers/streaming.js';
 import { InteractionStream } from './interaction-stream.js';
 import { streamViaWebSocket } from './websocket.js';
@@ -23,8 +22,8 @@ export class StreamingClient implements IStreamingClient {
     this.wsBaseUrl = wsUrl ?? baseUrl.replace(/^http/, 'ws');
   }
 
-  stream<TCommand extends AiTeamCommandName>(
-    request: InteractionRequest<TCommand>,
+  stream<TCommand extends string = string>(
+    request: InteractionRequest,
     options?: { signal?: AbortSignal } & Partial<QuestionHandlerMap>
   ): IInteractionStream<TCommand> {
     const { command, payload } = request;
@@ -32,7 +31,7 @@ export class StreamingClient implements IStreamingClient {
       throw new Error(`Unsupported stream command: ${command}`);
     }
 
-    const chatPayload = payload as AiTeamCommandPayloadMap['chat'];
+    const chatPayload = payload as { employeeId?: string; options: ChatOptions };
     const wsBaseUrl = this.wsBaseUrl;
 
     return new InteractionStream<TCommand>((handlers) => {

@@ -9,11 +9,16 @@ import {
   AgentConfig,
   ValidationError,
   AgentNotFoundError,
+  AmbiguousAgentQueryError,
   AgentStatus,
   AgentSearchOptions,
   AgentSearchResult,
   RankedAgentResult,
 } from '@ai-team/core';
+import type {
+  AnalyzePermissionOverlapOptions,
+  PermissionOverlapReport,
+} from '../context/perm-overlap.js';
 import { rankAgents, rankAgentsByIdentity, filterAndRankAgents } from './agent-search.js';
 
 export class AgentManager implements IAgentManager {
@@ -288,6 +293,52 @@ export class AgentManager implements IAgentManager {
   }
 
   /**
+   * Resolve an agent query using fuzzy matching with consistent error handling.
+   */
+  async resolveAgentForOperationAsync(
+    query: string,
+    operation: string
+  ): Promise<{ id: string; name: string; role: string }> {
+    const matches = await this.resolveAgentAsync(query);
+
+    if (matches.length === 0) {
+      const allAgents = await this.getAllAgentsAsync();
+      const suggestions = allAgents
+        .slice(0, 10)
+        .map((a) => ({ id: a.id, name: a.name, role: a.role }));
+
+      throw new AgentNotFoundError(
+        `Cannot ${operation}: Agent not found for query "${query}". ` +
+          `Available agents: ${suggestions.map((s) => s.name).join(', ')}`
+      );
+    }
+
+    if (matches.length > 1) {
+      const matchData = matches.map((m) => ({ id: m.id, name: m.name, role: m.role }));
+      throw new AmbiguousAgentQueryError(query, matchData);
+    }
+
+    const agent = matches[0];
+    return { id: agent.id, name: agent.name, role: agent.role };
+  }
+
+  /**
+   * Resolve an agent query, returning null if not found or ambiguous.
+   */
+  async resolveAgentSafeAsync(
+    query: string
+  ): Promise<{ id: string; name: string; role: string } | null> {
+    const matches = await this.resolveAgentAsync(query);
+
+    if (matches.length !== 1) {
+      return null;
+    }
+
+    const agent = matches[0];
+    return { id: agent.id, name: agent.name, role: agent.role };
+  }
+
+  /**
    * Create a new agent
    * @param config - Agent configuration (frontmatter fields)
    * @param options - Optional: markdown body and/or custom file path
@@ -423,6 +474,13 @@ export class AgentManager implements IAgentManager {
 
   async searchAgentsAsync(options: AgentSearchOptions): Promise<AgentSearchResult[]> {
     return filterAndRankAgents(options, await this.getAllAgentsAsync());
+  }
+
+  async analyzeWorkspacePermissionOverlap(
+    options: AnalyzePermissionOverlapOptions = {}
+  ): Promise<PermissionOverlapReport> {
+    const { analyzeWorkspacePermissionOverlap } = await import('../context/perm-overlap.js');
+    return analyzeWorkspacePermissionOverlap(this.workspaceRoot, options);
   }
 
   /**

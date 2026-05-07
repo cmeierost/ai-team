@@ -13,7 +13,6 @@ import {
   type IAgentManager,
 } from '@ai-team/core';
 import matter from 'gray-matter';
-import { resolveAgentForOperationAsync } from './utils/agent-resolution.js';
 
 export interface TaskFilter {
   status?: TaskStatus | TaskStatus[];
@@ -238,16 +237,14 @@ export class TaskManager {
 
     if (this.agentManager) {
       if (filter.assignedTo) {
-        const resolved = await resolveAgentForOperationAsync(
-          this.agentManager,
+        const resolved = await this.agentManager.resolveAgentForOperationAsync(
           filter.assignedTo,
           'filter tasks by assignedTo'
         );
         resolvedAssignedTo = resolved.id;
       }
       if (filter.createdBy) {
-        const resolved = await resolveAgentForOperationAsync(
-          this.agentManager,
+        const resolved = await this.agentManager.resolveAgentForOperationAsync(
           filter.createdBy,
           'filter tasks by createdBy'
         );
@@ -353,13 +350,11 @@ export class TaskManager {
     let toAgentId = toAgentQuery;
 
     if (this.agentManager) {
-      const resolvedFrom = await resolveAgentForOperationAsync(
-        this.agentManager,
+      const resolvedFrom = await this.agentManager.resolveAgentForOperationAsync(
         fromAgentQuery,
         'delegate task from agent'
       );
-      const resolvedTo = await resolveAgentForOperationAsync(
-        this.agentManager,
+      const resolvedTo = await this.agentManager.resolveAgentForOperationAsync(
         toAgentQuery,
         'delegate task to agent'
       );
@@ -399,11 +394,7 @@ export class TaskManager {
     // Resolve agent query if AgentManager is available
     let agentId = agentQuery;
     if (this.agentManager) {
-      const resolved = await resolveAgentForOperationAsync(
-        this.agentManager,
-        agentQuery,
-        'log time for task'
-      );
+      const resolved = await this.agentManager.resolveAgentForOperationAsync(agentQuery, 'log time for task');
       agentId = resolved.id;
     }
 

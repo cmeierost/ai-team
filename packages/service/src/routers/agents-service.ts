@@ -18,7 +18,7 @@ import type {
 import { listCachedWorkspaceFiles } from 'fs-context';
 import { AgentSchema } from '@ai-team/core';
 import { join } from 'node:path';
-import { BadRequestError, NotFoundError } from '../http-errors.js';
+import { BadRequestError, NotFoundError } from '@ai-team/core';
 import { ToolManager } from '../tools/tool-manager.js';
 import { resolveEffectiveLlmSettings } from '@ai-team/core';
 

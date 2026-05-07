@@ -11,6 +11,7 @@ import {
   reconstructActivatedToolsFromMessages,
   resolveRouteAgent,
   resolveNavigateAgent,
+  resolveRuntimeToolEventMessage,
   SESSION_META_PREFIX,
   SESSION_META_SUFFIX,
 } from './chatPanelUtils';
@@ -241,5 +242,37 @@ describe('chatPanelUtils', () => {
     };
 
     expect(areMessagesEquivalent(left, right)).toBe(true);
+  });
+
+  it('resolves slash command tool event messages via command-key handlers', () => {
+    const message = resolveRuntimeToolEventMessage({
+      toolName: 'slash:who',
+      message: 'fallback',
+      toolResult: {
+        toolName: 'slash:who',
+        outcome: 'result',
+        commandResponse: {
+          status: 'ok',
+          message: 'resolved message',
+          data: 'Daniel Navarro · Frontend Lead',
+        },
+      },
+    });
+
+    expect(message).toBe('Daniel Navarro · Frontend Lead');
+  });
+
+  it('falls back to runtime message when slash payload is not a command response', () => {
+    const message = resolveRuntimeToolEventMessage({
+      toolName: 'slash:who',
+      message: 'fallback',
+      toolResult: {
+        toolName: 'slash:who',
+        outcome: 'result',
+        commandResponse: { anything: true } as never,
+      },
+    });
+
+    expect(message).toBe('fallback');
   });
 });

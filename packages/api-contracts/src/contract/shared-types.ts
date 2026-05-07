@@ -50,9 +50,31 @@ export interface SessionToolResult {
   toolName: string;
   outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
   request?: unknown;
-  result?: unknown;
+  commandResponse?: CommandResponse;
   resultLlm?: unknown;
   denial?: SessionToolDenial;
+}
+
+export interface CommandResponseError {
+  code?: string;
+  details?: unknown;
+}
+
+export interface CommandResponse<T = unknown> {
+  status: 'ok' | 'error';
+  message: string;
+  data?: T;
+  saveable?: unknown;
+  error?: CommandResponseError;
+}
+
+export function isCommandResponse(value: unknown): value is CommandResponse {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<CommandResponse>;
+  return (
+    (candidate.status === 'ok' || candidate.status === 'error') &&
+    typeof candidate.message === 'string'
+  );
 }
 
 export interface SessionActivatedTool {

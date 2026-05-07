@@ -19,8 +19,8 @@ import {
   agentDisallowPathCommand,
   permissionAllowCommand,
   permissionDenyCommand,
-} from '../commands/file-tree.js';
-import { BadRequestError } from '../http-errors.js';
+} from '../commands/fs/file-tree.js';
+import { BadRequestError } from '@ai-team/core';
 
 function resolvePathMode(mode: string | undefined): PathMode {
   if (!mode || mode === 'read') return 'read';

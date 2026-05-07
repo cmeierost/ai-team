@@ -1,13 +1,9 @@
 import type { IIdeService } from '@ai-team/api-contracts';
-import type { IdeAdapter } from '@ai-team/core';
+import type { IdeAdapter, IIdeAdapterFactory } from '@ai-team/core';
 import { join, resolve, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { watch } from 'node:fs';
-import {
-  InfrastructureIdeAdapterFactory,
-  type IIdeAdapterFactory,
-} from '../runtime/infrastructure-adapters.js';
-import { BadRequestError, ConflictError, NotFoundError } from '../http-errors.js';
+import { BadRequestError, ConflictError, NotFoundError } from '@ai-team/core';
 
 // ─── Edit session types ───────────────────────────────────────────────────────
 
@@ -46,7 +42,7 @@ export class IdeService implements IIdeService {
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly ideAdapterFactory: IIdeAdapterFactory = new InfrastructureIdeAdapterFactory()
+    private readonly ideAdapterFactory: IIdeAdapterFactory
   ) {
     const aiTeamDir = join(workspaceRoot, '.ai-team');
     try {

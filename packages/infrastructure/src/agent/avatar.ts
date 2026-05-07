@@ -214,15 +214,70 @@ export function createAvatarManager(): AvatarManager {
   return new AvatarManager(agentDocumentStorage);
 }
 
-export const avatarManager = createAvatarManager();
-export const generateAgentColor = avatarManager.generateAgentColor.bind(avatarManager);
-export const parseHslHue = avatarManager.parseHslHue.bind(avatarManager);
-export const substituteUrlPlaceholders =
-  avatarManager.substituteUrlPlaceholders.bind(avatarManager);
-export const downloadRandomAvatar = avatarManager.downloadRandomAvatar.bind(avatarManager);
-export const generateAvatarWithAI = avatarManager.generateAvatarWithAI.bind(avatarManager);
-export const buildAvatarPrompt = avatarManager.buildAvatarPrompt.bind(avatarManager);
-export const saveAvatarPreview = avatarManager.saveAvatarPreview.bind(avatarManager);
-export const finalizeAvatar = avatarManager.finalizeAvatar.bind(avatarManager);
-export const cleanupPreview = avatarManager.cleanupPreview.bind(avatarManager);
-export const updateAgentAvatar = avatarManager.updateAgentAvatar.bind(avatarManager);
+let defaultAvatarManager: AvatarManager | undefined;
+
+function getAvatarManager(): AvatarManager {
+  defaultAvatarManager ??= createAvatarManager();
+  return defaultAvatarManager;
+}
+
+export const avatarManager: AvatarManager = new Proxy({} as AvatarManager, {
+  get(_target, prop, receiver) {
+    const manager = getAvatarManager();
+    const value = Reflect.get(manager as unknown as object, prop, receiver);
+    return typeof value === 'function' ? value.bind(manager) : value;
+  },
+});
+
+export function generateAgentColor(agent: Pick<Agent, 'name' | 'avatar'>): string {
+  return getAvatarManager().generateAgentColor(agent);
+}
+
+export function parseHslHue(hsl: string): number | undefined {
+  return getAvatarManager().parseHslHue(hsl);
+}
+
+export function substituteUrlPlaceholders(urlTemplate: string, agent: Agent): string {
+  return getAvatarManager().substituteUrlPlaceholders(urlTemplate, agent);
+}
+
+export async function downloadRandomAvatar(urlTemplate: string, agent: Agent): Promise<Buffer> {
+  return getAvatarManager().downloadRandomAvatar(urlTemplate, agent);
+}
+
+export async function generateAvatarWithAI(
+  prompt: string,
+  provider: LlmProviderConfig,
+  modelName: string,
+  apiKey: string
+): Promise<Buffer> {
+  return getAvatarManager().generateAvatarWithAI(prompt, provider, modelName, apiKey);
+}
+
+export function buildAvatarPrompt(agent: Agent): string {
+  return getAvatarManager().buildAvatarPrompt(agent);
+}
+
+export async function saveAvatarPreview(
+  agentName: string,
+  imageData: Buffer,
+  workspaceRoot: string
+): Promise<string> {
+  return getAvatarManager().saveAvatarPreview(agentName, imageData, workspaceRoot);
+}
+
+export async function finalizeAvatar(agentName: string, workspaceRoot: string): Promise<string> {
+  return getAvatarManager().finalizeAvatar(agentName, workspaceRoot);
+}
+
+export async function cleanupPreview(agentName: string, workspaceRoot: string): Promise<void> {
+  return getAvatarManager().cleanupPreview(agentName, workspaceRoot);
+}
+
+export async function updateAgentAvatar(
+  agent: Agent,
+  avatarRelPath: string,
+  workspaceRoot: string
+): Promise<void> {
+  return getAvatarManager().updateAgentAvatar(agent, avatarRelPath, workspaceRoot);
+}

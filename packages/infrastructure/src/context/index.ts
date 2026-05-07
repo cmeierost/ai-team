@@ -18,6 +18,9 @@ import {
   type IFileTreeService,
   type FileTreeNode,
   type GetFileTreeOptions,
+  type IWorkspaceAccessRuntime,
+  type IWorkspaceFs,
+  type IWorkspaceFsFactory,
 } from '@ai-team/core';
 
 function toPatternSet(permissions: PermissionConfig | undefined): AccessPatternSet {
@@ -259,5 +262,38 @@ export class FileAnnotationServiceImpl implements IFileAnnotationService {
 export class FileTreeServiceImpl implements IFileTreeService {
   getCachedFileTree(workspaceRoot: string, options?: GetFileTreeOptions): Promise<FileTreeNode> {
     return getCachedFileTree(workspaceRoot, options ?? {}) as Promise<FileTreeNode>;
+  }
+}
+
+export class InfrastructureWorkspaceAccessRuntime implements IWorkspaceAccessRuntime {
+  async createAgentRuntime(
+    contextId: string,
+    workspaceRoot: string,
+    permissions: PermissionConfig | undefined,
+    allFiles: readonly string[]
+  ): Promise<ContextRuntime> {
+    return createAgentRuntime(contextId, workspaceRoot, permissions, allFiles);
+  }
+
+  async analyzeWorkspacePermissionOverlapAsync(
+    workspaceRoot: string,
+    options?: {
+      mode?: 'files' | 'patterns';
+      agentId?: string;
+      maxDepth?: number;
+    }
+  ): Promise<unknown> {
+    const { analyzeWorkspacePermissionOverlap } = await import('./perm-overlap.js');
+    return analyzeWorkspacePermissionOverlap(workspaceRoot, options);
+  }
+}
+
+export class InfrastructureWorkspaceFsFactory implements IWorkspaceFsFactory {
+  async create(
+    workspaceRoot: string,
+    agentId: string,
+    permissions: PermissionConfig | undefined
+  ): Promise<IWorkspaceFs> {
+    return createWorkspaceFs(workspaceRoot, agentId, permissions) as unknown as IWorkspaceFs;
   }
 }

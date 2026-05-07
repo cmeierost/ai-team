@@ -67,6 +67,10 @@ export interface LlmDiagnosticMessage {
 
 export type LlmDiagnosticReporter = (entry: LlmDiagnosticMessage) => void;
 
+export interface ITextToolCallParser {
+  parseTextToolCalls(text: string, tools: Set<string>): LlmToolCall[];
+}
+
 /**
  * High-level LLM service that reads workspace config and exposes a
  * provider-agnostic chat interface.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAskUserTool } from './orchestration-tools.js';
+import { AskUserTool } from './orchestration-tools.js';
 
 function makeContext(overrides: Record<string, unknown> = {}) {
   return {
@@ -10,9 +10,9 @@ function makeContext(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
-describe('createAskUserTool', () => {
+describe('AskUserTool', () => {
   it('passes workflow metadata through in tool result payload', async () => {
-    const tool = createAskUserTool();
+    const tool = new AskUserTool();
     const questionInput = vi.fn(async () => 'approved');
 
     const result = await tool.execute(
@@ -45,7 +45,7 @@ describe('createAskUserTool', () => {
   });
 
   it('falls back to questionInput for select when questionSelect is missing', async () => {
-    const tool = createAskUserTool();
+    const tool = new AskUserTool();
     const questionInput = vi.fn(async () => 'ai-team-context');
 
     const result = await tool.execute(
@@ -67,7 +67,7 @@ describe('createAskUserTool', () => {
   });
 
   it('falls back to questionInput for checklist when questionChecklist is missing', async () => {
-    const tool = createAskUserTool();
+    const tool = new AskUserTool();
     const questionInput = vi.fn(async () => 'a, c');
 
     const result = await tool.execute(
@@ -89,7 +89,7 @@ describe('createAskUserTool', () => {
   });
 
   it('falls back to questionInput for confirm when questionConfirm is missing', async () => {
-    const tool = createAskUserTool();
+    const tool = new AskUserTool();
     const questionInput = vi.fn(async () => 'yes');
 
     const result = await tool.execute(

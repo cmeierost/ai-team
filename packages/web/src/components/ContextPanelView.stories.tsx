@@ -202,20 +202,24 @@ const questionToolEvents: SessionActivatedTool[] = [
     toolResult: {
       toolName: 'com_ask',
       outcome: 'result',
-      result: {
-        request: {
-          question: 'Who should own the context panel orchestration flow?',
-          questionType: 'select',
-          choices: [
-            { name: 'Daniel Navarro', value: 'daniel-navarro' },
-            { name: 'Leah Brooks', value: 'leah-brooks' },
-            { name: 'Marcus Vale', value: 'marcus-vale' },
-          ],
-        },
-        response: {
-          question: 'Who should own the context panel orchestration flow?',
-          questionType: 'select',
-          answer: 'daniel-navarro',
+      commandResponse: {
+        status: 'ok',
+        message: 'Question answered',
+        data: {
+          request: {
+            question: 'Who should own the context panel orchestration flow?',
+            questionType: 'select',
+            choices: [
+              { name: 'Daniel Navarro', value: 'daniel-navarro' },
+              { name: 'Leah Brooks', value: 'leah-brooks' },
+              { name: 'Marcus Vale', value: 'marcus-vale' },
+            ],
+          },
+          response: {
+            question: 'Who should own the context panel orchestration flow?',
+            questionType: 'select',
+            answer: 'daniel-navarro',
+          },
         },
       },
     },
@@ -228,12 +232,16 @@ const questionToolEvents: SessionActivatedTool[] = [
     toolResult: {
       toolName: 'com_ask',
       outcome: 'error',
-      result: {
-        request: {
-          question: 'Pick a teammate',
-          questionType: 'select',
+      commandResponse: {
+        status: 'error',
+        message: 'questionType "select" requires a non-empty choices array.',
+        data: {
+          request: {
+            question: 'Pick a teammate',
+            questionType: 'select',
+          },
+          error: 'questionType "select" requires a non-empty choices array.',
         },
-        error: 'questionType "select" requires a non-empty choices array.',
       },
     },
   },

@@ -5,7 +5,6 @@ import type {
   InteractionRequest,
   StreamEvent,
   IQuestionContext,
-  AiTeamCommandName,
 } from './contract/routers/streaming.js';
 import { accessDesc } from './contract/routers/access.js';
 import { agentsDesc } from './contract/routers/agents.js';
@@ -177,8 +176,8 @@ export function createAiTeamClient({ baseUrl, wsUrl, restOptions }: CreateAiTeam
     tasks,
     team,
     tools,
-    stream<TCommand extends AiTeamCommandName>(
-      request: InteractionRequest<TCommand>,
+    stream<TCommand extends string = string>(
+      request: InteractionRequest,
       ctx?: IQuestionContext
     ): AsyncIterable<StreamEvent<TCommand>> {
       return streaming.stream<TCommand>(request, ctx);

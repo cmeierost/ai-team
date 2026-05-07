@@ -4,6 +4,7 @@ import type {
   IAgentDocumentStorage,
   IAgentManager,
   IChatManager,
+  ICodeEditManager,
   IConfigurationStorage,
   IContainerToken,
   IContextBuilder,
@@ -12,6 +13,7 @@ import type {
   IEnvironmentStorage,
   IFileAnnotationService,
   IFileTreeService,
+  ITypeScriptAnalyzer,
   ILlmSelector,
   ILlmService,
   IMarkdownSectionService,
@@ -30,6 +32,12 @@ import type {
   ITurnResultParser,
   IWorkspaceStorage,
   IServiceContainer,
+  IIdeAdapterFactory,
+  IWorkspaceAccessRuntime,
+  IWorkspaceFsFactory,
+  INoteAttachmentReader,
+  ITextToolCallParser,
+  IProposalStoreFactory,
 } from '@ai-team/core';
 import { createBootstrappedContainer, type ContainerBootstrapper } from './bootstrap.js';
 import type { MergeTokenSets, ServiceContainer, TokenSet } from './container.js';
@@ -37,6 +45,7 @@ import {
   AgentDocumentStorage,
   AgentManager,
   AvatarManager,
+  CodeEditManager,
   ConfigurationStorage,
   EnvironmentStorage,
   FileAnnotationServiceImpl,
@@ -52,6 +61,11 @@ import {
   ContextRuntime,
   ChatManager,
   ChatStorage,
+  InfrastructureIdeAdapterFactory,
+  InfrastructureProposalStoreFactory,
+  InfrastructureWorkspaceAccessRuntime,
+  InfrastructureWorkspaceFsFactory,
+  InfrastructureTextToolCallParser,
   SqliteBackend,
   MessagesRepository,
   SessionsRepository,
@@ -59,6 +73,8 @@ import {
   PlanningRepository,
   PathPermissionChecker,
   TeamGraphBuilder,
+  TypeScriptAnalyzer,
+  NoteAttachmentReader,
   type CliCommandMetadata,
   type Agent,
 } from '@ai-team/infrastructure';
@@ -126,6 +142,8 @@ export const TOKENS = {
   AgentManager: new Token<IAgentManager>('AgentManager'),
   AgentDocumentStorage: new Token<IAgentDocumentStorage>('AgentDocumentStorage'),
   AvatarManager: new Token<IAvatarManager>('AvatarManager'),
+  CodeEditManager: new Token<ICodeEditManager>('CodeEditManager'),
+  TypeScriptAnalyzer: new Token<ITypeScriptAnalyzer>('TypeScriptAnalyzer'),
   SkillManager: new Token<ISkillManager>('SkillManager'),
   SessionManager: new Token<SessionManager>('SessionManager'),
   ToolManager: new Token<ToolManager>('ToolManager'),
@@ -141,6 +159,12 @@ export const TOKENS = {
   WorkspaceStorage: new Token<IWorkspaceStorage>('WorkspaceStorage'),
   FileTreeService: new Token<IFileTreeService>('FileTreeService'),
   FileAnnotationService: new Token<IFileAnnotationService>('FileAnnotationService'),
+  IdeAdapterFactory: new Token<IIdeAdapterFactory>('IdeAdapterFactory'),
+  WorkspaceAccessRuntime: new Token<IWorkspaceAccessRuntime>('WorkspaceAccessRuntime'),
+  WorkspaceFsFactory: new Token<IWorkspaceFsFactory>('WorkspaceFsFactory'),
+  NoteAttachmentReader: new Token<INoteAttachmentReader>('NoteAttachmentReader'),
+  ProposalStoreFactory: new Token<IProposalStoreFactory>('ProposalStoreFactory'),
+  TextToolCallParser: new Token<ITextToolCallParser>('TextToolCallParser'),
 
   // ── Model discovery ──────────────────────────────────────────────────────
   ModelDiscoveryRegistry: new Token<IModelDiscoveryRegistry>('ModelDiscoveryRegistry'),
@@ -286,8 +310,19 @@ function registerBaseServices(
     tokens.AvatarManager,
     (c) => new AvatarManager(c.resolve(tokens.AgentDocumentStorage))
   );
+  c.registerSingleton(tokens.CodeEditManager, () => new CodeEditManager());
+  c.registerSingleton(tokens.TypeScriptAnalyzer, () => new TypeScriptAnalyzer());
   c.registerSingleton(tokens.FileAnnotationService, () => new FileAnnotationServiceImpl());
   c.registerSingleton(tokens.FileTreeService, () => new FileTreeServiceImpl());
+  c.registerSingleton(tokens.IdeAdapterFactory, () => new InfrastructureIdeAdapterFactory());
+  c.registerSingleton(
+    tokens.WorkspaceAccessRuntime,
+    () => new InfrastructureWorkspaceAccessRuntime()
+  );
+  c.registerSingleton(tokens.WorkspaceFsFactory, () => new InfrastructureWorkspaceFsFactory());
+  c.registerSingleton(tokens.NoteAttachmentReader, () => new NoteAttachmentReader());
+  c.registerSingleton(tokens.ProposalStoreFactory, () => new InfrastructureProposalStoreFactory());
+  c.registerSingleton(tokens.TextToolCallParser, () => new InfrastructureTextToolCallParser());
   c.registerSingleton(tokens.SkillManager, (c) => {
     const agentDocumentStorage = c.resolve(tokens.AgentDocumentStorage);
     const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
@@ -306,7 +341,8 @@ function registerBaseServices(
         c.resolve(tokens.MessagesRepository),
         c.resolve(tokens.SessionsRepository),
         c.resolve(tokens.NotesRepository),
-        c.resolve(tokens.AgentManager) as AgentManager
+        c.resolve(tokens.AgentManager) as AgentManager,
+        c.resolve(tokens.NoteAttachmentReader)
       )
   );
 
@@ -384,7 +420,15 @@ function registerBaseServices(
     const cmd = new ChatCommand(
       c.resolve(tokens.ConfigurationStorage),
       c.resolve(tokens.EnvironmentStorage),
-      c.resolve(tokens.AgentDocumentStorage)
+      c.resolve(tokens.AgentDocumentStorage),
+      c.resolve(tokens.AgentManager),
+      c.resolve(tokens.LlmService) as unknown as ILlmService,
+      c.resolve(tokens.SkillManager),
+      c.resolve(tokens.MarkdownSectionService),
+      c.resolve(tokens.PathPermissionChecker),
+      c.resolve(tokens.ProposalStoreFactory),
+      c.resolve(tokens.MetaService),
+      c.resolve(tokens.SessionManager)
     );
     const runChat = (
       workspaceRoot: string,
@@ -392,14 +436,7 @@ function registerBaseServices(
       options: unknown,
       hooks: unknown
     ) =>
-      cmd.execute(workspaceRoot, agentId, options as never, hooks as never, {
-        sessionManager: c.resolve(tokens.SessionManager),
-        agentManager: c.resolve(tokens.AgentManager),
-        llmService: c.resolve(tokens.LlmService) as unknown as ILlmService,
-        skillManager: c.resolve(tokens.SkillManager),
-        markdownSectionService: c.resolve(tokens.MarkdownSectionService),
-        pathPermissionChecker: c.resolve(tokens.PathPermissionChecker),
-      });
+      cmd.execute(workspaceRoot, agentId, options as never, hooks as never);
     return new InteractionService(cfg.workspaceRoot, runChat);
   });
   c.registerSingleton(
@@ -446,7 +483,14 @@ function registerBaseServices(
         c.resolve(tokens.FileTreeService)
       )
   );
-  c.registerSingleton(tokens.IdeService, (c) => new IdeService(c.resolve(tokens.WorkspaceRoot)));
+  c.registerSingleton(
+    tokens.IdeService,
+    (c) =>
+      new IdeService(
+        c.resolve(tokens.WorkspaceRoot),
+        c.resolve(tokens.IdeAdapterFactory)
+      )
+  );
   c.registerSingleton(
     tokens.SkillsService,
     (c) =>
@@ -491,7 +535,12 @@ function registerBaseServices(
   c.registerSingleton(tokens.ContextRuntime, () => new ContextRuntime());
   c.registerSingleton(
     tokens.AccessService,
-    (c) => new AccessService(c.resolve(tokens.ContextRuntime), c.resolve(tokens.AgentManager))
+    (c) =>
+      new AccessService(
+        c.resolve(tokens.ContextRuntime),
+        c.resolve(tokens.AgentManager),
+        c.resolve(tokens.WorkspaceAccessRuntime)
+      )
   );
 }
 

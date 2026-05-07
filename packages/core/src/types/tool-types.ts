@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { IServiceContainer } from './runtime-contracts.js';
+import type { CommandRuntime, ICommand } from './command-types.js';
 
 /**
  * Slim tool execution context carrying only what file-level tools need.
@@ -31,13 +32,6 @@ export interface ToolContext {
       permissions: unknown,
       filePath: string
     ): void;
-  };
-  /** Optional agent manager bridge for tools needing cross-agent introspection. */
-  agentManager?: {
-    getAllAgentsAsync(): Promise<Array<{ id: string; name: string; permissions?: unknown }>>;
-    getAgentAsync(
-      agentId: string
-    ): Promise<{ id: string; name: string; permissions?: unknown } | null>;
   };
   /** Optional user-question bridges provided by the active runtime surface (web/CLI). */
   questionInput?: (request: { message: string }) => Promise<string>;
@@ -84,26 +78,38 @@ export type PermissionDescriptor =
   | { type: 'agent-delegation'; argsPath: string }
   | { type: 'manage-agents' };
 
+export type ToolIntentMatcher = (input: string) => boolean;
+
 /**
- * A tool that an agent can execute.
+ * The single tool contract.
  *
- * Generic over context so core can pass a richer ToolContext (with full Agent)
- * while fs tools only require the slim base ToolContext.
+ * Tools are commands exposed to the LLM (`availableIn.tool = true`) with
+ * optional tool-specific affordances like intent matching. Every tool is an
+ * agent-executable tool, so `name` and `parameters` are required here rather
+ * than modeled as a second interface layer.
  */
-export interface AgentTool<Ctx extends ToolContext = ToolContext> {
+export interface ITool<
+  TParams = unknown,
+  Ctx extends ToolContext = ToolContext,
+  TResult = unknown,
+> extends ICommand<TParams, Ctx, TResult> {
+  /** Human-readable tool label. `key` remains the canonical identifier. */
   name: string;
-  description: string;
-  /** Logical group this tool belongs to (e.g. 'fs', 'search', 'hr', 'com'). */
-  group?: string;
-  parameters: z.ZodSchema;
-  permissionCheck?: PermissionDescriptor;
-  examples?: string[];
-  tags?: string[];
+  /** Zod schema for the tool's parameters — required for all tools. */
+  parameters: z.ZodSchema<TParams>;
   /**
-   * Optional formatter applied to the raw tool result before it is sent to the LLM.
-   * When defined, the LLM receives the formatted value rather than the raw JSON.
-   * The raw result is still persisted separately.
+   * Optional pre-LLM intent matcher for text-triggered routing.
+   * When absent, the runtime falls back to explicit tool/function calls.
    */
-  formatForLlm?(result: unknown): unknown;
-  execute(params: unknown, context: Ctx): Promise<unknown>;
+  matchesIntent?: ToolIntentMatcher;
+  execute(params: TParams, context: Ctx, runtime: CommandRuntime): Promise<TResult>;
 }
+
+/**
+ * Backward-compatible name for the runtime's typed tool references.
+ */
+export type AgentTool<
+  Ctx extends ToolContext = ToolContext,
+  TParams = unknown,
+  TResult = unknown,
+> = ITool<TParams, Ctx, TResult>;

@@ -103,3 +103,18 @@ export interface INotesRepository {
     updates: NoteSessionShareUpdateInput
   ): Promise<void>;
 }
+
+import type { ILlmToolDefinition, ILlmToolCall, ILlmToolResult } from '../types/runtime-contracts.js';
+
+export interface AttachmentReaderTool {
+  toolDef: ILlmToolDefinition;
+  executeTool: (toolCall: ILlmToolCall) => Promise<ILlmToolResult>;
+}
+
+export interface INoteAttachmentReader {
+  isImageAttachment(attachment: NoteAttachment): boolean;
+  readAttachmentAsDataUrlAsync(attachment: NoteAttachment): Promise<string>;
+  extractAttachmentContentAsync(attachment: NoteAttachment): Promise<string>;
+  buildAttachmentReaderTool(attachment: NoteAttachment): AttachmentReaderTool;
+  splitIntoChunks(text: string, maxCharsPerChunk?: number): string[];
+}

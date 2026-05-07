@@ -37,6 +37,21 @@ type PersistedToolCall = {
   resultLlm?: unknown;
 };
 
+function toRuntimeCommandResponse(
+  toolName: string,
+  outcome: 'result' | 'error' | 'denied',
+  result: unknown,
+  message?: string
+) {
+  return {
+    status: outcome === 'result' ? ('ok' as const) : ('error' as const),
+    message:
+      message ??
+      (outcome === 'result' ? `${toolName} completed.` : `${toolName} failed.`),
+    data: result,
+  };
+}
+
 function getPersistedToolCall(message: ChatMessage): PersistedToolCall | undefined {
   const calls = (message as ChatMessage & { tool_calls?: PersistedToolCall[] }).tool_calls;
   if (!Array.isArray(calls) || calls.length === 0) return undefined;
@@ -85,7 +100,12 @@ function resolveToolEvent(
         toolName: extractedToolName,
         outcome: status.outcome,
         request: persistedCall.params,
-        result: persistedCall.result,
+        commandResponse: toRuntimeCommandResponse(
+          extractedToolName,
+          status.outcome,
+          persistedCall.result,
+          status.message
+        ),
         resultLlm: persistedCall.resultLlm,
         denial: status.denial,
       },
@@ -105,7 +125,11 @@ function resolveToolEvent(
     toolName: extractedToolName,
     toolPhase: 'result',
     timestamp: message.timestamp,
-    toolResult: { toolName: extractedToolName, outcome: 'result', result: parsedResult },
+    toolResult: {
+      toolName: extractedToolName,
+      outcome: 'result',
+      commandResponse: toRuntimeCommandResponse(extractedToolName, 'result', parsedResult),
+    },
   };
 }
 
@@ -139,7 +163,9 @@ function summarizeToolEventForNote(toolEvent: SessionActivatedTool): string {
   const outcome = toolEvent.toolResult?.outcome;
   const requestText = stringifyForNote(toolEvent.toolResult?.request);
   const resultText = stringifyForNote(
-    toolEvent.toolResult?.resultLlm ?? toolEvent.toolResult?.result
+    toolEvent.toolResult?.resultLlm ??
+      toolEvent.toolResult?.commandResponse?.data ??
+      toolEvent.toolResult?.commandResponse?.message
   );
   const messageText = stringifyForNote(toolEvent.message);
 

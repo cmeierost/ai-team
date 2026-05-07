@@ -1,4 +1,5 @@
-import type { ToolContext as BaseToolContext, AgentTool as BaseAgentTool } from './tool-types.js';
+import type { ToolContext as BaseToolContext, AgentTool as ToolAgent } from './tool-types.js';
+import type { ICommand } from './command-types.js';
 import type { Agent, Skill, PermissionConfig } from './agent-models.js';
 import type { ChatMessage } from './communication.js';
 import type { LlmConfig, SkillConfig, TeamConfig } from './schemas.js';
@@ -132,7 +133,28 @@ export interface PermissionResult {
   reason?: string;
 }
 
-export interface AgentTool extends BaseAgentTool<ToolContext> {}
+export interface CommandResponseError {
+  code?: string;
+  details?: unknown;
+}
+
+export interface CommandResponse<T = unknown> {
+  status: 'ok' | 'error';
+  message: string;
+  data?: T;
+  saveable?: unknown;
+  error?: CommandResponseError;
+}
+
+/**
+ * Concrete specialization of the AgentTool interface for the runtime ToolContext.
+ * Use `AgentTool` (no params) for untyped references (registries, maps).
+ */
+export type AgentTool<
+  Ctx extends ToolContext = ToolContext,
+  TParams = unknown,
+  TResult = unknown,
+> = ToolAgent<Ctx, TParams, TResult>;
 
 export interface IToolManager {
   register(tool: AgentTool): void;
@@ -183,14 +205,7 @@ export interface ITurnResultParser<Ctx = unknown, TResult = unknown> {
   ): Partial<TResult> | null;
 }
 
-export interface ISlashCommand<Ctx = unknown> {
-  readonly key: string;
-  readonly aliases?: string[];
-  readonly description: string;
-  readonly usage?: string;
-  readonly llmCallable?: boolean;
-  execute(rawArgs: string, ctx: Ctx): Promise<void>;
-}
+export type ISlashCommand<Ctx = unknown> = ICommand<string, Ctx, CommandResponse | void>;
 
 export interface TurnStartHookPayload<Ctx = unknown> {
   userMessage: string;

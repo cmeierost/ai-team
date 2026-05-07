@@ -1,4 +1,8 @@
 import { Agent, AgentConfig, AgentStatus, AgentSearchOptions, AgentSearchResult } from '../types';
+import type {
+  AnalyzePermissionOverlapOptions,
+  PermissionOverlapReport,
+} from '../context/perm-overlap.js';
 
 export type RankedAgentResult = {
   agent: Agent;
@@ -55,6 +59,27 @@ export interface IAgentManager {
    * @throws {AgentNotFoundError} If no match or ambiguous match
    */
   resolveAgentOrThrowAsync(query: string): Promise<Agent>;
+
+  /**
+   * Resolve an agent query for a user-facing operation.
+   * Throws a helpful not-found error with suggestions or an ambiguous-query error.
+   */
+  resolveAgentForOperationAsync(
+    query: string,
+    operation: string
+  ): Promise<{ id: string; name: string; role: string }>;
+
+  /**
+   * Resolve an agent query, returning null when no single match exists.
+   */
+  resolveAgentSafeAsync(query: string): Promise<{ id: string; name: string; role: string } | null>;
+
+  /**
+   * Analyze workspace permission overlap (files or patterns), optionally focused on one agent.
+   */
+  analyzeWorkspacePermissionOverlap(
+    options?: AnalyzePermissionOverlapOptions
+  ): Promise<PermissionOverlapReport>;
 
   /**
    * Create a new agent

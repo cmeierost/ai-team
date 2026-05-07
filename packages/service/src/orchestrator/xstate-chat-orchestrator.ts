@@ -8,7 +8,8 @@
  */
 
 import type { ChatMessage } from '@ai-team/core';
-import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
+import { isCommandResponse } from '@ai-team/api-contracts';
+import type { CommandResponse, RuntimeStreamEvent } from '@ai-team/api-contracts';
 
 import { emitLog, emitStatus } from './stream-events.js';
 import { resolvePreLlmIntent } from '../tools/pre-llm-intents.js';
@@ -191,17 +192,34 @@ export class XStateChatOrchestrator {
     }
 
     const { executionResult, capturedEvents } = await this.executeSlashCommandWithCapture(
-      command.execute.bind(command),
+      command,
       rawArgs
     );
+
+    this.emitSlashCommandResponseEvent(key, rawArgs, executionResult);
+    this.handleSlashExecutionResult(executionResult);
     await this.persistSlashCommandExecution(key, rawArgs, executionResult, capturedEvents);
     return '';
   }
 
+  private handleSlashExecutionResult(executionResult: CommandResponse | void): void {
+    if (executionResult == null) return;
+
+    const level = executionResult.status === 'error' ? 'error' : 'info';
+    this.sendMessage(executionResult.message, level);
+
+    const saveable = executionResult.saveable ?? executionResult.data ?? executionResult;
+    this.ctx.lastManualOutput = this.serializeForStorage(saveable);
+  }
+
+  private sendMessage(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
+    emitLog(this.ctx.hooks, level, message);
+  }
+
   private async executeSlashCommandWithCapture(
-    execute: (rawArgs: string, ctx: OrchestratorContext) => Promise<unknown>,
+    command: ResolvedPlugins['slashCommands'][number],
     rawArgs: string
-  ): Promise<{ executionResult: unknown; capturedEvents: RuntimeStreamEvent[] }> {
+  ): Promise<{ executionResult: CommandResponse | void; capturedEvents: RuntimeStreamEvent[] }> {
     const capturedEvents: RuntimeStreamEvent[] = [];
     const originalEmit = this.ctx.hooks.emit;
 
@@ -213,8 +231,25 @@ export class XStateChatOrchestrator {
     }
 
     try {
-      const executionResult = await execute(rawArgs, this.ctx);
+      const rawResult = await command.execute(rawArgs, this.ctx, {
+        invocationSurface: 'slash',
+        workspaceRoot: this.ctx.workspaceRoot,
+        agentId: this.ctx.agent.id,
+      });
+      const executionResult = this.toCommandResponse(rawResult, command.key);
       return { executionResult, capturedEvents };
+    } catch (error) {
+      return {
+        executionResult: {
+          status: 'error',
+          message: `Command /${command.key} failed: ${this.toErrorMessage(error)}`,
+          error: {
+            code: 'slash_command_failed',
+            details: { command: command.key, args: rawArgs },
+          },
+        },
+        capturedEvents,
+      };
     } finally {
       if (originalEmit) {
         this.ctx.hooks.emit = originalEmit;
@@ -240,7 +275,8 @@ export class XStateChatOrchestrator {
         if (event.kind === 'tool') {
           const toolResultText =
             event.toolResult?.resultLlm ??
-            event.toolResult?.result ??
+            event.toolResult?.commandResponse?.data ??
+            event.toolResult?.commandResponse?.message ??
             (event.toolResult ? JSON.stringify(event.toolResult) : undefined);
           return event.message ?? (typeof toolResultText === 'string' ? toolResultText : undefined);
         }
@@ -249,14 +285,7 @@ export class XStateChatOrchestrator {
       .filter((line): line is string => Boolean(line))
       .slice(0, 120);
 
-    let executionResultText: string | undefined;
-    if (executionResult === undefined) {
-      executionResultText = undefined;
-    } else if (typeof executionResult === 'string') {
-      executionResultText = executionResult;
-    } else {
-      executionResultText = JSON.stringify(executionResult, null, 2);
-    }
+    const executionResultText = this.getExecutionResultText(executionResult);
 
     if (!executionResultText && eventLines.length === 0) {
       return undefined;
@@ -266,6 +295,78 @@ export class XStateChatOrchestrator {
       .filter((chunk): chunk is string => Boolean(chunk?.trim()))
       .join('\n\n')
       .slice(0, 20_000);
+  }
+
+  private getExecutionResultText(executionResult: unknown): string | undefined {
+    if (executionResult === undefined) {
+      return undefined;
+    }
+
+    if (isCommandResponse(executionResult)) {
+      const saveable = executionResult.saveable ?? executionResult.data;
+      const serializedSaveable = this.serializeForStorage(saveable);
+      if (serializedSaveable) return serializedSaveable;
+      return executionResult.message;
+    }
+
+    return this.serializeForStorage(executionResult);
+  }
+
+  private emitSlashCommandResponseEvent(
+    commandKey: string,
+    rawArgs: string,
+    executionResult: CommandResponse | void
+  ): void {
+    if (!executionResult) {
+      return;
+    }
+
+    this.ctx.hooks.emit?.({
+      kind: 'tool',
+      toolName: `slash:${commandKey}`,
+      toolPhase: executionResult.status === 'error' ? 'error' : 'result',
+      message: executionResult.message,
+      toolResult: {
+        toolName: `slash:${commandKey}`,
+        outcome: executionResult.status === 'error' ? 'error' : 'result',
+        request: rawArgs,
+        commandResponse: executionResult,
+      },
+    });
+  }
+
+  private toCommandResponse(rawResult: unknown, commandKey: string): CommandResponse | void {
+    if (rawResult === undefined) {
+      return undefined;
+    }
+
+    if (isCommandResponse(rawResult)) {
+      return rawResult;
+    }
+
+    return {
+      status: 'ok',
+      message: `Command /${commandKey} executed successfully.`,
+      data: rawResult,
+      saveable: rawResult,
+    };
+  }
+
+  private toErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
+  }
+
+  private serializeForStorage(value: unknown): string | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === 'string') return value;
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
   }
 
   private async persistSlashCommandExecution(

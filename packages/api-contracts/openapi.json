@@ -881,7 +881,34 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ChatCommandRegistryEntry"
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "usage": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "aliases": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "nullable": true
+                      },
+                      "availableIn": {
+                        "$ref": "#/components/schemas/CommandAvailability"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "description",
+                      "availableIn"
+                    ]
                   }
                 }
               }
@@ -1634,7 +1661,34 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ChatCommandRegistryEntry"
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "usage": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "aliases": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "nullable": true
+                      },
+                      "availableIn": {
+                        "$ref": "#/components/schemas/CommandAvailability"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "description",
+                      "availableIn"
+                    ]
                   }
                 }
               }
@@ -7780,35 +7834,49 @@
           "changed"
         ]
       },
-      "ChatCommandRegistryEntry": {
+      "CommandAvailability": {
         "type": "object",
         "properties": {
-          "key": {
-            "type": "string"
+          "cli": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
           },
-          "usage": {
-            "type": "string"
+          "chat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
           },
-          "description": {
-            "type": "string"
-          },
-          "llmCallable": {
-            "type": "boolean"
-          },
-          "aliases": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "nullable": true
+          "tool": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
           }
-        },
-        "required": [
-          "key",
-          "usage",
-          "description",
-          "llmCallable"
-        ]
+        }
       },
       "PermissionConfig": {
         "type": "object",
@@ -9390,6 +9458,44 @@
           "lastUpdatedAt"
         ]
       },
+      "CommandResponseError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "details": {}
+        }
+      },
+      "CommandResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {},
+          "saveable": {},
+          "error": {
+            "$ref": "#/components/schemas/CommandResponseError",
+            "nullable": true
+          }
+        },
+        "required": [
+          "status",
+          "message"
+        ]
+      },
       "SessionToolDenial": {
         "type": "object",
         "properties": {
@@ -9516,7 +9622,10 @@
             ]
           },
           "request": {},
-          "result": {},
+          "commandResponse": {
+            "$ref": "#/components/schemas/CommandResponse",
+            "nullable": true
+          },
           "resultLlm": {},
           "denial": {
             "$ref": "#/components/schemas/SessionToolDenial",

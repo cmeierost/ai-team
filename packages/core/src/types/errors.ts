@@ -28,3 +28,14 @@ export class AgentNotFoundError extends Error {
     this.name = 'AgentNotFoundError';
   }
 }
+
+export class AmbiguousAgentQueryError extends Error {
+  constructor(
+    public readonly query: string,
+    public readonly matches: Array<{ id: string; name: string; role: string }>
+  ) {
+    const matchList = matches.map((m) => `  - ${m.name} (${m.role}) [id: ${m.id}]`).join('\n');
+    super(`Query "${query}" matches multiple agents:\n${matchList}\nPlease be more specific.`);
+    this.name = 'AmbiguousAgentQueryError';
+  }
+}

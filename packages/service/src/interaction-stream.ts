@@ -1,6 +1,5 @@
 import type {
-  AiTeamCommandName,
-  AiTeamCommandResponseMap,
+  CommandResponse,
   InteractionContext,
   StreamEvent,
   InteractionRequest,
@@ -8,12 +7,10 @@ import type {
 } from '@ai-team/api-contracts';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
 
-export interface StreamInteractionOptions<
-  TCommand extends AiTeamCommandName & keyof AiTeamCommandResponseMap,
-> {
-  request: InteractionRequest<TCommand>;
+export interface StreamInteractionOptions<TCommand extends string = string> {
+  request: InteractionRequest;
   context?: InteractionContext;
-  invoke: (context: InteractionContext) => Promise<AiTeamCommandResponseMap[TCommand]>;
+  invoke: (context: InteractionContext) => Promise<CommandResponse<unknown>>;
   timestamp?: () => string;
   translateRuntimeEvent?: (
     event: RuntimeStreamEvent,
@@ -31,9 +28,9 @@ function defaultNormalizeError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-export async function* streamInteraction<
-  TCommand extends AiTeamCommandName & keyof AiTeamCommandResponseMap,
->(options: StreamInteractionOptions<TCommand>): AsyncIterable<StreamEvent<TCommand>> {
+export async function* streamInteraction<TCommand extends string = string>(
+  options: StreamInteractionOptions<TCommand>
+): AsyncIterable<StreamEvent<TCommand>> {
   const context = options.context ?? {};
   const timestamp = options.timestamp ?? (() => new Date().toISOString());
   const translateRuntimeEvent = options.translateRuntimeEvent ?? runtimeEventToStreamEvent;
@@ -41,7 +38,7 @@ export async function* streamInteraction<
 
   const runtimeQueue: RuntimeStreamEvent[] = [];
   let runtimeWaiter: (() => void) | undefined;
-  let data: AiTeamCommandResponseMap[TCommand] | undefined;
+  let data: CommandResponse<unknown> | undefined;
   let invokeError: unknown;
   let invokeSettled = false;
   let terminalStateNotified = false;
@@ -210,7 +207,7 @@ export async function* streamInteraction<
       command: options.request.command,
       kind: 'result',
       timestamp: timestamp(),
-      data: data as AiTeamCommandResponseMap[TCommand],
+      data: data ?? { status: 'error' as const, message: 'No result' },
     });
     yield emitStreamEvent({
       requestId: options.request.requestId,

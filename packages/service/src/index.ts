@@ -1,13 +1,13 @@
 export {
-  HttpError,
+  ApplicationError,
   BadRequestError,
   NotFoundError,
   ForbiddenError,
   ConflictError,
   InternalError,
-} from './http-errors.js';
+} from '@ai-team/core';
+export type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 export { IN_CHAT_COMMAND_ALIASES, IN_CHAT_COMMAND_REGISTRY } from './command-registry.js';
-export type { ChatCommandRegistryEntry } from './command-registry.js';
 
 export {
   ServiceDomainError,
@@ -18,7 +18,6 @@ export {
 export { MissingUserInputError } from './utils/user-env.js';
 export { SessionManager } from './session-manager.js';
 export { TaskManager, type TaskFilter } from './task-manager.js';
-export { resolveAgentForOperationAsync, resolveAgentSafe } from './utils/agent-resolution.js';
 export { findWorkspaceRoot } from './utils/workspace.js';
 export { getSystemInfo, type SystemInfo } from './utils/system-info.js';
 export {
@@ -30,13 +29,13 @@ export {
   permissionAllowCommand,
   permissionDenyCommand,
   type AgentPathResult,
-} from './commands/file-tree.js';
+} from './commands/fs/file-tree.js';
 
 export { generateIntroduction } from './orchestrator/introduction.js';
 export { generateDefaultHandoffPrompt } from './orchestrator/generate-handoff-prompt.js';
 export { type ChatRuntimeHooks } from './commands/chat/index.js';
-export { serveApiCommand, type ServeApiOptions } from './commands/serve.js';
-export { runUiCommand, type UiCommandOptions } from './commands/ui.js';
+export { serveApiCommand, type ServeApiOptions } from './commands/start/serve.js';
+export { runUiCommand, type UiCommandOptions } from './commands/start/ui.js';
 export {
   COMMAND_FACTORY_TOKENS,
   COMMAND_DEFINITION_REGISTRY_TOKEN,
@@ -54,18 +53,17 @@ export { InteractionService, type IInteractionService } from './interaction-serv
 export { CommandDispatcher, createCommandDispatcher } from './command-dispatcher.js';
 
 // Storage abstraction layer
-export {
-  type IPlanningStorage,
-  type MessageFilter,
-  type SessionFilter,
-  type StorageStats,
-  type MessageInsertResult,
-} from './storage/index.js';
-export {
-  ProposalStore,
-  type StoredProposal,
-  type StoredProposalFile,
-} from './storage/proposal-store.js';
+export type {
+  IPlanningStorage,
+  IProposalStore,
+  IProposalStoreFactory,
+  MessageFilter,
+  SessionFilter,
+  StorageStats,
+  MessageInsertResult,
+  StoredProposal,
+  StoredProposalFile,
+} from '@ai-team/core';
 export type { AgentFilesResponse } from '@ai-team/api-contracts';
 
 export { createToolManager, type OrchestrationDeps } from './tools/create-tool-manager.js';

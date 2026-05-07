@@ -1,5 +1,6 @@
 import { parse, AST_NODE_TYPES, TSESTree } from '@typescript-eslint/typescript-estree';
 import { readFile } from 'node:fs/promises';
+import type { ITypeScriptAnalyzer } from '@ai-team/core';
 
 /**
  * Complexity metrics for a function or method
@@ -55,7 +56,7 @@ export interface ImportInfo {
  * TypeScript-specific analyzer using @typescript-eslint/typescript-estree
  * Provides richer analysis than generic tree-sitter for TS code
  */
-export class TypeScriptAnalyzer {
+export class TypeScriptAnalyzer implements ITypeScriptAnalyzer<TSESTree.Program> {
   /**
    * Parse a TypeScript file and return the AST
    */

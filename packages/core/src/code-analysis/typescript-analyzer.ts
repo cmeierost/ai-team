@@ -1,5 +1,3 @@
-import { TSESTree } from '@typescript-eslint/typescript-estree';
-
 /**
  * Complexity metrics for a function or method
  */
@@ -54,11 +52,11 @@ export interface ImportInfo {
  * TypeScript-specific analyzer using @typescript-eslint/typescript-estree
  * Provides richer analysis than generic tree-sitter for TS code
  */
-export interface ITypeScriptAnalyzer {
+export interface ITypeScriptAnalyzer<TAst = unknown> {
   /**
    * Parse a TypeScript file and return the AST
    */
-  parseFile(filePath: string): Promise<TSESTree.Program>;
+  parseFile(filePath: string): Promise<TAst>;
 
   /**
    * Get all functions in a file

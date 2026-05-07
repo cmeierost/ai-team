@@ -10,7 +10,7 @@ import type { IAgentManager, AgentTool, IAgentDocumentStorage, ISkillManager } f
 import { toolKey, type LlmToolDefinition, type ToolManager } from '../tools/tool-manager.js';
 import type { IMcpGateway } from '../orchestrator/pipeline.js';
 import type { SessionManager } from '../session-manager.js';
-import { NotFoundError } from '../http-errors.js';
+import { NotFoundError } from '@ai-team/core';
 import {
   getChatLoopWorkflowDefinitionJson,
   getChatLoopWorkflowDefinitionYaml,

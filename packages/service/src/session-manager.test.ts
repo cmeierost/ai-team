@@ -2,19 +2,265 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ChatMessage, ChatSession } from '@ai-team/core';
 import { SessionManager } from './session-manager.js';
-import {
-  SqliteBackend,
-  MessagesRepository,
-  SessionsRepository,
-  NotesRepository,
-} from '@ai-team/infrastructure';
+import type { IMessagesRepository, ISessionsRepository, INotesRepository } from '@ai-team/core';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const tempDirs: string[] = [];
+
+type StoredMessage = ChatMessage & { _messageId: number; _hiddenFromLlm?: boolean; _archived?: boolean };
+
+function cloneSession(session: ChatSession): ChatSession {
+  return {
+    ...session,
+    agentIds: [...(session.agentIds ?? [])],
+    artifacts: [...(session.artifacts ?? [])],
+    allowedFiles: [...(session.allowedFiles ?? [])],
+    mergedFromSessionIds: session.mergedFromSessionIds ? [...session.mergedFromSessionIds] : null,
+  };
+}
+
+function createInMemoryRepos() {
+  const sessions = new Map<string, ChatSession>();
+  const messagesBySession = new Map<string, StoredMessage[]>();
+  let nextSessionId = 1;
+  let nextMessageId = 1;
+
+  const messages: IMessagesRepository = {
+    async insertMessage(sessionId, message) {
+      const list = messagesBySession.get(sessionId);
+      if (!list) {
+        throw new Error(`Session ${sessionId} not found`);
+      }
+      const stored: StoredMessage = { ...message, _messageId: nextMessageId++ };
+      list.push(stored);
+      return { id: stored._messageId } as any;
+    },
+    async getSessionMessages(sessionId, includeArchived = false) {
+      const list = messagesBySession.get(sessionId) ?? [];
+      return list
+        .filter((message) => includeArchived || !message._archived)
+        .map(({ _messageId, _hiddenFromLlm, _archived, ...message }) => ({ ...message }));
+    },
+    async queryMessages(filter) {
+      const base = filter.sessionId
+        ? messagesBySession.get(filter.sessionId) ?? []
+        : [...messagesBySession.values()].flat();
+      let result = base.filter((message) => !message._archived);
+      if (typeof (filter as any).isHuman === 'boolean') {
+        result = result.filter((message) => message.isHuman === (filter as any).isHuman);
+      }
+      if (typeof (filter as any).hiddenFromLlm === 'boolean') {
+        result = result.filter(
+          (message) => Boolean(message._hiddenFromLlm) === (filter as any).hiddenFromLlm
+        );
+      }
+      if (typeof (filter as any).limit === 'number') {
+        result = result.slice(0, (filter as any).limit);
+      }
+      return result.map(({ _messageId, _hiddenFromLlm, _archived, ...message }) => ({ ...message }));
+    },
+    async archiveMessage(sessionId, messageTimestamp) {
+      const message = (messagesBySession.get(sessionId) ?? []).find(
+        (entry) => entry.timestamp === messageTimestamp
+      );
+      if (!message) return false;
+      message._archived = true;
+      return true;
+    },
+    async deleteMessage(sessionId, messageTimestamp) {
+      const list = messagesBySession.get(sessionId) ?? [];
+      const index = list.findIndex((entry) => entry.timestamp === messageTimestamp);
+      if (index < 0) return false;
+      list.splice(index, 1);
+      return true;
+    },
+    async searchMessages(query, sessionId) {
+      const haystack = await this.getSessionMessages(sessionId ?? '');
+      return haystack.filter((message) => (message.content ?? '').includes(query));
+    },
+    async getMessageById(messageId) {
+      for (const list of messagesBySession.values()) {
+        const found = list.find((entry) => entry._messageId === messageId);
+        if (found) {
+          const { _messageId, _hiddenFromLlm, _archived, ...message } = found;
+          return { ...message };
+        }
+      }
+      return null;
+    },
+    async setMessageHiddenFromLlm(messageId, hidden) {
+      for (const list of messagesBySession.values()) {
+        const found = list.find((entry) => entry._messageId === messageId);
+        if (found) {
+          found._hiddenFromLlm = hidden;
+          return true;
+        }
+      }
+      return false;
+    },
+    async updateMessageContent(messageId, newContent) {
+      for (const list of messagesBySession.values()) {
+        const found = list.find((entry) => entry._messageId === messageId);
+        if (found) {
+          found.content = newContent;
+          return true;
+        }
+      }
+      return false;
+    },
+    async createMessageSessionLink() {
+      throw new Error('Not implemented in session-manager test fake');
+    },
+    async listMessageSessionLinks() {
+      return [];
+    },
+    async deleteMessageSessionLink() {
+      return false;
+    },
+    async addSessionSkill() {
+      return undefined;
+    },
+    async getSessionSkills() {
+      return [];
+    },
+    async setSessionSkillPaused() {
+      return undefined;
+    },
+    async removeSessionSkill() {
+      return undefined;
+    },
+    async updateToolCallLlmResult() {
+      return undefined;
+    },
+  };
+
+  const sessionRepo: ISessionsRepository = {
+    async createSession(session) {
+      const created: ChatSession = {
+        ...session,
+        id: `session-${nextSessionId++}`,
+        messageCount: 0,
+      };
+      sessions.set(created.id, cloneSession(created));
+      messagesBySession.set(created.id, []);
+      return cloneSession(created);
+    },
+    async getSession(sessionId) {
+      const session = sessions.get(sessionId);
+      return session ? cloneSession(session) : null;
+    },
+    async updateSession(sessionId, updates) {
+      const current = sessions.get(sessionId);
+      if (!current) return;
+      const merged = cloneSession({ ...current, ...updates, id: current.id, messageCount: current.messageCount });
+      sessions.set(sessionId, merged);
+    },
+    async listSessions(filter) {
+      let result = [...sessions.values()].map(cloneSession);
+      if (filter?.developerId) {
+        result = result.filter((session) => session.developerId === filter.developerId);
+      }
+      if (filter?.agentId) {
+        result = result.filter((session) =>
+          ((session.agentIds ?? []) as string[]).includes(filter.agentId!) || session.agentId === filter.agentId
+        );
+      }
+      if (filter?.sortBy) {
+        const key = filter.sortBy;
+        result.sort((a, b) => {
+          const left = String((a as any)[key] ?? '');
+          const right = String((b as any)[key] ?? '');
+          return left.localeCompare(right);
+        });
+        if (filter.sortOrder === 'desc') {
+          result.reverse();
+        }
+      }
+      if (typeof filter?.limit === 'number') {
+        result = result.slice(0, filter.limit);
+      }
+      return result;
+    },
+    async addSessionAgent(sessionId, agentId) {
+      const current = sessions.get(sessionId);
+      if (!current) return;
+      if (!(current.agentIds ?? []).includes(agentId)) {
+        current.agentIds = [...(current.agentIds ?? []), agentId];
+      }
+    },
+    async removeSessionAgent(sessionId, agentId) {
+      const current = sessions.get(sessionId);
+      if (!current) return;
+      current.agentIds = (current.agentIds ?? []).filter((id) => id !== agentId);
+    },
+    async deleteSession(sessionId) {
+      messagesBySession.delete(sessionId);
+      return sessions.delete(sessionId);
+    },
+    async getSessionDeleteImpact() {
+      return {
+        sessionId: '',
+        sessionsToDelete: [],
+        sessionsToReparent: [],
+        notesToDelete: [],
+        notesToRescope: [],
+        rootSessionId: null,
+      } as any;
+    },
+  };
+
+  const notes: INotesRepository = {
+    async deleteAttachmentsIfPresentAsync() {
+      return undefined;
+    },
+    async createNote() {
+      throw new Error('Not implemented in session-manager test fake');
+    },
+    async getNote() {
+      return null;
+    },
+    async listSessionNotes() {
+      return [];
+    },
+    async listAgentNotes() {
+      return [];
+    },
+    async listDashboardNotes() {
+      return [];
+    },
+    async updateNote() {
+      return undefined;
+    },
+    async setNoteAttachmentsAsync() {
+      return undefined;
+    },
+    async deleteNote() {
+      return false;
+    },
+    async searchNotes() {
+      return [];
+    },
+    async listNoteSessionSharesBySessionAsync() {
+      return [];
+    },
+    async updateNoteSessionShareAsync() {
+      return undefined;
+    },
+  };
+
+  return { messages, sessions: sessionRepo, notes };
+}
+
+async function createSessionManagerForTest(): Promise<SessionManager> {
+  const workspaceRoot = await createTempWorkspace();
+  const repos = createInMemoryRepos();
+  return new SessionManager(workspaceRoot, repos.messages, repos.sessions, repos.notes);
+}
 
 async function createTempWorkspace(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-sm-test-'));
@@ -34,21 +280,9 @@ afterEach(async () => {
 
 describe('SessionManager.findAgentSessionInChain', () => {
   let sessionManager: SessionManager;
-  let backend: SqliteBackend;
 
   beforeEach(async () => {
-    const workspaceRoot = await createTempWorkspace();
-    backend = new SqliteBackend(workspaceRoot);
-    await backend.migrate();
-    const notes = new NotesRepository(workspaceRoot, backend.ensureReadyAsync, backend.getDb);
-    const messages = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
-    const sessions = new SessionsRepository(backend.ensureReadyAsync, backend.getDb, notes);
-    // No AgentManager — IDs are used verbatim
-    sessionManager = new SessionManager(workspaceRoot, messages, sessions, notes);
-  });
-
-  afterEach(async () => {
-    await backend.close();
+    sessionManager = await createSessionManagerForTest();
   });
 
   it('returns the session when the root session belongs to the target agent', async () => {
@@ -120,20 +354,9 @@ describe('SessionManager.findAgentSessionInChain', () => {
 
 describe('SessionManager.getSessionChain', () => {
   let sessionManager: SessionManager;
-  let backend: SqliteBackend;
 
   beforeEach(async () => {
-    const workspaceRoot = await createTempWorkspace();
-    backend = new SqliteBackend(workspaceRoot);
-    await backend.migrate();
-    const notes = new NotesRepository(workspaceRoot, backend.ensureReadyAsync, backend.getDb);
-    const messages = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
-    const sessions = new SessionsRepository(backend.ensureReadyAsync, backend.getDb, notes);
-    sessionManager = new SessionManager(workspaceRoot, messages, sessions, notes);
-  });
-
-  afterEach(async () => {
-    await backend.close();
+    sessionManager = await createSessionManagerForTest();
   });
 
   it('returns a single-session chain for a root session', async () => {
@@ -187,20 +410,9 @@ describe('SessionManager.getSessionChain', () => {
 
 describe('SessionManager title generation', () => {
   let sessionManager: SessionManager;
-  let backend: SqliteBackend;
 
   beforeEach(async () => {
-    const workspaceRoot = await createTempWorkspace();
-    backend = new SqliteBackend(workspaceRoot);
-    await backend.migrate();
-    const notes = new NotesRepository(workspaceRoot, backend.ensureReadyAsync, backend.getDb);
-    const messages = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
-    const sessions = new SessionsRepository(backend.ensureReadyAsync, backend.getDb, notes);
-    sessionManager = new SessionManager(workspaceRoot, messages, sessions, notes);
-  });
-
-  afterEach(async () => {
-    await backend.close();
+    sessionManager = await createSessionManagerForTest();
   });
 
   it('persists a fallback title when llm returns whitespace', async () => {
@@ -415,20 +627,9 @@ describe('SessionManager title generation', () => {
 
 describe('SessionManager.getThreadGraphData', () => {
   let sessionManager: SessionManager;
-  let backend: SqliteBackend;
 
   beforeEach(async () => {
-    const workspaceRoot = await createTempWorkspace();
-    backend = new SqliteBackend(workspaceRoot);
-    await backend.migrate();
-    const notes = new NotesRepository(workspaceRoot, backend.ensureReadyAsync, backend.getDb);
-    const messages = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
-    const sessions = new SessionsRepository(backend.ensureReadyAsync, backend.getDb, notes);
-    sessionManager = new SessionManager(workspaceRoot, messages, sessions, notes);
-  });
-
-  afterEach(async () => {
-    await backend.close();
+    sessionManager = await createSessionManagerForTest();
   });
 
   it('filters handoff bridge messages and keeps timeline messages sorted', async () => {

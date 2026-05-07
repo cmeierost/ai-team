@@ -458,7 +458,10 @@ function formatToolEventMessage(event: Record<string, unknown>): string | undefi
   const toolName = typeof event.toolName === 'string' ? event.toolName : undefined;
   const message = typeof event.message === 'string' ? event.message : undefined;
   const toolResult = toPayloadRecord((event as { toolResult?: unknown }).toolResult);
-  const resultPayload = toolResult ? (toolResult as { result?: unknown }).result : undefined;
+  const commandResponse = toolResult
+    ? (toolResult as { commandResponse?: { data?: unknown } }).commandResponse
+    : undefined;
+  const resultPayload = commandResponse ? commandResponse.data : undefined;
   const payload = toPayloadRecord(resultPayload) ?? toPayloadRecord(message);
 
   if (toolName === 'fs_tree') {
@@ -494,7 +497,10 @@ function formatToolEventDetail(event: Record<string, unknown>): string | undefin
   if (phase !== 'result') return undefined;
 
   const toolResult = toPayloadRecord((event as { toolResult?: unknown }).toolResult);
-  const resultPayload = toolResult ? (toolResult as { result?: unknown }).result : undefined;
+  const commandResponse = toolResult
+    ? (toolResult as { commandResponse?: { data?: unknown } }).commandResponse
+    : undefined;
+  const resultPayload = commandResponse ? commandResponse.data : undefined;
   const payload = toPayloadRecord(resultPayload);
 
   if (toolName === 'fs_tree' && payload && 'tree' in payload) {

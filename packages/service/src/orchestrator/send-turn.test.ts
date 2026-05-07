@@ -508,7 +508,18 @@ function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
 }
 
 function makePluginsWithTools(): ResolvedPlugins {
-  const fakeTool = (name: string) => ({ name, description: `${name} tool`, parameters: {} });
+  const fakeTool = (canonicalName: string) => {
+    const [group, ...rest] = canonicalName.split('_');
+    const key = rest.join('_');
+    return {
+      name: key,
+      key,
+      group,
+      availableIn: { tool: true },
+      description: `${canonicalName} tool`,
+      parameters: {},
+    };
+  };
 
   return {
     compressor:     { compress: (h: ChatMessage[]) => Promise.resolve(h) } as any,

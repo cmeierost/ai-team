@@ -41,6 +41,82 @@ describe('/tool slash command', () => {
   });
 });
 
+describe('/fetch slash command', () => {
+  it('executes http_fetch with url and optional json args', async () => {
+    const commands = buildDefaultSlashCommands();
+    const fetchCommand = commands.find((c) => c.key === 'fetch');
+    expect(fetchCommand).toBeDefined();
+    if (!fetchCommand) {
+      throw new Error('Expected /fetch command to be registered');
+    }
+
+    const execute = vi.fn(async () => ({ ok: true, result: { status: 200, chunks: ['hello'] } }));
+    const emit = vi.fn();
+
+    const ctx: OrchestratorContext = {
+      agent: { id: 'ceo', name: 'CEO', role: 'ceo' } as any,
+      workspaceRoot: '/workspace',
+      sessionId: 'sess-1',
+      hooks: { emit } as any,
+      toolManager: { execute } as any,
+      sessionManager: {} as any,
+      agentManager: {} as any,
+      skillManager: {} as any,
+      llmService: {} as any,
+      contextManager: {} as any,
+      history: [],
+    };
+
+    await fetchCommand.execute('https://example.com {"search":"pricing"}', ctx);
+
+    expect(execute).toHaveBeenCalledWith(
+      ctx.agent,
+      'http_fetch',
+      { url: 'https://example.com', search: 'pricing' },
+      { agentId: 'ceo', workspaceRoot: '/workspace' }
+    );
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'log', level: 'info' }));
+  });
+});
+
+describe('/crawl slash command', () => {
+  it('executes http_crawl with url-only args', async () => {
+    const commands = buildDefaultSlashCommands();
+    const crawlCommand = commands.find((c) => c.key === 'crawl');
+    expect(crawlCommand).toBeDefined();
+    if (!crawlCommand) {
+      throw new Error('Expected /crawl command to be registered');
+    }
+
+    const execute = vi.fn(async () => ({ ok: true, result: { pageCount: 1, chunks: [] } }));
+    const emit = vi.fn();
+
+    const ctx: OrchestratorContext = {
+      agent: { id: 'ceo', name: 'CEO', role: 'ceo' } as any,
+      workspaceRoot: '/workspace',
+      sessionId: 'sess-1',
+      hooks: { emit } as any,
+      toolManager: { execute } as any,
+      sessionManager: {} as any,
+      agentManager: {} as any,
+      skillManager: {} as any,
+      llmService: {} as any,
+      contextManager: {} as any,
+      history: [],
+    };
+
+    await crawlCommand.execute('https://example.com/docs', ctx);
+
+    expect(execute).toHaveBeenCalledWith(
+      ctx.agent,
+      'http_crawl',
+      { url: 'https://example.com/docs' },
+      { agentId: 'ceo', workspaceRoot: '/workspace' }
+    );
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'log', level: 'info' }));
+  });
+});
+
 describe('/list slash command', () => {
   it('delegates to team_list tool and renders members', async () => {
     const commands = buildDefaultSlashCommands();
@@ -198,5 +274,72 @@ describe('/context slash command', () => {
     expect(summarizeForContextAsync).toHaveBeenCalled();
     expect(updateToolCallLlmResult).toHaveBeenCalledWith(55, '- key finding');
     expect(getSessionMessages).toHaveBeenCalledWith('sess-1');
+  });
+});
+
+describe('/session slash command', () => {
+  it('uses the injected context service for /session context', async () => {
+    const getContextEstimate = vi.fn(async () => ({
+      segments: [
+        { key: 'system', label: 'System', chars: 1200 },
+        { key: 'messages', label: 'Messages', chars: 800 },
+      ],
+      totalChars: 2000,
+      instructionFiles: [],
+      messages: [
+        {
+          role: 'assistant',
+          preview: 'hello',
+          chars: 800,
+          toolCallCount: 0,
+          toolChars: 0,
+          toolRawChars: 0,
+          toolSavedChars: 0,
+          compactedToolCallCount: 0,
+          archived: false,
+        },
+      ],
+      notes: [],
+      plans: [],
+      tasks: [],
+      todos: [],
+      sessionSkills: [],
+      tools: [],
+    }));
+    const commands = buildDefaultSlashCommands({
+      contextService: { getContextEstimate },
+    });
+    const sessionCommand = commands.find((c) => c.key === 'session');
+    expect(sessionCommand).toBeDefined();
+    if (!sessionCommand) {
+      throw new Error('Expected /session command to be registered');
+    }
+
+    const emit = vi.fn();
+    const initializeForChat = vi.fn(async () => undefined);
+
+    const ctx: OrchestratorContext = {
+      agent: { id: 'architect-agent', name: 'Architect', role: 'architect' } as any,
+      workspaceRoot: '/workspace',
+      sessionId: 'sess-1',
+      hooks: { emit } as any,
+      toolManager: {} as any,
+      sessionManager: {
+        getSession: vi.fn(async () => ({ title: 'Test session' })),
+      } as any,
+      agentManager: {} as any,
+      skillManager: {} as any,
+      llmService: { initializeForChat } as any,
+      configurationStorage: {
+        loadEffectiveConfigAsync: vi.fn(async () => undefined),
+      } as any,
+      history: [],
+    };
+
+    await sessionCommand.execute('context', ctx);
+
+    expect(getContextEstimate).toHaveBeenCalledWith('architect-agent', { sessionId: 'sess-1' });
+    expect(initializeForChat).toHaveBeenCalledWith(ctx.agent);
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'log', level: 'info' }));
   });
 });

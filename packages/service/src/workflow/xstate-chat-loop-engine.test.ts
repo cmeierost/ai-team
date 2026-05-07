@@ -133,6 +133,8 @@ describe('xstate-chat-loop-engine', () => {
     toolManager.register({
       group: 'fs',
       name: 'read',
+      key: 'read',
+      availableIn: { tool: true },
       description: 'Read file',
       parameters: z.object({ filePath: z.string() }),
       permissionCheck: { type: 'none' },

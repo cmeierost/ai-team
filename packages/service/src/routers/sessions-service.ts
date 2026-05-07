@@ -4,15 +4,16 @@ import type {
   ChatMessage,
   SessionThread,
 } from '@ai-team/api-contracts';
-import type { IAgentManager, ILlmService } from '@ai-team/core';
-import type { SessionManager } from '../session-manager.js';
 import type {
+  IAgentManager,
+  ILlmService,
   MessageSessionLink,
   Note,
-  SessionDeleteImpact,
   NoteSessionShare,
-} from '../storage/contracts.js';
-import { BadRequestError, NotFoundError } from '../http-errors.js';
+  SessionDeleteImpact,
+} from '@ai-team/core';
+import type { SessionManager } from '../session-manager.js';
+import { BadRequestError, NotFoundError } from '@ai-team/core';
 
 // ── Session meta helpers ──────────────────────────────────────────────────────
 

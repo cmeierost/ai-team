@@ -1,7 +1,7 @@
 import type { ITasksService } from '@ai-team/api-contracts';
 import type { IAgentManager } from '@ai-team/core';
 import { TaskManager } from '../task-manager.js';
-import { NotFoundError } from '../http-errors.js';
+import { NotFoundError } from '@ai-team/core';
 
 export class TasksService implements ITasksService {
   private readonly taskManager: TaskManager;

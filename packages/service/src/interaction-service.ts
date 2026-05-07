@@ -1,7 +1,6 @@
 import type {
-  AiTeamCommandName,
-  AiTeamCommandResponseMap,
   ChatOptions,
+  CommandResponse,
   InteractionContext,
   StreamEvent,
   InteractionRequest,
@@ -20,8 +19,8 @@ import { streamInteraction } from './interaction-stream.js';
  * remain the caller's concern.
  */
 export interface IInteractionService {
-  stream<TCommand extends AiTeamCommandName>(
-    request: InteractionRequest<TCommand>,
+  stream<TCommand extends string = string>(
+    request: InteractionRequest,
     context?: InteractionContext
   ): AsyncIterable<StreamEvent<TCommand>>;
 }
@@ -41,18 +40,15 @@ export class InteractionService implements IInteractionService {
     private readonly runChat: ChatRunner
   ) {}
 
-  async *stream<TCommand extends AiTeamCommandName>(
-    request: InteractionRequest<TCommand>,
+  async *stream<TCommand extends string = string>(
+    request: InteractionRequest,
     context: InteractionContext = {}
   ): AsyncIterable<StreamEvent<TCommand>> {
     if (request.command !== 'chat') {
       throw new Error(`Unsupported stream command: ${request.command}`);
     }
 
-    const payload = request.payload as Extract<
-      InteractionRequest<'chat'>['payload'],
-      { options: ChatOptions }
-    >;
+    const payload = request.payload as { employeeId?: string; options: ChatOptions };
 
     yield* streamInteraction({
       request,
@@ -70,7 +66,7 @@ export class InteractionService implements IInteractionService {
           onWorkflowFrame: invokeContext.onWorkflowFrame,
         });
 
-        return undefined as AiTeamCommandResponseMap[TCommand];
+        return { status: 'ok' as const, message: '' } satisfies CommandResponse<void>;
       },
       translateRuntimeEvent: runtimeEventToStreamEvent,
       onRuntimeEvent: (event) => {

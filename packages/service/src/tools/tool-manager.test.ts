@@ -6,7 +6,9 @@ import { ToolManager, toolKey } from './tool-manager.js';
 function makeTool(name: string, group?: string): AgentTool {
   return {
     name,
+    key: name,
     group,
+    availableIn: { tool: true },
     description: `${group ? group + '_' : ''}${name}`,
     parameters: z.object({}),
     async execute() {
@@ -60,7 +62,7 @@ describe('ToolManager wildcard selectors and default-deny policy', () => {
     expect(available).toEqual(['fs_read', 'fs_tree']);
   });
 
-  it('keeps short-name exact selectors working', () => {
+  it('requires canonical selectors instead of short-name selectors', () => {
     const manager = new ToolManager('/workspace');
     manager.register(makeTool('tree', 'fs'));
     manager.register(makeTool('read', 'fs'));
@@ -68,7 +70,7 @@ describe('ToolManager wildcard selectors and default-deny policy', () => {
     const agent = makeAgent({ tools: ['tree'] });
     const available = manager.getForAgent(agent).map(toolKey);
 
-    expect(available).toEqual(['fs_tree']);
+    expect(available).toEqual([]);
   });
 
   it('applies disallowed selectors before allowed selectors', () => {

@@ -28,7 +28,6 @@ This document intentionally describes both the **current implementation shape** 
 
 - **Current state**
   - Several paths still use mediator-oriented naming for both business calls and UI-facing streaming.
-  - `@ai-team/service` still references `@ai-team/infrastructure` directly in some places.
   - The current web chat path is functional but still part of the architecture cleanup.
 - **Target direction**
   - CLI and web should call transport-independent service interfaces.
@@ -36,6 +35,7 @@ This document intentionally describes both the **current implementation shape** 
   - Services should notify UI surfaces through a `UI notifier` stream.
   - Dependency injection should be strict across the logic ↔ infrastructure boundary.
   - `@ai-team/service` should depend on boundary interfaces in `@ai-team/core` rather than direct infrastructure implementations.
+  - Concrete implementations belong in container/bootstrap wiring; `@ai-team/service` and its tests must not import `@ai-team/infrastructure` directly.
 - **Active local backlog**
   - The durable backlog for this transition lives in [`.ai-team/tasks/`](.ai-team/tasks/).
   - Keep that backlog updated with current state, target state, decisions, open questions, and next steps.
@@ -146,7 +146,7 @@ Runtime state + external integrations
 - Target direction: exposes transport-independent service interfaces for UI callers, keeps the internal service-layer mediator private, and pushes UI-facing streaming into an explicit `UI notifier` concept.
 - Owns chat runtime orchestration, including slash command routing, NL forwarding, handoff flow, tool execution flow, question flow, and workflow continuation.
 - Owns backend managers such as sessions, tasks, workflow state, and proposal persistence used by adapters and transports.
-- Transition note: removing direct dependencies from `@ai-team/service` to `@ai-team/infrastructure` is active backlog work, not finished architecture.
+- Boundary rule: `@ai-team/service` depends on `@ai-team/core` interfaces and container tokens only. Concrete implementations are selected during bootstrap and must not be imported directly from service code or service tests.
 - Shortcut rule: **container command definitions may call `@ai-team/infrastructure` directly when the command is purely a config/data read with no orchestration logic, governance, or side-effects.** These commands do not need a service adapter layer. Commands with LLM orchestration, governance policy enforcement, agent mutation, or workflow state must continue to route through `@ai-team/service`.
 
 ### `@ai-team/api-client`

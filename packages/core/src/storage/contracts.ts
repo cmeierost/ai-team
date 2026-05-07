@@ -102,3 +102,30 @@ export interface IMessageStorage {
   close(): Promise<void>;
   getStats(): Promise<StorageStats>;
 }
+
+export interface StoredProposalFile {
+  filePath: string;
+  oldContent: string;
+  newContent: string;
+  additions?: number;
+  deletions?: number;
+}
+
+export interface StoredProposal {
+  proposalId: string;
+  agentName: string;
+  description: string;
+  createdAt: string;
+  files: StoredProposalFile[];
+}
+
+export interface IProposalStore {
+  save(proposal: StoredProposal): void;
+  delete(proposalId: string): void;
+  loadAll(): StoredProposal[];
+  load(proposalId: string): StoredProposal | null;
+}
+
+export interface IProposalStoreFactory {
+  create(workspaceRoot: string): IProposalStore;
+}

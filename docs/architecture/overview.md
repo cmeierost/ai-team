@@ -19,13 +19,14 @@ The core design idea is simple:
 
 - **Current state**
   - `@ai-team/service` still presents a mediator-oriented contract for both business calls and UI-facing streaming in several paths.
-  - `@ai-team/service` still has some direct dependencies on `@ai-team/infrastructure`.
   - The web chat path is functional but part of the active cleanup work.
 - **Target direction**
   - UI surfaces call transport-independent service interfaces.
   - An internal service-layer mediator stays inside the service layer.
   - UI-facing streaming is delivered through a `UI notifier` concept.
   - Strict dependency injection is enforced at the logic ↔ infrastructure boundary.
+  - `@ai-team/service` depends on interfaces from `@ai-team/core`; concrete implementations are selected by container bootstrap.
+  - `@ai-team/service` must not import `@ai-team/infrastructure` directly.
   - The same UI should be able to swap client implementations at startup.
 - **Active roadmap**
   - docs/backlog alignment
@@ -76,6 +77,7 @@ Editor-local workflows use a dedicated IDE bridge:
 
 - current state: mediator contracts, command dispatch, runtime event streaming, chat orchestration, and session/task/workflow/proposal state
 - target direction: transport-independent service interfaces for callers, internal service-layer mediation kept private, and explicit UI notifier delivery for outward streaming
+- boundary rule: depend only on `@ai-team/core` interfaces and container tokens; implementation packages are composed at startup and must not be imported directly from service code or service tests
 
 ### `@ai-team/api-client`
 

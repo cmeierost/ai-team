@@ -177,7 +177,7 @@ function PreBlock({ text, maxLines = MAX_LINES }: Readonly<PreBlockProps>) {
 
 export function ToolCallDetailsPanel({ event }: Readonly<ToolCallDetailsPanelProps>) {
   const toolName = event.toolResult?.toolName ?? event.toolName;
-  const result = event.toolResult?.result;
+  const result = event.toolResult?.commandResponse?.data;
   const resultLlm = event.toolResult?.resultLlm;
   const request = event.toolResult?.request;
 

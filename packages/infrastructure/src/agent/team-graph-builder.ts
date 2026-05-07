@@ -78,6 +78,10 @@ export class TeamGraphBuilder implements ITeamGraphBuilder {
     return { nodes, edges };
   }
 
+  async buildOrganizationGraph(): Promise<GraphData> {
+    return this.buildGraph('hierarchy');
+  }
+
   /**
    * Resolve manager ID from reportsTo field (supports ID or role-based reference)
    * @param reportsTo - Raw reportsTo value (ID or role name)

@@ -1,15 +1,12 @@
-import type { AiTeamCommandName, RuntimeStreamEvent, StreamEvent } from '@ai-team/api-contracts';
+import type { RuntimeStreamEvent, StreamEvent } from '@ai-team/api-contracts';
 
-export function runtimeEventToStreamEvent<TCommand extends AiTeamCommandName>(
+export function runtimeEventToStreamEvent<TCommand extends string = string>(
   event: RuntimeStreamEvent,
   base: { requestId?: string; command: TCommand; timestamp: string }
 ): StreamEvent<TCommand> | null {
+  const passthroughEvent = () => ({ ...base, ...event }) as StreamEvent<TCommand>;
+
   switch (event.kind) {
-    case 'status':
-    case 'agent_info':
-    case 'progress':
-    case 'code_edit_proposal':
-      return { ...base, ...event } as StreamEvent<TCommand>;
     case 'log':
       return { ...base, ...event, message: event.message ?? '' } as StreamEvent<TCommand>;
     case 'token':
@@ -33,11 +30,7 @@ export function runtimeEventToStreamEvent<TCommand extends AiTeamCommandName>(
             toAgentId: event.toAgentId,
           } as StreamEvent<TCommand>)
         : null;
-    case 'avatar-preview':
-      return { ...base, ...event } as StreamEvent<TCommand>;
-    case 'session_switched':
-      return { ...base, ...event } as StreamEvent<TCommand>;
-    case 'session_title_updated':
-      return { ...base, ...event } as StreamEvent<TCommand>;
+    default:
+      return passthroughEvent();
   }
 }

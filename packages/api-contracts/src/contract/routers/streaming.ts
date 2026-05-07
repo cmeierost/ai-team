@@ -1,3 +1,4 @@
+import { CommandResponse } from '../shared-types.js';
 import {
   DoIHavePermissionResponse,
   FilePermission,
@@ -24,76 +25,6 @@ import {
 import { GraphData, ViewMode } from './team';
 import { SearchSkillsResponse, UpdateAgentSkillResponse } from './skills';
 import { ListToolsResponse, UpdateAgentToolResponse } from './tools';
-
-/**
- * Command names available for service-layer dispatch.
- *
- * Service commands are callable from CLI, chat, and tools depending on
- * their `availableIn` flags in the command registry.
- */
-export type AiTeamCommandName =
-  // ── Service commands (CLI + chat + tool) ──────────────────────────────────
-  | 'listEmployees'
-  | 'resolveEmployees'
-  | 'getTeamGraph'
-  | 'getOrganizationGraph'
-  | 'create'
-  | 'chat'
-  | 'hire'
-  | 'fire'
-  | 'init'
-  | 'setup'
-  | 'onboard'
-  | 'systemStatus'
-  | 'hhRefresh'
-  | 'providerConfigure'
-  | 'providerAdd'
-  | 'providerSet'
-  | 'providerList'
-  | 'providerModels'
-  | 'providerModelsRefresh'
-  | 'testConnection'
-  | 'avatar'
-  // ── Access commands ────────────────────────────────────────────────────────
-  | 'accessWho'
-  | 'accessCan'
-  | 'accessOverlap'
-  // ── Search & skills commands ────────────────────────────────────────────────
-  | 'searchAgents'
-  | 'skillsList'
-  | 'skillsAdd'
-  | 'skillsRemove'
-  // ── Tools commands ───────────────────────────────────────────────────────
-  | 'toolsList'
-  | 'toolsAllow'
-  | 'toolsDeny'
-  // ── Files commands ───────────────────────────────────────────────────────
-  | 'filesTree'
-  | 'filesPatterns'
-  | 'filesAllow'
-  | 'filesDeny'
-  // ── Utility commands ────────────────────────────────────────────────────────
-  | 'systemInfo'
-  | 'dbStatus'
-  | 'dbMigrate'
-  | 'codeEditList'
-  | 'codeEditApprove'
-  | 'codeEditReject'
-  | 'codeEditApply'
-  | 'patchApply'
-  // ── Chat-only slash commands ──────────────────────────────────────────────
-  | 'help'
-  | 'who'
-  | 'session'
-  | 'new'
-  | 'history'
-  | 'portfolio'
-  | 'info'
-  | 'overview'
-  | 'graph'
-  | 'run'
-  | 'tool'
-  | 'back';
 
 export type RuntimeStreamEvent =
   | {
@@ -363,104 +294,10 @@ export interface SystemStatus {
   hasAgents: boolean;
 }
 
-export interface AiTeamCommandPayloadMap {
-  listEmployees: ListEmployeesRequest;
-  resolveEmployees: { query: string };
-  getTeamGraph: { mode?: ViewMode };
-  getOrganizationGraph: Record<string, never>;
-  create: { type: string; options: CreateOptions };
-  chat: { employeeId?: string; options: ChatOptions };
-  hire: { options: HireOptions };
-  fire: { employeeQuery: string; options: FireOptions };
-  init: { options: InitOptions };
-  setup: { options?: SetupOptions };
-  onboard: { options?: OnboardOptions };
-  systemStatus: Record<string, never>;
-  hhRefresh: Record<string, never>;
-  providerConfigure: { options?: ConfigureProviderOptions };
-  providerAdd: { options?: AddProviderOptions };
-  providerSet: { options?: SetProviderOptions };
-  providerList: { options?: ProviderListOptions };
-  providerModels: { options: ProviderModelsOptions };
-  providerModelsRefresh: { options: RefreshProviderModelsOptions };
-  testConnection: { options?: TestConnectionOptions };
-  avatar: { options: AvatarOptions };
-  // ── Access commands ────────────────────────────────────────────────────────
-  accessWho: { path: string; right?: FilePermission };
-  accessCan: { path: string; right?: FilePermission; agent?: string };
-  accessOverlap: { mode?: 'files' | 'patterns'; right?: FilePermission; agent?: string };
-  // ── Search & skills commands ────────────────────────────────────────────────
-  searchAgents: {
-    query?: string;
-    role?: string | string[];
-    type?: string | string[];
-    status?: string | string[];
-    feature?: string | string[];
-    specialization?: string | string[];
-    tool?: string | string[];
-    reportsTo?: string;
-    contextLevel?: string | string[];
-  };
-  skillsList: { query?: string; agent?: string };
-  skillsAdd: { agent: string; skill: string };
-  skillsRemove: { agent: string; skill: string };
-  // ── Tools commands ───────────────────────────────────────────────────────
-  toolsList: { agent?: string };
-  toolsAllow: { agent: string; tool: string; requestedBy?: string; approvedByUser?: boolean };
-  toolsDeny: { agent: string; tool: string; requestedBy?: string; approvedByUser?: boolean };
-  // ── Files commands ───────────────────────────────────────────────────────
-  filesTree: {
-    agent?: string;
-    depth?: number;
-    all?: boolean;
-    noGitignore?: boolean;
-    writeable?: boolean;
-  };
-  filesPatterns: { agent?: string };
-  filesAllow: {
-    path: string;
-    agent?: string;
-    mode?: string;
-    requestedBy?: string;
-    approvedByUser?: boolean;
-  };
-  filesDeny: {
-    path: string;
-    agent?: string;
-    mode?: string;
-    requestedBy?: string;
-    approvedByUser?: boolean;
-  };
-  // ── Utility commands ────────────────────────────────────────────────────────
-  systemInfo: Record<string, never>;
-  dbStatus: Record<string, never>;
-  dbMigrate: Record<string, never>;
-  codeEditList: { status?: string; agent?: string };
-  codeEditApprove: { proposalId: string };
-  codeEditReject: { proposalId: string; reason?: string };
-  codeEditApply: { proposalId: string };
-  patchApply: { file: string; changes: Array<{ line: number; content: string }> };
-  // ── Chat-only slash commands ──────────────────────────────────────────────
-  help: Record<string, never>;
-  who: Record<string, never>;
-  session: Record<string, never>;
-  new: Record<string, never>;
-  history: { limit?: number };
-  portfolio: Record<string, never>;
-  info: { query: string };
-  overview: Record<string, never>;
-  graph: Record<string, never>;
-  run: { command: string };
-  tool: { toolName: string; args?: unknown };
-  back: Record<string, never>;
-}
-
-export interface InteractionRequest<
-  TCommand extends keyof AiTeamCommandPayloadMap = keyof AiTeamCommandPayloadMap,
-> {
+export interface InteractionRequest {
   requestId?: string;
-  command: TCommand;
-  payload: AiTeamCommandPayloadMap[TCommand];
+  command: string;
+  payload: unknown;
 }
 
 // ── Command Dispatcher ────────────────────────────────────────────────────────
@@ -474,7 +311,7 @@ export interface CommandAvailability {
 
 /** Read-only descriptor exposed by the dispatcher for discovery. */
 export interface CommandDescriptor {
-  key: AiTeamCommandName;
+  key: string;
   aliases?: string[];
   description: string;
   usage?: string;
@@ -489,28 +326,27 @@ export interface CommandDescriptor {
  * every command callable as `{ command, payload }`.
  */
 export interface ICommandDispatcher {
-  dispatch<TCommand extends AiTeamCommandName>(
-    request: InteractionRequest<TCommand>,
+  dispatch(
+    request: InteractionRequest,
     context?: InteractionContext
-  ): Promise<AiTeamCommandResponseMap[TCommand]>;
+  ): Promise<CommandResponse<unknown>>;
 
   getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[];
-  getCommand(key: AiTeamCommandName): CommandDescriptor | undefined;
+  getCommand(key: string): CommandDescriptor | undefined;
 }
 
 export interface ToolRuntimePayloadEvent {
   toolName: string;
   outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
   request?: unknown;
-  result?: unknown;
+  /** Terminal tool phases carry the normalized command-style response envelope. */
+  commandResponse?: CommandResponse;
   /** LLM-formatted representation of result — what was injected into the model's context window. */
   resultLlm?: unknown;
   denial?: ToolDenialEvent;
 }
 
-export type StreamEvent<
-  TCommand extends AiTeamCommandName & keyof AiTeamCommandResponseMap = AiTeamCommandName,
-> =
+export type StreamEvent<TCommand extends string = string> =
   | {
       requestId?: string;
       toolCallId?: string;
@@ -659,7 +495,7 @@ export type StreamEvent<
       command: TCommand;
       kind: 'result';
       timestamp: string;
-      data: AiTeamCommandResponseMap[TCommand];
+      data: CommandResponse<unknown>;
     }
   | {
       requestId?: string;
@@ -837,70 +673,6 @@ export interface CreateAgentSetupInput {
   llm?: LlmProfile;
 }
 
-export interface AiTeamCommandResponseMap {
-  listEmployees: Agent[];
-  resolveEmployees: Agent[];
-  getTeamGraph: GraphData;
-  getOrganizationGraph: GraphData;
-  create: void;
-  chat: void;
-  hire: void;
-  fire: void;
-  init: void;
-  setup: void;
-  onboard: void;
-  systemStatus: SystemStatus;
-  hhRefresh: void;
-  providerConfigure: void;
-  providerAdd: void;
-  providerSet: void;
-  providerList: void;
-  providerModels: void;
-  providerModelsRefresh: void;
-  testConnection: void;
-  avatar: void;
-  // ── Access commands ────────────────────────────────────────────────────────
-  accessWho: WhoHasPermissionResponse;
-  accessCan: DoIHavePermissionResponse;
-  accessOverlap: PermissionOverlapReport;
-  // ── Search & skills commands ────────────────────────────────────────────────
-  searchAgents: SearchAgentsResponse;
-  skillsList: SearchSkillsResponse;
-  skillsAdd: UpdateAgentSkillResponse;
-  skillsRemove: UpdateAgentSkillResponse;
-  // ── Tools commands ───────────────────────────────────────────────────────
-  toolsList: ListToolsResponse;
-  toolsAllow: UpdateAgentToolResponse;
-  toolsDeny: UpdateAgentToolResponse;
-  // ── Files commands ───────────────────────────────────────────────────────
-  filesTree: FilesTreeResponse;
-  filesPatterns: FilesPatternsResponse;
-  filesAllow: { paths: string[] };
-  filesDeny: { paths: string[] };
-  // ── Utility commands ────────────────────────────────────────────────────────
-  systemInfo: SystemInfoResponse;
-  dbStatus: DbStatusResponse;
-  dbMigrate: DbMigrateResponse;
-  codeEditList: CodeEditListResponse;
-  codeEditApprove: { proposalId: string };
-  codeEditReject: { proposalId: string };
-  codeEditApply: { proposalId: string; files: string[] };
-  patchApply: { proposalId: string; patchedLines: number };
-  // ── Chat-only slash commands ──────────────────────────────────────────────
-  help: void;
-  who: void;
-  session: void;
-  new: void;
-  history: void;
-  portfolio: void;
-  info: void;
-  overview: void;
-  graph: void;
-  run: void;
-  tool: void;
-  back: void;
-}
-
 export interface ToolDenialEvent {
   kind: 'user-denied' | 'policy-denied' | 'execution-failed';
   reasonCode: string;
@@ -944,7 +716,7 @@ export type QuestionEventName = keyof QuestionHandlerMap;
  * for await (const event of stream) { ... }
  * ```
  */
-export interface IInteractionStream<TCommand extends AiTeamCommandName> extends AsyncIterable<
+export interface IInteractionStream<TCommand extends string = string> extends AsyncIterable<
   StreamEvent<TCommand>
 > {
   on<K extends QuestionEventName>(event: K, handler: QuestionHandlerMap[K]): this;
@@ -972,8 +744,8 @@ export interface IQuestionContext {
  * web frontend.
  */
 export interface IStreamingClient {
-  stream<TCommand extends AiTeamCommandName>(
-    request: InteractionRequest<TCommand>,
+  stream<TCommand extends string = string>(
+    request: InteractionRequest,
     options?: { signal?: AbortSignal }
   ): IInteractionStream<TCommand>;
 }

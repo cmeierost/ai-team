@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { AgentNotFoundError, AmbiguousAgentQueryError } from '@ai-team/core';
 import { createAgentManager } from './index.js';
 
 const createdDirs: string[] = [];
@@ -123,5 +124,80 @@ describe('AgentManager syncHandoffs', () => {
     expect(manual).toHaveLength(1);
     expect(manual![0].label).toBe('Custom handoff');
     expect(auto!.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('AgentManager resolveAgentForOperationAsync', () => {
+  it('returns id/name/role for a single match', async () => {
+    const root = await createWorkspace();
+    await writeAgentMd(root, 'michael-brown', 'name: Michael Brown\nrole: cto\ncontextLevel: organization');
+
+    const mgr = createAgentManager(root);
+    const result = await mgr.resolveAgentForOperationAsync('cto', 'test operation');
+
+    expect(result).toEqual({
+      id: 'michael-brown',
+      name: 'Michael Brown',
+      role: 'cto',
+    });
+  });
+
+  it('throws AgentNotFoundError with operation context when no match exists', async () => {
+    const root = await createWorkspace();
+    await writeAgentMd(root, 'michael-brown', 'name: Michael Brown\nrole: cto\ncontextLevel: organization');
+
+    const mgr = createAgentManager(root);
+
+    await expect(mgr.resolveAgentForOperationAsync('unknown-agent', 'list sessions')).rejects.toThrow(
+      AgentNotFoundError
+    );
+    await expect(mgr.resolveAgentForOperationAsync('unknown-agent', 'list sessions')).rejects.toThrow(
+      /Cannot list sessions/
+    );
+  });
+
+  it('throws AmbiguousAgentQueryError when query matches multiple agents', async () => {
+    const root = await createWorkspace();
+    await writeAgentMd(root, 'dev-a', 'name: Dev A\nrole: developer\ncontextLevel: feature');
+    await writeAgentMd(root, 'dev-b', 'name: Dev B\nrole: developer\ncontextLevel: feature');
+
+    const mgr = createAgentManager(root);
+
+    await expect(mgr.resolveAgentForOperationAsync('developer', 'delegate task')).rejects.toThrow(
+      AmbiguousAgentQueryError
+    );
+  });
+});
+
+describe('AgentManager resolveAgentSafeAsync', () => {
+  it('returns a resolved summary for a unique match', async () => {
+    const root = await createWorkspace();
+    await writeAgentMd(root, 'sarah-lee', 'name: Sarah Lee\nrole: chief-architect\ncontextLevel: organization');
+
+    const mgr = createAgentManager(root);
+    const result = await mgr.resolveAgentSafeAsync('sarah');
+
+    expect(result).toEqual({
+      id: 'sarah-lee',
+      name: 'Sarah Lee',
+      role: 'chief-architect',
+    });
+  });
+
+  it('returns null when no match exists', async () => {
+    const root = await createWorkspace();
+    await writeAgentMd(root, 'sarah-lee', 'name: Sarah Lee\nrole: chief-architect\ncontextLevel: organization');
+
+    const mgr = createAgentManager(root);
+    await expect(mgr.resolveAgentSafeAsync('missing')).resolves.toBeNull();
+  });
+
+  it('returns null when query is ambiguous', async () => {
+    const root = await createWorkspace();
+    await writeAgentMd(root, 'dev-a', 'name: Dev A\nrole: developer\ncontextLevel: feature');
+    await writeAgentMd(root, 'dev-b', 'name: Dev B\nrole: developer\ncontextLevel: feature');
+
+    const mgr = createAgentManager(root);
+    await expect(mgr.resolveAgentSafeAsync('developer')).resolves.toBeNull();
   });
 });

@@ -426,7 +426,16 @@ export interface SessionActivatedTool {
     toolName: string;
     outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
     request?: unknown;
-    result?: unknown;
+    commandResponse?: {
+      status: 'ok' | 'error';
+      message: string;
+      data?: unknown;
+      saveable?: unknown;
+      error?: {
+        code?: string;
+        details?: unknown;
+      };
+    };
     /** LLM-formatted representation — what was injected into the model's context window. */
     resultLlm?: unknown;
     denial?: {

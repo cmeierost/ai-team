@@ -367,6 +367,9 @@ importers:
 
   packages/api-contracts:
     dependencies:
+      '@ai-team/core':
+        specifier: workspace:*
+        version: link:../core
       '@ts-http/core':
         specifier: ^0.0.5
         version: 0.0.5
@@ -636,6 +639,9 @@ importers:
       parse-diff:
         specifier: ^0.11.1
         version: 0.11.1
+      pdf-parse:
+        specifier: ^2.4.5
+        version: 2.4.5
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
@@ -689,6 +695,9 @@ importers:
       '@types/node':
         specifier: ^25.5.0
         version: 25.5.2
+      '@types/pdf-parse':
+        specifier: ^1.1.5
+        version: 1.1.5
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1

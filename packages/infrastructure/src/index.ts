@@ -37,10 +37,12 @@ export {
   createModelDiscoveryRegistry,
 } from './llm/model-discovery.js';
 export { LlmProviderTester } from './llm/provider-tester.js';
+export { InfrastructureTextToolCallParser } from './llm/text-tool-call-parser.js';
 export * from './code-analysis/index.js';
 export * from './code-edit/index.js';
 export * from './ide/index.js';
 export * from './storage/index.js';
+export { NoteAttachmentReader } from './notes/note-attachment-reader.js';
 export { MessagesRepository } from './repositories/messages-repository.js';
 export { SessionsRepository } from './repositories/sessions-repository.js';
 export { NotesRepository } from './repositories/notes-repository.js';

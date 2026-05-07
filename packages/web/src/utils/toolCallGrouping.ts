@@ -149,7 +149,8 @@ function mergeToolEventTransitions(events: SessionActivatedTool[]): SessionActiv
             toolName: mergedToolName,
             outcome: mergedOutcome,
             request: mergedRequest,
-            result: event.toolResult?.result ?? previous.toolResult?.result,
+            commandResponse:
+              event.toolResult?.commandResponse ?? previous.toolResult?.commandResponse,
             resultLlm: event.toolResult?.resultLlm ?? previous.toolResult?.resultLlm,
             denial: event.toolResult?.denial ?? previous.toolResult?.denial,
           };

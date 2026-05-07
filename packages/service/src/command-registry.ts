@@ -1,5 +1,7 @@
-import { buildChatCommandRegistry, buildChatCommandAliases } from './orchestrator/slash-commands.js';
-export type { ChatCommandRegistryEntry } from './orchestrator/slash-commands.js';
+import {
+	buildChatCommandRegistry,
+	buildChatCommandAliases,
+} from './commands/chat/chat-commands.command.js';
 /**
  * Flat registry of in-chat slash commands.
  * Derived from the ISlashCommand objects in slash-commands.ts (single source of truth).

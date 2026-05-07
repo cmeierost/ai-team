@@ -12,8 +12,8 @@ import {
   disallowToolCommand,
   toolAllowCommand,
   toolDenyCommand,
-} from '../commands/tools.js';
-import { BadRequestError } from '../http-errors.js';
+} from '../commands/tools/tools.js';
+import { BadRequestError } from '@ai-team/core';
 
 export class ToolsService implements IToolsService {
   constructor(

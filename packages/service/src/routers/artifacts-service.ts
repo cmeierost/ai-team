@@ -1,6 +1,6 @@
 import type { IArtifactsService } from '@ai-team/api-contracts';
 import type { SessionManager } from '../session-manager.js';
-import { NotFoundError } from '../http-errors.js';
+import { NotFoundError } from '@ai-team/core';
 
 export class ArtifactsService implements IArtifactsService {
   constructor(private readonly sessionManager: SessionManager) {}

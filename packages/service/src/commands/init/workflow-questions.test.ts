@@ -3,9 +3,9 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 const askExecute = vi.hoisted(() => vi.fn());
 
 vi.mock('../../tools/orchestration-tools.js', () => ({
-  createAskUserTool: () => ({
-    execute: askExecute,
-  }),
+  AskUserTool: class {
+    execute = askExecute;
+  },
 }));
 
 import {

@@ -7,12 +7,21 @@
 
 // Type definitions and schemas only
 export * from './types/index.js';
+export {
+  ApplicationError,
+  BadRequestError,
+  NotFoundError,
+  ForbiddenError,
+  ConflictError,
+  InternalError,
+} from './errors/application-errors.js';
 export * from './repositories/index.js';
 export * from './storage/index.js';
 export { IAvatarManager } from './agent/avatar.js';
 export { ITeamGraphBuilder } from './agent/team-graph-builder.js';
 export type {
   ILlmService,
+  ITextToolCallParser,
   LlmDiagnosticMessage,
   LlmDiagnosticReporter,
   LlmChatOptions,
@@ -34,7 +43,19 @@ export type {
   GetFileTreeOptions,
   IFileTreeService,
   IFileAnnotationService,
+  IIdeAdapterFactory,
+  IWorkspaceAccessRuntime,
+  IWorkspaceFs,
+  IWorkspaceFsFactory,
 } from './context/index.js';
+export {
+  checkPathRight,
+  resolveWorkspacePathMeta,
+  type WorkspacePathMeta,
+} from './context/index.js';
+export type { IProposalStoreFactory } from './storage/index.js';
+export type { ITypeScriptAnalyzer } from './code-analysis/typescript-analyzer.js';
+export type { INoteAttachmentReader } from './repositories/notes-repository.js';
 export type {
   ISkillManager,
   ResolvedAgentSkills,

@@ -15,6 +15,8 @@
 import type {
   AgentTool,
   ChatMessage,
+  CommandResponse,
+  ICommand,
   ILlmChatMessageParam,
   Skill,
   StructuredToolResult,
@@ -160,23 +162,7 @@ export interface ITurnResultParser {
 
 // ── 10. Slash Command ─────────────────────────────────────────────────────────
 
-/**
- * A single in-chat slash command (e.g. /who, /history, /switch).
- * Registered into SlashCommandRegistry at startup via orchestrator plugins.
- * Adding a new command = implementing this interface + registering it.
- * The chat loop never changes.
- */
-export interface ISlashCommand {
-  /** Primary key, without the leading '/'. e.g. "who" → triggered by /who */
-  readonly key: string;
-  readonly aliases?: string[];
-  readonly description: string;
-  /** Brief usage example shown in /help, e.g. '/chat <name|role>'. Defaults to '/<key>'. */
-  readonly usage?: string;
-  /** When true, the LLM may invoke this command on behalf of the developer. */
-  readonly llmCallable?: boolean;
-  execute(rawArgs: string, ctx: OrchestratorContext): Promise<void>;
-}
+export type SlashCommand = ICommand<string, OrchestratorContext, CommandResponse | void>;
 
 // ── 11. Hook Plugins (multi-hook extension points) ──────────────────────────
 
@@ -263,7 +249,7 @@ export interface OrchestratorPlugins {
   llmSelector?: ILlmSelector;
   outputHandler?: IOutputHandler;
   /** Additional slash commands merged with the built-in set. */
-  slashCommands?: ISlashCommand[];
+  slashCommands?: SlashCommand[];
   /** Turn-result parsers replacing the built-in set when provided. */
   turnResultParsers?: ITurnResultParser[];
   /** Hook plugins merged with the built-in set. */
@@ -284,7 +270,7 @@ export interface ResolvedPlugins {
   mcpGateway: IMcpGateway;
   llmSelector: ILlmSelector;
   outputHandler: IOutputHandler;
-  slashCommands: ISlashCommand[];
+  slashCommands: SlashCommand[];
   turnResultParsers: ITurnResultParser[];
   /** Optional for backward compatibility in tests; default resolves to []. */
   hookPlugins?: IOrchestratorHookPlugin[];

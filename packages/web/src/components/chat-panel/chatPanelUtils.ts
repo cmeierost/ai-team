@@ -18,6 +18,35 @@ type PersistedToolCall = {
 
 type ToolDenial = NonNullable<NonNullable<SessionActivatedTool['toolResult']>['denial']>;
 
+type CommandResponseLike = {
+  status: 'ok' | 'error';
+  message: string;
+  data?: unknown;
+};
+
+function toRuntimeCommandResponse(
+  toolName: string,
+  outcome: 'result' | 'error' | 'denied',
+  result: unknown,
+  message?: string
+): CommandResponseLike {
+  return {
+    status: outcome === 'result' ? 'ok' : 'error',
+    message:
+      message ??
+      (outcome === 'result' ? `${toolName} completed.` : `${toolName} failed.`),
+    data: result,
+  };
+}
+
+type SlashCommandResponseHandler = (response: CommandResponseLike) => string | undefined;
+
+const SLASH_COMMAND_RESPONSE_HANDLERS: Record<string, SlashCommandResponseHandler> = {
+  who: (response) =>
+    typeof response.data === 'string' && response.data.trim() ? response.data : response.message,
+  help: (response) => response.message,
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -41,6 +70,34 @@ function extractErrorMessage(call: PersistedToolCall): string | undefined {
 
 function inferErrorLikeText(value: string): boolean {
   return /\b(fetch failed|failed|error|timeout|timed out|refused|unreachable)\b/i.test(value);
+}
+
+function isCommandResponseLike(value: unknown): value is CommandResponseLike {
+  if (!isRecord(value)) return false;
+  return (
+    (value.status === 'ok' || value.status === 'error') &&
+    typeof value.message === 'string'
+  );
+}
+
+export function resolveRuntimeToolEventMessage(event: {
+  toolName?: string;
+  message?: string;
+  toolResult?: SessionActivatedTool['toolResult'];
+}): string | undefined {
+  const toolName = event.toolName ?? '';
+  if (!toolName.startsWith('slash:')) {
+    return event.message;
+  }
+
+  const commandKey = toolName.slice('slash:'.length);
+  const commandResponse = event.toolResult?.commandResponse;
+  if (!isCommandResponseLike(commandResponse)) {
+    return event.message;
+  }
+
+  const handler = SLASH_COMMAND_RESPONSE_HANDLERS[commandKey];
+  return handler?.(commandResponse) ?? commandResponse.message;
 }
 
 export function getPersistedToolStatus(call: PersistedToolCall): {
@@ -219,7 +276,12 @@ export function reconstructActivatedToolsFromMessages(
         toolName,
         outcome: status.outcome,
         request: persistedCall?.params,
-        result: persistedCall?.result,
+        commandResponse: toRuntimeCommandResponse(
+          toolName,
+          status.outcome,
+          persistedCall?.result,
+          status.message
+        ),
         resultLlm: persistedCall?.resultLlm,
         denial: status.denial,
       },

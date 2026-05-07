@@ -1,13 +1,12 @@
 /**
- * HTTP error classes — re-exported from @ai-team/service so service-layer
- * controllers and api-server handlers share the same class instances,
- * which is required for `instanceof` checks in the error-handler middleware.
+ * Application error classes — re-exported from @ai-team/core so api-server handlers
+ * and consumers share the same class instances, which is required for `instanceof` checks.
  */
 export {
-  HttpError,
+  ApplicationError,
   BadRequestError,
   NotFoundError,
   ForbiddenError,
   ConflictError,
   InternalError,
-} from '@ai-team/service';
+} from '@ai-team/core';
