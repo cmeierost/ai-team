@@ -34,58 +34,6 @@ export interface DiffOptions {
 }
 
 /**
- * Builds unified diffs between old and new versions of code
+ * Options for diff generation
+ * Moved to infrastructure - no longer exported from core
  */
-export interface IDiffBuilder {
-  /**
-   * Create a unified diff between two versions of a file
-   */
-  createDiff(
-    filePath: string,
-    oldContent: string,
-    newContent: string,
-    options: DiffOptions
-  ): StructuredDiff;
-  createDiff(filePath: string, oldContent: string, newContent: string): StructuredDiff;
-
-  /**
-   * Create diffs for multiple files
-   */
-  createMultiFileDiff(
-    files: Array<{ filePath: string; oldContent: string; newContent: string }>,
-    options: DiffOptions
-  ): StructuredDiff[];
-  createMultiFileDiff(
-    files: Array<{ filePath: string; oldContent: string; newContent: string }>
-  ): StructuredDiff[];
-
-  /**
-   * Apply a diff to content (patch)
-   */
-  applyDiff(originalContent: string, unifiedDiff: string): string | null;
-
-  /**
-   * Format a diff for terminal display with ANSI colors
-   */
-  formatForTerminal(diff: StructuredDiff): string;
-
-  /**
-   * Get a summary of changes
-   */
-  getSummary(diffs: StructuredDiff[]): {
-    filesChanged: number;
-    totalAdditions: number;
-    totalDeletions: number;
-    files: string[];
-  };
-
-  /**
-   * Check if a diff has any changes
-   */
-  hasChanges(diff: StructuredDiff): boolean;
-
-  /**
-   * Filter out diffs with no changes
-   */
-  filterEmptyDiffs(diffs: StructuredDiff[]): StructuredDiff[];
-}

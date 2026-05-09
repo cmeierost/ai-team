@@ -45,7 +45,7 @@ permissions:
     - .github/copilot-instructions.md
     - ARCHITECTURE.md
     - COPILOT-CONTEXT.md
-    - packages/api-client/**/*
+    - packages/api-contracts/**/*
     - packages/ide-interface/**/*
     - packages/service/src/contracts.ts
   write:

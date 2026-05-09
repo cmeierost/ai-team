@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AskUserTool } from './orchestration-tools.js';
+import { AskUserCommand } from '../commands/com/ask.command.js';
 
 function makeContext(overrides: Record<string, unknown> = {}) {
   return {
@@ -10,12 +10,12 @@ function makeContext(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
-describe('AskUserTool', () => {
+describe('AskUserCommand', () => {
   it('passes workflow metadata through in tool result payload', async () => {
-    const tool = new AskUserTool();
+    const command = new AskUserCommand();
     const questionInput = vi.fn(async () => 'approved');
 
-    const result = await tool.execute(
+    const result = await command.execute(
       {
         kind: 'input',
         message: 'Provide decision',
@@ -26,7 +26,8 @@ describe('AskUserTool', () => {
           continuationToken: 'cont-abc',
         },
       },
-      makeContext({ questionInput })
+      makeContext({ questionInput }),
+      { invocationSurface: 'tool', workspaceRoot: 'c:/workspace', agentId: 'michael-brown' }
     );
 
     expect(result).toEqual(
@@ -45,10 +46,10 @@ describe('AskUserTool', () => {
   });
 
   it('falls back to questionInput for select when questionSelect is missing', async () => {
-    const tool = new AskUserTool();
+    const command = new AskUserCommand();
     const questionInput = vi.fn(async () => 'ai-team-context');
 
-    const result = await tool.execute(
+    const result = await command.execute(
       {
         kind: 'select',
         message: 'Which topic?',
@@ -57,7 +58,8 @@ describe('AskUserTool', () => {
           { name: 'Tooling', value: 'tooling' },
         ],
       },
-      makeContext({ questionInput })
+      makeContext({ questionInput }),
+      { invocationSurface: 'tool', workspaceRoot: 'c:/workspace', agentId: 'michael-brown' }
     );
 
     expect(questionInput).toHaveBeenCalledTimes(1);
@@ -67,10 +69,10 @@ describe('AskUserTool', () => {
   });
 
   it('falls back to questionInput for checklist when questionChecklist is missing', async () => {
-    const tool = new AskUserTool();
+    const command = new AskUserCommand();
     const questionInput = vi.fn(async () => 'a, c');
 
-    const result = await tool.execute(
+    const result = await command.execute(
       {
         kind: 'checklist',
         message: 'Pick topics',
@@ -80,7 +82,8 @@ describe('AskUserTool', () => {
           { name: 'C', value: 'c' },
         ],
       },
-      makeContext({ questionInput })
+      makeContext({ questionInput }),
+      { invocationSurface: 'tool', workspaceRoot: 'c:/workspace', agentId: 'michael-brown' }
     );
 
     expect(result).toEqual(
@@ -89,16 +92,17 @@ describe('AskUserTool', () => {
   });
 
   it('falls back to questionInput for confirm when questionConfirm is missing', async () => {
-    const tool = new AskUserTool();
+    const command = new AskUserCommand();
     const questionInput = vi.fn(async () => 'yes');
 
-    const result = await tool.execute(
+    const result = await command.execute(
       {
         kind: 'confirm',
         message: 'Proceed?',
         defaultBoolean: false,
       },
-      makeContext({ questionInput })
+      makeContext({ questionInput }),
+      { invocationSurface: 'tool', workspaceRoot: 'c:/workspace', agentId: 'michael-brown' }
     );
 
     expect(result).toEqual(

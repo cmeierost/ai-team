@@ -128,7 +128,7 @@ packages/web/
 ### API Integration
 - Web UI connects to API server at **http://localhost:3002** (when running locally)
 - API client configured in `src/context/TeamContext.tsx`
-- Uses `@ai-team/api-client-http` for HTTP + WebSocket communication
+- Uses `@ts-http` for HTTP + WebSocket communication
 
 ### Type Safety
 - **IMPORTANT**: `packages/web/src/types.ts` contains browser-safe types

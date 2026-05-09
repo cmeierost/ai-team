@@ -117,9 +117,10 @@ import {
   MetaService,
   CommandsService,
   AccessService,
+  getWorkflowDefinitionResolvers,
+  listWorkflowDefinitionIds,
 } from '@ai-team/service';
 import { ChatCommand } from '@ai-team/service/src/commands/chat/index.js';
-import { registerDefaultCommandDefinitions } from './command-definitions/index.js';
 import { Token } from './token.js';
 
 export const SERVERTokens = {} as const;
@@ -356,6 +357,22 @@ function registerBaseServices(
           manager.whoCanExecute(toolName, args, agents),
         catalog: (agent: Agent) => manager.catalog(agent),
       },
+      workflows: {
+        listWorkflowIds: () => listWorkflowDefinitionIds(),
+        getWorkflowDefinition: async (workflowId: string) => {
+          const resolvers = getWorkflowDefinitionResolvers();
+          const resolver = resolvers[workflowId as keyof typeof resolvers];
+          if (!resolver) {
+            throw new Error(`Workflow definition '${workflowId}' is not available.`);
+          }
+          return {
+            workflowId,
+            format: resolver.format,
+            definitionJson: resolver.getJson(),
+            definitionYaml: resolver.getYaml(),
+          };
+        },
+      },
     };
     manager = createToolManager(c.resolve(tokens.WorkspaceRoot), orchestrationDeps, {
       pathPermissionChecker: c.resolve(tokens.PathPermissionChecker),
@@ -377,16 +394,24 @@ function registerBaseServices(
     new TeamRosterEnricher(),
   ]);
   c.registerSingleton(tokens.RagProvider, () => new NoOpRagProvider());
-  c.registerSingleton(tokens.ToolResolver, () => new DefaultToolResolver());
+  c.registerSingleton(tokens.ToolResolver, (c) =>
+    new DefaultToolResolver(c.resolve(tokens.ToolManager))
+  );
   c.registerSingleton(tokens.McpGateway, () => new NoOpMcpGateway());
   c.registerSingleton(tokens.LlmSelector, () => new DefaultLlmSelector());
   c.registerSingleton(tokens.OutputHandler, () => new DefaultOutputHandler());
-  c.registerSingleton(tokens.SlashCommands, () => buildDefaultSlashCommands());
+  c.registerSingleton(tokens.SlashCommands, (c) =>
+    buildDefaultSlashCommands({
+      contextService: {
+        getContextEstimate: (...args) =>
+          c.resolve(tokens.MetaService).getContextEstimate(...(args as [string, { sessionId?: string }?])),
+      },
+    })
+  );
   c.registerSingleton(tokens.TurnResultParsers, () => buildDefaultTurnResultParsers());
   c.registerSingleton(tokens.HookPlugins, () => buildDefaultHookPlugins());
   c.registerSingleton(COMMAND_DEFINITION_REGISTRY_TOKEN, () => {
     const registry = createCommandDefinitionRegistry();
-    registerDefaultCommandDefinitions(registry);
     return registry;
   });
 

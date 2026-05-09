@@ -35,6 +35,7 @@ export async function* streamInteraction<TCommand extends string = string>(
   const timestamp = options.timestamp ?? (() => new Date().toISOString());
   const translateRuntimeEvent = options.translateRuntimeEvent ?? runtimeEventToStreamEvent;
   const normalizeError = options.normalizeError ?? defaultNormalizeError;
+  const command = options.request.command as TCommand;
 
   const runtimeQueue: RuntimeStreamEvent[] = [];
   let runtimeWaiter: (() => void) | undefined;
@@ -81,7 +82,7 @@ export async function* streamInteraction<TCommand extends string = string>(
     notifyTerminalState('aborted');
     yield emitStreamEvent({
       requestId: options.request.requestId,
-      command: options.request.command,
+      command,
       kind: 'aborted',
       timestamp: timestamp(),
     });
@@ -90,7 +91,7 @@ export async function* streamInteraction<TCommand extends string = string>(
 
   yield emitStreamEvent({
     requestId: options.request.requestId,
-    command: options.request.command,
+    command,
     kind: 'started',
     timestamp: timestamp(),
   });
@@ -116,7 +117,7 @@ export async function* streamInteraction<TCommand extends string = string>(
       notifyTerminalState('aborted');
       yield emitStreamEvent({
         requestId: options.request.requestId,
-        command: options.request.command,
+        command,
         kind: 'aborted',
         timestamp: timestamp(),
       });
@@ -167,7 +168,7 @@ export async function* streamInteraction<TCommand extends string = string>(
 
     const streamEvent = translateRuntimeEvent(runtimeEvent, {
       requestId: options.request.requestId,
-      command: options.request.command,
+      command,
       timestamp: timestamp(),
     });
     if (!streamEvent) {
@@ -181,7 +182,7 @@ export async function* streamInteraction<TCommand extends string = string>(
     notifyTerminalState('aborted');
     yield emitStreamEvent({
       requestId: options.request.requestId,
-      command: options.request.command,
+      command,
       kind: 'aborted',
       timestamp: timestamp(),
     });
@@ -193,7 +194,7 @@ export async function* streamInteraction<TCommand extends string = string>(
     notifyTerminalState('error');
     yield emitStreamEvent({
       requestId: options.request.requestId,
-      command: options.request.command,
+      command,
       kind: 'error',
       timestamp: timestamp(),
       message: normalizedError.message,
@@ -204,14 +205,14 @@ export async function* streamInteraction<TCommand extends string = string>(
   try {
     yield emitStreamEvent({
       requestId: options.request.requestId,
-      command: options.request.command,
+      command,
       kind: 'result',
       timestamp: timestamp(),
       data: data ?? { status: 'error' as const, message: 'No result' },
     });
     yield emitStreamEvent({
       requestId: options.request.requestId,
-      command: options.request.command,
+      command,
       kind: 'done',
       timestamp: timestamp(),
     });
@@ -221,7 +222,7 @@ export async function* streamInteraction<TCommand extends string = string>(
     notifyTerminalState('error');
     yield emitStreamEvent({
       requestId: options.request.requestId,
-      command: options.request.command,
+      command,
       kind: 'error',
       timestamp: timestamp(),
       message: normalizedError.message,

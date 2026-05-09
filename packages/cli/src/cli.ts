@@ -8,6 +8,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { createContainerWithBootstrap } from '@ai-team/container';
 import type { IServiceContainer } from '@ai-team/core';
+import type { InteractionContext } from '@ai-team/api-contracts';
 import { registerCliCommandCatalog, type CliCommandMetadata } from '@ai-team/infrastructure';
 import { CliCommandClient } from './cli-command-client.js';
 import {
@@ -104,13 +105,15 @@ function withCliErrorHandling<TArgs extends unknown[]>(
 function applyCommandMetadata(command: Command, metadata: CliCommandMetadata): Command {
   command.description(metadata.description);
 
+  const commandDeclaresArguments = /<[^>]+>|\[[^\]]+\]/.test(metadata.command);
+
   if (metadata.aliases) {
     for (const alias of metadata.aliases) {
       command.alias(alias);
     }
   }
 
-  if (metadata.arguments) {
+  if (metadata.arguments && !commandDeclaresArguments) {
     for (const argument of metadata.arguments) {
       command.argument(argument.syntax, argument.description);
     }
@@ -124,6 +127,13 @@ function applyCommandMetadata(command: Command, metadata: CliCommandMetadata): C
         command.option(option.flags, option.description);
       }
     }
+  }
+
+  if (
+    metadata.jsonSignature &&
+    !metadata.options?.some((option) => /--json(?:\s|$)/.test(option.flags))
+  ) {
+    command.option('--json <payload>', 'JSON payload signature for command input');
   }
 
   return command;
@@ -140,24 +150,195 @@ const commandClient = new CliCommandClient(
 
 type CliActionHandler = (...args: any[]) => Promise<unknown> | unknown;
 
-const directCliActionHandlers: Record<string, CliActionHandler> = {
-  init: (options) => renderInit(commandClient, options),
-  list: (options: { role?: string; feature?: string; json?: boolean }) =>
-    runCommandStream(
+interface ServiceCommandActionConfig {
+  command: string;
+  payload: (...args: unknown[]) => unknown;
+  resultHandler?: (data: unknown, args: unknown[]) => void;
+  useResultRegistry?: boolean;
+  jsonSignature?: boolean;
+}
+
+function parseJsonPayload(raw: unknown): unknown | undefined {
+  if (typeof raw !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+}
+
+function tryGetCommanderOptions(args: unknown[]): Record<string, unknown> | undefined {
+  const commandArg = args.find((arg) => arg instanceof Command) as Command | undefined;
+  if (commandArg) {
+    return (commandArg.opts() as Record<string, unknown>) ?? undefined;
+  }
+
+  for (let i = args.length - 1; i >= 0; i -= 1) {
+    const candidate = args[i];
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      return candidate as Record<string, unknown>;
+    }
+  }
+
+  return undefined;
+}
+
+function toCliInteractionContext(args: unknown[]): InteractionContext {
+  const options = tryGetCommanderOptions(args) ?? {};
+  const context: InteractionContext = {
+    ...(options as Record<string, unknown>),
+  } as InteractionContext;
+
+  (context as any).invocationSurface = 'cli';
+  (context as any).calledByHuman = true;
+
+  const sessionId =
+    options.sessionId ?? options.session ?? options['session-id'];
+  if (typeof sessionId === 'string' && sessionId.trim().length > 0) {
+    (context as any).sessionId = sessionId;
+  }
+
+  const workflowId = options.workflowId ?? options['workflow-id'];
+  if (typeof workflowId === 'string' && workflowId.trim().length > 0) {
+    (context as any).workflowId = workflowId;
+  }
+
+  const continuationToken =
+    options.workflowContinuationToken ?? options['workflow-continuation-token'];
+  if (typeof continuationToken === 'string' && continuationToken.trim().length > 0) {
+    (context as any).workflowState = {
+      workflowId: typeof workflowId === 'string' ? workflowId : '',
+      continuationToken,
+      answers: {},
+    };
+  }
+
+  return context;
+}
+
+function resolveServicePayload(config: ServiceCommandActionConfig, args: unknown[]): unknown {
+  if (config.jsonSignature ?? true) {
+    const options = tryGetCommanderOptions(args);
+    const jsonOption = options?.json;
+
+    if (typeof jsonOption === 'string') {
+      const parsed = parseJsonPayload(jsonOption);
+      if (parsed !== undefined) {
+        return parsed;
+      }
+    }
+
+    for (const arg of args) {
+      const parsed = parseJsonPayload(arg);
+      if (parsed !== undefined) {
+        return parsed;
+      }
+    }
+  }
+
+  return config.payload(...args);
+}
+
+function toArgumentName(syntax: string): string {
+  const match = syntax.match(/[<\[]([^>\]]+)[>\]]/);
+  if (!match?.[1]) {
+    return 'value';
+  }
+  return match[1].replace(/\.\.\.$/, '').trim() || 'value';
+}
+
+function createGenericPayloadBuilder(entry: CliCommandMetadata): (...args: unknown[]) => unknown {
+  return (...args: unknown[]) => {
+    const options = tryGetCommanderOptions(args) ?? {};
+    const positionals: string[] = [];
+
+    for (const arg of args) {
+      if (typeof arg === 'string') {
+        positionals.push(arg);
+      } else if (Array.isArray(arg) && arg.every((part) => typeof part === 'string')) {
+        positionals.push(...(arg as string[]));
+      }
+    }
+
+    if (positionals.length === 0) {
+      return options;
+    }
+
+    const payload: Record<string, unknown> = { ...options };
+    const declaredArgs = entry.arguments ?? [];
+    for (let i = 0; i < Math.min(positionals.length, declaredArgs.length); i += 1) {
+      payload[toArgumentName(declaredArgs[i].syntax)] = positionals[i];
+    }
+
+    if (positionals.length > declaredArgs.length) {
+      payload._ = positionals.slice(declaredArgs.length);
+      payload.raw = positionals.slice(declaredArgs.length).join(' ');
+    }
+
+    if (declaredArgs.length === 0 && positionals.length === 1) {
+      payload.value = positionals[0];
+    }
+
+    return payload;
+  };
+}
+
+function createDefaultRegistryAction(entry: CliCommandMetadata): CliActionHandler {
+  return createServiceCommandAction({
+    command: entry.key,
+    payload: createGenericPayloadBuilder(entry),
+    jsonSignature: entry.jsonSignature,
+    useResultRegistry: true,
+  });
+}
+
+function createServiceCommandAction(config: ServiceCommandActionConfig): CliActionHandler {
+  return (...args: unknown[]) => {
+    const interactionContext = toCliInteractionContext(args);
+
+    return runCommandStream(
       commandClient,
       {
-        command: 'listEmployees',
-        payload: { role: options.role, feature: options.feature },
+        command: config.command,
+        payload: resolveServicePayload(config, args),
       },
       {
-        resultHandler: (data) => renderAgentList(data, options),
+        resultHandler: config.resultHandler
+          ? (data) => config.resultHandler?.(data, args)
+          : undefined,
+        serviceContainer: config.useResultRegistry
+          ? (commandContainer as unknown as IServiceContainer)
+          : undefined,
+        rendererOptions: config.useResultRegistry ? args[0] : undefined,
+        interactionContext,
       }
-    ),
-  create: (type: string, options) =>
-    runCommandStream(commandClient, {
-      command: 'create',
-      payload: { type: type.toLowerCase(), options },
-    }),
+    );
+  };
+}
+
+const directCliActionHandlers: Record<string, CliActionHandler> = {
+  init: (options) => renderInit(commandClient, options),
+  list: createServiceCommandAction({
+    command: 'listEmployees',
+    payload: (options) => {
+      const typed = (options ?? {}) as { role?: string; feature?: string };
+      return { role: typed.role, feature: typed.feature };
+    },
+    resultHandler: (data, args) =>
+      renderAgentList(data as any, (args[0] ?? {}) as { role?: string; feature?: string; json?: boolean }),
+  }),
+  create: createServiceCommandAction({
+    command: 'create',
+    payload: (type, options) => ({ type: String(type).toLowerCase(), options }),
+  }),
   chat: (...rawArgs: unknown[]) => {
     let agentId: string | undefined;
     let messageParts: string[] | undefined;
@@ -245,66 +426,47 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
       mode: options.mode,
     });
   },
-  org: (options: { mermaid?: boolean; output?: string }) =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'getOrganizationGraph',
-        payload: {},
-      },
-      {
-        resultHandler: (data) => renderOrgGraph(data, options),
-      }
-    ),
-  hire: (options) =>
-    runCommandStream(commandClient, {
-      command: 'hire',
-      payload: { options },
+  org: createServiceCommandAction({
+    command: 'getOrganizationGraph',
+    payload: () => ({}),
+    resultHandler: (data, args) =>
+      renderOrgGraph(data as any, (args[0] ?? {}) as { mermaid?: boolean; output?: string }),
+  }),
+  hire: createServiceCommandAction({
+    command: 'hire',
+    payload: (options) => options ?? {},
+  }),
+  info: createServiceCommandAction({
+    command: 'resolveEmployees',
+    payload: (agentId, options) => ({
+      query: String(agentId),
+      json: (options as { json?: boolean } | undefined)?.json,
     }),
-  info: (agentId: string, options: { json?: boolean }) =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'resolveEmployees',
-        payload: { query: agentId },
-      },
-      {
-        resultHandler: (data) => renderAgentInfo(data, agentId, options),
-      }
-    ),
-  fire: (agentQuery: string, options: { force?: boolean }) =>
-    runCommandStream(commandClient, {
-      command: 'fire',
-      payload: { employeeQuery: agentQuery, options },
+    resultHandler: (data, args) =>
+      renderAgentInfo(data as any, String(args[0]), (args[1] ?? {}) as { json?: boolean }),
+  }),
+  fire: createServiceCommandAction({
+    command: 'fire',
+    payload: (agentQuery, options) => ({
+      employeeQuery: String(agentQuery),
+      options: options ?? {},
     }),
-  show: (agentId: string) =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'resolveEmployees',
-        payload: { query: agentId },
-      },
-      {
-        resultHandler: (data) =>
-          renderAgentInfo(data, agentId, { openAvatar: true, workspaceRoot }),
-      }
-    ),
-  avatar: (agentQuery: string) =>
-    runCommandStream(commandClient, {
-      command: 'avatar',
-      payload: { options: { agentQuery } },
-    }),
-  sysinfo: (options: { json?: boolean }) =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'systemInfo',
-        payload: {},
-      },
-      {
-        resultHandler: (data) => renderSysinfo(data, options),
-      }
-    ),
+  }),
+  show: createServiceCommandAction({
+    command: 'resolveEmployees',
+    payload: (agentId) => ({ query: String(agentId) }),
+    resultHandler: (data, args) =>
+      renderAgentInfo(data as any, String(args[0]), { openAvatar: true, workspaceRoot }),
+  }),
+  avatar: createServiceCommandAction({
+    command: 'avatar',
+    payload: (agentQuery) => ({ agentQuery: String(agentQuery) }),
+  }),
+  sysinfo: createServiceCommandAction({
+    command: 'systemInfo',
+    payload: (options) => ({ json: (options as { json?: boolean } | undefined)?.json }),
+    resultHandler: (data, args) => renderSysinfo(data as any, (args[0] ?? {}) as { json?: boolean }),
+  }),
   'code-edit': (options: {
     status?: string;
     agent?: string;
@@ -321,7 +483,7 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
           payload: { proposalId: options.approve },
         },
         {
-          resultHandler: (data) => renderCodeEditApprove(data),
+          resultHandler: (data) => renderCodeEditApprove(data as any),
         }
       );
     }
@@ -333,7 +495,7 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
           payload: { proposalId: options.reject },
         },
         {
-          resultHandler: (data) => renderCodeEditReject(data),
+          resultHandler: (data) => renderCodeEditReject(data as any),
         }
       );
     }
@@ -345,7 +507,7 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
           payload: { proposalId: options.apply },
         },
         {
-          resultHandler: (data) => renderCodeEditApply(data),
+          resultHandler: (data) => renderCodeEditApply(data as any),
         }
       );
     }
@@ -356,32 +518,20 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
         payload: { status: options.status, agent: options.agent },
       },
       {
-        resultHandler: (data) => renderCodeEditList(data, options),
+        resultHandler: (data) => renderCodeEditList(data as any, options),
       }
     );
   },
-  'db:status': () =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'dbStatus',
-        payload: {},
-      },
-      {
-        resultHandler: (data) => renderDbStatus(data),
-      }
-    ),
-  'db:migrate': () =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'dbMigrate',
-        payload: {},
-      },
-      {
-        resultHandler: (data) => renderDbMigrate(data),
-      }
-    ),
+  'db:status': createServiceCommandAction({
+    command: 'dbStatus',
+    payload: () => ({}),
+    resultHandler: (data) => renderDbStatus(data as any),
+  }),
+  'db:migrate': createServiceCommandAction({
+    command: 'dbMigrate',
+    payload: () => ({}),
+    resultHandler: (data) => renderDbMigrate(data as any),
+  }),
   patch: (file: string, line: string, content: string, rest: string[]) => {
     const changes: Array<{ line: number; content: string }> = [];
     const allPairs: Array<[string, string]> = [[line, content]];
@@ -402,34 +552,41 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
         payload: { file, changes },
       },
       {
-        resultHandler: (data) => renderPatchApply(data),
+        resultHandler: (data) => renderPatchApply(data as any),
       }
     );
   },
-  files: (options: {
-    depth?: string;
-    all?: boolean;
-    noGitignore?: boolean;
-    json?: boolean;
-    agent?: string;
-    writeable?: boolean;
-  }) =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'filesTree',
-        payload: {
-          agent: options.agent,
-          depth: options.depth ? Number.parseInt(options.depth, 10) : undefined,
-          all: options.all,
-          noGitignore: options.noGitignore,
-          writeable: options.writeable,
-        },
-      },
-      {
-        resultHandler: (data) => renderFilesTree(data, options),
-      }
-    ),
+  files: createServiceCommandAction({
+    command: 'filesTree',
+    payload: (options) => {
+      const typed = (options ?? {}) as {
+        depth?: string;
+        all?: boolean;
+        noGitignore?: boolean;
+        agent?: string;
+        writeable?: boolean;
+      };
+      return {
+        agent: typed.agent,
+        depth: typed.depth ? Number.parseInt(typed.depth, 10) : undefined,
+        all: typed.all,
+        noGitignore: typed.noGitignore,
+        writeable: typed.writeable,
+      };
+    },
+    resultHandler: (data, args) =>
+      renderFilesTree(
+        data as any,
+        (args[0] ?? {}) as {
+          depth?: string;
+          all?: boolean;
+          noGitignore?: boolean;
+          json?: boolean;
+          agent?: string;
+          writeable?: boolean;
+        }
+      ),
+  }),
   'files.allow': (
     p: string,
     options: {
@@ -450,75 +607,45 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
       mode?: string;
     }
   ) => renderFilesDeny(commandClient, p, options),
-  'files.patterns': (options: { agent?: string; json?: boolean }) =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'filesPatterns',
-        payload: { agent: options.agent },
-      },
-      {
-        resultHandler: (data) => renderFilesPatterns(data, options),
-      }
-    ),
-  tools: (options: { agent?: string; json?: boolean }) =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'toolsList',
-        payload: { agent: options.agent },
-      },
-      {
-        resultHandler: (data) => renderToolsList(data, options),
-      }
-    ),
+  'files.patterns': createServiceCommandAction({
+    command: 'filesPatterns',
+    payload: (options) => ({ agent: (options as { agent?: string } | undefined)?.agent }),
+    resultHandler: (data, args) =>
+      renderFilesPatterns(data as any, (args[0] ?? {}) as { agent?: string; json?: boolean }),
+  }),
+  tools: createServiceCommandAction({
+    command: 'toolsList',
+    payload: (options) => ({ agent: (options as { agent?: string } | undefined)?.agent }),
+    resultHandler: (data, args) =>
+      renderToolsList(data as any, (args[0] ?? {}) as { agent?: string; json?: boolean }),
+  }),
   access: () => undefined,
-  'access.who': (options: { path?: string; right?: 'read' | 'write' | 'list'; json?: boolean }) =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'accessWho',
-        payload: { path: options.path ?? '', right: options.right },
-      },
-      {
-        serviceContainer: commandContainer as unknown as IServiceContainer,
-        rendererOptions: options,
-      }
-    ),
-  'access.can': (options: {
-    path?: string;
-    right?: 'read' | 'write' | 'list';
-    agent?: string;
-    json?: boolean;
-  }) =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'accessCan',
-        payload: { path: options.path ?? '', right: options.right, agent: options.agent },
-      },
-      {
-        serviceContainer: commandContainer as unknown as IServiceContainer,
-        rendererOptions: options,
-      }
-    ),
-  'access.overlap': (options: {
-    mode?: 'files' | 'patterns';
-    right?: 'read' | 'write' | 'list';
-    agent?: string;
-    json?: boolean;
-  }) =>
-    runCommandStream(
-      commandClient,
-      {
-        command: 'accessOverlap',
-        payload: { mode: options.mode, right: options.right, agent: options.agent },
-      },
-      {
-        serviceContainer: commandContainer as unknown as IServiceContainer,
-        rendererOptions: options,
-      }
-    ),
+  'access.who': createServiceCommandAction({
+    command: 'accessWho',
+    payload: (options) => ({
+      path: (options as { path?: string } | undefined)?.path ?? '',
+      right: (options as { right?: 'read' | 'write' | 'list' } | undefined)?.right,
+    }),
+    useResultRegistry: true,
+  }),
+  'access.can': createServiceCommandAction({
+    command: 'accessCan',
+    payload: (options) => ({
+      path: (options as { path?: string } | undefined)?.path ?? '',
+      right: (options as { right?: 'read' | 'write' | 'list' } | undefined)?.right,
+      agent: (options as { agent?: string } | undefined)?.agent,
+    }),
+    useResultRegistry: true,
+  }),
+  'access.overlap': createServiceCommandAction({
+    command: 'accessOverlap',
+    payload: (options) => ({
+      mode: (options as { mode?: 'files' | 'patterns' } | undefined)?.mode,
+      right: (options as { right?: 'read' | 'write' | 'list' } | undefined)?.right,
+      agent: (options as { agent?: string } | undefined)?.agent,
+    }),
+    useResultRegistry: true,
+  }),
   'tools.allow': (options: {
     agent?: string;
     tool?: string;
@@ -533,6 +660,27 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
     approvedByUser?: boolean;
     json?: boolean;
   }) => renderToolsDeny(commandClient, options),
+  workflow: () => undefined,
+  'workflow.list': () =>
+    renderChat(
+      commandClient,
+      undefined,
+      {
+        message: '/workflow list',
+        oneShot: true,
+      },
+      false
+    ),
+  'workflow.show': (workflowId: string) =>
+    renderChat(
+      commandClient,
+      undefined,
+      {
+        message: `/workflow ${workflowId}`,
+        oneShot: true,
+      },
+      false
+    ),
   skills: (options: { query?: string; agent?: string; json?: boolean }) =>
     runCommandStream(
       commandClient,
@@ -541,7 +689,7 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
         payload: { query: options.query, agent: options.agent },
       },
       {
-        resultHandler: (data) => renderSkillsList(data, options),
+        resultHandler: (data) => renderSkillsList(data as any, options),
       }
     ),
   search: (
@@ -576,7 +724,7 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
       },
       {
         resultHandler: (data) =>
-          renderSearchResults(data, {
+          renderSearchResults(data as any, {
             query,
             json: options.json,
             hasFilters: Boolean(
@@ -602,7 +750,7 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
         payload: { agent: options.agent, skill: options.skill },
       },
       {
-        resultHandler: (data) => renderSkillsAdd(data, options),
+        resultHandler: (data) => renderSkillsAdd(data as any, options),
       }
     );
   },
@@ -616,7 +764,7 @@ const directCliActionHandlers: Record<string, CliActionHandler> = {
         payload: { agent: options.agent, skill: options.skill },
       },
       {
-        resultHandler: (data) => renderSkillsRemove(data, options),
+        resultHandler: (data) => renderSkillsRemove(data as any, options),
       }
     );
   },
@@ -680,9 +828,13 @@ function registerDirectCliCommands(
       : rootCommand;
 
     const command = applyCommandMetadata(parentCommand.command(entry.command), entry);
-    const actionHandler = actionHandlers[entry.key];
+    const actionHandler =
+      actionHandlers[entry.key] ??
+      (entry.llmCallable ? createDefaultRegistryAction(entry) : undefined);
     if (!actionHandler) {
-      throw new Error(`Direct CLI action handler missing for '${entry.key}'.`);
+      // Keep non-callable grouping commands (e.g. provider, access) action-less
+      // so Commander naturally routes to subcommands/help without dispatching.
+      return command;
     }
 
     command.action(withCliErrorHandling(actionHandler));
@@ -695,7 +847,7 @@ function registerDirectCliCommands(
   }
 }
 
-program.name('ai-team').description('Manage virtual AI development teams').version('0.1.0');
+program.name('ait').description('Manage virtual AI development teams').version('0.1.0');
 registerDirectCliCommands(program, CLI_COMMAND_REGISTRY, directCliActionHandlers);
 
 program.parse();

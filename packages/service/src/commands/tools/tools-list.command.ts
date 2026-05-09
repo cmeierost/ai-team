@@ -16,6 +16,7 @@ export class ToolsListCommand implements ICommand<Params, void, ListToolsRespons
   readonly cli = { command: 'tools' };
   readonly description = 'List available tools and optionally annotate permissions for an agent';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'tool';
   readonly parameters = ToolsListCommand.schema;
 
   constructor(

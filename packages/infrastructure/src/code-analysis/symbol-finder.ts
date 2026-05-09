@@ -1,6 +1,28 @@
 import { Parser, Language, Node as SyntaxNode } from 'web-tree-sitter';
 import { readFile } from 'node:fs/promises';
-import { type SymbolLocation } from '@ai-team/core';
+
+/**
+ * Symbol information found in code
+ */
+export interface SymbolLocation {
+  name: string;
+  kind:
+    | 'function'
+    | 'class'
+    | 'interface'
+    | 'type'
+    | 'variable'
+    | 'constant'
+    | 'method'
+    | 'property';
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  startColumn: number;
+  endColumn: number;
+  /** Context information (e.g., parent class for methods) */
+  context?: string;
+}
 
 /**
  * Tree-sitter based symbol finder for locating definitions in code

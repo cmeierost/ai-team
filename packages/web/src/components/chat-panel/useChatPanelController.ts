@@ -122,6 +122,7 @@ interface UseChatPanelControllerResult {
   sending: boolean;
   streaming: boolean;
   compressionInProgress: boolean;
+  chatError: string | null;
   messages: ChatMessage[];
   input: string;
   editingIndex: number | null;
@@ -211,6 +212,7 @@ interface UseChatPanelControllerResult {
   stopVoiceRecording: () => void;
   handleSend: () => Promise<void>;
   handleInterrupt: () => void;
+  dismissChatError: () => void;
   handleToggleArtifact: (artifactId: string) => Promise<void>;
   handleSwitchSession: (sessionId: string) => Promise<void>;
   handleDeleteSession: (deletedSessionId: string) => void;
@@ -244,6 +246,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [compressionInProgress, setCompressionInProgress] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentAgentId, setCurrentAgentId] = useState(agentId || '');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -1180,6 +1183,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     ttsSentenceBuffer.current = '';
 
     const messageContent = composedMessage.trim();
+    setChatError(null);
     const pendingIntroductionContent = isEphemeral ? messages[0]?.content : undefined;
     const userMessage: ChatMessage = {
       from: 'human',
@@ -1259,18 +1263,15 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     } catch (error) {
       console.error('Failed to send message:', error);
       const rawMessage = error instanceof Error ? error.message : 'Failed to send message';
-      const errorMessage: ChatMessage = {
-        from: currentAgentId || 'agent',
-        content: `Error: ${normalizeChatErrorMessage(rawMessage)}`,
-        timestamp: new Date().toISOString(),
-      };
+      setChatError(normalizeChatErrorMessage(rawMessage));
       setMessages((previous) => {
         const updated = [...previous];
         const index = assistantIndexRef.current;
         if (index >= 0 && index < updated.length) {
-          updated[index] = errorMessage;
-        } else {
-          updated.push(errorMessage);
+          const currentAssistantMessage = updated[index];
+          if (!currentAssistantMessage?.content?.trim()) {
+            updated.splice(index, 1);
+          }
         }
         return updated;
       });
@@ -2115,6 +2116,8 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     stopVoiceRecording,
     handleSend,
     handleInterrupt,
+    dismissChatError: () => setChatError(null),
+    chatError,
     handleToggleArtifact,
     handleSwitchSession,
     handleDeleteSession,

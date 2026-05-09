@@ -1,6 +1,4 @@
 import type {
-  AiTeamCommandName,
-  AiTeamCommandResponseMap,
   DoIHavePermissionResponse,
   PermissionOverlapReport,
   WhoHasPermissionResponse,
@@ -10,8 +8,8 @@ import { exec } from 'node:child_process';
 import chalk from 'chalk';
 import { renderAccessCan, renderAccessOverlap, renderAccessWho } from './access.js';
 
-export type CliResultHandler<TCommand extends AiTeamCommandName = AiTeamCommandName> = (
-  data: AiTeamCommandResponseMap[TCommand],
+export type CliResultHandler<TCommand extends string = string> = (
+  data: unknown,
   options?: unknown
 ) => void | Promise<void>;
 
@@ -25,11 +23,11 @@ export type CliAvatarPreviewHandler = (
 ) => void | Promise<void>;
 
 export interface ICliResultHandlerRegistry {
-  register<TCommand extends AiTeamCommandName>(
+  register<TCommand extends string>(
     command: TCommand,
     handler: CliResultHandler<TCommand>
   ): void;
-  resolve<TCommand extends AiTeamCommandName>(
+  resolve<TCommand extends string>(
     command: TCommand
   ): CliResultHandler<TCommand> | undefined;
   registerAvatarPreview(handler: CliAvatarPreviewHandler): void;
@@ -37,17 +35,17 @@ export interface ICliResultHandlerRegistry {
 }
 
 class CliResultHandlerRegistry implements ICliResultHandlerRegistry {
-  private readonly handlers = new Map<AiTeamCommandName, CliResultHandler>();
+  private readonly handlers = new Map<string, CliResultHandler>();
   private avatarPreviewHandler: CliAvatarPreviewHandler | undefined;
 
-  register<TCommand extends AiTeamCommandName>(
+  register<TCommand extends string>(
     command: TCommand,
     handler: CliResultHandler<TCommand>
   ): void {
     this.handlers.set(command, handler as CliResultHandler);
   }
 
-  resolve<TCommand extends AiTeamCommandName>(
+  resolve<TCommand extends string>(
     command: TCommand
   ): CliResultHandler<TCommand> | undefined {
     return this.handlers.get(command) as CliResultHandler<TCommand> | undefined;

@@ -20,6 +20,7 @@ export class FilesPatternsCommand implements ICommand<Params, void, FilesPattern
   readonly cli = { command: 'patterns', parentKey: 'files' };
   readonly description = 'List configured file permission patterns (global or per-agent)';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'fs';
   readonly parameters = FilesPatternsCommand.schema;
 
   constructor(

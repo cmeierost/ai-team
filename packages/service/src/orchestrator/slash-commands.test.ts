@@ -165,6 +165,85 @@ describe('/list slash command', () => {
   });
 });
 
+describe('/workflow slash command', () => {
+  it('delegates /workflow list to workflow_list tool', async () => {
+    const commands = buildDefaultSlashCommands();
+    const workflowCommand = commands.find((c) => c.key === 'workflow');
+    expect(workflowCommand).toBeDefined();
+    if (!workflowCommand) {
+      throw new Error('Expected /workflow command to be registered');
+    }
+
+    const execute = vi.fn(async () => ({
+      ok: true,
+      result: {
+        type: 'workflow_list_result',
+        workflows: ['chat-full-loop', 'chat-send-turn'],
+      },
+    }));
+    const emit = vi.fn();
+
+    const ctx: OrchestratorContext = {
+      agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
+      workspaceRoot: '/workspace',
+      sessionId: 'sess-1',
+      hooks: { emit } as any,
+      toolManager: { execute } as any,
+      sessionManager: {} as any,
+      agentManager: {} as any,
+      skillManager: {} as any,
+      llmService: {} as any,
+      contextManager: {} as any,
+      history: [],
+    };
+
+    await workflowCommand.execute('list', ctx);
+
+    expect(execute).toHaveBeenCalledWith(
+      ctx.agent,
+      'workflow_list',
+      {},
+      { agentId: 'michael-brown', workspaceRoot: '/workspace' }
+    );
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'log', level: 'info' }));
+  });
+
+  it('delegates /workflow <id> to workflow_<id> tool', async () => {
+    const commands = buildDefaultSlashCommands();
+    const workflowCommand = commands.find((c) => c.key === 'workflow');
+    expect(workflowCommand).toBeDefined();
+    if (!workflowCommand) {
+      throw new Error('Expected /workflow command to be registered');
+    }
+
+    const execute = vi.fn(async () => ({ ok: true, result: { workflowId: 'chat-send-turn' } }));
+    const emit = vi.fn();
+
+    const ctx: OrchestratorContext = {
+      agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
+      workspaceRoot: '/workspace',
+      sessionId: 'sess-1',
+      hooks: { emit } as any,
+      toolManager: { execute } as any,
+      sessionManager: {} as any,
+      agentManager: {} as any,
+      skillManager: {} as any,
+      llmService: {} as any,
+      contextManager: {} as any,
+      history: [],
+    };
+
+    await workflowCommand.execute('chat-send-turn', ctx);
+
+    expect(execute).toHaveBeenCalledWith(
+      ctx.agent,
+      'workflow_chat-send-turn',
+      {},
+      { agentId: 'michael-brown', workspaceRoot: '/workspace' }
+    );
+  });
+});
+
 describe('/context slash command', () => {
   it('hides the latest visible non-human message on /context remove', async () => {
     const commands = buildDefaultSlashCommands();

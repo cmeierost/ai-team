@@ -21,7 +21,7 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 - Keep `@ai-team/core` UI-free.
 - Keep orchestration in `@ai-team/service`.
 - Keep container primitives in `@ai-team/container` and service-specific registrations in `@ai-team/service`.
-- Treat `@ai-team/api-client` (local/in-process) and `@ai-team/api-client-http` (remote/browser) as different clients.
+- Treat `@ai-team/api-contracts` (service interfaces) and `@ts-http` (remote/browser) as different clients.
 - Keep `@ai-team/vscode` as a thin IDE adapter over shared contracts.
 - In web: TanStack Query for server state; Zustand for live runtime client state.
 - Treat mediator-oriented naming as transitional: target direction is `service interfaces` + internal `service-layer mediator` + outward `UI notifier`.
@@ -30,8 +30,8 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 
 ## Runtime paths
 
-- Local: `CLI -> @ai-team/api-client -> @ai-team/service -> @ai-team/core -> .ai-team/*`
-- Remote: `Web -> @ai-team/api-client-http -> @ai-team/api-server -> @ai-team/api-client -> @ai-team/service -> @ai-team/core -> .ai-team/*`
+- Local: `CLI -> @ai-team/service -> @ai-team/core -> .ai-team/*`
+- Remote: `Web -> @ts-http -> @ai-team/api-server -> @ai-team/api-contracts -> @ai-team/service -> @ai-team/core -> .ai-team/*`
 - IDE: `CLI/API -> @ai-team/ide-interface -> @ai-team/vscode IDE-local server`
 
 ## Key runtime artifacts
@@ -45,7 +45,7 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 
 ## Permission model essentials
 
-- File rights are enforced through `packages/core/src/context/index.ts`, backed by `file-context` (`ContextRuntime` + parsers/matchers).
+- File rights are enforced through `packages/core/src/context/index.ts`, backed by `fs-context` (`ContextRuntime` + parsers/matchers).
 - Keep per-agent path rules in `.ai-team/agents/<agent-id>.perm` (not in frontmatter).
 - Inheritance: `write => read + list`, `read => list`; explicit deny wins.
 
@@ -67,9 +67,9 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 - `packages/service/src/orchestrator/send-turn.ts`
 - `packages/core/src/tools/index.ts`
 - `packages/core/src/context/index.ts`
-- `file-context/src/context-runtime.ts`
+- `fs-context/src/context-runtime.ts`
 - `packages/api-server/src/server.ts`
-- `packages/api-client-http/src/websocket.ts`
+
 - `packages/vscode/src/extension.ts`
 - `packages/web/src/components/ChatPanel.tsx`
 

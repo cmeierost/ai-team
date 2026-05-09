@@ -24,6 +24,7 @@ export class ToolsDenyCommand implements ICommand<Params, void, UpdateAgentToolR
   readonly cli = { command: 'disallow', parentKey: 'tools' };
   readonly description = 'Disallow a tool for an agent (governed)';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'tool';
   readonly parameters = ToolsDenyCommand.schema;
 
   constructor(

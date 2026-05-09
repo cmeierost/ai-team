@@ -53,7 +53,7 @@ The web dashboard uses:
 - **Vite** for fast development and building
 - **@xyflow/react** (react-flow) for interactive graph visualization
 - **@ai-team/core** for all business logic
-- **@ai-team/api-client-http** for HTTP and WebSocket access to the service layer
+- **@ts-http** for HTTP and WebSocket access to the service layer
 
 The target state architecture is:
 

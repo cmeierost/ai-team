@@ -101,6 +101,11 @@ export { DefaultOutputHandler } from './orchestrator/defaults/output-handler.js'
 export { buildDefaultHookPlugins } from './orchestrator/defaults/hook-plugins.js';
 export { buildDefaultTurnResultParsers } from './orchestrator/defaults/turn-result-parsers.js';
 export { buildDefaultSlashCommands } from './orchestrator/slash-commands.js';
+export {
+  getWorkflowDefinitionResolvers,
+  listWorkflowDefinitionIds,
+  type WorkflowDefinitionResolver,
+} from './workflow/definition-catalog.js';
 
 export {
   CommandsService,

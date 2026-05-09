@@ -6,6 +6,7 @@ export class CreateChatCommand implements ICommand<string, OrchestratorContext, 
   readonly usage = '/create [employee|skill]';
   readonly description = 'Interactive: create an agent or skill';
   readonly availableIn = { chat: true, tool: true };
+  readonly group = 'chat';
 
   async execute(args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const type = (args.trim() || 'agent').split(/\s+/)[0];

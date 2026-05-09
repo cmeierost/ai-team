@@ -29,6 +29,7 @@ export class PatchApplyCommand implements ICommand<Params, void, Result> {
   readonly description =
     'Replace one or more lines in a file and send a code-edit proposal through the configured editor adapter';
   readonly availableIn = { cli: true };
+  readonly group = 'edit';
   readonly parameters = PatchApplyCommand.schema;
 
   constructor(

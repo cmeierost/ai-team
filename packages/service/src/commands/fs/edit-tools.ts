@@ -270,11 +270,6 @@ export class MultiEditTool implements ITool<MultiEditParams, ToolContext, unknow
       const runtime: CommandRuntime = {
         invocationSurface: 'tool',
         workspaceRoot: context.workspaceRoot,
-        resolve:
-          context.resolve ??
-          (() => {
-            throw new Error('Tool runtime resolver is not available.');
-          }),
         agentId: context.agentId,
       };
       const rawResult = await fsEditTool.execute(

@@ -35,12 +35,46 @@ const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: Orchestr
 
 function makeContext(): OrchestratorContext {
   const appendMessage = vi.fn(async () => null);
+  const preLlmTools = [
+    {
+      key: 'tree',
+      group: 'fs',
+      scorePreLlmIntent: (message: string) =>
+        /\b(file\s*tree|visible\s+file|visible\s+files|readable\s+file|readable\s+files)\b/i.test(
+          message
+        )
+          ? {
+              kind: 'tool' as const,
+              toolName: 'fs_tree',
+              args: { path: '.', maxDepth: 6, includeHidden: true },
+              score: 100,
+            }
+          : undefined,
+    },
+    {
+      key: 'list',
+      group: 'tool',
+      scorePreLlmIntent: (message: string) =>
+        /\b(what\s+tools\s+can\s+you\s+use|available\s+tools)\b/i.test(message)
+          ? { kind: 'tool' as const, toolName: 'tool_list', args: {}, score: 100 }
+          : undefined,
+    },
+    {
+      key: 'list',
+      group: 'team',
+      scorePreLlmIntent: (message: string) =>
+        /\b(what\s+employees\s+do\s+we\s+have|who\s+is\s+on\s+the\s+team)\b/i.test(message)
+          ? { kind: 'tool' as const, toolName: 'team_list', args: {}, score: 100 }
+          : undefined,
+    },
+  ];
+
   return {
     agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
     hooks: { emit: vi.fn() } as any,
-    toolManager: {} as any,
+    toolManager: { getForAgent: vi.fn(() => preLlmTools) } as any,
     sessionManager: { appendMessage } as any,
     agentManager: { loadAllAgents: vi.fn(async () => {}) } as any,
     skillManager: {} as any,
@@ -78,7 +112,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
 
       const result = await orchestrator.run({ message: 'show your visible file tree' });
 
-      expect(result).toBe('');
+      expect(result).toBe('llm-called');
       expect(dispatchToolCall).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'fs_tree',
@@ -104,7 +138,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
           content: 'show your visible file tree',
         })
       );
-      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).toHaveBeenCalled();
     });
 
     it('passes contextFiles to regex tool intents', async () => {
@@ -117,7 +151,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         contextFiles: ['packages/service/src/orchestrator/xstate-chat-orchestrator.ts'],
       });
 
-      expect(result).toBe('');
+      expect(result).toBe('llm-called');
       expect(dispatchToolCall).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'fs_tree',
@@ -126,7 +160,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         ctx,
         ['packages/service/src/orchestrator/xstate-chat-orchestrator.ts']
       );
-      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).toHaveBeenCalled();
     });
 
     it('runs tool_list before LLM for tool-capability requests', async () => {
@@ -136,7 +170,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
 
       const result = await orchestrator.run({ message: 'what tools can you use?' });
 
-      expect(result).toBe('');
+      expect(result).toBe('llm-called');
       expect(dispatchToolCall).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'tool_list',
@@ -145,7 +179,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         ctx,
         undefined
       );
-      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).toHaveBeenCalled();
     });
 
     it('falls through to LLM turn when no regex intent matches', async () => {
@@ -166,7 +200,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
 
       const result = await orchestrator.run({ message: 'what employees do we have?' });
 
-      expect(result).toBe('');
+      expect(result).toBe('llm-called');
       expect(dispatchToolCall).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'team_list',
@@ -175,7 +209,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         ctx,
         undefined
       );
-      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).toHaveBeenCalled();
     });
 
     it('matches team roster phrasing variants', async () => {
@@ -185,7 +219,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
 
       const result = await orchestrator.run({ message: 'who is on the team?' });
 
-      expect(result).toBe('');
+      expect(result).toBe('llm-called');
       expect(dispatchToolCall).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'team_list',
@@ -194,7 +228,77 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         ctx,
         undefined
       );
-      expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
+      expect(runSendTurnMachineAsync).toHaveBeenCalled();
+    });
+
+    it('asks for confirmation before pre-LLM tool execution when score is below 100%', async () => {
+      const ctx = makeContext();
+      (ctx.toolManager as any).getForAgent = vi.fn(() => [
+        {
+          key: 'tree',
+          group: 'fs',
+          scorePreLlmIntent: () => ({
+            kind: 'tool',
+            toolName: 'fs_tree',
+            args: { path: '.', maxDepth: 6, includeHidden: false },
+            score: 82,
+            clarification: {
+              ask: {
+                kind: 'select',
+                message: 'Choose depth',
+                choices: [
+                  { name: 'Quick', value: 'quick' },
+                  { name: 'Deep', value: 'deep' },
+                ],
+                defaultText: 'quick',
+              },
+              resolveArgs(answer: unknown) {
+                return {
+                  path: '.',
+                  maxDepth: answer === 'deep' ? 10 : 3,
+                  includeHidden: false,
+                };
+              },
+            },
+          }),
+        },
+      ]);
+
+      (dispatchToolCall as any)
+        .mockImplementationOnce(async () => ({
+          toolCallId: 'pre-llm-intent-ask-1',
+          toolName: 'com_ask',
+          result: { answer: true },
+          isError: false,
+        }))
+        .mockImplementationOnce(async () => ({
+          toolCallId: 'pre-llm-intent-2',
+          toolName: 'fs_tree',
+          result: { ok: true },
+          isError: false,
+        }));
+
+      const plugins = makePlugins();
+      const orchestrator = new Orchestrator(ctx, plugins);
+      const result = await orchestrator.run({ message: 'show structure please' });
+
+      expect(result).toBe('llm-called');
+      expect(dispatchToolCall).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ toolName: 'com_ask' }),
+        ctx,
+        undefined
+      );
+      expect(dispatchToolCall).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          toolName: 'fs_tree',
+          args: { path: '.', maxDepth: 6, includeHidden: false },
+        }),
+        ctx,
+        undefined
+      );
+      expect(runSendTurnMachineAsync).toHaveBeenCalled();
     });
   }
 );

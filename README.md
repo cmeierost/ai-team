@@ -21,7 +21,7 @@ Use this path when implementing or modifying behavior:
 - Workflow continuation persistence: [packages/service/src/workflow-state.ts](packages/service/src/workflow-state.ts)
 - Tool registry and question tools: [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts)
 - Command metadata catalog: [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts)
-- API client facade and local wiring: [packages/api-client/src/index.ts](packages/api-client/src/index.ts)
+- Service contracts and wire protocol: [packages/api-contracts/src/index.ts](packages/api-contracts/src/index.ts)
 - CLI command wiring: [packages/cli/src/cli.ts](packages/cli/src/cli.ts)
 
 ## Package Docs

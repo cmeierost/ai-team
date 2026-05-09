@@ -90,27 +90,3 @@ export interface ProposalValidationResult {
   errors: string[];
   warnings: string[];
 }
-
-/**
- * Validates code edit proposals
- */
-export interface IProposalValidator {
-  /**
-   * Validate a proposal input from LLM
-   */
-  validateInput(input: unknown): ProposalValidationResult;
-
-  /**
-   * Validate proposal constraints
-   */
-  validateConstraints(
-    proposal: CodeEditProposal,
-    options: CreateProposalOptions
-  ): ProposalValidationResult;
-  validateConstraints(proposal: CodeEditProposal): ProposalValidationResult;
-
-  /**
-   * Check if file paths are safe (no path traversal, etc.)
-   */
-  validateFilePaths(filePaths: string[]): ProposalValidationResult;
-}

@@ -60,6 +60,7 @@ describe('serveApiCommand', () => {
 
     expect(command).toBe(process.execPath);
     expect(args[0]).toMatch(/packages[\\/]api-server[\\/]dist[\\/]index\.js$/);
+    expect(args[0]).not.toMatch(/packages[\\/]packages[\\/]api-server[\\/]/);
     expect(spawnOptions.cwd).toBe(path.resolve('c:/workspace-root', 'nested/workspace'));
     expect(spawnOptions.stdio).toBe('inherit');
     expect(spawnOptions.env.NODE_ENV).toBe('production');
@@ -90,6 +91,7 @@ describe('serveApiCommand', () => {
     const [apiCommand, apiArgs] = childProcessApi.spawn.mock.calls[0] as [string, string[]];
     expect(apiCommand).toBe(process.execPath);
     expect(apiArgs[0]).toMatch(/packages[\\/]api-server[\\/]dist[\\/]index\.js$/);
+    expect(apiArgs[0]).not.toMatch(/packages[\\/]packages[\\/]api-server[\\/]/);
 
     const [uiCommand, uiArgs, uiOptions] = childProcessApi.spawn.mock.calls[1] as [
       string,

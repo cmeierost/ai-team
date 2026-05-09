@@ -883,6 +883,10 @@
                   "items": {
                     "type": "object",
                     "properties": {
+                      "llm": {
+                        "$ref": "#/components/schemas/CommandLlmMetadata",
+                        "nullable": true
+                      },
                       "key": {
                         "type": "string"
                       },
@@ -902,6 +906,35 @@
                       },
                       "availableIn": {
                         "$ref": "#/components/schemas/CommandAvailability"
+                      },
+                      "path": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "nullable": true
+                      },
+                      "help": {
+                        "$ref": "#/components/schemas/CommandHelpMetadata",
+                        "nullable": true
+                      },
+                      "intents": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "nullable": true
+                      },
+                      "intentExamples": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "nullable": true
+                      },
+                      "input": {
+                        "$ref": "#/components/schemas/CommandInputMetadata",
+                        "nullable": true
                       }
                     },
                     "required": [
@@ -1663,6 +1696,10 @@
                   "items": {
                     "type": "object",
                     "properties": {
+                      "llm": {
+                        "$ref": "#/components/schemas/CommandLlmMetadata",
+                        "nullable": true
+                      },
                       "key": {
                         "type": "string"
                       },
@@ -1682,6 +1719,35 @@
                       },
                       "availableIn": {
                         "$ref": "#/components/schemas/CommandAvailability"
+                      },
+                      "path": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "nullable": true
+                      },
+                      "help": {
+                        "$ref": "#/components/schemas/CommandHelpMetadata",
+                        "nullable": true
+                      },
+                      "intents": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "nullable": true
+                      },
+                      "intentExamples": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "nullable": true
+                      },
+                      "input": {
+                        "$ref": "#/components/schemas/CommandInputMetadata",
+                        "nullable": true
                       }
                     },
                     "required": [
@@ -7834,6 +7900,36 @@
           "changed"
         ]
       },
+      "CommandLlmMetadata": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "hints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "examples": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "hiddenParameters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        }
+      },
       "CommandAvailability": {
         "type": "object",
         "properties": {
@@ -7875,6 +7971,119 @@
                 "type": "boolean"
               }
             ]
+          }
+        }
+      },
+      "CommandExample": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "surfaces": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "CommandHelpMetadata": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "hints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "examples": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommandExample"
+            },
+            "nullable": true
+          }
+        }
+      },
+      "CommandInputMetadata": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "jsonSignature": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "contextParameters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "contextOverrideAllowlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "requiredAtRuntime": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
           }
         }
       },

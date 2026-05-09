@@ -10,10 +10,12 @@
 import type { AgentTool } from '@ai-team/core';
 import type { IToolResolver } from '../pipeline.js';
 import type { OrchestratorContext } from '../pipeline-context.js';
-import { toolKey } from '../../tools/tool-manager.js';
+import { toolKey, type ToolManager } from '../../tools/tool-manager.js';
 
 export class DefaultToolResolver implements IToolResolver {
+  constructor(private readonly toolManager: ToolManager) {}
+
   async resolve(ctx: OrchestratorContext): Promise<AgentTool[]> {
-    return ctx.toolManager.getForAgent(ctx.agent).filter((tool) => toolKey(tool) !== 'hr_hire');
+    return this.toolManager.getForAgent(ctx.agent).filter((tool) => toolKey(tool) !== 'hr_hire');
   }
 }

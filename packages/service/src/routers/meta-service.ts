@@ -12,10 +12,8 @@ import type { IMcpGateway } from '../orchestrator/pipeline.js';
 import type { SessionManager } from '../session-manager.js';
 import { NotFoundError } from '@ai-team/core';
 import {
-  getChatLoopWorkflowDefinitionJson,
-  getChatLoopWorkflowDefinitionYaml,
-  getSendTurnWorkflowDefinitionJson,
-  getSendTurnWorkflowDefinitionYaml,
+  getWorkflowDefinitionResolvers,
+  type WorkflowDefinitionResolver,
 } from '../workflow/index.js';
 
 export interface ContextEstimateSegment {
@@ -88,25 +86,8 @@ export class MetaService implements IContextService {
   >();
   private static readonly TOOL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-  private readonly workflowDefinitionResolvers: Record<
-    string,
-    {
-      format: 'workflow/v1';
-      getJson: () => WorkflowDefinitionDocument;
-      getYaml: () => string;
-    }
-  > = {
-    'chat-full-loop': {
-      format: 'workflow/v1',
-      getJson: () => getChatLoopWorkflowDefinitionJson(),
-      getYaml: () => getChatLoopWorkflowDefinitionYaml(),
-    },
-    'chat-send-turn': {
-      format: 'workflow/v1',
-      getJson: () => getSendTurnWorkflowDefinitionJson(),
-      getYaml: () => getSendTurnWorkflowDefinitionYaml(),
-    },
-  };
+  private readonly workflowDefinitionResolvers: Record<string, WorkflowDefinitionResolver> =
+    getWorkflowDefinitionResolvers();
 
   constructor(
     private readonly agentManager: IAgentManager,

@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { ServiceDomainError } from '../../errors.js';
 import { findWorkspaceRoot } from '../utils/workspace.js';
 
@@ -82,10 +81,8 @@ function resolveWorkspace(workspaceRoot: string, workspaceOverride?: string): st
   return resolve(workspaceRoot, workspaceOverride);
 }
 
-function resolveApiServerEntry(): string {
-  const currentFilePath = fileURLToPath(import.meta.url);
-  const currentDir = dirname(currentFilePath);
-  const repositoryRoot = resolve(currentDir, '..', '..', '..', '..');
+function resolveApiServerEntry(workspaceRoot: string): string {
+  const repositoryRoot = findWorkspaceRoot(workspaceRoot);
   const entry = resolve(repositoryRoot, 'packages', 'api-server', 'dist', 'index.js');
 
   if (!existsSync(entry)) {
@@ -106,7 +103,7 @@ export async function serveApiCommand(
   const resolvedWorkspace = resolveWorkspace(workspaceRoot, options.workspace);
   const effectivePort = port ?? 3002;
   const uiServerUrl = options.uiServerUrl?.trim() || `http://127.0.0.1:${effectivePort}`;
-  const apiServerEntry = resolveApiServerEntry();
+  const apiServerEntry = resolveApiServerEntry(workspaceRoot);
   const command = process.execPath;
   const args = [apiServerEntry];
 

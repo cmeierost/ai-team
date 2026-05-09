@@ -17,6 +17,7 @@ export class FireICommand implements ICommand<Params, void, void> {
   readonly cli = { command: 'fire <agent>' };
   readonly description = 'Fire (delete) an employee and remove their data';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'hr';
   readonly parameters = FireICommand.schema;
 
   constructor(private readonly agents: IAgentManager) {}

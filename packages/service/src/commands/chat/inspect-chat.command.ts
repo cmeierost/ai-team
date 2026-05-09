@@ -7,6 +7,7 @@ export class InspectChatCommand implements ICommand<string, OrchestratorContext,
   readonly usage = '/inspect [n]';
   readonly description = 'Inspect raw tool-call results from this session (select from list)';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     type IndexedToolCall = {

@@ -17,6 +17,7 @@ export class AccessCanCommand implements ICommand<Params, void, DoIHavePermissio
   readonly cli = { command: 'can', parentKey: 'access' };
   readonly description = 'Check whether a context/agent can access a path for a right';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'access';
   readonly parameters = AccessCanCommand.schema;
 
   constructor(private readonly accessService: AccessService) {}

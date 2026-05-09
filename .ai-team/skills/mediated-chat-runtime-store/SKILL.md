@@ -21,8 +21,8 @@ This includes:
 1. `ARCHITECTURE.md`
 2. `COPILOT-CONTEXT.md`
 3. `packages/service/src/contracts.ts`
-4. `packages/api-client-http/src/websocket.ts`
-5. `packages/api-client-http/src/index.ts`
+4. `packages/api-server/src/server.ts`
+5. `packages/api-server/src/index.ts`
 6. `packages/web/src/components/ChatPanel.tsx`
 7. `.ai-team/instructions/frontend-state-architecture.instructions.md`
 8. `.ai-team/skills/agent-runtime-behavior/SKILL.md`

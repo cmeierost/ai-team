@@ -16,13 +16,13 @@ interface PathPermissionCheckerLike {
   canListPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
 }
 
-interface AgentManagerLike extends IAgentManager {
-  analyzeWorkspacePermissionOverlap?(options?: {
+type AgentManagerLike = IAgentManager & {
+  analyzeWorkspacePermissionOverlap?: (options?: {
     mode?: 'files' | 'patterns';
     agentId?: string;
     maxDepth?: number;
-  }): Promise<unknown>;
-}
+  }) => Promise<unknown>;
+};
 
 function checkRightWithChecker(
   workspaceRoot: string,

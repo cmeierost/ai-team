@@ -14,6 +14,7 @@ import type {
   InteractionContext,
   InteractionRequest,
 } from '@ai-team/api-contracts';
+import type { InitCommandParams } from './commands/init/init.js';
 import type { IServiceContainer } from '@ai-team/core';
 import {
   COMMAND_DEFINITION_REGISTRY_TOKEN,
@@ -45,17 +46,17 @@ import { FilesDenyCommand } from './commands/fs/files-deny.command.js';
 import { FilesPatternsCommand } from './commands/fs/files-patterns.command.js';
 import { FilesTreeCommand } from './commands/fs/files-tree.command.js';
 import { FireICommand } from './commands/hr/fire.command.js';
-import { GraphCommand } from './commands/agents/graph.command.js';
+import { GraphCommand } from './commands/team/graph.command.js';
 import { HhRefreshCommand } from './commands/hr/hh-refresh.command.js';
 import { HireICommand } from './commands/hr/hire.command.js';
-import { OrgCommand } from './commands/agents/org.command.js';
+import { OrgCommand } from './commands/team/org.command.js';
 import { PatchApplyCommand } from './commands/edit/patch-apply.command.js';
-import { ResolveEmployeesICommand } from './commands/agents/resolve-employees.command.js';
-import { SearchAgentsICommand } from './commands/agents/search-agents.command.js';
+import { ResolveEmployeesICommand } from './commands/team/resolve-employees.command.js';
+import { SearchAgentsICommand } from './commands/team/search-agents.command.js';
 import { SkillsAddCommand } from './commands/skills/skills-add.command.js';
 import { SkillsListCommand } from './commands/skills/skills-list.command.js';
 import { SkillsRemoveCommand } from './commands/skills/skills-remove.command.js';
-import { SystemInfoCommand } from './commands/definitions/system-info.command.js';
+import { SystemInfoCommand } from './commands/system/system-info.command.js';
 import { TestConnectionICommand } from './commands/setup/test-connection.command.js';
 import { ToolsAllowCommand } from './commands/tools/tools-allow.command.js';
 import { ToolsDenyCommand } from './commands/tools/tools-deny.command.js';
@@ -96,13 +97,50 @@ export interface CommandRegistration<TCommand extends string = string> {
   description: string;
   usage?: string;
   availableIn: CommandAvailability;
+  path?: string[];
+  help?: {
+    description?: string;
+    hints?: string[];
+    examples?: Array<{
+      value: string;
+      surfaces?: Array<'cli' | 'chat' | 'tool' | 'workflow'>;
+      description?: string;
+    }>;
+  };
+  llm?: {
+    description?: string;
+    hints?: string[];
+    examples?: string[];
+    hiddenParameters?: string[];
+  };
+  intents?: string[];
+  intentExamples?: string[];
+  input?: {
+    mode?: 'structured' | 'raw-tail' | 'hybrid';
+    jsonSignature?: boolean;
+    contextParameters?: string[];
+    contextOverrideAllowlist?: string[];
+  };
   handler: CommandHandler<TCommand> | ((workspaceRoot: string, payload: unknown, context?: InteractionContext) => Promise<unknown>);
 }
 
 // ── Dispatcher ────────────────────────────────────────────────────────────────
 
 export class CommandDispatcher implements ICommandDispatcher {
-  private readonly commands = new Map<string, { key: string; aliases?: string[]; description: string; usage?: string; availableIn: CommandAvailability; handler: CommandHandler }>();
+  private readonly commands = new Map<string, {
+    key: string;
+    aliases?: string[];
+    description: string;
+    usage?: string;
+    availableIn: CommandAvailability;
+    path?: string[];
+    help?: CommandRegistration['help'];
+    llm?: CommandRegistration['llm'];
+    intents?: string[];
+    intentExamples?: string[];
+    input?: CommandRegistration['input'];
+    handler: CommandHandler;
+  }>();
 
   constructor(private readonly workspaceRoot: string) {}
 
@@ -121,6 +159,12 @@ export class CommandDispatcher implements ICommandDispatcher {
       description: entry.description,
       usage: entry.usage,
       availableIn: entry.availableIn,
+      path: entry.path,
+      help: entry.help,
+      llm: entry.llm,
+      intents: entry.intents,
+      intentExamples: entry.intentExamples,
+      input: entry.input,
       handler: handler as CommandHandler,
     });
   }
@@ -167,6 +211,12 @@ function toDescriptor(reg: CommandRegistration): CommandDescriptor {
     description: reg.description,
     usage: reg.usage,
     availableIn: reg.availableIn,
+    path: reg.path,
+    help: reg.help,
+    llm: reg.llm,
+    intents: reg.intents,
+    intentExamples: reg.intentExamples,
+    input: reg.input,
   };
 }
 
@@ -273,7 +323,10 @@ export function createCommandDispatcher(
     availableIn: { cli: true, chat: true, tool: true },
     handler: async (_ws: string, payload: unknown) => {
       const { listEmployees } = await import('./commands/agents/list.js');
-      return listEmployees(container.resolve(COMMAND_FACTORY_TOKENS.AgentManager), payload);
+      return listEmployees(
+        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+        payload as Parameters<typeof listEmployees>[1]
+      );
     },
   });
 
@@ -281,7 +334,7 @@ export function createCommandDispatcher(
     key: 'init',
     description: 'Initialize AI Team in current workspace',
     availableIn: { cli: true, chat: true },
-    handler: async (ws, payload, context) => {
+    handler: async (ws: string, payload: unknown, context?: InteractionContext) => {
       const { InitCommand } = await import('./commands/init/init.js');
       const { OnboardCommand } = await import('./commands/hr/onboard.js');
       const { SetupCommand } = await import('./commands/setup/setup.js');
@@ -318,22 +371,23 @@ export function createCommandDispatcher(
         container.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
       );
       const cmd = new InitCommand(onboard, setup, testConnection);
+      const ctx = context ?? {};
       return cmd.execute(
         {
           workspaceRoot: ws,
-          options: payload.options,
+          options: (payload as InitCommandParams).options,
           injected: sessionManager ? { sessionManager } : undefined,
         },
         {
-          signal: context.signal,
-          emit: context.emit,
-          questionInput: context.questionInput,
-          questionConfirm: context.questionConfirm,
-          questionSelect: context.questionSelect,
-          questionPassword: context.questionPassword,
-          questionChecklist: context.questionChecklist,
-          workflowState: context.workflowState,
-          onWorkflowFrame: context.onWorkflowFrame,
+          signal: ctx.signal,
+          emit: ctx.emit,
+          questionInput: ctx.questionInput,
+          questionConfirm: ctx.questionConfirm,
+          questionSelect: ctx.questionSelect,
+          questionPassword: ctx.questionPassword,
+          questionChecklist: ctx.questionChecklist,
+          workflowState: ctx.workflowState,
+          onWorkflowFrame: ctx.onWorkflowFrame,
         }
       );
     },
@@ -343,7 +397,8 @@ export function createCommandDispatcher(
     key: 'setup',
     description: 'Configure LLM provider connection',
     availableIn: { cli: true, chat: true },
-    handler: async (ws, payload, context) => {
+    handler: async (ws: string, payload: unknown, context?: InteractionContext) => {
+      const ctx = context ?? {};
       const { SetupCommand } = await import('./commands/setup/setup.js');
       const cmd = new SetupCommand(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
@@ -353,17 +408,17 @@ export function createCommandDispatcher(
         container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester)
       );
       return cmd.execute(
-        { workspaceRoot: ws, options: payload.options },
+        { workspaceRoot: ws, options: (payload as { options?: unknown }).options as any },
         {
-          signal: context.signal,
-          emit: context.emit,
-          questionInput: context.questionInput,
-          questionConfirm: context.questionConfirm,
-          questionSelect: context.questionSelect,
-          questionPassword: context.questionPassword,
-          questionChecklist: context.questionChecklist,
-          workflowState: context.workflowState,
-          onWorkflowFrame: context.onWorkflowFrame,
+          signal: ctx.signal,
+          emit: ctx.emit,
+          questionInput: ctx.questionInput,
+          questionConfirm: ctx.questionConfirm,
+          questionSelect: ctx.questionSelect,
+          questionPassword: ctx.questionPassword,
+          questionChecklist: ctx.questionChecklist,
+          workflowState: ctx.workflowState,
+          onWorkflowFrame: ctx.onWorkflowFrame,
         }
       );
     },
@@ -373,8 +428,9 @@ export function createCommandDispatcher(
     key: 'onboard',
     description: 'Run team onboarding (CEO + HR + hiring)',
     availableIn: { cli: true, chat: true },
-    handler: async (_ws, payload, context) => {
+    handler: async (_ws: string, payload: unknown, context?: InteractionContext) => {
       const { OnboardCommand } = await import('./commands/hr/onboard.js');
+      const ctx = context ?? {};
       const sessionManager = resolver?.tryResolve<SessionManager>(
         COMMAND_FACTORY_TOKENS.SessionManager
       );
@@ -394,19 +450,19 @@ export function createCommandDispatcher(
       );
       return cmd.execute(
         {
-          options: payload.options,
+          options: (payload as { options?: unknown }).options as any,
           injected: sessionManager ? { sessionManager } : undefined,
         },
         {
-          signal: context.signal,
-          emit: context.emit,
-          questionInput: context.questionInput,
-          questionConfirm: context.questionConfirm,
-          questionSelect: context.questionSelect,
-          questionPassword: context.questionPassword,
-          questionChecklist: context.questionChecklist,
-          workflowState: context.workflowState,
-          onWorkflowFrame: context.onWorkflowFrame,
+          signal: ctx.signal,
+          emit: ctx.emit,
+          questionInput: ctx.questionInput,
+          questionConfirm: ctx.questionConfirm,
+          questionSelect: ctx.questionSelect,
+          questionPassword: ctx.questionPassword,
+          questionChecklist: ctx.questionChecklist,
+          workflowState: ctx.workflowState,
+          onWorkflowFrame: ctx.onWorkflowFrame,
         }
       );
     },
@@ -416,7 +472,7 @@ export function createCommandDispatcher(
     key: 'systemStatus',
     description: 'Check system initialization status',
     availableIn: { cli: true, chat: true, tool: true },
-    handler: async (ws) => {
+    handler: async (ws: string) => {
       const { SystemStatusCommand } = await import('./commands/setup/system-status.js');
       const cmd = new SystemStatusCommand(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage)
@@ -429,15 +485,16 @@ export function createCommandDispatcher(
     key: 'providerConfigure',
     description: 'Configure default LLM provider',
     availableIn: { cli: true, chat: true },
-    handler: async (ws, payload, context) => {
+    handler: async (ws: string, payload: unknown, context?: InteractionContext) => {
       const { ProviderCommand } = await import('./commands/setup/provider.js');
+      const ctx = context ?? {};
       const cmd = new ProviderCommand(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
         container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
       );
-      return cmd.configureAsync(ws, payload.options, context);
+      return cmd.configureAsync(ws, (payload as { options?: unknown }).options as any, ctx);
     },
   });
 
@@ -445,15 +502,16 @@ export function createCommandDispatcher(
     key: 'providerAdd',
     description: 'Add a provider profile',
     availableIn: { cli: true, chat: true },
-    handler: async (ws, payload, context) => {
+    handler: async (ws: string, payload: unknown, context?: InteractionContext) => {
       const { ProviderCommand } = await import('./commands/setup/provider.js');
+      const ctx = context ?? {};
       const cmd = new ProviderCommand(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
         container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
       );
-      return cmd.addAsync(ws, payload.options ?? {}, context);
+      return cmd.addAsync(ws, ((payload as { options?: unknown }).options ?? {}) as any, ctx);
     },
   });
 
@@ -461,15 +519,16 @@ export function createCommandDispatcher(
     key: 'providerSet',
     description: 'Configure default LLM provider',
     availableIn: { cli: true, chat: true },
-    handler: async (ws, payload, context) => {
+    handler: async (ws: string, payload: unknown, context?: InteractionContext) => {
       const { ProviderCommand } = await import('./commands/setup/provider.js');
+      const ctx = context ?? {};
       const cmd = new ProviderCommand(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
         container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
       );
-      return cmd.setAsync(ws, payload.options ?? {}, context);
+      return cmd.setAsync(ws, ((payload as { options?: unknown }).options ?? {}) as any, ctx);
     },
   });
 
@@ -477,14 +536,14 @@ export function createCommandDispatcher(
     key: 'providerList',
     description: 'List configured provider profiles',
     availableIn: { cli: true, chat: true },
-    handler: async (ws, payload) => {
+    handler: async (ws: string, payload: unknown) => {
       const { ModelsCommand } = await import('./commands/setup/models.js');
       const cmd = new ModelsCommand(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
       );
-      return cmd.providerListAsync(ws, payload.options ?? {});
+      return cmd.providerListAsync(ws, (payload as { options?: unknown }).options ?? {});
     },
   });
 
@@ -492,14 +551,14 @@ export function createCommandDispatcher(
     key: 'providerModels',
     description: 'List model key dictionaries',
     availableIn: { cli: true, chat: true },
-    handler: async (ws, payload) => {
+    handler: async (ws: string, payload: unknown) => {
       const { ModelsCommand } = await import('./commands/setup/models.js');
       const cmd = new ModelsCommand(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
       );
-      return cmd.providerModelsAsync(ws, payload.options);
+      return cmd.providerModelsAsync(ws, (payload as { options?: unknown }).options as any);
     },
   });
 
@@ -507,14 +566,14 @@ export function createCommandDispatcher(
     key: 'providerModelsRefresh',
     description: 'Refresh model dictionary from provider endpoint',
     availableIn: { cli: true, chat: true },
-    handler: async (ws, payload) => {
+    handler: async (ws: string, payload: unknown) => {
       const { ModelsCommand } = await import('./commands/setup/models.js');
       const cmd = new ModelsCommand(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
       );
-      return cmd.providerModelsRefreshAsync(ws, payload.options);
+      return cmd.providerModelsRefreshAsync(ws, (payload as { options?: unknown }).options as any);
     },
   });
 
@@ -722,7 +781,8 @@ export function createCommandDispatcher(
         container.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
         container.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory),
         container.resolve(COMMAND_FACTORY_TOKENS.ContextService),
-        container.resolve(COMMAND_FACTORY_TOKENS.SessionManager)
+        container.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
+        container
       )
     )
   );

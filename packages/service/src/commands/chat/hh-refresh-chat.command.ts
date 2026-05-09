@@ -7,6 +7,7 @@ export class HhRefreshChatCommand implements ICommand<string, OrchestratorContex
   readonly usage = '/hh refresh';
   readonly description = 'Refresh skill catalog from GitHub';
   readonly availableIn = { chat: true, tool: true };
+  readonly group = 'chat';
 
   async execute(args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const sub = args.trim().toLowerCase();

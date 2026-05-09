@@ -95,6 +95,7 @@ export class HttpFetchChatCommand implements ICommand<string, OrchestratorContex
   readonly description =
     'Fetch a web page via http_fetch and print the extracted result (great before /context add).';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     await executeDirectTool(ctx, this.key, 'http_fetch', this.usage, args);

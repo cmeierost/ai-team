@@ -5,6 +5,7 @@ export class TestConnectionChatCommand implements ICommand<string, OrchestratorC
   readonly key = 'test-connection';
   readonly description = 'Test LLM provider connectivity';
   readonly availableIn = { chat: true, tool: true };
+  readonly group = 'chat';
 
   async execute(_args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const mod = (await import('../setup/test-connection.js')) as any;

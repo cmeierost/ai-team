@@ -9,6 +9,7 @@ export class HelpChatCommand implements ICommand<string, OrchestratorContext, vo
   readonly key = 'help';
   readonly description = 'Show this help';
   readonly availableIn = { chat: true, tool: true };
+  readonly group = 'chat';
 
   constructor(private readonly getRegistry: () => RegistryEntry[]) {}
 

@@ -9,6 +9,7 @@ export class ContextChatCommand implements ICommand<string, OrchestratorContext,
   readonly description =
     'Manage LLM context visibility for persisted messages and tool results (hide/unhide/list/summarize)';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const tokenRegex = /"([^"]*)"|'([^']*)'|(\S+)/g;

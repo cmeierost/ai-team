@@ -7,6 +7,7 @@ export class FireChatCommand implements ICommand<string, OrchestratorContext, vo
   readonly usage = '/fire <employee>';
   readonly description = 'Interactive: remove a team member';
   readonly availableIn = { chat: true, tool: true };
+  readonly group = 'chat';
 
   async execute(args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     if (!args.trim()) {

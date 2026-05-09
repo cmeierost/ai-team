@@ -5,6 +5,7 @@ export class InitChatCommand implements ICommand<string, OrchestratorContext, vo
   readonly key = 'init';
   readonly description = 'Interactive: (re-)initialize workspace';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(_args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const mod = (await import('../init/init.js')) as any;

@@ -22,23 +22,3 @@ export type PatternType =
   | 'todo-comment' // TODO/FIXME comments
   | 'empty-catch' // Empty catch blocks
   | 'custom'; // Custom tree-sitter query
-
-/**
- * Tree-sitter based pattern matcher for finding code patterns
- */
-export interface IPatternMatcher {
-  loadLanguage(languageName: string, wasmPath: string): Promise<void>;
-  findPattern(
-    filePath: string,
-    patternType: PatternType,
-    languageName: string,
-    customQuery?: string
-  ): Promise<PatternMatch[]>;
-  findPatternAcrossFiles(
-    filePaths: string[],
-    patternType: PatternType,
-    languageName: string,
-    customQuery?: string
-  ): Promise<PatternMatch[]>;
-  dispose(): void;
-}

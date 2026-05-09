@@ -73,6 +73,12 @@ export {
 } from './xstate-chat-loop-engine.js';
 
 export {
+  getWorkflowDefinitionResolvers,
+  listWorkflowDefinitionIds,
+  type WorkflowDefinitionResolver,
+} from './definition-catalog.js';
+
+export {
   createSendTurnMachine,
   getSendTurnWorkflowDefinitionJson,
   getSendTurnWorkflowDefinitionYaml,

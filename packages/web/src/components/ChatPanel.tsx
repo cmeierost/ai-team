@@ -23,6 +23,7 @@ export function ChatPanel() {
       sending={controller.sending}
       streaming={controller.streaming}
       compressionInProgress={controller.compressionInProgress}
+      chatError={controller.chatError}
       pendingQuestion={controller.pendingQuestion}
       pendingInputAnswer={controller.pendingInputAnswer}
       pendingPasswordAnswer={controller.pendingPasswordAnswer}
@@ -89,6 +90,7 @@ export function ChatPanel() {
       onToggleTts={controller.toggleTts}
       onSend={controller.handleSend}
       onInterrupt={controller.handleInterrupt}
+      onDismissChatError={controller.dismissChatError}
       onSwitchSession={controller.handleSwitchSession}
       onDeleteSession={controller.handleDeleteSession}
       onCreateSession={controller.handleCreateSession}

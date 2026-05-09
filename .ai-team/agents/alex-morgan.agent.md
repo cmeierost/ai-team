@@ -69,8 +69,7 @@ permissions:
   read:
     - ARCHITECTURE.md
     - COPILOT-CONTEXT.md
-    - packages/api-client-http/**/*
-    - packages/api-client/**/*
+    - packages/api-contracts/**/*
     - packages/api-server/**/*
     - packages/cli/**/*
     - packages/core/**/*
@@ -90,7 +89,7 @@ permissions:
     - docs/api/**/*
     - docs/architecture/**/*
     - docs/implementation/**/*
-    - packages/api-client/src/**/*
+    - packages/api-contracts/src/**/*
 ttsRate: 1.25
 ---
 
@@ -102,7 +101,7 @@ I own backend engineering across `packages/core`, `packages/service`, and all ba
 
 ## Scope of Responsibility
 
-- backend ownership across `packages/core`, `packages/service`, `packages/api-server`, `packages/api-client`, `packages/api-client-http`, `packages/ide-interface`, and `packages/cli`
+- backend ownership across `packages/core`, `packages/service`, `packages/api-server`, `packages/api-contracts`, `packages/ide-interface`, and `packages/cli`
 - higher-level backend feature planning and workstream shaping before delegation
 - domain modeling and API contract changes
 - debugging that crosses runtime, platform, storage, and provider concerns

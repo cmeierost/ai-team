@@ -16,6 +16,7 @@ export class AccessWhoCommand implements ICommand<Params, void, WhoHasPermission
   readonly cli = { command: 'who', parentKey: 'access' };
   readonly description = 'Show which contexts/agents can access a path for a right';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'access';
   readonly parameters = AccessWhoCommand.schema;
 
   constructor(private readonly accessService: AccessService) {}

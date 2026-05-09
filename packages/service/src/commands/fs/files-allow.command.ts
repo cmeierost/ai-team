@@ -28,6 +28,7 @@ export class FilesAllowCommand implements ICommand<Params, void, Result> {
   readonly cli = { command: 'allow <path>', parentKey: 'files' };
   readonly description = 'Allow a path in file visibility (global config) or agent access rules';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'fs';
   readonly parameters = FilesAllowCommand.schema;
 
   constructor(

@@ -19,6 +19,7 @@ export class AvatarCommand implements ICommand<Params, void, void> {
   readonly cli = { command: 'avatar <agentQuery>' };
   readonly description = 'Generate or select an avatar image for an agent';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'hr';
   readonly parameters = AvatarCommand.schema;
 
   constructor(private readonly avatarService: AvatarService) {}

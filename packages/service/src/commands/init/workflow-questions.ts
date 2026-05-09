@@ -16,7 +16,7 @@ import {
   emitWorkflowResultFrame as _emitWorkflowResultFrame,
   ensureNotAborted as _ensureNotAborted,
 } from '../../workflow/helpers.js';
-import { AskUserTool } from '../../tools/orchestration-tools.js';
+import { AskUserCommand } from '../com/ask.command.js';
 
 export interface InitRuntimeHooks {
   signal?: AbortSignal;
@@ -43,7 +43,7 @@ const INIT_ASK_AGENT: Agent = {
   createdAt: new Date().toISOString(),
 };
 
-const askUserTool = new AskUserTool();
+const askUserCommand = new AskUserCommand();
 
 function createAskToolContext(
   hooks: InitRuntimeHooks | undefined,
@@ -89,7 +89,15 @@ async function askViaTool(
   },
   overrides?: Partial<Pick<ToolContext, 'questionInput'>>
 ): Promise<unknown> {
-  const result = await askUserTool.execute(params, createAskToolContext(hooks, overrides));
+  const result = await askUserCommand.execute(
+    params,
+    createAskToolContext(hooks, overrides),
+    {
+      invocationSurface: 'tool',
+      workspaceRoot: '',
+      agentId: INIT_ASK_AGENT.id,
+    }
+  );
   if (!result || typeof result !== 'object' || !('answer' in result)) {
     throw new Error('com_ask returned an unexpected response shape.');
   }

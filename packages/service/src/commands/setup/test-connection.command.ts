@@ -26,6 +26,7 @@ export class TestConnectionICommand implements ICommand<Params, void, void> {
   readonly cli = { command: 'test-connection' };
   readonly description = 'Test LLM provider/model connectivity';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'setup';
   readonly parameters = TestConnectionICommand.schema;
 
   constructor(

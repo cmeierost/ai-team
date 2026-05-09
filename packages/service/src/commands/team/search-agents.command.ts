@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { ICommand, CommandRuntime, IAgentManager } from '@ai-team/core';
 import type { SearchAgentsResponse } from '@ai-team/api-contracts';
-import { SearchAgentsCommand as SearchAgentsCommandImpl } from './search.js';
 
 type Params = z.infer<typeof SearchAgentsICommand.schema>;
 
@@ -23,6 +22,7 @@ export class SearchAgentsICommand implements ICommand<Params, void, SearchAgents
   readonly cli = { command: 'search [query]' };
   readonly description = 'Search for team members by name, role, skills, or expertise';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'team';
   readonly parameters = SearchAgentsICommand.schema;
 
   constructor(private readonly agents: IAgentManager) {}
@@ -32,7 +32,7 @@ export class SearchAgentsICommand implements ICommand<Params, void, SearchAgents
     _ctx: void,
     _runtime: CommandRuntime
   ): Promise<SearchAgentsResponse> {
-    return const results = await this.agentManager.searchAgentsAsync(payload);
+    const results = await this.agents.searchAgentsAsync(payload as any);
     return { results, totalCount: results.length };
   }
 }

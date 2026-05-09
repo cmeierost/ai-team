@@ -6,6 +6,7 @@ export class OrgCommand implements ICommand<Record<string, never>, void, GraphDa
   readonly cli = { command: 'org' };
   readonly description = 'Show organization hierarchy';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'team';
 
   constructor(private readonly teamGraphBuilder: ITeamGraphBuilder) {}
 

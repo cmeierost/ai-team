@@ -57,13 +57,12 @@ Use this as a “where should I change code?” index.
 | Workflow continuation persistence                                                        | [packages/service/src/workflow-state.ts](packages/service/src/workflow-state.ts)                                                                         |
 | Session lifecycle and persisted chat behavior                                            | [packages/service/src/session-manager.ts](packages/service/src/session-manager.ts)                                                                       |
 | Task lifecycle and task-oriented state                                                   | [packages/service/src/task-manager.ts](packages/service/src/task-manager.ts)                                                                             |
-| Local typed client façade and local service wiring                                       | [packages/api-client/src/index.ts](packages/api-client/src/index.ts)                                                                                     |
-| Browser-safe HTTP/WebSocket client                                                       | [packages/api-client-http/src/index.ts](packages/api-client-http/src/index.ts)                                                                           |
-| Browser WebSocket chat transport                                                         | [packages/api-client-http/src/websocket.ts](packages/api-client-http/src/websocket.ts)                                                                   |
+| Service interface contracts and wire protocol types                                      | [packages/api-contracts/src/index.ts](packages/api-contracts/src/index.ts)                                                                               |
+
 | API server transport assembly                                                            | [packages/api-server/src/server.ts](packages/api-server/src/server.ts)                                                                                   |
 | API server HTTP routes                                                                   | [packages/api-server/src/routes/](packages/api-server/src/routes/)                                                                                       |
 | API server WebSocket chat bridge                                                         | [packages/api-server/src/ws/chat-handler.ts](packages/api-server/src/ws/chat-handler.ts)                                                                 |
-| File-context permission runtime (`ContextRuntime`, parser, matcher)                      | [file-context/](file-context/)                                                                                                                           |
+| FS context permission runtime (`ContextRuntime`, parser, matcher)                      | [fs-context/](fs-context/)                                                                                                                           |
 | Core tools and question primitives                                                       | [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts)                                                                                     |
 | Context manager (Agent API adapter over `ContextRuntime`)                                | [packages/core/src/context/index.ts](packages/core/src/context/index.ts)                                                                                 |
 | DI container primitives and bootstrap helpers                                            | [packages/container/src/](packages/container/src/)                                                                                                       |
@@ -88,11 +87,10 @@ Adapters / Transports
   ├─ @ai-team/cli
   ├─ @ai-team/vscode
   ├─ @ai-team/web
-  ├─ @ai-team/api-server
-  └─ @ai-team/api-client-http
+  └─ @ai-team/api-server
 
 Typed clients / integration contracts
-  ├─ @ai-team/api-client
+  ├─ @ai-team/api-contracts
   └─ @ai-team/ide-interface
 
 Runtime composition primitives
@@ -105,7 +103,7 @@ UI-free domain + workspace logic
   └─ @ai-team/core
 
 Permission runtime library
-  └─ file-context
+  └─ fs-context
 
 Runtime state + external integrations
   ├─ .ai-team/*
@@ -114,15 +112,15 @@ Runtime state + external integrations
 
 ### Execution paths
 
-- **CLI local path**: `@ai-team/cli -> @ai-team/api-client -> @ai-team/service -> @ai-team/core -> .ai-team/*`
-- **Web remote path**: `@ai-team/web -> @ai-team/api-client-http -> @ai-team/api-server -> @ai-team/api-client -> @ai-team/service -> @ai-team/core -> .ai-team/*`
+- **CLI local path**: `@ai-team/cli -> @ai-team/service -> @ai-team/core -> .ai-team/*`
+- **Web remote path**: `@ai-team/web -> @ts-http -> @ai-team/api-server -> @ai-team/api-contracts -> @ai-team/service -> @ai-team/core -> .ai-team/*`
 - **VS Code IDE integration path**: `CLI or api-server -> @ai-team/ide-interface -> @ai-team/vscode IDE-local server -> VS Code-native review/open-file UX`
 
 ## Package Responsibilities
 
-### `file-context`
+### `fs-context`
 
-- Shared file-context runtime library in the repository root.
+- Shared fs-context runtime library in the repository root.
 - Provides `.perm` parsing helpers, glob matching, overlap analysis, and `ContextRuntime` for context/file rights lookups.
 - Used by `@ai-team/core` context management (`packages/core/src/context/index.ts`) as the underlying permission runtime.
 
@@ -149,28 +147,18 @@ Runtime state + external integrations
 - Boundary rule: `@ai-team/service` depends on `@ai-team/core` interfaces and container tokens only. Concrete implementations are selected during bootstrap and must not be imported directly from service code or service tests.
 - Shortcut rule: **container command definitions may call `@ai-team/infrastructure` directly when the command is purely a config/data read with no orchestration logic, governance, or side-effects.** These commands do not need a service adapter layer. Commands with LLM orchestration, governance policy enforcement, agent mutation, or workflow state must continue to route through `@ai-team/service`.
 
-### `@ai-team/api-client`
+### `@ai-team/api-contracts`
 
-- Owns the typed in-process client façade used by local adapters and the API server.
-- Wraps `@ai-team/service` for command-style operations.
-- Exposes local convenience helpers for agent metadata, content editing, and other local workflows that are not pure remote mediator calls.
-- Provides `createLocalAiTeamClient()` as the standard local runtime entry point.
-- Target direction: should align with the same transport-independent service interfaces that the web can consume through different implementations.
+- Defines the service interface contracts and wire protocol types.
+- Provides type-safe request/response definitions.
+- Used by both local and remote clients.
 
 ### `@ai-team/api-server`
 
 - Owns HTTP and WebSocket transport adaptation for browser and remote clients.
 - Mounts REST routes, Swagger/OpenAPI docs, AsyncAPI docs, and the chat WebSocket endpoint.
-- Uses the local `@ai-team/api-client` plus shared service/session managers to expose backend capabilities remotely.
+- Consumes `@ai-team/service` interfaces and exposes them over HTTP/WebSocket.
 - Brokers optional IDE-facing integration paths such as proposal replay and editor notifications.
-
-### `@ai-team/api-client-http`
-
-- Owns the browser-safe remote client for the API server.
-- Provides REST helpers plus WebSocket chat streaming for the web UI.
-- Shares service/core types where practical, but does not currently provide full parity with the local in-process client surface.
-- Should be treated as the **remote transport client**, not as the canonical client for every workflow.
-- Target direction: should implement the same higher-level service interfaces used by local clients so startup wiring can choose local vs remote without changing UI-facing calling code.
 
 ### `@ai-team/ide-interface`
 
@@ -181,7 +169,7 @@ Runtime state + external integrations
 ### `@ai-team/cli`
 
 - Owns terminal parsing, prompts, rendering, and process-level UX.
-- Delegates business operations to `@ai-team/api-client`.
+- Delegates business operations to `@ai-team/service`.
 - Can forward proposal/open-file actions into the IDE bridge when VS Code is available.
 
 ### `@ai-team/vscode`
@@ -194,7 +182,7 @@ Runtime state + external integrations
 ### `@ai-team/web`
 
 - Owns the browser UI for dashboard, team graph, employee list, portfolio/editor, chat, session/thread graph, and context/task/permission surfaces.
-- Uses the remote transport path through `@ai-team/api-client-http` and `@ai-team/api-server` rather than importing lower runtime layers directly into browser code.
+- Uses the remote transport path through `@ts-http` and `@ai-team/api-server` rather than importing lower runtime layers directly into browser code.
 - Is currently a hybrid frontend architecture: some data access is extracted into query hooks, while several feature screens still combine fetching, orchestration, and rendering.
 - Target direction remains TanStack Query for persisted API-backed state, narrow runtime controllers/stores for live chat state, and prop-driven presentational views where practical.
 - Target direction also includes injecting client implementations at startup so the same UI can run against different local/remote hosts without rewriting feature code.
@@ -215,7 +203,7 @@ Compatibility/bootstrap artifacts may also exist under `.github/`, but `.ai-team
 
 ## File-System Access Model
 
-The current file-path access model is centered on `file-context` + per-agent `.perm` files, with `ContextManager` as the compatibility adapter consumed by service/API/CLI/tooling surfaces.
+The current file-path access model is centered on `fs-context` + per-agent `.perm` files, with `ContextManager` as the compatibility adapter consumed by service/API/CLI/tooling surfaces.
 
 - Agent frontmatter no longer carries file-path read/write/create/delete rules.
 - Per-agent path policy lives in `.ai-team/agents/<agent-id>.perm`.
@@ -320,7 +308,7 @@ This keeps orchestration behavior consistent across surfaces that use the same s
 1. **`@ai-team/core` stays UI-free** - no `vscode`, `react`, `react-dom`, or `electron` imports.
 2. **Adapters stay thin** - UX lives at the edge; business logic flows through shared clients/service/core.
 3. **`@ai-team/service` owns orchestration** - command dispatch, runtime events, workflow continuation, and chat control flow live there.
-4. **Remote and local clients are different on purpose** - `@ai-team/api-client` is the in-process local façade; `@ai-team/api-client-http` is the remote/browser transport client.
+3. **Remote and local clients are different on purpose** - CLI calls service directly; the web client uses `@ts-http` to call the API server.
 5. **IDE integration is its own boundary** - `@ai-team/ide-interface` and `@ai-team/vscode` handle editor-local workflows without pushing IDE concerns down into service/core.
 6. **Runtime state conventions remain under `.ai-team/`**.
 7. **Typed command contracts remain centralized in service**.
@@ -333,8 +321,9 @@ When adding or changing capabilities:
 1. Add or adjust reusable business/domain behavior in `@ai-team/core`.
 2. Expose or adapt application operations through `@ai-team/service`.
 3. Extend the relevant transport/client package:
-   - `@ai-team/api-client` for local/in-process use
-   - `@ai-team/api-client-http` and `@ai-team/api-server` for remote/browser use
+   - `@ai-team/api-contracts` for type definitions
+   - `@ai-team/api-contracts` for type definitions
+   - `@ts-http` and `@ai-team/api-server` for remote/browser use
    - `@ai-team/ide-interface` for IDE-facing integration
 4. Wire UX in the appropriate adapter package (`cli`, `vscode`, or `web`).
 5. Update architecture docs in the same change when the architecture, boundaries, runtime storage, or execution path changes.

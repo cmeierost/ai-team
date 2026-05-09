@@ -1,4 +1,4 @@
-import type { ChatOptions, StreamEvent, AiTeamCommandName } from '@ai-team/api-contracts';
+import type { ChatOptions, StreamEvent } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import type {
   InteractionContext,
@@ -292,7 +292,7 @@ function createChatQuestionResponders(
 }
 
 function handleOneShotEvent(
-  event: StreamEvent<AiTeamCommandName>,
+  event: StreamEvent<string>,
   writeStderrLine: (text: string) => void
 ): void {
   if (event.kind === 'status' && event.message) {

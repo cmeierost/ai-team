@@ -7,6 +7,7 @@ export class HistoryChatCommand implements ICommand<string, OrchestratorContext,
   readonly usage = '/history [n]';
   readonly description = 'Show recent messages (default: 20)';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const parsedLimit = Number.parseInt(args.trim(), 10);

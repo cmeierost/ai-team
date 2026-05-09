@@ -22,6 +22,7 @@ export class SkillsAddCommand implements ICommand<Params, void, UpdateAgentSkill
   readonly cli = { command: 'add', parentKey: 'skills' };
   readonly description = 'Add a skill to an agent';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'skills';
   readonly parameters = SkillsAddCommand.schema;
 
   constructor(

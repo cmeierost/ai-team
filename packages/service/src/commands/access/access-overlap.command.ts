@@ -16,6 +16,7 @@ export class AccessOverlapCommand implements ICommand<Params, void, PermissionOv
   readonly cli = { command: 'overlap', parentKey: 'access' };
   readonly description = 'Analyze overlap between agent .perm file responsibilities by right';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'access';
   readonly parameters = AccessOverlapCommand.schema;
 
   constructor(private readonly agentManager: IAgentManager) {}

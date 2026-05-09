@@ -6,6 +6,7 @@ export class OverviewChatCommand implements ICommand<string, OrchestratorContext
   readonly key = 'overview';
   readonly description = 'Workspace file overview → shared with agent';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(_args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const { getWorkspaceOverview } = await import('../../utils/workspace.js');

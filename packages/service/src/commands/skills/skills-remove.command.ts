@@ -22,6 +22,7 @@ export class SkillsRemoveCommand implements ICommand<Params, void, UpdateAgentSk
   readonly cli = { command: 'remove', parentKey: 'skills' };
   readonly description = 'Remove a skill from an agent';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'skills';
   readonly parameters = SkillsRemoveCommand.schema;
 
   constructor(

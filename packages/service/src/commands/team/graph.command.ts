@@ -13,6 +13,7 @@ export class GraphCommand implements ICommand<Params, void, GraphData> {
   readonly cli = { command: 'graph' };
   readonly description = 'Generate team graph';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'team';
   readonly parameters = GraphCommand.schema;
 
   constructor(private readonly teamGraphBuilder: ITeamGraphBuilder) {}

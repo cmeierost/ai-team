@@ -8,6 +8,7 @@ export class NewSessionChatCommand implements ICommand<string, OrchestratorConte
   readonly key = 'new';
   readonly description = 'Start a new session with the current agent';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(_args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const developerId = developerNameToId('developer');

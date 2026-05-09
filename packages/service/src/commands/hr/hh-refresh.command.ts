@@ -6,6 +6,7 @@ export class HhRefreshCommand implements ICommand<Record<string, never>, void, v
   readonly cli = { command: 'refresh', parentKey: 'hh' };
   readonly description = 'Pull and refresh the skill catalog from GitHub';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'hr';
 
   async execute(
     _payload: Record<string, never>,

@@ -24,6 +24,7 @@ export class ToolsAllowCommand implements ICommand<Params, void, UpdateAgentTool
   readonly cli = { command: 'allow', parentKey: 'tools' };
   readonly description = 'Allow a tool for an agent (governed)';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'tool';
   readonly parameters = ToolsAllowCommand.schema;
 
   constructor(

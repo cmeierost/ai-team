@@ -17,6 +17,10 @@ type PersistedToolCall = {
 };
 
 type ToolDenial = NonNullable<NonNullable<SessionActivatedTool['toolResult']>['denial']>;
+type ToolTerminalOutcome = Extract<
+  NonNullable<SessionActivatedTool['toolResult']>['outcome'],
+  'result' | 'error' | 'denied'
+>;
 
 type CommandResponseLike = {
   status: 'ok' | 'error';
@@ -26,7 +30,7 @@ type CommandResponseLike = {
 
 function toRuntimeCommandResponse(
   toolName: string,
-  outcome: 'result' | 'error' | 'denied',
+  outcome: ToolTerminalOutcome,
   result: unknown,
   message?: string
 ): CommandResponseLike {
@@ -102,7 +106,7 @@ export function resolveRuntimeToolEventMessage(event: {
 
 export function getPersistedToolStatus(call: PersistedToolCall): {
   phase: SessionActivatedTool['toolPhase'];
-  outcome: NonNullable<SessionActivatedTool['toolResult']>['outcome'];
+  outcome: ToolTerminalOutcome;
   message?: string;
   denial?: ToolDenial;
 } {

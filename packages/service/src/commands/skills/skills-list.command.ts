@@ -17,6 +17,7 @@ export class SkillsListCommand implements ICommand<Params, void, SearchSkillsRes
   readonly description =
     'Search available skills and optionally show whether they are assigned to an agent';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'skills';
   readonly parameters = SkillsListCommand.schema;
 
   constructor(

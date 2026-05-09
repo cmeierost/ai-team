@@ -16,12 +16,15 @@ import {
   CommandRuntime,
   ContextLevel,
   type LspProvider,
-  type IServiceContainer,
   PermissionResult,
   ToolCatalogEntry,
   ToolContext,
   type PermissionDescriptor,
 } from '@ai-team/core';
+
+interface ToolResolverContainer {
+  resolve<T>(token: unknown): T;
+}
 
 interface PathPermissionCheckerLike {
   canReadPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
@@ -200,7 +203,7 @@ export class ToolManager {
   /** Optional LSP provider injected into tool context. */
   private _lsp?: LspProvider;
   /** Optional DI container forwarded into tool context via toolContext.resolve. */
-  private _container?: IServiceContainer;
+  private _container?: ToolResolverContainer;
 
   constructor(workspaceRoot: string, pathPermissionChecker?: PathPermissionCheckerLike) {
     this.workspaceRoot = workspaceRoot;
@@ -221,7 +224,7 @@ export class ToolManager {
   }
 
   /** Set the DI container forwarded to tools via context.resolve. */
-  setContainer(container: IServiceContainer): void {
+  setContainer(container: ToolResolverContainer): void {
     this._container = container;
   }
 

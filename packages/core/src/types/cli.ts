@@ -19,4 +19,7 @@ export interface CliCommandMetadata {
   aliases?: string[];
   options?: CommandOptionMetadata[];
   arguments?: CommandArgumentMetadata[];
+  hints?: string[];
+  examples?: string[];
+  jsonSignature?: boolean;
 }

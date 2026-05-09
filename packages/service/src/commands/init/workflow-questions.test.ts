@@ -2,8 +2,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const askExecute = vi.hoisted(() => vi.fn());
 
-vi.mock('../../tools/orchestration-tools.js', () => ({
-  AskUserTool: class {
+vi.mock('../com/ask.command.js', () => ({
+  AskUserCommand: class {
     execute = askExecute;
   },
 }));
@@ -75,7 +75,10 @@ describe('workflow questions ask-tool bridge', () => {
         message: 'Proceed?',
         defaultBoolean: false,
       }),
-      expect.any(Object)
+      expect.any(Object),
+      expect.objectContaining({
+        invocationSurface: 'tool',
+      })
     );
   });
 

@@ -90,7 +90,7 @@ The Swagger UI provides a comprehensive, interactive interface to explore and te
 ## Architecture
 
 ```
-Web UI (Browser) → HTTP/WebSocket → API Server → api-client → service → core
+Web UI (Browser) → HTTP/WebSocket → API Server → api-contracts → service → core
 ```
 
 The API server acts as a transport layer, exposing the service layer to browser clients via HTTP REST and WebSocket protocols.

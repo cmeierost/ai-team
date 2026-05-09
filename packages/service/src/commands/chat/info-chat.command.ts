@@ -7,6 +7,7 @@ export class InfoChatCommand implements ICommand<string, OrchestratorContext, vo
   readonly usage = '/info <employee>';
   readonly description = 'Show team member info';
   readonly availableIn = { chat: true, tool: true };
+  readonly group = 'chat';
 
   async execute(args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const query = args.trim();

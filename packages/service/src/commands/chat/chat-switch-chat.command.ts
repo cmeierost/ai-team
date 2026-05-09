@@ -8,6 +8,7 @@ export class ChatSwitchChatCommand implements ICommand<string, OrchestratorConte
   readonly usage = '/chat <name|role>';
   readonly description = 'Switch to another team member';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const query = args.trim();

@@ -102,12 +102,12 @@ export interface ResolverCommandDefinition<TCommand extends string = string> {
   cliMetadata?: CliCommandMetadata;
 }
 
-export interface FactoryCommandDefinition<TCommand extends AiTeamCommandName = AiTeamCommandName> {
+export interface FactoryCommandDefinition<TCommand extends string = string> {
   factory: CommandFactory<TCommand>;
   cliMetadata?: CliCommandMetadata;
 }
 
-export type CommandDefinition<TCommand extends AiTeamCommandName = AiTeamCommandName> =
+export type CommandDefinition<TCommand extends string = string> =
   | FactoryCommandDefinition<TCommand>
   | ResolverCommandDefinition<TCommand>;
 
@@ -135,13 +135,13 @@ export function createCommandDefinitionRegistry(
   };
 }
 
-export function isResolverCommandDefinition<TCommand extends AiTeamCommandName>(
+export function isResolverCommandDefinition<TCommand extends string>(
   definition: CommandDefinition<TCommand>
 ): definition is ResolverCommandDefinition<TCommand> {
   return 'register' in definition && 'handlerToken' in definition && 'registration' in definition;
 }
 
-export function createCommandHandlerToken<TCommand extends AiTeamCommandName>(
+export function createCommandHandlerToken<TCommand extends string>(
   key: TCommand
 ): IContainerToken<CurriedCommandHandler<TCommand>> {
   return createContainerToken<CurriedCommandHandler<TCommand>>(`CommandHandler:${String(key)}`);

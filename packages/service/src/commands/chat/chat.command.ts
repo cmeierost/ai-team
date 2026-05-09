@@ -38,6 +38,7 @@ export class ChatICommand implements ICommand<Params, void, void> {
   readonly cli = { command: 'chat [agent-id]' };
   readonly description = 'Start a chat session with an agent';
   readonly availableIn = { cli: true, chat: false, tool: false };
+  readonly group = 'chat';
   readonly parameters = ChatICommand.schema;
 
   constructor(
@@ -52,6 +53,7 @@ export class ChatICommand implements ICommand<Params, void, void> {
     private readonly proposalStoreFactory: IProposalStoreFactory,
     private readonly contextService: Pick<IContextService, 'getContextEstimate'>,
     private readonly sessionManager?: SessionManager,
+    private readonly serviceContainer?: { resolve<T>(token: unknown): T },
   ) {}
 
   async execute(payload: Params, _ctx: void, runtime: CommandRuntime): Promise<void> {
@@ -78,7 +80,8 @@ export class ChatICommand implements ICommand<Params, void, void> {
       this.pathPermissionChecker,
       this.proposalStoreFactory,
       this.contextService,
-      this.sessionManager
+      this.sessionManager,
+      this.serviceContainer
     );
 
     await cmd.execute(runtime.workspaceRoot, payload.employeeId, payload.options ?? {}, hooks);

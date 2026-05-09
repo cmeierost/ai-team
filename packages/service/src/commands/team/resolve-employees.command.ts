@@ -15,6 +15,7 @@ export class ResolveEmployeesICommand implements ICommand<Params, void, Agent[]>
   readonly cli = { command: 'info <agent>' };
   readonly description = 'Show detailed information about an employee';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'team';
   readonly parameters = ResolveEmployeesICommand.schema;
 
   constructor(private readonly agents: IAgentManager) {}

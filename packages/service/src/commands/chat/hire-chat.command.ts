@@ -5,6 +5,7 @@ export class HireChatCommand implements ICommand<string, OrchestratorContext, vo
   readonly key = 'hire';
   readonly description = 'Interactive: hire a new team member';
   readonly availableIn = { chat: true, tool: true };
+  readonly group = 'chat';
 
   async execute(_args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const mod = (await import('../hr/hire.js')) as any;

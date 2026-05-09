@@ -173,6 +173,7 @@ interface ChatPanelViewProps {
   sending: boolean;
   streaming: boolean;
   compressionInProgress: boolean;
+  chatError: string | null;
   pendingQuestion: PendingQuestion | null;
   pendingInputAnswer: string;
   pendingPasswordAnswer: string;
@@ -249,6 +250,7 @@ interface ChatPanelViewProps {
   onToggleTts: () => void;
   onSend: () => void;
   onInterrupt: () => void;
+  onDismissChatError: () => void;
   onSwitchSession: (sessionId: string) => void;
   onDeleteSession: (deletedSessionId: string) => void;
   onCreateSession: () => Promise<void>;
@@ -283,6 +285,7 @@ export function ChatPanelView({
   sending,
   streaming,
   compressionInProgress,
+  chatError,
   pendingQuestion,
   pendingInputAnswer,
   pendingPasswordAnswer,
@@ -349,6 +352,7 @@ export function ChatPanelView({
   onToggleTts,
   onSend,
   onInterrupt,
+  onDismissChatError,
   onSwitchSession,
   onDeleteSession,
   onCreateSession,
@@ -577,6 +581,21 @@ export function ChatPanelView({
             </button>
           </div>
         </div>
+
+        {chatError ? (
+          <div className="chat-error-banner" role="alert" aria-live="assertive">
+            <span className="chat-error-banner__message">Error: {chatError}</span>
+            <button
+              type="button"
+              className="chat-error-banner__dismiss"
+              onClick={onDismissChatError}
+              aria-label="Dismiss chat error"
+              title="Dismiss"
+            >
+              <i className="codicon codicon-close" />
+            </button>
+          </div>
+        ) : null}
 
         <ChatMessagesView
           agent={agent}

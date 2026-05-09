@@ -19,7 +19,7 @@ import type {
   Skill,
   StructuredToolResult,
 } from '@ai-team/core';
-import { withAbortSignal } from './async-utils.js';
+import { withAbortSignal } from '../utils/async-utils.js';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import type { OrchestratorContext } from './pipeline-context.js';
 import { dispatchToolCall } from './tool-dispatch.js';

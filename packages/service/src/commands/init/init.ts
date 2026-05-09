@@ -1,13 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { resolveEffectiveLlmSettings } from '@ai-team/core';
 import {
   ensureAiTeamDirectory,
   loadEnvFile,
   loadTeamConfig,
-  resolveEffectiveLlmSettings,
   saveAgentAccessPatterns,
   testLlmConnection,
-} from '@ai-team/core';
+} from './init-compat.js';
 import type { InitOptions } from '@ai-team/api-contracts';
 import type { SessionManager } from '../../session-manager.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
@@ -307,7 +307,7 @@ export async function initCommand(
 
   try {
     if (existingConfig) {
-      existingResolved = resolveEffectiveLlmSettings(existingConfig);
+      existingResolved = resolveEffectiveLlmSettings(existingConfig as any);
     }
   } catch {
     existingResolved = undefined;

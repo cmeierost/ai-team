@@ -189,7 +189,7 @@ Each is a separate command (own entry point), not a mode switch within a session
 - `packages/service/src/orchestrator/slash-commands.ts` — slash command implementations
 - `packages/service/src/orchestrator/pipeline.ts` — `ISlashCommand` interface
 - `packages/service/src/interaction-stream.ts` — universal streaming engine
-- `packages/api-client/src/contract/routers/streaming.ts` — contract types
+- `packages/api-contracts/src/index.ts` — contract types
 - `packages/cli/src/handlers/` — CLI stream event renderers
 - `packages/cli/src/handlers/stream-runner.ts` — generic CLI stream consumer
 - `packages/api-server/src/ws/chat-handler.ts` — WebSocket bridge

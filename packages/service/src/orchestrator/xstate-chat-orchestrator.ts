@@ -12,7 +12,7 @@ import { isCommandResponse } from '@ai-team/api-contracts';
 import type { CommandResponse, RuntimeStreamEvent } from '@ai-team/api-contracts';
 
 import { emitLog, emitStatus } from './stream-events.js';
-import { resolvePreLlmIntent } from '../tools/pre-llm-intents.js';
+import { resolvePreLlmIntent, type PreLlmIntent } from '../tools/pre-llm-intents.js';
 import { dispatchToolCall } from './tool-dispatch.js';
 import { executeHandoff, tryNlForward } from './handoff.js';
 import type { OrchestratorContext } from './pipeline-context.js';
@@ -30,12 +30,15 @@ export interface RunOptions {
 }
 
 export class XStateChatOrchestrator {
+  private preLlmUserMessagePersisted = false;
+
   constructor(
     private readonly ctx: OrchestratorContext,
     private readonly plugins: ResolvedPlugins
   ) {}
 
   async run(options: RunOptions): Promise<string> {
+    this.preLlmUserMessagePersisted = false;
     let lastTurnResult: TurnResult | undefined;
     let wasForwardedInPreturn = false;
 
@@ -68,9 +71,16 @@ export class XStateChatOrchestrator {
             ctx: this.ctx,
             plugins: this.plugins,
             options: {
-              skipPersist: hop > 0 || message === AUTO_REACT_MESSAGE,
+              skipPersist:
+                hop > 0 ||
+                message === AUTO_REACT_MESSAGE ||
+                (hop === 0 && this.preLlmUserMessagePersisted),
             },
           });
+
+          if (hop === 0) {
+            this.preLlmUserMessagePersisted = false;
+          }
 
           lastTurnResult = output.turnResult;
           return output.chatResult;
@@ -154,9 +164,11 @@ export class XStateChatOrchestrator {
     const slashResult = await this.trySlashCommand(message);
     if (slashResult !== null) return slashResult;
 
-    // ── Deterministic regex tool intents (pre-LLM) ─────────────────────────
-    const regexIntentResult = await this.tryRegexToolIntent(message, contextFiles);
-    if (regexIntentResult !== null) return regexIntentResult;
+    // ── Scored pre-LLM tool intents (tool/workflow-driven) ─────────────────
+    const preLlmIntentExecuted = await this.tryPreLlmIntent(message, contextFiles);
+    if (preLlmIntentExecuted) {
+      return undefined;
+    }
 
     // ── Natural-language forward detection ──────────────────────────────────
     const nlResult = await tryNlForward(message, this.ctx);
@@ -401,16 +413,85 @@ export class XStateChatOrchestrator {
     this.ctx.history.push(persisted);
   }
 
-  private async tryRegexToolIntent(
+  private extractAskAnswer(result: unknown): unknown {
+    if (result && typeof result === 'object' && 'answer' in result) {
+      return (result as { answer: unknown }).answer;
+    }
+    return undefined;
+  }
+
+  private async executePreLlmIntent(
+    intent: PreLlmIntent,
+    contextFiles?: string[]
+  ): Promise<boolean> {
+    if (intent.kind === 'tool') {
+      await dispatchToolCall(
+        {
+          toolCallId: `pre-llm-intent-${Date.now()}`,
+          toolName: intent.toolName,
+          args: intent.args,
+        },
+        this.ctx,
+        contextFiles
+      );
+      return true;
+    }
+
+    const askResult = await dispatchToolCall(
+      {
+        toolCallId: `pre-llm-intent-ask-${Date.now()}`,
+        toolName: 'com_ask',
+        args: intent.ask,
+      },
+      this.ctx,
+      contextFiles
+    );
+
+    if (askResult.isError) {
+      emitLog(this.ctx.hooks, 'warn', 'Pre-LLM clarification failed; continuing without auto-tool execution.');
+      return false;
+    }
+
+    const answer = this.extractAskAnswer(askResult.result);
+    const resolvedArgs = intent.resolveArgs(answer);
+    if (!resolvedArgs) {
+      if (intent.ask.kind !== 'confirm') {
+        emitLog(this.ctx.hooks, 'warn', 'Pre-LLM clarification did not produce executable tool arguments.');
+      }
+      return false;
+    }
+
+    await dispatchToolCall(
+      {
+        toolCallId: `pre-llm-intent-${Date.now()}`,
+        toolName: intent.toolName,
+        args: resolvedArgs,
+      },
+      this.ctx,
+      contextFiles
+    );
+    return true;
+  }
+
+  private async tryPreLlmIntent(
     message: string,
     contextFiles?: string[]
-  ): Promise<string | null> {
-    const intent = resolvePreLlmIntent(message);
-    if (!intent) return null;
+  ): Promise<boolean> {
+    const intent = await resolvePreLlmIntent(
+      message,
+      this.ctx,
+      this.plugins.preLlmIntentProviders ?? []
+    );
+    if (!intent) return false;
+
+    const executed = await this.executePreLlmIntent(intent, contextFiles);
+    if (!executed) {
+      return false;
+    }
 
     await this.persistRegexIntentUserMessage(message);
-    await this.executeRegexToolIntent(intent.toolName, intent.args, contextFiles);
-    return '';
+    this.preLlmUserMessagePersisted = true;
+    return true;
   }
 
   private async persistRegexIntentUserMessage(message: string): Promise<void> {
@@ -439,19 +520,4 @@ export class XStateChatOrchestrator {
     this.ctx.history.push(userMsg);
   }
 
-  private async executeRegexToolIntent(
-    toolName: string,
-    args: unknown,
-    contextFiles?: string[]
-  ): Promise<void> {
-    await dispatchToolCall(
-      {
-        toolCallId: `regex-intent-${Date.now()}`,
-        toolName,
-        args,
-      },
-      this.ctx,
-      contextFiles
-    );
-  }
 }

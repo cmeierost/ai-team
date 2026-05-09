@@ -10,8 +10,7 @@ import { runtimeEventToStreamEvent } from '@ai-team/service/src/runtime-event-tr
 import { streamInteraction } from '@ai-team/service/src/interaction-stream.js';
 import type { IServiceContainer } from '@ai-team/core';
 import {
-  AiTeamCommandName,
-  AiTeamCommandResponseMap,
+  CommandResponse,
   InteractionContext,
   StreamEvent,
   InteractionRequest,
@@ -25,6 +24,60 @@ const STDOUT_CAPTURE_BYPASS_SCOPE = new AsyncLocalStorage<boolean>();
 
 function runWithoutStdoutCapture<T>(task: () => Promise<T>): Promise<T> {
   return STDOUT_CAPTURE_BYPASS_SCOPE.run(true, task);
+}
+
+type CliEmit = ((event: RuntimeStreamEvent) => void) | undefined;
+
+function wrapQuestionHandler<TRequest, TResponse>(
+  handler: ((request: TRequest) => Promise<TResponse>) | undefined
+): ((request: TRequest) => Promise<TResponse>) | undefined {
+  if (!handler) {
+    return undefined;
+  }
+
+  return (request: TRequest) => runWithoutStdoutCapture(() => handler(request));
+}
+
+export interface ICliInteractionContextAdapter {
+  adapt(command: string, context: InteractionContext, emitWithConsole: CliEmit): InteractionContext;
+}
+
+/**
+ * Default request-scoped adapter for CLI interaction context.
+ *
+ * This is DI-friendly: callers may provide an alternate implementation when
+ * they need different runtime bridging behavior.
+ */
+export class DefaultCliInteractionContextAdapter implements ICliInteractionContextAdapter {
+  constructor(private readonly workspaceRoot: string) {}
+
+  adapt(command: string, context: InteractionContext, emitWithConsole: CliEmit): InteractionContext {
+    const isInteractive = command === 'chat' || command === 'init';
+
+    const workflowStateStore = isInteractive
+      ? new WorkflowStateStore(this.workspaceRoot)
+      : undefined;
+    const persistedWorkflowState = workflowStateStore?.loadForCommand(command);
+
+    return {
+      ...context,
+      signal: context.signal,
+      emit: emitWithConsole,
+      logger: context.logger,
+      questionInput: wrapQuestionHandler(context.questionInput),
+      questionConfirm: wrapQuestionHandler(context.questionConfirm),
+      questionSelect: wrapQuestionHandler(context.questionSelect),
+      questionPassword: wrapQuestionHandler(context.questionPassword),
+      questionChecklist: wrapQuestionHandler(context.questionChecklist),
+      workflowState: context.workflowState || persistedWorkflowState,
+      onWorkflowFrame: workflowStateStore
+        ? (frame) => {
+            workflowStateStore.handleFrame(command, frame);
+            context.onWorkflowFrame?.(frame);
+          }
+        : context.onWorkflowFrame,
+    };
+  }
 }
 
 function formatRuntimeConsoleArgs(args: unknown[]): string {
@@ -56,8 +109,8 @@ function formatRuntimeConsoleArgs(args: unknown[]): string {
  * CLI commands only call `streamInteraction()`.
  */
 export interface ICliCommandClient {
-  streamInteraction<TCommand extends AiTeamCommandName>(
-    request: InteractionRequest<TCommand>,
+  streamInteraction<TCommand extends string = string>(
+    request: InteractionRequest,
     context?: InteractionContext
   ): AsyncIterable<StreamEvent<TCommand>>;
 }
@@ -65,16 +118,24 @@ export interface ICliCommandClient {
 export class CliCommandClient implements ICliCommandClient {
   public readonly workspaceRoot: string;
   private readonly dispatcher: CommandDispatcher;
+  private readonly contextAdapter: ICliInteractionContextAdapter;
 
-  constructor(workspaceRoot: string, resolver: IServiceContainer) {
+  constructor(
+    workspaceRoot: string,
+    resolver: IServiceContainer,
+    contextAdapter: ICliInteractionContextAdapter = new DefaultCliInteractionContextAdapter(
+      workspaceRoot
+    )
+  ) {
     this.workspaceRoot = workspaceRoot;
     this.dispatcher = createCommandDispatcher(workspaceRoot, resolver);
+    this.contextAdapter = contextAdapter;
   }
 
-  async invokeTool<TCommand extends AiTeamCommandName>(
-    request: InteractionRequest<TCommand>,
+  async invokeTool(
+    request: InteractionRequest,
     context: InteractionContext = {}
-  ): Promise<AiTeamCommandResponseMap[TCommand]> {
+  ): Promise<CommandResponse<unknown>> {
     if (context.signal?.aborted) {
       throw new Error('Mediator invocation aborted');
     }
@@ -168,12 +229,16 @@ export class CliCommandClient implements ICliCommandClient {
       }) as typeof process.stdout.write;
     }
 
-    const invokeCore = async (): Promise<AiTeamCommandResponseMap[TCommand]> => {
+    const invokeCore = async (): Promise<CommandResponse<unknown>> => {
       // Build a CLI-adapted context that wraps question callbacks with
       // runWithoutStdoutCapture (so interactive prompts bypass the stdout
       // capture scope) and wires up workflow state persistence for
       // interactive commands (chat, init).
-      const dispatchContext = this.buildCliContext(request.command, context, emitWithConsole);
+      const dispatchContext = this.contextAdapter.adapt(
+        request.command,
+        context,
+        emitWithConsole
+      );
 
       const response = await this.dispatcher.dispatch(request, dispatchContext);
 
@@ -189,7 +254,7 @@ export class CliCommandClient implements ICliCommandClient {
         requestId: request.requestId,
       });
 
-      return response;
+      return response as CommandResponse<unknown>;
     };
 
     try {
@@ -223,56 +288,8 @@ export class CliCommandClient implements ICliCommandClient {
     }
   }
 
-  /**
-   * Build a CLI-adapted InteractionContext:
-   * - Wraps question callbacks with `runWithoutStdoutCapture` so interactive
-   *   prompts bypass the stdout capture scope.
-   * - Wires up WorkflowStateStore for commands that support workflow state
-   *   persistence (chat, init).
-   */
-  private buildCliContext(
-    command: AiTeamCommandName,
-    context: InteractionContext,
-    emitWithConsole: ((event: RuntimeStreamEvent) => void) | undefined
-  ): InteractionContext {
-    const isInteractive = command === 'chat' || command === 'init';
-
-    const workflowStateStore = isInteractive
-      ? new WorkflowStateStore(this.workspaceRoot)
-      : undefined;
-    const persistedWorkflowState = workflowStateStore?.loadForCommand(command);
-
-    return {
-      signal: context.signal,
-      emit: emitWithConsole,
-      logger: context.logger,
-      questionInput: context.questionInput
-        ? (request) => runWithoutStdoutCapture(() => context.questionInput!(request))
-        : undefined,
-      questionConfirm: context.questionConfirm
-        ? (request) => runWithoutStdoutCapture(() => context.questionConfirm!(request))
-        : undefined,
-      questionSelect: context.questionSelect
-        ? (request) => runWithoutStdoutCapture(() => context.questionSelect!(request))
-        : undefined,
-      questionPassword: context.questionPassword
-        ? (request) => runWithoutStdoutCapture(() => context.questionPassword!(request))
-        : undefined,
-      questionChecklist: context.questionChecklist
-        ? (request) => runWithoutStdoutCapture(() => context.questionChecklist!(request))
-        : undefined,
-      workflowState: context.workflowState || persistedWorkflowState,
-      onWorkflowFrame: workflowStateStore
-        ? (frame) => {
-            workflowStateStore.handleFrame(command, frame);
-            context.onWorkflowFrame?.(frame);
-          }
-        : context.onWorkflowFrame,
-    };
-  }
-
-  async *streamInteraction<TCommand extends AiTeamCommandName>(
-    request: InteractionRequest<TCommand>,
+  async *streamInteraction<TCommand extends string = string>(
+    request: InteractionRequest,
     context: InteractionContext = {}
   ): AsyncIterable<StreamEvent<TCommand>> {
     const { enabled: perfEnabled, slowMs: perfSlowMs } = parseStreamPerfEnv();

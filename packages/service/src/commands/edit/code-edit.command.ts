@@ -35,6 +35,7 @@ export class CodeEditListCommand implements ICommand<ListParams, void, CodeEditL
   readonly cli = { command: 'code-edit list' };
   readonly description = 'List code edit proposals';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'edit';
   readonly parameters = CodeEditListCommand.schema;
 
   constructor(private readonly codeEditService: CodeEditService) {}

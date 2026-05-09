@@ -17,6 +17,7 @@ export class CreateICommand implements ICommand<Params, void, void> {
   readonly cli = { command: 'create <type>' };
   readonly description = 'Create a new entity (agent or skill)';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'hr';
   readonly parameters = CreateICommand.schema;
 
   constructor(

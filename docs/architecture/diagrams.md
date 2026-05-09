@@ -21,16 +21,16 @@ flowchart LR
 
   subgraph RemoteAdapters[Remote/browser adapters]
     WEB[@ai-team/web\nDashboard, portfolio, chat, sessions, tasks]
-    HTTPCLIENT[@ai-team/api-client-http\nBrowser-safe REST + WebSocket client]
+    HTTPCLIENT[@ts-http\nBrowser-safe REST + WebSocket client]
     APISERVER[@ai-team/api-server\nREST and WebSocket transport]
   end
 
   subgraph SharedRuntime[Shared runtime]
-    LOCALCLIENT[@ai-team/api-client\nLocal typed client façade]
+    CONTRACTS[@ai-team/api-contracts\nService interface contracts]
     IDE[@ai-team/ide-interface\nIDE bridge contracts]
     SERVICE[@ai-team/service\nOrchestration + transitional mediator boundary]
     CORE[@ai-team/core\nUI-free domain logic]
-    FILECTX[file-context\nContextRuntime + parser + matcher]
+    FILECTX[fs-context\nContextRuntime + parser + matcher]
   end
 
   STATE[.ai-team/*\nRuntime state]
@@ -64,9 +64,9 @@ flowchart TD
   CHOICE -->|Browser| WEB[@ai-team/web]
   CHOICE -->|IDE review/open-file| IDEBRIDGE[@ai-team/ide-interface]
 
-  CLI --> LOCALCLIENT[@ai-team/api-client]
+  CLI --> SERVICE
 
-  WEB --> HTTPCLIENT[@ai-team/api-client-http]
+  WEB --> HTTPCLIENT[@ts-http]
   HTTPCLIENT --> APISERVER[@ai-team/api-server]
   APISERVER --> LOCALCLIENT
 
@@ -258,7 +258,7 @@ flowchart TD
 frontmatter: identity/tools/delegation metadata] --> CM
   AGENTACCESS[.ai-team/agents/<agent-id>.perm\nper-agent path policies] --> PARSE[loadAgentAccessPatterns + parseAccessFile]
   PARSE --> CM
-  CM --> RUNTIME[file-context ContextRuntime]
+  CM --> RUNTIME[fs-context ContextRuntime]
 
   RUNTIME --> INHERIT[Rights inheritance\nwrite => read + list\nread => list]
   INHERIT --> PRECEDENCE[Explicit deny precedence]
@@ -272,7 +272,7 @@ frontmatter: identity/tools/delegation metadata] --> CM
 
 ## Notes
 
-- `@ai-team/api-client` and `@ai-team/api-client-http` are intentionally different client surfaces.
+- `@ai-team/api-contracts` and `@ts-http` (remote/browser) are intentionally different client surfaces.
 - `@ai-team/service` is the shared orchestration boundary in the current implementation.
 - `@ai-team/vscode` is best understood as an IDE adapter reached through `@ai-team/ide-interface`, not as a peer orchestrator.
 - The target direction is tracked in the local backlog under [`.ai-team/tasks/`](../../.ai-team/tasks/).

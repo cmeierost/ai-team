@@ -9,6 +9,7 @@ export class SessionInfoChatCommand implements ICommand<string, OrchestratorCont
   readonly usage = '/session [messages|graph|context]';
   readonly description = 'Show session info; subcommands: messages, graph, context';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   constructor(
     private readonly contextService: Pick<IContextService, 'getContextEstimate'>

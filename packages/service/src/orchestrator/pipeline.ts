@@ -23,6 +23,7 @@ import type {
 } from '@ai-team/core';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import type { OrchestratorContext } from './pipeline-context.js';
+import type { PreLlmIntentProvider } from '../tools/pre-llm-intents.js';
 
 // ── 1. Context Compression ────────────────────────────────────────────────────
 
@@ -254,6 +255,8 @@ export interface OrchestratorPlugins {
   turnResultParsers?: ITurnResultParser[];
   /** Hook plugins merged with the built-in set. */
   hookPlugins?: IOrchestratorHookPlugin[];
+  /** Optional workflow/tool-specific pre-LLM intent providers. */
+  preLlmIntentProviders?: PreLlmIntentProvider[];
 }
 
 /**
@@ -274,6 +277,8 @@ export interface ResolvedPlugins {
   turnResultParsers: ITurnResultParser[];
   /** Optional for backward compatibility in tests; default resolves to []. */
   hookPlugins?: IOrchestratorHookPlugin[];
+  /** Optional workflow/tool-specific pre-LLM intent providers. */
+  preLlmIntentProviders?: PreLlmIntentProvider[];
 }
 
 // ── Shared result types ────────────────────────────────────────────────────────

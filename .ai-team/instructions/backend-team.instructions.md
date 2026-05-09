@@ -1,5 +1,5 @@
 ---
-applyTo: 'packages/core/**/*,packages/service/**/*,packages/api-server/**/*,packages/api-client/**/*,packages/api-client-http/**/*,packages/ide-interface/**/*,packages/cli/**/*,docs/api/**/*,docs/architecture/**/*,docs/implementation/**/*'
+applyTo: 'packages/core/**/*,packages/service/**/*,packages/api-server/**/*,packages/api-contracts/**/*,packages/ide-interface/**/*,packages/cli/**/*,docs/api/**/*,docs/architecture/**/*,docs/implementation/**/*'
 ---
 
 # Backend team delivery rules
@@ -36,6 +36,11 @@ Before implementing a meaningful backend feature or backend refactor:
 4. break the work into clean delegation-ready slices when multiple backend specialists are involved
 5. note which contracts, workflows, persistence paths, or provider behaviors will change
 6. decide which documentation must move with the change
+
+If a task has an explicitly approved implementation plan and this instruction
+file is stale or conflicting, the approved plan is authoritative for that task.
+In that case, update this instruction file in the same change so future work is
+aligned with the current architecture and delivery policy.
 
 ## Package-boundary rules
 

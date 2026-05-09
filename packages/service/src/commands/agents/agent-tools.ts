@@ -10,7 +10,7 @@ import type {
   IAgentManager,
   IAgentDocumentStorage,
 } from '@ai-team/core';
-import { withTimeout } from '../../tools/catalog/with-timeout.js';
+import { withTimeout } from '../../utils/with-timeout.js';
 
 const execFileAsync = promisify(execFile);
 

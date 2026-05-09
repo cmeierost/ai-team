@@ -53,6 +53,11 @@ import { DefaultOutputHandler } from '../../orchestrator/defaults/output-handler
 import { buildDefaultHookPlugins } from '../../orchestrator/defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from '../../orchestrator/defaults/turn-result-parsers.js';
 import { buildDefaultSlashCommands } from '../../orchestrator/slash-commands.js';
+import { WorkflowIntentProvider } from '../../tools/workflow-intent-provider.js';
+import {
+  getWorkflowDefinitionResolvers,
+  listWorkflowDefinitionIds,
+} from '../../workflow/index.js';
 
 // ── Service modules ───────────────────────────────────────────────────────────
 export type { ChatRuntimeHooks } from './hooks.js';
@@ -81,7 +86,7 @@ import {
   withAbortSignal,
   isAbortError,
   throwIfAborted,
-} from '../../orchestrator/async-utils.js';
+} from '../../utils/async-utils.js';
 import { requestInput, requestSelect } from './questions.js';
 import {
   selectDefaultTopAgent,
@@ -177,6 +182,8 @@ function wireLlmDiagnostics(llm: ILlmService, hooks: ChatRuntimeHooks | undefine
 
 export class ChatCommand {
 
+  private readonly serviceContainer?: { resolve<T>(token: unknown): T };
+
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
     private readonly environmentStorage: IEnvironmentStorage,
@@ -189,7 +196,10 @@ export class ChatCommand {
     private readonly proposalStoreFactory: IProposalStoreFactory,
     private readonly contextService: Pick<IContextService, 'getContextEstimate'>,
     private readonly sessionManager?: SessionManager,
-  ) {}
+    serviceContainer?: { resolve<T>(token: unknown): T },
+  ) {
+    this.serviceContainer = serviceContainer;
+  }
 
   async execute(
     workspaceRoot: string,
@@ -467,9 +477,26 @@ export class ChatCommand {
             chatToolManager.whoCanExecute(toolName, args, agents),
           catalog: (agent) => chatToolManager.catalog(agent),
         },
+        workflows: {
+          listWorkflowIds: () => listWorkflowDefinitionIds(),
+          getWorkflowDefinition: async (workflowId: string) => {
+            const resolvers = getWorkflowDefinitionResolvers();
+            const resolver = resolvers[workflowId as keyof typeof resolvers];
+            if (!resolver) {
+              throw new Error(`Workflow definition '${workflowId}' is not available.`);
+            }
+            return {
+              workflowId,
+              format: resolver.format,
+              definitionJson: resolver.getJson(),
+              definitionYaml: resolver.getYaml(),
+            };
+          },
+        },
       };
       chatToolManager = createToolManager(workspaceRoot, toolDeps, {
         pathPermissionChecker: this.pathPermissionChecker,
+        container: this.serviceContainer,
         agentManagementDeps: {
           configurationStorage: this.configurationStorage,
           agentManager,
@@ -487,13 +514,14 @@ export class ChatCommand {
         contextBuilder: new DefaultContextBuilder(),
         enrichers: [new WorkspaceOverviewEnricher(), new TeamRosterEnricher()],
         ragProvider: new NoOpRagProvider(),
-        toolResolver: new DefaultToolResolver(),
+        toolResolver: new DefaultToolResolver(chatToolManager),
         mcpGateway: new NoOpMcpGateway(),
         llmSelector: new DefaultLlmSelector(),
         outputHandler: new DefaultOutputHandler(),
         slashCommands: buildDefaultSlashCommands(),
         turnResultParsers: buildDefaultTurnResultParsers(),
         hookPlugins: buildDefaultHookPlugins(),
+        preLlmIntentProviders: [new WorkflowIntentProvider()],
       };
 
       const _ctx: OrchestratorContext = {

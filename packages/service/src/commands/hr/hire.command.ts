@@ -24,6 +24,7 @@ export class HireICommand implements ICommand<Params, void, void> {
   readonly cli = { command: 'hire' };
   readonly description = 'Hire a new team member';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'hr';
   readonly parameters = HireICommand.schema;
 
   constructor(

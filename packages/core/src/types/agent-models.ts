@@ -103,25 +103,6 @@ export interface IAgentManager {
   searchAgentsAsync(options: AgentSearchOptions): Promise<AgentSearchResult[]>;
 }
 
-export interface SymbolLocation {
-  name: string;
-  kind:
-    | 'function'
-    | 'class'
-    | 'interface'
-    | 'type'
-    | 'variable'
-    | 'constant'
-    | 'method'
-    | 'property';
-  filePath: string;
-  startLine: number;
-  endLine: number;
-  startColumn: number;
-  endColumn: number;
-  context?: string;
-}
-
 export interface RankedAgentResult {
   agent: Agent;
   score: number;

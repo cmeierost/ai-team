@@ -6,6 +6,7 @@ export class WhoChatCommand implements ICommand<string, OrchestratorContext, voi
   readonly key = 'who';
   readonly description = 'Show current agent name and session';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(
     _args: string,

@@ -32,7 +32,7 @@ Enhance the chat workflow to allow users to interact with the LLM while it is ac
 ## Action Items
 
 - [ ] **Protocol & Contract Updates**
-  - [ ] Introduce new message intents (e.g., `interrupt`, `steer`, `queue`) into the WebSocket/HTTP protocol (`packages/core`, `packages/api-client-http`).
+  - [ ] Introduce new message intents (e.g., `interrupt`, `steer`, `queue`) into the WebSocket/HTTP protocol (`packages/core`, `packages/api-server`).
   - [ ] Reuse existing `Note` contracts for the "Save for later" feature.
 - [ ] **Backend Steer & Interrupt Logic (`packages/service`)**
   - [ ] **Hard Interrupt:** Update `packages/service/src/orchestrator/tool-dispatch.ts` to pass the `AbortSignal` down to all tool executions so long-running tools successfully halt.

@@ -7,6 +7,7 @@ export class PortfolioChatCommand implements ICommand<string, OrchestratorContex
   readonly aliases = ['bio'];
   readonly description = "Show current agent's bio and tools";
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(_args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const a = ctx.agent;

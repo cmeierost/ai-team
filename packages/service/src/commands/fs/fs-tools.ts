@@ -410,11 +410,6 @@ export class FsReadLinesTool implements ITool<FsReadLinesParams, ToolContext, Fs
     const runtime: CommandRuntime = {
       invocationSurface: 'tool',
       workspaceRoot: context.workspaceRoot,
-      resolve:
-        context.resolve ??
-        (() => {
-          throw new Error('Tool runtime resolver is not available.');
-        }),
       agentId: context.agentId,
     };
     const result = (await fsReadFileTool.execute(
@@ -598,6 +593,49 @@ export class FsTreeTool implements ITool<FsTreeParams, ToolContext, FsTreeResult
   readonly availableIn = { tool: true };
   readonly description = 'Build directory tree with access-filtered nodes.';
   readonly matchesIntent = matchesFsTreePreLlmIntent;
+  readonly scorePreLlmIntent = (message: string) => {
+    const text = message.trim();
+    if (!text) return undefined;
+
+    if (matchesFsTreePreLlmIntent(text)) {
+      return {
+        kind: 'tool' as const,
+        toolName: 'fs_tree',
+        args: { path: '.', maxDepth: 6, includeHidden: true },
+        score: 100,
+        reason: 'Explicit file-tree visibility request.',
+      };
+    }
+
+    if (/\b(tree|folder structure|directory structure|project structure)\b/i.test(text)) {
+      return {
+        kind: 'tool' as const,
+        toolName: 'fs_tree',
+        args: { path: '.', maxDepth: 6, includeHidden: false },
+        score: 82,
+        reason: 'General workspace structure request.',
+        clarification: {
+          ask: {
+            kind: 'select' as const,
+            message: 'How deep should I scan the workspace tree before I continue?',
+            choices: [
+              { name: 'Quick (depth 3)', value: 'quick' },
+              { name: 'Standard (depth 6)', value: 'standard', recommended: true },
+              { name: 'Deep (depth 10)', value: 'deep' },
+            ],
+            defaultText: 'standard',
+          },
+          resolveArgs(answer: unknown) {
+            const choice = typeof answer === 'string' ? answer : 'standard';
+            const maxDepth = choice === 'quick' ? 3 : choice === 'deep' ? 10 : 6;
+            return { path: '.', maxDepth, includeHidden: false };
+          },
+        },
+      };
+    }
+
+    return undefined;
+  };
   readonly parameters = z.object({
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
     maxDepth: z

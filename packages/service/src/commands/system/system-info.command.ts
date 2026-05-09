@@ -12,6 +12,7 @@ export class SystemInfoCommand implements ICommand<
   readonly aliases = ['sys'];
   readonly description = 'Display system information about the workspace';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'system';
 
   async execute(
     _payload: Record<string, never>,

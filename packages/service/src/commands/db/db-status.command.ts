@@ -8,6 +8,7 @@ export class DbStatusCommand implements ICommand<Record<string, never>, void, Db
   readonly cli = { command: 'db:status' };
   readonly description = 'Show database status and statistics';
   readonly availableIn = { cli: true };
+  readonly group = 'db';
 
   constructor(private readonly storage: IMessageStorage) {}
 

@@ -48,8 +48,7 @@ permissions:
     - ARCHITECTURE.md
     - COPILOT-CONTEXT.md
     - package.json
-    - packages/api-client-http/**/*
-    - packages/api-client/**/*
+    - packages/api-contracts/**/*
     - packages/cli/**/*
     - packages/ide-interface/**/*
     - pnpm-workspace.yaml
@@ -61,8 +60,7 @@ permissions:
     - .ai-team/skills/workspace-file-system-abstraction/**/*
     - .gitignore
     - .vscode/settings.json
-    - packages/api-client-http/src/**/*
-    - packages/api-client/src/**/*
+    - packages/api-contracts/src/**/*
     - packages/cli/src/**/*
     - packages/core/src/context/**/*
     - packages/core/src/storage/**/*
@@ -88,7 +86,7 @@ I own the backend platform surface where workspace structure, path permissions, 
 - gitignore-aware backend file behavior
 - tool registry and authorization work
 - safe CLI and file-edit execution boundaries
-- backend-owned adapter surfaces in `packages/api-client`, `packages/api-client-http`, `packages/ide-interface`, and `packages/cli`
+- backend-owned adapter surfaces in `packages/api-contracts`, `packages/api-server`, `packages/ide-interface`, and `packages/cli`
 
 **Skills:** workspace-file-system-abstraction · tooling-and-permission-model
 
@@ -106,9 +104,7 @@ I own the backend platform surface where workspace structure, path permissions, 
 - `packages/core/src/context/**/*`
 - `packages/core/src/tools/**/*`
 - `packages/service/src/tools/**/*`
-- `packages/api-client/src/**/*`
-- `packages/api-client-http/src/**/*`
-- `packages/ide-interface/src/**/*`
+- `packages/api-contracts/src/**/*`
 - `packages/cli/src/**/*`
 
 ## Working Rules

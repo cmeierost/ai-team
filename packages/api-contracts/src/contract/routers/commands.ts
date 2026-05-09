@@ -4,7 +4,17 @@ import type { ICommand } from '@ai-team/core';
 /** Entry in the in-chat slash-command registry returned by `commands.list`. */
 export type ChatCommandRegistryEntry = Pick<
   ICommand<unknown, unknown, unknown>,
-  'key' | 'usage' | 'description' | 'aliases' | 'availableIn'
+  | 'key'
+  | 'usage'
+  | 'description'
+  | 'aliases'
+  | 'availableIn'
+  | 'path'
+  | 'help'
+  | 'llm'
+  | 'intents'
+  | 'intentExamples'
+  | 'input'
 >;
 
 export interface ICommandsService {

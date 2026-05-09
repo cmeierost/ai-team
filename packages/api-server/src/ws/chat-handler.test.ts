@@ -42,7 +42,7 @@ describe('setupChatWebSocket', () => {
   it('forwards non-confirm questions over the websocket and resumes streaming after an answer', async () => {
     const ws = new MockWebSocket();
     const stream = vi.fn(async function* (
-      _request: InteractionRequest<'chat'>,
+      _request: InteractionRequest,
       context: InteractionContext = {}
     ) {
       const selection = await context.questionSelect?.({

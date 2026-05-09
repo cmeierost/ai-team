@@ -7,7 +7,7 @@
  */
 
 import { type AgentTool, type CommandRuntime, type ToolContext } from '@ai-team/core';
-import { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './with-timeout.js';
+import { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from '../../utils/with-timeout.js';
 
 // ---------------------------------------------------------------------------
 // Sub-module re-exports (every exported tool is available to consumers)
@@ -69,7 +69,7 @@ export { codeSearchTool } from '../../commands/edit/codesearch-tool.js';
 
 export { applyPatchTool, multiEditTool, fsEditTool } from '../../commands/fs/edit-tools.js';
 
-export { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './with-timeout.js';
+export { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from '../../utils/with-timeout.js';
 
 // ---------------------------------------------------------------------------
 // Internal imports (used only by the registries below)
@@ -242,11 +242,6 @@ export async function executeAgentTool(
     const runtime: CommandRuntime = {
       invocationSurface: 'tool',
       workspaceRoot: context.workspaceRoot,
-      resolve:
-        context.resolve ??
-        (() => {
-          throw new Error('Tool runtime resolver is not available.');
-        }),
       agentId: context.agentId,
       questionInput: context.questionInput,
       questionConfirm: context.questionConfirm,

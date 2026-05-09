@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { CLI_COMMAND_REGISTRY, getCliCommandMetadata, getLlmCallableCliCommands } from './registry.js';
 
 describe('command registry metadata', () => {
+  it('keeps command keys unique after registry merge', () => {
+    const seen = new Set<string>();
+    for (const entry of CLI_COMMAND_REGISTRY) {
+      expect(seen.has(entry.key)).toBe(false);
+      seen.add(entry.key);
+    }
+  });
+
   it('stores command help metadata for init in the registry', () => {
     const init = getCliCommandMetadata('init');
 

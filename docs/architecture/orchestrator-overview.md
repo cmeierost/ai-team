@@ -37,7 +37,7 @@ flowchart TD
   M --> N[loadAgentAccessPatterns per agent]
   N --> O[Agent.permissions hydrated from .perm]
 
-  O --> P[ContextManager backed by file-context ContextRuntime]
+  O --> P[ContextManager backed by fs-context ContextRuntime]
   P --> Q[ChatOrchestrator constructed with full context]
 ```
 
@@ -54,7 +54,7 @@ flowchart TD
 
 ### Access enforcement
 
-`ContextManager.canRead/canWrite/canList` is the single adapter surface used by tools/commands. Internally it resolves agent + global patterns and registers contexts into `file-context` `ContextRuntime`. Every file tool call still goes through `ContextManager` before execution.
+`ContextManager.canRead/canWrite/canList` is the single adapter surface used by tools/commands. Internally it resolves agent + global patterns and registers contexts into `fs-context` `ContextRuntime`. Every file tool call still goes through `ContextManager` before execution.
 
 ```ts
 // packages/core/src/context/index.ts

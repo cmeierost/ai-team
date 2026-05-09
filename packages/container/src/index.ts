@@ -17,6 +17,3 @@ export {
   type ServiceBootstrapTokens,
   type ExtendedServiceContainer,
 } from './service-bootstrap.js';
-export {
-  registerDefaultCommandDefinitions,
-} from './command-definitions/index.js';

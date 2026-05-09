@@ -352,6 +352,28 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
     expect(definition.definitionYaml).toContain('states:');
   });
 
+  it('returns definitions for all declared chat workflow IDs', async () => {
+    const service = createService([], ['packages/service/**/*']);
+
+    const knownIds = [
+      'chat-full-loop',
+      'chat-preturn-interceptors',
+      'chat-send-turn',
+      'chat-tool-round',
+      'chat-post-turn-resolution',
+      'chat-handoff-transition',
+      'chat-turn-failure',
+    ];
+
+    for (const workflowId of knownIds) {
+      const definition = await service.getWorkflowDefinition(workflowId);
+      expect(definition.workflowId).toBe(workflowId);
+      expect(definition.format).toBe('workflow/v1');
+      expect(definition.definitionJson.id).toBe(workflowId);
+      expect(definition.definitionYaml).toContain(`id: ${workflowId}`);
+    }
+  });
+
   it('throws for unknown workflow definitions', async () => {
     const service = createService([], ['packages/service/**/*']);
 

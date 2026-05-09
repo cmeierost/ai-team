@@ -40,7 +40,7 @@ Keep feature/bug intake provider-abstracted and user-local, but enforce executio
 - `c:/Projects/ai-team/packages/service/src/task-manager.ts` — derive/create tasks into a specified session and maintain invariants.
 - `c:/Projects/ai-team/packages/service/src/routers/tasks-service.ts` — expose session-scoped task/todo operations.
 - `c:/Projects/ai-team/packages/service/src/commands/definitions/` — add plan/task/todo commands requiring session context.
-- `c:/Projects/ai-team/packages/api-client/src/contract/routers/streaming.ts` — extend command contracts for session-aware task derivation.
+- `packages/api-contracts/src/index.ts` — extend command contracts for session-aware task derivation.
 - `c:/Projects/ai-team/packages/service/src/tools/catalog/agent-tools.ts` — delegation persistence tied to session-owned task.
 - `c:/Projects/ai-team/.ai-team/private/intake/` — local intake source folder.
 - `c:/Projects/ai-team/ARCHITECTURE.md` — document session-scoped task model and plan sharing rule.

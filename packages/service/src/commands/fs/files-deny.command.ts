@@ -29,6 +29,7 @@ export class FilesDenyCommand implements ICommand<Params, void, Result> {
   readonly description =
     'Disallow a path from file visibility (global config) or agent access rules';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'fs';
   readonly parameters = FilesDenyCommand.schema;
 
   constructor(

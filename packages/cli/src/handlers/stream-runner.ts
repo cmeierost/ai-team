@@ -1,7 +1,6 @@
 import type {
-  AiTeamCommandName,
-  AiTeamCommandResponseMap,
   InteractionRequest,
+  InteractionContext,
 } from '@ai-team/api-contracts';
 import type { IServiceContainer } from '@ai-team/core';
 import type { ICliCommandClient } from '../cli-command-client.js';
@@ -13,11 +12,12 @@ import {
   type ICliResultHandlerRegistry,
 } from './result-renderers.js';
 
-interface StreamRunnerOptions<TCommand extends AiTeamCommandName = AiTeamCommandName> {
+interface StreamRunnerOptions<TCommand extends string = string> {
   showStatus?: boolean;
-  resultHandler?: (data: AiTeamCommandResponseMap[TCommand]) => void;
+  resultHandler?: (data: unknown) => void;
   serviceContainer?: IServiceContainer;
   rendererOptions?: unknown;
+  interactionContext?: InteractionContext;
 }
 
 function setupAbortController() {
@@ -66,19 +66,26 @@ function isAbortLikeError(error: unknown): boolean {
   return /aborted|abort/i.test(message);
 }
 
-export async function runCommandStream<TCommand extends AiTeamCommandName>(
+export async function runCommandStream<TCommand extends string = string>(
   client: ICliCommandClient,
-  request: InteractionRequest<TCommand>,
+  request: InteractionRequest,
   options: StreamRunnerOptions<TCommand> = {}
-): Promise<AiTeamCommandResponseMap[TCommand] | undefined> {
+): Promise<unknown | undefined> {
   const abortControl = setupAbortController();
   let lastErrorLogMessage: string | undefined;
-  let resultData: AiTeamCommandResponseMap[TCommand] | undefined;
+  let resultData: unknown | undefined;
 
   try {
+    const interactionContext: InteractionContext = {
+      invocationSurface: 'cli',
+      calledByHuman: true,
+      ...(options.interactionContext ?? {}),
+    } as InteractionContext;
+
     for await (const event of client.streamInteraction(request, {
       ...createQuestionResponders(),
       signal: abortControl.signal,
+      ...interactionContext,
     })) {
       if (event.kind === 'token') {
         process.stdout.write(event.text);
@@ -124,7 +131,7 @@ export async function runCommandStream<TCommand extends AiTeamCommandName>(
       }
 
       if (event.kind === 'result') {
-        resultData = event.data as AiTeamCommandResponseMap[TCommand];
+        resultData = event.data as unknown;
         if (resultData === undefined) {
           continue;
         }

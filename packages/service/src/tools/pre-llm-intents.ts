@@ -1,42 +1,275 @@
-import { matchesFsTreePreLlmIntent } from './catalog/index.js';
-import { matchesTeamListPreLlmIntent, matchesToolListPreLlmIntent } from './orchestration-tools.js';
+import type { AgentTool } from '@ai-team/core';
+import type { OrchestratorContext } from '../orchestrator/pipeline-context.js';
 
-export type PreLlmIntent = {
+const AUTO_SELECT_SCORE = 100;
+const CONFIRM_THRESHOLD_SCORE = 80;
+
+type AskKind = 'input' | 'confirm' | 'select' | 'password' | 'checklist';
+
+interface AskChoice {
+  name: string;
+  value: string;
+  description?: string;
+  recommended?: boolean;
+}
+
+export interface PreLlmAskSpec {
+  kind: AskKind;
+  message: string;
+  defaultText?: string;
+  defaultBoolean?: boolean;
+  choices?: AskChoice[];
+  defaultChecklist?: string[];
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPrompt?: string;
+  minSelections?: number;
+  maxSelections?: number;
+}
+
+export interface ScoredPreLlmIntentCandidate {
   kind: 'tool';
-  toolName: 'tool_list' | 'fs_tree' | 'team_list';
+  toolName: string;
   args: Record<string, unknown>;
-};
+  /** 1..100 confidence score where 100 means deterministic certainty. */
+  score: number;
+  reason?: string;
+  source?: string;
+  clarification?: {
+    ask: PreLlmAskSpec;
+    resolveArgs(answer: unknown): Record<string, unknown> | undefined;
+  };
+}
+
+export interface PreLlmIntentProvider {
+  resolveCandidates(
+    message: string,
+    ctx: OrchestratorContext
+  ): Promise<ScoredPreLlmIntentCandidate[]> | ScoredPreLlmIntentCandidate[];
+}
+
+interface ScoreableTool {
+  scorePreLlmIntent?: (
+    message: string,
+    ctx: OrchestratorContext
+  ) =>
+    | Promise<ScoredPreLlmIntentCandidate | ScoredPreLlmIntentCandidate[] | undefined>
+    | ScoredPreLlmIntentCandidate
+    | ScoredPreLlmIntentCandidate[]
+    | undefined;
+}
+
+export type PreLlmIntent =
+  | {
+      kind: 'tool';
+      toolName: string;
+      args: Record<string, unknown>;
+      score: number;
+      reason?: string;
+    }
+  | {
+      kind: 'clarify_then_tool';
+      toolName: string;
+      ask: PreLlmAskSpec;
+      score: number;
+      reason?: string;
+      resolveArgs(answer: unknown): Record<string, unknown> | undefined;
+    };
+
+function clampScore(score: number): number {
+  if (!Number.isFinite(score)) return 0;
+  if (score < 0) return 0;
+  if (score > 100) return 100;
+  return Math.round(score);
+}
+
+function hasInferableArgs(args: unknown): args is Record<string, unknown> {
+  return !!args && typeof args === 'object' && !Array.isArray(args);
+}
+
+function canExecuteCandidate(candidate: ScoredPreLlmIntentCandidate): boolean {
+  return hasInferableArgs(candidate.args) || Boolean(candidate.clarification);
+}
+
+function normalizeCandidates(
+  candidates: ScoredPreLlmIntentCandidate[]
+): ScoredPreLlmIntentCandidate[] {
+  return candidates
+    .map((c) => ({ ...c, score: clampScore(c.score) }))
+    .filter((c) => c.kind === 'tool' && c.toolName.trim().length > 0 && c.score >= 1)
+    .sort((a, b) => b.score - a.score);
+}
+
+async function collectToolCandidates(
+  message: string,
+  ctx: OrchestratorContext
+): Promise<ScoredPreLlmIntentCandidate[]> {
+  if (!ctx.agent) {
+    return [];
+  }
+
+  const toolManager = ctx.toolManager as {
+    getForAgent?: (agent: OrchestratorContext['agent']) => AgentTool[];
+  };
+  if (typeof toolManager?.getForAgent !== 'function') {
+    return [];
+  }
+  const tools = toolManager.getForAgent.call(toolManager, ctx.agent);
+  const candidates: ScoredPreLlmIntentCandidate[] = [];
+
+  for (const tool of tools) {
+    const scoreable = tool as AgentTool & ScoreableTool;
+    if (typeof scoreable.scorePreLlmIntent !== 'function') continue;
+
+    try {
+      const scored = await scoreable.scorePreLlmIntent(message, ctx);
+      const next = Array.isArray(scored) ? scored : scored ? [scored] : [];
+      for (const candidate of next) {
+        candidates.push({
+          ...candidate,
+          source: candidate.source ?? `tool:${tool.group ?? 'tool'}_${tool.key}`,
+        });
+      }
+    } catch {
+      // Pre-LLM intent scoring is best-effort and must never break chat flow.
+    }
+  }
+
+  return candidates;
+}
+
+async function collectProviderCandidates(
+  message: string,
+  ctx: OrchestratorContext,
+  providers: PreLlmIntentProvider[]
+): Promise<ScoredPreLlmIntentCandidate[]> {
+  const candidates: ScoredPreLlmIntentCandidate[] = [];
+
+  for (const provider of providers) {
+    try {
+      const resolved = await provider.resolveCandidates(message, ctx);
+      for (const candidate of resolved ?? []) {
+        candidates.push({ ...candidate, source: candidate.source ?? 'workflow-provider' });
+      }
+    } catch {
+      // Provider failures should never block turn processing.
+    }
+  }
+
+  return candidates;
+}
+
+function formatToolCallPreview(candidate: ScoredPreLlmIntentCandidate): string {
+  const serializedArgs = JSON.stringify(candidate.args ?? {});
+  return `${candidate.toolName}${serializedArgs ?? '{}'}`;
+}
+
+function buildHighScoreSelectionIntent(candidates: ScoredPreLlmIntentCandidate[]): PreLlmIntent {
+  const sorted = [...candidates].sort((a, b) => b.score - a.score);
+  const options = sorted.map((candidate, index) => ({
+    name: `shall i call ${formatToolCallPreview(candidate)}?`,
+    value: String(index),
+    description: `score ${candidate.score}${candidate.reason ? ` — ${candidate.reason}` : ''}`,
+    recommended: index === 0,
+  }));
+
+  return {
+    kind: 'clarify_then_tool',
+    toolName: sorted[0]!.toolName,
+    score: sorted[0]!.score,
+    reason: `Multiple pre-LLM tools scored >= ${CONFIRM_THRESHOLD_SCORE}.`,
+    ask: {
+      kind: 'select',
+      message:
+        'Multiple tools are highly relevant. Select one to run before I proceed with LLM reasoning.',
+      choices: options,
+      defaultText: '0',
+    },
+    resolveArgs(answer: unknown) {
+      const selectedIndex =
+        typeof answer === 'string' && /^\d+$/.test(answer)
+          ? Number.parseInt(answer, 10)
+          : 0;
+      const selected = sorted[selectedIndex] ?? sorted[0];
+      return selected?.args;
+    },
+  };
+}
+
+function buildConfirmIntent(candidate: ScoredPreLlmIntentCandidate): PreLlmIntent {
+  return {
+    kind: 'clarify_then_tool',
+    toolName: candidate.toolName,
+    score: candidate.score,
+    reason: candidate.reason,
+    ask: {
+      kind: 'confirm',
+      message: `shall i call ${formatToolCallPreview(candidate)}?`,
+      defaultBoolean: true,
+    },
+    resolveArgs(answer: unknown) {
+      return answer === true ? candidate.args : undefined;
+    },
+  };
+}
 
 /**
- * Central place for deterministic pre-LLM intent regexes that map user text
- * to tool/slash execution. Kept in service/tools so orchestration consumes a
- * tool-owned intent map rather than hardcoded regexes inside the orchestrator.
+ * Resolve a scored pre-LLM intent from tool metadata plus optional workflow providers.
+ *
+ * - score=100 candidates auto-run immediately.
+ * - if multiple tools score >=80, user selects which tool to call (ordered by score).
+ * - if only one tool scores >=80, user confirms: "shall i call toolName(args)?".
+ * - tools are callable only when args are inferable or a clarification strategy exists.
  */
-export function resolvePreLlmIntent(message: string): PreLlmIntent | undefined {
+export async function resolvePreLlmIntent(
+  message: string,
+  ctx: OrchestratorContext,
+  providers: PreLlmIntentProvider[] = []
+): Promise<PreLlmIntent | undefined> {
   const trimmed = message.trim();
   if (!trimmed) return undefined;
 
-  if (matchesToolListPreLlmIntent(trimmed)) {
+  const [providerCandidates, toolCandidates] = await Promise.all([
+    collectProviderCandidates(trimmed, ctx, providers),
+    collectToolCandidates(trimmed, ctx),
+  ]);
+
+  const candidates = normalizeCandidates([...providerCandidates, ...toolCandidates]).filter(
+    canExecuteCandidate
+  );
+  if (candidates.length === 0) return undefined;
+
+  const top = candidates[0]!;
+
+  if (top.score === AUTO_SELECT_SCORE && hasInferableArgs(top.args)) {
     return {
       kind: 'tool',
-      toolName: 'tool_list',
-      args: {},
+      toolName: top.toolName,
+      args: top.args,
+      score: top.score,
+      reason: top.reason,
     };
   }
 
-  if (matchesFsTreePreLlmIntent(trimmed)) {
-    return {
-      kind: 'tool',
-      toolName: 'fs_tree',
-      args: { path: '.', maxDepth: 6, includeHidden: true },
-    };
+  const highScoreCandidates = candidates.filter(
+    (candidate) => candidate.score >= CONFIRM_THRESHOLD_SCORE && hasInferableArgs(candidate.args)
+  );
+  if (highScoreCandidates.length > 1) {
+    return buildHighScoreSelectionIntent(highScoreCandidates);
   }
 
-  if (matchesTeamListPreLlmIntent(trimmed)) {
+  if (highScoreCandidates.length === 1) {
+    return buildConfirmIntent(highScoreCandidates[0]!);
+  }
+
+  if (top.clarification) {
     return {
-      kind: 'tool',
-      toolName: 'team_list',
-      args: {},
+      kind: 'clarify_then_tool',
+      toolName: top.toolName,
+      score: top.score,
+      reason: top.reason,
+      ask: top.clarification.ask,
+      resolveArgs: top.clarification.resolveArgs,
     };
   }
 

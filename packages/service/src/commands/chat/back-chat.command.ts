@@ -7,6 +7,7 @@ export class BackChatCommand implements ICommand<string, OrchestratorContext, vo
   readonly key = 'back';
   readonly description = 'Return to previous agent in handoff chain';
   readonly availableIn = { chat: true, tool: false };
+  readonly group = 'chat';
 
   async execute(_args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const navStack: NavStackEntry[] = ctx.navStack ?? [];

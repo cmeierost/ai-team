@@ -43,13 +43,13 @@ AI Team has three important runtime paths.
 
 The CLI uses a local in-process client and service path:
 
-`@ai-team/cli -> @ai-team/api-client -> @ai-team/service -> @ai-team/core -> .ai-team/*`
+`@ai-team/cli -> @ai-team/service -> @ai-team/core -> .ai-team/*`
 
 ### Remote browser path
 
 The web UI uses a remote transport path:
 
-`@ai-team/web -> @ai-team/api-client-http -> @ai-team/api-server -> @ai-team/api-client -> @ai-team/service -> @ai-team/core -> .ai-team/*`
+`@ai-team/web -> @ts-http -> @ai-team/api-server -> @ai-team/api-contracts -> @ai-team/service -> @ai-team/core -> .ai-team/*`
 
 ### IDE integration path
 
@@ -59,9 +59,9 @@ Editor-local workflows use a dedicated IDE bridge:
 
 ## Main package responsibilities
 
-### `file-context`
+### `fs-context`
 
-- shared file-context library at repository root
+- shared fs-context library at repository root
 - provides `.perm` parsing, glob matching, overlap analysis, and `ContextRuntime`
 - powers per-agent `.ai-team/agents/<agent-id>.perm` path policies
 - used by `@ai-team/core` context management as the underlying rights runtime
@@ -71,7 +71,7 @@ Editor-local workflows use a dedicated IDE bridge:
 - UI-free domain logic and shared types
 - workspace-backed file/domain operations
 - agent, team, skill, context, and tool primitives
-- `ContextManager` compatibility API backed by `file-context` `ContextRuntime`
+- `ContextManager` compatibility API backed by `fs-context` `ContextRuntime`
 
 ### `@ai-team/service`
 
@@ -79,14 +79,15 @@ Editor-local workflows use a dedicated IDE bridge:
 - target direction: transport-independent service interfaces for callers, internal service-layer mediation kept private, and explicit UI notifier delivery for outward streaming
 - boundary rule: depend only on `@ai-team/core` interfaces and container tokens; implementation packages are composed at startup and must not be imported directly from service code or service tests
 
-### `@ai-team/api-client`
+### `@ai-team/api-contracts`
 
-- local typed client façade used by local adapters and the API server
+- service interface contracts and wire protocol types
+- used by both local and remote clients
 
-### `@ai-team/api-client-http`
+### `@ts-http`
 
 - browser-safe remote client using REST and WebSocket transport
-- target direction: one possible implementation of the same service interfaces consumed by UI callers
+- used by `@ai-team/web` to call the API server
 
 ### `@ai-team/api-server`
 
@@ -114,15 +115,15 @@ flowchart LR
     WEB[@ai-team/web]
     VSC[@ai-team/vscode]
     APISERVER[@ai-team/api-server]
-    HTTPCLIENT[@ai-team/api-client-http]
+    TSCHTTP[@ts-http]
   end
 
   subgraph Shared[Shared contracts and runtime]
-    LOCALCLIENT[@ai-team/api-client]
+    CONTRACTS[@ai-team/api-contracts]
     IDE[@ai-team/ide-interface]
     SERVICE[@ai-team/service]
     CORE[@ai-team/core]
-    FILECTX[file-context]
+    FILECTX[fs-context]
   end
 
   STATE[.ai-team/* runtime state]
@@ -191,7 +192,7 @@ This is the practical end-to-end flow for the **remote browser path** (`web -> a
 sequenceDiagram
   participant UI as Web UI
   participant WS as api-server/ws/chat-handler
-  participant Client as @ai-team/api-client
+  participant API as api-server
   participant Cmd as chatCommand()
   participant Orch as ChatOrchestrator.run()
   participant Turn as sendTurn()
@@ -241,7 +242,7 @@ In short: the architecture direction is clear, but the frontend is still mid-mig
 
 ## Access and file-system model (current)
 
-- File-path rights are evaluated through `ContextManager` (`packages/core/src/context/index.ts`) backed by `file-context` `ContextRuntime`.
+- File-path rights are evaluated through `ContextManager` (`packages/core/src/context/index.ts`) backed by `fs-context` `ContextRuntime`.
 - Agent-specific path rules live in `.ai-team/agents/<agent-id>.perm`.
 - Agent frontmatter should not carry file-path access globs.
 - Rights inheritance:

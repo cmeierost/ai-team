@@ -7,6 +7,7 @@ export class DbMigrateCommand implements ICommand<Record<string, never>, void, D
   readonly cli = { command: 'db:migrate' };
   readonly description = 'Reset and initialize database schema (alpha)';
   readonly availableIn = { cli: true };
+  readonly group = 'db';
 
   constructor(private readonly storage: IMessageStorage) {}
 

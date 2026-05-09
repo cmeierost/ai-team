@@ -28,6 +28,7 @@ export class FilesTreeCommand implements ICommand<Params, void, FilesTreeRespons
   readonly description =
     'Preview the workspace file tree with gitignore awareness and optional agent-scoped filtering';
   readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'fs';
   readonly parameters = FilesTreeCommand.schema;
 
   constructor(

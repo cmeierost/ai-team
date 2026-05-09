@@ -316,6 +316,31 @@ export interface CommandDescriptor {
   description: string;
   usage?: string;
   availableIn: CommandAvailability;
+  path?: string[];
+  help?: {
+    description?: string;
+    hints?: string[];
+    examples?: Array<{
+      value: string;
+      surfaces?: Array<'cli' | 'chat' | 'tool' | 'workflow'>;
+      description?: string;
+    }>;
+  };
+  llm?: {
+    description?: string;
+    hints?: string[];
+    examples?: string[];
+    hiddenParameters?: string[];
+  };
+  intents?: string[];
+  intentExamples?: string[];
+  input?: {
+    mode?: 'structured' | 'raw-tail' | 'hybrid';
+    jsonSignature?: boolean;
+    contextParameters?: string[];
+    contextOverrideAllowlist?: string[];
+    requiredAtRuntime?: string[];
+  };
 }
 
 /**

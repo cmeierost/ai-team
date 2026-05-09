@@ -17,7 +17,7 @@
 
 import { ToolManager } from './tool-manager.js';
 import { ALL_TOOLS } from './catalog/index.js';
-import type { IServiceContainer, LspProvider } from '@ai-team/core';
+import type { LspProvider } from '@ai-team/core';
 import { createOrchestrationTools, type OrchestrationDeps } from './orchestration-tools.js';
 import { createAgentManagementTools, type AgentManagementToolDependencies } from './catalog/index.js';
 
@@ -45,7 +45,7 @@ export interface CreateToolManagerOptions {
   lsp?: LspProvider;
   pathPermissionChecker: PathPermissionCheckerLike;
   /** DI container forwarded into every tool's ToolContext.resolve. */
-  container?: IServiceContainer;
+  container?: { resolve<T>(token: unknown): T };
   /** Narrow dependency bag for tools that mutate agent/config documents. */
   agentManagementDeps?: AgentManagementToolDependencies;
 }

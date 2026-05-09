@@ -6,6 +6,7 @@ export class TeamListChatCommand implements ICommand<string, OrchestratorContext
   readonly key = 'list';
   readonly description = 'List all team members';
   readonly availableIn = { chat: true, tool: true };
+  readonly group = 'chat';
 
   async execute(_args: string, ctx: OrchestratorContext, _runtime: CommandRuntime): Promise<void> {
     const result = await ctx.toolManager.execute(ctx.agent, 'team_list', {}, {
