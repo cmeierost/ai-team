@@ -45,7 +45,14 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
   const suggestions = useMemo((): ChatCommandRegistryEntry[] => {
     if (fragment === null) return [];
     return registry.filter((cmd) => {
-      const keys = [cmd.key, ...(cmd.aliases ?? [])];
+      const usageToken = (cmd.usage ?? '')
+        .trim()
+        .replace(/^\//, '')
+        .split(/\s+/, 1)[0]
+        ?.toLowerCase();
+      const keys = [cmd.key, ...(cmd.aliases ?? []), usageToken]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.toLowerCase());
       return keys.some((k) => k.startsWith(fragment));
     });
   }, [fragment, registry]);

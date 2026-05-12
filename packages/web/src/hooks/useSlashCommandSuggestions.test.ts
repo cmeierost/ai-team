@@ -6,6 +6,12 @@ const mockSlashCommands = vi.hoisted(() => [
   { key: 'chat', usage: '/chat <name|role>', description: 'Switch to agent', llmCallable: false },
   { key: 'history', usage: '/history [n]', description: 'Show messages', llmCallable: false },
   {
+    key: 'team-list',
+    usage: '/list',
+    description: 'List team members',
+    llmCallable: false,
+  },
+  {
     key: 'run',
     usage: '/run <command>',
     description: 'Run shell command',
@@ -43,12 +49,12 @@ describe('useSlashCommandSuggestions', () => {
   it('shows all commands for bare / input', () => {
     const { result } = renderHook(() => useSlashCommandSuggestions('/'));
     expect(result.current.isOpen).toBe(true);
-    expect(result.current.suggestions).toHaveLength(4);
+    expect(result.current.suggestions).toHaveLength(5);
   });
 
   it('filters commands by prefix', () => {
     const { result } = renderHook(() => useSlashCommandSuggestions('/h'));
-    expect(result.current.suggestions.map(s => s.key)).toEqual(['help', 'history']);
+    expect(result.current.suggestions.map((s) => s.key)).toEqual(['help', 'history']);
   });
 
   it('filters to a single match', () => {
@@ -63,6 +69,11 @@ describe('useSlashCommandSuggestions', () => {
     expect(result.current.suggestions[0].key).toBe('run');
   });
 
+  it('matches usage token while typing slash command text', () => {
+    const { result } = renderHook(() => useSlashCommandSuggestions('/li'));
+    expect(result.current.suggestions.map((suggestion) => suggestion.key)).toContain('team-list');
+  });
+
   it('is closed when no commands match', () => {
     const { result } = renderHook(() => useSlashCommandSuggestions('/zzz'));
     expect(result.current.isOpen).toBe(false);
@@ -71,7 +82,7 @@ describe('useSlashCommandSuggestions', () => {
 
   it('is case-insensitive', () => {
     const { result } = renderHook(() => useSlashCommandSuggestions('/HE'));
-    expect(result.current.suggestions.map(s => s.key)).toContain('help');
+    expect(result.current.suggestions.map((s) => s.key)).toContain('help');
   });
 
   it('navigate(1) increments selectedIndex wrapping around', () => {
@@ -94,7 +105,9 @@ describe('useSlashCommandSuggestions', () => {
   it('select returns canonical /key and closes the dropdown', () => {
     const { result } = renderHook(() => useSlashCommandSuggestions('/ch'));
     let usage!: string;
-    act(() => { usage = result.current.select(0); });
+    act(() => {
+      usage = result.current.select(0);
+    });
     expect(usage).toBe('/chat');
     expect(result.current.isOpen).toBe(false);
   });
@@ -116,7 +129,7 @@ describe('useSlashCommandSuggestions', () => {
   it('resets dismissed state when input changes to a new / fragment', () => {
     const { result, rerender } = renderHook(
       ({ input }: { input: string }) => useSlashCommandSuggestions(input),
-      { initialProps: { input: '/h' } },
+      { initialProps: { input: '/h' } }
     );
     act(() => result.current.dismiss());
     expect(result.current.isOpen).toBe(false);
