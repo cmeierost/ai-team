@@ -29,6 +29,9 @@
     "**/*.mjs",
     "**/*.cjs",
     "slides/assets",
-    "eslint.config.cjs"
+    "eslint.config.cjs",
+    "other-projects",
+    "benchmarks",
+    "research"
   ]
 }

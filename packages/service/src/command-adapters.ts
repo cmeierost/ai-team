@@ -13,15 +13,13 @@
  *     └── toLlmToolDefinition() → ILlmToolDefinition  (already in CommandRegistry)
  */
 
-import type { ICommand, CommandRuntime } from '@ai-team/core';
+import type { ICommand, ExecutionContext } from '@ai-team/core';
 import type { CommandResponse } from '@ai-team/core';
 import type { CliCommandMetadata, CommandOptionMetadata } from '@ai-team/core';
-import type {
-  InteractionContext,
-} from '@ai-team/api-contracts';
+import type { InteractionContext } from '@ai-team/api-contracts';
+import { isCommandResponse } from '@ai-team/api-contracts';
 import type { ILlmToolDefinition } from '@ai-team/core';
-import type { CommandRegistration } from './command-dispatcher.js';
-import type { SessionSnapshot } from '@ai-team/core';
+import type { RegisteredCommand } from './command-dispatcher.js';
 
 // ── Zod → Commander options ───────────────────────────────────────────────────
 
@@ -58,8 +56,8 @@ export function zodToCliOptions(schema: unknown): CommandOptionMetadata[] {
 
 // ── ICommand → CliCommandMetadata ────────────────────────────────────────────
 
-export function toCliMetadata<TParams, TContext, TResult>(
-  cmd: ICommand<TParams, TContext, TResult>
+export function toCliMetadata<TParams, TResult>(
+  cmd: ICommand<TParams, TResult>
 ): CliCommandMetadata {
   if (!cmd.cli) {
     throw new Error(`ICommand '${cmd.key}' has no cli routing info (missing cmd.cli)`);
@@ -85,36 +83,60 @@ export function toCliMetadata<TParams, TContext, TResult>(
  * Wrap an ICommand as a CommandRegistration for the CommandDispatcher.
  * The ICommand.execute signature is adapted to the dispatcher's
  * (workspaceRoot, payload, context) handler shape.
- * 
+ *
  * Command results are automatically wrapped in CommandResponse envelopes.
  */
 export function toCommandRegistration<TCommand extends string = string>(
-  cmd: ICommand<unknown, void, unknown>
-): CommandRegistration<TCommand> {
+  cmd: ICommand<unknown, unknown>
+): RegisteredCommand<TCommand> {
+  const derivedCliPath = cmd.cli ? deriveCliPath(cmd.cli.command, cmd.cli.parentKey) : undefined;
+
   return {
     key: cmd.key as TCommand,
     aliases: cmd.aliases,
     description: cmd.description,
     usage: cmd.cli?.command,
     availableIn: cmd.availableIn,
-    path: cmd.path,
+    path: cmd.path ?? derivedCliPath,
     help: cmd.help,
     llm: cmd.llm,
     intents: cmd.intents,
     intentExamples: cmd.intentExamples,
     input: cmd.input,
-    handler: async (workspaceRoot: string, payload: unknown, context: InteractionContext) => {
-      const runtime = interactionContextToRuntime(workspaceRoot, context);
-      const resolvedPayload = resolveCommandArgs(cmd, payload, runtime);
-      const result = await cmd.execute(resolvedPayload, undefined as void, runtime);
-      
-      // Wrap bare command results in CommandResponse envelope
-      if (result && typeof result === 'object' && 'status' in result) {
-        return result as CommandResponse<unknown>;
+    handler: async (workspaceRoot: string, payload: unknown, context?: InteractionContext) => {
+      const execCtx = interactionContextToExecutionContext(workspaceRoot, context ?? {});
+      const resolvedPayload = resolveCommandArgs(cmd, payload, execCtx);
+      const result = await cmd.execute(resolvedPayload, execCtx);
+
+      if (isCommandResponse(result)) {
+        const r = result as unknown as CommandResponse<unknown>;
+        return { ...r, message: r.message ?? '' };
       }
       return { status: 'ok' as const, message: '', data: result } as CommandResponse<unknown>;
     },
   };
+}
+
+function deriveCliPath(command: string, parentKey?: string): string[] {
+  const path: string[] = [];
+  if (parentKey) {
+    path.push(...parentKey.split('.').filter(Boolean));
+  }
+
+  const parts = command.trim().split(/\s+/);
+  if (parts.length === 0 || !parts[0]) {
+    return path;
+  }
+
+  const second = parts[1];
+  const isSecondArg = Boolean(second && (second.startsWith('<') || second.startsWith('[')));
+  if (!parentKey && parts.length > 1 && !isSecondArg) {
+    path.push(parts[0], parts[1]);
+    return path;
+  }
+
+  path.push(parts[0]);
+  return path;
 }
 
 // ── ICommand → Slash ICommand ────────────────────────────────────────────────
@@ -123,17 +145,17 @@ export function toCommandRegistration<TCommand extends string = string>(
  * Wrap an ICommand as a chat slash command.
  * Raw string args are parsed via the command's Zod schema when present,
  * or passed through as-is for commands that accept a raw string payload.
- * 
+ *
  * Parameters can specify context overrides (agentId, sessionId, etc.) which
  * are merged into the command's execution context.
- * 
+ *
  * Parsing strategy:
  * 1. Try JSON.parse first (user passed JSON literal like /hire {"name": "alice"})
  * 2. Fall back to key=value syntax (user passed /hire --name alice)
  */
-export function toSlashCommand<TContext extends SessionSnapshot>(
-  cmd: ICommand<unknown, TContext, unknown>
-): ICommand<string, TContext, CommandResponse | void> {
+export function toSlashCommand(
+  cmd: ICommand<unknown, unknown>
+): ICommand<string, unknown> {
   return {
     key: cmd.key,
     aliases: cmd.aliases,
@@ -141,34 +163,32 @@ export function toSlashCommand<TContext extends SessionSnapshot>(
     usage: cmd.usage,
     availableIn: {
       chat: true,
+      cliChat: Boolean(cmd.availableIn.cliChat),
       tool: Boolean(cmd.availableIn.tool),
       cli: false,
     },
-    execute: async (rawArgs: string, ctx: TContext) => {
-      const runtime = sessionSnapshotToRuntime(ctx);
-      const parsed = cmd.parameters
-        ? parseArgsIntelligently(rawArgs, cmd.parameters)
-        : rawArgs;
-      
+    execute: async (rawArgs: string, ctx: ExecutionContext) => {
+      const parsed = cmd.parameters ? parseArgsIntelligently(rawArgs, cmd.parameters) : rawArgs;
+
       // Extract context overrides from parsed params and merge with base context
       const parsedObj = typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
       const contextOverrides = mapParamsToContext(
         parsedObj,
         cmd.input?.contextOverrideAllowlist,
-        runtime.calledByHuman
+        ctx.calledByHuman
       );
-      const mergedCtx = { ...ctx, ...contextOverrides } as TContext;
-      const resolvedPayload = resolveCommandArgs(cmd, parsed, runtime);
-      
-      const result = await cmd.execute(resolvedPayload, mergedCtx, runtime);
-      return toCommandResponse(result);
+      const mergedCtx: ExecutionContext = { ...ctx, ...contextOverrides };
+      const resolvedPayload = resolveCommandArgs(cmd, parsed, mergedCtx);
+
+      const result = await cmd.execute(resolvedPayload, mergedCtx);
+      return (toCommandResponse(result) ?? { status: 'ok' }) as CommandResponse<unknown>;
     },
   };
 }
 
 // ── ICommand → ILlmToolDefinition ────────────────────────────────────────────
 
-export function toLlmToolDefinition(cmd: ICommand<unknown, unknown, unknown>): ILlmToolDefinition {
+export function toLlmToolDefinition(cmd: ICommand<unknown, unknown>): ILlmToolDefinition {
   const rawSchema = cmd.parameters ? zodSchemaToJsonSchema(cmd.parameters) : undefined;
   const defaultHidden = cmd.input?.contextParameters ?? [];
   const explicitHidden = cmd.llm?.hiddenParameters ?? [];
@@ -185,66 +205,49 @@ export function toLlmToolDefinition(cmd: ICommand<unknown, unknown, unknown>): I
 
 /**
  * Extract context from parsed command parameters.
- * 
+ *
  * Supports optional context overrides in params:
  *   { agentId?: string, sessionId?: string, workspaceRoot?: string, workflowId?: string, ... }
- * 
+ *
  * Returns a partial context object that can be merged with orchestrator context.
  */
 function mapParamsToContext(
   params: Record<string, unknown>,
   allowlist: string[] | undefined,
   calledByHuman: boolean | undefined
-): Record<string, unknown> {
+): Partial<ExecutionContext> {
   if (!calledByHuman) {
     return {};
   }
 
-  const ctx: Record<string, unknown> = {};
+  const overrides: Partial<ExecutionContext> = {};
   const allowed = allowlist && allowlist.length > 0 ? new Set(allowlist) : undefined;
 
-  const isAllowed = (key: string): boolean => {
-    return !allowed || allowed.has(key);
-  };
+  const isAllowed = (key: string): boolean => !allowed || allowed.has(key);
 
-  // Extract standard context fields from params if present
   if (isAllowed('agentId') && 'agentId' in params && typeof params.agentId === 'string') {
-    ctx.agent = { id: params.agentId } as any;
+    overrides.agentId = params.agentId;
   }
   if (isAllowed('sessionId') && 'sessionId' in params && typeof params.sessionId === 'string') {
-    ctx.sessionId = params.sessionId as string;
+    overrides.sessionId = params.sessionId;
   }
   if (isAllowed('workspaceRoot') && 'workspaceRoot' in params && typeof params.workspaceRoot === 'string') {
-    ctx.workspaceRoot = params.workspaceRoot as string;
+    overrides.workspaceRoot = params.workspaceRoot;
   }
-  if (isAllowed('workflowId') && 'workflowId' in params) {
-    if (!ctx.workflowState) {
-      ctx.workflowState = {} as any;
-    }
-    (ctx.workflowState as any).workflowId = params.workflowId;
+  if (isAllowed('workflowId') && 'workflowId' in params && typeof params.workflowId === 'string') {
+    overrides.workflowId = params.workflowId;
   }
-  if (isAllowed('workflowInstanceId') && 'workflowInstanceId' in params) {
-    if (!ctx.workflowState) {
-      ctx.workflowState = {} as any;
-    }
-    (ctx.workflowState as any).instanceId = params.workflowInstanceId;
+  if (isAllowed('workflowInstanceId') && 'workflowInstanceId' in params && typeof params.workflowInstanceId === 'string') {
+    overrides.workflowInstanceId = params.workflowInstanceId;
   }
 
-  const continuationToken = getPathValue(params, 'workflow.continuationToken');
-  if (isAllowed('workflow.continuationToken') && typeof continuationToken === 'string') {
-    if (!ctx.workflowState) {
-      ctx.workflowState = {} as any;
-    }
-    (ctx.workflowState as any).continuationToken = continuationToken;
-  }
-
-  return ctx;
+  return overrides;
 }
 
 function resolveCommandArgs(
-  cmd: ICommand<unknown, unknown, unknown>,
+  cmd: ICommand<unknown, unknown>,
   payload: unknown,
-  runtime: CommandRuntime
+  ctx: ExecutionContext
 ): unknown {
   if (!payload || typeof payload !== 'object') {
     return payload;
@@ -254,29 +257,9 @@ function resolveCommandArgs(
 
   for (const contextParam of cmd.input?.contextParameters ?? []) {
     if (getPathValue(resolved, contextParam) !== undefined) continue;
-    const contextValue = getRuntimeContextValue(runtime, contextParam);
+    const contextValue = getContextValue(ctx, contextParam);
     if (contextValue !== undefined) {
       setPathValue(resolved, contextParam, contextValue);
-    }
-  }
-
-  const bindings = cmd.workflowInputBindings ?? {};
-  for (const [paramName, binding] of Object.entries(bindings)) {
-    if (getPathValue(resolved, paramName) !== undefined) continue;
-
-    const fromLastResult = binding.fromLastResult
-      ? getPathValue(runtime.workflowLastResult, binding.fromLastResult)
-      : undefined;
-    if (fromLastResult !== undefined) {
-      setPathValue(resolved, paramName, fromLastResult);
-      continue;
-    }
-
-    const fromWorkflowData = binding.fromWorkflowData
-      ? getPathValue(runtime.workflowData, binding.fromWorkflowData)
-      : undefined;
-    if (fromWorkflowData !== undefined) {
-      setPathValue(resolved, paramName, fromWorkflowData);
     }
   }
 
@@ -296,18 +279,8 @@ function resolveCommandArgs(
   return resolved;
 }
 
-function getRuntimeContextValue(runtime: CommandRuntime, key: string): unknown {
-  const direct = (runtime as unknown as Record<string, unknown>)[key];
-  if (direct !== undefined) return direct;
-
-  if (key.startsWith('workflow.')) {
-    const workflowKey = key.slice('workflow.'.length);
-    if (workflowKey === 'continuationToken') {
-      return runtime.workflowState?.continuationToken;
-    }
-  }
-
-  return getPathValue(runtime as unknown as Record<string, unknown>, key);
+function getContextValue(ctx: ExecutionContext, key: string): unknown {
+  return getPathValue(ctx as unknown as Record<string, unknown>, key);
 }
 
 function getPathValue(source: unknown, path: string): unknown {
@@ -344,14 +317,13 @@ function setPathValue(target: Record<string, unknown>, path: string, value: unkn
   current[parts[parts.length - 1]] = value;
 }
 
-function interactionContextToRuntime(
+function interactionContextToExecutionContext(
   workspaceRoot: string,
   ctx: InteractionContext
-): CommandRuntime {
+): ExecutionContext {
   const invocationSurface = (ctx as any).invocationSurface ?? 'api';
   const calledByHuman =
-    (ctx as any).calledByHuman ??
-    (invocationSurface === 'cli' || invocationSurface === 'slash');
+    (ctx as any).calledByHuman ?? (invocationSurface === 'cli' || invocationSurface === 'slash');
   return {
     invocationSurface,
     calledByHuman,
@@ -360,35 +332,13 @@ function interactionContextToRuntime(
     agentId: (ctx as any).agentId,
     sessionId: (ctx as any).sessionId,
     workflowId: (ctx as any).workflowId,
-    workflowLastResult: (ctx as any).workflowLastResult,
-    workflowData: (ctx as any).workflowData,
+    workflowInstanceId: (ctx as any).workflowInstanceId,
     signal: ctx.signal,
-    emit: ctx.emit as ((event: unknown) => void) | undefined,
-    questionInput: ctx.questionInput,
-    questionConfirm: ctx.questionConfirm,
-    questionSelect: ctx.questionSelect,
-    questionPassword: ctx.questionPassword,
-    questionChecklist: ctx.questionChecklist,
-    workflowState: ctx.workflowState as CommandRuntime['workflowState'],
-    onWorkflowFrame: ctx.onWorkflowFrame as CommandRuntime['onWorkflowFrame'],
+    history: (ctx as any).history ?? [],
   };
 }
 
-function sessionSnapshotToRuntime(ctx: SessionSnapshot): CommandRuntime {
-  return {
-    invocationSurface: 'slash',
-    calledByHuman: true,
-    callerType: 'human',
-    workspaceRoot: '',
-    agentId: ctx.agent?.id,
-    sessionId: ctx.sessionId,
-  };
-}
-
-function stripHiddenParameters(
-  schema: unknown,
-  hiddenParameters: string[] | undefined
-): unknown {
+function stripHiddenParameters(schema: unknown, hiddenParameters: string[] | undefined): unknown {
   if (!schema || !hiddenParameters || hiddenParameters.length === 0) {
     return schema;
   }
@@ -399,9 +349,7 @@ function stripHiddenParameters(
 
   const next = { ...(schema as Record<string, unknown>) };
   const properties = (next.properties ?? {}) as Record<string, unknown>;
-  const required = Array.isArray(next.required)
-    ? (next.required as string[])
-    : undefined;
+  const required = Array.isArray(next.required) ? (next.required as string[]) : undefined;
 
   const hidden = new Set(hiddenParameters);
   for (const key of hidden) {
@@ -418,7 +366,7 @@ function stripHiddenParameters(
 
 /**
  * Reconstruct nested objects from flat dot-notation keys.
- * 
+ *
  * Example:
  *   { "agent.id": "michael", "user.profile.name": "alice" }
  * Becomes:
@@ -426,11 +374,11 @@ function stripHiddenParameters(
  */
 function reconstructNestedObject(flat: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  
+
   for (const [path, value] of Object.entries(flat)) {
     const parts = path.split('.');
     let current = result;
-    
+
     for (let i = 0; i < parts.length - 1; i++) {
       const part = parts[i];
       if (!(part in current)) {
@@ -438,27 +386,24 @@ function reconstructNestedObject(flat: Record<string, unknown>): Record<string, 
       }
       current = current[part] as Record<string, unknown>;
     }
-    
+
     current[parts[parts.length - 1]] = value;
   }
-  
+
   return result;
 }
 
 /**
  * Intelligently parse command arguments from a raw string.
- * 
+ *
  * Strategy:
  * 1. Try JSON.parse first (user passed JSON literal)
  * 2. Fall back to parseRawArgs with schema (user passed --key value syntax)
  * 3. If both fail, return empty object
- * 
+ *
  * Returns parsed parameters as an object ready for command execution.
  */
-export function parseArgsIntelligently(
-  rawArgs: string | unknown,
-  schema?: unknown
-): unknown {
+export function parseArgsIntelligently(rawArgs: string | unknown, schema?: unknown): unknown {
   // If already an object, return as-is
   if (typeof rawArgs !== 'string') {
     return rawArgs;
@@ -466,9 +411,7 @@ export function parseArgsIntelligently(
 
   const trimmed = rawArgs.trim();
   if (!trimmed) {
-    return schema && typeof (schema as any).parse === 'function'
-      ? (schema as any).parse({})
-      : {};
+    return schema && typeof (schema as any).parse === 'function' ? (schema as any).parse({}) : {};
   }
 
   // Try JSON parse first
@@ -598,7 +541,6 @@ function toCommandResponse(result: unknown): CommandResponse | void {
     status: 'ok',
     message: typeof result === 'string' ? result : 'Command executed successfully.',
     data: result,
-    saveable: result,
   };
 }
 

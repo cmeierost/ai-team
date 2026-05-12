@@ -1,17 +1,18 @@
 import { z } from 'zod';
 import type {
   ICommand,
-  CommandRuntime,
   IAgentManager,
   ISkillManager,
   IMarkdownSectionService,
+  ExecutionContext,
+  CommandResponse,
 } from '@ai-team/core';
 import type { UpdateAgentSkillResponse } from '@ai-team/api-contracts';
 import { removeSkillCommand } from './skills.js';
 
 type Params = z.infer<typeof SkillsRemoveCommand.schema>;
 
-export class SkillsRemoveCommand implements ICommand<Params, void, UpdateAgentSkillResponse> {
+export class SkillsRemoveCommand implements ICommand<Params, UpdateAgentSkillResponse> {
   static readonly schema = z.object({
     agent: z.string().describe('Agent id, name, or role query'),
     skill: z.string().describe('Skill name to remove'),
@@ -33,12 +34,12 @@ export class SkillsRemoveCommand implements ICommand<Params, void, UpdateAgentSk
 
   async execute(
     payload: Params,
-    _ctx: void,
-    _runtime: CommandRuntime
-  ): Promise<UpdateAgentSkillResponse> {
-    return removeSkillCommand(this.agents, this.skills, this.markdown, {
+    _ctx: ExecutionContext
+  ): Promise<CommandResponse<UpdateAgentSkillResponse>> {
+    const data = await removeSkillCommand(this.agents, this.skills, this.markdown, {
       agent: payload.agent,
       skill: payload.skill,
     });
+    return { status: 'ok', data };
   }
 }

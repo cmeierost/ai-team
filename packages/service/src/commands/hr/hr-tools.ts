@@ -1,18 +1,22 @@
 import { z } from 'zod';
 import type {
-  AgentTool,
-  ITool,
-  ToolContext,
+  ICommand,
+  ExecutionContext,
   AgentConfig,
   IAgentManager,
+  CommandResponse,
 } from '@ai-team/core';
 import { ContextLevel, TOOL_SERVICE_TOKENS as T } from '@ai-team/core';
 
+function ok<T>(data: T): CommandResponse<T> {
+  return { status: 'ok', data };
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function resolveAgentManager(context: ToolContext): IAgentManager {
-  if (!context.resolve) throw new Error('ToolContext.resolve is required.');
-  return context.resolve(T.AgentManager);
+function resolveAgentManager(context: ExecutionContext): IAgentManager {
+  if (!(context as any).resolve) throw new Error('ExecutionContext.resolve is required.');
+  return (context as any).resolve(T.AgentManager) as unknown as IAgentManager;
 }
 
 // ─── CreateAgent ──────────────────────────────────────────────────────────────
@@ -32,7 +36,7 @@ export interface CreateAgentResult {
   filePath: string;
 }
 
-export class CreateAgentTool implements ITool<CreateAgentParams, ToolContext, CreateAgentResult> {
+export class CreateAgentTool {
   readonly name = 'create_agent';
   readonly key = 'create_agent';
   readonly group = 'hr';
@@ -47,9 +51,17 @@ export class CreateAgentTool implements ITool<CreateAgentParams, ToolContext, Cr
     reportsTo: z.string().optional().describe('Agent ID of the direct manager'),
   });
 
-  async execute(params: CreateAgentParams, context: ToolContext): Promise<CreateAgentResult> {
+  async execute(
+    params: CreateAgentParams,
+    context: ExecutionContext
+  ): Promise<CommandResponse<CreateAgentResult>> {
     if ((context as any).agent?.contextLevel !== 'organization') {
       throw new Error('create_agent requires organization-level context.');
+    }
+
+    const currentAgent = context.agent;
+    if (!currentAgent) {
+      throw new Error('create_agent requires an active agent context.');
     }
 
     const { name, role, specializations = [], reportsTo } = params;
@@ -59,19 +71,19 @@ export class CreateAgentTool implements ITool<CreateAgentParams, ToolContext, Cr
       name,
       role,
       specializations,
-      reportsTo: reportsTo ?? context.agent.id,
+      reportsTo: reportsTo ?? currentAgent.id,
       contextLevel: ContextLevel.MODULE,
     };
 
     const created = await agentManager.createAgentAsync(config);
 
-    return {
+    return ok({
       agentId: created.id,
       name: created.name,
       role: created.role,
       reportsTo: created.reportsTo,
       filePath: created.filePath,
-    };
+    });
   }
 }
 
@@ -87,7 +99,7 @@ export interface ArchiveAgentResult {
   archived: boolean;
 }
 
-export class ArchiveAgentTool implements ITool<ArchiveAgentParams, ToolContext, ArchiveAgentResult> {
+export class ArchiveAgentTool {
   readonly name = 'archive';
   readonly key = 'archive';
   readonly group = 'hr';
@@ -97,9 +109,16 @@ export class ArchiveAgentTool implements ITool<ArchiveAgentParams, ToolContext, 
     employee: z.string().min(1).describe('Agent name, ID, or role to archive'),
   });
 
-  async execute(params: ArchiveAgentParams, context: ToolContext): Promise<ArchiveAgentResult> {
+  async execute(
+    params: ArchiveAgentParams,
+    context: ExecutionContext
+  ): Promise<CommandResponse<ArchiveAgentResult>> {
     const { employee } = params;
     const agentManager = resolveAgentManager(context);
+    const currentAgent = context.agent;
+    if (!currentAgent) {
+      throw new Error('archive requires an active agent context.');
+    }
 
     const matches = await agentManager.resolveAgentAsync(employee.trim());
     if (matches.length === 0) throw new Error(`No employee found matching '${employee}'.`);
@@ -110,7 +129,7 @@ export class ArchiveAgentTool implements ITool<ArchiveAgentParams, ToolContext, 
     const target = matches[0];
     const canManage =
       (context as any).agent?.contextLevel === 'organization' ||
-      target.reportsTo === context.agent.id;
+      target.reportsTo === currentAgent.id;
 
     if (!canManage) {
       throw new Error(`You do not have permission to archive ${target.id}.`);
@@ -118,7 +137,7 @@ export class ArchiveAgentTool implements ITool<ArchiveAgentParams, ToolContext, 
 
     await agentManager.archiveAgentAsync(target.id);
 
-    return { agentId: target.id, name: target.name, archived: true };
+    return ok({ agentId: target.id, name: target.name, archived: true });
   }
 }
 
@@ -138,9 +157,7 @@ export interface AssessPerformanceResult {
   }>;
 }
 
-export class AssessPerformanceTool
-  implements ITool<AssessPerformanceParams, ToolContext, AssessPerformanceResult>
-{
+export class AssessPerformanceTool {
   readonly name = 'performance';
   readonly key = 'performance';
   readonly group = 'hr';
@@ -157,20 +174,24 @@ export class AssessPerformanceTool
 
   async execute(
     params: AssessPerformanceParams,
-    context: ToolContext
-  ): Promise<AssessPerformanceResult> {
+    context: ExecutionContext
+  ): Promise<CommandResponse<AssessPerformanceResult>> {
     const { employee } = params;
     const agentManager = resolveAgentManager(context);
+    const currentAgent = context.agent;
+    if (!currentAgent) {
+      throw new Error('performance requires an active agent context.');
+    }
 
     let targets = employee?.trim()
       ? await agentManager.resolveAgentAsync(employee.trim())
-      : await agentManager.getDirectReportsAsync(context.agent.id);
+      : await agentManager.getDirectReportsAsync(currentAgent.id);
 
     if (employee && targets.length === 0) {
       throw new Error(`No employee found matching '${employee}'.`);
     }
 
-    return {
+    return ok({
       assessments: targets.map((a) => ({
         agentId: a.id,
         name: a.name,
@@ -178,7 +199,7 @@ export class AssessPerformanceTool
         status: (a as any).status ?? 'active',
         reportsTo: a.reportsTo,
       })),
-    };
+    });
   }
 }
 
@@ -200,7 +221,7 @@ export interface AddPictureResult {
   updated: boolean;
 }
 
-export class AddPictureTool implements ITool<AddPictureParams, ToolContext, AddPictureResult> {
+export class AddPictureTool {
   readonly name = 'avatar';
   readonly key = 'avatar';
   readonly group = 'hr';
@@ -217,13 +238,16 @@ export class AddPictureTool implements ITool<AddPictureParams, ToolContext, AddP
     apiKey: z.string().optional().describe('API key for AI generation'),
   });
 
-  async execute(params: AddPictureParams, context: ToolContext): Promise<AddPictureResult> {
-    if (!context.resolve) throw new Error('ToolContext.resolve is required.');
+  async execute(
+    params: AddPictureParams,
+    context: ExecutionContext
+  ): Promise<CommandResponse<AddPictureResult>> {
+    if (!(context as any).resolve) throw new Error('ExecutionContext.resolve is required.');
     const { employee, prompt, urlTemplate, provider, modelName, apiKey } = params;
 
-    const agentManager = context.resolve(T.AgentManager);
-    const avatarManager = context.resolve(T.AvatarManager);
-    const configStorage = context.resolve(T.ConfigurationStorage);
+    const agentManager = (context as any).resolve(T.AgentManager);
+    const avatarManager = (context as any).resolve(T.AvatarManager);
+    const configStorage = (context as any).resolve(T.ConfigurationStorage);
 
     const matches = await agentManager.resolveAgentAsync(employee.trim());
     if (matches.length === 0) throw new Error(`No employee found matching '${employee}'.`);
@@ -237,23 +261,29 @@ export class AddPictureTool implements ITool<AddPictureParams, ToolContext, AddP
     if (urlTemplate) {
       imageData = await avatarManager.downloadRandomAvatar(urlTemplate, target);
     } else if (prompt && provider && modelName && apiKey) {
-      imageData = await avatarManager.generateAvatarWithAI(prompt, { provider } as any, modelName, apiKey);
+      imageData = await avatarManager.generateAvatarWithAI(
+        prompt,
+        { provider } as any,
+        modelName,
+        apiKey
+      );
     } else {
       const teamConfig = await configStorage.loadTeamConfigAsync(context.workspaceRoot);
-      const templateUrl = (teamConfig as any)?.avatarUrlTemplate;
-      if (!templateUrl) {
+      const templateUrl = teamConfig?.avatarUrlTemplate;
+      if (templateUrl) {
+        imageData = await avatarManager.downloadRandomAvatar(templateUrl, target);
+      } else {
         const builtPrompt = avatarManager.buildAvatarPrompt(target);
         const config = await configStorage.loadEffectiveConfigAsync(context.workspaceRoot);
-        const llmConfig = (config as any)?.llm;
-        if (!llmConfig) throw new Error('No LLM config or URL template available for avatar generation.');
+        const llmConfig = config?.llm;
+        if (!llmConfig)
+          throw new Error('No LLM config or URL template available for avatar generation.');
         imageData = await avatarManager.generateAvatarWithAI(
           builtPrompt,
           llmConfig,
           llmConfig.model ?? llmConfig.modelKey ?? 'gpt-4o',
           llmConfig.apiKey ?? ''
         );
-      } else {
-        imageData = await avatarManager.downloadRandomAvatar(templateUrl, target);
       }
     }
 
@@ -261,18 +291,18 @@ export class AddPictureTool implements ITool<AddPictureParams, ToolContext, AddP
     const avatarRelPath = await avatarManager.finalizeAvatar(target.name, context.workspaceRoot);
     await avatarManager.updateAgentAvatar(target, avatarRelPath, context.workspaceRoot);
 
-    return {
+    return ok({
       agentId: target.id,
       name: target.name,
       avatarPath: avatarRelPath,
       updated: true,
-    };
+    });
   }
 }
 
 // ─── Module-level singletons ──────────────────────────────────────────────────
 
-export const createAgentTool: AgentTool = new CreateAgentTool();
-export const archiveAgentTool: AgentTool = new ArchiveAgentTool();
-export const assessPerformanceTool: AgentTool = new AssessPerformanceTool();
-export const addPictureTool: AgentTool = new AddPictureTool();
+export const createAgentTool: ICommand = new CreateAgentTool();
+export const archiveAgentTool: ICommand = new ArchiveAgentTool();
+export const assessPerformanceTool: ICommand = new AssessPerformanceTool();
+export const addPictureTool: ICommand = new AddPictureTool();

@@ -1,3 +1,4 @@
+import type { ExecutionContext } from '@ai-team/core';
 /**
  * DefaultOutputHandler — default IOutputHandler.
  *
@@ -9,17 +10,16 @@
  */
 
 import type { IOutputHandler, TurnResult } from '../pipeline.js';
-import type { OrchestratorContext } from '../pipeline-context.js';
 
 export class DefaultOutputHandler implements IOutputHandler {
-  async handle(result: TurnResult, ctx: OrchestratorContext): Promise<void> {
+  async handle(result: TurnResult, ctx: ExecutionContext): Promise<void> {
     // NOTE: Message persistence is handled by send-turn.ts (step 1 for user,
     // step 8 for agent reply). This handler only emits completion events.
     // Do NOT persist here — doing so would cause duplicate DB writes.
 
     // Emit completion status (handoff events are emitted by executeHandoff)
-    if (ctx.hooks.emit && !result.handedOff) {
-      ctx.hooks.emit({ kind: 'status', phase: 'complete' });
+    if (((ctx as any).hooks).emit && !result.handedOff) {
+      ((ctx as any).hooks).emit({ kind: 'status', phase: 'complete' });
     }
   }
 }

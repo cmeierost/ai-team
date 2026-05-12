@@ -1,14 +1,11 @@
 import { z } from 'zod';
-import type {
-  ICommand,
-  CommandRuntime,
-} from '@ai-team/core';
+import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
 import type { InteractionContext } from '@ai-team/api-contracts';
 import { AvatarService } from './avatar.js';
 
 type Params = z.infer<typeof AvatarCommand.schema>;
 
-export class AvatarCommand implements ICommand<Params, void, void> {
+export class AvatarCommand implements ICommand<Params, void> {
   static readonly schema = z.object({
     options: z.object({
       agentQuery: z.string().describe('Agent id, name, or role query for avatar setup'),
@@ -24,19 +21,20 @@ export class AvatarCommand implements ICommand<Params, void, void> {
 
   constructor(private readonly avatarService: AvatarService) {}
 
-  async execute(payload: Params, _ctx: void, runtime: CommandRuntime): Promise<void> {
+  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const context: InteractionContext = {
-      signal: runtime.signal,
-      emit: runtime.emit as InteractionContext['emit'],
-      questionInput: runtime.questionInput,
-      questionConfirm: runtime.questionConfirm,
-      questionSelect: runtime.questionSelect,
-      questionPassword: runtime.questionPassword,
-      questionChecklist: runtime.questionChecklist,
-      workflowState: runtime.workflowState,
-      onWorkflowFrame: runtime.onWorkflowFrame,
+      signal: ctx.signal,
+      emit: ctx.emit as InteractionContext['emit'],
+      questionInput: ctx.questionInput,
+      questionConfirm: ctx.questionConfirm,
+      questionSelect: ctx.questionSelect,
+      questionPassword: ctx.questionPassword,
+      questionChecklist: ctx.questionChecklist,
+      workflowState: ctx.workflowState as InteractionContext['workflowState'],
+      onWorkflowFrame: ctx.onWorkflowFrame,
     };
 
-    return this.avatarService.execute(payload.options, context);
+    await this.avatarService.execute(payload.options, context);
+    return { status: 'ok' };
   }
 }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TOOL_SERVICE_TOKENS as T } from '@ai-team/core';
-import type { AgentTool, Agent, IAgentManager, ITool, ToolContext } from '@ai-team/core';
+import type { Agent, IAgentManager, ExecutionContext, ICommand, CommandResponse } from '@ai-team/core';
 import {
   accessRightSchema,
   type AccessRight,
@@ -41,19 +41,21 @@ function checkRightWithChecker(
   }
 }
 
-function getContextDependencies(context: ToolContext): {
+function getContextDependencies(context: ExecutionContext): {
   checker: PathPermissionCheckerLike;
   agentManager: AgentManagerLike;
 } {
   const checker = (context as any).pathPermissionChecker as PathPermissionCheckerLike | undefined;
-  const agentManager = context.resolve?.(T.AgentManager) as AgentManagerLike | undefined;
+  const agentManager = ((context as any).resolve?.(T.AgentManager)) as AgentManagerLike | undefined;
   if (!checker) {
     throw new Error(
-      'ToolContext.pathPermissionChecker is required for access introspection tools.'
+      'ExecutionContext.pathPermissionChecker is required for access introspection tools.'
     );
   }
   if (!agentManager) {
-    throw new Error('ToolContext.resolve(AgentManager) is required for access introspection tools.');
+    throw new Error(
+      'ExecutionContext.resolve(AgentManager) is required for access introspection tools.'
+    );
   }
   return { checker, agentManager };
 }
@@ -73,7 +75,7 @@ export interface WhoHasAccessResult {
   explanation: string;
 }
 
-export class WhoHasAccessTool implements ITool<WhoHasAccessParams, ToolContext, WhoHasAccessResult> {
+export class WhoHasAccessTool  {
   readonly name = 'who_can';
   readonly key = 'who_can';
   readonly group = 'access';
@@ -84,7 +86,7 @@ export class WhoHasAccessTool implements ITool<WhoHasAccessParams, ToolContext, 
     right: accessRightSchema.optional().describe('Access right to evaluate (default: list)'),
   });
 
-  async execute(params: WhoHasAccessParams, context: ToolContext): Promise<WhoHasAccessResult> {
+  async execute(params: WhoHasAccessParams, context: ExecutionContext): Promise<WhoHasAccessResult> {
     const { path: targetPath, right = 'list' } = params;
     const absolutePath = resolveFsAbsolutePath(context, targetPath);
 
@@ -140,7 +142,7 @@ export interface DoIHaveAccessResult {
   alternativeContexts: never[];
 }
 
-export class DoIHaveAccessTool implements ITool<DoIHaveAccessParams, ToolContext, DoIHaveAccessResult> {
+export class DoIHaveAccessTool  {
   readonly name = 'can_i';
   readonly key = 'can_i';
   readonly group = 'access';
@@ -156,7 +158,7 @@ export class DoIHaveAccessTool implements ITool<DoIHaveAccessParams, ToolContext
       .describe('Optional agent ID override (defaults to current agent)'),
   });
 
-  async execute(params: DoIHaveAccessParams, context: ToolContext): Promise<DoIHaveAccessResult> {
+  async execute(params: DoIHaveAccessParams, context: ExecutionContext): Promise<DoIHaveAccessResult> {
     const { path: targetPath, right = 'list', agentId } = params;
     const absolutePath = resolveFsAbsolutePath(context, targetPath);
 
@@ -164,7 +166,7 @@ export class DoIHaveAccessTool implements ITool<DoIHaveAccessParams, ToolContext
       return {
         path: { input: targetPath, absolute: '', relative: '' },
         right,
-        contextId: agentId || context.agent.id,
+        contextId: agentId || context.agent!.id,
         allowed: false,
         allRights: [],
         explanation: 'Path is outside workspace root.',
@@ -175,8 +177,8 @@ export class DoIHaveAccessTool implements ITool<DoIHaveAccessParams, ToolContext
     const pathMeta = toFsPathMeta(context, targetPath, absolutePath);
     const { checker, agentManager } = getContextDependencies(context);
     // Resolve agent — current or by ID
-    let agent = context.agent;
-    if (agentId && agentId !== context.agent.id) {
+    let agent = context.agent!;
+    if (agentId && agentId !== context.agent!.id) {
       const found = await agentManager.getAgentAsync(agentId);
       if (found) {
         agent = found as Agent;
@@ -221,9 +223,7 @@ export interface AnalyzePermissionOverlapParams {
   maxDepth?: number;
 }
 
-export class AnalyzePermissionOverlapTool
-  implements ITool<AnalyzePermissionOverlapParams, ToolContext, unknown>
-{
+export class AnalyzePermissionOverlapTool {
   readonly name = 'analyze_permission_overlap';
   readonly key = 'analyze_permission_overlap';
   readonly group = 'access';
@@ -244,12 +244,12 @@ export class AnalyzePermissionOverlapTool
       .describe('Optional max workspace traversal depth for file mode'),
   });
 
-  async execute(params: AnalyzePermissionOverlapParams, context: ToolContext): Promise<unknown> {
+  async execute(params: AnalyzePermissionOverlapParams, context: ExecutionContext): Promise<unknown> {
     const { mode = 'files', agentId, maxDepth } = params;
     const { agentManager } = getContextDependencies(context);
     if (typeof agentManager.analyzeWorkspacePermissionOverlap !== 'function') {
       throw new Error(
-        'ToolContext.resolve(AgentManager).analyzeWorkspacePermissionOverlap is required for overlap analysis.'
+        'ExecutionContext.resolve(AgentManager).analyzeWorkspacePermissionOverlap is required for overlap analysis.'
       );
     }
     return agentManager.analyzeWorkspacePermissionOverlap({ mode, agentId, maxDepth });
@@ -258,6 +258,6 @@ export class AnalyzePermissionOverlapTool
 
 // ─── Module-level singletons ──────────────────────────────────────────────────
 
-export const whoHasAccessTool: AgentTool = new WhoHasAccessTool();
-export const doIHaveAccessTool: AgentTool = new DoIHaveAccessTool();
-export const analyzePermissionOverlapTool: AgentTool = new AnalyzePermissionOverlapTool();
+export const whoHasAccessTool = new WhoHasAccessTool();
+export const doIHaveAccessTool = new DoIHaveAccessTool();
+export const analyzePermissionOverlapTool = new AnalyzePermissionOverlapTool();

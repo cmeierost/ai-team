@@ -1,5 +1,4 @@
-import type { AgentTool } from '@ai-team/core';
-import type { OrchestratorContext } from '../orchestrator/pipeline-context.js';
+import type { ICommand, ExecutionContext } from '@ai-team/core';
 
 const AUTO_SELECT_SCORE = 100;
 const CONFIRM_THRESHOLD_SCORE = 80;
@@ -44,14 +43,14 @@ export interface ScoredPreLlmIntentCandidate {
 export interface PreLlmIntentProvider {
   resolveCandidates(
     message: string,
-    ctx: OrchestratorContext
+    ctx: ExecutionContext
   ): Promise<ScoredPreLlmIntentCandidate[]> | ScoredPreLlmIntentCandidate[];
 }
 
 interface ScoreableTool {
   scorePreLlmIntent?: (
     message: string,
-    ctx: OrchestratorContext
+    ctx: ExecutionContext
   ) =>
     | Promise<ScoredPreLlmIntentCandidate | ScoredPreLlmIntentCandidate[] | undefined>
     | ScoredPreLlmIntentCandidate
@@ -102,23 +101,23 @@ function normalizeCandidates(
 
 async function collectToolCandidates(
   message: string,
-  ctx: OrchestratorContext
+  ctx: ExecutionContext
 ): Promise<ScoredPreLlmIntentCandidate[]> {
-  if (!ctx.agent) {
+  if (!ctx.agent!!) {
     return [];
   }
 
-  const toolManager = ctx.toolManager as {
-    getForAgent?: (agent: OrchestratorContext['agent']) => AgentTool[];
+  const toolManager = (ctx as any).toolManager as {
+    getForAgent?: (agent: ExecutionContext['agent']) => ICommand[];
   };
   if (typeof toolManager?.getForAgent !== 'function') {
     return [];
   }
-  const tools = toolManager.getForAgent.call(toolManager, ctx.agent);
+  const tools = toolManager.getForAgent.call(toolManager, ctx.agent!!);
   const candidates: ScoredPreLlmIntentCandidate[] = [];
 
   for (const tool of tools) {
-    const scoreable = tool as AgentTool & ScoreableTool;
+    const scoreable = tool as ICommand & ScoreableTool;
     if (typeof scoreable.scorePreLlmIntent !== 'function') continue;
 
     try {
@@ -140,7 +139,7 @@ async function collectToolCandidates(
 
 async function collectProviderCandidates(
   message: string,
-  ctx: OrchestratorContext,
+  ctx: ExecutionContext,
   providers: PreLlmIntentProvider[]
 ): Promise<ScoredPreLlmIntentCandidate[]> {
   const candidates: ScoredPreLlmIntentCandidate[] = [];
@@ -187,9 +186,7 @@ function buildHighScoreSelectionIntent(candidates: ScoredPreLlmIntentCandidate[]
     },
     resolveArgs(answer: unknown) {
       const selectedIndex =
-        typeof answer === 'string' && /^\d+$/.test(answer)
-          ? Number.parseInt(answer, 10)
-          : 0;
+        typeof answer === 'string' && /^\d+$/.test(answer) ? Number.parseInt(answer, 10) : 0;
       const selected = sorted[selectedIndex] ?? sorted[0];
       return selected?.args;
     },
@@ -223,7 +220,7 @@ function buildConfirmIntent(candidate: ScoredPreLlmIntentCandidate): PreLlmInten
  */
 export async function resolvePreLlmIntent(
   message: string,
-  ctx: OrchestratorContext,
+  ctx: ExecutionContext,
   providers: PreLlmIntentProvider[] = []
 ): Promise<PreLlmIntent | undefined> {
   const trimmed = message.trim();

@@ -1,7 +1,7 @@
-import type { ICommand, CommandRuntime } from '@ai-team/core';
+import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
 import { hhRefreshCommand } from './hh.js';
 
-export class HhRefreshCommand implements ICommand<Record<string, never>, void, void> {
+export class HhRefreshCommand implements ICommand<Record<string, never>, void> {
   readonly key = 'hhRefresh';
   readonly cli = { command: 'refresh', parentKey: 'hh' };
   readonly description = 'Pull and refresh the skill catalog from GitHub';
@@ -10,9 +10,9 @@ export class HhRefreshCommand implements ICommand<Record<string, never>, void, v
 
   async execute(
     _payload: Record<string, never>,
-    _ctx: void,
-    runtime: CommandRuntime
-  ): Promise<void> {
-    return hhRefreshCommand(runtime.workspaceRoot);
+    ctx: ExecutionContext
+  ): Promise<CommandResponse<void>> {
+    await hhRefreshCommand(ctx.workspaceRoot);
+    return { status: 'ok' };
   }
 }

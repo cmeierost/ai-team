@@ -1,20 +1,28 @@
 import path from 'node:path';
 import { z } from 'zod';
 import { Ripgrep } from 'fs-context';
-import type { LspOperation, LspProvider, LspResult, AgentTool, ITool, ToolContext } from '@ai-team/core';
-import { COMMAND_FACTORY_TOKENS as CF } from '../definitions/types.js';
+import type {
+  LspOperation,
+  LspProvider,
+  LspResult,
+  ExecutionContext,
+  ICommand,
+  CommandResponse,
+  ITypeScriptAnalyzer,
+  ICodeEditManager,
+} from '@ai-team/core';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getPathPermissionChecker(context: ToolContext) {
+function getPathPermissionChecker(context: ExecutionContext) {
   const checker = (context as any).pathPermissionChecker;
   if (!checker) {
-    throw new Error('ToolContext.pathPermissionChecker is required for code tools.');
+    throw new Error('ExecutionContext.pathPermissionChecker is required for code tools.');
   }
   return checker;
 }
 
-function getLspProvider(context: ToolContext): LspProvider | undefined {
+function getLspProvider(context: ExecutionContext): LspProvider | undefined {
   return (context as any).lsp as LspProvider | undefined;
 }
 
@@ -112,7 +120,7 @@ export interface FindSymbolParams {
   character?: number;
 }
 
-export class FindSymbolTool implements ITool<FindSymbolParams, ToolContext, unknown> {
+export class FindSymbolTool  {
   readonly name = 'find_symbol';
   readonly key = 'find_symbol';
   readonly group = 'code';
@@ -138,7 +146,7 @@ export class FindSymbolTool implements ITool<FindSymbolParams, ToolContext, unkn
     return formatLspForLlm(result as LspFormatInput);
   }
 
-  async execute(params: FindSymbolParams, context: ToolContext): Promise<unknown> {
+  async execute(params: FindSymbolParams, context: ExecutionContext): Promise<unknown> {
     const { symbolName, filePath, line, character } = params;
     const lsp = getLspProvider(context);
     if (!lsp?.isAvailable()) {
@@ -187,7 +195,7 @@ export interface FindReferencesParams {
   character: number;
 }
 
-export class FindReferencesTool implements ITool<FindReferencesParams, ToolContext, unknown> {
+export class FindReferencesTool  {
   readonly name = 'find_references';
   readonly key = 'find_references';
   readonly group = 'code';
@@ -204,7 +212,7 @@ export class FindReferencesTool implements ITool<FindReferencesParams, ToolConte
     return formatLspForLlm(result as LspFormatInput);
   }
 
-  async execute(params: FindReferencesParams, context: ToolContext): Promise<unknown> {
+  async execute(params: FindReferencesParams, context: ExecutionContext): Promise<unknown> {
     const { filePath, line, character } = params;
     const lsp = getLspProvider(context);
     if (!lsp?.isAvailable()) {
@@ -238,7 +246,7 @@ export interface LspParams {
   query?: string;
 }
 
-export class LspTool implements ITool<LspParams, ToolContext, unknown> {
+export class LspTool  {
   readonly name = 'lsp';
   readonly key = 'lsp';
   readonly group = 'code';
@@ -270,7 +278,7 @@ export class LspTool implements ITool<LspParams, ToolContext, unknown> {
     return formatLspForLlm(result as LspFormatInput);
   }
 
-  async execute(params: LspParams, context: ToolContext): Promise<unknown> {
+  async execute(params: LspParams, context: ExecutionContext): Promise<unknown> {
     const { operation, filePath, line, character, query } = params;
     const lsp = getLspProvider(context);
     if (!lsp?.isAvailable()) {
@@ -315,7 +323,7 @@ export interface GrepCodeResult {
   }>;
 }
 
-export class GrepCodeTool implements ITool<GrepCodeParams, ToolContext, GrepCodeResult> {
+export class GrepCodeTool  {
   readonly name = 'grep';
   readonly key = 'grep';
   readonly group = 'search';
@@ -348,7 +356,7 @@ export class GrepCodeTool implements ITool<GrepCodeParams, ToolContext, GrepCode
     return `${header}\n\n${lines.join('\n')}`;
   }
 
-  async execute(params: GrepCodeParams, context: ToolContext): Promise<GrepCodeResult> {
+  async execute(params: GrepCodeParams, context: ExecutionContext): Promise<GrepCodeResult> {
     const { pattern, filePatterns, limit } = params;
     const matches = await Ripgrep.search({
       cwd: context.workspaceRoot,
@@ -379,7 +387,7 @@ export interface AnalyzeComplexityParams {
   functionName?: string;
 }
 
-export class AnalyzeComplexityTool implements ITool<AnalyzeComplexityParams, ToolContext, unknown> {
+export class AnalyzeComplexityTool {
   readonly name = 'complexity';
   readonly key = 'complexity';
   readonly group = 'code';
@@ -393,6 +401,8 @@ export class AnalyzeComplexityTool implements ITool<AnalyzeComplexityParams, Too
       .optional()
       .describe('Specific function to analyze (omit for all functions)'),
   });
+
+  constructor(private readonly analyzer: ITypeScriptAnalyzer) {}
 
   formatForLlm(result: unknown): unknown {
     const r = result as any;
@@ -413,7 +423,7 @@ export class AnalyzeComplexityTool implements ITool<AnalyzeComplexityParams, Too
     return JSON.stringify(result, null, 2);
   }
 
-  async execute(params: AnalyzeComplexityParams, context: ToolContext): Promise<unknown> {
+  async execute(params: AnalyzeComplexityParams, context: ExecutionContext): Promise<unknown> {
     const { filePath, functionName } = params;
     const absolutePath = path.isAbsolute(filePath)
       ? filePath
@@ -421,13 +431,11 @@ export class AnalyzeComplexityTool implements ITool<AnalyzeComplexityParams, Too
 
     getPathPermissionChecker(context);
 
-    const analyzer = context.resolve!(CF.TypeScriptAnalyzer);
-
     if (functionName) {
-      const complexity = await analyzer.calculateComplexity(absolutePath, functionName);
+      const complexity = await this.analyzer.calculateComplexity(absolutePath, functionName);
       return { filePath, functionName, complexity };
     } else {
-      const functions = await analyzer.getFunctions(absolutePath);
+      const functions = await this.analyzer.getFunctions(absolutePath);
       return { filePath, functions };
     }
   }
@@ -444,7 +452,7 @@ export interface ApplyCodeEditParams {
   }>;
 }
 
-export class ApplyCodeEditTool implements ITool<ApplyCodeEditParams, ToolContext, unknown> {
+export class ApplyCodeEditTool {
   readonly name = 'apply_patch';
   readonly key = 'apply_patch';
   readonly group = 'fs';
@@ -465,10 +473,10 @@ export class ApplyCodeEditTool implements ITool<ApplyCodeEditParams, ToolContext
       .describe('List of file changes to apply'),
   });
 
-  async execute(params: ApplyCodeEditParams, context: ToolContext): Promise<unknown> {
-    const { description, changes } = params;
+  constructor(private readonly editManager: ICodeEditManager) {}
 
-    const editManager = context.resolve!(CF.CodeEditManager);
+  async execute(params: ApplyCodeEditParams, context: ExecutionContext): Promise<unknown> {
+    const { description, changes } = params;
 
     const absoluteChanges = changes.map((change) => ({
       ...change,
@@ -480,19 +488,22 @@ export class ApplyCodeEditTool implements ITool<ApplyCodeEditParams, ToolContext
     const filePaths = absoluteChanges.map((c) => c.filePath);
     const checker = getPathPermissionChecker(context);
     const blockedFiles = filePaths.filter(
-      (fp: string) => !checker.canWritePath(context.workspaceRoot, context.agent.permissions, fp)
+      (fp: string) => !checker.canWritePath(context.workspaceRoot, context.agent!.permissions, fp)
     );
 
     if (blockedFiles.length > 0) {
       return {
         status: 'permission_denied',
-        message: `Agent '${context.agent.id}' has no write access to ${blockedFiles.length} file(s).`,
-        blockedFiles: blockedFiles.map((fp: string) => ({ filePath: fp, reason: 'Write access denied' })),
+        message: `Agent '${context.agent!.id}' has no write access to ${blockedFiles.length} file(s).`,
+        blockedFiles: blockedFiles.map((fp: string) => ({
+          filePath: fp,
+          reason: 'Write access denied',
+        })),
       };
     }
 
-    const { proposal, validation: proposalValidation } = await editManager.createProposal(
-      context.agent.id,
+    const { proposal, validation: proposalValidation } = await this.editManager.createProposal(
+      context.agent!.id,
       { description, changes: absoluteChanges },
       { checkPermissions: true, maxFiles: 10, maxDiffLines: 500 }
     );
@@ -512,9 +523,8 @@ export class ApplyCodeEditTool implements ITool<ApplyCodeEditParams, ToolContext
 
 // ─── Module-level singletons ──────────────────────────────────────────────────
 
-export const findSymbolTool: AgentTool = new FindSymbolTool();
-export const findReferencesTool: AgentTool = new FindReferencesTool();
-export const lspTool: AgentTool = new LspTool();
-export const grepCodeTool: AgentTool = new GrepCodeTool();
-export const analyzeComplexityTool: AgentTool = new AnalyzeComplexityTool();
-export const applyCodeEditTool: AgentTool = new ApplyCodeEditTool();
+export const findSymbolTool = new FindSymbolTool();
+export const findReferencesTool = new FindReferencesTool();
+export const lspTool = new LspTool();
+export const grepCodeTool = new GrepCodeTool();
+// AnalyzeComplexityTool and ApplyCodeEditTool require constructor injection — wire via DI container

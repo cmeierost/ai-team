@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildDefaultSlashCommands } from './slash-commands.js';
-import type { OrchestratorContext } from './pipeline-context.js';
 
 describe('/tool slash command', () => {
   it('executes ToolManager tool call with parsed JSON args', async () => {
@@ -14,7 +13,7 @@ describe('/tool slash command', () => {
     const execute = vi.fn(async () => ({ ok: true, result: { allowed: true } }));
     const emit = vi.fn();
 
-    const ctx: OrchestratorContext = {
+    const ctx: ExecutionContext = {
       agent: { id: 'hr-director', name: 'Robert Davis', role: 'hr-director' } as any,
       workspaceRoot: '/workspace',
       sessionId: 'sess-1',
@@ -53,7 +52,7 @@ describe('/fetch slash command', () => {
     const execute = vi.fn(async () => ({ ok: true, result: { status: 200, chunks: ['hello'] } }));
     const emit = vi.fn();
 
-    const ctx: OrchestratorContext = {
+    const ctx: ExecutionContext = {
       agent: { id: 'ceo', name: 'CEO', role: 'ceo' } as any,
       workspaceRoot: '/workspace',
       sessionId: 'sess-1',
@@ -91,7 +90,7 @@ describe('/crawl slash command', () => {
     const execute = vi.fn(async () => ({ ok: true, result: { pageCount: 1, chunks: [] } }));
     const emit = vi.fn();
 
-    const ctx: OrchestratorContext = {
+    const ctx: ExecutionContext = {
       agent: { id: 'ceo', name: 'CEO', role: 'ceo' } as any,
       workspaceRoot: '/workspace',
       sessionId: 'sess-1',
@@ -139,7 +138,7 @@ describe('/list slash command', () => {
     }));
     const emit = vi.fn();
 
-    const ctx: OrchestratorContext = {
+    const ctx: ExecutionContext = {
       agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
       workspaceRoot: '/workspace',
       sessionId: 'sess-1',
@@ -183,7 +182,7 @@ describe('/workflow slash command', () => {
     }));
     const emit = vi.fn();
 
-    const ctx: OrchestratorContext = {
+    const ctx: ExecutionContext = {
       agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
       workspaceRoot: '/workspace',
       sessionId: 'sess-1',
@@ -219,7 +218,7 @@ describe('/workflow slash command', () => {
     const execute = vi.fn(async () => ({ ok: true, result: { workflowId: 'chat-send-turn' } }));
     const emit = vi.fn();
 
-    const ctx: OrchestratorContext = {
+    const ctx: ExecutionContext = {
       agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
       workspaceRoot: '/workspace',
       sessionId: 'sess-1',
@@ -274,7 +273,7 @@ describe('/context slash command', () => {
     const setMessageHiddenFromLlm = vi.fn(async () => true);
     const getSessionMessages = vi.fn(async () => []);
 
-    const ctx: OrchestratorContext = {
+    const ctx: ExecutionContext = {
       agent: { id: 'architect-agent', name: 'Architect', role: 'architect' } as any,
       workspaceRoot: '/workspace',
       sessionId: 'sess-1',
@@ -329,7 +328,7 @@ describe('/context slash command', () => {
     const updateToolCallLlmResult = vi.fn(async () => undefined);
     const getSessionMessages = vi.fn(async () => []);
 
-    const ctx: OrchestratorContext = {
+    const ctx: ExecutionContext = {
       agent: { id: 'architect-agent', name: 'Architect', role: 'architect' } as any,
       workspaceRoot: '/workspace',
       sessionId: 'sess-1',
@@ -397,7 +396,7 @@ describe('/session slash command', () => {
     const emit = vi.fn();
     const initializeForChat = vi.fn(async () => undefined);
 
-    const ctx: OrchestratorContext = {
+    const ctx: ExecutionContext = {
       agent: { id: 'architect-agent', name: 'Architect', role: 'architect' } as any,
       workspaceRoot: '/workspace',
       sessionId: 'sess-1',

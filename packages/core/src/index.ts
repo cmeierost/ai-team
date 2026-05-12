@@ -19,6 +19,7 @@ export * from './repositories/index.js';
 export * from './storage/index.js';
 export { IAvatarManager } from './agent/avatar.js';
 export { ITeamGraphBuilder } from './agent/team-graph-builder.js';
+export type { IAgentManager, RankedAgentResult } from './agent/agent-manager.js';
 export type {
   ILlmService,
   ITextToolCallParser,

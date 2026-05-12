@@ -3,24 +3,18 @@ import * as nodeFs from 'node:fs/promises';
 import { z } from 'zod';
 import { FileTime, READ_DEFAULT_LIMIT, PermissionError, renderAsciiTree } from 'fs-context';
 import type { ReadFileResult, FileTreeNode } from 'fs-context';
-import type {
-  AgentTool,
-  ITool,
-  CommandRuntime,
-  ToolContext,
-  IWorkspaceFs,
-} from '@ai-team/core';
-import { COMMAND_FACTORY_TOKENS } from '../definitions/types.js';
+import type { ExecutionContext, IWorkspaceFs, ICommand, CommandResponse } from '@ai-team/core';
+import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
 /** Build a WorkspaceFs for the executing agent. Cheap — no file scanning. */
-async function wfs(ctx: ToolContext) {
-  if (!ctx.resolve) {
-    throw new Error('ToolContext.resolve is required for filesystem tools.');
+async function wfs(ctx: ExecutionContext) {
+  if (!(ctx as any).resolve) {
+    throw new Error('ExecutionContext.resolve is required for filesystem tools.');
   }
-  const workspaceFsFactory = ctx.resolve(COMMAND_FACTORY_TOKENS.WorkspaceFsFactory);
-  return workspaceFsFactory.create(ctx.workspaceRoot, ctx.agent.id, ctx.agent.permissions);
+  const workspaceFsFactory = (ctx as any).resolve(COMMAND_FACTORY_TOKENS.WorkspaceFsFactory);
+  return workspaceFsFactory.create(ctx.workspaceRoot, ctx.agent!.id, ctx.agent!.permissions);
 }
 
 /** Standard denial response when a PermissionError is caught. */
@@ -240,7 +234,13 @@ export interface FsListParams {
 }
 export interface FsListResult {
   path: string;
-  entries: Array<{ path: string; name: string; isDirectory: boolean; size?: number; modified?: string }>;
+  entries: Array<{
+    path: string;
+    name: string;
+    isDirectory: boolean;
+    size?: number;
+    modified?: string;
+  }>;
   denied: number;
   access: { allowed: boolean; explanation?: string };
 }
@@ -288,17 +288,18 @@ export interface FsSearchMetadataResult {
 
 // ─── Tool classes ─────────────────────────────────────────────────────────────
 
-export class FsExistsTool implements ITool<FsPathParams, ToolContext, FsExistsResult> {
+export class FsExistsTool  {
   readonly name = 'exists';
   readonly key = 'exists';
   readonly group = 'fs';
   readonly availableIn = { tool: true };
-  readonly description = 'Check whether a file or directory exists. Access-gated as a list operation.';
+  readonly description =
+    'Check whether a file or directory exists. Access-gated as a list operation.';
   readonly parameters = z.object({
     path: z.string().describe('Relative or absolute file/directory path'),
   });
 
-  async execute(params: FsPathParams, context: ToolContext): Promise<FsExistsResult> {
+  async execute(params: FsPathParams, context: ExecutionContext): Promise<FsExistsResult> {
     const { path: targetPath } = params;
     try {
       const fs = await wfs(context);
@@ -313,7 +314,7 @@ export class FsExistsTool implements ITool<FsPathParams, ToolContext, FsExistsRe
   }
 }
 
-export class FsInfoTool implements ITool<FsPathParams, ToolContext, FsInfoResult> {
+export class FsInfoTool  {
   readonly name = 'info';
   readonly key = 'info';
   readonly group = 'fs';
@@ -324,7 +325,7 @@ export class FsInfoTool implements ITool<FsPathParams, ToolContext, FsInfoResult
     path: z.string().describe('Relative or absolute file/directory path'),
   });
 
-  async execute(params: FsPathParams, context: ToolContext): Promise<FsInfoResult> {
+  async execute(params: FsPathParams, context: ExecutionContext): Promise<FsInfoResult> {
     const { path: targetPath } = params;
     try {
       const fs = await wfs(context);
@@ -339,7 +340,7 @@ export class FsInfoTool implements ITool<FsPathParams, ToolContext, FsInfoResult
   }
 }
 
-export class FsReadFileTool implements ITool<FsReadParams, ToolContext, FsReadResult> {
+export class FsReadFileTool  {
   readonly name = 'read';
   readonly key = 'read';
   readonly group = 'fs';
@@ -374,7 +375,7 @@ export class FsReadFileTool implements ITool<FsReadParams, ToolContext, FsReadRe
     ].join('\n');
   }
 
-  async execute(params: FsReadParams, context: ToolContext): Promise<FsReadResult> {
+  async execute(params: FsReadParams, context: ExecutionContext): Promise<FsReadResult> {
     const { filePath, offset = 1, limit = READ_DEFAULT_LIMIT } = params;
     try {
       const fs = await wfs(context);
@@ -383,7 +384,7 @@ export class FsReadFileTool implements ITool<FsReadParams, ToolContext, FsReadRe
         limit,
         workspaceRoot: context.workspaceRoot,
       });
-      return mapReadResult(result, filePath, context.agent.id, fs);
+      return mapReadResult(result, filePath, context.agent!!.id, fs);
     } catch (e) {
       return failed(e, filePath, 'content');
     }
@@ -391,9 +392,9 @@ export class FsReadFileTool implements ITool<FsReadParams, ToolContext, FsReadRe
 }
 
 // Singleton must be defined before FsReadLinesTool so it can call execute on it.
-export const fsReadFileTool: AgentTool = new FsReadFileTool();
+export const fsReadFileTool = new FsReadFileTool();
 
-export class FsReadLinesTool implements ITool<FsReadLinesParams, ToolContext, FsReadLinesResult> {
+export class FsReadLinesTool  {
   readonly name = 'read_lines';
   readonly key = 'read_lines';
   readonly group = 'fs';
@@ -405,17 +406,11 @@ export class FsReadLinesTool implements ITool<FsReadLinesParams, ToolContext, Fs
     endLine: z.number().int().min(1).describe('1-based last line (inclusive)'),
   });
 
-  async execute(params: FsReadLinesParams, context: ToolContext): Promise<FsReadLinesResult> {
+  async execute(params: FsReadLinesParams, context: ExecutionContext): Promise<FsReadLinesResult> {
     const { filePath, startLine, endLine } = params;
-    const runtime: CommandRuntime = {
-      invocationSurface: 'tool',
-      workspaceRoot: context.workspaceRoot,
-      agentId: context.agentId,
-    };
     const result = (await fsReadFileTool.execute(
       { filePath, offset: startLine, limit: endLine - startLine + 1 },
-      context,
-      runtime
+      context
     )) as Record<string, unknown>;
     if (result.error || !result.content) return result;
     const lines = (result.content as string).split('\n');
@@ -423,7 +418,7 @@ export class FsReadLinesTool implements ITool<FsReadLinesParams, ToolContext, Fs
   }
 }
 
-export class FsCreateFileTool implements ITool<FsCreateParams, ToolContext, FsCreateResult> {
+export class FsCreateFileTool  {
   readonly name = 'create';
   readonly key = 'create';
   readonly group = 'fs';
@@ -435,7 +430,7 @@ export class FsCreateFileTool implements ITool<FsCreateParams, ToolContext, FsCr
     createDirectories: z.boolean().optional().describe('Create parent directories if needed'),
   });
 
-  async execute(params: FsCreateParams, context: ToolContext): Promise<FsCreateResult> {
+  async execute(params: FsCreateParams, context: ExecutionContext): Promise<FsCreateResult> {
     const { filePath, content = '', createDirectories = false } = params;
     try {
       const fs = await wfs(context);
@@ -447,7 +442,7 @@ export class FsCreateFileTool implements ITool<FsCreateParams, ToolContext, FsCr
   }
 }
 
-export class FsWriteFileTool implements ITool<FsWriteParams, ToolContext, FsWriteResult> {
+export class FsWriteFileTool  {
   readonly name = 'write_file';
   readonly key = 'write_file';
   readonly group = 'fs';
@@ -458,7 +453,7 @@ export class FsWriteFileTool implements ITool<FsWriteParams, ToolContext, FsWrit
     content: z.string().describe('Content to write'),
   });
 
-  async execute(params: FsWriteParams, context: ToolContext): Promise<FsWriteResult> {
+  async execute(params: FsWriteParams, context: ExecutionContext): Promise<FsWriteResult> {
     const { filePath, content } = params;
     try {
       const workspaceFs = await wfs(context);
@@ -484,7 +479,7 @@ export class FsWriteFileTool implements ITool<FsWriteParams, ToolContext, FsWrit
   }
 }
 
-export class FsDeletePathTool implements ITool<FsDeleteParams, ToolContext, FsDeleteResult> {
+export class FsDeletePathTool  {
   readonly name = 'delete_path';
   readonly key = 'delete_path';
   readonly group = 'fs';
@@ -495,7 +490,7 @@ export class FsDeletePathTool implements ITool<FsDeleteParams, ToolContext, FsDe
     recursive: z.boolean().optional().describe('Recursively delete directories'),
   });
 
-  async execute(params: FsDeleteParams, context: ToolContext): Promise<FsDeleteResult> {
+  async execute(params: FsDeleteParams, context: ExecutionContext): Promise<FsDeleteResult> {
     const { path: targetPath, recursive = true } = params;
     try {
       const fs = await wfs(context);
@@ -507,7 +502,7 @@ export class FsDeletePathTool implements ITool<FsDeleteParams, ToolContext, FsDe
   }
 }
 
-export class FsMkdirTool implements ITool<FsMkdirParams, ToolContext, FsMkdirResult> {
+export class FsMkdirTool  {
   readonly name = 'mkdir';
   readonly key = 'mkdir';
   readonly group = 'fs';
@@ -518,7 +513,7 @@ export class FsMkdirTool implements ITool<FsMkdirParams, ToolContext, FsMkdirRes
     recursive: z.boolean().optional().describe('Create parent directories recursively'),
   });
 
-  async execute(params: FsMkdirParams, context: ToolContext): Promise<FsMkdirResult> {
+  async execute(params: FsMkdirParams, context: ExecutionContext): Promise<FsMkdirResult> {
     const { path: targetPath, recursive = true } = params;
     try {
       const fs = await wfs(context);
@@ -530,7 +525,7 @@ export class FsMkdirTool implements ITool<FsMkdirParams, ToolContext, FsMkdirRes
   }
 }
 
-export class FsListTool implements ITool<FsListParams, ToolContext, FsListResult> {
+export class FsListTool  {
   readonly name = 'list';
   readonly key = 'list';
   readonly group = 'fs';
@@ -547,7 +542,7 @@ export class FsListTool implements ITool<FsListParams, ToolContext, FsListResult
     return `${result.path}  (${result.entries.length} entries)\n\n${lines.join('\n')}`;
   }
 
-  async execute(params: FsListParams, context: ToolContext): Promise<FsListResult> {
+  async execute(params: FsListParams, context: ExecutionContext): Promise<FsListResult> {
     const { path: targetPath = '.', includeHidden = false } = params;
 
     const fs = await wfs(context);
@@ -586,7 +581,7 @@ export class FsListTool implements ITool<FsListParams, ToolContext, FsListResult
   }
 }
 
-export class FsTreeTool implements ITool<FsTreeParams, ToolContext, FsTreeResult> {
+export class FsTreeTool  {
   readonly name = 'tree';
   readonly key = 'tree';
   readonly group = 'fs';
@@ -653,7 +648,7 @@ export class FsTreeTool implements ITool<FsTreeParams, ToolContext, FsTreeResult
     return `${result.path}\n\n${renderAsciiTree(result.tree)}`;
   }
 
-  async execute(params: FsTreeParams, context: ToolContext): Promise<FsTreeResult> {
+  async execute(params: FsTreeParams, context: ExecutionContext): Promise<FsTreeResult> {
     const { path: targetPath = '.', maxDepth = 6, includeHidden = false } = params;
 
     const fs = await wfs(context);
@@ -685,9 +680,7 @@ export class FsTreeTool implements ITool<FsTreeParams, ToolContext, FsTreeResult
   }
 }
 
-export class FsSearchContentTool
-  implements ITool<FsSearchContentParams, ToolContext, FsSearchContentResult>
-{
+export class FsSearchContentTool  {
   readonly name = 'search_content';
   readonly key = 'search_content';
   readonly group = 'fs';
@@ -709,7 +702,7 @@ export class FsSearchContentTool
 
   async execute(
     params: FsSearchContentParams,
-    context: ToolContext
+    context: ExecutionContext
   ): Promise<FsSearchContentResult> {
     const { path: targetPath = '.', query, maxResults = 100, caseSensitive = false } = params;
 
@@ -756,9 +749,7 @@ export class FsSearchContentTool
   }
 }
 
-export class FsSearchMetadataTool
-  implements ITool<FsSearchMetadataParams, ToolContext, FsSearchMetadataResult>
-{
+export class FsSearchMetadataTool {
   readonly name = 'search_metadata';
   readonly key = 'search_metadata';
   readonly group = 'fs';
@@ -790,7 +781,7 @@ export class FsSearchMetadataTool
 
   async execute(
     params: FsSearchMetadataParams,
-    context: ToolContext
+    context: ExecutionContext
   ): Promise<FsSearchMetadataResult> {
     const { pattern, path: targetPath = '.', maxResults = 200 } = params;
 
@@ -850,15 +841,15 @@ export class FsSearchMetadataTool
 
 // ─── Module-level singletons ──────────────────────────────────────────────────
 
-export const fsExistsTool: AgentTool = new FsExistsTool();
-export const fsInfoTool: AgentTool = new FsInfoTool();
+export const fsExistsTool = new FsExistsTool();
+export const fsInfoTool = new FsInfoTool();
 // fsReadFileTool is declared above FsReadLinesTool (dependency order)
-export const fsReadLinesTool: AgentTool = new FsReadLinesTool();
-export const fsCreateFileTool: AgentTool = new FsCreateFileTool();
-export const fsWriteFileTool: AgentTool = new FsWriteFileTool();
-export const fsDeletePathTool: AgentTool = new FsDeletePathTool();
-export const fsMkdirTool: AgentTool = new FsMkdirTool();
-export const fsListTool: AgentTool = new FsListTool();
-export const fsTreeTool: AgentTool = new FsTreeTool();
-export const fsSearchContentTool: AgentTool = new FsSearchContentTool();
-export const fsSearchMetadataTool: AgentTool = new FsSearchMetadataTool();
+export const fsReadLinesTool = new FsReadLinesTool();
+export const fsCreateFileTool = new FsCreateFileTool();
+export const fsWriteFileTool = new FsWriteFileTool();
+export const fsDeletePathTool = new FsDeletePathTool();
+export const fsMkdirTool = new FsMkdirTool();
+export const fsListTool = new FsListTool();
+export const fsTreeTool = new FsTreeTool();
+export const fsSearchContentTool = new FsSearchContentTool();
+export const fsSearchMetadataTool = new FsSearchMetadataTool();

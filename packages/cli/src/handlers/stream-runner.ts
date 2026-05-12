@@ -12,7 +12,7 @@ import {
   type ICliResultHandlerRegistry,
 } from './result-renderers.js';
 
-interface StreamRunnerOptions<TCommand extends string = string> {
+interface StreamRunnerOptions {
   showStatus?: boolean;
   resultHandler?: (data: unknown) => void;
   serviceContainer?: IServiceContainer;
@@ -66,10 +66,10 @@ function isAbortLikeError(error: unknown): boolean {
   return /aborted|abort/i.test(message);
 }
 
-export async function runCommandStream<TCommand extends string = string>(
+export async function runCommandStream(
   client: ICliCommandClient,
   request: InteractionRequest,
-  options: StreamRunnerOptions<TCommand> = {}
+  options: StreamRunnerOptions = {}
 ): Promise<unknown | undefined> {
   const abortControl = setupAbortController();
   let lastErrorLogMessage: string | undefined;

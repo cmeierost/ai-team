@@ -31,7 +31,7 @@ export class AvatarService {
     private readonly avatarManager: IAvatarManager
   ) {}
 
-  async execute(options: AvatarOptions, context: InteractionContext = {}): Promise<void> {
+  async execute(options: AvatarOptions, context: InteractionContext): Promise<void> {
     const workspaceRoot = this.agentManager.workspaceRoot;
     const agent = await this.agentManager.resolveAgentOrThrowAsync(options.agentQuery);
     this.emitLog(context, `Found agent: ${agent.name}`);
@@ -244,12 +244,7 @@ export class AvatarService {
       this.emitLog(context, 'Generating avatar...');
 
       try {
-        const imageData = await this.generateAvatarImage(
-          source,
-          agent,
-          teamConfig,
-          workspaceRoot
-        );
+        const imageData = await this.generateAvatarImage(source, agent, teamConfig, workspaceRoot);
         const previewPath = await this.avatarManager.saveAvatarPreview(
           agent.id,
           imageData,

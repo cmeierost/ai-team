@@ -1,4 +1,4 @@
-import type { Agent, IContainerToken, IServiceContainer, ToolContext } from '@ai-team/core';
+import type { Agent, IContainerToken, IServiceContainer, ExecutionContext } from '@ai-team/core';
 import type {
   WorkflowDefinitionDocument,
   WorkflowDefinitionState,
@@ -53,7 +53,7 @@ export const WORKFLOW_ENGINE_TOKENS = {
 export interface ChatLoopToolingContext {
   agent: Agent;
   toolManager: ToolManager;
-  toolContext: Omit<ToolContext, 'agent'>;
+  toolContext: Omit<ExecutionContext, 'agent'>;
   resolver?: IServiceContainer;
 }
 

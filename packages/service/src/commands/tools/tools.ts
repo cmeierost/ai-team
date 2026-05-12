@@ -1,4 +1,4 @@
-import type { Agent, IAgentManager, AgentTool } from '@ai-team/core';
+import type { Agent, IAgentManager, ICommand } from '@ai-team/core';
 import type { ToolManager } from '../../tools/tool-manager.js';
 import { matchesToolSelector, toolKey } from '../../tools/tool-manager.js';
 import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-contracts';
@@ -22,7 +22,7 @@ function buildCatalogEntry(
   toolManager: {
     toSchema: (toolName: string) => { parameters?: Record<string, unknown> } | undefined;
   },
-  tool: AgentTool
+  tool: ICommand
 ) {
   const key = toolKey(tool);
   const permType = tool.permissionCheck?.type;
@@ -37,7 +37,7 @@ function buildCatalogEntry(
   };
 }
 
-function sortToolsByName(tools: AgentTool[]): AgentTool[] {
+function sortToolsByName(tools: ICommand[]): ICommand[] {
   return [...tools].sort((a, b) => toolKey(a).localeCompare(toolKey(b)));
 }
 
@@ -89,7 +89,7 @@ export async function listToolsCommand(
 ): Promise<ListToolsResponse> {
   const [staticTools, mcpTools] = await Promise.all([
     Promise.resolve(sortToolsByName(toolManager.getAll())),
-    mcpGateway ? mcpGateway.discover() : Promise.resolve([] as AgentTool[]),
+    mcpGateway ? mcpGateway.discover() : Promise.resolve([] as ICommand[]),
   ]);
 
   if (!options.agent) {

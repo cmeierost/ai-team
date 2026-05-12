@@ -5,8 +5,7 @@
  * `send-turn-steps.ts` so it can be executed by a dedicated XState sub-machine.
  */
 
-import type { StructuredToolResult } from '@ai-team/core';
-import type { OrchestratorContext } from './pipeline-context.js';
+import type { StructuredToolResult, ExecutionContext } from '@ai-team/core';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
 import {
   buildRetryableFailureMessage as buildRetryableFailureMessageImpl,
@@ -33,7 +32,7 @@ export interface SendTurnOptions {
 export async function sendTurn(
   userMessage: string,
   plugins: ResolvedPlugins,
-  ctx: OrchestratorContext,
+  ctx: ExecutionContext,
   options?: SendTurnOptions
 ): Promise<TurnResult> {
   await ensureTurnStartAsync(userMessage, plugins, ctx, options);

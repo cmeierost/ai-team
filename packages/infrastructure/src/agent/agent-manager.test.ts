@@ -3,9 +3,28 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AgentNotFoundError, AmbiguousAgentQueryError } from '@ai-team/core';
-import { createAgentManager } from './index.js';
+import { PermFileRegistry } from 'fs-context';
+import { AgentManager } from './agent-manager.js';
+import { AgentDocumentStorage } from './agent-document-storage.js';
+import { MarkdownSectionService } from './markdown-service.js';
+import { WorkspaceDiscoveryStorage } from './workspace-discovery-storage.js';
+import { WorkspaceStorage } from './workspace-storage.js';
 
 const createdDirs: string[] = [];
+
+function createTestAgentManager(workspaceRoot: string): AgentManager {
+  return new AgentManager(
+    workspaceRoot,
+    new AgentDocumentStorage(
+      new MarkdownSectionService(),
+      new WorkspaceStorage(),
+      new WorkspaceDiscoveryStorage()
+    ),
+    new WorkspaceStorage(),
+    new WorkspaceDiscoveryStorage(),
+    new PermFileRegistry(workspaceRoot)
+  );
+}
 
 async function createWorkspace(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-agent-'));
@@ -43,7 +62,7 @@ describe('AgentManager syncHandoffs', () => {
       'name: Lead\nrole: team-lead\ncontextLevel: feature\nreportsTo: ceo'
     );
 
-    const mgr = createAgentManager(root);
+    const mgr = createTestAgentManager(root);
 
     const ceo = (await mgr.getAgentAsync('ceo'))!;
     const lead = (await mgr.getAgentAsync('lead'))!;
@@ -68,7 +87,7 @@ describe('AgentManager syncHandoffs', () => {
       'name: Charlie\nrole: worker\ncontextLevel: task\nreportsTo: alice'
     );
 
-    const mgr = createAgentManager(root);
+    const mgr = createTestAgentManager(root);
 
     const alice = (await mgr.getAgentAsync('alice'))!;
     const bob = (await mgr.getAgentAsync('bob'))!;
@@ -115,7 +134,7 @@ describe('AgentManager syncHandoffs', () => {
       ].join('\n')
     );
 
-    const mgr = createAgentManager(root);
+    const mgr = createTestAgentManager(root);
 
     const worker = (await mgr.getAgentAsync('worker'))!;
     const manual = worker.handoffs?.filter((h) => !h.label.startsWith('[auto]'));
@@ -132,7 +151,7 @@ describe('AgentManager resolveAgentForOperationAsync', () => {
     const root = await createWorkspace();
     await writeAgentMd(root, 'michael-brown', 'name: Michael Brown\nrole: cto\ncontextLevel: organization');
 
-    const mgr = createAgentManager(root);
+    const mgr = createTestAgentManager(root);
     const result = await mgr.resolveAgentForOperationAsync('cto', 'test operation');
 
     expect(result).toEqual({
@@ -146,7 +165,7 @@ describe('AgentManager resolveAgentForOperationAsync', () => {
     const root = await createWorkspace();
     await writeAgentMd(root, 'michael-brown', 'name: Michael Brown\nrole: cto\ncontextLevel: organization');
 
-    const mgr = createAgentManager(root);
+    const mgr = createTestAgentManager(root);
 
     await expect(mgr.resolveAgentForOperationAsync('unknown-agent', 'list sessions')).rejects.toThrow(
       AgentNotFoundError
@@ -161,7 +180,7 @@ describe('AgentManager resolveAgentForOperationAsync', () => {
     await writeAgentMd(root, 'dev-a', 'name: Dev A\nrole: developer\ncontextLevel: feature');
     await writeAgentMd(root, 'dev-b', 'name: Dev B\nrole: developer\ncontextLevel: feature');
 
-    const mgr = createAgentManager(root);
+    const mgr = createTestAgentManager(root);
 
     await expect(mgr.resolveAgentForOperationAsync('developer', 'delegate task')).rejects.toThrow(
       AmbiguousAgentQueryError
@@ -174,7 +193,7 @@ describe('AgentManager resolveAgentSafeAsync', () => {
     const root = await createWorkspace();
     await writeAgentMd(root, 'sarah-lee', 'name: Sarah Lee\nrole: chief-architect\ncontextLevel: organization');
 
-    const mgr = createAgentManager(root);
+    const mgr = createTestAgentManager(root);
     const result = await mgr.resolveAgentSafeAsync('sarah');
 
     expect(result).toEqual({
@@ -188,7 +207,7 @@ describe('AgentManager resolveAgentSafeAsync', () => {
     const root = await createWorkspace();
     await writeAgentMd(root, 'sarah-lee', 'name: Sarah Lee\nrole: chief-architect\ncontextLevel: organization');
 
-    const mgr = createAgentManager(root);
+    const mgr = createTestAgentManager(root);
     await expect(mgr.resolveAgentSafeAsync('missing')).resolves.toBeNull();
   });
 
@@ -197,7 +216,7 @@ describe('AgentManager resolveAgentSafeAsync', () => {
     await writeAgentMd(root, 'dev-a', 'name: Dev A\nrole: developer\ncontextLevel: feature');
     await writeAgentMd(root, 'dev-b', 'name: Dev B\nrole: developer\ncontextLevel: feature');
 
-    const mgr = createAgentManager(root);
+    const mgr = createTestAgentManager(root);
     await expect(mgr.resolveAgentSafeAsync('developer')).resolves.toBeNull();
   });
 });

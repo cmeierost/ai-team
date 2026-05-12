@@ -3,15 +3,16 @@ import { inspect } from 'node:util';
 import type {
   Agent,
   AgentSkillFile,
-  AgentTool,
+  ICommand,
   ChatMessage,
   ILlmChatMessageParam,
   Skill,
   StructuredToolResult,
+  ExecutionContext,
 } from '@ai-team/core';
+import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import { toolKey } from '../tools/tool-manager.js';
-import type { OrchestratorContext } from './pipeline-context.js';
 import type {
   BeforePersistAssistantMessageHookPayload,
   IOrchestratorHookPlugin,
@@ -35,9 +36,9 @@ function zodSchemaToJsonSchema(schema: unknown): Record<string, unknown> {
   return { type: 'object', properties: {}, additionalProperties: true };
 }
 
-function getCachedToolSchema(ctx: OrchestratorContext, tool: AgentTool): LlmToolDefinition {
+function getCachedToolSchema(ctx: ExecutionContext, tool: ICommand): LlmToolDefinition {
   const toolName = toolKey(tool);
-  const managerKey = ctx.toolManager as unknown as object;
+  const managerKey = (ctx as any).toolManager as unknown as object;
   const cacheForManager = TOOL_SCHEMA_CACHE.get(managerKey) ?? new Map<string, LlmToolDefinition>();
 
   if (!TOOL_SCHEMA_CACHE.has(managerKey)) {
@@ -49,7 +50,7 @@ function getCachedToolSchema(ctx: OrchestratorContext, tool: AgentTool): LlmTool
     return cached;
   }
 
-  const schema = ctx.toolManager.toSchema(toolName) ?? {
+  const schema = (ctx as any).toolManager.toSchema(toolName) ?? {
     name: toolName,
     description: tool.description,
     parameters: zodSchemaToJsonSchema(tool.parameters),
@@ -59,7 +60,7 @@ function getCachedToolSchema(ctx: OrchestratorContext, tool: AgentTool): LlmTool
   return schema;
 }
 
-function buildToolDefinitions(ctx: OrchestratorContext, tools: AgentTool[]): LlmToolDefinition[] {
+function buildToolDefinitions(ctx: ExecutionContext, tools: ICommand[]): LlmToolDefinition[] {
   const defs: LlmToolDefinition[] = [];
   for (const tool of tools) {
     defs.push(getCachedToolSchema(ctx, tool));
@@ -70,7 +71,7 @@ function buildToolDefinitions(ctx: OrchestratorContext, tools: AgentTool[]): Llm
 export interface SendTurnResolvedSkillsAndTools {
   skills: Skill[];
   teamRoster: Agent[];
-  allTools: AgentTool[];
+  allTools: ICommand[];
   toolDefs: LlmToolDefinition[];
 }
 
@@ -103,10 +104,10 @@ function toErrorMessage(error: unknown): string {
 export async function ensureTurnStartAsync(
   userMessage: string,
   plugins: ResolvedPlugins,
-  ctx: OrchestratorContext,
+  ctx: ExecutionContext,
   options?: SendTurnOptions
 ): Promise<void> {
-  if (ctx.hooks?.signal?.aborted) {
+  if ((ctx as any).hooks?.signal?.aborted) {
     throw new DOMException('Chat request aborted by user.', 'AbortError');
   }
 
@@ -118,47 +119,47 @@ export async function ensureTurnStartAsync(
       options: options ? { skipPersist: options.skipPersist } : undefined,
       ctx,
     },
-    ctx.hooks
+    (ctx as any).hooks
   );
 }
 
 export async function persistUserMessageAsync(
   userMessage: string,
-  ctx: OrchestratorContext,
+  ctx: ExecutionContext,
   options?: SendTurnOptions
 ): Promise<ChatMessage> {
   const userMsg: ChatMessage = {
     timestamp: new Date().toISOString(),
     from: 'human',
-    to: ctx.agent.id,
+    to: (ctx as any).agent.id,
     isHuman: true,
     content: userMessage,
   };
 
   if (!options?.skipPersist) {
-    const generatedTitle = await ctx.sessionManager.appendMessage(
-      ctx.sessionId,
+    const generatedTitle = await (ctx as any).sessionManager.appendMessage(
+      ctx.sessionId!,
       userMsg,
-      ctx.llmService
+      (ctx as any).llmService
     );
     if (generatedTitle) {
-      ctx.hooks?.emit?.({
+      (ctx as any).hooks?.emit?.({
         kind: 'session_title_updated',
-        sessionId: ctx.sessionId,
+        sessionId: ctx.sessionId!,
         title: generatedTitle,
       });
     }
   }
 
   ctx.history.push(userMsg);
-  emitStatus(ctx.hooks, 'thinking');
+  emitStatus((ctx as any).hooks, 'thinking');
   return userMsg;
 }
 
 export async function prepareMessagesAsync(
   userMessage: string,
   plugins: ResolvedPlugins,
-  ctx: OrchestratorContext
+  ctx: ExecutionContext
 ): Promise<ILlmChatMessageParam[]> {
   const compressed = await plugins.compressor.compress(ctx.history, ctx);
   const messages = await plugins.contextBuilder.build(compressed, ctx);
@@ -179,7 +180,7 @@ export async function prepareMessagesAsync(
     plugins.hookPlugins ?? [],
     'onMessagesPrepared',
     { messages, ctx },
-    ctx.hooks
+    (ctx as any).hooks
   );
 
   return messages;
@@ -188,20 +189,24 @@ export async function prepareMessagesAsync(
 export async function resolveSkillsAndToolsAsync(
   userMessage: string,
   plugins: ResolvedPlugins,
-  ctx: OrchestratorContext
+  ctx: ExecutionContext
 ): Promise<SendTurnResolvedSkillsAndTools> {
-  const resolvedSkills = await ctx.skillManager.resolveSkillsForAgent(ctx.agent);
+  const resolvedSkills = await (ctx as any).skillManager.resolveSkillsForAgent((ctx as any).agent);
 
   if (resolvedSkills.roleSkill) {
-    emitLog(ctx.hooks, 'info', `[skills] Loaded role skill: ${resolvedSkills.roleSkill.name}`);
+    emitLog(
+      (ctx as any).hooks,
+      'info',
+      `[skills] Loaded role skill: ${resolvedSkills.roleSkill.name}`
+    );
   }
 
   for (const skill of resolvedSkills.specializationSkills) {
-    emitLog(ctx.hooks, 'info', `[skills] Loaded specialization skill: ${skill.name}`);
+    emitLog((ctx as any).hooks, 'info', `[skills] Loaded specialization skill: ${skill.name}`);
   }
 
   for (const missing of resolvedSkills.missingSkillNames) {
-    emitLog(ctx.hooks, 'warn', `[skills] Skill not found: ${missing}`);
+    emitLog((ctx as any).hooks, 'warn', `[skills] Skill not found: ${missing}`);
   }
 
   await runVoidHookAsync(
@@ -212,20 +217,24 @@ export async function resolveSkillsAndToolsAsync(
       missingSkillNames: resolvedSkills.missingSkillNames,
       ctx,
     },
-    ctx.hooks
+    (ctx as any).hooks
   );
 
-  const allowedSkillIds = (ctx.agent.skills ?? []).map((skill: { id: string }) => skill.id);
+  const allowedSkillIds = ((ctx as any).agent.skills ?? []).map(
+    (skill: { id: string }) => skill.id
+  );
   let sessionSkillFiles: AgentSkillFile[] = [];
 
   if (allowedSkillIds.length > 0) {
-    const existingSessionSkills = await ctx.sessionManager.getSessionSkills(ctx.sessionId);
-    const loadedRecords = existingSessionSkills.map((record) => ({
+    const existingSessionSkills = await (ctx as any).sessionManager.getSessionSkills(
+      ctx.sessionId!
+    );
+    const loadedRecords = existingSessionSkills.map((record: any) => ({
       skillPath: record.skillPath,
       paused: record.paused,
     }));
 
-    const { newlyLoaded, activeSkills } = await ctx.skillManager.resolveSessionSkills(
+    const { newlyLoaded, activeSkills } = await (ctx as any).skillManager.resolveSessionSkills(
       allowedSkillIds,
       loadedRecords,
       userMessage
@@ -233,13 +242,13 @@ export async function resolveSkillsAndToolsAsync(
 
     for (const skill of newlyLoaded) {
       const relPath = path.relative(ctx.workspaceRoot, skill.filePath).replaceAll('\\', '/');
-      await ctx.sessionManager.addSessionSkill(ctx.sessionId, relPath);
-      emitLog(ctx.hooks, 'info', `[session-skills] Triggered: ${skill.name}`);
+      await (ctx as any).sessionManager.addSessionSkill(ctx.sessionId!, relPath);
+      emitLog((ctx as any).hooks, 'info', `[session-skills] Triggered: ${skill.name}`);
     }
 
     for (const skill of activeSkills) {
       if (!newlyLoaded.includes(skill)) {
-        emitLog(ctx.hooks, 'info', `[session-skills] Active: ${skill.name}`);
+        emitLog((ctx as any).hooks, 'info', `[session-skills] Active: ${skill.name}`);
       }
     }
 
@@ -247,15 +256,15 @@ export async function resolveSkillsAndToolsAsync(
   }
 
   const skills: Skill[] = [...resolvedSkills.skills, ...(sessionSkillFiles as unknown as Skill[])];
-  const teamRoster = await ctx.agentManager.getAllAgentsAsync();
+  const teamRoster = await (ctx as any).agentManager.getAllAgentsAsync();
 
-  const discoverMcpTools = (plugins.mcpGateway as { discover?: () => Promise<AgentTool[]> })
+  const discoverMcpTools = (plugins.mcpGateway as { discover?: () => Promise<ICommand[]> })
     .discover;
   const [tools, mcpTools] = await Promise.all([
     plugins.toolResolver.resolve(ctx),
     typeof discoverMcpTools === 'function'
       ? discoverMcpTools.call(plugins.mcpGateway)
-      : Promise.resolve([] as AgentTool[]),
+      : Promise.resolve([] as ICommand[]),
   ]);
 
   const allTools = [...tools, ...mcpTools];
@@ -272,7 +281,7 @@ export async function resolveSkillsAndToolsAsync(
       toolDefs,
       ctx,
     },
-    ctx.hooks
+    (ctx as any).hooks
   );
 
   return {
@@ -286,7 +295,7 @@ export async function resolveSkillsAndToolsAsync(
 export async function invokeTurnLlmAsync(
   messages: ILlmChatMessageParam[],
   resolved: SendTurnResolvedSkillsAndTools,
-  ctx: OrchestratorContext
+  ctx: ExecutionContext
 ): Promise<SendTurnLlmInvocationResult> {
   const invoked = await invokeLlm({
     messages,
@@ -306,7 +315,7 @@ export async function invokeTurnLlmAsync(
 export async function handleLlmFailureAsync(
   error: unknown,
   plugins: ResolvedPlugins,
-  ctx: OrchestratorContext,
+  ctx: ExecutionContext,
   options?: SendTurnOptions,
   structuredResults: StructuredToolResult[] = []
 ): Promise<TurnResult> {
@@ -316,7 +325,7 @@ export async function handleLlmFailureAsync(
 
   const message = toErrorMessage(error);
   process.stderr.write(`\n[LLM error] ${message}\n`);
-  emitStatus(ctx.hooks, 'error', message);
+  emitStatus((ctx as any).hooks, 'error', message);
 
   const fallbackContent = buildRetryableFailureMessage(message);
   const persistedContent = await runBeforePersistMessageHooksAsync(
@@ -326,12 +335,12 @@ export async function handleLlmFailureAsync(
       persistedContent: fallbackContent,
       ctx,
     },
-    ctx.hooks
+    (ctx as any).hooks
   );
 
   const failedAgentMsg: ChatMessage = {
     timestamp: new Date().toISOString(),
-    from: ctx.agent.id,
+    from: (ctx as any).agent.id,
     to: 'human',
     content: persistedContent,
     isHuman: false,
@@ -339,7 +348,7 @@ export async function handleLlmFailureAsync(
   };
 
   if (!options?.skipPersist) {
-    await ctx.sessionManager.appendMessage(ctx.sessionId, failedAgentMsg);
+    await (ctx as any).sessionManager.appendMessage(ctx.sessionId!, failedAgentMsg);
   }
 
   ctx.history.push(failedAgentMsg);
@@ -357,7 +366,7 @@ export async function handleLlmFailureAsync(
       turnResult: failedTurnResult,
       ctx,
     },
-    ctx.hooks
+    (ctx as any).hooks
   );
 
   return failedTurnResult;
@@ -366,7 +375,7 @@ export async function handleLlmFailureAsync(
 export async function persistAssistantMessageAsync(
   fullResponse: string,
   plugins: ResolvedPlugins,
-  ctx: OrchestratorContext
+  ctx: ExecutionContext
 ): Promise<{ persistedContent: string; persistedMessage: ChatMessage }> {
   const persistedContent = await runBeforePersistMessageHooksAsync(
     plugins.hookPlugins ?? [],
@@ -375,28 +384,28 @@ export async function persistAssistantMessageAsync(
       persistedContent: fullResponse,
       ctx,
     },
-    ctx.hooks
+    (ctx as any).hooks
   );
 
   const agentMsg: ChatMessage = {
     timestamp: new Date().toISOString(),
-    from: ctx.agent.id,
+    from: (ctx as any).agent.id,
     to: 'human',
     content: persistedContent,
     isHuman: false,
   };
 
-  const generatedTitle = await ctx.sessionManager.appendMessage(
-    ctx.sessionId,
+  const generatedTitle = await (ctx as any).sessionManager.appendMessage(
+    ctx.sessionId!,
     agentMsg,
-    ctx.llmService
+    (ctx as any).llmService
   );
   ctx.history.push(agentMsg);
 
   if (generatedTitle) {
-    ctx.hooks?.emit?.({
+    (ctx as any).hooks?.emit?.({
       kind: 'session_title_updated',
-      sessionId: ctx.sessionId,
+      sessionId: ctx.sessionId!,
       title: generatedTitle,
     });
   }
@@ -410,10 +419,10 @@ export async function persistAssistantMessageAsync(
       persistedMessage: agentMsg,
       ctx,
     },
-    ctx.hooks
+    (ctx as any).hooks
   );
 
-  await ctx.agentManager.recordInteractionAsync(ctx.agent.id);
+  await (ctx as any).agentManager.recordInteractionAsync((ctx as any).agent.id);
 
   return {
     persistedContent,
@@ -426,7 +435,7 @@ export async function parseTurnResultAsync(
   fullResponse: string,
   persistedContent: string,
   plugins: ResolvedPlugins,
-  ctx: OrchestratorContext
+  ctx: ExecutionContext
 ): Promise<TurnResult | null> {
   for (const parser of plugins.turnResultParsers) {
     const override = parser.parse(structuredResults, fullResponse, persistedContent, ctx);
@@ -443,7 +452,7 @@ export async function parseTurnResultAsync(
           turnResult: parsedResult,
           ctx,
         },
-        ctx.hooks
+        (ctx as any).hooks
       );
 
       return parsedResult;
@@ -459,7 +468,7 @@ export async function finalizeTurnResultAsync(
   persistedContent: string,
   structuredResults: StructuredToolResult[],
   plugins: ResolvedPlugins,
-  ctx: OrchestratorContext
+  ctx: ExecutionContext
 ): Promise<TurnResult> {
   await plugins.outputHandler.handle(turnResult, ctx);
 
@@ -473,7 +482,7 @@ export async function finalizeTurnResultAsync(
       turnResult,
       ctx,
     },
-    ctx.hooks
+    (ctx as any).hooks
   );
 
   return turnResult;
@@ -500,7 +509,7 @@ export async function runVoidHookAsync<T extends keyof IOrchestratorHookPlugin>(
   hookPlugins: IOrchestratorHookPlugin[],
   hookName: T,
   payload: unknown,
-  hooks: OrchestratorContext['hooks']
+  hooks: ChatRuntimeHooks | undefined
 ): Promise<void> {
   for (const plugin of hookPlugins) {
     const hook = plugin[hookName];
@@ -520,7 +529,7 @@ export async function runVoidHookAsync<T extends keyof IOrchestratorHookPlugin>(
 export async function runBeforePersistMessageHooksAsync(
   hookPlugins: IOrchestratorHookPlugin[],
   payload: BeforePersistAssistantMessageHookPayload,
-  hooks: OrchestratorContext['hooks']
+  hooks: ChatRuntimeHooks | undefined
 ): Promise<string> {
   let persistedContent = payload.persistedContent;
 

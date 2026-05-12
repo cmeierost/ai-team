@@ -6,7 +6,7 @@
  * assembles the canonical tool registries (CORE_TOOLS, HR_TOOLS, ALL_TOOLS).
  */
 
-import { type AgentTool, type CommandRuntime, type ToolContext } from '@ai-team/core';
+import { type ICommand, type ExecutionContext } from '@ai-team/core';
 import { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from '../../utils/with-timeout.js';
 
 // ---------------------------------------------------------------------------
@@ -38,29 +38,12 @@ export {
 
 export { type FsPathAccessEnvelope, toFsPathAccessEnvelope } from '../../commands/fs/fs-access.js';
 
-export { semanticSearchTool, getErrorsTool } from '../../commands/edit/search-tools.js';
-
-export {
-  delegateToAgentTool,
-  runCliTool,
-  createAgentManagementTools,
-  type AgentManagementToolDependencies,
-} from '../../commands/agents/agent-tools.js';
-
-export {
-  createAgentTool,
-  archiveAgentTool,
-  assessPerformanceTool,
-  addPictureTool,
-} from '../../commands/hr/hr-tools.js';
 
 export {
   findSymbolTool,
   findReferencesTool,
   lspTool,
   grepCodeTool,
-  analyzeComplexityTool,
-  applyCodeEditTool,
 } from '../../commands/edit/code-tools.js';
 
 export { httpFetchTool, httpCrawlTool } from '../../commands/http/http-tools.js';
@@ -94,15 +77,11 @@ import {
   fsSearchContentTool,
   fsSearchMetadataTool,
 } from '../../commands/fs/fs-tools.js';
-import { semanticSearchTool, getErrorsTool } from '../../commands/edit/search-tools.js';
-import { archiveAgentTool, assessPerformanceTool, addPictureTool } from '../../commands/hr/hr-tools.js';
 import {
   findSymbolTool,
   findReferencesTool,
   lspTool,
   grepCodeTool,
-  analyzeComplexityTool,
-  applyCodeEditTool,
 } from '../../commands/edit/code-tools.js';
 import { httpFetchTool, httpCrawlTool } from '../../commands/http/http-tools.js';
 import { codeSearchTool } from '../../commands/edit/codesearch-tool.js';
@@ -115,7 +94,7 @@ import { applyPatchTool, multiEditTool, fsEditTool } from '../../commands/fs/edi
 export interface ToolExecutionRequest {
   toolName: string;
   params: unknown;
-  context: ToolContext;
+  context: ExecutionContext;
 }
 
 export interface ToolExecutionResult {
@@ -134,7 +113,7 @@ export interface ToolExecutionOptions {
 // Tool Registries
 // ---------------------------------------------------------------------------
 
-export const CORE_TOOLS: Record<string, AgentTool> = {
+export const CORE_TOOLS: Record<string, any> = {
   read: fsReadFileTool,
   read_lines: fsReadLinesTool,
   write_file: fsWriteFileTool,
@@ -150,8 +129,6 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   who_can: whoHasAccessTool,
   can_i: doIHaveAccessTool,
   analyze_permission_overlap: analyzePermissionOverlapTool,
-  semantic: semanticSearchTool,
-  get_errors: getErrorsTool,
   find_symbol: findSymbolTool,
   find_references: findReferencesTool,
   lsp: lspTool,
@@ -159,20 +136,15 @@ export const CORE_TOOLS: Record<string, AgentTool> = {
   fetch: httpFetchTool,
   crawl: httpCrawlTool,
   codesearch: codeSearchTool,
-  complexity: analyzeComplexityTool,
-  performance: assessPerformanceTool,
-  apply_patch: applyCodeEditTool,
   edit: fsEditTool,
   patch: applyPatchTool,
   multiedit: multiEditTool,
 };
 
-export const HR_TOOLS: Record<string, AgentTool> = {
-  archive: archiveAgentTool,
-  avatar: addPictureTool,
+export const HR_TOOLS: Record<string, any> = {
 };
 
-export const ALL_TOOLS: Record<string, AgentTool> = {
+export const ALL_TOOLS: Record<string, any> = {
   ...CORE_TOOLS,
   ...HR_TOOLS,
 };
@@ -184,8 +156,8 @@ export const ALL_TOOLS: Record<string, AgentTool> = {
 export function getAgentTools(agent: {
   tools?: string[];
   permissions?: { manage_agents?: boolean };
-}): Record<string, AgentTool> {
-  const tools: Record<string, AgentTool> = {};
+}): Record<string, ICommand> {
+  const tools: Record<string, ICommand> = {};
 
   if (agent.tools) {
     for (const toolName of agent.tools) {
@@ -207,7 +179,7 @@ export async function executeAgentTool(
   options?: ToolExecutionOptions
 ): Promise<ToolExecutionResult> {
   const { toolName, params, context } = request;
-  const availableTools = getAgentTools(context.agent);
+  const availableTools = getAgentTools(context.agent!);
   const tool = availableTools[toolName];
 
   if (!tool) {
@@ -228,29 +200,19 @@ export async function executeAgentTool(
     };
   }
 
-  const parsed = tool.parameters.safeParse(params);
-  if (!parsed.success) {
+  const parsed = tool.parameters?.safeParse(params);
+  if (!parsed?.success) {
     return {
       ok: false,
       toolName,
-      error: `Invalid parameters for ${toolName}: ${parsed.error.message}`,
+      error: parsed ? `Invalid parameters for ${toolName}: ${parsed.error.message}` : 'No parameters schema',
     };
   }
 
   try {
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
-    const runtime: CommandRuntime = {
-      invocationSurface: 'tool',
-      workspaceRoot: context.workspaceRoot,
-      agentId: context.agentId,
-      questionInput: context.questionInput,
-      questionConfirm: context.questionConfirm,
-      questionSelect: context.questionSelect,
-      questionPassword: context.questionPassword,
-      questionChecklist: context.questionChecklist,
-    };
     const result = await withTimeout(
-      tool.execute(parsed.data, context, runtime),
+      tool.execute(parsed.data, context),
       timeoutMs,
       `Tool ${toolName} timed out`
     );

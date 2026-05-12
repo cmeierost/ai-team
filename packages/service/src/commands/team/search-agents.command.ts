@@ -1,10 +1,15 @@
 import { z } from 'zod';
-import type { ICommand, CommandRuntime, IAgentManager } from '@ai-team/core';
+import type {
+  ICommand,
+  IAgentManager,
+  ExecutionContext,
+  CommandResponse,
+} from '@ai-team/core';
 import type { SearchAgentsResponse } from '@ai-team/api-contracts';
 
 type Params = z.infer<typeof SearchAgentsICommand.schema>;
 
-export class SearchAgentsICommand implements ICommand<Params, void, SearchAgentsResponse> {
+export class SearchAgentsICommand implements ICommand<Params, SearchAgentsResponse> {
   static readonly schema = z.object({
     query: z.string().optional().describe('Search by name, role, skills, or expertise'),
     role: z.string().optional().describe('Filter by role'),
@@ -29,10 +34,9 @@ export class SearchAgentsICommand implements ICommand<Params, void, SearchAgents
 
   async execute(
     payload: Params,
-    _ctx: void,
-    _runtime: CommandRuntime
-  ): Promise<SearchAgentsResponse> {
+    _ctx: ExecutionContext
+  ): Promise<CommandResponse<SearchAgentsResponse>> {
     const results = await this.agents.searchAgentsAsync(payload as any);
-    return { results, totalCount: results.length };
+    return { status: 'ok', data: { results, totalCount: results.length } };
   }
 }

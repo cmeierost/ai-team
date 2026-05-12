@@ -22,7 +22,6 @@ export function PortfolioOverlapSection({ agent, allAgents }: Readonly<Portfolio
       view?.peerRegions.find((r) => getRegionMetricValue(r, selectedRight) > 0)?.id,
     );
     // Only reset selection when the focused agent or the active right changes, not on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view?.focusAgentId, selectedRight]);
 
   return (

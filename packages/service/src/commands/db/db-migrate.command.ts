@@ -1,8 +1,7 @@
-import type { ICommand, CommandRuntime, IMessageStorage } from '@ai-team/core';
+import type { ICommand, IMessageStorage, CommandResponse } from '@ai-team/core';
 import type { DbMigrateResponse } from '@ai-team/api-contracts';
-import { dbMigrateCommandAsync } from './db.js';
 
-export class DbMigrateCommand implements ICommand<Record<string, never>, void, DbMigrateResponse> {
+export class DbMigrateCommand implements ICommand<Record<string, never>, DbMigrateResponse> {
   readonly key = 'dbMigrate';
   readonly cli = { command: 'db:migrate' };
   readonly description = 'Reset and initialize database schema (alpha)';
@@ -11,11 +10,23 @@ export class DbMigrateCommand implements ICommand<Record<string, never>, void, D
 
   constructor(private readonly storage: IMessageStorage) {}
 
-  async execute(
-    _payload: Record<string, never>,
-    _ctx: void,
-    _runtime: CommandRuntime
-  ): Promise<DbMigrateResponse> {
-    return dbMigrateCommandAsync(this.storage);
+  async execute(): Promise<CommandResponse<DbMigrateResponse>> {
+    try {
+      const applied = await this.storage.resetAndInitializeAsync();
+      const stats = await this.storage.getStats();
+      return {
+        status: 'ok',
+        message: 'Database migration completed successfully.',
+        data: {
+          applied: applied ?? 0,
+          schemaVersion: stats.schemaVersion ?? 0,
+        },
+      };
+    } catch (err) {
+      return {
+        status: 'error',
+        message: `Database migration failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
   }
 }

@@ -30,11 +30,3 @@ export interface IWorkflowCatalog {
   listWorkflowIds(): string[];
   getWorkflowDefinition(workflowId: string): Promise<WorkflowDefinitionApiResponse>;
 }
-
-/** Full dependency bag passed to createOrchestrationCommands(). */
-export interface OrchestrationDeps {
-  sessions: ISessionGateway;
-  agents: IAgentRegistry;
-  tools: IToolCatalog;
-  workflows: IWorkflowCatalog;
-}

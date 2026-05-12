@@ -1,17 +1,18 @@
 import { z } from 'zod';
 import type {
   ICommand,
-  CommandRuntime,
   ICodeEditManager,
   IIdeAdapterFactory,
   IProposalStoreFactory,
+  ExecutionContext,
+  CommandResponse,
 } from '@ai-team/core';
 import { patchApplyCommandAsync } from './patch.js';
 
 type Params = z.infer<typeof PatchApplyCommand.schema>;
 type Result = { proposalId: string; patchedLines: number };
 
-export class PatchApplyCommand implements ICommand<Params, void, Result> {
+export class PatchApplyCommand implements ICommand<Params, Result> {
   static readonly schema = z.object({
     file: z.string().describe('File path to patch'),
     changes: z
@@ -38,13 +39,14 @@ export class PatchApplyCommand implements ICommand<Params, void, Result> {
     private readonly proposalStoreFactory: IProposalStoreFactory
   ) {}
 
-  async execute(payload: Params, _ctx: void, runtime: CommandRuntime): Promise<Result> {
-    return patchApplyCommandAsync(
-      runtime.workspaceRoot,
+  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<Result>> {
+    const data = await patchApplyCommandAsync(
+      ctx.workspaceRoot,
       payload,
       this.codeEditManager,
       this.ideAdapterFactory,
       this.proposalStoreFactory
     );
+    return { status: 'ok', data };
   }
 }

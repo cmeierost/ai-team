@@ -1,7 +1,12 @@
-import type { ICommand, CommandRuntime, ITeamGraphBuilder } from '@ai-team/core';
+import type {
+  ICommand,
+  ITeamGraphBuilder,
+  ExecutionContext,
+  CommandResponse,
+} from '@ai-team/core';
 import type { GraphData } from '@ai-team/api-contracts';
 
-export class OrgCommand implements ICommand<Record<string, never>, void, GraphData> {
+export class OrgCommand implements ICommand<Record<string, never>, GraphData> {
   readonly key = 'getOrganizationGraph';
   readonly cli = { command: 'org' };
   readonly description = 'Show organization hierarchy';
@@ -12,9 +17,9 @@ export class OrgCommand implements ICommand<Record<string, never>, void, GraphDa
 
   async execute(
     _payload: Record<string, never>,
-    _ctx: void,
-    _runtime: CommandRuntime
-  ): Promise<GraphData> {
-    return this.teamGraphBuilder.buildOrganizationGraph();
+    _ctx: ExecutionContext
+  ): Promise<CommandResponse<GraphData>> {
+    const data = await this.teamGraphBuilder.buildOrganizationGraph();
+    return { status: 'ok', data };
   }
 }

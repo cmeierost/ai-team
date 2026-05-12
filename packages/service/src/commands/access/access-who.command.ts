@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import type { ICommand, CommandRuntime } from '@ai-team/core';
+import type { ICommand, CommandResponse } from '@ai-team/core';
 import type { WhoHasPermissionResponse } from '@ai-team/api-contracts';
 import type { AccessService } from './access-service.js';
 
 type Params = z.infer<typeof AccessWhoCommand.schema>;
 
-export class AccessWhoCommand implements ICommand<Params, void, WhoHasPermissionResponse> {
+export class AccessWhoCommand implements ICommand<Params, WhoHasPermissionResponse> {
   static readonly schema = z.object({
     path: z.string().describe('Path to evaluate'),
     right: z.enum(['read', 'write', 'list']).optional().describe('Right to evaluate'),
@@ -21,11 +21,8 @@ export class AccessWhoCommand implements ICommand<Params, void, WhoHasPermission
 
   constructor(private readonly accessService: AccessService) {}
 
-  async execute(
-    payload: Params,
-    _ctx: void,
-    _runtime: CommandRuntime
-  ): Promise<WhoHasPermissionResponse> {
-    return this.accessService.whoHasAccess(payload);
+  async execute(payload: Params): Promise<CommandResponse<WhoHasPermissionResponse>> {
+    const data = await this.accessService.whoHasAccess(payload);
+    return { status: 'ok', data };
   }
 }

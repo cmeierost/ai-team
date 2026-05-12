@@ -1,4 +1,4 @@
-import type { OrchestratorContext } from '../orchestrator/pipeline-context.js';
+import type { ExecutionContext } from '@ai-team/core';
 import type { PreLlmIntentProvider, ScoredPreLlmIntentCandidate } from './pre-llm-intents.js';
 
 const WORKFLOW_SWITCH_PATTERNS: readonly RegExp[] = [
@@ -61,14 +61,14 @@ function buildChoices(activeWorkflowId?: string) {
 export class WorkflowIntentProvider implements PreLlmIntentProvider {
   async resolveCandidates(
     message: string,
-    ctx: OrchestratorContext
+    ctx: ExecutionContext
   ): Promise<ScoredPreLlmIntentCandidate[]> {
     const text = message.trim();
     if (!isWorkflowSwitchRequest(text)) {
       return [];
     }
 
-    const activeWorkflowId = ctx.hooks.workflowState?.workflowId;
+    const activeWorkflowId = (ctx as any).hooks.workflowState?.workflowId;
     const choices = buildChoices(activeWorkflowId);
     const useChecklist = prefersMultiSelect(text);
 
@@ -84,7 +84,7 @@ export class WorkflowIntentProvider implements PreLlmIntentProvider {
           workflow: {
             workflowId: activeWorkflowId,
             questionId: 'pre-llm-workflow-switch',
-            continuationToken: ctx.hooks.workflowState?.continuationToken,
+            continuationToken: (ctx as any).hooks.workflowState?.continuationToken,
           },
           choices,
           ...(useChecklist

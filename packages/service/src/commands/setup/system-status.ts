@@ -7,7 +7,13 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { IConfigurationStorage } from '@ai-team/core';
+import { z } from 'zod';
+import type {
+  ICommand,
+  ExecutionContext,
+  IConfigurationStorage,
+  CommandResponse,
+} from '@ai-team/core';
 import type { SystemStatus } from '@ai-team/api-contracts';
 import { resolveEffectiveLlmSettings } from '@ai-team/core';
 
@@ -19,13 +25,32 @@ export class SystemStatusCommand {
   }
 }
 
+type Params = z.infer<typeof SystemStatusICommand.schema>;
+
+export class SystemStatusICommand implements ICommand<Params, SystemStatus> {
+  static readonly schema = z.object({});
+
+  readonly key = 'system-status';
+  readonly cli = { command: 'status', parentKey: 'system' };
+  readonly description = 'Check system initialization status';
+  readonly availableIn = { cli: true, chat: true, tool: true };
+  readonly group = 'system';
+  readonly parameters = SystemStatusICommand.schema;
+
+  constructor(private readonly configurationStorage: IConfigurationStorage) {}
+
+  async execute(_payload: Params, ctx: ExecutionContext): Promise<CommandResponse<SystemStatus>> {
+    const data = await getSystemStatusAsync(ctx.workspaceRoot, this.configurationStorage);
+    return { status: 'ok', data };
+  }
+}
+
 async function getSystemStatusAsync(
   workspaceRoot: string,
   configurationStorage: IConfigurationStorage
 ): Promise<SystemStatus> {
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
 
-  // Check if .ai-team directory exists
   let initialized = false;
   try {
     const stats = await fs.stat(aiTeamDir);
@@ -34,7 +59,6 @@ async function getSystemStatusAsync(
     initialized = false;
   }
 
-  // Check LLM configuration
   let hasLlmConfig = false;
   if (initialized) {
     try {
@@ -48,7 +72,6 @@ async function getSystemStatusAsync(
     }
   }
 
-  // Check if any agents exist
   let hasAgents = false;
   if (initialized) {
     const agentsDir = path.join(aiTeamDir, 'agents');

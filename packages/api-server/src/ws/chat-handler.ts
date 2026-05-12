@@ -7,10 +7,9 @@ import type {
   QuestionPasswordRequest,
   QuestionSelectRequest,
 } from '@ai-team/api-contracts';
-import type { IAgentManager } from '@ai-team/core';
+import type { IAgentManager, IdeAdapter } from '@ai-team/core';
 import {
   createIdeAdapter,
-  type IdeAdapter,
 } from '@ai-team/infrastructure';
 import {
   SessionManager,

@@ -4,11 +4,15 @@
  * appropriate model/provider for the current agent.
  */
 
+import type { ILlmService, ExecutionContext } from '@ai-team/core';
 import type { ILlmSelector } from '../pipeline.js';
-import type { OrchestratorContext } from '../pipeline-context.js';
 
 export class DefaultLlmSelector implements ILlmSelector {
-  async select(ctx: OrchestratorContext): Promise<void> {
-    await ctx.llmService.initializeForChat(ctx.agent);
+  constructor(private readonly llmService: ILlmService) {}
+
+  async select(ctx: ExecutionContext): Promise<void> {
+    await (
+      this.llmService as unknown as { initializeForChat?: (agent: unknown) => Promise<void> }
+    ).initializeForChat?.(ctx.agent);
   }
 }

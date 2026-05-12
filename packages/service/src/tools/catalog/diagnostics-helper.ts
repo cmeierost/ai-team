@@ -1,22 +1,15 @@
-import type { LspDiagnostic, LspProvider } from '@ai-team/core';
-import type { ToolContext } from '@ai-team/core';
+import type { LspDiagnostic, LspProvider, ExecutionContext } from '@ai-team/core';
 
 const SEVERITY_ORDER: Record<string, number> = { error: 0, warning: 1, info: 2, hint: 3 };
 const MAX_DIAGNOSTICS = 20;
 const DEFAULT_DELAY_MS = 500;
 
-function getLspProvider(context: ToolContext): LspProvider | undefined {
-  return (context as any).lsp as LspProvider | undefined;
+function getLspProvider(context: ExecutionContext): LspProvider | undefined {
+  return context.lsp as LspProvider | undefined;
 }
 
-/**
- * Collect LSP diagnostics for one or more files after a write.
- *
- * Returns `undefined` when no LSP provider is connected (callers should
- * omit the `diagnostics` field from their result in that case).
- */
 export async function collectPostWriteDiagnostics(
-  context: ToolContext,
+  context: ExecutionContext,
   filePaths: string[],
   delayMs: number = DEFAULT_DELAY_MS
 ): Promise<LspDiagnostic[] | undefined> {

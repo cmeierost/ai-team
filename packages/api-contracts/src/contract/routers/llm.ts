@@ -46,13 +46,3 @@ export interface RefreshProviderModelsOptions {
 export interface ProviderListOptions {
   json?: boolean;
 }
-
-export interface ILlmService {
-  providerConfigure(options?: ConfigureProviderOptions): Promise<void>;
-  providerAdd(options?: AddProviderOptions): Promise<void>;
-  providerSet(options?: SetProviderOptions): Promise<void>;
-  providerList(options?: ProviderListOptions): Promise<void>;
-  providerModels(options: ProviderModelsOptions): Promise<void>;
-  providerModelsRefresh(options: RefreshProviderModelsOptions): Promise<void>;
-  testConnection(options?: TestConnectionOptions): Promise<void>;
-}

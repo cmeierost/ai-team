@@ -1,16 +1,16 @@
 import { z } from 'zod';
 import type {
-  CommandRuntime,
   FindCapableAgentResult,
   ICommand,
-  ToolContext,
   Agent,
+  ExecutionContext,
+  CommandResponse,
 } from '@ai-team/core';
 import type { IAgentRegistry, IToolCatalog } from '../orchestration/orchestration.types.js';
 
 type Params = z.infer<typeof WhoShouldCommand.schema>;
 
-export class WhoShouldCommand implements ICommand<Params, ToolContext, FindCapableAgentResult> {
+export class WhoShouldCommand implements ICommand<Params, FindCapableAgentResult> {
   static readonly schema = z.object({
     task: z.string().min(1).describe('Natural language description of the task'),
     requiredTool: z
@@ -38,7 +38,10 @@ export class WhoShouldCommand implements ICommand<Params, ToolContext, FindCapab
     private readonly tools: IToolCatalog
   ) {}
 
-  async execute(params: Params, _context: ToolContext, _runtime: CommandRuntime): Promise<FindCapableAgentResult> {
+  async execute(
+    params: Params,
+    _context: ExecutionContext
+  ): Promise<CommandResponse<FindCapableAgentResult>> {
     const { task, requiredTool, requiredArgs } = params;
 
     const allAgents = await this.agents.getAllAgentsAsync();
@@ -48,10 +51,13 @@ export class WhoShouldCommand implements ICommand<Params, ToolContext, FindCapab
       : allAgents;
 
     return {
-      type: 'fs_who_should_result',
-      task,
-      matches: matched.map((a) => ({ agentId: a.id, agentName: a.name, agentRole: a.role })),
-      timestamp: new Date().toISOString(),
+      status: 'ok',
+      data: {
+        type: 'fs_who_should_result',
+        task,
+        matches: matched.map((a) => ({ agentId: a.id, agentName: a.name, agentRole: a.role })),
+        timestamp: new Date().toISOString(),
+      },
     };
   }
 }

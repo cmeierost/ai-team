@@ -72,4 +72,48 @@ describe('streamInteraction', () => {
     expect(toolEvents.map((event) => event.toolEventSeq)).toEqual([1, 2, 3]);
     expect(toolEvents.map((event) => event.toolPhase)).toEqual(['request', 'start', 'result']);
   });
+
+  it('streams runtime events and completion markers through the shared helper', async () => {
+    const events: Array<{ kind: string; [key: string]: unknown }> = [];
+
+    for await (const event of streamInteraction({
+      request: {
+        command: 'chat',
+        payload: {
+          employeeId: 'michael-brown',
+          options: { message: 'hello' },
+        },
+      },
+      invoke: async (context) => {
+        context.emit?.({ kind: 'token', text: 'shared hello' });
+      },
+    })) {
+      events.push(event as { kind: string; [key: string]: unknown });
+    }
+
+    expect(events.map((event) => event.kind)).toEqual(['started', 'token', 'result', 'done']);
+    expect(events[1]).toMatchObject({ kind: 'token', text: 'shared hello' });
+  });
+
+  it('normalizes invoke errors into error events', async () => {
+    const events: Array<{ kind: string; [key: string]: unknown }> = [];
+
+    for await (const event of streamInteraction({
+      request: {
+        command: 'chat',
+        payload: {
+          employeeId: 'michael-brown',
+          options: { message: 'hello' },
+        },
+      },
+      invoke: async () => {
+        throw new Error('boom');
+      },
+    })) {
+      events.push(event as { kind: string; [key: string]: unknown });
+    }
+
+    expect(events.map((event) => event.kind)).toEqual(['started', 'error']);
+    expect(events[1]).toMatchObject({ kind: 'error', message: 'boom' });
+  });
 });

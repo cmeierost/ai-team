@@ -1,7 +1,11 @@
 import { z } from 'zod';
-import type { CommandRuntime, ICommand, TeamListResult, ToolContext } from '@ai-team/core';
+import type {
+  ICommand,
+  TeamListResult,
+  ExecutionContext,
+  CommandResponse,
+} from '@ai-team/core';
 
-import type { OrchestratorContext } from '../../orchestrator/pipeline-context.js';
 import type { ScoredPreLlmIntentCandidate } from '../../tools/pre-llm-intents.js';
 import type { IAgentRegistry } from '../orchestration/orchestration.types.js';
 
@@ -21,7 +25,7 @@ export function matchesTeamListPreLlmIntent(message: string): boolean {
 
 type Params = z.infer<typeof TeamListOrchestrationCommand.schema>;
 
-export class TeamListOrchestrationCommand implements ICommand<Params, ToolContext, TeamListResult> {
+export class TeamListOrchestrationCommand implements ICommand<Params, TeamListResult> {
   static readonly schema = z.object({});
 
   readonly key = 'list';
@@ -36,7 +40,7 @@ export class TeamListOrchestrationCommand implements ICommand<Params, ToolContex
 
   readonly scorePreLlmIntent = (
     message: string,
-    _ctx: OrchestratorContext
+    _ctx: ExecutionContext
   ): ScoredPreLlmIntentCandidate | undefined => {
     const text = message.trim();
     if (!text) return undefined;
@@ -66,19 +70,21 @@ export class TeamListOrchestrationCommand implements ICommand<Params, ToolContex
 
   async execute(
     _params: Params,
-    _context: ToolContext,
-    _runtime: CommandRuntime
-  ): Promise<TeamListResult> {
+    _context: ExecutionContext
+  ): Promise<CommandResponse<TeamListResult>> {
     const members = await this.agents.getAllAgentsAsync();
 
     return {
-      type: 'team_list_result',
-      members: members.map((agent) => ({
-        agentId: agent.id,
-        agentName: agent.name,
-        agentRole: agent.role,
-      })),
-      timestamp: new Date().toISOString(),
+      status: 'ok',
+      data: {
+        type: 'team_list_result',
+        members: members.map((agent) => ({
+          agentId: agent.id,
+          agentName: agent.name,
+          agentRole: agent.role,
+        })),
+        timestamp: new Date().toISOString(),
+      },
     };
   }
 }

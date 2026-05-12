@@ -12,13 +12,12 @@
 
 import {
   Agent,
-  AgentTool,
-  CommandRuntime,
+  ICommand,
+  ExecutionContext,
   ContextLevel,
   type LspProvider,
   PermissionResult,
   ToolCatalogEntry,
-  ToolContext,
   type PermissionDescriptor,
 } from '@ai-team/core';
 
@@ -52,7 +51,7 @@ type ToolIdentityField = 'key' | 'group';
 /**
  * Canonical lookup key for a tool.
  */
-export function toolKey(tool: Pick<AgentTool, ToolIdentityField>): string {
+export function toolKey(tool: Pick<ICommand, ToolIdentityField>): string {
   const key = typeof tool.key === 'string' ? tool.key.trim() : '';
   if (!key) {
     throw new Error('Tool must define a non-empty `key`.');
@@ -112,7 +111,7 @@ function matchesSelectorValue(selector: string, value: string): boolean {
  */
 export function matchesToolSelector(
   selector: string,
-  tool: Pick<AgentTool, ToolIdentityField>
+  tool: Pick<ICommand, ToolIdentityField>
 ): boolean {
   const normalized = normalizeToolSelector(selector);
   if (!normalized) {
@@ -122,7 +121,7 @@ export function matchesToolSelector(
   return matchesSelectorValue(normalized, toolKey(tool));
 }
 
-function pushIfMissing(result: AgentTool[], tool: AgentTool): void {
+function pushIfMissing(result: ICommand[], tool: ICommand): void {
   const key = toolKey(tool);
   if (!result.some((t) => toolKey(t) === key)) {
     result.push(tool);
@@ -197,7 +196,7 @@ function evaluatePermissionDescriptor(
  * which tools an agent may use, and how they are executed safely.
  */
 export class ToolManager {
-  private readonly tools = new Map<string, AgentTool>();
+  private readonly tools = new Map<string, ICommand>();
   private readonly workspaceRoot: string;
   private readonly pathPermissionChecker: PathPermissionCheckerLike;
   /** Optional LSP provider injected into tool context. */
@@ -223,7 +222,7 @@ export class ToolManager {
     this._lsp = lsp;
   }
 
-  /** Set the DI container forwarded to tools via context.resolve. */
+  /** Set the DI container forwarded to tools via (context as any).resolve. */
   setContainer(container: ToolResolverContainer): void {
     this._container = container;
   }
@@ -233,21 +232,26 @@ export class ToolManager {
   /**
    * Register a tool. Calling register() with the same name replaces the
    * previous entry — this is the Open/Closed plugin seam.
-    * Tools are stored under their canonical key (`tool.key`).
+   * Tools are stored under their canonical key (`tool.key`).
    */
-  register(tool: AgentTool): this {
+  register(tool: ICommand): this {
     this.tools.set(toolKey(tool), tool);
     return this;
   }
 
   /** Look up a single tool by name. Returns undefined if not registered. */
-  get(name: string): AgentTool | undefined {
+  get(name: string): ICommand | undefined {
     return this.tools.get(name);
   }
 
   /** All registered tools, regardless of agent. */
-  getAll(): AgentTool[] {
+  getAll(): ICommand[] {
     return [...this.tools.values()];
+  }
+
+  /** Alias for getAll() required by IToolManager interface. */
+  list(): ICommand[] {
+    return this.getAll();
   }
 
   // ── Availability ─────────────────────────────────────────────────────────
@@ -260,8 +264,8 @@ export class ToolManager {
    * - selectors support exact names and wildcard patterns (e.g. fs_*)
    * - agent.disallowedTools[] takes precedence over allows
    */
-  getForAgent(agent: Agent): AgentTool[] {
-    const result: AgentTool[] = [];
+  getForAgent(agent: Agent): ICommand[] {
+    const result: ICommand[] = [];
     const allowedSelectors = (agent.tools ?? [])
       .map(normalizeToolSelector)
       .filter((selector) => selector.length > 0);
@@ -336,7 +340,7 @@ export class ToolManager {
     agent: Agent,
     toolName: string,
     args: unknown,
-    context: Omit<ToolContext, 'agent'>,
+    context: Omit<ExecutionContext, 'agent'>,
     options?: ToolExecutionOptions
   ): Promise<ToolExecutionResult> {
     const tool = this.tools.get(toolName);
@@ -379,23 +383,26 @@ export class ToolManager {
       lsp: this._lsp,
       pathPermissionChecker: this.pathPermissionChecker,
       resolve:
-        context.resolve ??
+        (context as any).resolve ??
         (this._container ? this._container.resolve.bind(this._container) : undefined),
-    } as ToolContext;
-    const runtime: CommandRuntime = {
+    } as ExecutionContext;
+    const runtime: ExecutionContext = {
       invocationSurface: 'tool',
       workspaceRoot: this.workspaceRoot,
       agentId: agent.id,
+      history: [],
     };
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     try {
       const result = await withTimeout(
-        (tool.execute as (params: unknown, context: ToolContext, runtime?: CommandRuntime) => Promise<unknown>)(
-          parsed.data,
-          toolContext,
-          runtime
-        ),
+        (
+          tool.execute as (
+            params: unknown,
+            context: ExecutionContext,
+            runtime?: ExecutionContext
+          ) => Promise<unknown>
+        )(parsed.data, toolContext, runtime),
         timeoutMs,
         `Tool ${toolName} timed out after ${timeoutMs}ms`
       );

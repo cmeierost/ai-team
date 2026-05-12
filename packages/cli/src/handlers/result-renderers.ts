@@ -8,7 +8,7 @@ import { exec } from 'node:child_process';
 import chalk from 'chalk';
 import { renderAccessCan, renderAccessOverlap, renderAccessWho } from './access.js';
 
-export type CliResultHandler<TCommand extends string = string> = (
+export type CliResultHandler = (
   data: unknown,
   options?: unknown
 ) => void | Promise<void>;
@@ -25,11 +25,11 @@ export type CliAvatarPreviewHandler = (
 export interface ICliResultHandlerRegistry {
   register<TCommand extends string>(
     command: TCommand,
-    handler: CliResultHandler<TCommand>
+    handler: CliResultHandler
   ): void;
   resolve<TCommand extends string>(
     command: TCommand
-  ): CliResultHandler<TCommand> | undefined;
+  ): CliResultHandler | undefined;
   registerAvatarPreview(handler: CliAvatarPreviewHandler): void;
   resolveAvatarPreview(): CliAvatarPreviewHandler | undefined;
 }
@@ -40,15 +40,15 @@ class CliResultHandlerRegistry implements ICliResultHandlerRegistry {
 
   register<TCommand extends string>(
     command: TCommand,
-    handler: CliResultHandler<TCommand>
+    handler: CliResultHandler
   ): void {
     this.handlers.set(command, handler as CliResultHandler);
   }
 
   resolve<TCommand extends string>(
     command: TCommand
-  ): CliResultHandler<TCommand> | undefined {
-    return this.handlers.get(command) as CliResultHandler<TCommand> | undefined;
+  ): CliResultHandler | undefined {
+    return this.handlers.get(command);
   }
 
   registerAvatarPreview(handler: CliAvatarPreviewHandler): void {

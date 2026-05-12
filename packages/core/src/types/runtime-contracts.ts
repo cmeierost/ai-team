@@ -1,4 +1,3 @@
-import type { ToolContext as BaseToolContext, AgentTool as ToolAgent } from './tool-types.js';
 import type { ICommand } from './command-types.js';
 import type { Agent, Skill, PermissionConfig } from './agent-models.js';
 import type { ChatMessage } from './communication.js';
@@ -123,42 +122,14 @@ export interface ICodeEditManager {
   markRejected(proposalId: string, reviewer: string, reason: string): unknown;
 }
 
-export interface ToolContext extends BaseToolContext {
-  agent: Agent;
-  currentFiles?: string[];
-}
-
 export interface PermissionResult {
   allowed: boolean;
   reason?: string;
 }
 
-export interface CommandResponseError {
-  code?: string;
-  details?: unknown;
-}
-
-export interface CommandResponse<T = unknown> {
-  status: 'ok' | 'error';
-  message: string;
-  data?: T;
-  saveable?: unknown;
-  error?: CommandResponseError;
-}
-
-/**
- * Concrete specialization of the AgentTool interface for the runtime ToolContext.
- * Use `AgentTool` (no params) for untyped references (registries, maps).
- */
-export type AgentTool<
-  Ctx extends ToolContext = ToolContext,
-  TParams = unknown,
-  TResult = unknown,
-> = ToolAgent<Ctx, TParams, TResult>;
-
 export interface IToolManager {
-  register(tool: AgentTool): void;
-  list(): AgentTool[];
+  register(tool: ICommand): void;
+  list(): ICommand[];
   canExecute(agent: Agent, toolName: string, params: unknown): Promise<PermissionResult>;
   execute(agent: Agent, toolName: string, params: unknown): Promise<unknown>;
 }
@@ -180,11 +151,11 @@ export interface IRagProvider<Ctx = unknown> {
   retrieve(query: string, ctx: Ctx): Promise<string | null>;
 }
 
-export interface IToolResolver<Ctx = unknown, TTool = AgentTool> {
+export interface IToolResolver<Ctx = unknown, TTool = ICommand> {
   resolve(ctx: Ctx): Promise<TTool[]>;
 }
 
-export interface IMcpGateway<TTool = AgentTool> {
+export interface IMcpGateway<TTool = ICommand> {
   discover(): Promise<TTool[]>;
 }
 
@@ -205,8 +176,6 @@ export interface ITurnResultParser<Ctx = unknown, TResult = unknown> {
   ): Partial<TResult> | null;
 }
 
-export type ISlashCommand<Ctx = unknown> = ICommand<string, Ctx, CommandResponse | void>;
-
 export interface TurnStartHookPayload<Ctx = unknown> {
   userMessage: string;
   options?: { skipPersist?: boolean };
@@ -224,7 +193,7 @@ export interface SkillsResolvedHookPayload<Ctx = unknown> {
   ctx: Ctx;
 }
 
-export interface ToolsResolvedHookPayload<Ctx = unknown, TTool = AgentTool> {
+export interface ToolsResolvedHookPayload<Ctx = unknown, TTool = ICommand> {
   tools: TTool[];
   toolDefs: ILlmToolDefinition[];
   ctx: Ctx;
@@ -255,7 +224,7 @@ export interface IOrchestratorHookPlugin<
   Ctx = unknown,
   TResult = unknown,
   TMessage = unknown,
-  TTool = AgentTool,
+  TTool = ICommand,
 > {
   readonly name: string;
   onTurnStart?(payload: TurnStartHookPayload<Ctx>): Promise<void> | void;
@@ -284,7 +253,13 @@ export type ContainerTokenValueMap<TTokens extends Record<string, IContainerToke
   [K in keyof TTokens]: ContainerTokenValue<TTokens[K]>;
 };
 
-export interface IServiceContainer {
+/**
+ * Narrow DI registration surface for package-local service wiring modules.
+ *
+ * Use this when a package only needs to register factories/instances and should
+ * not depend on full resolve/read capabilities of the concrete container.
+ */
+export interface IServiceContainerRegistrar {
   register<T>(token: IContainerToken<T>, factory: (container: IServiceContainer) => T): this;
   registerSingleton<T>(
     token: IContainerToken<T>,
@@ -295,6 +270,9 @@ export interface IServiceContainer {
     factory: (container: IServiceContainer) => T
   ): this;
   registerInstance<T>(token: IContainerToken<T>, instance: T): this;
+}
+
+export interface IServiceContainer extends IServiceContainerRegistrar {
   resolve<T>(token: IContainerToken<T>): T;
   tryResolve<T>(token: IContainerToken<T>): T | undefined;
   has(token: IContainerToken<unknown>): boolean;

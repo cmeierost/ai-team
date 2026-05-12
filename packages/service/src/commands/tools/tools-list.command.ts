@@ -1,12 +1,17 @@
 import { z } from 'zod';
-import type { ICommand, CommandRuntime, IAgentManager } from '@ai-team/core';
+import type {
+  ICommand,
+  IAgentManager,
+  ExecutionContext,
+  CommandResponse,
+} from '@ai-team/core';
 import type { ListToolsResponse } from '@ai-team/api-contracts';
 import type { ToolManager } from '../../tools/tool-manager.js';
 import { listToolsCommand } from './tools.js';
 
 type Params = z.infer<typeof ToolsListCommand.schema>;
 
-export class ToolsListCommand implements ICommand<Params, void, ListToolsResponse> {
+export class ToolsListCommand implements ICommand<Params, ListToolsResponse> {
   static readonly schema = z.object({
     agent: z.string().optional().describe('Show tool allow/deny state for a specific agent'),
     json: z.boolean().optional().describe('Output as JSON'),
@@ -24,7 +29,11 @@ export class ToolsListCommand implements ICommand<Params, void, ListToolsRespons
     private readonly toolManager: ToolManager
   ) {}
 
-  async execute(payload: Params, _ctx: void, _runtime: CommandRuntime): Promise<ListToolsResponse> {
-    return listToolsCommand(this.agents, this.toolManager, { agent: payload.agent });
+  async execute(
+    payload: Params,
+    _ctx: ExecutionContext
+  ): Promise<CommandResponse<ListToolsResponse>> {
+    const data = await listToolsCommand(this.agents, this.toolManager, { agent: payload.agent });
+    return { status: 'ok', data };
   }
 }

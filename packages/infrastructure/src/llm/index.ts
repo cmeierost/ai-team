@@ -30,15 +30,11 @@ import type {
   Skill,
   InstructionFile,
   ChatMessage,
-  TeamConfig,
-  LlmGenerationParams,
   IConfigurationStorage,
   IEnvironmentStorage,
 } from '@ai-team/core';
 import {
   resolveEffectiveLlmSettings,
-  resolveSystemLlmSettings,
-  getEffectiveContextWindow,
 } from '@ai-team/core';
 import type {
   LlmChatOptions,
@@ -1416,35 +1412,6 @@ export function registerLlmProviderAdapter(adapter: LlmProviderAdapter): void {
   llmProviderAdapters.set(adapter.kind, adapter);
 }
 
-function mergeLlmParams(
-  base?: LlmGenerationParams,
-  override?: LlmGenerationParams
-): LlmGenerationParams | undefined {
-  if (!base && !override) {
-    return undefined;
-  }
-
-  return {
-    ...(base || {}),
-    ...(override || {}),
-  };
-}
-
-function profileToOptions(params?: LlmGenerationParams): LlmChatOptions {
-  if (!params) {
-    return {};
-  }
-
-  return {
-    temperature: params.temperature,
-    maxTokens: params.maxTokens,
-    topP: params.topP,
-    presencePenalty: params.presencePenalty,
-    frequencyPenalty: params.frequencyPenalty,
-    stop: params.stop,
-  };
-}
-
 export interface ApiKeyResolutionResult {
   preferredEnvVar: string;
   lookupOrder: string[];
@@ -1522,161 +1489,7 @@ function shouldWarnWhenApiKeyMissing(baseUrl?: string): boolean {
   }
 }
 
-function getProviderModels(
-  provider:
-    | {
-        models?: Array<{ name: string; contextWindow?: number }>;
-      }
-    | undefined
-): Array<{ name: string; contextWindow?: number }> {
-  if (!provider) return [];
-
-  const out: Array<{ name: string; contextWindow?: number }> = [];
-  const seen = new Set<string>();
-
-  for (const model of provider.models ?? []) {
-    if (!model?.name || seen.has(model.name)) continue;
-    seen.add(model.name);
-    out.push({ name: model.name, contextWindow: model.contextWindow });
-  }
-
-  return out;
-}
-
-function resolveProviderDefaultModel(
-  provider:
-    | {
-        model?: string;
-        defaultModel?: string;
-        models?: Array<{ name: string; contextWindow?: number }>;
-      }
-    | undefined
-): string | undefined {
-  if (!provider) return undefined;
-
-  const byName = provider.defaultModel;
-  if (byName) return byName;
-
-  return getProviderModels(provider)[0]?.name;
-}
-
-function applyProfile(
-  config: LlmConfig,
-  profile:
-    | {
-        provider?: string;
-        modelKey?: string;
-        model?: string;
-        baseUrl?: string;
-        params?: LlmGenerationParams;
-      }
-    | undefined,
-  teamConfig?: TeamConfig
-): { config: LlmConfig; providerRef?: string; apiKeyEnvVar?: string } {
-  if (!profile) {
-    return { config };
-  }
-
-  let nextConfig: LlmConfig = { ...config };
-  let providerRef: string | undefined;
-  let apiKeyEnvVar: string | undefined;
-  const registry = getProviderRegistry(teamConfig);
-
-  if (profile.provider) {
-    const providerFromRegistry = registry?.[profile.provider];
-    if (providerFromRegistry) {
-      providerRef = profile.provider;
-      apiKeyEnvVar = providerFromRegistry.apiKeyEnvVar;
-      nextConfig = {
-        provider: providerFromRegistry.kind,
-        model: resolveProviderDefaultModel(providerFromRegistry),
-        baseUrl: providerFromRegistry.baseUrl,
-        params: providerFromRegistry.params,
-      };
-    } else {
-      nextConfig.provider = profile.provider;
-    }
-  }
-
-  if (profile.modelKey !== undefined) {
-    const modelKeyEntry = teamConfig?.modelKeys?.[profile.modelKey];
-    const mappedProviderRef = modelKeyEntry?.provider;
-    const mappedProvider = mappedProviderRef ? registry?.[mappedProviderRef] : undefined;
-    const explicitProviderMatchesMapping = !providerRef || providerRef === mappedProviderRef;
-
-    if (modelKeyEntry && mappedProvider && explicitProviderMatchesMapping) {
-      providerRef = mappedProviderRef;
-      apiKeyEnvVar = mappedProvider.apiKeyEnvVar;
-      nextConfig = {
-        provider: mappedProvider.kind,
-        model: modelKeyEntry.model,
-        baseUrl: mappedProvider.baseUrl,
-        params: mappedProvider.params,
-      };
-    } else {
-      const selectedProviderRef = providerRef || findDefaultProviderRef(teamConfig);
-      const selectedProvider = selectedProviderRef ? registry?.[selectedProviderRef] : undefined;
-      const resolvedModel = getProviderModels(selectedProvider).find(
-        (m) => m.name === profile.modelKey
-      )?.name;
-      if (resolvedModel) {
-        nextConfig.model = resolvedModel;
-      } else {
-        const fallbackModel = resolveProviderDefaultModel(selectedProvider);
-        if (fallbackModel) {
-          nextConfig.model = fallbackModel;
-        }
-      }
-    }
-  }
-
-  if (profile.model !== undefined) {
-    nextConfig.model = profile.model;
-  }
-
-  if (profile.baseUrl !== undefined) {
-    nextConfig.baseUrl = profile.baseUrl;
-  }
-
-  nextConfig.params = mergeLlmParams(nextConfig.params, profile.params);
-
-  return { config: nextConfig, providerRef, apiKeyEnvVar };
-}
-
-function getProviderRegistry(teamConfig?: TeamConfig) {
-  return teamConfig?.providers;
-}
-
-function findModelKeyForModel(
-  provider: { models?: Array<{ name: string; contextWindow?: number }> } | undefined,
-  modelId: string
-): string | undefined {
-  if (!provider?.models) return undefined;
-  return provider.models.find((m) => m.name === modelId)?.name;
-}
-
 export { getEffectiveContextWindow } from '@ai-team/core';
-
-function findDefaultProviderRef(teamConfig?: TeamConfig): string | undefined {
-  const registry = getProviderRegistry(teamConfig);
-  if (!registry) {
-    return undefined;
-  }
-
-  // 1. Explicit defaultModel.provider
-  if (teamConfig?.defaultModel?.provider && registry[teamConfig.defaultModel.provider]) {
-    return teamConfig.defaultModel.provider;
-  }
-
-  // 2. First provider that has a defaultModel set
-  const withDefault = Object.entries(registry).find(([, cfg]) => cfg.defaultModel);
-  if (withDefault) {
-    return withDefault[0];
-  }
-
-  // 3. First provider in registry
-  return Object.keys(registry)[0];
-}
 
 export { resolveEffectiveLlmSettings, resolveSystemLlmSettings } from '@ai-team/core';
 

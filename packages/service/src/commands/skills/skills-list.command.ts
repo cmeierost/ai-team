@@ -1,11 +1,17 @@
 import { z } from 'zod';
-import type { ICommand, CommandRuntime, IAgentManager, ISkillManager } from '@ai-team/core';
+import type {
+  ICommand,
+  IAgentManager,
+  ISkillManager,
+  ExecutionContext,
+  CommandResponse,
+} from '@ai-team/core';
 import type { SearchSkillsResponse } from '@ai-team/api-contracts';
 import { searchSkillsCommand } from './skills.js';
 
 type Params = z.infer<typeof SkillsListCommand.schema>;
 
-export class SkillsListCommand implements ICommand<Params, void, SearchSkillsResponse> {
+export class SkillsListCommand implements ICommand<Params, SearchSkillsResponse> {
   static readonly schema = z.object({
     query: z.string().optional().describe('Filter by name, description, responsibility, or tool'),
     agent: z.string().optional().describe('Annotate assignment state for a specific agent'),
@@ -27,12 +33,12 @@ export class SkillsListCommand implements ICommand<Params, void, SearchSkillsRes
 
   async execute(
     payload: Params,
-    _ctx: void,
-    _runtime: CommandRuntime
-  ): Promise<SearchSkillsResponse> {
-    return searchSkillsCommand(this.agents, this.skills, {
+    _ctx: ExecutionContext
+  ): Promise<CommandResponse<SearchSkillsResponse>> {
+    const data = await searchSkillsCommand(this.agents, this.skills, {
       query: payload.query,
       agent: payload.agent,
     });
+    return { status: 'ok', data };
   }
 }

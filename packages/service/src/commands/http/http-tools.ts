@@ -1,5 +1,5 @@
+import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
 import { z } from 'zod';
-import type { AgentTool, ITool, ToolContext } from '@ai-team/core';
 
 // ============================================================================
 // HTTP Public Types
@@ -311,7 +311,7 @@ async function fetchUrlText(
 // HTTP Tool Classes
 // ============================================================================
 
-export class HttpFetchTool implements ITool<HttpFetchParams, ToolContext, HttpFetchResult> {
+export class HttpFetchTool  {
   readonly name = 'fetch';
   readonly key = 'fetch';
   readonly group = 'http';
@@ -387,7 +387,7 @@ export class HttpFetchTool implements ITool<HttpFetchParams, ToolContext, HttpFe
     return `${header}\n\n${result.chunks.join('\n\n')}`;
   }
 
-  async execute(params: HttpFetchParams, _context: ToolContext): Promise<HttpFetchResult> {
+  async execute(params: HttpFetchParams, _context: ExecutionContext): Promise<HttpFetchResult> {
     const {
       url,
       timeoutMs = HTTP_DEFAULT_TIMEOUT_MS,
@@ -421,7 +421,7 @@ export class HttpFetchTool implements ITool<HttpFetchParams, ToolContext, HttpFe
   }
 }
 
-export class HttpCrawlTool implements ITool<HttpCrawlParams, ToolContext, HttpCrawlResult> {
+export class HttpCrawlTool  {
   readonly name = 'crawl';
   readonly key = 'crawl';
   readonly group = 'http';
@@ -514,7 +514,7 @@ export class HttpCrawlTool implements ITool<HttpCrawlParams, ToolContext, HttpCr
     return `${header}\n\n${result.chunks.join('\n\n')}`;
   }
 
-  async execute(params: HttpCrawlParams, _context: ToolContext): Promise<HttpCrawlResult> {
+  async execute(params: HttpCrawlParams, _context: ExecutionContext): Promise<HttpCrawlResult> {
     const {
       url,
       crawlEnabled = false,
@@ -568,8 +568,8 @@ export class HttpCrawlTool implements ITool<HttpCrawlParams, ToolContext, HttpCr
   }
 }
 
-export const httpFetchTool: AgentTool = new HttpFetchTool();
-export const httpCrawlTool: AgentTool = new HttpCrawlTool();
+export const httpFetchTool = new HttpFetchTool();
+export const httpCrawlTool = new HttpCrawlTool();
 
 // ============================================================================
 // HTTP Crawl Internals

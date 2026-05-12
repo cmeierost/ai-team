@@ -1,19 +1,20 @@
 import { z } from 'zod';
 import type {
   ICommand,
-  CommandRuntime,
   IAgentManager,
   IConfigurationStorage,
   IPermissionStorage,
   IFileTreeService,
   IFileAnnotationService,
+  ExecutionContext,
+  CommandResponse,
 } from '@ai-team/core';
 import type { FilesTreeResponse } from '@ai-team/api-contracts';
 import { FileTreeCommand as FileTreeCommandImpl } from './file-tree.js';
 
 type Params = z.infer<typeof FilesTreeCommand.schema>;
 
-export class FilesTreeCommand implements ICommand<Params, void, FilesTreeResponse> {
+export class FilesTreeCommand implements ICommand<Params, FilesTreeResponse> {
   static readonly schema = z.object({
     depth: z.number().optional().describe('Max recursion depth (default: 4)'),
     all: z.boolean().optional().describe('Include hidden files and directories'),
@@ -39,13 +40,17 @@ export class FilesTreeCommand implements ICommand<Params, void, FilesTreeRespons
     private readonly fileAnnotationService: IFileAnnotationService
   ) {}
 
-  async execute(payload: Params, _ctx: void, _runtime: CommandRuntime): Promise<FilesTreeResponse> {
-    return new FileTreeCommandImpl(
+  async execute(
+    payload: Params,
+    _ctx: ExecutionContext
+  ): Promise<CommandResponse<FilesTreeResponse>> {
+    const data = await new FileTreeCommandImpl(
       this.agents,
       this.configStorage,
       this.permStorage,
       this.fileTreeService,
       this.fileAnnotationService
     ).filesTree(payload);
+    return { status: 'ok', data };
   }
 }

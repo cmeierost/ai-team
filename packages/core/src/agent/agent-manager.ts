@@ -14,8 +14,8 @@ export type RankedAgentResult = {
 
 export interface IAgentManager {
   readonly workspaceRoot: string;
-  rankAgents(query: string | undefined): RankedAgentResult[];
-  rankAgentsByIdentity(query: string | undefined): RankedAgentResult[];
+  rankAgents(query: string | undefined): Promise<RankedAgentResult[]>;
+  rankAgentsByIdentity(query: string | undefined): Promise<RankedAgentResult[]>;
   filterAndRankAgents(options: AgentSearchOptions, agents: Agent[]): AgentSearchResult[];
 
   getAgentsAsync(): Promise<Map<string, Agent>>;

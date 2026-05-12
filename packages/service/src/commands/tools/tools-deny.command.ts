@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { ICommand, CommandRuntime, IAgentManager } from '@ai-team/core';
+import type {
+  ICommand,
+  IAgentManager,
+  ExecutionContext,
+  CommandResponse,
+} from '@ai-team/core';
 import type { UpdateAgentToolResponse } from '@ai-team/api-contracts';
 import type { ToolManager } from '../../tools/tool-manager.js';
 import { toolDenyCommand } from './tools.js';
@@ -10,7 +15,7 @@ import {
 
 type Params = z.infer<typeof ToolsDenyCommand.schema>;
 
-export class ToolsDenyCommand implements ICommand<Params, void, UpdateAgentToolResponse> {
+export class ToolsDenyCommand implements ICommand<Params, UpdateAgentToolResponse> {
   static readonly schema = z.object({
     agent: z.string().describe('Agent id, name, or role query'),
     tool: z.string().describe('Tool name to disallow'),
@@ -34,23 +39,23 @@ export class ToolsDenyCommand implements ICommand<Params, void, UpdateAgentToolR
 
   async execute(
     payload: Params,
-    _ctx: void,
-    runtime: CommandRuntime
-  ): Promise<UpdateAgentToolResponse> {
+    ctx: ExecutionContext
+  ): Promise<CommandResponse<UpdateAgentToolResponse>> {
     const requestedBy = await resolveRequestedByFromRuntime(
       payload.requestedBy,
-      runtime,
+      ctx,
       'requestedBy is required for tool governance'
     );
-    return toolDenyCommand(
+    const data = await toolDenyCommand(
       this.agents,
       this.toolManager,
       { agent: payload.agent, tool: payload.tool },
       {
         requestedBy,
         confirmUserApproval: (msg: string) =>
-          confirmGovernanceActionFromRuntime(payload.approvedByUser, runtime, msg),
+          confirmGovernanceActionFromRuntime(payload.approvedByUser, ctx, msg),
       }
     );
+    return { status: 'ok', data };
   }
 }

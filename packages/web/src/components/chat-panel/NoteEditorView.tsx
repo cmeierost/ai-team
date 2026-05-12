@@ -181,7 +181,7 @@ export function NoteEditorView({
     return () => {
       cancelled = true;
     };
-  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   // Populate fields when existing note loads — but only once per note ID so that
   // background refetches don't overwrite local edits (e.g. toggled sharing pills).
@@ -235,7 +235,7 @@ export function NoteEditorView({
       });
       setAutosaveState('idle');
     }
-  }, [existingNote?.id, isNew]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [existingNote?.id, isNew]);
 
   const activeNoteId = savedNoteId ?? (isNew ? null : noteId);
   const activeNote = activeNoteId ? (notes.find((n) => n.id === activeNoteId) ?? null) : null;
@@ -262,7 +262,7 @@ export function NoteEditorView({
   // is actively editing.
   useEffect(() => {
     setEditedCompacted(compactedContent);
-  }, [compactedContent]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [compactedContent]);
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
@@ -578,7 +578,7 @@ export function NoteEditorView({
     return () => {
       globalThis.clearTimeout(timeoutId);
     };
-  }, [currentDraftSnapshot]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentDraftSnapshot]);
 
   return (
     <>

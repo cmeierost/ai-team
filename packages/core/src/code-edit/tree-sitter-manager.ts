@@ -1,5 +1,3 @@
-import { Parser, Tree } from 'web-tree-sitter';
-
 /**
  * Language configuration for tree-sitter
  */

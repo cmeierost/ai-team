@@ -6,9 +6,7 @@ import { toCommandRegistration, toLlmToolDefinition, toSlashCommand } from './co
 describe('command-adapters runtime resolution', () => {
   it('resolves context parameters and workflow bindings before execution', async () => {
     const cmd: ICommand<
-      { sessionId?: string; target?: { id?: string } },
-      void,
-      unknown
+      { sessionId?: string; target?: { id?: string } }, unknown
     > = {
       key: 'resolve_test',
       description: 'resolve test',
@@ -28,7 +26,7 @@ describe('command-adapters runtime resolution', () => {
       execute: async (args) => args,
     };
 
-    const registration = toCommandRegistration(cmd as ICommand<unknown, void, unknown>);
+    const registration = toCommandRegistration(cmd as ICommand<unknown, unknown>);
     const result = await registration.handler(
       '/workspace',
       {},
@@ -54,7 +52,7 @@ describe('command-adapters runtime resolution', () => {
   });
 
   it('fails fast when required runtime values are still missing', async () => {
-    const cmd: ICommand<{ sessionId?: string }, void, unknown> = {
+    const cmd: ICommand<{ sessionId?: string }, unknown> = {
       key: 'required_test',
       description: 'required test',
       availableIn: { cli: true },
@@ -69,7 +67,7 @@ describe('command-adapters runtime resolution', () => {
       execute: async (args) => args,
     };
 
-    const registration = toCommandRegistration(cmd as ICommand<unknown, void, unknown>);
+    const registration = toCommandRegistration(cmd as ICommand<unknown, unknown>);
     await expect(
       registration.handler('/workspace', {}, { invocationSurface: 'cli' } as any)
     ).rejects.toThrow(/Missing required parameter\(s\) after runtime resolution: sessionId/);
@@ -78,7 +76,7 @@ describe('command-adapters runtime resolution', () => {
 
 describe('command-adapters llm metadata', () => {
   it('hides context and explicit hidden parameters from llm tool schema', () => {
-    const cmd: ICommand<{ sessionId?: string; query?: string; debug?: boolean }, void, unknown> = {
+    const cmd: ICommand<{ sessionId?: string; query?: string; debug?: boolean }, unknown> = {
       key: 'tool_test',
       description: 'tool test',
       availableIn: { tool: true },
@@ -92,7 +90,7 @@ describe('command-adapters llm metadata', () => {
       execute: async () => undefined,
     };
 
-    const def = toLlmToolDefinition(cmd as ICommand<unknown, unknown, unknown>);
+    const def = toLlmToolDefinition(cmd as ICommand<unknown, unknown>);
     const properties = (def.parameters?.properties ?? {}) as Record<string, unknown>;
 
     expect(properties.sessionId).toBeUndefined();
@@ -109,7 +107,7 @@ describe('command-adapters slash context overrides', () => {
   };
 
   it('allows human override for allowlisted context keys', async () => {
-    const cmd: ICommand<{ sessionId?: string }, SessionSnapshot, { sessionId: string }> = {
+    const cmd: ICommand<{ sessionId?: string }, { sessionId: string }> = {
       key: 'who_test',
       description: 'who test',
       availableIn: { chat: true },
@@ -119,14 +117,14 @@ describe('command-adapters slash context overrides', () => {
       execute: async (_args, ctx) => ({ sessionId: ctx.sessionId }),
     };
 
-    const slashCmd = toSlashCommand(cmd as ICommand<unknown, SessionSnapshot, unknown>);
+    const slashCmd = toSlashCommand(cmd as ICommand<unknown, unknown>);
     const result = await slashCmd.execute('{"sessionId":"sess-2"}', baseContext);
 
     expect((result as any).data).toEqual({ sessionId: 'sess-2' });
   });
 
   it('ignores overrides for non-allowlisted keys', async () => {
-    const cmd: ICommand<{ sessionId?: string }, SessionSnapshot, { sessionId: string }> = {
+    const cmd: ICommand<{ sessionId?: string }, { sessionId: string }> = {
       key: 'who_test_locked',
       description: 'who test locked',
       availableIn: { chat: true },
@@ -136,7 +134,7 @@ describe('command-adapters slash context overrides', () => {
       execute: async (_args, ctx) => ({ sessionId: ctx.sessionId }),
     };
 
-    const slashCmd = toSlashCommand(cmd as ICommand<unknown, SessionSnapshot, unknown>);
+    const slashCmd = toSlashCommand(cmd as ICommand<unknown, unknown>);
     const result = await slashCmd.execute('{"sessionId":"sess-9"}', baseContext);
 
     expect((result as any).data).toEqual({ sessionId: 'sess-1' });

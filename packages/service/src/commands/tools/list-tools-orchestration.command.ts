@@ -1,12 +1,11 @@
 import { z } from 'zod';
 import type {
-  CommandRuntime,
   ICommand,
   ToolCatalogResult,
-  ToolContext,
+  ExecutionContext,
+  CommandResponse,
 } from '@ai-team/core';
 
-import type { OrchestratorContext } from '../../orchestrator/pipeline-context.js';
 import type { ScoredPreLlmIntentCandidate } from '../../tools/pre-llm-intents.js';
 import type { IToolCatalog } from '../orchestration/orchestration.types.js';
 
@@ -24,9 +23,7 @@ export function matchesToolListPreLlmIntent(message: string): boolean {
 
 type Params = z.infer<typeof ListToolsOrchestrationCommand.schema>;
 
-export class ListToolsOrchestrationCommand
-  implements ICommand<Params, ToolContext, ToolCatalogResult>
-{
+export class ListToolsOrchestrationCommand implements ICommand<Params, ToolCatalogResult> {
   static readonly schema = z.object({
     tag: z.string().optional().describe('Filter by tag (e.g. "file", "orchestration", "hr")'),
   });
@@ -44,7 +41,7 @@ export class ListToolsOrchestrationCommand
 
   readonly scorePreLlmIntent = (
     message: string,
-    _ctx: OrchestratorContext
+    _ctx: ExecutionContext
   ): ScoredPreLlmIntentCandidate | undefined => {
     const text = message.trim();
     if (!text) return undefined;
@@ -72,18 +69,24 @@ export class ListToolsOrchestrationCommand
     return undefined;
   };
 
-  async execute(params: Params, context: ToolContext, _runtime: CommandRuntime): Promise<ToolCatalogResult> {
+  async execute(
+    params: Params,
+    ctx: ExecutionContext
+  ): Promise<CommandResponse<ToolCatalogResult>> {
     const { tag } = params;
 
-    let entries = this.tools.catalog(context.agent);
+    let entries = this.tools.catalog(ctx.agent!);
     if (tag) {
       entries = entries.filter((e) => e.tags?.includes(tag));
     }
 
     return {
-      type: 'tool_list_result',
-      entries,
-      timestamp: new Date().toISOString(),
+      status: 'ok',
+      data: {
+        type: 'tool_list_result',
+        entries,
+        timestamp: new Date().toISOString(),
+      },
     };
   }
 }

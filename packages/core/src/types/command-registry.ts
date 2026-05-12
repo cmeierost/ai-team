@@ -12,16 +12,19 @@ import type { ICommand, CommandAvailability } from './command-types.js';
  */
 export interface ICommandRegistry {
   /**
-   * Register a command. Duplicate keys are overwritten.
-   * Aliases are registered as transparent aliases to the canonical key.
+  * Register a command.
+  *
+  * Implementations must reject duplicate keys or conflicting aliases
+  * (fail-fast) to prevent silent catalog drift and ambiguous command routing.
+  * Aliases are registered as transparent aliases to the canonical key.
    */
-  register(command: ICommand<unknown, unknown, unknown>): void;
+  register(command: ICommand<unknown, unknown>): void;
 
   /**
    * Look up a command by its canonical key or any of its registered aliases.
    * Returns undefined if not found.
    */
-  get(key: string): ICommand<unknown, unknown, unknown> | undefined;
+  get(key: string): ICommand<unknown, unknown> | undefined;
 
   /**
    * Return all commands matching the optional filter.
@@ -29,7 +32,7 @@ export interface ICommandRegistry {
    */
   getAll(
     filter?: { availableIn?: Partial<CommandAvailability>; group?: string }
-  ): Array<ICommand<unknown, unknown, unknown>>;
+  ): Array<ICommand<unknown, unknown>>;
 
   /**
    * Build LLM tool definitions for all commands where `availableIn.tool = true`.

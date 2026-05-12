@@ -3,7 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { resolve } from 'node:path';
 import { ServiceDomainError } from '../../errors.js';
-import { findWorkspaceRoot } from '../utils/workspace.js';
+import { findWorkspaceRoot } from '../../utils/workspace.js';
 
 const DEFAULT_API_PORT = 3002;
 const API_HOST = '127.0.0.1';

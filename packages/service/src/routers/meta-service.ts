@@ -4,9 +4,8 @@ import type {
   IContextService,
   IPlanningService,
   WorkflowDefinitionApiResponse,
-  WorkflowDefinitionDocument,
 } from '@ai-team/api-contracts';
-import type { IAgentManager, AgentTool, IAgentDocumentStorage, ISkillManager } from '@ai-team/core';
+import type { IAgentManager, ICommand, IAgentDocumentStorage, ISkillManager } from '@ai-team/core';
 import { toolKey, type LlmToolDefinition, type ToolManager } from '../tools/tool-manager.js';
 import type { IMcpGateway } from '../orchestrator/pipeline.js';
 import type { SessionManager } from '../session-manager.js';
@@ -109,12 +108,12 @@ export class MetaService implements IContextService {
     }
 
     const staticTools = this.toolManager.getForAgent(agent);
-    const discoverMcpTools = (this.mcpGateway as { discover?: () => Promise<AgentTool[]> })
+    const discoverMcpTools = (this.mcpGateway as { discover?: () => Promise<ICommand[]> })
       ?.discover;
     const mcpTools =
       typeof discoverMcpTools === 'function'
         ? await discoverMcpTools.call(this.mcpGateway)
-        : ([] as AgentTool[]);
+        : ([] as ICommand[]);
 
     const defsByName = new Map<string, LlmToolDefinition>();
     for (const tool of [...staticTools, ...mcpTools]) {
@@ -233,7 +232,7 @@ export class MetaService implements IContextService {
     };
   }
 
-  private toToolDefinition(tool: AgentTool): LlmToolDefinition {
+  private toToolDefinition(tool: ICommand): LlmToolDefinition {
     const key = toolKey(tool);
     const fromManager = this.toolManager.toSchema(key);
     if (fromManager) return fromManager;

@@ -1,5 +1,4 @@
 import type { z } from 'zod';
-import type { IContainerToken } from './runtime-contracts.js';
 import type { Agent } from './agent-models.js';
 import type { ChatMessage } from './communication.js';
 import type { PermissionDescriptor } from './tool-types.js';
@@ -11,11 +10,13 @@ import type { PermissionDescriptor } from './tool-types.js';
  *
  * - `cli`  — available as a CLI subcommand
  * - `chat` — available as a chat slash command (/ prefix)
+ * - `cliChat` — available as a chat slash command only in CLI chat sessions
  * - `tool` — exposed to the LLM as a callable tool
  */
 export interface CommandAvailability {
   cli?: boolean;
   chat?: boolean;
+  cliChat?: boolean;
   /** Exposed to the LLM as a callable tool. */
   tool?: boolean;
 }
@@ -68,19 +69,16 @@ export interface WorkflowInputBinding {
   fromWorkflowData?: string;
 }
 
-// ── CommandRuntime ────────────────────────────────────────────────────────────
+// ── ExecutionContext ─────────────────────────────────────────────────────────
 
 /**
- * Stateless runtime dependencies injected by the dispatcher for the duration
- * of a single command execution. Does NOT carry mutable session state.
+ * Serializable runtime context passed to every command execution.
+ * Contains only plain values — no service instances, no function bridges.
  *
- * Question-bridge types are intentionally inlined (no api-contracts import)
- * to keep core self-contained.
- * 
- * Note: Commands should receive their dependencies via DI (constructor injection).
- * The `resolve` field is NOT available — all services must be DI-injected.
+ * All services (agentManager, sessionManager, etc.) and callable capabilities
+ * (emit, question bridges) must be injected via constructor.
  */
-export interface CommandRuntime {
+export interface ExecutionContext {
   /** Invocation surface for the current command execution. */
   invocationSurface?: 'slash' | 'tool' | 'cli' | 'api';
   /** Caller type resolved by runtime policy. */
@@ -91,64 +89,86 @@ export interface CommandRuntime {
   workspaceRoot: string;
   /** ID of the agent executing this command, if called by an agent. */
   agentId?: string;
+
+  /** The agent currently handling the user's message. */
+  agent?: Agent;
   /** Session identifier when invocation is session-bound. */
   sessionId?: string;
   /** Workflow identifier when invocation is workflow-bound. */
   workflowId?: string;
-  /** Last workflow step result for workflow-bound parameter binding. */
-  workflowLastResult?: unknown;
-  /** Workflow-carried data payload for workflow-bound parameter binding. */
-  workflowData?: Record<string, unknown>;
+  workflowInstanceId?: string;
   /** Abort signal from the calling surface. */
   signal?: AbortSignal;
-  /** Emit a runtime stream event (typed as unknown to keep core free of api-contracts). */
+
+  /** Message history for the current agent session. */
+  history: ChatMessage[];
+
+  currentFiles?: string[];
+
+  /** Runtime tool manager injected by the service layer. */
+  toolManager?: unknown;
+
+  /** Runtime session manager injected by the service layer. */
+  sessionManager?: unknown;
+
+  /** Runtime agent manager injected by the service layer. */
+  agentManager?: unknown;
+
+  /** Runtime skill manager injected by the service layer. */
+  skillManager?: unknown;
+
+  /** Runtime LLM service injected by the service layer. */
+  llmService?: unknown;
+
+  /** Runtime tool dispatcher injected by the service layer. */
+  toolDispatcher?: unknown;
+
+  /** Loaded workspace instructions for the active session. */
+  instructions?: unknown;
+
+  /** Back-navigation stack for agent handoff chains. Mutated by /back. */
+  navStack?: SessionNavEntry[];
+
+  /** Back-navigation stack for handoff chains. */
+  /**
+   * Per-request interaction bridge. Populated by adapter at dispatch time.
+   * Uses broad `unknown` param types to avoid circular deps with api-contracts.
+   */
   emit?: (event: unknown) => void;
+  questionInput?: (request: unknown) => Promise<string>;
+  questionConfirm?: (request: unknown) => Promise<boolean>;
+  questionSelect?: (request: unknown) => Promise<string>;
+  questionPassword?: (request: unknown) => Promise<string>;
+  questionChecklist?: (request: unknown) => Promise<string[]>;
+  workflowState?: unknown;
+  onWorkflowFrame?: (frame: unknown) => void;
 
-  // ── Question bridges ────────────────────────────────────────────────────────
-  questionInput?: (request: { message: string }) => Promise<string>;
-  questionConfirm?: (request: {
-    message: string;
-    default?: boolean;
-    style?: 'confirm' | 'allow';
-  }) => Promise<boolean>;
-  questionSelect?: (request: {
-    message: string;
-    choices: Array<{ name: string; value: string; description?: string; recommended?: boolean }>;
-    default?: string;
-    allowOther?: boolean;
-    otherLabel?: string;
-    otherPrompt?: string;
-  }) => Promise<string>;
-  questionPassword?: (request: { message: string; mask?: string }) => Promise<string>;
-  questionChecklist?: (request: {
-    message: string;
-    choices: Array<{ name: string; value: string; description?: string; recommended?: boolean }>;
-    default?: string[];
-    minSelections?: number;
-    maxSelections?: number;
-    allowOther?: boolean;
-    otherLabel?: string;
-    otherPrompt?: string;
-  }) => Promise<string[]>;
-
-  // ── Workflow hooks (inlined to keep core free of api-contracts) ─────────────
-  /** Pre-populated workflow answers for replay/resume scenarios. */
-  workflowState?: {
-    workflowId: string;
-    continuationToken?: string;
-    answers: Record<string, string | boolean | number | string[] | Record<string, string>>;
+  /** Optional path permission checker injected by runtime. */
+  pathPermissionChecker?: {
+    canReadPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+    canWritePath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+    canListPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
+    assertCanReadPath(
+      workspaceRoot: string,
+      contextId: string,
+      permissions: unknown,
+      filePath: string
+    ): void;
+    assertCanWritePath(
+      workspaceRoot: string,
+      contextId: string,
+      permissions: unknown,
+      filePath: string
+    ): void;
   };
-  /** Called for each workflow step frame to support multi-step workflow UI. */
-  onWorkflowFrame?: (frame: {
-    workflowId: string;
-    stepId: string;
-    continuationToken?: string;
-    /** Typed as unknown to avoid importing api-contracts into core. */
-    question?: unknown;
-    completed?: boolean;
-    result?: unknown;
-    error?: string;
-  }) => void;
+  /** LSP code-intelligence provider (injected by ToolManager when available). */
+  lsp?: {
+    execute(operation: string, params: unknown): Promise<unknown>;
+    isAvailable(): boolean;
+  };
+
+  /** Nested runtime hook bridge used by orchestration layers. */
+  hooks?: unknown;
 }
 
 // ── SessionSnapshot ───────────────────────────────────────────────────────────
@@ -158,16 +178,6 @@ export interface CommandRuntime {
  * single chat session. Commands that mutate this (e.g. /chat, /back, /new)
  * should declare it as TContext.
  */
-export interface SessionSnapshot {
-  /** The agent currently handling the user's message. */
-  agent: Agent;
-  /** Active session ID. */
-  sessionId: string;
-  /** Message history for the current agent session. */
-  history: ChatMessage[];
-  /** Back-navigation stack for handoff chains. */
-  navStack?: SessionNavEntry[];
-}
 
 export interface SessionNavEntry {
   agentId: string;
@@ -175,14 +185,19 @@ export interface SessionNavEntry {
   agentName: string;
 }
 
-/**
- * DI token for the mutable per-session snapshot.
- * The orchestrator registers this into a scoped child container at session start.
- * Slash commands and workflows that need session state resolve this token.
- */
-export const SESSION_CONTEXT_TOKEN: IContainerToken<SessionSnapshot> = {
-  id: 'SessionSnapshot',
-  toString: () => 'Token(SessionSnapshot)',
+export type ToolIntentMatcher = (input: string) => boolean;
+
+export type CommandResponseError = {
+  code?: string;
+  message: string;
+  details?: unknown;
+};
+
+export type CommandResponse<T = unknown> = {
+  status: 'ok' | 'error';
+  message?: string;
+  data?: T;
+  error?: CommandResponseError;
 };
 
 // ── ICommand ──────────────────────────────────────────────────────────────────
@@ -193,18 +208,25 @@ export const SESSION_CONTEXT_TOKEN: IContainerToken<SessionSnapshot> = {
  * `availableIn` flags are the only thing that determines where it is exposed:
  *   - `availableIn.cli`  → CLI subcommand
  *   - `availableIn.chat` → chat slash command (/ prefix in interactive sessions)
+ *   - `availableIn.cliChat` → chat slash command available only in CLI sessions
  *   - `availableIn.llm`  → LLM-callable tool (requires `parameters`)
  *
  * Generics:
  *   - TParams  — typed input arguments (unknown by default)
- *   - TContext — mutable state that persists beyond this call (void = none)
  *   - TResult  — return type (must always be specified explicitly)
+ *   - TCtx     — execution context type (defaults to ExecutionContext; use ToolContext for LLM tools)
  *
- * When TContext is void, pass `undefined` as the context argument.
+ * Services are injected via constructor. `execute` receives only typed params
+ * and the serializable context.
  */
-export interface ICommand<TParams = unknown, TContext = void, TResult = unknown> {
+export interface ICommand<TParams = unknown, TResult = unknown> {
   // ── Metadata ────────────────────────────────────────────────────────────────
   readonly key: string;
+  /**
+   * Optional pre-LLM intent matcher for text-triggered routing.
+   * When absent, the runtime falls back to explicit tool/function calls.
+   */
+  matchesIntent?: ToolIntentMatcher;
   readonly aliases?: string[];
 
   /** Human-readable description. Shown in /help, --help, and discovery surfaces. */
@@ -264,5 +286,5 @@ export interface ICommand<TParams = unknown, TContext = void, TResult = unknown>
   formatForLlm?(result: TResult): unknown;
 
   // ── Execution ────────────────────────────────────────────────────────────────
-  execute(args: TParams, context: TContext, runtime: CommandRuntime): Promise<TResult>;
+  execute(params: TParams, ctx: ExecutionContext): Promise<CommandResponse<TResult>>;
 }

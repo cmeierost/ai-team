@@ -18,13 +18,18 @@ import type {
   IPathPermissionChecker,
   IAgentDocumentStorage,
   IProposalStoreFactory,
+  IDeveloperIdentityService,
+  IServiceContainer,
   Agent,
   ChatMessage,
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
 } from '@ai-team/core';
+import { z } from 'zod';
 import { ContextLevel, RoleType, resolveEffectiveLlmSettings } from '@ai-team/core';
 import type { IContextService, OnboardOptions } from '@ai-team/api-contracts';
 import { SessionManager } from '../../session-manager.js';
-import type { CommandExecute } from '../command-contract.js';
 import {
   createRoleTemplates,
   createBootstrapWorkspaceFiles,
@@ -56,7 +61,6 @@ import {
   type OnboardingWorkflowPhase,
 } from '../init/onboarding-workflow-definition.js';
 import { getPersonalityForHire } from './hire.js';
-import { getGitUserName } from '../../utils/git.js';
 
 // ── HIRE: directive parsing ──────────────────────────────────────────────────
 
@@ -123,11 +127,55 @@ export interface OnboardCommandParams {
   injected?: { sessionManager?: SessionManager };
 }
 
-export class OnboardCommand implements CommandExecute<
-  OnboardCommandParams,
-  InitRuntimeHooks | undefined,
-  void
-> {
+type OnboardICommandParams = z.infer<typeof OnboardICommand.schema>;
+
+function runtimeToInitHooks(runtime: ExecutionContext): InitRuntimeHooks {
+  return {
+    signal: runtime.signal,
+    emit: runtime.emit as InitRuntimeHooks['emit'],
+    questionInput: runtime.questionInput,
+    questionConfirm: runtime.questionConfirm,
+    questionSelect: runtime.questionSelect,
+    questionPassword: runtime.questionPassword,
+    questionChecklist: runtime.questionChecklist,
+    workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
+    onWorkflowFrame: runtime.onWorkflowFrame,
+  };
+}
+
+export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
+  static readonly schema = z.object({
+    options: z.any().optional(),
+  });
+
+  readonly key = 'onboard';
+  readonly cli = { command: 'onboard' };
+  readonly description = 'Run team onboarding (CEO + HR + hiring)';
+  readonly availableIn = { cli: true, chat: true };
+  readonly group = 'hr';
+  readonly parameters = OnboardICommand.schema;
+
+  constructor(
+    private readonly onboardCommand: Pick<OnboardCommand, 'execute'>,
+    private readonly sessionManager?: SessionManager
+  ) {}
+
+  async execute(
+    payload: OnboardICommandParams,
+    ctx: ExecutionContext
+  ): Promise<CommandResponse<void>> {
+    await this.onboardCommand.execute(
+      {
+        options: (payload.options ?? {}) as OnboardOptions,
+        injected: this.sessionManager ? { sessionManager: this.sessionManager } : undefined,
+      },
+      runtimeToInitHooks(ctx)
+    );
+    return { status: 'ok' };
+  }
+}
+
+export class OnboardCommand {
   constructor(
     private readonly agentManager: IAgentManager,
     private readonly configurationStorage: IConfigurationStorage,
@@ -141,6 +189,8 @@ export class OnboardCommand implements CommandExecute<
     private readonly pathPermissionChecker: IPathPermissionChecker,
     private readonly contextService: Pick<IContextService, 'getContextEstimate'>,
     private readonly defaultSessionManager?: SessionManager,
+    private readonly developerIdentityService?: IDeveloperIdentityService,
+    private readonly serviceContainer?: IServiceContainer
   ) {}
 
   async execute(params: OnboardCommandParams = {}, hooks?: InitRuntimeHooks): Promise<void> {
@@ -311,7 +361,7 @@ export class OnboardCommand implements CommandExecute<
       ],
     });
 
-    const developerName = getGitUserName();
+    const developerName = this.developerIdentityService?.getUserName();
     const onboardingWorkflow = loadOnboardingWorkflowDefinitionFromTemplates({
       templates,
       ceoName,
@@ -495,8 +545,6 @@ export class OnboardCommand implements CommandExecute<
     hooks?: InitRuntimeHooks,
     sessionManager?: SessionManager
   ): Promise<ChatMessage[]> {
-    const workspaceRoot = this.agentManager.workspaceRoot;
-
     await this.startChatAsync(
       llm,
       agent.id,
@@ -541,36 +589,63 @@ export class OnboardCommand implements CommandExecute<
     injected?: { sessionManager?: SessionManager }
   ): Promise<void> {
     const workspaceRoot = this.agentManager.workspaceRoot;
-    const { ChatCommand } = await import('../chat/index.js');
+    const { InfoChatCommand, ChatCommand, ChatInfoService, ChatPreflightService } =
+      await import('../chat/index.js');
+    const sessionManager = injected?.sessionManager ?? this.defaultSessionManager;
+    if (!sessionManager) {
+      throw new Error('OnboardCommand requires a SessionManager to start workflow chat phases.');
+    }
+    if (!this.developerIdentityService) {
+      throw new Error(
+        'OnboardCommand requires DeveloperIdentityService to start workflow chat phases.'
+      );
+    }
+    if (!this.serviceContainer) {
+      throw new Error(
+        'OnboardCommand requires IServiceContainer to resolve orchestration commands in workflow chats.'
+      );
+    }
 
     const cmd = new ChatCommand(
-      this.configurationStorage,
-      this.environmentStorage,
-      this.agentDocumentStorage,
-      this.agentManager,
-      llm,
-      this.skillManager,
-      this.markdownSectionService,
-      this.pathPermissionChecker,
-      this.proposalStoreFactory,
-      this.contextService,
-      injected?.sessionManager
+      {
+        configurationStorage: this.configurationStorage,
+        environmentStorage: this.environmentStorage,
+        developerIdentityService: this.developerIdentityService,
+        contextService: this.contextService,
+      },
+      {
+        agentManager: this.agentManager,
+        agentDocumentStorage: this.agentDocumentStorage,
+        markdownSectionService: this.markdownSectionService,
+        skillManager: this.skillManager,
+      },
+      {
+        sessionManager,
+        llmService: llm,
+        proposalStoreFactory: this.proposalStoreFactory,
+      },
+      {
+        pathPermissionChecker: this.pathPermissionChecker,
+        serviceContainer: this.serviceContainer,
+      },
+      new ChatInfoService(),
+      new ChatPreflightService(
+        this.configurationStorage,
+        this.environmentStorage,
+        this.developerIdentityService
+      ),
+      new InfoChatCommand(this.agentManager)
     );
 
-    await cmd.execute(
-      workspaceRoot,
-      agentId,
-      options,
-      {
-        signal: hooks?.signal,
-        emit: hooks?.emit,
-        questionInput: hooks?.questionInput,
-        questionConfirm: hooks?.questionConfirm,
-        questionSelect: hooks?.questionSelect,
-        questionPassword: hooks?.questionPassword,
-        questionChecklist: hooks?.questionChecklist,
-      }
-    );
+    await cmd.execute(workspaceRoot, agentId, options, {
+      signal: hooks?.signal,
+      emit: hooks?.emit,
+      questionInput: hooks?.questionInput,
+      questionConfirm: hooks?.questionConfirm,
+      questionSelect: hooks?.questionSelect,
+      questionPassword: hooks?.questionPassword,
+      questionChecklist: hooks?.questionChecklist,
+    });
   }
 
   private async saveOnboardingPhaseTranscriptAsync(

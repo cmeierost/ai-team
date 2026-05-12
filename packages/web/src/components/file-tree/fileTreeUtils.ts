@@ -112,7 +112,6 @@ export function getVisiblePatternGroups(
   const agentListPatterns = patterns?.agent?.listPaths ?? data?.listPatterns ?? [];
   const globalReadPatterns = patterns?.global.readPaths ?? [];
   const globalWritePatterns = patterns?.global.writePaths ?? [];
-  const globalListPatterns = patterns?.global.listPaths ?? [];
 
   // List permission defaults to all files (**) when no explicit pattern is configured.
   const DEFAULT_LIST = ['**'];

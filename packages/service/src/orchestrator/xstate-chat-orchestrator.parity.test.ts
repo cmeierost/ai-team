@@ -20,10 +20,9 @@ import { XStateChatOrchestrator } from './xstate-chat-orchestrator.js';
 import { runChatLoopWorkflowAsync } from '../workflow/xstate-chat-loop-engine.js';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import { tryNlForward } from './handoff.js';
-import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
 
-function makeContext(): OrchestratorContext {
+function makeContext(): ExecutionContext {
   return {
     agent: { id: 'emily-davis', name: 'Emily Davis', role: 'frontend-developer' } as any,
     workspaceRoot: '/workspace',

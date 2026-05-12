@@ -1,16 +1,17 @@
 import { z } from 'zod';
 import type {
   ICommand,
-  CommandRuntime,
   IAgentManager,
   IConfigurationStorage,
   IPermissionStorage,
+  ExecutionContext,
+  CommandResponse,
 } from '@ai-team/core';
 import type { FilesPatternsResponse } from '@ai-team/api-contracts';
 
 type Params = z.infer<typeof FilesPatternsCommand.schema>;
 
-export class FilesPatternsCommand implements ICommand<Params, void, FilesPatternsResponse> {
+export class FilesPatternsCommand implements ICommand<Params, FilesPatternsResponse> {
   static readonly schema = z.object({
     agent: z.string().optional().describe('Show patterns for a specific agent'),
     json: z.boolean().optional().describe('Output as JSON'),
@@ -31,17 +32,16 @@ export class FilesPatternsCommand implements ICommand<Params, void, FilesPattern
 
   async execute(
     payload: Params,
-    _ctx: void,
-    runtime: CommandRuntime
-  ): Promise<FilesPatternsResponse> {
-    const config = await this.configStorage.loadTeamConfigAsync(runtime.workspaceRoot);
+    ctx: ExecutionContext
+  ): Promise<CommandResponse<FilesPatternsResponse>> {
+    const config = await this.configStorage.loadTeamConfigAsync(ctx.workspaceRoot);
     const global = {
       read: config?.fileTree?.readPaths ?? [],
       write: config?.fileTree?.writePaths ?? [],
     };
 
     if (!payload.agent) {
-      return { global };
+      return { status: 'ok', data: { global } };
     }
 
     const matches = await this.agents.resolveAgentAsync(payload.agent);
@@ -52,9 +52,12 @@ export class FilesPatternsCommand implements ICommand<Params, void, FilesPattern
     const patterns = await this.permStorage.loadAsync(agent.id);
 
     return {
-      global,
-      agent: { id: agent.id, name: agent.name, role: agent.role },
-      agentPatterns: { read: patterns.read ?? [], write: patterns.write ?? [] },
+      status: 'ok',
+      data: {
+        global,
+        agent: { id: agent.id, name: agent.name, role: agent.role },
+        agentPatterns: { read: patterns.read ?? [], write: patterns.write ?? [] },
+      },
     };
   }
 }

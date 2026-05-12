@@ -7,18 +7,19 @@
  *   preserving the legacy public API and behavior.
  */
 
-import type { ChatMessage } from '@ai-team/core';
+import type { ChatMessage, ExecutionContext, IAgentManager, ILlmService } from '@ai-team/core';
 import { isCommandResponse } from '@ai-team/api-contracts';
 import type { CommandResponse, RuntimeStreamEvent } from '@ai-team/api-contracts';
 
 import { emitLog, emitStatus } from './stream-events.js';
 import { resolvePreLlmIntent, type PreLlmIntent } from '../tools/pre-llm-intents.js';
-import { dispatchToolCall } from './tool-dispatch.js';
-import { executeHandoff, tryNlForward } from './handoff.js';
-import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
+import { ToolDispatcher } from './tool-dispatch.js';
+import { HandoffOrchestrator } from './handoff.js';
 import { runChatLoopWorkflowAsync } from '../workflow/xstate-chat-loop-engine.js';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
+import type { SessionManager } from '../session-manager.js';
+import type { ChatRuntimeHooks } from './hooks.js';
 
 const AUTO_REACT_MESSAGE =
   '[Handoff received] You have just been handed this conversation. Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.';
@@ -31,14 +32,24 @@ export interface RunOptions {
 
 export class XStateChatOrchestrator {
   private preLlmUserMessagePersisted = false;
+  private preTurnUserMessageOverride: string | undefined;
+
+  private lastManualOutput: string | undefined;
 
   constructor(
-    private readonly ctx: OrchestratorContext,
-    private readonly plugins: ResolvedPlugins
+    private readonly ctx: ExecutionContext,
+    private readonly plugins: ResolvedPlugins,
+    private readonly toolDispatcher: ToolDispatcher,
+    private readonly handoffOrchestrator: HandoffOrchestrator,
+    private readonly hooks: ChatRuntimeHooks,
+    private readonly agentManager: IAgentManager,
+    private readonly sessionManager: SessionManager,
+    private readonly llmService: ILlmService
   ) {}
 
   async run(options: RunOptions): Promise<string> {
     this.preLlmUserMessagePersisted = false;
+    this.preTurnUserMessageOverride = undefined;
     let lastTurnResult: TurnResult | undefined;
     let wasForwardedInPreturn = false;
 
@@ -65,21 +76,27 @@ export class XStateChatOrchestrator {
           };
         },
         runSendTurnAsync: async ({ message, hop }) => {
+          const effectiveMessage =
+            hop === 0 && this.preTurnUserMessageOverride
+              ? this.preTurnUserMessageOverride
+              : message;
+
           const output = await runSendTurnMachineAsync({
-            userMessage: message,
+            userMessage: effectiveMessage,
             hop,
             ctx: this.ctx,
             plugins: this.plugins,
             options: {
               skipPersist:
                 hop > 0 ||
-                message === AUTO_REACT_MESSAGE ||
+                effectiveMessage === AUTO_REACT_MESSAGE ||
                 (hop === 0 && this.preLlmUserMessagePersisted),
             },
           });
 
           if (hop === 0) {
             this.preLlmUserMessagePersisted = false;
+            this.preTurnUserMessageOverride = undefined;
           }
 
           lastTurnResult = output.turnResult;
@@ -94,16 +111,16 @@ export class XStateChatOrchestrator {
           }
 
           const targetKnown =
-            (await this.ctx.agentManager.getAgentAsync(current.handoffTargetId)) ||
-            (await this.ctx.agentManager.resolveAgentAsync(current.handoffTargetId)).find(
-              (agent) => agent.id !== this.ctx.agent.id
+            (await this.agentManager.getAgentAsync(current.handoffTargetId)) ||
+            (await this.agentManager.resolveAgentAsync(current.handoffTargetId)).find(
+              (agent: any) => agent.id !== this.ctx.agent!.id
             );
 
           if (!targetKnown) {
             emitLog(
-              this.ctx.hooks,
+              this.hooks,
               'warn',
-              `Handoff requested to unknown agent "${current.handoffTargetId}" — staying with ${this.ctx.agent.name}.`
+              `Handoff requested to unknown agent "${current.handoffTargetId}" — staying with ${this.ctx.agent!.name}.`
             );
             return {
               outcome: 'normal_complete' as const,
@@ -123,7 +140,7 @@ export class XStateChatOrchestrator {
         runHandoffTransitionAsync: async ({ handoff }) => {
           if (!handoff.handoffTargetId) return {};
 
-          const switched = await executeHandoff(
+          const switched = await this.handoffOrchestrator.executeHandoff(
             this.ctx,
             handoff.handoffTargetId,
             handoff.handoffTargetSessionId,
@@ -136,11 +153,11 @@ export class XStateChatOrchestrator {
             );
           }
 
-          emitStatus(this.ctx.hooks, 'handoff', `${this.ctx.agent.name} taking over.`);
+          emitStatus(this.hooks, 'handoff', `${this.ctx.agent!.name} taking over.`);
           return { autoMessage: AUTO_REACT_MESSAGE };
         },
         runFailureAsync: async ({ error, state }) => {
-          emitLog(this.ctx.hooks, 'error', `[xstate-chat-loop] ${state}: ${error}`);
+          emitLog(this.hooks, 'error', `[xstate-chat-loop] ${state}: ${error}`);
         },
       }
     );
@@ -162,7 +179,8 @@ export class XStateChatOrchestrator {
   ): Promise<string | undefined> {
     // ── Slash command intercept ─────────────────────────────────────────────
     const slashResult = await this.trySlashCommand(message);
-    if (slashResult !== null) return slashResult;
+    if (slashResult.kind === 'consumed') return slashResult.text;
+    if (slashResult.kind === 'continue') return undefined;
 
     // ── Scored pre-LLM tool intents (tool/workflow-driven) ─────────────────
     const preLlmIntentExecuted = await this.tryPreLlmIntent(message, contextFiles);
@@ -171,7 +189,7 @@ export class XStateChatOrchestrator {
     }
 
     // ── Natural-language forward detection ──────────────────────────────────
-    const nlResult = await tryNlForward(message, this.ctx);
+    const nlResult = await this.handoffOrchestrator.tryNlForward(message, this.ctx);
     if (nlResult === null) return undefined;
 
     if (nlResult === 'forwarded') {
@@ -182,15 +200,17 @@ export class XStateChatOrchestrator {
     return nlResult;
   }
 
-  private async trySlashCommand(message: string): Promise<string | null> {
+  private async trySlashCommand(
+    message: string
+  ): Promise<{ kind: 'ignored' } | { kind: 'consumed'; text: string } | { kind: 'continue' }> {
     const trimmed = message.trim();
-    if (!trimmed.startsWith('/')) return null;
+    if (!trimmed.startsWith('/')) return { kind: 'ignored' };
 
     const [rawKey, ...rest] = trimmed.slice(1).split(/\s+/);
     const key = (rawKey ?? '').toLowerCase();
     if (!key) {
-      emitLog(this.ctx.hooks, 'warn', 'Please enter a slash command name. Try /help.');
-      return '';
+      emitLog(this.hooks, 'warn', 'Please enter a slash command name. Try /help.');
+      return { kind: 'consumed', text: '' };
     }
     const rawArgs = rest.join(' ');
 
@@ -199,8 +219,8 @@ export class XStateChatOrchestrator {
     );
 
     if (!command) {
-      emitLog(this.ctx.hooks, 'warn', `Unknown command: /${key}. Try /help.`);
-      return '';
+      emitLog(this.hooks, 'warn', `Unknown command: /${key}. Try /help.`);
+      return { kind: 'consumed', text: '' };
     }
 
     const { executionResult, capturedEvents } = await this.executeSlashCommandWithCapture(
@@ -209,9 +229,37 @@ export class XStateChatOrchestrator {
     );
 
     this.emitSlashCommandResponseEvent(key, rawArgs, executionResult);
+    const promptForwardText = this.extractPromptForwardText(executionResult);
     this.handleSlashExecutionResult(executionResult);
     await this.persistSlashCommandExecution(key, rawArgs, executionResult, capturedEvents);
-    return '';
+    if (promptForwardText) {
+      this.preTurnUserMessageOverride = promptForwardText;
+      return { kind: 'continue' };
+    }
+    return { kind: 'consumed', text: '' };
+  }
+
+  private extractPromptForwardText(executionResult: unknown): string | undefined {
+    if (!isCommandResponse(executionResult)) {
+      return undefined;
+    }
+
+    const data = executionResult.data;
+    if (!data || typeof data !== 'object') {
+      return undefined;
+    }
+
+    const candidate = data as { source?: unknown; promptText?: unknown };
+    if (candidate.source !== 'prompt') {
+      return undefined;
+    }
+
+    if (typeof candidate.promptText !== 'string') {
+      return undefined;
+    }
+
+    const trimmed = candidate.promptText.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
   private handleSlashExecutionResult(executionResult: CommandResponse | void): void {
@@ -221,11 +269,11 @@ export class XStateChatOrchestrator {
     this.sendMessage(executionResult.message, level);
 
     const saveable = executionResult.saveable ?? executionResult.data ?? executionResult;
-    this.ctx.lastManualOutput = this.serializeForStorage(saveable);
+    this.lastManualOutput = this.serializeForStorage(saveable);
   }
 
   private sendMessage(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
-    emitLog(this.ctx.hooks, level, message);
+    emitLog(this.hooks, level, message);
   }
 
   private async executeSlashCommandWithCapture(
@@ -233,21 +281,17 @@ export class XStateChatOrchestrator {
     rawArgs: string
   ): Promise<{ executionResult: CommandResponse | void; capturedEvents: RuntimeStreamEvent[] }> {
     const capturedEvents: RuntimeStreamEvent[] = [];
-    const originalEmit = this.ctx.hooks.emit;
+    const originalEmit = this.hooks.emit;
 
     if (originalEmit) {
-      this.ctx.hooks.emit = (event) => {
+      this.hooks.emit = (event: any) => {
         capturedEvents.push(event);
         originalEmit(event);
       };
     }
 
     try {
-      const rawResult = await command.execute(rawArgs, this.ctx, {
-        invocationSurface: 'slash',
-        workspaceRoot: this.ctx.workspaceRoot,
-        agentId: this.ctx.agent.id,
-      });
+      const rawResult = await command.execute(rawArgs, this.ctx);
       const executionResult = this.toCommandResponse(rawResult, command.key);
       return { executionResult, capturedEvents };
     } catch (error) {
@@ -264,7 +308,7 @@ export class XStateChatOrchestrator {
       };
     } finally {
       if (originalEmit) {
-        this.ctx.hooks.emit = originalEmit;
+        this.hooks.emit = originalEmit;
       }
     }
   }
@@ -274,7 +318,7 @@ export class XStateChatOrchestrator {
     capturedEvents: RuntimeStreamEvent[]
   ): string | undefined {
     const eventLines = capturedEvents
-      .map((event) => {
+      .map((event: any) => {
         if (event.kind === 'log' && event.message) {
           return event.message;
         }
@@ -333,7 +377,7 @@ export class XStateChatOrchestrator {
       return;
     }
 
-    this.ctx.hooks.emit?.({
+    this.hooks.emit?.({
       kind: 'tool',
       toolName: `slash:${commandKey}`,
       toolPhase: executionResult.status === 'error' ? 'error' : 'result',
@@ -392,7 +436,7 @@ export class XStateChatOrchestrator {
     const persisted: ChatMessage = {
       timestamp: new Date().toISOString(),
       from: 'human',
-      to: this.ctx.agent.id,
+      to: this.ctx.agent!.id,
       isHuman: true,
       content: rendered,
       hiddenFromLlm: true,
@@ -409,7 +453,7 @@ export class XStateChatOrchestrator {
       ],
     };
 
-    await this.ctx.sessionManager.appendMessage(this.ctx.sessionId, persisted);
+    await this.sessionManager.appendMessage(this.ctx.sessionId!!, persisted);
     this.ctx.history.push(persisted);
   }
 
@@ -425,7 +469,7 @@ export class XStateChatOrchestrator {
     contextFiles?: string[]
   ): Promise<boolean> {
     if (intent.kind === 'tool') {
-      await dispatchToolCall(
+      await this.toolDispatcher.dispatch(
         {
           toolCallId: `pre-llm-intent-${Date.now()}`,
           toolName: intent.toolName,
@@ -437,7 +481,7 @@ export class XStateChatOrchestrator {
       return true;
     }
 
-    const askResult = await dispatchToolCall(
+    const askResult = await this.toolDispatcher.dispatch(
       {
         toolCallId: `pre-llm-intent-ask-${Date.now()}`,
         toolName: 'com_ask',
@@ -448,7 +492,11 @@ export class XStateChatOrchestrator {
     );
 
     if (askResult.isError) {
-      emitLog(this.ctx.hooks, 'warn', 'Pre-LLM clarification failed; continuing without auto-tool execution.');
+      emitLog(
+        this.hooks,
+        'warn',
+        'Pre-LLM clarification failed; continuing without auto-tool execution.'
+      );
       return false;
     }
 
@@ -456,12 +504,16 @@ export class XStateChatOrchestrator {
     const resolvedArgs = intent.resolveArgs(answer);
     if (!resolvedArgs) {
       if (intent.ask.kind !== 'confirm') {
-        emitLog(this.ctx.hooks, 'warn', 'Pre-LLM clarification did not produce executable tool arguments.');
+        emitLog(
+          this.hooks,
+          'warn',
+          'Pre-LLM clarification did not produce executable tool arguments.'
+        );
       }
       return false;
     }
 
-    await dispatchToolCall(
+    await this.toolDispatcher.dispatch(
       {
         toolCallId: `pre-llm-intent-${Date.now()}`,
         toolName: intent.toolName,
@@ -473,10 +525,7 @@ export class XStateChatOrchestrator {
     return true;
   }
 
-  private async tryPreLlmIntent(
-    message: string,
-    contextFiles?: string[]
-  ): Promise<boolean> {
+  private async tryPreLlmIntent(message: string, contextFiles?: string[]): Promise<boolean> {
     const intent = await resolvePreLlmIntent(
       message,
       this.ctx,
@@ -498,26 +547,25 @@ export class XStateChatOrchestrator {
     const userMsg: ChatMessage = {
       timestamp: new Date().toISOString(),
       from: 'human',
-      to: this.ctx.agent.id,
+      to: this.ctx.agent!.id,
       isHuman: true,
       content: message,
     };
 
-    const generatedTitle = await this.ctx.sessionManager.appendMessage(
-      this.ctx.sessionId,
+    const generatedTitle = await this.sessionManager.appendMessage(
+      this.ctx.sessionId!!,
       userMsg,
-      this.ctx.llmService
+      this.llmService
     );
 
     if (generatedTitle) {
-      this.ctx.hooks?.emit?.({
+      this.hooks?.emit?.({
         kind: 'session_title_updated',
-        sessionId: this.ctx.sessionId,
+        sessionId: this.ctx.sessionId!!,
         title: generatedTitle,
       });
     }
 
     this.ctx.history.push(userMsg);
   }
-
 }

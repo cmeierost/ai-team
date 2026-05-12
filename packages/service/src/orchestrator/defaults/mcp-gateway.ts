@@ -4,11 +4,11 @@
  * without touching the orchestrator.
  */
 
-import type { AgentTool } from '@ai-team/core';
+import type { ICommand } from '@ai-team/core';
 import type { IMcpGateway } from '../pipeline.js';
 
 export class NoOpMcpGateway implements IMcpGateway {
-  async discover(): Promise<AgentTool[]> {
+  async discover(): Promise<ICommand[]> {
     return [];
   }
 }

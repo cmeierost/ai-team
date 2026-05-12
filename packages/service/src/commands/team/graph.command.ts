@@ -1,10 +1,15 @@
 import { z } from 'zod';
-import type { ICommand, CommandRuntime, ITeamGraphBuilder } from '@ai-team/core';
+import type {
+  ICommand,
+  ITeamGraphBuilder,
+  ExecutionContext,
+  CommandResponse,
+} from '@ai-team/core';
 import type { GraphData } from '@ai-team/api-contracts';
 
 type Params = z.infer<typeof GraphCommand.schema>;
 
-export class GraphCommand implements ICommand<Params, void, GraphData> {
+export class GraphCommand implements ICommand<Params, GraphData> {
   static readonly schema = z.object({
     mode: z.enum(['hierarchy', 'features', 'expertise', 'matrix']).optional().describe('View mode'),
   });
@@ -18,12 +23,11 @@ export class GraphCommand implements ICommand<Params, void, GraphData> {
 
   constructor(private readonly teamGraphBuilder: ITeamGraphBuilder) {}
 
-  async execute(payload: Params, _ctx: void, _runtime: CommandRuntime): Promise<GraphData> {
-    try {
-      return this.teamGraphBuilder.buildGraph(payload.mode ?? 'hierarchy');
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`getTeamGraph failed: ${detail}`);
-    }
+  async execute(
+    payload: Params,
+    _ctx: ExecutionContext
+  ): Promise<CommandResponse<GraphData>> {
+    const data = await this.teamGraphBuilder.buildGraph(payload.mode ?? 'hierarchy');
+    return { status: 'ok', data };
   }
 }

@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import type {
   ICommand,
-  CommandRuntime,
   IAgentManager,
   IPermissionStorage,
   IConfigurationStorage,
+  ExecutionContext,
+  CommandResponse,
 } from '@ai-team/core';
 import { permissionDenyCommand, disallowPathCommand, type PathMode } from './file-tree.js';
 import {
@@ -15,7 +16,7 @@ import {
 type Params = z.infer<typeof FilesDenyCommand.schema>;
 type Result = { paths: string[] };
 
-export class FilesDenyCommand implements ICommand<Params, void, Result> {
+export class FilesDenyCommand implements ICommand<Params, Result> {
   static readonly schema = z.object({
     path: z.string().describe('Path to disallow'),
     agent: z.string().optional().describe('Scope to a specific agent'),
@@ -38,7 +39,7 @@ export class FilesDenyCommand implements ICommand<Params, void, Result> {
     private readonly configStorage: IConfigurationStorage
   ) {}
 
-  async execute(payload: Params, _ctx: void, runtime: CommandRuntime): Promise<Result> {
+  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<Result>> {
     const mode: PathMode =
       payload.mode === 'write' || payload.mode === 'create' || payload.mode === 'delete'
         ? 'write'
@@ -47,11 +48,11 @@ export class FilesDenyCommand implements ICommand<Params, void, Result> {
     if (payload.agent) {
       const requestedBy = await resolveRequestedByFromRuntime(
         payload.requestedBy,
-        runtime,
+        ctx,
         'requestedBy is required for agent governance'
       );
       const result = await permissionDenyCommand(
-        runtime.workspaceRoot,
+        ctx.workspaceRoot,
         this.agents,
         this.permStorage,
         payload.agent,
@@ -59,19 +60,19 @@ export class FilesDenyCommand implements ICommand<Params, void, Result> {
         {
           requestedBy,
           confirmUserApproval: (msg: string) =>
-            confirmGovernanceActionFromRuntime(payload.approvedByUser, runtime, msg),
+            confirmGovernanceActionFromRuntime(payload.approvedByUser, ctx, msg),
         },
         mode
       );
-      return { paths: result.paths };
+      return { status: 'ok', data: { paths: result.paths } };
     }
 
     const paths = await disallowPathCommand(
-      runtime.workspaceRoot,
+      ctx.workspaceRoot,
       this.configStorage,
       payload.path,
       mode
     );
-    return { paths };
+    return { status: 'ok', data: { paths } };
   }
 }

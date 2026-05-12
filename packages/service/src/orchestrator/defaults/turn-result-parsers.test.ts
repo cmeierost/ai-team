@@ -15,7 +15,6 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type { Agent, StructuredToolResult } from '@ai-team/core';
-import type { OrchestratorContext } from '../pipeline-context.js';
 import {
   HandoffToolResultParser,
   TextHandoffParser,
@@ -28,25 +27,27 @@ function makeAgent(id: string, name = id): Agent {
   return { id, name, role: 'assistant', systemPrompt: '' } as unknown as Agent;
 }
 
-/** Minimal OrchestratorContext with a two-agent roster. */
-function makeCtx(currentAgentId = 'current-agent'): OrchestratorContext {
+/** Minimal ExecutionContext with a two-agent roster. */
+function makeCtx(currentAgentId = 'current-agent'): ExecutionContext {
   const currentAgent = makeAgent(currentAgentId);
-  const targetAgent  = makeAgent('target-agent', 'Target Agent');
+  const targetAgent = makeAgent('target-agent', 'Target Agent');
   const roster = [currentAgent, targetAgent];
 
   return {
     agent: currentAgent,
     agentManager: {
-      getAgent: vi.fn((id: string) => roster.find(a => a.id === id)),
+      getAgent: vi.fn((id: string) => roster.find((a) => a.id === id)),
       resolveAgent: vi.fn((query: string) =>
-        roster.filter(a => a.id === query || a.name === query),
+        roster.filter((a) => a.id === query || a.name === query)
       ),
     },
-    // remaining fields are not used by parsers
-  } as unknown as OrchestratorContext;
+  };
 }
 
-function handoffResult(targetAgentId: string, extra?: Partial<StructuredToolResult>): StructuredToolResult {
+function handoffResult(
+  targetAgentId: string,
+  extra?: Partial<StructuredToolResult>
+): StructuredToolResult {
   return {
     type: 'handoff',
     targetAgentId,
@@ -60,7 +61,7 @@ function runChain(
   structuredResults: StructuredToolResult[],
   fullResponse: string,
   persistedContent: string,
-  ctx: OrchestratorContext,
+  ctx: ExecutionContext
 ) {
   for (const parser of buildDefaultTurnResultParsers()) {
     const override = parser.parse(structuredResults, fullResponse, persistedContent, ctx);
@@ -80,18 +81,18 @@ describe('HandoffToolResultParser', () => {
   });
 
   it('returns null when structuredResults contains only non-handoff entries', () => {
-    const result = parser.parse([{ type: 'tool_list_result' } as StructuredToolResult], 'text', 'text', makeCtx());
+    const result = parser.parse(
+      [{ type: 'tool_list_result' } as StructuredToolResult],
+      'text',
+      'text',
+      makeCtx()
+    );
     expect(result).toBeNull();
   });
 
   it('returns handedOff:true when target is found and is not self', () => {
     const ctx = makeCtx('current-agent');
-    const result = parser.parse(
-      [handoffResult('target-agent')],
-      'response',
-      'persisted',
-      ctx,
-    );
+    const result = parser.parse([handoffResult('target-agent')], 'response', 'persisted', ctx);
 
     expect(result).toMatchObject({
       text: 'persisted',
@@ -130,12 +131,7 @@ describe('HandoffToolResultParser', () => {
 
   it('returns { done:false } (no handoff) when target agent is not found', () => {
     const ctx = makeCtx('current-agent');
-    const result = parser.parse(
-      [handoffResult('unknown-agent')],
-      '',
-      'persisted',
-      ctx,
-    );
+    const result = parser.parse([handoffResult('unknown-agent')], '', 'persisted', ctx);
 
     expect(result).toEqual({ text: 'persisted', done: false });
     expect(result).not.toHaveProperty('handedOff');
@@ -143,12 +139,7 @@ describe('HandoffToolResultParser', () => {
 
   it('returns { done:false } (no handoff) when target resolves to the current agent (self-handoff)', () => {
     const ctx = makeCtx('current-agent');
-    const result = parser.parse(
-      [handoffResult('current-agent')],
-      '',
-      'persisted',
-      ctx,
-    );
+    const result = parser.parse([handoffResult('current-agent')], '', 'persisted', ctx);
 
     expect(result).toEqual({ text: 'persisted', done: false });
     expect(result).not.toHaveProperty('handedOff');
@@ -251,7 +242,7 @@ describe('Parser chain priority', () => {
       [handoffResult('target-agent')],
       'HANDOFF: target-agent | also in text',
       'text',
-      ctx,
+      ctx
     );
 
     // HandoffToolResultParser fires first, TextHandoffParser never runs
@@ -260,12 +251,7 @@ describe('Parser chain priority', () => {
 
   it('falls through to TextHandoffParser when no structured handoff is present', () => {
     const ctx = makeCtx('current-agent');
-    const result = runChain(
-      [],
-      'HANDOFF: target-agent | via text',
-      'text',
-      ctx,
-    );
+    const result = runChain([], 'HANDOFF: target-agent | via text', 'text', ctx);
 
     expect(result).toMatchObject({ handedOff: true, handoffTargetId: 'target-agent' });
   });

@@ -8,7 +8,7 @@
  * with the `AI_TEAM_EXA_URL` environment variable.
  */
 import { z } from 'zod';
-import type { AgentTool, ITool, ToolContext } from '@ai-team/core';
+import type { ExecutionContext, ICommand, CommandResponse } from '@ai-team/core';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,7 +63,7 @@ function parseExaSseResult(body: string): string | null {
 
 // ─── Tool class ───────────────────────────────────────────────────────────────
 
-export class CodeSearchTool implements ITool<CodeSearchParams, ToolContext, CodeSearchResult> {
+export class CodeSearchTool implements ICommand<CodeSearchParams, CodeSearchResult> {
   readonly name = 'codesearch';
   readonly key = 'codesearch';
   readonly group = 'search';
@@ -98,7 +98,10 @@ export class CodeSearchTool implements ITool<CodeSearchParams, ToolContext, Code
     return result.result;
   }
 
-  async execute(params: CodeSearchParams, _context: ToolContext): Promise<CodeSearchResult> {
+  async execute(
+    params: CodeSearchParams,
+    _context: ExecutionContext
+  ): Promise<CommandResponse<CodeSearchResult>> {
     const { query, tokensNum } = params;
     const baseUrl = getExaBaseUrl();
     const body = JSON.stringify({
@@ -128,10 +131,13 @@ export class CodeSearchTool implements ITool<CodeSearchParams, ToolContext, Code
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
         return {
-          query,
-          tokensNum,
-          result: null,
-          error: `Code search error (${response.status}): ${errorText}`,
+          status: 'ok',
+          data: {
+            query,
+            tokensNum,
+            result: null,
+            error: `Code search error (${response.status}): ${errorText}`,
+          },
         };
       }
 
@@ -140,25 +146,34 @@ export class CodeSearchTool implements ITool<CodeSearchParams, ToolContext, Code
 
       if (!parsed) {
         return {
-          query,
-          tokensNum,
-          result: null,
-          error:
-            'No code snippets or documentation found. ' +
-            'Try a more specific query or check the spelling of library/framework names.',
+          status: 'ok',
+          data: {
+            query,
+            tokensNum,
+            result: null,
+            error:
+              'No code snippets or documentation found. ' +
+              'Try a more specific query or check the spelling of library/framework names.',
+          },
         };
       }
 
-      return { query, tokensNum, result: parsed };
+      return { status: 'ok', data: { query, tokensNum, result: parsed } };
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        return { query, tokensNum, result: null, error: 'Code search request timed out.' };
+        return {
+          status: 'ok',
+          data: { query, tokensNum, result: null, error: 'Code search request timed out.' },
+        };
       }
       return {
-        query,
-        tokensNum,
-        result: null,
-        error: err instanceof Error ? err.message : String(err),
+        status: 'ok',
+        data: {
+          query,
+          tokensNum,
+          result: null,
+          error: err instanceof Error ? err.message : String(err),
+        },
       };
     } finally {
       clearTimeout(timer);
@@ -166,4 +181,4 @@ export class CodeSearchTool implements ITool<CodeSearchParams, ToolContext, Code
   }
 }
 
-export const codeSearchTool: AgentTool = new CodeSearchTool();
+export const codeSearchTool: ICommand<unknown, unknown> = new CodeSearchTool();

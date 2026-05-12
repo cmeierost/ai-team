@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ServiceDomainError } from '../../errors.js';
-import { findWorkspaceRoot } from '../utils/workspace.js';
+import { findWorkspaceRoot } from '../../utils/workspace.js';
 
 export interface ServeApiOptions {
   port?: string | number;

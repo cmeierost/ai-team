@@ -1,0 +1,252 @@
+/**
+ * JSON Workflow Tool
+ *
+ * Allows defining simple step-based workflows as plain JSON files.
+ * JSON workflows are loaded from `.ai-team/workflows/*.json` at startup
+ * and registered into ToolManager as first-class tools.
+ *
+ * JSON workflow format (serializable subset of WorkflowDefinition):
+ * - Steps can be: input | confirm | select | checklist | llm-summarize
+ * - All messages and choices are static strings (no functions)
+ * - An optional "summarize" step at the end asks the LLM to summarize collected answers
+ */
+
+import { z } from 'zod';
+import type { ExecutionContext } from '@ai-team/core';
+import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
+import { runWorkflowAsync } from './runner.js';
+import type { WorkflowDefinition } from './types.js';
+import type { IWorkflowDefinitionProvider } from '../commands/workflow/workflow-tools.command.js';
+
+// ─── JSON schema for the file format ────────────────────────────────────────
+
+const JsonWorkflowChoiceSchema = z.object({
+  name: z.string(),
+  value: z.string(),
+});
+
+const JsonWorkflowStepSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('input'),
+    id: z.string(),
+    message: z.string(),
+    storeAs: z.string(), // key in the answers record
+  }),
+  z.object({
+    kind: z.literal('confirm'),
+    id: z.string(),
+    message: z.string(),
+    default: z.boolean().optional(),
+    onDeclined: z.enum(['abort', 'skip']).default('skip'),
+  }),
+  z.object({
+    kind: z.literal('select'),
+    id: z.string(),
+    message: z.string(),
+    choices: z.array(JsonWorkflowChoiceSchema),
+    storeAs: z.string(),
+  }),
+  z.object({
+    kind: z.literal('checklist'),
+    id: z.string(),
+    message: z.string(),
+    choices: z.array(JsonWorkflowChoiceSchema),
+    storeAs: z.string(),
+    minSelections: z.number().optional(),
+    maxSelections: z.number().optional(),
+  }),
+  z.object({
+    kind: z.literal('llm-summarize'),
+    id: z.string(),
+    prompt: z.string().optional(), // optional custom prompt prefix for the LLM
+  }),
+]);
+
+export const JsonWorkflowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  steps: z.array(JsonWorkflowStepSchema),
+});
+
+export type JsonWorkflow = z.infer<typeof JsonWorkflowSchema>;
+export type JsonWorkflowStep = z.infer<typeof JsonWorkflowStepSchema>;
+
+// ─── State record used during execution ─────────────────────────────────────
+
+type WorkflowState = {
+  answers: Record<string, string | string[] | boolean>;
+  summary?: string;
+};
+
+// ─── Tool class ──────────────────────────────────────────────────────────────
+
+export interface JsonWorkflowResult {
+  type: 'json_workflow_result';
+  workflowId: string;
+  answers: Record<string, string | string[] | boolean>;
+  summary?: string;
+}
+
+export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
+  readonly name: string;
+  readonly key: string;
+  readonly description: string;
+  readonly group = 'workflow' as const;
+  readonly tags = ['workflow', 'json-workflow'];
+  readonly availableIn = { chat: true, cli: true, tool: true };
+  readonly permissionCheck = { type: 'none' as const };
+  readonly parameters = z.object({});
+
+  constructor(private readonly definition: JsonWorkflow) {
+    this.key = definition.id;
+    this.name = definition.name;
+    this.description = definition.description;
+  }
+
+  getDefinition(): WorkflowDefinitionApiResponse {
+    // Represent as a workflow/v1 document with the step list as states.
+    // The contract requires each state to provide transitions, so keep it minimal.
+    const states: Record<string, { transitions: Array<{ event: string; target?: string }> }> = {};
+    for (const step of this.definition.steps) {
+      states[step.id] = { transitions: [] };
+    }
+    return {
+      workflowId: this.definition.id,
+      format: 'workflow/v1',
+      definitionJson: {
+        format: 'workflow/v1',
+        id: this.definition.id,
+        initial: this.definition.steps[0]?.id ?? 'done',
+        states,
+      },
+      definitionYaml: `format: workflow/v1\nid: ${this.definition.id}\n# ${this.definition.description}\nsteps: ${this.definition.steps.length}`,
+    };
+  }
+
+  async execute(
+    _params: Record<string, never>,
+    context: ExecutionContext,
+    _runtime: ExecutionContext
+  ): Promise<JsonWorkflowResult> {
+    const def = this.definition;
+    const initialState: WorkflowState = { answers: {} };
+
+    // Build a step-based WorkflowDefinition from the JSON definition
+    const runtimeSteps: WorkflowDefinition<WorkflowState>['steps'] = [];
+
+    for (const step of def.steps) {
+      if (step.kind === 'input') {
+        const { id, message, storeAs } = step;
+        runtimeSteps.push({
+          id,
+          kind: 'input',
+          message,
+          applyAnswer: (state, answer) => ({
+            ...state,
+            answers: { ...state.answers, [storeAs]: answer },
+          }),
+        });
+      } else if (step.kind === 'confirm') {
+        const { id, message } = step;
+        runtimeSteps.push({
+          id,
+          kind: 'confirm',
+          message,
+          default: step.default,
+          onDeclined: step.onDeclined,
+        });
+      } else if (step.kind === 'select') {
+        const { id, message, choices, storeAs } = step;
+        runtimeSteps.push({
+          id,
+          kind: 'select',
+          message,
+          choices: () => choices,
+          applyAnswer: (state, answer) => ({
+            ...state,
+            answers: { ...state.answers, [storeAs]: answer },
+          }),
+        });
+      } else if (step.kind === 'checklist') {
+        const { id, message, choices, storeAs, minSelections, maxSelections } = step;
+        runtimeSteps.push({
+          id,
+          kind: 'checklist',
+          message,
+          choices: () => choices,
+          minSelections,
+          maxSelections,
+          applyAnswer: (state, answer) => ({
+            ...state,
+            answers: { ...state.answers, [storeAs]: answer },
+          }),
+        });
+      } else if (step.kind === 'llm-summarize') {
+        const { id } = step;
+        const promptPrefix =
+          step.prompt ?? 'Summarize the following answers in a fun and concise way:';
+        runtimeSteps.push({
+          id,
+          kind: 'action',
+          execute: async (state) => {
+            const answersText = Object.entries(state.answers)
+              .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+              .join('\n');
+            // Use the LLM via the context resolver if available
+            try {
+              const llmService = (context as any).resolve?.('LlmService' as never) as
+                | { complete(prompt: string): Promise<string> }
+                | undefined;
+              if (llmService?.complete) {
+                const summary = await llmService.complete(`${promptPrefix}\n\n${answersText}`);
+                return { ...state, summary };
+              }
+            } catch {
+              // LLM unavailable — produce a simple concatenation
+            }
+            return { ...state, summary: answersText };
+          },
+        });
+      }
+    }
+
+    const workflowDef: WorkflowDefinition<WorkflowState> = {
+      id: def.id,
+      steps: runtimeSteps,
+    };
+
+    // Build a minimal InteractionContext for the runner
+    const interactionCtx = {
+      agentId: context.agentId,
+      workspaceRoot: context.workspaceRoot,
+      questionInput: context.questionInput
+        ? (req: { message: string }) => context.questionInput!(req)
+        : undefined,
+      questionConfirm: context.questionConfirm
+        ? (req: { message: string; default?: boolean }) => context.questionConfirm!(req)
+        : undefined,
+      questionSelect: context.questionSelect
+        ? (req: { message: string; choices: Array<{ name: string; value: string }> }) =>
+            context.questionSelect!(req)
+        : undefined,
+      questionChecklist: context.questionChecklist
+        ? (req: {
+            message: string;
+            choices: Array<{ name: string; value: string }>;
+            minSelections?: number;
+            maxSelections?: number;
+          }) => context.questionChecklist!(req)
+        : undefined,
+    };
+
+    const result = await runWorkflowAsync(workflowDef, initialState, interactionCtx as never);
+
+    return {
+      type: 'json_workflow_result',
+      workflowId: def.id,
+      answers: result.state.answers,
+      summary: result.state.summary,
+    };
+  }
+}

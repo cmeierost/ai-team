@@ -18,10 +18,13 @@ import {
   isFindCapableAgentResult,
   isToolCatalogResult,
   isTeamListResult,
+  type ILlmService,
   type StructuredToolResult,
+  type ExecutionContext,
 } from '@ai-team/core';
 import type { FsPathAccessEnvelope } from '../tools/catalog/index.js';
-import type { OrchestratorContext } from './pipeline-context.js';
+import type { ToolManager } from '../tools/tool-manager.js';
+import type { SessionManager } from '../session-manager.js';
 import { requestConfirm } from './question-io.js';
 import { emitEvent, emitToolEvent } from './stream-events.js';
 import type {
@@ -125,260 +128,509 @@ function requiresConfirmation(toolName: string): boolean {
   return true;
 }
 
-// ── Main dispatch ─────────────────────────────────────────────────────────────
+// ── Proposal store interfaces ─────────────────────────────────────────────────
 
-export async function dispatchToolCall(
-  call: ToolCallRequest,
-  ctx: OrchestratorContext,
-  contextFiles?: string[]
-): Promise<ToolCallResponse> {
-  const { toolName, toolCallId, args } = call;
-  const label = `${toolName}(${formatArgs(args)})`;
+interface ProposalSaveData {
+  proposalId: string;
+  agentName: string;
+  description: string;
+  createdAt: string;
+  files: Array<{ filePath: string; oldContent: string; newContent: string }>;
+}
 
-  emitEvent(ctx.hooks, {
-    kind: 'tool',
-    toolName,
-    toolCallId,
-    toolPhase: 'request',
-    message: label,
-    toolResult: buildPendingToolRuntimePayload(toolName, 'request', args),
-  } as RuntimeStreamEvent);
+interface IProposalStore {
+  save(proposal: ProposalSaveData): void;
+}
 
-  const deniedByUser = await requestExecutionApproval(toolName, toolCallId, label, args, ctx);
-  if (deniedByUser) {
+export interface IProposalStoreFactory {
+  create(workspaceRoot: string): IProposalStore;
+}
+
+// ── File-change detection helpers ─────────────────────────────────────────────
+
+interface FileChange {
+  filePath: string;
+  oldContent: string;
+  newContent: string;
+}
+
+function extractFileChanges(result: unknown): FileChange[] {
+  if (result == null || typeof result !== 'object') return [];
+  const r = result as Record<string, unknown>;
+  if (!Array.isArray(r._fileChanges)) return [];
+  return r._fileChanges as FileChange[];
+}
+
+function stripFileChanges(result: unknown): unknown {
+  if (result == null || typeof result !== 'object') return result;
+  const r = result as Record<string, unknown>;
+  if (!('_fileChanges' in r)) return result;
+  const { _fileChanges: _, ...rest } = r;
+  return rest;
+}
+
+// ── ToolDispatcher class ──────────────────────────────────────────────────────
+
+export class ToolDispatcher {
+  constructor(
+    private readonly toolManager: ToolManager,
+    private readonly sessionManager: SessionManager,
+    private readonly llmService: ILlmService,
+    private readonly proposalStoreFactory?: IProposalStoreFactory
+  ) {}
+
+  async dispatch(
+    call: ToolCallRequest,
+    ctx: ExecutionContext,
+    contextFiles?: string[]
+  ): Promise<ToolCallResponse> {
+    const { toolName, toolCallId, args } = call;
+    const label = `${toolName}(${formatArgs(args)})`;
+
+    emitEvent(((ctx as any).hooks), {
+      kind: 'tool',
+      toolName,
+      toolCallId,
+      toolPhase: 'request',
+      message: label,
+      toolResult: buildPendingToolRuntimePayload(toolName, 'request', args),
+    } as RuntimeStreamEvent);
+
+    const deniedByUser = await this._requestExecutionApproval(
+      toolName,
+      toolCallId,
+      label,
+      args,
+      ctx
+    );
+    if (deniedByUser) {
+      return {
+        toolCallId,
+        toolName,
+        result: deniedByUser.message,
+        isError: false,
+        denial: deniedByUser,
+      };
+    }
+
+    emitEvent(((ctx as any).hooks), {
+      kind: 'tool',
+      toolName,
+      toolCallId,
+      toolPhase: 'start',
+      message: 'In progress',
+      toolResult: buildPendingToolRuntimePayload(toolName, 'start', args),
+    } as RuntimeStreamEvent);
+
+    const execResult = await this.toolManager.execute(
+      ctx.agent!,
+      toolName,
+      args,
+      {
+        agentId: ctx.agent!.id,
+        workspaceRoot: ctx.workspaceRoot,
+        currentFiles: contextFiles,
+        questionInput: ((ctx as any).hooks).questionInput,
+        questionConfirm: ((ctx as any).hooks).questionConfirm,
+        questionSelect: ((ctx as any).hooks).questionSelect,
+        questionPassword: ((ctx as any).hooks).questionPassword,
+        questionChecklist: ((ctx as any).hooks).questionChecklist,
+        history: [],
+      },
+      {
+        timeoutMs: toolName === 'com_ask' ? INTERACTIVE_ASK_TIMEOUT_MS : undefined,
+      }
+    );
+
+    // ── Strip _fileChanges early — before serialisation, history, and events ──
+    const fileChanges = execResult.ok ? extractFileChanges(execResult.result) : [];
+    const strippedResult =
+      fileChanges.length > 0 ? stripFileChanges(execResult.result) : execResult.result;
+
+    // ── Apply per-tool LLM formatting if defined ──────────────────────────────
+    const tool = this.toolManager.get(toolName);
+    const llmResult =
+      execResult.ok && tool?.formatForLlm ? tool.formatForLlm(strippedResult) : strippedResult;
+
+    const outputText = execResult.ok
+      ? serialise(llmResult)
+      : (execResult.error ?? 'Tool execution failed');
+
+    const persistedToolResult = execResult.ok
+      ? strippedResult
+      : {
+          status: 'error' as const,
+          message: outputText,
+          denial: {
+            kind: 'execution-failed' as const,
+            reasonCode: 'tool_execution_failed',
+          },
+        };
+    let persistedLlmResult: string | undefined;
+    if (execResult.ok) {
+      persistedLlmResult = tool?.formatForLlm ? outputText : undefined;
+    } else {
+      persistedLlmResult = outputText;
+    }
+
+    await this._appendToolHistory(
+      ctx,
+      toolName,
+      outputText,
+      persistedToolResult,
+      persistedLlmResult,
+      args
+    );
+
+    const denial = classifyToolDenial(execResult.ok, strippedResult, outputText);
+
+    let outcome: ToolRuntimePayloadEvent['outcome'];
+    if (denial) {
+      outcome = 'denied';
+    } else if (execResult.ok) {
+      outcome = 'result';
+    } else {
+      outcome = 'error';
+    }
+
+    let toolPhase: 'result' | 'error' | 'denied';
+    if (denial?.kind === 'policy-denied') {
+      toolPhase = 'denied';
+    } else if (execResult.ok) {
+      toolPhase = 'result';
+    } else {
+      toolPhase = 'error';
+    }
+
+    const toolEventMessage =
+      denial?.message ?? (execResult.ok ? formatToolResultPreview(outputText) : outputText);
+
+    const toolEventPayload = buildToolRuntimePayload(
+      toolName,
+      outcome,
+      args,
+      buildToolCommandResponse(
+        toolName,
+        toolEventMessage,
+        execResult.ok ? strippedResult : outputText,
+        denial
+      ),
+      denial,
+      execResult.ok && tool?.formatForLlm ? outputText : undefined
+    );
+
+    emitToolEvent(
+      ((ctx as any).hooks),
+      toolName,
+      toolCallId,
+      toolPhase,
+      toolEventMessage,
+      denial ? toToolDenialEvent(denial) : undefined,
+      toolEventPayload
+    );
+
+    const structured = execResult.ok ? asStructuredToolResult(strippedResult) : undefined;
+
+    // ── 5. fs_apply_patch proposal persistence ────────────────────────────────
+
+    if (execResult.ok && toolName === 'fs_apply_patch') {
+      await this._persistCodeEditProposal(execResult.result, args, ctx).catch((err) =>
+        console.error('[tool-dispatch] Failed to persist code edit proposal:', err)
+      );
+    }
+
+    // ── 6. Forward file changes to IDE for diff display ───────────────────────
+
+    if (fileChanges.length > 0) {
+      let additions = 0;
+      let deletions = 0;
+      for (const fc of fileChanges) {
+        const oldLines = (fc.oldContent ?? '').split('\n');
+        const newLines = (fc.newContent ?? '').split('\n');
+        // Simple line-count diff: count added and removed lines
+        const maxLen = Math.max(oldLines.length, newLines.length);
+        for (let i = 0; i < maxLen; i++) {
+          if (i >= oldLines.length) {
+            additions++;
+            continue;
+          }
+          if (i >= newLines.length) {
+            deletions++;
+            continue;
+          }
+          if (oldLines[i] !== newLines[i]) {
+            additions++;
+            deletions++;
+          }
+        }
+      }
+
+      emitEvent(((ctx as any).hooks), {
+        kind: 'code_edit_proposal',
+        proposalId: `${toolName}-${toolCallId}`,
+        agentName: ctx.agent!.name,
+        description: `${ctx.agent!.name} edited ${fileChanges.length} file(s) via ${toolName}`,
+        filesChanged: fileChanges.length,
+        additions,
+        deletions,
+        files: fileChanges.map((fc) => ({
+          filePath: fc.filePath,
+          oldContent: fc.oldContent,
+          newContent: fc.newContent,
+        })),
+      });
+    }
+
     return {
       toolCallId,
       toolName,
-      result: deniedByUser.message,
-      isError: false,
-      denial: deniedByUser,
+      result: execResult.ok ? strippedResult : outputText,
+      isError: !execResult.ok,
+      structured,
+      denial,
     };
   }
 
-  emitEvent(ctx.hooks, {
-    kind: 'tool',
-    toolName,
-    toolCallId,
-    toolPhase: 'start',
-    message: 'In progress',
-    toolResult: buildPendingToolRuntimePayload(toolName, 'start', args),
-  } as RuntimeStreamEvent);
+  private async _requestExecutionApproval(
+    toolName: string,
+    toolCallId: string,
+    label: string,
+    args: unknown,
+    ctx: ExecutionContext
+  ): Promise<ToolDenial | undefined> {
+    if (!requiresConfirmation(toolName)) return undefined;
 
-  const execResult = await ctx.toolManager.execute(
-    ctx.agent,
-    toolName,
-    args,
-    {
-      agentId: ctx.agent.id,
-      workspaceRoot: ctx.workspaceRoot,
-      currentFiles: contextFiles,
-      questionInput: ctx.hooks.questionInput,
-      questionConfirm: ctx.hooks.questionConfirm,
-      questionSelect: ctx.hooks.questionSelect,
-      questionPassword: ctx.hooks.questionPassword,
-      questionChecklist: ctx.hooks.questionChecklist,
-    },
-    {
-      timeoutMs: toolName === 'com_ask' ? INTERACTIVE_ASK_TIMEOUT_MS : undefined,
-    }
-  );
+    const approved = await requestConfirm(((ctx as any).hooks), {
+      message: `Allow ${ctx.agent!.name} to run ${label}?`,
+      default: false,
+      style: 'allow',
+    });
+    if (approved) return undefined;
 
-  // ── Strip _fileChanges early — before serialisation, history, and events ──
-  const fileChanges = execResult.ok ? extractFileChanges(execResult.result) : [];
-  const strippedResult =
-    fileChanges.length > 0 ? stripFileChanges(execResult.result) : execResult.result;
-
-  // ── Apply per-tool LLM formatting if defined ──────────────────────────────
-  const tool = ctx.toolManager.get(toolName);
-  const llmResult =
-    execResult.ok && tool?.formatForLlm ? tool.formatForLlm(strippedResult) : strippedResult;
-
-  const outputText = execResult.ok
-    ? serialise(llmResult)
-    : (execResult.error ?? 'Tool execution failed');
-
-  const persistedToolResult = execResult.ok
-    ? strippedResult
-    : {
-        status: 'error' as const,
-        message: outputText,
-        denial: {
-          kind: 'execution-failed' as const,
-          reasonCode: 'tool_execution_failed',
-        },
-      };
-  let persistedLlmResult: string | undefined;
-  if (execResult.ok) {
-    persistedLlmResult = tool?.formatForLlm ? outputText : undefined;
-  } else {
-    persistedLlmResult = outputText;
-  }
-
-  await appendToolHistory(ctx, toolName, outputText, persistedToolResult, persistedLlmResult, args);
-
-  const denial = classifyToolDenial(execResult.ok, strippedResult, outputText);
-
-  let outcome: ToolRuntimePayloadEvent['outcome'];
-  if (denial) {
-    outcome = 'denied';
-  } else if (execResult.ok) {
-    outcome = 'result';
-  } else {
-    outcome = 'error';
-  }
-
-  let toolPhase: 'result' | 'error' | 'denied';
-  if (denial?.kind === 'policy-denied') {
-    toolPhase = 'denied';
-  } else if (execResult.ok) {
-    toolPhase = 'result';
-  } else {
-    toolPhase = 'error';
-  }
-
-  const toolEventMessage =
-    denial?.message ?? (execResult.ok ? formatToolResultPreview(outputText) : outputText);
-
-  const toolEventPayload = buildToolRuntimePayload(
-    toolName,
-    outcome,
-    args,
-    buildToolCommandResponse(
+    const denied = 'Tool call denied by user.';
+    const denial: ToolDenial = {
+      kind: 'user-denied',
+      reasonCode: 'user_declined',
+      message: denied,
+    };
+    emitToolEvent(
+      ((ctx as any).hooks),
       toolName,
-      toolEventMessage,
-      execResult.ok ? strippedResult : outputText,
-      denial
-    ),
-    denial,
-    execResult.ok && tool?.formatForLlm ? outputText : undefined
-  );
-
-  emitToolEvent(
-    ctx.hooks,
-    toolName,
-    toolCallId,
-    toolPhase,
-    toolEventMessage,
-    denial ? toToolDenialEvent(denial) : undefined,
-    toolEventPayload
-  );
-
-  const structured = execResult.ok ? asStructuredToolResult(strippedResult) : undefined;
-
-  // ── 5. fs_apply_patch proposal persistence ────────────────────────────────
-
-  if (execResult.ok && toolName === 'fs_apply_patch') {
-    await persistCodeEditProposal(execResult.result, args, ctx).catch((err) =>
-      console.error('[tool-dispatch] Failed to persist code edit proposal:', err)
+      toolCallId,
+      'denied',
+      denied,
+      toToolDenialEvent(denial),
+      buildToolRuntimePayload(
+        toolName,
+        'denied',
+        undefined,
+        buildToolCommandResponse(toolName, denied, denied, denial),
+        denial
+      )
     );
+    await this._appendToolHistory(
+      ctx,
+      toolName,
+      denied,
+      {
+        status: 'denied',
+        message: denied,
+        denial: {
+          kind: denial.kind,
+          reasonCode: denial.reasonCode,
+        },
+      },
+      denied,
+      args
+    );
+    return denial;
   }
 
-  // ── 6. Forward file changes to IDE for diff display ───────────────────────
+  private async _appendToolHistory(
+    ctx: ExecutionContext,
+    toolName: string,
+    output: string,
+    rawResult?: unknown,
+    llmResult?: string,
+    callArgs?: unknown
+  ): Promise<void> {
+    let content = '';
+    if (rawResult === undefined) {
+      const prepared = await this._prepareToolOutputForHistory(ctx, toolName, output);
+      content =
+        prepared.filtered && prepared.label
+          ? `Tool ${toolName} [filtered:${prepared.label}] ${prepared.output}`
+          : `Tool ${toolName}: ${prepared.output}`;
+    }
 
-  if (fileChanges.length > 0) {
-    let additions = 0;
-    let deletions = 0;
-    for (const fc of fileChanges) {
-      const oldLines = (fc.oldContent ?? '').split('\n');
-      const newLines = (fc.newContent ?? '').split('\n');
-      // Simple line-count diff: count added and removed lines
-      const maxLen = Math.max(oldLines.length, newLines.length);
-      for (let i = 0; i < maxLen; i++) {
-        if (i >= oldLines.length) {
-          additions++;
-          continue;
-        }
-        if (i >= newLines.length) {
-          deletions++;
-          continue;
-        }
-        if (oldLines[i] !== newLines[i]) {
-          additions++;
-          deletions++;
+    const toolCall =
+      rawResult !== undefined
+        ? {
+            tool: toolName,
+            params: (callArgs ?? {}) as Record<string, unknown>,
+            result: rawResult,
+            ...(llmResult !== undefined ? { resultLlm: llmResult } : {}),
+          }
+        : undefined;
+
+    await this.sessionManager.appendMessage(ctx.sessionId!, {
+      from: ctx.agent!.id,
+      content,
+      timestamp: new Date().toISOString(),
+      isHuman: false,
+      tool_calls: toolCall ? [toolCall] : undefined,
+    });
+  }
+
+  private async _prepareToolOutputForHistory(
+    ctx: ExecutionContext,
+    toolName: string,
+    output: string
+  ): Promise<PreparedHistoryOutput> {
+    const latestUserText = getLatestHumanMessageText(ctx);
+    const intent = parseToolHistoryIntent(latestUserText);
+    const deterministic = applyDeterministicFilters(output, intent);
+
+    if (intent.mode) {
+      const llmTransformed = await this._applyLlmTransform(
+        ctx,
+        toolName,
+        deterministic.output,
+        intent.mode
+      );
+      if (llmTransformed) {
+        return {
+          output: llmTransformed,
+          filtered: true,
+          label: `${intent.mode},${deterministic.label}`,
+        };
+      }
+    }
+
+    return {
+      output: deterministic.output,
+      filtered: deterministic.changed,
+      label: deterministic.label,
+    };
+  }
+
+  private async _applyLlmTransform(
+    ctx: ExecutionContext,
+    toolName: string,
+    input: string,
+    mode: 'summary' | 'analysis'
+  ): Promise<string | undefined> {
+    const llm = this.llmService as {
+      rawChat?: (
+        systemPrompt: string,
+        messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
+        options?: { maxTokens?: number; temperature?: number }
+      ) => Promise<string>;
+    };
+
+    if (typeof llm.rawChat !== 'function') return undefined;
+    if (!input.trim()) return input;
+
+    const clipped = input.length > 20_000 ? `${input.slice(0, 20_000)}\n...[input clipped]` : input;
+    const systemPrompt =
+      mode === 'summary'
+        ? 'Summarize tool output faithfully and concisely. Keep key facts, counts, errors, and URLs. Do not invent details. Max 12 bullets.'
+        : 'Analyze tool output concisely. Return: key findings, risks/issues, and actionable next steps. Do not invent details.';
+
+    try {
+      const transformed = await llm.rawChat(
+        systemPrompt,
+        [{ role: 'user', content: `Tool: ${toolName}\n\n${clipped}` }],
+        { maxTokens: 450, temperature: 0.1 }
+      );
+      return transformed.trim();
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async _persistCodeEditProposal(
+    result: unknown,
+    args: unknown,
+    ctx: ExecutionContext
+  ): Promise<void> {
+    const r = result as Record<string, unknown>;
+    if (r?.status !== 'pending_approval') return;
+
+    const proposalId = r.proposalId as string;
+    const changes = ((args as any)?.changes ?? []) as Array<{
+      filePath: string;
+      oldContent: string;
+      newContent: string;
+    }>;
+
+    const resolvedFiles: typeof changes = [];
+    for (const change of changes) {
+      const absPath = path.isAbsolute(change.filePath)
+        ? change.filePath
+        : path.join(ctx.workspaceRoot, change.filePath);
+      await fs.mkdir(path.dirname(absPath), { recursive: true });
+      await fs.writeFile(absPath, change.newContent, 'utf8');
+      resolvedFiles.push({
+        filePath: absPath,
+        oldContent: change.oldContent,
+        newContent: change.newContent,
+      });
+    }
+
+    const store = this.proposalStoreFactory?.create(ctx.workspaceRoot);
+    if (!store) {
+      throw new Error(
+        'Proposal store factory is not configured for code edit proposal persistence.'
+      );
+    }
+    store.save({
+      proposalId,
+      agentName: ctx.agent!.name,
+      description: (r.description as string) ?? '',
+      createdAt: new Date().toISOString(),
+      files: resolvedFiles,
+    });
+
+    let additions = typeof r.additions === 'number' ? r.additions : 0;
+    let deletions = typeof r.deletions === 'number' ? r.deletions : 0;
+    if (additions === 0 && deletions === 0) {
+      for (const f of resolvedFiles) {
+        const oldLines = (f.oldContent ?? '').split('\n');
+        const newLines = (f.newContent ?? '').split('\n');
+        const maxLen = Math.max(oldLines.length, newLines.length);
+        for (let i = 0; i < maxLen; i++) {
+          if (i >= oldLines.length) {
+            additions++;
+            continue;
+          }
+          if (i >= newLines.length) {
+            deletions++;
+            continue;
+          }
+          if (oldLines[i] !== newLines[i]) {
+            additions++;
+            deletions++;
+          }
         }
       }
     }
 
-    emitEvent(ctx.hooks, {
+    emitEvent(((ctx as any).hooks), {
       kind: 'code_edit_proposal',
-      proposalId: `${toolName}-${toolCallId}`,
-      agentName: ctx.agent.name,
-      description: `${ctx.agent.name} edited ${fileChanges.length} file(s) via ${toolName}`,
-      filesChanged: fileChanges.length,
+      proposalId,
+      agentName: ctx.agent!.name,
+      description: r.description as string,
+      filesChanged: resolvedFiles.length,
       additions,
       deletions,
-      files: fileChanges.map((fc) => ({
-        filePath: fc.filePath,
-        oldContent: fc.oldContent,
-        newContent: fc.newContent,
-      })),
+      warnings: r.warnings as string[],
+      files: resolvedFiles,
     });
   }
-
-  return {
-    toolCallId,
-    toolName,
-    result: execResult.ok ? strippedResult : outputText,
-    isError: !execResult.ok,
-    structured,
-    denial,
-  };
 }
 
-async function requestExecutionApproval(
-  toolName: string,
-  toolCallId: string,
-  label: string,
-  args: unknown,
-  ctx: OrchestratorContext
-): Promise<ToolDenial | undefined> {
-  if (!requiresConfirmation(toolName)) return undefined;
-
-  const approved = await requestConfirm(ctx.hooks, {
-    message: `Allow ${ctx.agent.name} to run ${label}?`,
-    default: false,
-    style: 'allow',
-  });
-  if (approved) return undefined;
-
-  const denied = 'Tool call denied by user.';
-  const denial: ToolDenial = {
-    kind: 'user-denied',
-    reasonCode: 'user_declined',
-    message: denied,
-  };
-  emitToolEvent(
-    ctx.hooks,
-    toolName,
-    toolCallId,
-    'denied',
-    denied,
-    toToolDenialEvent(denial),
-    buildToolRuntimePayload(
-      toolName,
-      'denied',
-      undefined,
-      buildToolCommandResponse(toolName, denied, denied, denial),
-      denial
-    )
-  );
-  await appendToolHistory(
-    ctx,
-    toolName,
-    denied,
-    {
-      status: 'denied',
-      message: denied,
-      denial: {
-        kind: denial.kind,
-        reasonCode: denial.reasonCode,
-      },
-    },
-    denied,
-    args
-  );
-  return denial;
-}
+// ── Dispatch helpers ──────────────────────────────────────────────────────────
 
 function buildToolRuntimePayload(
   toolName: string,
@@ -530,77 +782,9 @@ function extractBlockedPaths(payload: Record<string, unknown>): string[] {
     .filter((p) => p.length > 0);
 }
 
-// ── History persistence ───────────────────────────────────────────────────────
+// ── History helpers ───────────────────────────────────────────────────────────
 
-async function appendToolHistory(
-  ctx: OrchestratorContext,
-  toolName: string,
-  output: string,
-  rawResult?: unknown,
-  llmResult?: string,
-  callArgs?: unknown
-): Promise<void> {
-  let content = '';
-  if (rawResult === undefined) {
-    const prepared = await prepareToolOutputForHistory(ctx, toolName, output);
-    content =
-      prepared.filtered && prepared.label
-        ? `Tool ${toolName} [filtered:${prepared.label}] ${prepared.output}`
-        : `Tool ${toolName}: ${prepared.output}`;
-  }
-
-  const toolCall =
-    rawResult !== undefined
-      ? {
-          tool: toolName,
-          params: (callArgs ?? {}) as Record<string, unknown>,
-          result: rawResult,
-          ...(llmResult !== undefined ? { resultLlm: llmResult } : {}),
-        }
-      : undefined;
-
-  await ctx.sessionManager.appendMessage(ctx.sessionId, {
-    from: ctx.agent.id,
-    content,
-    timestamp: new Date().toISOString(),
-    isHuman: false,
-    tool_calls: toolCall ? [toolCall] : undefined,
-  });
-}
-
-async function prepareToolOutputForHistory(
-  ctx: OrchestratorContext,
-  toolName: string,
-  output: string
-): Promise<PreparedHistoryOutput> {
-  const latestUserText = getLatestHumanMessageText(ctx);
-  const intent = parseToolHistoryIntent(latestUserText);
-  const deterministic = applyDeterministicFilters(output, intent);
-
-  if (intent.mode) {
-    const llmTransformed = await applyLlmTransform(
-      ctx,
-      toolName,
-      deterministic.output,
-      intent.mode
-    );
-    if (llmTransformed) {
-      return {
-        output: llmTransformed,
-        filtered: true,
-        label: `${intent.mode},${deterministic.label}`,
-      };
-    }
-  }
-
-  return {
-    output: deterministic.output,
-    filtered: deterministic.changed,
-    label: deterministic.label,
-  };
-}
-
-function getLatestHumanMessageText(ctx: OrchestratorContext): string {
+function getLatestHumanMessageText(ctx: ExecutionContext): string {
   for (let i = ctx.history.length - 1; i >= 0; i -= 1) {
     const msg = ctx.history[i];
     if (msg.isHuman || msg.from === 'human') {
@@ -751,122 +935,7 @@ function applyLineWindow(
   return { lines };
 }
 
-async function applyLlmTransform(
-  ctx: OrchestratorContext,
-  toolName: string,
-  input: string,
-  mode: 'summary' | 'analysis'
-): Promise<string | undefined> {
-  const llm = ctx.llmService as {
-    rawChat?: (
-      systemPrompt: string,
-      messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
-      options?: { maxTokens?: number; temperature?: number }
-    ) => Promise<string>;
-  };
-
-  if (typeof llm.rawChat !== 'function') return undefined;
-  if (!input.trim()) return input;
-
-  const clipped = input.length > 20_000 ? `${input.slice(0, 20_000)}\n...[input clipped]` : input;
-  const systemPrompt =
-    mode === 'summary'
-      ? 'Summarize tool output faithfully and concisely. Keep key facts, counts, errors, and URLs. Do not invent details. Max 12 bullets.'
-      : 'Analyze tool output concisely. Return: key findings, risks/issues, and actionable next steps. Do not invent details.';
-
-  try {
-    const transformed = await llm.rawChat(
-      systemPrompt,
-      [{ role: 'user', content: `Tool: ${toolName}\n\n${clipped}` }],
-      { maxTokens: 450, temperature: 0.1 }
-    );
-    return transformed.trim();
-  } catch {
-    return undefined;
-  }
-}
-
-// ── fs_apply_patch proposal ──────────────────────────────────────────────────
-
-async function persistCodeEditProposal(
-  result: unknown,
-  args: unknown,
-  ctx: OrchestratorContext
-): Promise<void> {
-  const r = result as Record<string, unknown>;
-  if (r?.status !== 'pending_approval') return;
-
-  const proposalId = r.proposalId as string;
-  const changes = ((args as any)?.changes ?? []) as Array<{
-    filePath: string;
-    oldContent: string;
-    newContent: string;
-  }>;
-
-  const resolvedFiles: typeof changes = [];
-  for (const change of changes) {
-    const absPath = path.isAbsolute(change.filePath)
-      ? change.filePath
-      : path.join(ctx.workspaceRoot, change.filePath);
-    await fs.mkdir(path.dirname(absPath), { recursive: true });
-    await fs.writeFile(absPath, change.newContent, 'utf8');
-    resolvedFiles.push({
-      filePath: absPath,
-      oldContent: change.oldContent,
-      newContent: change.newContent,
-    });
-  }
-
-  const store = ctx.proposalStoreFactory?.create(ctx.workspaceRoot);
-  if (!store) {
-    throw new Error('Proposal store factory is not configured for code edit proposal persistence.');
-  }
-  store.save({
-    proposalId,
-    agentName: ctx.agent.name,
-    description: (r.description as string) ?? '',
-    createdAt: new Date().toISOString(),
-    files: resolvedFiles,
-  });
-
-  let additions = typeof r.additions === 'number' ? r.additions : 0;
-  let deletions = typeof r.deletions === 'number' ? r.deletions : 0;
-  if (additions === 0 && deletions === 0) {
-    for (const f of resolvedFiles) {
-      const oldLines = (f.oldContent ?? '').split('\n');
-      const newLines = (f.newContent ?? '').split('\n');
-      const maxLen = Math.max(oldLines.length, newLines.length);
-      for (let i = 0; i < maxLen; i++) {
-        if (i >= oldLines.length) {
-          additions++;
-          continue;
-        }
-        if (i >= newLines.length) {
-          deletions++;
-          continue;
-        }
-        if (oldLines[i] !== newLines[i]) {
-          additions++;
-          deletions++;
-        }
-      }
-    }
-  }
-
-  emitEvent(ctx.hooks, {
-    kind: 'code_edit_proposal',
-    proposalId,
-    agentName: ctx.agent.name,
-    description: r.description as string,
-    filesChanged: resolvedFiles.length,
-    additions,
-    deletions,
-    warnings: r.warnings as string[],
-    files: resolvedFiles,
-  });
-}
-
-// ── Utilities ─────────────────────────────────────────────────────────────────
+// ── Pure utility functions (module-level) ─────────────────────────────────────
 
 function formatArgs(args: unknown): string {
   if (args == null) return '';
@@ -935,27 +1004,4 @@ function serialise(value: unknown): string {
   } catch {
     return String(value);
   }
-}
-
-// ── File-change detection helpers ─────────────────────────────────────────────
-
-interface FileChange {
-  filePath: string;
-  oldContent: string;
-  newContent: string;
-}
-
-function extractFileChanges(result: unknown): FileChange[] {
-  if (result == null || typeof result !== 'object') return [];
-  const r = result as Record<string, unknown>;
-  if (!Array.isArray(r._fileChanges)) return [];
-  return r._fileChanges as FileChange[];
-}
-
-function stripFileChanges(result: unknown): unknown {
-  if (result == null || typeof result !== 'object') return result;
-  const r = result as Record<string, unknown>;
-  if (!('_fileChanges' in r)) return result;
-  const { _fileChanges: _, ...rest } = r;
-  return rest;
 }

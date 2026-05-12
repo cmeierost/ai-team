@@ -9,18 +9,13 @@ import type {
 } from '@ai-team/core';
 import { resolveEffectiveLlmSettings } from '@ai-team/core';
 import { TestConnectionOptions } from '@ai-team/api-contracts';
-import type { CommandExecute } from '../command-contract.js';
 
 export interface TestConnectionCommandParams {
   workspaceRoot: string;
   options?: TestConnectionOptions;
 }
 
-export class TestConnectionCommand implements CommandExecute<
-  TestConnectionCommandParams,
-  undefined,
-  void
-> {
+export class TestConnectionCommand {
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
     private readonly environmentStorage: IEnvironmentStorage,

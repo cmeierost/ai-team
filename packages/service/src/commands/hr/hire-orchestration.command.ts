@@ -1,16 +1,16 @@
 import { z } from 'zod';
 import {
   ContextLevel,
-  type CommandRuntime,
+  type ExecutionContext,
   type HireResult,
   type ICommand,
-  type ToolContext,
+  type CommandResponse,
 } from '@ai-team/core';
 import type { IAgentRegistry } from '../orchestration/orchestration.types.js';
 
 type Params = z.infer<typeof HireOrchestrationCommand.schema>;
 
-export class HireOrchestrationCommand implements ICommand<Params, ToolContext, HireResult> {
+export class HireOrchestrationCommand implements ICommand<Params, HireResult> {
   static readonly schema = z.object({
     name: z.string().min(1).describe('Full name of the new team member'),
     role: z.string().min(1).describe('Job role / title'),
@@ -27,27 +27,32 @@ export class HireOrchestrationCommand implements ICommand<Params, ToolContext, H
   readonly permissionCheck = { type: 'manage-agents' as const };
   readonly tags = ['orchestration', 'hr'];
 
-  constructor(private readonly agents: IAgentRegistry) {}
+  constructor(
+    private readonly agents: IAgentRegistry
+  ) {}
 
-  async execute(params: Params, context: ToolContext, _runtime: CommandRuntime): Promise<HireResult> {
+  async execute(params: Params, ctx: ExecutionContext): Promise<CommandResponse<HireResult>> {
     const { name, role, specializations = [], reportsTo } = params;
 
     const created = await this.agents.createAgentAsync({
       name,
       role,
       specializations,
-      reportsTo: reportsTo ?? context.agent.id,
+      reportsTo: reportsTo ?? ctx.agentId,
       contextLevel: ContextLevel.MODULE,
     });
 
     return {
-      type: 'hire',
-      agentId: created.id,
-      name: created.name,
-      role: created.role,
-      specializations: created.specializations ?? [],
-      reportsTo: created.reportsTo,
-      timestamp: new Date().toISOString(),
+      status: 'ok',
+      data: {
+        type: 'hire',
+        agentId: created.id,
+        name: created.name,
+        role: created.role,
+        specializations: created.specializations ?? [],
+        reportsTo: created.reportsTo,
+        timestamp: new Date().toISOString(),
+      },
     };
   }
 }

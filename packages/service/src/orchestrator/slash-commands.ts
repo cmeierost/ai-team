@@ -1,22 +1,16 @@
 /**
- * Default slash-command implementations registered via TOKENS.SlashCommands.
- *
- * Source of truth now lives as ICommand definitions in:
- *   packages/service/src/commands/chat/chat-commands.command.ts
+ * Slash command dispatcher — any ICommand with availableIn.chat=true is routable.
+ * The dispatcher resolves commands from the main registry passed in.
  */
 
-import type { SlashCommand } from './pipeline.js';
-import type { IContextService } from '@ai-team/api-contracts';
-import { toSlashCommand } from '../command-adapters.js';
-import { buildSlashICommands } from '../commands/chat/chat-commands.command.js';
+import type { ICommandRegistry } from '@ai-team/core';
+export { SlashCommandDispatcher } from './slash-command-dispatcher.js';
+import { SlashCommandDispatcher } from './slash-command-dispatcher.js';
 
-export interface SlashCommandDependencies {
-  contextService: Pick<IContextService, 'getContextEstimate'>;
+export function createSlashCommandDispatcher(registry: ICommandRegistry): SlashCommandDispatcher {
+  return new SlashCommandDispatcher(registry);
 }
 
-/**
- * Build slash commands automatically from ICommand metadata/handlers.
- */
-export function buildDefaultSlashCommands(deps?: SlashCommandDependencies): SlashCommand[] {
-  return buildSlashICommands(deps).map((cmd) => toSlashCommand(cmd));
+export function buildDefaultSlashCommands(registry: ICommandRegistry) {
+  return new SlashCommandDispatcher(registry).list();
 }

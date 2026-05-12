@@ -9,9 +9,8 @@
  * This avoids duplicate system messages in the tool-call path.
  */
 
-import type { ILlmChatMessageParam, ChatMessage } from '@ai-team/core';
+import type { ILlmChatMessageParam, ChatMessage, ExecutionContext } from '@ai-team/core';
 import type { IContextBuilder } from '../pipeline.js';
-import type { OrchestratorContext } from '../pipeline-context.js';
 
 function historyToMessages(history: ChatMessage[], _agentId: string): ILlmChatMessageParam[] {
   return history
@@ -23,7 +22,7 @@ function historyToMessages(history: ChatMessage[], _agentId: string): ILlmChatMe
 }
 
 export class DefaultContextBuilder implements IContextBuilder {
-  async build(history: ChatMessage[], ctx: OrchestratorContext): Promise<ILlmChatMessageParam[]> {
-    return historyToMessages(history, ctx.agent.id);
+  async build(history: ChatMessage[], ctx: ExecutionContext): Promise<ILlmChatMessageParam[]> {
+    return historyToMessages(history, ctx.agent!.id);
   }
 }

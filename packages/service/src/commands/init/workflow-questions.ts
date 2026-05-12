@@ -9,7 +9,7 @@ import type {
   WorkflowFrame,
   WorkflowStateSnapshot,
 } from '@ai-team/api-contracts';
-import type { Agent, ToolContext } from '@ai-team/core';
+import type { Agent, ExecutionContext } from '@ai-team/core';
 import {
   resolveWorkflowAnswer as _resolveWorkflowAnswer,
   emitWorkflowQuestionFrame as _emitWorkflowQuestionFrame,
@@ -45,10 +45,10 @@ const INIT_ASK_AGENT: Agent = {
 
 const askUserCommand = new AskUserCommand();
 
-function createAskToolContext(
+function createAskExecutionContext(
   hooks: InitRuntimeHooks | undefined,
-  overrides?: Partial<Pick<ToolContext, 'questionInput'>>
-): ToolContext {
+  overrides?: Partial<Pick<ExecutionContext, 'questionInput'>>
+): ExecutionContext {
   const fallbackQuestionInput = hooks?.questionInput
     ? async (request: { message: string }) => hooks.questionInput!({ message: request.message })
     : undefined;
@@ -57,11 +57,12 @@ function createAskToolContext(
     agent: INIT_ASK_AGENT,
     agentId: INIT_ASK_AGENT.id,
     workspaceRoot: '',
-    questionInput: overrides?.questionInput ?? fallbackQuestionInput,
-    questionConfirm: hooks?.questionConfirm,
-    questionSelect: hooks?.questionSelect,
-    questionPassword: hooks?.questionPassword,
-    questionChecklist: hooks?.questionChecklist,
+    questionInput: (overrides?.questionInput ?? fallbackQuestionInput) as ExecutionContext['questionInput'],
+    questionConfirm: hooks?.questionConfirm as ExecutionContext['questionConfirm'],
+    questionSelect: hooks?.questionSelect as ExecutionContext['questionSelect'],
+    questionPassword: hooks?.questionPassword as ExecutionContext['questionPassword'],
+    questionChecklist: hooks?.questionChecklist as ExecutionContext['questionChecklist'],
+    history: [],
   };
 }
 
@@ -87,16 +88,11 @@ async function askViaTool(
     maxSelections?: number;
     mask?: string;
   },
-  overrides?: Partial<Pick<ToolContext, 'questionInput'>>
+  overrides?: Partial<Pick<ExecutionContext, 'questionInput'>>
 ): Promise<unknown> {
   const result = await askUserCommand.execute(
     params,
-    createAskToolContext(hooks, overrides),
-    {
-      invocationSurface: 'tool',
-      workspaceRoot: '',
-      agentId: INIT_ASK_AGENT.id,
-    }
+    createAskExecutionContext(hooks, overrides) as unknown as import('@ai-team/core').ExecutionContext
   );
   if (!result || typeof result !== 'object' || !('answer' in result)) {
     throw new Error('com_ask returned an unexpected response shape.');
@@ -202,10 +198,10 @@ export async function requestInput(
       workflow: request.workflow,
     },
     {
-      questionInput: async (inputRequest) =>
+      questionInput: async (inputRequest: unknown) =>
         hooks.questionInput?.({
           ...request,
-          message: inputRequest.message,
+          message: (inputRequest as any).message,
         }) ?? '',
     }
   );
@@ -333,46 +329,6 @@ export async function requestPassword(
 
   emitWorkflowResultFrame(hooks, request, answer);
   return answer;
-}
-
-function parseChecklistAnswer(
-  input: string,
-  choices: Array<{ name: string; value: string }>
-): string[] {
-  const tokens = input
-    .split(',')
-    .map((token) => token.trim())
-    .filter(Boolean);
-
-  if (tokens.length === 0) {
-    return [];
-  }
-
-  const selected = new Set<string>();
-
-  for (const token of tokens) {
-    const numeric = Number.parseInt(token, 10);
-    if (!Number.isNaN(numeric) && numeric >= 1 && numeric <= choices.length) {
-      selected.add(choices[numeric - 1].value);
-      continue;
-    }
-
-    const exactValue = choices.find((choice) => choice.value.toLowerCase() === token.toLowerCase());
-    if (exactValue) {
-      selected.add(exactValue.value);
-      continue;
-    }
-
-    const exactName = choices.find((choice) => choice.name.toLowerCase() === token.toLowerCase());
-    if (exactName) {
-      selected.add(exactName.value);
-      continue;
-    }
-
-    throw new Error(`Invalid checklist option: "${token}".`);
-  }
-
-  return Array.from(selected);
 }
 
 export async function requestChecklist(

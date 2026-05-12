@@ -18,14 +18,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { Agent, ChatMessage } from '@ai-team/core';
 import { XStateChatOrchestrator } from './xstate-chat-orchestrator.js';
-import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
 import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
 
 type OrchestratorCtor = new (
-  ctx: OrchestratorContext,
+  ctx: ExecutionContext,
   plugins: ResolvedPlugins
 ) => {
   run(options: { message: string; contextFiles?: string[]; maxHops?: number }): Promise<string>;
@@ -266,7 +265,7 @@ function buildLlmService() {
   };
 }
 
-// ── Build minimal OrchestratorContext ────────────────────────────────────────
+// ── Build minimal ExecutionContext ────────────────────────────────────────
 
 function buildContext(opts: {
   agent: Agent;
@@ -276,7 +275,7 @@ function buildContext(opts: {
   agentManager: ReturnType<typeof buildAgentManager>;
   llmService: ReturnType<typeof buildLlmService>;
   history?: ChatMessage[];
-}): OrchestratorContext {
+}): ExecutionContext {
   return {
     agent: opts.agent,
     workspaceRoot: '/workspace',

@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import type { Entity, ToolRun } from '@aspect/contracts';
+import type { Entity } from '@aspect/contracts';
 
 // ── Mock modules (hoisted before imports) ───────────────────────────────────
 

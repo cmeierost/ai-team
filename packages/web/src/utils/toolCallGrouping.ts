@@ -1,17 +1,5 @@
 import type { ChatMessage, SessionActivatedTool } from '../types';
 
-const PHASE_RANK: Record<string, number> = {
-  result: 5,
-  error: 4,
-  denied: 3,
-  start: 2,
-  request: 1,
-};
-
-function phaseRank(phase?: string): number {
-  return phase ? (PHASE_RANK[phase] ?? 0) : 0;
-}
-
 function getToolIdentity(event: SessionActivatedTool): string {
   return event.toolResult?.toolName ?? event.toolName ?? 'unknown-tool';
 }

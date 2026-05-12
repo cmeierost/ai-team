@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { FileTime, Patch, fuzzyReplace, emitFileEdited, emitFileCreated } from 'fs-context';
-import type { AgentTool, ITool, CommandRuntime, ToolContext } from '@ai-team/core';
+import type { ExecutionContext, ICommand, CommandResponse } from '@ai-team/core';
 import { resolveFsAbsolutePath, toFsPathAccessEnvelope, toFsPathMeta } from './fs-access.js';
 import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
 
@@ -50,7 +50,7 @@ export interface FsEditParams {
   replaceAll?: boolean;
 }
 
-export class FsEditTool implements ITool<FsEditParams, ToolContext, unknown> {
+export class FsEditTool  {
   readonly name = 'edit';
   readonly key = 'edit';
   readonly group = 'fs';
@@ -82,7 +82,7 @@ export class FsEditTool implements ITool<FsEditParams, ToolContext, unknown> {
     return `Not edited: ${filePath}${r.error ? ' — ' + r.error : ''}`;
   }
 
-  async execute(params: FsEditParams, context: ToolContext): Promise<unknown> {
+  async execute(params: FsEditParams, context: ExecutionContext): Promise<unknown> {
     const { filePath, replaceAll = false } = params;
 
     const cleanOld = stripLineNumberPrefixes(params.oldString);
@@ -95,7 +95,11 @@ export class FsEditTool implements ITool<FsEditParams, ToolContext, unknown> {
       return {
         path: { input: filePath, absolute: '', relative: '' },
         edited: false,
-        access: { allowed: false, explanation: 'Path is outside workspace root.', alternativeContexts: [] },
+        access: {
+          allowed: false,
+          explanation: 'Path is outside workspace root.',
+          alternativeContexts: [],
+        },
       };
     }
 
@@ -116,7 +120,7 @@ export class FsEditTool implements ITool<FsEditParams, ToolContext, unknown> {
 
     return FileTime.withLock(absolutePath, async () => {
       try {
-        await FileTime.assert(context.agent.id, absolutePath);
+        await FileTime.assert(context.agent!.id, absolutePath);
       } catch (assertErr) {
         return {
           path: pathMeta,
@@ -172,7 +176,7 @@ export class FsEditTool implements ITool<FsEditParams, ToolContext, unknown> {
         };
       }
 
-      FileTime.record(context.agent.id, absolutePath);
+      FileTime.record(context.agent!.id, absolutePath);
       emitFileEdited(absolutePath);
 
       const addedLines = newString.split('\n').length - oldString.split('\n').length;
@@ -195,7 +199,7 @@ export class FsEditTool implements ITool<FsEditParams, ToolContext, unknown> {
 }
 
 // Export fsEditTool before MultiEditTool (MultiEditTool.execute references it)
-export const fsEditTool: AgentTool = new FsEditTool();
+export const fsEditTool = new FsEditTool();
 
 // ─── MultiEdit ────────────────────────────────────────────────────────────────
 
@@ -204,7 +208,7 @@ export interface MultiEditParams {
   edits: Array<{ oldString: string; newString: string; replaceAll?: boolean }>;
 }
 
-export class MultiEditTool implements ITool<MultiEditParams, ToolContext, unknown> {
+export class MultiEditTool  {
   readonly name = 'multiedit';
   readonly key = 'multiedit';
   readonly group = 'edit';
@@ -242,7 +246,7 @@ export class MultiEditTool implements ITool<MultiEditParams, ToolContext, unknow
     return `${r.succeeded}/${r.totalEdits} edits applied to ${r.path} (failed at #${(r.failedAtIndex ?? r.succeeded) + 1}: ${r.error ?? 'unknown'})`;
   }
 
-  async execute(params: MultiEditParams, context: ToolContext): Promise<unknown> {
+  async execute(params: MultiEditParams, context: ExecutionContext): Promise<unknown> {
     const { filePath, edits } = params;
 
     const access = toFsPathAccessEnvelope(context, 'edit', filePath);
@@ -267,11 +271,6 @@ export class MultiEditTool implements ITool<MultiEditParams, ToolContext, unknow
 
     for (let i = 0; i < edits.length; i++) {
       const edit = edits[i]!;
-      const runtime: CommandRuntime = {
-        invocationSurface: 'tool',
-        workspaceRoot: context.workspaceRoot,
-        agentId: context.agentId,
-      };
       const rawResult = await fsEditTool.execute(
         {
           filePath,
@@ -279,8 +278,7 @@ export class MultiEditTool implements ITool<MultiEditParams, ToolContext, unknow
           newString: edit.newString,
           replaceAll: edit.replaceAll,
         },
-        context,
-        runtime
+        context
       );
 
       const r = rawResult as {
@@ -334,7 +332,7 @@ export interface ApplyPatchParams {
   patchText: string;
 }
 
-export class ApplyPatchTool implements ITool<ApplyPatchParams, ToolContext, unknown> {
+export class ApplyPatchTool  {
   readonly name = 'patch';
   readonly key = 'patch';
   readonly group = 'edit';
@@ -377,7 +375,7 @@ export class ApplyPatchTool implements ITool<ApplyPatchParams, ToolContext, unkn
     return lines.join('\n') || 'No changes.';
   }
 
-  async execute(params: ApplyPatchParams, context: ToolContext): Promise<unknown> {
+  async execute(params: ApplyPatchParams, context: ExecutionContext): Promise<unknown> {
     let fileDiffs: ReturnType<typeof Patch.parse>;
     try {
       fileDiffs = Patch.parse(params.patchText);
@@ -419,7 +417,10 @@ export class ApplyPatchTool implements ITool<ApplyPatchParams, ToolContext, unkn
       if (diff.type === 'move') {
         newAbsolutePath = resolveFsAbsolutePath(context, diff.newPath) ?? undefined;
         if (!newAbsolutePath) {
-          denied.push({ path: diff.newPath, reason: 'Move destination is outside workspace root.' });
+          denied.push({
+            path: diff.newPath,
+            reason: 'Move destination is outside workspace root.',
+          });
           continue;
         }
       }
@@ -442,18 +443,28 @@ export class ApplyPatchTool implements ITool<ApplyPatchParams, ToolContext, unkn
       try {
         if (diff.type === 'delete') {
           await fs.unlink(absolutePath);
-          applied.push({ type: 'delete', path: diff.oldPath, additions: 0, deletions: diff.deletions });
+          applied.push({
+            type: 'delete',
+            path: diff.oldPath,
+            additions: 0,
+            deletions: diff.deletions,
+          });
         } else if (diff.type === 'add') {
           await fs.mkdir(path.dirname(absolutePath), { recursive: true });
           const content = Patch.applyFileDiff('', diff.hunks);
           await fs.writeFile(absolutePath, content, 'utf8');
-          FileTime.record(context.agent.id, absolutePath);
+          FileTime.record(context.agent!.id, absolutePath);
           emitFileCreated(absolutePath);
-          applied.push({ type: 'add', path: diff.newPath, additions: diff.additions, deletions: 0 });
+          applied.push({
+            type: 'add',
+            path: diff.newPath,
+            additions: diff.additions,
+            deletions: 0,
+          });
           fileChanges.push({ filePath: absolutePath, oldContent: '', newContent: content });
         } else if (diff.type === 'update') {
           try {
-            await FileTime.assert(context.agent.id, absolutePath);
+            await FileTime.assert(context.agent!.id, absolutePath);
           } catch (assertErr) {
             return {
               applied,
@@ -464,13 +475,18 @@ export class ApplyPatchTool implements ITool<ApplyPatchParams, ToolContext, unkn
           const original = await fs.readFile(absolutePath, 'utf8');
           const updated = Patch.applyFileDiff(original, diff.hunks);
           await fs.writeFile(absolutePath, updated, 'utf8');
-          FileTime.record(context.agent.id, absolutePath);
+          FileTime.record(context.agent!.id, absolutePath);
           emitFileEdited(absolutePath);
-          applied.push({ type: 'update', path: diff.oldPath, additions: diff.additions, deletions: diff.deletions });
+          applied.push({
+            type: 'update',
+            path: diff.oldPath,
+            additions: diff.additions,
+            deletions: diff.deletions,
+          });
           fileChanges.push({ filePath: absolutePath, oldContent: original, newContent: updated });
         } else if (diff.type === 'move') {
           try {
-            await FileTime.assert(context.agent.id, absolutePath);
+            await FileTime.assert(context.agent!.id, absolutePath);
           } catch (assertErr) {
             return {
               applied,
@@ -479,11 +495,12 @@ export class ApplyPatchTool implements ITool<ApplyPatchParams, ToolContext, unkn
             };
           }
           const original = await fs.readFile(absolutePath, 'utf8');
-          const updated = diff.hunks.length > 0 ? Patch.applyFileDiff(original, diff.hunks) : original;
+          const updated =
+            diff.hunks.length > 0 ? Patch.applyFileDiff(original, diff.hunks) : original;
           await fs.mkdir(path.dirname(newAbsolutePath!), { recursive: true });
           await fs.writeFile(newAbsolutePath!, updated, 'utf8');
           await fs.unlink(absolutePath);
-          FileTime.record(context.agent.id, newAbsolutePath!);
+          FileTime.record(context.agent!.id, newAbsolutePath!);
           emitFileEdited(newAbsolutePath!);
           applied.push({
             type: 'move',
@@ -491,7 +508,11 @@ export class ApplyPatchTool implements ITool<ApplyPatchParams, ToolContext, unkn
             additions: diff.additions,
             deletions: diff.deletions,
           });
-          fileChanges.push({ filePath: newAbsolutePath!, oldContent: original, newContent: updated });
+          fileChanges.push({
+            filePath: newAbsolutePath!,
+            oldContent: original,
+            newContent: updated,
+          });
         }
       } catch (applyErr) {
         return {
@@ -529,5 +550,5 @@ export class ApplyPatchTool implements ITool<ApplyPatchParams, ToolContext, unkn
 
 // ─── Module-level singletons ──────────────────────────────────────────────────
 
-export const multiEditTool: AgentTool = new MultiEditTool();
-export const applyPatchTool: AgentTool = new ApplyPatchTool();
+export const multiEditTool = new MultiEditTool();
+export const applyPatchTool = new ApplyPatchTool();

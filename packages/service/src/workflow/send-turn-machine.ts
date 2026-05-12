@@ -31,14 +31,6 @@ import {
 } from './send-turn-contracts.js';
 import { workflowDefinitionJsonToYaml } from './definition-format.js';
 
-interface SendTurnMachineCompletedEvent {
-  output: SendTurnMachineOutput;
-}
-
-interface SendTurnMachineFailedEvent {
-  output: SendTurnMachineFailureOutput;
-}
-
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;

@@ -222,6 +222,14 @@ export const FileTypeGroupConfigSchema = z.object({
 
 export type FileTypeGroupConfig = z.infer<typeof FileTypeGroupConfigSchema>;
 
+export const DynamicSlashCatalogConfigSchema = z.object({
+  promptGlobs: z.array(z.string().min(1)).optional(),
+  skillGlobs: z.array(z.string().min(1)).optional(),
+  workflowGlobs: z.array(z.string().min(1)).optional(),
+});
+
+export type DynamicSlashCatalogConfig = z.infer<typeof DynamicSlashCatalogConfigSchema>;
+
 export const TeamConfigSchema = z.object({
   version: z.string(),
   llm: LlmConfigSchema.optional(),
@@ -239,6 +247,7 @@ export const TeamConfigSchema = z.object({
   randomAvatarUrls: z.array(z.string().url()).optional().default([]),
   fileTree: FileTreeConfigSchema.optional(),
   fileTypeGroups: z.record(z.string().min(1), FileTypeGroupConfigSchema).optional(),
+  dynamicSlashCatalog: DynamicSlashCatalogConfigSchema.optional(),
   projectName: z.string().min(1).optional(),
   modelKeys: z.record(z.string(), ModelKeyEntrySchema).optional(),
   systemModels: z

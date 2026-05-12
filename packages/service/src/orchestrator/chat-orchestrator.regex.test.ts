@@ -19,11 +19,10 @@ vi.mock('./tool-dispatch.js', () => ({
 import { XStateChatOrchestrator } from './xstate-chat-orchestrator';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import { dispatchToolCall } from './tool-dispatch.js';
-import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
 
 type OrchestratorCtor = new (
-  ctx: OrchestratorContext,
+  ctx: ExecutionContext,
   plugins: ResolvedPlugins
 ) => {
   run(options: { message: string; contextFiles?: string[]; maxHops?: number }): Promise<string>;
@@ -33,7 +32,7 @@ const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: Orchestr
   { name: 'xstate-drop-in', Orchestrator: XStateChatOrchestrator },
 ];
 
-function makeContext(): OrchestratorContext {
+function makeContext(): ExecutionContext {
   const appendMessage = vi.fn(async () => null);
   const preLlmTools = [
     {

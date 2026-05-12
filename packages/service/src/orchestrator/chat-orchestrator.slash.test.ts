@@ -9,11 +9,11 @@ vi.mock('../workflow/send-turn-machine.js', () => ({
 
 import { XStateChatOrchestrator } from './xstate-chat-orchestrator';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
-import type { OrchestratorContext } from './pipeline-context.js';
 import type { ResolvedPlugins } from './pipeline.js';
+import type { CommandResponse } from '@ai-team/api-contracts';
 
 type OrchestratorCtor = new (
-  ctx: OrchestratorContext,
+  ctx: ExecutionContext,
   plugins: ResolvedPlugins
 ) => {
   run(options: { message: string; contextFiles?: string[]; maxHops?: number }): Promise<string>;
@@ -23,7 +23,7 @@ const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: Orchestr
   { name: 'xstate-drop-in', Orchestrator: XStateChatOrchestrator },
 ];
 
-function makeContext(): OrchestratorContext {
+function makeContext(): ExecutionContext {
   return {
     agent: { id: 'hr-director', name: 'Robert Davis', role: 'hr-director' } as any,
     workspaceRoot: '/workspace',
@@ -80,7 +80,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         {
           key: 'who',
           description: 'whoami',
-          execute: vi.fn(async (_args: string, slashCtx: OrchestratorContext) => {
+          execute: vi.fn(async (_args: string, slashCtx: ExecutionContext) => {
             slashCtx.hooks.emit?.({ kind: 'log', level: 'info', message: 'whoami result' } as any);
           }),
         } as any,
@@ -108,6 +108,46 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         })
       );
       expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
+    });
+
+    it('continues to LLM with prompt text when a prompt slash command is invoked', async () => {
+      const appendMessage = vi.fn(async () => null);
+      const ctx = makeContext();
+      (ctx.sessionManager as any) = { appendMessage };
+
+      const promptText = 'You are a strict reviewer. Find edge cases.';
+      const plugins = makePlugins();
+      plugins.slashCommands = [
+        {
+          key: 'prompt-review',
+          description: 'load prompt',
+          execute: vi.fn(
+            async (): Promise<CommandResponse> => ({
+              status: 'ok',
+              message: 'Loaded prompt "prompt-review".',
+              data: {
+                source: 'prompt',
+                promptText,
+              },
+            })
+          ),
+        } as any,
+      ];
+
+      const orchestrator = new Orchestrator(ctx, plugins);
+      const result = await orchestrator.run({ message: '/prompt-review' });
+
+      expect(result).toBe('llm-called');
+      expect(runSendTurnMachineAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ userMessage: promptText })
+      );
+      expect(appendMessage).toHaveBeenCalledWith(
+        'sess-1',
+        expect.objectContaining({
+          content: '/prompt-review',
+          hiddenFromLlm: true,
+        })
+      );
     });
   }
 );

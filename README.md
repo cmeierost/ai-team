@@ -36,6 +36,28 @@ Use this path when implementing or modifying behavior:
 - [Chat Context Management](docs/chat-context-management.md) - Edit, delete, archive messages and manage LLM context
 - [Web UI Development](docs/web-ui-development.md) - Frontend development workflow
 
+## Dynamic Slash Catalog Globs
+
+Dynamic slash discovery supports configurable glob patterns for prompts, skills, and JSON workflows.
+
+Defaults:
+
+- `promptGlobs`: `.ai-team/prompts/**/*.prompt.md`, `.github/prompts/**/*.prompt.md`
+- `skillGlobs`: `.ai-team/skills/**/SKILL.md`, `.github/skills/**/SKILL.md`
+- `workflowGlobs`: `.ai-team/workflows/**/*.json`
+
+These can be set in either `.ai-team/config.json` (team-wide) or `.ai-team/config.user.json` (user override):
+
+```json
+{
+   "dynamicSlashCatalog": {
+      "promptGlobs": [".custom/prompts/**/*.prompt.md"],
+      "skillGlobs": [".custom/skills/**/SKILL.md"],
+      "workflowGlobs": [".custom/workflows/**/*.json"]
+   }
+}
+```
+
 ## Build and Test
 
 - Install: `pnpm install`

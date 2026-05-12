@@ -1,68 +1,59 @@
 /**
- * @ai-team/infrastructure - Runtime implementation exports
+ * @ai-team/infrastructure - runtime implementation entry point.
  *
- * This is the main entry point for infrastructure implementations.
- * Shared types and pure logic are sourced from @ai-team/core.
+ * Keep this surface intentionally narrow: export only concrete adapters/services
+ * required by other packages. Domain types remain in @ai-team/core.
  */
 
-// Re-export shared domain types/pure logic from core
-export * from '@ai-team/core';
+export { ContextRuntime, PermFileRegistry } from 'fs-context';
 
-// Re-export fs-level types/functions that downstream packages import from core
+// Agent and workspace infrastructure
 export {
-  getCachedFileTree,
-  listCachedWorkspaceFiles,
-  ContextRuntime,
-  type FileTreeNode,
-  type GetFileTreeOptions,
-} from 'fs-context';
+  registerAgentInfrastructureServices,
+  type AgentInfrastructureRegistrationTokens,
+} from './agent/register-agent-infrastructure-services.js';
+export {
+  registerInfrastructureCoreServices,
+  type InfrastructureCoreRegistrationTokens,
+} from './registration/register-infrastructure-core-services.js';
+export { ConfigurationStorage } from './agent/configuration-storage.js';
+export { EnvironmentStorage } from './agent/environment-storage.js';
+export { TeamGraphBuilder } from './agent/team-graph-builder.js';
+export { AvatarManager, generateAgentColor, parseHslHue } from './agent/avatar.js';
 
-// Core modules
-export * from './agent/index.js';
-export * from './skill/index.js';
-export * from './agent/team-graph-builder.js';
-export * from './context/index.js';
-export * from './context/path-permission-checker.js';
-export * from './context/perm-overlap.js';
-export { PermFileRegistry } from 'fs-context';
-export * from './chat/index.js';
-export * from './command-catalog/index.js';
-export { withAbortSignal, isAbortError, throwIfAborted } from './utils/async.js';
-export * from './agent/storage.js';
-export * from './llm/index.js';
+// Chat and command metadata catalog
+export { ChatManager, ChatStorage } from './chat/index.js';
+export { registerCliCommandCatalog } from './command-catalog/index.js';
+
+// Filesystem/context adapters
 export {
-  GitHubModelDiscoveryService,
-  OpenAICompatibleModelDiscoveryService,
-  ModelDiscoveryRegistry,
-  createModelDiscoveryRegistry,
-} from './llm/model-discovery.js';
+  FileAnnotationServiceImpl,
+  FileTreeServiceImpl,
+  InfrastructureWorkspaceAccessRuntime,
+  InfrastructureWorkspaceFsFactory,
+} from './context/index.js';
+export { PathPermissionChecker } from './context/path-permission-checker.js';
+
+// LLM/tooling adapters
+export { LlmService } from './llm/index.js';
+export { createModelDiscoveryRegistry } from './llm/model-discovery.js';
 export { LlmProviderTester } from './llm/provider-tester.js';
 export { InfrastructureTextToolCallParser } from './llm/text-tool-call-parser.js';
-export * from './code-analysis/index.js';
-export * from './code-edit/index.js';
-export * from './ide/index.js';
-export * from './storage/index.js';
-export { NoteAttachmentReader } from './notes/note-attachment-reader.js';
+
+// Code editing / IDE adapters
+export { CodeEditManager } from './code-edit/index.js';
+export { TypeScriptAnalyzer } from './code-analysis/typescript-analyzer.js';
+export { createIdeAdapter, InfrastructureIdeAdapterFactory } from './ide/index.js';
+
+// Storage and repositories
+export { SqliteBackend } from './storage/sqlite/sqlite-storage.js';
+export { InfrastructureProposalStoreFactory } from './storage/proposal-store.js';
 export { MessagesRepository } from './repositories/messages-repository.js';
 export { SessionsRepository } from './repositories/sessions-repository.js';
 export { NotesRepository } from './repositories/notes-repository.js';
 export { PlanningRepository } from './repositories/planning-repository.js';
 
-// Avatar module
-export {
-  AvatarManager,
-  avatarManager,
-  generateAgentColor,
-  parseHslHue,
-  substituteUrlPlaceholders,
-  downloadRandomAvatar,
-  generateAvatarWithAI,
-  buildAvatarPrompt,
-  saveAvatarPreview,
-  finalizeAvatar,
-  cleanupPreview,
-  updateAgentAvatar,
-} from './agent/avatar.js';
-
-// Watcher module (to be implemented)
-// export * from './watcher/index.js';
+// Platform and misc services
+export { DeveloperIdentityService } from './platform/developer-identity-service.js';
+export { SystemInfoService } from './platform/system-info-service.js';
+export { NoteAttachmentReader } from './notes/note-attachment-reader.js';

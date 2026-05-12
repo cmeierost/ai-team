@@ -1,9 +1,9 @@
+import type { ExecutionContext } from '@ai-team/core';
 import { describe, expect, it, vi } from 'vitest';
 import { dispatchToolCall } from './tool-dispatch.js';
-import type { OrchestratorContext } from './pipeline-context.js';
 
-function makeContext(overrides?: Partial<OrchestratorContext>): OrchestratorContext {
-  const base: OrchestratorContext = {
+function makeContext(overrides?: Partial<ExecutionContext>): ExecutionContext {
+  const base: ExecutionContext = {
     agent: { id: 'agent-a', name: 'Agent A', role: 'dev', systemPrompt: '' } as any,
     workspaceRoot: 'c:/workspace',
     sessionId: 'sess-1',

@@ -36,7 +36,6 @@ import { updateWorkspaceSettings } from './update-workspace-settings.js';
 import type { OnboardCommand } from '../hr/onboard.js';
 import type { SetupCommand } from '../setup/setup.js';
 import type { TestConnectionCommand } from '../setup/test-connection.js';
-import type { CommandExecute } from '../command-contract.js';
 
 function writeLine(hooks: InitRuntimeHooks | undefined, message: string) {
   hooks?.emit?.({ kind: 'log', level: 'info', message });
@@ -81,11 +80,7 @@ export interface InitCommandParams {
   injected?: { sessionManager?: SessionManager };
 }
 
-export class InitCommand implements CommandExecute<
-  InitCommandParams,
-  InitRuntimeHooks | undefined,
-  void
-> {
+export class InitCommand {
   constructor(
     private readonly onboard: OnboardCommand,
     private readonly setup: SetupCommand,

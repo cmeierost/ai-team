@@ -9,7 +9,8 @@ import chalk from 'chalk';
 import { createContainerWithBootstrap } from '@ai-team/container';
 import type { IServiceContainer } from '@ai-team/core';
 import type { InteractionContext } from '@ai-team/api-contracts';
-import { registerCliCommandCatalog, type CliCommandMetadata } from '@ai-team/infrastructure';
+import type { CliCommandMetadata } from '@ai-team/core';
+import { registerCliCommandCatalog } from '@ai-team/infrastructure';
 import { CliCommandClient } from './cli-command-client.js';
 import {
   findWorkspaceRoot,
@@ -55,7 +56,7 @@ import {
 import { renderOrgGraph } from './handlers/org.js';
 import { launchServer, launchServerWithUi } from './handlers/serve.js';
 import { launchUi } from './handlers/ui.js';
-import { CLI_COMMAND_REGISTRY } from './handlers/registry.js';
+import { CLI_COMMAND_REGISTRY, getCliDispatchCommandKey } from './handlers/registry.js';
 import { renderDbStatus, renderDbMigrate } from './handlers/db.js';
 
 registerCliCommandCatalog(CLI_COMMAND_REGISTRY);
@@ -293,7 +294,7 @@ function createGenericPayloadBuilder(entry: CliCommandMetadata): (...args: unkno
 
 function createDefaultRegistryAction(entry: CliCommandMetadata): CliActionHandler {
   return createServiceCommandAction({
-    command: entry.key,
+    command: getCliDispatchCommandKey(entry.key),
     payload: createGenericPayloadBuilder(entry),
     jsonSignature: entry.jsonSignature,
     useResultRegistry: true,

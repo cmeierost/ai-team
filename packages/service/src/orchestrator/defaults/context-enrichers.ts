@@ -15,8 +15,9 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { ContextLevel } from '@ai-team/core';
+import type { IAgentManager, ExecutionContext } from '@ai-team/core';
 import type { IContextEnricher } from '../pipeline.js';
-import type { OrchestratorContext } from '../pipeline-context.js';
+import type { Agent } from '@ai-team/core';
 
 // ── Workspace Overview ────────────────────────────────────────────────────────
 
@@ -25,12 +26,12 @@ const ARCHITECT_ROLES = ['architect', 'tech-lead', 'engineering-manager', 'cto',
 export class WorkspaceOverviewEnricher implements IContextEnricher {
   readonly name = 'workspace-overview';
 
-  async enrich(ctx: OrchestratorContext): Promise<string | null> {
-    const role = ctx.agent.role.toLowerCase();
+  async enrich(ctx: ExecutionContext): Promise<string | null> {
+    const role = ctx.agent!.role.toLowerCase();
     const isHighContextAgent =
       ARCHITECT_ROLES.some((r) => role.includes(r)) ||
-      ctx.agent.contextLevel === ContextLevel.ORGANIZATION ||
-      ctx.agent.contextLevel === ContextLevel.REPOSITORY;
+      ctx.agent!.contextLevel === ContextLevel.ORGANIZATION ||
+      ctx.agent!.contextLevel === ContextLevel.REPOSITORY;
 
     if (!isHighContextAgent) return null;
 
@@ -50,19 +51,21 @@ const HR_ROLES = ['hr', 'people-ops', 'recruiter', 'team-lead', 'manager', 'dire
 export class TeamRosterEnricher implements IContextEnricher {
   readonly name = 'team-roster';
 
-  async enrich(ctx: OrchestratorContext): Promise<string | null> {
-    const role = ctx.agent.role.toLowerCase();
+  constructor(private readonly agentManager: IAgentManager) {}
+
+  async enrich(ctx: ExecutionContext): Promise<string | null> {
+    const role = ctx.agent!.role.toLowerCase();
     const isHrRole = HR_ROLES.some((r) => role.includes(r));
 
     if (!isHrRole) return null;
 
-    const agents = (await ctx.agentManager.getAllAgentsAsync()).filter(
-      (a) => a.id !== ctx.agent.id
+    const agents = (await this.agentManager.getAllAgentsAsync()).filter(
+      (a: Agent) => a.id !== ctx.agent!.id
     );
     if (agents.length === 0) return null;
 
     const lines = agents.map(
-      (a) => `- **${a.name}** (${a.role}) [${a.id}]${a.status ? ` — ${a.status}` : ''}`
+      (a: Agent) => `- **${a.name}** (${a.role}) [${a.id}]${a.status ? ` — ${a.status}` : ''}`
     );
     return `## Current team roster\n${lines.join('\n')}`;
   }

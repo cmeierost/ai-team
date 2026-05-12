@@ -15,12 +15,11 @@ import type {
   IWorkspaceStorage,
   IModelDiscoveryRegistry,
   ILlmProviderTester,
+  IDeveloperIdentityService,
 } from '@ai-team/core';
 import type { SetupOptions } from '@ai-team/api-contracts';
 import { resolveEffectiveLlmSettings } from '@ai-team/core';
-import { getGitUserName, developerNameToId } from '../../utils/git.js';
 import { updateWorkspaceSettings } from '../init/update-workspace-settings.js';
-import type { CommandExecute } from '../command-contract.js';
 import { updateGitignore } from '../init/update-gitignore.js';
 import { askLlmSetup, type LlmSetupResult, type LlmSettingsIo } from '../init/llm-settings.js';
 import {
@@ -106,15 +105,18 @@ function buildProviderRegistrationFromSetup(setup: LlmSetupResult): {
   };
 }
 
-function buildUserConfigFromSetup(setup: LlmSetupResult): UserConfig {
-  const gitDeveloperName = getGitUserName();
+function buildUserConfigFromSetup(
+  setup: LlmSetupResult,
+  developerIdentityService: IDeveloperIdentityService
+): UserConfig {
+  const gitDeveloperName = developerIdentityService.getUserName();
   const registration = buildProviderRegistrationFromSetup(setup);
 
   return {
     ...(gitDeveloperName
       ? {
           developer: {
-            id: developerNameToId(gitDeveloperName),
+            id: developerIdentityService.toDeveloperId(gitDeveloperName),
             name: gitDeveloperName,
           },
         }
@@ -133,17 +135,14 @@ export interface SetupCommandParams {
   options?: SetupOptions;
 }
 
-export class SetupCommand implements CommandExecute<
-  SetupCommandParams,
-  InitRuntimeHooks | undefined,
-  void
-> {
+export class SetupCommand {
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
     private readonly environmentStorage: IEnvironmentStorage,
     private readonly workspaceStorage: IWorkspaceStorage,
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
-    private readonly llmProviderTester: ILlmProviderTester
+    private readonly llmProviderTester: ILlmProviderTester,
+    private readonly developerIdentityService: IDeveloperIdentityService
   ) {}
 
   async execute(params: SetupCommandParams, hooks?: InitRuntimeHooks): Promise<void> {
@@ -155,7 +154,8 @@ export class SetupCommand implements CommandExecute<
       this.environmentStorage,
       this.workspaceStorage,
       this.modelDiscoveryRegistry,
-      this.llmProviderTester
+      this.llmProviderTester,
+      this.developerIdentityService
     );
   }
 
@@ -176,7 +176,8 @@ async function setupCommandAsync(
   environmentStorage?: IEnvironmentStorage,
   workspaceStorage?: IWorkspaceStorage,
   modelDiscoveryRegistry?: IModelDiscoveryRegistry,
-  llmProviderTester?: ILlmProviderTester
+  llmProviderTester?: ILlmProviderTester,
+  developerIdentityService?: IDeveloperIdentityService
 ) {
   const existingConfig = await configurationStorage!.loadTeamConfigAsync(workspaceRoot);
 
@@ -311,7 +312,7 @@ async function setupCommandAsync(
 
   await configurationStorage!.saveUserConfigAsync(
     workspaceRoot,
-    buildUserConfigFromSetup(llmConfig)
+    buildUserConfigFromSetup(llmConfig, developerIdentityService!)
   );
   writeLine(hooks, 'Saved LLM configuration.');
 

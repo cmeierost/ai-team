@@ -1,9 +1,8 @@
 import path from 'node:path';
-import type { ICommand, CommandRuntime, IMessageStorage } from '@ai-team/core';
+import type { ICommand, IMessageStorage, ExecutionContext, CommandResponse } from '@ai-team/core';
 import type { DbStatusResponse } from '@ai-team/api-contracts';
-import { dbStatusCommandAsync } from './db.js';
 
-export class DbStatusCommand implements ICommand<Record<string, never>, void, DbStatusResponse> {
+export class DbStatusCommand implements ICommand<Record<string, never>, DbStatusResponse> {
   readonly key = 'dbStatus';
   readonly cli = { command: 'db:status' };
   readonly description = 'Show database status and statistics';
@@ -14,10 +13,20 @@ export class DbStatusCommand implements ICommand<Record<string, never>, void, Db
 
   async execute(
     _payload: Record<string, never>,
-    _ctx: void,
-    runtime: CommandRuntime
-  ): Promise<DbStatusResponse> {
-    const dbPath = path.join(runtime.workspaceRoot, '.ai-team', 'private', 'ai-team.db');
-    return dbStatusCommandAsync(this.storage, dbPath);
+    ctx: ExecutionContext
+  ): Promise<CommandResponse<DbStatusResponse>> {
+    const dbPath = path.join(ctx.workspaceRoot, '.ai-team', 'private', 'ai-team.db');
+    const stats = await this.storage.getStats();
+    return {
+      status: 'ok',
+      message: 'Database status retrieved successfully.',
+      data: {
+        schemaVersion: stats.schemaVersion ?? 0,
+        totalSessions: stats.totalSessions,
+        totalMessages: stats.totalMessages,
+        storageSizeBytes: stats.storageSize,
+        dbPath,
+      },
+    };
   }
 }

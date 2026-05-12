@@ -13,16 +13,16 @@
 
 import type {
   Agent,
-  AgentTool,
+  ICommand,
   ILlmChatMessageParam,
   ILlmService,
   Skill,
   StructuredToolResult,
+  ExecutionContext,
 } from '@ai-team/core';
 import { withAbortSignal } from '../utils/async-utils.js';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
-import type { OrchestratorContext } from './pipeline-context.js';
-import { dispatchToolCall } from './tool-dispatch.js';
+
 import { extractStreamDeltaText } from './stream-events.js';
 
 type RuntimeLlmService = ILlmService & {
@@ -129,12 +129,12 @@ function flushFilter(state: StreamFilterState, sink: StreamTextSink): void {
 
 // ── Tool policy system message ────────────────────────────────────────────────
 
-function buildToolPolicyMessage(tools: AgentTool[]): ILlmChatMessageParam {
-  const hasAskTool = tools.some((t) => t.group === 'com' && t.name === 'ask');
+function buildToolPolicyMessage(tools: ICommand[]): ILlmChatMessageParam {
+  const hasAskTool = tools.some((t) => t.group === 'com' && (t as any).name === 'ask');
   return {
     role: 'system',
     content:
-      `Tool-calling is available. Registered tools: ${tools.map((t) => t.name).join(', ')}. ` +
+      `Tool-calling is available. Registered tools: ${tools.map((t) => (t as any).name).join(', ')}. ` +
       'Do not invent tool names. ' +
       (hasAskTool
         ? 'If you need clarification or missing input from the developer, call com_ask instead of guessing. '
@@ -148,11 +148,11 @@ function buildToolPolicyMessage(tools: AgentTool[]): ILlmChatMessageParam {
 
 export interface LlmInvokeParams {
   messages: ILlmChatMessageParam[];
-  tools: AgentTool[];
+  tools: ICommand[];
   toolDefs: LlmToolDefinition[];
   skills: Skill[];
   teamRoster: Agent[];
-  ctx: OrchestratorContext;
+  ctx: ExecutionContext;
 }
 
 export interface LlmInvokeResult {
@@ -162,7 +162,12 @@ export interface LlmInvokeResult {
 
 export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResult> {
   const { messages, tools, toolDefs, skills, teamRoster, ctx } = params;
-  const { agent, hooks, llmService } = ctx;
+  const { agent } = ctx;
+  if (!agent) {
+    throw new Error('LLM invocation requires an active agent.');
+  }
+  const hooks = (ctx as any).hooks;
+  const llmService = (ctx as any).llmService;
   const runtimeLlm = llmService as RuntimeLlmService;
 
   const state = makeFilterState();
@@ -207,7 +212,7 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
           workingMessages,
           toolDefs,
           async (toolCall) => {
-            const response = await dispatchToolCall(
+            const response = await ((ctx as any).toolDispatcher).dispatch(
               { toolCallId: toolCall.toolCallId, toolName: toolCall.toolName, args: toolCall.args },
               ctx
             );
@@ -233,7 +238,7 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
               fullResponse += delta;
             }
           },
-          ctx.instructions
+          (ctx as any).instructions
         ),
         hooks?.signal,
         'Chat aborted.'

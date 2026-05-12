@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import type { CommandRuntime, HandoffRequest, ICommand, ToolContext } from '@ai-team/core';
+import type { HandoffRequest, ICommand, ExecutionContext } from '@ai-team/core';
 import type { IAgentRegistry, ISessionGateway } from '../orchestration/orchestration.types.js';
 
 type Params = z.infer<typeof HandoffCommand.schema>;
 
-export class HandoffCommand implements ICommand<Params, ToolContext, HandoffRequest> {
+export class HandoffCommand {
   static readonly schema = z.object({
     targetAgentId: z.string().min(1).describe('ID of the agent to hand off to'),
     briefingNote: z
@@ -29,7 +29,7 @@ export class HandoffCommand implements ICommand<Params, ToolContext, HandoffRequ
     private readonly sessions: ISessionGateway
   ) {}
 
-  async execute(params: Params, context: ToolContext, _runtime: CommandRuntime): Promise<HandoffRequest> {
+  async execute(params: Params, context: ExecutionContext): Promise<HandoffRequest> {
     const { targetAgentId, briefingNote } = params;
 
     const target =
@@ -49,7 +49,7 @@ export class HandoffCommand implements ICommand<Params, ToolContext, HandoffRequ
       );
     }
 
-    if (target.id === context.agent.id) {
+    if (target.id === context.agent!!.id) {
       throw new Error('Cannot hand off to yourself. Choose another agent.');
     }
 

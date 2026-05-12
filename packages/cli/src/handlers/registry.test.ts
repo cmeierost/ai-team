@@ -15,12 +15,7 @@ describe('command registry metadata', () => {
     const init = getCliCommandMetadata('init');
 
     expect(init.description).toContain('Initialize AI Team');
-    expect(init.options).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ flags: '-t, --template <type>' }),
-        expect.objectContaining({ flags: '-f, --force' }),
-      ]),
-    );
+    expect(init.command).toBe('init');
   });
 
   it('excludes init from LLM-callable command list', () => {
@@ -30,16 +25,12 @@ describe('command registry metadata', () => {
     expect(CLI_COMMAND_REGISTRY.find(command => command.key === 'init')?.llmCallable).toBe(false);
   });
 
-  it('registers tools command metadata with agent/json options', () => {
+  it('registers tools command metadata from dispatcher command definitions', () => {
     const tools = getCliCommandMetadata('tools');
 
     expect(tools.command).toBe('tools');
-    expect(tools.options).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ flags: '--agent <agent>' }),
-        expect.objectContaining({ flags: '--json' }),
-      ]),
-    );
+    expect(tools.directCli).toBe(true);
+    expect(tools.llmCallable).toBe(true);
   });
 
   it('marks direct CLI commands explicitly in the shared registry', () => {

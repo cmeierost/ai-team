@@ -1,30 +1,6 @@
 import { CommandResponse } from '../shared-types.js';
-import {
-  DoIHavePermissionResponse,
-  FilePermission,
-  PermissionOverlapReport,
-  WhoHasPermissionResponse,
-} from './access';
-import {
-  Agent,
-  ContextLevel,
-  ListEmployeesRequest,
-  RoleType,
-  SearchAgentsResponse,
-} from './agents';
+import { ContextLevel, RoleType } from './agents';
 import { LlmProfile } from './config';
-import {
-  AddProviderOptions,
-  ConfigureProviderOptions,
-  ProviderListOptions,
-  ProviderModelsOptions,
-  RefreshProviderModelsOptions,
-  SetProviderOptions,
-  TestConnectionOptions,
-} from './llm';
-import { GraphData, ViewMode } from './team';
-import { SearchSkillsResponse, UpdateAgentSkillResponse } from './skills';
-import { ListToolsResponse, UpdateAgentToolResponse } from './tools';
 
 export type RuntimeStreamEvent =
   | {
@@ -306,6 +282,7 @@ export interface InteractionRequest {
 export interface CommandAvailability {
   cli?: boolean;
   chat?: boolean;
+  cliChat?: boolean;
   tool?: boolean;
 }
 

@@ -1,3 +1,4 @@
+import type { ExecutionContext } from '@ai-team/core';
 /**
  * NoOpRagProvider — default IRagProvider.
  * Returns null (no retrieval). Swap with an embedding-based implementation
@@ -8,10 +9,9 @@
  */
 
 import type { IRagProvider } from '../pipeline.js';
-import type { OrchestratorContext } from '../pipeline-context.js';
 
 export class NoOpRagProvider implements IRagProvider {
-  async retrieve(_query: string, _ctx: OrchestratorContext): Promise<null> {
+  async retrieve(_query: string, _ctx: ExecutionContext): Promise<null> {
     return null;
   }
 }

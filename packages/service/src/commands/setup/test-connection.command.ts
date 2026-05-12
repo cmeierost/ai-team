@@ -1,18 +1,19 @@
 import { z } from 'zod';
 import type {
   ICommand,
-  CommandRuntime,
   IConfigurationStorage,
   IEnvironmentStorage,
   IAgentManager,
   ILlmProviderTester,
   ITextToolCallParser,
+  ExecutionContext,
+  CommandResponse,
 } from '@ai-team/core';
 import { TestConnectionCommand as TestConnectionCommandImpl } from './test-connection.js';
 
 type Params = z.infer<typeof TestConnectionICommand.schema>;
 
-export class TestConnectionICommand implements ICommand<Params, void, void> {
+export class TestConnectionICommand implements ICommand<Params, void> {
   static readonly schema = z.object({
     employee: z.string().optional().describe('Resolve employee and test their effective model'),
     provider: z.string().optional().describe('Provider reference key in config.providers'),
@@ -37,7 +38,7 @@ export class TestConnectionICommand implements ICommand<Params, void, void> {
     private readonly textToolCallParser: ITextToolCallParser
   ) {}
 
-  async execute(payload: Params, _ctx: void, runtime: CommandRuntime): Promise<void> {
+  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const cmd = new TestConnectionCommandImpl(
       this.configStorage,
       this.envStorage,
@@ -45,6 +46,7 @@ export class TestConnectionICommand implements ICommand<Params, void, void> {
       this.llmProviderTester,
       this.textToolCallParser
     );
-    return cmd.executeAsync(runtime.workspaceRoot, payload);
+    await cmd.executeAsync(ctx.workspaceRoot, payload);
+    return { status: 'ok' };
   }
 }

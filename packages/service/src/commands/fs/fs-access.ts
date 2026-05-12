@@ -5,7 +5,7 @@ import {
   type FileTreeNode,
   type Right,
 } from 'fs-context';
-import type { ToolContext } from '@ai-team/core';
+import type { ExecutionContext } from '@ai-team/core';
 
 export interface FsPathAccessEnvelope {
   allowed: boolean;
@@ -18,17 +18,17 @@ export interface FsPathAccessEnvelope {
 export const accessRightSchema = z.enum(['read', 'write', 'list']);
 export type AccessRight = z.infer<typeof accessRightSchema>;
 
-function getPathPermissionChecker(context: ToolContext) {
+function getPathPermissionChecker(context: ExecutionContext) {
   const checker = (context as any).pathPermissionChecker;
   if (!checker) {
-    throw new Error('ToolContext.pathPermissionChecker is required for fs access checks.');
+    throw new Error('ExecutionContext.pathPermissionChecker is required for fs access checks.');
   }
   return checker;
 }
 
-export function canListViaContextManager(context: ToolContext, targetPath: string): boolean {
+export function canListViaContextManager(context: ExecutionContext, targetPath: string): boolean {
   const checker = getPathPermissionChecker(context);
-  return checker.canListPath(context.workspaceRoot, context.agent.permissions, targetPath);
+  return checker.canListPath(context.workspaceRoot, context.agent!.permissions, targetPath);
 }
 
 /** Count leaf (file) nodes in a tree. */
@@ -43,7 +43,7 @@ export interface FilterTreeResult {
   denied: number;
 }
 
-export function filterTreeByListAccess(context: ToolContext, node: FileTreeNode): FilterTreeResult {
+export function filterTreeByListAccess(context: ExecutionContext, node: FileTreeNode): FilterTreeResult {
   const nodePath = node.relativePath || '.';
   const nodeAllowed = canListViaContextManager(context, nodePath);
 
@@ -77,7 +77,7 @@ export function filterTreeByListAccess(context: ToolContext, node: FileTreeNode)
  * Returns a access envelope with allowed/denied and explanation.
  */
 export function toFsPathAccessEnvelope(
-  context: ToolContext,
+  context: ExecutionContext,
   toolName:
     | 'read'
     | 'read_lines'
@@ -120,23 +120,23 @@ export function toFsPathAccessEnvelope(
 
   if (writingTools.has(toolName)) {
     const checker = getPathPermissionChecker(context);
-    allowed = checker.canWritePath(context.workspaceRoot, context.agent.permissions, targetPath);
+    allowed = checker.canWritePath(context.workspaceRoot, context.agent!.permissions, targetPath);
     right = 'write';
   } else if (listingTools.has(toolName)) {
     const checker = getPathPermissionChecker(context);
-    allowed = checker.canListPath(context.workspaceRoot, context.agent.permissions, targetPath);
+    allowed = checker.canListPath(context.workspaceRoot, context.agent!.permissions, targetPath);
     right = 'list';
   } else {
     const checker = getPathPermissionChecker(context);
-    allowed = checker.canReadPath(context.workspaceRoot, context.agent.permissions, targetPath);
+    allowed = checker.canReadPath(context.workspaceRoot, context.agent!.permissions, targetPath);
     right = 'read';
   }
 
   return {
     allowed,
     explanation: allowed
-      ? `Agent '${context.agent.id}' has ${right} access to '${targetPath}'.`
-      : `Agent '${context.agent.id}' does not have ${right} access to '${targetPath}'.`,
+      ? `Agent '${context.agent!.id}' has ${right} access to '${targetPath}'.`
+      : `Agent '${context.agent!.id}' does not have ${right} access to '${targetPath}'.`,
     alternativeContexts: allowed ? [] : getAlternativeContexts(context, targetPath, right as Right),
   };
 }
@@ -146,19 +146,19 @@ export function toFsPathAccessEnvelope(
  * Currently returns an empty list — full runtime context lookup is not available here.
  */
 function getAlternativeContexts(
-  _context: ToolContext,
+  _context: ExecutionContext,
   _targetPath: string,
   _right: Right
 ): Array<{ contextId: string; allowedPaths: string[] }> {
   return [];
 }
 
-export function resolveFsAbsolutePath(context: ToolContext, targetPath: string): string | null {
+export function resolveFsAbsolutePath(context: ExecutionContext, targetPath: string): string | null {
   return resolveInsideWorkspace(context.workspaceRoot, targetPath);
 }
 
 export function toFsPathMeta(
-  context: ToolContext,
+  context: ExecutionContext,
   inputPath: string,
   absolutePath: string
 ): {

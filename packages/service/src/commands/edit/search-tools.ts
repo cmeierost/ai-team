@@ -1,6 +1,11 @@
 import { z } from 'zod';
-import type { AgentTool, ITool, LspDiagnostic, ToolContext } from '@ai-team/core';
-import { TOOL_SERVICE_TOKENS as T } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  LspDiagnostic,
+  IFileAnnotationService,
+} from '@ai-team/core';
 import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
 
 // ─── SemanticSearch ───────────────────────────────────────────────────────────
@@ -21,7 +26,7 @@ export interface SemanticSearchResult {
   total: number;
 }
 
-export class SemanticSearchTool implements ITool<SemanticSearchParams, ToolContext, SemanticSearchResult> {
+export class SemanticSearchTool implements ICommand<SemanticSearchParams, SemanticSearchResult> {
   readonly name = 'semantic';
   readonly key = 'semantic';
   readonly group = 'search';
@@ -40,17 +45,17 @@ export class SemanticSearchTool implements ITool<SemanticSearchParams, ToolConte
       .describe('Maximum number of results to return (default 100)'),
   });
 
-  async execute(params: SemanticSearchParams, context: ToolContext): Promise<SemanticSearchResult> {
+  constructor(private readonly fileAnnotationService: IFileAnnotationService) {}
+
+  async execute(
+    params: SemanticSearchParams,
+    context: ExecutionContext
+  ): Promise<CommandResponse<SemanticSearchResult>> {
     const { query, maxResults = 100 } = params;
 
-    if (!context.resolve) {
-      throw new Error('ToolContext.resolve is required for semantic search.');
-    }
-
-    const fas = context.resolve(T.FileAnnotationService);
-    const allAnnotated = fas.getAnnotatedFiles(
+    const allAnnotated = this.fileAnnotationService.getAnnotatedFiles(
       context.workspaceRoot,
-      context.agent.permissions,
+      context.agent?.permissions,
       []
     );
 
@@ -60,14 +65,17 @@ export class SemanticSearchTool implements ITool<SemanticSearchParams, ToolConte
       .slice(0, maxResults);
 
     return {
-      query,
-      results: filtered.map((f) => ({
-        path: f.path,
-        readable: f.readable,
-        writable: f.writable,
-        listable: f.listable,
-      })),
-      total: filtered.length,
+      status: 'ok',
+      data: {
+        query,
+        results: filtered.map((f) => ({
+          path: f.path,
+          readable: f.readable,
+          writable: f.writable,
+          listable: f.listable,
+        })),
+        total: filtered.length,
+      },
     };
   }
 }
@@ -85,7 +93,7 @@ export interface GetErrorsResult {
   available: boolean;
 }
 
-export class GetErrorsTool implements ITool<GetErrorsParams, ToolContext, GetErrorsResult> {
+export class GetErrorsTool implements ICommand<GetErrorsParams, GetErrorsResult> {
   readonly name = 'get_errors';
   readonly key = 'get_errors';
   readonly group = 'tool';
@@ -94,10 +102,7 @@ export class GetErrorsTool implements ITool<GetErrorsParams, ToolContext, GetErr
     'Collect LSP diagnostics (type errors, linting issues) for one or more files. ' +
     'Returns an empty list when no LSP provider is connected.';
   readonly parameters = z.object({
-    filePaths: z
-      .array(z.string())
-      .min(1)
-      .describe('Relative or absolute file paths to check'),
+    filePaths: z.array(z.string()).min(1).describe('Relative or absolute file paths to check'),
     delayMs: z
       .number()
       .int()
@@ -106,20 +111,15 @@ export class GetErrorsTool implements ITool<GetErrorsParams, ToolContext, GetErr
       .describe('Milliseconds to wait before collecting diagnostics (default 500)'),
   });
 
-  async execute(params: GetErrorsParams, context: ToolContext): Promise<GetErrorsResult> {
+  async execute(
+    params: GetErrorsParams,
+    context: ExecutionContext
+  ): Promise<CommandResponse<GetErrorsResult>> {
     const { filePaths, delayMs } = params;
-    const diagnostics =
-      (await collectPostWriteDiagnostics(context, filePaths, delayMs)) ?? [];
-
+    const diagnostics = (await collectPostWriteDiagnostics(context, filePaths, delayMs)) ?? [];
     return {
-      filePaths,
-      diagnostics,
-      available: diagnostics.length > 0 || diagnostics !== undefined,
+      status: 'ok',
+      data: { filePaths, diagnostics, available: diagnostics.length > 0 },
     };
   }
 }
-
-// ─── Module-level singletons ──────────────────────────────────────────────────
-
-export const semanticSearchTool: AgentTool = new SemanticSearchTool();
-export const getErrorsTool: AgentTool = new GetErrorsTool();

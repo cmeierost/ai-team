@@ -1,10 +1,15 @@
 import { z } from 'zod';
-import type { ICommand, CommandRuntime, IAgentManager } from '@ai-team/core';
+import type {
+  ICommand,
+  IAgentManager,
+  ExecutionContext,
+  CommandResponse,
+} from '@ai-team/core';
 import type { PermissionOverlapReport } from '@ai-team/api-contracts';
 
 type Params = z.infer<typeof AccessOverlapCommand.schema>;
 
-export class AccessOverlapCommand implements ICommand<Params, void, PermissionOverlapReport> {
+export class AccessOverlapCommand implements ICommand<Params, PermissionOverlapReport> {
   static readonly schema = z.object({
     mode: z.enum(['files', 'patterns']).optional().describe('Analysis mode: files | patterns'),
     right: z.enum(['read', 'write', 'list']).optional().describe('Optional right filter'),
@@ -23,13 +28,12 @@ export class AccessOverlapCommand implements ICommand<Params, void, PermissionOv
 
   async execute(
     payload: Params,
-    _ctx: void,
-    _runtime: CommandRuntime
-  ): Promise<PermissionOverlapReport> {
+    _ctx: ExecutionContext
+  ): Promise<CommandResponse<PermissionOverlapReport>> {
     const result = await this.agentManager.analyzeWorkspacePermissionOverlap({
       mode: payload.mode,
       agentId: payload.agent,
     });
-    return result as unknown as PermissionOverlapReport;
+    return { status: 'ok', data: result as PermissionOverlapReport };
   }
 }

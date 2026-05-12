@@ -13,16 +13,14 @@
  */
 
 import type {
-  AgentTool,
-  ChatMessage,
-  CommandResponse,
   ICommand,
+  ChatMessage,
   ILlmChatMessageParam,
   Skill,
   StructuredToolResult,
+  ExecutionContext,
 } from '@ai-team/core';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
-import type { OrchestratorContext } from './pipeline-context.js';
 import type { PreLlmIntentProvider } from '../tools/pre-llm-intents.js';
 
 // ── 1. Context Compression ────────────────────────────────────────────────────
@@ -35,7 +33,7 @@ import type { PreLlmIntentProvider } from '../tools/pre-llm-intents.js';
  * Future: summarize oldest N messages, or apply importance-weighted pruning.
  */
 export interface IContextCompressor {
-  compress(history: ChatMessage[], ctx: OrchestratorContext): Promise<ChatMessage[]>;
+  compress(history: ChatMessage[], ctx: ExecutionContext): Promise<ChatMessage[]>;
 }
 
 // ── 2. Context Builder ────────────────────────────────────────────────────────
@@ -49,7 +47,7 @@ export interface IContextCompressor {
  * Future: inject RAG results, apply per-agent formatting rules.
  */
 export interface IContextBuilder {
-  build(history: ChatMessage[], ctx: OrchestratorContext): Promise<ILlmChatMessageParam[]>;
+  build(history: ChatMessage[], ctx: ExecutionContext): Promise<ILlmChatMessageParam[]>;
 }
 
 // ── 3. Context Enricher ───────────────────────────────────────────────────────
@@ -66,7 +64,7 @@ export interface IContextBuilder {
 export interface IContextEnricher {
   /** Short label used in logs and diagnostics, e.g. "workspace-overview". */
   readonly name: string;
-  enrich(ctx: OrchestratorContext): Promise<string | null>;
+  enrich(ctx: ExecutionContext): Promise<string | null>;
 }
 
 // ── 4. RAG Provider ───────────────────────────────────────────────────────────
@@ -83,7 +81,7 @@ export interface IContextEnricher {
  * Future: embedding-based retrieval over allowed file index.
  */
 export interface IRagProvider {
-  retrieve(query: string, ctx: OrchestratorContext): Promise<string | null>;
+  retrieve(query: string, ctx: ExecutionContext): Promise<string | null>;
 }
 
 // ── 5. Tool Resolver ──────────────────────────────────────────────────────────
@@ -96,7 +94,7 @@ export interface IRagProvider {
  * Future: dynamic permission re-evaluation, feature-flag-gated tools.
  */
 export interface IToolResolver {
-  resolve(ctx: OrchestratorContext): Promise<AgentTool[]>;
+  resolve(ctx: ExecutionContext): Promise<ICommand[]>;
 }
 
 // ── 6. MCP Gateway ───────────────────────────────────────────────────────────
@@ -109,7 +107,7 @@ export interface IToolResolver {
  * Future: MCP server discovery, authentication, and tool proxying.
  */
 export interface IMcpGateway {
-  discover(): Promise<AgentTool[]>;
+  discover(): Promise<ICommand[]>;
 }
 
 // ── 7. LLM Selector ──────────────────────────────────────────────────────────
@@ -122,7 +120,7 @@ export interface IMcpGateway {
  * Future: cost-based routing, A/B testing, model cascade fallback.
  */
 export interface ILlmSelector {
-  select(ctx: OrchestratorContext): Promise<void>;
+  select(ctx: ExecutionContext): Promise<void>;
 }
 
 // ── 8. Output Handler ─────────────────────────────────────────────────────────
@@ -135,7 +133,7 @@ export interface ILlmSelector {
  * Future: distributed event bus, audit logging, analytics.
  */
 export interface IOutputHandler {
-  handle(result: TurnResult, ctx: OrchestratorContext): Promise<void>;
+  handle(result: TurnResult, ctx: ExecutionContext): Promise<void>;
 }
 
 // ── 9. Turn Result Parser ───────────────────────────────────────────────────
@@ -157,50 +155,46 @@ export interface ITurnResultParser {
     structuredResults: StructuredToolResult[],
     fullResponse: string,
     persistedContent: string,
-    ctx: OrchestratorContext
+    ctx: ExecutionContext
   ): Partial<TurnResult> | null;
 }
-
-// ── 10. Slash Command ─────────────────────────────────────────────────────────
-
-export type SlashCommand = ICommand<string, OrchestratorContext, CommandResponse | void>;
 
 // ── 11. Hook Plugins (multi-hook extension points) ──────────────────────────
 
 export interface TurnStartHookPayload {
   userMessage: string;
   options?: { skipPersist?: boolean };
-  ctx: OrchestratorContext;
+  ctx: ExecutionContext;
 }
 
 export interface MessagesPreparedHookPayload {
   messages: ILlmChatMessageParam[];
-  ctx: OrchestratorContext;
+  ctx: ExecutionContext;
 }
 
 export interface SkillsResolvedHookPayload {
   skills: Skill[];
   missingSkillNames: string[];
-  ctx: OrchestratorContext;
+  ctx: ExecutionContext;
 }
 
 export interface ToolsResolvedHookPayload {
-  tools: AgentTool[];
+  tools: ICommand[];
   toolDefs: LlmToolDefinition[];
-  ctx: OrchestratorContext;
+  ctx: ExecutionContext;
 }
 
 export interface BeforePersistAssistantMessageHookPayload {
   fullResponse: string;
   persistedContent: string;
-  ctx: OrchestratorContext;
+  ctx: ExecutionContext;
 }
 
 export interface AfterPersistAssistantMessageHookPayload {
   fullResponse: string;
   persistedContent: string;
   persistedMessage: ChatMessage;
-  ctx: OrchestratorContext;
+  ctx: ExecutionContext;
 }
 
 export interface TurnCompletedHookPayload {
@@ -208,7 +202,7 @@ export interface TurnCompletedHookPayload {
   persistedContent: string;
   structuredResults: StructuredToolResult[];
   turnResult: TurnResult;
-  ctx: OrchestratorContext;
+  ctx: ExecutionContext;
 }
 
 /**
@@ -250,7 +244,7 @@ export interface OrchestratorPlugins {
   llmSelector?: ILlmSelector;
   outputHandler?: IOutputHandler;
   /** Additional slash commands merged with the built-in set. */
-  slashCommands?: SlashCommand[];
+  slashCommands?: ICommand<string, unknown>[];
   /** Turn-result parsers replacing the built-in set when provided. */
   turnResultParsers?: ITurnResultParser[];
   /** Hook plugins merged with the built-in set. */
@@ -273,7 +267,7 @@ export interface ResolvedPlugins {
   mcpGateway: IMcpGateway;
   llmSelector: ILlmSelector;
   outputHandler: IOutputHandler;
-  slashCommands: SlashCommand[];
+  slashCommands: ICommand<string, unknown>[];
   turnResultParsers: ITurnResultParser[];
   /** Optional for backward compatibility in tests; default resolves to []. */
   hookPlugins?: IOrchestratorHookPlugin[];

@@ -71,6 +71,14 @@ export class AgentManager implements IAgentManager {
     return rankAgents(query, Array.from((await this.getAgentsAsync()).values()));
   }
 
+  async rankAgentsByIdentity(query: string | undefined): Promise<RankedAgentResult[]> {
+    return rankAgentsByIdentity(query, Array.from((await this.getAgentsAsync()).values()));
+  }
+
+  filterAndRankAgents(options: AgentSearchOptions, agents: Agent[]): AgentSearchResult[] {
+    return filterAndRankAgents(options, agents);
+  }
+
   /**
    * Ensure an agent's `handoffs` array contains auto-generated entries for:
    *   1. Upward — a handoff **to** the agent's boss (via `reportsTo`)

@@ -1,4 +1,4 @@
-import type { Agent, IAgentManager, CommandRuntime } from '@ai-team/core';
+import type { Agent, IAgentManager , ExecutionContext} from '@ai-team/core';
 
 export interface GovernanceRequest {
   /** Agent query (id/name) initiating the governance mutation. */
@@ -48,11 +48,11 @@ export async function requireUserApproval(
   }
 }
 
-// ── CommandRuntime bridges for ICommand execute methods ───────────────────────
+// ── ExecutionContext bridges for ICommand execute methods ───────────────────────
 
 export async function resolveRequestedByFromRuntime(
   requestedBy: string | undefined,
-  runtime: Pick<CommandRuntime, 'questionInput'>,
+  runtime: Pick<ExecutionContext, 'questionInput'>,
   errorMessage: string
 ): Promise<string> {
   const explicit = requestedBy?.trim();
@@ -66,7 +66,7 @@ export async function resolveRequestedByFromRuntime(
 
 export async function confirmGovernanceActionFromRuntime(
   approvedByUser: boolean | undefined,
-  runtime: Pick<CommandRuntime, 'questionConfirm'>,
+  runtime: Pick<ExecutionContext, 'questionConfirm'>,
   message: string
 ): Promise<boolean> {
   if (typeof approvedByUser === 'boolean') return approvedByUser;

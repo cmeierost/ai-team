@@ -3,19 +3,18 @@ import type {
   IAvatarManager,
   IAgentDocumentStorage,
   IAgentManager,
-  IChatManager,
   ICodeEditManager,
   IConfigurationStorage,
   IContainerToken,
   IContextBuilder,
   IContextCompressor,
   IContextEnricher,
+  IDeveloperIdentityService,
   IEnvironmentStorage,
   IFileAnnotationService,
   IFileTreeService,
   ITypeScriptAnalyzer,
   ILlmSelector,
-  ILlmService,
   IMarkdownSectionService,
   IMcpGateway,
   IModelDiscoveryRegistry,
@@ -24,103 +23,63 @@ import type {
   IOutputHandler,
   IPathPermissionChecker,
   IPermissionStorage,
+  ICommand,
   IRagProvider,
   ISkillManager,
-  ISlashCommand,
   ITeamGraphBuilder,
   IToolResolver,
   ITurnResultParser,
   IWorkspaceStorage,
-  IServiceContainer,
+  IServiceContainerRegistrar,
   IIdeAdapterFactory,
   IWorkspaceAccessRuntime,
   IWorkspaceFsFactory,
+  ISystemInfoService,
   INoteAttachmentReader,
   ITextToolCallParser,
   IProposalStoreFactory,
+  CliCommandMetadata,
 } from '@ai-team/core';
 import { createBootstrappedContainer, type ContainerBootstrapper } from './bootstrap.js';
 import type { MergeTokenSets, ServiceContainer, TokenSet } from './container.js';
 import {
-  AgentDocumentStorage,
-  AgentManager,
-  AvatarManager,
-  CodeEditManager,
-  ConfigurationStorage,
-  EnvironmentStorage,
-  FileAnnotationServiceImpl,
-  FileTreeServiceImpl,
-  LlmService,
-  MarkdownSectionService,
-  createModelDiscoveryRegistry,
-  LlmProviderTester,
-  PermFileRegistry,
-  SkillManager,
-  WorkspaceDiscoveryStorage,
-  WorkspaceStorage,
+  registerInfrastructureCoreServices,
+  type InfrastructureCoreRegistrationTokens,
   ContextRuntime,
-  ChatManager,
-  ChatStorage,
-  InfrastructureIdeAdapterFactory,
-  InfrastructureProposalStoreFactory,
-  InfrastructureWorkspaceAccessRuntime,
-  InfrastructureWorkspaceFsFactory,
-  InfrastructureTextToolCallParser,
-  SqliteBackend,
-  MessagesRepository,
-  SessionsRepository,
-  NotesRepository,
-  PlanningRepository,
-  PathPermissionChecker,
-  TeamGraphBuilder,
-  TypeScriptAnalyzer,
-  NoteAttachmentReader,
-  type CliCommandMetadata,
-  type Agent,
+  type SqliteBackend,
+  type MessagesRepository,
+  type SessionsRepository,
+  type NotesRepository,
+  type PlanningRepository,
+  type LlmService,
+  type ChatStorage,
+  type ChatManager,
 } from '@ai-team/infrastructure';
 
 import {
-  ToolManager,
-  SessionManager,
-  createToolManager,
-  type OrchestrationDeps,
-  NoOpCompressor,
-  DefaultContextBuilder,
-  WorkspaceOverviewEnricher,
-  TeamRosterEnricher,
-  NoOpRagProvider,
-  DefaultToolResolver,
-  NoOpMcpGateway,
-  DefaultLlmSelector,
-  DefaultOutputHandler,
-  buildDefaultHookPlugins,
-  buildDefaultTurnResultParsers,
-  buildDefaultSlashCommands,
-  COMMAND_DEFINITION_REGISTRY_TOKEN,
-  createCommandDefinitionRegistry,
+  type ToolManager,
+  type SessionManager,
   type IInteractionService,
-  InteractionService,
-  SystemService,
-  AgentsService,
-  TeamService,
-  ChatService,
-  SessionsService,
-  ArtifactsService,
-  TasksService,
-  PlanningService,
-  DeveloperService,
-  FilesService,
-  IdeService,
-  SkillsService,
-  ToolsService,
-  ConfigService,
-  MetaService,
-  CommandsService,
-  AccessService,
-  getWorkflowDefinitionResolvers,
-  listWorkflowDefinitionIds,
+  type SystemService,
+  type AgentsService,
+  type TeamService,
+  type ChatService,
+  type SessionsService,
+  type ArtifactsService,
+  type TasksService,
+  type PlanningService,
+  type DeveloperService,
+  type FilesService,
+  type IdeService,
+  type SkillsService,
+  type ToolsService,
+  type ConfigService,
+  type MetaService,
+  type CommandsService,
+  type AccessService,
+  registerServiceLayerServices,
+  type ServiceLayerRegistrationTokens,
 } from '@ai-team/service';
-import { ChatCommand } from '@ai-team/service/src/commands/chat/index.js';
 import { Token } from './token.js';
 
 export const SERVERTokens = {} as const;
@@ -154,6 +113,8 @@ export const TOKENS = {
   // ── Storage interfaces (shared singletons) ───────────────────────────────
   ConfigurationStorage: new Token<IConfigurationStorage>('ConfigurationStorage'),
   EnvironmentStorage: new Token<IEnvironmentStorage>('EnvironmentStorage'),
+  DeveloperIdentityService: new Token<IDeveloperIdentityService>('DeveloperIdentityService'),
+  SystemInfoService: new Token<ISystemInfoService>('SystemInfoService'),
   PermissionStorage: new Token<IPermissionStorage>('PermissionStorage'),
   MarkdownSectionService: new Token<IMarkdownSectionService>('MarkdownSectionService'),
   PathPermissionChecker: new Token<IPathPermissionChecker>('PathPermissionChecker'),
@@ -204,7 +165,7 @@ export const TOKENS = {
   LlmSelector: new Token<ILlmSelector>('ILlmSelector'),
   OutputHandler: new Token<IOutputHandler>('IOutputHandler'),
   /** Array of slash commands; each command registers itself. */
-  SlashCommands: new Token<ISlashCommand[]>('ISlashCommand[]'),
+  SlashCommands: new Token<ICommand[]>('ICommand[]'),
   /** Ordered array of turn-result parsers; first non-null return wins. */
   TurnResultParsers: new Token<ITurnResultParser[]>('ITurnResultParser[]'),
   /** Ordered array of hook plugins; each plugin may implement multiple hooks. */
@@ -238,334 +199,17 @@ function registerBaseServices(
   c.registerSingleton(tokens.ApiBaseUrl, () => cfg.apiBaseUrl ?? 'http://localhost:3002');
   c.registerInstance(tokens.WorkspaceRoot, cfg.workspaceRoot);
 
-  c.registerSingleton(
-    tokens.SqliteBackend,
-    (c) => new SqliteBackend(c.resolve(tokens.WorkspaceRoot))
-  );
-  c.registerSingleton(tokens.NotesRepository, (c) => {
-    const b = c.resolve(tokens.SqliteBackend);
-    return new NotesRepository(c.resolve(tokens.WorkspaceRoot), b.ensureReadyAsync, b.getDb);
-  });
-  c.registerSingleton(tokens.MessagesRepository, (c) => {
-    const b = c.resolve(tokens.SqliteBackend);
-    return new MessagesRepository(b.ensureReadyAsync, b.getDb);
-  });
-  c.registerSingleton(tokens.SessionsRepository, (c) => {
-    const b = c.resolve(tokens.SqliteBackend);
-    return new SessionsRepository(b.ensureReadyAsync, b.getDb, c.resolve(tokens.NotesRepository));
-  });
-  c.registerSingleton(tokens.PlanningRepository, (c) => {
-    const b = c.resolve(tokens.SqliteBackend);
-    return new PlanningRepository(b.ensureReadyAsync, b.getDb);
-  });
-  c.registerSingleton(
-    tokens.LlmService,
-    (c) =>
-      new LlmService(
-        c.resolve(tokens.WorkspaceRoot),
-        new ConfigurationStorage(),
-        new EnvironmentStorage()
-      )
+  registerInfrastructureCoreServices(
+    c as unknown as IServiceContainerRegistrar,
+    tokens as unknown as InfrastructureCoreRegistrationTokens
   );
 
-  // ── Shared storage singletons ────────────────────────────────────────────
-  c.registerSingleton(tokens.MarkdownSectionService, () => new MarkdownSectionService());
-  c.registerSingleton(tokens.PathPermissionChecker, () => new PathPermissionChecker());
-  c.registerSingleton(tokens.WorkspaceStorage, () => new WorkspaceStorage());
-  c.registerSingleton(tokens.ConfigurationStorage, () => new ConfigurationStorage());
-  c.registerSingleton(tokens.EnvironmentStorage, () => new EnvironmentStorage());
-  c.registerSingleton(
-    tokens.PermissionStorage,
-    (c) => new PermFileRegistry(c.resolve(tokens.WorkspaceRoot))
-  );
-  c.registerSingleton(tokens.ModelDiscoveryRegistry, () => createModelDiscoveryRegistry());
-  c.registerSingleton(
-    tokens.LlmProviderTester,
-    (c) => new LlmProviderTester(c.resolve(tokens.EnvironmentStorage))
-  );
-
-  c.registerSingleton(tokens.AgentDocumentStorage, (c) => {
-    const workspaceStorage = c.resolve(tokens.WorkspaceStorage);
-    const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
-    return new AgentDocumentStorage(
-      c.resolve(tokens.MarkdownSectionService),
-      workspaceStorage,
-      workspaceDiscoveryStorage
-    );
-  });
-
-  c.registerSingleton(tokens.AgentManager, (c) => {
-    const agentDocumentStorage = c.resolve(tokens.AgentDocumentStorage);
-    const workspaceStorage = c.resolve(tokens.WorkspaceStorage);
-    const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
-
-    return new AgentManager(
-      c.resolve(tokens.WorkspaceRoot),
-      agentDocumentStorage,
-      workspaceStorage,
-      workspaceDiscoveryStorage,
-      c.resolve(tokens.PermissionStorage)
-    );
-  });
-  c.registerSingleton(
-    tokens.AvatarManager,
-    (c) => new AvatarManager(c.resolve(tokens.AgentDocumentStorage))
-  );
-  c.registerSingleton(tokens.CodeEditManager, () => new CodeEditManager());
-  c.registerSingleton(tokens.TypeScriptAnalyzer, () => new TypeScriptAnalyzer());
-  c.registerSingleton(tokens.FileAnnotationService, () => new FileAnnotationServiceImpl());
-  c.registerSingleton(tokens.FileTreeService, () => new FileTreeServiceImpl());
-  c.registerSingleton(tokens.IdeAdapterFactory, () => new InfrastructureIdeAdapterFactory());
-  c.registerSingleton(
-    tokens.WorkspaceAccessRuntime,
-    () => new InfrastructureWorkspaceAccessRuntime()
-  );
-  c.registerSingleton(tokens.WorkspaceFsFactory, () => new InfrastructureWorkspaceFsFactory());
-  c.registerSingleton(tokens.NoteAttachmentReader, () => new NoteAttachmentReader());
-  c.registerSingleton(tokens.ProposalStoreFactory, () => new InfrastructureProposalStoreFactory());
-  c.registerSingleton(tokens.TextToolCallParser, () => new InfrastructureTextToolCallParser());
-  c.registerSingleton(tokens.SkillManager, (c) => {
-    const agentDocumentStorage = c.resolve(tokens.AgentDocumentStorage);
-    const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
-    return new SkillManager(
-      c.resolve(tokens.WorkspaceRoot),
-      agentDocumentStorage,
-      workspaceDiscoveryStorage
-    );
-  });
-
-  c.registerSingleton(
-    tokens.SessionManager,
-    (c) =>
-      new SessionManager(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.MessagesRepository),
-        c.resolve(tokens.SessionsRepository),
-        c.resolve(tokens.NotesRepository),
-        c.resolve(tokens.AgentManager) as AgentManager,
-        c.resolve(tokens.NoteAttachmentReader)
-      )
-  );
-
-  c.registerSingleton(tokens.ToolManager, (c) => {
-    let manager!: ToolManager;
-    const orchestrationDeps: OrchestrationDeps = {
-      sessions: c.resolve(tokens.SessionManager) as SessionManager,
-      agents: c.resolve(tokens.AgentManager) as AgentManager,
-      tools: {
-        whoCanExecute: (toolName: string, args: unknown, agents: Agent[]) =>
-          manager.whoCanExecute(toolName, args, agents),
-        catalog: (agent: Agent) => manager.catalog(agent),
-      },
-      workflows: {
-        listWorkflowIds: () => listWorkflowDefinitionIds(),
-        getWorkflowDefinition: async (workflowId: string) => {
-          const resolvers = getWorkflowDefinitionResolvers();
-          const resolver = resolvers[workflowId as keyof typeof resolvers];
-          if (!resolver) {
-            throw new Error(`Workflow definition '${workflowId}' is not available.`);
-          }
-          return {
-            workflowId,
-            format: resolver.format,
-            definitionJson: resolver.getJson(),
-            definitionYaml: resolver.getYaml(),
-          };
-        },
-      },
-    };
-    manager = createToolManager(c.resolve(tokens.WorkspaceRoot), orchestrationDeps, {
-      pathPermissionChecker: c.resolve(tokens.PathPermissionChecker),
-      container: c as unknown as IServiceContainer,
-    });
-    return manager;
-  });
-
-  c.registerSingleton(tokens.ChatStorage, (c) => new ChatStorage(c.resolve(tokens.WorkspaceRoot)));
-  c.registerSingleton(
-    tokens.ChatManager,
-    (c) => new ChatManager(c.resolve(tokens.ChatStorage), c.resolve(tokens.WorkspaceRoot))
-  );
-
-  c.registerSingleton(tokens.ContextCompressor, () => new NoOpCompressor());
-  c.registerSingleton(tokens.ContextBuilder, () => new DefaultContextBuilder());
-  c.registerSingleton(tokens.ContextEnrichers, () => [
-    new WorkspaceOverviewEnricher(),
-    new TeamRosterEnricher(),
-  ]);
-  c.registerSingleton(tokens.RagProvider, () => new NoOpRagProvider());
-  c.registerSingleton(tokens.ToolResolver, (c) =>
-    new DefaultToolResolver(c.resolve(tokens.ToolManager))
-  );
-  c.registerSingleton(tokens.McpGateway, () => new NoOpMcpGateway());
-  c.registerSingleton(tokens.LlmSelector, () => new DefaultLlmSelector());
-  c.registerSingleton(tokens.OutputHandler, () => new DefaultOutputHandler());
-  c.registerSingleton(tokens.SlashCommands, (c) =>
-    buildDefaultSlashCommands({
-      contextService: {
-        getContextEstimate: (...args) =>
-          c.resolve(tokens.MetaService).getContextEstimate(...(args as [string, { sessionId?: string }?])),
-      },
-    })
-  );
-  c.registerSingleton(tokens.TurnResultParsers, () => buildDefaultTurnResultParsers());
-  c.registerSingleton(tokens.HookPlugins, () => buildDefaultHookPlugins());
-  c.registerSingleton(COMMAND_DEFINITION_REGISTRY_TOKEN, () => {
-    const registry = createCommandDefinitionRegistry();
-    return registry;
-  });
-
-  // ── HTTP route services (lazily resolved; server overrides ApiBaseUrl) ──
-  c.registerSingleton(
-    tokens.SystemService,
-    (c) => new SystemService(c.resolve(tokens.WorkspaceRoot), c.resolve(tokens.ApiBaseUrl))
-  );
-  c.registerSingleton(
-    tokens.AgentsService,
-    (c) =>
-      new AgentsService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.ToolManager),
-        c.resolve(tokens.ConfigurationStorage),
-        c.resolve(tokens.PermissionStorage),
-        c.resolve(tokens.MarkdownSectionService),
-        c.resolve(tokens.FileAnnotationService)
-      )
-  );
-  c.registerSingleton(
-    tokens.TeamGraphBuilder,
-    (c) => new TeamGraphBuilder(c.resolve(tokens.AgentManager))
-  );
-  c.registerSingleton(
-    tokens.TeamService,
-    (c) => new TeamService(c.resolve(tokens.TeamGraphBuilder))
-  );
-  c.registerSingleton(tokens.InteractionService, (c) => {
-    const cmd = new ChatCommand(
-      c.resolve(tokens.ConfigurationStorage),
-      c.resolve(tokens.EnvironmentStorage),
-      c.resolve(tokens.AgentDocumentStorage),
-      c.resolve(tokens.AgentManager),
-      c.resolve(tokens.LlmService) as unknown as ILlmService,
-      c.resolve(tokens.SkillManager),
-      c.resolve(tokens.MarkdownSectionService),
-      c.resolve(tokens.PathPermissionChecker),
-      c.resolve(tokens.ProposalStoreFactory),
-      c.resolve(tokens.MetaService),
-      c.resolve(tokens.SessionManager)
-    );
-    const runChat = (
-      workspaceRoot: string,
-      agentId: string | undefined,
-      options: unknown,
-      hooks: unknown
-    ) =>
-      cmd.execute(workspaceRoot, agentId, options as never, hooks as never);
-    return new InteractionService(cfg.workspaceRoot, runChat);
-  });
-  c.registerSingleton(
-    tokens.ChatService,
-    (c) =>
-      new ChatService(
-        c.resolve(tokens.InteractionService),
-        c.resolve(tokens.SessionManager),
-        c.resolve(tokens.ChatManager) as unknown as IChatManager,
-        c.resolve(tokens.ChatStorage),
-        c.resolve(tokens.LlmService) as unknown as ILlmService
-      )
-  );
-  c.registerSingleton(
-    tokens.SessionsService,
-    (c) =>
-      new SessionsService(
-        c.resolve(tokens.SessionManager),
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.LlmService) as unknown as ILlmService
-      )
-  );
-  c.registerSingleton(
-    tokens.ArtifactsService,
-    (c) => new ArtifactsService(c.resolve(tokens.SessionManager))
-  );
-  c.registerSingleton(
-    tokens.TasksService,
-    (c) => new TasksService(c.resolve(tokens.WorkspaceRoot), c.resolve(tokens.AgentManager))
-  );
-  c.registerSingleton(
-    tokens.PlanningService,
-    (c) => new PlanningService(c.resolve(tokens.PlanningRepository))
-  );
-  c.registerSingleton(tokens.DeveloperService, () => new DeveloperService());
-  c.registerSingleton(
-    tokens.FilesService,
-    (c) =>
-      new FilesService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.ConfigurationStorage),
-        c.resolve(tokens.PermissionStorage),
-        c.resolve(tokens.FileTreeService)
-      )
-  );
-  c.registerSingleton(
-    tokens.IdeService,
-    (c) =>
-      new IdeService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.IdeAdapterFactory)
-      )
-  );
-  c.registerSingleton(
-    tokens.SkillsService,
-    (c) =>
-      new SkillsService(
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.SkillManager),
-        c.resolve(tokens.MarkdownSectionService)
-      )
-  );
-  c.registerSingleton(
-    tokens.ToolsService,
-    (c) =>
-      new ToolsService(
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.ToolManager),
-        c.resolve(tokens.McpGateway)
-      )
-  );
-  c.registerSingleton(
-    tokens.ConfigService,
-    (c) =>
-      new ConfigService(
-        cfg.workspaceRoot,
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.ConfigurationStorage),
-        c.resolve(tokens.EnvironmentStorage),
-        c.resolve(tokens.LlmProviderTester)
-      )
-  );
-  c.registerSingleton(tokens.MetaService, (c) => {
-    return new MetaService(
-      c.resolve(tokens.AgentManager),
-      c.resolve(tokens.SessionManager),
-      c.resolve(tokens.SkillManager),
-      c.resolve(tokens.ToolManager),
-      c.resolve(tokens.AgentDocumentStorage),
-      c.resolve(tokens.McpGateway),
-      c.resolve(tokens.PlanningService)
-    );
-  });
-  c.registerSingleton(tokens.CommandsService, () => new CommandsService());
   c.registerSingleton(tokens.ContextRuntime, () => new ContextRuntime());
-  c.registerSingleton(
-    tokens.AccessService,
-    (c) =>
-      new AccessService(
-        c.resolve(tokens.ContextRuntime),
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.WorkspaceAccessRuntime)
-      )
+
+  registerServiceLayerServices(
+    c as unknown as IServiceContainerRegistrar,
+    cfg,
+    tokens as unknown as ServiceLayerRegistrationTokens
   );
 }
 

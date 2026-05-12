@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CommandRuntime, ICommand, ToolContext } from '@ai-team/core';
+import type { ICommand, ExecutionContext } from '@ai-team/core';
 
 export type AskKind = 'input' | 'confirm' | 'select' | 'password' | 'checklist';
 
@@ -34,7 +34,9 @@ function askResult(kind: AskKind, answer: unknown, workflow?: AskUserParams['wor
   };
 }
 
-function requireInputBridge(context: ToolContext): NonNullable<ToolContext['questionInput']> {
+function requireInputBridge(
+  context: ExecutionContext
+): NonNullable<ExecutionContext['questionInput']> {
   if (!context.questionInput) {
     throw new Error('Question bridge unavailable: questionInput responder is not registered.');
   }
@@ -50,7 +52,7 @@ function normalizeYesNo(raw: string, fallback: boolean): boolean {
 }
 
 async function askSelectWithInputFallback(
-  context: ToolContext,
+  context: ExecutionContext,
   params: {
     message: string;
     choices: Array<{ name: string; value: string; description?: string }>;
@@ -72,7 +74,7 @@ async function askSelectWithInputFallback(
 }
 
 async function askChecklistWithInputFallback(
-  context: ToolContext,
+  context: ExecutionContext,
   params: {
     message: string;
     choices: Array<{ name: string; value: string; description?: string }>;
@@ -104,7 +106,7 @@ function ensureChoices(kind: 'select' | 'checklist', choices: AskUserParams['cho
   return choices;
 }
 
-async function executeAskUser(params: AskUserParams, context: ToolContext): Promise<unknown> {
+async function executeAskUser(params: AskUserParams, context: ExecutionContext): Promise<unknown> {
   const {
     kind = 'input',
     message,
@@ -205,7 +207,7 @@ async function executeAskUser(params: AskUserParams, context: ToolContext): Prom
 
 type Params = z.infer<typeof AskUserCommand.schema>;
 
-export class AskUserCommand implements ICommand<Params, ToolContext, unknown> {
+export class AskUserCommand{
   static readonly schema = z.object({
     kind: z
       .enum(['input', 'confirm', 'select', 'password', 'checklist'])
@@ -274,7 +276,7 @@ export class AskUserCommand implements ICommand<Params, ToolContext, unknown> {
   readonly permissionCheck = { type: 'none' as const };
   readonly tags = ['orchestration'];
 
-  async execute(params: Params, context: ToolContext, _runtime: CommandRuntime): Promise<unknown> {
+  async execute(params: Params, context: ExecutionContext): Promise<unknown> {
     return executeAskUser(params, context);
   }
 }

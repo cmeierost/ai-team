@@ -1,11 +1,17 @@
 import { z } from 'zod';
-import type { ICommand, CommandRuntime, IAgentManager, ISkillManager } from '@ai-team/core';
+import type {
+  ICommand,
+  IAgentManager,
+  ISkillManager,
+  ExecutionContext,
+  CommandResponse,
+} from '@ai-team/core';
 import type { InteractionContext } from '@ai-team/api-contracts';
 import { CreateCommand as CreateCommandImpl } from './create.js';
 
 type Params = z.infer<typeof CreateICommand.schema>;
 
-export class CreateICommand implements ICommand<Params, void, void> {
+export class CreateICommand implements ICommand<Params, void> {
   static readonly schema = z.object({
     type: z.string().describe('Entity type to create: agent | skill'),
     name: z.string().optional().describe('Name'),
@@ -25,18 +31,19 @@ export class CreateICommand implements ICommand<Params, void, void> {
     private readonly skills: ISkillManager
   ) {}
 
-  async execute(payload: Params, _ctx: void, runtime: CommandRuntime): Promise<void> {
+  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const cmd = new CreateCommandImpl(this.agents, this.skills);
     const context: InteractionContext = {
-      signal: runtime.signal,
-      emit: runtime.emit as InteractionContext['emit'],
-      questionInput: runtime.questionInput,
-      questionConfirm: runtime.questionConfirm,
-      questionSelect: runtime.questionSelect,
-      questionPassword: runtime.questionPassword,
-      questionChecklist: runtime.questionChecklist,
+      signal: ctx.signal,
+      emit: ctx.emit as InteractionContext['emit'],
+      questionInput: ctx.questionInput,
+      questionConfirm: ctx.questionConfirm,
+      questionSelect: ctx.questionSelect,
+      questionPassword: ctx.questionPassword,
+      questionChecklist: ctx.questionChecklist,
     };
     const { type, ...options } = payload;
-    return cmd.execute(type, options, context);
+    await cmd.execute(type, options, context);
+    return { status: 'ok' };
   }
 }

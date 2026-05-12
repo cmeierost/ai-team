@@ -17,22 +17,7 @@ export {
 } from './errors.js';
 export { MissingUserInputError } from './utils/user-env.js';
 export { SessionManager } from './session-manager.js';
-export { TaskManager, type TaskFilter } from './task-manager.js';
 export { findWorkspaceRoot } from './utils/workspace.js';
-export { getSystemInfo, type SystemInfo } from './utils/system-info.js';
-export {
-  getFileTreeCommand,
-  allowPathCommand,
-  disallowPathCommand,
-  agentPermissionPathCommand,
-  agentDisallowPathCommand,
-  permissionAllowCommand,
-  permissionDenyCommand,
-  type AgentPathResult,
-} from './commands/fs/file-tree.js';
-
-export { generateIntroduction } from './orchestrator/introduction.js';
-export { generateDefaultHandoffPrompt } from './orchestrator/generate-handoff-prompt.js';
 export { type ChatRuntimeHooks } from './commands/chat/index.js';
 export { serveApiCommand, type ServeApiOptions } from './commands/start/serve.js';
 export { runUiCommand, type UiCommandOptions } from './commands/start/ui.js';
@@ -44,7 +29,7 @@ export {
   type CommandDefinition,
   type CommandDefinitionRegistry,
   type CommandDefinitionSet,
-} from './commands/definitions/types.js';
+} from './types.js';
 
 // Interaction service (streaming interface for transports)
 export { InteractionService, type IInteractionService } from './interaction-service.js';
@@ -66,7 +51,7 @@ export type {
 } from '@ai-team/core';
 export type { AgentFilesResponse } from '@ai-team/api-contracts';
 
-export { createToolManager, type OrchestrationDeps } from './tools/create-tool-manager.js';
+export { createToolManager } from './tools/create-tool-manager.js';
 export { ToolManager } from './tools/tool-manager.js';
 export type {
   LlmToolDefinition,
@@ -83,7 +68,6 @@ export type {
   IOrchestratorHookPlugin,
   IOutputHandler,
   IRagProvider,
-  ISlashCommand,
   IToolResolver,
   ITurnResultParser,
 } from '@ai-team/core';
@@ -126,3 +110,8 @@ export {
   SessionsService,
   IdeService,
 } from './routers/index.js';
+export {
+  registerServiceLayerServices,
+  type ServiceLayerRegistrationTokens,
+  type ServiceLayerRegistrationConfig,
+} from './registration/register-service-layer-services.js';

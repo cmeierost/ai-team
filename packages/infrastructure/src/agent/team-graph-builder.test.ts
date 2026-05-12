@@ -1,8 +1,26 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { TeamGraphBuilder } from './team-graph-builder.js';
 import { AgentManager } from './agent-manager.js';
-import { createAgentManager } from './index.js';
+import { PermFileRegistry } from 'fs-context';
+import { AgentDocumentStorage } from './agent-document-storage.js';
+import { MarkdownSectionService } from './markdown-service.js';
+import { WorkspaceDiscoveryStorage } from './workspace-discovery-storage.js';
+import { WorkspaceStorage } from './workspace-storage.js';
 import { Agent, EdgeType, RoleType, ContextLevel, AgentStatus } from '@ai-team/core';
+
+function createTestAgentManager(workspaceRoot: string): AgentManager {
+  return new AgentManager(
+    workspaceRoot,
+    new AgentDocumentStorage(
+      new MarkdownSectionService(),
+      new WorkspaceStorage(),
+      new WorkspaceDiscoveryStorage()
+    ),
+    new WorkspaceStorage(),
+    new WorkspaceDiscoveryStorage(),
+    new PermFileRegistry(workspaceRoot)
+  );
+}
 
 function makeAgent(p: Partial<Agent> & { id: string; name: string; role: string }): Agent {
   return { filePath: '', skillPath: '', createdAt: '', ...p } as Agent;
@@ -13,7 +31,7 @@ describe('TeamGraphBuilder', () => {
   let graphBuilder: TeamGraphBuilder;
 
   beforeEach(() => {
-    agentManager = createAgentManager('/workspace');
+    agentManager = createTestAgentManager('/workspace');
     graphBuilder = new TeamGraphBuilder(agentManager);
   });
 
