@@ -73,21 +73,31 @@ function isAbortLikeError(error: unknown): boolean {
 /**
  * Tab-completion for the chat REPL.
  * When the line starts with `/`, suggests matching slash commands (key + trailing space).
+ * Matches against key, aliases, and usage token.
  */
-function makeSlashCompleter(commands: Pick<CommandDescriptor, 'key' | 'aliases'>[]) {
+function makeSlashCompleter(commands: Pick<CommandDescriptor, 'key' | 'aliases' | 'usage'>[]) {
   return function slashCompleter(line: string): [string[], string] {
     if (!line.startsWith('/')) return [[], line];
     const fragment = line.slice(1).toLowerCase();
     const hits = commands
-      .flatMap((cmd) => [cmd.key, ...(cmd.aliases ?? [])])
-      .filter((key) => key.startsWith(fragment))
-      .map((key) => `/${key} `);
+      .filter((cmd) => {
+        const usageToken = (cmd.usage ?? '')
+          .trim()
+          .replace(/^\//, '')
+          .split(/\s+/, 1)[0]
+          ?.toLowerCase();
+        const keys = [cmd.key, ...(cmd.aliases ?? []), usageToken]
+          .filter((value): value is string => Boolean(value))
+          .map((value) => value.toLowerCase());
+        return keys.some((k) => k.startsWith(fragment));
+      })
+      .map((cmd) => `/${cmd.key} `);
     return [hits.length ? hits : [], line];
   };
 }
 
 async function askLine(
-  commands: Pick<CommandDescriptor, 'key' | 'aliases'>[],
+  commands: Pick<CommandDescriptor, 'key' | 'aliases' | 'usage'>[],
   message: string,
   signal?: AbortSignal
 ): Promise<string> {

@@ -65,7 +65,7 @@ export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliR
       }
     }
 
-    let targetAgent = context.agent!;
+    let targetAgent = context.agent;
     if (employee && employee.trim().length > 0) {
       const matches = await this.agentManager.resolveAgentAsync(employee.trim());
       if (matches.length === 0) throw new Error(`No employee found matching '${employee}'.`);
@@ -73,16 +73,16 @@ export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliR
         throw new Error(`Multiple employees match '${employee}'. Please be more specific.`);
 
       const candidate = matches[0]!;
-      const canManage = context.agent!.contextLevel === 'organization';
-      const isManager = candidate.reportsTo === context.agent!.id;
-      const isSelf = candidate.id === context.agent!.id;
+      const canManage = context.agent.contextLevel === 'organization';
+      const isManager = candidate.reportsTo === context.agent.id;
+      const isSelf = candidate.id === context.agent.id;
       if (!canManage && !isManager && !isSelf) {
-        throw new Error(`Agent ${context.agent!.id} cannot grant CLI tools for ${candidate.id}.`);
+        throw new Error(`Agent ${context.agent.id} cannot grant CLI tools for ${candidate.id}.`);
       }
-      targetAgent! = candidate;
+      targetAgent = candidate;
     }
 
-    const agentRecord = await this.agentDocumentStorage.loadAgentAsync(targetAgent!.filePath);
+    const agentRecord = await this.agentDocumentStorage.loadAgentAsync(targetAgent.filePath);
     const current = new Set(
       (agentRecord.cliTools || [])
         .map((entry: string) => normalizeExecutableName(entry))
@@ -92,15 +92,15 @@ export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliR
     agentRecord.cliTools = [...current].sort((a, b) => a.localeCompare(b));
     await this.agentDocumentStorage.saveAgentAsync(agentRecord);
 
-    if (targetAgent!.id === context.agent!.id) {
-      context.agent!.cliTools = agentRecord.cliTools;
+    if (targetAgent.id === context.agent.id) {
+      context.agent.cliTools = agentRecord.cliTools;
     }
 
     return {
       status: 'ok',
-      message: `CLI tool '${normalized}' registered for employee '${targetAgent!.id}'.`,
+      message: `CLI tool '${normalized}' registered for employee '${targetAgent.id}'.`,
       data: {
-        employee: targetAgent!.id,
+        employee: targetAgent.id,
         command: normalized,
         cliTools: agentRecord.cliTools,
         persisted: true,

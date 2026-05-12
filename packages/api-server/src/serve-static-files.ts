@@ -24,7 +24,13 @@ export function serveStaticFiles(
     const webDistPath = resolve(join(moduleDir, '..', '..', 'web', 'dist'));
     if (existsSync(webDistPath)) {
       console.log(`Serving static files from: ${webDistPath}`);
-      app.use(express.static(webDistPath));
+      // Exclude /api and /ws paths from static serving
+      app.use((req, res, next) => {
+        if (req.path.startsWith('/api') || req.path.startsWith('/ws')) {
+          return next();
+        }
+        express.static(webDistPath)(req, res, next);
+      });
 
       // SPA fallback - serve index.html for all non-API routes
       // Express 5 / path-to-regexp v8 requires named wildcards.
