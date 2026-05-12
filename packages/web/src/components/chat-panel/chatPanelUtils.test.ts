@@ -12,6 +12,7 @@ import {
   resolveRouteAgent,
   resolveNavigateAgent,
   resolveRuntimeToolEventMessage,
+  shouldRenderSlashToolMessage,
   SESSION_META_PREFIX,
   SESSION_META_SUFFIX,
 } from './chatPanelUtils';
@@ -274,5 +275,39 @@ describe('chatPanelUtils', () => {
     });
 
     expect(message).toBe('fallback');
+  });
+
+  it('renders slash tool message only for terminal phases with text', () => {
+    expect(
+      shouldRenderSlashToolMessage({
+        toolName: 'slash:help',
+        toolPhase: 'result',
+        message: 'Available commands',
+      })
+    ).toBe(true);
+
+    expect(
+      shouldRenderSlashToolMessage({
+        toolName: 'slash:help',
+        toolPhase: 'start',
+        message: 'Available commands',
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRenderSlashToolMessage({
+        toolName: 'slash:help',
+        toolPhase: 'result',
+        message: '   ',
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRenderSlashToolMessage({
+        toolName: 'read_file',
+        toolPhase: 'result',
+        message: 'done',
+      })
+    ).toBe(false);
   });
 });

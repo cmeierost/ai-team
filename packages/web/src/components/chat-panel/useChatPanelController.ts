@@ -31,6 +31,7 @@ import {
   normalizeChatErrorMessage,
   resolveRouteAgent,
   resolveRuntimeToolEventMessage,
+  shouldRenderSlashToolMessage,
   SESSION_ROUTE,
 } from './chatPanelUtils';
 import type {
@@ -1121,21 +1122,36 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       if (event.kind === 'tool') {
+        const resolvedToolMessage = resolveRuntimeToolEventMessage({
+          toolName: event.toolName,
+          message: event.message,
+          toolResult: event.toolResult,
+        });
         const toolEvent: SessionActivatedTool = {
           toolName: event.toolName,
           toolCallId: event.toolCallId,
           toolPhase: event.toolPhase,
           toolEventSeq: event.toolEventSeq,
-          message: resolveRuntimeToolEventMessage({
-            toolName: event.toolName,
-            message: event.message,
-            toolResult: event.toolResult,
-          }),
+          message: resolvedToolMessage,
           toolResult: event.toolResult,
           toolDenial: event.toolDenial,
           timestamp: event.timestamp || new Date().toISOString(),
         };
         setActivatedTools((previous) => [...previous, toolEvent].slice(-40));
+
+        if (
+          shouldRenderSlashToolMessage({
+            toolName: event.toolName,
+            toolPhase: event.toolPhase,
+            message: resolvedToolMessage,
+          })
+        ) {
+          accumulator =
+            accumulator.trim().length > 0
+              ? `${accumulator}\n${resolvedToolMessage}`
+              : String(resolvedToolMessage);
+          updateAssistantMessageContent(accumulator);
+        }
         continue;
       }
 
@@ -1216,6 +1232,17 @@ export function useChatPanelController(): UseChatPanelControllerResult {
           timestamp: new Date().toISOString(),
         },
       ];
+    });
+
+    requestAnimationFrame(() => {
+      const container = messagesContainerRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollTop;
+        return;
+      }
+
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
     });
 
     try {

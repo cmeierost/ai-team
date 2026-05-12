@@ -23,7 +23,10 @@ function isArgToken(token: string | undefined): boolean {
   return Boolean(token && (token.startsWith('<') || token.startsWith('[')));
 }
 
-function normalizeCliRoute(command: string, parentKey?: string): { command: string; parentKey?: string } {
+function normalizeCliRoute(
+  command: string,
+  parentKey?: string
+): { command: string; parentKey?: string } {
   const trimmed = command.trim();
   if (!trimmed) {
     return { command, parentKey };
@@ -91,6 +94,48 @@ function alignUsageToLeaf(usage: string, leaf: string): string {
 function buildCliCommandRegistry(): CliCommandMetadata[] {
   const serviceEntries = loadServiceCliCommandRegistry();
 
+  const localCliOnlyEntries: ServiceCliEntry[] = [
+    {
+      key: 'serve',
+      command: 'serve',
+      description: 'Start API server (production mode)',
+      llmCallable: false,
+      directCli: true,
+      options: [
+        { flags: '--port <number>', description: 'API server port (default: 3002)' },
+        { flags: '--workspace <path>', description: 'Workspace root override' },
+      ],
+      dispatchKey: '',
+    },
+    {
+      key: 'serve.ui',
+      parentKey: 'serve',
+      command: 'ui',
+      description: 'Start API server and launch UI',
+      llmCallable: false,
+      directCli: true,
+      options: [
+        { flags: '--port <number>', description: 'API server port (default: 3002)' },
+        { flags: '--workspace <path>', description: 'Workspace root override' },
+        { flags: '--ui-server-url <url>', description: 'API URL passed to UI launcher' },
+      ],
+      dispatchKey: '',
+    },
+    {
+      key: 'ui',
+      command: 'ui',
+      description: 'Start UI dev server (starts API server if needed)',
+      llmCallable: false,
+      directCli: true,
+      options: [
+        { flags: '--workspace <path>', description: 'Workspace root override' },
+        { flags: '--server-url <url>', description: 'Explicit API base URL for the UI' },
+        { flags: '--include-api', description: 'Force-start API server alongside UI' },
+      ],
+      dispatchKey: '',
+    },
+  ];
+
   cliDispatchKeyByKey.clear();
 
   const merged = new Map<string, ServiceCliEntry>();
@@ -128,6 +173,10 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
       directCli: true,
       dispatchKey: raw.key,
     });
+  }
+
+  for (const localEntry of localCliOnlyEntries) {
+    upsert(localEntry);
   }
 
   const ensureSyntheticParent = (parentKey: string): void => {
@@ -176,11 +225,11 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
 export const CLI_COMMAND_REGISTRY: CliCommandMetadata[] = buildCliCommandRegistry();
 
 export function getLlmCallableCliCommands(): CliCommandMetadata[] {
-  return CLI_COMMAND_REGISTRY.filter(entry => entry.llmCallable);
+  return CLI_COMMAND_REGISTRY.filter((entry) => entry.llmCallable);
 }
 
 export function getCliCommandMetadata(key: string): CliCommandMetadata {
-  const match = CLI_COMMAND_REGISTRY.find(entry => entry.key === key);
+  const match = CLI_COMMAND_REGISTRY.find((entry) => entry.key === key);
   if (!match) {
     throw new Error(`Command metadata not found for key '${key}'.`);
   }

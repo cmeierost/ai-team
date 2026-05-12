@@ -44,15 +44,9 @@ import { DefaultLlmSelector } from '../../orchestrator/defaults/llm-selector.js'
 import { DefaultOutputHandler } from '../../orchestrator/defaults/output-handler.js';
 import { buildDefaultHookPlugins } from '../../orchestrator/defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from '../../orchestrator/defaults/turn-result-parsers.js';
-import { buildDefaultSlashCommands } from '../../orchestrator/slash-commands.js';
 import { ToolDispatcher } from '../../orchestrator/tool-dispatch.js';
 import { HandoffOrchestrator } from '../../orchestrator/handoff.js';
 import { WorkflowIntentProvider } from '../../tools/workflow-intent-provider.js';
-import {
-  buildDynamicSlashCatalog,
-  buildDynamicSlashCommands,
-} from '../../orchestrator/dynamic-slash/catalog.js';
-import { readDynamicSlashCatalogConfig } from '../../orchestrator/dynamic-slash/config.js';
 import type { ChatRuntimeHooks } from '../../orchestrator/hooks.js';
 import {
   withTimeout,
@@ -67,6 +61,7 @@ import type { IChatPreflightService } from '../../orchestrator/chat-preflight-se
 import { ResolveChatSessionCommand } from './resolve-chat-session.command.js';
 import { LoadSessionMessagesCommand } from './load-session-messages.command.js';
 import { runChatSessionStartupWorkflow } from './chat-session-startup.workflow.js';
+import { buildChatSlashCommands } from './build-chat-slash-commands.js';
 
 // ── Dep interfaces ────────────────────────────────────────────────────────────
 
@@ -368,29 +363,16 @@ export class ChatCommand {
         history,
         instructions,
       };
-      const staticSlashCommands = buildDefaultSlashCommands(
-        chatToolManager as unknown as ICommandRegistry
-      );
-      const reservedSlashKeys = new Set<string>();
-      for (const command of staticSlashCommands) {
-        reservedSlashKeys.add(command.key.toLowerCase());
-        for (const alias of command.aliases ?? []) {
-          reservedSlashKeys.add(alias.toLowerCase());
-        }
-      }
-
-      const dynamicSlashCatalog = await buildDynamicSlashCatalog({
+      const slashCommands = await buildChatSlashCommands({
         workspaceRoot,
+        chatToolManager: chatToolManager as unknown as ICommandRegistry,
         skillManager,
-        reservedKeys: reservedSlashKeys,
-        dynamicSlashCatalog: readDynamicSlashCatalogConfig(
-          await configurationStorage.loadEffectiveConfigAsync(workspaceRoot)
-        ),
+        configurationStorage,
+        serviceContainer,
+        hooks,
+        currentSessionId,
+        executionContext: _ctx,
       });
-
-      for (const warning of dynamicSlashCatalog.warnings) {
-        writeWarn(hooks, warning);
-      }
 
       const _plugins: ResolvedPlugins = {
         compressor: new NoOpCompressor(),
@@ -404,10 +386,7 @@ export class ChatCommand {
         mcpGateway: new NoOpMcpGateway(),
         llmSelector: new DefaultLlmSelector(llm as ILlmService),
         outputHandler: new DefaultOutputHandler(),
-        slashCommands: [
-          ...staticSlashCommands,
-          ...buildDynamicSlashCommands(dynamicSlashCatalog.entries),
-        ],
+        slashCommands,
         turnResultParsers: buildDefaultTurnResultParsers(agentManager as IAgentManager),
         hookPlugins: buildDefaultHookPlugins(),
         preLlmIntentProviders: [new WorkflowIntentProvider()],
@@ -431,8 +410,9 @@ export class ChatCommand {
 
       // Single message mode
       if (options.message) {
+        const trimmedMessage = options.message.trim();
         await withAbortSignal(
-          _orchestrator.run({ message: options.message, contextFiles: options.context }),
+          _orchestrator.run({ message: trimmedMessage, contextFiles: options.context }),
           hooks.signal,
           'Chat request aborted by user.'
         );
@@ -493,6 +473,16 @@ export class ChatCommand {
               writeError(hooks, `Previous agent ${prev.agentId} no longer found.`);
             }
           }
+          continue;
+        }
+
+        // Slash turn — explicitly forward to slash handler path in orchestrator
+        if (message.trim().startsWith('/')) {
+          await withAbortSignal(
+            _orchestrator.run({ message, contextFiles: options.context }),
+            hooks.signal,
+            'Chat request aborted by user.'
+          );
           continue;
         }
 

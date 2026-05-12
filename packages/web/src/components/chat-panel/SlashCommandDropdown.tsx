@@ -28,7 +28,10 @@ export function SlashCommandDropdown({
             onSelect(i);
           }}
         >
-          <span className="slash-command-usage">{cmd.usage ?? `/${cmd.key}`}</span>
+          <span className="slash-command-usage">/{cmd.key}</span>
+          {cmd.usage && cmd.usage !== cmd.key ? (
+            <span className="slash-command-usage-hint">({cmd.usage})</span>
+          ) : null}
           <span className="slash-command-description">{cmd.description}</span>
         </li>
       ))}

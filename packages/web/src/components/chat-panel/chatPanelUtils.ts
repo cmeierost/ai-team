@@ -36,9 +36,7 @@ function toRuntimeCommandResponse(
 ): CommandResponseLike {
   return {
     status: outcome === 'result' ? 'ok' : 'error',
-    message:
-      message ??
-      (outcome === 'result' ? `${toolName} completed.` : `${toolName} failed.`),
+    message: message ?? (outcome === 'result' ? `${toolName} completed.` : `${toolName} failed.`),
     data: result,
   };
 }
@@ -78,10 +76,7 @@ function inferErrorLikeText(value: string): boolean {
 
 function isCommandResponseLike(value: unknown): value is CommandResponseLike {
   if (!isRecord(value)) return false;
-  return (
-    (value.status === 'ok' || value.status === 'error') &&
-    typeof value.message === 'string'
-  );
+  return (value.status === 'ok' || value.status === 'error') && typeof value.message === 'string';
 }
 
 export function resolveRuntimeToolEventMessage(event: {
@@ -102,6 +97,24 @@ export function resolveRuntimeToolEventMessage(event: {
 
   const handler = SLASH_COMMAND_RESPONSE_HANDLERS[commandKey];
   return handler?.(commandResponse) ?? commandResponse.message;
+}
+
+export function shouldRenderSlashToolMessage(event: {
+  toolName?: string;
+  toolPhase?: SessionActivatedTool['toolPhase'];
+  message?: string;
+}): boolean {
+  if (!event.toolName?.startsWith('slash:')) {
+    return false;
+  }
+
+  const isTerminalPhase =
+    event.toolPhase === 'result' || event.toolPhase === 'error' || event.toolPhase === 'denied';
+  if (!isTerminalPhase) {
+    return false;
+  }
+
+  return Boolean(event.message?.trim());
 }
 
 export function getPersistedToolStatus(call: PersistedToolCall): {

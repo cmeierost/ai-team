@@ -1,6 +1,6 @@
 import type { ICommand, CommandResponse, ExecutionContext } from '@ai-team/core';
 
-type RegistryEntry = Pick<ICommand, 'usage' | 'description' | 'key' | 'availableIn'>;
+type RegistryEntry = Pick<ICommand, 'usage' | 'description' | 'key' | 'availableIn' | 'path'>;
 
 export class HelpChatCommand implements ICommand<string, string> {
   readonly key = 'help';
@@ -20,13 +20,26 @@ export class HelpChatCommand implements ICommand<string, string> {
       ? entries.filter((entry) => entry.availableIn?.tool)
       : entries;
 
-    const lines = [
-      isToolInvocation ? '\nAvailable tool-callable commands:\n' : '\nAvailable commands:\n',
-    ];
+    const staticEntries = visibleEntries.filter((entry) => entry.path?.[0] !== 'dynamic');
+    const dynamicEntries = visibleEntries.filter((entry) => entry.path?.[0] === 'dynamic');
 
-    for (const c of visibleEntries) {
-      const cmd = c.usage ?? `/${c.key}`;
-      lines.push(`  ${cmd.padEnd(26)} ${c.description}`);
+    const lines: string[] = [];
+    const appendSection = (title: string, entries: RegistryEntry[]) => {
+      if (entries.length === 0) return;
+      lines.push(`\n${title}\n`);
+      for (const c of entries) {
+        const invocation = `/${c.key}`;
+        const usageHint = c.usage && c.usage !== c.key ? ` (${c.usage})` : '';
+        lines.push(`  ${invocation.padEnd(26)} ${c.description}${usageHint}`);
+      }
+    };
+
+    if (isToolInvocation) {
+      appendSection('Available tool-callable commands:', staticEntries);
+      appendSection('Available dynamic commands:', dynamicEntries);
+    } else {
+      appendSection('Available commands:', staticEntries);
+      appendSection('Available dynamic commands:', dynamicEntries);
     }
 
     if (!isToolInvocation) {

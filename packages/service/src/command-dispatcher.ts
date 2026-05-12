@@ -77,6 +77,7 @@ import { ToolsAllowCommand } from './commands/tools/tools-allow.command.js';
 import { ToolsDenyCommand } from './commands/tools/tools-deny.command.js';
 import { ToolsListCommand } from './commands/tools/tools-list.command.js';
 import { ChatICommand } from './commands/chat/chat-i.command.js';
+import { HelpChatCommand } from './commands/help/help.command.js';
 import { MetaService } from './routers/meta-service.js';
 
 // ── Handler type ──────────────────────────────────────────────────────────────
@@ -94,7 +95,9 @@ type CommandDataResult<TCommand extends AnyICommand> =
   CommandRawResult<TCommand> extends CommandResponse<infer TData>
     ? TData
     : CommandRawResult<TCommand>;
-type TypedCommandResponse<TCommand extends AnyICommand> = CommandResponse<CommandDataResult<TCommand>>;
+type TypedCommandResponse<TCommand extends AnyICommand> = CommandResponse<
+  CommandDataResult<TCommand>
+>;
 
 /**
  * Wrap a raw command handler result in a CommandResponse envelope.
@@ -421,7 +424,10 @@ export function createCommandDispatcher(
 
   d.register(
     toCommandRegistration(
-      new AccessCanCommand(container.resolve(COMMAND_FACTORY_TOKENS.AccessCommandService), container.resolve(COMMAND_FACTORY_TOKENS.AgentManager))
+      new AccessCanCommand(
+        container.resolve(COMMAND_FACTORY_TOKENS.AccessCommandService),
+        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager)
+      )
     )
   );
 
@@ -433,7 +439,9 @@ export function createCommandDispatcher(
     )
   );
 
-  const sessionManager = resolver?.tryResolve<SessionManager>(COMMAND_FACTORY_TOKENS.SessionManager);
+  const sessionManager = resolver?.tryResolve<SessionManager>(
+    COMMAND_FACTORY_TOKENS.SessionManager
+  );
   const setupCommand = new SetupCommand(
     container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
     container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
@@ -765,6 +773,20 @@ export function createCommandDispatcher(
           pathPermissionChecker: container.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
           serviceContainer: container.resolver,
         }
+      )
+    )
+  );
+
+  d.register(
+    toCommandRegistration(
+      new HelpChatCommand(() =>
+        d.getCommands({ chat: true }).map((entry) => ({
+          key: entry.key,
+          usage: entry.usage,
+          description: entry.description,
+          availableIn: entry.availableIn,
+          path: entry.path,
+        }))
       )
     )
   );

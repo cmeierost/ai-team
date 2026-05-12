@@ -104,11 +104,13 @@ function renderAll(
 
   for (let i = 0; i < visible.length; i++) {
     const cmd = visible[i];
-    const usage = cmd.usage ?? `/${cmd.key}`;
+    const invocation = `/${cmd.key}`;
+    const usageHint = cmd.usage && cmd.usage !== cmd.key ? ` (${cmd.usage})` : '';
     const isSelected = windowStart + i === selectedIdx;
     const line = isSelected
-      ? chalk.bgBlue.white(` ${usage.padEnd(26)} `) + chalk.dim(`  ${cmd.description}`)
-      : chalk.cyan(` ${usage}`) + chalk.dim(`  ${cmd.description}`);
+      ? chalk.bgBlue.white(` ${invocation.padEnd(26)} `) +
+        chalk.dim(`  ${cmd.description}${usageHint}`)
+      : chalk.cyan(` ${invocation}`) + chalk.dim(`  ${cmd.description}${usageHint}`);
     output.write(`\n${line}`);
     rows += textRows(line, columns);
   }
@@ -174,7 +176,7 @@ export async function askWithSlashSuggestions(
       const idx = selectedIdx >= 0 ? selectedIdx : 0;
       const cmd = suggs[idx];
       if (!cmd) return false;
-      buffer = cmd.usage ?? `/${cmd.key}`;
+      buffer = `/${cmd.key}`;
       selectedIdx = -1;
       dismissed = false;
       rerender();

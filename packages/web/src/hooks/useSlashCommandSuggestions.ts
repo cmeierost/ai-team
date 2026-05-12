@@ -12,7 +12,7 @@ export interface SlashCommandSuggestionsState {
   isOpen: boolean;
   /** Highlight the next/previous item. delta must be 1 or -1. Wraps around. */
   navigate: (delta: 1 | -1) => void;
-  /** Select a suggestion by index and return its usage string. */
+  /** Select a suggestion by index and return its canonical invocation string. */
   select: (index: number) => string;
   /** Close the dropdown without selecting. */
   dismiss: () => void;
@@ -38,7 +38,8 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
   const fragment = useMemo((): string | null => {
     const trimmed = input.trimStart();
     if (!trimmed.startsWith('/') || trimmed.includes('\n')) return null;
-    return trimmed.slice(1).toLowerCase();
+    const commandToken = trimmed.slice(1).split(/\s+/, 1)[0] ?? '';
+    return commandToken.toLowerCase();
   }, [input]);
 
   const suggestions = useMemo((): ChatCommandRegistryEntry[] => {
@@ -47,7 +48,7 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
       const keys = [cmd.key, ...(cmd.aliases ?? [])];
       return keys.some((k) => k.startsWith(fragment));
     });
-  }, [fragment]);
+  }, [fragment, registry]);
 
   // Reset selection and dismissed state when suggestions change.
   useEffect(() => {
@@ -69,7 +70,7 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
   const select = (index: number): string => {
     const cmd = suggestions[index] ?? suggestions[0];
     setDismissed(true);
-    return cmd?.usage ?? (cmd ? `/${cmd.key}` : input);
+    return cmd ? `/${cmd.key}` : input;
   };
 
   const dismiss = () => setDismissed(true);

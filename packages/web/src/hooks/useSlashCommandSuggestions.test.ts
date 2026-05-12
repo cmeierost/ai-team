@@ -91,12 +91,19 @@ describe('useSlashCommandSuggestions', () => {
     expect(result.current.selectedIndex).toBe(1); // wraps from -1 to last
   });
 
-  it('select returns the usage string and closes the dropdown', () => {
+  it('select returns canonical /key and closes the dropdown', () => {
     const { result } = renderHook(() => useSlashCommandSuggestions('/ch'));
     let usage!: string;
     act(() => { usage = result.current.select(0); });
-    expect(usage).toBe('/chat <name|role>');
+    expect(usage).toBe('/chat');
     expect(result.current.isOpen).toBe(false);
+  });
+
+  it('keeps filtering by command token when typing arguments', () => {
+    const { result } = renderHook(() => useSlashCommandSuggestions('/chat dan'));
+    expect(result.current.isOpen).toBe(true);
+    expect(result.current.suggestions).toHaveLength(1);
+    expect(result.current.suggestions[0].key).toBe('chat');
   });
 
   it('dismiss closes the dropdown without changing input', () => {
