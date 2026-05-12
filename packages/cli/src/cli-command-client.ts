@@ -2,6 +2,7 @@ import {
   createCommandDispatcher,
   type CommandDispatcher,
 } from '@ai-team/service/src/command-dispatcher.js';
+import type { CommandAvailability, CommandDescriptor } from '@ai-team/api-contracts';
 import { toServiceDomainError } from '@ai-team/service/src/errors.js';
 import { WorkflowStateStore } from '@ai-team/service/src/workflow-state.js';
 import { writeBackendDebugLog } from '@ai-team/service/src/utils/debug-log.js';
@@ -113,6 +114,7 @@ export interface ICliCommandClient {
     request: InteractionRequest,
     context?: InteractionContext
   ): AsyncIterable<StreamEvent<TCommand>>;
+  getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[];
 }
 
 export class CliCommandClient implements ICliCommandClient {
@@ -130,6 +132,10 @@ export class CliCommandClient implements ICliCommandClient {
     this.workspaceRoot = workspaceRoot;
     this.dispatcher = createCommandDispatcher(workspaceRoot, resolver);
     this.contextAdapter = contextAdapter;
+  }
+
+  getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[] {
+    return this.dispatcher.getCommands(filter);
   }
 
   async invokeTool(

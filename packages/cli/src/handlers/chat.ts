@@ -1,6 +1,7 @@
-import type { ChatOptions, StreamEvent } from '@ai-team/api-contracts';
-import type { ICliCommandClient } from '../cli-command-client.js';
 import type {
+  ChatOptions,
+  StreamEvent,
+  CommandDescriptor,
   InteractionContext,
   QuestionConfirmRequest,
   QuestionInputRequest,
@@ -8,8 +9,9 @@ import type {
   QuestionChecklistRequest,
   QuestionPasswordRequest,
 } from '@ai-team/api-contracts';
+import type { ICliCommandClient } from '../cli-command-client.js';
 import { generateAgentColor, parseHslHue, createIdeAdapter, ConfigurationStorage } from '@ai-team/infrastructure';
-import { findWorkspaceRoot, IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
+import { findWorkspaceRoot } from '@ai-team/service';
 import { checkbox, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';
@@ -67,17 +69,19 @@ function isAbortLikeError(error: unknown): boolean {
  * Tab-completion for the chat REPL.
  * When the line starts with `/`, suggests matching slash commands (key + trailing space).
  */
-function slashCompleter(line: string): [string[], string] {
-  if (!line.startsWith('/')) return [[], line];
-  const fragment = line.slice(1).toLowerCase();
-  const hits = IN_CHAT_COMMAND_REGISTRY.flatMap((cmd) => [cmd.key, ...(cmd.aliases ?? [])])
-    .filter((key) => key.startsWith(fragment))
-    .map((key) => `/${key} `);
-  return [hits.length ? hits : [], line];
+function makeSlashCompleter(commands: Pick<CommandDescriptor, 'key' | 'aliases'>[]) {
+  return function slashCompleter(line: string): [string[], string] {
+    if (!line.startsWith('/')) return [[], line];
+    const fragment = line.slice(1).toLowerCase();
+    const hits = commands.flatMap((cmd) => [cmd.key, ...(cmd.aliases ?? [])])
+      .filter((key) => key.startsWith(fragment))
+      .map((key) => `/${key} `);
+    return [hits.length ? hits : [], line];
+  };
 }
 
-async function askLine(message: string, signal?: AbortSignal): Promise<string> {
-  const rl = createInterface({ input, output, completer: slashCompleter });
+async function askLine(commands: Pick<CommandDescriptor, 'key' | 'aliases'>[], message: string, signal?: AbortSignal): Promise<string> {
+  const rl = createInterface({ input, output, completer: makeSlashCompleter(commands) });
   try {
     return (await rl.question(`${message} `, { signal })).trim();
   } finally {
@@ -89,7 +93,8 @@ function createChatQuestionResponders(
   signal: AbortSignal,
   onAnswered?: () => void,
   onQuestionStart?: () => void,
-  projectNameFn?: () => Promise<string | undefined>
+  projectNameFn?: () => Promise<string | undefined>,
+  chatCommands: CommandDescriptor[] = []
 ): Pick<
   InteractionContext,
   'questionInput' | 'questionConfirm' | 'questionSelect' | 'questionChecklist' | 'questionPassword'
@@ -117,7 +122,7 @@ function createChatQuestionResponders(
     questionInput: async (request: QuestionInputRequest) => {
       onQuestionStart?.();
       while (true) {
-        const answer = await askWithSlashSuggestions(request.message, signal);
+        const answer = await askWithSlashSuggestions(request.message, chatCommands, signal);
         const trimmed = answer.trim().toLowerCase();
         if (
           trimmed === 'exit' ||
@@ -149,7 +154,7 @@ function createChatQuestionResponders(
       const suffix = defaultValue ? '[Y/n]' : '[y/N]';
 
       while (true) {
-        const raw = (await askLine(`${request.message} ${suffix}`, signal)).toLowerCase();
+        const raw = (await askLine([], `${request.message} ${suffix}`, signal)).toLowerCase();
         if (!raw) {
           onAnswered?.();
           return defaultValue;
@@ -190,7 +195,7 @@ function createChatQuestionResponders(
       while (true) {
         process.stderr.write(`${request.message}\n${lines.join('\n')}\n`);
         const suffix = defaultValue ? ` (default: ${defaultValue})` : '';
-        const raw = await askLine(`Select one (number or value)${suffix}:`, signal);
+        const raw = await askLine([], `Select one (number or value)${suffix}:`, signal);
         if (!raw.trim() && defaultValue) {
           onAnswered?.();
           return defaultValue;
@@ -242,6 +247,7 @@ function createChatQuestionResponders(
       while (true) {
         process.stderr.write(`${request.message}\n${lines.join('\n')}\n`);
         const raw = await askLine(
+          [],
           `Select one or more (comma-separated numbers/values)${defaultSuffix}:`,
           signal
         );
@@ -284,7 +290,7 @@ function createChatQuestionResponders(
         onAnswered?.();
         return answer;
       }
-      const answer = await askLine(request.message, signal);
+      const answer = await askLine([], request.message, signal);
       onAnswered?.();
       return answer;
     },
@@ -633,6 +639,7 @@ export async function renderChat(
   const mediatorLoggerEnabled = mediatorLog || process.env.AI_TEAM_MEDIATOR_LOG === '1';
   const frontendFileLogEnabled = isFrontendFileLogEnabled();
   const workspaceRoot = findWorkspaceRoot();
+  const chatCommands = client.getCommands({ chat: true });
   const writeStderrLine = (text: string) => {
     process.stderr.write(`${text}\n`);
   };
@@ -815,7 +822,8 @@ export async function renderChat(
             } catch {
               return undefined;
             }
-          }
+          },
+          chatCommands
         ),
         signal: abortControl.signal,
         logger:

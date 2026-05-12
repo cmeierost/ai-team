@@ -335,6 +335,13 @@ function interactionContextToExecutionContext(
     workflowInstanceId: (ctx as any).workflowInstanceId,
     signal: ctx.signal,
     history: (ctx as any).history ?? [],
+    questionInput: ctx.questionInput as ExecutionContext['questionInput'],
+    questionConfirm: ctx.questionConfirm as ExecutionContext['questionConfirm'],
+    questionSelect: ctx.questionSelect as ExecutionContext['questionSelect'],
+    questionPassword: ctx.questionPassword as ExecutionContext['questionPassword'],
+    questionChecklist: ctx.questionChecklist as ExecutionContext['questionChecklist'],
+    workflowState: ctx.workflowState,
+    onWorkflowFrame: ctx.onWorkflowFrame as ExecutionContext['onWorkflowFrame'],
   };
 }
 

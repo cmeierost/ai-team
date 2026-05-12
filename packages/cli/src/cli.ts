@@ -829,6 +829,8 @@ function registerDirectCliCommands(
       : rootCommand;
 
     const command = applyCommandMetadata(parentCommand.command(entry.command), entry);
+    registeredCommands.set(entry.key, command);
+
     const actionHandler =
       actionHandlers[entry.key] ??
       (entry.llmCallable ? createDefaultRegistryAction(entry) : undefined);
@@ -839,7 +841,6 @@ function registerDirectCliCommands(
     }
 
     command.action(withCliErrorHandling(actionHandler));
-    registeredCommands.set(entry.key, command);
     return command;
   };
 

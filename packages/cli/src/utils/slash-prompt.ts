@@ -20,12 +20,12 @@ import {
 } from 'node:readline';
 import type { Key } from 'node:readline';
 import { stdin as input, stdout as output } from 'node:process';
-import { IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
+import type { CommandDescriptor } from '@ai-team/api-contracts';
 import chalk from 'chalk';
 
 const MAX_VISIBLE = 7;
 
-type CommandEntry = (typeof IN_CHAT_COMMAND_REGISTRY)[number];
+type CommandEntry = Pick<CommandDescriptor, 'key' | 'aliases' | 'usage' | 'description'>;
 
 /** Strip ANSI escape codes to measure visible character width. */
 function visibleLength(str: string): number {
@@ -57,10 +57,10 @@ function resolveCursorPosition(
   };
 }
 
-function getSuggestions(buf: string): CommandEntry[] {
+function getSuggestions(commands: CommandEntry[], buf: string): CommandEntry[] {
   if (!buf.startsWith('/')) return [];
   const fragment = buf.slice(1).toLowerCase();
-  return IN_CHAT_COMMAND_REGISTRY.filter((cmd) => {
+  return commands.filter((cmd) => {
     const keys = [cmd.key, ...(cmd.aliases ?? [])];
     return keys.some((k) => k.startsWith(fragment));
   });
@@ -140,6 +140,7 @@ function renderAll(
  */
 export async function askWithSlashSuggestions(
   promptText: string,
+  commands: CommandEntry[],
   signal?: AbortSignal
 ): Promise<string> {
   if (!process.stdin.isTTY) {
@@ -162,13 +163,13 @@ export async function askWithSlashSuggestions(
     let currentInputRows = 1;
 
     const rerender = () => {
-      const suggs = dismissed ? [] : getSuggestions(buffer);
+      const suggs = dismissed ? [] : getSuggestions(commands, buffer);
       selectedIdx = suggs.length === 0 ? -1 : Math.min(selectedIdx, suggs.length - 1);
       currentInputRows = renderAll(promptText, buffer, suggs, selectedIdx, currentInputRows);
     };
 
     const applySelection = (): boolean => {
-      const suggs = getSuggestions(buffer);
+      const suggs = getSuggestions(commands, buffer);
       if (suggs.length === 0) return false;
       const idx = selectedIdx >= 0 ? selectedIdx : 0;
       const cmd = suggs[idx];
@@ -237,7 +238,7 @@ export async function askWithSlashSuggestions(
 
       // Arrow up
       if (key.name === 'up') {
-        const suggs = getSuggestions(buffer);
+        const suggs = getSuggestions(commands, buffer);
         if (suggs.length > 0) {
           dismissed = false;
           selectedIdx = selectedIdx <= 0 ? suggs.length - 1 : selectedIdx - 1;
@@ -248,7 +249,7 @@ export async function askWithSlashSuggestions(
 
       // Arrow down
       if (key.name === 'down') {
-        const suggs = getSuggestions(buffer);
+        const suggs = getSuggestions(commands, buffer);
         if (suggs.length > 0) {
           dismissed = false;
           selectedIdx = selectedIdx >= suggs.length - 1 ? 0 : selectedIdx + 1;
