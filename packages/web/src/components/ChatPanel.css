@@ -480,6 +480,22 @@
   gap: 6px;
 }
 
+.pending-question-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pending-question-option-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.pending-question-option-item input[type='radio'] {
+  margin-top: 2px;
+}
+
 .pending-question-checklist-item {
   display: flex;
   align-items: center;

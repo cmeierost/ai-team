@@ -82,18 +82,19 @@ export function PendingQuestionForm({
 
       {pendingQuestion.kind === 'select' ? (
         <>
-          <select
-            className="pending-question-control pending-question-select"
-            value={pendingSelectAnswer}
-            onChange={(event) => onPendingSelectAnswerChange(event.target.value)}
-            title="Choose one option"
-          >
+          <div className="pending-question-control pending-question-options-list" role="radiogroup">
             {pendingQuestion.choices.map((choice) => (
-              <option key={choice.value} value={choice.value}>
+              <label key={choice.value} className="pending-question-option-item">
+                <input
+                  type="radio"
+                  name="pending-question-select"
+                  checked={pendingSelectAnswer === choice.value}
+                  onChange={() => onPendingSelectAnswerChange(choice.value)}
+                />
                 {choice.name}
-              </option>
+              </label>
             ))}
-          </select>
+          </div>
           {pendingQuestion.allowOther ? (
             <small className="pending-question-hint">
               You can choose “{pendingQuestion.otherLabel || 'Other (type your own)'}” for free
