@@ -10,7 +10,12 @@ import type {
   QuestionPasswordRequest,
 } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
-import { generateAgentColor, parseHslHue, createIdeAdapter, ConfigurationStorage } from '@ai-team/infrastructure';
+import {
+  generateAgentColor,
+  parseHslHue,
+  createIdeAdapter,
+  ConfigurationStorage,
+} from '@ai-team/infrastructure';
 import { findWorkspaceRoot } from '@ai-team/service';
 import { checkbox, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
@@ -73,14 +78,19 @@ function makeSlashCompleter(commands: Pick<CommandDescriptor, 'key' | 'aliases'>
   return function slashCompleter(line: string): [string[], string] {
     if (!line.startsWith('/')) return [[], line];
     const fragment = line.slice(1).toLowerCase();
-    const hits = commands.flatMap((cmd) => [cmd.key, ...(cmd.aliases ?? [])])
+    const hits = commands
+      .flatMap((cmd) => [cmd.key, ...(cmd.aliases ?? [])])
       .filter((key) => key.startsWith(fragment))
       .map((key) => `/${key} `);
     return [hits.length ? hits : [], line];
   };
 }
 
-async function askLine(commands: Pick<CommandDescriptor, 'key' | 'aliases'>[], message: string, signal?: AbortSignal): Promise<string> {
+async function askLine(
+  commands: Pick<CommandDescriptor, 'key' | 'aliases'>[],
+  message: string,
+  signal?: AbortSignal
+): Promise<string> {
   const rl = createInterface({ input, output, completer: makeSlashCompleter(commands) });
   try {
     return (await rl.question(`${message} `, { signal })).trim();

@@ -52,7 +52,11 @@ export interface ICliInteractionContextAdapter {
 export class DefaultCliInteractionContextAdapter implements ICliInteractionContextAdapter {
   constructor(private readonly workspaceRoot: string) {}
 
-  adapt(command: string, context: InteractionContext, emitWithConsole: CliEmit): InteractionContext {
+  adapt(
+    command: string,
+    context: InteractionContext,
+    emitWithConsole: CliEmit
+  ): InteractionContext {
     const isInteractive = command === 'chat' || command === 'init';
 
     const workflowStateStore = isInteractive
@@ -240,11 +244,7 @@ export class CliCommandClient implements ICliCommandClient {
       // runWithoutStdoutCapture (so interactive prompts bypass the stdout
       // capture scope) and wires up workflow state persistence for
       // interactive commands (chat, init).
-      const dispatchContext = this.contextAdapter.adapt(
-        request.command,
-        context,
-        emitWithConsole
-      );
+      const dispatchContext = this.contextAdapter.adapt(request.command, context, emitWithConsole);
 
       const response = await this.dispatcher.dispatch(request, dispatchContext);
 

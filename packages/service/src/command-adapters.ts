@@ -153,9 +153,7 @@ function deriveCliPath(command: string, parentKey?: string): string[] {
  * 1. Try JSON.parse first (user passed JSON literal like /hire {"name": "alice"})
  * 2. Fall back to key=value syntax (user passed /hire --name alice)
  */
-export function toSlashCommand(
-  cmd: ICommand<unknown, unknown>
-): ICommand<string, unknown> {
+export function toSlashCommand(cmd: ICommand<unknown, unknown>): ICommand<string, unknown> {
   return {
     key: cmd.key,
     aliases: cmd.aliases,
@@ -231,13 +229,21 @@ function mapParamsToContext(
   if (isAllowed('sessionId') && 'sessionId' in params && typeof params.sessionId === 'string') {
     overrides.sessionId = params.sessionId;
   }
-  if (isAllowed('workspaceRoot') && 'workspaceRoot' in params && typeof params.workspaceRoot === 'string') {
+  if (
+    isAllowed('workspaceRoot') &&
+    'workspaceRoot' in params &&
+    typeof params.workspaceRoot === 'string'
+  ) {
     overrides.workspaceRoot = params.workspaceRoot;
   }
   if (isAllowed('workflowId') && 'workflowId' in params && typeof params.workflowId === 'string') {
     overrides.workflowId = params.workflowId;
   }
-  if (isAllowed('workflowInstanceId') && 'workflowInstanceId' in params && typeof params.workflowInstanceId === 'string') {
+  if (
+    isAllowed('workflowInstanceId') &&
+    'workflowInstanceId' in params &&
+    typeof params.workflowInstanceId === 'string'
+  ) {
     overrides.workflowInstanceId = params.workflowInstanceId;
   }
 
