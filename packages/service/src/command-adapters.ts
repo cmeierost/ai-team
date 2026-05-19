@@ -13,12 +13,18 @@
  *     └── toLlmToolDefinition() → ILlmToolDefinition  (already in CommandRegistry)
  */
 
-import type { ICommand, ExecutionContext } from '@ai-team/core';
-import type { CommandResponse } from '@ai-team/core';
-import type { CliCommandMetadata, CommandOptionMetadata } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  CliCommandMetadata,
+  CommandOptionMetadata,
+  ILlmToolDefinition,
+} from '@ai-team/core';
+
 import type { InteractionContext } from '@ai-team/api-contracts';
 import { isCommandResponse } from '@ai-team/api-contracts';
-import type { ILlmToolDefinition } from '@ai-team/core';
+
 import type { RegisteredCommand } from './command-dispatcher.js';
 
 // ── Zod → Commander options ───────────────────────────────────────────────────
@@ -48,9 +54,9 @@ export function zodToCliOptions(schema: unknown): CommandOptionMetadata[] {
     const flagValue = isBoolean || isOptional ? `[${name}]` : `<${name}>`;
     const flags = `--${name} ${isBoolean ? '' : flagValue}`.trimEnd();
 
-    return defaultValue !== undefined
-      ? { flags, description, defaultValue }
-      : { flags, description };
+    return defaultValue === undefined
+      ? { flags, description }
+      : { flags, description, defaultValue };
   });
 }
 
@@ -514,12 +520,12 @@ function unquoteToken(token: string): string {
   }
 
   const quote = token[0];
-  if ((quote !== '"' && quote !== "'") || token[token.length - 1] !== quote) {
+  if ((quote !== '"' && quote !== "'") || token.at(-1) !== quote) {
     return token;
   }
 
   const inner = token.slice(1, -1);
-  return inner.replace(/\\(["'\\])/g, '$1');
+  return inner.replaceAll(/\\(["'\\])/g, '$1');
 }
 
 function coerceArgValue(value: string): string | number | boolean {

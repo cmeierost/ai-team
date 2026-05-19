@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { FileTime, Patch, fuzzyReplace, emitFileEdited, emitFileCreated } from 'fs-context';
-import type { ExecutionContext, ICommand, CommandResponse } from '@ai-team/core';
+import type { ExecutionContext } from '@ai-team/core';
 import { resolveFsAbsolutePath, toFsPathAccessEnvelope, toFsPathMeta } from './fs-access.js';
 import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
 
@@ -22,19 +22,19 @@ export function stripLineNumberPrefixes(text: string): { text: string; stripped:
 
   const matches: Array<{ index: number; num: number }> = [];
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i]!.match(LINE_NUM_RE);
-    if (m) matches.push({ index: i, num: parseInt(m[1]!, 10) });
+    const m = new RegExp(LINE_NUM_RE).exec(lines[i]);
+    if (m) matches.push({ index: i, num: Number.parseInt(m[1], 10) });
   }
 
   if (matches.length / lines.length < 0.8) return { text, stripped: false };
 
   for (let i = 1; i < matches.length; i++) {
-    if (matches[i]!.num !== matches[i - 1]!.num + 1) return { text, stripped: false };
+    if (matches[i].num !== matches[i - 1].num + 1) return { text, stripped: false };
   }
 
   const cleaned = lines
     .map((line) => {
-      const m = line.match(LINE_NUM_RE);
+      const m = new RegExp(LINE_NUM_RE).exec(line);
       return m ? line.slice(m[0].length) : line;
     })
     .join('\n');
@@ -50,7 +50,7 @@ export interface FsEditParams {
   replaceAll?: boolean;
 }
 
-export class FsEditTool  {
+export class FsEditTool {
   readonly name = 'edit';
   readonly key = 'edit';
   readonly group = 'fs';
@@ -187,7 +187,7 @@ export class FsEditTool  {
         path: pathMeta,
         edited: true,
         replacements: fuzzyResult.replacements,
-        ...(fuzzyResult.stage !== 'exact' ? { matchStage: fuzzyResult.stage } : {}),
+        ...(fuzzyResult.stage === 'exact' ? {} : { matchStage: fuzzyResult.stage }),
         linesChanged: addedLines,
         totalLines: totalBefore + addedLines,
         access,
@@ -208,7 +208,7 @@ export interface MultiEditParams {
   edits: Array<{ oldString: string; newString: string; replaceAll?: boolean }>;
 }
 
-export class MultiEditTool  {
+export class MultiEditTool {
   readonly name = 'multiedit';
   readonly key = 'multiedit';
   readonly group = 'edit';
@@ -270,7 +270,7 @@ export class MultiEditTool  {
     let lastNewContent: string | undefined;
 
     for (let i = 0; i < edits.length; i++) {
-      const edit = edits[i]!;
+      const edit = edits[i];
       const rawResult = await fsEditTool.execute(
         {
           filePath,
@@ -287,7 +287,7 @@ export class MultiEditTool  {
         _fileChanges?: Array<{ oldContent: string; newContent: string }>;
       };
       if (r._fileChanges?.[0]) {
-        if (firstOldContent === undefined) firstOldContent = r._fileChanges[0].oldContent;
+        firstOldContent ??= r._fileChanges[0].oldContent;
         lastNewContent = r._fileChanges[0].newContent;
       }
       const { _fileChanges: _fc, ...cleanResult } = rawResult as Record<string, unknown>;
@@ -332,7 +332,7 @@ export interface ApplyPatchParams {
   patchText: string;
 }
 
-export class ApplyPatchTool  {
+export class ApplyPatchTool {
   readonly name = 'patch';
   readonly key = 'patch';
   readonly group = 'edit';

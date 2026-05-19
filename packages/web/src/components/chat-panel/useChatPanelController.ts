@@ -1374,7 +1374,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         return;
       }
       if (event.key === 'Tab') {
-        const idx = slashSelectedIndex >= 0 ? slashSelectedIndex : 0;
+        const idx = Math.max(slashSelectedIndex, 0);
         event.preventDefault();
         handleSlashSelect(idx);
         return;

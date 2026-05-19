@@ -111,7 +111,7 @@ function wrapHandler(
 
       // If already a CommandResponse, return as-is
       if (isCommandResponse(result)) {
-        return result as CommandResponse<unknown>;
+        return result;
       }
 
       // Wrap bare results
@@ -214,7 +214,7 @@ export class CommandDispatcher implements ICommandDispatcher {
           ) => Promise<unknown>
         );
 
-    (handler as any).__wrapped = true;
+    handler.__wrapped = true;
 
     this.commands.set(entry.key, {
       key: entry.key,
