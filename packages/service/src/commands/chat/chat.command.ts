@@ -42,10 +42,10 @@ import { DefaultLlmSelector } from '../../orchestrator/defaults/llm-selector.js'
 import { DefaultOutputHandler } from '../../orchestrator/defaults/output-handler.js';
 import { buildDefaultHookPlugins } from '../../orchestrator/defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from '../../orchestrator/defaults/turn-result-parsers.js';
-import { buildDefaultSlashCommands } from '../../orchestrator/slash-commands.js';
+import { SlashCommandDispatcher } from '../../orchestrator/slash-command-dispatcher.js';
 import { ToolDispatcher } from '../../orchestrator/tool-dispatch.js';
 import { HandoffOrchestrator } from '../../orchestrator/handoff.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import { type IQuestionService, InteractionQuestionService } from '../../questions/question-service.js';
 import { WorkflowIntentProvider } from '../../tools/workflow-intent-provider.js';
 import {
   buildDynamicSlashCatalog,
@@ -581,7 +581,7 @@ export class ChatCommand {
     };
 
     const registry = serviceContainer.resolve(COMMAND_FACTORY_TOKENS.CommandRegistry);
-    const staticSlashCommands = buildDefaultSlashCommands(registry);
+    const staticSlashCommands = new SlashCommandDispatcher(registry).list();
 
     const reservedSlashKeys = new Set<string>();
     for (const command of staticSlashCommands) {

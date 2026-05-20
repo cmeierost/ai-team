@@ -74,6 +74,8 @@ import { TestConnectionICommand } from './commands/setup/test-connection.command
 import { ToolsAllowCommand } from './commands/tools/tools-allow.command.js';
 import { ToolsDenyCommand } from './commands/tools/tools-deny.command.js';
 import { ToolsListCommand } from './commands/tools/tools-list.command.js';
+import { AgentToolsService } from './commands/tools/tools-service.js';
+import { GovernanceService } from './commands/agents/governance.js';
 import { ChatICommand } from './commands/chat/chat-i.command.js';
 import { HelpChatCommand } from './commands/help/help.command.js';
 import { ChatInfoService } from './orchestrator/chat-info-service.js';
@@ -611,32 +613,20 @@ export function createCommandDispatcher(
 
   // ── Tools commands ──────────────────────────────────────────────────────────
 
-  d.register(
-    toCommandRegistration(
-      new ToolsListCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.ToolManager)
-      )
-    )
+  const governanceService = new GovernanceService(
+    container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+    container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
   );
-  d.register(
-    toCommandRegistration(
-      new ToolsAllowCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-    )
+
+  const toolsService = new AgentToolsService(
+    container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+    container.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
+    governanceService
   );
-  d.register(
-    toCommandRegistration(
-      new ToolsDenyCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-    )
-  );
+
+  d.register(toCommandRegistration(new ToolsListCommand(toolsService)));
+  d.register(toCommandRegistration(new ToolsAllowCommand(toolsService)));
+  d.register(toCommandRegistration(new ToolsDenyCommand(toolsService)));
 
   // ── Files commands ──────────────────────────────────────────────────────────
 
@@ -645,6 +635,7 @@ export function createCommandDispatcher(
     container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
     container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
     container.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
+    governanceService,
     container.resolve(COMMAND_FACTORY_TOKENS.FileTreeService),
     container.resolve(COMMAND_FACTORY_TOKENS.FileAnnotationService)
   );
@@ -654,7 +645,8 @@ export function createCommandDispatcher(
     toCommandRegistration(
       new FilesAllowCommand(
         fileTreeAccessService,
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+        governanceService
       )
     )
   );
@@ -662,7 +654,8 @@ export function createCommandDispatcher(
     toCommandRegistration(
       new FilesDenyCommand(
         fileTreeAccessService,
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+        governanceService
       )
     )
   );

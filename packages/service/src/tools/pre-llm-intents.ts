@@ -1,6 +1,4 @@
 import type { ICommand, ExecutionContext } from '@ai-team/core';
-import { getServiceContainer } from '../service-registry.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
 const AUTO_SELECT_SCORE = 100;
 const CONFIRM_THRESHOLD_SCORE = 80;
@@ -103,14 +101,9 @@ function normalizeCandidates(
 
 async function collectToolCandidates(
   message: string,
-  ctx: ExecutionContext
+  ctx: ExecutionContext,
+  tools: ICommand[]
 ): Promise<ScoredPreLlmIntentCandidate[]> {
-  if (!ctx.agent) {
-    return [];
-  }
-
-  const toolManager = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.ToolManager);
-  const tools = toolManager.getForAgent(ctx.agent);
   const candidates: ScoredPreLlmIntentCandidate[] = [];
 
   for (const tool of tools) {
@@ -225,14 +218,15 @@ function buildConfirmIntent(candidate: ScoredPreLlmIntentCandidate): PreLlmInten
 export async function resolvePreLlmIntent(
   message: string,
   ctx: ExecutionContext,
-  providers: PreLlmIntentProvider[] = []
+  providers: PreLlmIntentProvider[] = [],
+  tools: ICommand[] = []
 ): Promise<PreLlmIntent | undefined> {
   const trimmed = message.trim();
   if (!trimmed) return undefined;
 
   const [providerCandidates, toolCandidates] = await Promise.all([
     collectProviderCandidates(trimmed, ctx, providers),
-    collectToolCandidates(trimmed, ctx),
+    collectToolCandidates(trimmed, ctx, tools),
   ]);
 
   const candidates = normalizeCandidates([...providerCandidates, ...toolCandidates]).filter(

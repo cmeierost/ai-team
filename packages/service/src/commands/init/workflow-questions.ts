@@ -1,6 +1,5 @@
 import type {
   RuntimeStreamEvent,
-  QuestionAnswerValue,
   QuestionChecklistRequest,
   QuestionConfirmRequest,
   QuestionInputRequest,
@@ -10,18 +9,14 @@ import type {
   WorkflowStateSnapshot,
 } from '@ai-team/api-contracts';
 import type { Agent, ExecutionContext, CommandResponse } from '@ai-team/core';
-import {
-  resolveWorkflowAnswer as _resolveWorkflowAnswer,
-  emitWorkflowQuestionFrame as _emitWorkflowQuestionFrame,
-  emitWorkflowResultFrame as _emitWorkflowResultFrame,
-  ensureNotAborted as _ensureNotAborted,
-} from '../../workflow/helpers.js';
-import { AskUserCommand } from '../com/ask.command.js';
-import {
-  InteractionQuestionService,
-  type IQuestionListeners,
-} from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
+// ─── Runtime hooks ────────────────────────────────────────────────────────────
+
+/**
+ * Callbacks injected by a transport layer (CLI, API, VS Code) to handle
+ * streaming output and interactive questions during init/onboard flows.
+ */
 export interface InitRuntimeHooks {
   signal?: AbortSignal;
   emit?: (event: RuntimeStreamEvent) => void;
@@ -33,8 +28,8 @@ export interface InitRuntimeHooks {
   workflowState?: WorkflowStateSnapshot;
   onWorkflowFrame?: (frame: WorkflowFrame) => void;
 }
-
-type AskKind = 'input' | 'confirm' | 'select' | 'password' | 'checklist';
+import type { IWorkflowService } from '../../workflow/workflow-service.js';
+import { AskUserCommand } from '../com/ask.command.js';
 
 const INIT_ASK_AGENT: Agent = {
   id: 'init-system',
@@ -56,19 +51,60 @@ function createAskExecutionContext(): ExecutionContext {
   };
 }
 
-function buildQuestionService(hooks: InitRuntimeHooks | undefined, overrides?: IQuestionListeners) {
-  return new InteractionQuestionService({
-    questionInput: overrides?.questionInput ?? hooks?.questionInput,
-    questionConfirm: overrides?.questionConfirm ?? hooks?.questionConfirm,
-    questionSelect: overrides?.questionSelect ?? hooks?.questionSelect,
-    questionPassword: overrides?.questionPassword ?? hooks?.questionPassword,
-    questionChecklist: overrides?.questionChecklist ?? hooks?.questionChecklist,
-  });
+type AskKind = 'input' | 'confirm' | 'select' | 'password' | 'checklist';
+
+function resolveSelectAnswer(
+  input: string,
+  choices: Array<{ name: string; value: string }>
+): string | undefined {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  // Try exact match first
+  const exact = choices.find((c) => c.value === trimmed || c.name === trimmed);
+  if (exact) {
+    return exact.value;
+  }
+
+  // Try case-insensitive match
+  const caseInsensitive = choices.find(
+    (c) =>
+      c.value.toLowerCase() === trimmed.toLowerCase() ||
+      c.name.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (caseInsensitive) {
+    return caseInsensitive.value;
+  }
+
+  // Try prefix match
+  const prefix = choices.find(
+    (c) =>
+      c.value.toLowerCase().startsWith(trimmed.toLowerCase()) ||
+      c.name.toLowerCase().startsWith(trimmed.toLowerCase())
+  );
+  if (prefix) {
+    return prefix.value;
+  }
+
+  return undefined;
 }
 
-async function askViaTool(
-  hooks: InitRuntimeHooks | undefined,
-  params: {
+/**
+ * Orchestrates workflow question flows by delegating to an injected IQuestionService.
+ * The service's methods do not require ExecutionContext parameters; context is bound at construction time.
+ */
+export class WorkflowQuestioner {
+  constructor(
+    private readonly questionService: IQuestionService,
+    private readonly context: ExecutionContext,
+    private readonly workflowService?: IWorkflowService,
+    private readonly emit?: (event: RuntimeStreamEvent) => void,
+    private readonly signal?: AbortSignal
+  ) {}
+
+  private async askViaComAsk(params: {
     kind: AskKind;
     message: string;
     workflow?: {
@@ -87,303 +123,201 @@ async function askViaTool(
     minSelections?: number;
     maxSelections?: number;
     mask?: string;
-  },
-  overrides?: IQuestionListeners
-): Promise<unknown> {
-  const questionService = buildQuestionService(hooks, overrides);
-  const askUserCommand = new AskUserCommand(questionService);
-  const result = await askUserCommand.execute(params, createAskExecutionContext());
-  const response =
-    result && typeof result === 'object' && 'status' in result
-      ? (result as CommandResponse<unknown>)
-      : undefined;
-  if (response?.status === 'error') {
-    throw new Error(response.message || 'com_ask returned an error response.');
-  }
-  const payload = response?.data ?? result;
-  if (!payload || typeof payload !== 'object' || !('answer' in payload)) {
-    throw new Error('com_ask returned an unexpected response shape.');
-  }
-  const answer = (payload as Record<string, unknown>).answer;
-  return answer;
-}
-
-// Thin wrappers that delegate to the shared workflow helpers.
-// InitRuntimeHooks is structurally compatible with InteractionContext.
-
-function resolveWorkflowAnswer(
-  hooks: InitRuntimeHooks | undefined,
-  request: { workflow?: { workflowId?: string; questionId?: string } }
-): QuestionAnswerValue | undefined {
-  return _resolveWorkflowAnswer(hooks, request);
-}
-
-function emitWorkflowQuestionFrame(
-  hooks: InitRuntimeHooks | undefined,
-  request:
-    | ({ kind: 'input' } & QuestionInputRequest)
-    | ({ kind: 'confirm' } & QuestionConfirmRequest)
-    | ({ kind: 'select' } & QuestionSelectRequest)
-    | ({ kind: 'password' } & QuestionPasswordRequest)
-    | ({ kind: 'checklist' } & QuestionChecklistRequest)
-): void {
-  _emitWorkflowQuestionFrame(hooks, request);
-}
-
-function emitWorkflowResultFrame(
-  hooks: InitRuntimeHooks | undefined,
-  request: {
-    workflow?: {
-      workflowId?: string;
-      stepId?: string;
-      continuationToken?: string;
-      questionId?: string;
-    };
-  },
-  result: QuestionAnswerValue
-): void {
-  _emitWorkflowResultFrame(hooks, request, result);
-}
-
-function ensureNotAborted(hooks: InitRuntimeHooks | undefined): void {
-  _ensureNotAborted(hooks);
-}
-
-function resolveSelectAnswer(
-  input: string,
-  choices: Array<{ name: string; value: string }>
-): string | undefined {
-  const trimmed = input.trim();
-  if (!trimmed) {
-    return undefined;
+  }): Promise<unknown> {
+    const askUserCommand = new AskUserCommand(this.questionService);
+    const result = await askUserCommand.execute(params, createAskExecutionContext());
+    const response =
+      result && typeof result === 'object' && 'status' in result
+        ? (result as CommandResponse<unknown>)
+        : undefined;
+    if (response?.status === 'error') {
+      throw new Error(response.message || 'com_ask returned an error response.');
+    }
+    const payload = response?.data ?? result;
+    if (!payload || typeof payload !== 'object' || !('answer' in payload)) {
+      throw new Error('com_ask returned an unexpected response shape.');
+    }
+    return (payload as Record<string, unknown>).answer;
   }
 
-  const numeric = Number.parseInt(trimmed, 10);
-  if (!Number.isNaN(numeric) && numeric >= 1 && numeric <= choices.length) {
-    return choices[numeric - 1].value;
-  }
+  async requestInput(request: QuestionInputRequest): Promise<string> {
+    if (this.signal?.aborted) throw new Error('Workflow aborted');
+    this.workflowService?.emitQuestionFrame({ kind: 'input', ...request });
+    this.emit?.({
+      kind: 'question',
+      questionType: 'input',
+      message: request.message,
+    });
 
-  const exactValue = choices.find((choice) => choice.value.toLowerCase() === trimmed.toLowerCase());
-  if (exactValue) {
-    return exactValue.value;
-  }
+    const resumed = this.workflowService?.resolveAnswer(request);
+    if (typeof resumed === 'string') {
+      this.workflowService?.emitResultFrame(request, resumed);
+      return resumed;
+    }
 
-  const exactName = choices.find((choice) => choice.name.toLowerCase() === trimmed.toLowerCase());
-  if (exactName) {
-    return exactName.value;
-  }
-
-  return undefined;
-}
-
-export async function requestInput(
-  hooks: InitRuntimeHooks | undefined,
-  request: QuestionInputRequest
-): Promise<string> {
-  ensureNotAborted(hooks);
-  emitWorkflowQuestionFrame(hooks, { kind: 'input', ...request });
-  hooks?.emit?.({
-    kind: 'question',
-    questionType: 'input',
-    message: request.message,
-  });
-
-  const resumed = resolveWorkflowAnswer(hooks, request);
-  if (typeof resumed === 'string') {
-    emitWorkflowResultFrame(hooks, request, resumed);
-    return resumed;
-  }
-
-  if (!hooks?.questionInput) {
-    throw new Error('Input question requested but no client questionInput responder is available.');
-  }
-
-  const answer = await askViaTool(
-    hooks,
-    {
+    const answer = await this.askViaComAsk({
       kind: 'input',
       message: request.message,
       workflow: request.workflow,
-    },
-    {
-      questionInput: async (inputRequest) =>
-        hooks.questionInput?.({
-          ...request,
-          message: inputRequest.message,
-        }) ?? '',
+    });
+
+    if (typeof answer !== 'string') {
+      throw new TypeError('Input question expected a string answer from com_ask.');
     }
-  );
 
-  if (typeof answer !== 'string') {
-    throw new TypeError('Input question expected a string answer from com_ask.');
-  }
-
-  if (request.validate) {
-    const validationResult = request.validate(answer);
-    if (validationResult !== true) {
-      throw new Error(typeof validationResult === 'string' ? validationResult : 'Invalid input.');
+    if (request.validate) {
+      const validationResult = request.validate(answer);
+      if (validationResult !== true) {
+        throw new Error(typeof validationResult === 'string' ? validationResult : 'Invalid input.');
+      }
     }
+
+    this.workflowService?.emitResultFrame(request, answer);
+    return answer;
   }
 
-  emitWorkflowResultFrame(hooks, request, answer);
-  return answer;
-}
+  async requestConfirm(request: QuestionConfirmRequest): Promise<boolean> {
+    if (this.signal?.aborted) throw new Error('Workflow aborted');
+    this.workflowService?.emitQuestionFrame({ kind: 'confirm', ...request });
+    this.emit?.({
+      kind: 'question',
+      questionType: 'confirm',
+      message: request.message,
+    });
 
-export async function requestConfirm(
-  hooks: InitRuntimeHooks | undefined,
-  request: QuestionConfirmRequest
-): Promise<boolean> {
-  ensureNotAborted(hooks);
-  emitWorkflowQuestionFrame(hooks, { kind: 'confirm', ...request });
-  hooks?.emit?.({
-    kind: 'question',
-    questionType: 'confirm',
-    message: request.message,
-  });
+    const resumed = this.workflowService?.resolveAnswer(request);
+    if (typeof resumed === 'boolean') {
+      this.workflowService?.emitResultFrame(request, resumed);
+      return resumed;
+    }
 
-  const resumed = resolveWorkflowAnswer(hooks, request);
-  if (typeof resumed === 'boolean') {
-    emitWorkflowResultFrame(hooks, request, resumed);
-    return resumed;
+    const answer = await this.askViaComAsk({
+      kind: 'confirm',
+      message: request.message,
+      workflow: request.workflow,
+      defaultBoolean: request.default,
+    });
+
+    if (typeof answer !== 'boolean') {
+      throw new TypeError('Confirm question expected a boolean answer from com_ask.');
+    }
+
+    this.workflowService?.emitResultFrame(request, answer);
+    return answer;
   }
 
-  const answer = await askViaTool(hooks, {
-    kind: 'confirm',
-    message: request.message,
-    workflow: request.workflow,
-    defaultBoolean: request.default,
-  });
+  async requestSelect(request: QuestionSelectRequest): Promise<string> {
+    if (this.signal?.aborted) throw new Error('Workflow aborted');
+    this.workflowService?.emitQuestionFrame({ kind: 'select', ...request });
+    this.emit?.({
+      kind: 'question',
+      questionType: 'select',
+      message: request.message,
+      choices: request.choices,
+    });
 
-  if (typeof answer !== 'boolean') {
-    throw new TypeError('Confirm question expected a boolean answer from com_ask.');
+    const resumed = this.workflowService?.resolveAnswer(request);
+    if (typeof resumed === 'string') {
+      this.workflowService?.emitResultFrame(request, resumed);
+      return resumed;
+    }
+
+    const answer = await this.askViaComAsk({
+      kind: 'select',
+      message: request.message,
+      choices: request.choices,
+      workflow: request.workflow,
+      defaultText: request.default,
+      allowOther: request.allowOther,
+      otherLabel: request.otherLabel,
+      otherPrompt: request.otherPrompt,
+    });
+
+    if (typeof answer !== 'string') {
+      throw new TypeError('Select question expected a string answer from com_ask.');
+    }
+
+    const resolved = resolveSelectAnswer(answer, request.choices);
+    if (!resolved) {
+      throw new Error(
+        'Select responder returned an invalid choice. Please choose one of the listed options.'
+      );
+    }
+    this.workflowService?.emitResultFrame(request, resolved);
+    return resolved;
   }
 
-  emitWorkflowResultFrame(hooks, request, answer);
-  return answer;
-}
+  async requestPassword(request: QuestionPasswordRequest): Promise<string> {
+    if (this.signal?.aborted) throw new Error('Workflow aborted');
+    this.workflowService?.emitQuestionFrame({ kind: 'password', ...request });
+    this.emit?.({
+      kind: 'question',
+      questionType: 'password',
+      message: request.message,
+    });
 
-export async function requestSelect(
-  hooks: InitRuntimeHooks | undefined,
-  request: QuestionSelectRequest
-): Promise<string> {
-  ensureNotAborted(hooks);
-  emitWorkflowQuestionFrame(hooks, { kind: 'select', ...request });
-  hooks?.emit?.({
-    kind: 'question',
-    questionType: 'select',
-    message: request.message,
-    choices: request.choices,
-  });
+    const resumed = this.workflowService?.resolveAnswer(request);
+    if (typeof resumed === 'string') {
+      this.workflowService?.emitResultFrame(request, resumed);
+      return resumed;
+    }
 
-  const resumed = resolveWorkflowAnswer(hooks, request);
-  if (typeof resumed === 'string') {
-    emitWorkflowResultFrame(hooks, request, resumed);
-    return resumed;
+    const answer = await this.askViaComAsk({
+      kind: 'password',
+      message: request.message,
+      workflow: request.workflow,
+      mask: request.mask,
+    });
+
+    if (typeof answer !== 'string') {
+      throw new TypeError('Password question expected a string answer from com_ask.');
+    }
+
+    this.workflowService?.emitResultFrame(request, answer);
+    return answer;
   }
 
-  const answer = await askViaTool(hooks, {
-    kind: 'select',
-    message: request.message,
-    choices: request.choices,
-    workflow: request.workflow,
-    defaultText: request.default,
-    allowOther: request.allowOther,
-    otherLabel: request.otherLabel,
-    otherPrompt: request.otherPrompt,
-  });
+  async requestChecklist(request: QuestionChecklistRequest): Promise<string[]> {
+    if (this.signal?.aborted) throw new Error('Workflow aborted');
+    this.workflowService?.emitQuestionFrame({ kind: 'checklist', ...request });
+    this.emit?.({
+      kind: 'question',
+      questionType: 'checklist',
+      message: request.message,
+      choices: request.choices,
+    });
 
-  if (typeof answer !== 'string') {
-    throw new TypeError('Select question expected a string answer from com_ask.');
-  }
+    const resumed = this.workflowService?.resolveAnswer(request);
+    if (Array.isArray(resumed) && resumed.every((value) => typeof value === 'string')) {
+      this.workflowService?.emitResultFrame(request, resumed);
+      return resumed;
+    }
 
-  const resolved = resolveSelectAnswer(answer, request.choices);
-  if (!resolved) {
-    throw new Error(
-      'Select responder returned an invalid choice. Please choose one of the listed options.'
-    );
-  }
-  emitWorkflowResultFrame(hooks, request, resolved);
-  return resolved;
-}
+    const answer = await this.askViaComAsk({
+      kind: 'checklist',
+      message: request.message,
+      choices: request.choices,
+      workflow: request.workflow,
+      defaultChecklist: request.default,
+      minSelections: request.minSelections,
+      maxSelections: request.maxSelections,
+      allowOther: request.allowOther,
+      otherLabel: request.otherLabel,
+      otherPrompt: request.otherPrompt,
+    });
 
-export async function requestPassword(
-  hooks: InitRuntimeHooks | undefined,
-  request: QuestionPasswordRequest
-): Promise<string> {
-  ensureNotAborted(hooks);
-  emitWorkflowQuestionFrame(hooks, { kind: 'password', ...request });
-  hooks?.emit?.({
-    kind: 'question',
-    questionType: 'password',
-    message: request.message,
-  });
+    if (!Array.isArray(answer) || !answer.every((value) => typeof value === 'string')) {
+      throw new Error('Checklist question expected a string[] answer from com_ask.');
+    }
 
-  const resumed = resolveWorkflowAnswer(hooks, request);
-  if (typeof resumed === 'string') {
-    emitWorkflowResultFrame(hooks, request, resumed);
-    return resumed;
-  }
-
-  const answer = await askViaTool(hooks, {
-    kind: 'password',
-    message: request.message,
-    workflow: request.workflow,
-    mask: request.mask,
-  });
-
-  if (typeof answer !== 'string') {
-    throw new TypeError('Password question expected a string answer from com_ask.');
-  }
-
-  emitWorkflowResultFrame(hooks, request, answer);
-  return answer;
-}
-
-export async function requestChecklist(
-  hooks: InitRuntimeHooks | undefined,
-  request: QuestionChecklistRequest
-): Promise<string[]> {
-  ensureNotAborted(hooks);
-  emitWorkflowQuestionFrame(hooks, { kind: 'checklist', ...request });
-  hooks?.emit?.({
-    kind: 'question',
-    questionType: 'checklist',
-    message: request.message,
-    choices: request.choices,
-  });
-
-  const resumed = resolveWorkflowAnswer(hooks, request);
-  if (Array.isArray(resumed) && resumed.every((value) => typeof value === 'string')) {
-    emitWorkflowResultFrame(hooks, request, resumed);
-    return resumed;
-  }
-
-  const answer = await askViaTool(hooks, {
-    kind: 'checklist',
-    message: request.message,
-    choices: request.choices,
-    workflow: request.workflow,
-    defaultChecklist: request.default,
-    minSelections: request.minSelections,
-    maxSelections: request.maxSelections,
-    allowOther: request.allowOther,
-    otherLabel: request.otherLabel,
-    otherPrompt: request.otherPrompt,
-  });
-
-  if (!Array.isArray(answer) || !answer.every((value) => typeof value === 'string')) {
-    throw new Error('Checklist question expected a string[] answer from com_ask.');
-  }
-
-  const parsed = hooks?.questionChecklist ? answer : answer.map((value) => value.trim());
-  if (!hooks?.questionChecklist) {
+    const parsed = answer.map((value) => value.trim());
     for (const value of parsed) {
       if (!request.choices.some((choice) => choice.value === value)) {
         throw new Error(`Invalid checklist option: "${value}".`);
       }
     }
-  }
 
-  emitWorkflowResultFrame(hooks, request, parsed);
-  return parsed;
+    this.workflowService?.emitResultFrame(request, parsed);
+    return parsed;
+  }
 }

@@ -85,7 +85,7 @@ export { DefaultLlmSelector } from './orchestrator/defaults/llm-selector.js';
 export { DefaultOutputHandler } from './orchestrator/defaults/output-handler.js';
 export { buildDefaultHookPlugins } from './orchestrator/defaults/hook-plugins.js';
 export { buildDefaultTurnResultParsers } from './orchestrator/defaults/turn-result-parsers.js';
-export { buildDefaultSlashCommands } from './orchestrator/slash-commands.js';
+export { SlashCommandDispatcher } from './orchestrator/slash-command-dispatcher.js';
 export { ToolDispatchSupportService } from './orchestrator/services/tool-dispatch-support-service.js';
 export { ToolSerializationService } from './orchestrator/services/tool-serialization-service.js';
 export {
@@ -115,6 +115,7 @@ export {
 } from './routers/index.js';
 export {
   registerServiceLayerServices,
+  buildInteractionService,
   type ServiceLayerRegistrationTokens,
   type ServiceLayerRegistrationConfig,
 } from './registration/register-service-layer-services.js';

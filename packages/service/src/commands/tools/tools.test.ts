@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  allowToolCommand,
-  disallowToolCommand,
-  listToolsCommand,
-  type ListToolsOptions,
-} from './tools.js';
+import { AgentToolsService, type ListToolsOptions } from './tools-service.js';
 
 interface MutableAgent {
   id: string;
@@ -48,12 +43,24 @@ function createToolManager() {
   } as any;
 }
 
+function createService(agent?: MutableAgent) {
+  const agentManager = agent
+    ? createAgentManager(agent)
+    : createAgentManager({ id: 'ceo', name: 'CEO', role: 'CEO' });
+  const toolManager = createToolManager();
+  const governanceService = {} as any;
+  return {
+    service: new AgentToolsService(agentManager, toolManager, governanceService),
+    agentManager,
+    toolManager,
+  };
+}
+
 describe('commands/tools', () => {
   it('lists canonical tool names for grouped tools', async () => {
-    const agentManager = createAgentManager({ id: 'ceo', name: 'CEO', role: 'CEO' });
-    const toolManager = createToolManager();
+    const { service } = createService();
 
-    const result = await listToolsCommand(agentManager, toolManager, {} satisfies ListToolsOptions);
+    const result = await service.list({} satisfies ListToolsOptions);
 
     expect(result.entries.map((entry) => entry.name)).toEqual([
       'hr_hire',
@@ -64,10 +71,9 @@ describe('commands/tools', () => {
 
   it('allows a grouped tool when called with canonical key', async () => {
     const agent = { id: 'ceo', name: 'CEO', role: 'CEO', tools: [], disallowedTools: [] };
-    const agentManager = createAgentManager(agent);
-    const toolManager = createToolManager();
+    const { service } = createService(agent);
 
-    const result = await allowToolCommand(agentManager, toolManager, {
+    const result = await service.allow({
       agent: 'ceo',
       tool: 'hr_hire',
     });
@@ -85,10 +91,9 @@ describe('commands/tools', () => {
       tools: ['hr_performance'],
       disallowedTools: [],
     };
-    const agentManager = createAgentManager(agent);
-    const toolManager = createToolManager();
+    const { service } = createService(agent);
 
-    const result = await disallowToolCommand(agentManager, toolManager, {
+    const result = await service.disallow({
       agent: 'ceo',
       tool: 'hr_performance',
     });
@@ -100,11 +105,10 @@ describe('commands/tools', () => {
 
   it('rejects non-canonical short names', async () => {
     const agent = { id: 'ceo', name: 'CEO', role: 'CEO', tools: [], disallowedTools: [] };
-    const agentManager = createAgentManager(agent);
-    const toolManager = createToolManager();
+    const { service } = createService(agent);
 
     await expect(
-      allowToolCommand(agentManager, toolManager, {
+      service.allow({
         agent: 'ceo',
         tool: 'hire',
       })
@@ -112,11 +116,10 @@ describe('commands/tools', () => {
   });
 
   it('throws for unknown tools', async () => {
-    const agentManager = createAgentManager({ id: 'ceo', name: 'CEO', role: 'CEO' });
-    const toolManager = createToolManager();
+    const { service } = createService();
 
     await expect(
-      disallowToolCommand(agentManager, toolManager, {
+      service.disallow({
         agent: 'ceo',
         tool: 'totally_unknown_tool',
       })
@@ -125,10 +128,9 @@ describe('commands/tools', () => {
 
   it('allows wildcard tool selector when it matches registered tools', async () => {
     const agent = { id: 'ceo', name: 'CEO', role: 'CEO', tools: [], disallowedTools: [] };
-    const agentManager = createAgentManager(agent);
-    const toolManager = createToolManager();
+    const { service } = createService(agent);
 
-    const result = await allowToolCommand(agentManager, toolManager, {
+    const result = await service.allow({
       agent: 'ceo',
       tool: 'hr_*',
     });
@@ -138,11 +140,10 @@ describe('commands/tools', () => {
   });
 
   it('rejects wildcard selector when it matches no registered tool', async () => {
-    const agentManager = createAgentManager({ id: 'ceo', name: 'CEO', role: 'CEO' });
-    const toolManager = createToolManager();
+    const { service } = createService();
 
     await expect(
-      allowToolCommand(agentManager, toolManager, {
+      service.allow({
         agent: 'ceo',
         tool: 'totally_unknown_*',
       })

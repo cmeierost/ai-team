@@ -23,7 +23,7 @@ describe('workflow questions ask-tool bridge', () => {
 
   it('routes input questions through com_ask and preserves workflow request payload', async () => {
     const questionInput = vi.fn().mockResolvedValue('ok-value');
-    const questionService = new InteractionQuestionService({ questionInput });
+    const questionService = InteractionQuestionService({ questionInput });
 
     askExecute.mockImplementation(async (params) => {
       expect(params.kind).toBe('input');

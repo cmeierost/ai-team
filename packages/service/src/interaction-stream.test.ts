@@ -1,4 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('./service-registry.js', () => ({
+  getServiceContainer: () => ({
+    resolve: () => ({
+      emit: vi.fn(),
+      hasEmitter: () => true,
+      runWithEmitter: (_: unknown, fn: () => Promise<unknown>) => fn(),
+    }),
+  }),
+}));
+
 import { streamInteraction } from './interaction-stream.js';
 
 describe('streamInteraction', () => {

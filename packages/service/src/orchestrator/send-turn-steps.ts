@@ -13,6 +13,7 @@ import type {
 import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import { ToolIdentity } from '../tools/tool-manager.js';
+import { ZodSchemaTools } from '../utils/zod-schema.js';
 import type {
   BeforePersistAssistantMessageHookPayload,
   IOrchestratorHookPlugin,
@@ -22,12 +23,17 @@ import type {
 import { invokeLlm } from './llm-invoke.js';
 import { emitLog, emitStatus } from './stream-events.js';
 import type { SendTurnOptions } from './send-turn.js';
-import { getServiceContainer } from '../service-registry.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
 function buildToolDefinitions(tools: ICommand[]): LlmToolDefinition[] {
-  const schemaService = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.ToolSchemaService);
-  return schemaService.buildToolDefinitions(tools);
+  const schemaTools = new ZodSchemaTools();
+  return tools.map((tool) => ({
+    name: ToolIdentity.key(tool),
+    description: tool.summary ?? tool.description,
+    parameters: tool.parameters
+      ? schemaTools.toJsonSchema(tool.parameters, { additionalProperties: true })
+      : undefined,
+    group: tool.group,
+  }));
 }
 
 function filterDiscoveredToolsForAgent(agent: Agent, discoveredTools: ICommand[]): ICommand[] {

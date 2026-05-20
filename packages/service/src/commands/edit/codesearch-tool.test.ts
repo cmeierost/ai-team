@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { codeSearchTool } from './codesearch-tool.js';
+import { CodeSearchTool } from './codesearch-tool.js';
 import type { ToolContext } from '@ai-team/core';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -34,6 +34,7 @@ function fakeResponse(body: string, status = 200): Response {
 
 describe('codeSearchTool', () => {
   const originalEnv = { ...process.env };
+  const codeSearchTool = new CodeSearchTool();
 
   beforeEach(() => {
     process.env = { ...originalEnv };
@@ -54,10 +55,11 @@ describe('codeSearchTool', () => {
     const mockFetch = vi.fn().mockResolvedValue(fakeResponse(sseBody('Hello from Exa')));
     vi.stubGlobal('fetch', mockFetch);
 
-    const result = await codeSearchTool.execute(
+    const response = await codeSearchTool.execute(
       { query: 'zod validation', tokensNum: 5000 },
       stubContext()
     );
+    const result = response.data;
 
     expect(result).toEqual({
       query: 'zod validation',
@@ -79,10 +81,11 @@ describe('codeSearchTool', () => {
   it('returns error on non-200 response', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(fakeResponse('rate limited', 429)));
 
-    const result = (await codeSearchTool.execute(
+    const response = await codeSearchTool.execute(
       { query: 'test', tokensNum: 5000 },
       stubContext()
-    )) as { error: string };
+    );
+    const result = response.data;
 
     expect(result.result).toBeNull();
     expect(result.error).toContain('429');
@@ -93,10 +96,11 @@ describe('codeSearchTool', () => {
     const emptySse = 'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{}}\n';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(fakeResponse(emptySse)));
 
-    const result = (await codeSearchTool.execute(
+    const response = await codeSearchTool.execute(
       { query: 'nonexistent-library-xyzzy', tokensNum: 1000 },
       stubContext()
-    )) as { error: string };
+    );
+    const result = response.data;
 
     expect(result.result).toBeNull();
     expect(result.error).toContain('No code snippets');
@@ -112,10 +116,11 @@ describe('codeSearchTool', () => {
       })
     );
 
-    const result = (await codeSearchTool.execute(
+    const response = await codeSearchTool.execute(
       { query: 'slow query', tokensNum: 5000 },
       stubContext()
-    )) as { error: string };
+    );
+    const result = response.data;
 
     expect(result.result).toBeNull();
     expect(result.error).toContain('timed out');
@@ -135,10 +140,11 @@ describe('codeSearchTool', () => {
   it('returns generic error on unexpected fetch failure', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network unreachable')));
 
-    const result = (await codeSearchTool.execute(
+    const response = await codeSearchTool.execute(
       { query: 'test', tokensNum: 5000 },
       stubContext()
-    )) as { error: string };
+    );
+    const result = response.data;
 
     expect(result.result).toBeNull();
     expect(result.error).toBe('Network unreachable');
@@ -155,10 +161,11 @@ describe('codeSearchTool', () => {
 
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(fakeResponse(multiLine)));
 
-    const result = (await codeSearchTool.execute(
+    const response = await codeSearchTool.execute(
       { query: 'multi', tokensNum: 3000 },
       stubContext()
-    )) as { result: string };
+    );
+    const result = response.data;
 
     expect(result.result).toBe('second line wins');
   });

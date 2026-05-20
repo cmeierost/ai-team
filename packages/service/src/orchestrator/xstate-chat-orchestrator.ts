@@ -34,20 +34,35 @@ export interface RunOptions {
 export class XStateChatOrchestrator {
   private preLlmUserMessagePersisted = false;
   private preTurnUserMessageOverride: string | undefined;
-
   private lastManualOutput: string | undefined;
+
+  private readonly toolDispatcher: ToolDispatcher | undefined;
+  private readonly handoffOrchestrator: HandoffOrchestrator | undefined;
+  private readonly hooks: ChatRuntimeHooks;
+  private readonly agentManager: IAgentManager;
+  private readonly sessionManager: SessionManager;
+  private readonly llmService: ILlmService;
+  private readonly serialization: ToolSerializationService;
 
   constructor(
     private readonly ctx: ExecutionContext,
     private readonly plugins: ResolvedPlugins,
-    private readonly toolDispatcher: ToolDispatcher,
-    private readonly handoffOrchestrator: HandoffOrchestrator,
-    private readonly hooks: ChatRuntimeHooks,
-    private readonly agentManager: IAgentManager,
-    private readonly sessionManager: SessionManager,
-    private readonly llmService: ILlmService,
-    private readonly serialization: ToolSerializationService
-  ) {}
+    toolDispatcher?: ToolDispatcher,
+    handoffOrchestrator?: HandoffOrchestrator,
+    hooks?: ChatRuntimeHooks,
+    agentManager?: IAgentManager,
+    sessionManager?: SessionManager,
+    llmService?: ILlmService,
+    serialization?: ToolSerializationService
+  ) {
+    this.toolDispatcher = toolDispatcher;
+    this.handoffOrchestrator = handoffOrchestrator;
+    this.hooks = hooks ?? (ctx as any).hooks as ChatRuntimeHooks ?? {} as ChatRuntimeHooks;
+    this.agentManager = agentManager ?? (ctx as any).agentManager as IAgentManager;
+    this.sessionManager = sessionManager ?? (ctx as any).sessionManager as SessionManager;
+    this.llmService = llmService ?? (ctx as any).llmService as ILlmService;
+    this.serialization = serialization ?? new ToolSerializationService();
+  }
 
   async run(options: RunOptions): Promise<string> {
     this.preLlmUserMessagePersisted = false;
@@ -141,7 +156,7 @@ export class XStateChatOrchestrator {
         runHandoffTransitionAsync: async ({ handoff }) => {
           if (!handoff.handoffTargetId) return {};
 
-          const switched = await this.handoffOrchestrator.executeHandoff(
+          const switched = await this.handoffOrchestrator!.executeHandoff(
             this.ctx,
             handoff.handoffTargetId,
             handoff.handoffTargetSessionId,
@@ -190,7 +205,7 @@ export class XStateChatOrchestrator {
     }
 
     // ── Natural-language forward detection ──────────────────────────────────
-    const nlResult = await this.handoffOrchestrator.tryNlForward(message, this.ctx);
+    const nlResult = await this.handoffOrchestrator!.tryNlForward(message, this.ctx);
     if (nlResult === null) return undefined;
 
     if (nlResult === 'forwarded') {
@@ -468,7 +483,7 @@ export class XStateChatOrchestrator {
     contextFiles?: string[]
   ): Promise<boolean> {
     if (intent.kind === 'tool') {
-      await this.toolDispatcher.dispatch(
+      await this.toolDispatcher!.dispatch(
         {
           toolCallId: `pre-llm-intent-${Date.now()}`,
           toolName: intent.toolName,
@@ -480,7 +495,7 @@ export class XStateChatOrchestrator {
       return true;
     }
 
-    const askResult = await this.toolDispatcher.dispatch(
+    const askResult = await this.toolDispatcher!.dispatch(
       {
         toolCallId: `pre-llm-intent-ask-${Date.now()}`,
         toolName: 'com_ask',
@@ -504,7 +519,7 @@ export class XStateChatOrchestrator {
       return false;
     }
 
-    await this.toolDispatcher.dispatch(
+    await this.toolDispatcher!.dispatch(
       {
         toolCallId: `pre-llm-intent-${Date.now()}`,
         toolName: intent.toolName,

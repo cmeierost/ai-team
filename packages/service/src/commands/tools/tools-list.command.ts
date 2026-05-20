@@ -1,13 +1,7 @@
 import { z } from 'zod';
-import type {
-  ICommand,
-  IAgentManager,
-  ExecutionContext,
-  CommandResponse,
-} from '@ai-team/core';
+import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
 import type { ListToolsResponse } from '@ai-team/api-contracts';
-import type { ToolManager } from '../../tools/tool-manager.js';
-import { listToolsCommand } from './tools.js';
+import { AgentToolsService } from './tools-service.js';
 
 type Params = z.infer<typeof ToolsListCommand.schema>;
 
@@ -24,16 +18,13 @@ export class ToolsListCommand implements ICommand<Params, ListToolsResponse> {
   readonly group = 'tool';
   readonly parameters = ToolsListCommand.schema;
 
-  constructor(
-    private readonly agents: IAgentManager,
-    private readonly toolManager: ToolManager
-  ) {}
+  constructor(private readonly toolsService: AgentToolsService) {}
 
   async execute(
     payload: Params,
     _ctx: ExecutionContext
   ): Promise<CommandResponse<ListToolsResponse>> {
-    const data = await listToolsCommand(this.agents, this.toolManager, { agent: payload.agent });
+    const data = await this.toolsService.list({ agent: payload.agent });
     return { status: 'ok', data };
   }
 }

@@ -1,10 +1,3 @@
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
-import { z } from 'zod';
-
-// ============================================================================
-// HTTP Public Types
-// ============================================================================
-
 export interface HttpFetchParams {
   url: string;
   timeoutMs?: number;
@@ -77,24 +70,16 @@ export interface HttpCrawlResult {
   filtersApplied?: string[];
 }
 
-// ============================================================================
-// HTTP Constants
-// ============================================================================
+export const HTTP_DEFAULT_TIMEOUT_MS = 12_000;
+export const HTTP_MAX_TIMEOUT_MS = 30_000;
+export const HTTP_DEFAULT_MAX_CHARS = 8_000;
+export const HTTP_MAX_TEXT_BYTES = 400_000;
+export const HTTP_DEFAULT_MAX_CHUNKS = 10;
+export const HTTP_MAX_CHUNKS = 50;
+export const HTTP_DEFAULT_CONTEXT_CHARS = 120;
+export const HTTP_DEFAULT_MAX_LINES = 300;
 
-const HTTP_DEFAULT_TIMEOUT_MS = 12_000;
-const HTTP_MAX_TIMEOUT_MS = 30_000;
-const HTTP_DEFAULT_MAX_CHARS = 8_000;
-const HTTP_MAX_TEXT_BYTES = 400_000;
-const HTTP_DEFAULT_MAX_CHUNKS = 10;
-const HTTP_MAX_CHUNKS = 50;
-const HTTP_DEFAULT_CONTEXT_CHARS = 120;
-const HTTP_DEFAULT_MAX_LINES = 300;
-
-// ============================================================================
-// HTTP Interfaces
-// ============================================================================
-
-interface HttpFilterOptions {
+export interface HttpFilterOptions {
   regex?: string;
   regexFlags?: string;
   search?: string;
@@ -116,11 +101,7 @@ interface HttpPreparedText {
   regexMatchCount?: number;
 }
 
-// ============================================================================
-// HTTP Helpers
-// ============================================================================
-
-function clampNumber(value: number, min: number, max: number): number {
+export function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
@@ -140,7 +121,7 @@ function stripHtmlToText(input: string): string {
     .trim();
 }
 
-function extractLinksFromHtml(html: string, baseUrl: string): string[] {
+export function extractLinksFromHtml(html: string, baseUrl: string): string[] {
   const links = new Set<string>();
   const hrefRegex = /href\s*=\s*["']([^"']+)["']/gi;
   let match: RegExpExecArray | null;
@@ -195,7 +176,7 @@ function splitIntoChunks(text: string, maxChunks: number, targetChunkChars = 700
   return chunks.filter((chunk) => chunk.length > 0);
 }
 
-function applyHttpTextFilters(rawText: string, options: HttpFilterOptions): HttpPreparedText {
+export function applyHttpTextFilters(rawText: string, options: HttpFilterOptions): HttpPreparedText {
   const filtersApplied: string[] = [];
   const maxLines = clampNumber(options.maxLines ?? HTTP_DEFAULT_MAX_LINES, 1, 3000);
   const maxChars = clampNumber(options.maxChars ?? HTTP_DEFAULT_MAX_CHARS, 256, 100_000);
@@ -264,7 +245,7 @@ function applyHttpTextFilters(rawText: string, options: HttpFilterOptions): Http
   };
 }
 
-async function fetchUrlText(
+export async function fetchUrlText(
   url: string,
   timeoutMs: number
 ): Promise<{
@@ -307,288 +288,7 @@ async function fetchUrlText(
   }
 }
 
-// ============================================================================
-// HTTP Tool Classes
-// ============================================================================
-
-export class HttpFetchTool implements ICommand<HttpFetchParams, HttpFetchResult> {
-  readonly name = 'fetch';
-  readonly key = 'fetch';
-  readonly group = 'http';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Fetch a URL and return filtered chunks (lines, regex/search, length) for safe LLM context usage.';
-
-  readonly parameters = z.object({
-    url: z
-      .string()
-      .min(1)
-      .describe('Absolute URL to fetch')
-      .refine((value) => {
-        try {
-          const parsed = new URL(value);
-          return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-        } catch {
-          return false;
-        }
-      }, 'Expected an absolute http/https URL'),
-    timeoutMs: z
-      .number()
-      .int()
-      .min(500)
-      .max(HTTP_MAX_TIMEOUT_MS)
-      .optional()
-      .describe('Request timeout in milliseconds'),
-    regex: z
-      .string()
-      .optional()
-      .describe('Optional regex pattern to extract snippets from result text'),
-    regexFlags: z.string().optional().describe('Regex flags (default: gi)'),
-    search: z
-      .string()
-      .optional()
-      .describe('Optional substring search applied before regex/line filtering'),
-    startLine: z.number().int().min(1).optional().describe('1-based inclusive start line'),
-    endLine: z.number().int().min(1).optional().describe('1-based inclusive end line'),
-    maxLines: z
-      .number()
-      .int()
-      .min(1)
-      .max(3000)
-      .optional()
-      .describe('Maximum number of lines returned'),
-    maxChars: z
-      .number()
-      .int()
-      .min(256)
-      .max(100000)
-      .optional()
-      .describe('Maximum characters returned'),
-    maxChunks: z
-      .number()
-      .int()
-      .min(1)
-      .max(HTTP_MAX_CHUNKS)
-      .optional()
-      .describe('Maximum chunks returned'),
-    contextChars: z
-      .number()
-      .int()
-      .min(10)
-      .max(1000)
-      .optional()
-      .describe('Context window around regex matches'),
-    includeLinks: z.boolean().optional().describe('Include discovered links when response is HTML'),
-  });
-
-  formatForLlm(result: HttpFetchResult): unknown {
-    if (!result.chunks?.length) return `${result.url} (HTTP ${result.status}) — no content`;
-    const header = `${result.url} (HTTP ${result.status}, ${result.lineCount} lines, ${result.charCount} chars${result.truncated ? ', truncated' : ''})`;
-    return `${header}\n\n${result.chunks.join('\n\n')}`;
-  }
-
-  async execute(
-    params: HttpFetchParams,
-    _context: ExecutionContext
-  ): Promise<CommandResponse<HttpFetchResult>> {
-    const {
-      url,
-      timeoutMs = HTTP_DEFAULT_TIMEOUT_MS,
-      includeLinks = true,
-      ...filterOptions
-    } = params;
-
-    const boundedTimeout = clampNumber(timeoutMs, 500, HTTP_MAX_TIMEOUT_MS);
-    const fetched = await fetchUrlText(url, boundedTimeout);
-    const processed = applyHttpTextFilters(fetched.bodyText, filterOptions);
-    const links =
-      includeLinks && fetched.rawHtml
-        ? extractLinksFromHtml(fetched.rawHtml, fetched.finalUrl)
-        : [];
-
-    return {
-      status: 'ok',
-      data: {
-        url,
-        finalUrl: fetched.finalUrl,
-        status: fetched.status,
-        ok: fetched.ok,
-        contentType: fetched.contentType,
-        lineCount: processed.lineCount,
-        charCount: processed.charCount,
-        chunks: processed.chunks,
-        filtersApplied: processed.filtersApplied,
-        regexMatchCount: processed.regexMatchCount,
-        truncated: processed.truncated || fetched.bodyText.length >= HTTP_MAX_TEXT_BYTES,
-        links,
-        linkCount: links.length,
-      },
-    };
-  }
-}
-
-export class HttpCrawlTool implements ICommand<HttpCrawlParams, HttpCrawlResult> {
-  readonly name = 'crawl';
-  readonly key = 'crawl';
-  readonly group = 'http';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Crawl links from a starting URL with depth/page limits and return filtered text chunks.';
-
-  readonly parameters = z.object({
-    url: z
-      .string()
-      .min(1)
-      .describe('Start URL')
-      .refine((value) => {
-        try {
-          const parsed = new URL(value);
-          return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-        } catch {
-          return false;
-        }
-      }, 'Expected an absolute http/https URL'),
-    crawlEnabled: z
-      .boolean()
-      .optional()
-      .describe('Must be true to execute crawling (default false)'),
-    maxDepth: z.number().int().min(0).max(5).optional().describe('Max crawl depth (default 1)'),
-    maxPages: z
-      .number()
-      .int()
-      .min(1)
-      .max(100)
-      .optional()
-      .describe('Max pages to fetch (default 10)'),
-    timeoutMsPerPage: z
-      .number()
-      .int()
-      .min(500)
-      .max(HTTP_MAX_TIMEOUT_MS)
-      .optional()
-      .describe('Per-page timeout'),
-    allowCrossDomain: z.boolean().optional().describe('Allow crawling links across domains'),
-    allowedDomains: z
-      .array(z.string())
-      .optional()
-      .describe('Optional explicit domain allowlist when cross-domain is enabled'),
-    regex: z
-      .string()
-      .optional()
-      .describe('Optional regex pattern to extract snippets from crawled text'),
-    regexFlags: z.string().optional().describe('Regex flags (default: gi)'),
-    search: z
-      .string()
-      .optional()
-      .describe('Optional substring search applied before regex/line filtering'),
-    startLine: z.number().int().min(1).optional().describe('1-based inclusive start line'),
-    endLine: z.number().int().min(1).optional().describe('1-based inclusive end line'),
-    maxLines: z
-      .number()
-      .int()
-      .min(1)
-      .max(3000)
-      .optional()
-      .describe('Maximum number of lines returned'),
-    maxChars: z
-      .number()
-      .int()
-      .min(256)
-      .max(100000)
-      .optional()
-      .describe('Maximum characters returned'),
-    maxChunks: z
-      .number()
-      .int()
-      .min(1)
-      .max(HTTP_MAX_CHUNKS)
-      .optional()
-      .describe('Maximum chunks returned'),
-    contextChars: z
-      .number()
-      .int()
-      .min(10)
-      .max(1000)
-      .optional()
-      .describe('Context window around regex matches'),
-  });
-
-  formatForLlm(result: HttpCrawlResult): unknown {
-    if (!result.crawled) return `${result.url}: crawling disabled (set crawlEnabled=true)`;
-    const header = `${result.url}  ${result.visitedCount} page(s) crawled`;
-    if (!result.chunks?.length) return header;
-    return `${header}\n\n${result.chunks.join('\n\n')}`;
-  }
-
-  async execute(
-    params: HttpCrawlParams,
-    _context: ExecutionContext
-  ): Promise<CommandResponse<HttpCrawlResult>> {
-    const {
-      url,
-      crawlEnabled = false,
-      maxDepth = 1,
-      maxPages = 10,
-      timeoutMsPerPage = HTTP_DEFAULT_TIMEOUT_MS,
-      allowCrossDomain = false,
-      allowedDomains = [],
-      ...filterOptions
-    } = params;
-
-    if (!crawlEnabled) {
-      return {
-        status: 'ok',
-        data: {
-          url,
-          crawled: false,
-          message: 'Crawling is disabled. Set crawlEnabled=true to start crawling.',
-          pages: [],
-          visitedCount: 0,
-          chunks: [],
-        },
-      };
-    }
-
-    const crawlResult = await runHttpCrawl(url, {
-      maxDepth,
-      maxPages,
-      timeoutMsPerPage,
-      allowCrossDomain,
-      allowedDomains,
-      filterOptions,
-    });
-
-    const cappedMaxChunks = clampNumber(
-      filterOptions.maxChunks ?? HTTP_DEFAULT_MAX_CHUNKS,
-      1,
-      HTTP_MAX_CHUNKS
-    );
-    const finalChunks = crawlResult.allChunks.slice(0, cappedMaxChunks);
-
-    return {
-      status: 'ok',
-      data: {
-        url,
-        crawled: true,
-        maxDepth,
-        maxPages,
-        visitedCount: crawlResult.visitedCount,
-        pageCount: crawlResult.pages.length,
-        chunks: finalChunks,
-        pages: crawlResult.pages,
-        truncated: crawlResult.allChunks.length > finalChunks.length,
-        filtersApplied: applyHttpTextFilters('noop', filterOptions).filtersApplied,
-      },
-    };
-  }
-}
-
-
-// ============================================================================
-// HTTP Crawl Internals
-// ============================================================================
-
-async function runHttpCrawl(
+export async function runHttpCrawl(
   rootUrl: string,
   options: {
     maxDepth: number;
@@ -632,7 +332,8 @@ async function runHttpCrawl(
   const allChunks: string[] = [];
 
   while (queue.length > 0 && visited.size < options.maxPages) {
-    const current = queue.shift()!;
+    const current = queue.shift();
+    if (!current) continue;
     if (visited.has(current.href)) continue;
     visited.add(current.href);
 

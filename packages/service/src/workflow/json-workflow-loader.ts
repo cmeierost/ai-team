@@ -9,8 +9,12 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { JsonWorkflowSchema, JsonWorkflowTool } from './json-workflow-tool.js';
+import type { IWorkflowRunnerFactory } from './runner.js';
 
-export async function loadJsonWorkflowTools(workspaceRoot: string): Promise<JsonWorkflowTool[]> {
+export async function loadJsonWorkflowTools(
+  workspaceRoot: string,
+  runnerFactory: IWorkflowRunnerFactory
+): Promise<JsonWorkflowTool[]> {
   const dir = join(workspaceRoot, '.ai-team', 'workflows');
 
   let files: string[];
@@ -37,7 +41,7 @@ export async function loadJsonWorkflowTools(workspaceRoot: string): Promise<Json
         );
         continue;
       }
-      tools.push(new JsonWorkflowTool(result.data));
+      tools.push(new JsonWorkflowTool(result.data, runnerFactory));
     } catch (err) {
       console.warn(`[json-workflow-loader] Skipping '${filename}': ${String(err)}`);
     }

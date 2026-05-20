@@ -1,12 +1,14 @@
 import type { CliCommandMetadata } from '@ai-team/core';
-import { createContainerWithBootstrap } from '@ai-team/container';
+import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
 import type { IServiceContainer } from '@ai-team/core';
 import {
   createCommandDispatcher,
   findWorkspaceRoot,
   IN_CHAT_COMMAND_ALIASES,
   IN_CHAT_COMMAND_REGISTRY,
+  InteractionQuestionService,
 } from '@ai-team/service';
+import { createQuestionResponders } from '../handlers/question-responders.js';
 export { IN_CHAT_COMMAND_ALIASES, IN_CHAT_COMMAND_REGISTRY };
 
 const cliDispatchKeyByKey = new Map<string, string>();
@@ -54,7 +56,12 @@ function deriveCliKey(command: string, parentKey?: string): string {
 
 function loadServiceCliCommandRegistry(): CliCommandMetadata[] {
   const workspaceRoot = findWorkspaceRoot();
-  const container = createContainerWithBootstrap({ workspaceRoot }, () => {});
+  const container = createContainerWithBootstrap({ workspaceRoot }, (c) => {
+    c.registerInstance(
+      TOKENS.QuestionService,
+      InteractionQuestionService(createQuestionResponders())
+    );
+  });
   const dispatcher = createCommandDispatcher(
     workspaceRoot,
     container.child() as unknown as IServiceContainer

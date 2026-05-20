@@ -1,20 +1,14 @@
 import type { WebSocket } from 'ws';
-import type {
-  StreamEvent,
-  QuestionChecklistRequest,
-  QuestionConfirmRequest,
-  QuestionInputRequest,
-  QuestionPasswordRequest,
-  QuestionSelectRequest,
-} from '@ai-team/api-contracts';
-import type { IAgentManager, IdeAdapter } from '@ai-team/core';
+import type { StreamEvent } from '@ai-team/api-contracts';
+import type { IAgentManager, IdeAdapter, IServiceContainer } from '@ai-team/core';
 import {
   createIdeAdapter,
 } from '@ai-team/infrastructure';
 import {
   SessionManager,
-  type IInteractionService,
+  InteractionQuestionService,
 } from '@ai-team/service';
+import { TOKENS } from '@ai-team/container';
 
 /**
  * Messages sent from client to server over WebSocket.
@@ -141,7 +135,7 @@ export interface ChatWebSocketSetupOptions {
 export async function setupChatWebSocket(
   ws: WebSocket,
   agentQuery: string,
-  interactionService: IInteractionService,
+  container: IServiceContainer,
   sessionManager: SessionManager,
   sessionId: string | null,
   options: ChatWebSocketSetupOptions = {}
@@ -220,6 +214,18 @@ export async function setupChatWebSocket(
     };
   };
 
+  container.registerInstance(
+    TOKENS.QuestionService,
+    InteractionQuestionService({
+      input: createQuestionHandler('input') as (r: any, ctx: any) => Promise<string>,
+      confirm: createQuestionHandler('confirm') as (r: any, ctx: any) => Promise<boolean>,
+      select: createQuestionHandler('select') as (r: any, ctx: any) => Promise<string>,
+      password: createQuestionHandler('password') as (r: any, ctx: any) => Promise<string>,
+      checklist: createQuestionHandler('checklist') as (r: any, ctx: any) => Promise<string[]>,
+    })
+  );
+  const interactionService = container.resolve(TOKENS.InteractionService);
+
   ws.on('message', async (data: Buffer) => {
     try {
       const message: ChatWebSocketMessage = JSON.parse(data.toString());
@@ -293,21 +299,6 @@ export async function setupChatWebSocket(
             },
             {
               signal: currentAbortController.signal,
-              questionConfirm: createQuestionHandler<QuestionConfirmRequest>('confirm') as (
-                request: QuestionConfirmRequest
-              ) => Promise<boolean>,
-              questionInput: createQuestionHandler<QuestionInputRequest>('input') as (
-                request: QuestionInputRequest
-              ) => Promise<string>,
-              questionSelect: createQuestionHandler<QuestionSelectRequest>('select') as (
-                request: QuestionSelectRequest
-              ) => Promise<string>,
-              questionPassword: createQuestionHandler<QuestionPasswordRequest>('password') as (
-                request: QuestionPasswordRequest
-              ) => Promise<string>,
-              questionChecklist: createQuestionHandler<QuestionChecklistRequest>('checklist') as (
-                request: QuestionChecklistRequest
-              ) => Promise<string[]>,
             }
           );
 
@@ -346,7 +337,7 @@ export async function setupChatWebSocket(
             // Send typed mediator event envelope to client
             const wsEvent: ChatWebSocketEvent = {
               type: 'mediator',
-              data: event as ChatStreamEvent,
+              data: event,
             };
             ws.send(JSON.stringify(wsEvent));
           }

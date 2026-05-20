@@ -1,25 +1,19 @@
 export type {
-  WorkflowStepKind,
-  ActionStep,
-  ConfirmStep,
-  InputStep,
-  SelectStep,
-  PasswordStep,
-  ChecklistStep,
+  WorkflowCommandStep,
+  WorkflowExecuteStep,
   WorkflowStep,
   WorkflowDefinition,
   WorkflowResult,
 } from './types.js';
+export { WorkflowAbortError } from './types.js';
 
-export { runWorkflowAsync } from './runner.js';
-
-export {
-  resolveWorkflowAnswer,
-  emitWorkflowQuestionFrame,
-  emitWorkflowResultFrame,
-  ensureNotAborted,
-} from './helpers.js';
-
+export { WorkflowRunner, WorkflowRunnerFactory } from './runner.js';
+export type {
+  IWorkflowRunner,
+  IWorkflowRunnerFactory,
+  IWorkflowLocalCommand,
+  WorkflowRunOptions,
+} from './runner.js';
 export {
   chatHandoffTransitionResultSchema,
   chatWorkflowIdSchema,

@@ -23,7 +23,7 @@ function createDispatcher(
   toolManager: any,
   sessionManager: any,
   llmService: ILlmService,
-  questionService = new InteractionQuestionService({
+  questionService = InteractionQuestionService({
     questionInput: vi.fn(async () => ''),
     questionConfirm: vi.fn(async () => true),
     questionSelect: vi.fn(async () => ''),

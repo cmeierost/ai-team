@@ -6,8 +6,10 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { createContainerWithBootstrap } from '@ai-team/container';
+import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
 import type { IServiceContainer } from '@ai-team/core';
+import { InteractionQuestionService } from '@ai-team/service';
+import { createQuestionResponders } from './handlers/question-responders.js';
 import type { InteractionContext } from '@ai-team/api-contracts';
 import type { CliCommandMetadata } from '@ai-team/core';
 import { registerCliCommandCatalog } from '@ai-team/infrastructure';
@@ -142,7 +144,9 @@ function applyCommandMetadata(command: Command, metadata: CliCommandMetadata): C
 
 const workspaceRoot = findWorkspaceRoot();
 
-const commandContainer = createContainerWithBootstrap({ workspaceRoot }, () => {});
+const commandContainer = createContainerWithBootstrap({ workspaceRoot }, (c) => {
+  c.registerInstance(TOKENS.QuestionService, InteractionQuestionService(createQuestionResponders()));
+});
 registerCliResultHandlers(commandContainer as unknown as IServiceContainer);
 const commandClient = new CliCommandClient(
   workspaceRoot,

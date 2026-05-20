@@ -27,21 +27,25 @@ function makeAgent(id: string, name = id): Agent {
   return { id, name, role: 'assistant', systemPrompt: '' } as unknown as Agent;
 }
 
-/** Minimal ExecutionContext with a two-agent roster. */
-function makeCtx(currentAgentId = 'current-agent'): ExecutionContext {
+function makeAgentManager(currentAgentId = 'current-agent') {
   const currentAgent = makeAgent(currentAgentId);
   const targetAgent = makeAgent('target-agent', 'Target Agent');
   const roster = [currentAgent, targetAgent];
-
   return {
-    agent: currentAgent,
-    agentManager: {
-      getAgent: vi.fn((id: string) => roster.find((a) => a.id === id)),
-      resolveAgent: vi.fn((query: string) =>
-        roster.filter((a) => a.id === query || a.name === query)
-      ),
-    },
+    agents: roster,
+    getAgent: vi.fn((id: string) => roster.find((a) => a.id === id)),
+    resolveAgent: vi.fn((query: string) =>
+      roster.filter((a) => a.id === query || a.name === query)
+    ),
   };
+}
+
+function makeCtx(currentAgentId = 'current-agent'): ExecutionContext {
+  return {
+    agent: makeAgent(currentAgentId),
+    workspaceRoot: '',
+    history: [],
+  } as unknown as ExecutionContext;
 }
 
 function handoffResult(
@@ -63,7 +67,8 @@ function runChain(
   persistedContent: string,
   ctx: ExecutionContext
 ) {
-  for (const parser of buildDefaultTurnResultParsers()) {
+  const agentManager = makeAgentManager(ctx.agent?.id);
+  for (const parser of buildDefaultTurnResultParsers(agentManager as any)) {
     const override = parser.parse(structuredResults, fullResponse, persistedContent, ctx);
     if (override !== null) return override;
   }
@@ -73,7 +78,8 @@ function runChain(
 // ── HandoffToolResultParser ───────────────────────────────────────────────────
 
 describe('HandoffToolResultParser', () => {
-  const parser = new HandoffToolResultParser();
+  const agentManager = makeAgentManager();
+  const parser = new HandoffToolResultParser(agentManager as any);
 
   it('returns null when structuredResults contains no handoff entry', () => {
     const result = parser.parse([], 'some response', 'some response', makeCtx());
@@ -149,7 +155,8 @@ describe('HandoffToolResultParser', () => {
 // ── TextHandoffParser ─────────────────────────────────────────────────────────
 
 describe('TextHandoffParser', () => {
-  const parser = new TextHandoffParser();
+  const agentManager = makeAgentManager();
+  const parser = new TextHandoffParser(agentManager as any);
 
   it('returns null when response text contains no directive', () => {
     const result = parser.parse([], 'Just a normal response.', 'normal', makeCtx());

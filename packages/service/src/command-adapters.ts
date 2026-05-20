@@ -203,7 +203,7 @@ export function toSlashCommand(cmd: ICommand<unknown, unknown>): ICommand<string
       const contextOverrides = mapParamsToContext(
         parsedObj,
         cmd.input?.contextOverrideAllowlist,
-        ctx.calledByHuman
+        ctx.calledByHuman ?? true
       );
       const mergedCtx: ExecutionContext = { ...ctx, ...contextOverrides };
       const resolvedPayload = resolveCommandArgs(cmd, parsed, mergedCtx);
@@ -299,6 +299,14 @@ function resolveCommandArgs(
     }
   }
 
+  for (const [targetPath, binding] of Object.entries(cmd.workflowInputBindings ?? {})) {
+    if (getPathValue(resolved, targetPath) !== undefined) continue;
+    if (binding.fromLastResult && ctx.workflowLastResult !== undefined) {
+      const value = getPathValue(ctx.workflowLastResult, binding.fromLastResult);
+      if (value !== undefined) setPathValue(resolved, targetPath, value);
+    }
+  }
+
   const missingRequired = (cmd.input?.requiredAtRuntime ?? []).filter(
     (path) => getPathValue(resolved, path) === undefined
   );
@@ -372,6 +380,7 @@ function interactionContextToExecutionContext(
     sessionId: (ctx as any).sessionId,
     workflowId: (ctx as any).workflowId,
     workflowInstanceId: (ctx as any).workflowInstanceId,
+    workflowLastResult: (ctx as any).workflowLastResult,
     signal: ctx.signal,
     history: (ctx as any).history ?? [],
     workflowState: ctx.workflowState,

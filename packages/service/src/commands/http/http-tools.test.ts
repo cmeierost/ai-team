@@ -20,7 +20,8 @@ import {
   FsSearchMetadataTool,
 } from '../fs/fs-tools.js';
 import { FindSymbolTool, FindReferencesTool, LspTool, GrepCodeTool } from '../edit/code-tools.js';
-import { HttpFetchTool, HttpCrawlTool } from './http-tools.js';
+import { HttpFetchCommand } from './http-fetch.command.js';
+import { HttpCrawlCommand } from './http-crawl.command.js';
 import { CodeSearchTool } from '../edit/codesearch-tool.js';
 import { ApplyPatchTool, MultiEditTool, FsEditTool } from '../fs/edit-tools.js';
 import {
@@ -97,8 +98,8 @@ function getBuiltInTools(workspaceRoot: string): ICommand[] {
     new FindReferencesTool(workspaceRoot, ideAdapterFactory),
     new LspTool(workspaceRoot, ideAdapterFactory),
     new GrepCodeTool(),
-    new HttpFetchTool(),
-    new HttpCrawlTool(),
+    new HttpFetchCommand(),
+    new HttpCrawlCommand(),
     new CodeSearchTool(),
     fsEditTool,
     new ApplyPatchTool(workspaceRoot, accessChecker as any, ideAdapterFactory),
@@ -162,7 +163,7 @@ function withTestServer(
   });
 }
 
-describe('http tools', () => {
+describe('http commands', () => {
   it('http_fetch supports regex/snippet filtering and returns links', async () => {
     const workspaceRoot = await createWorkspace();
     const agent = makeAgent();
@@ -175,7 +176,6 @@ describe('http tools', () => {
     const manager = new ToolManager(
       workspaceRoot,
       {
-        can: () => true,
         canReadPath: () => true,
         canWritePath: () => true,
         canListPath: () => true,
@@ -213,7 +213,7 @@ describe('http tools', () => {
       );
 
       expect(result.ok).toBe(true);
-      const payload = result.result as any;
+      const payload = (result.result as any)?.data ?? result.result;
       expect(payload.linkCount).toBe(1);
       expect(Array.isArray(payload.chunks)).toBe(true);
       expect(payload.chunks.join('\n').toLowerCase()).toContain('keyword');
@@ -234,7 +234,6 @@ describe('http tools', () => {
     const manager = new ToolManager(
       workspaceRoot,
       {
-        can: () => true,
         canReadPath: () => true,
         canWritePath: () => true,
         canListPath: () => true,
@@ -287,7 +286,7 @@ describe('http tools', () => {
       );
 
       expect(result.ok).toBe(true);
-      const payload = result.result as any;
+      const payload = (result.result as any)?.data ?? result.result;
       expect(payload.crawled).toBe(true);
       expect(payload.pageCount).toBeLessThanOrEqual(2);
       expect(payload.visitedCount).toBeLessThanOrEqual(2);

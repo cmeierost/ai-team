@@ -17,48 +17,36 @@ import { setServiceContainer } from '../service-registry.js';
 
 const serialization = new ToolSerializationService();
 
+const PRE_LLM_INTENT_PROVIDERS = [
+  {
+    resolveCandidates: (message: string) =>
+      /\b(file\s*tree|visible\s+file|visible\s+files|readable\s+file|readable\s+files)\b/i.test(message)
+        ? [{ kind: 'tool' as const, toolName: 'fs_tree', args: { path: '.', maxDepth: 6, includeHidden: true }, score: 100 }]
+        : [],
+  },
+  {
+    resolveCandidates: (message: string) =>
+      /\b(what\s+tools\s+can\s+you\s+use|available\s+tools)\b/i.test(message)
+        ? [{ kind: 'tool' as const, toolName: 'tool_list', args: {}, score: 100 }]
+        : [],
+  },
+  {
+    resolveCandidates: (message: string) =>
+      /\b(what\s+employees\s+do\s+we\s+have|who\s+is\s+on\s+the\s+team)\b/i.test(message)
+        ? [{ kind: 'tool' as const, toolName: 'team_list', args: {}, score: 100 }]
+        : [],
+  },
+];
+
 function makeContext(): ExecutionContext {
   const appendMessage = vi.fn(async () => null);
-  const preLlmTools = [
-    {
-      key: 'tree',
-      group: 'fs',
-      scorePreLlmIntent: (message: string) =>
-        /\b(file\s*tree|visible\s+file|visible\s+files|readable\s+file|readable\s+files)\b/i.test(
-          message
-        )
-          ? {
-              kind: 'tool' as const,
-              toolName: 'fs_tree',
-              args: { path: '.', maxDepth: 6, includeHidden: true },
-              score: 100,
-            }
-          : undefined,
-    },
-    {
-      key: 'list',
-      group: 'tool',
-      scorePreLlmIntent: (message: string) =>
-        /\b(what\s+tools\s+can\s+you\s+use|available\s+tools)\b/i.test(message)
-          ? { kind: 'tool' as const, toolName: 'tool_list', args: {}, score: 100 }
-          : undefined,
-    },
-    {
-      key: 'list',
-      group: 'team',
-      scorePreLlmIntent: (message: string) =>
-        /\b(what\s+employees\s+do\s+we\s+have|who\s+is\s+on\s+the\s+team)\b/i.test(message)
-          ? { kind: 'tool' as const, toolName: 'team_list', args: {}, score: 100 }
-          : undefined,
-    },
-  ];
+  const emit = vi.fn();
 
   const ctx = {
     agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
-    hooks: { emit: vi.fn() } as any,
-    toolManager: { getForAgent: vi.fn(() => preLlmTools) } as any,
+    hooks: { emit } as any,
     sessionManager: { appendMessage } as any,
     agentManager: { loadAllAgents: vi.fn(async () => {}) } as any,
     skillManager: {} as any,
@@ -67,12 +55,10 @@ function makeContext(): ExecutionContext {
   } as ExecutionContext;
 
   const emitService = new EmitService();
-  emitService.setDefaultEmitter(ctx.hooks.emit as any);
+  emitService.setDefaultEmitter(emit as any);
   setServiceContainer({
     resolve: (token: { id?: string }) => {
-      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
-        return emitService;
-      }
+      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) return emitService;
       throw new Error(`Unexpected token: ${String(token?.id)}`);
     },
   } as any);
@@ -92,6 +78,7 @@ function makePlugins(): ResolvedPlugins {
     outputHandler: { handle: vi.fn(async () => {}) } as any,
     slashCommands: [],
     turnResultParsers: [],
+    preLlmIntentProviders: PRE_LLM_INTENT_PROVIDERS as any,
   };
 }
 

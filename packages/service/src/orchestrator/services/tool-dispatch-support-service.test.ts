@@ -2,7 +2,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import type { ExecutionContext } from '@ai-team/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../service-registry.js', () => ({
+  getServiceContainer: () => ({
+    resolve: () => ({ emit: vi.fn(), hasEmitter: () => true }),
+  }),
+}));
+
 import { ToolDispatchSupportService } from './tool-dispatch-support-service.js';
 import { ToolSerializationService } from './tool-serialization-service.js';
 

@@ -2,9 +2,7 @@ import path from 'node:path';
 import type { InitOptions } from '@ai-team/api-contracts';
 import type { ExecutionContext } from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
-import { runWorkflowAsync } from '../../workflow/runner.js';
 import type { WorkflowDefinition } from '../../workflow/types.js';
-import { InteractionQuestionService } from '../../questions/question-service.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 
 export interface InitWorkflowState {
@@ -54,10 +52,11 @@ export function createInitWorkflowDefinition(
 ): WorkflowDefinition<InitWorkflowState> {
   return {
     id: 'init-command',
+    description: 'Initialize the ai-team workspace configuration',
+    availableIn: {},
     steps: [
       {
         id: 'inspect-existing',
-        kind: 'action',
         execute: async (state) => {
           try {
             const fs = await import('node:fs/promises');
@@ -125,7 +124,6 @@ export function createInitWorkflowDefinition(
       },
       {
         id: 'clear-existing',
-        kind: 'action',
         skipWhen: (state) => state.shouldSkip || !state.shouldClear,
         execute: async (state) => {
           await deps.clearAiTeamDirectory(state.workspaceRoot, state.hooks);
@@ -134,7 +132,6 @@ export function createInitWorkflowDefinition(
       },
       {
         id: 'setup-llm',
-        kind: 'action',
         skipWhen: (state) => state.shouldSkip,
         execute: async (state) => {
           const ctx: ExecutionContext = {
@@ -152,7 +149,6 @@ export function createInitWorkflowDefinition(
       },
       {
         id: 'test-llm-connection',
-        kind: 'action',
         skipWhen: (state) => state.shouldSkip,
         execute: async (state) => {
           deps.writeLine(state.hooks, '');
@@ -163,7 +159,6 @@ export function createInitWorkflowDefinition(
       },
       {
         id: 'emit-welcome',
-        kind: 'action',
         skipWhen: (state) => state.shouldSkip,
         execute: async (state) => {
           deps.writeLine(state.hooks, '');
@@ -174,7 +169,6 @@ export function createInitWorkflowDefinition(
       },
       {
         id: 'run-onboarding',
-        kind: 'action',
         skipWhen: (state) => state.shouldSkip,
         execute: async (state) => {
           await deps.onboard.execute(
@@ -206,27 +200,15 @@ export async function runInitWorkflowAsync(
     shouldClear: false,
   };
 
-  const executionCtx: ExecutionContext = {
-    workspaceRoot,
-    history: [],
-    signal: hooks?.signal,
-    emit: hooks?.emit as ((event: unknown) => void) | undefined,
-    workflowState: hooks?.workflowState,
-    onWorkflowFrame: hooks?.onWorkflowFrame as ((frame: unknown) => void) | undefined,
-  };
+  const ctx: ExecutionContext = { workspaceRoot, history: [], signal: hooks?.signal };
+  const definition = createInitWorkflowDefinition(deps);
+  let state = initialState;
 
-  const questionService = new InteractionQuestionService({
-    questionInput: hooks?.questionInput,
-    questionConfirm: hooks?.questionConfirm,
-    questionSelect: hooks?.questionSelect,
-    questionPassword: hooks?.questionPassword,
-    questionChecklist: hooks?.questionChecklist,
-  });
-
-  await runWorkflowAsync(
-    createInitWorkflowDefinition(deps),
-    initialState,
-    executionCtx,
-    questionService
-  );
+  for (const step of definition.steps) {
+    if (hooks?.signal?.aborted) break;
+    if (step.skipWhen?.(state)) continue;
+    if ('execute' in step) {
+      state = await step.execute(state, ctx);
+    }
+  }
 }

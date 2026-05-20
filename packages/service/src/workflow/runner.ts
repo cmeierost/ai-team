@@ -1,266 +1,164 @@
 import { randomUUID } from 'node:crypto';
-import type { WorkflowStateSnapshot } from '@ai-team/api-contracts';
-import type { ExecutionContext } from '@ai-team/core';
+import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
+import type { ExecutionContext, ICommand, CommandResponse, IServiceContainer } from '@ai-team/core';
 import type { WorkflowDefinition, WorkflowResult, WorkflowStep } from './types.js';
-import {
-  ensureNotAborted,
-  emitWorkflowQuestionFrame,
-  emitWorkflowResultFrame,
-  resolveWorkflowAnswer,
-  type WorkflowRuntimeContext,
-} from './helpers.js';
-import { type IQuestionService } from '../questions/question-service.js';
+import { WorkflowAbortError } from './types.js';
+import { NoopWorkflowService, type IWorkflowService } from './workflow-service.js';
+import type { ToolManager } from '../tools/tool-manager.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
-function resolveMessage<TState>(
-  message: string | ((state: TState) => string),
-  state: TState
-): string {
-  return typeof message === 'function' ? message(state) : message;
+// ─── Public types ─────────────────────────────────────────────────────────────
+
+/**
+ * Minimal callable contract used by the runner.
+ * Parameter types are intentionally wide — type safety is enforced by
+ * `WorkflowCommandStep.params`, not by this boundary.
+ */
+export interface IWorkflowLocalCommand {
+  execute(params: any, ctx?: any): Promise<unknown>;
 }
 
-async function executeConfirmStep<TState>(
-  step: Extract<WorkflowStep<TState>, { kind: 'confirm' }>,
-  state: TState,
-  context: ExecutionContext,
-  workflowContext: WorkflowRuntimeContext,
-  questionService: IQuestionService,
-  workflowId: string
-): Promise<{ state: TState; aborted: boolean }> {
-  const message = resolveMessage(step.message, state);
-  const workflow = { workflowId, stepId: step.id, questionId: step.id };
-  const request = { message, default: step.default, workflow };
+export interface WorkflowRunOptions {
+  signal?: AbortSignal;
+  workflowService?: IWorkflowService;
+  emit?: (event: RuntimeStreamEvent) => void;
+  executionContext?: ExecutionContext;
+  /** Local commands for this run only. Checked before the scoped ToolManager. */
+  commands?: Record<string, IWorkflowLocalCommand>;
+}
 
-  emitWorkflowQuestionFrame(workflowContext, { kind: 'confirm', ...request });
-  workflowContext.emit?.({ kind: 'question', questionType: 'confirm', message });
+export interface IWorkflowRunner {
+  run<TState>(
+    definition: WorkflowDefinition<TState>,
+    initialState: TState,
+    options?: WorkflowRunOptions
+  ): Promise<WorkflowResult<TState>>;
+}
 
-  const resumed = resolveWorkflowAnswer(workflowContext, { workflow });
-  if (typeof resumed === 'boolean') {
-    emitWorkflowResultFrame(workflowContext, { workflow }, resumed);
-    if (!resumed && step.onDeclined === 'abort') return { state, aborted: true };
+// ─── WorkflowRunner ───────────────────────────────────────────────────────────
+
+/**
+ * Executes a workflow definition step by step.
+ *
+ * Every step is either:
+ *   - `WorkflowCommandStep` — dispatched through the scoped ToolManager
+ *   - `WorkflowExecuteStep` — inline function (temporary; prefer promoting to a command)
+ *
+ * `workflowId`, `workflowInstanceId`, and `stepId` are stamped into the
+ * ExecutionContext before each step so any dispatched command can read them.
+ *
+ * Sub-workflows nest naturally: each `run()` creates a child scope, so a step
+ * that calls `new WorkflowRunner(container).run(...)` gets a child of the current
+ * child. Agent/session context flows through unchanged.
+ */
+export class WorkflowRunner implements IWorkflowRunner {
+  constructor(private readonly container: IServiceContainer) {}
+
+  async run<TState>(
+    definition: WorkflowDefinition<TState>,
+    initialState: TState,
+    options?: WorkflowRunOptions
+  ): Promise<WorkflowResult<TState>> {
+    const scope = this.container.child();
+    const workflowService = options?.workflowService ?? new NoopWorkflowService();
+    const instanceId = `${definition.id}:${randomUUID()}`;
+    const baseCtx: ExecutionContext = {
+      ...(options?.executionContext ?? { workspaceRoot: '', history: [] }),
+      workflowId: definition.id,
+      workflowInstanceId: instanceId,
+    };
+
+    // Resolved lazily — execute-only workflows never touch the ToolManager.
+    let toolManager: ToolManager | undefined;
+    const getToolManager = (): ToolManager => {
+      toolManager ??= scope.resolve<ToolManager>(COMMAND_FACTORY_TOKENS.ToolManager);
+      return toolManager;
+    };
+
+    let state = initialState;
+
+    for (const step of definition.steps) {
+      if (options?.signal?.aborted) throw new Error('Workflow aborted');
+      if (step.skipWhen?.(state)) continue;
+
+      const stepCtx: ExecutionContext = { ...baseCtx, stepId: step.id };
+      workflowService.emitStepFrame({ workflowId: instanceId, stepId: step.id });
+
+      try {
+        state = await this.executeStep(step, state, stepCtx, options, getToolManager);
+      } catch (err) {
+        if (err instanceof WorkflowAbortError) return { state, aborted: true };
+        throw err;
+      }
+
+      workflowService.emitStepFrame({ workflowId: instanceId, stepId: step.id, completed: true });
+    }
+
     return { state, aborted: false };
   }
 
-  const answer = await questionService.confirm(request, context);
-  emitWorkflowResultFrame(workflowContext, { workflow }, answer);
-  if (!answer && step.onDeclined === 'abort') return { state, aborted: true };
-  return { state, aborted: false };
-}
-
-async function executeInputStep<TState>(
-  step: Extract<WorkflowStep<TState>, { kind: 'input' }>,
-  state: TState,
-  context: ExecutionContext,
-  workflowContext: WorkflowRuntimeContext,
-  questionService: IQuestionService,
-  workflowId: string
-): Promise<TState> {
-  const message = resolveMessage(step.message, state);
-  const workflow = { workflowId, stepId: step.id, questionId: step.id };
-  const request = { message, validate: step.validate, workflow };
-
-  emitWorkflowQuestionFrame(workflowContext, { kind: 'input', ...request });
-  workflowContext.emit?.({ kind: 'question', questionType: 'input', message });
-
-  const resumed = resolveWorkflowAnswer(workflowContext, { workflow });
-  if (typeof resumed === 'string') {
-    emitWorkflowResultFrame(workflowContext, { workflow }, resumed);
-    return step.applyAnswer(state, resumed);
-  }
-
-  const answer = await questionService.input(request, context);
-  emitWorkflowResultFrame(workflowContext, { workflow }, answer);
-  return step.applyAnswer(state, answer);
-}
-
-async function executeSelectStep<TState>(
-  step: Extract<WorkflowStep<TState>, { kind: 'select' }>,
-  state: TState,
-  context: ExecutionContext,
-  workflowContext: WorkflowRuntimeContext,
-  questionService: IQuestionService,
-  workflowId: string
-): Promise<TState> {
-  const message = resolveMessage(step.message, state);
-  const choices = step.choices(state);
-  const workflow = { workflowId, stepId: step.id, questionId: step.id };
-  const request = { message, choices, workflow };
-
-  emitWorkflowQuestionFrame(workflowContext, { kind: 'select', ...request });
-  workflowContext.emit?.({ kind: 'question', questionType: 'select', message, choices });
-
-  const resumed = resolveWorkflowAnswer(workflowContext, { workflow });
-  if (typeof resumed === 'string') {
-    emitWorkflowResultFrame(workflowContext, { workflow }, resumed);
-    return step.applyAnswer(state, resumed);
-  }
-
-  const answer = await questionService.select(request, context);
-  emitWorkflowResultFrame(workflowContext, { workflow }, answer);
-  return step.applyAnswer(state, answer);
-}
-
-async function executePasswordStep<TState>(
-  step: Extract<WorkflowStep<TState>, { kind: 'password' }>,
-  state: TState,
-  context: ExecutionContext,
-  workflowContext: WorkflowRuntimeContext,
-  questionService: IQuestionService,
-  workflowId: string
-): Promise<TState> {
-  const message = resolveMessage(step.message, state);
-  const workflow = { workflowId, stepId: step.id, questionId: step.id };
-  const request = { message, workflow };
-
-  emitWorkflowQuestionFrame(workflowContext, { kind: 'password', ...request });
-  workflowContext.emit?.({ kind: 'question', questionType: 'password', message });
-
-  const resumed = resolveWorkflowAnswer(workflowContext, { workflow });
-  if (typeof resumed === 'string') {
-    emitWorkflowResultFrame(workflowContext, { workflow }, resumed);
-    return step.applyAnswer(state, resumed);
-  }
-
-  const answer = await questionService.password(request, context);
-  emitWorkflowResultFrame(workflowContext, { workflow }, answer);
-  return step.applyAnswer(state, answer);
-}
-
-async function executeChecklistStep<TState>(
-  step: Extract<WorkflowStep<TState>, { kind: 'checklist' }>,
-  state: TState,
-  context: ExecutionContext,
-  workflowContext: WorkflowRuntimeContext,
-  questionService: IQuestionService,
-  workflowId: string
-): Promise<TState> {
-  const message = resolveMessage(step.message, state);
-  const choices = step.choices(state);
-  const workflow = { workflowId, stepId: step.id, questionId: step.id };
-  const request = {
-    message,
-    choices,
-    minSelections: step.minSelections,
-    maxSelections: step.maxSelections,
-    workflow,
-  };
-
-  emitWorkflowQuestionFrame(workflowContext, { kind: 'checklist', ...request });
-  workflowContext.emit?.({ kind: 'question', questionType: 'checklist', message, choices });
-
-  const resumed = resolveWorkflowAnswer(workflowContext, { workflow });
-  if (Array.isArray(resumed) && resumed.every((v) => typeof v === 'string')) {
-    emitWorkflowResultFrame(workflowContext, { workflow }, resumed);
-    return step.applyAnswer(state, resumed);
-  }
-
-  const answer = await questionService.checklist(request, context);
-  emitWorkflowResultFrame(workflowContext, { workflow }, answer);
-  return step.applyAnswer(state, answer);
-}
-
-export async function runWorkflowAsync<TState>(
-  definition: WorkflowDefinition<TState>,
-  initialState: TState,
-  context: ExecutionContext,
-  questionService: IQuestionService
-): Promise<WorkflowResult<TState>> {
-  let state = initialState;
-  const instanceId = `${definition.id}:${randomUUID()}`;
-  const workflowContext: WorkflowRuntimeContext = {
-    signal: context.signal,
-    workflowState: context.workflowState as WorkflowStateSnapshot | undefined,
-    onWorkflowFrame: context.onWorkflowFrame,
-    emit: context.emit,
-  };
-
-  for (const step of definition.steps) {
-    ensureNotAborted(workflowContext);
-
-    if (step.skipWhen?.(state)) {
-      continue;
+  private async executeStep<TState>(
+    step: WorkflowStep<TState>,
+    state: TState,
+    ctx: ExecutionContext,
+    options: WorkflowRunOptions | undefined,
+    getToolManager: () => ToolManager
+  ): Promise<TState> {
+    if ('execute' in step) {
+      return step.execute(state, ctx);
     }
 
-    workflowContext.onWorkflowFrame?.({
-      workflowId: instanceId,
-      stepId: step.id,
-    });
+    const cmd = options?.commands?.[step.command] ?? getToolManager().get(step.command);
+    if (!cmd) throw new Error(`WorkflowRunner: '${step.command}' not registered`);
+    const raw = await cmd.execute(step.params(state), ctx);
+    return step.applyResult ? step.applyResult(state, raw) : state;
+  }
+}
 
-    switch (step.kind) {
-      case 'action': {
-        state = await step.execute(state, workflowContext);
-        workflowContext.onWorkflowFrame?.({
-          workflowId: instanceId,
-          stepId: step.id,
-          completed: true,
-        });
-        break;
-      }
+// ─── Factory ──────────────────────────────────────────────────────────────────
 
-      case 'confirm': {
-        const result = await executeConfirmStep(
-          step,
-          state,
-          context,
-          workflowContext,
-          questionService,
-          instanceId
-        );
-        state = result.state;
-        if (result.aborted) {
-          return { state, aborted: true };
-        }
-        break;
-      }
+/**
+ * Creates `WorkflowRunner` instances.
+ * Callers receive the factory via DI and never hold the container directly.
+ */
+export interface IWorkflowRunnerFactory {
+  create(): IWorkflowRunner;
+}
 
-      case 'input': {
-        state = await executeInputStep(
-          step,
-          state,
-          context,
-          workflowContext,
-          questionService,
-          instanceId
-        );
-        break;
-      }
+export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
+  constructor(private readonly container: IServiceContainer) {}
 
-      case 'select': {
-        state = await executeSelectStep(
-          step,
-          state,
-          context,
-          workflowContext,
-          questionService,
-          instanceId
-        );
-        break;
-      }
-
-      case 'password': {
-        state = await executePasswordStep(
-          step,
-          state,
-          context,
-          workflowContext,
-          questionService,
-          instanceId
-        );
-        break;
-      }
-
-      case 'checklist': {
-        state = await executeChecklistStep(
-          step,
-          state,
-          context,
-          workflowContext,
-          questionService,
-          instanceId
-        );
-        break;
-      }
-    }
+  create(): IWorkflowRunner {
+    return new WorkflowRunner(this.container);
   }
 
-  return { state, aborted: false };
+  /**
+   * Wraps a workflow definition as an `ICommand`.
+   *
+   * - `definition.prepare`  maps command params to initial state (identity fallback).
+   * - `definition.toResult` extracts the result from final state (full state fallback).
+   *
+   * The returned command uses the definition's `id`, `description`, `availableIn`,
+   * and `parameters` directly — no wrapper class needed.
+   */
+  asCommand<TState>(definition: WorkflowDefinition<TState>): ICommand {
+    return {
+      ...definition,
+      key: definition.id,
+      execute: (params: unknown, ctx: ExecutionContext): Promise<CommandResponse<unknown>> =>
+        this.#runAsCommand(definition, params, ctx),
+    };
+  }
+
+  async #runAsCommand<TState>(
+    definition: WorkflowDefinition<TState>,
+    params: unknown,
+    ctx: ExecutionContext
+  ): Promise<CommandResponse<unknown>> {
+    const initialState = definition.prepare ? definition.prepare(params) : (params as TState);
+    const result = await this.create().run(definition, initialState, { executionContext: ctx });
+    if (result.aborted) return { status: 'error', message: 'Workflow aborted' };
+    const data = definition.toResult ? definition.toResult(result.state) : result.state;
+    return { status: 'ok', data };
+  }
 }

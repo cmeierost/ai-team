@@ -3,42 +3,28 @@ import type {
   ListToolsResponse,
   UpdateAgentToolResponse,
 } from '@ai-team/api-contracts';
-import type { IAgentManager } from '@ai-team/core';
-import type { ToolManager } from '../tools/tool-manager.js';
-import type { IMcpGateway } from '../orchestrator/pipeline.js';
-import {
-  listToolsCommand,
-  allowToolCommand,
-  disallowToolCommand,
-  toolAllowCommand,
-  toolDenyCommand,
-} from '../commands/tools/tools.js';
 import { BadRequestError } from '@ai-team/core';
+import { AgentToolsService } from '../commands/tools/tools-service.js';
+import { GovernanceService } from '../commands/agents/governance.js';
 
 export class ToolsService implements IToolsService {
   constructor(
-    private readonly agentManager: IAgentManager,
-    private readonly toolManager: ToolManager,
-    private readonly mcpGateway?: IMcpGateway
+    private readonly agentToolsService: AgentToolsService,
+    private readonly governanceService: GovernanceService
   ) {}
 
   async list(query?: { agent?: string }): Promise<ListToolsResponse> {
-    return listToolsCommand(
-      this.agentManager,
-      this.toolManager,
-      { agent: query?.agent },
-      this.mcpGateway
-    );
+    return this.agentToolsService.list({ agent: query?.agent });
   }
 
   async allow(body: { agent: string; tool: string }): Promise<UpdateAgentToolResponse> {
     if (!body.agent || !body.tool) throw new BadRequestError('agent and tool are required');
-    return allowToolCommand(this.agentManager, this.toolManager, body);
+    return this.agentToolsService.allow(body);
   }
 
   async disallow(body: { agent: string; tool: string }): Promise<UpdateAgentToolResponse> {
     if (!body.agent || !body.tool) throw new BadRequestError('agent and tool are required');
-    return disallowToolCommand(this.agentManager, this.toolManager, body);
+    return this.agentToolsService.disallow(body);
   }
 
   async toolAllow(body: {
@@ -47,12 +33,19 @@ export class ToolsService implements IToolsService {
     requestedBy: string;
     approvedByUser: boolean;
   }): Promise<UpdateAgentToolResponse> {
-    return toolAllowCommand(
-      this.agentManager,
-      this.toolManager,
-      { agent: body.agent, tool: body.tool },
-      { requestedBy: body.requestedBy, confirmUserApproval: async () => body.approvedByUser }
+    const actor = await this.governanceService.resolveGovernanceActor(
+      body.requestedBy,
+      'tool_allow'
     );
+    this.governanceService.assertDefaultGovernancePolicy(actor);
+    await this.governanceService.requireUserApproval(
+      {
+        requestedBy: body.requestedBy,
+        confirmUserApproval: async () => body.approvedByUser,
+      },
+      `Approve tool_allow by ${actor.name} (${actor.id}) for target agent '${body.agent}' and tool '${body.tool}'?`
+    );
+    return this.agentToolsService.allow({ agent: body.agent, tool: body.tool });
   }
 
   async toolDeny(body: {
@@ -61,11 +54,18 @@ export class ToolsService implements IToolsService {
     requestedBy: string;
     approvedByUser: boolean;
   }): Promise<UpdateAgentToolResponse> {
-    return toolDenyCommand(
-      this.agentManager,
-      this.toolManager,
-      { agent: body.agent, tool: body.tool },
-      { requestedBy: body.requestedBy, confirmUserApproval: async () => body.approvedByUser }
+    const actor = await this.governanceService.resolveGovernanceActor(
+      body.requestedBy,
+      'tool_deny'
     );
+    this.governanceService.assertDefaultGovernancePolicy(actor);
+    await this.governanceService.requireUserApproval(
+      {
+        requestedBy: body.requestedBy,
+        confirmUserApproval: async () => body.approvedByUser,
+      },
+      `Approve tool_deny by ${actor.name} (${actor.id}) for target agent '${body.agent}' and tool '${body.tool}'?`
+    );
+    return this.agentToolsService.disallow({ agent: body.agent, tool: body.tool });
   }
 }

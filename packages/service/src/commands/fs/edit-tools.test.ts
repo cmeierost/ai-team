@@ -21,7 +21,8 @@ import {
   FsSearchMetadataTool,
 } from './fs-tools.js';
 import { FindSymbolTool, FindReferencesTool, LspTool, GrepCodeTool } from '../edit/code-tools.js';
-import { HttpFetchTool, HttpCrawlTool } from '../http/http-tools.js';
+import { HttpFetchCommand } from '../http/http-fetch.command.js';
+import { HttpCrawlCommand } from '../http/http-crawl.command.js';
 import { CodeSearchTool } from '../edit/codesearch-tool.js';
 import {
   ApplyPatchTool,
@@ -98,8 +99,8 @@ function getBuiltInTools(workspaceRoot: string): ICommand[] {
     new FindReferencesTool(workspaceRoot, ideAdapterFactory),
     new LspTool(workspaceRoot, ideAdapterFactory),
     new GrepCodeTool(),
-    new HttpFetchTool(),
-    new HttpCrawlTool(),
+    new HttpFetchCommand(),
+    new HttpCrawlCommand(),
     new CodeSearchTool(),
     fsEditTool,
     new ApplyPatchTool(workspaceRoot, accessChecker as any, ideAdapterFactory),
@@ -416,6 +417,12 @@ function ctx(ws: string, agent: Agent) {
   return { agentId: agent.id, workspaceRoot: ws, history: [] };
 }
 
+function toolPayload(result: { result?: unknown }) {
+  const envelope = (result.result ?? {}) as Record<string, unknown>;
+  const data = ((result.result as any)?.data ?? {}) as Record<string, unknown>;
+  return { ...envelope, ...data };
+}
+
 afterEach(async () => {
   await Promise.all(workspaces.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
 });
@@ -444,7 +451,7 @@ describe('edit', () => {
     );
 
     expect(result.ok).toBe(true);
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.edited).toBe(true);
     expect(payload.replacements).toBe(1);
 
@@ -485,7 +492,7 @@ describe('edit', () => {
     );
 
     expect(result.ok).toBe(true);
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.edited).toBe(true);
 
     // The file on disk should NOT have line numbers
@@ -510,7 +517,7 @@ describe('edit', () => {
     );
 
     expect(result.ok).toBe(true);
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.edited).toBe(false);
     expect(payload.error).toContain('not found');
   });
@@ -530,7 +537,7 @@ describe('edit', () => {
     );
 
     expect(result.ok).toBe(true);
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.edited).toBe(false);
     expect(payload.hint).toContain('read');
   });
@@ -550,7 +557,7 @@ describe('edit', () => {
       ctx(ws, agent)
     );
 
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.edited).toBe(false);
     expect(payload.error).toContain('2 times');
   });
@@ -570,7 +577,7 @@ describe('edit', () => {
       ctx(ws, agent)
     );
 
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.edited).toBe(true);
     expect(payload.replacements).toBe(2);
     expect(await fs.readFile(path.join(ws, 'multi.ts'), 'utf8')).toBe('ccc\nbbb\nccc\n');
@@ -596,7 +603,7 @@ describe('edit', () => {
       ctx(ws, agent)
     );
 
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.edited).toBe(true);
     expect(payload.replacements).toBe(1);
     expect(payload.matchStage).toBe('trimmed-lines');
@@ -620,7 +627,7 @@ describe('edit', () => {
       ctx(ws, agent)
     );
 
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.edited).toBe(true);
     expect(payload.matchStage).toBeUndefined();
   });
@@ -653,7 +660,7 @@ describe('patch', () => {
     const result = await manager.execute(agent, 'edit_patch', { patchText }, ctx(ws, agent));
 
     expect(result.ok).toBe(true);
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.applied.length).toBe(1);
 
     const disk = await fs.readFile(filePath, 'utf8');
@@ -680,7 +687,7 @@ describe('patch', () => {
     const result = await manager.execute(agent, 'edit_patch', { patchText }, ctx(ws, agent));
 
     expect(result.ok).toBe(true);
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.applied.length).toBe(1);
 
     const disk = await fs.readFile(path.join(ws, 'newfile.ts'), 'utf8');
@@ -700,7 +707,7 @@ describe('patch', () => {
     );
 
     expect(result.ok).toBe(true);
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.error).toBeTruthy();
   });
 });
@@ -733,7 +740,7 @@ describe('multiedit', () => {
     );
 
     expect(result.ok).toBe(true);
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.succeeded).toBe(2);
     expect(payload.totalEdits).toBe(2);
 
@@ -763,7 +770,7 @@ describe('multiedit', () => {
       ctx(ws, agent)
     );
 
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload._fileChanges).toHaveLength(1);
     // oldContent is from BEFORE the first edit
     expect(payload._fileChanges[0].oldContent).toBe(original);
@@ -789,7 +796,7 @@ describe('multiedit', () => {
       ctx(ws, agent)
     );
 
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     for (const r of payload.results) {
       expect(r.result).not.toHaveProperty('_fileChanges');
     }
@@ -817,7 +824,7 @@ describe('multiedit', () => {
       ctx(ws, agent)
     );
 
-    const payload = result.result as any;
+    const payload = toolPayload(result);
     expect(payload.succeeded).toBe(1);
     expect(payload.failedAtIndex).toBe(1);
     expect(payload.error).toContain('not found');

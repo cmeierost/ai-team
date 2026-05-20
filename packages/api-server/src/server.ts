@@ -80,7 +80,6 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
 
   const agentManager = container.resolve(TOKENS.AgentManager);
   const sessionManager = container.resolve(TOKENS.SessionManager);
-  const interactionService = container.resolve(TOKENS.InteractionService);
 
   // Create Express app
   const app = express();
@@ -189,7 +188,8 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     }
 
     console.log(`WebSocket connected: agent=${agentId}, session=${sessionId || 'none'}`);
-    setupChatWebSocket(ws, agentId, interactionService, sessionManager, sessionId, {
+
+    setupChatWebSocket(ws, agentId, container.child() as any, sessionManager, sessionId, {
       agentManager,
       workspaceRoot,
       llmService: container.resolve(TOKENS.LlmService),

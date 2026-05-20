@@ -1,7 +1,5 @@
 import type {
   RuntimeStreamEvent,
-  WorkflowFrame,
-  WorkflowStateSnapshot,
   QuestionAnswerValue,
   QuestionChecklistRequest,
   QuestionConfirmRequest,
@@ -9,11 +7,11 @@ import type {
   QuestionPasswordRequest,
   QuestionSelectRequest,
 } from '@ai-team/api-contracts';
+import type { IWorkflowService } from './workflow-service.js';
 
 export interface WorkflowRuntimeContext {
   signal?: AbortSignal;
-  workflowState?: WorkflowStateSnapshot;
-  onWorkflowFrame?: (frame: WorkflowFrame) => void;
+  workflowService?: IWorkflowService;
   emit?: (event: RuntimeStreamEvent) => void;
 }
 
@@ -21,17 +19,7 @@ export function resolveWorkflowAnswer(
   context: WorkflowRuntimeContext | undefined,
   request: { workflow?: { workflowId?: string; questionId?: string } }
 ): QuestionAnswerValue | undefined {
-  const workflowId = request.workflow?.workflowId;
-  const questionId = request.workflow?.questionId;
-  if (!workflowId || !questionId) {
-    return undefined;
-  }
-
-  if (context?.workflowState?.workflowId !== workflowId) {
-    return undefined;
-  }
-
-  return context.workflowState.answers[questionId];
+  return context?.workflowService?.resolveAnswer(request);
 }
 
 export function emitWorkflowQuestionFrame(
@@ -43,17 +31,7 @@ export function emitWorkflowQuestionFrame(
     | ({ kind: 'password' } & QuestionPasswordRequest)
     | ({ kind: 'checklist' } & QuestionChecklistRequest)
 ): void {
-  const workflowId = request.workflow?.workflowId;
-  if (!workflowId) {
-    return;
-  }
-
-  context?.onWorkflowFrame?.({
-    workflowId,
-    stepId: request.workflow?.stepId || 'question',
-    continuationToken: request.workflow?.continuationToken,
-    question: request,
-  });
+  context?.workflowService?.emitQuestionFrame(request);
 }
 
 export function emitWorkflowResultFrame(
@@ -68,24 +46,7 @@ export function emitWorkflowResultFrame(
   },
   result: QuestionAnswerValue
 ): void {
-  const workflowId = request.workflow?.workflowId;
-  if (!workflowId) {
-    return;
-  }
-
-  context?.onWorkflowFrame?.({
-    workflowId,
-    stepId: request.workflow?.stepId || 'question',
-    continuationToken: request.workflow?.continuationToken,
-    question: request.workflow?.questionId
-      ? {
-          kind: 'input',
-          message: '',
-          workflow: request.workflow,
-        }
-      : undefined,
-    result,
-  });
+  context?.workflowService?.emitResultFrame(request, result);
 }
 
 export function ensureNotAborted(context: WorkflowRuntimeContext | undefined): void {

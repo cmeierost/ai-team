@@ -165,11 +165,11 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
     return {
       signal: runtime.signal,
       emit: runtime.emit,
-      questionInput: (request) => this.questionService.input(request, runtime),
-      questionConfirm: (request) => this.questionService.confirm(request, runtime),
-      questionSelect: (request) => this.questionService.select(request, runtime),
-      questionPassword: (request) => this.questionService.password(request, runtime),
-      questionChecklist: (request) => this.questionService.checklist(request, runtime),
+       input: (request, context) => this.questionService.input(request),
+       confirm: (request, context) => this.questionService.confirm(request),
+       select: (request, context) => this.questionService.select(request),
+       password: (request, context) => this.questionService.password(request),
+       checklist: (request, context) => this.questionService.checklist(request),
       workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
       onWorkflowFrame: runtime.onWorkflowFrame,
     };
@@ -643,11 +643,11 @@ export class OnboardCommand {
     await cmd.execute(workspaceRoot, agentId, options, {
       signal: hooks?.signal,
       emit: hooks?.emit,
-      questionInput: hooks?.questionInput,
-      questionConfirm: hooks?.questionConfirm,
-      questionSelect: hooks?.questionSelect,
-      questionPassword: hooks?.questionPassword,
-      questionChecklist: hooks?.questionChecklist,
+       input: hooks?.input,
+       confirm: hooks?.confirm,
+       select: hooks?.select,
+       password: hooks?.password,
+       checklist: hooks?.checklist,
     });
   }
 

@@ -1,23 +1,12 @@
 import { z } from 'zod';
-import type {
-  ICommand,
-  IAgentManager,
-  ExecutionContext,
-  CommandResponse,
-} from '@ai-team/core';
+import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
 import type { UpdateAgentToolResponse } from '@ai-team/api-contracts';
-import type { ToolManager } from '../../tools/tool-manager.js';
-import type { IQuestionService } from '../../questions/question-service.js';
-import { toolAllowCommand } from './tools.js';
-import {
-  resolveRequestedByFromRuntime,
-  confirmGovernanceActionFromRuntime,
-} from '../agents/governance.js';
+import { AgentToolsService } from './tools-service.js';
 
 type Params = z.infer<typeof ToolsAllowCommand.schema>;
 
 export class ToolsAllowCommand implements ICommand<Params, UpdateAgentToolResponse> {
-  static readonly schema = z.object({
+  public static readonly schema = z.object({
     agent: z.string().describe('Agent id, name, or role query'),
     tool: z.string().describe('Tool name to allow'),
     requestedBy: z.string().optional().describe('Governance actor requesting the change'),
@@ -33,37 +22,13 @@ export class ToolsAllowCommand implements ICommand<Params, UpdateAgentToolRespon
   readonly group = 'tool';
   readonly parameters = ToolsAllowCommand.schema;
 
-  constructor(
-    private readonly agents: IAgentManager,
-    private readonly toolManager: ToolManager,
-    private readonly questionService: IQuestionService
-  ) {}
+  constructor(private readonly toolsService: AgentToolsService) {}
 
   async execute(
     payload: Params,
     ctx: ExecutionContext
   ): Promise<CommandResponse<UpdateAgentToolResponse>> {
-    const requestedBy = await resolveRequestedByFromRuntime(
-      this.questionService,
-      ctx,
-      payload.requestedBy,
-      'requestedBy is required for tool governance'
-    );
-    const data = await toolAllowCommand(
-      this.agents,
-      this.toolManager,
-      { agent: payload.agent, tool: payload.tool },
-      {
-        requestedBy,
-        confirmUserApproval: (msg: string) =>
-          confirmGovernanceActionFromRuntime(
-            this.questionService,
-            ctx,
-            payload.approvedByUser,
-            msg
-          ),
-      }
-    );
+    const data = await this.toolsService.governedAllow(ctx, payload);
     return { status: 'ok', data };
   }
 }

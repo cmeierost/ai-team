@@ -2,7 +2,7 @@ import type { IContainerToken } from '@ai-team/core';
 
 type Factory<T> = (container: ServiceContainer<any>) => T;
 
-type Lifetime = 'singleton' | 'transient';
+type Lifetime = 'singleton' | 'transient' | 'scoped';
 type ServiceMap = Record<string, unknown>;
 
 export type TokenSet = Record<string, IContainerToken<unknown>>;
@@ -83,6 +83,20 @@ export class ServiceContainer<TServices extends ServiceMap = {}> {
     >;
   }
 
+  registerScoped<TToken extends IContainerToken<unknown>>(
+    token: TToken,
+    factory: (c: ServiceContainer<TServices>) => TokenValue<TToken>
+  ): ServiceContainer<TServices & Record<TokenId<TToken>, TokenValue<TToken>>> {
+    this.factories.set(token.id, {
+      factory: factory as Factory<unknown>,
+      lifetime: 'scoped',
+    });
+    this.singletons.delete(token.id);
+    return this as unknown as ServiceContainer<
+      TServices & Record<TokenId<TToken>, TokenValue<TToken>>
+    >;
+  }
+
   registerInstance<TToken extends IContainerToken<unknown>>(
     token: TToken,
     instance: TokenValue<TToken>
@@ -122,6 +136,15 @@ export class ServiceContainer<TServices extends ServiceMap = {}> {
     }
 
     if (this.parent) {
+      const scopedFactory = this.findScopedFactory(token.id);
+      if (scopedFactory) {
+        return this.constructSingleton(
+          token,
+          scopedFactory as Factory<TokenValue<TToken>>
+        ) as TokenId<TToken> extends keyof TServices
+          ? TServices[TokenId<TToken>]
+          : TokenValue<TToken>;
+      }
       const inherited = this.parent.resolve(token) as unknown;
       this.singletons.set(token.id, inherited);
       return inherited as TokenId<TToken> extends keyof TServices
@@ -160,6 +183,12 @@ export class ServiceContainer<TServices extends ServiceMap = {}> {
 
   child(): ServiceContainer<TServices> {
     return new ServiceContainer(this);
+  }
+
+  private findScopedFactory(id: string): Factory<unknown> | undefined {
+    const reg = this.factories.get(id);
+    if (reg?.lifetime === 'scoped') return reg.factory;
+    return this.parent?.findScopedFactory(id);
   }
 
   private constructSingleton<T>(token: IContainerToken<T>, factory: Factory<T>): T {

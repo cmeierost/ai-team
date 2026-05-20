@@ -54,7 +54,7 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
   } as any;
   const support = new ToolDispatchSupportService(serialization, ctx.llmService);
   installEmitService(ctx.hooks.emit);
-  const questionService = new InteractionQuestionService({
+  const questionService = InteractionQuestionService({
     questionInput: vi.fn(async () => ''),
     questionConfirm: vi.fn(async () => true),
     questionSelect: vi.fn(async () => ''),

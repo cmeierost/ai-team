@@ -25,7 +25,8 @@ import {
   FsSearchMetadataTool,
 } from '../fs/fs-tools.js';
 import { FindSymbolTool, FindReferencesTool, LspTool, GrepCodeTool } from '../edit/code-tools.js';
-import { HttpFetchTool, HttpCrawlTool } from '../http/http-tools.js';
+import { HttpFetchCommand } from '../http/http-fetch.command.js';
+import { HttpCrawlCommand } from '../http/http-crawl.command.js';
 import { CodeSearchTool } from '../edit/codesearch-tool.js';
 import { ApplyPatchTool, MultiEditTool, FsEditTool } from '../fs/edit-tools.js';
 
@@ -90,8 +91,8 @@ function getBuiltInTools(
     new FindReferencesTool(workspaceRoot, ideAdapterFactory),
     new LspTool(workspaceRoot, ideAdapterFactory),
     new GrepCodeTool(),
-    new HttpFetchTool(),
-    new HttpCrawlTool(),
+    new HttpFetchCommand(),
+    new HttpCrawlCommand(),
     new CodeSearchTool(),
     fsEditTool,
     new ApplyPatchTool(workspaceRoot, accessChecker as any, ideAdapterFactory),
@@ -147,6 +148,9 @@ async function setupManager(
 
 function makeAgentManager(agents: Agent[], analyzeResult?: unknown) {
   return {
+    async resolveAgentForOperationAsync(id: string) {
+      return { id };
+    },
     async getAllAgentsAsync() {
       return agents;
     },
@@ -160,6 +164,10 @@ function makeAgentManager(agents: Agent[], analyzeResult?: unknown) {
       return analyzeResult;
     },
   };
+}
+
+function toolPayload(result: { result?: unknown }) {
+  return (result.result as any)?.data ?? result.result;
 }
 
 describe('access introspection tools', () => {
@@ -192,7 +200,7 @@ describe('access introspection tools', () => {
         }
       );
       expect(result.ok).toBe(true);
-      const payload = result.result as any;
+      const payload = toolPayload(result);
       expect(payload.right).toBe('list');
       expect(payload.contextIds).toContain('a');
     } finally {
@@ -226,7 +234,7 @@ describe('access introspection tools', () => {
         { workspaceRoot, history: [] }
       );
       expect(denied.ok).toBe(true);
-      expect((denied.result as any).allowed).toBe(true);
+      expect(toolPayload(denied).allowed).toBe(true);
 
       const allowed = await manager.execute(
         a,
@@ -235,8 +243,8 @@ describe('access introspection tools', () => {
         { workspaceRoot, history: [] }
       );
       expect(allowed.ok).toBe(true);
-      expect((allowed.result as any).allowed).toBe(true);
-      expect((allowed.result as any).contextId).toBe('b');
+      expect(toolPayload(allowed).allowed).toBe(true);
+      expect(toolPayload(allowed).contextId).toBe('b');
     } finally {
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -289,10 +297,10 @@ describe('access introspection tools', () => {
         { workspaceRoot, history: [] }
       );
       expect(result.ok).toBe(true);
-      expect((result.result as any).kind).toBe('files');
-      expect((result.result as any).agentFocus.agentId).toBe('a');
+      expect(toolPayload(result).kind).toBe('files');
+      expect(toolPayload(result).agentFocus.agentId).toBe('a');
       expect(
-        (result.result as any).rights.write.overlappingFiles.some(
+        toolPayload(result).rights.write.overlappingFiles.some(
           (file: { path: string }) => file.path === 'src/shared.ts'
         )
       ).toBe(true);

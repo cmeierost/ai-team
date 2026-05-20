@@ -11,14 +11,20 @@ import {
 } from '@ai-team/core';
 
 import type { FilesTreeResponse } from '@ai-team/api-contracts';
-import {
-  type GovernanceRequest,
-  assertDefaultGovernancePolicy,
-  requireUserApproval,
-  resolveGovernanceActor,
-} from '../agents/governance.js';
+import { type GovernanceRequest, GovernanceService } from '../agents/governance.js';
 
 export type PathMode = 'read' | 'write' | 'list';
+
+interface PermissionCommandOptions {
+  governanceService: GovernanceService;
+  workspaceRoot: string;
+  agentManager: IAgentManager;
+  permissionStorage: IPermissionStorage;
+  agentQuery: string;
+  filePath: string;
+  governance: GovernanceRequest;
+  mode?: PathMode;
+}
 
 const DEFAULT_CONFIG: TeamConfig = { version: '1', randomAvatarUrls: [] };
 
@@ -28,6 +34,7 @@ export class FileTreeService {
     private readonly agentManager: IAgentManager,
     private readonly configurationStorage: IConfigurationStorage,
     private readonly permissionStorage: IPermissionStorage,
+    private readonly governanceService: GovernanceService,
     private readonly fileTreeService?: IFileTreeService,
     private readonly fileAnnotationService?: IFileAnnotationService
   ) {}
@@ -74,6 +81,7 @@ export class FileTreeService {
     mode: PathMode = 'read'
   ): Promise<AgentPathResult> {
     return permissionAllowCommand(
+      this.governanceService,
       this.workspaceRoot,
       this.agentManager,
       this.permissionStorage,
@@ -106,6 +114,7 @@ export class FileTreeService {
     mode: PathMode = 'read'
   ): Promise<AgentPathResult> {
     return permissionDenyCommand(
+      this.governanceService,
       this.workspaceRoot,
       this.agentManager,
       this.permissionStorage,
@@ -255,29 +264,24 @@ async function agentPermissionPathCommand(
 /**
  * Alias for agentPermissionPathCommand using governance naming.
  */
-async function permissionAllowCommand(
-  workspaceRoot: string,
-  agentManager: IAgentManager,
-  permissionStorage: IPermissionStorage,
-  agentQuery: string,
-  filePath: string,
-  governance: GovernanceRequest,
-  mode: PathMode = 'read'
-): Promise<AgentPathResult> {
-  const actor = await resolveGovernanceActor(agentManager, governance.requestedBy, 'access_allow');
-  assertDefaultGovernancePolicy(actor);
-  await requireUserApproval(
-    governance,
-    `Approve access_allow by ${actor.name} (${actor.id}) for target agent '${agentQuery}', mode '${mode}', path '${filePath}'?`
+async function permissionAllowCommand(opts: PermissionCommandOptions): Promise<AgentPathResult> {
+  const actor = await opts.governanceService.resolveGovernanceActor(
+    opts.governance.requestedBy,
+    'access_allow'
+  );
+  opts.governanceService.assertDefaultGovernancePolicy(actor);
+  await opts.governanceService.requireUserApproval(
+    opts.governance,
+    `Approve access_allow by ${actor.name} (${actor.id}) for target agent '${opts.agentQuery}', mode '${opts.mode}', path '${opts.filePath}'?`
   );
 
   return agentPermissionPathCommand(
-    workspaceRoot,
-    agentManager,
-    permissionStorage,
-    agentQuery,
-    filePath,
-    mode
+    opts.workspaceRoot,
+    opts.agentManager,
+    opts.permissionStorage,
+    opts.agentQuery,
+    opts.filePath,
+    opts.mode ?? 'read'
   );
 }
 
@@ -311,6 +315,7 @@ async function agentDisallowPathCommand(
  * Alias for agentDisallowPathCommand using governance naming.
  */
 async function permissionDenyCommand(
+  governanceService: GovernanceService,
   workspaceRoot: string,
   agentManager: IAgentManager,
   permissionStorage: IPermissionStorage,
@@ -319,9 +324,12 @@ async function permissionDenyCommand(
   governance: GovernanceRequest,
   mode: PathMode = 'read'
 ): Promise<AgentPathResult> {
-  const actor = await resolveGovernanceActor(agentManager, governance.requestedBy, 'access_deny');
-  assertDefaultGovernancePolicy(actor);
-  await requireUserApproval(
+  const actor = await governanceService.resolveGovernanceActor(
+    governance.requestedBy,
+    'access_deny'
+  );
+  governanceService.assertDefaultGovernancePolicy(actor);
+  await governanceService.requireUserApproval(
     governance,
     `Approve access_deny by ${actor.name} (${actor.id}) for target agent '${agentQuery}', mode '${mode}', path '${filePath}'?`
   );

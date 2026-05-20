@@ -269,6 +269,11 @@ export interface IServiceContainerRegistrar {
     token: IContainerToken<T>,
     factory: (container: IServiceContainer) => T
   ): this;
+  /** One instance per child container scope — each child creates its own singleton. */
+  registerScoped<T>(
+    token: IContainerToken<T>,
+    factory: (container: IServiceContainer) => T
+  ): this;
   registerInstance<T>(token: IContainerToken<T>, instance: T): this;
 }
 

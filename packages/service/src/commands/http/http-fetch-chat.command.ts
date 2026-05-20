@@ -1,6 +1,5 @@
-import type { ICommand, IToolManager, CommandResponse } from '@ai-team/core';
+import type { ICommand, IToolManager, CommandResponse, ExecutionContext } from '@ai-team/core';
 import { parseUrlAndJsonOptions } from './http-chat-utils.js';
-import { ExecutionContext } from '../../../../core/dist/types/command-types';
 
 export class HttpFetchChatCommand implements ICommand<string, string> {
   readonly key = 'fetch';

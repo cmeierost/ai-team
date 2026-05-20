@@ -39,6 +39,7 @@ import type { ToolSerializationService } from './orchestrator/services/tool-seri
 import type { EmitService } from './orchestrator/services/emit-service.js';
 import type { ToolSchemaService } from './orchestrator/services/schema-service.js';
 import type { IQuestionService } from './questions/question-service.js';
+import type { IWorkflowRunnerFactory } from './workflow/runner.js';
 
 function createContainerToken<T>(id: string): IContainerToken<T> {
   return {
@@ -91,6 +92,7 @@ export const COMMAND_FACTORY_TOKENS = {
     createContainerToken<Pick<IContextService, 'getContextEstimate'>>('ContextService'),
   MessageStorage: createContainerToken<IMessageStorage>('SqliteBackend'),
   CommandRegistry: createContainerToken<ICommandRegistry>('CommandRegistry'),
+  WorkflowRunnerFactory: createContainerToken<IWorkflowRunnerFactory>('WorkflowRunnerFactory'),
 } as const;
 
 export interface CommandFactoryContainer {

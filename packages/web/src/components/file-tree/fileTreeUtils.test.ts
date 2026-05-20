@@ -38,8 +38,9 @@ describe('fileTreeUtils', () => {
     };
 
     expect(getVisiblePatternGroups({ agent: 'daniel-navarro', readPatterns: [], writePatterns: [], files }, patterns)).toEqual([
-      { label: 'Agent Read', scope: 'agent', mode: 'read', values: ['src/**'] },
-      { label: 'Agent Write', scope: 'agent', mode: 'write', values: ['src/components/**'] },
+      { label: 'List', scope: 'agent', mode: 'list', values: ['**'], isDefault: true },
+      { label: 'Read', scope: 'agent', mode: 'read', values: ['src/**'] },
+      { label: 'Write', scope: 'agent', mode: 'write', values: ['src/components/**'] },
       { label: 'Global Read', scope: 'global', mode: 'read', values: ['docs/**'] },
     ]);
   });

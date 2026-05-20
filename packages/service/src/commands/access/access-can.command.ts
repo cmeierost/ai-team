@@ -37,14 +37,6 @@ export class AccessCanCommand implements ICommand<Params, DoIHavePermissionRespo
     payload: Params,
     ctx: ExecutionContext
   ): Promise<CommandResponse<DoIHavePermissionResponse>> {
-    const agentQuery = payload.agent ?? ctx.agent?.id;
-    if (!agentQuery) {
-      return {
-        status: 'error',
-        message: 'No agent specified',
-        error: { code: 'AGENT_NOT_FOUND', message: 'No agent specified' },
-      };
-    }
     const right = payload.right ?? 'list';
     const pathMeta = resolveWorkspacePathMeta(this.workspaceRoot, payload.path);
 
@@ -58,7 +50,7 @@ export class AccessCanCommand implements ICommand<Params, DoIHavePermissionRespo
             relative: pathMeta.relative,
           },
           right,
-          contextId: agentQuery,
+          contextId: payload.agent ?? ctx.agent?.id ?? '',
           selectedBy: payload.agent ? 'explicit' : 'default-first-agent',
           allowed: false,
           allRights: [],

@@ -1,5 +1,6 @@
 import type {
   IContainerToken,
+  IServiceContainer,
   IServiceContainerRegistrar,
   ILlmService,
   IChatManager,
@@ -37,7 +38,10 @@ import type {
   IPlanningRepository,
   IWorkspaceFsFactory,
 } from '@ai-team/core';
-import type { IQuestionService } from '../questions/question-service.js';
+import {
+  type IQuestionService,
+  InteractionQuestionService,
+} from '../questions/question-service.js';
 import { SessionManager } from '../session-manager.js';
 import { ToolManager } from '../tools/tool-manager.js';
 import { CommandRegistry } from '../command-registry-impl.js';
@@ -67,7 +71,8 @@ import {
   LspTool,
   GrepCodeTool,
 } from '../commands/edit/code-tools.js';
-import { HttpFetchTool, HttpCrawlTool } from '../commands/http/http-tools.js';
+import { HttpFetchCommand } from '../commands/http/http-fetch.command.js';
+import { HttpCrawlCommand } from '../commands/http/http-crawl.command.js';
 import { CodeSearchTool } from '../commands/edit/codesearch-tool.js';
 import { ApplyPatchTool, MultiEditTool, FsEditTool } from '../commands/fs/edit-tools.js';
 import { createOrchestrationTools } from '../tools/orchestration-tools.js';
@@ -85,7 +90,7 @@ import { DefaultLlmSelector } from '../orchestrator/defaults/llm-selector.js';
 import { DefaultOutputHandler } from '../orchestrator/defaults/output-handler.js';
 import { buildDefaultHookPlugins } from '../orchestrator/defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from '../orchestrator/defaults/turn-result-parsers.js';
-import { buildDefaultSlashCommands } from '../orchestrator/slash-commands.js';
+import { SlashCommandDispatcher } from '../orchestrator/slash-command-dispatcher.js';
 import { EmitService } from '../orchestrator/services/emit-service.js';
 import { ToolSchemaService } from '../orchestrator/services/schema-service.js';
 import { ToolDispatchSupportService } from '../orchestrator/services/tool-dispatch-support-service.js';
@@ -102,6 +107,8 @@ import {
   ChatPreflightService,
 } from '../commands/chat/index.js';
 import { IInteractionService, InteractionService } from '../interaction-service.js';
+import { GovernanceService } from '../commands/agents/governance.js';
+import { AgentToolsService } from '../commands/tools/tools-service.js';
 import {
   SystemService,
   AgentsService,
@@ -215,6 +222,49 @@ export interface ServiceLayerRegistrationConfig {
   apiBaseUrl?: string;
 }
 
+export function buildInteractionService(
+  c: IServiceContainer,
+  tokens: ServiceLayerRegistrationTokens,
+  workspaceRoot: string
+): InteractionService {
+  const cmd = new ChatCommand(
+    {
+      configurationStorage: c.resolve(tokens.ConfigurationStorage),
+      environmentStorage: c.resolve(tokens.EnvironmentStorage),
+      developerIdentityService: c.resolve(tokens.DeveloperIdentityService),
+      ...(null as any),
+      contextService: c.resolve(tokens.MetaService),
+    },
+    {
+      agentManager: c.resolve(tokens.AgentManager),
+      agentDocumentStorage: c.resolve(tokens.AgentDocumentStorage),
+      markdownSectionService: c.resolve(tokens.MarkdownSectionService),
+      skillManager: c.resolve(tokens.SkillManager),
+    },
+    {
+      sessionManager: c.resolve(tokens.SessionManager),
+      llmService: c.resolve(tokens.LlmService),
+      proposalStoreFactory: c.resolve(tokens.ProposalStoreFactory),
+    },
+    {
+      pathPermissionChecker: c.resolve(tokens.PathPermissionChecker),
+      serviceContainer: c as any,
+    },
+    new ChatInfoService(),
+    new ChatPreflightService(
+      c.resolve(tokens.ConfigurationStorage),
+      c.resolve(tokens.EnvironmentStorage),
+      c.resolve(tokens.DeveloperIdentityService)
+    ),
+    new InfoChatCommand(c.resolve(tokens.AgentManager), c.resolve(tokens.QuestionService))
+  );
+
+  const runChat = (wr: string, agentId: string | undefined, options: any, hooks: any) =>
+    cmd.execute(wr, agentId, options, hooks);
+
+  return new InteractionService(workspaceRoot, runChat);
+}
+
 export function registerServiceLayerServices(
   container: IServiceContainerRegistrar,
   cfg: ServiceLayerRegistrationConfig,
@@ -266,8 +316,8 @@ export function registerServiceLayerServices(
     registry.register(new LspTool(workspaceRoot, ideAdapterFactory));
     registry.register(new GrepCodeTool());
     // HTTP tools
-    registry.register(new HttpFetchTool());
-    registry.register(new HttpCrawlTool());
+    registry.register(new HttpFetchCommand());
+    registry.register(new HttpCrawlCommand());
     // Additional editing tools
     registry.register(new CodeSearchTool());
     const fsEditTool = new FsEditTool(workspaceRoot, accessChecker, ideAdapterFactory);
@@ -358,7 +408,7 @@ export function registerServiceLayerServices(
   );
   container.registerSingleton(tokens.OutputHandler, () => new DefaultOutputHandler());
   container.registerSingleton(tokens.SlashCommands, (c) =>
-    buildDefaultSlashCommands(c.resolve(tokens.ToolManager) as any)
+    new SlashCommandDispatcher(c.resolve(tokens.ToolManager) as any).list()
   );
   container.registerSingleton(tokens.TurnResultParsers, (c) =>
     buildDefaultTurnResultParsers(c.resolve(tokens.AgentManager))
@@ -394,48 +444,11 @@ export function registerServiceLayerServices(
     tokens.TeamService,
     (c) => new TeamService(c.resolve(tokens.TeamGraphBuilder))
   );
-  container.registerSingleton(tokens.InteractionService, (c) => {
-    const cmd = new ChatCommand(
-      {
-        configurationStorage: c.resolve(tokens.ConfigurationStorage),
-        environmentStorage: c.resolve(tokens.EnvironmentStorage),
-        developerIdentityService: c.resolve(tokens.DeveloperIdentityService),
-        ...(null as any),
-        contextService: c.resolve(tokens.MetaService),
-      },
-      {
-        agentManager: c.resolve(tokens.AgentManager),
-        agentDocumentStorage: c.resolve(tokens.AgentDocumentStorage),
-        markdownSectionService: c.resolve(tokens.MarkdownSectionService),
-        skillManager: c.resolve(tokens.SkillManager),
-      },
-      {
-        sessionManager: c.resolve(tokens.SessionManager),
-        llmService: c.resolve(tokens.LlmService),
-        proposalStoreFactory: c.resolve(tokens.ProposalStoreFactory),
-      },
-      {
-        pathPermissionChecker: c.resolve(tokens.PathPermissionChecker),
-        serviceContainer: c,
-      },
-      new ChatInfoService(),
-      new ChatPreflightService(
-        c.resolve(tokens.ConfigurationStorage),
-        c.resolve(tokens.EnvironmentStorage),
-        c.resolve(tokens.DeveloperIdentityService)
-      ),
-      new InfoChatCommand(c.resolve(tokens.AgentManager), c.resolve(tokens.QuestionService))
-    );
+  container.registerSingleton(tokens.QuestionService, () => InteractionQuestionService({}));
 
-    const runChat = (
-      workspaceRoot: string,
-      agentId: string | undefined,
-      options: any,
-      hooks: any
-    ) => cmd.execute(workspaceRoot, agentId, options, hooks);
-
-    return new InteractionService(cfg.workspaceRoot, runChat);
-  });
+  container.registerScoped(tokens.InteractionService, (c) =>
+    buildInteractionService(c, tokens, cfg.workspaceRoot)
+  );
 
   container.registerSingleton(
     tokens.ChatService,
@@ -504,15 +517,21 @@ export function registerServiceLayerServices(
         c.resolve(tokens.MarkdownSectionService)
       )
   );
-  container.registerSingleton(
-    tokens.ToolsService,
-    (c) =>
-      new ToolsService(
+  container.registerSingleton(tokens.ToolsService, (c) => {
+    const governanceService = new GovernanceService(
+      c.resolve(tokens.AgentManager),
+      c.resolve(tokens.QuestionService)
+    );
+    return new ToolsService(
+      new AgentToolsService(
         c.resolve(tokens.AgentManager),
         c.resolve(tokens.ToolManager),
+        governanceService,
         c.resolve(tokens.McpGateway)
-      )
-  );
+      ),
+      governanceService
+    );
+  });
   container.registerSingleton(
     tokens.ConfigService,
     (c) =>

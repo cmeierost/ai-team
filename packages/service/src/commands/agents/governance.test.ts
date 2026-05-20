@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  assertDefaultGovernancePolicy,
-  isDefaultGovernanceActor,
-  requireUserApproval,
-} from './governance.js';
+import type { IAgentManager } from '@ai-team/core';
+import { GovernanceService } from './governance.js';
 
 function actor(role: string, id = role): any {
   return {
@@ -13,28 +10,48 @@ function actor(role: string, id = role): any {
   };
 }
 
+function createMockAgentManager(): IAgentManager {
+  return {
+    resolveAgentForOperationAsync: vi.fn(),
+    getAgentAsync: vi.fn(),
+  } as any;
+}
+
 describe('governance policy', () => {
   it('allows CEO and HR Director by default', () => {
-    expect(isDefaultGovernanceActor(actor('ceo', 'michael-brown'))).toBe(true);
-    expect(isDefaultGovernanceActor(actor('hr-director', 'emily-davis'))).toBe(true);
+    const service = new GovernanceService(createMockAgentManager(), {} as any);
+    expect(service.isDefaultGovernanceActor(actor('ceo', 'michael-brown'))).toBe(true);
+    expect(service.isDefaultGovernanceActor(actor('hr-director', 'emily-davis'))).toBe(true);
   });
 
   it('denies other roles by default', () => {
-    expect(isDefaultGovernanceActor(actor('chief-architect', 'sarah-lee'))).toBe(false);
-    expect(() => assertDefaultGovernancePolicy(actor('chief-architect', 'sarah-lee'))).toThrow(
-      /Only CEO and HR Director are allowed by default/,
-    );
+    const service = new GovernanceService(createMockAgentManager(), {} as any);
+    expect(service.isDefaultGovernanceActor(actor('chief-architect', 'sarah-lee'))).toBe(false);
+    expect(() =>
+      service.assertDefaultGovernancePolicy(actor('chief-architect', 'sarah-lee'))
+    ).toThrow(/Only CEO and HR Director are allowed by default/);
   });
 
   it('requires explicit user approval', async () => {
-    await expect(requireUserApproval({
-      requestedBy: 'emily-davis',
-      confirmUserApproval: vi.fn().mockResolvedValue(true),
-    }, 'approve?')).resolves.toBeUndefined();
+    const service = new GovernanceService(createMockAgentManager(), {} as any);
+    await expect(
+      service.requireUserApproval(
+        {
+          requestedBy: 'emily-davis',
+          confirmUserApproval: vi.fn().mockResolvedValue(true),
+        },
+        'approve?'
+      )
+    ).resolves.toBeUndefined();
 
-    await expect(requireUserApproval({
-      requestedBy: 'emily-davis',
-      confirmUserApproval: vi.fn().mockResolvedValue(false),
-    }, 'approve?')).rejects.toThrow(/denied by user approval/i);
+    await expect(
+      service.requireUserApproval(
+        {
+          requestedBy: 'emily-davis',
+          confirmUserApproval: vi.fn().mockResolvedValue(false),
+        },
+        'approve?'
+      )
+    ).rejects.toThrow(/denied by user approval/i);
   });
 });

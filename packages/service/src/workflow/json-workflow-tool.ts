@@ -13,14 +13,12 @@
 
 import { z } from 'zod';
 import type { ExecutionContext } from '@ai-team/core';
+import type { IWorkflowRunnerFactory } from './runner.js';
 import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
-import { runWorkflowAsync } from './runner.js';
-import type { WorkflowDefinition } from './types.js';
-import type { IWorkflowDefinitionProvider } from '../commands/workflow/workflow-tools.command.js';
-import { getServiceContainer } from '../service-registry.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
-// ─── JSON schema for the file format ────────────────────────────────────────
+import type { WorkflowDefinition } from './types.js';
+
+import type { IWorkflowDefinitionProvider } from '../commands/workflow/workflow-tools.command.js';
 
 const JsonWorkflowChoiceSchema = z.object({
   name: z.string(),
@@ -100,7 +98,10 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
   readonly permissionCheck = { type: 'none' as const };
   readonly parameters = z.object({});
 
-  constructor(private readonly definition: JsonWorkflow) {
+  constructor(
+    private readonly definition: JsonWorkflow,
+    private readonly runnerFactory: IWorkflowRunnerFactory
+  ) {
     this.key = definition.id;
     this.name = definition.name;
     this.description = definition.description;
@@ -215,11 +216,14 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
 
     const workflowDef: WorkflowDefinition<WorkflowState> = {
       id: def.id,
+      description: def.description,
+      availableIn: {},
       steps: runtimeSteps,
     };
 
-    const questionService = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.QuestionService);
-    const result = await runWorkflowAsync(workflowDef, initialState, context, questionService);
+    const result = await this.runnerFactory.create().run(workflowDef, initialState, {
+      executionContext: context,
+    });
 
     return {
       type: 'json_workflow_result',

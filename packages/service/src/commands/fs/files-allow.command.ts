@@ -2,10 +2,7 @@ import { z } from 'zod';
 import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
 import { FileTreeService, type PathMode } from './file-tree.js';
 import type { IQuestionService } from '../../questions/question-service.js';
-import {
-  resolveRequestedByFromRuntime,
-  confirmGovernanceActionFromRuntime,
-} from '../agents/governance.js';
+import { GovernanceService } from '../agents/governance.js';
 
 type Params = z.infer<typeof FilesAllowCommand.schema>;
 type Result = { paths: string[] };
@@ -28,7 +25,8 @@ export class FilesAllowCommand implements ICommand<Params, Result> {
 
   constructor(
     private readonly fileTreeService: FileTreeService,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IQuestionService,
+    private readonly governanceService: GovernanceService
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<Result>> {
@@ -38,8 +36,7 @@ export class FilesAllowCommand implements ICommand<Params, Result> {
         : 'read';
 
     if (payload.agent) {
-      const requestedBy = await resolveRequestedByFromRuntime(
-        this.questionService,
+      const requestedBy = await this.governanceService.resolveRequestedByFromRuntime(
         ctx,
         payload.requestedBy,
         'requestedBy is required for agent governance'
@@ -50,8 +47,7 @@ export class FilesAllowCommand implements ICommand<Params, Result> {
         {
           requestedBy,
           confirmUserApproval: (msg: string) =>
-            confirmGovernanceActionFromRuntime(
-              this.questionService,
+            this.governanceService.confirmGovernanceActionFromRuntime(
               ctx,
               payload.approvedByUser,
               msg

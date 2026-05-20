@@ -98,6 +98,10 @@ export interface ExecutionContext {
   /** Workflow identifier when invocation is workflow-bound. */
   workflowId?: string;
   workflowInstanceId?: string;
+  /** Current workflow step being executed. */
+  stepId?: string;
+  /** Result payload from the last completed workflow step — used by workflowInputBindings. */
+  workflowLastResult?: unknown;
   /** Abort signal from the calling surface. */
   signal?: AbortSignal;
 
@@ -172,43 +176,23 @@ export type CommandResponse<T = unknown> = {
   error?: CommandResponseError;
 };
 
-// ── ICommand ──────────────────────────────────────────────────────────────────
+// ── ICommandDescriptor ────────────────────────────────────────────────────────
 
 /**
- * The single primitive for every callable capability in the system.
+ * Shared metadata surface carried by every command and workflow definition.
  *
- * `availableIn` flags are the only thing that determines where it is exposed:
- *   - `availableIn.cli`  → CLI subcommand
- *   - `availableIn.chat` → chat slash command (/ prefix in interactive sessions)
- *   - `availableIn.cliChat` → chat slash command available only in CLI sessions
- *   - `availableIn.llm`  → LLM-callable tool (requires `parameters`)
+ * `description` and `availableIn` are required — every discoverable capability
+ * must be described and declare where it is exposed.
  *
- * Generics:
- *   - TParams  — typed input arguments (unknown by default)
- *   - TResult  — return type (must always be specified explicitly)
- *   - TCtx     — execution context type (defaults to ExecutionContext; use ToolContext for LLM tools)
- *
- * Services are injected via constructor. `execute` receives only typed params
- * and the serializable context.
+ * Extend this interface rather than duplicating fields when a non-command concept
+ * (e.g. WorkflowDefinition) needs to be registered as a command or participate
+ * in discovery surfaces.
  */
-export interface ICommand<TParams = unknown, TResult = unknown> {
-  // ── Metadata ────────────────────────────────────────────────────────────────
-  readonly key: string;
-  /**
-   * Optional pre-LLM intent matcher for text-triggered routing.
-   * When absent, the runtime falls back to explicit tool/function calls.
-   */
-  matchesIntent?: ToolIntentMatcher;
-  readonly aliases?: string[];
-
+export interface ICommandDescriptor<TParams = unknown, TResult = unknown> {
   /** Human-readable description. Shown in /help, --help, and discovery surfaces. */
   readonly description: string;
 
-  /**
-   * CLI routing info. Required when availableIn.cli = true.
-   * `command` is the Commander word (e.g. 'can'); `parentKey` places it under a sub-group (e.g. 'access').
-   */
-  readonly cli?: { command: string; parentKey?: string };
+  readonly availableIn: CommandAvailability;
 
   /**
    * Short one-sentence description for LLM tool discovery.
@@ -220,10 +204,15 @@ export interface ICommand<TParams = unknown, TResult = unknown> {
   readonly path?: string[];
 
   readonly usage?: string;
-  readonly availableIn: CommandAvailability;
 
   /** Logical group (e.g. 'fs', 'hr', 'team', 'session'). */
   readonly group?: string;
+
+  /**
+   * CLI routing info. Required when availableIn.cli = true.
+   * `command` is the Commander word (e.g. 'can'); `parentKey` places it under a sub-group (e.g. 'access').
+   */
+  readonly cli?: { command: string; parentKey?: string };
 
   /**
    * Zod schema for the command's parameters.
@@ -256,6 +245,37 @@ export interface ICommand<TParams = unknown, TResult = unknown> {
    * When defined, the LLM receives the formatted value; the raw result is still persisted.
    */
   formatForLlm?(result: TResult): unknown;
+}
+
+// ── ICommand ──────────────────────────────────────────────────────────────────
+
+/**
+ * The single primitive for every callable capability in the system.
+ *
+ * Extends `ICommandDescriptor` with the execution contract (`key` + `execute`).
+ *
+ * `availableIn` flags are the only thing that determines where it is exposed:
+ *   - `availableIn.cli`  → CLI subcommand
+ *   - `availableIn.chat` → chat slash command (/ prefix in interactive sessions)
+ *   - `availableIn.cliChat` → chat slash command available only in CLI sessions
+ *   - `availableIn.llm`  → LLM-callable tool (requires `parameters`)
+ *
+ * Generics:
+ *   - TParams  — typed input arguments (unknown by default)
+ *   - TResult  — return type (must always be specified explicitly)
+ *
+ * Services are injected via constructor. `execute` receives only typed params
+ * and the serializable context.
+ */
+export interface ICommand<TParams = unknown, TResult = unknown>
+  extends ICommandDescriptor<TParams, TResult> {
+  readonly key: string;
+  /**
+   * Optional pre-LLM intent matcher for text-triggered routing.
+   * When absent, the runtime falls back to explicit tool/function calls.
+   */
+  matchesIntent?: ToolIntentMatcher;
+  readonly aliases?: string[];
 
   // ── Execution ────────────────────────────────────────────────────────────────
   execute(params: TParams, ctx: ExecutionContext): Promise<CommandResponse<TResult>>;
