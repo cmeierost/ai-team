@@ -74,7 +74,6 @@ export class InfoChatCommand implements ICommand<string, Agent[]> {
         message: `Multiple agents match "${query}". Which one?`,
         choices: agents.map((a) => ({ name: `${a.name} — ${a.role} [${a.id}]`, value: a.id })),
       },
-      ctx
     );
     const selected = await this.agentManager.getAgentAsync(chosen);
     if (!selected) {

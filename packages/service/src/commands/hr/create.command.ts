@@ -40,11 +40,11 @@ export class CreateICommand implements ICommand<Params, void> {
       emit: ctx.emit,
       workflowState: ctx.workflowState as InteractionContext['workflowState'],
       onWorkflowFrame: ctx.onWorkflowFrame,
-      questionInput: (request) => this.questionService.input(request, ctx),
-      questionConfirm: (request) => this.questionService.confirm(request, ctx),
-      questionSelect: (request) => this.questionService.select(request, ctx),
-      questionPassword: (request) => this.questionService.password(request, ctx),
-      questionChecklist: (request) => this.questionService.checklist(request, ctx),
+      questionInput: (request) => this.questionService.input(request),
+      questionConfirm: (request) => this.questionService.confirm(request),
+      questionSelect: (request) => this.questionService.select(request),
+      questionPassword: (request) => this.questionService.password(request),
+      questionChecklist: (request) => this.questionService.checklist(request),
     };
 
     const { type, ...options } = payload;

@@ -46,8 +46,7 @@ export class CodeEditApplyCommand implements ICommand<
       {
         message: `Apply ${proposal.changes.length} file change(s) from proposal ${payload.proposalId.substring(0, 12)}...?`,
         default: false,
-      },
-      ctx
+      }
     );
     if (!confirmed) {
       return {

@@ -48,11 +48,32 @@ import {
 } from '../init/template-utils.js';
 import {
   type InitRuntimeHooks,
-  requestInput,
-  requestConfirm,
-  requestSelect,
 } from '../init/workflow-questions.js';
 import type { IQuestionService } from '../../questions/question-service.js';
+
+function requestSelect(
+  hooks: InitRuntimeHooks | undefined,
+  request: { message: string; choices: Array<{ name: string; value: string }> }
+): Promise<string> {
+  if (!hooks?.questionSelect) return Promise.resolve(request.choices[0]?.value ?? '');
+  return hooks.questionSelect(request);
+}
+
+function requestInput(
+  hooks: InitRuntimeHooks | undefined,
+  request: { message: string; validate?: (value: string) => true | string }
+): Promise<string> {
+  if (!hooks?.questionInput) return Promise.resolve('');
+  return hooks.questionInput(request);
+}
+
+function requestConfirm(
+  hooks: InitRuntimeHooks | undefined,
+  request: { message: string; default?: boolean }
+): Promise<boolean> {
+  if (!hooks?.questionConfirm) return Promise.resolve(request.default ?? false);
+  return hooks.questionConfirm(request);
+}
 import { pickAgentName } from '../init/name-picking.js';
 import { createAgentFile } from '../init/agent-file.js';
 import { saveOnboardingTranscriptAsync } from '../init/onboarding-docs.js';
@@ -165,11 +186,11 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
     return {
       signal: runtime.signal,
       emit: runtime.emit,
-       input: (request, context) => this.questionService.input(request),
-       confirm: (request, context) => this.questionService.confirm(request),
-       select: (request, context) => this.questionService.select(request),
-       password: (request, context) => this.questionService.password(request),
-       checklist: (request, context) => this.questionService.checklist(request),
+      questionInput: (request) => this.questionService.input(request),
+      questionConfirm: (request) => this.questionService.confirm(request),
+      questionSelect: (request) => this.questionService.select(request),
+      questionPassword: (request) => this.questionService.password(request),
+      questionChecklist: (request) => this.questionService.checklist(request),
       workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
       onWorkflowFrame: runtime.onWorkflowFrame,
     };

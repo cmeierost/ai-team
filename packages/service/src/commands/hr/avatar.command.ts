@@ -106,8 +106,7 @@ export class AvatarCommand implements ICommand<Params, void> {
                 return 'Please enter a valid URL';
               }
             },
-          },
-          context
+          }
         );
       }
 
@@ -173,8 +172,7 @@ export class AvatarCommand implements ICommand<Params, void> {
       {
         message: 'Avatar source:',
         choices,
-      },
-      context
+      }
     )) as AvatarSource['type'];
   }
 
@@ -191,8 +189,7 @@ export class AvatarCommand implements ICommand<Params, void> {
       {
         message: 'Select random avatar source:',
         choices,
-      },
-      context
+      }
     );
 
     return Number.parseInt(selected, 10);
@@ -220,8 +217,7 @@ export class AvatarCommand implements ICommand<Params, void> {
         {
           message: 'Select image generation provider:',
           choices,
-        },
-        context
+        }
       );
 
       selectedProvider = imageCapableProviders.find(([name]) => name === selectedName)!;
@@ -243,8 +239,7 @@ export class AvatarCommand implements ICommand<Params, void> {
         {
           message: 'Select image model:',
           choices,
-        },
-        context
+        }
       );
 
       selectedModelName = imageModels[selectedKey];
@@ -258,8 +253,7 @@ export class AvatarCommand implements ICommand<Params, void> {
     const promptValue = await this.questionService.input(
       {
         message: 'Avatar generation prompt (press Enter to use default):',
-      },
-      context
+      }
     );
 
     return {
@@ -308,8 +302,7 @@ export class AvatarCommand implements ICommand<Params, void> {
           {
             message: 'Do you like this avatar?',
             default: true,
-          },
-          context
+          }
         );
 
         if (approved) return true;
@@ -324,8 +317,7 @@ export class AvatarCommand implements ICommand<Params, void> {
           {
             message: 'Try again?',
             default: true,
-          },
-          context
+          }
         );
 
         if (!retry) return false;

@@ -6,7 +6,6 @@
  */
 
 import type { QuestionConfirmRequest } from '@ai-team/api-contracts';
-import type { ExecutionContext } from '@ai-team/core';
 import type { IQuestionService } from '../questions/question-service.js';
 
 // ── Tick helper — drains pending log events before prompting ─────────────────
@@ -18,9 +17,8 @@ const tick = () => new Promise<void>((r) => setImmediate(r));
 
 export async function requestConfirm(
   questionService: IQuestionService,
-  request: QuestionConfirmRequest,
-  context: ExecutionContext
+  request: QuestionConfirmRequest
 ): Promise<boolean> {
   await tick();
-  return questionService.confirm(request, context);
+  return questionService.confirm(request);
 }

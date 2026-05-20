@@ -45,7 +45,7 @@ import { buildDefaultTurnResultParsers } from '../../orchestrator/defaults/turn-
 import { SlashCommandDispatcher } from '../../orchestrator/slash-command-dispatcher.js';
 import { ToolDispatcher } from '../../orchestrator/tool-dispatch.js';
 import { HandoffOrchestrator } from '../../orchestrator/handoff.js';
-import { type IQuestionService, InteractionQuestionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 import { WorkflowIntentProvider } from '../../tools/workflow-intent-provider.js';
 import {
   buildDynamicSlashCatalog,
@@ -219,7 +219,7 @@ export class ChatCommand {
         options,
         hooks,
         markdownSectionService,
-        questionService,
+        serviceContainer,
       });
 
       const { ctx, orchestrator } = await this.buildOrchestrator({
@@ -273,7 +273,7 @@ export class ChatCommand {
     options: ChatCommandOptions;
     hooks: ChatRuntimeHooks;
     markdownSectionService: Pick<IMarkdownSectionService, 'parseMarkdownSections'>;
-    questionService: IQuestionService;
+    serviceContainer: IServiceContainer;
   }): Promise<{
     developerName: string;
     agent: Agent;
@@ -283,8 +283,9 @@ export class ChatCommand {
     history: ChatMessage[];
     loadSessionMessagesCommand: LoadSessionMessagesCommand;
   }> {
-    const { workspaceRoot, agentId, options, hooks, markdownSectionService, questionService } =
+    const { workspaceRoot, agentId, options, hooks, markdownSectionService, serviceContainer } =
       params;
+    const runnerFactory = serviceContainer.resolve(COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory);
     const { developerName, agent, resolveChatSessionCommand, loadSessionMessagesCommand } =
       await this.resolveAgentAndIdentity(workspaceRoot, agentId, hooks);
 
@@ -324,7 +325,7 @@ export class ChatCommand {
         loadSessionMessagesCommand,
       },
       workflowContext,
-      questionService
+      runnerFactory
     );
     const currentSessionId = startup.sessionId;
     const history = startup.history;

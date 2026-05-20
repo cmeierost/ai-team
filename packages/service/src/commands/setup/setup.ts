@@ -105,9 +105,9 @@ export class SetupCommand {
 
   private buildLlmSettingsIo(context: ExecutionContext | undefined): LlmSettingsIo {
     return {
-      select: (request) => this.questionService.select(request, context as ExecutionContext),
-      input: (request) => this.questionService.input(request, context as ExecutionContext),
-      password: (request) => this.questionService.password(request, context as ExecutionContext),
+      select: (request) => this.questionService.select(request),
+      input: (request) => this.questionService.input(request),
+      password: (request) => this.questionService.password(request),
       writeLine: (message) => this.writeLine(context, message),
       writeWarn: (message) => this.writeWarn(context, message),
     };
@@ -203,8 +203,7 @@ export class SetupCommand {
           : `OpenAI-compatible (${existingResolvedLlm.config.baseUrl ?? 'custom base URL'})`;
       this.writeLine(context, `LLM already configured: ${providerLabel}`);
       const reconfigure = await this.questionService.confirm(
-        { message: 'Reconfigure LLM connection?', default: false },
-        context
+        { message: 'Reconfigure LLM connection?', default: false }
       );
       if (!reconfigure) {
         this.writeLine(context, 'Keeping existing LLM configuration.');
@@ -237,8 +236,7 @@ export class SetupCommand {
       : '';
     this.writeLine(context, `  Current LLM: ${providerLabel}${providerRefSuffix}`);
     const reuse = await this.questionService.confirm(
-      { message: 'Reuse existing default LLM connection?', default: true },
-      context
+      { message: 'Reuse existing default LLM connection?', default: true }
     );
     if (!reuse) {
       const llmConfig = await askLlmSetup(

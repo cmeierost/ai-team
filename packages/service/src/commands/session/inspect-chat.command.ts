@@ -72,8 +72,7 @@ export class InspectChatCommand implements ICommand<string, string> {
           message: `Select a tool call to inspect (${allCalls.length} total):`,
           choices,
           default: '0',
-        },
-        ctx
+        }
       );
       selected = allCalls[Number.parseInt(picked, 10)];
     }

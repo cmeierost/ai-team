@@ -158,8 +158,7 @@ export class ToolDispatcher {
         message: `Allow ${ctx.agent!.name} to run ${label}?`,
         default: false,
         style: 'allow',
-      },
-      ctx
+      }
     );
     if (approved) return undefined;
 

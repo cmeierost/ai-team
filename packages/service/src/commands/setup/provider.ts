@@ -96,7 +96,7 @@ async function providerConfigureCommandAsync(
   ) {
     const keep = await questionService.confirm({
       message: `Current default provider is '${currentDefault.ref}' (${currentDefault.config.kind}). Keep it?`,
-    }, ctx);
+    });
     if (keep) {
       const keepSetup: ProviderSetupResult = {
         providerRef: currentDefault.ref,
@@ -198,7 +198,7 @@ async function providerAddCommandAsync(
   if (options.setup === undefined && options.makeDefault === undefined) {
     makeDefault = await questionService.confirm({
       message: `Make '${setup.providerRef}' the default provider?`,
-    }, ctx);
+    });
   }
 
   const next = applyProviderConfiguration(existing, setup, makeDefault);
@@ -401,7 +401,7 @@ async function askProviderSetupAsync(
         ? 'Which provider should be configured as default?'
         : 'Which provider do you want to add?',
     choices: PROVIDER_KIND_CHOICES,
-  }, ctx);
+  });
 
   if (providerKind === 'github-copilot') {
     return askGitHubCopilotSetupAsync(existing, questionService, ctx, modelDiscoveryRegistry);
@@ -433,13 +433,13 @@ async function askGitHubCopilotSetupAsync(
           { name: 'Claude Sonnet 4', value: 'claude-sonnet-4' },
         ];
 
-  const model = await questionService.select({ message: 'Which model?', choices: modelChoices }, ctx);
+  const model = await questionService.select({ message: 'Which model?', choices: modelChoices });
 
   const suggestedRef = buildProviderRef({ provider: 'github-copilot', model }, existing);
   const providerRef = await questionService.input({
     message: 'Provider reference key (used in config.providers):',
     validate: validateProviderRef,
-  }, ctx);
+  });
 
   const providerConfig: LlmProviderConfig = {
     kind: 'github-copilot',
@@ -460,7 +460,7 @@ async function askOpenAiCompatibleSetupAsync(
   ctx: ExecutionContext,
   environmentStorage: IEnvironmentStorage
 ): Promise<ProviderSetupResult> {
-  const preset = await questionService.select({ message: 'Which service?', choices: PRESET_CHOICES }, ctx);
+  const preset = await questionService.select({ message: 'Which service?', choices: PRESET_CHOICES });
   const presetInfo = PRESETS[preset];
 
   let baseUrl: string;
@@ -475,7 +475,7 @@ async function askOpenAiCompatibleSetupAsync(
           return 'Please enter a valid URL';
         }
       },
-    }, ctx);
+    });
   } else {
     baseUrl = presetInfo.baseUrl;
   }
@@ -488,11 +488,11 @@ async function askOpenAiCompatibleSetupAsync(
     modelChoices.push({ name: 'Other (type manually)', value: '__custom__' });
   }
 
-  const modelChoice = await questionService.select({ message: 'Which model?', choices: modelChoices }, ctx);
+  const modelChoice = await questionService.select({ message: 'Which model?', choices: modelChoices });
 
   const model =
     modelChoice === '__custom__'
-      ? await questionService.input({ message: 'Model name:' }, ctx)
+      ? await questionService.input({ message: 'Model name:' })
       : modelChoice === '(uses loaded model)'
         ? ''
         : modelChoice;
@@ -505,7 +505,7 @@ async function askOpenAiCompatibleSetupAsync(
   const providerRef = await questionService.input({
     message: 'Provider reference key (used in config.providers):',
     validate: validateProviderRef,
-  }, ctx);
+  });
 
   const needsKey = presetInfo ? presetInfo.needsKey : true;
   let apiKeyEnvVar: string | undefined;
@@ -524,29 +524,29 @@ async function askOpenAiCompatibleSetupAsync(
       validate: (value: string) =>
         /^[A-Z_][A-Z0-9_]*$/.test(value.trim()) ||
         'Use uppercase letters, numbers, and underscores only.',
-    }, ctx);
+    });
     apiKeyEnvVar = apiKeyEnvVar || defaultEnvVar;
 
     const existingValue = envVars[apiKeyEnvVar];
     if (existingValue) {
       const useExisting = await questionService.confirm({
         message: `Use existing value for ${apiKeyEnvVar} from .ai-team/.env?`,
-      }, ctx);
+      });
 
       if (!useExisting) {
         apiKey = await questionService.password({
           message: `New value for ${apiKeyEnvVar}:`,
-        }, ctx);
+        });
       }
     } else {
       const saveNow = await questionService.confirm({
         message: `No value for ${apiKeyEnvVar} found in .ai-team/.env. Save one now?`,
-      }, ctx);
+      });
 
       if (saveNow) {
         apiKey = await questionService.password({
           message: `Value for ${apiKeyEnvVar}:`,
-        }, ctx);
+        });
       }
     }
   }
