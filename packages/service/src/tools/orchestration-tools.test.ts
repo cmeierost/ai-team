@@ -1,19 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AskUserCommand } from '../commands/com/ask.command.js';
+import { InteractionQuestionService } from '../questions/question-service.js';
 
 function makeContext(overrides: Record<string, unknown> = {}) {
   return {
     agentId: 'michael-brown',
     workspaceRoot: 'c:/workspace',
     agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo', systemPrompt: '' },
+    history: [],
     ...overrides,
   } as any;
 }
 
 describe('AskUserCommand', () => {
   it('passes workflow metadata through in tool result payload', async () => {
-    const command = new AskUserCommand();
     const questionInput = vi.fn(async () => 'approved');
+    const questionService = new InteractionQuestionService({
+      questionInput,
+      questionConfirm: vi.fn(async () => true),
+      questionSelect: vi.fn(async () => ''),
+      questionPassword: vi.fn(async () => ''),
+      questionChecklist: vi.fn(async () => []),
+    });
+    const command = new AskUserCommand(questionService);
 
     const result = await command.execute(
       {
@@ -26,28 +35,37 @@ describe('AskUserCommand', () => {
           continuationToken: 'cont-abc',
         },
       },
-      makeContext({ questionInput }),
-      { invocationSurface: 'tool', workspaceRoot: 'c:/workspace', agentId: 'michael-brown' }
+      makeContext()
     );
 
     expect(result).toEqual(
       expect.objectContaining({
-        type: 'com_ask_result',
-        kind: 'input',
-        answer: 'approved',
-        workflow: {
-          workflowId: 'wf-1',
-          stepId: 'step-2',
-          questionId: 'q-2',
-          continuationToken: 'cont-abc',
-        },
+        status: 'ok',
+        data: expect.objectContaining({
+          type: 'com_ask_result',
+          kind: 'input',
+          answer: 'approved',
+          workflow: {
+            workflowId: 'wf-1',
+            stepId: 'step-2',
+            questionId: 'q-2',
+            continuationToken: 'cont-abc',
+          },
+        }),
       })
     );
   });
 
   it('falls back to questionInput for select when questionSelect is missing', async () => {
-    const command = new AskUserCommand();
     const questionInput = vi.fn(async () => 'ai-team-context');
+    const questionService = new InteractionQuestionService({
+      questionInput,
+      questionConfirm: vi.fn(async () => true),
+      questionSelect: undefined,
+      questionPassword: vi.fn(async () => ''),
+      questionChecklist: vi.fn(async () => []),
+    });
+    const command = new AskUserCommand(questionService);
 
     const result = await command.execute(
       {
@@ -58,19 +76,32 @@ describe('AskUserCommand', () => {
           { name: 'Tooling', value: 'tooling' },
         ],
       },
-      makeContext({ questionInput }),
-      { invocationSurface: 'tool', workspaceRoot: 'c:/workspace', agentId: 'michael-brown' }
+      makeContext()
     );
 
     expect(questionInput).toHaveBeenCalledTimes(1);
     expect(result).toEqual(
-      expect.objectContaining({ type: 'com_ask_result', kind: 'select', answer: 'ai-team-context' })
+      expect.objectContaining({
+        status: 'ok',
+        data: expect.objectContaining({
+          type: 'com_ask_result',
+          kind: 'select',
+          answer: 'ai-team-context',
+        }),
+      })
     );
   });
 
   it('falls back to questionInput for checklist when questionChecklist is missing', async () => {
-    const command = new AskUserCommand();
     const questionInput = vi.fn(async () => 'a, c');
+    const questionService = new InteractionQuestionService({
+      questionInput,
+      questionConfirm: vi.fn(async () => true),
+      questionSelect: vi.fn(async () => ''),
+      questionPassword: vi.fn(async () => ''),
+      questionChecklist: undefined,
+    });
+    const command = new AskUserCommand(questionService);
 
     const result = await command.execute(
       {
@@ -82,18 +113,31 @@ describe('AskUserCommand', () => {
           { name: 'C', value: 'c' },
         ],
       },
-      makeContext({ questionInput }),
-      { invocationSurface: 'tool', workspaceRoot: 'c:/workspace', agentId: 'michael-brown' }
+      makeContext()
     );
 
     expect(result).toEqual(
-      expect.objectContaining({ type: 'com_ask_result', kind: 'checklist', answer: ['a', 'c'] })
+      expect.objectContaining({
+        status: 'ok',
+        data: expect.objectContaining({
+          type: 'com_ask_result',
+          kind: 'checklist',
+          answer: ['a', 'c'],
+        }),
+      })
     );
   });
 
   it('falls back to questionInput for confirm when questionConfirm is missing', async () => {
-    const command = new AskUserCommand();
     const questionInput = vi.fn(async () => 'yes');
+    const questionService = new InteractionQuestionService({
+      questionInput,
+      questionConfirm: undefined,
+      questionSelect: vi.fn(async () => ''),
+      questionPassword: vi.fn(async () => ''),
+      questionChecklist: vi.fn(async () => []),
+    });
+    const command = new AskUserCommand(questionService);
 
     const result = await command.execute(
       {
@@ -101,12 +145,18 @@ describe('AskUserCommand', () => {
         message: 'Proceed?',
         defaultBoolean: false,
       },
-      makeContext({ questionInput }),
-      { invocationSurface: 'tool', workspaceRoot: 'c:/workspace', agentId: 'michael-brown' }
+      makeContext()
     );
 
     expect(result).toEqual(
-      expect.objectContaining({ type: 'com_ask_result', kind: 'confirm', answer: true })
+      expect.objectContaining({
+        status: 'ok',
+        data: expect.objectContaining({
+          type: 'com_ask_result',
+          kind: 'confirm',
+          answer: true,
+        }),
+      })
     );
   });
 });

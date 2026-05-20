@@ -16,119 +16,14 @@ import type {
   IModelDiscoveryRegistry,
   ILlmProviderTester,
   IDeveloperIdentityService,
+  ExecutionContext,
 } from '@ai-team/core';
 import type { SetupOptions } from '@ai-team/api-contracts';
 import { resolveEffectiveLlmSettings } from '@ai-team/core';
 import { updateWorkspaceSettings } from '../init/update-workspace-settings.js';
 import { updateGitignore } from '../init/update-gitignore.js';
 import { askLlmSetup, type LlmSetupResult, type LlmSettingsIo } from '../init/llm-settings.js';
-import {
-  type InitRuntimeHooks,
-  requestInput,
-  requestConfirm,
-  requestSelect,
-  requestPassword,
-} from '../init/workflow-questions.js';
-
-// ── Output helpers ────────────────────────────────────────────────────────────
-
-function writeLine(hooks: InitRuntimeHooks | undefined, message: string) {
-  hooks?.emit?.({ kind: 'log', level: 'info', message });
-  if (!hooks?.emit) {
-    process.stdout.write(`${message}\n`);
-  }
-}
-
-function writeWarn(hooks: InitRuntimeHooks | undefined, message: string) {
-  hooks?.emit?.({ kind: 'log', level: 'warn', message });
-  if (!hooks?.emit) {
-    process.stdout.write(`${message}\n`);
-  }
-}
-
-function writeError(hooks: InitRuntimeHooks | undefined, message: string) {
-  hooks?.emit?.({ kind: 'log', level: 'error', message });
-  if (!hooks?.emit) {
-    process.stderr.write(`${message}\n`);
-  }
-}
-
-function buildLlmSettingsIo(hooks: InitRuntimeHooks | undefined): LlmSettingsIo {
-  return {
-    select: (request) => requestSelect(hooks, request),
-    input: (request) => requestInput(hooks, request),
-    password: (request) => requestPassword(hooks, request),
-    writeLine: (message) => writeLine(hooks, message),
-    writeWarn: (message) => writeWarn(hooks, message),
-  };
-}
-
-// ── Config builders ───────────────────────────────────────────────────────────
-
-const DEFAULT_SKILL_SOURCES = ['https://github.com/anthropics/skills'];
-
-function inferDefaultProviderRef(setup: LlmSetupResult): string {
-  if (setup.provider === 'github-copilot') return 'copilot';
-  const baseUrl = setup.baseUrl?.toLowerCase() ?? '';
-  if (baseUrl.includes('api.openai.com')) return 'openai';
-  if (baseUrl.includes('localhost')) return 'local';
-  return 'personal-openai';
-}
-
-function buildProviderRegistrationFromSetup(setup: LlmSetupResult): {
-  providerRef: string;
-  providerEntry: NonNullable<TeamConfig['providers']>[string];
-  defaultModel?: NonNullable<TeamConfig['defaultModel']>;
-} {
-  const providerRef = setup.providerRef || inferDefaultProviderRef(setup);
-  const apiKeyEnvVar = setup.apiKeyEnvVar || (setup.apiKey ? 'AI_TEAM_LLM_API_KEY' : undefined);
-
-  const providerEntry: NonNullable<TeamConfig['providers']>[string] =
-    setup.provider === 'github-copilot'
-      ? {
-          kind: 'github-copilot',
-          ...(setup.model ? { defaultModel: setup.model } : {}),
-          ...(setup.model ? { models: [{ name: setup.model }] } : {}),
-        }
-      : {
-          kind: 'openai-compatible',
-          ...(setup.baseUrl ? { baseUrl: setup.baseUrl } : {}),
-          ...(setup.model ? { defaultModel: setup.model } : {}),
-          ...(setup.model ? { models: [{ name: setup.model }] } : {}),
-          ...(apiKeyEnvVar ? { apiKeyEnvVar } : {}),
-        };
-
-  return {
-    providerRef,
-    providerEntry,
-    ...(setup.model ? { defaultModel: { provider: providerRef, model: setup.model } } : {}),
-  };
-}
-
-function buildUserConfigFromSetup(
-  setup: LlmSetupResult,
-  developerIdentityService: IDeveloperIdentityService
-): UserConfig {
-  const gitDeveloperName = developerIdentityService.getUserName();
-  const registration = buildProviderRegistrationFromSetup(setup);
-
-  return {
-    ...(gitDeveloperName
-      ? {
-          developer: {
-            id: developerIdentityService.toDeveloperId(gitDeveloperName),
-            name: gitDeveloperName,
-          },
-        }
-      : {}),
-    defaultModel: registration.defaultModel,
-    providers: {
-      [registration.providerRef]: registration.providerEntry,
-    },
-  };
-}
-
-// ── Main command ──────────────────────────────────────────────────────────────
+import type { IQuestionService } from '../../questions/question-service.js';
 
 export interface SetupCommandParams {
   workspaceRoot: string;
@@ -136,84 +31,203 @@ export interface SetupCommandParams {
 }
 
 export class SetupCommand {
+  private static readonly DEFAULT_SKILL_SOURCES = ['https://github.com/anthropics/skills'];
+
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
     private readonly environmentStorage: IEnvironmentStorage,
     private readonly workspaceStorage: IWorkspaceStorage,
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
     private readonly llmProviderTester: ILlmProviderTester,
-    private readonly developerIdentityService: IDeveloperIdentityService
+    private readonly developerIdentityService: IDeveloperIdentityService,
+    private readonly questionService: IQuestionService
   ) {}
 
-  async execute(params: SetupCommandParams, hooks?: InitRuntimeHooks): Promise<void> {
-    return setupCommandAsync(
-      params.workspaceRoot,
-      params.options,
-      hooks,
-      this.configurationStorage,
-      this.environmentStorage,
-      this.workspaceStorage,
-      this.modelDiscoveryRegistry,
-      this.llmProviderTester,
-      this.developerIdentityService
-    );
+  async execute(params: SetupCommandParams, context: ExecutionContext): Promise<void> {
+    await this.runSetup(params.workspaceRoot, params.options, context);
   }
 
   async executeAsync(
     workspaceRoot: string,
     options?: SetupOptions,
-    hooks?: InitRuntimeHooks
+    context?: ExecutionContext
   ): Promise<void> {
-    return this.execute({ workspaceRoot, options }, hooks);
-  }
-}
-
-async function setupCommandAsync(
-  workspaceRoot: string,
-  options?: SetupOptions,
-  hooks?: InitRuntimeHooks,
-  configurationStorage?: IConfigurationStorage,
-  environmentStorage?: IEnvironmentStorage,
-  workspaceStorage?: IWorkspaceStorage,
-  modelDiscoveryRegistry?: IModelDiscoveryRegistry,
-  llmProviderTester?: ILlmProviderTester,
-  developerIdentityService?: IDeveloperIdentityService
-) {
-  const existingConfig = await configurationStorage!.loadTeamConfigAsync(workspaceRoot);
-
-  // Check if already configured
-  let reusedExistingLlm = false;
-  let llmConfig: LlmSetupResult;
-  let existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined;
-
-  try {
-    if (existingConfig) {
-      existingResolvedLlm = resolveEffectiveLlmSettings(existingConfig);
-    }
-  } catch {
-    existingResolvedLlm = undefined;
+    await this.execute({ workspaceRoot, options }, context as ExecutionContext);
   }
 
-  if (existingResolvedLlm && !options?.force) {
-    const providerLabel =
-      existingResolvedLlm.config.provider === 'github-copilot'
-        ? 'GitHub Copilot'
-        : `OpenAI-compatible (${existingResolvedLlm.config.baseUrl ?? 'custom base URL'})`;
+  private async runSetup(
+    workspaceRoot: string,
+    options: SetupOptions | undefined,
+    context: ExecutionContext
+  ): Promise<void> {
+    const { existingConfig, existingResolvedLlm } = await this.loadExistingLlmState(workspaceRoot);
+    const { llmConfig, reusedExistingLlm } = await this.resolveLlmConfig(
+      workspaceRoot,
+      options,
+      context,
+      existingResolvedLlm
+    );
+    const { safeLlmConfig, apiKey } = await this.persistLlmConfig(
+      workspaceRoot,
+      context,
+      existingConfig,
+      llmConfig,
+      reusedExistingLlm
+    );
 
-    writeLine(hooks, `LLM already configured: ${providerLabel}`);
-    const reconfigure = await requestConfirm(hooks, {
-      message: 'Reconfigure LLM connection?',
-      default: false,
-    });
+    await updateWorkspaceSettings(workspaceRoot);
+    await updateGitignore(workspaceRoot);
 
-    if (!reconfigure) {
-      writeLine(hooks, 'Keeping existing LLM configuration.');
-      return;
+    this.renderConfigSummary(context, llmConfig, apiKey);
+    await this.testLlmConnection(context, safeLlmConfig, apiKey);
+  }
+
+  private writeLine(context: ExecutionContext | undefined, message: string) {
+    context?.emit?.({ kind: 'log', level: 'info', message } as any);
+    if (!context?.emit) {
+      process.stdout.write(`${message}\n`);
     }
   }
 
-  // If force + existing config, offer to reuse
-  if (options?.force && existingResolvedLlm) {
+  private writeWarn(context: ExecutionContext | undefined, message: string) {
+    context?.emit?.({ kind: 'log', level: 'warn', message } as any);
+    if (!context?.emit) {
+      process.stdout.write(`${message}\n`);
+    }
+  }
+
+  private writeError(context: ExecutionContext | undefined, message: string) {
+    context?.emit?.({ kind: 'log', level: 'error', message } as any);
+    if (!context?.emit) {
+      process.stderr.write(`${message}\n`);
+    }
+  }
+
+  private buildLlmSettingsIo(context: ExecutionContext | undefined): LlmSettingsIo {
+    return {
+      select: (request) => this.questionService.select(request, context as ExecutionContext),
+      input: (request) => this.questionService.input(request, context as ExecutionContext),
+      password: (request) => this.questionService.password(request, context as ExecutionContext),
+      writeLine: (message) => this.writeLine(context, message),
+      writeWarn: (message) => this.writeWarn(context, message),
+    };
+  }
+
+  private static inferDefaultProviderRef(setup: LlmSetupResult): string {
+    if (setup.provider === 'github-copilot') return 'copilot';
+    const baseUrl = setup.baseUrl?.toLowerCase() ?? '';
+    if (baseUrl.includes('api.openai.com')) return 'openai';
+    if (baseUrl.includes('localhost')) return 'local';
+    return 'personal-openai';
+  }
+
+  private static buildProviderRegistrationFromSetup(setup: LlmSetupResult): {
+    providerRef: string;
+    providerEntry: NonNullable<TeamConfig['providers']>[string];
+    defaultModel?: NonNullable<TeamConfig['defaultModel']>;
+  } {
+    const providerRef = setup.providerRef || SetupCommand.inferDefaultProviderRef(setup);
+    const apiKeyEnvVar = setup.apiKeyEnvVar || (setup.apiKey ? 'AI_TEAM_LLM_API_KEY' : undefined);
+
+    const providerEntry: NonNullable<TeamConfig['providers']>[string] =
+      setup.provider === 'github-copilot'
+        ? {
+            kind: 'github-copilot',
+            ...(setup.model ? { defaultModel: setup.model } : {}),
+            ...(setup.model ? { models: [{ name: setup.model }] } : {}),
+          }
+        : {
+            kind: 'openai-compatible',
+            ...(setup.baseUrl ? { baseUrl: setup.baseUrl } : {}),
+            ...(setup.model ? { defaultModel: setup.model } : {}),
+            ...(setup.model ? { models: [{ name: setup.model }] } : {}),
+            ...(apiKeyEnvVar ? { apiKeyEnvVar } : {}),
+          };
+
+    return {
+      providerRef,
+      providerEntry,
+      ...(setup.model ? { defaultModel: { provider: providerRef, model: setup.model } } : {}),
+    };
+  }
+
+  private static buildUserConfigFromSetup(
+    setup: LlmSetupResult,
+    developerIdentityService: IDeveloperIdentityService
+  ): UserConfig {
+    const gitDeveloperName = developerIdentityService.getUserName();
+    const registration = SetupCommand.buildProviderRegistrationFromSetup(setup);
+
+    return {
+      ...(gitDeveloperName
+        ? {
+            developer: {
+              id: developerIdentityService.toDeveloperId(gitDeveloperName),
+              name: gitDeveloperName,
+            },
+          }
+        : {}),
+      defaultModel: registration.defaultModel,
+      providers: {
+        [registration.providerRef]: registration.providerEntry,
+      },
+    };
+  }
+
+  private async loadExistingLlmState(workspaceRoot: string): Promise<{
+    existingConfig: TeamConfig | undefined;
+    existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined;
+  }> {
+    const existingConfig = await this.configurationStorage.loadTeamConfigAsync(workspaceRoot);
+    let existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined;
+    try {
+      if (existingConfig) {
+        existingResolvedLlm = resolveEffectiveLlmSettings(existingConfig);
+      }
+    } catch {
+      existingResolvedLlm = undefined;
+    }
+    return { existingConfig, existingResolvedLlm };
+  }
+
+  private async resolveLlmConfig(
+    workspaceRoot: string,
+    options: SetupOptions | undefined,
+    context: ExecutionContext,
+    existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined
+  ): Promise<{ llmConfig: LlmSetupResult; reusedExistingLlm: boolean }> {
+    if (existingResolvedLlm && !options?.force) {
+      const providerLabel =
+        existingResolvedLlm.config.provider === 'github-copilot'
+          ? 'GitHub Copilot'
+          : `OpenAI-compatible (${existingResolvedLlm.config.baseUrl ?? 'custom base URL'})`;
+      this.writeLine(context, `LLM already configured: ${providerLabel}`);
+      const reconfigure = await this.questionService.confirm(
+        { message: 'Reconfigure LLM connection?', default: false },
+        context
+      );
+      if (!reconfigure) {
+        this.writeLine(context, 'Keeping existing LLM configuration.');
+        return { llmConfig: existingResolvedLlm.config, reusedExistingLlm: true };
+      }
+    }
+
+    if (options?.force && existingResolvedLlm) {
+      return this.resolveWithReuse(workspaceRoot, context, existingResolvedLlm);
+    }
+
+    const llmConfig = await askLlmSetup(
+      this.buildLlmSettingsIo(context),
+      this.modelDiscoveryRegistry
+    );
+    return { llmConfig, reusedExistingLlm: false };
+  }
+
+  private async resolveWithReuse(
+    workspaceRoot: string,
+    context: ExecutionContext,
+    existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings>
+  ): Promise<{ llmConfig: LlmSetupResult; reusedExistingLlm: boolean }> {
     const providerLabel =
       existingResolvedLlm.config.provider === 'github-copilot'
         ? 'GitHub Copilot'
@@ -221,136 +235,150 @@ async function setupCommandAsync(
     const providerRefSuffix = existingResolvedLlm.providerRef
       ? ` [${existingResolvedLlm.providerRef}]`
       : '';
+    this.writeLine(context, `  Current LLM: ${providerLabel}${providerRefSuffix}`);
+    const reuse = await this.questionService.confirm(
+      { message: 'Reuse existing default LLM connection?', default: true },
+      context
+    );
+    if (!reuse) {
+      const llmConfig = await askLlmSetup(
+        this.buildLlmSettingsIo(context),
+        this.modelDiscoveryRegistry
+      );
+      return { llmConfig, reusedExistingLlm: false };
+    }
 
-    writeLine(hooks, `  Current LLM: ${providerLabel}${providerRefSuffix}`);
-    const reuse = await requestConfirm(hooks, {
-      message: 'Reuse existing default LLM connection?',
-      default: true,
-    });
-
-    if (reuse) {
-      if (existingResolvedLlm.config.provider === 'openai-compatible') {
-        const envVars = await environmentStorage!.loadEnvFileAsync(workspaceRoot);
-        const keyEnvVar = existingResolvedLlm.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-        const existingKey =
-          envVars[keyEnvVar] ||
-          envVars['AI_TEAM_LLM_API_KEY'] ||
-          envVars['LLM_API_KEY'] ||
-          envVars['OPENAI_API_KEY'];
-        if (existingKey) {
-          llmConfig = {
-            ...existingResolvedLlm.config,
-            providerRef: existingResolvedLlm.providerRef,
-            apiKeyEnvVar: keyEnvVar,
-            apiKey: existingKey,
-          };
-          reusedExistingLlm = true;
-          writeLine(hooks, 'Reusing existing OpenAI-compatible configuration.');
-        } else {
-          writeWarn(hooks, 'No API key found; re-running setup...');
-          llmConfig = await askLlmSetup(buildLlmSettingsIo(hooks), modelDiscoveryRegistry!);
-        }
-      } else {
-        llmConfig = {
+    if (existingResolvedLlm.config.provider === 'openai-compatible') {
+      const envVars = await this.environmentStorage.loadEnvFileAsync(workspaceRoot);
+      const keyEnvVar = existingResolvedLlm.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
+      const existingKey =
+        envVars[keyEnvVar] ||
+        envVars['AI_TEAM_LLM_API_KEY'] ||
+        envVars['LLM_API_KEY'] ||
+        envVars['OPENAI_API_KEY'];
+      if (existingKey) {
+        const llmConfig: LlmSetupResult = {
           ...existingResolvedLlm.config,
           providerRef: existingResolvedLlm.providerRef,
+          apiKeyEnvVar: keyEnvVar,
+          apiKey: existingKey,
         };
-        reusedExistingLlm = true;
-        writeLine(hooks, 'Reusing existing GitHub Copilot configuration.');
+        this.writeLine(context, 'Reusing existing OpenAI-compatible configuration.');
+        return { llmConfig, reusedExistingLlm: true };
       }
-    } else {
-      llmConfig = await askLlmSetup(buildLlmSettingsIo(hooks), modelDiscoveryRegistry!);
+      this.writeWarn(context, 'No API key found; re-running setup...');
+      const llmConfig = await askLlmSetup(
+        this.buildLlmSettingsIo(context),
+        this.modelDiscoveryRegistry
+      );
+      return { llmConfig, reusedExistingLlm: false };
     }
-  } else {
-    llmConfig = await askLlmSetup(buildLlmSettingsIo(hooks), modelDiscoveryRegistry!);
+
+    const llmConfig: LlmSetupResult = {
+      ...existingResolvedLlm.config,
+      providerRef: existingResolvedLlm.providerRef,
+    };
+    this.writeLine(context, 'Reusing existing GitHub Copilot configuration.');
+    return { llmConfig, reusedExistingLlm: true };
   }
 
-  // Ensure directory and save config
-  await workspaceStorage!.ensureAiTeamDirectoryAsync(workspaceRoot);
-
-  const registration = buildProviderRegistrationFromSetup(llmConfig);
-  const {
-    apiKey,
-    providerRef: _providerRef,
-    apiKeyEnvVar: _apiKeyEnvVar,
-    ...safeLlmConfig
-  } = llmConfig;
-  const teamConfig: TeamConfig = existingConfig
-    ? {
-        ...existingConfig,
-        llm: safeLlmConfig,
-        providers: existingConfig.providers
-          ? {
-              ...existingConfig.providers,
-              [registration.providerRef]: registration.providerEntry,
-            }
-          : {
-              [registration.providerRef]: registration.providerEntry,
-            },
-        defaultModel: registration.defaultModel ?? existingConfig.defaultModel,
-        skillSources: existingConfig.skillSources?.length
-          ? existingConfig.skillSources
-          : DEFAULT_SKILL_SOURCES,
-      }
-    : {
-        version: '0.1.0',
-        randomAvatarUrls: [],
-        llm: safeLlmConfig,
-        providers: {
-          [registration.providerRef]: registration.providerEntry,
-        },
-        defaultModel: registration.defaultModel,
-        skillSources: DEFAULT_SKILL_SOURCES,
-      };
-  await configurationStorage!.saveTeamConfigAsync(workspaceRoot, teamConfig);
-
-  if (apiKey && !reusedExistingLlm) {
-    await environmentStorage!.saveEnvFileAsync(workspaceRoot, {
-      [llmConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY']: apiKey,
-    });
+  private async persistLlmConfig(
+    workspaceRoot: string,
+    context: ExecutionContext,
+    existingConfig: TeamConfig | undefined,
+    llmConfig: LlmSetupResult,
+    reusedExistingLlm: boolean
+  ): Promise<{
+    safeLlmConfig: Omit<LlmSetupResult, 'apiKey' | 'providerRef' | 'apiKeyEnvVar'>;
+    apiKey?: string;
+  }> {
+    await this.workspaceStorage.ensureAiTeamDirectoryAsync(workspaceRoot);
+    const registration = SetupCommand.buildProviderRegistrationFromSetup(llmConfig);
+    const {
+      apiKey,
+      providerRef: _providerRef,
+      apiKeyEnvVar: _apiKeyEnvVar,
+      ...safeLlmConfig
+    } = llmConfig;
+    const teamConfig: TeamConfig = existingConfig
+      ? {
+          ...existingConfig,
+          llm: safeLlmConfig,
+          providers: existingConfig.providers
+            ? {
+                ...existingConfig.providers,
+                [registration.providerRef]: registration.providerEntry,
+              }
+            : { [registration.providerRef]: registration.providerEntry },
+          defaultModel: registration.defaultModel ?? existingConfig.defaultModel,
+          skillSources: existingConfig.skillSources?.length
+            ? existingConfig.skillSources
+            : SetupCommand.DEFAULT_SKILL_SOURCES,
+        }
+      : {
+          version: '0.1.0',
+          randomAvatarUrls: [],
+          llm: safeLlmConfig,
+          providers: { [registration.providerRef]: registration.providerEntry },
+          defaultModel: registration.defaultModel,
+          skillSources: SetupCommand.DEFAULT_SKILL_SOURCES,
+        };
+    await this.configurationStorage.saveTeamConfigAsync(workspaceRoot, teamConfig);
+    if (apiKey && !reusedExistingLlm) {
+      await this.environmentStorage.saveEnvFileAsync(workspaceRoot, {
+        [llmConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY']: apiKey,
+      });
+    }
+    await this.configurationStorage.saveUserConfigAsync(
+      workspaceRoot,
+      SetupCommand.buildUserConfigFromSetup(llmConfig, this.developerIdentityService)
+    );
+    this.writeLine(context, 'Saved LLM configuration.');
+    return { safeLlmConfig, apiKey };
   }
 
-  await configurationStorage!.saveUserConfigAsync(
-    workspaceRoot,
-    buildUserConfigFromSetup(llmConfig, developerIdentityService!)
-  );
-  writeLine(hooks, 'Saved LLM configuration.');
-
-  await updateWorkspaceSettings(workspaceRoot);
-  await updateGitignore(workspaceRoot);
-
-  // Display config summary
-  writeLine(hooks, '');
-  writeLine(hooks, 'LLM Configuration:');
-  if (llmConfig.provider === 'github-copilot') {
-    writeLine(hooks, '  Provider: GitHub Copilot');
-    if (llmConfig.model) {
-      writeLine(hooks, `  Model:    ${llmConfig.model}`);
+  private renderConfigSummary(
+    context: ExecutionContext,
+    llmConfig: LlmSetupResult,
+    apiKey?: string
+  ): void {
+    this.writeLine(context, '');
+    this.writeLine(context, 'LLM Configuration:');
+    if (llmConfig.provider === 'github-copilot') {
+      this.writeLine(context, '  Provider: GitHub Copilot');
+      if (llmConfig.model) {
+        this.writeLine(context, `  Model:    ${llmConfig.model}`);
+      }
+      return;
     }
-  } else {
-    writeLine(hooks, '  Provider: OpenAI-compatible');
-    writeLine(hooks, `  Base URL: ${llmConfig.baseUrl}`);
+    this.writeLine(context, '  Provider: OpenAI-compatible');
+    this.writeLine(context, `  Base URL: ${llmConfig.baseUrl}`);
     if (llmConfig.model) {
-      writeLine(hooks, `  Model:    ${llmConfig.model}`);
+      this.writeLine(context, `  Model:    ${llmConfig.model}`);
     }
     const apiKeyStatus = apiKey
       ? `saved to .ai-team/.env (${llmConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY'})`
       : 'not set';
-    writeLine(hooks, `  API Key:  ${apiKeyStatus}`);
+    this.writeLine(context, `  API Key:  ${apiKeyStatus}`);
   }
 
-  // Test connection
-  writeLine(hooks, '');
-  writeLine(hooks, 'Testing LLM connection...');
-  try {
-    const reply = await llmProviderTester!.testLlmConnectionAsync(safeLlmConfig, apiKey);
-    writeLine(hooks, 'LLM connection working!');
-    writeLine(hooks, `  Response: ${reply}`);
-  } catch (testError) {
-    writeError(
-      hooks,
-      `LLM connection failed: ${testError instanceof Error ? testError.message : String(testError)}`
-    );
-    writeLine(hooks, '  You can retry later with: ait test-connection');
+  private async testLlmConnection(
+    context: ExecutionContext,
+    safeLlmConfig: Omit<LlmSetupResult, 'apiKey' | 'providerRef' | 'apiKeyEnvVar'>,
+    apiKey?: string
+  ): Promise<void> {
+    this.writeLine(context, '');
+    this.writeLine(context, 'Testing LLM connection...');
+    try {
+      const reply = await this.llmProviderTester.testLlmConnectionAsync(safeLlmConfig, apiKey);
+      this.writeLine(context, 'LLM connection working!');
+      this.writeLine(context, `  Response: ${reply}`);
+    } catch (testError) {
+      this.writeError(
+        context,
+        `LLM connection failed: ${testError instanceof Error ? testError.message : String(testError)}`
+      );
+      this.writeLine(context, '  You can retry later with: ait test-connection');
+    }
   }
 }

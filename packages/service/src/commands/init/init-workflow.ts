@@ -1,8 +1,10 @@
 import path from 'node:path';
-import type { InitOptions, InteractionContext } from '@ai-team/api-contracts';
+import type { InitOptions } from '@ai-team/api-contracts';
+import type { ExecutionContext } from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 import { runWorkflowAsync } from '../../workflow/runner.js';
 import type { WorkflowDefinition } from '../../workflow/types.js';
+import { InteractionQuestionService } from '../../questions/question-service.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 
 export interface InitWorkflowState {
@@ -27,7 +29,7 @@ interface OnboardExecutor {
 interface SetupExecutor {
   execute(
     params: { workspaceRoot: string; options?: { force?: boolean } },
-    context?: InitRuntimeHooks
+    context: ExecutionContext
   ): Promise<void>;
 }
 
@@ -135,9 +137,15 @@ export function createInitWorkflowDefinition(
         kind: 'action',
         skipWhen: (state) => state.shouldSkip,
         execute: async (state) => {
+          const ctx: ExecutionContext = {
+            workspaceRoot: state.workspaceRoot,
+            history: [],
+            signal: state.hooks?.signal,
+            emit: state.hooks?.emit as ((event: unknown) => void) | undefined,
+          };
           await deps.setup.execute(
             { workspaceRoot: state.workspaceRoot, options: { force: state.options.force } },
-            state.hooks
+            ctx
           );
           return state;
         },
@@ -198,9 +206,27 @@ export async function runInitWorkflowAsync(
     shouldClear: false,
   };
 
+  const executionCtx: ExecutionContext = {
+    workspaceRoot,
+    history: [],
+    signal: hooks?.signal,
+    emit: hooks?.emit as ((event: unknown) => void) | undefined,
+    workflowState: hooks?.workflowState,
+    onWorkflowFrame: hooks?.onWorkflowFrame as ((frame: unknown) => void) | undefined,
+  };
+
+  const questionService = new InteractionQuestionService({
+    questionInput: hooks?.questionInput,
+    questionConfirm: hooks?.questionConfirm,
+    questionSelect: hooks?.questionSelect,
+    questionPassword: hooks?.questionPassword,
+    questionChecklist: hooks?.questionChecklist,
+  });
+
   await runWorkflowAsync(
     createInitWorkflowDefinition(deps),
     initialState,
-    (hooks ?? {}) as InteractionContext
+    executionCtx,
+    questionService
   );
 }

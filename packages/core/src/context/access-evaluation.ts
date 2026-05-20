@@ -29,18 +29,10 @@ export function resolveWorkspacePathMeta(
 }
 
 export function checkPathRight(
-  workspaceRoot: string,
   pathPermissionChecker: IPathPermissionChecker,
   permissions: PermissionConfig | undefined,
   relativePath: string,
   right: Right
 ): boolean {
-  switch (right) {
-    case 'read':
-      return pathPermissionChecker.canReadPath(workspaceRoot, permissions, relativePath);
-    case 'write':
-      return pathPermissionChecker.canWritePath(workspaceRoot, permissions, relativePath);
-    case 'list':
-      return pathPermissionChecker.canListPath(workspaceRoot, permissions, relativePath);
-  }
+  return pathPermissionChecker.can(right, permissions, relativePath);
 }

@@ -1,8 +1,8 @@
-import fs from 'fs/promises';
-import path from 'path';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { ContextLevel, RoleType } from '@ai-team/core';
-import type { IAgentManager, IMarkdownSectionService } from '@ai-team/core';
-import type { HireOptions, InteractionContext } from '@ai-team/api-contracts';
+import type { IAgentManager, IMarkdownSectionService, ExecutionContext } from '@ai-team/core';
+import type { HireOptions } from '@ai-team/api-contracts';
 
 export function getPersonalityForHire(role: string, roleType: RoleType) {
   const r = role.toLowerCase();
@@ -62,20 +62,28 @@ export function getPersonalityForHire(role: string, roleType: RoleType) {
 
 export class HireCommand {
   constructor(
+    private readonly workspaceRoot: string,
     private readonly agentManager: IAgentManager,
     private readonly markdownSectionService: IMarkdownSectionService
   ) {}
 
-  async execute(options: HireOptions, context: InteractionContext = {}): Promise<void> {
-    return hireCommandImpl(this.agentManager, this.markdownSectionService, options, context);
+  async execute(options: HireOptions, ctx: ExecutionContext): Promise<void> {
+    return hireCommandImpl(
+      this.workspaceRoot,
+      this.agentManager,
+      this.markdownSectionService,
+      options,
+      ctx
+    );
   }
 }
 
 async function hireCommandImpl(
+  workspaceRoot: string,
   agentManager: IAgentManager,
   markdownSectionService: IMarkdownSectionService,
   options: HireOptions,
-  context: InteractionContext = {}
+  ctx: ExecutionContext
 ) {
   try {
     if (!options.name || !options.role) {
@@ -92,7 +100,6 @@ async function hireCommandImpl(
       features?: string[];
       specializations?: string[];
       pronouns?: string;
-      llm?: undefined;
       cliTools?: string[];
     } = {
       name: options.name,
@@ -101,17 +108,15 @@ async function hireCommandImpl(
       roleType: (options.type as RoleType) || RoleType.INDIVIDUAL_CONTRIBUTOR,
       contextLevel: ContextLevel.MODULE,
       reportsTo: options.reportsTo,
-      llm: undefined,
       cliTools: undefined,
     };
 
     const personalityPreset = getPersonalityForHire(config.role, config.roleType);
 
-    // Build structured markdown using the canonical layout
     const skillEntries: Array<{ name: string; body: string }> = [];
     if (config.selectedSkills.length > 0) {
       for (const skillName of config.selectedSkills) {
-        const content = await readSkillContent(agentManager.workspaceRoot, skillName);
+        const content = await readSkillContent(workspaceRoot, skillName);
         const body = content ? content.replace(/^---[\s\S]*?---\s*/, '').trim() : '';
         skillEntries.push({ name: skillName, body });
       }
@@ -121,40 +126,35 @@ async function hireCommandImpl(
       personalityProfile: personalityPreset.profile,
       skills: skillEntries.length > 0 ? skillEntries : undefined,
     });
-
-    try {
-      await agentManager.createAgentAsync(
-        {
-          name: config.name,
-          role: config.role,
-          type: config.roleType,
-          contextLevel: config.contextLevel,
-          reportsTo: config.reportsTo,
-          features: config.features,
-          specializations: config.specializations,
-          pronouns: config.pronouns,
-          personality: {
-            communication_style: personalityPreset.communication_style,
-            expertise_level: personalityPreset.expertise_level,
-            mentoring: personalityPreset.mentoring,
-          },
-          llm: config.llm,
-          cliTools: config.cliTools,
+    await agentManager.createAgentAsync(
+      {
+        name: config.name,
+        role: config.role,
+        type: config.roleType,
+        contextLevel: config.contextLevel,
+        reportsTo: config.reportsTo,
+        personality: {
+          communication_style: personalityPreset.communication_style,
+          expertise_level: personalityPreset.expertise_level,
+          mentoring: personalityPreset.mentoring,
         },
-        { markdown }
-      );
+        introduction: markdown,
+        specializations: config.specializations,
+        features: config.features,
+        pronouns: config.pronouns,
+        cliTools: config.cliTools,
+      },
+      { markdown }
+    );
 
-      context.emit?.({
-        kind: 'log',
-        level: 'info',
-        message: `✓ ${config.name} has been hired as ${config.role}.`,
-      });
+    ctx.emit?.({
+      kind: 'log',
+      level: 'info',
+      message: `✓ ${config.name} has been hired as ${config.role}.`,
+    });
 
-      if (config.reportsTo) {
-        await agentManager.getAgentAsync(config.reportsTo);
-      }
-    } catch (error) {
-      throw error;
+    if (config.reportsTo) {
+      await agentManager.getAgentAsync(config.reportsTo);
     }
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : `Error during hire: ${String(error)}`);

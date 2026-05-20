@@ -1,4 +1,5 @@
-import type { Agent, IAgentManager , ExecutionContext} from '@ai-team/core';
+import type { Agent, IAgentManager, ExecutionContext } from '@ai-team/core';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 export interface GovernanceRequest {
   /** Agent query (id/name) initiating the governance mutation. */
@@ -51,27 +52,27 @@ export async function requireUserApproval(
 // ── ExecutionContext bridges for ICommand execute methods ───────────────────────
 
 export async function resolveRequestedByFromRuntime(
+  questionService: IQuestionService,
+  context: ExecutionContext,
   requestedBy: string | undefined,
-  runtime: Pick<ExecutionContext, 'questionInput'>,
   errorMessage: string
 ): Promise<string> {
   const explicit = requestedBy?.trim();
   if (explicit) return explicit;
-  if (runtime.questionInput) {
-    const response = await runtime.questionInput({ message: 'Requested by (must be CEO/HR):' });
-    if (response.trim()) return response.trim();
-  }
+  const response = await questionService.input(
+    { message: 'Requested by (must be CEO/HR):' },
+    context
+  );
+  if (response.trim()) return response.trim();
   throw new Error(errorMessage);
 }
 
 export async function confirmGovernanceActionFromRuntime(
+  questionService: IQuestionService,
+  context: ExecutionContext,
   approvedByUser: boolean | undefined,
-  runtime: Pick<ExecutionContext, 'questionConfirm'>,
   message: string
 ): Promise<boolean> {
   if (typeof approvedByUser === 'boolean') return approvedByUser;
-  if (runtime.questionConfirm) {
-    return runtime.questionConfirm({ message, default: false });
-  }
-  return false;
+  return questionService.confirm({ message, default: false }, context);
 }

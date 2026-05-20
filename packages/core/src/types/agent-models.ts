@@ -72,7 +72,6 @@ export interface AgentSearchResult {
 }
 
 export interface IAgentManager {
-  readonly workspaceRoot: string;
   getAgentsAsync(): Promise<Map<string, Agent>>;
   refreshAsync(): Promise<void>;
   getAllAgentsAsync(): Promise<Agent[]>;

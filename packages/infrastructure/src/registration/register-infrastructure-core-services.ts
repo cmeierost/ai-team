@@ -17,7 +17,12 @@ import { registerAgentInfrastructureServices } from '../agent/register-agent-inf
 import { AvatarManager } from '../agent/avatar.js';
 import { CodeEditManager } from '../code-edit/index.js';
 import { TypeScriptAnalyzer } from '../code-analysis/typescript-analyzer.js';
-import { FileAnnotationServiceImpl, FileTreeServiceImpl, InfrastructureWorkspaceAccessRuntime, InfrastructureWorkspaceFsFactory } from '../context/index.js';
+import {
+  FileAnnotationServiceImpl,
+  FileTreeServiceImpl,
+  InfrastructureWorkspaceAccessRuntime,
+  InfrastructureWorkspaceFsFactory,
+} from '../context/index.js';
 import { InfrastructureIdeAdapterFactory } from '../ide/index.js';
 import { NoteAttachmentReader } from '../notes/note-attachment-reader.js';
 import { InfrastructureProposalStoreFactory } from '../storage/proposal-store.js';
@@ -66,7 +71,10 @@ export function registerInfrastructureCoreServices(
   container: IServiceContainerRegistrar,
   tokens: InfrastructureCoreRegistrationTokens
 ): void {
-  container.registerSingleton(tokens.SqliteBackend, (c) => new SqliteBackend(c.resolve(tokens.WorkspaceRoot)));
+  container.registerSingleton(
+    tokens.SqliteBackend,
+    (c) => new SqliteBackend(c.resolve(tokens.WorkspaceRoot))
+  );
   container.registerSingleton(tokens.NotesRepository, (c) => {
     const b = c.resolve(tokens.SqliteBackend);
     return new NotesRepository(c.resolve(tokens.WorkspaceRoot), b.ensureReadyAsync, b.getDb);
@@ -96,15 +104,28 @@ export function registerInfrastructureCoreServices(
       )
   );
 
-  container.registerSingleton(tokens.PathPermissionChecker, () => new PathPermissionChecker());
+  container.registerSingleton(
+    tokens.PathPermissionChecker,
+    (c) => new PathPermissionChecker(c.resolve(tokens.WorkspaceRoot))
+  );
   container.registerSingleton(
     tokens.DeveloperIdentityService,
-    (c) => new DeveloperIdentityService(c.resolve(tokens.WorkspaceRoot), c.resolve(tokens.ConfigurationStorage))
+    (c) =>
+      new DeveloperIdentityService(
+        c.resolve(tokens.WorkspaceRoot),
+        c.resolve(tokens.ConfigurationStorage)
+      )
   );
   container.registerSingleton(tokens.SystemInfoService, () => new SystemInfoService());
-  container.registerSingleton(tokens.PermissionStorage, (c) => new PermFileRegistry(c.resolve(tokens.WorkspaceRoot)));
+  container.registerSingleton(
+    tokens.PermissionStorage,
+    (c) => new PermFileRegistry(c.resolve(tokens.WorkspaceRoot))
+  );
   container.registerSingleton(tokens.ModelDiscoveryRegistry, () => createModelDiscoveryRegistry());
-  container.registerSingleton(tokens.LlmProviderTester, (c) => new LlmProviderTester(c.resolve(tokens.EnvironmentStorage)));
+  container.registerSingleton(
+    tokens.LlmProviderTester,
+    (c) => new LlmProviderTester(c.resolve(tokens.EnvironmentStorage))
+  );
 
   registerAgentInfrastructureServices(container, {
     WorkspaceRoot: tokens.WorkspaceRoot,
@@ -116,18 +137,45 @@ export function registerInfrastructureCoreServices(
     SkillManager: tokens.SkillManager,
   });
 
-  container.registerSingleton(tokens.AvatarManager, (c) => new AvatarManager(c.resolve(tokens.AgentDocumentStorage)));
+  container.registerSingleton(
+    tokens.AvatarManager,
+    (c) => new AvatarManager(c.resolve(tokens.AgentDocumentStorage))
+  );
   container.registerSingleton(tokens.CodeEditManager, () => new CodeEditManager());
   container.registerSingleton(tokens.TypeScriptAnalyzer, () => new TypeScriptAnalyzer());
   container.registerSingleton(tokens.FileAnnotationService, () => new FileAnnotationServiceImpl());
   container.registerSingleton(tokens.FileTreeService, () => new FileTreeServiceImpl());
-  container.registerSingleton(tokens.IdeAdapterFactory, () => new InfrastructureIdeAdapterFactory());
-  container.registerSingleton(tokens.WorkspaceAccessRuntime, () => new InfrastructureWorkspaceAccessRuntime());
-  container.registerSingleton(tokens.WorkspaceFsFactory, () => new InfrastructureWorkspaceFsFactory());
+  container.registerSingleton(
+    tokens.IdeAdapterFactory,
+    () => new InfrastructureIdeAdapterFactory()
+  );
+  container.registerSingleton(
+    tokens.WorkspaceAccessRuntime,
+    () => new InfrastructureWorkspaceAccessRuntime()
+  );
+  container.registerSingleton(
+    tokens.WorkspaceFsFactory,
+    (c) => new InfrastructureWorkspaceFsFactory(c.resolve(tokens.WorkspaceRoot))
+  );
   container.registerSingleton(tokens.NoteAttachmentReader, () => new NoteAttachmentReader());
-  container.registerSingleton(tokens.ProposalStoreFactory, () => new InfrastructureProposalStoreFactory());
-  container.registerSingleton(tokens.TextToolCallParser, () => new InfrastructureTextToolCallParser());
-  container.registerSingleton(tokens.ChatStorage, (c) => new ChatStorage(c.resolve(tokens.WorkspaceRoot)));
-  container.registerSingleton(tokens.ChatManager, (c) => new ChatManager(c.resolve(tokens.ChatStorage), c.resolve(tokens.WorkspaceRoot)));
-  container.registerSingleton(tokens.TeamGraphBuilder, (c) => new TeamGraphBuilder(c.resolve(tokens.AgentManager)));
+  container.registerSingleton(
+    tokens.ProposalStoreFactory,
+    () => new InfrastructureProposalStoreFactory()
+  );
+  container.registerSingleton(
+    tokens.TextToolCallParser,
+    () => new InfrastructureTextToolCallParser()
+  );
+  container.registerSingleton(
+    tokens.ChatStorage,
+    (c) => new ChatStorage(c.resolve(tokens.WorkspaceRoot))
+  );
+  container.registerSingleton(
+    tokens.ChatManager,
+    (c) => new ChatManager(c.resolve(tokens.ChatStorage), c.resolve(tokens.WorkspaceRoot))
+  );
+  container.registerSingleton(
+    tokens.TeamGraphBuilder,
+    (c) => new TeamGraphBuilder(c.resolve(tokens.AgentManager))
+  );
 }

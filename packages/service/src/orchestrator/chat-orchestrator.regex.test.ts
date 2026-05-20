@@ -7,30 +7,15 @@ vi.mock('../workflow/send-turn-machine.js', () => ({
   })),
 }));
 
-vi.mock('./tool-dispatch.js', () => ({
-  dispatchToolCall: vi.fn(async () => ({
-    toolCallId: 'regex-intent-test',
-    toolName: 'fs_tree',
-    result: { ok: true },
-    isError: false,
-  })),
-}));
-
 import { XStateChatOrchestrator } from './xstate-chat-orchestrator';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
-import { dispatchToolCall } from './tool-dispatch.js';
 import type { ResolvedPlugins } from './pipeline.js';
+import { ToolSerializationService } from './services/tool-serialization-service.js';
+import { EmitService } from './services/emit-service.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
+import { setServiceContainer } from '../service-registry.js';
 
-type OrchestratorCtor = new (
-  ctx: ExecutionContext,
-  plugins: ResolvedPlugins
-) => {
-  run(options: { message: string; contextFiles?: string[]; maxHops?: number }): Promise<string>;
-};
-
-const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: OrchestratorCtor }> = [
-  { name: 'xstate-drop-in', Orchestrator: XStateChatOrchestrator },
-];
+const serialization = new ToolSerializationService();
 
 function makeContext(): ExecutionContext {
   const appendMessage = vi.fn(async () => null);
@@ -68,7 +53,7 @@ function makeContext(): ExecutionContext {
     },
   ];
 
-  return {
+  const ctx = {
     agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
@@ -79,7 +64,20 @@ function makeContext(): ExecutionContext {
     skillManager: {} as any,
     llmService: {} as any,
     history: [],
-  };
+  } as ExecutionContext;
+
+  const emitService = new EmitService();
+  emitService.setDefaultEmitter(ctx.hooks.emit as any);
+  setServiceContainer({
+    resolve: (token: { id?: string }) => {
+      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
+        return emitService;
+      }
+      throw new Error(`Unexpected token: ${String(token?.id)}`);
+    },
+  } as any);
+
+  return ctx;
 }
 
 function makePlugins(): ResolvedPlugins {
@@ -97,22 +95,39 @@ function makePlugins(): ResolvedPlugins {
   };
 }
 
-describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
-  'ChatOrchestrator regex tool intents [$name]',
-  ({ Orchestrator }) => {
-    beforeEach(() => {
-      vi.clearAllMocks();
-    });
+describe('ChatOrchestrator regex tool intents', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
     it('runs fs_tree before LLM for file-visibility requests', async () => {
       const ctx = makeContext();
       const plugins = makePlugins();
-      const orchestrator = new Orchestrator(ctx, plugins);
+      const toolDispatcher = {
+        dispatch: vi.fn(async () => ({
+          toolCallId: 'regex-intent-test',
+          toolName: 'fs_tree',
+          result: { ok: true },
+          isError: false,
+        })),
+      } as any;
+      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+      const orchestrator = new XStateChatOrchestrator(
+        ctx,
+        plugins,
+        toolDispatcher,
+        handoffOrchestrator,
+        ctx.hooks as any,
+        ctx.agentManager as any,
+        ctx.sessionManager as any,
+        ctx.llmService as any,
+        serialization
+      );
 
       const result = await orchestrator.run({ message: 'show your visible file tree' });
 
       expect(result).toBe('llm-called');
-      expect(dispatchToolCall).toHaveBeenCalledWith(
+      expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'fs_tree',
           args: { path: '.', maxDepth: 6, includeHidden: true },
@@ -143,7 +158,26 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
     it('passes contextFiles to regex tool intents', async () => {
       const ctx = makeContext();
       const plugins = makePlugins();
-      const orchestrator = new Orchestrator(ctx, plugins);
+      const toolDispatcher = {
+        dispatch: vi.fn(async () => ({
+          toolCallId: 'regex-intent-test',
+          toolName: 'fs_tree',
+          result: { ok: true },
+          isError: false,
+        })),
+      } as any;
+      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+      const orchestrator = new XStateChatOrchestrator(
+        ctx,
+        plugins,
+        toolDispatcher,
+        handoffOrchestrator,
+        ctx.hooks as any,
+        ctx.agentManager as any,
+        ctx.sessionManager as any,
+        ctx.llmService as any,
+        serialization
+      );
 
       const result = await orchestrator.run({
         message: 'show your visible file tree',
@@ -151,7 +185,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
       });
 
       expect(result).toBe('llm-called');
-      expect(dispatchToolCall).toHaveBeenCalledWith(
+      expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'fs_tree',
           args: { path: '.', maxDepth: 6, includeHidden: true },
@@ -165,12 +199,31 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
     it('runs tool_list before LLM for tool-capability requests', async () => {
       const ctx = makeContext();
       const plugins = makePlugins();
-      const orchestrator = new Orchestrator(ctx, plugins);
+      const toolDispatcher = {
+        dispatch: vi.fn(async () => ({
+          toolCallId: 'regex-intent-test',
+          toolName: 'tool_list',
+          result: { ok: true },
+          isError: false,
+        })),
+      } as any;
+      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+      const orchestrator = new XStateChatOrchestrator(
+        ctx,
+        plugins,
+        toolDispatcher,
+        handoffOrchestrator,
+        ctx.hooks as any,
+        ctx.agentManager as any,
+        ctx.sessionManager as any,
+        ctx.llmService as any,
+        serialization
+      );
 
       const result = await orchestrator.run({ message: 'what tools can you use?' });
 
       expect(result).toBe('llm-called');
-      expect(dispatchToolCall).toHaveBeenCalledWith(
+      expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'tool_list',
           args: {},
@@ -184,7 +237,24 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
     it('falls through to LLM turn when no regex intent matches', async () => {
       const ctx = makeContext();
       const plugins = makePlugins();
-      const orchestrator = new Orchestrator(ctx, plugins);
+      const toolDispatcher = { dispatch: vi.fn(async () => ({
+        toolCallId: 'regex-intent-test',
+        toolName: 'tool_list',
+        result: { ok: true },
+        isError: false,
+      })) } as any;
+      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+      const orchestrator = new XStateChatOrchestrator(
+        ctx,
+        plugins,
+        toolDispatcher,
+        handoffOrchestrator,
+        ctx.hooks as any,
+        ctx.agentManager as any,
+        ctx.sessionManager as any,
+        ctx.llmService as any,
+        serialization
+      );
 
       const result = await orchestrator.run({ message: 'help me refactor this module' });
 
@@ -195,12 +265,29 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
     it('runs team_list before LLM for employee-list questions', async () => {
       const ctx = makeContext();
       const plugins = makePlugins();
-      const orchestrator = new Orchestrator(ctx, plugins);
+      const toolDispatcher = { dispatch: vi.fn(async () => ({
+        toolCallId: 'regex-intent-test',
+        toolName: 'team_list',
+        result: { ok: true },
+        isError: false,
+      })) } as any;
+      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+      const orchestrator = new XStateChatOrchestrator(
+        ctx,
+        plugins,
+        toolDispatcher,
+        handoffOrchestrator,
+        ctx.hooks as any,
+        ctx.agentManager as any,
+        ctx.sessionManager as any,
+        ctx.llmService as any,
+        serialization
+      );
 
       const result = await orchestrator.run({ message: 'what employees do we have?' });
 
       expect(result).toBe('llm-called');
-      expect(dispatchToolCall).toHaveBeenCalledWith(
+      expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'team_list',
           args: {},
@@ -214,12 +301,29 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
     it('matches team roster phrasing variants', async () => {
       const ctx = makeContext();
       const plugins = makePlugins();
-      const orchestrator = new Orchestrator(ctx, plugins);
+      const toolDispatcher = { dispatch: vi.fn(async () => ({
+        toolCallId: 'regex-intent-test',
+        toolName: 'team_list',
+        result: { ok: true },
+        isError: false,
+      })) } as any;
+      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+      const orchestrator = new XStateChatOrchestrator(
+        ctx,
+        plugins,
+        toolDispatcher,
+        handoffOrchestrator,
+        ctx.hooks as any,
+        ctx.agentManager as any,
+        ctx.sessionManager as any,
+        ctx.llmService as any,
+        serialization
+      );
 
       const result = await orchestrator.run({ message: 'who is on the team?' });
 
       expect(result).toBe('llm-called');
-      expect(dispatchToolCall).toHaveBeenCalledWith(
+      expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'team_list',
           args: {},
@@ -263,7 +367,8 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         },
       ]);
 
-      (dispatchToolCall as any)
+      const toolDispatcher = { dispatch: vi.fn() } as any;
+      toolDispatcher.dispatch
         .mockImplementationOnce(async () => ({
           toolCallId: 'pre-llm-intent-ask-1',
           toolName: 'com_ask',
@@ -278,17 +383,28 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         }));
 
       const plugins = makePlugins();
-      const orchestrator = new Orchestrator(ctx, plugins);
+      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+      const orchestrator = new XStateChatOrchestrator(
+        ctx,
+        plugins,
+        toolDispatcher,
+        handoffOrchestrator,
+        ctx.hooks as any,
+        ctx.agentManager as any,
+        ctx.sessionManager as any,
+        ctx.llmService as any,
+        serialization
+      );
       const result = await orchestrator.run({ message: 'show structure please' });
 
       expect(result).toBe('llm-called');
-      expect(dispatchToolCall).toHaveBeenNthCalledWith(
+      expect(toolDispatcher.dispatch).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({ toolName: 'com_ask' }),
         ctx,
         undefined
       );
-      expect(dispatchToolCall).toHaveBeenNthCalledWith(
+      expect(toolDispatcher.dispatch).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({
           toolName: 'fs_tree',
@@ -299,5 +415,4 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
       );
       expect(runSendTurnMachineAsync).toHaveBeenCalled();
     });
-  }
-);
+});

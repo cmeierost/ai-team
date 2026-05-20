@@ -90,11 +90,7 @@ export interface IWorkspaceFs {
 }
 
 export interface IWorkspaceFsFactory {
-  create(
-    workspaceRoot: string,
-    agentId: string,
-    permissions: PermissionConfig | undefined
-  ): Promise<IWorkspaceFs>;
+  create(agentId: string, permissions: PermissionConfig | undefined): Promise<IWorkspaceFs>;
 }
 
 export interface IFileTreeService {

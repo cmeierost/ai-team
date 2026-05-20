@@ -261,7 +261,7 @@ export class FileAnnotationServiceImpl implements IFileAnnotationService {
 
 export class FileTreeServiceImpl implements IFileTreeService {
   getCachedFileTree(workspaceRoot: string, options?: GetFileTreeOptions): Promise<FileTreeNode> {
-    return getCachedFileTree(workspaceRoot, options ?? {}) as Promise<FileTreeNode>;
+    return getCachedFileTree(workspaceRoot, options ?? {});
   }
 }
 
@@ -289,11 +289,9 @@ export class InfrastructureWorkspaceAccessRuntime implements IWorkspaceAccessRun
 }
 
 export class InfrastructureWorkspaceFsFactory implements IWorkspaceFsFactory {
-  async create(
-    workspaceRoot: string,
-    agentId: string,
-    permissions: PermissionConfig | undefined
-  ): Promise<IWorkspaceFs> {
-    return createWorkspaceFs(workspaceRoot, agentId, permissions) as unknown as IWorkspaceFs;
+  constructor(private readonly workspaceRoot: string) {}
+
+  async create(agentId: string, permissions: PermissionConfig | undefined): Promise<IWorkspaceFs> {
+    return createWorkspaceFs(this.workspaceRoot, agentId, permissions);
   }
 }

@@ -1,6 +1,12 @@
-import type { ExecutionContext } from '@ai-team/core';
+import type { ExecutionContext, ILlmService } from '@ai-team/core';
 import { describe, expect, it, vi } from 'vitest';
-import { dispatchToolCall } from './tool-dispatch.js';
+import { ToolDispatcher } from './tool-dispatch.js';
+import { ToolDispatchSupportService } from './services/tool-dispatch-support-service.js';
+import { ToolSerializationService } from './services/tool-serialization-service.js';
+import { InteractionQuestionService } from '../questions/question-service.js';
+import { EmitService } from './services/emit-service.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
+import { setServiceContainer } from '../service-registry.js';
 
 function makeContext(overrides?: Partial<ExecutionContext>): ExecutionContext {
   const base: ExecutionContext = {
@@ -8,23 +14,40 @@ function makeContext(overrides?: Partial<ExecutionContext>): ExecutionContext {
     workspaceRoot: 'c:/workspace',
     sessionId: 'sess-1',
     history: [],
-    hooks: {
-      emit: vi.fn(),
-      questionConfirm: vi.fn(async () => true),
-    },
-    toolManager: {
-      get: vi.fn(() => undefined),
-      execute: vi.fn(async () => ({ ok: true, result: { ok: true } })),
-    } as any,
-    sessionManager: {
-      appendMessage: vi.fn(async () => undefined),
-    } as any,
-    agentManager: {} as any,
-    skillManager: {} as any,
-    llmService: {} as any,
   };
 
   return { ...base, ...overrides };
+}
+
+function createDispatcher(
+  toolManager: any,
+  sessionManager: any,
+  llmService: ILlmService,
+  questionService = new InteractionQuestionService({
+    questionInput: vi.fn(async () => ''),
+    questionConfirm: vi.fn(async () => true),
+    questionSelect: vi.fn(async () => ''),
+    questionPassword: vi.fn(async () => ''),
+    questionChecklist: vi.fn(async () => []),
+  })
+) {
+  const serialization = new ToolSerializationService();
+  const support = new ToolDispatchSupportService(serialization, llmService);
+  return new ToolDispatcher(toolManager, sessionManager, support, questionService);
+}
+
+function createEmitService(emit: (event: any) => void) {
+  const emitService = new EmitService();
+  emitService.setDefaultEmitter(emit);
+  setServiceContainer({
+    resolve: (token: { id?: string }) => {
+      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
+        return emitService;
+      }
+      throw new Error(`Unexpected token: ${String(token?.id)}`);
+    },
+  } as any);
+  return { emitService, emit };
 }
 
 describe('dispatchToolCall denial metadata', () => {
@@ -34,18 +57,23 @@ describe('dispatchToolCall denial metadata', () => {
       execute: vi.fn(async () => ({ ok: true, result: { ok: true } })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext({ history: [] });
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall(
-      {
-        toolCallId: 'tc-order-1',
-        toolName: 'tool_list',
-        args: { includeHidden: false },
-      },
-      ctx
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-order-1',
+          toolName: 'tool_list',
+          args: { includeHidden: false },
+        },
+        ctx
+      )
     );
 
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const phases = emit.mock.calls
       .map((call) => call[0])
       .filter((event) => event?.kind === 'tool' && event?.toolName === 'tool_list')
@@ -68,15 +96,21 @@ describe('dispatchToolCall denial metadata', () => {
       execute,
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall(
-      {
-        toolCallId: 'tc-ask-timeout',
-        toolName: 'com_ask',
-        args: { kind: 'input', message: 'Question?' },
-      },
-      ctx
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-ask-timeout',
+          toolName: 'com_ask',
+          args: { kind: 'input', message: 'Question?' },
+        },
+        ctx
+      )
     );
 
     const executionOptions = (execute.mock.calls[0] as any[])?.[4] as
@@ -85,42 +119,35 @@ describe('dispatchToolCall denial metadata', () => {
     expect(executionOptions?.timeoutMs).toBe(15 * 60 * 1000);
   });
 
-  it('forwards runtime question bridges to tool execution context', async () => {
+  it('passes through tool execution context without question handlers', async () => {
     const execute = vi.fn(async () => ({ ok: true, result: { ok: true } }));
     const toolManager = {
       get: vi.fn(() => undefined),
       execute,
     } as any;
 
-    const ctx = makeContext({
-      toolManager,
-      hooks: {
-        emit: vi.fn(),
-        questionInput: vi.fn(async () => 'x'),
-        questionConfirm: vi.fn(async () => true),
-        questionSelect: vi.fn(async () => 'a'),
-        questionPassword: vi.fn(async () => 'secret'),
-        questionChecklist: vi.fn(async () => ['a']),
-      },
-    });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall(
-      {
-        toolCallId: 'tc-bridges',
-        toolName: 'tool_list',
-        args: {},
-      },
-      ctx
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-bridges',
+          toolName: 'tool_list',
+          args: {},
+        },
+        ctx
+      )
     );
 
     const executionContext = (execute.mock.calls[0] as any[])?.[3];
     expect(executionContext).toEqual(
       expect.objectContaining({
-        questionInput: expect.any(Function),
-        questionConfirm: expect.any(Function),
-        questionSelect: expect.any(Function),
-        questionPassword: expect.any(Function),
-        questionChecklist: expect.any(Function),
+        workspaceRoot: 'c:/workspace',
+        currentFiles: undefined,
       })
     );
   });
@@ -137,18 +164,23 @@ describe('dispatchToolCall denial metadata', () => {
       })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall(
-      {
-        toolCallId: 'tc-preview',
-        toolName: 'tool_list',
-        args: {},
-      },
-      ctx
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-preview',
+          toolName: 'tool_list',
+          args: {},
+        },
+        ctx
+      )
     );
 
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'tool',
@@ -170,18 +202,23 @@ describe('dispatchToolCall denial metadata', () => {
       execute: vi.fn(async () => ({ ok: true, result: longText })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall(
-      {
-        toolCallId: 'tc-preview-long',
-        toolName: 'tool_list',
-        args: {},
-      },
-      ctx
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-preview-long',
+          toolName: 'tool_list',
+          args: {},
+        },
+        ctx
+      )
     );
 
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const resultEvent = emit.mock.calls
       .map((call) => call[0])
       .find(
@@ -208,18 +245,23 @@ describe('dispatchToolCall denial metadata', () => {
       execute: vi.fn(async () => ({ ok: true, result: payload })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall(
-      {
-        toolCallId: 'tc-preview-json',
-        toolName: 'tool_list',
-        args: {},
-      },
-      ctx
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-preview-json',
+          toolName: 'tool_list',
+          args: {},
+        },
+        ctx
+      )
     );
 
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const resultEvent = emit.mock.calls
       .map((call) => call[0])
       .find(
@@ -237,21 +279,29 @@ describe('dispatchToolCall denial metadata', () => {
       execute: vi.fn(async () => ({ ok: true, result: { never: 'called' } })),
     } as any;
 
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
     const ctx = makeContext({
-      toolManager,
-      hooks: {
-        emit: vi.fn(),
-        questionConfirm: vi.fn(async () => false),
-      },
     });
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const questionService = new InteractionQuestionService({
+      questionInput: vi.fn(async () => ''),
+      questionConfirm: vi.fn(async () => false),
+      questionSelect: vi.fn(async () => ''),
+      questionPassword: vi.fn(async () => ''),
+      questionChecklist: vi.fn(async () => []),
+    });
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any, questionService);
 
-    const result = await dispatchToolCall(
-      {
-        toolCallId: 'tc-1',
-        toolName: 'fs_write_file',
-        args: { filePath: 'a.ts', content: 'x' },
-      },
-      ctx
+    const result = await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-1',
+          toolName: 'fs_write_file',
+          args: { filePath: 'a.ts', content: 'x' },
+        },
+        ctx
+      )
     );
 
     expect(toolManager.execute).not.toHaveBeenCalled();
@@ -260,7 +310,6 @@ describe('dispatchToolCall denial metadata', () => {
     expect(result.denial?.kind).toBe('user-denied');
     expect(result.denial?.reasonCode).toBe('user_declined');
 
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'tool',
@@ -291,15 +340,21 @@ describe('dispatchToolCall denial metadata', () => {
       })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    const result = await dispatchToolCall(
-      {
-        toolCallId: 'tc-2',
-        toolName: 'fs_read',
-        args: { filePath: 'src/secret.ts' },
-      },
-      ctx
+    const result = await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-2',
+          toolName: 'fs_read',
+          args: { filePath: 'src/secret.ts' },
+        },
+        ctx
+      )
     );
 
     expect(result.isError).toBe(false);
@@ -313,7 +368,6 @@ describe('dispatchToolCall denial metadata', () => {
       contexts: [{ contextId: 'agent-infra', allowedPaths: ['src/secret.ts'] }],
     });
 
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'tool',
@@ -335,19 +389,21 @@ describe('dispatchToolCall denial metadata', () => {
     } as any;
 
     const appendMessage = vi.fn(async () => undefined);
+    const sessionManager = { appendMessage } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    const ctx = makeContext({
-      toolManager,
-      sessionManager: { appendMessage } as any,
-    });
-
-    const result = await dispatchToolCall(
-      {
-        toolCallId: 'tc-3',
-        toolName: 'fs_read',
-        args: { filePath: 'src/a.ts' },
-      },
-      ctx
+    const result = await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-3',
+          toolName: 'fs_read',
+          args: { filePath: 'src/a.ts' },
+        },
+        ctx
+      )
     );
 
     expect(result.isError).toBe(true);
@@ -382,9 +438,8 @@ describe('dispatchToolCall denial metadata', () => {
     } as any;
 
     const appendMessage = vi.fn(async () => undefined);
+    const sessionManager = { appendMessage } as any;
     const ctx = makeContext({
-      toolManager,
-      sessionManager: { appendMessage } as any,
       history: [
         {
           timestamp: new Date().toISOString(),
@@ -394,14 +449,19 @@ describe('dispatchToolCall denial metadata', () => {
         } as any,
       ],
     });
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall(
-      {
-        toolCallId: 'tc-auto-trim',
-        toolName: 'tool_list',
-        args: {},
-      },
-      ctx
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-auto-trim',
+          toolName: 'tool_list',
+          args: {},
+        },
+        ctx
+      )
     );
 
     const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
@@ -428,9 +488,8 @@ describe('dispatchToolCall denial metadata', () => {
     } as any;
 
     const appendMessage = vi.fn(async () => undefined);
+    const sessionManager = { appendMessage } as any;
     const ctx = makeContext({
-      toolManager,
-      sessionManager: { appendMessage } as any,
       history: [
         {
           timestamp: new Date().toISOString(),
@@ -440,14 +499,19 @@ describe('dispatchToolCall denial metadata', () => {
         } as any,
       ],
     });
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall(
-      {
-        toolCallId: 'tc-auto-json',
-        toolName: 'tool_list',
-        args: {},
-      },
-      ctx
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-auto-json',
+          toolName: 'tool_list',
+          args: {},
+        },
+        ctx
+      )
     );
 
     const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
@@ -469,11 +533,8 @@ describe('dispatchToolCall denial metadata', () => {
 
     const appendMessage = vi.fn(async () => undefined);
     const rawChat = vi.fn(async () => '- key point A\n- key point B');
-
+    const sessionManager = { appendMessage } as any;
     const ctx = makeContext({
-      toolManager,
-      sessionManager: { appendMessage } as any,
-      llmService: { rawChat } as any,
       history: [
         {
           timestamp: new Date().toISOString(),
@@ -483,14 +544,19 @@ describe('dispatchToolCall denial metadata', () => {
         } as any,
       ],
     });
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, { rawChat } as any);
 
-    await dispatchToolCall(
-      {
-        toolCallId: 'tc-summary',
-        toolName: 'tool_list',
-        args: {},
-      },
-      ctx
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        {
+          toolCallId: 'tc-summary',
+          toolName: 'tool_list',
+          args: {},
+        },
+        ctx
+      )
     );
 
     expect(rawChat).not.toHaveBeenCalled();
@@ -524,14 +590,18 @@ describe('code_edit_proposal emission', () => {
       })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall(
-      { toolCallId: 'tc-write-file', toolName: 'fs_write_file', args: {} },
-      ctx
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        { toolCallId: 'tc-write-file', toolName: 'fs_write_file', args: {} },
+        ctx
+      )
     );
-
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
     const events = emit.mock.calls.map((c: any[]) => c[0]);
     const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
 
@@ -561,11 +631,15 @@ describe('code_edit_proposal emission', () => {
       })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall({ toolCallId: 'tc-diff-1', toolName: 'fs_edit', args: {} }, ctx);
-
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch({ toolCallId: 'tc-diff-1', toolName: 'fs_edit', args: {} }, ctx)
+    );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
     const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
 
@@ -593,11 +667,18 @@ describe('code_edit_proposal emission', () => {
       })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall({ toolCallId: 'tc-diff-multi', toolName: 'multiedit', args: {} }, ctx);
-
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch(
+        { toolCallId: 'tc-diff-multi', toolName: 'multiedit', args: {} },
+        ctx
+      )
+    );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
     const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
 
@@ -615,11 +696,15 @@ describe('code_edit_proposal emission', () => {
       })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall({ toolCallId: 'tc-no-diff', toolName: 'fs_edit', args: {} }, ctx);
-
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch({ toolCallId: 'tc-no-diff', toolName: 'fs_edit', args: {} }, ctx)
+    );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
     const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
 
@@ -635,11 +720,15 @@ describe('code_edit_proposal emission', () => {
       })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall({ toolCallId: 'tc-empty-diff', toolName: 'fs_edit', args: {} }, ctx);
-
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch({ toolCallId: 'tc-empty-diff', toolName: 'fs_edit', args: {} }, ctx)
+    );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
     const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
 
@@ -659,11 +748,14 @@ describe('code_edit_proposal emission', () => {
       })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    const response = await dispatchToolCall(
-      { toolCallId: 'tc-strip', toolName: 'fs_edit', args: {} },
-      ctx
+    const response = await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch({ toolCallId: 'tc-strip', toolName: 'fs_edit', args: {} }, ctx)
     );
 
     expect(response.result).not.toHaveProperty('_fileChanges');
@@ -684,9 +776,8 @@ describe('code_edit_proposal emission', () => {
     } as any;
 
     const appendMessage = vi.fn(async () => undefined);
+    const sessionManager = { appendMessage } as any;
     const ctx = makeContext({
-      toolManager,
-      sessionManager: { appendMessage } as any,
       history: [
         {
           timestamp: new Date().toISOString(),
@@ -696,8 +787,13 @@ describe('code_edit_proposal emission', () => {
         } as any,
       ],
     });
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall({ toolCallId: 'tc-hist', toolName: 'fs_edit', args: {} }, ctx);
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch({ toolCallId: 'tc-hist', toolName: 'fs_edit', args: {} }, ctx)
+    );
 
     const firstCall = (appendMessage.mock.calls[0] ?? []) as any[];
     const persisted = (firstCall[1]?.content ?? '') as string;
@@ -710,11 +806,15 @@ describe('code_edit_proposal emission', () => {
       execute: vi.fn(async () => ({ ok: false, error: 'write failed' })),
     } as any;
 
-    const ctx = makeContext({ toolManager });
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const ctx = makeContext();
+    const emit = vi.fn();
+    const { emitService } = createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await dispatchToolCall({ toolCallId: 'tc-fail', toolName: 'fs_edit', args: {} }, ctx);
-
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    await emitService.runWithEmitter(emit, () =>
+      dispatcher.dispatch({ toolCallId: 'tc-fail', toolName: 'fs_edit', args: {} }, ctx)
+    );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
     const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
 

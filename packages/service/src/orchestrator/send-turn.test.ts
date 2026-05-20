@@ -24,6 +24,9 @@ import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import type { Agent, ChatMessage } from '@ai-team/core';
+import { EmitService } from './services/emit-service.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
+import { setServiceContainer } from '../service-registry.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // parseHandoffDirective — unit tests covering every directive variant
@@ -178,6 +181,17 @@ function makeCtx(llmResponse: string): {
     } as any,
   };
 
+  const emitService = new EmitService();
+  emitService.setDefaultEmitter(ctx.hooks.emit as any);
+  setServiceContainer({
+    resolve: (token: { id?: string }) => {
+      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
+        return emitService;
+      }
+      throw new Error(`Unexpected token: ${String(token?.id)}`);
+    },
+  } as any);
+
   return { ctx, appendMessage };
 }
 
@@ -286,7 +300,7 @@ describe('sendTurn — spec path 2 (FORWARD_TO: text directive)', () => {
 
     await sendTurn('hello', makePlugins(), ctx);
 
-    const emit = ctx.hooks.emit as ReturnType<typeof vi.fn>;
+    const emit = ctx.hooks.emit;
     expect(
       emit.mock.calls.some(
         ([event]) =>
@@ -530,6 +544,17 @@ function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
     } as any,
   };
 
+  const emitService = new EmitService();
+  emitService.setDefaultEmitter(ctx.hooks.emit as any);
+  setServiceContainer({
+    resolve: (token: { id?: string }) => {
+      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
+        return emitService;
+      }
+      throw new Error(`Unexpected token: ${String(token?.id)}`);
+    },
+  } as any);
+
   return { ctx, executeToolMock, appendMessage };
 }
 
@@ -678,4 +703,5 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
     expect(toSchema).toHaveBeenNthCalledWith(1, 'fs_read');
     expect(toSchema).toHaveBeenNthCalledWith(2, 'fs_apply_patch');
   });
+
 });

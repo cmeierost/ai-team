@@ -6,6 +6,7 @@ import type {
   Agent,
 } from '@ai-team/core';
 import { selectDefaultTopAgent } from '../../utils/agent-selection.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 export class InfoChatCommand implements ICommand<string, Agent[]> {
   readonly key = 'info';
@@ -15,10 +16,8 @@ export class InfoChatCommand implements ICommand<string, Agent[]> {
   readonly group = 'chat';
 
   constructor(
-    private readonly agentManager: Pick<
-      IAgentManager,
-      'resolveAgentAsync' | 'getAllAgentsAsync' | 'getAgentAsync'
-    >
+    private readonly agentManager: IAgentManager,
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<Agent[]>> {
@@ -70,26 +69,21 @@ export class InfoChatCommand implements ICommand<string, Agent[]> {
       };
     }
 
-    if (ctx.questionSelect) {
-      const chosen = await ctx.questionSelect({
+    const chosen = await this.questionService.select(
+      {
         message: `Multiple agents match "${query}". Which one?`,
         choices: agents.map((a) => ({ name: `${a.name} — ${a.role} [${a.id}]`, value: a.id })),
-      });
-      const selected = await this.agentManager.getAgentAsync(chosen);
-      if (!selected) {
-        return { status: 'error', message: 'Could not resolve selected agent.' };
-      }
-      return {
-        status: 'ok',
-        message: `${selected.name} (${selected.role})`,
-        data: [selected],
-      };
+      },
+      ctx
+    );
+    const selected = await this.agentManager.getAgentAsync(chosen);
+    if (!selected) {
+      return { status: 'error', message: 'Could not resolve selected agent.' };
     }
-
     return {
       status: 'ok',
-      message: `Found ${agents.length} agent(s) matching "${query}"`,
-      data: agents,
+      message: `${selected.name} (${selected.role})`,
+      data: [selected],
     };
   }
 }

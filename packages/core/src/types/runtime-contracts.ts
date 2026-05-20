@@ -13,29 +13,29 @@ export interface IChatStorage {
 }
 
 export interface IPathPermissionChecker {
+  can(
+    right: 'read' | 'write' | 'list',
+    permissions: PermissionConfig | undefined,
+    filePath: string
+  ): boolean;
   canReadPath(
-    workspaceRoot: string,
     permissions: PermissionConfig | undefined,
     filePath: string
   ): boolean;
   canWritePath(
-    workspaceRoot: string,
     permissions: PermissionConfig | undefined,
     filePath: string
   ): boolean;
   canListPath(
-    workspaceRoot: string,
     permissions: PermissionConfig | undefined,
     filePath: string
   ): boolean;
   assertCanReadPath(
-    workspaceRoot: string,
     contextId: string,
     permissions: PermissionConfig | undefined,
     filePath: string
   ): void;
   assertCanWritePath(
-    workspaceRoot: string,
     contextId: string,
     permissions: PermissionConfig | undefined,
     filePath: string

@@ -3,14 +3,13 @@ import {
   type GetFileTreeOptions,
   type IFileAnnotationService,
   type IFileTreeService,
-} from '@ai-team/core';
-import type {
   IAgentManager,
   IConfigurationStorage,
   IPermissionStorage,
   Agent,
   TeamConfig,
 } from '@ai-team/core';
+
 import type { FilesTreeResponse } from '@ai-team/api-contracts';
 import {
   type GovernanceRequest,
@@ -23,20 +22,20 @@ export type PathMode = 'read' | 'write' | 'list';
 
 const DEFAULT_CONFIG: TeamConfig = { version: '1', randomAvatarUrls: [] };
 
-export class FileTreeCommand {
-  private readonly workspaceRoot: string;
-
+export class FileTreeService {
   constructor(
+    private readonly workspaceRoot: string,
     private readonly agentManager: IAgentManager,
     private readonly configurationStorage: IConfigurationStorage,
     private readonly permissionStorage: IPermissionStorage,
-    private readonly fileTreeService: IFileTreeService,
-    private readonly fileAnnotationService: IFileAnnotationService
-  ) {
-    this.workspaceRoot = agentManager.workspaceRoot;
-  }
+    private readonly fileTreeService?: IFileTreeService,
+    private readonly fileAnnotationService?: IFileAnnotationService
+  ) {}
 
   async getFileTree(options: Omit<GetFileTreeOptions, 'allowPaths'> = {}): Promise<FileTreeNode> {
+    if (!this.fileTreeService) {
+      throw new Error('File tree service is not available.');
+    }
     return getFileTreeCommand(
       this.workspaceRoot,
       this.configurationStorage,
@@ -124,6 +123,9 @@ export class FileTreeCommand {
     noGitignore?: boolean;
     writeable?: boolean;
   }): Promise<FilesTreeResponse> {
+    if (!this.fileTreeService || !this.fileAnnotationService) {
+      throw new Error('File tree services are not available.');
+    }
     return filesTreeCommandAsync(
       this.workspaceRoot,
       this.agentManager,
@@ -140,7 +142,7 @@ export class FileTreeCommand {
  * Return the workspace file tree using global read/write patterns as visibility overrides
  * for gitignored files/directories.
  */
-export async function getFileTreeCommand(
+async function getFileTreeCommand(
   workspaceRoot: string,
   configurationStorage: IConfigurationStorage,
   fileTreeService: IFileTreeService,
@@ -157,7 +159,7 @@ export async function getFileTreeCommand(
  * Add a path to the global read or write permission list in .ai-team/config.json.
  * Returns the updated path list for the selected mode.
  */
-export async function allowPathCommand(
+async function allowPathCommand(
   workspaceRoot: string,
   configurationStorage: IConfigurationStorage,
   filePath: string,
@@ -182,7 +184,7 @@ export async function allowPathCommand(
  * Remove a path from the global read or write permission list in .ai-team/config.json.
  * Returns the updated path list for the selected mode.
  */
-export async function disallowPathCommand(
+async function disallowPathCommand(
   workspaceRoot: string,
   configurationStorage: IConfigurationStorage,
   filePath: string,
@@ -227,7 +229,7 @@ async function syncAgentFrontmatterPermissions(agent: Agent): Promise<Agent> {
 /**
  * Add a path to an agent's access pattern file.
  */
-export async function agentPermissionPathCommand(
+async function agentPermissionPathCommand(
   workspaceRoot: string,
   agentManager: IAgentManager,
   permissionStorage: IPermissionStorage,
@@ -253,7 +255,7 @@ export async function agentPermissionPathCommand(
 /**
  * Alias for agentPermissionPathCommand using governance naming.
  */
-export async function permissionAllowCommand(
+async function permissionAllowCommand(
   workspaceRoot: string,
   agentManager: IAgentManager,
   permissionStorage: IPermissionStorage,
@@ -282,7 +284,7 @@ export async function permissionAllowCommand(
 /**
  * Remove a path from an agent's access pattern file.
  */
-export async function agentDisallowPathCommand(
+async function agentDisallowPathCommand(
   workspaceRoot: string,
   agentManager: IAgentManager,
   permissionStorage: IPermissionStorage,
@@ -308,7 +310,7 @@ export async function agentDisallowPathCommand(
 /**
  * Alias for agentDisallowPathCommand using governance naming.
  */
-export async function permissionDenyCommand(
+async function permissionDenyCommand(
   workspaceRoot: string,
   agentManager: IAgentManager,
   permissionStorage: IPermissionStorage,

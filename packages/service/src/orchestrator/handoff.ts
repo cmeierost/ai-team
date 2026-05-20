@@ -60,13 +60,12 @@ export class HandoffOrchestrator {
 
       const note = extractForwardNote(message, resolved.name);
       await this.executeHandoff(ctx, resolved.id, undefined, note);
-      emitLog(((ctx as any).hooks), 'info', `\nSwitching to ${resolved.name} (${resolved.role})...\n`);
+      emitLog('info', `\nSwitching to ${resolved.name} (${resolved.role})...\n`);
       return 'forwarded';
     }
 
     if (looksLikeForward) {
       emitLog(
-        ((ctx as any).hooks),
         'warn',
         `I couldn't find anyone on your team matching that request. Try using their name directly.`
       );
@@ -146,7 +145,7 @@ export class HandoffOrchestrator {
     await this.sessionManager.appendMessage(fromSessionId, briefingMsg);
 
     // ── 5. Emit handoff event ────────────────────────────────────────────────
-    emitEvent(((ctx as any).hooks), {
+    emitEvent({
       kind: 'handoff',
       fromAgentId: fromAgent.id,
       fromAgentName: fromAgent.name,

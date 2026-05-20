@@ -5,7 +5,8 @@ import type {
 } from '@ai-team/core';
 import { ensureUserEnvVars as ensureServiceUserEnvVars } from '../utils/user-env.js';
 import { resolveDeveloperName } from '../utils/agent-selection.js';
-import { withAbortSignal, withTimeout } from '../utils/async-utils.js';
+import { withAbortSignal } from '../utils/async-utils.js';
+import { withTimeout } from '../utils/with-timeout.js';
 import type { ChatRuntimeHooks } from './hooks.js';
 import { writeInfo } from './chat-emitter.js';
 

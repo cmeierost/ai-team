@@ -16,11 +16,14 @@ import type {
   IPermissionStorage,
 } from '@ai-team/core';
 import { listCachedWorkspaceFiles } from 'fs-context';
-import { AgentSchema } from '@ai-team/core';
+import {
+  AgentSchema,
+  BadRequestError,
+  NotFoundError,
+  resolveEffectiveLlmSettings,
+} from '@ai-team/core';
 import { join } from 'node:path';
-import { BadRequestError, NotFoundError } from '@ai-team/core';
 import { ToolManager } from '../tools/tool-manager.js';
-import { resolveEffectiveLlmSettings } from '@ai-team/core';
 
 function parseArrayParam(param: unknown): string[] | undefined {
   if (!param) return undefined;
@@ -41,10 +44,10 @@ export class AgentsService implements IAgentsService {
   async list(): Promise<Agent[]> {
     const agents = await this.agentManager.getAllAgentsAsync();
     const effectiveConfig = await this.configurationStorage.loadEffectiveConfigAsync(
-      this.agentManager.workspaceRoot
+      this.workspaceRoot
     );
     return agents.map((agent) => {
-      if (!effectiveConfig) return agent as Agent;
+      if (!effectiveConfig) return agent;
       try {
         const resolved = resolveEffectiveLlmSettings(effectiveConfig, agent as any);
         const hasExplicit = Boolean((agent as any).llm?.provider || (agent as any).llm?.model);
@@ -85,13 +88,13 @@ export class AgentsService implements IAgentsService {
   async resolve(id: string): Promise<Agent> {
     const agents = await this.agentManager.resolveAgentAsync(id);
     if (agents.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
-    return agents[0] as Agent;
+    return agents[0];
   }
 
   async getFrontmatter(id: string): Promise<AgentConfig> {
     const matches = await this.agentManager.resolveAgentAsync(id);
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
-    return matches[0] as unknown as AgentConfig;
+    return matches[0];
   }
 
   async updateFrontmatter(id: string, body: Record<string, unknown>): Promise<Agent> {
@@ -109,7 +112,7 @@ export class AgentsService implements IAgentsService {
     if (!body.data || !body.ext) throw new BadRequestError('data and ext are required');
     if (!/^[a-z0-9]+$/i.test(body.ext)) throw new BadRequestError('invalid ext');
     const { mkdirSync, writeFileSync } = await import('node:fs');
-    const avatarsDir = join(this.agentManager.workspaceRoot, '.ai-team', 'avatars');
+    const avatarsDir = join(this.workspaceRoot, '.ai-team', 'avatars');
     mkdirSync(avatarsDir, { recursive: true });
     const filename = `${matches[0].id}.${body.ext}`;
     writeFileSync(join(avatarsDir, filename), Buffer.from(body.data, 'base64'));
@@ -212,7 +215,7 @@ export class AgentsService implements IAgentsService {
     );
     const withAccess = annotated.filter((f) => f.readable || f.listable || f.writable);
     return {
-      files: withAccess as AnnotatedFile[],
+      files: withAccess,
       readPatterns: accessPatterns.read ?? [],
       writePatterns: accessPatterns.write ?? [],
       listPatterns: accessPatterns.list ?? [],

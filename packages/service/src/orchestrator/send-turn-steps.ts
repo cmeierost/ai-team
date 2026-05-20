@@ -12,7 +12,7 @@ import type {
 } from '@ai-team/core';
 import type { ChatRuntimeHooks } from '../commands/chat/index.js';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
-import { toolKey } from '../tools/tool-manager.js';
+import { ToolIdentity } from '../tools/tool-manager.js';
 import type {
   BeforePersistAssistantMessageHookPayload,
   IOrchestratorHookPlugin,
@@ -22,50 +22,35 @@ import type {
 import { invokeLlm } from './llm-invoke.js';
 import { emitLog, emitStatus } from './stream-events.js';
 import type { SendTurnOptions } from './send-turn.js';
+import { getServiceContainer } from '../service-registry.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
-const TOOL_SCHEMA_CACHE = new WeakMap<object, Map<string, LlmToolDefinition>>();
-
-function zodSchemaToJsonSchema(schema: unknown): Record<string, unknown> {
-  if (
-    schema &&
-    typeof schema === 'object' &&
-    typeof (schema as { toJSONSchema?: unknown }).toJSONSchema === 'function'
-  ) {
-    return (schema as { toJSONSchema: () => Record<string, unknown> }).toJSONSchema();
-  }
-  return { type: 'object', properties: {}, additionalProperties: true };
+function buildToolDefinitions(tools: ICommand[]): LlmToolDefinition[] {
+  const schemaService = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.ToolSchemaService);
+  return schemaService.buildToolDefinitions(tools);
 }
 
-function getCachedToolSchema(ctx: ExecutionContext, tool: ICommand): LlmToolDefinition {
-  const toolName = toolKey(tool);
-  const managerKey = (ctx as any).toolManager as unknown as object;
-  const cacheForManager = TOOL_SCHEMA_CACHE.get(managerKey) ?? new Map<string, LlmToolDefinition>();
-
-  if (!TOOL_SCHEMA_CACHE.has(managerKey)) {
-    TOOL_SCHEMA_CACHE.set(managerKey, cacheForManager);
+function filterDiscoveredToolsForAgent(agent: Agent, discoveredTools: ICommand[]): ICommand[] {
+  const allowedSelectors = (agent.tools ?? []).map((selector) => selector.trim()).filter(Boolean);
+  if (allowedSelectors.length === 0) {
+    return [];
   }
 
-  const cached = cacheForManager.get(toolName);
-  if (cached) {
-    return cached;
-  }
+  const deniedSelectors = (agent.disallowedTools ?? [])
+    .map((selector) => selector.trim())
+    .filter(Boolean);
 
-  const schema = (ctx as any).toolManager.toSchema(toolName) ?? {
-    name: toolName,
-    description: tool.description,
-    parameters: zodSchemaToJsonSchema(tool.parameters),
-  };
+  return discoveredTools.filter((tool) => {
+    if (!tool.availableIn?.tool) {
+      return false;
+    }
 
-  cacheForManager.set(toolName, schema);
-  return schema;
-}
+    if (deniedSelectors.some((selector) => ToolIdentity.matchesSelector(selector, tool))) {
+      return false;
+    }
 
-function buildToolDefinitions(ctx: ExecutionContext, tools: ICommand[]): LlmToolDefinition[] {
-  const defs: LlmToolDefinition[] = [];
-  for (const tool of tools) {
-    defs.push(getCachedToolSchema(ctx, tool));
-  }
-  return defs;
+    return allowedSelectors.some((selector) => ToolIdentity.matchesSelector(selector, tool));
+  });
 }
 
 export interface SendTurnResolvedSkillsAndTools {
@@ -152,7 +137,7 @@ export async function persistUserMessageAsync(
   }
 
   ctx.history.push(userMsg);
-  emitStatus((ctx as any).hooks, 'thinking');
+  emitStatus('thinking');
   return userMsg;
 }
 
@@ -194,19 +179,15 @@ export async function resolveSkillsAndToolsAsync(
   const resolvedSkills = await (ctx as any).skillManager.resolveSkillsForAgent((ctx as any).agent);
 
   if (resolvedSkills.roleSkill) {
-    emitLog(
-      (ctx as any).hooks,
-      'info',
-      `[skills] Loaded role skill: ${resolvedSkills.roleSkill.name}`
-    );
+    emitLog('info', `[skills] Loaded role skill: ${resolvedSkills.roleSkill.name}`);
   }
 
   for (const skill of resolvedSkills.specializationSkills) {
-    emitLog((ctx as any).hooks, 'info', `[skills] Loaded specialization skill: ${skill.name}`);
+    emitLog('info', `[skills] Loaded specialization skill: ${skill.name}`);
   }
 
   for (const missing of resolvedSkills.missingSkillNames) {
-    emitLog((ctx as any).hooks, 'warn', `[skills] Skill not found: ${missing}`);
+    emitLog('warn', `[skills] Skill not found: ${missing}`);
   }
 
   await runVoidHookAsync(
@@ -243,12 +224,12 @@ export async function resolveSkillsAndToolsAsync(
     for (const skill of newlyLoaded) {
       const relPath = path.relative(ctx.workspaceRoot, skill.filePath).replaceAll('\\', '/');
       await (ctx as any).sessionManager.addSessionSkill(ctx.sessionId!, relPath);
-      emitLog((ctx as any).hooks, 'info', `[session-skills] Triggered: ${skill.name}`);
+      emitLog('info', `[session-skills] Triggered: ${skill.name}`);
     }
 
     for (const skill of activeSkills) {
       if (!newlyLoaded.includes(skill)) {
-        emitLog((ctx as any).hooks, 'info', `[session-skills] Active: ${skill.name}`);
+        emitLog('info', `[session-skills] Active: ${skill.name}`);
       }
     }
 
@@ -267,11 +248,12 @@ export async function resolveSkillsAndToolsAsync(
       : Promise.resolve([] as ICommand[]),
   ]);
 
-  const allTools = [...tools, ...mcpTools];
+  const allowedMcpTools = filterDiscoveredToolsForAgent((ctx as any).agent, mcpTools);
+  const allTools = [...tools, ...allowedMcpTools];
 
   await plugins.llmSelector.select(ctx);
 
-  const toolDefs = buildToolDefinitions(ctx, allTools);
+  const toolDefs = buildToolDefinitions(allTools);
 
   await runVoidHookAsync(
     plugins.hookPlugins ?? [],
@@ -325,7 +307,7 @@ export async function handleLlmFailureAsync(
 
   const message = toErrorMessage(error);
   process.stderr.write(`\n[LLM error] ${message}\n`);
-  emitStatus((ctx as any).hooks, 'error', message);
+  emitStatus('error', message);
 
   const fallbackContent = buildRetryableFailureMessage(message);
   const persistedContent = await runBeforePersistMessageHooksAsync(
@@ -521,7 +503,7 @@ export async function runVoidHookAsync<T extends keyof IOrchestratorHookPlugin>(
       await (hook as (hookPayload: typeof payload) => Promise<void> | void)(payload);
     } catch (error) {
       const message = toErrorMessage(error);
-      emitLog(hooks, 'warn', `[plugin:${plugin.name}] Hook ${String(hookName)} failed: ${message}`);
+      emitLog('warn', `[plugin:${plugin.name}] Hook ${String(hookName)} failed: ${message}`);
     }
   }
 }
@@ -547,7 +529,6 @@ export async function runBeforePersistMessageHooksAsync(
     } catch (error) {
       const message = toErrorMessage(error);
       emitLog(
-        hooks,
         'warn',
         `[plugin:${plugin.name}] Hook onBeforePersistAssistantMessage failed: ${message}`
       );

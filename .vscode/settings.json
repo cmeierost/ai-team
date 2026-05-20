@@ -44,6 +44,23 @@
     "[json]": {
         "editor.defaultFormatter": "vscode.json-language-features"
     },
+    "js/ts.tsdk.path": "node_modules/typescript/lib",
+    "js/ts.tsdk.promptToUseWorkspaceVersion": true,
+    "js/ts.tsserver.maxMemory": 4096,
+    "files.watcherExclude": {
+        "**/.git/**": true,
+        "**/node_modules/**": true,
+        "**/dist/**": true,
+        "**/build/**": true,
+        "**/coverage/**": true,
+        "**/.turbo/**": true,
+        "**/.next/**": true
+    },
+    "search.exclude": {
+        "**/dist": true,
+        "**/build": true,
+        "**/coverage": true
+    },
     "chat.mcp.serverSampling": {
         "ai-team/.vscode/mcp.json: chrome-devtools": {
             "allowedModels": [

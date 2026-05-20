@@ -1,12 +1,7 @@
 import { z } from 'zod';
-import type {
-  ICommand,
-  ICodeEditManager,
-  ExecutionContext,
-  CommandResponse,
-} from '@ai-team/core';
+import type { ICommand, ICodeEditManager, ExecutionContext, CommandResponse } from '@ai-team/core';
 import { ProposalStatus } from '@ai-team/core';
-import { toInteractionContext } from './code-edit-utils.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type RejectParams = z.infer<typeof CodeEditRejectCommand.schema>;
 
@@ -22,7 +17,10 @@ export class CodeEditRejectCommand implements ICommand<RejectParams, { proposalI
   readonly availableIn = { cli: true, chat: true, tool: true };
   readonly parameters = CodeEditRejectCommand.schema;
 
-  constructor(private readonly manager: ICodeEditManager) {}
+  constructor(
+    private readonly manager: ICodeEditManager,
+    private readonly questionService: IQuestionService
+  ) {}
 
   async execute(
     payload: RejectParams,
@@ -36,10 +34,12 @@ export class CodeEditRejectCommand implements ICommand<RejectParams, { proposalI
       throw new Error(`Proposal ${payload.proposalId} is not pending (status: ${proposal.status})`);
     }
 
-    const context = toInteractionContext(ctx);
     let reason = payload.reason;
-    if (!reason && context.questionInput) {
-      reason = await context.questionInput({ message: 'Reason for rejection (optional):' });
+    if (!reason) {
+      reason = await this.questionService.input(
+        { message: 'Reason for rejection (optional):' },
+        ctx
+      );
     }
 
     this.manager.rejectProposal(payload.proposalId, reason || 'Rejected by user');

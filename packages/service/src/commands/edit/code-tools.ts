@@ -6,10 +6,11 @@ import type {
   LspProvider,
   LspResult,
   ExecutionContext,
-  ICommand,
-  CommandResponse,
   ITypeScriptAnalyzer,
   ICodeEditManager,
+  CommandResponse,
+  ICommand,
+  IIdeAdapterFactory,
 } from '@ai-team/core';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -22,8 +23,17 @@ function getPathPermissionChecker(context: ExecutionContext) {
   return checker;
 }
 
-function getLspProvider(context: ExecutionContext): LspProvider | undefined {
-  return (context as any).lsp as LspProvider | undefined;
+class LspResolver {
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly ideAdapterFactory: IIdeAdapterFactory
+  ) {}
+
+  async resolve(context: ExecutionContext): Promise<LspProvider> {
+    const channel = context.invocationSurface === 'cli' ? 'cli' : 'web';
+    const adapter = await this.ideAdapterFactory.createAsync(this.workspaceRoot, channel);
+    return adapter.lsp;
+  }
 }
 
 function formatLspResult(result: LspResult): Record<string, unknown> {
@@ -90,11 +100,20 @@ function formatLspForLlm(r: LspFormatInput): unknown {
   const diags = r['diagnostics'] as
     | Array<{ path: string; line: number; severity: string; message: string }>
     | undefined;
-  const op = r['operation'] ? `operation: ${r['operation']}\n` : '';
+  let opValue = '';
+  if (r['operation']) {
+    if (typeof r['operation'] === 'string') {
+      opValue = r['operation'];
+    } else {
+      opValue = JSON.stringify(r['operation']);
+    }
+  }
+  const op = opValue ? `operation: ${opValue}\n` : '';
   if (locs) {
-    const lines = locs.map(
-      (l) => `${l.path}:${l.line}:${l.character}${l.preview ? ` — ${l.preview.trim()}` : ''}`
-    );
+    const lines = locs.map((l) => {
+      const preview = l.preview ? ` — ${l.preview.trim()}` : '';
+      return `${l.path}:${l.line}:${l.character}${preview}`;
+    });
     return `${op}${locs.length} locations\n\n${lines.join('\n')}`;
   }
   if (syms) {
@@ -120,7 +139,7 @@ export interface FindSymbolParams {
   character?: number;
 }
 
-export class FindSymbolTool  {
+export class FindSymbolTool implements ICommand<FindSymbolParams, unknown> {
   readonly name = 'find_symbol';
   readonly key = 'find_symbol';
   readonly group = 'code';
@@ -146,15 +165,29 @@ export class FindSymbolTool  {
     return formatLspForLlm(result as LspFormatInput);
   }
 
-  async execute(params: FindSymbolParams, context: ExecutionContext): Promise<unknown> {
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly ideAdapterFactory: IIdeAdapterFactory
+  ) {
+    this.lspResolver = new LspResolver(this.workspaceRoot, this.ideAdapterFactory);
+  }
+
+  private readonly lspResolver: LspResolver;
+
+  async execute(
+    params: FindSymbolParams,
+    context: ExecutionContext
+  ): Promise<CommandResponse<unknown>> {
     const { symbolName, filePath, line, character } = params;
-    const lsp = getLspProvider(context);
+    const lsp = await this.lspResolver.resolve(context);
     if (!lsp?.isAvailable()) {
       return {
-        error:
-          'No IDE language server connected. Connect the VS Code extension for LSP-based symbol finding.',
-        symbolName,
-        filePath,
+        status: 'error',
+        error: {
+          message:
+            'No IDE language server connected. Connect the VS Code extension for LSP-based symbol finding.',
+        },
+        data: { symbolName, filePath },
       };
     }
 
@@ -167,7 +200,7 @@ export class FindSymbolTool  {
         line: line - 1,
         character,
       });
-      return { symbolName, ...formatLspResult(result) };
+      return { status: 'ok', data: { symbolName, ...formatLspResult(result) } };
     }
 
     if (filePath) {
@@ -177,13 +210,16 @@ export class FindSymbolTool  {
       const result = await lsp.execute('documentSymbol', { filePath: absPath });
       if (result.kind === 'symbols') {
         const filtered = filterSymbolsByName(result.symbols, symbolName);
-        return { symbolName, count: filtered.length, symbols: filtered };
+        return {
+          status: 'ok',
+          data: { symbolName, count: filtered.length, symbols: filtered },
+        };
       }
-      return { symbolName, ...formatLspResult(result) };
+      return { status: 'ok', data: { symbolName, ...formatLspResult(result) } };
     }
 
     const result = await lsp.execute('workspaceSymbol', { filePath: '', query: symbolName });
-    return { symbolName, ...formatLspResult(result) };
+    return { status: 'ok', data: { symbolName, ...formatLspResult(result) } };
   }
 }
 
@@ -195,7 +231,7 @@ export interface FindReferencesParams {
   character: number;
 }
 
-export class FindReferencesTool  {
+export class FindReferencesTool implements ICommand<FindReferencesParams, unknown> {
   readonly name = 'find_references';
   readonly key = 'find_references';
   readonly group = 'code';
@@ -212,15 +248,29 @@ export class FindReferencesTool  {
     return formatLspForLlm(result as LspFormatInput);
   }
 
-  async execute(params: FindReferencesParams, context: ExecutionContext): Promise<unknown> {
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly ideAdapterFactory: IIdeAdapterFactory
+  ) {
+    this.lspResolver = new LspResolver(this.workspaceRoot, this.ideAdapterFactory);
+  }
+
+  private readonly lspResolver: LspResolver;
+
+  async execute(
+    params: FindReferencesParams,
+    context: ExecutionContext
+  ): Promise<CommandResponse<unknown>> {
     const { filePath, line, character } = params;
-    const lsp = getLspProvider(context);
+    const lsp = await this.lspResolver.resolve(context);
     if (!lsp?.isAvailable()) {
       return {
-        error:
-          'No IDE language server connected. Connect the VS Code extension for LSP-based reference finding.',
-        filePath,
-        line,
+        status: 'error',
+        error: {
+          message:
+            'No IDE language server connected. Connect the VS Code extension for LSP-based reference finding.',
+        },
+        data: { filePath, line },
       };
     }
 
@@ -232,7 +282,7 @@ export class FindReferencesTool  {
       line: line - 1,
       character,
     });
-    return formatLspResult(result);
+    return { status: 'ok', data: formatLspResult(result) };
   }
 }
 
@@ -246,7 +296,7 @@ export interface LspParams {
   query?: string;
 }
 
-export class LspTool  {
+export class LspTool implements ICommand<LspParams, unknown> {
   readonly name = 'lsp';
   readonly key = 'lsp';
   readonly group = 'code';
@@ -278,14 +328,26 @@ export class LspTool  {
     return formatLspForLlm(result as LspFormatInput);
   }
 
-  async execute(params: LspParams, context: ExecutionContext): Promise<unknown> {
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly ideAdapterFactory: IIdeAdapterFactory
+  ) {
+    this.lspResolver = new LspResolver(this.workspaceRoot, this.ideAdapterFactory);
+  }
+
+  private readonly lspResolver: LspResolver;
+
+  async execute(params: LspParams, context: ExecutionContext): Promise<CommandResponse<unknown>> {
     const { operation, filePath, line, character, query } = params;
-    const lsp = getLspProvider(context);
+    const lsp = await this.lspResolver.resolve(context);
     if (!lsp?.isAvailable()) {
       return {
-        error:
-          'No IDE language server connected. Start the VS Code extension to enable LSP operations.',
-        operation,
+        status: 'error',
+        error: {
+          message:
+            'No IDE language server connected. Start the VS Code extension to enable LSP operations.',
+        },
+        data: { operation },
       };
     }
 
@@ -294,11 +356,11 @@ export class LspTool  {
       : path.join(context.workspaceRoot, filePath);
     const result = await lsp.execute(operation, {
       filePath: absPath,
-      line: line != null ? line - 1 : undefined,
+      line: line == null ? undefined : line - 1,
       character,
       query,
     });
-    return { operation, ...formatLspResult(result) };
+    return { status: 'ok', data: { operation, ...formatLspResult(result) } };
   }
 }
 
@@ -323,7 +385,7 @@ export interface GrepCodeResult {
   }>;
 }
 
-export class GrepCodeTool  {
+export class GrepCodeTool implements ICommand<GrepCodeParams, GrepCodeResult> {
   readonly name = 'grep';
   readonly key = 'grep';
   readonly group = 'search';
@@ -356,7 +418,10 @@ export class GrepCodeTool  {
     return `${header}\n\n${lines.join('\n')}`;
   }
 
-  async execute(params: GrepCodeParams, context: ExecutionContext): Promise<GrepCodeResult> {
+  async execute(
+    params: GrepCodeParams,
+    context: ExecutionContext
+  ): Promise<CommandResponse<GrepCodeResult>> {
     const { pattern, filePatterns, limit } = params;
     const matches = await Ripgrep.search({
       cwd: context.workspaceRoot,
@@ -367,15 +432,18 @@ export class GrepCodeTool  {
     });
 
     return {
-      pattern,
-      matchCount: matches.length,
-      fileCount: new Set(matches.map((m) => m.path.text)).size,
-      matches: matches.slice(0, 200).map((m) => ({
-        filePath: m.path.text,
-        lineNumber: m.line_number,
-        line: m.lines.text.trimEnd(),
-        submatches: m.submatches.map((s) => s.match.text),
-      })),
+      status: 'ok',
+      data: {
+        pattern,
+        matchCount: matches.length,
+        fileCount: new Set(matches.map((m) => m.path.text)).size,
+        matches: matches.slice(0, 200).map((m) => ({
+          filePath: m.path.text,
+          lineNumber: m.line_number,
+          line: m.lines.text.trimEnd(),
+          submatches: m.submatches.map((s) => s.match.text),
+        })),
+      },
     };
   }
 }
@@ -416,7 +484,8 @@ export class AnalyzeComplexityTool {
         const flags = [f.isAsync ? 'async' : '', f.isExported ? 'export' : '']
           .filter(Boolean)
           .join(' ');
-        return `L${f.startLine}  ${f.name}${flags ? ` (${flags})` : ''}  cyclo=${c.cyclomaticComplexity}  loc=${c.linesOfCode}  depth=${c.nestedDepth}`;
+        const flagSuffix = flags ? ` (${flags})` : '';
+        return `L${f.startLine}  ${f.name}${flagSuffix}  cyclo=${c.cyclomaticComplexity}  loc=${c.linesOfCode}  depth=${c.nestedDepth}`;
       });
       return `${r.filePath}  ${r.functions.length} functions\n\n${lines.join('\n')}`;
     }
@@ -488,7 +557,7 @@ export class ApplyCodeEditTool {
     const filePaths = absoluteChanges.map((c) => c.filePath);
     const checker = getPathPermissionChecker(context);
     const blockedFiles = filePaths.filter(
-      (fp: string) => !checker.canWritePath(context.workspaceRoot, context.agent!.permissions, fp)
+      (fp: string) => !checker.canWritePath(context.agent!.permissions, fp)
     );
 
     if (blockedFiles.length > 0) {
@@ -520,11 +589,3 @@ export class ApplyCodeEditTool {
     };
   }
 }
-
-// ─── Module-level singletons ──────────────────────────────────────────────────
-
-export const findSymbolTool = new FindSymbolTool();
-export const findReferencesTool = new FindReferencesTool();
-export const lspTool = new LspTool();
-export const grepCodeTool = new GrepCodeTool();
-// AnalyzeComplexityTool and ApplyCodeEditTool require constructor injection — wire via DI container

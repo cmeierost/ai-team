@@ -5,6 +5,8 @@ import matter from 'gray-matter';
 import { glob } from 'glob/raw';
 import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 import { emitLog } from '../stream-events.js';
+import { getServiceContainer } from '../../service-registry.js';
+import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 import { JsonWorkflowSchema } from '../../workflow/json-workflow-tool.js';
 import type { DynamicSlashCatalogConfigInput } from './config.js';
 
@@ -274,11 +276,7 @@ function buildSkillSlashCommand(entry: DynamicSlashEntry): ICommand<string, unkn
         false
       );
 
-      emitLog(
-        (ctx as any).hooks,
-        'info',
-        `[skills] Loaded ${entry.name}. Active on next turns in this session.`
-      );
+      emitLog('info', `[skills] Loaded ${entry.name}. Active on next turns in this session.`);
 
       return {
         status: 'ok',
@@ -304,7 +302,7 @@ function buildPromptSlashCommand(entry: DynamicSlashEntry): ICommand<string, unk
     execute: async (_args, ctx) => {
       const header = `# Prompt: ${entry.name}`;
       const payload = [header, entry.instructions].filter(Boolean).join('\n\n').trim();
-      emitLog((ctx as any).hooks, 'info', payload);
+      emitLog('info', payload);
 
       return {
         status: 'ok',
@@ -445,15 +443,12 @@ function buildWorkflowSlashCommand(entry: DynamicSlashEntry): ICommand<string, u
     execute: async (_args, ctx) => {
       const toolName = entry.name;
 
-      const result = await (ctx as any).toolManager.execute(
-        ctx.agent!,
-        toolName,
-        {},
-        {
-          agentId: ctx.agent!.id,
-          workspaceRoot: ctx.workspaceRoot,
-        }
-      );
+      const toolManager = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.ToolManager);
+      const result = await toolManager.execute(ctx.agent!, toolName, {}, {
+        agentId: ctx.agent!.id,
+        workspaceRoot: ctx.workspaceRoot,
+        history: [],
+      });
 
       if (!result.ok) {
         return {
@@ -467,7 +462,7 @@ function buildWorkflowSlashCommand(entry: DynamicSlashEntry): ICommand<string, u
         };
       }
 
-      emitLog((ctx as any).hooks, 'info', `[workflow] Executed ${entry.name} (${toolName}).`);
+      emitLog('info', `[workflow] Executed ${entry.name} (${toolName}).`);
 
       return {
         status: 'ok',

@@ -309,6 +309,6 @@ function toNumber(value: string | undefined): number | undefined {
 function toInt(value: string | undefined): number | undefined {
   const s = value?.trim();
   if (!s) return undefined;
-  const n = parseInt(s, 10);
+  const n = Number.parseInt(s, 10);
   return Number.isFinite(n) ? n : undefined;
 }

@@ -12,6 +12,7 @@ import {
   type ChatSessionExecutionDeps,
   type ChatOrchestrationDeps,
 } from './chat.command.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof ChatICommand.schema>;
 
@@ -42,21 +43,22 @@ export class ChatICommand implements ICommand<Params, void> {
     private readonly agentKnowledgeDeps: ChatAgentKnowledgeDeps,
     private readonly sessionExecutionDeps: ChatSessionExecutionDeps,
     private readonly orchestrationDeps: ChatOrchestrationDeps,
-    private readonly chatInfoService: IChatInfoService = new ChatInfoService()
+    private readonly chatInfoService: IChatInfoService = new ChatInfoService(),
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const hooks: ChatRuntimeHooks = {
       invocationSurface: ctx.invocationSurface,
       signal: ctx.signal,
-      emit: ctx.emit as ChatRuntimeHooks['emit'],
-      questionInput: ctx.questionInput,
-      questionConfirm: ctx.questionConfirm,
-      questionSelect: ctx.questionSelect,
-      questionPassword: ctx.questionPassword,
-      questionChecklist: ctx.questionChecklist,
-      workflowState: ctx.workflowState as ChatRuntimeHooks['workflowState'],
-      onWorkflowFrame: ctx.onWorkflowFrame as ChatRuntimeHooks['onWorkflowFrame'],
+      emit: ctx.emit,
+      questionInput: (request) => this.questionService.input(request, ctx),
+      questionConfirm: (request) => this.questionService.confirm(request, ctx),
+      questionSelect: (request) => this.questionService.select(request, ctx),
+      questionPassword: (request) => this.questionService.password(request, ctx),
+      questionChecklist: (request) => this.questionService.checklist(request, ctx),
+      workflowState: ctx.workflowState as import('@ai-team/api-contracts').WorkflowStateSnapshot | undefined,
+      onWorkflowFrame: ctx.onWorkflowFrame,
     };
 
     const cmd = new ChatCommand(
@@ -70,7 +72,10 @@ export class ChatICommand implements ICommand<Params, void> {
         this.configIdentityDeps.environmentStorage,
         this.configIdentityDeps.developerIdentityService
       ),
-      new InfoChatCommand(this.agentKnowledgeDeps.agentManager)
+      new InfoChatCommand(
+        this.agentKnowledgeDeps.agentManager as unknown as import('@ai-team/core').IAgentManager,
+        this.questionService
+      )
     );
 
     await cmd.execute(ctx.workspaceRoot, payload.employeeId, payload.options ?? {}, hooks);

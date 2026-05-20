@@ -17,6 +17,8 @@ import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
 import { runWorkflowAsync } from './runner.js';
 import type { WorkflowDefinition } from './types.js';
 import type { IWorkflowDefinitionProvider } from '../commands/workflow/workflow-tools.command.js';
+import { getServiceContainer } from '../service-registry.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
 // ─── JSON schema for the file format ────────────────────────────────────────
 
@@ -195,7 +197,7 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
               .join('\n');
             // Use the LLM via the context resolver if available
             try {
-              const llmService = (context as any).resolve?.('LlmService' as never) as
+              const llmService = (context as any).resolve?.('LlmService') as
                 | { complete(prompt: string): Promise<string> }
                 | undefined;
               if (llmService?.complete) {
@@ -216,31 +218,8 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
       steps: runtimeSteps,
     };
 
-    // Build a minimal InteractionContext for the runner
-    const interactionCtx = {
-      agentId: context.agentId,
-      workspaceRoot: context.workspaceRoot,
-      questionInput: context.questionInput
-        ? (req: { message: string }) => context.questionInput!(req)
-        : undefined,
-      questionConfirm: context.questionConfirm
-        ? (req: { message: string; default?: boolean }) => context.questionConfirm!(req)
-        : undefined,
-      questionSelect: context.questionSelect
-        ? (req: { message: string; choices: Array<{ name: string; value: string }> }) =>
-            context.questionSelect!(req)
-        : undefined,
-      questionChecklist: context.questionChecklist
-        ? (req: {
-            message: string;
-            choices: Array<{ name: string; value: string }>;
-            minSelections?: number;
-            maxSelections?: number;
-          }) => context.questionChecklist!(req)
-        : undefined,
-    };
-
-    const result = await runWorkflowAsync(workflowDef, initialState, interactionCtx as never);
+    const questionService = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.QuestionService);
+    const result = await runWorkflowAsync(workflowDef, initialState, context, questionService);
 
     return {
       type: 'json_workflow_result',

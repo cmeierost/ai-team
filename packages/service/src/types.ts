@@ -28,19 +28,23 @@ import type {
   IProposalStoreFactory,
   IWorkspaceFsFactory,
   CliCommandMetadata,
+  ICommandRegistry,
 } from '@ai-team/core';
 import type { IContextService } from '@ai-team/api-contracts';
 import type { CommandRegistrationMetadata, RegisteredCommand } from './command-dispatcher.js';
 import type { ToolManager } from './tools/tool-manager.js';
 import type { SessionManager } from './session-manager.js';
-import type { AvatarService } from './commands/hr/avatar.js';
-import type { AccessService as AccessCommandService } from './commands/access/access-service.js';
+import type { ToolDispatchSupportService } from './orchestrator/services/tool-dispatch-support-service.js';
+import type { ToolSerializationService } from './orchestrator/services/tool-serialization-service.js';
+import type { EmitService } from './orchestrator/services/emit-service.js';
+import type { ToolSchemaService } from './orchestrator/services/schema-service.js';
+import type { IQuestionService } from './questions/question-service.js';
 
 function createContainerToken<T>(id: string): IContainerToken<T> {
   return {
     id,
     toString: () => `Token(${id})`,
-  } as IContainerToken<T>;
+  };
 }
 
 export const COMMAND_FACTORY_TOKENS = {
@@ -49,9 +53,20 @@ export const COMMAND_FACTORY_TOKENS = {
   SkillManager: createContainerToken<ISkillManager>('SkillManager'),
   ToolManager: createContainerToken<ToolManager>('ToolManager'),
   SessionManager: createContainerToken<SessionManager>('SessionManager'),
+  ToolDispatchSupportService: createContainerToken<ToolDispatchSupportService>(
+    'ToolDispatchSupportService'
+  ),
+  ToolSerializationService: createContainerToken<ToolSerializationService>(
+    'ToolSerializationService'
+  ),
+  QuestionService: createContainerToken<IQuestionService>('QuestionService'),
+  EmitService: createContainerToken<EmitService>('EmitService'),
+  ToolSchemaService: createContainerToken<ToolSchemaService>('ToolSchemaService'),
   ConfigurationStorage: createContainerToken<IConfigurationStorage>('ConfigurationStorage'),
   EnvironmentStorage: createContainerToken<IEnvironmentStorage>('EnvironmentStorage'),
-  DeveloperIdentityService: createContainerToken<IDeveloperIdentityService>('DeveloperIdentityService'),
+  DeveloperIdentityService: createContainerToken<IDeveloperIdentityService>(
+    'DeveloperIdentityService'
+  ),
   SystemInfoService: createContainerToken<ISystemInfoService>('SystemInfoService'),
   PermissionStorage: createContainerToken<IPermissionStorage>('PermissionStorage'),
   MarkdownSectionService: createContainerToken<IMarkdownSectionService>('MarkdownSectionService'),
@@ -64,7 +79,6 @@ export const COMMAND_FACTORY_TOKENS = {
   AgentDocumentStorage: createContainerToken<IAgentDocumentStorage>('AgentDocumentStorage'),
   PathPermissionChecker: createContainerToken<IPathPermissionChecker>('PathPermissionChecker'),
   AvatarManager: createContainerToken<IAvatarManager>('AvatarManager'),
-  AvatarService: createContainerToken<AvatarService>('AvatarService'),
   CodeEditManager: createContainerToken<ICodeEditManager>('CodeEditManager'),
   TypeScriptAnalyzer: createContainerToken<ITypeScriptAnalyzer>('TypeScriptAnalyzer'),
   IdeAdapterFactory: createContainerToken<IIdeAdapterFactory>('IdeAdapterFactory'),
@@ -73,9 +87,10 @@ export const COMMAND_FACTORY_TOKENS = {
   NoteAttachmentReader: createContainerToken<INoteAttachmentReader>('NoteAttachmentReader'),
   LlmService: createContainerToken<ILlmService>('LlmService'),
   TextToolCallParser: createContainerToken<ITextToolCallParser>('TextToolCallParser'),
-  AccessCommandService: createContainerToken<AccessCommandService>('AccessCommandService'),
-  ContextService: createContainerToken<Pick<IContextService, 'getContextEstimate'>>('ContextService'),
+  ContextService:
+    createContainerToken<Pick<IContextService, 'getContextEstimate'>>('ContextService'),
   MessageStorage: createContainerToken<IMessageStorage>('SqliteBackend'),
+  CommandRegistry: createContainerToken<ICommandRegistry>('CommandRegistry'),
 } as const;
 
 export interface CommandFactoryContainer {

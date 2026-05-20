@@ -1,4 +1,5 @@
 import type { ICommand, CommandResponse, ExecutionContext } from '@ai-team/core';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type IndexedToolCall = {
   msgTimestamp: string;
@@ -34,6 +35,8 @@ export class InspectChatCommand implements ICommand<string, string> {
   readonly availableIn = { chat: true, tool: false };
   readonly group = 'chat';
 
+  constructor(private readonly questionService: IQuestionService) {}
+
   async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
     const allCalls: IndexedToolCall[] = [];
     for (const msg of ctx.history) {
@@ -59,20 +62,23 @@ export class InspectChatCommand implements ICommand<string, string> {
 
     if (!Number.isNaN(argNum) && argNum >= 1 && argNum <= allCalls.length) {
       selected = allCalls[argNum - 1];
-    } else if (ctx.questionSelect) {
+    } else {
       const choices = allCalls.map((tc, i) => ({
         name: `${i + 1}) ${tc.toolName}  [${new Date(tc.msgTimestamp).toLocaleTimeString()}]`,
         value: String(i),
       }));
-      const picked = await ctx.questionSelect({
-        message: `Select a tool call to inspect (${allCalls.length} total):`,
-        choices,
-        default: '0',
-      });
+      const picked = await this.questionService.select(
+        {
+          message: `Select a tool call to inspect (${allCalls.length} total):`,
+          choices,
+          default: '0',
+        },
+        ctx
+      );
       selected = allCalls[Number.parseInt(picked, 10)];
-    } else {
-      selected = allCalls.at(-1);
     }
+
+    selected ??= allCalls.at(-1);
 
     if (!selected) {
       return { status: 'error', message: 'Invalid selection.' };

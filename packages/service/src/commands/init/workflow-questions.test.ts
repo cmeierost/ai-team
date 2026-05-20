@@ -14,6 +14,7 @@ import {
   requestSelect,
   requestChecklist,
 } from './workflow-questions.js';
+import { InteractionQuestionService } from '../../questions/question-service.js';
 
 describe('workflow questions ask-tool bridge', () => {
   beforeEach(() => {
@@ -22,16 +23,20 @@ describe('workflow questions ask-tool bridge', () => {
 
   it('routes input questions through com_ask and preserves workflow request payload', async () => {
     const questionInput = vi.fn().mockResolvedValue('ok-value');
+    const questionService = new InteractionQuestionService({ questionInput });
 
-    askExecute.mockImplementation(async (params, context) => {
+    askExecute.mockImplementation(async (params) => {
       expect(params.kind).toBe('input');
       expect(params.message).toBe('Original message');
 
-      const answer = await context.questionInput({ message: 'Tool-adjusted prompt' });
+      const answer = await questionService.input({ message: 'Tool-adjusted prompt' }, {} as any);
       return {
-        type: 'com_ask_result',
-        kind: 'input',
-        answer,
+        status: 'ok',
+        data: {
+          type: 'com_ask_result',
+          kind: 'input',
+          answer,
+        },
       };
     });
 
@@ -55,9 +60,12 @@ describe('workflow questions ask-tool bridge', () => {
 
   it('routes confirm questions through com_ask', async () => {
     askExecute.mockResolvedValue({
-      type: 'com_ask_result',
-      kind: 'confirm',
-      answer: true,
+      status: 'ok',
+      data: {
+        type: 'com_ask_result',
+        kind: 'confirm',
+        answer: true,
+      },
     });
 
     const answer = await requestConfirm(
@@ -75,18 +83,18 @@ describe('workflow questions ask-tool bridge', () => {
         message: 'Proceed?',
         defaultBoolean: false,
       }),
-      expect.any(Object),
-      expect.objectContaining({
-        invocationSurface: 'tool',
-      })
+      expect.any(Object)
     );
   });
 
   it('normalizes select answers returned by com_ask', async () => {
     askExecute.mockResolvedValue({
-      type: 'com_ask_result',
-      kind: 'select',
-      answer: 'Primary',
+      status: 'ok',
+      data: {
+        type: 'com_ask_result',
+        kind: 'select',
+        answer: 'Primary',
+      },
     });
 
     const answer = await requestSelect(
@@ -105,9 +113,12 @@ describe('workflow questions ask-tool bridge', () => {
 
   it('returns checklist values from com_ask', async () => {
     askExecute.mockResolvedValue({
-      type: 'com_ask_result',
-      kind: 'checklist',
-      answer: ['primary', 'secondary'],
+      status: 'ok',
+      data: {
+        type: 'com_ask_result',
+        kind: 'checklist',
+        answer: ['primary', 'secondary'],
+      },
     });
 
     const answer = await requestChecklist(

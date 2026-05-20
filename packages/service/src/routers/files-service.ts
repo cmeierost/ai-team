@@ -11,15 +11,7 @@ import type {
   IPermissionStorage,
   IFileTreeService,
 } from '@ai-team/core';
-import {
-  getFileTreeCommand,
-  allowPathCommand,
-  disallowPathCommand,
-  agentPermissionPathCommand,
-  agentDisallowPathCommand,
-  permissionAllowCommand,
-  permissionDenyCommand,
-} from '../commands/fs/file-tree.js';
+import { FileTreeService } from '../commands/fs/file-tree.js';
 import { BadRequestError } from '@ai-team/core';
 
 function resolvePathMode(mode: string | undefined): PathMode {
@@ -35,7 +27,8 @@ export class FilesService implements IPermissionService {
     private readonly agentManager: IAgentManager,
     private readonly configurationStorage: IConfigurationStorage,
     private readonly permRegistry: IPermissionStorage,
-    private readonly fileTreeService: IFileTreeService
+    private readonly fileTreeService: IFileTreeService,
+    private readonly fileTreeAccessService: FileTreeService
   ) {}
 
   async getPatterns(query?: { agent?: string }): Promise<GetFilePatternsResponse> {
@@ -68,7 +61,7 @@ export class FilesService implements IPermissionService {
     includeHidden?: boolean;
     rootSubPath?: string;
   }): Promise<unknown> {
-    return getFileTreeCommand(this.workspaceRoot, this.configurationStorage, this.fileTreeService, {
+    return this.fileTreeAccessService.getFileTree({
       maxDepth: query?.maxDepth,
       includeHidden: query?.includeHidden,
       rootSubPath: query?.rootSubPath,
@@ -78,24 +71,14 @@ export class FilesService implements IPermissionService {
   async allowAll(body: { path: string; mode?: PathMode }): Promise<UpdateGlobalPathResponse> {
     if (!body.path) throw new BadRequestError('"path" is required');
     const mode = resolvePathMode(body.mode);
-    const paths = await allowPathCommand(
-      this.workspaceRoot,
-      this.configurationStorage,
-      body.path,
-      mode
-    );
+    const paths = await this.fileTreeAccessService.allowPath(body.path, mode);
     return { mode, paths };
   }
 
   async disallowAll(body: { path: string; mode?: PathMode }): Promise<UpdateGlobalPathResponse> {
     if (!body.path) throw new BadRequestError('"path" is required');
     const mode = resolvePathMode(body.mode);
-    const paths = await disallowPathCommand(
-      this.workspaceRoot,
-      this.configurationStorage,
-      body.path,
-      mode
-    );
+    const paths = await this.fileTreeAccessService.disallowPath(body.path, mode);
     return { mode, paths };
   }
 
@@ -108,14 +91,7 @@ export class FilesService implements IPermissionService {
   }): Promise<UpdateAgentPathResponse> {
     if (!body.agent || !body.path) throw new BadRequestError('agent and path are required');
     const mode = resolvePathMode(body.mode);
-    const result = await agentPermissionPathCommand(
-      this.workspaceRoot,
-      this.agentManager,
-      this.permRegistry,
-      body.agent,
-      body.path,
-      mode
-    );
+    const result = await this.fileTreeAccessService.agentPermissionPath(body.agent, body.path, mode);
     return {
       agent: { id: result.agent.id, name: result.agent.name, role: result.agent.role },
       mode,
@@ -132,14 +108,7 @@ export class FilesService implements IPermissionService {
   }): Promise<UpdateAgentPathResponse> {
     if (!body.agent || !body.path) throw new BadRequestError('agent and path are required');
     const mode = resolvePathMode(body.mode);
-    const result = await agentDisallowPathCommand(
-      this.workspaceRoot,
-      this.agentManager,
-      this.permRegistry,
-      body.agent,
-      body.path,
-      mode
-    );
+    const result = await this.fileTreeAccessService.agentDisallowPath(body.agent, body.path, mode);
     return {
       agent: { id: result.agent.id, name: result.agent.name, role: result.agent.role },
       mode,
@@ -154,17 +123,10 @@ export class FilesService implements IPermissionService {
     approvedByUser?: boolean;
   }): Promise<UpdateAgentPathResponse> {
     if (!body.agent || !body.path) throw new BadRequestError('agent and path are required');
-    const result = await permissionAllowCommand(
-      this.workspaceRoot,
-      this.agentManager,
-      this.permRegistry,
-      body.agent,
-      body.path,
-      {
-        requestedBy: body.requestedBy ?? 'user',
-        confirmUserApproval: async () => body.approvedByUser ?? true,
-      }
-    );
+    const result = await this.fileTreeAccessService.permissionAllow(body.agent, body.path, {
+      requestedBy: body.requestedBy ?? 'user',
+      confirmUserApproval: async () => body.approvedByUser ?? true,
+    });
     return {
       agent: { id: result.agent.id, name: result.agent.name, role: result.agent.role },
       mode: 'read',
@@ -179,17 +141,10 @@ export class FilesService implements IPermissionService {
     approvedByUser?: boolean;
   }): Promise<UpdateAgentPathResponse> {
     if (!body.agent || !body.path) throw new BadRequestError('agent and path are required');
-    const result = await permissionDenyCommand(
-      this.workspaceRoot,
-      this.agentManager,
-      this.permRegistry,
-      body.agent,
-      body.path,
-      {
-        requestedBy: body.requestedBy ?? 'user',
-        confirmUserApproval: async () => body.approvedByUser ?? true,
-      }
-    );
+    const result = await this.fileTreeAccessService.permissionDeny(body.agent, body.path, {
+      requestedBy: body.requestedBy ?? 'user',
+      confirmUserApproval: async () => body.approvedByUser ?? true,
+    });
     return {
       agent: { id: result.agent.id, name: result.agent.name, role: result.agent.role },
       mode: 'read',

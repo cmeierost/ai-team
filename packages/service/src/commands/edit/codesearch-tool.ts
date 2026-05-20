@@ -181,4 +181,3 @@ export class CodeSearchTool implements ICommand<CodeSearchParams, CodeSearchResu
   }
 }
 
-export const codeSearchTool: ICommand<unknown, unknown> = new CodeSearchTool();

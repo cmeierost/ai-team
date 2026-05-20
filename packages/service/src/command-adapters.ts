@@ -26,6 +26,7 @@ import type { InteractionContext } from '@ai-team/api-contracts';
 import { isCommandResponse } from '@ai-team/api-contracts';
 
 import type { RegisteredCommand } from './command-dispatcher.js';
+import { ZodSchemaTools } from './utils/zod-schema.js';
 
 // ── Zod → Commander options ───────────────────────────────────────────────────
 
@@ -123,6 +124,29 @@ export function toCommandRegistration<TCommand extends string = string>(
   };
 }
 
+export function toCommandRegistrationWithContext<TCommand extends string = string>(
+  factory: (context: InteractionContext) => ICommand<unknown, unknown>
+): RegisteredCommand<TCommand> {
+  return {
+    key: '' as TCommand,
+    aliases: undefined,
+    description: '',
+    availableIn: { cli: false, chat: false, tool: false },
+    handler: async (workspaceRoot: string, payload: unknown, context?: InteractionContext) => {
+      const interactionContext = context ?? {};
+      const cmd = factory(interactionContext);
+      const execCtx = interactionContextToExecutionContext(workspaceRoot, interactionContext);
+      const resolvedPayload = resolveCommandArgs(cmd, payload, execCtx);
+      const result = await cmd.execute(resolvedPayload, execCtx);
+      if (isCommandResponse(result)) {
+        const r = result as unknown as CommandResponse<unknown>;
+        return { ...r, message: r.message ?? '' };
+      }
+      return { status: 'ok' as const, message: '', data: result } as CommandResponse<unknown>;
+    },
+  };
+}
+
 function deriveCliPath(command: string, parentKey?: string): string[] {
   const path: string[] = [];
   if (parentKey) {
@@ -185,7 +209,7 @@ export function toSlashCommand(cmd: ICommand<unknown, unknown>): ICommand<string
       const resolvedPayload = resolveCommandArgs(cmd, parsed, mergedCtx);
 
       const result = await cmd.execute(resolvedPayload, mergedCtx);
-      return (toCommandResponse(result) ?? { status: 'ok' }) as CommandResponse<unknown>;
+      return toCommandResponse(result) ?? { status: 'ok' };
     },
   };
 }
@@ -193,7 +217,7 @@ export function toSlashCommand(cmd: ICommand<unknown, unknown>): ICommand<string
 // ── ICommand → ILlmToolDefinition ────────────────────────────────────────────
 
 export function toLlmToolDefinition(cmd: ICommand<unknown, unknown>): ILlmToolDefinition {
-  const rawSchema = cmd.parameters ? zodSchemaToJsonSchema(cmd.parameters) : undefined;
+  const rawSchema = cmd.parameters ? new ZodSchemaTools().toJsonSchema(cmd.parameters) : undefined;
   const defaultHidden = cmd.input?.contextParameters ?? [];
   const explicitHidden = cmd.llm?.hiddenParameters ?? [];
   const schema = stripHiddenParameters(rawSchema, [...defaultHidden, ...explicitHidden]);
@@ -292,7 +316,7 @@ function resolveCommandArgs(
 }
 
 function getContextValue(ctx: ExecutionContext, key: string): unknown {
-  return getPathValue(ctx as unknown as Record<string, unknown>, key);
+  return getPathValue(ctx, key);
 }
 
 function getPathValue(source: unknown, path: string): unknown {
@@ -326,7 +350,10 @@ function setPathValue(target: Record<string, unknown>, path: string, value: unkn
     }
     current = current[part] as Record<string, unknown>;
   }
-  current[parts[parts.length - 1]] = value;
+  const last = parts.at(-1);
+  if (last) {
+    current[last] = value;
+  }
 }
 
 function interactionContextToExecutionContext(
@@ -347,11 +374,6 @@ function interactionContextToExecutionContext(
     workflowInstanceId: (ctx as any).workflowInstanceId,
     signal: ctx.signal,
     history: (ctx as any).history ?? [],
-    questionInput: ctx.questionInput as ExecutionContext['questionInput'],
-    questionConfirm: ctx.questionConfirm as ExecutionContext['questionConfirm'],
-    questionSelect: ctx.questionSelect as ExecutionContext['questionSelect'],
-    questionPassword: ctx.questionPassword as ExecutionContext['questionPassword'],
-    questionChecklist: ctx.questionChecklist as ExecutionContext['questionChecklist'],
     workflowState: ctx.workflowState,
     onWorkflowFrame: ctx.onWorkflowFrame as ExecutionContext['onWorkflowFrame'],
   };
@@ -406,7 +428,10 @@ function reconstructNestedObject(flat: Record<string, unknown>): Record<string, 
       current = current[part] as Record<string, unknown>;
     }
 
-    current[parts[parts.length - 1]] = value;
+    const last = parts.at(-1);
+    if (last) {
+      current[last] = value;
+    }
   }
 
   return result;
@@ -422,7 +447,7 @@ function reconstructNestedObject(flat: Record<string, unknown>): Record<string, 
  *
  * Returns parsed parameters as an object ready for command execution.
  */
-export function parseArgsIntelligently(rawArgs: string | unknown, schema?: unknown): unknown {
+export function parseArgsIntelligently(rawArgs: unknown, schema?: unknown): unknown {
   // If already an object, return as-is
   if (typeof rawArgs !== 'string') {
     return rawArgs;
@@ -457,49 +482,54 @@ function parseRawArgs(rawArgs: string, schema: unknown): unknown {
     return schema && typeof (schema as any).parse === 'function' ? (schema as any).parse({}) : {};
   }
 
+  const tokens = tokenizeRawArgs(rawArgs);
+  const flat = parseTokensToFlat(tokens);
+  const result = reconstructNestedObject(flat);
+
+  return schema && typeof (schema as any).parse === 'function'
+    ? (schema as any).parse(result)
+    : result;
+}
+
+function parseTokensToFlat(tokens: string[]): Record<string, unknown> {
   const flat: Record<string, unknown> = {};
   const positionals: string[] = [];
-  const tokens = tokenizeRawArgs(rawArgs);
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
-    if (token.startsWith('--')) {
-      const eqIndex = token.indexOf('=');
-      const key = eqIndex >= 0 ? token.slice(2, eqIndex) : token.slice(2);
-      const inlineValue = eqIndex >= 0 ? token.slice(eqIndex + 1) : undefined;
-
-      if (!key) {
-        continue;
-      }
-
-      if (inlineValue !== undefined) {
-        flat[key] = coerceArgValue(inlineValue);
-        continue;
-      }
-
-      const next = tokens[i + 1];
-      if (!next || next.startsWith('--')) {
-        flat[key] = true;
-      } else {
-        flat[key] = coerceArgValue(next);
-        i += 1;
-      }
+    if (!token.startsWith('--')) {
+      positionals.push(token);
       continue;
     }
 
-    positionals.push(token);
+    const eqIndex = token.indexOf('=');
+    const key = eqIndex >= 0 ? token.slice(2, eqIndex) : token.slice(2);
+    const inlineValue = eqIndex >= 0 ? token.slice(eqIndex + 1) : undefined;
+
+    if (!key) {
+      continue;
+    }
+
+    if (inlineValue !== undefined) {
+      flat[key] = coerceArgValue(inlineValue);
+      continue;
+    }
+
+    const next = tokens[i + 1];
+    if (!next || next.startsWith('--')) {
+      flat[key] = true;
+      continue;
+    }
+
+    flat[key] = coerceArgValue(next);
+    i += 1;
   }
 
   if (positionals.length > 0) {
     flat._ = positionals;
   }
 
-  // Reconstruct nested objects from dot notation (e.g., "agent.id" → { agent: { id: ... } })
-  const result = reconstructNestedObject(flat);
-
-  return schema && typeof (schema as any).parse === 'function'
-    ? (schema as any).parse(result)
-    : result;
+  return flat;
 }
 
 function tokenizeRawArgs(rawArgs: string): string[] {
@@ -541,13 +571,6 @@ function coerceArgValue(value: string): string | number | boolean {
   }
 
   return value;
-}
-
-function zodSchemaToJsonSchema(schema: unknown): Record<string, unknown> {
-  if (schema && typeof schema === 'object' && typeof (schema as any).toJSONSchema === 'function') {
-    return (schema as any).toJSONSchema() as Record<string, unknown>;
-  }
-  return { type: 'object', properties: {} };
 }
 
 function toCommandResponse(result: unknown): CommandResponse | void {

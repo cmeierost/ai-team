@@ -76,7 +76,7 @@ export interface WorkflowInputBinding {
  * Contains only plain values — no service instances, no function bridges.
  *
  * All services (agentManager, sessionManager, etc.) and callable capabilities
- * (emit, question bridges) must be injected via constructor.
+ * (emit, question services) must be injected via constructor.
  */
 export interface ExecutionContext {
   /** Invocation surface for the current command execution. */
@@ -86,6 +86,7 @@ export interface ExecutionContext {
   /** Convenience flag for callerType === 'human'. */
   calledByHuman?: boolean;
   /** Absolute workspace root path. */
+  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
   workspaceRoot: string;
   /** ID of the agent executing this command, if called by an agent. */
   agentId?: string;
@@ -105,22 +106,16 @@ export interface ExecutionContext {
 
   currentFiles?: string[];
 
-  /** Runtime tool manager injected by the service layer. */
-  toolManager?: unknown;
-
-  /** Runtime session manager injected by the service layer. */
-  sessionManager?: unknown;
-
-  /** Runtime agent manager injected by the service layer. */
+  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
   agentManager?: unknown;
 
-  /** Runtime skill manager injected by the service layer. */
+  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
   skillManager?: unknown;
 
-  /** Runtime LLM service injected by the service layer. */
+  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
   llmService?: unknown;
 
-  /** Runtime tool dispatcher injected by the service layer. */
+  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
   toolDispatcher?: unknown;
 
   /** Loaded workspace instructions for the active session. */
@@ -134,40 +129,17 @@ export interface ExecutionContext {
    * Per-request interaction bridge. Populated by adapter at dispatch time.
    * Uses broad `unknown` param types to avoid circular deps with api-contracts.
    */
+  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
   emit?: (event: unknown) => void;
-  questionInput?: (request: unknown) => Promise<string>;
-  questionConfirm?: (request: unknown) => Promise<boolean>;
-  questionSelect?: (request: unknown) => Promise<string>;
-  questionPassword?: (request: unknown) => Promise<string>;
-  questionChecklist?: (request: unknown) => Promise<string[]>;
   workflowState?: unknown;
   onWorkflowFrame?: (frame: unknown) => void;
-
-  /** Optional path permission checker injected by runtime. */
-  pathPermissionChecker?: {
-    canReadPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
-    canWritePath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
-    canListPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
-    assertCanReadPath(
-      workspaceRoot: string,
-      contextId: string,
-      permissions: unknown,
-      filePath: string
-    ): void;
-    assertCanWritePath(
-      workspaceRoot: string,
-      contextId: string,
-      permissions: unknown,
-      filePath: string
-    ): void;
-  };
-  /** LSP code-intelligence provider (injected by ToolManager when available). */
+  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
   lsp?: {
     execute(operation: string, params: unknown): Promise<unknown>;
     isAvailable(): boolean;
   };
 
-  /** Nested runtime hook bridge used by orchestration layers. */
+  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
   hooks?: unknown;
 }
 
@@ -194,7 +166,7 @@ export type CommandResponseError = {
 };
 
 export type CommandResponse<T = unknown> = {
-  status: 'ok' | 'error';
+  status: 'ok' | 'error' | 'cancelled';
   message?: string;
   data?: T;
   error?: CommandResponseError;

@@ -25,10 +25,9 @@ import {
 } from './types.js';
 import type { SessionManager } from './session-manager.js';
 import { toCommandRegistration } from './command-adapters.js';
-import { AvatarService } from './commands/hr/avatar.js';
+import { setServiceContainer } from './service-registry.js';
 import { AccessCanCommand } from './commands/access/access-can.command.js';
 import { AccessOverlapCommand } from './commands/access/access-overlap.command.js';
-import { AccessService as AccessCommandService } from './commands/access/access-service.js';
 import { AccessWhoCommand } from './commands/access/access-who.command.js';
 import { AvatarCommand } from './commands/hr/avatar.command.js';
 import { CreateICommand } from './commands/hr/create.command.js';
@@ -42,6 +41,7 @@ import { FilesAllowCommand } from './commands/fs/files-allow.command.js';
 import { FilesDenyCommand } from './commands/fs/files-deny.command.js';
 import { FilesPatternsCommand } from './commands/fs/files-patterns.command.js';
 import { FilesTreeCommand } from './commands/fs/files-tree.command.js';
+import { FileTreeService } from './commands/fs/file-tree.js';
 import { FireICommand } from './commands/hr/fire.command.js';
 import { GraphCommand } from './commands/team/graph.command.js';
 import { HhRefreshCommand } from './commands/hr/hh-refresh.command.js';
@@ -57,9 +57,7 @@ import { SkillsRemoveCommand } from './commands/skills/skills-remove.command.js'
 import { InitICommand } from './commands/init/init.command.js';
 import { SetupICommand } from './commands/setup/setup.command.js';
 import { OnboardCommand, OnboardICommand } from './commands/hr/onboard.js';
-import { InitCommand } from './commands/init/init.js';
 import { SetupCommand } from './commands/setup/setup.js';
-import { TestConnectionCommand } from './commands/setup/test-connection.js';
 import {
   ProviderAddICommand,
   ProviderConfigureICommand,
@@ -78,6 +76,7 @@ import { ToolsDenyCommand } from './commands/tools/tools-deny.command.js';
 import { ToolsListCommand } from './commands/tools/tools-list.command.js';
 import { ChatICommand } from './commands/chat/chat-i.command.js';
 import { HelpChatCommand } from './commands/help/help.command.js';
+import { ChatInfoService } from './orchestrator/chat-info-service.js';
 import { MetaService } from './routers/meta-service.js';
 
 // ── Handler type ──────────────────────────────────────────────────────────────
@@ -115,7 +114,7 @@ function wrapHandler(
       }
 
       // Wrap bare results
-      return { status: 'ok' as const, message: '', data: result } as CommandResponse<unknown>;
+      return { status: 'ok', message: '', data: result };
     } catch (error) {
       return {
         status: 'error',
@@ -124,7 +123,7 @@ function wrapHandler(
           code: 'COMMAND_EXECUTION_FAILED',
           details: error,
         },
-      } as CommandResponse<unknown>;
+      };
     }
   };
 }
@@ -292,7 +291,7 @@ export class CommandDispatcher implements ICommandDispatcher {
   ): Promise<TypedCommandResponse<TCommand>> {
     return this.dispatch<TCommand>(
       {
-        command: command.key as TCommand['key'],
+        command: command.key,
         payload,
       },
       context
@@ -369,6 +368,9 @@ export function createCommandDispatcher(
   resolver?: IServiceContainer
 ): CommandDispatcher {
   const d = new CommandDispatcher(workspaceRoot);
+  if (resolver) {
+    setServiceContainer(resolver);
+  }
   const container = createCommandFactoryContainer(workspaceRoot, resolver);
   const commandDefinitions = resolver?.tryResolve(COMMAND_DEFINITION_REGISTRY_TOKEN)?.list() ?? [];
 
@@ -377,40 +379,29 @@ export function createCommandDispatcher(
       definition.register(container);
       d.register({
         ...definition.registration,
-        handler: async (_ws: string, payload: unknown, context: InteractionContext) =>
-          (
-            container.resolve(definition.handlerToken) as (
+        handler: wrapHandler(
+          async (_ws: string, payload: unknown, context?: InteractionContext) => {
+            const handler = container.resolve(definition.handlerToken) as (
               payload: unknown,
               context: InteractionContext
-            ) => Promise<unknown>
-          )(payload, context),
-      } as unknown as RegisteredCommand);
+            ) => Promise<unknown>;
+            return handler(payload, context ?? {});
+          }
+        ),
+      });
       return;
     }
 
-    d.register(definition.factory(container) as unknown as RegisteredCommand);
+    d.register(definition.factory(container));
   };
 
   for (const definition of commandDefinitions) {
     registerDefinition(definition);
   }
 
-  container.registerTransient(COMMAND_FACTORY_TOKENS.AvatarService, (resolver) => {
-    return new AvatarService(
-      resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.AvatarManager)
-    );
-  });
-  container.registerTransient(COMMAND_FACTORY_TOKENS.AccessCommandService, (resolver) => {
-    return new AccessCommandService(
-      resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker)
-    );
-  });
   container.registerTransient(COMMAND_FACTORY_TOKENS.ContextService, (resolver) => {
     return new MetaService(
+      resolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
       resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
       resolver.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
       resolver.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
@@ -425,8 +416,9 @@ export function createCommandDispatcher(
   d.register(
     toCommandRegistration(
       new AccessCanCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AccessCommandService),
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager)
+        container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+        container.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker)
       )
     )
   );
@@ -448,13 +440,15 @@ export function createCommandDispatcher(
     container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceStorage),
     container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
     container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-    container.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService)
+    container.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
+    container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
   );
   const onboardCommand = new OnboardCommand(
     container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
     container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
     container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
     container.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
+    container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
     container.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage),
     container.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory),
     container.resolve(COMMAND_FACTORY_TOKENS.LlmService),
@@ -462,22 +456,30 @@ export function createCommandDispatcher(
     container.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
     container.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
     container.resolve(COMMAND_FACTORY_TOKENS.ContextService),
+    container.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
     sessionManager,
     container.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
     resolver
   );
-  const testConnectionCommand = new TestConnectionCommand(
-    container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-    container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-    container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-    container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-    container.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
-  );
-  const initCommand = new InitCommand(onboardCommand, setupCommand, testConnectionCommand);
 
-  d.register(toCommandRegistration(new InitICommand(initCommand, sessionManager)));
+  d.register(
+    toCommandRegistration(
+      new InitICommand(
+        container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      )
+    )
+  );
   d.register(toCommandRegistration(new SetupICommand(setupCommand)));
-  d.register(toCommandRegistration(new OnboardICommand(onboardCommand, sessionManager)));
+  d.register(
+    toCommandRegistration(
+      new OnboardICommand(
+        onboardCommand,
+        sessionManager,
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      )
+    )
+  );
 
   d.register(
     toCommandRegistration(
@@ -491,7 +493,8 @@ export function createCommandDispatcher(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
+        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
       )
     )
   );
@@ -502,7 +505,8 @@ export function createCommandDispatcher(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
+        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
       )
     )
   );
@@ -513,7 +517,8 @@ export function createCommandDispatcher(
         container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
+        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
       )
     )
   );
@@ -557,7 +562,11 @@ export function createCommandDispatcher(
   );
   d.register(
     toCommandRegistration(
-      new AccessWhoCommand(container.resolve(COMMAND_FACTORY_TOKENS.AccessCommandService))
+      new AccessWhoCommand(
+        container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+        container.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker)
+      )
     )
   );
 
@@ -614,7 +623,8 @@ export function createCommandDispatcher(
     toCommandRegistration(
       new ToolsAllowCommand(
         container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.ToolManager)
+        container.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
       )
     )
   );
@@ -622,39 +632,37 @@ export function createCommandDispatcher(
     toCommandRegistration(
       new ToolsDenyCommand(
         container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.ToolManager)
+        container.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
       )
     )
   );
 
   // ── Files commands ──────────────────────────────────────────────────────────
 
-  d.register(
-    toCommandRegistration(
-      new FilesTreeCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.FileTreeService),
-        container.resolve(COMMAND_FACTORY_TOKENS.FileAnnotationService)
-      )
-    )
+  const fileTreeAccessService = new FileTreeService(
+    container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+    container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+    container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+    container.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
+    container.resolve(COMMAND_FACTORY_TOKENS.FileTreeService),
+    container.resolve(COMMAND_FACTORY_TOKENS.FileAnnotationService)
   );
+
+  d.register(toCommandRegistration(new FilesTreeCommand(fileTreeAccessService)));
   d.register(
     toCommandRegistration(
       new FilesAllowCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage)
+        fileTreeAccessService,
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
       )
     )
   );
   d.register(
     toCommandRegistration(
       new FilesDenyCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage)
+        fileTreeAccessService,
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
       )
     )
   );
@@ -685,25 +693,39 @@ export function createCommandDispatcher(
   d.register(
     toCommandRegistration(
       new HireICommand(
+        container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
         container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
         container.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
       )
     )
   );
   d.register(
-    toCommandRegistration(new FireICommand(container.resolve(COMMAND_FACTORY_TOKENS.AgentManager)))
-  );
-  d.register(
     toCommandRegistration(
-      new CreateICommand(
+      new FireICommand(
         container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.SkillManager)
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
       )
     )
   );
   d.register(
     toCommandRegistration(
-      new AvatarCommand(container.resolve(COMMAND_FACTORY_TOKENS.AvatarService))
+      new CreateICommand(
+        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+        container.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      )
+    )
+  );
+  d.register(
+    toCommandRegistration(
+      new AvatarCommand(
+        container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+        container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+        container.resolve(COMMAND_FACTORY_TOKENS.AvatarManager),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      )
     )
   );
   d.register(toCommandRegistration(new HhRefreshCommand()));
@@ -764,15 +786,15 @@ export function createCommandDispatcher(
         },
         {
           sessionManager: container.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-          llmService: container.resolve(
-            COMMAND_FACTORY_TOKENS.LlmService
-          ) as unknown as import('@ai-team/core').ILlmService,
+          llmService: container.resolve(COMMAND_FACTORY_TOKENS.LlmService),
           proposalStoreFactory: container.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory),
         },
         {
           pathPermissionChecker: container.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
           serviceContainer: container.resolver,
-        }
+        },
+        new ChatInfoService(),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
       )
     )
   );
@@ -803,12 +825,18 @@ export function createCommandDispatcher(
   );
   d.register(
     toCommandRegistration(
-      new CodeEditRejectCommand(container.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager))
+      new CodeEditRejectCommand(
+        container.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      )
     )
   );
   d.register(
     toCommandRegistration(
-      new CodeEditApplyCommand(container.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager))
+      new CodeEditApplyCommand(
+        container.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      )
     )
   );
 

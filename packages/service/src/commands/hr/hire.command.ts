@@ -6,7 +6,6 @@ import type {
   ExecutionContext,
   CommandResponse,
 } from '@ai-team/core';
-import type { InteractionContext } from '@ai-team/api-contracts';
 import { HireCommand as HireCommandImpl } from './hire.js';
 
 type Params = z.infer<typeof HireICommand.schema>;
@@ -29,22 +28,14 @@ export class HireICommand implements ICommand<Params, void> {
   readonly parameters = HireICommand.schema;
 
   constructor(
+    private readonly workspaceRoot: string,
     private readonly agents: IAgentManager,
     private readonly markdown: IMarkdownSectionService
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    const cmd = new HireCommandImpl(this.agents, this.markdown);
-    const context: InteractionContext = {
-      signal: ctx.signal,
-      emit: ctx.emit as InteractionContext['emit'],
-      questionInput: ctx.questionInput,
-      questionConfirm: ctx.questionConfirm,
-      questionSelect: ctx.questionSelect,
-      questionPassword: ctx.questionPassword,
-      questionChecklist: ctx.questionChecklist,
-    };
-    await cmd.execute(payload, context);
+    const cmd = new HireCommandImpl(this.workspaceRoot, this.agents, this.markdown);
+    await cmd.execute(payload, ctx);
     return { status: 'ok' };
   }
 }

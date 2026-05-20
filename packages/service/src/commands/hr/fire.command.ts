@@ -1,16 +1,11 @@
 import fs from 'node:fs/promises';
 import { z } from 'zod';
 
-import type {
-  ICommand,
-  IAgentManager,
-  ExecutionContext,
-  CommandResponse,
-} from '@ai-team/core';
-import type { InteractionContext } from '@ai-team/api-contracts';
+import type { ICommand, IAgentManager, ExecutionContext, CommandResponse } from '@ai-team/core';
 import type { FireOptions } from '@ai-team/api-contracts';
 import type { WorkflowDefinition } from '../../workflow/types.js';
 import { runWorkflowAsync } from '../../workflow/runner.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof FireICommand.schema>;
 
@@ -32,14 +27,12 @@ export class FireICommand implements ICommand<Params, void> {
   readonly group = 'hr';
   readonly parameters = FireICommand.schema;
 
-  constructor(private readonly agents: IAgentManager) {}
+  constructor(
+    private readonly agents: IAgentManager,
+    private readonly questionService: IQuestionService
+  ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    const context: InteractionContext = {
-      signal: ctx.signal,
-      emit: ctx.emit as InteractionContext['emit'],
-      questionConfirm: ctx.questionConfirm,
-    };
     await runWorkflowAsync(
       fireWorkflow,
       {
@@ -47,7 +40,8 @@ export class FireICommand implements ICommand<Params, void> {
         agentQuery: payload.employeeQuery,
         options: { force: payload.options?.force },
       },
-      context
+      ctx,
+      this.questionService
     );
     return { status: 'ok' };
   }
@@ -95,7 +89,7 @@ const fireWorkflow: WorkflowDefinition<FireWorkflowState> = {
       kind: 'action',
       execute: async (state) => {
         const { agent } = state;
-        if (agent?.filePath && agent.filePath.endsWith('.md')) {
+        if (agent?.filePath?.endsWith('.md')) {
           await fs.unlink(agent.filePath);
         } else {
           throw new Error('Could not determine agent file path.');

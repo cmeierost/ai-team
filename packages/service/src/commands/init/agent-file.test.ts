@@ -17,7 +17,7 @@ function makeMockStorage(): IAgentDocumentStorage {
     loadAgentSkillFileAsync: vi.fn(),
     loadInstructionFileAsync: vi.fn(),
     loadAllInstructionFilesAsync: vi.fn(),
-  } as unknown as IAgentDocumentStorage;
+  };
 }
 
 describe('createAgentFile default governance permissions', () => {
@@ -29,14 +29,18 @@ describe('createAgentFile default governance permissions', () => {
   });
 
   it('grants manage_agents by default for CEO', async () => {
-    await createAgentFile('c:/repo', {
-      name: 'Michael Brown',
-      role: 'ceo',
-      type: 'executive',
-      contextLevel: 'organization',
-      introduction: 'intro',
-      personalityProfile: [],
-    }, mockStorage);
+    await createAgentFile(
+      'c:/repo',
+      {
+        name: 'Michael Brown',
+        role: 'ceo',
+        type: 'executive',
+        contextLevel: 'organization',
+        introduction: 'intro',
+        personalityProfile: [],
+      },
+      mockStorage
+    );
 
     expect(mockStorage.saveAgentAsync).toHaveBeenCalledTimes(1);
     const saved = (mockStorage.saveAgentAsync as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -44,28 +48,36 @@ describe('createAgentFile default governance permissions', () => {
   });
 
   it('grants manage_agents by default for HR Director', async () => {
-    await createAgentFile('c:/repo', {
-      name: 'Emily Davis',
-      role: 'hr-director',
-      type: 'executive',
-      contextLevel: 'organization',
-      introduction: 'intro',
-      personalityProfile: [],
-    }, mockStorage);
+    await createAgentFile(
+      'c:/repo',
+      {
+        name: 'Emily Davis',
+        role: 'hr-director',
+        type: 'executive',
+        contextLevel: 'organization',
+        introduction: 'intro',
+        personalityProfile: [],
+      },
+      mockStorage
+    );
 
     const saved = (mockStorage.saveAgentAsync as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(saved.permissions.manage_agents).toBe(true);
   });
 
   it('does not grant manage_agents by default for other executive roles', async () => {
-    await createAgentFile('c:/repo', {
-      name: 'Sarah Lee',
-      role: 'chief-architect',
-      type: 'executive',
-      contextLevel: 'organization',
-      introduction: 'intro',
-      personalityProfile: [],
-    }, mockStorage);
+    await createAgentFile(
+      'c:/repo',
+      {
+        name: 'Sarah Lee',
+        role: 'chief-architect',
+        type: 'executive',
+        contextLevel: 'organization',
+        introduction: 'intro',
+        personalityProfile: [],
+      },
+      mockStorage
+    );
 
     const saved = (mockStorage.saveAgentAsync as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(saved.permissions.manage_agents).toBeUndefined();

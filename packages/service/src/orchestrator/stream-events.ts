@@ -10,7 +10,9 @@ import type {
   ToolDenialEvent,
   ToolRuntimePayloadEvent,
 } from '@ai-team/api-contracts';
-import type { ChatRuntimeHooks } from '../commands/chat/index.js';
+import { getServiceContainer } from '../service-registry.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
+import type { EmitService } from './services/emit-service.js';
 
 // ── Delta extraction ──────────────────────────────────────────────────────────
 
@@ -52,18 +54,21 @@ function extractDeltaSegmentText(value: unknown): string {
 
 // ── Event emission ────────────────────────────────────────────────────────────
 
-/** Emit a runtime event through hooks, if a listener is registered. */
-export function emitEvent(hooks: ChatRuntimeHooks | undefined, event: RuntimeStreamEvent): void {
-  hooks?.emit?.(event);
+function getEmitter(): EmitService {
+  return getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.EmitService);
+}
+
+/** Emit a runtime event through the EmitService, if a listener is registered. */
+export function emitEvent(event: RuntimeStreamEvent): void {
+  getEmitter().emit(event);
 }
 
 export function emitLog(
-  hooks: ChatRuntimeHooks | undefined,
   level: 'info' | 'warn' | 'error',
   message: string
 ): void {
-  emitEvent(hooks, { kind: 'log', level, message });
-  if (!hooks?.emit) {
+  emitEvent({ kind: 'log', level, message });
+  if (!getEmitter().hasEmitter()) {
     if (level === 'error') {
       process.stderr.write(`${message}\n`);
     } else {
@@ -73,15 +78,13 @@ export function emitLog(
 }
 
 export function emitStatus(
-  hooks: ChatRuntimeHooks | undefined,
   phase: string,
   message?: string
 ): void {
-  emitEvent(hooks, { kind: 'status', phase, message });
+  emitEvent({ kind: 'status', phase, message });
 }
 
 export function emitToolEvent(
-  hooks: ChatRuntimeHooks | undefined,
   toolName: string,
   toolCallId: string | undefined,
   toolPhase: 'start' | 'result' | 'error' | 'denied',
@@ -89,7 +92,7 @@ export function emitToolEvent(
   toolDenial?: ToolDenialEvent,
   toolResult?: ToolRuntimePayloadEvent
 ): void {
-  emitEvent(hooks, {
+  emitEvent({
     kind: 'tool',
     toolName,
     toolCallId,

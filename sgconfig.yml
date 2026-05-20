@@ -1,0 +1,6 @@
+ruleDirs:
+- C:\Projects\ai-team\rules
+testConfigs:
+- testDir: C:\Projects\ai-team\rule-tests
+utilDirs:
+- C:\Projects\ai-team\utils

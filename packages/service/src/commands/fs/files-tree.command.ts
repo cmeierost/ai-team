@@ -1,16 +1,7 @@
 import { z } from 'zod';
-import type {
-  ICommand,
-  IAgentManager,
-  IConfigurationStorage,
-  IPermissionStorage,
-  IFileTreeService,
-  IFileAnnotationService,
-  ExecutionContext,
-  CommandResponse,
-} from '@ai-team/core';
+import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
 import type { FilesTreeResponse } from '@ai-team/api-contracts';
-import { FileTreeCommand as FileTreeCommandImpl } from './file-tree.js';
+import { FileTreeService } from './file-tree.js';
 
 type Params = z.infer<typeof FilesTreeCommand.schema>;
 
@@ -32,25 +23,13 @@ export class FilesTreeCommand implements ICommand<Params, FilesTreeResponse> {
   readonly group = 'fs';
   readonly parameters = FilesTreeCommand.schema;
 
-  constructor(
-    private readonly agents: IAgentManager,
-    private readonly configStorage: IConfigurationStorage,
-    private readonly permStorage: IPermissionStorage,
-    private readonly fileTreeService: IFileTreeService,
-    private readonly fileAnnotationService: IFileAnnotationService
-  ) {}
+  constructor(private readonly fileTreeService: FileTreeService) {}
 
   async execute(
     payload: Params,
     _ctx: ExecutionContext
   ): Promise<CommandResponse<FilesTreeResponse>> {
-    const data = await new FileTreeCommandImpl(
-      this.agents,
-      this.configStorage,
-      this.permStorage,
-      this.fileTreeService,
-      this.fileAnnotationService
-    ).filesTree(payload);
+    const data = await this.fileTreeService.filesTree(payload);
     return { status: 'ok', data };
   }
 }

@@ -589,7 +589,7 @@ export interface WorkflowStateSnapshot {
   answers: Record<string, QuestionAnswerValue>;
 }
 
-export interface InteractionContext extends IQuestionContext {
+export interface InteractionContext extends IQuestionListeners {
   emit?: (event: RuntimeStreamEvent) => void;
   workflowState?: WorkflowStateSnapshot;
   onWorkflowFrame?: (frame: WorkflowFrame) => void;
@@ -725,11 +725,10 @@ export interface IInteractionStream<TCommand extends string = string> extends As
 }
 
 /**
- * @deprecated Use {@link IInteractionStream} `.on()` registration instead.
- *
  * Legacy context passed by the browser client when starting a stream.
+ * Prefer {@link IInteractionStream} `.on()` registration for new code.
  */
-export interface IQuestionContext {
+export interface IQuestionListeners {
   signal?: AbortSignal;
   questionInput?: (request: QuestionInputRequest) => Promise<string>;
   questionConfirm?: (request: QuestionConfirmRequest) => Promise<boolean>;
@@ -737,6 +736,11 @@ export interface IQuestionContext {
   questionPassword?: (request: QuestionPasswordRequest) => Promise<string>;
   questionChecklist?: (request: QuestionChecklistRequest) => Promise<string[]>;
 }
+
+/**
+ * @deprecated Use {@link IQuestionListeners} instead.
+ */
+export type IQuestionContext = IQuestionListeners;
 
 /**
  * Transport-level streaming client for the browser.

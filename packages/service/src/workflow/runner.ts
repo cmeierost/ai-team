@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import type { InteractionContext } from '@ai-team/api-contracts';
+import type { WorkflowStateSnapshot } from '@ai-team/api-contracts';
+import type { ExecutionContext } from '@ai-team/core';
 import type { WorkflowDefinition, WorkflowResult, WorkflowStep } from './types.js';
 import {
   ensureNotAborted,
   emitWorkflowQuestionFrame,
   emitWorkflowResultFrame,
   resolveWorkflowAnswer,
+  type WorkflowRuntimeContext,
 } from './helpers.js';
+import { type IQuestionService } from '../questions/question-service.js';
 
 function resolveMessage<TState>(
   message: string | ((state: TState) => string),
@@ -18,31 +21,27 @@ function resolveMessage<TState>(
 async function executeConfirmStep<TState>(
   step: Extract<WorkflowStep<TState>, { kind: 'confirm' }>,
   state: TState,
-  context: InteractionContext,
+  context: ExecutionContext,
+  workflowContext: WorkflowRuntimeContext,
+  questionService: IQuestionService,
   workflowId: string
 ): Promise<{ state: TState; aborted: boolean }> {
   const message = resolveMessage(step.message, state);
   const workflow = { workflowId, stepId: step.id, questionId: step.id };
   const request = { message, default: step.default, workflow };
 
-  emitWorkflowQuestionFrame(context, { kind: 'confirm', ...request });
-  context.emit?.({ kind: 'question', questionType: 'confirm', message });
+  emitWorkflowQuestionFrame(workflowContext, { kind: 'confirm', ...request });
+  workflowContext.emit?.({ kind: 'question', questionType: 'confirm', message });
 
-  const resumed = resolveWorkflowAnswer(context, { workflow });
+  const resumed = resolveWorkflowAnswer(workflowContext, { workflow });
   if (typeof resumed === 'boolean') {
-    emitWorkflowResultFrame(context, { workflow }, resumed);
+    emitWorkflowResultFrame(workflowContext, { workflow }, resumed);
     if (!resumed && step.onDeclined === 'abort') return { state, aborted: true };
     return { state, aborted: false };
   }
 
-  if (!context.questionConfirm) {
-    throw new Error(
-      `Workflow "${workflowId}" step "${step.id}": confirm question requested but no questionConfirm handler available.`
-    );
-  }
-
-  const answer = await context.questionConfirm(request);
-  emitWorkflowResultFrame(context, { workflow }, answer);
+  const answer = await questionService.confirm(request, context);
+  emitWorkflowResultFrame(workflowContext, { workflow }, answer);
   if (!answer && step.onDeclined === 'abort') return { state, aborted: true };
   return { state, aborted: false };
 }
@@ -50,37 +49,35 @@ async function executeConfirmStep<TState>(
 async function executeInputStep<TState>(
   step: Extract<WorkflowStep<TState>, { kind: 'input' }>,
   state: TState,
-  context: InteractionContext,
+  context: ExecutionContext,
+  workflowContext: WorkflowRuntimeContext,
+  questionService: IQuestionService,
   workflowId: string
 ): Promise<TState> {
   const message = resolveMessage(step.message, state);
   const workflow = { workflowId, stepId: step.id, questionId: step.id };
   const request = { message, validate: step.validate, workflow };
 
-  emitWorkflowQuestionFrame(context, { kind: 'input', ...request });
-  context.emit?.({ kind: 'question', questionType: 'input', message });
+  emitWorkflowQuestionFrame(workflowContext, { kind: 'input', ...request });
+  workflowContext.emit?.({ kind: 'question', questionType: 'input', message });
 
-  const resumed = resolveWorkflowAnswer(context, { workflow });
+  const resumed = resolveWorkflowAnswer(workflowContext, { workflow });
   if (typeof resumed === 'string') {
-    emitWorkflowResultFrame(context, { workflow }, resumed);
+    emitWorkflowResultFrame(workflowContext, { workflow }, resumed);
     return step.applyAnswer(state, resumed);
   }
 
-  if (!context.questionInput) {
-    throw new Error(
-      `Workflow "${workflowId}" step "${step.id}": input question requested but no questionInput handler available.`
-    );
-  }
-
-  const answer = await context.questionInput(request);
-  emitWorkflowResultFrame(context, { workflow }, answer);
+  const answer = await questionService.input(request, context);
+  emitWorkflowResultFrame(workflowContext, { workflow }, answer);
   return step.applyAnswer(state, answer);
 }
 
 async function executeSelectStep<TState>(
   step: Extract<WorkflowStep<TState>, { kind: 'select' }>,
   state: TState,
-  context: InteractionContext,
+  context: ExecutionContext,
+  workflowContext: WorkflowRuntimeContext,
+  questionService: IQuestionService,
   workflowId: string
 ): Promise<TState> {
   const message = resolveMessage(step.message, state);
@@ -88,60 +85,52 @@ async function executeSelectStep<TState>(
   const workflow = { workflowId, stepId: step.id, questionId: step.id };
   const request = { message, choices, workflow };
 
-  emitWorkflowQuestionFrame(context, { kind: 'select', ...request });
-  context.emit?.({ kind: 'question', questionType: 'select', message, choices });
+  emitWorkflowQuestionFrame(workflowContext, { kind: 'select', ...request });
+  workflowContext.emit?.({ kind: 'question', questionType: 'select', message, choices });
 
-  const resumed = resolveWorkflowAnswer(context, { workflow });
+  const resumed = resolveWorkflowAnswer(workflowContext, { workflow });
   if (typeof resumed === 'string') {
-    emitWorkflowResultFrame(context, { workflow }, resumed);
+    emitWorkflowResultFrame(workflowContext, { workflow }, resumed);
     return step.applyAnswer(state, resumed);
   }
 
-  if (!context.questionSelect) {
-    throw new Error(
-      `Workflow "${workflowId}" step "${step.id}": select question requested but no questionSelect handler available.`
-    );
-  }
-
-  const answer = await context.questionSelect(request);
-  emitWorkflowResultFrame(context, { workflow }, answer);
+  const answer = await questionService.select(request, context);
+  emitWorkflowResultFrame(workflowContext, { workflow }, answer);
   return step.applyAnswer(state, answer);
 }
 
 async function executePasswordStep<TState>(
   step: Extract<WorkflowStep<TState>, { kind: 'password' }>,
   state: TState,
-  context: InteractionContext,
+  context: ExecutionContext,
+  workflowContext: WorkflowRuntimeContext,
+  questionService: IQuestionService,
   workflowId: string
 ): Promise<TState> {
   const message = resolveMessage(step.message, state);
   const workflow = { workflowId, stepId: step.id, questionId: step.id };
   const request = { message, workflow };
 
-  emitWorkflowQuestionFrame(context, { kind: 'password', ...request });
-  context.emit?.({ kind: 'question', questionType: 'password', message });
+  emitWorkflowQuestionFrame(workflowContext, { kind: 'password', ...request });
+  workflowContext.emit?.({ kind: 'question', questionType: 'password', message });
 
-  const resumed = resolveWorkflowAnswer(context, { workflow });
+  const resumed = resolveWorkflowAnswer(workflowContext, { workflow });
   if (typeof resumed === 'string') {
-    emitWorkflowResultFrame(context, { workflow }, resumed);
+    emitWorkflowResultFrame(workflowContext, { workflow }, resumed);
     return step.applyAnswer(state, resumed);
   }
 
-  if (!context.questionPassword) {
-    throw new Error(
-      `Workflow "${workflowId}" step "${step.id}": password question requested but no questionPassword handler available.`
-    );
-  }
-
-  const answer = await context.questionPassword(request);
-  emitWorkflowResultFrame(context, { workflow }, answer);
+  const answer = await questionService.password(request, context);
+  emitWorkflowResultFrame(workflowContext, { workflow }, answer);
   return step.applyAnswer(state, answer);
 }
 
 async function executeChecklistStep<TState>(
   step: Extract<WorkflowStep<TState>, { kind: 'checklist' }>,
   state: TState,
-  context: InteractionContext,
+  context: ExecutionContext,
+  workflowContext: WorkflowRuntimeContext,
+  questionService: IQuestionService,
   workflowId: string
 ): Promise<TState> {
   const message = resolveMessage(step.message, state);
@@ -155,50 +144,51 @@ async function executeChecklistStep<TState>(
     workflow,
   };
 
-  emitWorkflowQuestionFrame(context, { kind: 'checklist', ...request });
-  context.emit?.({ kind: 'question', questionType: 'checklist', message, choices });
+  emitWorkflowQuestionFrame(workflowContext, { kind: 'checklist', ...request });
+  workflowContext.emit?.({ kind: 'question', questionType: 'checklist', message, choices });
 
-  const resumed = resolveWorkflowAnswer(context, { workflow });
+  const resumed = resolveWorkflowAnswer(workflowContext, { workflow });
   if (Array.isArray(resumed) && resumed.every((v) => typeof v === 'string')) {
-    emitWorkflowResultFrame(context, { workflow }, resumed);
+    emitWorkflowResultFrame(workflowContext, { workflow }, resumed);
     return step.applyAnswer(state, resumed);
   }
 
-  if (!context.questionChecklist) {
-    throw new Error(
-      `Workflow "${workflowId}" step "${step.id}": checklist question requested but no questionChecklist handler available.`
-    );
-  }
-
-  const answer = await context.questionChecklist(request);
-  emitWorkflowResultFrame(context, { workflow }, answer);
+  const answer = await questionService.checklist(request, context);
+  emitWorkflowResultFrame(workflowContext, { workflow }, answer);
   return step.applyAnswer(state, answer);
 }
 
 export async function runWorkflowAsync<TState>(
   definition: WorkflowDefinition<TState>,
   initialState: TState,
-  context: InteractionContext
+  context: ExecutionContext,
+  questionService: IQuestionService
 ): Promise<WorkflowResult<TState>> {
   let state = initialState;
   const instanceId = `${definition.id}:${randomUUID()}`;
+  const workflowContext: WorkflowRuntimeContext = {
+    signal: context.signal,
+    workflowState: context.workflowState as WorkflowStateSnapshot | undefined,
+    onWorkflowFrame: context.onWorkflowFrame,
+    emit: context.emit,
+  };
 
   for (const step of definition.steps) {
-    ensureNotAborted(context);
+    ensureNotAborted(workflowContext);
 
     if (step.skipWhen?.(state)) {
       continue;
     }
 
-    context.onWorkflowFrame?.({
+    workflowContext.onWorkflowFrame?.({
       workflowId: instanceId,
       stepId: step.id,
     });
 
     switch (step.kind) {
       case 'action': {
-        state = await step.execute(state, context);
-        context.onWorkflowFrame?.({
+        state = await step.execute(state, workflowContext);
+        workflowContext.onWorkflowFrame?.({
           workflowId: instanceId,
           stepId: step.id,
           completed: true,
@@ -207,7 +197,14 @@ export async function runWorkflowAsync<TState>(
       }
 
       case 'confirm': {
-        const result = await executeConfirmStep(step, state, context, instanceId);
+        const result = await executeConfirmStep(
+          step,
+          state,
+          context,
+          workflowContext,
+          questionService,
+          instanceId
+        );
         state = result.state;
         if (result.aborted) {
           return { state, aborted: true };
@@ -216,22 +213,50 @@ export async function runWorkflowAsync<TState>(
       }
 
       case 'input': {
-        state = await executeInputStep(step, state, context, instanceId);
+        state = await executeInputStep(
+          step,
+          state,
+          context,
+          workflowContext,
+          questionService,
+          instanceId
+        );
         break;
       }
 
       case 'select': {
-        state = await executeSelectStep(step, state, context, instanceId);
+        state = await executeSelectStep(
+          step,
+          state,
+          context,
+          workflowContext,
+          questionService,
+          instanceId
+        );
         break;
       }
 
       case 'password': {
-        state = await executePasswordStep(step, state, context, instanceId);
+        state = await executePasswordStep(
+          step,
+          state,
+          context,
+          workflowContext,
+          questionService,
+          instanceId
+        );
         break;
       }
 
       case 'checklist': {
-        state = await executeChecklistStep(step, state, context, instanceId);
+        state = await executeChecklistStep(
+          step,
+          state,
+          context,
+          workflowContext,
+          questionService,
+          instanceId
+        );
         break;
       }
     }

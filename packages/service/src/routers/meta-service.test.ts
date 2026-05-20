@@ -109,6 +109,7 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
     } as any;
 
     return new MetaService(
+      workspaceRoot,
       agentManager,
       sessionManager,
       skillManager,

@@ -1,10 +1,5 @@
 import { z } from 'zod';
-import type {
-  ICommand,
-  IAgentManager,
-  ExecutionContext,
-  CommandResponse,
-} from '@ai-team/core';
+import type { ICommand, IAgentManager, ExecutionContext, CommandResponse } from '@ai-team/core';
 import type { PermissionOverlapReport } from '@ai-team/api-contracts';
 
 type Params = z.infer<typeof AccessOverlapCommand.schema>;

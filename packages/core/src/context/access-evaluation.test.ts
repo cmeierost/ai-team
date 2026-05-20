@@ -21,6 +21,7 @@ describe('resolveWorkspacePathMeta', () => {
 describe('checkPathRight', () => {
   it('delegates to the matching permission-checker method', () => {
     const checker = {
+      can: vi.fn().mockReturnValue(true),
       canReadPath: vi.fn().mockReturnValue(true),
       canWritePath: vi.fn().mockReturnValue(false),
       canListPath: vi.fn().mockReturnValue(false),
@@ -29,14 +30,10 @@ describe('checkPathRight', () => {
     };
     const permissions = { read: ['docs/**/*'], write: [] };
 
-    const allowed = checkPathRight('C:/workspace', checker, permissions, 'docs/readme.md', 'read');
+    const allowed = checkPathRight(checker, permissions, 'docs/readme.md', 'read');
 
     expect(allowed).toBe(true);
-    expect(checker.canReadPath).toHaveBeenCalledWith(
-      'C:/workspace',
-      permissions,
-      'docs/readme.md'
-    );
+    expect(checker.can).toHaveBeenCalledWith('read', permissions, 'docs/readme.md');
     expect(checker.canWritePath).not.toHaveBeenCalled();
     expect(checker.canListPath).not.toHaveBeenCalled();
   });

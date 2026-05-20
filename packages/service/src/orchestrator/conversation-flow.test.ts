@@ -22,17 +22,64 @@ import type { ResolvedPlugins } from './pipeline.js';
 import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
 import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
+import { ToolDispatcher } from './tool-dispatch.js';
+import { ToolDispatchSupportService } from './services/tool-dispatch-support-service.js';
+import { ToolSerializationService } from './services/tool-serialization-service.js';
+import { HandoffOrchestrator } from './handoff.js';
+import { EmitService } from './services/emit-service.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
+import { setServiceContainer } from '../service-registry.js';
+import { InteractionQuestionService } from '../questions/question-service.js';
 
-type OrchestratorCtor = new (
-  ctx: ExecutionContext,
-  plugins: ResolvedPlugins
-) => {
-  run(options: { message: string; contextFiles?: string[]; maxHops?: number }): Promise<string>;
-};
+const serialization = new ToolSerializationService();
 
-const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: OrchestratorCtor }> = [
-  { name: 'xstate-drop-in', Orchestrator: XStateChatOrchestrator },
-];
+function installEmitService(emit: (event: any) => void) {
+  const emitService = new EmitService();
+  emitService.setDefaultEmitter(emit);
+  setServiceContainer({
+    resolve: (token: { id?: string }) => {
+      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
+        return emitService;
+      }
+      throw new Error(`Unexpected token: ${String(token?.id)}`);
+    },
+  } as any);
+  return emitService;
+}
+
+function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
+  const toolManager = {
+    get: vi.fn(() => undefined),
+    execute: vi.fn(async () => ({ ok: true, result: { ok: true } })),
+  } as any;
+  const support = new ToolDispatchSupportService(serialization, ctx.llmService);
+  installEmitService(ctx.hooks.emit);
+  const questionService = new InteractionQuestionService({
+    questionInput: vi.fn(async () => ''),
+    questionConfirm: vi.fn(async () => true),
+    questionSelect: vi.fn(async () => ''),
+    questionPassword: vi.fn(async () => ''),
+    questionChecklist: vi.fn(async () => []),
+  });
+  const toolDispatcher = new ToolDispatcher(toolManager, ctx.sessionManager, support, questionService);
+  const handoffOrchestrator = new HandoffOrchestrator(
+    ctx.agentManager,
+    ctx.sessionManager,
+    ctx.llmService
+  );
+
+  return new XStateChatOrchestrator(
+    ctx,
+    plugins,
+    toolDispatcher,
+    handoffOrchestrator,
+    ctx.hooks,
+    ctx.agentManager,
+    ctx.sessionManager,
+    ctx.llmService,
+    serialization
+  );
+}
 
 // ── Agent fixtures ──────────────────────────────────────────────────────────
 
@@ -124,6 +171,61 @@ function createInMemoryDB() {
 
 // ── Build a SessionManager-like mock backed by in-memory DB ─────────────────
 
+function buildSessionChain(
+  db: ReturnType<typeof createInMemoryDB>,
+  currentSessionId: string
+): MockSession[] {
+  const visited = new Set<string>();
+  let current = db.getSession(currentSessionId);
+  const chain: MockSession[] = [];
+  while (current) {
+    if (visited.has(current.id)) break;
+    visited.add(current.id);
+    chain.push(current);
+    if (!current.previousSessionId) break;
+    current = db.getSession(current.previousSessionId);
+  }
+  return chain;
+}
+
+function listSessionsInChain(
+  db: ReturnType<typeof createInMemoryDB>,
+  root: MockSession | undefined
+): MockSession[] {
+  if (!root) return [];
+  const allSessions = db.listSessions({ developerId: root.developerId });
+  const childrenOf = new Map<string, MockSession[]>();
+  for (const s of allSessions) {
+    if (!s.previousSessionId) continue;
+    const children = childrenOf.get(s.previousSessionId) ?? [];
+    children.push(s);
+    childrenOf.set(s.previousSessionId, children);
+  }
+
+  const fullChain: MockSession[] = [];
+  const queue: MockSession[] = [root];
+  const seen = new Set<string>([root.id]);
+  while (queue.length > 0) {
+    const node = queue.shift()!;
+    fullChain.push(node);
+    for (const child of childrenOf.get(node.id) ?? []) {
+      if (!seen.has(child.id)) {
+        seen.add(child.id);
+        queue.push(child);
+      }
+    }
+  }
+
+  return fullChain;
+}
+
+function findExistingSession(fullChain: MockSession[], targetAgentId: string) {
+  return fullChain.find((s) => {
+    const ids = s.agentIds ?? (s.agentId ? [s.agentId] : []);
+    return ids.includes(targetAgentId);
+  });
+}
+
 function buildSessionManager(db: ReturnType<typeof createInMemoryDB>) {
   return {
     getSession: vi.fn(async (id: string) => db.getSession(id)),
@@ -136,54 +238,12 @@ function buildSessionManager(db: ReturnType<typeof createInMemoryDB>) {
 
     resolveHandoffSession: vi.fn(
       async (targetAgentId: string, currentSessionId: string, developerId: string) => {
-        // Walk the chain to find if targetAgentId already has a session
-        const visited = new Set<string>();
-        let current = db.getSession(currentSessionId);
-
-        // Walk upward to root
-        const chain: MockSession[] = [];
-        while (current) {
-          if (visited.has(current.id)) break;
-          visited.add(current.id);
-          chain.push(current);
-          if (!current.previousSessionId) break;
-          current = db.getSession(current.previousSessionId);
-        }
-
-        // Also walk downward (BFS from root)
-        chain.reverse(); // root first
+        const chain = buildSessionChain(db, currentSessionId).reverse();
         const root = chain[0];
-        if (root) {
-          const allSessions = db.listSessions({ developerId: root.developerId });
-          const childrenOf = new Map<string, MockSession[]>();
-          for (const s of allSessions) {
-            if (!s.previousSessionId) continue;
-            const children = childrenOf.get(s.previousSessionId) ?? [];
-            children.push(s);
-            childrenOf.set(s.previousSessionId, children);
-          }
-          const fullChain: MockSession[] = [];
-          const queue: MockSession[] = [root];
-          const seen = new Set<string>([root.id]);
-          while (queue.length > 0) {
-            const node = queue.shift()!;
-            fullChain.push(node);
-            for (const child of childrenOf.get(node.id) ?? []) {
-              if (!seen.has(child.id)) {
-                seen.add(child.id);
-                queue.push(child);
-              }
-            }
-          }
+        const fullChain = listSessionsInChain(db, root);
+        const existing = findExistingSession(fullChain, targetAgentId);
+        if (existing) return { session: existing, isNew: false };
 
-          const existing = fullChain.find((s) => {
-            const ids = s.agentIds ?? (s.agentId ? [s.agentId] : []);
-            return ids.includes(targetAgentId);
-          });
-          if (existing) return { session: existing, isNew: false };
-        }
-
-        // Create new handoff session
         const session = db.createSession({
           agentIds: [targetAgentId],
           agentId: targetAgentId,
@@ -275,7 +335,7 @@ function buildContext(opts: {
   agentManager: ReturnType<typeof buildAgentManager>;
   llmService: ReturnType<typeof buildLlmService>;
   history?: ChatMessage[];
-}): ExecutionContext {
+}) {
   return {
     agent: opts.agent,
     workspaceRoot: '/workspace',
@@ -300,7 +360,7 @@ function buildContext(opts: {
 
 // ── Build minimal ResolvedPlugins ───────────────────────────────────────────
 
-function buildPlugins(): ResolvedPlugins {
+function buildPlugins(agentManager?: ReturnType<typeof buildAgentManager>): ResolvedPlugins {
   return {
     compressor: { compress: async (h: ChatMessage[]) => h } as any,
     contextBuilder: {
@@ -313,7 +373,7 @@ function buildPlugins(): ResolvedPlugins {
     llmSelector: { select: vi.fn(async () => {}) } as any,
     outputHandler: { handle: vi.fn(async () => {}) } as any,
     slashCommands: [],
-    turnResultParsers: buildDefaultTurnResultParsers(),
+    turnResultParsers: buildDefaultTurnResultParsers(agentManager as any),
     hookPlugins: buildDefaultHookPlugins(),
   };
 }
@@ -322,497 +382,491 @@ function buildPlugins(): ResolvedPlugins {
 // Tests
 // ────────────────────────────────────────────────────────────────────────────
 
-describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
-  'Conversation flow — multi-agent handoff [$name]',
-  ({ Orchestrator }) => {
-    let db: ReturnType<typeof createInMemoryDB>;
-    let sm: ReturnType<typeof buildSessionManager>;
-    let am: ReturnType<typeof buildAgentManager>;
-    let llm: ReturnType<typeof buildLlmService>;
-    let plugins: ResolvedPlugins;
-    let emilySession: MockSession;
+describe('Conversation flow — multi-agent handoff', () => {
+  let db: ReturnType<typeof createInMemoryDB>;
+  let sm: ReturnType<typeof buildSessionManager>;
+  let am: ReturnType<typeof buildAgentManager>;
+  let llm: ReturnType<typeof buildLlmService>;
+  let plugins: ResolvedPlugins;
+  let emilySession: MockSession;
 
-    beforeEach(() => {
-      db = createInMemoryDB();
-      sm = buildSessionManager(db);
-      am = buildAgentManager();
-      llm = buildLlmService();
-      plugins = buildPlugins();
+  beforeEach(() => {
+    db = createInMemoryDB();
+    sm = buildSessionManager(db);
+    am = buildAgentManager();
+    llm = buildLlmService();
+    plugins = buildPlugins(am);
 
-      // Pre-create Emily's session (simulates getOrCreateLatestSession at chat start)
-      emilySession = db.createSession({
-        agentIds: ['emily-davis'],
-        agentId: 'emily-davis',
-        developerId: 'clemens',
-      });
+    // Pre-create Emily's session (simulates getOrCreateLatestSession at chat start)
+    emilySession = db.createSession({
+      agentIds: ['emily-davis'],
+      agentId: 'emily-davis',
+      developerId: 'clemens',
     });
+  });
 
-    // ── 1. Normal turn: no duplicates ──────────────────────────────────────
+  // ── 1. Normal turn: no duplicates ──────────────────────────────────────
 
-    it('persists exactly one user message and one agent reply per normal turn', async () => {
-      llm.queueResponse('Hello Clemens! How can I help?');
+  it('persists exactly one user message and one agent reply per normal turn', async () => {
+    llm.queueResponse('Hello Clemens! How can I help?');
 
-      const ctx = buildContext({
-        agent: EMILY,
-        sessionId: emilySession.id,
-        db,
-        sessionManager: sm,
-        agentManager: am,
-        llmService: llm,
-      });
-      const orchestrator = new Orchestrator(ctx, plugins);
-
-      await orchestrator.run({ message: 'hello emily' });
-
-      const msgs = db.getSessionMessages(emilySession.id);
-      expect(msgs).toHaveLength(2); // 1 human + 1 agent, NOT 3
-
-      // User message
-      expect(msgs[0].isHuman).toBe(true);
-      expect(msgs[0].from).toBe('human');
-      expect(msgs[0].to).toBe('emily-davis');
-      expect(msgs[0].content).toBe('hello emily');
-
-      // Agent reply
-      expect(msgs[1].isHuman).toBe(false);
-      expect(msgs[1].from).toBe('emily-davis');
-      expect(msgs[1].content).toBe('Hello Clemens! How can I help?');
+    const ctx = buildContext({
+      agent: EMILY,
+      sessionId: emilySession.id,
+      db,
+      sessionManager: sm,
+      agentManager: am,
+      llmService: llm,
     });
+    const orchestrator = buildOrchestrator(ctx, plugins);
 
-    // ── 2. NL forward: user message persisted, briefing in BOTH sessions ────
+    await orchestrator.run({ message: 'hello emily' });
 
-    it('persists user message and briefing in both sessions on NL forward', async () => {
-      // Queue briefing LLM response
-      llm.queueResponse(
-        'Clemens has been working with me on the frontend. He would like to discuss strategy with you.'
-      );
+    const msgs = db.getSessionMessages(emilySession.id);
+    expect(msgs).toHaveLength(2); // 1 human + 1 agent, NOT 3
 
-      const ctx = buildContext({
-        agent: EMILY,
-        sessionId: emilySession.id,
-        db,
-        sessionManager: sm,
-        agentManager: am,
-        llmService: llm,
-      });
-      const orchestrator = new Orchestrator(ctx, plugins);
+    // User message
+    expect(msgs[0].isHuman).toBe(true);
+    expect(msgs[0].from).toBe('human');
+    expect(msgs[0].to).toBe('emily-davis');
+    expect(msgs[0].content).toBe('hello emily');
 
-      await orchestrator.run({ message: 'forward me to michael' });
+    // Agent reply
+    expect(msgs[1].isHuman).toBe(false);
+    expect(msgs[1].from).toBe('emily-davis');
+    expect(msgs[1].content).toBe('Hello Clemens! How can I help?');
+  });
 
-      // Emily's session should have:
-      //   1. The user's message "forward me to michael"
-      //   2. The LLM briefing (with both session IDs)
-      const emilyMsgs = db.getSessionMessages(emilySession.id);
-      const humanMsg = emilyMsgs.find((m) => m.isHuman);
-      expect(humanMsg).toBeDefined();
-      expect(humanMsg!.from).toBe('human');
-      expect(humanMsg!.to).toBe('emily-davis');
-      expect(humanMsg!.content).toBe('forward me to michael');
+  // ── 2. NL forward: user message persisted, briefing in BOTH sessions ────
 
-      // Briefing should be in Emily's session with BOTH session IDs
-      const emilyBriefing = emilyMsgs.find((m) => m.handoffType === 'agent-briefing');
-      expect(emilyBriefing).toBeDefined();
-      expect(emilyBriefing!.from).toBe('emily-davis');
-      expect(emilyBriefing!.to).toBe('michael-brown');
-      expect(emilyBriefing!.handoffFromSessionId).toBeTruthy();
-      expect(emilyBriefing!.handoffToSessionId).toBeTruthy();
+  it('persists user message and briefing in both sessions on NL forward', async () => {
+    // Queue briefing LLM response
+    llm.queueResponse(
+      'Clemens has been working with me on the frontend. He would like to discuss strategy with you.'
+    );
 
-      // Briefing should also be in Michael's session
-      const michaelSessionId = ctx.sessionId; // Context was mutated by handoff
-      expect(michaelSessionId).not.toBe(emilySession.id); // New session created
-
-      const michaelMsgs = db.getSessionMessages(michaelSessionId);
-      const michaelBriefing = michaelMsgs.find((m) => m.handoffType === 'agent-briefing');
-      expect(michaelBriefing).toBeDefined();
-      expect(michaelBriefing!.content).toContain('Clemens has been working');
-      expect(michaelBriefing!.handoffId).toBe(emilyBriefing!.handoffId); // Same handoff event
+    const ctx = buildContext({
+      agent: EMILY,
+      sessionId: emilySession.id,
+      db,
+      sessionManager: sm,
+      agentManager: am,
+      llmService: llm,
     });
+    const orchestrator = buildOrchestrator(ctx, plugins);
 
-    // ── 3. Return to previous agent reuses the original session ─────────────
+    await orchestrator.run({ message: 'forward me to michael' });
 
-    it('returns to the original emily session when user says "take me back to emily"', async () => {
-      // Step 1: Forward emily → michael
-      llm.queueResponse('Briefing for Michael.');
+    // Emily's session should have:
+    //   1. The user's message "forward me to michael"
+    //   2. The LLM briefing (with both session IDs)
+    const emilyMsgs = db.getSessionMessages(emilySession.id);
+    const humanMsg = emilyMsgs.find((m) => m.isHuman);
+    expect(humanMsg).toBeDefined();
+    expect(humanMsg!.from).toBe('human');
+    expect(humanMsg!.to).toBe('emily-davis');
+    expect(humanMsg!.content).toBe('forward me to michael');
 
-      const ctx = buildContext({
-        agent: EMILY,
-        sessionId: emilySession.id,
-        db,
-        sessionManager: sm,
-        agentManager: am,
-        llmService: llm,
-      });
-      const orchestrator1 = new Orchestrator(ctx, plugins);
-      await orchestrator1.run({ message: 'forward me to michael' });
+    // Briefing should be in Emily's session with BOTH session IDs
+    const emilyBriefing = emilyMsgs.find((m) => m.handoffType === 'agent-briefing');
+    expect(emilyBriefing).toBeDefined();
+    expect(emilyBriefing!.from).toBe('emily-davis');
+    expect(emilyBriefing!.to).toBe('michael-brown');
+    expect(emilyBriefing!.handoffFromSessionId).toBeTruthy();
+    expect(emilyBriefing!.handoffToSessionId).toBeTruthy();
 
-      const michaelSessionId = ctx.sessionId;
-      expect(ctx.agent.id).toBe('michael-brown');
-      expect(michaelSessionId).not.toBe(emilySession.id);
+    // Briefing should also be in Michael's session
+    const michaelSessionId = ctx.sessionId; // Context was mutated by handoff
+    expect(michaelSessionId).not.toBe(emilySession.id); // New session created
 
-      // Step 2: Return michael → emily
-      // Use 'forward me to emily' because 'take me back to emily' doesn't match
-      // any FORWARD_PATTERNS regex — it would fall through to sendTurn instead.
-      llm.queueResponse('Briefing for Emily about the return.');
+    const michaelMsgs = db.getSessionMessages(michaelSessionId);
+    const michaelBriefing = michaelMsgs.find((m) => m.handoffType === 'agent-briefing');
+    expect(michaelBriefing).toBeDefined();
+    expect(michaelBriefing!.content).toContain('Clemens has been working');
+    expect(michaelBriefing!.handoffId).toBe(emilyBriefing!.handoffId); // Same handoff event
+  });
 
-      const orchestrator2 = new Orchestrator(ctx, plugins);
-      await orchestrator2.run({ message: 'forward me to emily' });
+  // ── 3. Return to previous agent reuses the original session ─────────────
 
-      // Context should point to Emily's ORIGINAL session, not a new one
-      expect(ctx.agent.id).toBe('emily-davis');
-      expect(ctx.sessionId).toBe(emilySession.id);
+  it('returns to the original emily session when user says "take me back to emily"', async () => {
+    // Step 1: Forward emily → michael
+    llm.queueResponse('Briefing for Michael.');
 
-      // Only 2 sessions should exist total (Emily's original + Michael's)
-      expect(db.sessions.size).toBe(2);
+    const ctx = buildContext({
+      agent: EMILY,
+      sessionId: emilySession.id,
+      db,
+      sessionManager: sm,
+      agentManager: am,
+      llmService: llm,
     });
+    const orchestrator1 = buildOrchestrator(ctx, plugins);
+    await orchestrator1.run({ message: 'forward me to michael' });
 
-    // ── 4. Agent-initiated handoff (HANDOFF: directive) ─────────────────────
+    const michaelSessionId = ctx.sessionId;
+    expect(ctx.agent.id).toBe('michael-brown');
+    expect(michaelSessionId).not.toBe(emilySession.id);
 
-    it('handles agent-initiated HANDOFF: directive without duplicate writes', async () => {
-      // Agent response includes a HANDOFF: directive
-      llm.queueResponse(
-        "Sure, I'll connect you to Michael.\n\nHANDOFF: michael-brown | Clemens needs CEO guidance."
-      );
-      // Queue briefing LLM response for executeHandoff
-      llm.queueResponse('Emily here — Clemens has been asking about strategy.');
+    // Step 2: Return michael → emily
+    // Use 'forward me to emily' because 'take me back to emily' doesn't match
+    // any FORWARD_PATTERNS regex — it would fall through to sendTurn instead.
+    llm.queueResponse('Briefing for Emily about the return.');
 
-      const ctx = buildContext({
-        agent: EMILY,
-        sessionId: emilySession.id,
-        db,
-        sessionManager: sm,
-        agentManager: am,
-        llmService: llm,
-      });
-      const orchestrator = new Orchestrator(ctx, plugins);
+    const orchestrator2 = buildOrchestrator(ctx, plugins);
+    await orchestrator2.run({ message: 'forward me to emily' });
 
-      await orchestrator.run({ message: 'can i talk to the ceo?' });
+    // Context should point to Emily's ORIGINAL session, not a new one
+    expect(ctx.agent.id).toBe('emily-davis');
+    expect(ctx.sessionId).toBe(emilySession.id);
 
-      // Emily's session: 1 user msg + 1 agent reply (stripped) + 1 briefing (with both session IDs)
-      const emilyMsgs = db.getSessionMessages(emilySession.id);
-      const humanMsgs = emilyMsgs.filter((m) => m.isHuman);
-      const agentReplies = emilyMsgs.filter((m) => !m.isHuman && !m.handoffType);
+    // Only 2 sessions should exist total (Emily's original + Michael's)
+    expect(db.sessions.size).toBe(2);
+  });
 
-      expect(humanMsgs).toHaveLength(1);
-      expect(humanMsgs[0].from).toBe('human');
-      expect(humanMsgs[0].to).toBe('emily-davis');
+  // ── 4. Agent-initiated handoff (HANDOFF: directive) ─────────────────────
 
-      // Agent reply should NOT contain the HANDOFF: directive
-      expect(agentReplies).toHaveLength(1);
-      expect(agentReplies[0].content).not.toContain('HANDOFF:');
-      expect(agentReplies[0].content).toContain("I'll connect you to Michael");
+  it('handles agent-initiated HANDOFF: directive without duplicate writes', async () => {
+    // Agent response includes a HANDOFF: directive
+    llm.queueResponse(
+      "Sure, I'll connect you to Michael.\n\nHANDOFF: michael-brown | Clemens needs CEO guidance."
+    );
+    // Queue briefing LLM response for executeHandoff
+    llm.queueResponse('Emily here — Clemens has been asking about strategy.');
 
-      // No duplicates — exactly 1 agent reply, not 2
-      expect(agentReplies).toHaveLength(1);
-
-      // Briefing in Emily's session with both session IDs
-      const emilyBriefing = emilyMsgs.find((m) => m.handoffType === 'agent-briefing');
-      expect(emilyBriefing).toBeDefined();
-      expect(emilyBriefing!.handoffFromSessionId).toBeTruthy();
-      expect(emilyBriefing!.handoffToSessionId).toBeTruthy();
-
-      // Briefing also in Michael's session
-      const michaelSessionId = ctx.sessionId;
-      const michaelMsgs = db.getSessionMessages(michaelSessionId);
-      const briefingInMichael = michaelMsgs.find((m) => m.handoffType === 'agent-briefing');
-      expect(briefingInMichael).toBeDefined();
-      expect(briefingInMichael!.handoffId).toBe(emilyBriefing!.handoffId);
+    const ctx = buildContext({
+      agent: EMILY,
+      sessionId: emilySession.id,
+      db,
+      sessionManager: sm,
+      agentManager: am,
+      llmService: llm,
     });
+    const orchestrator = buildOrchestrator(ctx, plugins);
 
-    // ── 5. Full round-trip: Emily → Michael → Emily ────────────────────────
+    await orchestrator.run({ message: 'can i talk to the ceo?' });
 
-    it('full round-trip preserves session identity and message integrity', async () => {
-      // -- Turn 1: normal chat with Emily --
-      llm.queueResponse('Hi Clemens! Ready to work on the frontend.');
-      let ctx = buildContext({
-        agent: EMILY,
-        sessionId: emilySession.id,
-        db,
-        sessionManager: sm,
-        agentManager: am,
-        llmService: llm,
-      });
-      let orch = new Orchestrator(ctx, plugins);
-      await orch.run({ message: 'hello' });
+    // Emily's session: 1 user msg + 1 agent reply (stripped) + 1 briefing (with both session IDs)
+    const emilyMsgs = db.getSessionMessages(emilySession.id);
+    const humanMsgs = emilyMsgs.filter((m) => m.isHuman);
+    const agentReplies = emilyMsgs.filter((m) => !m.isHuman && !m.handoffType);
 
-      expect(db.getSessionMessages(emilySession.id)).toHaveLength(2);
+    expect(humanMsgs).toHaveLength(1);
+    expect(humanMsgs[0].from).toBe('human');
+    expect(humanMsgs[0].to).toBe('emily-davis');
 
-      // -- Turn 2: forward to Michael --
-      llm.queueResponse('Briefing: Clemens said hello to Emily.');
-      orch = new Orchestrator(ctx, plugins);
-      await orch.run({ message: 'forward me to michael' });
+    // Agent reply should NOT contain the HANDOFF: directive
+    expect(agentReplies).toHaveLength(1);
+    expect(agentReplies[0].content).not.toContain('HANDOFF:');
+    expect(agentReplies[0].content).toContain("I'll connect you to Michael");
 
-      const michaelSessionId = ctx.sessionId;
-      expect(ctx.agent.id).toBe('michael-brown');
+    // No duplicates — exactly 1 agent reply, not 2
+    expect(agentReplies).toHaveLength(1);
 
-      // -- Turn 3: chat with Michael --
-      llm.queueResponse('Hi Clemens! What can I do for you?');
-      orch = new Orchestrator(ctx, plugins);
-      await orch.run({ message: 'hi michael' });
+    // Briefing in Emily's session with both session IDs
+    const emilyBriefing = emilyMsgs.find((m) => m.handoffType === 'agent-briefing');
+    expect(emilyBriefing).toBeDefined();
+    expect(emilyBriefing!.handoffFromSessionId).toBeTruthy();
+    expect(emilyBriefing!.handoffToSessionId).toBeTruthy();
 
-      const michaelMsgs = db.getSessionMessages(michaelSessionId);
-      const michaelHumanMsgs = michaelMsgs.filter((m) => m.isHuman);
-      // In Michael's session: briefing + 1 user msg + 1 agent reply
-      expect(michaelHumanMsgs).toHaveLength(1);
-      expect(michaelHumanMsgs[0].content).toBe('hi michael');
-      expect(michaelHumanMsgs[0].to).toBe('michael-brown');
+    // Briefing also in Michael's session
+    const michaelSessionId = ctx.sessionId;
+    const michaelMsgs = db.getSessionMessages(michaelSessionId);
+    const briefingInMichael = michaelMsgs.find((m) => m.handoffType === 'agent-briefing');
+    expect(briefingInMichael).toBeDefined();
+    expect(briefingInMichael!.handoffId).toBe(emilyBriefing!.handoffId);
+  });
 
-      // -- Turn 4: return to Emily (uses 'forward me to emily' — regex-matched) --
-      llm.queueResponse('Briefing: Clemens chatted briefly with Michael.');
-      orch = new Orchestrator(ctx, plugins);
-      await orch.run({ message: 'forward me to emily' });
+  // ── 5. Full round-trip: Emily → Michael → Emily ────────────────────────
 
-      expect(ctx.agent.id).toBe('emily-davis');
-      expect(ctx.sessionId).toBe(emilySession.id); // REUSED, not new
+  it('full round-trip preserves session identity and message integrity', async () => {
+    // -- Turn 1: normal chat with Emily --
+    llm.queueResponse('Hi Clemens! Ready to work on the frontend.');
+    let ctx = buildContext({
+      agent: EMILY,
+      sessionId: emilySession.id,
+      db,
+      sessionManager: sm,
+      agentManager: am,
+      llmService: llm,
+    });
+    let orch = buildOrchestrator(ctx, plugins);
+    await orch.run({ message: 'hello' });
 
-      // Only 2 sessions should exist
-      expect(db.sessions.size).toBe(2);
+    expect(db.getSessionMessages(emilySession.id)).toHaveLength(2);
 
-      // -- Turn 5: chat with Emily again --
-      llm.queueResponse('Welcome back! Where were we?');
-      orch = new Orchestrator(ctx, plugins);
-      await orch.run({ message: 'hey emily, im back' });
+    // -- Turn 2: forward to Michael --
+    llm.queueResponse('Briefing: Clemens said hello to Emily.');
+    orch = buildOrchestrator(ctx, plugins);
+    await orch.run({ message: 'forward me to michael' });
 
-      const finalEmilyMsgs = db.getSessionMessages(emilySession.id);
-      // Verify the whole Emily session history makes sense
-      const emilyHumanMsgs = finalEmilyMsgs.filter((m) => m.isHuman);
-      const emilyAgentReplies = finalEmilyMsgs.filter((m) => !m.isHuman && !m.handoffType);
+    const michaelSessionId = ctx.sessionId;
+    expect(ctx.agent.id).toBe('michael-brown');
 
-      // Human messages in Emily's session: "hello", "forward me to michael", "hey emily, im back"
-      // Note: "forward me to emily" is persisted in Michael's session, not Emily's.
-      expect(emilyHumanMsgs.length).toBeGreaterThanOrEqual(3);
+    // -- Turn 3: chat with Michael --
+    llm.queueResponse('Hi Clemens! What can I do for you?');
+    orch = buildOrchestrator(ctx, plugins);
+    await orch.run({ message: 'hi michael' });
 
-      // Agent replies: "Hi Clemens! Ready to work..." + "Welcome back!..."
-      expect(emilyAgentReplies.length).toBeGreaterThanOrEqual(2);
+    const michaelMsgs = db.getSessionMessages(michaelSessionId);
+    const michaelHumanMsgs = michaelMsgs.filter((m) => m.isHuman);
+    // In Michael's session: briefing + 1 user msg + 1 agent reply
+    expect(michaelHumanMsgs).toHaveLength(1);
+    expect(michaelHumanMsgs[0].content).toBe('hi michael');
+    expect(michaelHumanMsgs[0].to).toBe('michael-brown');
 
-      // No message should have wrong from/to
-      for (const msg of finalEmilyMsgs) {
-        if (msg.isHuman) {
-          expect(msg.from).toBe('human');
-        }
+    // -- Turn 4: return to Emily (uses 'forward me to emily' — regex-matched) --
+    llm.queueResponse('Briefing: Clemens chatted briefly with Michael.');
+    orch = buildOrchestrator(ctx, plugins);
+    await orch.run({ message: 'forward me to emily' });
+
+    expect(ctx.agent.id).toBe('emily-davis');
+    expect(ctx.sessionId).toBe(emilySession.id); // REUSED, not new
+
+    // Only 2 sessions should exist
+    expect(db.sessions.size).toBe(2);
+
+    // -- Turn 5: chat with Emily again --
+    llm.queueResponse('Welcome back! Where were we?');
+    orch = buildOrchestrator(ctx, plugins);
+    await orch.run({ message: 'hey emily, im back' });
+
+    const finalEmilyMsgs = db.getSessionMessages(emilySession.id);
+    // Verify the whole Emily session history makes sense
+    const emilyHumanMsgs = finalEmilyMsgs.filter((m) => m.isHuman);
+    const emilyAgentReplies = finalEmilyMsgs.filter((m) => !m.isHuman && !m.handoffType);
+
+    // Human messages in Emily's session: "hello", "forward me to michael", "hey emily, im back"
+    // Note: "forward me to emily" is persisted in Michael's session, not Emily's.
+    expect(emilyHumanMsgs.length).toBeGreaterThanOrEqual(3);
+
+    // Agent replies: "Hi Clemens! Ready to work..." + "Welcome back!..."
+    expect(emilyAgentReplies.length).toBeGreaterThanOrEqual(2);
+
+    // No message should have wrong from/to
+    for (const msg of finalEmilyMsgs) {
+      if (msg.isHuman) {
+        expect(msg.from).toBe('human');
       }
+    }
+  });
+
+  // ── 6. Ensure briefing has the same handoffId in both sessions ──────────
+
+  it('briefing in both sessions shares the same handoffId and has both session IDs', async () => {
+    llm.queueResponse('LLM-generated briefing text.');
+
+    const ctx = buildContext({
+      agent: EMILY,
+      sessionId: emilySession.id,
+      db,
+      sessionManager: sm,
+      agentManager: am,
+      llmService: llm,
     });
+    const orch = buildOrchestrator(ctx, plugins);
+    await orch.run({ message: 'forward me to michael' });
 
-    // ── 6. Ensure briefing has the same handoffId in both sessions ──────────
+    const michaelSessionId = ctx.sessionId;
 
-    it('briefing in both sessions shares the same handoffId and has both session IDs', async () => {
-      llm.queueResponse('LLM-generated briefing text.');
+    // Emily's session: one briefing with both session IDs
+    const emilyHandoffMsgs = db
+      .getSessionMessages(emilySession.id)
+      .filter((m) => m.handoffType === 'agent-briefing');
+    expect(emilyHandoffMsgs).toHaveLength(1);
+    expect(emilyHandoffMsgs[0].handoffToSessionId).toBeTruthy();
+    expect(emilyHandoffMsgs[0].handoffFromSessionId).toBeTruthy();
 
-      const ctx = buildContext({
-        agent: EMILY,
-        sessionId: emilySession.id,
-        db,
-        sessionManager: sm,
-        agentManager: am,
-        llmService: llm,
-      });
-      const orch = new Orchestrator(ctx, plugins);
-      await orch.run({ message: 'forward me to michael' });
+    // Michael's session: the same briefing
+    const michaelBriefings = db
+      .getSessionMessages(michaelSessionId)
+      .filter((m) => m.handoffType === 'agent-briefing');
+    expect(michaelBriefings).toHaveLength(1);
 
-      const michaelSessionId = ctx.sessionId;
-
-      // Emily's session: one briefing with both session IDs
-      const emilyHandoffMsgs = db
-        .getSessionMessages(emilySession.id)
-        .filter((m) => m.handoffType === 'agent-briefing');
-      expect(emilyHandoffMsgs).toHaveLength(1);
-      expect(emilyHandoffMsgs[0].handoffToSessionId).toBeTruthy();
-      expect(emilyHandoffMsgs[0].handoffFromSessionId).toBeTruthy();
-
-      // Michael's session: the same briefing
-      const michaelBriefings = db
-        .getSessionMessages(michaelSessionId)
-        .filter((m) => m.handoffType === 'agent-briefing');
-      expect(michaelBriefings).toHaveLength(1);
-
-      // They share the same handoffId
-      expect(emilyHandoffMsgs[0].handoffId).toBeTruthy();
-      expect(emilyHandoffMsgs[0].handoffId).toBe(michaelBriefings[0].handoffId);
-    });
-  }
-);
+    // They share the same handoffId
+    expect(emilyHandoffMsgs[0].handoffId).toBeTruthy();
+    expect(emilyHandoffMsgs[0].handoffId).toBe(michaelBriefings[0].handoffId);
+  });
+});
 
 // ────────────────────────────────────────────────────────────────────────────
 // CLI-path tests — prove that natural-language forward phrases work
 // end-to-end through the XState chat orchestrator (same path the CLI uses).
 // ────────────────────────────────────────────────────────────────────────────
 
-describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
-  'CLI handoff — natural-language phrase variants [$name]',
-  ({ Orchestrator }) => {
-    let db: ReturnType<typeof createInMemoryDB>;
-    let sm: ReturnType<typeof buildSessionManager>;
-    let am: ReturnType<typeof buildAgentManager>;
-    let llm: ReturnType<typeof buildLlmService>;
-    let plugins: ResolvedPlugins;
-    let emilySession: MockSession;
+describe('CLI handoff — natural-language phrase variants', () => {
+  let db: ReturnType<typeof createInMemoryDB>;
+  let sm: ReturnType<typeof buildSessionManager>;
+  let am: ReturnType<typeof buildAgentManager>;
+  let llm: ReturnType<typeof buildLlmService>;
+  let plugins: ResolvedPlugins;
+  let emilySession: MockSession;
 
-    beforeEach(() => {
-      db = createInMemoryDB();
-      sm = buildSessionManager(db);
-      am = buildAgentManager();
-      llm = buildLlmService();
-      plugins = buildPlugins();
+  beforeEach(() => {
+    db = createInMemoryDB();
+    sm = buildSessionManager(db);
+    am = buildAgentManager();
+    llm = buildLlmService();
+    plugins = buildPlugins(am);
 
-      emilySession = db.createSession({
-        agentIds: ['emily-davis'],
-        agentId: 'emily-davis',
-        developerId: 'clemens',
-      });
+    emilySession = db.createSession({
+      agentIds: ['emily-davis'],
+      agentId: 'emily-davis',
+      developerId: 'clemens',
     });
+  });
 
-    /**
-     * Helper — run a single forward phrase and assert the handoff completed.
-     * Returns the mutated context so callers can make additional assertions.
-     */
-    async function assertForwardHandoff(phrase: string) {
-      llm.queueResponse('LLM briefing for the handoff.');
+  /**
+   * Helper — run a single forward phrase and assert the handoff completed.
+   * Returns the mutated context so callers can make additional assertions.
+   */
+  async function assertForwardHandoff(phrase: string) {
+    llm.queueResponse('LLM briefing for the handoff.');
 
-      const ctx = buildContext({
-        agent: EMILY,
-        sessionId: emilySession.id,
-        db,
-        sessionManager: sm,
-        agentManager: am,
-        llmService: llm,
-      });
-      const orch = new Orchestrator(ctx, plugins);
-      const result = await orch.run({ message: phrase });
-
-      // run() returns '' when an NL forward was handled
-      expect(result).toBe('');
-
-      // Context should now point to Michael
-      expect(ctx.agent.id).toBe('michael-brown');
-      expect(ctx.agent.name).toBe('Michael Brown');
-      expect(ctx.sessionId).not.toBe(emilySession.id);
-
-      // The user message should be persisted in Emily's session
-      const emilyMsgs = db.getSessionMessages(emilySession.id);
-      const humanMsg = emilyMsgs.find((m) => m.isHuman);
-      expect(humanMsg).toBeDefined();
-      expect(humanMsg!.content).toBe(phrase);
-      expect(humanMsg!.from).toBe('human');
-      expect(humanMsg!.to).toBe('emily-davis');
-
-      // Briefing should exist in Emily's session with both session IDs
-      const emilyBriefing = emilyMsgs.find((m) => m.handoffType === 'agent-briefing');
-      expect(emilyBriefing).toBeDefined();
-      expect(emilyBriefing!.to).toBe('michael-brown');
-      expect(emilyBriefing!.handoffFromSessionId).toBeTruthy();
-      expect(emilyBriefing!.handoffToSessionId).toBeTruthy();
-
-      // Briefing should also be in Michael's session
-      const michaelMsgs = db.getSessionMessages(ctx.sessionId);
-      const briefingInMichael = michaelMsgs.find((m) => m.handoffType === 'agent-briefing');
-      expect(briefingInMichael).toBeDefined();
-      expect(briefingInMichael!.handoffId).toBe(emilyBriefing!.handoffId);
-
-      // Handoff event should have been emitted
-      const emitCalls = (ctx.hooks.emit as ReturnType<typeof vi.fn>).mock.calls;
-      const handoffEvent = emitCalls.find(
-        (call: unknown[]) => (call[0] as RuntimeStreamEvent).kind === 'handoff'
-      );
-      expect(handoffEvent).toBeDefined();
-      const hEvent = handoffEvent![0] as Extract<RuntimeStreamEvent, { kind: 'handoff' }>;
-      expect(hEvent.fromAgentId).toBe('emily-davis');
-      expect(hEvent.toAgentId).toBe('michael-brown');
-      expect(hEvent.toSessionId).toBe(ctx.sessionId);
-
-      return ctx;
-    }
-
-    // ── 7. "i want to talk to michael" — the exact web-failing phrase ───────
-
-    it('handles "i want to talk to michael" (FORWARD_PATTERNS #5)', async () => {
-      await assertForwardHandoff('i want to talk to michael');
+    const ctx = buildContext({
+      agent: EMILY,
+      sessionId: emilySession.id,
+      db,
+      sessionManager: sm,
+      agentManager: am,
+      llmService: llm,
     });
+    const orch = buildOrchestrator(ctx, plugins);
+    const result = await orch.run({ message: phrase });
 
-    // ── 8. "i need to speak with michael" — variant of pattern 5 ───────────
+    // run() returns '' when an NL forward was handled
+    expect(result).toBe('');
 
-    it('handles "i need to speak with michael"', async () => {
-      await assertForwardHandoff('i need to speak with michael');
-    });
+    // Context should now point to Michael
+    expect(ctx.agent.id).toBe('michael-brown');
+    expect(ctx.agent.name).toBe('Michael Brown');
+    expect(ctx.sessionId).not.toBe(emilySession.id);
 
-    // ── 9. "i want to chat with michael brown" — full name ────────────────
+    // The user message should be persisted in Emily's session
+    const emilyMsgs = db.getSessionMessages(emilySession.id);
+    const humanMsg = emilyMsgs.find((m) => m.isHuman);
+    expect(humanMsg).toBeDefined();
+    expect(humanMsg!.content).toBe(phrase);
+    expect(humanMsg!.from).toBe('human');
+    expect(humanMsg!.to).toBe('emily-davis');
 
-    it('handles "i want to chat with michael brown" (full name)', async () => {
-      await assertForwardHandoff('i want to chat with michael brown');
-    });
+    // Briefing should exist in Emily's session with both session IDs
+    const emilyBriefing = emilyMsgs.find((m) => m.handoffType === 'agent-briefing');
+    expect(emilyBriefing).toBeDefined();
+    expect(emilyBriefing!.to).toBe('michael-brown');
+    expect(emilyBriefing!.handoffFromSessionId).toBeTruthy();
+    expect(emilyBriefing!.handoffToSessionId).toBeTruthy();
 
-    // ── 10. "can you forward me to michael" — pattern 3 ──────────────────
+    // Briefing should also be in Michael's session
+    const michaelMsgs = db.getSessionMessages(ctx.sessionId);
+    const briefingInMichael = michaelMsgs.find((m) => m.handoffType === 'agent-briefing');
+    expect(briefingInMichael).toBeDefined();
+    expect(briefingInMichael!.handoffId).toBe(emilyBriefing!.handoffId);
 
-    it('handles "can you forward me to michael" (pattern 3)', async () => {
-      await assertForwardHandoff('can you forward me to michael');
-    });
+    // Handoff event should have been emitted
+    const emitCalls = (ctx.hooks.emit as any).mock.calls;
+    const handoffEvent = emitCalls.find(
+      (call: unknown[]) => (call[0] as RuntimeStreamEvent).kind === 'handoff'
+    );
+    expect(handoffEvent).toBeDefined();
+    const hEvent = handoffEvent![0] as Extract<RuntimeStreamEvent, { kind: 'handoff' }>;
+    expect(hEvent.fromAgentId).toBe('emily-davis');
+    expect(hEvent.toAgentId).toBe('michael-brown');
+    expect(hEvent.toSessionId).toBe(ctx.sessionId);
 
-    // ── 11. "connect me to michael" — pattern 1 ──────────────────────────
-
-    it('handles "connect me to michael" (pattern 1)', async () => {
-      await assertForwardHandoff('connect me to michael');
-    });
-
-    // ── 12. "put me through to michael" — pattern 4 ─────────────────────
-
-    it('handles "put me through to michael" (pattern 4)', async () => {
-      await assertForwardHandoff('put me through to michael');
-    });
-
-    // ── 13. "switch me to michael" — pattern 1 variant ──────────────────
-
-    it('handles "switch me to michael" (pattern 1)', async () => {
-      await assertForwardHandoff('switch me to michael');
-    });
-
-    // ── 14. Non-forward message should NOT trigger handoff ────────────────
-
-    it('does NOT handoff on a regular message that mentions michael', async () => {
-      llm.queueResponse('Michael Brown is our CEO, you can ask to talk to him.');
-
-      const ctx = buildContext({
-        agent: EMILY,
-        sessionId: emilySession.id,
-        db,
-        sessionManager: sm,
-        agentManager: am,
-        llmService: llm,
-      });
-      const orch = new Orchestrator(ctx, plugins);
-      const result = await orch.run({ message: 'what is michael working on today?' });
-
-      // Should stay with Emily — this is not a forward request
-      expect(ctx.agent.id).toBe('emily-davis');
-      expect(ctx.sessionId).toBe(emilySession.id);
-      // sendTurn should have run and returned a response
-      expect(result).toContain('Michael Brown is our CEO');
-    });
-
-    // ── 15. "i want to talk to michael" emits correct stream events ───────
-
-    it('emits handoff event with correct fields for stream consumers', async () => {
-      const ctx = await assertForwardHandoff('i want to talk to michael');
-
-      // Verify the handoff event has all fields a stream consumer needs
-      const emitCalls = (ctx.hooks.emit as ReturnType<typeof vi.fn>).mock.calls;
-      const handoffEvent = emitCalls.find(
-        (call: unknown[]) => (call[0] as RuntimeStreamEvent).kind === 'handoff'
-      );
-      const hEvent = handoffEvent![0] as Extract<RuntimeStreamEvent, { kind: 'handoff' }>;
-
-      // These are the fields the web ChatPanel and CLI both rely on
-      expect(hEvent.fromAgentId).toBe('emily-davis');
-      expect(hEvent.fromAgentName).toBe('Emily Davis');
-      expect(hEvent.fromSessionId).toBe(emilySession.id);
-      expect(hEvent.toAgentId).toBe('michael-brown');
-      expect(hEvent.toAgentName).toBe('Michael Brown');
-      expect(hEvent.toSessionId).toBeTruthy();
-      expect(hEvent.toSessionId).not.toBe(emilySession.id);
-    });
-
-    // ── 16. Handoff creates exactly 2 sessions ────────────────────────
-
-    it('creates exactly one new session (total 2) for a single handoff', async () => {
-      await assertForwardHandoff('i want to talk to michael');
-      expect(db.sessions.size).toBe(2);
-    });
+    return ctx;
   }
-);
+
+  // ── 7. "i want to talk to michael" — the exact web-failing phrase ───────
+
+  it('handles "i want to talk to michael" (FORWARD_PATTERNS #5)', async () => {
+    await assertForwardHandoff('i want to talk to michael');
+  });
+
+  // ── 8. "i need to speak with michael" — variant of pattern 5 ───────────
+
+  it('handles "i need to speak with michael"', async () => {
+    await assertForwardHandoff('i need to speak with michael');
+  });
+
+  // ── 9. "i want to chat with michael brown" — full name ────────────────
+
+  it('handles "i want to chat with michael brown" (full name)', async () => {
+    await assertForwardHandoff('i want to chat with michael brown');
+  });
+
+  // ── 10. "can you forward me to michael" — pattern 3 ──────────────────
+
+  it('handles "can you forward me to michael" (pattern 3)', async () => {
+    await assertForwardHandoff('can you forward me to michael');
+  });
+
+  // ── 11. "connect me to michael" — pattern 1 ──────────────────────────
+
+  it('handles "connect me to michael" (pattern 1)', async () => {
+    await assertForwardHandoff('connect me to michael');
+  });
+
+  // ── 12. "put me through to michael" — pattern 4 ─────────────────────
+
+  it('handles "put me through to michael" (pattern 4)', async () => {
+    await assertForwardHandoff('put me through to michael');
+  });
+
+  // ── 13. "switch me to michael" — pattern 1 variant ──────────────────
+
+  it('handles "switch me to michael" (pattern 1)', async () => {
+    await assertForwardHandoff('switch me to michael');
+  });
+
+  // ── 14. Non-forward message should NOT trigger handoff ────────────────
+
+  it('does NOT handoff on a regular message that mentions michael', async () => {
+    llm.queueResponse('Michael Brown is our CEO, you can ask to talk to him.');
+
+    const ctx = buildContext({
+      agent: EMILY,
+      sessionId: emilySession.id,
+      db,
+      sessionManager: sm,
+      agentManager: am,
+      llmService: llm,
+    });
+    const orch = buildOrchestrator(ctx, plugins);
+    const result = await orch.run({ message: 'what is michael working on today?' });
+
+    // Should stay with Emily — this is not a forward request
+    expect(ctx.agent.id).toBe('emily-davis');
+    expect(ctx.sessionId).toBe(emilySession.id);
+    // sendTurn should have run and returned a response
+    expect(result).toContain('Michael Brown is our CEO');
+  });
+
+  // ── 15. "i want to talk to michael" emits correct stream events ───────
+
+  it('emits handoff event with correct fields for stream consumers', async () => {
+    const ctx = await assertForwardHandoff('i want to talk to michael');
+
+    // Verify the handoff event has all fields a stream consumer needs
+    const emitCalls = (ctx.hooks.emit as any).mock.calls;
+    const handoffEvent = emitCalls.find(
+      (call: unknown[]) => (call[0] as RuntimeStreamEvent).kind === 'handoff'
+    );
+    const hEvent = handoffEvent![0] as Extract<RuntimeStreamEvent, { kind: 'handoff' }>;
+
+    // These are the fields the web ChatPanel and CLI both rely on
+    expect(hEvent.fromAgentId).toBe('emily-davis');
+    expect(hEvent.fromAgentName).toBe('Emily Davis');
+    expect(hEvent.fromSessionId).toBe(emilySession.id);
+    expect(hEvent.toAgentId).toBe('michael-brown');
+    expect(hEvent.toAgentName).toBe('Michael Brown');
+    expect(hEvent.toSessionId).toBeTruthy();
+    expect(hEvent.toSessionId).not.toBe(emilySession.id);
+  });
+
+  // ── 16. Handoff creates exactly 2 sessions ────────────────────────
+
+  it('creates exactly one new session (total 2) for a single handoff', async () => {
+    await assertForwardHandoff('i want to talk to michael');
+    expect(db.sessions.size).toBe(2);
+  });
+});

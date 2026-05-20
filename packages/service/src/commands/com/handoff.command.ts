@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import type { HandoffRequest, ICommand, ExecutionContext } from '@ai-team/core';
+import type { HandoffRequest, ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
 import type { IAgentRegistry, ISessionGateway } from '../orchestration/orchestration.types.js';
 
 type Params = z.infer<typeof HandoffCommand.schema>;
 
-export class HandoffCommand {
+export class HandoffCommand implements ICommand<Params, HandoffRequest> {
   static readonly schema = z.object({
     targetAgentId: z.string().min(1).describe('ID of the agent to hand off to'),
     briefingNote: z
@@ -29,7 +29,10 @@ export class HandoffCommand {
     private readonly sessions: ISessionGateway
   ) {}
 
-  async execute(params: Params, context: ExecutionContext): Promise<HandoffRequest> {
+  async execute(
+    params: Params,
+    context: ExecutionContext
+  ): Promise<CommandResponse<HandoffRequest>> {
     const { targetAgentId, briefingNote } = params;
 
     const target =
@@ -49,18 +52,22 @@ export class HandoffCommand {
       );
     }
 
-    if (target.id === context.agent!!.id) {
+    const currentAgentId = context.agent?.id ?? context.agentId;
+    if (currentAgentId && target.id === currentAgentId) {
       throw new Error('Cannot hand off to yourself. Choose another agent.');
     }
 
     const existingSession = await this.sessions.getLatestSession(target.id);
 
     return {
-      type: 'handoff',
-      targetAgentId: target.id,
-      briefingNote,
-      targetSessionId: existingSession?.id,
-      timestamp: new Date().toISOString(),
+      status: 'ok',
+      data: {
+        type: 'handoff',
+        targetAgentId: target.id,
+        briefingNote,
+        targetSessionId: existingSession?.id,
+        timestamp: new Date().toISOString(),
+      },
     };
   }
 }

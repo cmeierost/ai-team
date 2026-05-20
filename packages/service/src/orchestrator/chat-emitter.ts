@@ -2,7 +2,6 @@ import { format as formatMessage } from 'node:util';
 import type { ChatMessage } from '@ai-team/core';
 import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
 import { emitLog, emitEvent } from './stream-events.js';
-import type { ChatRuntimeHooks } from './hooks.js';
 
 // ── Minimal sink abstraction ──────────────────────────────────────────────────
 
@@ -83,17 +82,16 @@ export interface ChatCommandEmitter {
 }
 
 export class DefaultChatCommandEmitter implements ChatCommandEmitter {
-  constructor(private readonly hooks: ChatRuntimeHooks) {}
   write(message: string): void {
-    emitLog(this.hooks, 'info', message);
+    emitLog('info', message);
   }
   warn(message: string): void {
-    emitLog(this.hooks, 'warn', message);
+    emitLog('warn', message);
   }
   error(message: string): void {
-    emitLog(this.hooks, 'error', message);
+    emitLog('error', message);
   }
   event(event: RuntimeStreamEvent): void {
-    emitEvent(this.hooks, event);
+    emitEvent(event);
   }
 }

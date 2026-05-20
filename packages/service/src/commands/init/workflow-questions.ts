@@ -9,7 +9,7 @@ import type {
   WorkflowFrame,
   WorkflowStateSnapshot,
 } from '@ai-team/api-contracts';
-import type { Agent, ExecutionContext } from '@ai-team/core';
+import type { Agent, ExecutionContext, CommandResponse } from '@ai-team/core';
 import {
   resolveWorkflowAnswer as _resolveWorkflowAnswer,
   emitWorkflowQuestionFrame as _emitWorkflowQuestionFrame,
@@ -17,6 +17,10 @@ import {
   ensureNotAborted as _ensureNotAborted,
 } from '../../workflow/helpers.js';
 import { AskUserCommand } from '../com/ask.command.js';
+import {
+  InteractionQuestionService,
+  type IQuestionListeners,
+} from '../../questions/question-service.js';
 
 export interface InitRuntimeHooks {
   signal?: AbortSignal;
@@ -43,27 +47,23 @@ const INIT_ASK_AGENT: Agent = {
   createdAt: new Date().toISOString(),
 };
 
-const askUserCommand = new AskUserCommand();
-
-function createAskExecutionContext(
-  hooks: InitRuntimeHooks | undefined,
-  overrides?: Partial<Pick<ExecutionContext, 'questionInput'>>
-): ExecutionContext {
-  const fallbackQuestionInput = hooks?.questionInput
-    ? async (request: { message: string }) => hooks.questionInput!({ message: request.message })
-    : undefined;
-
+function createAskExecutionContext(): ExecutionContext {
   return {
     agent: INIT_ASK_AGENT,
     agentId: INIT_ASK_AGENT.id,
     workspaceRoot: '',
-    questionInput: (overrides?.questionInput ?? fallbackQuestionInput) as ExecutionContext['questionInput'],
-    questionConfirm: hooks?.questionConfirm as ExecutionContext['questionConfirm'],
-    questionSelect: hooks?.questionSelect as ExecutionContext['questionSelect'],
-    questionPassword: hooks?.questionPassword as ExecutionContext['questionPassword'],
-    questionChecklist: hooks?.questionChecklist as ExecutionContext['questionChecklist'],
     history: [],
   };
+}
+
+function buildQuestionService(hooks: InitRuntimeHooks | undefined, overrides?: IQuestionListeners) {
+  return new InteractionQuestionService({
+    questionInput: overrides?.questionInput ?? hooks?.questionInput,
+    questionConfirm: overrides?.questionConfirm ?? hooks?.questionConfirm,
+    questionSelect: overrides?.questionSelect ?? hooks?.questionSelect,
+    questionPassword: overrides?.questionPassword ?? hooks?.questionPassword,
+    questionChecklist: overrides?.questionChecklist ?? hooks?.questionChecklist,
+  });
 }
 
 async function askViaTool(
@@ -88,16 +88,24 @@ async function askViaTool(
     maxSelections?: number;
     mask?: string;
   },
-  overrides?: Partial<Pick<ExecutionContext, 'questionInput'>>
+  overrides?: IQuestionListeners
 ): Promise<unknown> {
-  const result = await askUserCommand.execute(
-    params,
-    createAskExecutionContext(hooks, overrides) as unknown as import('@ai-team/core').ExecutionContext
-  );
-  if (!result || typeof result !== 'object' || !('answer' in result)) {
+  const questionService = buildQuestionService(hooks, overrides);
+  const askUserCommand = new AskUserCommand(questionService);
+  const result = await askUserCommand.execute(params, createAskExecutionContext());
+  const response =
+    result && typeof result === 'object' && 'status' in result
+      ? (result as CommandResponse<unknown>)
+      : undefined;
+  if (response?.status === 'error') {
+    throw new Error(response.message || 'com_ask returned an error response.');
+  }
+  const payload = response?.data ?? result;
+  if (!payload || typeof payload !== 'object' || !('answer' in payload)) {
     throw new Error('com_ask returned an unexpected response shape.');
   }
-  return (result as { answer: unknown }).answer;
+  const answer = (payload as Record<string, unknown>).answer;
+  return answer;
 }
 
 // Thin wrappers that delegate to the shared workflow helpers.
@@ -198,16 +206,16 @@ export async function requestInput(
       workflow: request.workflow,
     },
     {
-      questionInput: async (inputRequest: unknown) =>
+      questionInput: async (inputRequest) =>
         hooks.questionInput?.({
           ...request,
-          message: (inputRequest as any).message,
+          message: inputRequest.message,
         }) ?? '',
     }
   );
 
   if (typeof answer !== 'string') {
-    throw new Error('Input question expected a string answer from com_ask.');
+    throw new TypeError('Input question expected a string answer from com_ask.');
   }
 
   if (request.validate) {
@@ -247,7 +255,7 @@ export async function requestConfirm(
   });
 
   if (typeof answer !== 'boolean') {
-    throw new Error('Confirm question expected a boolean answer from com_ask.');
+    throw new TypeError('Confirm question expected a boolean answer from com_ask.');
   }
 
   emitWorkflowResultFrame(hooks, request, answer);
@@ -285,7 +293,7 @@ export async function requestSelect(
   });
 
   if (typeof answer !== 'string') {
-    throw new Error('Select question expected a string answer from com_ask.');
+    throw new TypeError('Select question expected a string answer from com_ask.');
   }
 
   const resolved = resolveSelectAnswer(answer, request.choices);
@@ -324,7 +332,7 @@ export async function requestPassword(
   });
 
   if (typeof answer !== 'string') {
-    throw new Error('Password question expected a string answer from com_ask.');
+    throw new TypeError('Password question expected a string answer from com_ask.');
   }
 
   emitWorkflowResultFrame(hooks, request, answer);

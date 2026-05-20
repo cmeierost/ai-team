@@ -5,6 +5,8 @@ import type {
   CommandResponse,
   LspDiagnostic,
   IFileAnnotationService,
+  IIdeAdapterFactory,
+  LspProvider,
 } from '@ai-team/core';
 import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
 
@@ -111,12 +113,24 @@ export class GetErrorsTool implements ICommand<GetErrorsParams, GetErrorsResult>
       .describe('Milliseconds to wait before collecting diagnostics (default 500)'),
   });
 
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly ideAdapterFactory: IIdeAdapterFactory
+  ) {}
+
+  private async resolveLsp(context: ExecutionContext): Promise<LspProvider> {
+    const channel = context.invocationSurface === 'cli' ? 'cli' : 'web';
+    const adapter = await this.ideAdapterFactory.createAsync(this.workspaceRoot, channel);
+    return adapter.lsp;
+  }
+
   async execute(
     params: GetErrorsParams,
     context: ExecutionContext
   ): Promise<CommandResponse<GetErrorsResult>> {
     const { filePaths, delayMs } = params;
-    const diagnostics = (await collectPostWriteDiagnostics(context, filePaths, delayMs)) ?? [];
+    const lsp = await this.resolveLsp(context);
+    const diagnostics = (await collectPostWriteDiagnostics(lsp, filePaths, delayMs)) ?? [];
     return {
       status: 'ok',
       data: { filePaths, diagnostics, available: diagnostics.length > 0 },

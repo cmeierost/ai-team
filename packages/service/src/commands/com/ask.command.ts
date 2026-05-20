@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { ICommand, ExecutionContext } from '@ai-team/core';
+import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 export type AskKind = 'input' | 'confirm' | 'select' | 'password' | 'checklist';
 
@@ -34,70 +35,7 @@ function askResult(kind: AskKind, answer: unknown, workflow?: AskUserParams['wor
   };
 }
 
-function requireInputBridge(
-  context: ExecutionContext
-): NonNullable<ExecutionContext['questionInput']> {
-  if (!context.questionInput) {
-    throw new Error('Question bridge unavailable: questionInput responder is not registered.');
-  }
-  return context.questionInput;
-}
-
-function normalizeYesNo(raw: string, fallback: boolean): boolean {
-  const value = raw.trim().toLowerCase();
-  if (!value) return fallback;
-  if (value === 'y' || value === 'yes' || value === 'true' || value === '1') return true;
-  if (value === 'n' || value === 'no' || value === 'false' || value === '0') return false;
-  return fallback;
-}
-
-async function askSelectWithInputFallback(
-  context: ExecutionContext,
-  params: {
-    message: string;
-    choices: Array<{ name: string; value: string; description?: string }>;
-    defaultText?: string;
-  }
-): Promise<string> {
-  const askInput = requireInputBridge(context);
-  const options = params.choices.map((c) => `${c.value} (${c.name})`).join(', ');
-  const prompt = `${params.message}\nOptions: ${options}${params.defaultText ? `\nDefault: ${params.defaultText}` : ''}\nType one option value:`;
-  const raw = await askInput({ message: prompt });
-  const picked = raw.trim();
-  if (!picked && params.defaultText) return params.defaultText;
-  if (!params.choices.some((c) => c.value === picked)) {
-    throw new Error(
-      `Invalid selection "${picked}". Expected one of: ${params.choices.map((c) => c.value).join(', ')}`
-    );
-  }
-  return picked;
-}
-
-async function askChecklistWithInputFallback(
-  context: ExecutionContext,
-  params: {
-    message: string;
-    choices: Array<{ name: string; value: string; description?: string }>;
-    defaultChecklist?: string[];
-  }
-): Promise<string[]> {
-  const askInput = requireInputBridge(context);
-  const options = params.choices.map((c) => `${c.value} (${c.name})`).join(', ');
-  const defaults = params.defaultChecklist?.join(', ');
-  const prompt = `${params.message}\nOptions: ${options}${defaults ? `\nDefaults: ${defaults}` : ''}\nType comma-separated option values:`;
-  const raw = await askInput({ message: prompt });
-  const values = raw
-    .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean);
-  const selected =
-    values.length === 0 && params.defaultChecklist ? params.defaultChecklist : values;
-  const invalid = selected.filter((value) => !params.choices.some((c) => c.value === value));
-  if (invalid.length > 0) {
-    throw new Error(`Invalid checklist selection(s): ${invalid.join(', ')}.`);
-  }
-  return selected;
-}
+type AskUserResult = ReturnType<typeof askResult>;
 
 function ensureChoices(kind: 'select' | 'checklist', choices: AskUserParams['choices']) {
   if (!choices || choices.length === 0) {
@@ -106,108 +44,119 @@ function ensureChoices(kind: 'select' | 'checklist', choices: AskUserParams['cho
   return choices;
 }
 
-async function executeAskUser(params: AskUserParams, context: ExecutionContext): Promise<unknown> {
+async function executeConfirmAsk(
+  questionService: IQuestionService,
+  params: AskUserParams,
+  context: ExecutionContext
+): Promise<AskUserResult> {
+  const { message, defaultBoolean, workflow } = params;
+  const suffix = defaultBoolean ? '[Y/n]' : '[y/N]';
+  const answer = await questionService.confirm(
+    { message: `${message} ${suffix}`, default: defaultBoolean },
+    context
+  );
+  return askResult('confirm', answer, workflow);
+}
+
+async function executeSelectAsk(
+  questionService: IQuestionService,
+  params: AskUserParams,
+  context: ExecutionContext
+): Promise<AskUserResult> {
+  const { message, defaultText, choices, workflow, allowOther, otherLabel, otherPrompt } = params;
+  const options = ensureChoices('select', choices);
+  const answer = await questionService.select(
+    {
+      message,
+      choices: options,
+      default: defaultText,
+      allowOther,
+      otherLabel,
+      otherPrompt,
+    },
+    context
+  );
+  return askResult('select', answer, workflow);
+}
+
+async function executePasswordAsk(
+  questionService: IQuestionService,
+  params: AskUserParams,
+  context: ExecutionContext
+): Promise<AskUserResult> {
+  const { message, mask, workflow } = params;
+  const answer = await questionService.password({ message, mask }, context);
+  return askResult('password', answer, workflow);
+}
+
+async function executeChecklistAsk(
+  questionService: IQuestionService,
+  params: AskUserParams,
+  context: ExecutionContext
+): Promise<AskUserResult> {
   const {
-    kind = 'input',
     message,
-    workflow,
-    defaultText,
-    defaultBoolean,
-    choices,
     defaultChecklist,
+    choices,
+    workflow,
+    minSelections,
+    maxSelections,
     allowOther,
     otherLabel,
     otherPrompt,
-    minSelections,
-    maxSelections,
-    mask,
   } = params;
+  const options = ensureChoices('checklist', choices);
+  const answer = await questionService.checklist(
+    {
+      message,
+      choices: options,
+      default: defaultChecklist,
+      minSelections,
+      maxSelections,
+      allowOther,
+      otherLabel,
+      otherPrompt,
+    },
+    context
+  );
+  return askResult('checklist', answer, workflow);
+}
+
+async function executeInputAsk(
+  questionService: IQuestionService,
+  params: AskUserParams,
+  context: ExecutionContext
+): Promise<AskUserResult> {
+  const { message, defaultText, workflow } = params;
+  const prompt = defaultText ? `${message} (default: ${defaultText})` : message;
+  return askResult('input', await questionService.input({ message: prompt }, context), workflow);
+}
+
+async function executeAskUser(
+  questionService: IQuestionService,
+  params: AskUserParams,
+  context: ExecutionContext
+): Promise<unknown> {
+  const { kind = 'input' } = params;
 
   switch (kind) {
-    case 'confirm': {
-      if (context.questionConfirm) {
-        return askResult(
-          kind,
-          await context.questionConfirm({ message, default: defaultBoolean }),
-          workflow
-        );
-      }
-      const askInput = requireInputBridge(context);
-      const suffix = defaultBoolean ? '[Y/n]' : '[y/N]';
-      const raw = await askInput({ message: `${message} ${suffix}` });
-      return askResult(kind, normalizeYesNo(raw, defaultBoolean ?? false), workflow);
-    }
-    case 'select': {
-      const options = ensureChoices(kind, choices);
-      if (context.questionSelect) {
-        return askResult(
-          kind,
-          await context.questionSelect({
-            message,
-            choices: options,
-            default: defaultText,
-            allowOther,
-            otherLabel,
-            otherPrompt,
-          }),
-          workflow
-        );
-      }
-      return askResult(
-        kind,
-        await askSelectWithInputFallback(context, { message, choices: options, defaultText }),
-        workflow
-      );
-    }
-    case 'password': {
-      if (context.questionPassword) {
-        return askResult(kind, await context.questionPassword({ message, mask }), workflow);
-      }
-      const askInput = requireInputBridge(context);
-      return askResult(kind, await askInput({ message }), workflow);
-    }
-    case 'checklist': {
-      const options = ensureChoices(kind, choices);
-      if (context.questionChecklist) {
-        return askResult(
-          kind,
-          await context.questionChecklist({
-            message,
-            choices: options,
-            default: defaultChecklist,
-            minSelections,
-            maxSelections,
-            allowOther,
-            otherLabel,
-            otherPrompt,
-          }),
-          workflow
-        );
-      }
-      return askResult(
-        kind,
-        await askChecklistWithInputFallback(context, {
-          message,
-          choices: options,
-          defaultChecklist,
-        }),
-        workflow
-      );
-    }
+    case 'confirm':
+      return executeConfirmAsk(questionService, params, context);
+    case 'select':
+      return executeSelectAsk(questionService, params, context);
+    case 'password':
+      return executePasswordAsk(questionService, params, context);
+    case 'checklist':
+      return executeChecklistAsk(questionService, params, context);
     case 'input':
-    default: {
-      if (!context.questionInput) {
-        throw new Error('Question bridge unavailable: questionInput responder is not registered.');
-      }
-      const prompt = defaultText ? `${message} (default: ${defaultText})` : message;
-      return askResult('input', await context.questionInput({ message: prompt }), workflow);
-    }
+    default:
+      return executeInputAsk(questionService, params, context);
   }
 }
 
 type Params = z.infer<typeof AskUserCommand.schema>;
 
-export class AskUserCommand{
+export class AskUserCommand implements ICommand<Params, AskUserResult> {
   static readonly schema = z.object({
     kind: z
       .enum(['input', 'confirm', 'select', 'password', 'checklist'])
@@ -276,7 +225,13 @@ export class AskUserCommand{
   readonly permissionCheck = { type: 'none' as const };
   readonly tags = ['orchestration'];
 
-  async execute(params: Params, context: ExecutionContext): Promise<unknown> {
-    return executeAskUser(params, context);
+  constructor(private readonly questionService: IQuestionService) {}
+
+  async execute(
+    params: Params,
+    context: ExecutionContext
+  ): Promise<CommandResponse<AskUserResult>> {
+    const result = (await executeAskUser(this.questionService, params, context)) as AskUserResult;
+    return { status: 'ok', data: result };
   }
 }

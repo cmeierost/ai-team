@@ -3,9 +3,108 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ContextLevel, type Agent } from '@ai-team/core';
+import { ContextLevel, type Agent, type ICommand } from '@ai-team/core';
 import { ToolManager } from '../../tools/tool-manager.js';
-import { ALL_TOOLS } from '../../tools/catalog/index.js';
+import {
+  FsReadFileTool,
+  FsReadLinesTool,
+  FsWriteFileTool,
+  FsCreateFileTool,
+  FsDeletePathTool,
+  FsMkdirTool,
+  FsExistsTool,
+  FsInfoTool,
+  FsListTool,
+  FsTreeTool,
+  FsSearchContentTool,
+  FsSearchMetadataTool,
+} from '../fs/fs-tools.js';
+import { FindSymbolTool, FindReferencesTool, LspTool, GrepCodeTool } from '../edit/code-tools.js';
+import { HttpFetchTool, HttpCrawlTool } from './http-tools.js';
+import { CodeSearchTool } from '../edit/codesearch-tool.js';
+import { ApplyPatchTool, MultiEditTool, FsEditTool } from '../fs/edit-tools.js';
+import {
+  WhoHasAccessTool,
+  DoIHaveAccessTool,
+  AnalyzePermissionOverlapTool,
+} from '../fs/access-introspection-tools.js';
+import { WorkspaceFs } from 'fs-context';
+
+function getBuiltInTools(workspaceRoot: string): ICommand[] {
+  const accessChecker = {
+    can: () => true,
+    canReadPath: () => true,
+    canWritePath: () => true,
+    canListPath: () => true,
+    assertCanReadPath: () => undefined,
+    assertCanWritePath: () => undefined,
+  };
+  const accessAgentManager = {
+    async getAllAgentsAsync() {
+      return [] as Agent[];
+    },
+    async getAgentAsync() {
+      return undefined;
+    },
+    async analyzeWorkspacePermissionOverlap() {
+      return { overlaps: [] };
+    },
+  } as any;
+  const whoHasAccessTool = new WhoHasAccessTool(workspaceRoot, accessAgentManager, accessChecker);
+  const doIHaveAccessTool = new DoIHaveAccessTool(workspaceRoot, accessAgentManager, accessChecker);
+  const analyzePermissionOverlapTool = new AnalyzePermissionOverlapTool(accessAgentManager);
+  const workspaceFsFactory = {
+    create: async (agentId: string) =>
+      new WorkspaceFs(workspaceRoot, agentId, {
+        canRead: () => true,
+        canWrite: () => true,
+        canList: () => true,
+      }),
+  };
+  const ideAdapterFactory = {
+    createAsync: async () => ({
+      lsp: {
+        execute: async () => ({ kind: 'locations', locations: [] }),
+        isAvailable: () => false,
+      },
+      openFile: async () => {},
+      notifyCodeEditProposal: async () => {},
+      isConnected: () => false,
+      onAck: () => {},
+      dispose: () => {},
+    }),
+  } as any;
+  const readFileTool = new FsReadFileTool(workspaceRoot, workspaceFsFactory as any);
+  const readLinesTool = new FsReadLinesTool(readFileTool);
+  const fsEditTool = new FsEditTool(workspaceRoot, accessChecker as any, ideAdapterFactory);
+  return [
+    readFileTool,
+    readLinesTool,
+    new FsWriteFileTool(workspaceFsFactory as any),
+    new FsCreateFileTool(workspaceFsFactory as any),
+    new FsDeletePathTool(workspaceFsFactory as any),
+    new FsMkdirTool(workspaceFsFactory as any),
+    new FsExistsTool(workspaceFsFactory as any),
+    new FsInfoTool(workspaceFsFactory as any),
+    new FsListTool(workspaceFsFactory as any),
+    new FsTreeTool(workspaceFsFactory as any),
+    new FsSearchContentTool(workspaceRoot, workspaceFsFactory as any),
+    new FsSearchMetadataTool(workspaceRoot, workspaceFsFactory as any),
+    whoHasAccessTool,
+    doIHaveAccessTool,
+    analyzePermissionOverlapTool,
+    new FindSymbolTool(workspaceRoot, ideAdapterFactory),
+    new FindReferencesTool(workspaceRoot, ideAdapterFactory),
+    new LspTool(workspaceRoot, ideAdapterFactory),
+    new GrepCodeTool(),
+    new HttpFetchTool(),
+    new HttpCrawlTool(),
+    new CodeSearchTool(),
+    fsEditTool,
+    new ApplyPatchTool(workspaceRoot, accessChecker as any, ideAdapterFactory),
+    new MultiEditTool(workspaceRoot, fsEditTool, accessChecker as any, ideAdapterFactory),
+  ];
+}
 
 const workspaces: string[] = [];
 
@@ -67,8 +166,26 @@ describe('http tools', () => {
   it('http_fetch supports regex/snippet filtering and returns links', async () => {
     const workspaceRoot = await createWorkspace();
     const agent = makeAgent();
-    const manager = new ToolManager(workspaceRoot);
-    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+    const registry = {
+      register: () => undefined,
+      get: () => undefined,
+      getAll: () => [],
+      toLlmToolDefinitions: () => [],
+    } as any;
+    const manager = new ToolManager(
+      workspaceRoot,
+      {
+        can: () => true,
+        canReadPath: () => true,
+        canWritePath: () => true,
+        canListPath: () => true,
+        assertCanReadPath: () => undefined,
+        assertCanWritePath: () => undefined,
+      },
+      registry,
+      { resolve: () => undefined } as any
+    );
+    for (const tool of getBuiltInTools(workspaceRoot)) manager.register(tool);
 
     const srv = await withTestServer((req, res) => {
       if (req.url === '/article') {
@@ -92,7 +209,7 @@ describe('http tools', () => {
           maxChunks: 3,
           contextChars: 20,
         },
-        { workspaceRoot }
+        { workspaceRoot, history: [] }
       );
 
       expect(result.ok).toBe(true);
@@ -108,8 +225,26 @@ describe('http tools', () => {
   it('http_crawl respects maxDepth and maxPages constraints', async () => {
     const workspaceRoot = await createWorkspace();
     const agent = makeAgent();
-    const manager = new ToolManager(workspaceRoot);
-    for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+    const registry = {
+      register: () => undefined,
+      get: () => undefined,
+      getAll: () => [],
+      toLlmToolDefinitions: () => [],
+    } as any;
+    const manager = new ToolManager(
+      workspaceRoot,
+      {
+        can: () => true,
+        canReadPath: () => true,
+        canWritePath: () => true,
+        canListPath: () => true,
+        assertCanReadPath: () => undefined,
+        assertCanWritePath: () => undefined,
+      },
+      registry,
+      { resolve: () => undefined } as any
+    );
+    for (const tool of getBuiltInTools(workspaceRoot)) manager.register(tool);
 
     const srv = await withTestServer((req, res) => {
       if (req.url === '/root') {
@@ -148,7 +283,7 @@ describe('http tools', () => {
           maxPages: 2,
           maxChunks: 5,
         },
-        { workspaceRoot }
+        { workspaceRoot, history: [] }
       );
 
       expect(result.ok).toBe(true);

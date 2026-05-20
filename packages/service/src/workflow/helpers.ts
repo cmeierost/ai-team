@@ -1,5 +1,7 @@
 import type {
-  InteractionContext,
+  RuntimeStreamEvent,
+  WorkflowFrame,
+  WorkflowStateSnapshot,
   QuestionAnswerValue,
   QuestionChecklistRequest,
   QuestionConfirmRequest,
@@ -8,8 +10,15 @@ import type {
   QuestionSelectRequest,
 } from '@ai-team/api-contracts';
 
+export interface WorkflowRuntimeContext {
+  signal?: AbortSignal;
+  workflowState?: WorkflowStateSnapshot;
+  onWorkflowFrame?: (frame: WorkflowFrame) => void;
+  emit?: (event: RuntimeStreamEvent) => void;
+}
+
 export function resolveWorkflowAnswer(
-  context: InteractionContext | undefined,
+  context: WorkflowRuntimeContext | undefined,
   request: { workflow?: { workflowId?: string; questionId?: string } }
 ): QuestionAnswerValue | undefined {
   const workflowId = request.workflow?.workflowId;
@@ -26,7 +35,7 @@ export function resolveWorkflowAnswer(
 }
 
 export function emitWorkflowQuestionFrame(
-  context: InteractionContext | undefined,
+  context: WorkflowRuntimeContext | undefined,
   request:
     | ({ kind: 'input' } & QuestionInputRequest)
     | ({ kind: 'confirm' } & QuestionConfirmRequest)
@@ -48,7 +57,7 @@ export function emitWorkflowQuestionFrame(
 }
 
 export function emitWorkflowResultFrame(
-  context: InteractionContext | undefined,
+  context: WorkflowRuntimeContext | undefined,
   request: {
     workflow?: {
       workflowId?: string;
@@ -79,7 +88,7 @@ export function emitWorkflowResultFrame(
   });
 }
 
-export function ensureNotAborted(context: InteractionContext | undefined): void {
+export function ensureNotAborted(context: WorkflowRuntimeContext | undefined): void {
   if (context?.signal?.aborted) {
     throw new Error('Workflow aborted');
   }

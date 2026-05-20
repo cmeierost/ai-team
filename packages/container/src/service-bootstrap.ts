@@ -44,7 +44,6 @@ import { createBootstrappedContainer, type ContainerBootstrapper } from './boots
 import type { MergeTokenSets, ServiceContainer, TokenSet } from './container.js';
 import {
   registerInfrastructureCoreServices,
-  type InfrastructureCoreRegistrationTokens,
   ContextRuntime,
   type SqliteBackend,
   type MessagesRepository,
@@ -77,9 +76,13 @@ import {
   type MetaService,
   type CommandsService,
   type AccessService,
+  type ToolDispatchSupportService,
+  type ToolSerializationService,
+  type IQuestionService,
   registerServiceLayerServices,
   type ServiceLayerRegistrationTokens,
 } from '@ai-team/service';
+import { setServiceContainer } from '@ai-team/service/src/service-registry.js';
 import { Token } from './token.js';
 
 export const SERVERTokens = {} as const;
@@ -107,6 +110,9 @@ export const TOKENS = {
   SkillManager: new Token<ISkillManager>('SkillManager'),
   SessionManager: new Token<SessionManager>('SessionManager'),
   ToolManager: new Token<ToolManager>('ToolManager'),
+  ToolDispatchSupportService: new Token<ToolDispatchSupportService>('ToolDispatchSupportService'),
+  ToolSerializationService: new Token<ToolSerializationService>('ToolSerializationService'),
+  QuestionService: new Token<IQuestionService>('QuestionService'),
   ChatStorage: new Token<ChatStorage>('ChatStorage'),
   ChatManager: new Token<ChatManager>('ChatManager'),
 
@@ -199,10 +205,7 @@ function registerBaseServices(
   c.registerSingleton(tokens.ApiBaseUrl, () => cfg.apiBaseUrl ?? 'http://localhost:3002');
   c.registerInstance(tokens.WorkspaceRoot, cfg.workspaceRoot);
 
-  registerInfrastructureCoreServices(
-    c as unknown as IServiceContainerRegistrar,
-    tokens as unknown as InfrastructureCoreRegistrationTokens
-  );
+  registerInfrastructureCoreServices(c as IServiceContainerRegistrar, tokens);
 
   c.registerSingleton(tokens.ContextRuntime, () => new ContextRuntime());
 
@@ -246,6 +249,8 @@ export function createContainer<const TSets extends readonly TokenSet[]>(
     ...tokenSets
   ) as unknown as ServiceContainer<ServiceBootstrapTypes & MergeTokenSets<TSets>>;
 
+  setServiceContainer(container as any);
+
   return container as unknown as ServiceContainer<
     ServiceBootstrapTypes | (ServiceBootstrapTypes & MergeTokenSets<TSets>)
   >;
@@ -259,7 +264,7 @@ export function createContainerWithTokenSets<const TSets extends readonly TokenS
     config,
     () => {},
     ...tokenSets
-  ) as unknown as ExtendedServiceContainer<TSets>;
+  ) as ExtendedServiceContainer<TSets>;
 }
 
 export function createContainerWithBootstrap<const TSets extends readonly TokenSet[]>(

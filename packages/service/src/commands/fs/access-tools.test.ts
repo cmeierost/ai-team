@@ -2,10 +2,102 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { TOOL_SERVICE_TOKENS as T } from '@ai-team/core';
+import { ContextLevel, type Agent, type ICommand } from '@ai-team/core';
+import { WorkspaceFs } from 'fs-context';
 import { ToolManager } from '../../tools/tool-manager.js';
-import { ALL_TOOLS } from '../../tools/catalog/index.js';
-import { ContextLevel, type Agent } from '@ai-team/core';
+import {
+  WhoHasAccessTool,
+  DoIHaveAccessTool,
+  AnalyzePermissionOverlapTool,
+} from '../fs/access-introspection-tools.js';
+import {
+  FsExistsTool,
+  FsInfoTool,
+  FsReadFileTool,
+  FsReadLinesTool,
+  FsWriteFileTool,
+  FsCreateFileTool,
+  FsDeletePathTool,
+  FsMkdirTool,
+  FsListTool,
+  FsTreeTool,
+  FsSearchContentTool,
+  FsSearchMetadataTool,
+} from '../fs/fs-tools.js';
+import { FindSymbolTool, FindReferencesTool, LspTool, GrepCodeTool } from '../edit/code-tools.js';
+import { HttpFetchTool, HttpCrawlTool } from '../http/http-tools.js';
+import { CodeSearchTool } from '../edit/codesearch-tool.js';
+import { ApplyPatchTool, MultiEditTool, FsEditTool } from '../fs/edit-tools.js';
+
+function getBuiltInTools(
+  workspaceRoot: string,
+  agents: Agent[],
+  analyzeResult?: unknown
+): unknown[] {
+  const accessChecker = {
+    can: () => true,
+    canReadPath: () => true,
+    canWritePath: () => true,
+    canListPath: () => true,
+    assertCanReadPath: () => undefined,
+    assertCanWritePath: () => undefined,
+  };
+  const accessAgentManager = makeAgentManager(agents, analyzeResult) as any;
+  const whoHasAccessTool = new WhoHasAccessTool(workspaceRoot, accessAgentManager, accessChecker);
+  const doIHaveAccessTool = new DoIHaveAccessTool(workspaceRoot, accessAgentManager, accessChecker);
+  const analyzePermissionOverlapTool = new AnalyzePermissionOverlapTool(accessAgentManager);
+  const workspaceFsFactory = {
+    create: async (agentId: string) =>
+      new WorkspaceFs(workspaceRoot, agentId, {
+        canRead: () => true,
+        canWrite: () => true,
+        canList: () => true,
+      }),
+  };
+  const ideAdapterFactory = {
+    createAsync: async () => ({
+      lsp: {
+        execute: async () => ({ kind: 'locations', locations: [] }),
+        isAvailable: () => false,
+      },
+      openFile: async () => {},
+      notifyCodeEditProposal: async () => {},
+      isConnected: () => false,
+      onAck: () => {},
+      dispose: () => {},
+    }),
+  } as any;
+  const readFileTool = new FsReadFileTool(workspaceRoot, workspaceFsFactory as any);
+  const readLinesTool = new FsReadLinesTool(readFileTool);
+  const fsEditTool = new FsEditTool(workspaceRoot, accessChecker as any, ideAdapterFactory);
+  return [
+    readFileTool,
+    readLinesTool,
+    new FsWriteFileTool(workspaceFsFactory as any),
+    new FsCreateFileTool(workspaceFsFactory as any),
+    new FsDeletePathTool(workspaceFsFactory as any),
+    new FsMkdirTool(workspaceFsFactory as any),
+    new FsExistsTool(workspaceFsFactory as any),
+    new FsInfoTool(workspaceFsFactory as any),
+    new FsListTool(workspaceFsFactory as any),
+    new FsTreeTool(workspaceFsFactory as any),
+    new FsSearchContentTool(workspaceRoot, workspaceFsFactory as any),
+    new FsSearchMetadataTool(workspaceRoot, workspaceFsFactory as any),
+    whoHasAccessTool,
+    doIHaveAccessTool,
+    analyzePermissionOverlapTool,
+    new FindSymbolTool(workspaceRoot, ideAdapterFactory),
+    new FindReferencesTool(workspaceRoot, ideAdapterFactory),
+    new LspTool(workspaceRoot, ideAdapterFactory),
+    new GrepCodeTool(),
+    new HttpFetchTool(),
+    new HttpCrawlTool(),
+    new CodeSearchTool(),
+    fsEditTool,
+    new ApplyPatchTool(workspaceRoot, accessChecker as any, ideAdapterFactory),
+    new MultiEditTool(workspaceRoot, fsEditTool, accessChecker as any, ideAdapterFactory),
+  ];
+}
 
 function makeAgent(id: string, readPatterns: string[] = ['**']): Agent {
   return {
@@ -24,9 +116,32 @@ function makeAgent(id: string, readPatterns: string[] = ['**']): Agent {
   };
 }
 
-async function setupManager(workspaceRoot: string, agents: Agent[]): Promise<ToolManager> {
-  const manager = new ToolManager(workspaceRoot);
-  for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
+async function setupManager(
+  workspaceRoot: string,
+  agents: Agent[],
+  analyzeResult?: unknown
+): Promise<ToolManager> {
+  const registry = {
+    register: () => undefined,
+    get: () => undefined,
+    getAll: () => [],
+    toLlmToolDefinitions: () => [],
+  } as any;
+  const manager = new ToolManager(
+    workspaceRoot,
+    {
+      can: () => true,
+      canReadPath: () => true,
+      canWritePath: () => true,
+      canListPath: () => true,
+      assertCanReadPath: () => undefined,
+      assertCanWritePath: () => undefined,
+    },
+    registry,
+    { resolve: () => undefined } as any
+  );
+  for (const tool of getBuiltInTools(workspaceRoot, agents, analyzeResult))
+    manager.register(tool as ICommand);
   return manager;
 }
 
@@ -66,7 +181,6 @@ describe('access introspection tools', () => {
       const a = makeAgent('a', ['src/**']);
       const b = makeAgent('b', ['docs/**']);
       const manager = await setupManager(workspaceRoot, [a, b]);
-      const agentManager = makeAgentManager([a, b]);
 
       const result = await manager.execute(
         a,
@@ -74,10 +188,7 @@ describe('access introspection tools', () => {
         { path: 'src/file.ts' },
         {
           workspaceRoot,
-          resolve: (token) => {
-            if (token.id === T.AgentManager.id) return agentManager as never;
-            throw new Error(`Unexpected token: ${token.id}`);
-          },
+          history: [],
         }
       );
       expect(result.ok).toBe(true);
@@ -107,19 +218,12 @@ describe('access introspection tools', () => {
       const a = makeAgent('a', ['src/**']);
       const b = makeAgent('b', ['docs/**']);
       const manager = await setupManager(workspaceRoot, [a, b]);
-      const agentManager = makeAgentManager([a, b]);
 
       const denied = await manager.execute(
         a,
         'access_can_i',
         { path: 'docs/readme.md', right: 'read' },
-        {
-          workspaceRoot,
-          resolve: (token) => {
-            if (token.id === T.AgentManager.id) return agentManager as never;
-            throw new Error(`Unexpected token: ${token.id}`);
-          },
-        }
+        { workspaceRoot, history: [] }
       );
       expect(denied.ok).toBe(true);
       expect((denied.result as any).allowed).toBe(true);
@@ -128,13 +232,7 @@ describe('access introspection tools', () => {
         a,
         'access_can_i',
         { path: 'docs/readme.md', right: 'read', agentId: 'b' },
-        {
-          workspaceRoot,
-          resolve: (token) => {
-            if (token.id === T.AgentManager.id) return agentManager as never;
-            throw new Error(`Unexpected token: ${token.id}`);
-          },
-        }
+        { workspaceRoot, history: [] }
       );
       expect(allowed.ok).toBe(true);
       expect((allowed.result as any).allowed).toBe(true);
@@ -174,8 +272,7 @@ describe('access introspection tools', () => {
 
       const a = makeAgent('a', ['src/**']);
       const b = makeAgent('b', ['src/**']);
-      const manager = await setupManager(workspaceRoot, [a, b]);
-      const agentManager = makeAgentManager([a, b], {
+      const manager = await setupManager(workspaceRoot, [a, b], {
         kind: 'files',
         agentFocus: { agentId: 'a' },
         rights: {
@@ -189,13 +286,7 @@ describe('access introspection tools', () => {
         a,
         'access_analyze_permission_overlap',
         { mode: 'files', agentId: 'a' },
-        {
-          workspaceRoot,
-          resolve: (token) => {
-            if (token.id === T.AgentManager.id) return agentManager as never;
-            throw new Error(`Unexpected token: ${token.id}`);
-          },
-        }
+        { workspaceRoot, history: [] }
       );
       expect(result.ok).toBe(true);
       expect((result.result as any).kind).toBe('files');

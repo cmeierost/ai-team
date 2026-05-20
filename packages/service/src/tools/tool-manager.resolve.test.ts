@@ -1,21 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { ToolManager } from './tool-manager.js';
-import { semanticSearchTool } from '../commands/edit/search-tools.js';
 import { TOOL_SERVICE_TOKENS as T } from '@ai-team/core';
+import { z } from 'zod';
 
 describe('ToolManager DI resolve wiring', () => {
   it('injects container.resolve into ToolContext for semantic search tool', async () => {
-    const manager = new ToolManager('C:/workspace', {
-      canReadPath: () => true,
-      canWritePath: () => true,
-      canListPath: () => true,
-      assertCanReadPath: () => undefined,
-      assertCanWritePath: () => undefined,
-    });
+    const registry = {
+      register: () => undefined,
+      get: () => undefined,
+      getAll: () => [],
+      toLlmToolDefinitions: () => [],
+    } as any;
 
-    manager.register(semanticSearchTool as any);
-
-    manager.setContainer({
+    const container = {
       resolve(token: unknown) {
         if (token === T.FileAnnotationService) {
           return {
@@ -27,7 +24,31 @@ describe('ToolManager DI resolve wiring', () => {
         }
         throw new Error(`Unexpected token: ${String((token as any)?.id ?? token)}`);
       },
-    });
+    };
+
+    const manager = new ToolManager('C:/workspace', {
+      canReadPath: () => true,
+      canWritePath: () => true,
+      canListPath: () => true,
+      assertCanReadPath: () => undefined,
+      assertCanWritePath: () => undefined,
+    }, registry, container);
+
+    manager.register({
+      name: 'semantic',
+      key: 'semantic',
+      group: 'search',
+      availableIn: { tool: true },
+      description: 'test semantic search',
+      parameters: z.object({ query: z.string() }),
+      async execute(params: { query: string }, context: any) {
+        const svc = context.resolve(T.FileAnnotationService);
+        const results = svc
+          .getAnnotatedFiles()
+          .filter((f: any) => f.path.includes(params.query));
+        return { results };
+      },
+    } as any);
 
     const result = await manager.execute(
       {

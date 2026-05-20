@@ -1,10 +1,10 @@
-import { existsSync } from 'fs';
-import { dirname, join } from 'path';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 /**
  * Find the workspace root by walking up the directory tree
  * looking for .ai-team or .git directory
- * 
+ *
  * @param startDir - Starting directory (defaults to process.cwd())
  * @returns Absolute path to workspace root
  */
@@ -28,12 +28,12 @@ export function findWorkspaceRoot(startDir: string = process.cwd()): string {
 
     // Move up one directory
     const parentDir = dirname(currentDir);
-    
+
     // If we've reached the root, stop
     if (parentDir === currentDir) {
       break;
     }
-    
+
     currentDir = parentDir;
     depth++;
   }
@@ -45,14 +45,22 @@ export function findWorkspaceRoot(startDir: string = process.cwd()): string {
 
 // ── Workspace overview ────────────────────────────────────────────────────────
 
-import * as fs from 'fs/promises';
+import * as fs from 'node:fs/promises';
 
 /**
  * Generate a lightweight workspace file tree (max depth 2, max 120 entries).
  * Used by the /overview slash command.
  */
 export async function getWorkspaceOverview(workspaceRoot: string): Promise<string> {
-  const ignoredDirs = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.turbo', '.pnpm-store']);
+  const ignoredDirs = new Set([
+    '.git',
+    'node_modules',
+    'dist',
+    'build',
+    '.next',
+    '.turbo',
+    '.pnpm-store',
+  ]);
   const lines: string[] = [];
   const maxDepth = 2;
   const maxEntries = 120;
@@ -66,7 +74,9 @@ export async function getWorkspaceOverview(workspaceRoot: string): Promise<strin
     } catch {
       return;
     }
-    entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
+    entries.sort(
+      (a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name)
+    );
     for (const entry of entries) {
       if (emitted >= maxEntries) break;
       if (entry.name.startsWith('.') && entry.name !== '.ai-team') continue;

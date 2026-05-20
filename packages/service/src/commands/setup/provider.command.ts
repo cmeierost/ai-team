@@ -1,11 +1,5 @@
 import { z } from 'zod';
 import type {
-  AddProviderOptions,
-  ConfigureProviderOptions,
-  InteractionContext,
-  SetProviderOptions,
-} from '@ai-team/api-contracts';
-import type {
   ICommand,
   IConfigurationStorage,
   IEnvironmentStorage,
@@ -14,19 +8,8 @@ import type {
   ExecutionContext,
   CommandResponse,
 } from '@ai-team/core';
+import type { IQuestionService } from '../../questions/question-service.js';
 import { ProviderCommand } from './provider.js';
-
-function runtimeToInteractionContext(runtime: ExecutionContext): InteractionContext {
-  return {
-    signal: runtime.signal,
-    emit: runtime.emit as InteractionContext['emit'],
-    questionInput: runtime.questionInput,
-    questionConfirm: runtime.questionConfirm,
-    questionSelect: runtime.questionSelect,
-    questionPassword: runtime.questionPassword,
-    questionChecklist: runtime.questionChecklist,
-  };
-}
 
 type ConfigureParams = z.infer<typeof ProviderConfigureICommand.schema>;
 type AddParams = z.infer<typeof ProviderAddICommand.schema>;
@@ -50,7 +33,8 @@ export class ProviderConfigureICommand implements ICommand<ConfigureParams, void
     private readonly configurationStorage: IConfigurationStorage,
     private readonly environmentStorage: IEnvironmentStorage,
     private readonly llmProviderTester: ILlmProviderTester,
-    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry
+    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(payload: ConfigureParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
@@ -60,11 +44,7 @@ export class ProviderConfigureICommand implements ICommand<ConfigureParams, void
       this.llmProviderTester,
       this.modelDiscoveryRegistry
     );
-    await cmd.configureAsync(
-      ctx.workspaceRoot,
-      payload as ConfigureProviderOptions,
-      runtimeToInteractionContext(ctx)
-    );
+    await cmd.configureAsync(ctx.workspaceRoot, payload, this.questionService, ctx);
     return { status: 'ok' };
   }
 }
@@ -86,7 +66,8 @@ export class ProviderAddICommand implements ICommand<AddParams, void> {
     private readonly configurationStorage: IConfigurationStorage,
     private readonly environmentStorage: IEnvironmentStorage,
     private readonly llmProviderTester: ILlmProviderTester,
-    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry
+    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(payload: AddParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
@@ -96,11 +77,7 @@ export class ProviderAddICommand implements ICommand<AddParams, void> {
       this.llmProviderTester,
       this.modelDiscoveryRegistry
     );
-    await cmd.addAsync(
-      ctx.workspaceRoot,
-      payload as AddProviderOptions,
-      runtimeToInteractionContext(ctx)
-    );
+    await cmd.addAsync(ctx.workspaceRoot, payload, this.questionService, ctx);
     return { status: 'ok' };
   }
 }
@@ -123,7 +100,8 @@ export class ProviderSetICommand implements ICommand<SetParams, void> {
     private readonly configurationStorage: IConfigurationStorage,
     private readonly environmentStorage: IEnvironmentStorage,
     private readonly llmProviderTester: ILlmProviderTester,
-    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry
+    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(payload: SetParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
@@ -133,11 +111,7 @@ export class ProviderSetICommand implements ICommand<SetParams, void> {
       this.llmProviderTester,
       this.modelDiscoveryRegistry
     );
-    await cmd.setAsync(
-      ctx.workspaceRoot,
-      payload as SetProviderOptions,
-      runtimeToInteractionContext(ctx)
-    );
+    await cmd.setAsync(ctx.workspaceRoot, payload, this.questionService, ctx);
     return { status: 'ok' };
   }
 }

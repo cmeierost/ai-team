@@ -19,6 +19,7 @@ export { MissingUserInputError } from './utils/user-env.js';
 export { SessionManager } from './session-manager.js';
 export { findWorkspaceRoot } from './utils/workspace.js';
 export { type ChatRuntimeHooks } from './commands/chat/index.js';
+export { type IQuestionService, InteractionQuestionService } from './questions/question-service.js';
 export { serveApiCommand, type ServeApiOptions } from './commands/start/serve.js';
 export { runUiCommand, type UiCommandOptions } from './commands/start/ui.js';
 export {
@@ -85,6 +86,8 @@ export { DefaultOutputHandler } from './orchestrator/defaults/output-handler.js'
 export { buildDefaultHookPlugins } from './orchestrator/defaults/hook-plugins.js';
 export { buildDefaultTurnResultParsers } from './orchestrator/defaults/turn-result-parsers.js';
 export { buildDefaultSlashCommands } from './orchestrator/slash-commands.js';
+export { ToolDispatchSupportService } from './orchestrator/services/tool-dispatch-support-service.js';
+export { ToolSerializationService } from './orchestrator/services/tool-serialization-service.js';
 export {
   getWorkflowDefinitionResolvers,
   listWorkflowDefinitionIds,

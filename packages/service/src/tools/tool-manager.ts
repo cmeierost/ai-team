@@ -13,34 +13,19 @@
 import {
   Agent,
   ICommand,
+  type ICommandRegistry,
   ExecutionContext,
   ContextLevel,
-  type LspProvider,
+  type IPathPermissionChecker,
   PermissionResult,
   ToolCatalogEntry,
   type PermissionDescriptor,
 } from '@ai-team/core';
+import { withTimeout } from '../utils/with-timeout.js';
+import { ZodSchemaTools } from '../utils/zod-schema.js';
 
 interface ToolResolverContainer {
   resolve<T>(token: unknown): T;
-}
-
-interface PathPermissionCheckerLike {
-  canReadPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
-  canWritePath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
-  canListPath(workspaceRoot: string, permissions: unknown, filePath: string): boolean;
-  assertCanReadPath(
-    workspaceRoot: string,
-    contextId: string,
-    permissions: unknown,
-    filePath: string
-  ): void;
-  assertCanWritePath(
-    workspaceRoot: string,
-    contextId: string,
-    permissions: unknown,
-    filePath: string
-  ): void;
 }
 
 // Re-export for convenience so callers only import from 'tools'.
@@ -51,13 +36,49 @@ type ToolIdentityField = 'key' | 'group';
 /**
  * Canonical lookup key for a tool.
  */
-export function toolKey(tool: Pick<ICommand, ToolIdentityField>): string {
-  const key = typeof tool.key === 'string' ? tool.key.trim() : '';
-  if (!key) {
-    throw new Error('Tool must define a non-empty `key`.');
+export class ToolIdentity {
+  static key(tool: Pick<ICommand, ToolIdentityField>): string {
+    const key = typeof tool.key === 'string' ? tool.key.trim() : '';
+    if (!key) {
+      throw new Error('Tool must define a non-empty `key`.');
+    }
+    const group = typeof tool.group === 'string' ? tool.group.trim() : '';
+    return group ? `${group}_${key}` : key;
   }
-  const group = typeof tool.group === 'string' ? tool.group.trim() : '';
-  return group ? `${group}_${key}` : key;
+
+  /**
+   * Match a tool selector against a tool.
+   * Supports:
+   * - exact canonical names (e.g. fs_tree)
+   * - exact short names (e.g. tree)
+   * - wildcard selectors (e.g. fs_*, *_list)
+   */
+  static matchesSelector(selector: string, tool: Pick<ICommand, ToolIdentityField>): boolean {
+    const normalized = ToolIdentity.normalizeSelector(selector);
+    if (!normalized) {
+      return false;
+    }
+
+    return ToolIdentity.matchesSelectorValue(normalized, ToolIdentity.key(tool));
+  }
+
+  private static normalizeSelector(selector: string): string {
+    return selector.trim();
+  }
+
+  private static selectorToRegExp(selector: string): RegExp {
+    const escaped = selector
+      .replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`)
+      .replaceAll('*', '.*');
+    return new RegExp(`^${escaped}$`);
+  }
+
+  private static matchesSelectorValue(selector: string, value: string): boolean {
+    if (!selector.includes('*')) {
+      return selector === value;
+    }
+    return ToolIdentity.selectorToRegExp(selector).test(value);
+  }
 }
 
 /**
@@ -86,145 +107,34 @@ export interface ToolExecutionOptions {
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
-function normalizeToolSelector(selector: string): string {
-  return selector.trim();
-}
-
-function selectorToRegExp(selector: string): RegExp {
-  const escaped = selector.replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`).replaceAll('*', '.*');
-  return new RegExp(`^${escaped}$`);
-}
-
-function matchesSelectorValue(selector: string, value: string): boolean {
-  if (!selector.includes('*')) {
-    return selector === value;
-  }
-  return selectorToRegExp(selector).test(value);
-}
-
-/**
- * Match a tool selector against a tool.
- * Supports:
- * - exact canonical names (e.g. fs_tree)
- * - exact short names (e.g. tree)
- * - wildcard selectors (e.g. fs_*, *_list)
- */
-export function matchesToolSelector(
-  selector: string,
-  tool: Pick<ICommand, ToolIdentityField>
-): boolean {
-  const normalized = normalizeToolSelector(selector);
-  if (!normalized) {
-    return false;
-  }
-
-  return matchesSelectorValue(normalized, toolKey(tool));
-}
-
-function pushIfMissing(result: ICommand[], tool: ICommand): void {
-  const key = toolKey(tool);
-  if (!result.some((t) => toolKey(t) === key)) {
-    result.push(tool);
-  }
-}
-
-function evaluatePermissionDescriptor(
-  workspaceRoot: string,
-  agent: Agent,
-  descriptor: PermissionDescriptor,
-  args: unknown,
-  pathPermissionChecker: PathPermissionCheckerLike
-): PermissionResult {
-  switch (descriptor.type) {
-    case 'none':
-      return { allowed: true };
-
-    case 'file-read': {
-      const filePath = resolveArgsPath(args, descriptor.argsPath);
-      if (!filePath) return { allowed: true };
-      pathPermissionChecker.assertCanReadPath(workspaceRoot, agent.id, agent.permissions, filePath);
-      return { allowed: true };
-    }
-
-    case 'file-write': {
-      const filePath = resolveArgsPath(args, descriptor.argsPath);
-      if (!filePath) return { allowed: true };
-      pathPermissionChecker.assertCanWritePath(
-        workspaceRoot,
-        agent.id,
-        agent.permissions,
-        filePath
-      );
-      return { allowed: true };
-    }
-
-    case 'agent-delegation': {
-      const targetId = resolveArgsPath(args, descriptor.argsPath);
-      if (!targetId) return { allowed: true };
-      const canDelegate =
-        agent.delegatesTo?.includes(targetId) ||
-        agent.contextLevel === ContextLevel.ORGANIZATION ||
-        agent.contextLevel === ContextLevel.REPOSITORY;
-      if (!canDelegate) {
-        return {
-          allowed: false,
-          reason: `Agent '${agent.id}' is not allowed to delegate to '${targetId}'.`,
-        };
-      }
-      return { allowed: true };
-    }
-
-    case 'manage-agents': {
-      if (agent.contextLevel !== ContextLevel.ORGANIZATION) {
-        return {
-          allowed: false,
-          reason: `Agent '${agent.id}' does not have organization-level authority.`,
-        };
-      }
-      return { allowed: true };
-    }
-
-    default: {
-      const _exhaustive: never = descriptor;
-      return { allowed: false, reason: `Unknown permission type: ${JSON.stringify(_exhaustive)}` };
-    }
-  }
-}
-
 /**
  * ToolManager is the single source of truth for what tools exist,
  * which tools an agent may use, and how they are executed safely.
  */
 export class ToolManager {
   private readonly tools = new Map<string, ICommand>();
-  private readonly workspaceRoot: string;
-  private readonly pathPermissionChecker: PathPermissionCheckerLike;
-  /** Optional LSP provider injected into tool context. */
-  private _lsp?: LspProvider;
-  /** Optional DI container forwarded into tool context via toolContext.resolve. */
-  private _container?: ToolResolverContainer;
+  private static readonly schemaTools = new ZodSchemaTools();
 
-  constructor(workspaceRoot: string, pathPermissionChecker?: PathPermissionCheckerLike) {
-    this.workspaceRoot = workspaceRoot;
-    this.pathPermissionChecker =
-      pathPermissionChecker ??
-      ({
-        canReadPath: () => true,
-        canWritePath: () => true,
-        canListPath: () => true,
-        assertCanReadPath: () => undefined,
-        assertCanWritePath: () => undefined,
-      } as PathPermissionCheckerLike);
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly pathPermissionChecker: IPathPermissionChecker,
+    private readonly registry: ICommandRegistry,
+    private readonly container: ToolResolverContainer
+  ) {}
+
+  private getRegistryTools(): ICommand[] {
+    return this.registry.getAll({ availableIn: { tool: true } });
   }
 
-  /** Set the LSP provider that tools will receive in their context. */
-  setLspProvider(lsp: LspProvider): void {
-    this._lsp = lsp;
-  }
-
-  /** Set the DI container forwarded to tools via (context as any).resolve. */
-  setContainer(container: ToolResolverContainer): void {
-    this._container = container;
+  private getAllResolvedTools(): ICommand[] {
+    const result: ICommand[] = [];
+    for (const tool of this.getRegistryTools()) {
+      ToolManager.pushIfMissing(result, tool);
+    }
+    for (const tool of this.tools.values()) {
+      ToolManager.pushIfMissing(result, tool);
+    }
+    return result;
   }
 
   // ── Registration ─────────────────────────────────────────────────────────
@@ -235,18 +145,28 @@ export class ToolManager {
    * Tools are stored under their canonical key (`tool.key`).
    */
   register(tool: ICommand): this {
-    this.tools.set(toolKey(tool), tool);
+    this.tools.set(ToolIdentity.key(tool), tool);
     return this;
   }
 
   /** Look up a single tool by name. Returns undefined if not registered. */
   get(name: string): ICommand | undefined {
-    return this.tools.get(name);
+    const local = this.tools.get(name);
+    if (local) {
+      return local;
+    }
+
+    const registryCommand = this.registry.get(name);
+    if (!registryCommand?.availableIn?.tool) {
+      return undefined;
+    }
+
+    return registryCommand;
   }
 
   /** All registered tools, regardless of agent. */
   getAll(): ICommand[] {
-    return [...this.tools.values()];
+    return this.getAllResolvedTools();
   }
 
   /** Alias for getAll() required by IToolManager interface. */
@@ -267,23 +187,23 @@ export class ToolManager {
   getForAgent(agent: Agent): ICommand[] {
     const result: ICommand[] = [];
     const allowedSelectors = (agent.tools ?? [])
-      .map(normalizeToolSelector)
+      .map((selector) => ToolManager.normalizeToolSelector(String(selector)))
       .filter((selector) => selector.length > 0);
     if (allowedSelectors.length === 0) {
       return result;
     }
 
     const deniedSelectors = (agent.disallowedTools ?? [])
-      .map(normalizeToolSelector)
+      .map((selector) => ToolManager.normalizeToolSelector(String(selector)))
       .filter((selector) => selector.length > 0);
 
-    for (const tool of this.tools.values()) {
-      if (deniedSelectors.some((selector) => matchesToolSelector(selector, tool))) {
+    for (const tool of this.getAllResolvedTools()) {
+      if (deniedSelectors.some((selector) => ToolIdentity.matchesSelector(selector, tool))) {
         continue;
       }
 
-      if (allowedSelectors.some((selector) => matchesToolSelector(selector, tool))) {
-        pushIfMissing(result, tool);
+      if (allowedSelectors.some((selector) => ToolIdentity.matchesSelector(selector, tool))) {
+        ToolManager.pushIfMissing(result, tool);
       }
     }
 
@@ -298,13 +218,13 @@ export class ToolManager {
    * No permission logic should live inside tool.execute().
    */
   async canExecute(agent: Agent, toolName: string, args: unknown): Promise<PermissionResult> {
-    const tool = this.tools.get(toolName);
+    const tool = this.get(toolName);
     if (!tool) {
       return { allowed: false, reason: `Unknown tool: ${toolName}` };
     }
 
     // Is the tool in the agent's allowed set?
-    const available = this.getForAgent(agent).map(toolKey);
+    const available = this.getForAgent(agent).map(ToolIdentity.key);
     if (!available.includes(toolName)) {
       return {
         allowed: false,
@@ -315,13 +235,7 @@ export class ToolManager {
     const descriptor: PermissionDescriptor = tool.permissionCheck ?? { type: 'none' };
 
     try {
-      return evaluatePermissionDescriptor(
-        this.workspaceRoot,
-        agent,
-        descriptor,
-        args,
-        this.pathPermissionChecker
-      );
+      return this.evaluatePermissionDescriptor(agent, descriptor, args);
     } catch (error) {
       return {
         allowed: false,
@@ -343,7 +257,7 @@ export class ToolManager {
     context: Omit<ExecutionContext, 'agent'>,
     options?: ToolExecutionOptions
   ): Promise<ToolExecutionResult> {
-    const tool = this.tools.get(toolName);
+    const tool = this.get(toolName);
     if (!tool) {
       return { ok: false, toolName, error: `Unknown tool: ${toolName}` };
     }
@@ -380,29 +294,12 @@ export class ToolManager {
       ...context,
       agent,
       agentId: agent.id,
-      lsp: this._lsp,
-      pathPermissionChecker: this.pathPermissionChecker,
-      resolve:
-        (context as any).resolve ??
-        (this._container ? this._container.resolve.bind(this._container) : undefined),
     } as ExecutionContext;
-    const runtime: ExecutionContext = {
-      invocationSurface: 'tool',
-      workspaceRoot: this.workspaceRoot,
-      agentId: agent.id,
-      history: [],
-    };
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     try {
       const result = await withTimeout(
-        (
-          tool.execute as (
-            params: unknown,
-            context: ExecutionContext,
-            runtime?: ExecutionContext
-          ) => Promise<unknown>
-        )(parsed.data, toolContext, runtime),
+        tool.execute(parsed.data, toolContext),
         timeoutMs,
         `Tool ${toolName} timed out after ${timeoutMs}ms`
       );
@@ -454,7 +351,7 @@ export class ToolManager {
    */
   catalog(agent: Agent): ToolCatalogEntry[] {
     return this.getForAgent(agent).map((tool) => {
-      const key = toolKey(tool);
+      const key = ToolIdentity.key(tool);
       return {
         name: key,
         description: tool.summary ?? tool.description,
@@ -471,13 +368,15 @@ export class ToolManager {
    * LlmService wraps this in the OpenAI { type: 'function', function: {...} } envelope itself.
    */
   toSchema(toolName: string): LlmToolDefinition | undefined {
-    const tool = this.tools.get(toolName);
+    const tool = this.get(toolName);
     if (!tool) return undefined;
 
     return {
       name: toolName,
       description: tool.summary ?? tool.description,
-      parameters: zodSchemaToJsonSchema(tool.parameters),
+      parameters: ToolManager.schemaTools.toJsonSchema(tool.parameters, {
+        additionalProperties: true,
+      }),
     };
   }
 
@@ -487,52 +386,94 @@ export class ToolManager {
    */
   describeAll(agent: Agent): LlmToolDefinition[] {
     return this.getForAgent(agent)
-      .map((t) => this.toSchema(toolKey(t)))
+      .map((t) => this.toSchema(ToolIdentity.key(t)))
       .filter((d): d is LlmToolDefinition => d !== undefined);
   }
-}
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────────────────────────────────────
+  private static normalizeToolSelector(selector: string): string {
+    return selector.trim();
+  }
 
-/** Resolve a dot-path into a parsed args object and return the string value. */
-function resolveArgsPath(args: unknown, dotPath: string): string | undefined {
-  if (typeof args !== 'object' || args === null) return undefined;
-
-  const parts = dotPath.split('.');
-  let current: unknown = args;
-
-  for (const part of parts) {
-    if (typeof current !== 'object' || current === null || !(part in current)) {
-      return undefined;
+  private static pushIfMissing(result: ICommand[], tool: ICommand): void {
+    const key = ToolIdentity.key(tool);
+    if (!result.some((t) => ToolIdentity.key(t) === key)) {
+      result.push(tool);
     }
-    current = (current as Record<string, unknown>)[part];
   }
 
-  return typeof current === 'string' ? current : undefined;
-}
+  private evaluatePermissionDescriptor(
+    agent: Agent,
+    descriptor: PermissionDescriptor,
+    args: unknown
+  ): PermissionResult {
+    switch (descriptor.type) {
+      case 'none':
+        return { allowed: true };
 
-/** Race a promise against a timeout — local copy until all callers migrate to utils/async.ts. */
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const race = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, race]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
+      case 'file-read': {
+        const filePath = this.resolveArgsPath(args, descriptor.argsPath);
+        if (!filePath) return { allowed: true };
+        this.pathPermissionChecker.assertCanReadPath(agent.id, agent.permissions, filePath);
+        return { allowed: true };
+      }
 
-/**
- * Convert a Zod schema to a JSON Schema object for LLM function-calling.
- * Zod v4 has a built-in toJSONSchema() method; falls back to permissive object schema.
- */
-function zodSchemaToJsonSchema(schema: unknown): Record<string, unknown> {
-  if (schema && typeof schema === 'object' && typeof (schema as any).toJSONSchema === 'function') {
-    return (schema as any).toJSONSchema() as Record<string, unknown>;
+      case 'file-write': {
+        const filePath = this.resolveArgsPath(args, descriptor.argsPath);
+        if (!filePath) return { allowed: true };
+        this.pathPermissionChecker.assertCanWritePath(agent.id, agent.permissions, filePath);
+        return { allowed: true };
+      }
+
+      case 'agent-delegation': {
+        const targetId = this.resolveArgsPath(args, descriptor.argsPath);
+        if (!targetId) return { allowed: true };
+        const canDelegate =
+          agent.delegatesTo?.includes(targetId) ||
+          agent.contextLevel === ContextLevel.ORGANIZATION ||
+          agent.contextLevel === ContextLevel.REPOSITORY;
+        if (!canDelegate) {
+          return {
+            allowed: false,
+            reason: `Agent '${agent.id}' is not allowed to delegate to '${targetId}'.`,
+          };
+        }
+        return { allowed: true };
+      }
+
+      case 'manage-agents': {
+        if (agent.contextLevel !== ContextLevel.ORGANIZATION) {
+          return {
+            allowed: false,
+            reason: `Agent '${agent.id}' does not have organization-level authority.`,
+          };
+        }
+        return { allowed: true };
+      }
+
+      default: {
+        const _exhaustive: never = descriptor;
+        return {
+          allowed: false,
+          reason: `Unknown permission type: ${JSON.stringify(_exhaustive)}`,
+        };
+      }
+    }
   }
-  return { type: 'object', properties: {}, additionalProperties: true };
+
+  private resolveArgsPath(args: unknown, dotPath: string): string | undefined {
+    if (typeof args !== 'object' || args === null) return undefined;
+
+    const parts = dotPath.split('.');
+    let current: unknown = args;
+
+    for (const part of parts) {
+      if (typeof current !== 'object' || current === null || !(part in current)) {
+        return undefined;
+      }
+      current = (current as Record<string, unknown>)[part];
+    }
+
+    return typeof current === 'string' ? current : undefined;
+  }
+
 }

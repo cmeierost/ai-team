@@ -6,6 +6,8 @@ import type {
   RuntimeStreamEvent,
 } from '@ai-team/api-contracts';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
+import { getServiceContainer } from './service-registry.js';
+import { COMMAND_FACTORY_TOKENS } from './types.js';
 
 export interface StreamInteractionOptions<TCommand extends string = string> {
   request: InteractionRequest;
@@ -96,8 +98,10 @@ export async function* streamInteraction<TCommand extends string = string>(
     timestamp: timestamp(),
   });
 
-  options
-    .invoke({ ...context, emit: emitRuntimeEvent })
+  const emitService = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.EmitService);
+
+  emitService
+    .runWithEmitter(emitRuntimeEvent, () => options.invoke({ ...context, emit: emitRuntimeEvent }))
     .then((result) => {
       data = result;
     })

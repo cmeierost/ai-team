@@ -13,6 +13,7 @@ export class AccessService implements IAccessService {
   #populatePromise: Promise<void> | null = null;
 
   constructor(
+    private readonly workspaceRoot: string,
     private readonly ctx: ContextRuntime,
     private readonly agentManager: IAgentManager,
     private readonly accessRuntime: IWorkspaceAccessRuntime
@@ -26,16 +27,15 @@ export class AccessService implements IAccessService {
   }
 
   async #populateAsync(): Promise<void> {
-    const workspaceRoot = this.agentManager.workspaceRoot;
     const [agents, entries] = await Promise.all([
       this.agentManager.getAllAgentsAsync(),
-      listCachedWorkspaceFiles(workspaceRoot),
+      listCachedWorkspaceFiles(this.workspaceRoot),
     ]);
     const allFiles = entries.map((e) => e.relativePath);
     for (const agent of agents) {
       const single = await this.accessRuntime.createAgentRuntime(
         agent.id,
-        workspaceRoot,
+        this.workspaceRoot,
         agent.permissions,
         allFiles
       );
@@ -62,9 +62,8 @@ export class AccessService implements IAccessService {
       contextIds = this.ctx.contextsThatCanRead(query.path);
     }
 
-    const workspaceRoot = this.agentManager.workspaceRoot;
-    const absolute = path.resolve(workspaceRoot, query.path);
-    const relative = path.relative(workspaceRoot, absolute);
+    const absolute = path.resolve(this.workspaceRoot, query.path);
+    const relative = path.relative(this.workspaceRoot, absolute);
 
     const contexts = await Promise.all(
       contextIds.map(async (contextId) => {
@@ -105,9 +104,8 @@ export class AccessService implements IAccessService {
       allowed = this.ctx.canRead(contextId, query.path);
     }
 
-    const workspaceRoot = this.agentManager.workspaceRoot;
-    const absolute = path.resolve(workspaceRoot, query.path);
-    const relative = path.relative(workspaceRoot, absolute);
+    const absolute = path.resolve(this.workspaceRoot, query.path);
+    const relative = path.relative(this.workspaceRoot, absolute);
 
     const agent = await this.agentManager.getAgentAsync(contextId);
 
@@ -147,13 +145,13 @@ export class AccessService implements IAccessService {
     maxDepth?: number;
   }): Promise<PermissionOverlapReport> {
     const result = await this.accessRuntime.analyzeWorkspacePermissionOverlapAsync(
-      this.agentManager.workspaceRoot,
+      this.workspaceRoot,
       {
         mode: query?.mode as any,
         agentId: query?.agent,
         maxDepth: query?.maxDepth,
       }
     );
-    return result as unknown as PermissionOverlapReport;
+    return result as PermissionOverlapReport;
   }
 }

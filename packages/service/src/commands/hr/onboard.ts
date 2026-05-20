@@ -52,6 +52,7 @@ import {
   requestConfirm,
   requestSelect,
 } from '../init/workflow-questions.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 import { pickAgentName } from '../init/name-picking.js';
 import { createAgentFile } from '../init/agent-file.js';
 import { saveOnboardingTranscriptAsync } from '../init/onboarding-docs.js';
@@ -107,7 +108,6 @@ function resolveOnboardingPhaseAgent(
 function buildStrictWorkflowPrompt(phase: OnboardingWorkflowPhase): string {
   return [
     phase.strictSystemPrompt.trim(),
-    '',
     '## Workflow goal (strict)',
     phase.goal,
     '',
@@ -129,20 +129,6 @@ export interface OnboardCommandParams {
 
 type OnboardICommandParams = z.infer<typeof OnboardICommand.schema>;
 
-function runtimeToInitHooks(runtime: ExecutionContext): InitRuntimeHooks {
-  return {
-    signal: runtime.signal,
-    emit: runtime.emit as InitRuntimeHooks['emit'],
-    questionInput: runtime.questionInput,
-    questionConfirm: runtime.questionConfirm,
-    questionSelect: runtime.questionSelect,
-    questionPassword: runtime.questionPassword,
-    questionChecklist: runtime.questionChecklist,
-    workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
-    onWorkflowFrame: runtime.onWorkflowFrame,
-  };
-}
-
 export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
   static readonly schema = z.object({
     options: z.any().optional(),
@@ -157,7 +143,8 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
 
   constructor(
     private readonly onboardCommand: Pick<OnboardCommand, 'execute'>,
-    private readonly sessionManager?: SessionManager
+    private readonly sessionManager: SessionManager | undefined,
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(
@@ -169,9 +156,23 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
         options: (payload.options ?? {}) as OnboardOptions,
         injected: this.sessionManager ? { sessionManager: this.sessionManager } : undefined,
       },
-      runtimeToInitHooks(ctx)
+      this.buildHooks(ctx)
     );
     return { status: 'ok' };
+  }
+
+  private buildHooks(runtime: ExecutionContext): InitRuntimeHooks {
+    return {
+      signal: runtime.signal,
+      emit: runtime.emit,
+      questionInput: (request) => this.questionService.input(request, runtime),
+      questionConfirm: (request) => this.questionService.confirm(request, runtime),
+      questionSelect: (request) => this.questionService.select(request, runtime),
+      questionPassword: (request) => this.questionService.password(request, runtime),
+      questionChecklist: (request) => this.questionService.checklist(request, runtime),
+      workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
+      onWorkflowFrame: runtime.onWorkflowFrame,
+    };
   }
 }
 
@@ -181,6 +182,7 @@ export class OnboardCommand {
     private readonly configurationStorage: IConfigurationStorage,
     private readonly environmentStorage: IEnvironmentStorage,
     private readonly permissionStorage: IPermissionStorage,
+    private readonly workspaceRoot: string,
     private readonly agentDocumentStorage: IAgentDocumentStorage,
     private readonly proposalStoreFactory: IProposalStoreFactory,
     private readonly llmService: ILlmService,
@@ -188,6 +190,7 @@ export class OnboardCommand {
     private readonly markdownSectionService: IMarkdownSectionService,
     private readonly pathPermissionChecker: IPathPermissionChecker,
     private readonly contextService: Pick<IContextService, 'getContextEstimate'>,
+    private readonly questionService: IQuestionService,
     private readonly defaultSessionManager?: SessionManager,
     private readonly developerIdentityService?: IDeveloperIdentityService,
     private readonly serviceContainer?: IServiceContainer
@@ -195,7 +198,7 @@ export class OnboardCommand {
 
   async execute(params: OnboardCommandParams = {}, hooks?: InitRuntimeHooks): Promise<void> {
     const { injected } = params;
-    const workspaceRoot = this.agentManager.workspaceRoot;
+    const workspaceRoot = this.workspaceRoot;
 
     const teamConfig = await this.configurationStorage.loadTeamConfigAsync(workspaceRoot);
     if (!teamConfig) {
@@ -225,7 +228,7 @@ export class OnboardCommand {
     this.writeLine(hooks, '');
     this.writeLine(hooks, 'Starting team onboarding...');
 
-    await this.runOnboardingAsync(llm as unknown as ILlmService, hooks, injected);
+    await this.runOnboardingAsync(llm, hooks, injected);
   }
 
   private writeLine(hooks: InitRuntimeHooks | undefined, message: string): void {
@@ -254,7 +257,7 @@ export class OnboardCommand {
     hooks?: InitRuntimeHooks,
     injected?: { sessionManager?: SessionManager }
   ): Promise<void> {
-    const workspaceRoot = this.agentManager.workspaceRoot;
+    const workspaceRoot = this.workspaceRoot;
     const writeFileIfMissing = this.writeFileIfMissingAsync.bind(this);
 
     this.writeLine(hooks, '');
@@ -588,7 +591,7 @@ export class OnboardCommand {
     hooks?: InitRuntimeHooks,
     injected?: { sessionManager?: SessionManager }
   ): Promise<void> {
-    const workspaceRoot = this.agentManager.workspaceRoot;
+    const workspaceRoot = this.workspaceRoot;
     const { InfoChatCommand, ChatCommand, ChatInfoService, ChatPreflightService } =
       await import('../chat/index.js');
     const sessionManager = injected?.sessionManager ?? this.defaultSessionManager;
@@ -634,7 +637,7 @@ export class OnboardCommand {
         this.environmentStorage,
         this.developerIdentityService
       ),
-      new InfoChatCommand(this.agentManager)
+      new InfoChatCommand(this.agentManager, this.questionService)
     );
 
     await cmd.execute(workspaceRoot, agentId, options, {
@@ -654,7 +657,7 @@ export class OnboardCommand {
     developerName: string | undefined,
     phase: OnboardingWorkflowPhase
   ): Promise<void> {
-    const workspaceRoot = this.agentManager.workspaceRoot;
+    const workspaceRoot = this.workspaceRoot;
     await saveOnboardingTranscriptAsync({
       workspaceRoot,
       relativePath: phase.transcript.relativePath,

@@ -1,6 +1,6 @@
 import type { Agent, IAgentManager, ICommand } from '@ai-team/core';
 import type { ToolManager } from '../../tools/tool-manager.js';
-import { matchesToolSelector, toolKey } from '../../tools/tool-manager.js';
+import { ToolIdentity } from '../../tools/tool-manager.js';
 import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-contracts';
 import type { IMcpGateway } from '../../orchestrator/pipeline.js';
 export interface ListToolsOptions {
@@ -24,7 +24,7 @@ function buildCatalogEntry(
   },
   tool: ICommand
 ) {
-  const key = toolKey(tool);
+  const key = ToolIdentity.key(tool);
   const permType = tool.permissionCheck?.type;
   return {
     name: key,
@@ -38,7 +38,7 @@ function buildCatalogEntry(
 }
 
 function sortToolsByName(tools: ICommand[]): ICommand[] {
-  return [...tools].sort((a, b) => toolKey(a).localeCompare(toolKey(b)));
+  return [...tools].sort((a, b) => ToolIdentity.key(a).localeCompare(ToolIdentity.key(b)));
 }
 
 async function resolveFullAgent(
@@ -66,7 +66,7 @@ function resolveToolIdentifier(
   if (normalizedRequestedTool.includes('*')) {
     const hasMatch = toolManager
       .getAll()
-      .some((tool) => matchesToolSelector(normalizedRequestedTool, tool));
+      .some((tool) => ToolIdentity.matchesSelector(normalizedRequestedTool, tool));
     if (!hasMatch) {
       throw new Error(`Unknown tool: ${normalizedRequestedTool}`);
     }
@@ -106,7 +106,7 @@ export async function listToolsCommand(
   const agent = await resolveFullAgent(agentManager, options.agent, 'list tools for agent');
   const staticEntries = await Promise.all(
     staticTools.map(async (tool) => {
-      const permission = await toolManager.canExecute(agent, toolKey(tool), {});
+      const permission = await toolManager.canExecute(agent, ToolIdentity.key(tool), {});
       return {
         ...buildCatalogEntry(toolManager, tool),
         allowedForAgent: permission.allowed,

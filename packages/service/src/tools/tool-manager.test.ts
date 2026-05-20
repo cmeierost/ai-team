@@ -1,7 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ContextLevel, type Agent, type AgentTool } from '@ai-team/core';
-import { ToolManager, toolKey } from './tool-manager.js';
+import { ToolIdentity, ToolManager } from './tool-manager.js';
+
+const permissivePathChecker = {
+  canReadPath: () => true,
+  canWritePath: () => true,
+  canListPath: () => true,
+  assertCanReadPath: () => undefined,
+  assertCanWritePath: () => undefined,
+};
+
+function createEmptyRegistry() {
+  return {
+    register: () => undefined,
+    get: () => undefined,
+    getAll: () => [],
+    toLlmToolDefinitions: () => [],
+  } as any;
+}
+
+const noopContainer = {
+  resolve: () => undefined,
+};
 
 function makeTool(name: string, group?: string): AgentTool {
   return {
@@ -36,7 +57,7 @@ function makeAgent(overrides?: Partial<Agent>): Agent {
 
 describe('ToolManager wildcard selectors and default-deny policy', () => {
   it('denies everything by default when no tools are configured', async () => {
-    const manager = new ToolManager('/workspace');
+    const manager = new ToolManager('/workspace', permissivePathChecker, createEmptyRegistry(), noopContainer);
     manager.register(makeTool('tree', 'fs'));
 
     const agent = makeAgent({ tools: [] });
@@ -48,7 +69,7 @@ describe('ToolManager wildcard selectors and default-deny policy', () => {
   });
 
   it('supports wildcard allow selectors like fs_*', () => {
-    const manager = new ToolManager('/workspace');
+    const manager = new ToolManager('/workspace', permissivePathChecker, createEmptyRegistry(), noopContainer);
     manager.register(makeTool('tree', 'fs'));
     manager.register(makeTool('read', 'fs'));
     manager.register(makeTool('hire', 'hr'));
@@ -56,25 +77,25 @@ describe('ToolManager wildcard selectors and default-deny policy', () => {
     const agent = makeAgent({ tools: ['fs_*'] });
     const available = manager
       .getForAgent(agent)
-      .map(toolKey)
+      .map(ToolIdentity.key)
       .sort((a, b) => a.localeCompare(b));
 
     expect(available).toEqual(['fs_read', 'fs_tree']);
   });
 
   it('requires canonical selectors instead of short-name selectors', () => {
-    const manager = new ToolManager('/workspace');
+    const manager = new ToolManager('/workspace', permissivePathChecker, createEmptyRegistry(), noopContainer);
     manager.register(makeTool('tree', 'fs'));
     manager.register(makeTool('read', 'fs'));
 
     const agent = makeAgent({ tools: ['tree'] });
-    const available = manager.getForAgent(agent).map(toolKey);
+    const available = manager.getForAgent(agent).map(ToolIdentity.key);
 
     expect(available).toEqual([]);
   });
 
   it('applies disallowed selectors before allowed selectors', () => {
-    const manager = new ToolManager('/workspace');
+    const manager = new ToolManager('/workspace', permissivePathChecker, createEmptyRegistry(), noopContainer);
     manager.register(makeTool('tree', 'fs'));
     manager.register(makeTool('read', 'fs'));
     manager.register(makeTool('hire', 'hr'));
@@ -84,7 +105,7 @@ describe('ToolManager wildcard selectors and default-deny policy', () => {
       disallowedTools: ['fs_tree', 'hr_*'],
     });
 
-    const available = manager.getForAgent(agent).map(toolKey);
+    const available = manager.getForAgent(agent).map(ToolIdentity.key);
     expect(available).toEqual(['fs_read']);
   });
 });

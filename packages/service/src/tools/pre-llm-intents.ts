@@ -1,4 +1,6 @@
 import type { ICommand, ExecutionContext } from '@ai-team/core';
+import { getServiceContainer } from '../service-registry.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
 const AUTO_SELECT_SCORE = 100;
 const CONFIRM_THRESHOLD_SCORE = 80;
@@ -103,17 +105,12 @@ async function collectToolCandidates(
   message: string,
   ctx: ExecutionContext
 ): Promise<ScoredPreLlmIntentCandidate[]> {
-  if (!ctx.agent!!) {
+  if (!ctx.agent) {
     return [];
   }
 
-  const toolManager = (ctx as any).toolManager as {
-    getForAgent?: (agent: ExecutionContext['agent']) => ICommand[];
-  };
-  if (typeof toolManager?.getForAgent !== 'function') {
-    return [];
-  }
-  const tools = toolManager.getForAgent.call(toolManager, ctx.agent!!);
+  const toolManager = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.ToolManager);
+  const tools = toolManager.getForAgent(ctx.agent);
   const candidates: ScoredPreLlmIntentCandidate[] = [];
 
   for (const tool of tools) {
@@ -122,7 +119,12 @@ async function collectToolCandidates(
 
     try {
       const scored = await scoreable.scorePreLlmIntent(message, ctx);
-      const next = Array.isArray(scored) ? scored : scored ? [scored] : [];
+      let next: Array<ScoredPreLlmIntentCandidate> = [];
+      if (Array.isArray(scored)) {
+        next = scored;
+      } else if (scored) {
+        next = [scored];
+      }
       for (const candidate of next) {
         candidates.push({
           ...candidate,
@@ -168,14 +170,16 @@ function buildHighScoreSelectionIntent(candidates: ScoredPreLlmIntentCandidate[]
   const options = sorted.map((candidate, index) => ({
     name: `shall i call ${formatToolCallPreview(candidate)}?`,
     value: String(index),
-    description: `score ${candidate.score}${candidate.reason ? ` — ${candidate.reason}` : ''}`,
+    description: candidate.reason
+      ? `score ${candidate.score} — ${candidate.reason}`
+      : `score ${candidate.score}`,
     recommended: index === 0,
   }));
 
   return {
     kind: 'clarify_then_tool',
-    toolName: sorted[0]!.toolName,
-    score: sorted[0]!.score,
+    toolName: sorted[0].toolName,
+    score: sorted[0].score,
     reason: `Multiple pre-LLM tools scored >= ${CONFIRM_THRESHOLD_SCORE}.`,
     ask: {
       kind: 'select',
@@ -236,7 +240,8 @@ export async function resolvePreLlmIntent(
   );
   if (candidates.length === 0) return undefined;
 
-  const top = candidates[0]!;
+  const top = candidates[0];
+  if (!top) return undefined;
 
   if (top.score === AUTO_SELECT_SCORE && hasInferableArgs(top.args)) {
     return {
@@ -256,7 +261,7 @@ export async function resolvePreLlmIntent(
   }
 
   if (highScoreCandidates.length === 1) {
-    return buildConfirmIntent(highScoreCandidates[0]!);
+    return buildConfirmIntent(highScoreCandidates[0]);
   }
 
   if (top.clarification) {

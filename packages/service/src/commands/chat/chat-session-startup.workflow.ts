@@ -1,10 +1,11 @@
-import type { ChatMessage } from '@ai-team/core';
-import type { ChatOptions, InteractionContext } from '@ai-team/api-contracts';
+import type { ChatMessage, ExecutionContext } from '@ai-team/core';
+import type { ChatOptions } from '@ai-team/api-contracts';
 import { runWorkflowAsync } from '../../workflow/runner.js';
 import type { WorkflowDefinition } from '../../workflow/types.js';
 import type { ResolveChatSessionCommand } from './resolve-chat-session.command.js';
 import type { LoadSessionMessagesCommand } from './load-session-messages.command.js';
 import type { EmitSink } from '../../orchestrator/chat-emitter.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 interface ChatSessionStartupState {
   currentAgentId: string;
@@ -80,7 +81,8 @@ export interface ChatSessionStartupResult {
 export async function runChatSessionStartupWorkflow(
   input: ChatSessionStartupInput,
   deps: ChatSessionStartupDeps,
-  context: InteractionContext
+  context: ExecutionContext,
+  questionService: IQuestionService
 ): Promise<ChatSessionStartupResult> {
   const initialState: ChatSessionStartupState = {
     ...input,
@@ -88,7 +90,12 @@ export async function runChatSessionStartupWorkflow(
     history: [],
   };
 
-  const result = await runWorkflowAsync(chatSessionStartupWorkflow, initialState, context);
+  const result = await runWorkflowAsync(
+    chatSessionStartupWorkflow,
+    initialState,
+    context,
+    questionService
+  );
   if (result.aborted) {
     throw new Error('Chat session startup workflow was aborted.');
   }

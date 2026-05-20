@@ -1,13 +1,7 @@
 import { z } from 'zod';
-import type {
-  ICommand,
-  IAgentManager,
-  IPermissionStorage,
-  IConfigurationStorage,
-  ExecutionContext,
-  CommandResponse,
-} from '@ai-team/core';
-import { permissionAllowCommand, allowPathCommand, type PathMode } from './file-tree.js';
+import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import { FileTreeService, type PathMode } from './file-tree.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 import {
   resolveRequestedByFromRuntime,
   confirmGovernanceActionFromRuntime,
@@ -33,9 +27,8 @@ export class FilesAllowCommand implements ICommand<Params, Result> {
   readonly parameters = FilesAllowCommand.schema;
 
   constructor(
-    private readonly agents: IAgentManager,
-    private readonly permStorage: IPermissionStorage,
-    private readonly configStorage: IConfigurationStorage
+    private readonly fileTreeService: FileTreeService,
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<Result>> {
@@ -46,27 +39,30 @@ export class FilesAllowCommand implements ICommand<Params, Result> {
 
     if (payload.agent) {
       const requestedBy = await resolveRequestedByFromRuntime(
-        payload.requestedBy,
+        this.questionService,
         ctx,
+        payload.requestedBy,
         'requestedBy is required for agent governance'
       );
-      const result = await permissionAllowCommand(
-        ctx.workspaceRoot,
-        this.agents,
-        this.permStorage,
+      const result = await this.fileTreeService.permissionAllow(
         payload.agent,
         payload.path,
         {
           requestedBy,
           confirmUserApproval: (msg: string) =>
-            confirmGovernanceActionFromRuntime(payload.approvedByUser, ctx, msg),
+            confirmGovernanceActionFromRuntime(
+              this.questionService,
+              ctx,
+              payload.approvedByUser,
+              msg
+            ),
         },
         mode
       );
       return { status: 'ok', data: { paths: result.paths } };
     }
 
-    const paths = await allowPathCommand(ctx.workspaceRoot, this.configStorage, payload.path, mode);
+    const paths = await this.fileTreeService.allowPath(payload.path, mode);
     return { status: 'ok', data: { paths } };
   }
 }

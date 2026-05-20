@@ -11,24 +11,49 @@ vi.mock('../workflow/send-turn-machine.js', () => ({
   })),
 }));
 
-vi.mock('./handoff.js', () => ({
-  executeHandoff: vi.fn(async () => true),
-  tryNlForward: vi.fn(async () => null),
-}));
-
 import { XStateChatOrchestrator } from './xstate-chat-orchestrator.js';
 import { runChatLoopWorkflowAsync } from '../workflow/xstate-chat-loop-engine.js';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
-import { tryNlForward } from './handoff.js';
 import type { ResolvedPlugins } from './pipeline.js';
+import { ToolSerializationService } from './services/tool-serialization-service.js';
 
-function makeContext(): ExecutionContext {
+const serialization = new ToolSerializationService();
+
+function buildHandoffOrchestrator() {
+  return {
+    tryNlForward: vi.fn(async () => null),
+    executeHandoff: vi.fn(async () => true),
+  } as any;
+}
+
+function buildOrchestrator(ctx: any, plugins: ResolvedPlugins, handoffOrchestrator: any) {
+  const toolDispatcher = {
+    dispatch: vi.fn(async () => ({
+      toolCallId: 'mock',
+      toolName: 'tool_list',
+      result: { ok: true },
+      isError: false,
+    })),
+  } as any;
+  return new XStateChatOrchestrator(
+    ctx,
+    plugins,
+    toolDispatcher,
+    handoffOrchestrator,
+    ctx.hooks,
+    ctx.agentManager,
+    ctx.sessionManager,
+    ctx.llmService,
+    serialization
+  );
+}
+
+function makeContext() {
   return {
     agent: { id: 'emily-davis', name: 'Emily Davis', role: 'frontend-developer' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
     hooks: { emit: vi.fn() } as any,
-    toolManager: {} as any,
     sessionManager: {} as any,
     agentManager: {
       getAgentAsync: vi.fn(async () => null),
@@ -58,7 +83,7 @@ function makePlugins(): ResolvedPlugins {
 describe('XStateChatOrchestrator parity guards', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(tryNlForward).mockResolvedValue(null);
+    // handled via per-test handoff stub
   });
 
   it('passes maxHops through to chat-loop workflow engine', async () => {
@@ -68,7 +93,8 @@ describe('XStateChatOrchestrator parity guards', () => {
       hopCount: 0,
     } as any);
 
-    const orchestrator = new XStateChatOrchestrator(makeContext(), makePlugins());
+    const handoffOrchestrator = buildHandoffOrchestrator();
+    const orchestrator = buildOrchestrator(makeContext(), makePlugins(), handoffOrchestrator);
 
     const result = await orchestrator.run({ message: 'hello', maxHops: 7 });
 
@@ -96,7 +122,8 @@ describe('XStateChatOrchestrator parity guards', () => {
       } as any;
     });
 
-    const orchestrator = new XStateChatOrchestrator(makeContext(), makePlugins());
+    const handoffOrchestrator = buildHandoffOrchestrator();
+    const orchestrator = buildOrchestrator(makeContext(), makePlugins(), handoffOrchestrator);
 
     const result = await orchestrator.run({ message: 'start' });
 
@@ -128,7 +155,6 @@ describe('XStateChatOrchestrator parity guards', () => {
   });
 
   it('returns empty text for preturn forwarded flows (consumed by handoff path)', async () => {
-    vi.mocked(tryNlForward).mockResolvedValue('forwarded');
     vi.mocked(runChatLoopWorkflowAsync).mockImplementation(async (_input: any, services: any) => {
       const preturn = await services.runPreturnInterceptorsAsync({
         message: 'forward me to michael',
@@ -148,7 +174,9 @@ describe('XStateChatOrchestrator parity guards', () => {
       } as any;
     });
 
-    const orchestrator = new XStateChatOrchestrator(makeContext(), makePlugins());
+    const handoffOrchestrator = buildHandoffOrchestrator();
+    handoffOrchestrator.tryNlForward.mockResolvedValue('forwarded');
+    const orchestrator = buildOrchestrator(makeContext(), makePlugins(), handoffOrchestrator);
 
     const result = await orchestrator.run({ message: 'forward me to michael' });
 
@@ -164,7 +192,8 @@ describe('XStateChatOrchestrator parity guards', () => {
       error: 'engine exploded',
     } as any);
 
-    const orchestrator = new XStateChatOrchestrator(makeContext(), makePlugins());
+    const handoffOrchestrator = buildHandoffOrchestrator();
+    const orchestrator = buildOrchestrator(makeContext(), makePlugins(), handoffOrchestrator);
 
     await expect(orchestrator.run({ message: 'hello' })).rejects.toThrow('engine exploded');
   });

@@ -2,12 +2,110 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ContextLevel, type Agent, type PermissionConfig } from '@ai-team/core';
+import { ContextLevel, type Agent, type PermissionConfig, type ICommand } from '@ai-team/core';
 import { WorkspaceFs, canRead, canWrite } from 'fs-context';
-import { COMMAND_FACTORY_TOKENS } from '../definitions/types.js';
+import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 import { ToolManager } from '../../tools/tool-manager.js';
-import { ALL_TOOLS } from '../../tools/catalog/index.js';
-import { stripLineNumberPrefixes } from './edit-tools.js';
+import {
+  FsReadFileTool,
+  FsReadLinesTool,
+  FsWriteFileTool,
+  FsCreateFileTool,
+  FsDeletePathTool,
+  FsMkdirTool,
+  FsExistsTool,
+  FsInfoTool,
+  FsListTool,
+  FsTreeTool,
+  FsSearchContentTool,
+  FsSearchMetadataTool,
+} from './fs-tools.js';
+import { FindSymbolTool, FindReferencesTool, LspTool, GrepCodeTool } from '../edit/code-tools.js';
+import { HttpFetchTool, HttpCrawlTool } from '../http/http-tools.js';
+import { CodeSearchTool } from '../edit/codesearch-tool.js';
+import {
+  ApplyPatchTool,
+  MultiEditTool,
+  FsEditTool,
+  stripLineNumberPrefixes,
+} from './edit-tools.js';
+import {
+  WhoHasAccessTool,
+  DoIHaveAccessTool,
+  AnalyzePermissionOverlapTool,
+} from './access-introspection-tools.js';
+
+function getBuiltInTools(workspaceRoot: string): ICommand[] {
+  const accessChecker = {
+    can: () => true,
+    canReadPath: () => true,
+    canWritePath: () => true,
+    canListPath: () => true,
+    assertCanReadPath: () => undefined,
+    assertCanWritePath: () => undefined,
+  };
+  const accessAgentManager = {
+    async getAllAgentsAsync() {
+      return [] as Agent[];
+    },
+    async getAgentAsync() {
+      return undefined;
+    },
+    async analyzeWorkspacePermissionOverlap() {
+      return { overlaps: [] };
+    },
+  } as any;
+  const whoHasAccessTool = new WhoHasAccessTool(workspaceRoot, accessAgentManager, accessChecker);
+  const doIHaveAccessTool = new DoIHaveAccessTool(workspaceRoot, accessAgentManager, accessChecker);
+  const analyzePermissionOverlapTool = new AnalyzePermissionOverlapTool(accessAgentManager);
+  const workspaceFsFactory = {
+    create: (agentId: string, permissions: PermissionConfig | undefined) =>
+      createTestWorkspaceFs(workspaceRoot, agentId, permissions),
+  };
+  const ideAdapterFactory = {
+    createAsync: async () => ({
+      lsp: {
+        execute: async () => ({ kind: 'locations', locations: [] }),
+        isAvailable: () => false,
+      },
+      openFile: async () => {},
+      notifyCodeEditProposal: async () => {},
+      isConnected: () => false,
+      onAck: () => {},
+      dispose: () => {},
+    }),
+  } as any;
+  const readFileTool = new FsReadFileTool(workspaceRoot, workspaceFsFactory as any);
+  const readLinesTool = new FsReadLinesTool(readFileTool);
+  const fsEditTool = new FsEditTool(workspaceRoot, accessChecker as any, ideAdapterFactory);
+  return [
+    readFileTool,
+    readLinesTool,
+    new FsWriteFileTool(workspaceFsFactory as any),
+    new FsCreateFileTool(workspaceFsFactory as any),
+    new FsDeletePathTool(workspaceFsFactory as any),
+    new FsMkdirTool(workspaceFsFactory as any),
+    new FsExistsTool(workspaceFsFactory as any),
+    new FsInfoTool(workspaceFsFactory as any),
+    new FsListTool(workspaceFsFactory as any),
+    new FsTreeTool(workspaceFsFactory as any),
+    new FsSearchContentTool(workspaceRoot, workspaceFsFactory as any),
+    new FsSearchMetadataTool(workspaceRoot, workspaceFsFactory as any),
+    whoHasAccessTool,
+    doIHaveAccessTool,
+    analyzePermissionOverlapTool,
+    new FindSymbolTool(workspaceRoot, ideAdapterFactory),
+    new FindReferencesTool(workspaceRoot, ideAdapterFactory),
+    new LspTool(workspaceRoot, ideAdapterFactory),
+    new GrepCodeTool(),
+    new HttpFetchTool(),
+    new HttpCrawlTool(),
+    new CodeSearchTool(),
+    fsEditTool,
+    new ApplyPatchTool(workspaceRoot, accessChecker as any, ideAdapterFactory),
+    new MultiEditTool(workspaceRoot, fsEditTool, accessChecker as any, ideAdapterFactory),
+  ];
+}
 
 function normalizeRelativePath(filePath: string): string {
   return filePath.replaceAll('\\', '/').replace(/^\.\//, '').replace(/^\//, '').toLowerCase();
@@ -277,29 +375,45 @@ async function createWorkspace(): Promise<string> {
 }
 
 async function setupManager(workspaceRoot: string, agents: Agent[]) {
-  const manager = new ToolManager(workspaceRoot);
-  for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
-  manager.setContainer({
+  const registry = {
+    register: () => undefined,
+    get: () => undefined,
+    getAll: () => [],
+    toLlmToolDefinitions: () => [],
+  } as any;
+  const container = {
     resolve: (token: { id?: string }) => {
       if (token?.id !== COMMAND_FACTORY_TOKENS.WorkspaceFsFactory.id) {
         throw new Error(`Unexpected token requested in edit-tools.test: ${String(token?.id)}`);
       }
 
       return {
-        create: async (
-          root: string,
-          agentId: string,
-          permissions: PermissionConfig | undefined
-        ) => createTestWorkspaceFs(root, agentId, permissions),
+        create: async (agentId: string, permissions: PermissionConfig | undefined) =>
+          createTestWorkspaceFs(workspaceRoot, agentId, permissions),
       };
     },
-  } as any);
+  } as any;
+
+  const manager = new ToolManager(
+    workspaceRoot,
+    {
+      can: () => true,
+      canReadPath: () => true,
+      canWritePath: () => true,
+      canListPath: () => true,
+      assertCanReadPath: () => undefined,
+      assertCanWritePath: () => undefined,
+    },
+    registry,
+    container
+  );
+  for (const tool of getBuiltInTools(workspaceRoot)) manager.register(tool);
   return { manager };
 }
 
 /** Build the minimal context object ToolManager.execute expects. */
 function ctx(ws: string, agent: Agent) {
-  return { agentId: agent.id, workspaceRoot: ws };
+  return { agentId: agent.id, workspaceRoot: ws, history: [] };
 }
 
 afterEach(async () => {

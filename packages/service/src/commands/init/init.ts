@@ -240,8 +240,44 @@ export async function initCommand(
   options: InitOptions = {},
   hooks?: InitRuntimeHooks
 ): Promise<void> {
-  const aiTeamDir = path.join(workspaceRoot, '.ai-team');
+  const state = await getInitState(workspaceRoot);
+  const shouldContinue = await handleExistingState(workspaceRoot, options, hooks, state);
+  if (!shouldContinue) {
+    return;
+  }
 
+  const existingResolved = await resolveExistingLlmConfig(workspaceRoot);
+  const llmReady = await tryReuseExistingLlm(options, existingResolved, workspaceRoot, hooks);
+
+  if (!llmReady) {
+    await ensureAiTeamDirectory(workspaceRoot);
+    await requestSelect(hooks, {
+      message: 'Choose your LLM provider:',
+      choices: [
+        { name: 'GitHub Copilot', value: 'github-copilot' },
+        { name: 'OpenAI-compatible', value: 'openai-compatible' },
+      ],
+    });
+  }
+
+  writeLine(hooks, '');
+  writeLine(hooks, 'Verifying LLM connection...');
+  await testLlmConnection(workspaceRoot);
+
+  writeLine(hooks, '');
+  writeLine(hooks, 'Welcome to AI Team!');
+  writeLine(hooks, "Let's set up your virtual development team.");
+
+  await updateWorkspaceSettings(workspaceRoot);
+  await runCompatibilityOnboarding(workspaceRoot, hooks);
+}
+
+async function getInitState(workspaceRoot: string): Promise<{
+  aiTeamDir: string;
+  hasAgentFiles: boolean;
+  hasNonAgentArtifacts: boolean;
+}> {
+  const aiTeamDir = path.join(workspaceRoot, '.ai-team');
   let hasAgentFiles = false;
   let hasNonAgentArtifacts = false;
   try {
@@ -267,93 +303,89 @@ export async function initCommand(
     // missing .ai-team is fine
   }
 
+  return { aiTeamDir, hasAgentFiles, hasNonAgentArtifacts };
+}
+
+async function handleExistingState(
+  workspaceRoot: string,
+  options: InitOptions,
+  hooks: InitRuntimeHooks | undefined,
+  state: { aiTeamDir: string; hasAgentFiles: boolean; hasNonAgentArtifacts: boolean }
+): Promise<boolean> {
   if (options.force) {
-    if (hasAgentFiles || hasNonAgentArtifacts) {
+    if (state.hasAgentFiles || state.hasNonAgentArtifacts) {
       writeWarn(
         hooks,
-        hasAgentFiles
+        state.hasAgentFiles
           ? '  Force flag detected - reinitializing...'
           : '  Force flag detected - clearing existing AI Team scaffold...'
       );
       await clearAiTeamDirectory(workspaceRoot, hooks);
     }
-  } else {
-    if (hasAgentFiles) {
-      writeWarn(hooks, 'AI Team is already initialized in this workspace');
-      writeLine(hooks, `  Location: ${aiTeamDir}`);
-      writeLine(hooks, '  Use --force to fully reinitialize team onboarding.');
-      writeLine(hooks, '  Skipping initialization.');
-      return;
-    }
-
-    if (hasNonAgentArtifacts) {
-      writeWarn(
-        hooks,
-        `Found existing .ai-team scaffold without agents at ${aiTeamDir}; continuing initialization.`
-      );
-    }
+    return true;
   }
 
-  let llmReady = false;
-  const existingConfig = await loadTeamConfig(workspaceRoot);
-  let existingResolved:
-    | ReturnType<typeof resolveEffectiveLlmSettings>
-    | undefined;
-
-  try {
-    if (existingConfig) {
-      existingResolved = resolveEffectiveLlmSettings(existingConfig as any);
-    }
-  } catch {
-    existingResolved = undefined;
+  if (state.hasAgentFiles) {
+    writeWarn(hooks, 'AI Team is already initialized in this workspace');
+    writeLine(hooks, `  Location: ${state.aiTeamDir}`);
+    writeLine(hooks, '  Use --force to fully reinitialize team onboarding.');
+    writeLine(hooks, '  Skipping initialization.');
+    return false;
   }
 
-  if (options.force && existingResolved) {
-    writeLine(
+  if (state.hasNonAgentArtifacts) {
+    writeWarn(
       hooks,
-      `  Current LLM: ${describeResolvedProvider(existingResolved)}${existingResolved.providerRef ? ` [${existingResolved.providerRef}]` : ''}`
+      `Found existing .ai-team scaffold without agents at ${state.aiTeamDir}; continuing initialization.`
     );
-
-    const reuse = await requestConfirm(hooks, {
-      message: 'Reuse existing default LLM connection?',
-      default: true,
-    });
-
-    if (reuse) {
-      const envVars = await loadEnvFile(workspaceRoot);
-      const keyEnvVar = existingResolved.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-      const apiKey =
-        envVars[keyEnvVar] ||
-        envVars['AI_TEAM_LLM_API_KEY'] ||
-        envVars['LLM_API_KEY'] ||
-        envVars['OPENAI_API_KEY'];
-
-      if (apiKey) {
-        writeLine(hooks, `Reusing existing ${describeResolvedProvider(existingResolved)} connection.`);
-        llmReady = true;
-      }
-    }
   }
 
-  if (!llmReady) {
-    await ensureAiTeamDirectory(workspaceRoot);
-    await requestSelect(hooks, {
-      message: 'Choose your LLM provider:',
-      choices: [
-        { name: 'GitHub Copilot', value: 'github-copilot' },
-        { name: 'OpenAI-compatible', value: 'openai-compatible' },
-      ],
-    });
+  return true;
+}
+
+async function resolveExistingLlmConfig(
+  workspaceRoot: string
+): Promise<ReturnType<typeof resolveEffectiveLlmSettings> | undefined> {
+  const existingConfig = await loadTeamConfig(workspaceRoot);
+  if (!existingConfig) return undefined;
+  try {
+    return resolveEffectiveLlmSettings(existingConfig as any);
+  } catch {
+    return undefined;
   }
+}
 
-  writeLine(hooks, '');
-  writeLine(hooks, 'Verifying LLM connection...');
-  await testLlmConnection(workspaceRoot);
+async function tryReuseExistingLlm(
+  options: InitOptions,
+  existingResolved: ReturnType<typeof resolveEffectiveLlmSettings> | undefined,
+  workspaceRoot: string,
+  hooks: InitRuntimeHooks | undefined
+): Promise<boolean> {
+  if (!options.force || !existingResolved) return false;
 
-  writeLine(hooks, '');
-  writeLine(hooks, 'Welcome to AI Team!');
-  writeLine(hooks, "Let's set up your virtual development team.");
+  const providerRefLabel = existingResolved.providerRef ? ` [${existingResolved.providerRef}]` : '';
+  writeLine(
+    hooks,
+    `  Current LLM: ${describeResolvedProvider(existingResolved)}${providerRefLabel}`
+  );
 
-  await updateWorkspaceSettings(workspaceRoot);
-  await runCompatibilityOnboarding(workspaceRoot, hooks);
+  const reuse = await requestConfirm(hooks, {
+    message: 'Reuse existing default LLM connection?',
+    default: true,
+  });
+
+  if (!reuse) return false;
+
+  const envVars = await loadEnvFile(workspaceRoot);
+  const keyEnvVar = existingResolved.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
+  const apiKey =
+    envVars[keyEnvVar] ||
+    envVars['AI_TEAM_LLM_API_KEY'] ||
+    envVars['LLM_API_KEY'] ||
+    envVars['OPENAI_API_KEY'];
+
+  if (!apiKey) return false;
+
+  writeLine(hooks, `Reusing existing ${describeResolvedProvider(existingResolved)} connection.`);
+  return true;
 }

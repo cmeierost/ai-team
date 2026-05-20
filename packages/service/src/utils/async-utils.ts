@@ -1,28 +1,12 @@
 /**
- * Async utilities: timeout wrapping, abort-signal wrapping, and abort detection.
+ * Async utilities: abort-signal wrapping and abort detection.
  *
  * Lives in the orchestrator layer so the orchestrator (and any future pipeline
  * stage) can wrap LLM calls, tool calls, streaming, etc. with consistent
- * abort and timeout behaviour without depending on the CLI adapter.
+ * abort behaviour without depending on the CLI adapter.
  *
  * These are pure utilities with no I/O dependencies.
  */
-
-export async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  timeoutMessage: string
-): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 export async function withAbortSignal<T>(
   promise: Promise<T>,

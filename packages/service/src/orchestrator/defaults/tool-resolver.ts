@@ -9,12 +9,14 @@
 
 import type { ICommand, ExecutionContext } from '@ai-team/core';
 import type { IToolResolver } from '../pipeline.js';
-import { toolKey, type ToolManager } from '../../tools/tool-manager.js';
+import { ToolIdentity, type ToolManager } from '../../tools/tool-manager.js';
 
 export class DefaultToolResolver implements IToolResolver {
   constructor(private readonly toolManager: ToolManager) {}
 
   async resolve(ctx: ExecutionContext): Promise<ICommand[]> {
-    return this.toolManager.getForAgent(ctx.agent!).filter((tool) => toolKey(tool) !== 'hr_hire');
+    return this.toolManager
+      .getForAgent(ctx.agent!)
+      .filter((tool) => ToolIdentity.key(tool) !== 'hr_hire');
   }
 }

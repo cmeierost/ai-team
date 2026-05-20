@@ -1,6 +1,11 @@
 import { z } from 'zod';
-import type { AgentManagementToolDependencies } from '../agents/agent-tools.js';
-import { CommandResponse, ExecutionContext, type ICommand } from '@ai-team/core';
+import {
+  CommandResponse,
+  ExecutionContext,
+  type ICommand,
+  type IAgentManager,
+  type IAgentDocumentStorage,
+} from '@ai-team/core';
 
 function normalizeExecutableName(command: string): string | undefined {
   const trimmed = command.trim();
@@ -23,9 +28,11 @@ export interface RegisterCliResult {
 
 export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliResult> {
   constructor(
-    private readonly configurationStorage: AgentManagementToolDependencies['configurationStorage'],
-    private readonly agentManager: AgentManagementToolDependencies['agentManager'],
-    private readonly agentDocumentStorage: AgentManagementToolDependencies['agentDocumentStorage']
+    private readonly configurationStorage: {
+      loadTeamConfigAsync(workspaceRoot: string): Promise<any>;
+    },
+    private readonly agentManager: IAgentManager,
+    private readonly agentDocumentStorage: IAgentDocumentStorage
   ) {}
 
   readonly name = 'register_cli';
@@ -41,6 +48,33 @@ export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliR
       .optional()
       .describe('Optional target employee name/id/role (defaults to current agent)'),
   });
+
+  private async resolveTargetAgent(
+    employee: string | undefined,
+    currentAgent: NonNullable<ExecutionContext['agent']>
+  ) {
+    if (!employee || employee.trim().length === 0) {
+      return currentAgent;
+    }
+
+    const matches = await this.agentManager.resolveAgentAsync(employee.trim());
+    if (matches.length === 0) {
+      throw new Error(`No employee found matching '${employee}'.`);
+    }
+    if (matches.length > 1) {
+      throw new Error(`Multiple employees match '${employee}'. Please be more specific.`);
+    }
+
+    const candidate = matches[0];
+    const canManage = currentAgent.contextLevel === 'organization';
+    const isManager = candidate.reportsTo === currentAgent.id;
+    const isSelf = candidate.id === currentAgent.id;
+    if (!canManage && !isManager && !isSelf) {
+      throw new Error(`Agent ${currentAgent.id} cannot grant CLI tools for ${candidate.id}.`);
+    }
+
+    return candidate;
+  }
 
   async execute(
     params: RegisterCliParams,
@@ -65,22 +99,12 @@ export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliR
       }
     }
 
-    let targetAgent = context.agent;
-    if (employee && employee.trim().length > 0) {
-      const matches = await this.agentManager.resolveAgentAsync(employee.trim());
-      if (matches.length === 0) throw new Error(`No employee found matching '${employee}'.`);
-      if (matches.length > 1)
-        throw new Error(`Multiple employees match '${employee}'. Please be more specific.`);
-
-      const candidate = matches[0]!;
-      const canManage = context.agent.contextLevel === 'organization';
-      const isManager = candidate.reportsTo === context.agent.id;
-      const isSelf = candidate.id === context.agent.id;
-      if (!canManage && !isManager && !isSelf) {
-        throw new Error(`Agent ${context.agent.id} cannot grant CLI tools for ${candidate.id}.`);
-      }
-      targetAgent = candidate;
+    const currentAgent = context.agent;
+    if (!currentAgent) {
+      throw new Error('register_cli requires an agent context.');
     }
+
+    const targetAgent = await this.resolveTargetAgent(employee, currentAgent);
 
     const agentRecord = await this.agentDocumentStorage.loadAgentAsync(targetAgent.filePath);
     const current = new Set(
@@ -92,8 +116,8 @@ export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliR
     agentRecord.cliTools = [...current].sort((a, b) => a.localeCompare(b));
     await this.agentDocumentStorage.saveAgentAsync(agentRecord);
 
-    if (targetAgent.id === context.agent.id) {
-      context.agent.cliTools = agentRecord.cliTools;
+    if (targetAgent.id === currentAgent.id) {
+      currentAgent.cliTools = agentRecord.cliTools;
     }
 
     return {

@@ -7,14 +7,15 @@ import type {
   IEnvironmentStorage,
   ILlmProviderTester,
   IModelDiscoveryRegistry,
+  ExecutionContext,
 } from '@ai-team/core';
 import type {
   AddProviderOptions,
   ConfigureProviderOptions,
-  InteractionContext,
   ProviderSetupInput,
   SetProviderOptions,
 } from '@ai-team/api-contracts';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type ProviderSetupResult = ProviderSetupInput;
 
@@ -29,12 +30,14 @@ export class ProviderCommand {
   async configureAsync(
     workspaceRoot: string,
     options: ConfigureProviderOptions = {},
-    context: InteractionContext = {}
+    questionService: IQuestionService,
+    ctx: ExecutionContext
   ) {
     return providerConfigureCommandAsync(
       workspaceRoot,
       options,
-      context,
+      questionService,
+      ctx,
       this.configurationStorage,
       this.environmentStorage,
       this.providerTester,
@@ -45,12 +48,14 @@ export class ProviderCommand {
   async addAsync(
     workspaceRoot: string,
     options: AddProviderOptions = {},
-    context: InteractionContext = {}
+    questionService: IQuestionService,
+    ctx: ExecutionContext
   ) {
     return providerAddCommandAsync(
       workspaceRoot,
       options,
-      context,
+      questionService,
+      ctx,
       this.configurationStorage,
       this.environmentStorage,
       this.providerTester,
@@ -61,16 +66,18 @@ export class ProviderCommand {
   async setAsync(
     workspaceRoot: string,
     options: SetProviderOptions = {},
-    context: InteractionContext = {}
+    questionService: IQuestionService,
+    ctx: ExecutionContext
   ) {
-    return this.configureAsync(workspaceRoot, options, context);
+    return this.configureAsync(workspaceRoot, options, questionService, ctx);
   }
 }
 
 async function providerConfigureCommandAsync(
   workspaceRoot: string,
   options: ConfigureProviderOptions = {},
-  context: InteractionContext = {},
+  questionService: IQuestionService,
+  ctx: ExecutionContext,
   configurationStorage: IConfigurationStorage,
   environmentStorage: IEnvironmentStorage,
   providerTester: ILlmProviderTester,
@@ -87,31 +94,29 @@ async function providerConfigureCommandAsync(
     !options.keepCurrentDefault &&
     options.setup === undefined
   ) {
-    if (context.questionConfirm) {
-      const keep = await context.questionConfirm({
-        message: `Current default provider is '${currentDefault.ref}' (${currentDefault.config.kind}). Keep it?`,
-      });
-      if (keep) {
-        const keepSetup: ProviderSetupResult = {
-          providerRef: currentDefault.ref,
-          providerConfig: currentDefault.config,
-          legacyLlm: {
-            provider:
-              currentDefault.config.kind === 'github-copilot'
-                ? 'github-copilot'
-                : 'openai-compatible',
-          },
-        };
-        if (existing) {
-          await providerTester.testConnectionAsync(
-            workspaceRoot,
-            existing,
-            keepSetup.providerRef,
-            keepSetup.apiKey
-          );
-        }
-        return;
+    const keep = await questionService.confirm({
+      message: `Current default provider is '${currentDefault.ref}' (${currentDefault.config.kind}). Keep it?`,
+    }, ctx);
+    if (keep) {
+      const keepSetup: ProviderSetupResult = {
+        providerRef: currentDefault.ref,
+        providerConfig: currentDefault.config,
+        legacyLlm: {
+          provider:
+            currentDefault.config.kind === 'github-copilot'
+              ? 'github-copilot'
+              : 'openai-compatible',
+        },
+      };
+      if (existing) {
+        await providerTester.testConnectionAsync(
+          workspaceRoot,
+          existing,
+          keepSetup.providerRef,
+          keepSetup.apiKey
+        );
       }
+      return;
     }
   }
 
@@ -143,7 +148,8 @@ async function providerConfigureCommandAsync(
       workspaceRoot,
       existing,
       { mode: 'configure' },
-      context,
+      questionService,
+      ctx,
       environmentStorage,
       modelDiscoveryRegistry
     ));
@@ -166,7 +172,8 @@ async function providerConfigureCommandAsync(
 async function providerAddCommandAsync(
   workspaceRoot: string,
   options: AddProviderOptions = {},
-  context: InteractionContext = {},
+  questionService: IQuestionService,
+  ctx: ExecutionContext,
   configurationStorage: IConfigurationStorage,
   environmentStorage: IEnvironmentStorage,
   providerTester: ILlmProviderTester,
@@ -181,16 +188,17 @@ async function providerAddCommandAsync(
       workspaceRoot,
       existing,
       { mode: 'add' },
-      context,
+      questionService,
+      ctx,
       environmentStorage,
       modelDiscoveryRegistry
     ));
 
   let makeDefault = Boolean(options.makeDefault);
-  if (options.setup === undefined && options.makeDefault === undefined && context.questionConfirm) {
-    makeDefault = await context.questionConfirm({
+  if (options.setup === undefined && options.makeDefault === undefined) {
+    makeDefault = await questionService.confirm({
       message: `Make '${setup.providerRef}' the default provider?`,
-    });
+    }, ctx);
   }
 
   const next = applyProviderConfiguration(existing, setup, makeDefault);
@@ -378,62 +386,40 @@ function validateProviderRef(value: string): true | string {
   return true;
 }
 
-function requireSelect(
-  context: InteractionContext
-): NonNullable<InteractionContext['questionSelect']> {
-  if (!context.questionSelect) {
-    throw new Error('Provider setup requires an interactive context with questionSelect support.');
-  }
-  return context.questionSelect;
-}
-
-function requireInput(
-  context: InteractionContext
-): NonNullable<InteractionContext['questionInput']> {
-  if (!context.questionInput) {
-    throw new Error('Provider setup requires an interactive context with questionInput support.');
-  }
-  return context.questionInput;
-}
-
 async function askProviderSetupAsync(
   workspaceRoot: string,
   existing: TeamConfig | undefined,
   options: { mode: 'configure' | 'add' },
-  context: InteractionContext,
+  questionService: IQuestionService,
+  ctx: ExecutionContext,
   environmentStorage: IEnvironmentStorage,
   modelDiscoveryRegistry: IModelDiscoveryRegistry
 ): Promise<ProviderSetupResult> {
-  const selectQ = requireSelect(context);
-  const inputQ = requireInput(context);
-
-  const providerKind = await selectQ({
+  const providerKind = await questionService.select({
     message:
       options.mode === 'configure'
         ? 'Which provider should be configured as default?'
         : 'Which provider do you want to add?',
     choices: PROVIDER_KIND_CHOICES,
-  });
+  }, ctx);
 
   if (providerKind === 'github-copilot') {
-    return askGitHubCopilotSetupAsync(existing, context, selectQ, inputQ, modelDiscoveryRegistry);
+    return askGitHubCopilotSetupAsync(existing, questionService, ctx, modelDiscoveryRegistry);
   }
 
   return askOpenAiCompatibleSetupAsync(
     workspaceRoot,
     existing,
-    context,
-    selectQ,
-    inputQ,
+    questionService,
+    ctx,
     environmentStorage
   );
 }
 
 async function askGitHubCopilotSetupAsync(
   existing: TeamConfig | undefined,
-  _context: InteractionContext,
-  selectQ: NonNullable<InteractionContext['questionSelect']>,
-  inputQ: NonNullable<InteractionContext['questionInput']>,
+  questionService: IQuestionService,
+  ctx: ExecutionContext,
   modelDiscoveryRegistry: IModelDiscoveryRegistry
 ): Promise<ProviderSetupResult> {
   const discoveryService = modelDiscoveryRegistry.getForKind('github-copilot');
@@ -447,13 +433,13 @@ async function askGitHubCopilotSetupAsync(
           { name: 'Claude Sonnet 4', value: 'claude-sonnet-4' },
         ];
 
-  const model = await selectQ({ message: 'Which model?', choices: modelChoices });
+  const model = await questionService.select({ message: 'Which model?', choices: modelChoices }, ctx);
 
   const suggestedRef = buildProviderRef({ provider: 'github-copilot', model }, existing);
-  const providerRef = await inputQ({
+  const providerRef = await questionService.input({
     message: 'Provider reference key (used in config.providers):',
     validate: validateProviderRef,
-  });
+  }, ctx);
 
   const providerConfig: LlmProviderConfig = {
     kind: 'github-copilot',
@@ -470,17 +456,16 @@ async function askGitHubCopilotSetupAsync(
 async function askOpenAiCompatibleSetupAsync(
   workspaceRoot: string,
   existing: TeamConfig | undefined,
-  context: InteractionContext,
-  selectQ: NonNullable<InteractionContext['questionSelect']>,
-  inputQ: NonNullable<InteractionContext['questionInput']>,
+  questionService: IQuestionService,
+  ctx: ExecutionContext,
   environmentStorage: IEnvironmentStorage
 ): Promise<ProviderSetupResult> {
-  const preset = await selectQ({ message: 'Which service?', choices: PRESET_CHOICES });
+  const preset = await questionService.select({ message: 'Which service?', choices: PRESET_CHOICES }, ctx);
   const presetInfo = PRESETS[preset];
 
   let baseUrl: string;
   if (preset === 'custom' || preset === 'azure') {
-    baseUrl = await inputQ({
+    baseUrl = await questionService.input({
       message: preset === 'azure' ? 'Azure endpoint URL:' : 'Base URL:',
       validate: (value: string) => {
         try {
@@ -490,7 +475,7 @@ async function askOpenAiCompatibleSetupAsync(
           return 'Please enter a valid URL';
         }
       },
-    });
+    }, ctx);
   } else {
     baseUrl = presetInfo.baseUrl;
   }
@@ -503,11 +488,11 @@ async function askOpenAiCompatibleSetupAsync(
     modelChoices.push({ name: 'Other (type manually)', value: '__custom__' });
   }
 
-  const modelChoice = await selectQ({ message: 'Which model?', choices: modelChoices });
+  const modelChoice = await questionService.select({ message: 'Which model?', choices: modelChoices }, ctx);
 
   const model =
     modelChoice === '__custom__'
-      ? await inputQ({ message: 'Model name:' })
+      ? await questionService.input({ message: 'Model name:' }, ctx)
       : modelChoice === '(uses loaded model)'
         ? ''
         : modelChoice;
@@ -517,10 +502,10 @@ async function askOpenAiCompatibleSetupAsync(
     existing
   );
 
-  const providerRef = await inputQ({
+  const providerRef = await questionService.input({
     message: 'Provider reference key (used in config.providers):',
     validate: validateProviderRef,
-  });
+  }, ctx);
 
   const needsKey = presetInfo ? presetInfo.needsKey : true;
   let apiKeyEnvVar: string | undefined;
@@ -533,37 +518,35 @@ async function askOpenAiCompatibleSetupAsync(
       existingRefConfig?.apiKeyEnvVar ||
       `${(providerRef || suggestedRef).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`;
 
-    apiKeyEnvVar = await inputQ({
+    apiKeyEnvVar = await questionService.input({
       message:
         'API key environment variable name (stored in config, value stays in .ai-team/.env):',
       validate: (value: string) =>
         /^[A-Z_][A-Z0-9_]*$/.test(value.trim()) ||
         'Use uppercase letters, numbers, and underscores only.',
-    });
+    }, ctx);
     apiKeyEnvVar = apiKeyEnvVar || defaultEnvVar;
 
     const existingValue = envVars[apiKeyEnvVar];
-    if (existingValue && context.questionConfirm) {
-      const useExisting = await context.questionConfirm({
+    if (existingValue) {
+      const useExisting = await questionService.confirm({
         message: `Use existing value for ${apiKeyEnvVar} from .ai-team/.env?`,
-      });
+      }, ctx);
 
-      if (!useExisting && context.questionPassword) {
-        apiKey = await context.questionPassword({
+      if (!useExisting) {
+        apiKey = await questionService.password({
           message: `New value for ${apiKeyEnvVar}:`,
-        });
+        }, ctx);
       }
-    } else if (!existingValue) {
-      if (context.questionConfirm) {
-        const saveNow = await context.questionConfirm({
-          message: `No value for ${apiKeyEnvVar} found in .ai-team/.env. Save one now?`,
-        });
+    } else {
+      const saveNow = await questionService.confirm({
+        message: `No value for ${apiKeyEnvVar} found in .ai-team/.env. Save one now?`,
+      }, ctx);
 
-        if (saveNow && context.questionPassword) {
-          apiKey = await context.questionPassword({
-            message: `Value for ${apiKeyEnvVar}:`,
-          });
-        }
+      if (saveNow) {
+        apiKey = await questionService.password({
+          message: `Value for ${apiKeyEnvVar}:`,
+        }, ctx);
       }
     }
   }

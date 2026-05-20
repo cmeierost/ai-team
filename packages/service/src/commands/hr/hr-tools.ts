@@ -1,22 +1,16 @@
 import { z } from 'zod';
 import type {
-  ICommand,
   ExecutionContext,
   AgentConfig,
   IAgentManager,
+  IAvatarManager,
+  IConfigurationStorage,
   CommandResponse,
 } from '@ai-team/core';
-import { ContextLevel, TOOL_SERVICE_TOKENS as T } from '@ai-team/core';
+import { ContextLevel } from '@ai-team/core';
 
 function ok<T>(data: T): CommandResponse<T> {
   return { status: 'ok', data };
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function resolveAgentManager(context: ExecutionContext): IAgentManager {
-  if (!(context as any).resolve) throw new Error('ExecutionContext.resolve is required.');
-  return (context as any).resolve(T.AgentManager) as unknown as IAgentManager;
 }
 
 // ─── CreateAgent ──────────────────────────────────────────────────────────────
@@ -51,6 +45,8 @@ export class CreateAgentTool {
     reportsTo: z.string().optional().describe('Agent ID of the direct manager'),
   });
 
+  constructor(private readonly agentManager: IAgentManager) {}
+
   async execute(
     params: CreateAgentParams,
     context: ExecutionContext
@@ -65,8 +61,6 @@ export class CreateAgentTool {
     }
 
     const { name, role, specializations = [], reportsTo } = params;
-    const agentManager = resolveAgentManager(context);
-
     const config: AgentConfig = {
       name,
       role,
@@ -75,7 +69,7 @@ export class CreateAgentTool {
       contextLevel: ContextLevel.MODULE,
     };
 
-    const created = await agentManager.createAgentAsync(config);
+    const created = await this.agentManager.createAgentAsync(config);
 
     return ok({
       agentId: created.id,
@@ -109,18 +103,19 @@ export class ArchiveAgentTool {
     employee: z.string().min(1).describe('Agent name, ID, or role to archive'),
   });
 
+  constructor(private readonly agentManager: IAgentManager) {}
+
   async execute(
     params: ArchiveAgentParams,
     context: ExecutionContext
   ): Promise<CommandResponse<ArchiveAgentResult>> {
     const { employee } = params;
-    const agentManager = resolveAgentManager(context);
     const currentAgent = context.agent;
     if (!currentAgent) {
       throw new Error('archive requires an active agent context.');
     }
 
-    const matches = await agentManager.resolveAgentAsync(employee.trim());
+    const matches = await this.agentManager.resolveAgentAsync(employee.trim());
     if (matches.length === 0) throw new Error(`No employee found matching '${employee}'.`);
     if (matches.length > 1) {
       throw new Error(`Multiple employees match '${employee}'. Be more specific.`);
@@ -135,7 +130,7 @@ export class ArchiveAgentTool {
       throw new Error(`You do not have permission to archive ${target.id}.`);
     }
 
-    await agentManager.archiveAgentAsync(target.id);
+    await this.agentManager.archiveAgentAsync(target.id);
 
     return ok({ agentId: target.id, name: target.name, archived: true });
   }
@@ -144,7 +139,7 @@ export class ArchiveAgentTool {
 // ─── AssessPerformance ────────────────────────────────────────────────────────
 
 export interface AssessPerformanceParams {
-  employee?: string;
+  agent?: string;
 }
 
 export interface AssessPerformanceResult {
@@ -163,32 +158,33 @@ export class AssessPerformanceTool {
   readonly group = 'hr';
   readonly availableIn = { tool: true };
   readonly description =
-    'Assess the status of direct reports (or a specific employee). ' +
+    'Assess the status of direct reports (or a specific agent). ' +
     "Returns a snapshot of each team member's current status.";
   readonly parameters = z.object({
-    employee: z
+    agent: z
       .string()
       .optional()
-      .describe('Optional employee name/id/role to assess (defaults to all direct reports)'),
+      .describe('Optional agent name/id/role to assess (defaults to all direct reports)'),
   });
+
+  constructor(private readonly agentManager: IAgentManager) {}
 
   async execute(
     params: AssessPerformanceParams,
     context: ExecutionContext
   ): Promise<CommandResponse<AssessPerformanceResult>> {
-    const { employee } = params;
-    const agentManager = resolveAgentManager(context);
+    const { agent } = params;
     const currentAgent = context.agent;
     if (!currentAgent) {
       throw new Error('performance requires an active agent context.');
     }
 
-    let targets = employee?.trim()
-      ? await agentManager.resolveAgentAsync(employee.trim())
-      : await agentManager.getDirectReportsAsync(currentAgent.id);
+    let targets = agent?.trim()
+      ? await this.agentManager.resolveAgentAsync(agent.trim())
+      : await this.agentManager.getDirectReportsAsync(currentAgent.id);
 
-    if (employee && targets.length === 0) {
-      throw new Error(`No employee found matching '${employee}'.`);
+    if (agent && targets.length === 0) {
+      throw new Error(`No agent found matching '${agent}'.`);
     }
 
     return ok({
@@ -206,7 +202,7 @@ export class AssessPerformanceTool {
 // ─── AddPicture ───────────────────────────────────────────────────────────────
 
 export interface AddPictureParams {
-  employee: string;
+  agent: string;
   prompt?: string;
   urlTemplate?: string;
   provider?: string;
@@ -230,7 +226,7 @@ export class AddPictureTool {
     'Generate or assign an avatar image for a team member. ' +
     'Supports AI generation, random download via URL template, or custom prompt.';
   readonly parameters = z.object({
-    employee: z.string().min(1).describe('Agent name, ID, or role'),
+    agent: z.string().min(1).describe('Agent name, ID, or role'),
     prompt: z.string().optional().describe('Custom prompt for AI-generated avatar'),
     urlTemplate: z.string().optional().describe('URL template for downloading a random avatar'),
     provider: z.string().optional().describe('LLM provider for AI generation'),
@@ -238,47 +234,49 @@ export class AddPictureTool {
     apiKey: z.string().optional().describe('API key for AI generation'),
   });
 
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly agentManager: IAgentManager,
+    private readonly avatarManager: IAvatarManager,
+    private readonly configStorage: IConfigurationStorage
+  ) {}
+
   async execute(
     params: AddPictureParams,
     context: ExecutionContext
   ): Promise<CommandResponse<AddPictureResult>> {
-    if (!(context as any).resolve) throw new Error('ExecutionContext.resolve is required.');
-    const { employee, prompt, urlTemplate, provider, modelName, apiKey } = params;
+    const { agent, prompt, urlTemplate, provider, modelName, apiKey } = params;
 
-    const agentManager = (context as any).resolve(T.AgentManager);
-    const avatarManager = (context as any).resolve(T.AvatarManager);
-    const configStorage = (context as any).resolve(T.ConfigurationStorage);
-
-    const matches = await agentManager.resolveAgentAsync(employee.trim());
-    if (matches.length === 0) throw new Error(`No employee found matching '${employee}'.`);
+    const matches = await this.agentManager.resolveAgentAsync(agent.trim());
+    if (matches.length === 0) throw new Error(`No agent found matching '${agent}'.`);
     if (matches.length > 1) {
-      throw new Error(`Multiple employees match '${employee}'. Be more specific.`);
+      throw new Error(`Multiple agents match '${agent}'. Be more specific.`);
     }
 
     const target = matches[0];
     let imageData: Buffer;
 
     if (urlTemplate) {
-      imageData = await avatarManager.downloadRandomAvatar(urlTemplate, target);
+      imageData = await this.avatarManager.downloadRandomAvatar(urlTemplate, target);
     } else if (prompt && provider && modelName && apiKey) {
-      imageData = await avatarManager.generateAvatarWithAI(
+      imageData = await this.avatarManager.generateAvatarWithAI(
         prompt,
         { provider } as any,
         modelName,
         apiKey
       );
     } else {
-      const teamConfig = await configStorage.loadTeamConfigAsync(context.workspaceRoot);
-      const templateUrl = teamConfig?.avatarUrlTemplate;
+      const teamConfig = await this.configStorage.loadTeamConfigAsync(this.workspaceRoot);
+      const templateUrl = (teamConfig as any)?.avatarUrlTemplate;
       if (templateUrl) {
-        imageData = await avatarManager.downloadRandomAvatar(templateUrl, target);
+        imageData = await this.avatarManager.downloadRandomAvatar(templateUrl, target);
       } else {
-        const builtPrompt = avatarManager.buildAvatarPrompt(target);
-        const config = await configStorage.loadEffectiveConfigAsync(context.workspaceRoot);
-        const llmConfig = config?.llm;
+        const builtPrompt = this.avatarManager.buildAvatarPrompt(target);
+        const config = await this.configStorage.loadEffectiveConfigAsync(this.workspaceRoot);
+        const llmConfig = config?.llm as any;
         if (!llmConfig)
           throw new Error('No LLM config or URL template available for avatar generation.');
-        imageData = await avatarManager.generateAvatarWithAI(
+        imageData = await this.avatarManager.generateAvatarWithAI(
           builtPrompt,
           llmConfig,
           llmConfig.model ?? llmConfig.modelKey ?? 'gpt-4o',
@@ -287,9 +285,12 @@ export class AddPictureTool {
       }
     }
 
-    await avatarManager.saveAvatarPreview(target.name, imageData, context.workspaceRoot);
-    const avatarRelPath = await avatarManager.finalizeAvatar(target.name, context.workspaceRoot);
-    await avatarManager.updateAgentAvatar(target, avatarRelPath, context.workspaceRoot);
+    await this.avatarManager.saveAvatarPreview(target.name, imageData, this.workspaceRoot);
+    const avatarRelPath = await this.avatarManager.finalizeAvatar(
+      target.name,
+      this.workspaceRoot
+    );
+    await this.avatarManager.updateAgentAvatar(target, avatarRelPath, this.workspaceRoot);
 
     return ok({
       agentId: target.id,
@@ -299,10 +300,3 @@ export class AddPictureTool {
     });
   }
 }
-
-// ─── Module-level singletons ──────────────────────────────────────────────────
-
-export const createAgentTool: ICommand = new CreateAgentTool();
-export const archiveAgentTool: ICommand = new ArchiveAgentTool();
-export const assessPerformanceTool: ICommand = new AssessPerformanceTool();
-export const addPictureTool: ICommand = new AddPictureTool();

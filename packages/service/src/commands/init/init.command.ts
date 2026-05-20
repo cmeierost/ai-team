@@ -1,25 +1,11 @@
 import { z } from 'zod';
 import type { InitOptions } from '@ai-team/api-contracts';
 import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
-import type { SessionManager } from '../../session-manager.js';
-import type { InitCommand } from './init.js';
+import { initCommand } from './init.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof InitICommand.schema>;
-
-function runtimeToInitHooks(runtime: ExecutionContext): InitRuntimeHooks {
-  return {
-    signal: runtime.signal,
-    emit: runtime.emit as InitRuntimeHooks['emit'],
-    questionInput: runtime.questionInput,
-    questionConfirm: runtime.questionConfirm,
-    questionSelect: runtime.questionSelect,
-    questionPassword: runtime.questionPassword,
-    questionChecklist: runtime.questionChecklist,
-    workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
-    onWorkflowFrame: runtime.onWorkflowFrame,
-  };
-}
 
 export class InitICommand implements ICommand<Params, void> {
   static readonly schema = z.object({
@@ -34,19 +20,30 @@ export class InitICommand implements ICommand<Params, void> {
   readonly parameters = InitICommand.schema;
 
   constructor(
-    private readonly initCommand: Pick<InitCommand, 'execute'>,
-    private readonly sessionManager?: SessionManager
+    private readonly workspaceRoot: string,
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    await this.initCommand.execute(
-      {
-        workspaceRoot: ctx.workspaceRoot,
-        options: (payload.options ?? {}) as InitOptions,
-        injected: this.sessionManager ? { sessionManager: this.sessionManager } : undefined,
-      },
-      runtimeToInitHooks(ctx)
+    await initCommand(
+      this.workspaceRoot,
+      (payload.options ?? {}) as InitOptions,
+      this.buildHooks(ctx)
     );
     return { status: 'ok' };
+  }
+
+  private buildHooks(runtime: ExecutionContext): InitRuntimeHooks {
+    return {
+      signal: runtime.signal,
+      emit: runtime.emit,
+      questionInput: (request) => this.questionService.input(request, runtime),
+      questionConfirm: (request) => this.questionService.confirm(request, runtime),
+      questionSelect: (request) => this.questionService.select(request, runtime),
+      questionPassword: (request) => this.questionService.password(request, runtime),
+      questionChecklist: (request) => this.questionService.checklist(request, runtime),
+      workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
+      onWorkflowFrame: runtime.onWorkflowFrame,
+    };
   }
 }

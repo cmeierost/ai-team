@@ -1,12 +1,102 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { ContextLevel, type Agent, type PermissionConfig } from '@ai-team/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceFs, canRead, canWrite } from 'fs-context';
-import { COMMAND_FACTORY_TOKENS } from '../definitions/types.js';
+import { ContextLevel, type Agent, type PermissionConfig, type ICommand } from '@ai-team/core';
+import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 import { ToolManager } from '../../tools/tool-manager.js';
-import { ALL_TOOLS } from '../../tools/catalog/index.js';
+import {
+  FsReadFileTool,
+  FsReadLinesTool,
+  FsWriteFileTool,
+  FsCreateFileTool,
+  FsDeletePathTool,
+  FsMkdirTool,
+  FsExistsTool,
+  FsInfoTool,
+  FsListTool,
+  FsTreeTool,
+  FsSearchContentTool,
+  FsSearchMetadataTool,
+} from './fs-tools.js';
+import { FindSymbolTool, FindReferencesTool, LspTool, GrepCodeTool } from '../edit/code-tools.js';
+import { HttpFetchTool, HttpCrawlTool } from '../http/http-tools.js';
+import { CodeSearchTool } from '../edit/codesearch-tool.js';
+import { ApplyPatchTool, MultiEditTool, FsEditTool } from './edit-tools.js';
+import {
+  WhoHasAccessTool,
+  DoIHaveAccessTool,
+  AnalyzePermissionOverlapTool,
+} from './access-introspection-tools.js';
+
+function getBuiltInTools(workspaceRoot: string): ICommand[] {
+  const accessChecker = {
+    can: vi.fn().mockReturnValue(true),
+    canReadPath: vi.fn().mockReturnValue(true),
+    canWritePath: vi.fn().mockReturnValue(true),
+    canListPath: vi.fn().mockReturnValue(true),
+    assertCanReadPath: vi.fn(),
+    assertCanWritePath: vi.fn(),
+  };
+  const accessAgentManager = {
+    getAllAgentsAsync: vi.fn().mockResolvedValue([] as Agent[]),
+    getAgentAsync: vi.fn().mockResolvedValue(undefined),
+    analyzeWorkspacePermissionOverlap: vi.fn().mockResolvedValue({ overlaps: [] }),
+    workspaceRoot: 'c:/workspace',
+  } as any;
+  const whoHasAccessTool = new WhoHasAccessTool(workspaceRoot, accessAgentManager, accessChecker);
+  const doIHaveAccessTool = new DoIHaveAccessTool(workspaceRoot, accessAgentManager, accessChecker);
+  const analyzePermissionOverlapTool = new AnalyzePermissionOverlapTool(accessAgentManager);
+  const workspaceFsFactory = {
+    create: (agentId: string, permissions: PermissionConfig | undefined) =>
+      createTestWorkspaceFs(workspaceRoot, agentId, permissions),
+  };
+  const ideAdapterFactory = {
+    createAsync: async () => ({
+      lsp: {
+        execute: async () => ({ kind: 'locations', locations: [] }),
+        isAvailable: () => false,
+      },
+      openFile: async () => {},
+      notifyCodeEditProposal: async () => {},
+      isConnected: () => false,
+      onAck: () => {},
+      dispose: () => {},
+    }),
+  } as any;
+  const readFileTool = new FsReadFileTool(workspaceRoot, workspaceFsFactory as any);
+  const readLinesTool = new FsReadLinesTool(readFileTool);
+  const fsEditTool = new FsEditTool(workspaceRoot, accessChecker, ideAdapterFactory);
+  const tools: ICommand[] = [
+    readFileTool,
+    readLinesTool,
+    new FsWriteFileTool(workspaceFsFactory as any),
+    new FsCreateFileTool(workspaceFsFactory as any),
+    new FsDeletePathTool(workspaceFsFactory as any),
+    new FsMkdirTool(workspaceFsFactory as any),
+    new FsExistsTool(workspaceFsFactory as any),
+    new FsInfoTool(workspaceFsFactory as any),
+    new FsListTool(workspaceFsFactory as any),
+    new FsTreeTool(workspaceFsFactory as any),
+    new FsSearchContentTool(workspaceRoot, workspaceFsFactory as any),
+    new FsSearchMetadataTool(workspaceRoot, workspaceFsFactory as any),
+    whoHasAccessTool,
+    doIHaveAccessTool,
+    analyzePermissionOverlapTool,
+    new FindSymbolTool(workspaceRoot, ideAdapterFactory),
+    new FindReferencesTool(workspaceRoot, ideAdapterFactory),
+    new LspTool(workspaceRoot, ideAdapterFactory),
+    new GrepCodeTool(),
+    new HttpFetchTool(),
+    new HttpCrawlTool(),
+    new CodeSearchTool(),
+    fsEditTool,
+    new ApplyPatchTool(workspaceRoot, accessChecker as any, ideAdapterFactory),
+    new MultiEditTool(workspaceRoot, fsEditTool, accessChecker as any, ideAdapterFactory),
+  ];
+  return tools;
+}
 
 function normalizeRelativePath(filePath: string): string {
   return filePath.replaceAll('\\', '/').replace(/^\.\//, '').replace(/^\//, '').toLowerCase();
@@ -71,7 +161,7 @@ async function createTestWorkspaceFs(
 
 /** Build the context object expected by ToolManager.execute(). */
 function ctx(agent: Agent, ws: string) {
-  return { agentId: agent.id, workspaceRoot: ws };
+  return { agentId: agent.id, workspaceRoot: ws, history: [] };
 }
 
 const workspaces: string[] = [];
@@ -120,7 +210,15 @@ function makeFullFsAgent(id: string): Agent {
   return {
     ...makeAgent(id, ['**']),
     permissions: perms({ read: ['**'], write: ['**'] }),
-    tools: ['fs_read', 'fs_read_lines', 'fs_write_file', 'fs_create', 'fs_delete_path', 'fs_mkdir', 'fs_list'],
+    tools: [
+      'fs_read',
+      'fs_read_lines',
+      'fs_write_file',
+      'fs_create',
+      'fs_delete_path',
+      'fs_mkdir',
+      'fs_list',
+    ],
   };
 }
 
@@ -131,23 +229,39 @@ async function createWorkspace(): Promise<string> {
 }
 
 async function setupManager(workspaceRoot: string, agents: Agent[]): Promise<ToolManager> {
-  const manager = new ToolManager(workspaceRoot);
-  for (const tool of Object.values(ALL_TOOLS)) manager.register(tool);
-  manager.setContainer({
+  const registry = {
+    register: () => undefined,
+    get: () => undefined,
+    getAll: () => [],
+    toLlmToolDefinitions: () => [],
+  } as any;
+  const container = {
     resolve: (token: { id?: string }) => {
       if (token?.id !== COMMAND_FACTORY_TOKENS.WorkspaceFsFactory.id) {
         throw new Error(`Unexpected token requested in fs-tools.test: ${String(token?.id)}`);
       }
 
       return {
-        create: async (
-          root: string,
-          agentId: string,
-          permissions: PermissionConfig | undefined
-        ) => createTestWorkspaceFs(root, agentId, permissions),
+        create: async (agentId: string, permissions: PermissionConfig | undefined) =>
+          createTestWorkspaceFs(workspaceRoot, agentId, permissions),
       };
     },
-  } as any);
+  } as any;
+
+  const manager = new ToolManager(
+    workspaceRoot,
+    {
+      can: () => true,
+      canReadPath: () => true,
+      canWritePath: () => true,
+      canListPath: () => true,
+      assertCanReadPath: () => undefined,
+      assertCanWritePath: () => undefined,
+    },
+    registry,
+    container
+  );
+  for (const tool of getBuiltInTools(workspaceRoot)) manager.register(tool);
   return manager;
 }
 
@@ -368,7 +482,10 @@ describe('remaining fs tool execution', () => {
       newContent: 'new-content',
     });
 
-    const disk = await fs.readFile(path.join(workspaceRoot, 'tmp', 'nested', 'brand-new.txt'), 'utf8');
+    const disk = await fs.readFile(
+      path.join(workspaceRoot, 'tmp', 'nested', 'brand-new.txt'),
+      'utf8'
+    );
     expect(disk).toBe('new-content');
   });
 

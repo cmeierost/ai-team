@@ -11,6 +11,9 @@ import { XStateChatOrchestrator } from './xstate-chat-orchestrator';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import type { CommandResponse } from '@ai-team/api-contracts';
+import { EmitService } from './services/emit-service.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
+import { setServiceContainer } from '../service-registry.js';
 
 type OrchestratorCtor = new (
   ctx: ExecutionContext,
@@ -24,7 +27,7 @@ const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: Orchestr
 ];
 
 function makeContext(): ExecutionContext {
-  return {
+  const ctx = {
     agent: { id: 'hr-director', name: 'Robert Davis', role: 'hr-director' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
@@ -35,7 +38,20 @@ function makeContext(): ExecutionContext {
     skillManager: {} as any,
     llmService: {} as any,
     history: [],
-  };
+  } as ExecutionContext;
+
+  const emitService = new EmitService();
+  emitService.setDefaultEmitter(ctx.hooks.emit as any);
+  setServiceContainer({
+    resolve: (token: { id?: string }) => {
+      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
+        return emitService;
+      }
+      throw new Error(`Unexpected token: ${String(token?.id)}`);
+    },
+  } as any);
+
+  return ctx;
 }
 
 function makePlugins(): ResolvedPlugins {
@@ -65,7 +81,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
 
       expect(result).toBe('');
       expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
-      expect(ctx.hooks.emit as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+      expect(ctx.hooks.emit).toHaveBeenCalledWith(
         expect.objectContaining({ kind: 'log', level: 'warn' })
       );
     });

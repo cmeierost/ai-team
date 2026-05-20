@@ -8,45 +8,57 @@ import {
 } from './index.js';
 
 export class PathPermissionChecker implements IPathPermissionChecker {
-  canReadPath(
-    workspaceRoot: string,
+  constructor(private readonly workspaceRoot: string) {}
+
+  can(
+    right: 'read' | 'write' | 'list',
     permissions: PermissionConfig | undefined,
     filePath: string
   ): boolean {
-    return canReadPath(workspaceRoot, permissions, filePath);
+    switch (right) {
+      case 'read':
+        return this.canReadPath(permissions, filePath);
+      case 'write':
+        return this.canWritePath(permissions, filePath);
+      case 'list':
+        return this.canListPath(permissions, filePath);
+    }
+  }
+
+  canReadPath(
+    permissions: PermissionConfig | undefined,
+    filePath: string
+  ): boolean {
+    return canReadPath(this.workspaceRoot, permissions, filePath);
   }
 
   canWritePath(
-    workspaceRoot: string,
     permissions: PermissionConfig | undefined,
     filePath: string
   ): boolean {
-    return canWritePath(workspaceRoot, permissions, filePath);
+    return canWritePath(this.workspaceRoot, permissions, filePath);
   }
 
   canListPath(
-    workspaceRoot: string,
     permissions: PermissionConfig | undefined,
     filePath: string
   ): boolean {
-    return canListPath(workspaceRoot, permissions, filePath);
+    return canListPath(this.workspaceRoot, permissions, filePath);
   }
 
   assertCanReadPath(
-    workspaceRoot: string,
     contextId: string,
     permissions: PermissionConfig | undefined,
     filePath: string
   ): void {
-    assertCanReadPath(workspaceRoot, contextId, permissions, filePath);
+    assertCanReadPath(this.workspaceRoot, contextId, permissions, filePath);
   }
 
   assertCanWritePath(
-    workspaceRoot: string,
     contextId: string,
     permissions: PermissionConfig | undefined,
     filePath: string
   ): void {
-    assertCanWritePath(workspaceRoot, contextId, permissions, filePath);
+    assertCanWritePath(this.workspaceRoot, contextId, permissions, filePath);
   }
 }

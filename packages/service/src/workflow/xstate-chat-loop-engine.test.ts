@@ -127,7 +127,23 @@ describe('xstate-chat-loop-engine', () => {
   });
 
   it('uses ToolManager registry first for tool round execution', async () => {
-    const toolManager = new ToolManager('/workspace');
+    const toolManager = new ToolManager(
+      '/workspace',
+      {
+        canReadPath: () => true,
+        canWritePath: () => true,
+        canListPath: () => true,
+        assertCanReadPath: () => undefined,
+        assertCanWritePath: () => undefined,
+      },
+      {
+        register: () => undefined,
+        get: () => undefined,
+        getAll: () => [],
+        toLlmToolDefinitions: () => [],
+      } as any,
+      { resolve: () => undefined } as any
+    );
     const executeSpy = vi.fn(async () => ({ ok: true }));
 
     toolManager.register({
@@ -200,7 +216,23 @@ describe('xstate-chat-loop-engine', () => {
     const output = await runChatLoopWorkflowAsync({ message: 'run custom tool' }, services, {
       tooling: {
         agent: createAgent(),
-        toolManager: new ToolManager('/workspace'),
+        toolManager: new ToolManager(
+          '/workspace',
+          {
+            canReadPath: () => true,
+            canWritePath: () => true,
+            canListPath: () => true,
+            assertCanReadPath: () => undefined,
+            assertCanWritePath: () => undefined,
+          },
+          {
+            register: () => undefined,
+            get: () => undefined,
+            getAll: () => [],
+            toLlmToolDefinitions: () => [],
+          } as any,
+          { resolve: () => undefined } as any
+        ),
         toolContext: {
           workspaceRoot: '/workspace',
         } as any,

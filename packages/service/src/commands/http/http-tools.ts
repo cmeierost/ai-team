@@ -311,7 +311,7 @@ async function fetchUrlText(
 // HTTP Tool Classes
 // ============================================================================
 
-export class HttpFetchTool  {
+export class HttpFetchTool implements ICommand<HttpFetchParams, HttpFetchResult> {
   readonly name = 'fetch';
   readonly key = 'fetch';
   readonly group = 'http';
@@ -387,7 +387,10 @@ export class HttpFetchTool  {
     return `${header}\n\n${result.chunks.join('\n\n')}`;
   }
 
-  async execute(params: HttpFetchParams, _context: ExecutionContext): Promise<HttpFetchResult> {
+  async execute(
+    params: HttpFetchParams,
+    _context: ExecutionContext
+  ): Promise<CommandResponse<HttpFetchResult>> {
     const {
       url,
       timeoutMs = HTTP_DEFAULT_TIMEOUT_MS,
@@ -404,24 +407,27 @@ export class HttpFetchTool  {
         : [];
 
     return {
-      url,
-      finalUrl: fetched.finalUrl,
-      status: fetched.status,
-      ok: fetched.ok,
-      contentType: fetched.contentType,
-      lineCount: processed.lineCount,
-      charCount: processed.charCount,
-      chunks: processed.chunks,
-      filtersApplied: processed.filtersApplied,
-      regexMatchCount: processed.regexMatchCount,
-      truncated: processed.truncated || fetched.bodyText.length >= HTTP_MAX_TEXT_BYTES,
-      links,
-      linkCount: links.length,
+      status: 'ok',
+      data: {
+        url,
+        finalUrl: fetched.finalUrl,
+        status: fetched.status,
+        ok: fetched.ok,
+        contentType: fetched.contentType,
+        lineCount: processed.lineCount,
+        charCount: processed.charCount,
+        chunks: processed.chunks,
+        filtersApplied: processed.filtersApplied,
+        regexMatchCount: processed.regexMatchCount,
+        truncated: processed.truncated || fetched.bodyText.length >= HTTP_MAX_TEXT_BYTES,
+        links,
+        linkCount: links.length,
+      },
     };
   }
 }
 
-export class HttpCrawlTool  {
+export class HttpCrawlTool implements ICommand<HttpCrawlParams, HttpCrawlResult> {
   readonly name = 'crawl';
   readonly key = 'crawl';
   readonly group = 'http';
@@ -514,7 +520,10 @@ export class HttpCrawlTool  {
     return `${header}\n\n${result.chunks.join('\n\n')}`;
   }
 
-  async execute(params: HttpCrawlParams, _context: ExecutionContext): Promise<HttpCrawlResult> {
+  async execute(
+    params: HttpCrawlParams,
+    _context: ExecutionContext
+  ): Promise<CommandResponse<HttpCrawlResult>> {
     const {
       url,
       crawlEnabled = false,
@@ -528,12 +537,15 @@ export class HttpCrawlTool  {
 
     if (!crawlEnabled) {
       return {
-        url,
-        crawled: false,
-        message: 'Crawling is disabled. Set crawlEnabled=true to start crawling.',
-        pages: [],
-        visitedCount: 0,
-        chunks: [],
+        status: 'ok',
+        data: {
+          url,
+          crawled: false,
+          message: 'Crawling is disabled. Set crawlEnabled=true to start crawling.',
+          pages: [],
+          visitedCount: 0,
+          chunks: [],
+        },
       };
     }
 
@@ -554,22 +566,23 @@ export class HttpCrawlTool  {
     const finalChunks = crawlResult.allChunks.slice(0, cappedMaxChunks);
 
     return {
-      url,
-      crawled: true,
-      maxDepth,
-      maxPages,
-      visitedCount: crawlResult.visitedCount,
-      pageCount: crawlResult.pages.length,
-      chunks: finalChunks,
-      pages: crawlResult.pages,
-      truncated: crawlResult.allChunks.length > finalChunks.length,
-      filtersApplied: applyHttpTextFilters('noop', filterOptions).filtersApplied,
+      status: 'ok',
+      data: {
+        url,
+        crawled: true,
+        maxDepth,
+        maxPages,
+        visitedCount: crawlResult.visitedCount,
+        pageCount: crawlResult.pages.length,
+        chunks: finalChunks,
+        pages: crawlResult.pages,
+        truncated: crawlResult.allChunks.length > finalChunks.length,
+        filtersApplied: applyHttpTextFilters('noop', filterOptions).filtersApplied,
+      },
     };
   }
 }
 
-export const httpFetchTool = new HttpFetchTool();
-export const httpCrawlTool = new HttpCrawlTool();
 
 // ============================================================================
 // HTTP Crawl Internals

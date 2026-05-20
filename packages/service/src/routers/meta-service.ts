@@ -6,7 +6,8 @@ import type {
   WorkflowDefinitionApiResponse,
 } from '@ai-team/api-contracts';
 import type { IAgentManager, ICommand, IAgentDocumentStorage, ISkillManager } from '@ai-team/core';
-import { toolKey, type LlmToolDefinition, type ToolManager } from '../tools/tool-manager.js';
+import { ToolIdentity, type LlmToolDefinition, type ToolManager } from '../tools/tool-manager.js';
+import { ZodSchemaTools } from '../utils/zod-schema.js';
 import type { IMcpGateway } from '../orchestrator/pipeline.js';
 import type { SessionManager } from '../session-manager.js';
 import { NotFoundError } from '@ai-team/core';
@@ -84,11 +85,13 @@ export class MetaService implements IContextService {
     { tools: ContextEstimateTool[]; chars: number; at: number }
   >();
   private static readonly TOOL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+  private static readonly schemaTools = new ZodSchemaTools();
 
   private readonly workflowDefinitionResolvers: Record<string, WorkflowDefinitionResolver> =
     getWorkflowDefinitionResolvers();
 
   constructor(
+    private readonly workspaceRoot: string,
     private readonly agentManager: IAgentManager,
     private readonly sessionManager: SessionManager,
     private readonly skillManager: ISkillManager,
@@ -150,7 +153,7 @@ export class MetaService implements IContextService {
     const agent = await this.agentManager.getAgentAsync(agentId);
     if (!agent) throw new NotFoundError(`Agent '${agentId}' not found`);
 
-    const workspaceRoot = this.agentManager.workspaceRoot;
+    const workspaceRoot = this.workspaceRoot;
     const sessionId = query?.sessionId;
 
     let messages: ContextEstimateMessage[] = [];
@@ -233,13 +236,15 @@ export class MetaService implements IContextService {
   }
 
   private toToolDefinition(tool: ICommand): LlmToolDefinition {
-    const key = toolKey(tool);
+    const key = ToolIdentity.key(tool);
     const fromManager = this.toolManager.toSchema(key);
     if (fromManager) return fromManager;
     return {
       name: key,
       description: tool.description,
-      parameters: zodSchemaToJsonSchema(tool.parameters),
+      parameters: MetaService.schemaTools.toJsonSchema(tool.parameters, {
+        additionalProperties: true,
+      }),
     };
   }
 
@@ -788,9 +793,3 @@ export class MetaService implements IContextService {
   }
 }
 
-function zodSchemaToJsonSchema(schema: unknown): Record<string, unknown> {
-  if (schema && typeof schema === 'object' && typeof (schema as any).toJSONSchema === 'function') {
-    return (schema as any).toJSONSchema() as Record<string, unknown>;
-  }
-  return { type: 'object', properties: {}, additionalProperties: true };
-}

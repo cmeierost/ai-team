@@ -7,6 +7,7 @@ import type {
 } from '@ai-team/core';
 import type { UpdateAgentToolResponse } from '@ai-team/api-contracts';
 import type { ToolManager } from '../../tools/tool-manager.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 import { toolAllowCommand } from './tools.js';
 import {
   resolveRequestedByFromRuntime,
@@ -34,7 +35,8 @@ export class ToolsAllowCommand implements ICommand<Params, UpdateAgentToolRespon
 
   constructor(
     private readonly agents: IAgentManager,
-    private readonly toolManager: ToolManager
+    private readonly toolManager: ToolManager,
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(
@@ -42,8 +44,9 @@ export class ToolsAllowCommand implements ICommand<Params, UpdateAgentToolRespon
     ctx: ExecutionContext
   ): Promise<CommandResponse<UpdateAgentToolResponse>> {
     const requestedBy = await resolveRequestedByFromRuntime(
-      payload.requestedBy,
+      this.questionService,
       ctx,
+      payload.requestedBy,
       'requestedBy is required for tool governance'
     );
     const data = await toolAllowCommand(
@@ -53,7 +56,12 @@ export class ToolsAllowCommand implements ICommand<Params, UpdateAgentToolRespon
       {
         requestedBy,
         confirmUserApproval: (msg: string) =>
-          confirmGovernanceActionFromRuntime(payload.approvedByUser, ctx, msg),
+          confirmGovernanceActionFromRuntime(
+            this.questionService,
+            ctx,
+            payload.approvedByUser,
+            msg
+          ),
       }
     );
     return { status: 'ok', data };

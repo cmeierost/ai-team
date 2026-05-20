@@ -23,4 +23,29 @@ describe('CommandRegistry availability filters', () => {
 
     expect(cliChatCommands.map((command) => command.key)).toEqual(['history']);
   });
+
+  it('allows duplicate tool keys across groups and resolves by derived name', () => {
+    const registry = new CommandRegistry();
+
+    const fsList = {
+      key: 'list',
+      group: 'fs',
+      description: 'list files',
+      availableIn: { tool: true },
+      execute: async () => undefined,
+    } as any;
+    const teamList = {
+      key: 'list',
+      group: 'team',
+      description: 'list team members',
+      availableIn: { tool: true },
+      execute: async () => undefined,
+    } as any;
+
+    expect(() => registry.register(fsList)).not.toThrow();
+    expect(() => registry.register(teamList)).not.toThrow();
+
+    expect(registry.get('fs_list')).toBe(fsList);
+    expect(registry.get('team_list')).toBe(teamList);
+  });
 });

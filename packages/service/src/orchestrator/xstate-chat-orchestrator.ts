@@ -15,6 +15,7 @@ import { emitLog, emitStatus } from './stream-events.js';
 import { resolvePreLlmIntent, type PreLlmIntent } from '../tools/pre-llm-intents.js';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
 import { ToolDispatcher } from './tool-dispatch.js';
+import { ToolSerializationService } from './services/tool-serialization-service.js';
 import { HandoffOrchestrator } from './handoff.js';
 import { runChatLoopWorkflowAsync } from '../workflow/xstate-chat-loop-engine.js';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
@@ -44,7 +45,8 @@ export class XStateChatOrchestrator {
     private readonly hooks: ChatRuntimeHooks,
     private readonly agentManager: IAgentManager,
     private readonly sessionManager: SessionManager,
-    private readonly llmService: ILlmService
+    private readonly llmService: ILlmService,
+    private readonly serialization: ToolSerializationService
   ) {}
 
   async run(options: RunOptions): Promise<string> {
@@ -118,7 +120,6 @@ export class XStateChatOrchestrator {
 
           if (!targetKnown) {
             emitLog(
-              this.hooks,
               'warn',
               `Handoff requested to unknown agent "${current.handoffTargetId}" — staying with ${this.ctx.agent!.name}.`
             );
@@ -153,11 +154,11 @@ export class XStateChatOrchestrator {
             );
           }
 
-          emitStatus(this.hooks, 'handoff', `${this.ctx.agent!.name} taking over.`);
+          emitStatus('handoff', `${this.ctx.agent!.name} taking over.`);
           return { autoMessage: AUTO_REACT_MESSAGE };
         },
         runFailureAsync: async ({ error, state }) => {
-          emitLog(this.hooks, 'error', `[xstate-chat-loop] ${state}: ${error}`);
+          emitLog('error', `[xstate-chat-loop] ${state}: ${error}`);
         },
       }
     );
@@ -209,7 +210,7 @@ export class XStateChatOrchestrator {
     const [rawKey, ...rest] = trimmed.slice(1).split(/\s+/);
     const key = (rawKey ?? '').toLowerCase();
     if (!key) {
-      emitLog(this.hooks, 'warn', 'Please enter a slash command name. Try /help.');
+      emitLog('warn', 'Please enter a slash command name. Try /help.');
       return { kind: 'consumed', text: '' };
     }
     const rawArgs = rest.join(' ');
@@ -219,7 +220,7 @@ export class XStateChatOrchestrator {
     );
 
     if (!command) {
-      emitLog(this.hooks, 'warn', `Unknown command: /${key}. Try /help.`);
+      emitLog('warn', `Unknown command: /${key}. Try /help.`);
       return { kind: 'consumed', text: '' };
     }
 
@@ -273,7 +274,7 @@ export class XStateChatOrchestrator {
   }
 
   private sendMessage(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
-    emitLog(this.hooks, level, message);
+    emitLog(level, message);
   }
 
   private async executeSlashCommandWithCapture(
@@ -416,13 +417,7 @@ export class XStateChatOrchestrator {
   }
 
   private serializeForStorage(value: unknown): string | undefined {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === 'string') return value;
-    try {
-      return JSON.stringify(value, null, 2);
-    } catch {
-      return String(value);
-    }
+    return this.serialization.serializeForStorage(value);
   }
 
   private async persistSlashCommandExecution(
@@ -453,15 +448,19 @@ export class XStateChatOrchestrator {
       ],
     };
 
-    await this.sessionManager.appendMessage(this.ctx.sessionId!!, persisted);
+    await this.sessionManager.appendMessage(this.ctx.sessionId!, persisted);
     this.ctx.history.push(persisted);
   }
 
   private extractAskAnswer(result: unknown): unknown {
-    if (result && typeof result === 'object' && 'answer' in result) {
-      return (result as { answer: unknown }).answer;
+    if (this.isAskAnswer(result)) {
+      return result.answer;
     }
     return undefined;
+  }
+
+  private isAskAnswer(result: unknown): result is { answer: unknown } {
+    return result !== null && typeof result === 'object' && 'answer' in result;
   }
 
   private async executePreLlmIntent(
@@ -492,11 +491,7 @@ export class XStateChatOrchestrator {
     );
 
     if (askResult.isError) {
-      emitLog(
-        this.hooks,
-        'warn',
-        'Pre-LLM clarification failed; continuing without auto-tool execution.'
-      );
+      emitLog('warn', 'Pre-LLM clarification failed; continuing without auto-tool execution.');
       return false;
     }
 
@@ -504,11 +499,7 @@ export class XStateChatOrchestrator {
     const resolvedArgs = intent.resolveArgs(answer);
     if (!resolvedArgs) {
       if (intent.ask.kind !== 'confirm') {
-        emitLog(
-          this.hooks,
-          'warn',
-          'Pre-LLM clarification did not produce executable tool arguments.'
-        );
+        emitLog('warn', 'Pre-LLM clarification did not produce executable tool arguments.');
       }
       return false;
     }
@@ -553,7 +544,7 @@ export class XStateChatOrchestrator {
     };
 
     const generatedTitle = await this.sessionManager.appendMessage(
-      this.ctx.sessionId!!,
+      this.ctx.sessionId!,
       userMsg,
       this.llmService
     );
@@ -561,7 +552,7 @@ export class XStateChatOrchestrator {
     if (generatedTitle) {
       this.hooks?.emit?.({
         kind: 'session_title_updated',
-        sessionId: this.ctx.sessionId!!,
+        sessionId: this.ctx.sessionId!,
         title: generatedTitle,
       });
     }
