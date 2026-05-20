@@ -500,6 +500,7 @@ export function registerServiceLayerServices(
           c.resolve(tokens.AgentManager),
           c.resolve(tokens.ConfigurationStorage),
           c.resolve(tokens.PermissionStorage),
+          new GovernanceService(c.resolve(tokens.AgentManager), c.resolve(tokens.QuestionService)),
           c.resolve(tokens.FileTreeService)
         )
       )

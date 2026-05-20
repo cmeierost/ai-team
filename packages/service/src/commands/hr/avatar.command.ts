@@ -93,21 +93,19 @@ export class AvatarCommand implements ICommand<Params, void> {
         source.modelName = aiConfig.modelName;
         source.prompt = aiConfig.prompt;
       } else if (sourceType === 'custom') {
-        source.customUrl = await this.questionService.input(
-          {
-            message: 'Enter image URL:',
-            validate: (v: string) => {
-              const trimmed = v.trim();
-              if (!trimmed) return 'URL is required';
-              try {
-                new URL(trimmed);
-                return true;
-              } catch {
-                return 'Please enter a valid URL';
-              }
-            },
-          }
-        );
+        source.customUrl = await this.questionService.input({
+          message: 'Enter image URL:',
+          validate: (v: string) => {
+            const trimmed = v.trim();
+            if (!trimmed) return 'URL is required';
+            try {
+              new URL(trimmed);
+              return true;
+            } catch {
+              return 'Please enter a valid URL';
+            }
+          },
+        });
       }
 
       const approved = await this.previewAndApproveLoop(
@@ -168,12 +166,10 @@ export class AvatarCommand implements ICommand<Params, void> {
 
     if (choices.length === 0) return null;
 
-    return (await this.questionService.select(
-      {
-        message: 'Avatar source:',
-        choices,
-      }
-    )) as AvatarSource['type'];
+    return (await this.questionService.select({
+      message: 'Avatar source:',
+      choices,
+    })) as AvatarSource['type'];
   }
 
   private async askRandomUrl(randomUrls: string[], context: ExecutionContext): Promise<number> {
@@ -185,12 +181,10 @@ export class AvatarCommand implements ICommand<Params, void> {
       return { name: `${domain} - ${url}`, value: String(index) };
     });
 
-    const selected = await this.questionService.select(
-      {
-        message: 'Select random avatar source:',
-        choices,
-      }
-    );
+    const selected = await this.questionService.select({
+      message: 'Select random avatar source:',
+      choices,
+    });
 
     return Number.parseInt(selected, 10);
   }
@@ -213,12 +207,10 @@ export class AvatarCommand implements ICommand<Params, void> {
         value: name,
       }));
 
-      const selectedName = await this.questionService.select(
-        {
-          message: 'Select image generation provider:',
-          choices,
-        }
-      );
+      const selectedName = await this.questionService.select({
+        message: 'Select image generation provider:',
+        choices,
+      });
 
       selectedProvider = imageCapableProviders.find(([name]) => name === selectedName)!;
     } else {
@@ -235,12 +227,10 @@ export class AvatarCommand implements ICommand<Params, void> {
         value: key,
       }));
 
-      const selectedKey = await this.questionService.select(
-        {
-          message: 'Select image model:',
-          choices,
-        }
-      );
+      const selectedKey = await this.questionService.select({
+        message: 'Select image model:',
+        choices,
+      });
 
       selectedModelName = imageModels[selectedKey];
     } else {
@@ -250,11 +240,9 @@ export class AvatarCommand implements ICommand<Params, void> {
     const defaultPrompt = this.avatarManager.buildAvatarPrompt(agent);
     this.emitLog(context, `Default prompt: ${defaultPrompt}`);
 
-    const promptValue = await this.questionService.input(
-      {
-        message: 'Avatar generation prompt (press Enter to use default):',
-      }
-    );
+    const promptValue = await this.questionService.input({
+      message: 'Avatar generation prompt (press Enter to use default):',
+    });
 
     return {
       provider: selectedProvider,
@@ -298,12 +286,10 @@ export class AvatarCommand implements ICommand<Params, void> {
           imageBase64,
         });
 
-        const approved = await this.questionService.confirm(
-          {
-            message: 'Do you like this avatar?',
-            default: true,
-          }
-        );
+        const approved = await this.questionService.confirm({
+          message: 'Do you like this avatar?',
+          default: true,
+        });
 
         if (approved) return true;
 
@@ -313,12 +299,10 @@ export class AvatarCommand implements ICommand<Params, void> {
         this.emitLog(context, `✗ Error generating avatar: ${(error as Error).message}`, 'error');
         await this.avatarManager.cleanupPreview(agent.id, workspaceRoot);
 
-        const retry = await this.questionService.confirm(
-          {
-            message: 'Try again?',
-            default: true,
-          }
-        );
+        const retry = await this.questionService.confirm({
+          message: 'Try again?',
+          default: true,
+        });
 
         if (!retry) return false;
       }

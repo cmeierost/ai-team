@@ -460,7 +460,10 @@ async function askOpenAiCompatibleSetupAsync(
   ctx: ExecutionContext,
   environmentStorage: IEnvironmentStorage
 ): Promise<ProviderSetupResult> {
-  const preset = await questionService.select({ message: 'Which service?', choices: PRESET_CHOICES });
+  const preset = await questionService.select({
+    message: 'Which service?',
+    choices: PRESET_CHOICES,
+  });
   const presetInfo = PRESETS[preset];
 
   let baseUrl: string;
@@ -488,7 +491,10 @@ async function askOpenAiCompatibleSetupAsync(
     modelChoices.push({ name: 'Other (type manually)', value: '__custom__' });
   }
 
-  const modelChoice = await questionService.select({ message: 'Which model?', choices: modelChoices });
+  const modelChoice = await questionService.select({
+    message: 'Which model?',
+    choices: modelChoices,
+  });
 
   const model =
     modelChoice === '__custom__'

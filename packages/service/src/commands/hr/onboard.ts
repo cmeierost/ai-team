@@ -46,9 +46,7 @@ import {
   renderTemplate,
   parseTemplateBulletList,
 } from '../init/template-utils.js';
-import {
-  type InitRuntimeHooks,
-} from '../init/workflow-questions.js';
+import { type InitRuntimeHooks } from '../init/workflow-questions.js';
 import type { IQuestionService } from '../../questions/question-service.js';
 
 function requestSelect(
@@ -664,11 +662,11 @@ export class OnboardCommand {
     await cmd.execute(workspaceRoot, agentId, options, {
       signal: hooks?.signal,
       emit: hooks?.emit,
-       input: hooks?.input,
-       confirm: hooks?.confirm,
-       select: hooks?.select,
-       password: hooks?.password,
-       checklist: hooks?.checklist,
+      input: hooks?.input,
+      confirm: hooks?.confirm,
+      select: hooks?.select,
+      password: hooks?.password,
+      checklist: hooks?.checklist,
     });
   }
 
