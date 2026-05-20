@@ -100,319 +100,325 @@ describe('ChatOrchestrator regex tool intents', () => {
     vi.clearAllMocks();
   });
 
-    it('runs fs_tree before LLM for file-visibility requests', async () => {
-      const ctx = makeContext();
-      const plugins = makePlugins();
-      const toolDispatcher = {
-        dispatch: vi.fn(async () => ({
-          toolCallId: 'regex-intent-test',
-          toolName: 'fs_tree',
-          result: { ok: true },
-          isError: false,
-        })),
-      } as any;
-      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-      const orchestrator = new XStateChatOrchestrator(
-        ctx,
-        plugins,
-        toolDispatcher,
-        handoffOrchestrator,
-        ctx.hooks as any,
-        ctx.agentManager as any,
-        ctx.sessionManager as any,
-        ctx.llmService as any,
-        serialization
-      );
+  it('runs fs_tree before LLM for file-visibility requests', async () => {
+    const ctx = makeContext();
+    const plugins = makePlugins();
+    const toolDispatcher = {
+      dispatch: vi.fn(async () => ({
+        toolCallId: 'regex-intent-test',
+        toolName: 'fs_tree',
+        result: { ok: true },
+        isError: false,
+      })),
+    } as any;
+    const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+    const orchestrator = new XStateChatOrchestrator(
+      ctx,
+      plugins,
+      toolDispatcher,
+      handoffOrchestrator,
+      ctx.hooks as any,
+      ctx.agentManager as any,
+      ctx.sessionManager as any,
+      ctx.llmService as any,
+      serialization
+    );
 
-      const result = await orchestrator.run({ message: 'show your visible file tree' });
+    const result = await orchestrator.run({ message: 'show your visible file tree' });
 
-      expect(result).toBe('llm-called');
-      expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          toolName: 'fs_tree',
-          args: { path: '.', maxDepth: 6, includeHidden: true },
-        }),
-        ctx,
-        undefined
-      );
-      expect(ctx.sessionManager.appendMessage).toHaveBeenCalledWith(
-        'sess-1',
-        expect.objectContaining({
-          from: 'human',
-          to: 'michael-brown',
-          isHuman: true,
-          content: 'show your visible file tree',
-        }),
-        ctx.llmService
-      );
-      expect(ctx.history).toContainEqual(
-        expect.objectContaining({
-          from: 'human',
-          to: 'michael-brown',
-          content: 'show your visible file tree',
-        })
-      );
-      expect(runSendTurnMachineAsync).toHaveBeenCalled();
+    expect(result).toBe('llm-called');
+    expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'fs_tree',
+        args: { path: '.', maxDepth: 6, includeHidden: true },
+      }),
+      ctx,
+      undefined
+    );
+    expect(ctx.sessionManager.appendMessage).toHaveBeenCalledWith(
+      'sess-1',
+      expect.objectContaining({
+        from: 'human',
+        to: 'michael-brown',
+        isHuman: true,
+        content: 'show your visible file tree',
+      }),
+      ctx.llmService
+    );
+    expect(ctx.history).toContainEqual(
+      expect.objectContaining({
+        from: 'human',
+        to: 'michael-brown',
+        content: 'show your visible file tree',
+      })
+    );
+    expect(runSendTurnMachineAsync).toHaveBeenCalled();
+  });
+
+  it('passes contextFiles to regex tool intents', async () => {
+    const ctx = makeContext();
+    const plugins = makePlugins();
+    const toolDispatcher = {
+      dispatch: vi.fn(async () => ({
+        toolCallId: 'regex-intent-test',
+        toolName: 'fs_tree',
+        result: { ok: true },
+        isError: false,
+      })),
+    } as any;
+    const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+    const orchestrator = new XStateChatOrchestrator(
+      ctx,
+      plugins,
+      toolDispatcher,
+      handoffOrchestrator,
+      ctx.hooks as any,
+      ctx.agentManager as any,
+      ctx.sessionManager as any,
+      ctx.llmService as any,
+      serialization
+    );
+
+    const result = await orchestrator.run({
+      message: 'show your visible file tree',
+      contextFiles: ['packages/service/src/orchestrator/xstate-chat-orchestrator.ts'],
     });
 
-    it('passes contextFiles to regex tool intents', async () => {
-      const ctx = makeContext();
-      const plugins = makePlugins();
-      const toolDispatcher = {
-        dispatch: vi.fn(async () => ({
-          toolCallId: 'regex-intent-test',
-          toolName: 'fs_tree',
-          result: { ok: true },
-          isError: false,
-        })),
-      } as any;
-      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-      const orchestrator = new XStateChatOrchestrator(
-        ctx,
-        plugins,
-        toolDispatcher,
-        handoffOrchestrator,
-        ctx.hooks as any,
-        ctx.agentManager as any,
-        ctx.sessionManager as any,
-        ctx.llmService as any,
-        serialization
-      );
+    expect(result).toBe('llm-called');
+    expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'fs_tree',
+        args: { path: '.', maxDepth: 6, includeHidden: true },
+      }),
+      ctx,
+      ['packages/service/src/orchestrator/xstate-chat-orchestrator.ts']
+    );
+    expect(runSendTurnMachineAsync).toHaveBeenCalled();
+  });
 
-      const result = await orchestrator.run({
-        message: 'show your visible file tree',
-        contextFiles: ['packages/service/src/orchestrator/xstate-chat-orchestrator.ts'],
-      });
-
-      expect(result).toBe('llm-called');
-      expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          toolName: 'fs_tree',
-          args: { path: '.', maxDepth: 6, includeHidden: true },
-        }),
-        ctx,
-        ['packages/service/src/orchestrator/xstate-chat-orchestrator.ts']
-      );
-      expect(runSendTurnMachineAsync).toHaveBeenCalled();
-    });
-
-    it('runs tool_list before LLM for tool-capability requests', async () => {
-      const ctx = makeContext();
-      const plugins = makePlugins();
-      const toolDispatcher = {
-        dispatch: vi.fn(async () => ({
-          toolCallId: 'regex-intent-test',
-          toolName: 'tool_list',
-          result: { ok: true },
-          isError: false,
-        })),
-      } as any;
-      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-      const orchestrator = new XStateChatOrchestrator(
-        ctx,
-        plugins,
-        toolDispatcher,
-        handoffOrchestrator,
-        ctx.hooks as any,
-        ctx.agentManager as any,
-        ctx.sessionManager as any,
-        ctx.llmService as any,
-        serialization
-      );
-
-      const result = await orchestrator.run({ message: 'what tools can you use?' });
-
-      expect(result).toBe('llm-called');
-      expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          toolName: 'tool_list',
-          args: {},
-        }),
-        ctx,
-        undefined
-      );
-      expect(runSendTurnMachineAsync).toHaveBeenCalled();
-    });
-
-    it('falls through to LLM turn when no regex intent matches', async () => {
-      const ctx = makeContext();
-      const plugins = makePlugins();
-      const toolDispatcher = { dispatch: vi.fn(async () => ({
+  it('runs tool_list before LLM for tool-capability requests', async () => {
+    const ctx = makeContext();
+    const plugins = makePlugins();
+    const toolDispatcher = {
+      dispatch: vi.fn(async () => ({
         toolCallId: 'regex-intent-test',
         toolName: 'tool_list',
         result: { ok: true },
         isError: false,
-      })) } as any;
-      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-      const orchestrator = new XStateChatOrchestrator(
-        ctx,
-        plugins,
-        toolDispatcher,
-        handoffOrchestrator,
-        ctx.hooks as any,
-        ctx.agentManager as any,
-        ctx.sessionManager as any,
-        ctx.llmService as any,
-        serialization
-      );
+      })),
+    } as any;
+    const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+    const orchestrator = new XStateChatOrchestrator(
+      ctx,
+      plugins,
+      toolDispatcher,
+      handoffOrchestrator,
+      ctx.hooks as any,
+      ctx.agentManager as any,
+      ctx.sessionManager as any,
+      ctx.llmService as any,
+      serialization
+    );
 
-      const result = await orchestrator.run({ message: 'help me refactor this module' });
+    const result = await orchestrator.run({ message: 'what tools can you use?' });
 
-      expect(result).toBe('llm-called');
-      expect(runSendTurnMachineAsync).toHaveBeenCalled();
-    });
+    expect(result).toBe('llm-called');
+    expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'tool_list',
+        args: {},
+      }),
+      ctx,
+      undefined
+    );
+    expect(runSendTurnMachineAsync).toHaveBeenCalled();
+  });
 
-    it('runs team_list before LLM for employee-list questions', async () => {
-      const ctx = makeContext();
-      const plugins = makePlugins();
-      const toolDispatcher = { dispatch: vi.fn(async () => ({
+  it('falls through to LLM turn when no regex intent matches', async () => {
+    const ctx = makeContext();
+    const plugins = makePlugins();
+    const toolDispatcher = {
+      dispatch: vi.fn(async () => ({
+        toolCallId: 'regex-intent-test',
+        toolName: 'tool_list',
+        result: { ok: true },
+        isError: false,
+      })),
+    } as any;
+    const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+    const orchestrator = new XStateChatOrchestrator(
+      ctx,
+      plugins,
+      toolDispatcher,
+      handoffOrchestrator,
+      ctx.hooks as any,
+      ctx.agentManager as any,
+      ctx.sessionManager as any,
+      ctx.llmService as any,
+      serialization
+    );
+
+    const result = await orchestrator.run({ message: 'help me refactor this module' });
+
+    expect(result).toBe('llm-called');
+    expect(runSendTurnMachineAsync).toHaveBeenCalled();
+  });
+
+  it('runs team_list before LLM for employee-list questions', async () => {
+    const ctx = makeContext();
+    const plugins = makePlugins();
+    const toolDispatcher = {
+      dispatch: vi.fn(async () => ({
         toolCallId: 'regex-intent-test',
         toolName: 'team_list',
         result: { ok: true },
         isError: false,
-      })) } as any;
-      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-      const orchestrator = new XStateChatOrchestrator(
-        ctx,
-        plugins,
-        toolDispatcher,
-        handoffOrchestrator,
-        ctx.hooks as any,
-        ctx.agentManager as any,
-        ctx.sessionManager as any,
-        ctx.llmService as any,
-        serialization
-      );
+      })),
+    } as any;
+    const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+    const orchestrator = new XStateChatOrchestrator(
+      ctx,
+      plugins,
+      toolDispatcher,
+      handoffOrchestrator,
+      ctx.hooks as any,
+      ctx.agentManager as any,
+      ctx.sessionManager as any,
+      ctx.llmService as any,
+      serialization
+    );
 
-      const result = await orchestrator.run({ message: 'what employees do we have?' });
+    const result = await orchestrator.run({ message: 'what employees do we have?' });
 
-      expect(result).toBe('llm-called');
-      expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          toolName: 'team_list',
-          args: {},
-        }),
-        ctx,
-        undefined
-      );
-      expect(runSendTurnMachineAsync).toHaveBeenCalled();
-    });
+    expect(result).toBe('llm-called');
+    expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'team_list',
+        args: {},
+      }),
+      ctx,
+      undefined
+    );
+    expect(runSendTurnMachineAsync).toHaveBeenCalled();
+  });
 
-    it('matches team roster phrasing variants', async () => {
-      const ctx = makeContext();
-      const plugins = makePlugins();
-      const toolDispatcher = { dispatch: vi.fn(async () => ({
+  it('matches team roster phrasing variants', async () => {
+    const ctx = makeContext();
+    const plugins = makePlugins();
+    const toolDispatcher = {
+      dispatch: vi.fn(async () => ({
         toolCallId: 'regex-intent-test',
         toolName: 'team_list',
         result: { ok: true },
         isError: false,
-      })) } as any;
-      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-      const orchestrator = new XStateChatOrchestrator(
-        ctx,
-        plugins,
-        toolDispatcher,
-        handoffOrchestrator,
-        ctx.hooks as any,
-        ctx.agentManager as any,
-        ctx.sessionManager as any,
-        ctx.llmService as any,
-        serialization
-      );
+      })),
+    } as any;
+    const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+    const orchestrator = new XStateChatOrchestrator(
+      ctx,
+      plugins,
+      toolDispatcher,
+      handoffOrchestrator,
+      ctx.hooks as any,
+      ctx.agentManager as any,
+      ctx.sessionManager as any,
+      ctx.llmService as any,
+      serialization
+    );
 
-      const result = await orchestrator.run({ message: 'who is on the team?' });
+    const result = await orchestrator.run({ message: 'who is on the team?' });
 
-      expect(result).toBe('llm-called');
-      expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          toolName: 'team_list',
-          args: {},
-        }),
-        ctx,
-        undefined
-      );
-      expect(runSendTurnMachineAsync).toHaveBeenCalled();
-    });
+    expect(result).toBe('llm-called');
+    expect(toolDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'team_list',
+        args: {},
+      }),
+      ctx,
+      undefined
+    );
+    expect(runSendTurnMachineAsync).toHaveBeenCalled();
+  });
 
-    it('asks for confirmation before pre-LLM tool execution when score is below 100%', async () => {
-      const ctx = makeContext();
-      (ctx.toolManager as any).getForAgent = vi.fn(() => [
-        {
-          key: 'tree',
-          group: 'fs',
-          scorePreLlmIntent: () => ({
-            kind: 'tool',
-            toolName: 'fs_tree',
-            args: { path: '.', maxDepth: 6, includeHidden: false },
-            score: 82,
-            clarification: {
-              ask: {
-                kind: 'select',
-                message: 'Choose depth',
-                choices: [
-                  { name: 'Quick', value: 'quick' },
-                  { name: 'Deep', value: 'deep' },
-                ],
-                defaultText: 'quick',
-              },
-              resolveArgs(answer: unknown) {
-                return {
-                  path: '.',
-                  maxDepth: answer === 'deep' ? 10 : 3,
-                  includeHidden: false,
-                };
-              },
-            },
-          }),
-        },
-      ]);
-
-      const toolDispatcher = { dispatch: vi.fn() } as any;
-      toolDispatcher.dispatch
-        .mockImplementationOnce(async () => ({
-          toolCallId: 'pre-llm-intent-ask-1',
-          toolName: 'com_ask',
-          result: { answer: true },
-          isError: false,
-        }))
-        .mockImplementationOnce(async () => ({
-          toolCallId: 'pre-llm-intent-2',
-          toolName: 'fs_tree',
-          result: { ok: true },
-          isError: false,
-        }));
-
-      const plugins = makePlugins();
-      const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-      const orchestrator = new XStateChatOrchestrator(
-        ctx,
-        plugins,
-        toolDispatcher,
-        handoffOrchestrator,
-        ctx.hooks as any,
-        ctx.agentManager as any,
-        ctx.sessionManager as any,
-        ctx.llmService as any,
-        serialization
-      );
-      const result = await orchestrator.run({ message: 'show structure please' });
-
-      expect(result).toBe('llm-called');
-      expect(toolDispatcher.dispatch).toHaveBeenNthCalledWith(
-        1,
-        expect.objectContaining({ toolName: 'com_ask' }),
-        ctx,
-        undefined
-      );
-      expect(toolDispatcher.dispatch).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({
+  it('asks for confirmation before pre-LLM tool execution when score is below 100%', async () => {
+    const ctx = makeContext();
+    (ctx.toolManager as any).getForAgent = vi.fn(() => [
+      {
+        key: 'tree',
+        group: 'fs',
+        scorePreLlmIntent: () => ({
+          kind: 'tool',
           toolName: 'fs_tree',
           args: { path: '.', maxDepth: 6, includeHidden: false },
+          score: 82,
+          clarification: {
+            ask: {
+              kind: 'select',
+              message: 'Choose depth',
+              choices: [
+                { name: 'Quick', value: 'quick' },
+                { name: 'Deep', value: 'deep' },
+              ],
+              defaultText: 'quick',
+            },
+            resolveArgs(answer: unknown) {
+              return {
+                path: '.',
+                maxDepth: answer === 'deep' ? 10 : 3,
+                includeHidden: false,
+              };
+            },
+          },
         }),
-        ctx,
-        undefined
-      );
-      expect(runSendTurnMachineAsync).toHaveBeenCalled();
-    });
+      },
+    ]);
+
+    const toolDispatcher = { dispatch: vi.fn() } as any;
+    toolDispatcher.dispatch
+      .mockImplementationOnce(async () => ({
+        toolCallId: 'pre-llm-intent-ask-1',
+        toolName: 'com_ask',
+        result: { answer: true },
+        isError: false,
+      }))
+      .mockImplementationOnce(async () => ({
+        toolCallId: 'pre-llm-intent-2',
+        toolName: 'fs_tree',
+        result: { ok: true },
+        isError: false,
+      }));
+
+    const plugins = makePlugins();
+    const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
+    const orchestrator = new XStateChatOrchestrator(
+      ctx,
+      plugins,
+      toolDispatcher,
+      handoffOrchestrator,
+      ctx.hooks as any,
+      ctx.agentManager as any,
+      ctx.sessionManager as any,
+      ctx.llmService as any,
+      serialization
+    );
+    const result = await orchestrator.run({ message: 'show structure please' });
+
+    expect(result).toBe('llm-called');
+    expect(toolDispatcher.dispatch).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ toolName: 'com_ask' }),
+      ctx,
+      undefined
+    );
+    expect(toolDispatcher.dispatch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        toolName: 'fs_tree',
+        args: { path: '.', maxDepth: 6, includeHidden: false },
+      }),
+      ctx,
+      undefined
+    );
+    expect(runSendTurnMachineAsync).toHaveBeenCalled();
+  });
 });

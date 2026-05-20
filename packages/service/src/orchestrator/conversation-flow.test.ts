@@ -61,7 +61,12 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
     questionPassword: vi.fn(async () => ''),
     questionChecklist: vi.fn(async () => []),
   });
-  const toolDispatcher = new ToolDispatcher(toolManager, ctx.sessionManager, support, questionService);
+  const toolDispatcher = new ToolDispatcher(
+    toolManager,
+    ctx.sessionManager,
+    support,
+    questionService
+  );
   const handoffOrchestrator = new HandoffOrchestrator(
     ctx.agentManager,
     ctx.sessionManager,

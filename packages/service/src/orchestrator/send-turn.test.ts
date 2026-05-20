@@ -703,5 +703,4 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
     expect(toSchema).toHaveBeenNthCalledWith(1, 'fs_read');
     expect(toSchema).toHaveBeenNthCalledWith(2, 'fs_apply_patch');
   });
-
 });

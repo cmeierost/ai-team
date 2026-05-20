@@ -280,8 +280,7 @@ describe('dispatchToolCall denial metadata', () => {
     } as any;
 
     const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
-    const ctx = makeContext({
-    });
+    const ctx = makeContext({});
     const emit = vi.fn();
     const { emitService } = createEmitService(emit);
     const questionService = new InteractionQuestionService({
@@ -597,10 +596,7 @@ describe('code_edit_proposal emission', () => {
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
     await emitService.runWithEmitter(emit, () =>
-      dispatcher.dispatch(
-        { toolCallId: 'tc-write-file', toolName: 'fs_write_file', args: {} },
-        ctx
-      )
+      dispatcher.dispatch({ toolCallId: 'tc-write-file', toolName: 'fs_write_file', args: {} }, ctx)
     );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
     const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
@@ -674,10 +670,7 @@ describe('code_edit_proposal emission', () => {
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
     await emitService.runWithEmitter(emit, () =>
-      dispatcher.dispatch(
-        { toolCallId: 'tc-diff-multi', toolName: 'multiedit', args: {} },
-        ctx
-      )
+      dispatcher.dispatch({ toolCallId: 'tc-diff-multi', toolName: 'multiedit', args: {} }, ctx)
     );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
     const proposal = events.find((e: any) => e.kind === 'code_edit_proposal');
