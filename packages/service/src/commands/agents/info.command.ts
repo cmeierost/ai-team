@@ -69,12 +69,10 @@ export class InfoChatCommand implements ICommand<string, Agent[]> {
       };
     }
 
-    const chosen = await this.questionService.questionSelect(
-      {
-        message: `Multiple agents match "${query}". Which one?`,
-        choices: agents.map((a) => ({ name: `${a.name} — ${a.role} [${a.id}]`, value: a.id })),
-      },
-    );
+    const chosen = await this.questionService.questionSelect({
+      message: `Multiple agents match "${query}". Which one?`,
+      choices: agents.map((a) => ({ name: `${a.name} — ${a.role} [${a.id}]`, value: a.id })),
+    });
     const selected = await this.agentManager.getAgentAsync(chosen);
     if (!selected) {
       return { status: 'error', message: 'Could not resolve selected agent.' };

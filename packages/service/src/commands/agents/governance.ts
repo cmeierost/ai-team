@@ -77,9 +77,9 @@ export class GovernanceService {
     const explicit = requestedBy?.trim();
     if (explicit) return explicit;
 
-    const response = await this.questionService.questionInput(
-      { message: 'Requested by (must be CEO/HR):' }
-    );
+    const response = await this.questionService.questionInput({
+      message: 'Requested by (must be CEO/HR):',
+    });
     if (response.trim()) return response.trim();
 
     throw new Error(errorMessage);

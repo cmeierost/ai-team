@@ -36,9 +36,9 @@ export class CodeEditRejectCommand implements ICommand<RejectParams, { proposalI
 
     let reason = payload.reason;
     if (!reason) {
-      reason = await this.questionService.questionInput(
-        { message: 'Reason for rejection (optional):' }
-      );
+      reason = await this.questionService.questionInput({
+        message: 'Reason for rejection (optional):',
+      });
     }
 
     this.manager.rejectProposal(payload.proposalId, reason || 'Rejected by user');

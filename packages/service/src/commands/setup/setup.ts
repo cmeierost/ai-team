@@ -202,9 +202,10 @@ export class SetupCommand {
           ? 'GitHub Copilot'
           : `OpenAI-compatible (${existingResolvedLlm.config.baseUrl ?? 'custom base URL'})`;
       this.writeLine(context, `LLM already configured: ${providerLabel}`);
-      const reconfigure = await this.questionService.questionConfirm(
-        { message: 'Reconfigure LLM connection?', default: false }
-      );
+      const reconfigure = await this.questionService.questionConfirm({
+        message: 'Reconfigure LLM connection?',
+        default: false,
+      });
       if (!reconfigure) {
         this.writeLine(context, 'Keeping existing LLM configuration.');
         return { llmConfig: existingResolvedLlm.config, reusedExistingLlm: true };
@@ -235,9 +236,10 @@ export class SetupCommand {
       ? ` [${existingResolvedLlm.providerRef}]`
       : '';
     this.writeLine(context, `  Current LLM: ${providerLabel}${providerRefSuffix}`);
-    const reuse = await this.questionService.questionConfirm(
-      { message: 'Reuse existing default LLM connection?', default: true }
-    );
+    const reuse = await this.questionService.questionConfirm({
+      message: 'Reuse existing default LLM connection?',
+      default: true,
+    });
     if (!reuse) {
       const llmConfig = await askLlmSetup(
         this.buildLlmSettingsIo(context),

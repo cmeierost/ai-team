@@ -57,7 +57,9 @@ export class ChatICommand implements ICommand<Params, void> {
       questionSelect: (request) => this.questionService.questionSelect(request),
       questionPassword: (request) => this.questionService.questionPassword(request),
       questionChecklist: (request) => this.questionService.questionChecklist(request),
-      workflowState: ctx.workflowState as import('@ai-team/api-contracts').WorkflowStateSnapshot | undefined,
+      workflowState: ctx.workflowState as
+        | import('@ai-team/api-contracts').WorkflowStateSnapshot
+        | undefined,
       onWorkflowFrame: ctx.onWorkflowFrame,
     };
 
