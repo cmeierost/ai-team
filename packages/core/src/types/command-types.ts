@@ -179,16 +179,20 @@ export type CommandResponse<T = unknown> = {
 // ── ICommandDescriptor ────────────────────────────────────────────────────────
 
 /**
- * Shared metadata surface carried by every command and workflow definition.
+ * Complete static metadata for a command or workflow definition.
  *
- * `description` and `availableIn` are required — every discoverable capability
- * must be described and declare where it is exposed.
+ * This is the shape carried by every `CommandName.metadata` const and by
+ * non-command concepts (e.g. WorkflowDefinition) that participate in
+ * registration and discovery surfaces.
  *
- * Extend this interface rather than duplicating fields when a non-command concept
- * (e.g. WorkflowDefinition) needs to be registered as a command or participate
- * in discovery surfaces.
+ * `key`, `description`, and `availableIn` are required.
  */
-export interface ICommandDescriptor<TParams = unknown, TResult = unknown> {
+export interface ICommandDescriptor<TParams = unknown> {
+  /** Canonical dispatch key (e.g. "ask", "files-tree"). */
+  readonly key: string;
+  /** Optional alternative keys that resolve to this command. */
+  readonly aliases?: string[];
+
   /** Human-readable description. Shown in /help, --help, and discovery surfaces. */
   readonly description: string;
 
@@ -239,12 +243,6 @@ export interface ICommandDescriptor<TParams = unknown, TResult = unknown> {
   readonly intents?: string[];
   /** Optional lexical intent examples for routing/intent detection. */
   readonly intentExamples?: string[];
-
-  /**
-   * Optional transformer applied to the raw result before it is sent to the LLM.
-   * When defined, the LLM receives the formatted value; the raw result is still persisted.
-   */
-  formatForLlm?(result: TResult): unknown;
 }
 
 // ── ICommand ──────────────────────────────────────────────────────────────────
@@ -252,31 +250,31 @@ export interface ICommandDescriptor<TParams = unknown, TResult = unknown> {
 /**
  * The single primitive for every callable capability in the system.
  *
- * Extends `ICommandDescriptor` with the execution contract (`key` + `execute`).
+ * `ICommand` is the runtime contract. Static metadata lives on `metadata`
+ * (typed as `ICommandDescriptor`) and is separate from execution concerns.
  *
- * `availableIn` flags are the only thing that determines where it is exposed:
+ * `availableIn` flags on `metadata` are the only thing that determines where
+ * a command is exposed:
  *   - `availableIn.cli`  → CLI subcommand
  *   - `availableIn.chat` → chat slash command (/ prefix in interactive sessions)
  *   - `availableIn.cliChat` → chat slash command available only in CLI sessions
- *   - `availableIn.llm`  → LLM-callable tool (requires `parameters`)
- *
- * Generics:
- *   - TParams  — typed input arguments (unknown by default)
- *   - TResult  — return type (must always be specified explicitly)
+ *   - `availableIn.tool` → LLM-callable tool (requires `parameters`)
  *
  * Services are injected via constructor. `execute` receives only typed params
  * and the serializable context.
  */
-export interface ICommand<TParams = unknown, TResult = unknown>
-  extends ICommandDescriptor<TParams, TResult> {
-  readonly key: string;
+export interface ICommand<TParams = unknown, TResult = unknown> {
+  readonly metadata: ICommandDescriptor<TParams>;
   /**
    * Optional pre-LLM intent matcher for text-triggered routing.
    * When absent, the runtime falls back to explicit tool/function calls.
    */
   matchesIntent?: ToolIntentMatcher;
-  readonly aliases?: string[];
-
+  /**
+   * Optional transformer applied to the raw result before it is sent to the LLM.
+   * When defined, the LLM receives the formatted value; the raw result is still persisted.
+   */
+  formatForLlm?(result: TResult): unknown;
   // ── Execution ────────────────────────────────────────────────────────────────
   execute(params: TParams, ctx: ExecutionContext): Promise<CommandResponse<TResult>>;
 }

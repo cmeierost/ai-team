@@ -67,7 +67,7 @@ export class InquirerQuestionService implements IQuestionService {
       );
   }
 
-  async input(request: QuestionInputRequest): Promise<string> {
+  async questionInput(request: QuestionInputRequest): Promise<string> {
     const answer = await inquirer.prompt<{ value: string }>([
       {
         type: 'input',
@@ -79,7 +79,7 @@ export class InquirerQuestionService implements IQuestionService {
     return answer.value;
   }
 
-  async confirm(request: QuestionConfirmRequest): Promise<boolean> {
+  async questionConfirm(request: QuestionConfirmRequest): Promise<boolean> {
     const answer = await inquirer.prompt<{ value: boolean }>([
       {
         type: 'confirm',
@@ -91,7 +91,7 @@ export class InquirerQuestionService implements IQuestionService {
     return answer.value;
   }
 
-  async select(request: QuestionSelectRequest): Promise<string> {
+  async questionSelect(request: QuestionSelectRequest): Promise<string> {
     const choices = this.normalizeSelectChoices(request.choices as unknown);
     if (choices.length === 0) {
       throw new Error('Select question has no valid choices.');
@@ -110,7 +110,7 @@ export class InquirerQuestionService implements IQuestionService {
     return answer.value;
   }
 
-  async password(request: QuestionPasswordRequest): Promise<string> {
+  async questionPassword(request: QuestionPasswordRequest): Promise<string> {
     const answer = await inquirer.prompt<{ value: string }>([
       {
         type: 'password',
@@ -122,7 +122,7 @@ export class InquirerQuestionService implements IQuestionService {
     return answer.value;
   }
 
-  async checklist(request: QuestionChecklistRequest): Promise<string[]> {
+  async questionChecklist(request: QuestionChecklistRequest): Promise<string[]> {
     const defaultValues = Array.isArray(request.default)
       ? request.default.filter(
           (value): value is string => typeof value === 'string' && value.trim().length > 0
@@ -139,4 +139,8 @@ export class InquirerQuestionService implements IQuestionService {
     ]);
     return answer.value;
   }
+}
+
+export function createQuestionResponders(): IQuestionService {
+  return new InquirerQuestionService();
 }

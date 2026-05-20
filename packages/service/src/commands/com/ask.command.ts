@@ -147,7 +147,7 @@ export class AskUserCommand implements ICommand<Params, AskUserResult> {
   private async executeConfirmAsk(params: AskUserParams): Promise<AskUserResult> {
     const { message, defaultBoolean, workflow } = params;
     const suffix = defaultBoolean ? '[Y/n]' : '[y/N]';
-    const answer = await this.questionService.confirm({
+    const answer = await this.questionService.questionConfirm({
       message: `${message} ${suffix}`,
       default: defaultBoolean,
     });
@@ -157,7 +157,7 @@ export class AskUserCommand implements ICommand<Params, AskUserResult> {
   private async executeSelectAsk(params: AskUserParams): Promise<AskUserResult> {
     const { message, defaultText, choices, workflow, allowOther, otherLabel, otherPrompt } = params;
     const options = AskUserCommand.ensureChoices('select', choices);
-    const answer = await this.questionService.select({
+    const answer = await this.questionService.questionSelect({
       message,
       choices: options,
       default: defaultText,
@@ -170,7 +170,7 @@ export class AskUserCommand implements ICommand<Params, AskUserResult> {
 
   private async executePasswordAsk(params: AskUserParams): Promise<AskUserResult> {
     const { message, mask, workflow } = params;
-    const answer = await this.questionService.password({ message, mask });
+    const answer = await this.questionService.questionPassword({ message, mask });
     return AskUserCommand.makeResult('password', answer, workflow);
   }
 
@@ -187,7 +187,7 @@ export class AskUserCommand implements ICommand<Params, AskUserResult> {
       otherPrompt,
     } = params;
     const options = AskUserCommand.ensureChoices('checklist', choices);
-    const answer = await this.questionService.checklist({
+    const answer = await this.questionService.questionChecklist({
       message,
       choices: options,
       default: defaultChecklist,
@@ -203,7 +203,7 @@ export class AskUserCommand implements ICommand<Params, AskUserResult> {
   private async executeInputAsk(params: AskUserParams): Promise<AskUserResult> {
     const { message, defaultText, workflow } = params;
     const prompt = defaultText ? `${message} (default: ${defaultText})` : message;
-    const answer = await this.questionService.input({ message: prompt });
+    const answer = await this.questionService.questionInput({ message: prompt });
     return AskUserCommand.makeResult('input', answer, workflow);
   }
 

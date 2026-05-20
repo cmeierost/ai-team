@@ -29,7 +29,7 @@ describe('workflow questions ask-tool bridge', () => {
       expect(params.kind).toBe('input');
       expect(params.message).toBe('Original message');
 
-      const answer = await questionService.input({ message: 'Tool-adjusted prompt' }, {} as any);
+      const answer = await questionService.questionInput({ message: 'Tool-adjusted prompt' });
       return {
         status: 'ok',
         data: {

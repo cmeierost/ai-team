@@ -13,6 +13,8 @@
 
 import { z } from 'zod';
 import type { ExecutionContext } from '@ai-team/core';
+import type { IQuestionService } from '../questions/question-service.js';
+import { WorkflowAbortError } from './types.js';
 import type { IWorkflowRunnerFactory } from './runner.js';
 import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
 
@@ -100,7 +102,8 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
 
   constructor(
     private readonly definition: JsonWorkflow,
-    private readonly runnerFactory: IWorkflowRunnerFactory
+    private readonly runnerFactory: IWorkflowRunnerFactory,
+    private readonly questionService: IQuestionService
   ) {
     this.key = definition.id;
     this.name = definition.name;
@@ -141,49 +144,46 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
     for (const step of def.steps) {
       if (step.kind === 'input') {
         const { id, message, storeAs } = step;
+        const qs = this.questionService;
         runtimeSteps.push({
           id,
-          kind: 'input',
-          message,
-          applyAnswer: (state, answer) => ({
-            ...state,
-            answers: { ...state.answers, [storeAs]: answer },
-          }),
+          execute: async (state: WorkflowState) => {
+            const answer = await qs.questionInput({ message });
+            return { ...state, answers: { ...state.answers, [storeAs]: answer } };
+          },
         });
       } else if (step.kind === 'confirm') {
         const { id, message } = step;
+        const onDeclined = step.onDeclined;
+        const defaultVal = step.default;
+        const qs = this.questionService;
         runtimeSteps.push({
           id,
-          kind: 'confirm',
-          message,
-          default: step.default,
-          onDeclined: step.onDeclined,
+          execute: async (state: WorkflowState) => {
+            const ok = await qs.questionConfirm({ message, default: defaultVal });
+            if (!ok && onDeclined === 'abort') throw new WorkflowAbortError();
+            return state;
+          },
         });
       } else if (step.kind === 'select') {
         const { id, message, choices, storeAs } = step;
+        const qs = this.questionService;
         runtimeSteps.push({
           id,
-          kind: 'select',
-          message,
-          choices: () => choices,
-          applyAnswer: (state, answer) => ({
-            ...state,
-            answers: { ...state.answers, [storeAs]: answer },
-          }),
+          execute: async (state: WorkflowState) => {
+            const answer = await qs.questionSelect({ message, choices });
+            return { ...state, answers: { ...state.answers, [storeAs]: answer } };
+          },
         });
       } else if (step.kind === 'checklist') {
         const { id, message, choices, storeAs, minSelections, maxSelections } = step;
+        const qs = this.questionService;
         runtimeSteps.push({
           id,
-          kind: 'checklist',
-          message,
-          choices: () => choices,
-          minSelections,
-          maxSelections,
-          applyAnswer: (state, answer) => ({
-            ...state,
-            answers: { ...state.answers, [storeAs]: answer },
-          }),
+          execute: async (state: WorkflowState) => {
+            const answer = await qs.questionChecklist({ message, choices, minSelections, maxSelections });
+            return { ...state, answers: { ...state.answers, [storeAs]: answer } };
+          },
         });
       } else if (step.kind === 'llm-summarize') {
         const { id } = step;
@@ -191,8 +191,7 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
           step.prompt ?? 'Summarize the following answers in a fun and concise way:';
         runtimeSteps.push({
           id,
-          kind: 'action',
-          execute: async (state) => {
+          execute: async (state: WorkflowState) => {
             const answersText = Object.entries(state.answers)
               .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
               .join('\n');

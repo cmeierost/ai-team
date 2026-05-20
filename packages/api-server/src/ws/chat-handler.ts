@@ -1,13 +1,15 @@
 import type { WebSocket } from 'ws';
-import type { StreamEvent } from '@ai-team/api-contracts';
+import type {
+  StreamEvent,
+  QuestionInputRequest,
+  QuestionConfirmRequest,
+  QuestionSelectRequest,
+  QuestionPasswordRequest,
+  QuestionChecklistRequest,
+} from '@ai-team/api-contracts';
 import type { IAgentManager, IdeAdapter, IServiceContainer } from '@ai-team/core';
-import {
-  createIdeAdapter,
-} from '@ai-team/infrastructure';
-import {
-  SessionManager,
-  InteractionQuestionService,
-} from '@ai-team/service';
+import { createIdeAdapter } from '@ai-team/infrastructure';
+import { SessionManager, InteractionQuestionService } from '@ai-team/service';
 import { TOKENS } from '@ai-team/container';
 
 /**
@@ -145,7 +147,10 @@ export async function setupChatWebSocket(
   let agentId = agentQuery;
   if (agentManager) {
     try {
-      const resolved = await agentManager.resolveAgentForOperationAsync(agentQuery, 'WebSocket chat');
+      const resolved = await agentManager.resolveAgentForOperationAsync(
+        agentQuery,
+        'WebSocket chat'
+      );
       agentId = resolved.id;
     } catch (error) {
       // Send error and close connection
@@ -205,23 +210,26 @@ export async function setupChatWebSocket(
     });
   };
 
-  const createQuestionHandler = <TRequest extends object>(
+  const createQuestionHandler = <TRequest extends object, TResponse>(
     kind: 'confirm' | 'input' | 'select' | 'password' | 'checklist'
   ) => {
-    return async (request: TRequest): Promise<PendingAnswerValue> => {
+    return async (request: TRequest): Promise<TResponse> => {
       const questionId = `q${++questionCounter}`;
-      return askQuestion(questionId, { kind, ...(request as Record<string, unknown>) });
+      return askQuestion(questionId, {
+        kind,
+        ...(request as Record<string, unknown>),
+      }) as Promise<TResponse>;
     };
   };
 
   container.registerInstance(
     TOKENS.QuestionService,
     InteractionQuestionService({
-      input: createQuestionHandler('input') as (r: any, ctx: any) => Promise<string>,
-      confirm: createQuestionHandler('confirm') as (r: any, ctx: any) => Promise<boolean>,
-      select: createQuestionHandler('select') as (r: any, ctx: any) => Promise<string>,
-      password: createQuestionHandler('password') as (r: any, ctx: any) => Promise<string>,
-      checklist: createQuestionHandler('checklist') as (r: any, ctx: any) => Promise<string[]>,
+      questionInput: createQuestionHandler<QuestionInputRequest, string>('input'),
+      questionConfirm: createQuestionHandler<QuestionConfirmRequest, boolean>('confirm'),
+      questionSelect: createQuestionHandler<QuestionSelectRequest, string>('select'),
+      questionPassword: createQuestionHandler<QuestionPasswordRequest, string>('password'),
+      questionChecklist: createQuestionHandler<QuestionChecklistRequest, string[]>('checklist'),
     })
   );
   const interactionService = container.resolve(TOKENS.InteractionService);

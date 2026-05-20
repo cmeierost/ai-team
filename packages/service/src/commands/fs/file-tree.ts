@@ -15,17 +15,6 @@ import { type GovernanceRequest, GovernanceService } from '../agents/governance.
 
 export type PathMode = 'read' | 'write' | 'list';
 
-interface PermissionCommandOptions {
-  governanceService: GovernanceService;
-  workspaceRoot: string;
-  agentManager: IAgentManager;
-  permissionStorage: IPermissionStorage;
-  agentQuery: string;
-  filePath: string;
-  governance: GovernanceRequest;
-  mode?: PathMode;
-}
-
 const DEFAULT_CONFIG: TeamConfig = { version: '1', randomAvatarUrls: [] };
 
 export class FileTreeService {
@@ -43,20 +32,43 @@ export class FileTreeService {
     if (!this.fileTreeService) {
       throw new Error('File tree service is not available.');
     }
-    return getFileTreeCommand(
-      this.workspaceRoot,
-      this.configurationStorage,
-      this.fileTreeService,
-      options
+    const config = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
+    const allowPaths = Array.from(
+      new Set([...(config?.fileTree?.readPaths ?? []), ...(config?.fileTree?.writePaths ?? [])])
     );
+    return this.fileTreeService.getCachedFileTree(this.workspaceRoot, { ...options, allowPaths });
   }
 
   async allowPath(filePath: string, mode: PathMode): Promise<string[]> {
-    return allowPathCommand(this.workspaceRoot, this.configurationStorage, filePath, mode);
+    const config = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
+    const key = mode === 'write' ? 'writePaths' : 'readPaths';
+    const current: string[] = (config?.fileTree as any)?.[key] ?? [];
+
+    if (current.includes(filePath)) return current;
+
+    const next = [...current, filePath];
+    await this.configurationStorage.saveTeamConfigAsync(this.workspaceRoot, {
+      ...DEFAULT_CONFIG,
+      ...config,
+      fileTree: { readPaths: [], writePaths: [], ...config?.fileTree, [key]: next },
+    });
+    return next;
   }
 
   async disallowPath(filePath: string, mode: PathMode): Promise<string[]> {
-    return disallowPathCommand(this.workspaceRoot, this.configurationStorage, filePath, mode);
+    const config = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
+    const key = mode === 'write' ? 'writePaths' : 'readPaths';
+    const current: string[] = (config?.fileTree as any)?.[key] ?? [];
+    const next = current.filter((p) => p !== filePath);
+
+    if (next.length === current.length) return current;
+
+    await this.configurationStorage.saveTeamConfigAsync(this.workspaceRoot, {
+      ...DEFAULT_CONFIG,
+      ...config,
+      fileTree: { readPaths: [], writePaths: [], ...config?.fileTree, [key]: next },
+    });
+    return next;
   }
 
   async agentPermissionPath(
@@ -64,14 +76,15 @@ export class FileTreeService {
     filePath: string,
     mode: PathMode = 'read'
   ): Promise<AgentPathResult> {
-    return agentPermissionPathCommand(
-      this.workspaceRoot,
-      this.agentManager,
-      this.permissionStorage,
-      agentQuery,
-      filePath,
-      mode
-    );
+    const agent = await this.resolveOneAgent(agentQuery);
+    const permissionPatterns = await this.permissionStorage.loadAsync(agent.id);
+    const current = permissionPatterns[mode] ?? [];
+    const nextPatterns = current.includes(filePath)
+      ? permissionPatterns
+      : { ...permissionPatterns, [mode]: [...current, filePath] };
+    await this.permissionStorage.saveAsync(agent.id, nextPatterns);
+    const updated = await FileTreeService.syncAgentFrontmatterPermissions(agent);
+    return { agent: updated, paths: nextPatterns[mode] };
   }
 
   async permissionAllow(
@@ -80,16 +93,16 @@ export class FileTreeService {
     governance: GovernanceRequest,
     mode: PathMode = 'read'
   ): Promise<AgentPathResult> {
-    return permissionAllowCommand(
-      this.governanceService,
-      this.workspaceRoot,
-      this.agentManager,
-      this.permissionStorage,
-      agentQuery,
-      filePath,
-      governance,
-      mode
+    const actor = await this.governanceService.resolveGovernanceActor(
+      governance.requestedBy,
+      'access_allow'
     );
+    this.governanceService.assertDefaultGovernancePolicy(actor);
+    await this.governanceService.requireUserApproval(
+      governance,
+      `Approve access_allow by ${actor.name} (${actor.id}) for target agent '${agentQuery}', mode '${mode}', path '${filePath}'?`
+    );
+    return this.agentPermissionPath(agentQuery, filePath, mode);
   }
 
   async agentDisallowPath(
@@ -97,14 +110,15 @@ export class FileTreeService {
     filePath: string,
     mode: PathMode = 'read'
   ): Promise<AgentPathResult> {
-    return agentDisallowPathCommand(
-      this.workspaceRoot,
-      this.agentManager,
-      this.permissionStorage,
-      agentQuery,
-      filePath,
-      mode
-    );
+    const agent = await this.resolveOneAgent(agentQuery);
+    const accessPatterns = await this.permissionStorage.loadAsync(agent.id);
+    const current = accessPatterns[mode] ?? [];
+    const next = current.filter((p) => p !== filePath);
+    const nextPatterns =
+      next.length === current.length ? accessPatterns : { ...accessPatterns, [mode]: next };
+    await this.permissionStorage.saveAsync(agent.id, nextPatterns);
+    const updated = await FileTreeService.syncAgentFrontmatterPermissions(agent);
+    return { agent: updated, paths: nextPatterns[mode] };
   }
 
   async permissionDeny(
@@ -113,16 +127,16 @@ export class FileTreeService {
     governance: GovernanceRequest,
     mode: PathMode = 'read'
   ): Promise<AgentPathResult> {
-    return permissionDenyCommand(
-      this.governanceService,
-      this.workspaceRoot,
-      this.agentManager,
-      this.permissionStorage,
-      agentQuery,
-      filePath,
-      governance,
-      mode
+    const actor = await this.governanceService.resolveGovernanceActor(
+      governance.requestedBy,
+      'access_deny'
     );
+    this.governanceService.assertDefaultGovernancePolicy(actor);
+    await this.governanceService.requireUserApproval(
+      governance,
+      `Approve access_deny by ${actor.name} (${actor.id}) for target agent '${agentQuery}', mode '${mode}', path '${filePath}'?`
+    );
+    return this.agentDisallowPath(agentQuery, filePath, mode);
   }
 
   async filesTree(payload: {
@@ -135,83 +149,100 @@ export class FileTreeService {
     if (!this.fileTreeService || !this.fileAnnotationService) {
       throw new Error('File tree services are not available.');
     }
-    return filesTreeCommandAsync(
-      this.workspaceRoot,
-      this.agentManager,
-      this.configurationStorage,
-      this.permissionStorage,
-      this.fileTreeService,
-      this.fileAnnotationService,
-      payload
-    );
+    const maxDepth = payload.depth ?? 4;
+    const includeHidden = payload.all ?? false;
+    const ignoreGitignore = payload.noGitignore ?? false;
+
+    if (payload.agent) {
+      const matches = await this.agentManager.resolveAgentAsync(payload.agent);
+      if (matches.length === 0) {
+        throw new Error(`Agent not found: "${payload.agent}"`);
+      }
+      const agent = matches[0];
+      const tree = await this.getFileTree({
+        maxDepth: payload.depth ?? 6,
+        includeHidden,
+        ignoreGitignore,
+      });
+      const allFiles = FileTreeService.flattenFiles(tree);
+      const accessPatterns = await this.permissionStorage.loadAsync(agent.id);
+
+      if (payload.writeable) {
+        const filtered = this.fileAnnotationService.getWritableFiles(
+          this.workspaceRoot,
+          agent.permissions,
+          allFiles
+        );
+        return {
+          workspaceRoot: this.workspaceRoot,
+          agent: { id: agent.id, name: agent.name, role: agent.role },
+          writeableFiles: filtered,
+          writePatterns: accessPatterns.write ?? [],
+          maxDepth,
+          includeHidden,
+          ignoreGitignore,
+        };
+      }
+
+      const annotated = this.fileAnnotationService.getAnnotatedFiles(
+        this.workspaceRoot,
+        agent.permissions,
+        allFiles
+      );
+      const withAccess = annotated.filter((f) => f.readable || f.writable);
+      return {
+        workspaceRoot: this.workspaceRoot,
+        agent: { id: agent.id, name: agent.name, role: agent.role },
+        annotatedFiles: withAccess.map((f) => ({
+          path: f.path,
+          readable: f.readable,
+          writable: f.writable,
+        })),
+        readPatterns: accessPatterns.read ?? [],
+        writePatterns: accessPatterns.write ?? [],
+        maxDepth,
+        includeHidden,
+        ignoreGitignore,
+      };
+    }
+
+    const tree = await this.getFileTree({ maxDepth, includeHidden, ignoreGitignore });
+    return {
+      workspaceRoot: this.workspaceRoot,
+      tree,
+      maxDepth,
+      includeHidden,
+      ignoreGitignore,
+    };
   }
-}
 
-/**
- * Return the workspace file tree using global read/write patterns as visibility overrides
- * for gitignored files/directories.
- */
-async function getFileTreeCommand(
-  workspaceRoot: string,
-  configurationStorage: IConfigurationStorage,
-  fileTreeService: IFileTreeService,
-  options: Omit<GetFileTreeOptions, 'allowPaths'> = {}
-): Promise<FileTreeNode> {
-  const config = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
-  const allowPaths = Array.from(
-    new Set([...(config?.fileTree?.readPaths ?? []), ...(config?.fileTree?.writePaths ?? [])])
-  );
-  return fileTreeService.getCachedFileTree(workspaceRoot, { ...options, allowPaths });
-}
+  private async resolveOneAgent(query: string): Promise<Agent> {
+    const resolved = await this.agentManager.resolveAgentForOperationAsync(query, 'resolve agent');
+    const agent = await this.agentManager.getAgentAsync(resolved.id);
+    if (!agent) throw new Error(`Agent not found: "${query}"`);
+    return agent;
+  }
 
-/**
- * Add a path to the global read or write permission list in .ai-team/config.json.
- * Returns the updated path list for the selected mode.
- */
-async function allowPathCommand(
-  workspaceRoot: string,
-  configurationStorage: IConfigurationStorage,
-  filePath: string,
-  mode: PathMode
-): Promise<string[]> {
-  const config = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
-  const key = mode === 'write' ? 'writePaths' : 'readPaths';
-  const current: string[] = (config?.fileTree as any)?.[key] ?? [];
+  private static async syncAgentFrontmatterPermissions(agent: Agent): Promise<Agent> {
+    return agent;
+  }
 
-  if (current.includes(filePath)) return current;
-
-  const next = [...current, filePath];
-  await configurationStorage.saveTeamConfigAsync(workspaceRoot, {
-    ...DEFAULT_CONFIG,
-    ...config,
-    fileTree: { readPaths: [], writePaths: [], ...config?.fileTree, [key]: next },
-  });
-  return next;
-}
-
-/**
- * Remove a path from the global read or write permission list in .ai-team/config.json.
- * Returns the updated path list for the selected mode.
- */
-async function disallowPathCommand(
-  workspaceRoot: string,
-  configurationStorage: IConfigurationStorage,
-  filePath: string,
-  mode: PathMode
-): Promise<string[]> {
-  const config = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
-  const key = mode === 'write' ? 'writePaths' : 'readPaths';
-  const current: string[] = (config?.fileTree as any)?.[key] ?? [];
-  const next = current.filter((p) => p !== filePath);
-
-  if (next.length === current.length) return current;
-
-  await configurationStorage.saveTeamConfigAsync(workspaceRoot, {
-    ...DEFAULT_CONFIG,
-    ...config,
-    fileTree: { readPaths: [], writePaths: [], ...config?.fileTree, [key]: next },
-  });
-  return next;
+  private static flattenFiles(root: FileTreeNode): string[] {
+    const files: string[] = [];
+    const stack: FileTreeNode[] = [root];
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      if (!node.isDirectory && node.relativePath !== '') {
+        files.push(node.relativePath);
+      }
+      if (node.children) {
+        for (let i = node.children.length - 1; i >= 0; i--) {
+          stack.push(node.children[i]);
+        }
+      }
+    }
+    return files;
+  }
 }
 
 // ============================================================================
@@ -222,233 +253,4 @@ export interface AgentPathResult {
   agent: Agent;
   /** Updated permission list for the given mode after the operation */
   paths: string[];
-}
-
-async function resolveOneAgentAsync(agentManager: IAgentManager, query: string): Promise<Agent> {
-  const resolved = await agentManager.resolveAgentForOperationAsync(query, 'resolve agent');
-  const agent = await agentManager.getAgentAsync(resolved.id);
-  if (!agent) throw new Error(`Agent not found: "${query}"`);
-  return agent;
-}
-
-async function syncAgentFrontmatterPermissions(agent: Agent): Promise<Agent> {
-  return agent;
-}
-
-/**
- * Add a path to an agent's access pattern file.
- */
-async function agentPermissionPathCommand(
-  workspaceRoot: string,
-  agentManager: IAgentManager,
-  permissionStorage: IPermissionStorage,
-  agentQuery: string,
-  filePath: string,
-  mode: PathMode = 'read'
-): Promise<AgentPathResult> {
-  const agent = await resolveOneAgentAsync(agentManager, agentQuery);
-
-  const permissionPatterns = await permissionStorage.loadAsync(agent.id);
-  const current = permissionPatterns[mode] ?? [];
-
-  const nextPatterns = current.includes(filePath)
-    ? permissionPatterns
-    : { ...permissionPatterns, [mode]: [...current, filePath] };
-
-  await permissionStorage.saveAsync(agent.id, nextPatterns);
-  const updated = await syncAgentFrontmatterPermissions(agent);
-
-  return { agent: updated, paths: nextPatterns[mode] };
-}
-
-/**
- * Alias for agentPermissionPathCommand using governance naming.
- */
-async function permissionAllowCommand(opts: PermissionCommandOptions): Promise<AgentPathResult> {
-  const actor = await opts.governanceService.resolveGovernanceActor(
-    opts.governance.requestedBy,
-    'access_allow'
-  );
-  opts.governanceService.assertDefaultGovernancePolicy(actor);
-  await opts.governanceService.requireUserApproval(
-    opts.governance,
-    `Approve access_allow by ${actor.name} (${actor.id}) for target agent '${opts.agentQuery}', mode '${opts.mode}', path '${opts.filePath}'?`
-  );
-
-  return agentPermissionPathCommand(
-    opts.workspaceRoot,
-    opts.agentManager,
-    opts.permissionStorage,
-    opts.agentQuery,
-    opts.filePath,
-    opts.mode ?? 'read'
-  );
-}
-
-/**
- * Remove a path from an agent's access pattern file.
- */
-async function agentDisallowPathCommand(
-  workspaceRoot: string,
-  agentManager: IAgentManager,
-  permissionStorage: IPermissionStorage,
-  agentQuery: string,
-  filePath: string,
-  mode: PathMode = 'read'
-): Promise<AgentPathResult> {
-  const agent = await resolveOneAgentAsync(agentManager, agentQuery);
-
-  const accessPatterns = await permissionStorage.loadAsync(agent.id);
-  const current = accessPatterns[mode] ?? [];
-  const next = current.filter((p) => p !== filePath);
-
-  const nextPatterns =
-    next.length === current.length ? accessPatterns : { ...accessPatterns, [mode]: next };
-
-  await permissionStorage.saveAsync(agent.id, nextPatterns);
-  const updated = await syncAgentFrontmatterPermissions(agent);
-
-  return { agent: updated, paths: nextPatterns[mode] };
-}
-
-/**
- * Alias for agentDisallowPathCommand using governance naming.
- */
-async function permissionDenyCommand(
-  governanceService: GovernanceService,
-  workspaceRoot: string,
-  agentManager: IAgentManager,
-  permissionStorage: IPermissionStorage,
-  agentQuery: string,
-  filePath: string,
-  governance: GovernanceRequest,
-  mode: PathMode = 'read'
-): Promise<AgentPathResult> {
-  const actor = await governanceService.resolveGovernanceActor(
-    governance.requestedBy,
-    'access_deny'
-  );
-  governanceService.assertDefaultGovernancePolicy(actor);
-  await governanceService.requireUserApproval(
-    governance,
-    `Approve access_deny by ${actor.name} (${actor.id}) for target agent '${agentQuery}', mode '${mode}', path '${filePath}'?`
-  );
-
-  return agentDisallowPathCommand(
-    workspaceRoot,
-    agentManager,
-    permissionStorage,
-    agentQuery,
-    filePath,
-    mode
-  );
-}
-
-// ============================================================================
-// Full file tree / patterns data commands for CLI + browser renderers
-// ============================================================================
-
-function flattenFiles(root: FileTreeNode): string[] {
-  const files: string[] = [];
-  const stack: FileTreeNode[] = [root];
-  while (stack.length > 0) {
-    const node = stack.pop()!;
-    if (!node.isDirectory && node.relativePath !== '') {
-      files.push(node.relativePath);
-    }
-    if (node.children) {
-      for (let i = node.children.length - 1; i >= 0; i--) {
-        stack.push(node.children[i]);
-      }
-    }
-  }
-  return files;
-}
-
-async function filesTreeCommandAsync(
-  workspaceRoot: string,
-  agentManager: IAgentManager,
-  configurationStorage: IConfigurationStorage,
-  permissionStorage: IPermissionStorage,
-  fileTreeService: IFileTreeService,
-  fileAnnotationService: IFileAnnotationService,
-  payload: {
-    agent?: string;
-    depth?: number;
-    all?: boolean;
-    noGitignore?: boolean;
-    writeable?: boolean;
-  }
-): Promise<FilesTreeResponse> {
-  const maxDepth = payload.depth ?? 4;
-  const includeHidden = payload.all ?? false;
-  const ignoreGitignore = payload.noGitignore ?? false;
-
-  if (payload.agent) {
-    const matches = await agentManager.resolveAgentAsync(payload.agent);
-    if (matches.length === 0) {
-      throw new Error(`Agent not found: "${payload.agent}"`);
-    }
-    const agent = matches[0];
-
-    const tree = await getFileTreeCommand(workspaceRoot, configurationStorage, fileTreeService, {
-      maxDepth: payload.depth ?? 6,
-      includeHidden,
-      ignoreGitignore,
-    });
-    const allFiles = flattenFiles(tree);
-    const accessPatterns = await permissionStorage.loadAsync(agent.id);
-    if (payload.writeable) {
-      const filtered = fileAnnotationService.getWritableFiles(
-        workspaceRoot,
-        agent.permissions,
-        allFiles
-      );
-      return {
-        workspaceRoot,
-        agent: { id: agent.id, name: agent.name, role: agent.role },
-        writeableFiles: filtered,
-        writePatterns: accessPatterns.write ?? [],
-        maxDepth,
-        includeHidden,
-        ignoreGitignore,
-      };
-    }
-
-    const annotated = fileAnnotationService.getAnnotatedFiles(
-      workspaceRoot,
-      agent.permissions,
-      allFiles
-    );
-    const withAccess = annotated.filter((f) => f.readable || f.writable);
-
-    return {
-      workspaceRoot,
-      agent: { id: agent.id, name: agent.name, role: agent.role },
-      annotatedFiles: withAccess.map((f) => ({
-        path: f.path,
-        readable: f.readable,
-        writable: f.writable,
-      })),
-      readPatterns: accessPatterns.read ?? [],
-      writePatterns: accessPatterns.write ?? [],
-      maxDepth,
-      includeHidden,
-      ignoreGitignore,
-    };
-  }
-
-  const tree = await getFileTreeCommand(workspaceRoot, configurationStorage, fileTreeService, {
-    maxDepth,
-    includeHidden,
-    ignoreGitignore,
-  });
-
-  return {
-    workspaceRoot,
-    tree,
-    maxDepth,
-    includeHidden,
-    ignoreGitignore,
-  };
 }

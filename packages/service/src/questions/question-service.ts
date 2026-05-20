@@ -15,11 +15,11 @@ import type { ExecutionContext } from '@ai-team/core';
  * Methods do not take ExecutionContext explicitly; context is bound at construction time.
  */
 export interface IQuestionService {
-  input(request: QuestionInputRequest): Promise<string>;
-  confirm(request: QuestionConfirmRequest): Promise<boolean>;
-  select(request: QuestionSelectRequest): Promise<string>;
-  password(request: QuestionPasswordRequest): Promise<string>;
-  checklist(request: QuestionChecklistRequest): Promise<string[]>;
+  questionInput(request: QuestionInputRequest): Promise<string>;
+  questionConfirm(request: QuestionConfirmRequest): Promise<boolean>;
+  questionSelect(request: QuestionSelectRequest): Promise<string>;
+  questionPassword(request: QuestionPasswordRequest): Promise<string>;
+  questionChecklist(request: QuestionChecklistRequest): Promise<string[]>;
   emit?: (event: RuntimeStreamEvent) => void;
   signal?: AbortSignal;
   workflowState?: WorkflowStateSnapshot;
@@ -30,12 +30,7 @@ export interface IQuestionService {
  * Partial question listener that may omit some methods.
  * Used as input to factory functions.
  */
-export interface IQuestionListeners extends Partial<IQuestionService> {
-  signal?: AbortSignal;
-  emit?: (event: RuntimeStreamEvent) => void;
-  workflowState?: WorkflowStateSnapshot;
-  onWorkflowFrame?: (frame: WorkflowFrame) => void;
-}
+export type IQuestionListeners = Partial<IQuestionService>;
 
 /**
  * Factory function that creates an IQuestionService from partial listeners and a bound ExecutionContext.
@@ -45,37 +40,36 @@ export function InteractionQuestionService(
   listeners: IQuestionListeners,
   context?: ExecutionContext
 ): IQuestionService {
-  // Return a service where methods use the bound context
   return {
-    input: (request) => {
-      if (!listeners.input) {
-        return Promise.reject(new Error('No input handler provided'));
+    questionInput: (request) => {
+      if (!listeners.questionInput) {
+        return Promise.reject(new Error('No questionInput handler provided'));
       }
-      return listeners.input(request);
+      return listeners.questionInput(request);
     },
-    confirm: (request) => {
-      if (!listeners.confirm) {
-        return Promise.reject(new Error('No confirm handler provided'));
+    questionConfirm: (request) => {
+      if (!listeners.questionConfirm) {
+        return Promise.reject(new Error('No questionConfirm handler provided'));
       }
-      return listeners.confirm(request);
+      return listeners.questionConfirm(request);
     },
-    select: (request) => {
-      if (!listeners.select) {
-        return Promise.reject(new Error('No select handler provided'));
+    questionSelect: (request) => {
+      if (!listeners.questionSelect) {
+        return Promise.reject(new Error('No questionSelect handler provided'));
       }
-      return listeners.select(request);
+      return listeners.questionSelect(request);
     },
-    password: (request) => {
-      if (!listeners.password) {
-        return Promise.reject(new Error('No password handler provided'));
+    questionPassword: (request) => {
+      if (!listeners.questionPassword) {
+        return Promise.reject(new Error('No questionPassword handler provided'));
       }
-      return listeners.password(request);
+      return listeners.questionPassword(request);
     },
-    checklist: (request) => {
-      if (!listeners.checklist) {
-        return Promise.reject(new Error('No checklist handler provided'));
+    questionChecklist: (request) => {
+      if (!listeners.questionChecklist) {
+        return Promise.reject(new Error('No questionChecklist handler provided'));
       }
-      return listeners.checklist(request);
+      return listeners.questionChecklist(request);
     },
     emit: listeners.emit,
     signal: listeners.signal,

@@ -37,11 +37,11 @@ export class InitICommand implements ICommand<Params, void> {
     return {
       signal: runtime.signal,
       emit: runtime.emit,
-      questionInput: (request) => this.questionService.input(request),
-      questionConfirm: (request) => this.questionService.confirm(request),
-      questionSelect: (request) => this.questionService.select(request),
-      questionPassword: (request) => this.questionService.password(request),
-      questionChecklist: (request) => this.questionService.checklist(request),
+      questionInput: (request) => this.questionService.questionInput(request),
+      questionConfirm: (request) => this.questionService.questionConfirm(request),
+      questionSelect: (request) => this.questionService.questionSelect(request),
+      questionPassword: (request) => this.questionService.questionPassword(request),
+      questionChecklist: (request) => this.questionService.questionChecklist(request),
       workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
       onWorkflowFrame: runtime.onWorkflowFrame,
     };

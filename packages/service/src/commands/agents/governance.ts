@@ -77,7 +77,7 @@ export class GovernanceService {
     const explicit = requestedBy?.trim();
     if (explicit) return explicit;
 
-    const response = await this.questionService.input(
+    const response = await this.questionService.questionInput(
       { message: 'Requested by (must be CEO/HR):' }
     );
     if (response.trim()) return response.trim();
@@ -95,6 +95,6 @@ export class GovernanceService {
     message: string
   ): Promise<boolean> {
     if (typeof approvedByUser === 'boolean') return approvedByUser;
-    return this.questionService.confirm({ message, default: false });
+    return this.questionService.questionConfirm({ message, default: false });
   }
 }

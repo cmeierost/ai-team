@@ -662,11 +662,11 @@ export class OnboardCommand {
     await cmd.execute(workspaceRoot, agentId, options, {
       signal: hooks?.signal,
       emit: hooks?.emit,
-      input: hooks?.input,
-      confirm: hooks?.confirm,
-      select: hooks?.select,
-      password: hooks?.password,
-      checklist: hooks?.checklist,
+      questionInput: hooks?.questionInput,
+      questionConfirm: hooks?.questionConfirm,
+      questionSelect: hooks?.questionSelect,
+      questionPassword: hooks?.questionPassword,
+      questionChecklist: hooks?.questionChecklist,
     });
   }
 

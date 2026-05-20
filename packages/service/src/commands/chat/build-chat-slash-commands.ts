@@ -6,7 +6,6 @@ import type {
   IConfigurationStorage,
   ISkillManager,
 } from '@ai-team/core';
-import { buildDefaultSlashCommands } from '../../orchestrator/slash-commands.js';
 import {
   buildDynamicSlashCatalog,
   buildDynamicSlashCommands,
@@ -31,7 +30,6 @@ export async function buildChatSlashCommands(
 ): Promise<ICommand<string, unknown>[]> {
   const {
     workspaceRoot,
-    chatToolManager,
     skillManager,
     configurationStorage,
     serviceContainer,
@@ -40,15 +38,9 @@ export async function buildChatSlashCommands(
     executionContext,
   } = params;
 
-  const staticSlashCommands = buildDefaultSlashCommands(chatToolManager);
+  const staticSlashCommands: ICommand<string, unknown>[] = [];
 
   const reservedSlashKeys = new Set<string>();
-  for (const command of staticSlashCommands) {
-    reservedSlashKeys.add(command.key.toLowerCase());
-    for (const alias of command.aliases ?? []) {
-      reservedSlashKeys.add(alias.toLowerCase());
-    }
-  }
 
   const dynamicSlashCatalog = await buildDynamicSlashCatalog({
     workspaceRoot,
@@ -138,5 +130,5 @@ export async function buildChatSlashCommands(
       },
     }));
 
-  return [...staticSlashCommands, ...dynamicSlashCommands, ...resolverSlashCommands];
+  return [...dynamicSlashCommands, ...resolverSlashCommands];
 }
