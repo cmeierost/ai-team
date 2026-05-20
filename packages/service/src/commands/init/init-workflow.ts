@@ -1,8 +1,10 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { InitOptions } from '@ai-team/api-contracts';
 import type { ExecutionContext } from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 import type { WorkflowDefinition } from '../../workflow/types.js';
+import type { IWorkflowRunnerFactory } from '../../workflow/runner.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 
 export interface InitWorkflowState {
@@ -36,16 +38,46 @@ interface TestConnectionExecutor {
 }
 
 export interface InitWorkflowDependencies {
-  writeLine: (hooks: InitRuntimeHooks | undefined, message: string) => void;
-  writeWarn: (hooks: InitRuntimeHooks | undefined, message: string) => void;
-  clearAiTeamDirectory: (workspaceRoot: string, hooks?: InitRuntimeHooks) => Promise<void>;
   onboard: OnboardExecutor;
   setup: SetupExecutor;
   testConnection: TestConnectionExecutor;
   sessionManager?: SessionManager;
 }
 
+const FORCE_KEEP = new Set(['config.json', '.env']);
 const INIT_RUNTIME_ARTIFACTS = new Set(['agents', 'logs', 'private', '.ide-server.json']);
+
+function emitLog(ctx: ExecutionContext, level: 'info' | 'warn', message: string): void {
+  if (ctx.emit) {
+    ctx.emit({ kind: 'log', level, message });
+  } else {
+    process.stdout.write(`${message}\n`);
+  }
+}
+
+async function clearAiTeamDirectory(workspaceRoot: string, ctx: ExecutionContext): Promise<void> {
+  const aiTeamDir = path.join(workspaceRoot, '.ai-team');
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await fs.readdir(aiTeamDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (FORCE_KEEP.has(entry.name)) continue;
+    const target = path.join(aiTeamDir, entry.name);
+    try {
+      await fs.rm(target, { recursive: true, force: true });
+      emitLog(ctx, 'info', `  Removed: ${entry.name}`);
+    } catch (err) {
+      emitLog(
+        ctx,
+        'warn',
+        `  Could not remove ${entry.name}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+}
 
 export function createInitWorkflowDefinition(
   deps: InitWorkflowDependencies
@@ -57,9 +89,8 @@ export function createInitWorkflowDefinition(
     steps: [
       {
         id: 'inspect-existing',
-        execute: async (state) => {
+        execute: async (state, ctx) => {
           try {
-            const fs = await import('node:fs/promises');
             const stats = await fs.stat(state.aiTeamDir);
             if (stats.isDirectory()) {
               const agentsDir = path.join(state.aiTeamDir, 'agents');
@@ -83,35 +114,31 @@ export function createInitWorkflowDefinition(
               }
 
               if (state.options.force) {
-                deps.writeWarn(
-                  state.hooks,
+                emitLog(
+                  ctx,
+                  'warn',
                   hasAgentFiles
                     ? '  Force flag detected - reinitializing...'
                     : '  Force flag detected - clearing existing AI Team scaffold...'
                 );
-                return {
-                  ...state,
-                  shouldClear: true,
-                };
+                return { ...state, shouldClear: true };
               }
 
               if (hasAgentFiles) {
-                deps.writeWarn(state.hooks, 'AI Team is already initialized in this workspace');
-                deps.writeLine(state.hooks, `  Location: ${state.aiTeamDir}`);
-                deps.writeLine(state.hooks, '  Use --force to fully reinitialize team onboarding.');
-                deps.writeLine(state.hooks, '  Skipping initialization.');
-                return {
-                  ...state,
-                  shouldSkip: true,
-                };
+                emitLog(ctx, 'warn', 'AI Team is already initialized in this workspace');
+                emitLog(ctx, 'info', `  Location: ${state.aiTeamDir}`);
+                emitLog(ctx, 'info', '  Use --force to fully reinitialize team onboarding.');
+                emitLog(ctx, 'info', '  Skipping initialization.');
+                return { ...state, shouldSkip: true };
               }
 
               if (!hasNonAgentArtifacts) {
                 return state;
               }
 
-              deps.writeWarn(
-                state.hooks,
+              emitLog(
+                ctx,
+                'warn',
                 `Found existing .ai-team scaffold without agents at ${state.aiTeamDir}; continuing initialization.`
               );
             }
@@ -125,21 +152,15 @@ export function createInitWorkflowDefinition(
       {
         id: 'clear-existing',
         skipWhen: (state) => state.shouldSkip || !state.shouldClear,
-        execute: async (state) => {
-          await deps.clearAiTeamDirectory(state.workspaceRoot, state.hooks);
+        execute: async (state, ctx) => {
+          await clearAiTeamDirectory(state.workspaceRoot, ctx);
           return state;
         },
       },
       {
         id: 'setup-llm',
         skipWhen: (state) => state.shouldSkip,
-        execute: async (state) => {
-          const ctx: ExecutionContext = {
-            workspaceRoot: state.workspaceRoot,
-            history: [],
-            signal: state.hooks?.signal,
-            emit: state.hooks?.emit as ((event: unknown) => void) | undefined,
-          };
+        execute: async (state, ctx) => {
           await deps.setup.execute(
             { workspaceRoot: state.workspaceRoot, options: { force: state.options.force } },
             ctx
@@ -150,9 +171,9 @@ export function createInitWorkflowDefinition(
       {
         id: 'test-llm-connection',
         skipWhen: (state) => state.shouldSkip,
-        execute: async (state) => {
-          deps.writeLine(state.hooks, '');
-          deps.writeLine(state.hooks, 'Verifying LLM connection...');
+        execute: async (state, ctx) => {
+          emitLog(ctx, 'info', '');
+          emitLog(ctx, 'info', 'Verifying LLM connection...');
           await deps.testConnection.execute({ workspaceRoot: state.workspaceRoot, options: {} });
           return state;
         },
@@ -160,10 +181,10 @@ export function createInitWorkflowDefinition(
       {
         id: 'emit-welcome',
         skipWhen: (state) => state.shouldSkip,
-        execute: async (state) => {
-          deps.writeLine(state.hooks, '');
-          deps.writeLine(state.hooks, 'Welcome to AI Team!');
-          deps.writeLine(state.hooks, "Let's set up your virtual development team.");
+        execute: async (state, ctx) => {
+          emitLog(ctx, 'info', '');
+          emitLog(ctx, 'info', 'Welcome to AI Team!');
+          emitLog(ctx, 'info', "Let's set up your virtual development team.");
           return state;
         },
       },
@@ -189,7 +210,8 @@ export async function runInitWorkflowAsync(
   workspaceRoot: string,
   options: InitOptions,
   hooks: InitRuntimeHooks | undefined,
-  deps: InitWorkflowDependencies
+  deps: InitWorkflowDependencies,
+  runnerFactory: IWorkflowRunnerFactory
 ): Promise<void> {
   const initialState: InitWorkflowState = {
     workspaceRoot,
@@ -200,15 +222,9 @@ export async function runInitWorkflowAsync(
     shouldClear: false,
   };
 
-  const ctx: ExecutionContext = { workspaceRoot, history: [], signal: hooks?.signal };
-  const definition = createInitWorkflowDefinition(deps);
-  let state = initialState;
-
-  for (const step of definition.steps) {
-    if (hooks?.signal?.aborted) break;
-    if (step.skipWhen?.(state)) continue;
-    if ('execute' in step) {
-      state = await step.execute(state, ctx);
-    }
-  }
+  await runnerFactory.create().run(createInitWorkflowDefinition(deps), initialState, {
+    signal: hooks?.signal,
+    emit: hooks?.emit,
+    executionContext: { workspaceRoot, history: [] },
+  });
 }

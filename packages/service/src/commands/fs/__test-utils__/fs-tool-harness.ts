@@ -106,7 +106,11 @@ function getFsTools(workspaceRoot: string): ICommand[] {
   ];
 }
 
-function perms(p: { read?: string[]; write?: string[]; manage_agents?: boolean }): PermissionConfig {
+function perms(p: {
+  read?: string[];
+  write?: string[];
+  manage_agents?: boolean;
+}): PermissionConfig {
   return {
     read: p.read ?? [],
     write: p.write ?? [],
@@ -213,6 +217,8 @@ export function toolPayload(result: { result?: unknown }) {
 
 export async function cleanupWorkspaces(): Promise<void> {
   await Promise.all(
-    workspaces.splice(0, workspaces.length).map((dir) => fs.rm(dir, { recursive: true, force: true }))
+    workspaces
+      .splice(0, workspaces.length)
+      .map((dir) => fs.rm(dir, { recursive: true, force: true }))
   );
 }

@@ -23,7 +23,12 @@ describe('remaining fs tool execution', () => {
     const a = makeFullFsAgent('a');
     const manager = await setupManager(workspaceRoot);
 
-    const full = await manager.execute(a, 'fs_read', { filePath: 'src/file.txt' }, ctx(a, workspaceRoot));
+    const full = await manager.execute(
+      a,
+      'fs_read',
+      { filePath: 'src/file.txt' },
+      ctx(a, workspaceRoot)
+    );
     const lines = await manager.execute(
       a,
       'fs_read_lines',
@@ -52,7 +57,12 @@ describe('remaining fs tool execution', () => {
     const a = makeFullFsAgent('a');
     const manager = await setupManager(workspaceRoot);
 
-    const mkdir = await manager.execute(a, 'fs_mkdir', { path: 'tmp/nested' }, ctx(a, workspaceRoot));
+    const mkdir = await manager.execute(
+      a,
+      'fs_mkdir',
+      { path: 'tmp/nested' },
+      ctx(a, workspaceRoot)
+    );
     const created = await manager.execute(
       a,
       'fs_create',

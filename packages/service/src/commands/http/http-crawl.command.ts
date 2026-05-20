@@ -46,13 +46,7 @@ export class HttpCrawlCommand implements ICommand<HttpCrawlParams, HttpCrawlResu
       .max(100)
       .optional()
       .describe('Max pages to fetch (default 10)'),
-    timeoutMsPerPage: z
-      .number()
-      .int()
-      .min(500)
-      .max(30_000)
-      .optional()
-      .describe('Per-page timeout'),
+    timeoutMsPerPage: z.number().int().min(500).max(30_000).optional().describe('Per-page timeout'),
     allowCrossDomain: z.boolean().optional().describe('Allow crawling links across domains'),
     allowedDomains: z
       .array(z.string())

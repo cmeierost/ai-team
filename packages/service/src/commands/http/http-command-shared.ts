@@ -176,7 +176,10 @@ function splitIntoChunks(text: string, maxChunks: number, targetChunkChars = 700
   return chunks.filter((chunk) => chunk.length > 0);
 }
 
-export function applyHttpTextFilters(rawText: string, options: HttpFilterOptions): HttpPreparedText {
+export function applyHttpTextFilters(
+  rawText: string,
+  options: HttpFilterOptions
+): HttpPreparedText {
   const filtersApplied: string[] = [];
   const maxLines = clampNumber(options.maxLines ?? HTTP_DEFAULT_MAX_LINES, 1, 3000);
   const maxChars = clampNumber(options.maxChars ?? HTTP_DEFAULT_MAX_CHARS, 256, 100_000);

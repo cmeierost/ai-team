@@ -63,6 +63,10 @@ export class WorkflowRunner implements IWorkflowRunner {
     const workflowService = options?.workflowService ?? new NoopWorkflowService();
     const instanceId = `${definition.id}:${randomUUID()}`;
     const baseCtx: ExecutionContext = {
+      // signal/emit from run options are the source of truth for transport concerns.
+      // executionContext (if provided) can override them if already set there.
+      ...(options?.signal !== undefined && { signal: options.signal }),
+      ...(options?.emit !== undefined && { emit: options.emit as (event: unknown) => void }),
       ...(options?.executionContext ?? { workspaceRoot: '', history: [] }),
       workflowId: definition.id,
       workflowInstanceId: instanceId,

@@ -55,6 +55,7 @@ import { SkillsAddCommand } from './commands/skills/skills-add.command.js';
 import { SkillsListCommand } from './commands/skills/skills-list.command.js';
 import { SkillsRemoveCommand } from './commands/skills/skills-remove.command.js';
 import { InitICommand } from './commands/init/init.command.js';
+import { InitCommand } from './commands/init/init.js';
 import { SetupICommand } from './commands/setup/setup.command.js';
 import { OnboardCommand, OnboardICommand } from './commands/hr/onboard.js';
 import { SetupCommand } from './commands/setup/setup.js';
@@ -71,6 +72,8 @@ import {
 import { SystemInfoCommand } from './commands/system/system-info.command.js';
 import { SystemStatusICommand } from './commands/setup/system-status.js';
 import { TestConnectionICommand } from './commands/setup/test-connection.command.js';
+import { TestConnectionCommand } from './commands/setup/test-connection.js';
+import { WorkflowRunnerFactory } from './workflow/runner.js';
 import { ToolsAllowCommand } from './commands/tools/tools-allow.command.js';
 import { ToolsDenyCommand } from './commands/tools/tools-deny.command.js';
 import { ToolsListCommand } from './commands/tools/tools-list.command.js';
@@ -468,7 +471,19 @@ export function createCommandDispatcher(
     toCommandRegistration(
       new InitICommand(
         container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+        new InitCommand(
+          onboardCommand,
+          setupCommand,
+          new TestConnectionCommand(
+            container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+            container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+            container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+            container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
+            container.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
+          ),
+          new WorkflowRunnerFactory(container.resolver)
+        )
       )
     )
   );
@@ -696,7 +711,7 @@ export function createCommandDispatcher(
     toCommandRegistration(
       new FireICommand(
         container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        new WorkflowRunnerFactory(container.resolver)
       )
     )
   );

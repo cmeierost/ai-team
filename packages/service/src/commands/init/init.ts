@@ -12,12 +12,6 @@ import type { InitOptions } from '@ai-team/api-contracts';
 import type { SessionManager } from '../../session-manager.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 import {
-  requestChecklist,
-  requestConfirm,
-  requestInput,
-  requestSelect,
-} from './workflow-questions.js';
-import {
   createBootstrapInstructions,
   createBootstrapSkills,
   createBootstrapTemplateFiles,
@@ -25,6 +19,7 @@ import {
   createRoleTemplates,
 } from './bootstrap-files.js';
 import { runInitWorkflowAsync } from './init-workflow.js';
+import type { IWorkflowRunnerFactory } from '../../workflow/runner.js';
 import {
   getWorkspaceTemplatePath,
   INIT_TEMPLATE_FILE_MAP,
@@ -84,21 +79,19 @@ export class InitCommand {
   constructor(
     private readonly onboard: OnboardCommand,
     private readonly setup: SetupCommand,
-    private readonly testConnection: TestConnectionCommand
+    private readonly testConnection: TestConnectionCommand,
+    private readonly runnerFactory: IWorkflowRunnerFactory
   ) {}
 
   async execute(params: InitCommandParams, hooks?: InitRuntimeHooks): Promise<void> {
     const { workspaceRoot, options, injected } = params;
 
     await runInitWorkflowAsync(workspaceRoot, options, hooks, {
-      writeLine,
-      writeWarn,
-      clearAiTeamDirectory,
       onboard: this.onboard,
       setup: this.setup,
       testConnection: this.testConnection,
       sessionManager: injected?.sessionManager,
-    });
+    }, this.runnerFactory);
   }
 }
 
@@ -153,29 +146,31 @@ async function runCompatibilityOnboarding(
   await bootstrapOnboardingAssets(workspaceRoot);
 
   if (!hooks?.questionSelect && hooks?.questionInput) {
-    await requestInput(hooks, {
+    await hooks.questionInput({
       message: 'Describe the product or team you want to set up:',
     });
     return;
   }
 
-  const ceoName = await requestSelect(hooks, {
-    message: 'Name your CEO:',
-    choices: [
-      { name: 'John Smith', value: 'John Smith' },
-      { name: 'Michael Brown', value: 'Michael Brown' },
-      { name: 'Sarah Lee', value: 'Sarah Lee' },
-    ],
-  });
+  const ceoName =
+    (await hooks?.questionSelect?.({
+      message: 'Name your CEO:',
+      choices: [
+        { name: 'John Smith', value: 'John Smith' },
+        { name: 'Michael Brown', value: 'Michael Brown' },
+        { name: 'Sarah Lee', value: 'Sarah Lee' },
+      ],
+    })) ?? 'Michael Brown';
 
-  const hrName = await requestSelect(hooks, {
-    message: 'Name your HR leader:',
-    choices: [
-      { name: 'Emily Davis', value: 'Emily Davis' },
-      { name: 'Jessica Miller', value: 'Jessica Miller' },
-      { name: 'Olivia Martinez', value: 'Olivia Martinez' },
-    ],
-  });
+  const hrName =
+    (await hooks?.questionSelect?.({
+      message: 'Name your HR leader:',
+      choices: [
+        { name: 'Emily Davis', value: 'Emily Davis' },
+        { name: 'Jessica Miller', value: 'Jessica Miller' },
+        { name: 'Olivia Martinez', value: 'Olivia Martinez' },
+      ],
+    })) ?? 'Emily Davis';
 
   await saveAgentAccessPatterns(workspaceRoot, slugifyAgentId(ceoName), {
     read: ['**/*'],
@@ -187,13 +182,14 @@ async function runCompatibilityOnboarding(
     write: ['.ai-team/skills-catalog/**/*', '.ai-team/instructions/**/*', '.ai-team/roles/**/*'],
   });
 
-  const useGuidedMode = await requestConfirm(hooks, {
-    message: 'Use guided onboarding mode?',
-    default: true,
-  });
+  const useGuidedMode =
+    (await hooks?.questionConfirm?.({
+      message: 'Use guided onboarding mode?',
+      default: true,
+    })) ?? true;
 
   if (useGuidedMode) {
-    await requestSelect(hooks, {
+    await hooks?.questionSelect?.({
       message: 'Choose your business mode:',
       choices: [
         { name: 'Greenfield', value: 'greenfield' },
@@ -202,7 +198,7 @@ async function runCompatibilityOnboarding(
       ],
     });
 
-    await requestChecklist(hooks, {
+    await hooks?.questionChecklist?.({
       message: 'Choose your top business priorities:',
       choices: [
         { name: 'Time to market', value: 'time-to-market' },
@@ -211,7 +207,7 @@ async function runCompatibilityOnboarding(
       ],
     });
 
-    await requestChecklist(hooks, {
+    await hooks?.questionChecklist?.({
       message: 'Choose your main delivery constraints:',
       choices: [
         { name: 'Small team', value: 'small-team' },
@@ -220,7 +216,7 @@ async function runCompatibilityOnboarding(
       ],
     });
 
-    await requestChecklist(hooks, {
+    await hooks?.questionChecklist?.({
       message: 'Choose must-have hiring roles:',
       choices: [
         { name: 'Chief Architect', value: 'chief-architect' },
@@ -230,7 +226,7 @@ async function runCompatibilityOnboarding(
     });
   }
 
-  await requestInput(hooks, {
+  await hooks?.questionInput?.({
     message: 'Describe the product or business context for your founding team:',
   });
 }
@@ -251,7 +247,7 @@ export async function initCommand(
 
   if (!llmReady) {
     await ensureAiTeamDirectory(workspaceRoot);
-    await requestSelect(hooks, {
+    await hooks?.questionSelect?.({
       message: 'Choose your LLM provider:',
       choices: [
         { name: 'GitHub Copilot', value: 'github-copilot' },
@@ -369,10 +365,11 @@ async function tryReuseExistingLlm(
     `  Current LLM: ${describeResolvedProvider(existingResolved)}${providerRefLabel}`
   );
 
-  const reuse = await requestConfirm(hooks, {
-    message: 'Reuse existing default LLM connection?',
-    default: true,
-  });
+  const reuse =
+    (await hooks?.questionConfirm?.({
+      message: 'Reuse existing default LLM connection?',
+      default: true,
+    })) ?? true;
 
   if (!reuse) return false;
 

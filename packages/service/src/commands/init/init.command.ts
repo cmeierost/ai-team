@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { InitOptions } from '@ai-team/api-contracts';
 import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
-import { initCommand } from './init.js';
+import { InitCommand } from './init.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 import type { IQuestionService } from '../../questions/question-service.js';
 
@@ -21,13 +21,13 @@ export class InitICommand implements ICommand<Params, void> {
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IQuestionService,
+    private readonly initCmd: InitCommand
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    await initCommand(
-      this.workspaceRoot,
-      (payload.options ?? {}) as InitOptions,
+    await this.initCmd.execute(
+      { workspaceRoot: this.workspaceRoot, options: (payload.options ?? {}) as InitOptions },
       this.buildHooks(ctx)
     );
     return { status: 'ok' };
@@ -37,11 +37,11 @@ export class InitICommand implements ICommand<Params, void> {
     return {
       signal: runtime.signal,
       emit: runtime.emit,
-      input: (request) => this.questionService.input(request, runtime),
-      confirm: (request) => this.questionService.confirm(request, runtime),
-      select: (request) => this.questionService.select(request, runtime),
-      password: (request) => this.questionService.password(request, runtime),
-      checklist: (request) => this.questionService.checklist(request, runtime),
+      questionInput: (request) => this.questionService.input(request),
+      questionConfirm: (request) => this.questionService.confirm(request),
+      questionSelect: (request) => this.questionService.select(request),
+      questionPassword: (request) => this.questionService.password(request),
+      questionChecklist: (request) => this.questionService.checklist(request),
       workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
       onWorkflowFrame: runtime.onWorkflowFrame,
     };

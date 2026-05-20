@@ -19,8 +19,16 @@ describe('fs_search_* access filtering', () => {
     const workspaceRoot = await createWorkspace();
     await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, 'docs'), { recursive: true });
-    await fs.writeFile(path.join(workspaceRoot, 'src', 'allowed.ts'), 'const token = "needle";', 'utf8');
-    await fs.writeFile(path.join(workspaceRoot, 'docs', 'blocked.md'), 'needle in blocked docs', 'utf8');
+    await fs.writeFile(
+      path.join(workspaceRoot, 'src', 'allowed.ts'),
+      'const token = "needle";',
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, 'docs', 'blocked.md'),
+      'needle in blocked docs',
+      'utf8'
+    );
 
     const a = makeSearchAgent('a', ['src/**']);
     const manager = await setupManager(workspaceRoot);
@@ -35,8 +43,12 @@ describe('fs_search_* access filtering', () => {
 
     const payload = toolPayload(result);
     expect(payload.access.allowed).toBe(true);
-    expect(payload.matches.some((m: { path: string }) => m.path.includes('src/allowed.ts'))).toBe(true);
-    expect(payload.matches.some((m: { path: string }) => m.path.includes('docs/blocked.md'))).toBe(false);
+    expect(payload.matches.some((m: { path: string }) => m.path.includes('src/allowed.ts'))).toBe(
+      true
+    );
+    expect(payload.matches.some((m: { path: string }) => m.path.includes('docs/blocked.md'))).toBe(
+      false
+    );
   });
 
   it('filters fs_search_metadata matches via @ai-team/permission before returning', async () => {
@@ -70,7 +82,11 @@ describe('fs_search_* with subtree-only access', () => {
     await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, 'secret'), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'src', 'app.ts'), 'const PORT = 290420;', 'utf8');
-    await fs.writeFile(path.join(workspaceRoot, 'secret', 'config.ts'), 'const PORT = 290420;', 'utf8');
+    await fs.writeFile(
+      path.join(workspaceRoot, 'secret', 'config.ts'),
+      'const PORT = 290420;',
+      'utf8'
+    );
 
     const a = makeSearchAgent('search-subtree', ['src/**']);
     const manager = await setupManager(workspaceRoot);
