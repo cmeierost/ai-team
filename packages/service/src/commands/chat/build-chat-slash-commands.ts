@@ -95,23 +95,17 @@ export async function buildChatSlashCommands(
           return help.execute(rawArgs, executionContext);
         }
 
-        const invokeContext = {
-          ...(hooks as unknown as Record<string, unknown>),
-          signal: hooks.signal,
-          emit: hooks.emit,
-          questionInput: hooks.questionInput,
-          questionConfirm: hooks.questionConfirm,
-          questionSelect: hooks.questionSelect,
-          questionPassword: hooks.questionPassword,
-          questionChecklist: hooks.questionChecklist,
-          workflowState: hooks.workflowState,
-          onWorkflowFrame: hooks.onWorkflowFrame,
-          sessionId: currentSessionId,
-        };
-
         const payload =
           entry.input?.mode === 'structured' && rawArgs.trim().length === 0 ? {} : rawArgs;
-        const response = await dispatcher.dispatch({ command: entry.key, payload }, invokeContext);
+        const response = await dispatcher.dispatch(entry.key, payload, {
+          ...executionContext,
+          sessionId: currentSessionId,
+          signal: hooks.signal,
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
+          emit: hooks.emit as ((event: unknown) => void) | undefined,
+          workflowState: hooks.workflowState,
+          onWorkflowFrame: hooks.onWorkflowFrame as ((frame: unknown) => void) | undefined,
+        });
         if (response.status === 'error') {
           return {
             status: 'error' as const,

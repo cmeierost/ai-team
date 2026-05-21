@@ -1,5 +1,5 @@
 import type { Agent, IAgentManager, ExecutionContext } from '@ai-team/core';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 
 export interface GovernanceRequest {
   /** Agent query (id/name) initiating the governance mutation. */
@@ -13,7 +13,7 @@ export class GovernanceService {
 
   constructor(
     private readonly agentManager: IAgentManager,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   /**
@@ -77,7 +77,7 @@ export class GovernanceService {
     const explicit = requestedBy?.trim();
     if (explicit) return explicit;
 
-    const response = await this.questionService.questionInput({
+    const response = await this.questionService.input({
       message: 'Requested by (must be CEO/HR):',
     });
     if (response.trim()) return response.trim();
@@ -95,6 +95,6 @@ export class GovernanceService {
     message: string
   ): Promise<boolean> {
     if (typeof approvedByUser === 'boolean') return approvedByUser;
-    return this.questionService.questionConfirm({ message, default: false });
+    return this.questionService.confirm({ message, default: false });
   }
 }

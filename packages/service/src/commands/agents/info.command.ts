@@ -7,7 +7,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { selectDefaultTopAgent } from '../../utils/agent-selection.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 export const InfoChatCommandMetadata = {
   key: 'info',
   usage: '/info [employee]',
@@ -21,7 +21,7 @@ export class InfoChatCommand implements ICommand<string, Agent[]> {
 
   constructor(
     private readonly agentManager: IAgentManager,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<Agent[]>> {
@@ -73,7 +73,7 @@ export class InfoChatCommand implements ICommand<string, Agent[]> {
       };
     }
 
-    const chosen = await this.questionService.questionSelect({
+    const chosen = await this.questionService.select({
       message: `Multiple agents match "${query}". Which one?`,
       choices: agents.map((a) => ({ name: `${a.name} — ${a.role} [${a.id}]`, value: a.id })),
     });

@@ -23,7 +23,7 @@ import { resolveEffectiveLlmSettings } from '@ai-team/core';
 import { updateWorkspaceSettings } from '../init/update-workspace-settings.js';
 import { updateGitignore } from '../init/update-gitignore.js';
 import { askLlmSetup, type LlmSetupResult, type LlmSettingsIo } from '../init/llm-settings.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 
 export interface SetupCommandParams {
   workspaceRoot: string;
@@ -40,7 +40,7 @@ export class SetupCommand {
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
     private readonly llmProviderTester: ILlmProviderTester,
     private readonly developerIdentityService: IDeveloperIdentityService,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   async execute(params: SetupCommandParams, context: ExecutionContext): Promise<void> {
@@ -105,9 +105,9 @@ export class SetupCommand {
 
   private buildLlmSettingsIo(context: ExecutionContext | undefined): LlmSettingsIo {
     return {
-      select: (request) => this.questionService.questionSelect(request),
-      input: (request) => this.questionService.questionInput(request),
-      password: (request) => this.questionService.questionPassword(request),
+      select: (request) => this.questionService.select(request),
+      input: (request) => this.questionService.input(request),
+      password: (request) => this.questionService.password(request),
       writeLine: (message) => this.writeLine(context, message),
       writeWarn: (message) => this.writeWarn(context, message),
     };
@@ -202,7 +202,7 @@ export class SetupCommand {
           ? 'GitHub Copilot'
           : `OpenAI-compatible (${existingResolvedLlm.config.baseUrl ?? 'custom base URL'})`;
       this.writeLine(context, `LLM already configured: ${providerLabel}`);
-      const reconfigure = await this.questionService.questionConfirm({
+      const reconfigure = await this.questionService.confirm({
         message: 'Reconfigure LLM connection?',
         default: false,
       });
@@ -236,7 +236,7 @@ export class SetupCommand {
       ? ` [${existingResolvedLlm.providerRef}]`
       : '';
     this.writeLine(context, `  Current LLM: ${providerLabel}${providerRefSuffix}`);
-    const reuse = await this.questionService.questionConfirm({
+    const reuse = await this.questionService.confirm({
       message: 'Reuse existing default LLM connection?',
       default: true,
     });

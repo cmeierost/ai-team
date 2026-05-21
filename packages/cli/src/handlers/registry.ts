@@ -6,7 +6,6 @@ import {
   findWorkspaceRoot,
   IN_CHAT_COMMAND_ALIASES,
   IN_CHAT_COMMAND_REGISTRY,
-  InteractionQuestionService,
 } from '@ai-team/service';
 import { createQuestionResponders } from '../handlers/question-responders.js';
 export { IN_CHAT_COMMAND_ALIASES, IN_CHAT_COMMAND_REGISTRY };
@@ -57,10 +56,7 @@ function deriveCliKey(command: string, parentKey?: string): string {
 function loadServiceCliCommandRegistry(): CliCommandMetadata[] {
   const workspaceRoot = findWorkspaceRoot();
   const container = createContainerWithBootstrap({ workspaceRoot }, (c) => {
-    c.registerInstance(
-      TOKENS.QuestionService,
-      InteractionQuestionService(createQuestionResponders())
-    );
+    c.registerInstance(TOKENS.QuestionService, createQuestionResponders());
   });
   const dispatcher = createCommandDispatcher(
     workspaceRoot,
@@ -102,6 +98,23 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
   const serviceEntries = loadServiceCliCommandRegistry();
 
   const localCliOnlyEntries: ServiceCliEntry[] = [
+    {
+      key: 'chat',
+      command: 'chat [agent-id]',
+      description: 'Start a chat session with an agent',
+      llmCallable: false,
+      directCli: true,
+      arguments: [
+        { syntax: '[employee-id]', description: 'Agent name, first name, ID, or role' },
+      ],
+      options: [
+        { flags: '-m, --message <text>', description: 'Send a single message (one-shot mode)' },
+        { flags: '-s, --session-id <id>', description: 'Resume or continue a specific session' },
+        { flags: '-n, --new', description: 'Force-create a new session instead of resuming' },
+        { flags: '--mediator-log', description: 'Print mediator log to stderr (debug)' },
+      ],
+      dispatchKey: 'chat',
+    },
     {
       key: 'serve',
       command: 'serve',
@@ -245,4 +258,8 @@ export function getCliCommandMetadata(key: string): CliCommandMetadata {
 
 export function getCliDispatchCommandKey(key: string): string {
   return cliDispatchKeyByKey.get(key) ?? key;
+}
+
+export function hasCliDispatchKey(key: string): boolean {
+  return cliDispatchKeyByKey.has(key);
 }

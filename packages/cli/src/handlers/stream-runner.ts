@@ -1,12 +1,8 @@
-import type {
-  InteractionRequest,
-  InteractionContext,
-} from '@ai-team/api-contracts';
-import type { IServiceContainer } from '@ai-team/core';
+import type { InteractionRequest } from '@ai-team/api-contracts';
+import type { ExecutionContext, IServiceContainer } from '@ai-team/core';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { exec } from 'node:child_process';
 import chalk from 'chalk';
-import { createQuestionResponders } from './question-responders.js';
 import {
   CLI_RESULT_HANDLER_REGISTRY_TOKEN,
   type ICliResultHandlerRegistry,
@@ -17,7 +13,7 @@ interface StreamRunnerOptions {
   resultHandler?: (data: unknown) => void;
   serviceContainer?: IServiceContainer;
   rendererOptions?: unknown;
-  interactionContext?: InteractionContext;
+  executionContext?: Partial<ExecutionContext>;
 }
 
 function setupAbortController() {
@@ -76,17 +72,19 @@ export async function runCommandStream(
   let resultData: unknown | undefined;
 
   try {
-    const interactionContext: InteractionContext = {
+    const executionContext: ExecutionContext = {
+      workspaceRoot: '',
+      history: [],
       invocationSurface: 'cli',
       calledByHuman: true,
-      ...(options.interactionContext ?? {}),
-    } as InteractionContext;
-
-    for await (const event of client.streamInteraction(request, {
-      ...createQuestionResponders(),
+      ...(options.executionContext ?? {}),
       signal: abortControl.signal,
-      ...interactionContext,
-    })) {
+    };
+
+    for await (const event of client.streamInteraction(
+      request,
+      executionContext as unknown as Record<string, unknown>
+    )) {
       if (event.kind === 'token') {
         process.stdout.write(event.text);
         continue;

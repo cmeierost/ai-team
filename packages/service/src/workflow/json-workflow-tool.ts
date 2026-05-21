@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 import type { ExecutionContext } from '@ai-team/core';
-import type { IQuestionService } from '../questions/question-service.js';
+import type { IInteractionService } from '../questions/question-service.js';
 import { WorkflowAbortError } from './types.js';
 import type { IWorkflowRunnerFactory } from './runner.js';
 import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
@@ -103,7 +103,7 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
   constructor(
     private readonly definition: JsonWorkflow,
     private readonly runnerFactory: IWorkflowRunnerFactory,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {
     this.key = definition.id;
     this.name = definition.name;
@@ -148,7 +148,7 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
         runtimeSteps.push({
           id,
           execute: async (state: WorkflowState) => {
-            const answer = await qs.questionInput({ message });
+            const answer = await qs.input({ message });
             return { ...state, answers: { ...state.answers, [storeAs]: answer } };
           },
         });
@@ -160,7 +160,7 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
         runtimeSteps.push({
           id,
           execute: async (state: WorkflowState) => {
-            const ok = await qs.questionConfirm({ message, default: defaultVal });
+            const ok = await qs.confirm({ message, default: defaultVal });
             if (!ok && onDeclined === 'abort') throw new WorkflowAbortError();
             return state;
           },
@@ -171,7 +171,7 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
         runtimeSteps.push({
           id,
           execute: async (state: WorkflowState) => {
-            const answer = await qs.questionSelect({ message, choices });
+            const answer = await qs.select({ message, choices });
             return { ...state, answers: { ...state.answers, [storeAs]: answer } };
           },
         });
@@ -181,7 +181,12 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
         runtimeSteps.push({
           id,
           execute: async (state: WorkflowState) => {
-            const answer = await qs.questionChecklist({ message, choices, minSelections, maxSelections });
+            const answer = await qs.checklist({
+              message,
+              choices,
+              minSelections,
+              maxSelections,
+            });
             return { ...state, answers: { ...state.answers, [storeAs]: answer } };
           },
         });

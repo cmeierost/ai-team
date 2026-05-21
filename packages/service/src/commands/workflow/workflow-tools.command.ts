@@ -84,7 +84,7 @@ export class WorkflowDefinitionOrchestrationCommand
   implements ICommand<DefinitionParams, WorkflowDefinitionApiResponse>, IWorkflowDefinitionProvider
 {
   static readonly schema = _workflowDefinitionOrchestrationCommandSchema;
-  readonly metadata: ICommandDescriptor;
+  readonly metadata: ICommandDescriptor<DefinitionParams>;
 
   constructor(
     private readonly workflowId: string,

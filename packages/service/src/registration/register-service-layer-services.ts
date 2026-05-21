@@ -38,10 +38,9 @@ import type {
   IPlanningRepository,
   IWorkspaceFsFactory,
 } from '@ai-team/core';
-import {
-  type IQuestionService,
-  InteractionQuestionService,
-} from '../questions/question-service.js';
+import { type IInteractionService as IQuestionService } from '../questions/question-service.js';
+import { WsQuestionService } from '../questions/ws-question-service.js';
+import { AskUserCommand, AskUserCommandMetadata } from '../commands/com/ask.command.js';
 import { SessionManager } from '../session-manager.js';
 import { ToolManager } from '../tools/tool-manager.js';
 import { CommandRegistry } from '../command-registry-impl.js';
@@ -129,6 +128,7 @@ import {
   ChatPreflightService,
 } from '../commands/chat/index.js';
 import { IInteractionService, InteractionService } from '../interaction-service.js';
+import { WorkflowRunnerFactory } from '../workflow/runner.js';
 import { GovernanceService } from '../commands/agents/governance.js';
 import { AgentToolsService } from '../commands/tools/tools-service.js';
 import {
@@ -304,6 +304,11 @@ export function registerServiceLayerServices(
       )
   );
 
+  container.registerScoped(
+    COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory,
+    (c) => new WorkflowRunnerFactory(c.child())
+  );
+
   // Register CommandRegistry with all built-in tools
   container.registerSingleton(COMMAND_FACTORY_TOKENS.CommandRegistry, (c) => {
     const registry = new CommandRegistry();
@@ -447,6 +452,10 @@ export function registerServiceLayerServices(
     return registry;
   });
 
+  // QuestionService: scoped WebSocket-backed implementation. Overridden per connection
+  // in the WebSocket handler via registerInstance before InteractionService is resolved.
+  container.registerScoped(tokens.QuestionService, () => new WsQuestionService());
+
   // Register ToolManager with pure DI — resolves from registry and container
   container.registerSingleton(tokens.ToolManager, (c) => {
     const workspaceRoot = c.resolve(tokens.WorkspaceRoot) as string;
@@ -491,6 +500,14 @@ export function registerServiceLayerServices(
     })) {
       registry.register(tool.metadata, (_r) => tool);
     }
+
+    // AskUserCommand is registered lazily so each invocation resolves the
+    // current per-connection QuestionService (set via registerInstance in the
+    // WebSocket handler) rather than a service baked in at startup.
+    registry.register(
+      AskUserCommandMetadata,
+      (r) => new AskUserCommand(r.resolve(COMMAND_FACTORY_TOKENS.QuestionService))
+    );
 
     return manager;
   });
@@ -563,8 +580,6 @@ export function registerServiceLayerServices(
     tokens.TeamService,
     (c) => new TeamService(c.resolve(tokens.TeamGraphBuilder))
   );
-  container.registerSingleton(tokens.QuestionService, () => InteractionQuestionService({}));
-
   container.registerScoped(tokens.InteractionService, (c) =>
     buildInteractionService(c, tokens, cfg.workspaceRoot)
   );

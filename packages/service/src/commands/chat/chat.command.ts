@@ -45,7 +45,7 @@ import { buildDefaultTurnResultParsers } from '../../orchestrator/defaults/turn-
 import { SlashCommandDispatcher } from '../../orchestrator/slash-command-dispatcher.js';
 import { ToolDispatcher } from '../../orchestrator/tool-dispatch.js';
 import { HandoffOrchestrator } from '../../orchestrator/handoff.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 import { WorkflowIntentProvider } from '../../tools/workflow-intent-provider.js';
 import {
   buildDynamicSlashCatalog,
@@ -170,7 +170,7 @@ export class ChatCommand {
     const emitService = serviceContainer.resolve(COMMAND_FACTORY_TOKENS.EmitService);
     const questionService = serviceContainer.resolve(
       COMMAND_FACTORY_TOKENS.QuestionService
-    ) as IQuestionService;
+    ) as IInteractionService;
 
     return emitService.runWithEmitter(hooks.emit, () =>
       this.runWithEmitter({
@@ -196,7 +196,7 @@ export class ChatCommand {
     markdownSectionService: Pick<IMarkdownSectionService, 'parseMarkdownSections'>;
     skillManager: ISkillManager;
     serviceContainer: IServiceContainer;
-    questionService: IQuestionService;
+    questionService: IInteractionService;
   }): Promise<void> {
     const {
       workspaceRoot,
@@ -535,7 +535,7 @@ export class ChatCommand {
     serviceContainer: IServiceContainer;
     skillManager: ISkillManager;
     configurationStorage: Pick<IConfigurationStorage, 'loadEffectiveConfigAsync'>;
-    questionService: IQuestionService;
+    questionService: IInteractionService;
   }): Promise<{ ctx: ChatExecutionContext; orchestrator: XStateChatOrchestrator }> {
     const {
       workspaceRoot,

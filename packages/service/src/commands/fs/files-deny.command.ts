@@ -6,7 +6,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { FileTreeService, type PathMode } from './file-tree.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 import { GovernanceService } from '../agents/governance.js';
 
 type Params = z.infer<typeof FilesDenyCommand.schema>;
@@ -34,7 +34,7 @@ export class FilesDenyCommand implements ICommand<Params, Result> {
 
   constructor(
     private readonly fileTreeService: FileTreeService,
-    private readonly questionService: IQuestionService,
+    private readonly questionService: IInteractionService,
     private readonly governanceService: GovernanceService
   ) {}
 

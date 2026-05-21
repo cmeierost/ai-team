@@ -1,9 +1,10 @@
 /**
  * Unified command dispatcher — single service-layer entry point for all commands.
  *
- * Both CLI and browser clients call `dispatch()` with a typed `InteractionRequest`.
- * Chat slash commands are also routed through this dispatcher, making every
- * command callable as `{ command, payload }`.
+ * Dispatches by command key against an ICommandRegistry. The caller provides
+ * a fully-constructed ExecutionContext — no interaction hooks or context
+ * conversion happens here. CLI creates a fresh context from request parameters;
+ * slash commands inherit the running workflow/chat context.
  */
 
 import type {
@@ -11,21 +12,19 @@ import type {
   CommandDescriptor,
   CommandResponse,
   ICommandDispatcher,
-  InteractionContext,
-  InteractionRequest,
 } from '@ai-team/api-contracts';
 import { isCommandResponse } from '@ai-team/api-contracts';
-import type { ICommand, IServiceContainer } from '@ai-team/core';
-import {
-  COMMAND_DEFINITION_REGISTRY_TOKEN,
-  COMMAND_FACTORY_TOKENS,
-  isResolverCommandDefinition,
-  type AnyCommandDefinition,
-  type CommandFactoryContainer,
-} from './types.js';
+import type {
+  ICommand,
+  ICommandRegistry,
+  IServiceContainer,
+  ExecutionContext,
+} from '@ai-team/core';
+import { COMMAND_FACTORY_TOKENS } from './types.js';
 import type { SessionManager } from './session-manager.js';
-import { toCommandRegistration } from './command-adapters.js';
+import { resolveCommandArgs } from './command-adapters.js';
 import { setServiceContainer } from './service-registry.js';
+import { CommandRegistry } from './command-registry-impl.js';
 import { AccessCanCommand } from './commands/access/access-can.command.js';
 import { AccessOverlapCommand } from './commands/access/access-overlap.command.js';
 import { AccessWhoCommand } from './commands/access/access-who.command.js';
@@ -84,55 +83,9 @@ import { HelpChatCommand } from './commands/help/help.command.js';
 import { ChatInfoService } from './orchestrator/chat-info-service.js';
 import { MetaService } from './routers/meta-service.js';
 
-// ── Handler type ──────────────────────────────────────────────────────────────
+// ── Kept for backward compat with types.ts legacy definition infrastructure ──
 
-type CommandHandler = (
-  workspaceRoot: string,
-  payload: unknown,
-  context: InteractionContext
-) => Promise<CommandResponse<unknown>>;
-
-type AnyICommand = ICommand<unknown, unknown>;
-type CommandPayload<TCommand extends AnyICommand> = Parameters<TCommand['execute']>[0];
-type CommandRawResult<TCommand extends AnyICommand> = Awaited<ReturnType<TCommand['execute']>>;
-type CommandDataResult<TCommand extends AnyICommand> =
-  CommandRawResult<TCommand> extends CommandResponse<infer TData>
-    ? TData
-    : CommandRawResult<TCommand>;
-type TypedCommandResponse<TCommand extends AnyICommand> = CommandResponse<
-  CommandDataResult<TCommand>
->;
-
-/**
- * Wrap a raw command handler result in a CommandResponse envelope.
- */
-function wrapHandler(
-  fn: (workspaceRoot: string, payload: unknown, context?: InteractionContext) => Promise<unknown>
-): CommandHandler {
-  return async (workspaceRoot, payload, context) => {
-    try {
-      const result = await fn(workspaceRoot, payload, context);
-
-      // If already a CommandResponse, return as-is
-      if (isCommandResponse(result)) {
-        return result;
-      }
-
-      // Wrap bare results
-      return { status: 'ok', message: '', data: result };
-    } catch (error) {
-      return {
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Command execution failed',
-        error: {
-          code: 'COMMAND_EXECUTION_FAILED',
-          details: error,
-        },
-      };
-    }
-  };
-}
-
+/** @deprecated Use ICommandDescriptor from @ai-team/core instead. */
 export interface CommandRegistrationMetadata<TCommand extends string = string> {
   key: TCommand;
   aliases?: string[];
@@ -165,688 +118,424 @@ export interface CommandRegistrationMetadata<TCommand extends string = string> {
   };
 }
 
+/** @deprecated Will be removed once legacy CommandDefinitionRegistry is cleaned up. */
+// eslint-disable-next-line @typescript-eslint/no-deprecated
 export type RegisteredCommand<TCommand extends string = string> =
   CommandRegistrationMetadata<TCommand> & {
-    handler:
-      | CommandHandler
-      | ((
-          workspaceRoot: string,
-          payload: unknown,
-          context?: InteractionContext
-        ) => Promise<unknown>);
+    handler: (...args: unknown[]) => Promise<unknown>;
   };
 
 // ── Dispatcher ────────────────────────────────────────────────────────────────
 
+/**
+ * Resolves commands from an ICommandRegistry and executes them with a
+ * caller-provided ExecutionContext. No context conversion happens here.
+ */
 export class CommandDispatcher implements ICommandDispatcher {
-  private readonly commands = new Map<string, RegisteredCommand>();
-  private readonly aliasOwners = new Map<string, string>();
-
-  constructor(private readonly workspaceRoot: string) {}
-
-  registerCommand<TParams, TResult>(command: ICommand<TParams, TResult>): void {
-    this.register(
-      toCommandRegistration(command as unknown as ICommand<unknown, unknown>) as RegisteredCommand
-    );
-  }
-
-  register<TCommand extends string = string>(entry: RegisteredCommand<TCommand>): void {
-    if (this.commands.has(entry.key)) {
-      throw new Error(`Duplicate command registration for key '${entry.key}'.`);
-    }
-
-    if (entry.aliases) {
-      for (const alias of entry.aliases) {
-        const existingOwner = this.aliasOwners.get(alias);
-        if (existingOwner && existingOwner !== entry.key) {
-          throw new Error(
-            `Duplicate alias '${alias}' registered by '${existingOwner}' and '${entry.key}'.`
-          );
-        }
-      }
-    }
-
-    // Always wrap the handler to ensure CommandResponse wrapping
-    const rawHandler = entry.handler as any;
-    const handler = rawHandler.__wrapped
-      ? rawHandler
-      : wrapHandler(
-          rawHandler as (
-            workspaceRoot: string,
-            payload: unknown,
-            context?: InteractionContext
-          ) => Promise<unknown>
-        );
-
-    handler.__wrapped = true;
-
-    this.commands.set(entry.key, {
-      key: entry.key,
-      aliases: entry.aliases,
-      description: entry.description,
-      usage: entry.usage,
-      availableIn: entry.availableIn,
-      path: entry.path,
-      help: entry.help,
-      llm: entry.llm,
-      intents: entry.intents,
-      intentExamples: entry.intentExamples,
-      input: entry.input,
-      handler: handler as CommandHandler,
-    });
-
-    if (entry.aliases) {
-      for (const alias of entry.aliases) {
-        this.aliasOwners.set(alias, entry.key);
-      }
-    }
-  }
+  constructor(
+    private readonly registry: ICommandRegistry,
+    private readonly resolver: IServiceContainer
+  ) {}
 
   async dispatch(
-    request: InteractionRequest,
-    context?: InteractionContext
-  ): Promise<CommandResponse<unknown>>;
-
-  async dispatch<TCommand extends AnyICommand>(
-    request: {
-      requestId?: string;
-      command: string;
-      payload: CommandPayload<TCommand>;
-    },
-    context?: InteractionContext
-  ): Promise<TypedCommandResponse<TCommand>>;
-
-  async dispatch(
-    request: InteractionRequest,
-    context: InteractionContext = {}
+    key: string,
+    params: unknown,
+    ctx: ExecutionContext
   ): Promise<CommandResponse<unknown>> {
-    const reg = this.commands.get(request.command);
-    if (!reg) {
+    const cmd = this.registry.resolve(key, this.resolver);
+    if (!cmd) {
       return {
         status: 'error',
-        message: `Unknown command '${String(request.command)}'`,
-        error: {
-          code: 'UNKNOWN_COMMAND',
-          details: { command: request.command },
-        },
+        message: `Unknown command '${key}'`,
+        error: { code: 'UNKNOWN_COMMAND', details: { key } },
       };
     }
     try {
-      return await (reg.handler as unknown as CommandHandler)(
-        this.workspaceRoot,
-        request.payload,
-        context
-      );
+      const resolvedParams = resolveCommandArgs(cmd, params, ctx);
+      const result = await cmd.execute(resolvedParams, ctx);
+      if (isCommandResponse(result)) {
+        return { ...result, message: result.message ?? '' };
+      }
+      return { status: 'ok', message: '', data: result };
     } catch (error) {
       return {
         status: 'error',
         message: error instanceof Error ? error.message : 'Command dispatch failed',
-        error: {
-          code: 'COMMAND_DISPATCH_FAILED',
-          details: error,
-        },
+        error: { code: 'COMMAND_DISPATCH_FAILED', details: error },
       };
     }
   }
 
-  async dispatchCommand<TCommand extends AnyICommand>(
-    command: TCommand,
-    payload: CommandPayload<TCommand>,
-    context: InteractionContext = {}
-  ): Promise<TypedCommandResponse<TCommand>> {
-    return this.dispatch<TCommand>(
-      {
-        command: command.metadata.key,
-        payload,
-      },
-      context
-    );
-  }
-
   getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[] {
-    const all = [...this.commands.values()];
-    if (!filter) return all.map(toDescriptor);
-
-    return all
-      .filter((c) => {
-        if (filter.cli && !c.availableIn.cli) return false;
-        if (filter.chat && !c.availableIn.chat) return false;
-        if (filter.cliChat && !c.availableIn.cliChat) return false;
-        if (filter.tool && !c.availableIn.tool) return false;
-        return true;
-      })
-      .map(toDescriptor);
+    return this.registry.getAll({ availableIn: filter });
   }
 
   getCommand(key: string): CommandDescriptor | undefined {
-    const reg = this.commands.get(key);
-    return reg ? toDescriptor(reg) : undefined;
+    return this.registry.get(key);
   }
 }
 
-function toDescriptor(reg: CommandRegistrationMetadata): CommandDescriptor {
-  return {
-    key: reg.key,
-    aliases: reg.aliases,
-    description: reg.description,
-    usage: reg.usage,
-    availableIn: reg.availableIn,
-    path: reg.path,
-    help: reg.help,
-    llm: reg.llm,
-    intents: reg.intents,
-    intentExamples: reg.intentExamples,
-    input: reg.input,
-  };
-}
-
-function createCommandFactoryContainer(
+/**
+ * Build a fully wired CommandDispatcher with all known command handlers.
+ */
+export function createCommandDispatcher(
   workspaceRoot: string,
   resolver?: IServiceContainer
-): CommandFactoryContainer {
+): CommandDispatcher {
   if (!resolver) {
     throw new Error(
       'createCommandDispatcher requires a resolver. Use createContainerWithBootstrap(...).child() and pass it in.'
     );
   }
 
+  setServiceContainer(resolver);
+
   const scopedResolver = resolver.child();
   scopedResolver.registerInstance(COMMAND_FACTORY_TOKENS.WorkspaceRoot, workspaceRoot);
 
-  return {
-    workspaceRoot,
-    resolver: scopedResolver,
-    resolve: (token) => scopedResolver.resolve(token),
-    registerTransient: (token, factory) => {
-      scopedResolver.registerTransient(token, factory);
-    },
-  };
-}
-
-/**
- * Build a fully wired CommandDispatcher with all known command handlers.
- *
- * Lazy-imports are used for command modules to keep startup fast.
- */
-export function createCommandDispatcher(
-  workspaceRoot: string,
-  resolver?: IServiceContainer
-): CommandDispatcher {
-  const d = new CommandDispatcher(workspaceRoot);
-  if (resolver) {
-    setServiceContainer(resolver);
-  }
-  const container = createCommandFactoryContainer(workspaceRoot, resolver);
-  const commandDefinitions = resolver?.tryResolve(COMMAND_DEFINITION_REGISTRY_TOKEN)?.list() ?? [];
-
-  const registerDefinition = (definition: AnyCommandDefinition): void => {
-    if (isResolverCommandDefinition(definition)) {
-      definition.register(container);
-      d.register({
-        ...definition.registration,
-        handler: wrapHandler(
-          async (_ws: string, payload: unknown, context?: InteractionContext) => {
-            const handler = container.resolve(definition.handlerToken) as (
-              payload: unknown,
-              context: InteractionContext
-            ) => Promise<unknown>;
-            return handler(payload, context ?? {});
-          }
-        ),
-      });
-      return;
-    }
-
-    d.register(definition.factory(container));
-  };
-
-  for (const definition of commandDefinitions) {
-    registerDefinition(definition);
-  }
-
-  container.registerTransient(COMMAND_FACTORY_TOKENS.ContextService, (resolver) => {
+  scopedResolver.registerTransient(COMMAND_FACTORY_TOKENS.ContextService, (r) => {
     return new MetaService(
-      resolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage)
+      r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
+      r.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
+      r.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
+      r.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage)
     );
   });
 
-  // ── Class-based commands ─────────────────────────────────────────────────
-  // One registration — CLI, chat, and tool surfaces resolve from the same registry.
+  const registry = new CommandRegistry();
+  const reg = (cmd: ICommand<unknown, unknown>) => registry.register(cmd.metadata, () => cmd);
 
-  d.register(
-    toCommandRegistration(
-      new AccessCanCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker)
-      )
+  // ── Access commands ────────────────────────────────────────────────────
+
+  reg(
+    new AccessCanCommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker)
     )
   );
 
-  // ── Service commands (CLI + chat + tool) ────────────────────────────────
+  // ── Service commands ───────────────────────────────────────────────────
 
-  d.register(
-    toCommandRegistration(
-      new TeamListICommand(container.resolve(COMMAND_FACTORY_TOKENS.AgentManager))
-    )
-  );
+  reg(new TeamListICommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager)));
 
-  const sessionManager = resolver?.tryResolve<SessionManager>(
-    COMMAND_FACTORY_TOKENS.SessionManager
-  );
+  const sessionManager = resolver.tryResolve<SessionManager>(COMMAND_FACTORY_TOKENS.SessionManager);
   const setupCommand = new SetupCommand(
-    container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-    container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-    container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceStorage),
-    container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
-    container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-    container.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-    container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceStorage),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
   );
   const onboardCommand = new OnboardCommand(
-    container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-    container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-    container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-    container.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
-    container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-    container.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage),
-    container.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory),
-    container.resolve(COMMAND_FACTORY_TOKENS.LlmService),
-    container.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-    container.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
-    container.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
-    container.resolve(COMMAND_FACTORY_TOKENS.ContextService),
-    container.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.LlmService),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ContextService),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
     sessionManager,
-    container.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-    resolver
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
+    scopedResolver
   );
 
-  d.register(
-    toCommandRegistration(
-      new InitICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-        new InitCommand(
-          onboardCommand,
-          setupCommand,
-          new TestConnectionCommand(
-            container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-            container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-            container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-            container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-            container.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
-          ),
-          new WorkflowRunnerFactory(container.resolver)
-        )
-      )
-    )
-  );
-  d.register(toCommandRegistration(new SetupICommand(setupCommand)));
-  d.register(
-    toCommandRegistration(
-      new OnboardICommand(
+  reg(
+    new InitICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+      new InitCommand(
         onboardCommand,
-        sessionManager,
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        setupCommand,
+        new TestConnectionCommand(
+          scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+          scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+          scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+          scopedResolver.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
+          scopedResolver.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
+        ),
+        new WorkflowRunnerFactory(scopedResolver)
       )
     )
   );
-
-  d.register(
-    toCommandRegistration(
-      new SystemStatusICommand(container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage))
+  reg(new SetupICommand(setupCommand));
+  reg(
+    new OnboardICommand(
+      onboardCommand,
+      sessionManager,
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
     )
   );
 
-  d.register(
-    toCommandRegistration(
-      new ProviderConfigureICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
+  reg(
+    new SystemStatusICommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage))
+  );
+
+  reg(
+    new ProviderConfigureICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+    )
+  );
+  reg(
+    new ProviderAddICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+    )
+  );
+  reg(
+    new ProviderSetICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+    )
+  );
+  reg(
+    new ProviderListICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
+    )
+  );
+  reg(
+    new ProviderModelsICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
+    )
+  );
+  reg(
+    new ProviderModelsRefreshICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
     )
   );
 
-  d.register(
-    toCommandRegistration(
-      new ProviderAddICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
+  // ── Access commands (continued) ────────────────────────────────────────
+
+  reg(new AccessOverlapCommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager)));
+  reg(
+    new AccessWhoCommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker)
     )
   );
 
-  d.register(
-    toCommandRegistration(
-      new ProviderSetICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
+  // ── Search & skills commands ───────────────────────────────────────────
+
+  reg(new SearchAgentsICommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager)));
+  reg(new ResolveEmployeesICommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager)));
+  reg(
+    new SkillsListCommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.SkillManager)
+    )
+  );
+  reg(
+    new SkillsAddCommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
+    )
+  );
+  reg(
+    new SkillsRemoveCommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
     )
   );
 
-  d.register(
-    toCommandRegistration(
-      new ProviderListICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
-      )
-    )
-  );
-
-  d.register(
-    toCommandRegistration(
-      new ProviderModelsICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
-      )
-    )
-  );
-
-  d.register(
-    toCommandRegistration(
-      new ProviderModelsRefreshICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
-      )
-    )
-  );
-
-  // ── Access commands ─────────────────────────────────────────────────────
-
-  d.register(
-    toCommandRegistration(
-      new AccessOverlapCommand(container.resolve(COMMAND_FACTORY_TOKENS.AgentManager))
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new AccessWhoCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker)
-      )
-    )
-  );
-
-  // ── Search & skills commands ────────────────────────────────────────────
-
-  d.register(
-    toCommandRegistration(
-      new SearchAgentsICommand(container.resolve(COMMAND_FACTORY_TOKENS.AgentManager))
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new ResolveEmployeesICommand(container.resolve(COMMAND_FACTORY_TOKENS.AgentManager))
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new SkillsListCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.SkillManager)
-      )
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new SkillsAddCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
-      )
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new SkillsRemoveCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
-      )
-    )
-  );
-
-  // ── Tools commands ──────────────────────────────────────────────────────────
+  // ── Tools commands ─────────────────────────────────────────────────────
 
   const governanceService = new GovernanceService(
-    container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-    container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
   );
-
   const toolsService = new AgentToolsService(
-    container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-    container.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
     governanceService
   );
 
-  d.register(toCommandRegistration(new ToolsListCommand(toolsService)));
-  d.register(toCommandRegistration(new ToolsAllowCommand(toolsService)));
-  d.register(toCommandRegistration(new ToolsDenyCommand(toolsService)));
+  reg(new ToolsListCommand(toolsService));
+  reg(new ToolsAllowCommand(toolsService));
+  reg(new ToolsDenyCommand(toolsService));
 
-  // ── Files commands ──────────────────────────────────────────────────────────
+  // ── Files commands ─────────────────────────────────────────────────────
 
   const fileTreeAccessService = new FileTreeService(
-    container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-    container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-    container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-    container.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
     governanceService,
-    container.resolve(COMMAND_FACTORY_TOKENS.FileTreeService),
-    container.resolve(COMMAND_FACTORY_TOKENS.FileAnnotationService)
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.FileTreeService),
+    scopedResolver.resolve(COMMAND_FACTORY_TOKENS.FileAnnotationService)
   );
 
-  d.register(toCommandRegistration(new FilesTreeCommand(fileTreeAccessService)));
-  d.register(
-    toCommandRegistration(
-      new FilesAllowCommand(
-        fileTreeAccessService,
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-        governanceService
-      )
+  reg(new FilesTreeCommand(fileTreeAccessService));
+  reg(
+    new FilesAllowCommand(
+      fileTreeAccessService,
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+      governanceService
     )
   );
-  d.register(
-    toCommandRegistration(
-      new FilesDenyCommand(
-        fileTreeAccessService,
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-        governanceService
-      )
+  reg(
+    new FilesDenyCommand(
+      fileTreeAccessService,
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+      governanceService
     )
   );
-  d.register(
-    toCommandRegistration(
-      new FilesPatternsCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage)
-      )
+  reg(
+    new FilesPatternsCommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage)
     )
   );
 
-  // ── Files tree & patterns ───────────────────────────────────────────────
+  // ── Org commands ───────────────────────────────────────────────────────
 
-  // ── Org commands ────────────────────────────────────────────────────────
+  reg(new GraphCommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.TeamGraphBuilder)));
+  reg(new OrgCommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.TeamGraphBuilder)));
+  reg(
+    new HireICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
+    )
+  );
+  reg(
+    new FireICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      new WorkflowRunnerFactory(scopedResolver)
+    )
+  );
+  reg(
+    new CreateICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+    )
+  );
+  reg(
+    new AvatarCommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AvatarManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+    )
+  );
+  reg(new HhRefreshCommand());
 
-  d.register(
-    toCommandRegistration(
-      new GraphCommand(container.resolve(COMMAND_FACTORY_TOKENS.TeamGraphBuilder))
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new OrgCommand(container.resolve(COMMAND_FACTORY_TOKENS.TeamGraphBuilder))
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new HireICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
-      )
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new FireICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        new WorkflowRunnerFactory(container.resolver)
-      )
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new CreateICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new AvatarCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.AvatarManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-    )
-  );
-  d.register(toCommandRegistration(new HhRefreshCommand()));
+  // ── Utility commands ───────────────────────────────────────────────────
 
-  // ── Utility commands ────────────────────────────────────────────────────
-
-  d.register(
-    toCommandRegistration(
-      new SystemInfoCommand(container.resolve(COMMAND_FACTORY_TOKENS.SystemInfoService))
+  reg(new SystemInfoCommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.SystemInfoService)));
+  reg(
+    new TestConnectionICommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
     )
   );
-  d.register(
-    toCommandRegistration(
-      new TestConnectionICommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        container.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
-      )
+  reg(new DbMigrateCommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.MessageStorage)));
+  reg(new DbStatusCommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.MessageStorage)));
+  reg(
+    new PatchApplyCommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.IdeAdapterFactory),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory)
     )
   );
-  d.register(
-    toCommandRegistration(
-      new DbMigrateCommand(container.resolve(COMMAND_FACTORY_TOKENS.MessageStorage))
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new DbStatusCommand(container.resolve(COMMAND_FACTORY_TOKENS.MessageStorage))
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new PatchApplyCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.IdeAdapterFactory),
-        container.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory)
-      )
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new ChatICommand(
-        {
-          configurationStorage: container.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-          environmentStorage: container.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-          developerIdentityService: container.resolve(
-            COMMAND_FACTORY_TOKENS.DeveloperIdentityService
-          ),
-          contextService: container.resolve(COMMAND_FACTORY_TOKENS.ContextService),
-        },
-        {
-          agentManager: container.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-          agentDocumentStorage: container.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage),
-          markdownSectionService: container.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
-          skillManager: container.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-        },
-        {
-          sessionManager: container.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-          llmService: container.resolve(COMMAND_FACTORY_TOKENS.LlmService),
-          proposalStoreFactory: container.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory),
-        },
-        {
-          pathPermissionChecker: container.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
-          serviceContainer: container.resolver,
-        },
-        new ChatInfoService(),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
+  reg(
+    new ChatICommand(
+      {
+        configurationStorage: scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+        environmentStorage: scopedResolver.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+        developerIdentityService: scopedResolver.resolve(
+          COMMAND_FACTORY_TOKENS.DeveloperIdentityService
+        ),
+        contextService: scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ContextService),
+      },
+      {
+        agentManager: scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+        agentDocumentStorage: scopedResolver.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage),
+        markdownSectionService: scopedResolver.resolve(
+          COMMAND_FACTORY_TOKENS.MarkdownSectionService
+        ),
+        skillManager: scopedResolver.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
+      },
+      {
+        sessionManager: scopedResolver.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
+        llmService: scopedResolver.resolve(COMMAND_FACTORY_TOKENS.LlmService),
+        proposalStoreFactory: scopedResolver.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory),
+      },
+      {
+        pathPermissionChecker: scopedResolver.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
+        serviceContainer: scopedResolver,
+      },
+      new ChatInfoService(),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
     )
   );
 
-  d.register(
-    toCommandRegistration(
-      new HelpChatCommand(() =>
-        d.getCommands({ chat: true }).map((entry) => ({
-          key: entry.key,
-          usage: entry.usage,
-          description: entry.description,
-          availableIn: entry.availableIn,
-          path: entry.path,
-        }))
-      )
+  reg(new CodeEditListCommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager)));
+  reg(new CodeEditApproveCommand(scopedResolver.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager)));
+  reg(
+    new CodeEditRejectCommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+    )
+  );
+  reg(
+    new CodeEditApplyCommand(
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
+      scopedResolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
     )
   );
 
-  d.register(
-    toCommandRegistration(
-      new CodeEditListCommand(container.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager))
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new CodeEditApproveCommand(container.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager))
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new CodeEditRejectCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-    )
-  );
-  d.register(
-    toCommandRegistration(
-      new CodeEditApplyCommand(
-        container.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
-        container.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-    )
-  );
+  // ── Dispatcher — must be created before HelpChatCommand ───────────────
 
-  return d;
+  const dispatcher = new CommandDispatcher(registry, scopedResolver);
+
+  // HelpChatCommand lazily calls dispatcher.getCommands(); register after dispatcher is created
+  const helpCmd = new HelpChatCommand(() =>
+    dispatcher.getCommands({ chat: true }).map((entry) => ({
+      key: entry.key,
+      usage: entry.usage,
+      description: entry.description,
+      availableIn: entry.availableIn,
+      path: entry.path,
+    }))
+  );
+  registry.register(helpCmd.metadata, () => helpCmd);
+
+  return dispatcher;
 }

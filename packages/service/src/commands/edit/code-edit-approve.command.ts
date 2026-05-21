@@ -15,6 +15,7 @@ const _codeEditApproveCommandSchema = z.object({
 
 export const CodeEditApproveCommandMetadata = {
   key: 'codeEditApprove',
+  group: 'codeEdit',
   cli: { command: 'code-edit approve <proposalId>' },
   description: 'Approve a code edit proposal',
   availableIn: { cli: true, chat: true, tool: true },

@@ -24,11 +24,11 @@ function createDispatcher(
   sessionManager: any,
   llmService: ILlmService,
   questionService = InteractionQuestionService({
-    questionInput: vi.fn(async () => ''),
-    questionConfirm: vi.fn(async () => true),
-    questionSelect: vi.fn(async () => ''),
-    questionPassword: vi.fn(async () => ''),
-    questionChecklist: vi.fn(async () => []),
+    input: vi.fn(async () => ''),
+    confirm: vi.fn(async () => true),
+    select: vi.fn(async () => ''),
+    password: vi.fn(async () => ''),
+    checklist: vi.fn(async () => []),
   })
 ) {
   const serialization = new ToolSerializationService();
@@ -284,11 +284,11 @@ describe('dispatchToolCall denial metadata', () => {
     const emit = vi.fn();
     const { emitService } = createEmitService(emit);
     const questionService = new InteractionQuestionService({
-      questionInput: vi.fn(async () => ''),
-      questionConfirm: vi.fn(async () => false),
-      questionSelect: vi.fn(async () => ''),
-      questionPassword: vi.fn(async () => ''),
-      questionChecklist: vi.fn(async () => []),
+      input: vi.fn(async () => ''),
+      confirm: vi.fn(async () => false),
+      select: vi.fn(async () => ''),
+      password: vi.fn(async () => ''),
+      checklist: vi.fn(async () => []),
     });
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any, questionService);
 

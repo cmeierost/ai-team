@@ -66,7 +66,7 @@ export async function renderInit(client: ICliCommandClient, options: InitOptions
         signal: abortControl.signal,
         logger:
           mediatorLoggerEnabled || frontendFileLogEnabled
-            ? (entry) => {
+            ? (entry: { channel: string; event: unknown }) => {
                 if (frontendFileLogEnabled) {
                   writeFrontendDebugLog({
                     command: 'init',

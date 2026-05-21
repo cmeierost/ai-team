@@ -9,7 +9,7 @@ import type {
   CommandResponse,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 import { ProviderCommand } from './provider.js';
 
 type ConfigureParams = z.infer<typeof ProviderConfigureICommand.schema>;
@@ -39,7 +39,7 @@ export class ProviderConfigureICommand implements ICommand<ConfigureParams, void
     private readonly environmentStorage: IEnvironmentStorage,
     private readonly llmProviderTester: ILlmProviderTester,
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   async execute(payload: ConfigureParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
@@ -76,7 +76,7 @@ export class ProviderAddICommand implements ICommand<AddParams, void> {
     private readonly environmentStorage: IEnvironmentStorage,
     private readonly llmProviderTester: ILlmProviderTester,
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   async execute(payload: AddParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
@@ -114,7 +114,7 @@ export class ProviderSetICommand implements ICommand<SetParams, void> {
     private readonly environmentStorage: IEnvironmentStorage,
     private readonly llmProviderTester: ILlmProviderTester,
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   async execute(payload: SetParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {

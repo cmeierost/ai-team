@@ -1,10 +1,11 @@
 import type {
   ChatOptions,
   CommandResponse,
-  InteractionContext,
   StreamEvent,
   InteractionRequest,
+  WorkflowStateSnapshot,
 } from '@ai-team/api-contracts';
+import type { ExecutionContext } from '@ai-team/core';
 import type { ChatRuntimeHooks } from './commands/chat/index.js';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
 import { streamInteraction } from './interaction-stream.js';
@@ -21,7 +22,7 @@ import { streamInteraction } from './interaction-stream.js';
 export interface IInteractionService {
   stream<TCommand extends string = string>(
     request: InteractionRequest,
-    context?: InteractionContext
+    hooks?: ChatRuntimeHooks
   ): AsyncIterable<StreamEvent<TCommand>>;
 }
 
@@ -42,7 +43,7 @@ export class InteractionService implements IInteractionService {
 
   async *stream<TCommand extends string = string>(
     request: InteractionRequest,
-    context: InteractionContext = {}
+    hooks: ChatRuntimeHooks = {}
   ): AsyncIterable<StreamEvent<TCommand>> {
     if (request.command !== 'chat') {
       throw new Error(`Unsupported stream command: ${request.command}`);
@@ -50,31 +51,33 @@ export class InteractionService implements IInteractionService {
 
     const payload = request.payload as { employeeId?: string; options: ChatOptions };
 
+    const context: ExecutionContext = {
+      workspaceRoot: this.workspaceRoot,
+      history: [],
+      invocationSurface: hooks.invocationSurface,
+      signal: hooks.signal,
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      emit: hooks.emit as ((event: unknown) => void) | undefined,
+      workflowState: hooks.workflowState,
+      onWorkflowFrame: hooks.onWorkflowFrame as ((frame: unknown) => void) | undefined,
+    };
+
     yield* streamInteraction({
       request,
-      context,
-      invoke: async (invokeContext) => {
+      context: context as unknown as Record<string, unknown>,
+      invoke: async (invokeCtx) => {
         await this.runChat(this.workspaceRoot, payload.employeeId, payload.options, {
-          signal: invokeContext.signal,
-          emit: invokeContext.emit,
-          questionInput: invokeContext.questionInput,
-          questionConfirm: invokeContext.questionConfirm,
-          questionSelect: invokeContext.questionSelect,
-          questionPassword: invokeContext.questionPassword,
-          questionChecklist: invokeContext.questionChecklist,
-          workflowState: invokeContext.workflowState,
-          onWorkflowFrame: invokeContext.onWorkflowFrame,
+          ...hooks,
+          signal: invokeCtx.signal,
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
+          emit: invokeCtx.emit as ChatRuntimeHooks['emit'],
+          workflowState: invokeCtx.workflowState as WorkflowStateSnapshot | undefined,
+          onWorkflowFrame: invokeCtx.onWorkflowFrame as ChatRuntimeHooks['onWorkflowFrame'],
         });
 
         return { status: 'ok' as const, message: '' } satisfies CommandResponse<void>;
       },
       translateRuntimeEvent: runtimeEventToStreamEvent,
-      onRuntimeEvent: (event) => {
-        context.logger?.({ channel: 'runtime', event });
-      },
-      onStreamEvent: (event) => {
-        context.logger?.({ channel: 'stream', event });
-      },
     });
   }
 }

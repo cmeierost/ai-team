@@ -2,88 +2,27 @@ import {
   createCommandDispatcher,
   type CommandDispatcher,
 } from '@ai-team/service/src/command-dispatcher.js';
-import type { CommandAvailability, CommandDescriptor } from '@ai-team/api-contracts';
-import { toServiceDomainError } from '@ai-team/service/src/errors.js';
-import { WorkflowStateStore } from '@ai-team/service/src/workflow-state.js';
-import { writeBackendDebugLog } from '@ai-team/service/src/utils/debug-log.js';
-import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service/src/stream-perf.js';
-import { runtimeEventToStreamEvent } from '@ai-team/service/src/runtime-event-translator.js';
-import { streamInteraction } from '@ai-team/service/src/interaction-stream.js';
-import type { IServiceContainer } from '@ai-team/core';
-import {
+import type {
+  CommandAvailability,
+  CommandDescriptor,
   CommandResponse,
-  InteractionContext,
   StreamEvent,
   InteractionRequest,
   RuntimeStreamEvent,
 } from '@ai-team/api-contracts';
+import { toServiceDomainError } from '@ai-team/service/src/errors.js';
+import { writeBackendDebugLog } from '@ai-team/service/src/utils/debug-log.js';
+import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service/src/stream-perf.js';
+import { runtimeEventToStreamEvent } from '@ai-team/service/src/runtime-event-translator.js';
+import { streamInteraction } from '@ai-team/service/src/interaction-stream.js';
+import type { ExecutionContext, IServiceContainer } from '@ai-team/core';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 const STDOUT_CAPTURE_SCOPE = new AsyncLocalStorage<boolean>();
 const STDOUT_CAPTURE_BYPASS_SCOPE = new AsyncLocalStorage<boolean>();
 
-function runWithoutStdoutCapture<T>(task: () => Promise<T>): Promise<T> {
-  return STDOUT_CAPTURE_BYPASS_SCOPE.run(true, task);
-}
-
 type CliEmit = ((event: RuntimeStreamEvent) => void) | undefined;
-
-function wrapQuestionHandler<TRequest, TResponse>(
-  handler: ((request: TRequest) => Promise<TResponse>) | undefined
-): ((request: TRequest) => Promise<TResponse>) | undefined {
-  if (!handler) {
-    return undefined;
-  }
-
-  return (request: TRequest) => runWithoutStdoutCapture(() => handler(request));
-}
-
-export interface ICliInteractionContextAdapter {
-  adapt(command: string, context: InteractionContext, emitWithConsole: CliEmit): InteractionContext;
-}
-
-/**
- * Default request-scoped adapter for CLI interaction context.
- *
- * This is DI-friendly: callers may provide an alternate implementation when
- * they need different runtime bridging behavior.
- */
-export class DefaultCliInteractionContextAdapter implements ICliInteractionContextAdapter {
-  constructor(private readonly workspaceRoot: string) {}
-
-  adapt(
-    command: string,
-    context: InteractionContext,
-    emitWithConsole: CliEmit
-  ): InteractionContext {
-    const isInteractive = command === 'chat' || command === 'init';
-
-    const workflowStateStore = isInteractive
-      ? new WorkflowStateStore(this.workspaceRoot)
-      : undefined;
-    const persistedWorkflowState = workflowStateStore?.loadForCommand(command);
-
-    return {
-      ...context,
-      signal: context.signal,
-      emit: emitWithConsole,
-      logger: context.logger,
-      input: wrapQuestionHandler(context.input),
-      confirm: wrapQuestionHandler(context.confirm),
-      select: wrapQuestionHandler(context.select),
-      questionPassword: wrapQuestionHandler(context.questionPassword),
-      questionChecklist: wrapQuestionHandler(context.questionChecklist),
-      workflowState: context.workflowState || persistedWorkflowState,
-      onWorkflowFrame: workflowStateStore
-        ? (frame) => {
-            workflowStateStore.handleFrame(command, frame);
-            context.onWorkflowFrame?.(frame);
-          }
-        : context.onWorkflowFrame,
-    };
-  }
-}
 
 function formatRuntimeConsoleArgs(args: unknown[]): string {
   if (args.length === 0) {
@@ -116,7 +55,7 @@ function formatRuntimeConsoleArgs(args: unknown[]): string {
 export interface ICliCommandClient {
   streamInteraction<TCommand extends string = string>(
     request: InteractionRequest,
-    context?: InteractionContext
+    context?: Record<string, unknown>
   ): AsyncIterable<StreamEvent<TCommand>>;
   getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[];
 }
@@ -124,18 +63,10 @@ export interface ICliCommandClient {
 export class CliCommandClient implements ICliCommandClient {
   public readonly workspaceRoot: string;
   private readonly dispatcher: CommandDispatcher;
-  private readonly contextAdapter: ICliInteractionContextAdapter;
 
-  constructor(
-    workspaceRoot: string,
-    resolver: IServiceContainer,
-    contextAdapter: ICliInteractionContextAdapter = new DefaultCliInteractionContextAdapter(
-      workspaceRoot
-    )
-  ) {
+  constructor(workspaceRoot: string, resolver: IServiceContainer) {
     this.workspaceRoot = workspaceRoot;
     this.dispatcher = createCommandDispatcher(workspaceRoot, resolver);
-    this.contextAdapter = contextAdapter;
   }
 
   getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[] {
@@ -144,7 +75,7 @@ export class CliCommandClient implements ICliCommandClient {
 
   async invokeTool(
     request: InteractionRequest,
-    context: InteractionContext = {}
+    context: ExecutionContext = {} as ExecutionContext
   ): Promise<CommandResponse<unknown>> {
     if (context.signal?.aborted) {
       throw new Error('Mediator invocation aborted');
@@ -204,7 +135,7 @@ export class CliCommandClient implements ICliCommandClient {
         });
       };
 
-      process.stdout.write = ((
+      process.stdout.write = (
         chunk: unknown,
         encoding?: BufferEncoding | ((error?: Error | null) => void),
         cb?: (error?: Error | null) => void
@@ -236,17 +167,16 @@ export class CliCommandClient implements ICliCommandClient {
           cb(null);
         }
         return true;
-      }) as typeof process.stdout.write;
+      };
     }
 
     const invokeCore = async (): Promise<CommandResponse<unknown>> => {
-      // Build a CLI-adapted context that wraps question callbacks with
-      // runWithoutStdoutCapture (so interactive prompts bypass the stdout
-      // capture scope) and wires up workflow state persistence for
-      // interactive commands (chat, init).
-      const dispatchContext = this.contextAdapter.adapt(request.command, context, emitWithConsole);
+      const execCtx: ExecutionContext = {
+        ...context,
+        emit: emitWithConsole as ((event: unknown) => void) | undefined,
+      };
 
-      const response = await this.dispatcher.dispatch(request, dispatchContext);
+      const response = await this.dispatcher.dispatch(request.command, request.payload, execCtx);
 
       context.emit?.({
         kind: 'status',
@@ -260,7 +190,7 @@ export class CliCommandClient implements ICliCommandClient {
         requestId: request.requestId,
       });
 
-      return response as CommandResponse<unknown>;
+      return response;
     };
 
     try {
@@ -289,14 +219,14 @@ export class CliCommandClient implements ICliCommandClient {
         console.log = originalLog;
         console.warn = originalWarn;
         console.error = originalError;
-        process.stdout.write = originalStdoutWrite as typeof process.stdout.write;
+        process.stdout.write = originalStdoutWrite;
       }
     }
   }
 
   async *streamInteraction<TCommand extends string = string>(
     request: InteractionRequest,
-    context: InteractionContext = {}
+    context: Record<string, unknown> = {}
   ): AsyncIterable<StreamEvent<TCommand>> {
     const { enabled: perfEnabled, slowMs: perfSlowMs } = parseStreamPerfEnv();
     const perf = perfEnabled
@@ -309,7 +239,9 @@ export class CliCommandClient implements ICliCommandClient {
     // → passThrough → logger → ... causes the message to grow exponentially via
     // JSON escaping until JSON.stringify throws "Invalid string length" (~5s).
     // Callers that need debug output should pass context.logger explicitly.
-    const logger = context.logger ?? (() => {});
+    const logger =
+      (context.logger as ((entry: { channel: string; event: unknown }) => void) | undefined) ??
+      (() => {});
 
     const handleRuntimeEvent = (event: RuntimeStreamEvent) => {
       if (perf) {
@@ -372,8 +304,8 @@ export class CliCommandClient implements ICliCommandClient {
     };
     yield* streamInteraction({
       request,
-      context,
-      invoke: (invokeContext: InteractionContext) => this.invokeTool(request, invokeContext),
+      context: context,
+      invoke: (ctx: ExecutionContext) => this.invokeTool(request, ctx),
       translateRuntimeEvent: runtimeEventToStreamEvent,
       normalizeError: (error: unknown) =>
         toServiceDomainError(error, `Command '${request.command}' failed.`),

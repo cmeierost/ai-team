@@ -8,7 +8,7 @@ import type {
 } from '@ai-team/core';
 import { InitCommand } from './init.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof InitICommand.schema>;
 const _initICommandSchema = z.object({
@@ -30,7 +30,7 @@ export class InitICommand implements ICommand<Params, void> {
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly questionService: IQuestionService,
+    private readonly questionService: IInteractionService,
     private readonly initCmd: InitCommand
   ) {}
 
@@ -46,11 +46,11 @@ export class InitICommand implements ICommand<Params, void> {
     return {
       signal: runtime.signal,
       emit: runtime.emit,
-      questionInput: (request) => this.questionService.questionInput(request),
-      questionConfirm: (request) => this.questionService.questionConfirm(request),
-      questionSelect: (request) => this.questionService.questionSelect(request),
-      questionPassword: (request) => this.questionService.questionPassword(request),
-      questionChecklist: (request) => this.questionService.questionChecklist(request),
+      questionInput: (request) => this.questionService.input(request),
+      questionConfirm: (request) => this.questionService.confirm(request),
+      questionSelect: (request) => this.questionService.select(request),
+      questionPassword: (request) => this.questionService.password(request),
+      questionChecklist: (request) => this.questionService.checklist(request),
       workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
       onWorkflowFrame: runtime.onWorkflowFrame,
     };

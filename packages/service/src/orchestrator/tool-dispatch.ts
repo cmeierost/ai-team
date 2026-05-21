@@ -22,7 +22,7 @@ import {
 } from '@ai-team/core';
 import type { ToolManager } from '../tools/tool-manager.js';
 import type { SessionManager } from '../session-manager.js';
-import type { IQuestionService } from '../questions/question-service.js';
+import type { IInteractionService } from '../questions/question-service.js';
 import { emitEvent, emitToolEvent } from './stream-events.js';
 import type { RuntimeStreamEvent, ToolRuntimePayloadEvent } from '@ai-team/api-contracts';
 import {
@@ -60,7 +60,7 @@ export class ToolDispatcher {
     private readonly toolManager: ToolManager,
     private readonly sessionManager: SessionManager,
     private readonly support: ToolDispatchSupportService,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   async dispatch(
@@ -153,13 +153,11 @@ export class ToolDispatcher {
     if (!this.support.requiresConfirmation(toolName)) return undefined;
 
     await tick();
-    const approved = await this.questionService.confirm(
-      {
-        message: `Allow ${ctx.agent!.name} to run ${label}?`,
-        default: false,
-        style: 'allow',
-      }
-    );
+    const approved = await this.questionService.confirm({
+      message: `Allow ${ctx.agent!.name} to run ${label}?`,
+      default: false,
+      style: 'allow',
+    });
     if (approved) return undefined;
 
     const denied = 'Tool call denied by user.';

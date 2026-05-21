@@ -7,9 +7,8 @@ import type {
   CommandResponse,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { InteractionContext } from '@ai-team/api-contracts';
 import { CreateCommand as CreateCommandImpl } from './create.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof CreateICommand.schema>;
 const _createICommandSchema = z.object({
@@ -35,25 +34,13 @@ export class CreateICommand implements ICommand<Params, void> {
   constructor(
     private readonly agents: IAgentManager,
     private readonly skills: ISkillManager,
-    private readonly questionService: IQuestionService
+    private readonly interactionService: IInteractionService
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    const cmd = new CreateCommandImpl(this.agents, this.skills);
-    const context: InteractionContext = {
-      password: ctx.signal,
-      emit: ctx.emit,
-      workflowState: ctx.workflowState as InteractionContext['workflowState'],
-      onWorkflowFrame: ctx.onWorkflowFrame,
-      checklist: (request) => this.questionService.input(request),
-      questionConfirm: (request) => this.questionService.confirm(request),
-      questionSelect: (request) => this.questionService.select(request),
-      questionPassword: (request) => this.questionService.password(request),
-      questionChecklist: (request) => this.questionService.checklist(request),
-    };
-
+    const cmd = new CreateCommandImpl(this.agents, this.skills, this.interactionService);
     const { type, ...options } = payload;
-    await cmd.execute(type, options, context);
+    await cmd.execute(type, options);
     return { status: 'ok' };
   }
 }

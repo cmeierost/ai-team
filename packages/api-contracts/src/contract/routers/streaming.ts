@@ -1,4 +1,5 @@
 import { CommandResponse } from '../shared-types.js';
+import type { ExecutionContext } from '@ai-team/core';
 import { ContextLevel, RoleType } from './agents';
 import { LlmProfile } from './config';
 
@@ -328,10 +329,7 @@ export interface CommandDescriptor {
  * every command callable as `{ command, payload }`.
  */
 export interface ICommandDispatcher {
-  dispatch(
-    request: InteractionRequest,
-    context?: InteractionContext
-  ): Promise<CommandResponse<unknown>>;
+  dispatch(key: string, params: unknown, ctx: ExecutionContext): Promise<CommandResponse<unknown>>;
 
   getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[];
   getCommand(key: string): CommandDescriptor | undefined;

@@ -48,7 +48,7 @@ import {
   parseTemplateBulletList,
 } from '../init/template-utils.js';
 import { type InitRuntimeHooks } from '../init/workflow-questions.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 
 function requestSelect(
   hooks: InitRuntimeHooks | undefined,
@@ -168,7 +168,7 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
   constructor(
     private readonly onboardCommand: Pick<OnboardCommand, 'execute'>,
     private readonly sessionManager: SessionManager | undefined,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   async execute(
@@ -214,7 +214,7 @@ export class OnboardCommand {
     private readonly markdownSectionService: IMarkdownSectionService,
     private readonly pathPermissionChecker: IPathPermissionChecker,
     private readonly contextService: Pick<IContextService, 'getContextEstimate'>,
-    private readonly questionService: IQuestionService,
+    private readonly questionService: IInteractionService,
     private readonly defaultSessionManager?: SessionManager,
     private readonly developerIdentityService?: IDeveloperIdentityService,
     private readonly serviceContainer?: IServiceContainer

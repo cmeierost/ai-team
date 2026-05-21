@@ -9,7 +9,7 @@ import { getServiceContainer } from '../service-registry.js';
 import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
 export class WorkflowSlashCommand implements ICommand<string, void> {
-  readonly metadata: ICommandDescriptor = {
+  readonly metadata: ICommandDescriptor<string> = {
     key: 'workflow',
     description: 'Run workflow tools (/workflow list or /workflow <id>)',
     availableIn: { chat: true, tool: false, cli: false },

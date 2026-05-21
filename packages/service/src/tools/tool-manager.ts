@@ -110,6 +110,12 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 export class ToolManager {
   private static readonly schemaTools = new ZodSchemaTools();
 
+  /**
+   * Tools that are available to every agent by default.
+   * Agents may still deny these via their `disallowedTools` list.
+   */
+  private static readonly DEFAULT_TOOLS: ReadonlySet<string> = new Set(['com_ask']);
+
   constructor(
     private readonly workspaceRoot: string,
     private readonly pathPermissionChecker: IPathPermissionChecker,
@@ -134,7 +140,6 @@ export class ToolManager {
     const allowedSelectors = (agent.tools ?? [])
       .map((s) => ToolManager.normalizeToolSelector(String(s)))
       .filter((s) => s.length > 0);
-    if (allowedSelectors.length === 0) return [];
 
     const deniedSelectors = (agent.disallowedTools ?? [])
       .map((s) => ToolManager.normalizeToolSelector(String(s)))
@@ -142,7 +147,8 @@ export class ToolManager {
 
     return this.getAllDescriptors().filter((meta) => {
       if (deniedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta))) return false;
-      return allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta));
+      const key = ToolIdentity.key(meta);
+      return ToolManager.DEFAULT_TOOLS.has(key) || allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta));
     });
   }
 
@@ -183,7 +189,6 @@ export class ToolManager {
     const allowedSelectors = (agent.tools ?? [])
       .map((selector) => ToolManager.normalizeToolSelector(String(selector)))
       .filter((selector) => selector.length > 0);
-    if (allowedSelectors.length === 0) return [];
 
     const deniedSelectors = (agent.disallowedTools ?? [])
       .map((selector) => ToolManager.normalizeToolSelector(String(selector)))
@@ -191,7 +196,8 @@ export class ToolManager {
 
     return this.resolveAll().filter((tool) => {
       if (deniedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata))) return false;
-      return allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata));
+      const key = ToolIdentity.key(tool.metadata);
+      return ToolManager.DEFAULT_TOOLS.has(key) || allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata));
     });
   }
 

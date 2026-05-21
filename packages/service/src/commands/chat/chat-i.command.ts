@@ -17,7 +17,7 @@ import {
   type ChatSessionExecutionDeps,
   type ChatOrchestrationDeps,
 } from './chat.command.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof ChatICommand.schema>;
 const _chatICommandSchema = z.object({
@@ -53,7 +53,7 @@ export class ChatICommand implements ICommand<Params, void> {
     private readonly sessionExecutionDeps: ChatSessionExecutionDeps,
     private readonly orchestrationDeps: ChatOrchestrationDeps,
     private readonly chatInfoService: IChatInfoService = new ChatInfoService(),
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
@@ -61,11 +61,11 @@ export class ChatICommand implements ICommand<Params, void> {
       invocationSurface: ctx.invocationSurface,
       signal: ctx.signal,
       emit: ctx.emit,
-      questionInput: (request) => this.questionService.questionInput(request),
-      questionConfirm: (request) => this.questionService.questionConfirm(request),
-      questionSelect: (request) => this.questionService.questionSelect(request),
-      questionPassword: (request) => this.questionService.questionPassword(request),
-      questionChecklist: (request) => this.questionService.questionChecklist(request),
+      questionInput: (request) => this.questionService.input(request),
+      questionConfirm: (request) => this.questionService.confirm(request),
+      questionSelect: (request) => this.questionService.select(request),
+      questionPassword: (request) => this.questionService.password(request),
+      questionChecklist: (request) => this.questionService.checklist(request),
       workflowState: ctx.workflowState as
         | import('@ai-team/api-contracts').WorkflowStateSnapshot
         | undefined,

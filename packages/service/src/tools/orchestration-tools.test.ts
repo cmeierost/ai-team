@@ -16,11 +16,11 @@ describe('AskUserCommand', () => {
   it('passes workflow metadata through in tool result payload', async () => {
     const questionInput = vi.fn(async () => 'approved');
     const questionService = new InteractionQuestionService({
-      questionInput,
-      questionConfirm: vi.fn(async () => true),
-      questionSelect: vi.fn(async () => ''),
-      questionPassword: vi.fn(async () => ''),
-      questionChecklist: vi.fn(async () => []),
+      input: questionInput,
+      confirm: vi.fn(async () => true),
+      select: vi.fn(async () => ''),
+      password: vi.fn(async () => ''),
+      checklist: vi.fn(async () => []),
     });
     const command = new AskUserCommand(questionService);
 
@@ -59,11 +59,11 @@ describe('AskUserCommand', () => {
   it('falls back to questionInput for select when questionSelect is missing', async () => {
     const questionInput = vi.fn(async () => 'ai-team-context');
     const questionService = new InteractionQuestionService({
-      questionInput,
-      questionConfirm: vi.fn(async () => true),
-      questionSelect: undefined,
-      questionPassword: vi.fn(async () => ''),
-      questionChecklist: vi.fn(async () => []),
+      input: questionInput,
+      confirm: vi.fn(async () => true),
+      select: undefined,
+      password: vi.fn(async () => ''),
+      checklist: vi.fn(async () => []),
     });
     const command = new AskUserCommand(questionService);
 
@@ -95,11 +95,11 @@ describe('AskUserCommand', () => {
   it('falls back to questionInput for checklist when questionChecklist is missing', async () => {
     const questionInput = vi.fn(async () => 'a, c');
     const questionService = new InteractionQuestionService({
-      questionInput,
-      questionConfirm: vi.fn(async () => true),
-      questionSelect: vi.fn(async () => ''),
-      questionPassword: vi.fn(async () => ''),
-      questionChecklist: undefined,
+      input: questionInput,
+      confirm: vi.fn(async () => true),
+      select: vi.fn(async () => ''),
+      password: vi.fn(async () => ''),
+      checklist: undefined,
     });
     const command = new AskUserCommand(questionService);
 
@@ -131,11 +131,11 @@ describe('AskUserCommand', () => {
   it('falls back to questionInput for confirm when questionConfirm is missing', async () => {
     const questionInput = vi.fn(async () => 'yes');
     const questionService = new InteractionQuestionService({
-      questionInput,
-      questionConfirm: undefined,
-      questionSelect: vi.fn(async () => ''),
-      questionPassword: vi.fn(async () => ''),
-      questionChecklist: vi.fn(async () => []),
+      input: questionInput,
+      confirm: undefined,
+      select: vi.fn(async () => ''),
+      password: vi.fn(async () => ''),
+      checklist: vi.fn(async () => []),
     });
     const command = new AskUserCommand(questionService);
 

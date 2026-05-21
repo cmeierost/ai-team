@@ -1,18 +1,18 @@
 import type {
   CommandResponse,
-  InteractionContext,
   StreamEvent,
   InteractionRequest,
   RuntimeStreamEvent,
 } from '@ai-team/api-contracts';
+import type { ExecutionContext } from '@ai-team/core';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
 import { getServiceContainer } from './service-registry.js';
 import { COMMAND_FACTORY_TOKENS } from './types.js';
 
 export interface StreamInteractionOptions<TCommand extends string = string> {
   request: InteractionRequest;
-  context?: InteractionContext;
-  invoke: (context: InteractionContext) => Promise<CommandResponse<unknown>>;
+  context?: Record<string, unknown>;
+  invoke: (ctx: ExecutionContext) => Promise<CommandResponse<unknown>>;
   timestamp?: () => string;
   translateRuntimeEvent?: (
     event: RuntimeStreamEvent,
@@ -34,6 +34,7 @@ export async function* streamInteraction<TCommand extends string = string>(
   options: StreamInteractionOptions<TCommand>
 ): AsyncIterable<StreamEvent<TCommand>> {
   const context = options.context ?? {};
+  const contextSignal = context['signal'] as AbortSignal | undefined;
   const timestamp = options.timestamp ?? (() => new Date().toISOString());
   const translateRuntimeEvent = options.translateRuntimeEvent ?? runtimeEventToStreamEvent;
   const normalizeError = options.normalizeError ?? defaultNormalizeError;
@@ -80,7 +81,7 @@ export async function* streamInteraction<TCommand extends string = string>(
     }
   };
 
-  if (context.signal?.aborted) {
+  if (contextSignal?.aborted) {
     notifyTerminalState('aborted');
     yield emitStreamEvent({
       requestId: options.request.requestId,
@@ -101,7 +102,12 @@ export async function* streamInteraction<TCommand extends string = string>(
   const emitService = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.EmitService);
 
   emitService
-    .runWithEmitter(emitRuntimeEvent, () => options.invoke({ ...context, emit: emitRuntimeEvent }))
+    .runWithEmitter(emitRuntimeEvent, () =>
+      options.invoke({
+        ...(context as Partial<ExecutionContext>),
+        emit: emitRuntimeEvent as (event: unknown) => void,
+      } as ExecutionContext)
+    )
     .then((result) => {
       data = result;
     })
@@ -117,7 +123,7 @@ export async function* streamInteraction<TCommand extends string = string>(
     });
 
   while (!invokeSettled || runtimeQueue.length > 0) {
-    if (context.signal?.aborted) {
+    if (contextSignal?.aborted) {
       notifyTerminalState('aborted');
       yield emitStreamEvent({
         requestId: options.request.requestId,
@@ -131,7 +137,7 @@ export async function* streamInteraction<TCommand extends string = string>(
     if (runtimeQueue.length === 0) {
       const waitStartedAt = Date.now();
       await new Promise<void>((resolve) => {
-        const signal = context.signal;
+        const signal = contextSignal;
         const cleanup = () => {
           if (signal) {
             signal.removeEventListener('abort', onAbort);
@@ -182,7 +188,7 @@ export async function* streamInteraction<TCommand extends string = string>(
     yield emitStreamEvent(streamEvent);
   }
 
-  if (context.signal?.aborted) {
+  if (contextSignal?.aborted) {
     notifyTerminalState('aborted');
     yield emitStreamEvent({
       requestId: options.request.requestId,

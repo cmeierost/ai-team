@@ -7,7 +7,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { ProposalStatus } from '@ai-team/core';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 
 type RejectParams = z.infer<typeof CodeEditRejectCommand.schema>;
 const _codeEditRejectCommandSchema = z.object({
@@ -17,6 +17,7 @@ const _codeEditRejectCommandSchema = z.object({
 
 export const CodeEditRejectCommandMetadata = {
   key: 'codeEditReject',
+  group: 'codeEdit',
   cli: { command: 'code-edit reject <proposalId>' },
   description: 'Reject a code edit proposal',
   availableIn: { cli: true, chat: true, tool: true },
@@ -29,7 +30,7 @@ export class CodeEditRejectCommand implements ICommand<RejectParams, { proposalI
 
   constructor(
     private readonly manager: ICodeEditManager,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   async execute(
@@ -46,7 +47,7 @@ export class CodeEditRejectCommand implements ICommand<RejectParams, { proposalI
 
     let reason = payload.reason;
     if (!reason) {
-      reason = await this.questionService.questionInput({
+      reason = await this.questionService.input({
         message: 'Reason for rejection (optional):',
       });
     }

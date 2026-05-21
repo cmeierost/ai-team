@@ -7,7 +7,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { ProposalStatus } from '@ai-team/core';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 
 type ApplyParams = z.infer<typeof CodeEditApplyCommand.schema>;
 const _codeEditApplyCommandSchema = z.object({
@@ -16,6 +16,7 @@ const _codeEditApplyCommandSchema = z.object({
 
 export const CodeEditApplyCommandMetadata = {
   key: 'codeEditApply',
+  group: 'codeEdit',
   cli: { command: 'code-edit apply <proposalId>' },
   description: 'Apply an approved code edit proposal',
   availableIn: { cli: true, chat: true, tool: true },
@@ -31,7 +32,7 @@ export class CodeEditApplyCommand implements ICommand<
 
   constructor(
     private readonly manager: ICodeEditManager,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IInteractionService
   ) {}
 
   async execute(

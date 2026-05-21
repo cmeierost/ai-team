@@ -2,7 +2,6 @@ import type {
   ChatOptions,
   StreamEvent,
   CommandDescriptor,
-  InteractionContext,
   QuestionConfirmRequest,
   QuestionInputRequest,
   QuestionSelectRequest,
@@ -16,7 +15,7 @@ import {
   createIdeAdapter,
   ConfigurationStorage,
 } from '@ai-team/infrastructure';
-import { findWorkspaceRoot } from '@ai-team/service';
+import { findWorkspaceRoot, type IQuestionService as IInteractionService } from '@ai-team/service';
 import { checkbox, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';
@@ -115,10 +114,7 @@ function createChatQuestionResponders(
   onQuestionStart?: () => void,
   projectNameFn?: () => Promise<string | undefined>,
   chatCommands: CommandDescriptor[] = []
-): Pick<
-  InteractionContext,
-  'questionInput' | 'questionConfirm' | 'questionSelect' | 'questionChecklist' | 'questionPassword'
-> {
+): Pick<IInteractionService, 'input' | 'confirm' | 'select' | 'checklist' | 'password'> {
   const normalizeSelection = (
     raw: string,
     choices: Array<{ name: string; value: string }>
@@ -232,7 +228,7 @@ function createChatQuestionResponders(
         process.stderr.write('Please choose a listed option (number/value).\n');
       }
     },
-    questionChecklist: async (request: QuestionChecklistRequest) => {
+    checklist: async (request: QuestionChecklistRequest) => {
       onQuestionStart?.();
       if (process.stdin.isTTY) {
         const selected = await checkbox({
@@ -300,7 +296,7 @@ function createChatQuestionResponders(
         return resolved;
       }
     },
-    questionPassword: async (request: QuestionPasswordRequest) => {
+    password: async (request: QuestionPasswordRequest) => {
       onQuestionStart?.();
       if (process.stdin.isTTY) {
         const answer = await password({
@@ -848,7 +844,7 @@ export async function renderChat(
         signal: abortControl.signal,
         logger:
           mediatorLoggerEnabled || frontendFileLogEnabled
-            ? (entry) => {
+            ? (entry: { channel: string; event: unknown }) => {
                 if (frontendFileLogEnabled) {
                   writeFrontendDebugLog({
                     command: 'chat',
@@ -864,7 +860,9 @@ export async function renderChat(
                   }
                 } catch {
                   if (mediatorLoggerEnabled) {
-                    writeStderrLine(`${chalk.gray('[frontend:mediator-log]')} ${String(entry)}`);
+                    writeStderrLine(
+                      `${chalk.gray('[frontend:mediator-log]')} ${JSON.stringify(entry)}`
+                    );
                   }
                 }
               }

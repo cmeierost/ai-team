@@ -1270,11 +1270,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         },
         {
           signal: abortSignal,
-          questionInput: askInputQuestion,
-          questionConfirm: askConfirmQuestion,
-          questionSelect: askSelectQuestion,
-          questionPassword: askPasswordQuestion,
-          questionChecklist: askChecklistQuestion,
+          input: askInputQuestion,
+          confirm: askConfirmQuestion,
+          select: askSelectQuestion,
+          password: askPasswordQuestion,
+          checklist: askChecklistQuestion,
         }
       );
 

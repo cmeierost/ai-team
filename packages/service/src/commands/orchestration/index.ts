@@ -52,7 +52,6 @@ export function createOrchestrationCommands(
       resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
       resolver.resolve(COMMAND_FACTORY_TOKENS.SessionManager)
     ),
-    new AskUserCommand(resolver.resolve(COMMAND_FACTORY_TOKENS.QuestionService)),
     new HireOrchestrationCommand(resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager)),
     new WhoShouldCommand(
       resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),

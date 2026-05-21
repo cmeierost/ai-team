@@ -15,7 +15,7 @@ import type {
   ProviderSetupInput,
   SetProviderOptions,
 } from '@ai-team/api-contracts';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IInteractionService } from '../../questions/question-service.js';
 
 type ProviderSetupResult = ProviderSetupInput;
 
@@ -30,7 +30,7 @@ export class ProviderCommand {
   async configureAsync(
     workspaceRoot: string,
     options: ConfigureProviderOptions = {},
-    questionService: IQuestionService,
+    questionService: IInteractionService,
     ctx: ExecutionContext
   ) {
     return providerConfigureCommandAsync(
@@ -48,7 +48,7 @@ export class ProviderCommand {
   async addAsync(
     workspaceRoot: string,
     options: AddProviderOptions = {},
-    questionService: IQuestionService,
+    questionService: IInteractionService,
     ctx: ExecutionContext
   ) {
     return providerAddCommandAsync(
@@ -66,7 +66,7 @@ export class ProviderCommand {
   async setAsync(
     workspaceRoot: string,
     options: SetProviderOptions = {},
-    questionService: IQuestionService,
+    questionService: IInteractionService,
     ctx: ExecutionContext
   ) {
     return this.configureAsync(workspaceRoot, options, questionService, ctx);
@@ -76,7 +76,7 @@ export class ProviderCommand {
 async function providerConfigureCommandAsync(
   workspaceRoot: string,
   options: ConfigureProviderOptions = {},
-  questionService: IQuestionService,
+  questionService: IInteractionService,
   ctx: ExecutionContext,
   configurationStorage: IConfigurationStorage,
   environmentStorage: IEnvironmentStorage,
@@ -172,7 +172,7 @@ async function providerConfigureCommandAsync(
 async function providerAddCommandAsync(
   workspaceRoot: string,
   options: AddProviderOptions = {},
-  questionService: IQuestionService,
+  questionService: IInteractionService,
   ctx: ExecutionContext,
   configurationStorage: IConfigurationStorage,
   environmentStorage: IEnvironmentStorage,
@@ -390,7 +390,7 @@ async function askProviderSetupAsync(
   workspaceRoot: string,
   existing: TeamConfig | undefined,
   options: { mode: 'configure' | 'add' },
-  questionService: IQuestionService,
+  questionService: IInteractionService,
   ctx: ExecutionContext,
   environmentStorage: IEnvironmentStorage,
   modelDiscoveryRegistry: IModelDiscoveryRegistry
@@ -418,7 +418,7 @@ async function askProviderSetupAsync(
 
 async function askGitHubCopilotSetupAsync(
   existing: TeamConfig | undefined,
-  questionService: IQuestionService,
+  questionService: IInteractionService,
   ctx: ExecutionContext,
   modelDiscoveryRegistry: IModelDiscoveryRegistry
 ): Promise<ProviderSetupResult> {
@@ -456,7 +456,7 @@ async function askGitHubCopilotSetupAsync(
 async function askOpenAiCompatibleSetupAsync(
   workspaceRoot: string,
   existing: TeamConfig | undefined,
-  questionService: IQuestionService,
+  questionService: IInteractionService,
   ctx: ExecutionContext,
   environmentStorage: IEnvironmentStorage
 ): Promise<ProviderSetupResult> {

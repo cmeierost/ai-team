@@ -22,10 +22,6 @@ import type {
   ILlmToolDefinition,
 } from '@ai-team/core';
 
-import type { InteractionContext } from '@ai-team/api-contracts';
-import { isCommandResponse } from '@ai-team/api-contracts';
-
-import type { RegisteredCommand } from './command-dispatcher.js';
 import { ZodSchemaTools } from './utils/zod-schema.js';
 
 // ── Zod → Commander options ───────────────────────────────────────────────────
@@ -82,70 +78,6 @@ export function toCliMetadata<TParams, TResult>(
     examples: cmd.metadata.help?.examples?.map((example: { value: string }) => example.value),
     jsonSignature: cmd.metadata.input?.jsonSignature,
   };
-}
-
-// ── ICommand → CommandRegistration ───────────────────────────────────────────
-
-/**
- * Wrap an ICommand as a CommandRegistration for the CommandDispatcher.
- * The ICommand.execute signature is adapted to the dispatcher's
- * (workspaceRoot, payload, context) handler shape.
- *
- * Command results are automatically wrapped in CommandResponse envelopes.
- */
-export function toCommandRegistration<TCommand extends string = string>(
-  cmd: ICommand<unknown, unknown>
-): RegisteredCommand<TCommand> {
-  const derivedCliPath = cmd.metadata.cli
-    ? deriveCliPath(cmd.metadata.cli.command, cmd.metadata.cli.parentKey)
-    : undefined;
-
-  return {
-    key: cmd.metadata.key as TCommand,
-    aliases: cmd.metadata.aliases,
-    description: cmd.metadata.description,
-    usage: cmd.metadata.cli?.command,
-    availableIn: cmd.metadata.availableIn,
-    path: cmd.metadata.path ?? derivedCliPath,
-    help: cmd.metadata.help,
-    llm: cmd.metadata.llm,
-    intents: cmd.metadata.intents,
-    intentExamples: cmd.metadata.intentExamples,
-    input: cmd.metadata.input,
-    handler: async (workspaceRoot: string, payload: unknown, context: InteractionContext) => {
-      const execCtx = interactionContextToExecutionContext(workspaceRoot, context);
-      const resolvedPayload = resolveCommandArgs(cmd, payload, execCtx);
-      const result = await cmd.execute(resolvedPayload, execCtx);
-
-      if (isCommandResponse(result)) {
-        const r = result as unknown as CommandResponse<unknown>;
-        return { ...r, message: r.message ?? '' };
-      }
-      return { status: 'ok' as const, message: '', data: result } as CommandResponse<unknown>;
-    },
-  };
-}
-
-function deriveCliPath(command: string, parentKey?: string): string[] {
-  const path: string[] = [];
-  if (parentKey) {
-    path.push(...parentKey.split('.').filter(Boolean));
-  }
-
-  const parts = command.trim().split(/\s+/);
-  if (parts.length === 0 || !parts[0]) {
-    return path;
-  }
-
-  const second = parts[1];
-  const isSecondArg = Boolean(second && (second.startsWith('<') || second.startsWith('[')));
-  if (!parentKey && parts.length > 1 && !isSecondArg) {
-    path.push(parts[0], parts[1]);
-    return path;
-  }
-
-  path.push(parts[0]);
-  return path;
 }
 
 // ── ICommand → Slash ICommand ────────────────────────────────────────────────
@@ -265,7 +197,7 @@ function mapParamsToContext(
   return overrides;
 }
 
-function resolveCommandArgs(
+export function resolveCommandArgs(
   cmd: ICommand<unknown, unknown>,
   payload: unknown,
   ctx: ExecutionContext
@@ -347,30 +279,6 @@ function setPathValue(target: Record<string, unknown>, path: string, value: unkn
   if (last) {
     current[last] = value;
   }
-}
-
-function interactionContextToExecutionContext(
-  workspaceRoot: string,
-  ctx: InteractionContext
-): ExecutionContext {
-  const invocationSurface = (ctx as any).invocationSurface ?? 'api';
-  const calledByHuman =
-    (ctx as any).calledByHuman ?? (invocationSurface === 'cli' || invocationSurface === 'slash');
-  return {
-    invocationSurface,
-    calledByHuman,
-    callerType: calledByHuman ? 'human' : (ctx as any).callerType,
-    workspaceRoot,
-    agentId: (ctx as any).agentId,
-    sessionId: (ctx as any).sessionId,
-    workflowId: (ctx as any).workflowId,
-    workflowInstanceId: (ctx as any).workflowInstanceId,
-    workflowLastResult: (ctx as any).workflowLastResult,
-    signal: ctx.password,
-    history: (ctx as any).history ?? [],
-    workflowState: ctx.workflowState,
-    onWorkflowFrame: ctx.onWorkflowFrame as ExecutionContext['onWorkflowFrame'],
-  };
 }
 
 function stripHiddenParameters(schema: unknown, hiddenParameters: string[] | undefined): unknown {

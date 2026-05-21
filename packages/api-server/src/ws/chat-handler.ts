@@ -1,15 +1,10 @@
 import type { WebSocket } from 'ws';
 import type {
   StreamEvent,
-  QuestionInputRequest,
-  QuestionConfirmRequest,
-  QuestionSelectRequest,
-  QuestionPasswordRequest,
-  QuestionChecklistRequest,
 } from '@ai-team/api-contracts';
 import type { IAgentManager, IdeAdapter, IServiceContainer } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/infrastructure';
-import { SessionManager, InteractionQuestionService } from '@ai-team/service';
+import { SessionManager, WsQuestionService } from '@ai-team/service';
 import { TOKENS } from '@ai-team/container';
 
 /**
@@ -126,7 +121,6 @@ export interface ChatWebSocketEvent {
 }
 
 type ChatStreamEvent = StreamEvent<'chat'>;
-type PendingAnswerValue = string | boolean | number | string[] | Record<string, string>;
 
 export interface ChatWebSocketSetupOptions {
   agentManager?: IAgentManager;
@@ -178,60 +172,13 @@ export async function setupChatWebSocket(
   }
 
   let currentAbortController: AbortController | null = null;
-  let questionCounter = 0;
-  const pendingQuestions = new Map<
-    string,
-    {
-      resolve: (value: PendingAnswerValue) => void;
-      reject: (error: Error) => void;
-    }
-  >();
 
-  // Helper to wait for answer from client
-  const askQuestion = async (
-    questionId: string,
-    questionData: Record<string, unknown>
-  ): Promise<PendingAnswerValue> => {
-    return new Promise((resolve, reject) => {
-      pendingQuestions.set(questionId, { resolve, reject });
-
-      // Send question to client
-      ws.send(
-        JSON.stringify({
-          type: 'question',
-          data: {
-            questionId,
-            ...questionData,
-          },
-        })
-      );
-
-      // No timeout: questions can remain pending until answered or connection closes.
-    });
-  };
-
-  const createQuestionHandler = <TRequest extends object, TResponse>(
-    kind: 'confirm' | 'input' | 'select' | 'password' | 'checklist'
-  ) => {
-    return async (request: TRequest): Promise<TResponse> => {
-      const questionId = `q${++questionCounter}`;
-      return askQuestion(questionId, {
-        kind,
-        ...(request as Record<string, unknown>),
-      }) as Promise<TResponse>;
-    };
-  };
-
-  container.registerInstance(
-    TOKENS.QuestionService,
-    InteractionQuestionService({
-      questionInput: createQuestionHandler<QuestionInputRequest, string>('input'),
-      questionConfirm: createQuestionHandler<QuestionConfirmRequest, boolean>('confirm'),
-      questionSelect: createQuestionHandler<QuestionSelectRequest, string>('select'),
-      questionPassword: createQuestionHandler<QuestionPasswordRequest, string>('password'),
-      questionChecklist: createQuestionHandler<QuestionChecklistRequest, string[]>('checklist'),
-    })
-  );
+  // Set up WebSocket-backed question service for this connection.
+  const questionService = new WsQuestionService();
+  questionService.setup((data) => {
+    ws.send(JSON.stringify({ type: 'question', data }));
+  });
+  container.registerInstance(TOKENS.QuestionService, questionService);
   const interactionService = container.resolve(TOKENS.InteractionService);
 
   ws.on('message', async (data: Buffer) => {
@@ -239,14 +186,9 @@ export async function setupChatWebSocket(
       const message: ChatWebSocketMessage = JSON.parse(data.toString());
 
       if (message.type === 'answer') {
-        // Handle answer to a pending question
+        // Route answer back to the pending question promise.
         if (message.answer) {
-          const { questionId, value } = message.answer;
-          const pending = pendingQuestions.get(questionId);
-          if (pending) {
-            pendingQuestions.delete(questionId);
-            pending.resolve(value);
-          }
+          questionService.receiveAnswer(message.answer.questionId, message.answer.value);
         }
         return;
       }
@@ -258,8 +200,7 @@ export async function setupChatWebSocket(
           currentAbortController = null;
         }
         // Cancel all pending questions
-        pendingQuestions.forEach(({ reject }) => reject(new Error('Cancelled')));
-        pendingQuestions.clear();
+        questionService.cancelAll(new Error('Cancelled'));
         ws.send(JSON.stringify({ type: 'cancelled' }));
         return;
       }
@@ -281,8 +222,7 @@ export async function setupChatWebSocket(
         }
 
         // Cancel any pending questions
-        pendingQuestions.forEach(({ reject }) => reject(new Error('New message started')));
-        pendingQuestions.clear();
+        questionService.cancelAll(new Error('New message started'));
 
         // Create new abort controller for this operation
         currentAbortController = new AbortController();
@@ -387,8 +327,7 @@ export async function setupChatWebSocket(
         if (currentAbortController) {
           currentAbortController.abort();
         }
-        pendingQuestions.forEach(({ reject }) => reject(new Error('New summarize started')));
-        pendingQuestions.clear();
+        questionService.cancelAll(new Error('New summarize started'));
         currentAbortController = new AbortController();
 
         try {
@@ -457,8 +396,7 @@ export async function setupChatWebSocket(
       currentAbortController = null;
     }
     // Reject all pending questions
-    pendingQuestions.forEach(({ reject }) => reject(new Error('Connection closed')));
-    pendingQuestions.clear();
+    questionService.cancelAll(new Error('Connection closed'));
     ideAdapter?.dispose();
   });
 
@@ -469,8 +407,7 @@ export async function setupChatWebSocket(
       currentAbortController = null;
     }
     // Reject all pending questions
-    pendingQuestions.forEach(({ reject }) => reject(new Error('Connection error')));
-    pendingQuestions.clear();
+    questionService.cancelAll(new Error('Connection error'));
   });
 
   // Send ready event

@@ -55,11 +55,11 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
   const support = new ToolDispatchSupportService(serialization, ctx.llmService);
   installEmitService(ctx.hooks.emit);
   const questionService = InteractionQuestionService({
-    questionInput: vi.fn(async () => ''),
-    questionConfirm: vi.fn(async () => true),
-    questionSelect: vi.fn(async () => ''),
-    questionPassword: vi.fn(async () => ''),
-    questionChecklist: vi.fn(async () => []),
+    input: vi.fn(async () => ''),
+    confirm: vi.fn(async () => true),
+    select: vi.fn(async () => ''),
+    password: vi.fn(async () => ''),
+    checklist: vi.fn(async () => []),
   });
   const toolDispatcher = new ToolDispatcher(
     toolManager,
