@@ -6,6 +6,7 @@ import { WorkspaceFs, canRead, canWrite } from 'fs-context';
 import { ContextLevel, type Agent, type PermissionConfig, type ICommand } from '@ai-team/core';
 import { COMMAND_FACTORY_TOKENS } from '../../../types.js';
 import { ToolManager } from '../../../tools/tool-manager.js';
+import { CommandRegistry } from '../../../command-registry-impl.js';
 import {
   FsReadFileTool,
   FsReadLinesTool,
@@ -169,12 +170,7 @@ export async function createWorkspace(): Promise<string> {
 }
 
 export async function setupManager(workspaceRoot: string): Promise<ToolManager> {
-  const registry = {
-    register: () => undefined,
-    get: () => undefined,
-    getAll: () => [],
-    toLlmToolDefinitions: () => [],
-  } as any;
+  const registry = new CommandRegistry();
 
   const container = {
     resolve: (token: { id?: string }) => {
@@ -203,7 +199,7 @@ export async function setupManager(workspaceRoot: string): Promise<ToolManager> 
     container
   );
 
-  for (const tool of getFsTools(workspaceRoot)) manager.register(tool);
+  for (const tool of getFsTools(workspaceRoot)) registry.register(tool.metadata, () => tool);
   return manager;
 }
 

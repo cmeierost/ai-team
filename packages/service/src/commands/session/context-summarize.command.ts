@@ -1,13 +1,22 @@
-import type { ICommand, ILlmService, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ILlmService,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 import { parseContextArgs, summarizeMessage, type StoredMessage } from './context-utils.js';
+export const ContextSummarizeChatCommandMetadata = {
+  key: 'context-summarize',
+  usage: '/context summarize [--message <id>] [--instruction <text>]',
+  description: 'Summarize a message and replace its content in the LLM context',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class ContextSummarizeChatCommand implements ICommand<string, string> {
-  readonly key = 'context-summarize';
-  readonly usage = '/context summarize [--message <id>] [--instruction <text>]';
-  readonly description = 'Summarize a message and replace its content in the LLM context';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = ContextSummarizeChatCommandMetadata;
 
   constructor(
     private readonly sessionManager: Pick<

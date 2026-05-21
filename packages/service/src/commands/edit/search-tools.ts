@@ -7,6 +7,7 @@ import type {
   IFileAnnotationService,
   IIdeAdapterFactory,
   LspProvider,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
 
@@ -16,6 +17,24 @@ export interface SemanticSearchParams {
   query: string;
   maxResults?: number;
 }
+export const SemanticSearchToolMetadata = {
+  key: 'semantic',
+  group: 'search',
+  availableIn: { tool: true },
+  description:
+    'List workspace files accessible to the calling agent, optionally filtered by path prefix. ' +
+    'Returns structured access annotations (readable/writable/listable) for each file.',
+  parameters: z.object({
+    query: z.string().describe('Path prefix or glob fragment to filter files by'),
+    maxResults: z
+      .number()
+      .int()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe('Maximum number of results to return (default 100)'),
+  }),
+} satisfies ICommandDescriptor;
 
 export interface SemanticSearchResult {
   query: string;
@@ -29,23 +48,8 @@ export interface SemanticSearchResult {
 }
 
 export class SemanticSearchTool implements ICommand<SemanticSearchParams, SemanticSearchResult> {
+  readonly metadata = SemanticSearchToolMetadata;
   readonly name = 'semantic';
-  readonly key = 'semantic';
-  readonly group = 'search';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'List workspace files accessible to the calling agent, optionally filtered by path prefix. ' +
-    'Returns structured access annotations (readable/writable/listable) for each file.';
-  readonly parameters = z.object({
-    query: z.string().describe('Path prefix or glob fragment to filter files by'),
-    maxResults: z
-      .number()
-      .int()
-      .min(1)
-      .max(500)
-      .optional()
-      .describe('Maximum number of results to return (default 100)'),
-  });
 
   constructor(private readonly fileAnnotationService: IFileAnnotationService) {}
 
@@ -83,6 +87,23 @@ export class SemanticSearchTool implements ICommand<SemanticSearchParams, Semant
 }
 
 // ─── GetErrors ────────────────────────────────────────────────────────────────
+export const GetErrorsToolMetadata = {
+  key: 'get_errors',
+  group: 'tool',
+  availableIn: { tool: true },
+  description:
+    'Collect LSP diagnostics (type errors, linting issues) for one or more files. ' +
+    'Returns an empty list when no LSP provider is connected.',
+  parameters: z.object({
+    filePaths: z.array(z.string()).min(1).describe('Relative or absolute file paths to check'),
+    delayMs: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe('Milliseconds to wait before collecting diagnostics (default 500)'),
+  }),
+} satisfies ICommandDescriptor;
 
 export interface GetErrorsParams {
   filePaths: string[];
@@ -96,22 +117,8 @@ export interface GetErrorsResult {
 }
 
 export class GetErrorsTool implements ICommand<GetErrorsParams, GetErrorsResult> {
+  readonly metadata = GetErrorsToolMetadata;
   readonly name = 'get_errors';
-  readonly key = 'get_errors';
-  readonly group = 'tool';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Collect LSP diagnostics (type errors, linting issues) for one or more files. ' +
-    'Returns an empty list when no LSP provider is connected.';
-  readonly parameters = z.object({
-    filePaths: z.array(z.string()).min(1).describe('Relative or absolute file paths to check'),
-    delayMs: z
-      .number()
-      .int()
-      .min(0)
-      .optional()
-      .describe('Milliseconds to wait before collecting diagnostics (default 500)'),
-  });
 
   constructor(
     private readonly workspaceRoot: string,

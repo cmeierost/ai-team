@@ -1,28 +1,36 @@
 import { z } from 'zod';
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { FileTreeService, type PathMode } from './file-tree.js';
 import type { IQuestionService } from '../../questions/question-service.js';
 import { GovernanceService } from '../agents/governance.js';
 
 type Params = z.infer<typeof FilesDenyCommand.schema>;
 type Result = { paths: string[] };
+const _filesDenyCommandSchema = z.object({
+  path: z.string().describe('Path to disallow'),
+  agent: z.string().optional().describe('Scope to a specific agent'),
+  requestedBy: z.string().optional().describe('Governance actor requesting the change'),
+  approvedByUser: z.boolean().optional().describe('Mark user approval as granted'),
+  mode: z.string().optional().describe('Permission mode: read | write'),
+});
+
+export const FilesDenyCommandMetadata = {
+  key: 'filesDeny',
+  cli: { command: 'disallow <path>', parentKey: 'files' },
+  description: 'Disallow a path from file visibility (global config) or agent access rules',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'fs',
+  parameters: _filesDenyCommandSchema,
+} satisfies ICommandDescriptor;
 
 export class FilesDenyCommand implements ICommand<Params, Result> {
-  static readonly schema = z.object({
-    path: z.string().describe('Path to disallow'),
-    agent: z.string().optional().describe('Scope to a specific agent'),
-    requestedBy: z.string().optional().describe('Governance actor requesting the change'),
-    approvedByUser: z.boolean().optional().describe('Mark user approval as granted'),
-    mode: z.string().optional().describe('Permission mode: read | write'),
-  });
-
-  readonly key = 'filesDeny';
-  readonly cli = { command: 'disallow <path>', parentKey: 'files' };
-  readonly description =
-    'Disallow a path from file visibility (global config) or agent access rules';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'fs';
-  readonly parameters = FilesDenyCommand.schema;
+  static readonly schema = _filesDenyCommandSchema;
+  readonly metadata = FilesDenyCommandMetadata;
 
   constructor(
     private readonly fileTreeService: FileTreeService,

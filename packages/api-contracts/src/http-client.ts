@@ -3,8 +3,8 @@ import type { RestClientOptions } from '@ts-http/core';
 import { StreamingClient } from './streaming-client.js';
 import type {
   InteractionRequest,
+  QuestionHandlerMap,
   StreamEvent,
-  IQuestionListeners,
 } from './contract/routers/streaming.js';
 import { accessDesc } from './contract/routers/access.js';
 import { agentsDesc } from './contract/routers/agents.js';
@@ -178,7 +178,7 @@ export function createAiTeamClient({ baseUrl, wsUrl, restOptions }: CreateAiTeam
     tools,
     stream<TCommand extends string = string>(
       request: InteractionRequest,
-      ctx?: IQuestionListeners
+      ctx: QuestionHandlerMap
     ): AsyncIterable<StreamEvent<TCommand>> {
       return streaming.stream<TCommand>(request, ctx);
     },

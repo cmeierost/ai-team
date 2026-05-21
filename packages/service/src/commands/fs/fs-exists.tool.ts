@@ -5,6 +5,7 @@ import type {
   ICommand,
   CommandResponse,
   IWorkspaceFsFactory,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { failed } from './fs-tools-helpers.js';
 
@@ -18,17 +19,19 @@ export interface FsExistsResult {
   access?: { allowed: boolean };
   error?: string;
 }
+export const FsExistsToolMetadata = {
+  key: 'exists',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: 'Check whether a file or directory exists. Access-gated as a list operation.',
+  parameters: z.object({
+    path: z.string().describe('Relative or absolute file/directory path'),
+  }),
+} satisfies ICommandDescriptor;
 
 export class FsExistsTool implements ICommand<FsPathParams, FsExistsResult> {
+  readonly metadata = FsExistsToolMetadata;
   readonly name = 'exists';
-  readonly key = 'exists';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Check whether a file or directory exists. Access-gated as a list operation.';
-  readonly parameters = z.object({
-    path: z.string().describe('Relative or absolute file/directory path'),
-  });
 
   constructor(private readonly workspaceFsFactory: IWorkspaceFsFactory) {}
 

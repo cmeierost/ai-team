@@ -4,6 +4,7 @@ import type {
   TeamListResult,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 
 import type { ScoredPreLlmIntentCandidate } from '../../tools/pre-llm-intents.js';
@@ -24,17 +25,21 @@ export function matchesTeamListPreLlmIntent(message: string): boolean {
 }
 
 type Params = z.infer<typeof TeamListOrchestrationCommand.schema>;
+const _teamListOrchestrationCommandSchema = z.object({});
+
+export const TeamListOrchestrationCommandMetadata = {
+  key: 'list',
+  description: 'List all team members with their IDs, names, and roles.',
+  availableIn: { tool: true },
+  group: 'team',
+  parameters: _teamListOrchestrationCommandSchema,
+  permissionCheck: { type: 'none' as const },
+  tags: ['orchestration'],
+} satisfies ICommandDescriptor;
 
 export class TeamListOrchestrationCommand implements ICommand<Params, TeamListResult> {
-  static readonly schema = z.object({});
-
-  readonly key = 'list';
-  readonly description = 'List all team members with their IDs, names, and roles.';
-  readonly availableIn = { tool: true };
-  readonly group = 'team';
-  readonly parameters = TeamListOrchestrationCommand.schema;
-  readonly permissionCheck = { type: 'none' as const };
-  readonly tags = ['orchestration'];
+  static readonly schema = _teamListOrchestrationCommandSchema;
+  readonly metadata = TeamListOrchestrationCommandMetadata;
 
   constructor(private readonly agents: IAgentRegistry) {}
 

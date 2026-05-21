@@ -1,12 +1,20 @@
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 import type { ChatCommandEmitter } from '../../orchestrator/chat-emitter.js';
+export const OverviewChatCommandMetadata = {
+  key: 'overview',
+  description: 'Workspace file overview → shared with agent',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class OverviewChatCommand implements ICommand<string, void> {
-  readonly key = 'overview';
-  readonly description = 'Workspace file overview → shared with agent';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = OverviewChatCommandMetadata;
 
   constructor(
     private readonly sessionManager: Pick<SessionManager, 'appendMessage'>,

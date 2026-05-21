@@ -8,6 +8,7 @@ import type {
   IPathPermissionChecker,
   IIdeAdapterFactory,
   LspProvider,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { resolveFsAbsolutePath, toFsPathAccessEnvelope, toFsPathMeta } from './fs-access.js';
 import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
@@ -19,20 +20,18 @@ export interface FsEditParams {
   newString: string;
   replaceAll?: boolean;
 }
-
-export class FsEditTool implements ICommand<FsEditParams, unknown> {
-  readonly name = 'edit';
-  readonly key = 'edit';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description = [
+export const FsEditToolMetadata = {
+  key: 'edit',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: [
     'Perform a surgical in-place edit of a file by replacing an exact string.',
     'REQUIRES the file to have been read first with read in the same session.',
     'The edit will fail if the file has been modified on disk since the last read.',
     'Use `replaceAll: true` to replace every occurrence; default replaces only the first.',
     'Always read the file with `read` immediately before calling this tool.',
-  ].join(' ');
-  readonly parameters = z.object({
+  ].join(' '),
+  parameters: z.object({
     filePath: z.string().describe('Relative or absolute path to the file to edit'),
     oldString: z
       .string()
@@ -43,7 +42,12 @@ export class FsEditTool implements ICommand<FsEditParams, unknown> {
       .boolean()
       .optional()
       .describe('Replace all occurrences (default: false — first only)'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class FsEditTool implements ICommand<FsEditParams, unknown> {
+  readonly metadata = FsEditToolMetadata;
+  readonly name = 'edit';
 
   formatForLlm(result: unknown): unknown {
     const inner = (result as { data?: unknown })?.data ?? result;

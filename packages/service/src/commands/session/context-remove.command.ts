@@ -1,13 +1,21 @@
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 import { parseContextArgs, type StoredMessage } from './context-utils.js';
+export const ContextRemoveChatCommandMetadata = {
+  key: 'context-remove',
+  usage: '/context remove [--message <id>]',
+  description: 'Hide a message from LLM context',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class ContextRemoveChatCommand implements ICommand<string, string> {
-  readonly key = 'context-remove';
-  readonly usage = '/context remove [--message <id>]';
-  readonly description = 'Hide a message from LLM context';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = ContextRemoveChatCommandMetadata;
 
   constructor(
     private readonly sessionManager: Pick<

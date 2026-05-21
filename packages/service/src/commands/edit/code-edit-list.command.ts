@@ -1,22 +1,32 @@
 import { z } from 'zod';
-import type { ICommand, ICodeEditManager, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ICodeEditManager,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { CodeEditListResponse, CodeEditProposalSummary } from '@ai-team/api-contracts';
 import { ProposalStatus } from '@ai-team/core';
 
 type ListParams = z.infer<typeof CodeEditListCommand.schema>;
+const _codeEditListCommandSchema = z.object({
+  status: z.string().optional().describe('Optional proposal status filter'),
+  agent: z.string().optional().describe('Optional agent name filter'),
+});
+
+export const CodeEditListCommandMetadata = {
+  key: 'codeEditList',
+  cli: { command: 'code-edit list' },
+  description: 'List code edit proposals',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'edit',
+  parameters: _codeEditListCommandSchema,
+} satisfies ICommandDescriptor;
 
 export class CodeEditListCommand implements ICommand<ListParams, CodeEditListResponse> {
-  static readonly schema = z.object({
-    status: z.string().optional().describe('Optional proposal status filter'),
-    agent: z.string().optional().describe('Optional agent name filter'),
-  });
-
-  readonly key = 'codeEditList';
-  readonly cli = { command: 'code-edit list' };
-  readonly description = 'List code edit proposals';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'edit';
-  readonly parameters = CodeEditListCommand.schema;
+  static readonly schema = _codeEditListCommandSchema;
+  readonly metadata = CodeEditListCommandMetadata;
 
   constructor(private readonly manager: ICodeEditManager) {}
 

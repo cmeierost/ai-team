@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { ChatRuntimeHooks } from '../../orchestrator/hooks.js';
 import { ChatInfoService } from '../../orchestrator/chat-info-service.js';
 import type { IChatInfoService } from '../../orchestrator/chat-info-service.js';
@@ -15,28 +20,32 @@ import {
 import type { IQuestionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof ChatICommand.schema>;
+const _chatICommandSchema = z.object({
+  employeeId: z.string().optional().describe('Agent id, name, or role query'),
+  options: z
+    .object({
+      message: z.string().optional(),
+      context: z.array(z.string()).optional(),
+      mediatorLog: z.boolean().optional(),
+      new: z.boolean().optional(),
+      sessionId: z.string().optional(),
+    })
+    .optional()
+    .default({}),
+});
+
+export const ChatICommandMetadata = {
+  key: 'chat' as const,
+  cli: { command: 'chat [agent-id]' },
+  description: 'Start a chat session with an agent',
+  availableIn: { cli: true, chat: false, tool: false },
+  group: 'chat',
+  parameters: _chatICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class ChatICommand implements ICommand<Params, void> {
-  static readonly schema = z.object({
-    employeeId: z.string().optional().describe('Agent id, name, or role query'),
-    options: z
-      .object({
-        message: z.string().optional(),
-        context: z.array(z.string()).optional(),
-        mediatorLog: z.boolean().optional(),
-        new: z.boolean().optional(),
-        sessionId: z.string().optional(),
-      })
-      .optional()
-      .default({}),
-  });
-
-  readonly key = 'chat' as const;
-  readonly cli = { command: 'chat [agent-id]' };
-  readonly description = 'Start a chat session with an agent';
-  readonly availableIn = { cli: true, chat: false, tool: false };
-  readonly group = 'chat';
-  readonly parameters = ChatICommand.schema;
+  static readonly schema = _chatICommandSchema;
+  readonly metadata = ChatICommandMetadata;
 
   constructor(
     private readonly configIdentityDeps: ChatConfigIdentityDeps,

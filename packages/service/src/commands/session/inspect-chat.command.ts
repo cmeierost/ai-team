@@ -1,4 +1,9 @@
-import type { ICommand, CommandResponse, ExecutionContext } from '@ai-team/core';
+import type {
+  ICommand,
+  CommandResponse,
+  ExecutionContext,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { IQuestionService } from '../../questions/question-service.js';
 
 type IndexedToolCall = {
@@ -27,13 +32,16 @@ function formatToolCall(selected: IndexedToolCall): string {
     '─────────────────────────────────────────────────────────────\n',
   ].join('\n');
 }
+export const InspectChatCommandMetadata = {
+  key: 'inspect',
+  usage: '/inspect [n]',
+  description: 'Inspect raw tool-call results from this session (select from list)',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class InspectChatCommand implements ICommand<string, string> {
-  readonly key = 'inspect';
-  readonly usage = '/inspect [n]';
-  readonly description = 'Inspect raw tool-call results from this session (select from list)';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = InspectChatCommandMetadata;
 
   constructor(private readonly questionService: IQuestionService) {}
 
@@ -67,13 +75,11 @@ export class InspectChatCommand implements ICommand<string, string> {
         name: `${i + 1}) ${tc.toolName}  [${new Date(tc.msgTimestamp).toLocaleTimeString()}]`,
         value: String(i),
       }));
-      const picked = await this.questionService.select(
-        {
-          message: `Select a tool call to inspect (${allCalls.length} total):`,
-          choices,
-          default: '0',
-        }
-      );
+      const picked = await this.questionService.select({
+        message: `Select a tool call to inspect (${allCalls.length} total):`,
+        choices,
+        default: '0',
+      });
       selected = allCalls[Number.parseInt(picked, 10)];
     }
 

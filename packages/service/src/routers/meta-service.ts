@@ -236,13 +236,13 @@ export class MetaService implements IContextService {
   }
 
   private toToolDefinition(tool: ICommand): LlmToolDefinition {
-    const key = ToolIdentity.key(tool);
+    const key = ToolIdentity.key(tool.metadata);
     const fromManager = this.toolManager.toSchema(key);
     if (fromManager) return fromManager;
     return {
       name: key,
-      description: tool.description,
-      parameters: MetaService.schemaTools.toJsonSchema(tool.parameters, {
+      description: tool.metadata.description,
+      parameters: MetaService.schemaTools.toJsonSchema(tool.metadata.parameters, {
         additionalProperties: true,
       }),
     };
@@ -792,4 +792,3 @@ export class MetaService implements IContextService {
     if (todoChars > 0) segments.push({ key: 'todos', label: 'Todos', chars: todoChars });
   }
 }
-

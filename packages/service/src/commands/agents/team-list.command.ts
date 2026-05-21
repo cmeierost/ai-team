@@ -1,11 +1,20 @@
-import type { ICommand, IToolManager, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  IToolManager,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { ChatCommandEmitter } from '../../orchestrator/chat-emitter.js';
+export const TeamListChatCommandMetadata = {
+  key: 'list',
+  description: 'List all team members',
+  availableIn: { chat: true, tool: true },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class TeamListChatCommand implements ICommand<string, void> {
-  readonly key = 'list';
-  readonly description = 'List all team members';
-  readonly availableIn = { chat: true, tool: true };
-  readonly group = 'chat';
+  readonly metadata = TeamListChatCommandMetadata;
 
   constructor(
     private readonly toolManager: IToolManager,

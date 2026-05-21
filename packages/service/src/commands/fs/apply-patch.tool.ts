@@ -9,6 +9,7 @@ import type {
   IPathPermissionChecker,
   IIdeAdapterFactory,
   LspProvider,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { resolveFsAbsolutePath, toFsPathAccessEnvelope } from './fs-access.js';
 import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
@@ -65,9 +66,7 @@ class ApplyPatchService {
     };
   }
 
-  private parsePatchText(
-    patchText: string
-  ): { diffs: PatchDiff[] } | { error: ApplyPatchResult } {
+  private parsePatchText(patchText: string): { diffs: PatchDiff[] } | { error: ApplyPatchResult } {
     let diffs: PatchDiff[];
     try {
       diffs = Patch.parse(patchText);
@@ -313,11 +312,7 @@ class ApplyPatchService {
     }
   }
 
-  private async assertReadableForPatch(
-    agentId: string,
-    absolutePath: string,
-    displayPath: string
-  ) {
+  private async assertReadableForPatch(agentId: string, absolutePath: string, displayPath: string) {
     try {
       await FileTime.assert(agentId, absolutePath);
     } catch (assertErr) {
@@ -326,27 +321,29 @@ class ApplyPatchService {
     }
   }
 }
-
-export class ApplyPatchTool implements ICommand<ApplyPatchParams, unknown> {
-  readonly name = 'patch';
-  readonly key = 'patch';
-  readonly group = 'edit';
-  readonly availableIn = { tool: true };
-  readonly description = [
+export const ApplyPatchToolMetadata = {
+  key: 'patch',
+  group: 'edit',
+  availableIn: { tool: true },
+  description: [
     'Apply a standard unified diff (--- / +++ / @@ format) to one or more files.',
     'Each changed file is access-checked individually.',
     'Existing files MUST have been read with read in the current session.',
     'New files (add hunks) do not require a prior read.',
-  ].join(' ');
-  readonly parameters = z.object({
+  ].join(' '),
+  parameters: z.object({
     patchText: z
       .string()
       .min(1)
       .describe(
         'Standard unified diff string. Must start with --- / +++ file headers and @@ hunk markers.'
       ),
-  });
+  }),
+} satisfies ICommandDescriptor;
 
+export class ApplyPatchTool implements ICommand<ApplyPatchParams, unknown> {
+  readonly metadata = ApplyPatchToolMetadata;
+  readonly name = 'patch';
   private readonly service: ApplyPatchService;
 
   constructor(

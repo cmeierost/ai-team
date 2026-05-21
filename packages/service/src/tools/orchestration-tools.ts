@@ -30,7 +30,7 @@ export {
  * Backward-compatible export used by init workflow question bridge tests and callers.
  */
 export class AskUserTool extends AskUserCommand {
-  readonly name = this.key;
+  readonly name = this.metadata.key;
 }
 
 /** Assemble all orchestration tools in one call. */
@@ -43,7 +43,7 @@ export function createOrchestrationTools(
   }
 ): ICommand[] {
   return createOrchestrationCommands(resolver, dependencies).map((command) => {
-    (command as { name?: string }).name = command.key;
+    (command as { name?: string }).name = command.metadata.key;
     return command;
   });
 }

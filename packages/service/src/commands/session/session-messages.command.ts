@@ -1,11 +1,19 @@
-import type { ICommand, CommandResponse, ExecutionContext } from '@ai-team/core';
+import type {
+  ICommand,
+  CommandResponse,
+  ExecutionContext,
+  ICommandDescriptor,
+} from '@ai-team/core';
+export const SessionMessagesChatCommandMetadata = {
+  key: 'session-messages',
+  usage: '/session messages',
+  description: 'List all messages in the current session',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class SessionMessagesChatCommand implements ICommand<string, string> {
-  readonly key = 'session-messages';
-  readonly usage = '/session messages';
-  readonly description = 'List all messages in the current session';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = SessionMessagesChatCommandMetadata;
 
   async execute(_args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
     const msgs = ctx.history;

@@ -3,15 +3,19 @@ import type {
   CommandResponse,
   IDeveloperIdentityService,
   ExecutionContext,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 import { emitRuntimeEvent } from '../../orchestrator/chat-emitter.js';
+export const NewSessionChatCommandMetadata = {
+  key: 'new',
+  description: 'Start a new session with the current agent',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class NewSessionChatCommand implements ICommand<string, string> {
-  readonly key = 'new';
-  readonly description = 'Start a new session with the current agent';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = NewSessionChatCommandMetadata;
 
   constructor(
     private readonly developerIdentityService: IDeveloperIdentityService,

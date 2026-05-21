@@ -5,20 +5,23 @@ import type {
   ICommand,
   CommandResponse,
   IWorkspaceFsFactory,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { failed } from './fs-tools-helpers.js';
 import type { FsPathParams, FsInfoResult } from './fs-tool-types.js';
+export const FsInfoToolMetadata = {
+  key: 'info',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: 'Get file/directory metadata and access envelope. Access-gated as a list operation.',
+  parameters: z.object({
+    path: z.string().describe('Relative or absolute file/directory path'),
+  }),
+} satisfies ICommandDescriptor;
 
 export class FsInfoTool implements ICommand<FsPathParams, FsInfoResult> {
+  readonly metadata = FsInfoToolMetadata;
   readonly name = 'info';
-  readonly key = 'info';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Get file/directory metadata and access envelope. Access-gated as a list operation.';
-  readonly parameters = z.object({
-    path: z.string().describe('Relative or absolute file/directory path'),
-  });
 
   constructor(private readonly workspaceFsFactory: IWorkspaceFsFactory) {}
 

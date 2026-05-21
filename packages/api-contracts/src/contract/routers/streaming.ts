@@ -589,7 +589,7 @@ export interface WorkflowStateSnapshot {
   answers: Record<string, QuestionAnswerValue>;
 }
 
-export interface InteractionContext extends IQuestionListeners {
+export interface InteractionContext extends QuestionHandlerMap {
   emit?: (event: RuntimeStreamEvent) => void;
   workflowState?: WorkflowStateSnapshot;
   onWorkflowFrame?: (frame: WorkflowFrame) => void;
@@ -690,16 +690,14 @@ export interface ToolDenialEvent {
 
 // ─── Streaming client (browser / transport) ───────────────────────────────────
 
-/**
- * Map of question event names to their typed handler signatures.
- */
-export type QuestionHandlerMap = {
-  questionInput: (request: QuestionInputRequest) => Promise<string>;
-  questionConfirm: (request: QuestionConfirmRequest) => Promise<boolean>;
-  questionSelect: (request: QuestionSelectRequest) => Promise<string>;
-  questionPassword: (request: QuestionPasswordRequest) => Promise<string>;
-  questionChecklist: (request: QuestionChecklistRequest) => Promise<string[]>;
-};
+export interface QuestionHandlerMap {
+  signal: AbortSignal;
+  input(request: QuestionInputRequest): Promise<string>;
+  confirm(request: QuestionConfirmRequest): Promise<boolean>;
+  select(request: QuestionSelectRequest): Promise<string>;
+  password(request: QuestionPasswordRequest): Promise<string>;
+  checklist(request: QuestionChecklistRequest): Promise<string[]>;
+}
 
 export type QuestionEventName = keyof QuestionHandlerMap;
 
@@ -712,35 +710,9 @@ export type QuestionEventName = keyof QuestionHandlerMap;
  * matching handler.
  *
  * ```ts
- * const stream = client.stream(request)
- *   .on('questionInput', handler)
- *   .on('questionConfirm', handler);
- * for await (const event of stream) { ... }
+ * for await (const event of client.stream(request, { confirm, input, signal })) { ... }
  * ```
  */
-export interface IInteractionStream<TCommand extends string = string> extends AsyncIterable<
-  StreamEvent<TCommand>
-> {
-  on<K extends QuestionEventName>(event: K, handler: QuestionHandlerMap[K]): this;
-}
-
-/**
- * Legacy context passed by the browser client when starting a stream.
- * Prefer {@link IInteractionStream} `.on()` registration for new code.
- */
-export interface IQuestionListeners {
-  signal?: AbortSignal;
-  questionInput?: (request: QuestionInputRequest) => Promise<string>;
-  questionConfirm?: (request: QuestionConfirmRequest) => Promise<boolean>;
-  questionSelect?: (request: QuestionSelectRequest) => Promise<string>;
-  questionPassword?: (request: QuestionPasswordRequest) => Promise<string>;
-  questionChecklist?: (request: QuestionChecklistRequest) => Promise<string[]>;
-}
-
-/**
- * @deprecated Use {@link IQuestionListeners} instead.
- */
-export type IQuestionContext = IQuestionListeners;
 
 /**
  * Transport-level streaming client for the browser.
@@ -752,6 +724,6 @@ export type IQuestionContext = IQuestionListeners;
 export interface IStreamingClient {
   stream<TCommand extends string = string>(
     request: InteractionRequest,
-    options?: { signal?: AbortSignal }
-  ): IInteractionStream<TCommand>;
+    handlers: QuestionHandlerMap
+  ): AsyncIterable<StreamEvent<TCommand>>;
 }

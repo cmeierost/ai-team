@@ -1,12 +1,20 @@
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { hhRefreshCommand } from './hh.js';
+export const HhRefreshCommandMetadata = {
+  key: 'hhRefresh',
+  cli: { command: 'refresh', parentKey: 'hh' },
+  description: 'Pull and refresh the skill catalog from GitHub',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'hr',
+} satisfies ICommandDescriptor;
 
 export class HhRefreshCommand implements ICommand<Record<string, never>, void> {
-  readonly key = 'hhRefresh';
-  readonly cli = { command: 'refresh', parentKey: 'hh' };
-  readonly description = 'Pull and refresh the skill catalog from GitHub';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'hr';
+  readonly metadata = HhRefreshCommandMetadata;
 
   async execute(
     _payload: Record<string, never>,

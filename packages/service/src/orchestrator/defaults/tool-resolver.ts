@@ -17,6 +17,6 @@ export class DefaultToolResolver implements IToolResolver {
   async resolve(ctx: ExecutionContext): Promise<ICommand[]> {
     return this.toolManager
       .getForAgent(ctx.agent!)
-      .filter((tool) => ToolIdentity.key(tool) !== 'hr_hire');
+      .filter((tool) => ToolIdentity.key(tool.metadata) !== 'hr_hire');
   }
 }

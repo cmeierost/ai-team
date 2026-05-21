@@ -239,12 +239,7 @@ function buildInsertBlock(
   const metaPart = [
     `export const ${metaConstName} = {`,
     ...entries.map((e) => `${e},`),
-    `} satisfies Omit<ICommand, 'execute' | 'matchesIntent'>;`,
-    '',
-    `// Declare-merge: satisfies ICommand without repeating each field on the class.`,
-    `// When ICommand is refactored to use a \`metadata\` property, remove this merge.`,
-    `type _${className}Meta = typeof ${metaConstName};`,
-    `export interface ${className} extends _${className}Meta {}`,
+    `} satisfies ICommandDescriptor;`,
     '',
     '',
   ].join('\n');
@@ -280,10 +275,20 @@ function applyMutation(
   const schemaMember = updated.getStaticProperty('schema');
   const insertIdx = schemaMember ? updated.getMembers().indexOf(schemaMember as any) + 1 : 0;
 
-  updated.insertMember(insertIdx, `static readonly metadata = ${metaConstName};`);
-  updated.insertMember(insertIdx + 1, `readonly metadata = ${metaConstName};`);
+  updated.insertMember(insertIdx, `readonly metadata = ${metaConstName};`);
 
-  // Remove individual instance metadata properties — satisfied via interface merge.
+  // Ensure ICommandDescriptor is imported from @ai-team/core.
+  const coreImport = sf.getImportDeclaration(
+    (d) => d.getModuleSpecifierValue() === '@ai-team/core'
+  );
+  if (
+    coreImport &&
+    !coreImport.getNamedImports().some((n) => n.getName() === 'ICommandDescriptor')
+  ) {
+    coreImport.addNamedImport('ICommandDescriptor');
+  }
+
+  // Remove individual instance metadata properties.
   for (const prop of [
     ...updated.getProperties().filter((p) => !p.isStatic() && METADATA_FIELDS.has(p.getName())),
   ].reverse()) {
@@ -295,10 +300,10 @@ function processClass(className: string, sf: SourceFile): boolean {
   const cls = sf.getClasses().find((c) => c.getName() === className);
   if (!cls) return false;
 
-  // Skip if already transformed.
-  if (cls.getStaticMembers().some((m) => 'getName' in m && (m as any).getName() === 'metadata')) {
+  // Skip if already transformed (instance metadata property present).
+  if (cls.getProperties().some((p) => !p.isStatic() && p.getName() === 'metadata')) {
     alreadyDoneCount++;
-    console.log(`   skip ${className} -- static metadata already present`);
+    console.log(`   skip ${className} -- instance metadata already present`);
     return false;
   }
 
@@ -344,11 +349,19 @@ function applyMergeCleanup(text: string): string {
     /\n\/\/ Declare-merge:[^\n]*\n\/\/ When ICommand[^\n]*\ntype _\w+Meta = typeof \w+Metadata;\nexport interface \w+ extends _\w+Meta \{\}\n/g;
   let out = text.replace(mergeBlockRe, '\n');
 
-  // 2. Change satisfies type (ICommandDescriptor is already imported from @ai-team/core).
+  // 2. Change satisfies type.
   out = out.replaceAll(
     "} satisfies Omit<ICommand, 'execute' | 'matchesIntent'>;",
     '} satisfies ICommandDescriptor;'
   );
+
+  // 3. Add ICommandDescriptor to the @ai-team/core import if not present.
+  if (!out.includes('ICommandDescriptor')) {
+    out = out.replace(/import type \{([^}]+)\} from '@ai-team\/core'/, (_m, imports: string) => {
+      const trimmed = imports.trim().replace(/,$/, '');
+      return `import type { ${trimmed}, ICommandDescriptor } from '@ai-team/core'`;
+    });
+  }
 
   return out;
 }
@@ -397,13 +410,18 @@ function updateDescriptorToMetadataShape(sf: SourceFile): void {
   if (desc.getProperty('key')) return;
 
   // Remove formatForLlm from ICommandDescriptor (it moves to ICommand).
-  const fmtMember = desc.getMembers().find(
-    (m) => 'getName' in m && (m as { getName(): string }).getName() === 'formatForLlm'
-  );
+  const fmtMember = desc
+    .getMembers()
+    .find((m) => 'getName' in m && (m as { getName(): string }).getName() === 'formatForLlm');
   fmtMember?.remove();
 
   // Add key + aliases as the first two fields.
-  desc.insertProperty(0, { name: 'aliases', type: 'string[]', isReadonly: true, hasQuestionToken: true });
+  desc.insertProperty(0, {
+    name: 'aliases',
+    type: 'string[]',
+    isReadonly: true,
+    hasQuestionToken: true,
+  });
   desc.insertProperty(0, {
     name: 'key',
     type: 'string',

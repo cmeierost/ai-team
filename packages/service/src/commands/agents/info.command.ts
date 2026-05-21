@@ -4,16 +4,20 @@ import type {
   ExecutionContext,
   CommandResponse,
   Agent,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { selectDefaultTopAgent } from '../../utils/agent-selection.js';
 import type { IQuestionService } from '../../questions/question-service.js';
+export const InfoChatCommandMetadata = {
+  key: 'info',
+  usage: '/info [employee]',
+  description: 'Get agent info (self when no argument, or named agent)',
+  availableIn: { chat: true, tool: true, cli: true },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class InfoChatCommand implements ICommand<string, Agent[]> {
-  readonly key = 'info';
-  readonly usage = '/info [employee]';
-  readonly description = 'Get agent info (self when no argument, or named agent)';
-  readonly availableIn = { chat: true, tool: true, cli: true };
-  readonly group = 'chat';
+  readonly metadata = InfoChatCommandMetadata;
 
   constructor(
     private readonly agentManager: IAgentManager,

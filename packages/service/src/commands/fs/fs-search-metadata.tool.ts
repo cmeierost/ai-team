@@ -5,21 +5,17 @@ import type {
   ICommand,
   CommandResponse,
   IWorkspaceFsFactory,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { FsSearchMetadataParams, FsSearchMetadataResult } from './fs-tool-types.js';
-
-export class FsSearchMetadataTool implements ICommand<
-  FsSearchMetadataParams,
-  FsSearchMetadataResult
-> {
-  readonly name = 'search_metadata';
-  readonly key = 'search_metadata';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description =
+export const FsSearchMetadataToolMetadata = {
+  key: 'search_metadata',
+  group: 'fs',
+  availableIn: { tool: true },
+  description:
     'Fast glob-pattern file search backed by ripgrep. Returns matching paths with size and mtime. ' +
-    'Respects .gitignore by default. Use glob patterns like "**/*.ts" or "src/**/*.test.*".';
-  readonly parameters = z.object({
+    'Respects .gitignore by default. Use glob patterns like "**/*.ts" or "src/**/*.test.*".',
+  parameters: z.object({
     pattern: z
       .string()
       .min(1)
@@ -32,7 +28,15 @@ export class FsSearchMetadataTool implements ICommand<
       .max(1000)
       .optional()
       .describe('Maximum number of matches (default 200)'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class FsSearchMetadataTool implements ICommand<
+  FsSearchMetadataParams,
+  FsSearchMetadataResult
+> {
+  readonly metadata = FsSearchMetadataToolMetadata;
+  readonly name = 'search_metadata';
 
   constructor(
     private readonly workspaceRoot: string,

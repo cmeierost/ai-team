@@ -11,6 +11,7 @@ import type {
   CommandResponse,
   ICommand,
   IIdeAdapterFactory,
+  ICommandDescriptor,
 } from '@ai-team/core';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -129,24 +130,13 @@ function formatLspForLlm(r: LspFormatInput): unknown {
   }
   return JSON.stringify(r, null, 2);
 }
-
-// ─── FindSymbol ───────────────────────────────────────────────────────────────
-
-export interface FindSymbolParams {
-  symbolName: string;
-  filePath?: string;
-  line?: number;
-  character?: number;
-}
-
-export class FindSymbolTool implements ICommand<FindSymbolParams, unknown> {
-  readonly name = 'find_symbol';
-  readonly key = 'find_symbol';
-  readonly group = 'code';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Find symbol definitions (functions, classes, variables) via the connected IDE language server. Requires read permission.';
-  readonly parameters = z.object({
+export const FindSymbolToolMetadata = {
+  key: 'find_symbol',
+  group: 'code',
+  availableIn: { tool: true },
+  description:
+    'Find symbol definitions (functions, classes, variables) via the connected IDE language server. Requires read permission.',
+  parameters: z.object({
     symbolName: z.string().describe('Name of the symbol to find'),
     filePath: z.string().optional().describe('File to search in (omit for workspace-wide search)'),
     line: z
@@ -159,7 +149,21 @@ export class FindSymbolTool implements ICommand<FindSymbolParams, unknown> {
       .int()
       .optional()
       .describe('0-based column (for go-to-definition from a usage site)'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+// ─── FindSymbol ───────────────────────────────────────────────────────────────
+
+export interface FindSymbolParams {
+  symbolName: string;
+  filePath?: string;
+  line?: number;
+  character?: number;
+}
+
+export class FindSymbolTool implements ICommand<FindSymbolParams, unknown> {
+  readonly metadata = FindSymbolToolMetadata;
+  readonly name = 'find_symbol';
 
   formatForLlm(result: unknown): unknown {
     return formatLspForLlm(result as LspFormatInput);
@@ -222,6 +226,18 @@ export class FindSymbolTool implements ICommand<FindSymbolParams, unknown> {
     return { status: 'ok', data: { symbolName, ...formatLspResult(result) } };
   }
 }
+export const FindReferencesToolMetadata = {
+  key: 'find_references',
+  group: 'code',
+  availableIn: { tool: true },
+  description:
+    'Find all references/usages of a symbol via the connected IDE language server. Position the cursor on a symbol usage to find all other references. Requires read permission.',
+  parameters: z.object({
+    filePath: z.string().describe('File containing the symbol'),
+    line: z.number().int().describe('1-based line number of the symbol'),
+    character: z.number().int().describe('0-based column of the symbol'),
+  }),
+} satisfies ICommandDescriptor;
 
 // ─── FindReferences ───────────────────────────────────────────────────────────
 
@@ -230,19 +246,37 @@ export interface FindReferencesParams {
   line: number;
   character: number;
 }
+export const LspToolMetadata = {
+  key: 'lsp',
+  group: 'code',
+  availableIn: { tool: true },
+  description:
+    'Execute a language server operation (goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, prepareCallHierarchy, incomingCalls, outgoingCalls, getDiagnostics) via the connected IDE. Lines are 1-based.',
+  parameters: z.object({
+    operation: z
+      .enum([
+        'goToDefinition',
+        'findReferences',
+        'hover',
+        'documentSymbol',
+        'workspaceSymbol',
+        'goToImplementation',
+        'prepareCallHierarchy',
+        'incomingCalls',
+        'outgoingCalls',
+        'getDiagnostics',
+      ])
+      .describe('LSP operation to execute'),
+    filePath: z.string().describe('File path (relative or absolute)'),
+    line: z.number().int().optional().describe('1-based line number'),
+    character: z.number().int().optional().describe('0-based column'),
+    query: z.string().optional().describe('Query string (for workspaceSymbol)'),
+  }),
+} satisfies ICommandDescriptor;
 
 export class FindReferencesTool implements ICommand<FindReferencesParams, unknown> {
+  readonly metadata = FindReferencesToolMetadata;
   readonly name = 'find_references';
-  readonly key = 'find_references';
-  readonly group = 'code';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Find all references/usages of a symbol via the connected IDE language server. Position the cursor on a symbol usage to find all other references. Requires read permission.';
-  readonly parameters = z.object({
-    filePath: z.string().describe('File containing the symbol'),
-    line: z.number().int().describe('1-based line number of the symbol'),
-    character: z.number().int().describe('0-based column of the symbol'),
-  });
 
   formatForLlm(result: unknown): unknown {
     return formatLspForLlm(result as LspFormatInput);
@@ -287,6 +321,30 @@ export class FindReferencesTool implements ICommand<FindReferencesParams, unknow
 }
 
 // ─── Lsp ──────────────────────────────────────────────────────────────────────
+export const GrepCodeToolMetadata = {
+  key: 'grep',
+  group: 'search',
+  availableIn: { tool: true },
+  description:
+    'Fast regex or literal text search in workspace files, powered by ripgrep. Returns structured match objects with file path, line number, and matched content. Requires read permission.',
+  parameters: z.object({
+    pattern: z.string().describe('Regex or literal text to search for'),
+    filePatterns: z
+      .array(z.string())
+      .optional()
+      .describe('Glob patterns to restrict files (e.g. ["**/*.ts"])'),
+    caseSensitive: z
+      .boolean()
+      .optional()
+      .describe('Force case-sensitive match (default: ripgrep smart-case)'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('Max matches to return per file (default: unlimited)'),
+  }),
+} satisfies ICommandDescriptor;
 
 export interface LspParams {
   operation: LspOperation;
@@ -297,32 +355,8 @@ export interface LspParams {
 }
 
 export class LspTool implements ICommand<LspParams, unknown> {
+  readonly metadata = LspToolMetadata;
   readonly name = 'lsp';
-  readonly key = 'lsp';
-  readonly group = 'code';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Execute a language server operation (goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, prepareCallHierarchy, incomingCalls, outgoingCalls, getDiagnostics) via the connected IDE. Lines are 1-based.';
-  readonly parameters = z.object({
-    operation: z
-      .enum([
-        'goToDefinition',
-        'findReferences',
-        'hover',
-        'documentSymbol',
-        'workspaceSymbol',
-        'goToImplementation',
-        'prepareCallHierarchy',
-        'incomingCalls',
-        'outgoingCalls',
-        'getDiagnostics',
-      ])
-      .describe('LSP operation to execute'),
-    filePath: z.string().describe('File path (relative or absolute)'),
-    line: z.number().int().optional().describe('1-based line number'),
-    character: z.number().int().optional().describe('0-based column'),
-    query: z.string().optional().describe('Query string (for workspaceSymbol)'),
-  });
 
   formatForLlm(result: unknown): unknown {
     return formatLspForLlm(result as LspFormatInput);
@@ -386,29 +420,8 @@ export interface GrepCodeResult {
 }
 
 export class GrepCodeTool implements ICommand<GrepCodeParams, GrepCodeResult> {
+  readonly metadata = GrepCodeToolMetadata;
   readonly name = 'grep';
-  readonly key = 'grep';
-  readonly group = 'search';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Fast regex or literal text search in workspace files, powered by ripgrep. Returns structured match objects with file path, line number, and matched content. Requires read permission.';
-  readonly parameters = z.object({
-    pattern: z.string().describe('Regex or literal text to search for'),
-    filePatterns: z
-      .array(z.string())
-      .optional()
-      .describe('Glob patterns to restrict files (e.g. ["**/*.ts"])'),
-    caseSensitive: z
-      .boolean()
-      .optional()
-      .describe('Force case-sensitive match (default: ripgrep smart-case)'),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .optional()
-      .describe('Max matches to return per file (default: unlimited)'),
-  });
 
   formatForLlm(result: unknown): unknown {
     const r = result as GrepCodeResult;

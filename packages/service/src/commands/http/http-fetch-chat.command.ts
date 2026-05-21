@@ -1,21 +1,30 @@
-import type { ICommand, IToolManager, CommandResponse, ExecutionContext } from '@ai-team/core';
+import type {
+  ICommand,
+  IToolManager,
+  CommandResponse,
+  ExecutionContext,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { parseUrlAndJsonOptions } from './http-chat-utils.js';
+export const HttpFetchChatCommandMetadata = {
+  key: 'fetch',
+  aliases: ['http-fetch'],
+  usage: '/fetch <url> [json-options]',
+  description:
+    'Fetch a web page via http_fetch and print the extracted result (great before /context add).',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class HttpFetchChatCommand implements ICommand<string, string> {
-  readonly key = 'fetch';
-  readonly aliases = ['http-fetch'];
-  readonly usage = '/fetch <url> [json-options]';
-  readonly description =
-    'Fetch a web page via http_fetch and print the extracted result (great before /context add).';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = HttpFetchChatCommandMetadata;
 
   constructor(private readonly toolManager: IToolManager) {}
 
   async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
     const parsed = parseUrlAndJsonOptions(args);
     if (parsed.error === 'missing-url') {
-      return { status: 'error', message: `Usage: ${this.usage}` };
+      return { status: 'error', message: `Usage: ${this.metadata.usage}` };
     }
     if (parsed.error === 'json-object-required') {
       return { status: 'error', message: 'JSON args must be an object, e.g. {"timeoutMs":12000}.' };

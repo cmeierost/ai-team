@@ -1,13 +1,22 @@
 import path from 'node:path';
-import type { ICommand, IMessageStorage, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  IMessageStorage,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { DbStatusResponse } from '@ai-team/api-contracts';
+export const DbStatusCommandMetadata = {
+  key: 'dbStatus',
+  cli: { command: 'db:status' },
+  description: 'Show database status and statistics',
+  availableIn: { cli: true },
+  group: 'db',
+} satisfies ICommandDescriptor;
 
 export class DbStatusCommand implements ICommand<Record<string, never>, DbStatusResponse> {
-  readonly key = 'dbStatus';
-  readonly cli = { command: 'db:status' };
-  readonly description = 'Show database status and statistics';
-  readonly availableIn = { cli: true };
-  readonly group = 'db';
+  readonly metadata = DbStatusCommandMetadata;
 
   constructor(private readonly storage: IMessageStorage) {}
 

@@ -4,21 +4,25 @@ import type {
   ICommand,
   CommandResponse,
   IWorkspaceFsFactory,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { failed } from './fs-tools-helpers.js';
 import type { FsCreateParams, FsCreateResult } from './fs-tool-types.js';
-
-export class FsCreateFileTool implements ICommand<FsCreateParams, FsCreateResult> {
-  readonly name = 'create';
-  readonly key = 'create';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description = 'Create a new file through access checks.';
-  readonly parameters = z.object({
+export const FsCreateFileToolMetadata = {
+  key: 'create',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: 'Create a new file through access checks.',
+  parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
     content: z.string().optional().describe('Optional initial content'),
     createDirectories: z.boolean().optional().describe('Create parent directories if needed'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class FsCreateFileTool implements ICommand<FsCreateParams, FsCreateResult> {
+  readonly metadata = FsCreateFileToolMetadata;
+  readonly name = 'create';
 
   constructor(private readonly workspaceFsFactory: IWorkspaceFsFactory) {}
 

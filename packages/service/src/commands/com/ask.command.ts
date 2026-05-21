@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   ICommand,
+  ICommandDescriptor,
   ExecutionContext,
   CommandResponse,
 } from '@ai-team/core';
@@ -106,18 +107,11 @@ export const AskUserCommandMetadata = {
   parameters: _askUserCommandSchema,
   permissionCheck: { type: 'none' as const },
   tags: ['orchestration'],
-} satisfies Omit<ICommand, 'execute' | 'matchesIntent'>;
+} satisfies ICommandDescriptor;
 
 export class AskUserCommand implements ICommand<Params, AskUserResult> {
   static readonly schema = _askUserCommandSchema;
-  static readonly metadata = AskUserCommandMetadata;
-  readonly key = AskUserCommandMetadata.key;
-  readonly description = AskUserCommandMetadata.description;
-  readonly availableIn = AskUserCommandMetadata.availableIn;
-  readonly group = AskUserCommandMetadata.group;
-  readonly parameters = AskUserCommandMetadata.parameters;
-  readonly permissionCheck = AskUserCommandMetadata.permissionCheck;
-  readonly tags = AskUserCommandMetadata.tags;
+  readonly metadata = AskUserCommandMetadata;
 
   constructor(private readonly questionService: IQuestionService) {}
 

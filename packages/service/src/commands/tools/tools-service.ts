@@ -1,4 +1,10 @@
-import type { Agent, IAgentManager, ICommand, ExecutionContext } from '@ai-team/core';
+import type {
+  Agent,
+  IAgentManager,
+  ICommand,
+  ICommandDescriptor,
+  ExecutionContext,
+} from '@ai-team/core';
 import type { ToolManager } from '../../tools/tool-manager.js';
 import { ToolIdentity } from '../../tools/tool-manager.js';
 import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-contracts';
@@ -24,34 +30,34 @@ export class AgentToolsService {
 
   async list(options: ListToolsOptions = {}): Promise<ListToolsResponse> {
     const [staticTools, mcpTools] = await Promise.all([
-      Promise.resolve(this.sortToolsByName(this.toolManager.getAll())),
+      Promise.resolve(this.sortDescriptorsByName(this.toolManager.getAll())),
       this.mcpGateway ? this.mcpGateway.discover() : Promise.resolve([] as ICommand[]),
     ]);
 
     if (!options.agent) {
       const mcpEntries = mcpTools.map((tool) => ({
-        ...this.buildCatalogEntry(tool),
+        ...this.buildCatalogEntry(tool.metadata),
         allowedForAgent: true,
       }));
       return {
-        entries: [...staticTools.map((tool) => this.buildCatalogEntry(tool)), ...mcpEntries],
+        entries: [...staticTools.map((meta) => this.buildCatalogEntry(meta)), ...mcpEntries],
         timestamp: new Date().toISOString(),
       };
     }
 
     const agent = await this.resolveFullAgent(options.agent, 'list tools for agent');
     const staticEntries = await Promise.all(
-      staticTools.map(async (tool) => {
-        const permission = await this.toolManager.canExecute(agent, ToolIdentity.key(tool), {});
+      staticTools.map(async (meta) => {
+        const permission = await this.toolManager.canExecute(agent, ToolIdentity.key(meta), {});
         return {
-          ...this.buildCatalogEntry(tool),
+          ...this.buildCatalogEntry(meta),
           allowedForAgent: permission.allowed,
           deniedReason: permission.allowed ? undefined : permission.reason,
         };
       })
     );
     const mcpEntries = mcpTools.map((tool) => ({
-      ...this.buildCatalogEntry(tool),
+      ...this.buildCatalogEntry(tool.metadata),
       allowedForAgent: true,
     }));
 
@@ -209,7 +215,7 @@ export class AgentToolsService {
     if (normalizedRequestedTool.includes('*')) {
       const hasMatch = this.toolManager
         .getAll()
-        .some((tool) => ToolIdentity.matchesSelector(normalizedRequestedTool, tool));
+        .some((meta) => ToolIdentity.matchesSelector(normalizedRequestedTool, meta));
       if (!hasMatch) {
         throw new Error(`Unknown tool: ${normalizedRequestedTool}`);
       }
@@ -232,21 +238,21 @@ export class AgentToolsService {
     return agent;
   }
 
-  private buildCatalogEntry(tool: ICommand) {
-    const key = ToolIdentity.key(tool);
-    const permType = tool.permissionCheck?.type;
+  private buildCatalogEntry(meta: ICommandDescriptor) {
+    const key = ToolIdentity.key(meta);
+    const permType = meta.permissionCheck?.type;
     return {
       name: key,
-      description: tool.description,
-      group: tool.group,
+      description: meta.description,
+      group: meta.group,
       schema: this.toolManager.toSchema(key)?.parameters ?? {},
-      tags: tool.tags,
-      examples: tool.examples,
+      tags: meta.tags,
+      examples: meta.examples,
       fileRightsDependent: permType === 'file-read' || permType === 'file-write',
     };
   }
 
-  private sortToolsByName(tools: ICommand[]): ICommand[] {
-    return [...tools].sort((a, b) => ToolIdentity.key(a).localeCompare(ToolIdentity.key(b)));
+  private sortDescriptorsByName(descs: ICommandDescriptor[]): ICommandDescriptor[] {
+    return [...descs].sort((a, b) => ToolIdentity.key(a).localeCompare(ToolIdentity.key(b)));
   }
 }

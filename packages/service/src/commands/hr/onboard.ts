@@ -25,6 +25,7 @@ import type {
   ICommand,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { z } from 'zod';
 import { ContextLevel, RoleType, resolveEffectiveLlmSettings } from '@ai-team/core';
@@ -140,6 +141,18 @@ function buildStrictWorkflowPrompt(phase: OnboardingWorkflowPhase): string {
 }
 
 // ── OnboardCommand ────────────────────────────────────────────────────────────
+const _onboardICommandSchema = z.object({
+  options: z.any().optional(),
+});
+
+export const OnboardICommandMetadata = {
+  key: 'onboard',
+  cli: { command: 'onboard' },
+  description: 'Run team onboarding (CEO + HR + hiring)',
+  availableIn: { cli: true, chat: true },
+  group: 'hr',
+  parameters: _onboardICommandSchema,
+} satisfies ICommandDescriptor;
 
 export interface OnboardCommandParams {
   options?: OnboardOptions;
@@ -149,16 +162,8 @@ export interface OnboardCommandParams {
 type OnboardICommandParams = z.infer<typeof OnboardICommand.schema>;
 
 export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
-  static readonly schema = z.object({
-    options: z.any().optional(),
-  });
-
-  readonly key = 'onboard';
-  readonly cli = { command: 'onboard' };
-  readonly description = 'Run team onboarding (CEO + HR + hiring)';
-  readonly availableIn = { cli: true, chat: true };
-  readonly group = 'hr';
-  readonly parameters = OnboardICommand.schema;
+  static readonly schema = _onboardICommandSchema;
+  readonly metadata = OnboardICommandMetadata;
 
   constructor(
     private readonly onboardCommand: Pick<OnboardCommand, 'execute'>,

@@ -1,21 +1,31 @@
 import { z } from 'zod';
-import type { ICommand, ICodeEditManager, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ICodeEditManager,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { ProposalStatus } from '@ai-team/core';
 import type { IQuestionService } from '../../questions/question-service.js';
 
 type RejectParams = z.infer<typeof CodeEditRejectCommand.schema>;
+const _codeEditRejectCommandSchema = z.object({
+  proposalId: z.string().describe('Proposal id to reject'),
+  reason: z.string().optional().describe('Optional rejection reason'),
+});
+
+export const CodeEditRejectCommandMetadata = {
+  key: 'codeEditReject',
+  cli: { command: 'code-edit reject <proposalId>' },
+  description: 'Reject a code edit proposal',
+  availableIn: { cli: true, chat: true, tool: true },
+  parameters: _codeEditRejectCommandSchema,
+} satisfies ICommandDescriptor;
 
 export class CodeEditRejectCommand implements ICommand<RejectParams, { proposalId: string }> {
-  static readonly schema = z.object({
-    proposalId: z.string().describe('Proposal id to reject'),
-    reason: z.string().optional().describe('Optional rejection reason'),
-  });
-
-  readonly key = 'codeEditReject';
-  readonly cli = { command: 'code-edit reject <proposalId>' };
-  readonly description = 'Reject a code edit proposal';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly parameters = CodeEditRejectCommand.schema;
+  static readonly schema = _codeEditRejectCommandSchema;
+  readonly metadata = CodeEditRejectCommandMetadata;
 
   constructor(
     private readonly manager: ICodeEditManager,

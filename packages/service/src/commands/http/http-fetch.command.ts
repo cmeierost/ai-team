@@ -1,4 +1,9 @@
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { z } from 'zod';
 import {
   applyHttpTextFilters,
@@ -14,16 +19,13 @@ import {
 } from './http-command-shared.js';
 
 export { type HttpFetchParams, type HttpFetchResult } from './http-command-shared.js';
-
-export class HttpFetchCommand implements ICommand<HttpFetchParams, HttpFetchResult> {
-  readonly name = 'fetch';
-  readonly key = 'fetch';
-  readonly group = 'http';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Fetch a URL and return filtered chunks (lines, regex/search, length) for safe LLM context usage.';
-
-  readonly parameters = z.object({
+export const HttpFetchCommandMetadata = {
+  key: 'fetch',
+  group: 'http',
+  availableIn: { tool: true },
+  description:
+    'Fetch a URL and return filtered chunks (lines, regex/search, length) for safe LLM context usage.',
+  parameters: z.object({
     url: z
       .string()
       .min(1)
@@ -83,7 +85,12 @@ export class HttpFetchCommand implements ICommand<HttpFetchParams, HttpFetchResu
       .optional()
       .describe('Context window around regex matches'),
     includeLinks: z.boolean().optional().describe('Include discovered links when response is HTML'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class HttpFetchCommand implements ICommand<HttpFetchParams, HttpFetchResult> {
+  readonly metadata = HttpFetchCommandMetadata;
+  readonly name = 'fetch';
 
   formatForLlm(result: HttpFetchResult): unknown {
     if (!result.chunks?.length) return `${result.url} (HTTP ${result.status}) — no content`;

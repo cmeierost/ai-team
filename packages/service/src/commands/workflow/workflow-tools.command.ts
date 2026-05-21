@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
 
 import type { ScoredPreLlmIntentCandidate } from '../../tools/pre-llm-intents.js';
@@ -17,19 +22,22 @@ export interface WorkflowListResult {
 }
 
 type ListParams = z.infer<typeof ListWorkflowsOrchestrationCommand.schema>;
+const _listWorkflowsOrchestrationCommandSchema = z.object({});
+
+export const ListWorkflowsOrchestrationCommandMetadata = {
+  key: 'list',
+  description: 'List all registered workflows that can be discovered and queried as tools.',
+  availableIn: { chat: true, cli: true, tool: true },
+  cli: { command: 'list', parentKey: 'workflow' },
+  group: 'workflow',
+  parameters: _listWorkflowsOrchestrationCommandSchema,
+  permissionCheck: { type: 'none' as const },
+  tags: ['workflow', 'orchestration'],
+} satisfies ICommandDescriptor;
 
 export class ListWorkflowsOrchestrationCommand implements ICommand<ListParams, WorkflowListResult> {
-  static readonly schema = z.object({});
-
-  readonly key = 'list';
-  readonly description =
-    'List all registered workflows that can be discovered and queried as tools.';
-  readonly availableIn = { chat: true, cli: true, tool: true };
-  readonly cli = { command: 'list', parentKey: 'workflow' };
-  readonly group = 'workflow';
-  readonly parameters = ListWorkflowsOrchestrationCommand.schema;
-  readonly permissionCheck = { type: 'none' as const };
-  readonly tags = ['workflow', 'orchestration'];
+  static readonly schema = _listWorkflowsOrchestrationCommandSchema;
+  readonly metadata = ListWorkflowsOrchestrationCommandMetadata;
 
   constructor(private readonly catalog: IWorkflowCatalog) {}
 
@@ -53,7 +61,10 @@ export class ListWorkflowsOrchestrationCommand implements ICommand<ListParams, W
     return undefined;
   };
 
-  async execute(_params: ListParams, _context: ExecutionContext): Promise<CommandResponse<WorkflowListResult>> {
+  async execute(
+    _params: ListParams,
+    _context: ExecutionContext
+  ): Promise<CommandResponse<WorkflowListResult>> {
     const workflows = this.catalog.listWorkflowIds();
     return {
       status: 'ok',
@@ -67,28 +78,28 @@ export class ListWorkflowsOrchestrationCommand implements ICommand<ListParams, W
 }
 
 type DefinitionParams = z.infer<typeof WorkflowDefinitionOrchestrationCommand.schema>;
+const _workflowDefinitionOrchestrationCommandSchema = z.object({});
 
 export class WorkflowDefinitionOrchestrationCommand
   implements ICommand<DefinitionParams, WorkflowDefinitionApiResponse>, IWorkflowDefinitionProvider
 {
-  static readonly schema = z.object({});
-
-  readonly description: string;
-  readonly availableIn = { chat: true, cli: true, tool: true };
-  readonly group = 'workflow';
-  readonly parameters = WorkflowDefinitionOrchestrationCommand.schema;
-  readonly permissionCheck = { type: 'none' as const };
-  readonly tags = ['workflow', 'orchestration'];
-  readonly key: string;
-  readonly cli: { command: string; parentKey?: string };
+  static readonly schema = _workflowDefinitionOrchestrationCommandSchema;
+  readonly metadata: ICommandDescriptor;
 
   constructor(
     private readonly workflowId: string,
     private readonly resolver: WorkflowDefinitionResolver
   ) {
-    this.key = workflowId;
-    this.description = `Return the workflow definition for '${workflowId}' in JSON and YAML.`;
-    this.cli = { command: workflowId, parentKey: 'workflow' };
+    this.metadata = {
+      key: workflowId,
+      description: `Return the workflow definition for '${workflowId}' in JSON and YAML.`,
+      availableIn: { chat: true, cli: true, tool: true },
+      group: 'workflow',
+      cli: { command: workflowId, parentKey: 'workflow' },
+      parameters: _workflowDefinitionOrchestrationCommandSchema,
+      permissionCheck: { type: 'none' },
+      tags: ['workflow', 'orchestration'],
+    };
   }
 
   async execute(

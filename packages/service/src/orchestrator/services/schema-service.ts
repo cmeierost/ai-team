@@ -11,14 +11,14 @@ export class ToolSchemaService {
   constructor(private readonly toolManager: ToolManager) {}
 
   getToolSchema(tool: ICommand): LlmToolDefinition {
-    const key = ToolIdentity.key(tool);
+    const key = ToolIdentity.key(tool.metadata);
     const cached = this.cache.get(key);
     if (cached) return cached;
 
     const schema = this.toolManager.toSchema(key) ?? {
       name: key,
-      description: tool.description,
-      parameters: this.schemaTools.toJsonSchema(tool.parameters, {
+      description: tool.metadata.description,
+      parameters: this.schemaTools.toJsonSchema(tool.metadata.parameters, {
         additionalProperties: true,
       }),
     };

@@ -2,15 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { ToolManager } from './tool-manager.js';
 import { TOOL_SERVICE_TOKENS as T } from '@ai-team/core';
 import { z } from 'zod';
+import { CommandRegistry } from '../command-registry-impl.js';
 
 describe('ToolManager DI resolve wiring', () => {
   it('injects container.resolve into ToolContext for semantic search tool', async () => {
-    const registry = {
-      register: () => undefined,
-      get: () => undefined,
-      getAll: () => [],
-      toLlmToolDefinitions: () => [],
-    } as any;
+    const registry = new CommandRegistry();
 
     const container = {
       resolve(token: unknown) {
@@ -26,29 +22,34 @@ describe('ToolManager DI resolve wiring', () => {
       },
     };
 
-    const manager = new ToolManager('C:/workspace', {
-      canReadPath: () => true,
-      canWritePath: () => true,
-      canListPath: () => true,
-      assertCanReadPath: () => undefined,
-      assertCanWritePath: () => undefined,
-    }, registry, container);
+    const manager = new ToolManager(
+      'C:/workspace',
+      {
+        canReadPath: () => true,
+        canWritePath: () => true,
+        canListPath: () => true,
+        assertCanReadPath: () => undefined,
+        assertCanWritePath: () => undefined,
+      },
+      registry,
+      container
+    );
 
-    manager.register({
-      name: 'semantic',
+    const semanticMeta = {
       key: 'semantic',
       group: 'search',
-      availableIn: { tool: true },
+      availableIn: { tool: true, cli: false, chat: false },
       description: 'test semantic search',
       parameters: z.object({ query: z.string() }),
+    };
+    registry.register(semanticMeta, () => ({
+      metadata: semanticMeta,
       async execute(params: { query: string }, context: any) {
         const svc = context.resolve(T.FileAnnotationService);
-        const results = svc
-          .getAnnotatedFiles()
-          .filter((f: any) => f.path.includes(params.query));
+        const results = svc.getAnnotatedFiles().filter((f: any) => f.path.includes(params.query));
         return { results };
       },
-    } as any);
+    }));
 
     const result = await manager.execute(
       {

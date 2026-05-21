@@ -130,7 +130,7 @@ function flushFilter(state: StreamFilterState, sink: StreamTextSink): void {
 // ── Tool policy system message ────────────────────────────────────────────────
 
 function buildToolPolicyMessage(tools: ICommand[]): ILlmChatMessageParam {
-  const hasAskTool = tools.some((t) => t.group === 'com' && (t as any).name === 'ask');
+  const hasAskTool = tools.some((t) => t.metadata.group === 'com' && (t as any).name === 'ask');
   return {
     role: 'system',
     content:
@@ -212,7 +212,7 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
           workingMessages,
           toolDefs,
           async (toolCall) => {
-            const response = await ((ctx as any).toolDispatcher).dispatch(
+            const response = await (ctx as any).toolDispatcher.dispatch(
               { toolCallId: toolCall.toolCallId, toolName: toolCall.toolName, args: toolCall.args },
               ctx
             );

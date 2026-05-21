@@ -11,24 +11,29 @@ import type {
   IModelDiscoveryRegistry,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { ModelsCommand } from './models.js';
 
 type ListParams = z.infer<typeof ProviderListICommand.schema>;
 type ModelsParams = z.infer<typeof ProviderModelsICommand.schema>;
 type RefreshParams = z.infer<typeof ProviderModelsRefreshICommand.schema>;
+const _providerListICommandSchema = z.object({
+  json: z.boolean().optional(),
+});
+
+export const ProviderListICommandMetadata = {
+  key: 'providerList',
+  cli: { command: 'list', parentKey: 'provider' },
+  description: 'List configured provider profiles',
+  availableIn: { cli: true, chat: true },
+  group: 'setup',
+  parameters: _providerListICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class ProviderListICommand implements ICommand<ListParams, void> {
-  static readonly schema = z.object({
-    json: z.boolean().optional(),
-  });
-
-  readonly key = 'providerList';
-  readonly cli = { command: 'list', parentKey: 'provider' };
-  readonly description = 'List configured provider profiles';
-  readonly availableIn = { cli: true, chat: true };
-  readonly group = 'setup';
-  readonly parameters = ProviderListICommand.schema;
+  static readonly schema = _providerListICommandSchema;
+  readonly metadata = ProviderListICommandMetadata;
 
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
@@ -46,19 +51,23 @@ export class ProviderListICommand implements ICommand<ListParams, void> {
     return { status: 'ok' };
   }
 }
+const _providerModelsICommandSchema = z.object({
+  provider: z.string().optional(),
+  json: z.boolean().optional(),
+});
+
+export const ProviderModelsICommandMetadata = {
+  key: 'providerModels',
+  cli: { command: 'models', parentKey: 'provider' },
+  description: 'List model key dictionaries',
+  availableIn: { cli: true, chat: true },
+  group: 'setup',
+  parameters: _providerModelsICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class ProviderModelsICommand implements ICommand<ModelsParams, void> {
-  static readonly schema = z.object({
-    provider: z.string().optional(),
-    json: z.boolean().optional(),
-  });
-
-  readonly key = 'providerModels';
-  readonly cli = { command: 'models', parentKey: 'provider' };
-  readonly description = 'List model key dictionaries';
-  readonly availableIn = { cli: true, chat: true };
-  readonly group = 'setup';
-  readonly parameters = ProviderModelsICommand.schema;
+  static readonly schema = _providerModelsICommandSchema;
+  readonly metadata = ProviderModelsICommandMetadata;
 
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
@@ -76,18 +85,22 @@ export class ProviderModelsICommand implements ICommand<ModelsParams, void> {
     return { status: 'ok' };
   }
 }
+const _providerModelsRefreshICommandSchema = z.object({
+  provider: z.string().optional(),
+});
+
+export const ProviderModelsRefreshICommandMetadata = {
+  key: 'providerModelsRefresh',
+  cli: { command: 'refresh', parentKey: 'provider.models' },
+  description: 'Refresh model dictionary from provider endpoint',
+  availableIn: { cli: true, chat: true },
+  group: 'setup',
+  parameters: _providerModelsRefreshICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class ProviderModelsRefreshICommand implements ICommand<RefreshParams, void> {
-  static readonly schema = z.object({
-    provider: z.string().optional(),
-  });
-
-  readonly key = 'providerModelsRefresh';
-  readonly cli = { command: 'refresh', parentKey: 'provider.models' };
-  readonly description = 'Refresh model dictionary from provider endpoint';
-  readonly availableIn = { cli: true, chat: true };
-  readonly group = 'setup';
-  readonly parameters = ProviderModelsRefreshICommand.schema;
+  static readonly schema = _providerModelsRefreshICommandSchema;
+  readonly metadata = ProviderModelsRefreshICommandMetadata;
 
   constructor(
     private readonly configurationStorage: IConfigurationStorage,

@@ -8,27 +8,32 @@ import type {
   ITextToolCallParser,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { TestConnectionCommand as TestConnectionCommandImpl } from './test-connection.js';
 
 type Params = z.infer<typeof TestConnectionICommand.schema>;
+const _testConnectionICommandSchema = z.object({
+  employee: z.string().optional().describe('Resolve employee and test their effective model'),
+  provider: z.string().optional().describe('Provider reference key in config.providers'),
+  modelKey: z.string().optional().describe('Model key from provider models dictionary'),
+  model: z.string().optional().describe('Direct model ID override'),
+  all: z.boolean().optional().describe('Test all configured model keys'),
+  toolCall: z.boolean().optional().describe('Verify a simple tool-call roundtrip'),
+});
+
+export const TestConnectionICommandMetadata = {
+  key: 'testConnection',
+  cli: { command: 'test-connection' },
+  description: 'Test LLM provider/model connectivity',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'setup',
+  parameters: _testConnectionICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class TestConnectionICommand implements ICommand<Params, void> {
-  static readonly schema = z.object({
-    employee: z.string().optional().describe('Resolve employee and test their effective model'),
-    provider: z.string().optional().describe('Provider reference key in config.providers'),
-    modelKey: z.string().optional().describe('Model key from provider models dictionary'),
-    model: z.string().optional().describe('Direct model ID override'),
-    all: z.boolean().optional().describe('Test all configured model keys'),
-    toolCall: z.boolean().optional().describe('Verify a simple tool-call roundtrip'),
-  });
-
-  readonly key = 'testConnection';
-  readonly cli = { command: 'test-connection' };
-  readonly description = 'Test LLM provider/model connectivity';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'setup';
-  readonly parameters = TestConnectionICommand.schema;
+  static readonly schema = _testConnectionICommandSchema;
+  readonly metadata = TestConnectionICommandMetadata;
 
   constructor(
     private readonly configStorage: IConfigurationStorage,

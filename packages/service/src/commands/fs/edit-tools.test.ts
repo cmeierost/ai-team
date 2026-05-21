@@ -2,111 +2,20 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ContextLevel, type Agent, type PermissionConfig, type ICommand } from '@ai-team/core';
-import { WorkspaceFs, canRead, canWrite } from 'fs-context';
-import { COMMAND_FACTORY_TOKENS } from '../../types.js';
-import { ToolManager } from '../../tools/tool-manager.js';
 import {
-  FsReadFileTool,
-  FsReadLinesTool,
-  FsWriteFileTool,
-  FsCreateFileTool,
-  FsDeletePathTool,
-  FsMkdirTool,
-  FsExistsTool,
-  FsInfoTool,
-  FsListTool,
-  FsTreeTool,
-  FsSearchContentTool,
-  FsSearchMetadataTool,
-} from './fs-tools.js';
-import { FindSymbolTool, FindReferencesTool, LspTool, GrepCodeTool } from '../edit/code-tools.js';
-import { HttpFetchCommand } from '../http/http-fetch.command.js';
-import { HttpCrawlCommand } from '../http/http-crawl.command.js';
-import { CodeSearchTool } from '../edit/codesearch-tool.js';
+  ContextLevel,
+  type Agent,
+  type ExecutionContext,
+  type PermissionConfig,
+} from '@ai-team/core';
+import { WorkspaceFs, canRead, canWrite } from 'fs-context';
+import { FsReadFileTool } from './fs-tools.js';
 import {
   ApplyPatchTool,
-  MultiEditTool,
   FsEditTool,
+  MultiEditTool,
   stripLineNumberPrefixes,
 } from './edit-tools.js';
-import {
-  WhoHasAccessTool,
-  DoIHaveAccessTool,
-  AnalyzePermissionOverlapTool,
-} from './access-introspection-tools.js';
-
-function getBuiltInTools(workspaceRoot: string): ICommand[] {
-  const accessChecker = {
-    can: () => true,
-    canReadPath: () => true,
-    canWritePath: () => true,
-    canListPath: () => true,
-    assertCanReadPath: () => undefined,
-    assertCanWritePath: () => undefined,
-  };
-  const accessAgentManager = {
-    async getAllAgentsAsync() {
-      return [] as Agent[];
-    },
-    async getAgentAsync() {
-      return undefined;
-    },
-    async analyzeWorkspacePermissionOverlap() {
-      return { overlaps: [] };
-    },
-  } as any;
-  const whoHasAccessTool = new WhoHasAccessTool(workspaceRoot, accessAgentManager, accessChecker);
-  const doIHaveAccessTool = new DoIHaveAccessTool(workspaceRoot, accessAgentManager, accessChecker);
-  const analyzePermissionOverlapTool = new AnalyzePermissionOverlapTool(accessAgentManager);
-  const workspaceFsFactory = {
-    create: (agentId: string, permissions: PermissionConfig | undefined) =>
-      createTestWorkspaceFs(workspaceRoot, agentId, permissions),
-  };
-  const ideAdapterFactory = {
-    createAsync: async () => ({
-      lsp: {
-        execute: async () => ({ kind: 'locations', locations: [] }),
-        isAvailable: () => false,
-      },
-      openFile: async () => {},
-      notifyCodeEditProposal: async () => {},
-      isConnected: () => false,
-      onAck: () => {},
-      dispose: () => {},
-    }),
-  } as any;
-  const readFileTool = new FsReadFileTool(workspaceRoot, workspaceFsFactory as any);
-  const readLinesTool = new FsReadLinesTool(readFileTool);
-  const fsEditTool = new FsEditTool(workspaceRoot, accessChecker as any, ideAdapterFactory);
-  return [
-    readFileTool,
-    readLinesTool,
-    new FsWriteFileTool(workspaceFsFactory as any),
-    new FsCreateFileTool(workspaceFsFactory as any),
-    new FsDeletePathTool(workspaceFsFactory as any),
-    new FsMkdirTool(workspaceFsFactory as any),
-    new FsExistsTool(workspaceFsFactory as any),
-    new FsInfoTool(workspaceFsFactory as any),
-    new FsListTool(workspaceFsFactory as any),
-    new FsTreeTool(workspaceFsFactory as any),
-    new FsSearchContentTool(workspaceRoot, workspaceFsFactory as any),
-    new FsSearchMetadataTool(workspaceRoot, workspaceFsFactory as any),
-    whoHasAccessTool,
-    doIHaveAccessTool,
-    analyzePermissionOverlapTool,
-    new FindSymbolTool(workspaceRoot, ideAdapterFactory),
-    new FindReferencesTool(workspaceRoot, ideAdapterFactory),
-    new LspTool(workspaceRoot, ideAdapterFactory),
-    new GrepCodeTool(),
-    new HttpFetchCommand(),
-    new HttpCrawlCommand(),
-    new CodeSearchTool(),
-    fsEditTool,
-    new ApplyPatchTool(workspaceRoot, accessChecker as any, ideAdapterFactory),
-    new MultiEditTool(workspaceRoot, fsEditTool, accessChecker as any, ideAdapterFactory),
-  ];
-}
 
 function normalizeRelativePath(filePath: string): string {
   return filePath.replaceAll('\\', '/').replace(/^\.\//, '').replace(/^\//, '').toLowerCase();
@@ -375,52 +284,52 @@ async function createWorkspace(): Promise<string> {
   return dir;
 }
 
-async function setupManager(workspaceRoot: string, agents: Agent[]) {
-  const registry = {
-    register: () => undefined,
-    get: () => undefined,
-    getAll: () => [],
-    toLlmToolDefinitions: () => [],
+async function setupManager(workspaceRoot: string) {
+  const accessChecker = {
+    can: () => true,
+    canReadPath: () => true,
+    canWritePath: () => true,
+    canListPath: () => true,
+    assertCanReadPath: () => undefined,
+    assertCanWritePath: () => undefined,
+  };
+  const ideAdapterFactory = {
+    createAsync: async () => ({
+      lsp: {
+        execute: async () => ({ kind: 'locations', locations: [] }),
+        isAvailable: () => false,
+      },
+      openFile: async () => {},
+      notifyCodeEditProposal: async () => {},
+      isConnected: () => false,
+      onAck: () => {},
+      dispose: () => {},
+    }),
   } as any;
-  const container = {
-    resolve: (token: { id?: string }) => {
-      if (token?.id !== COMMAND_FACTORY_TOKENS.WorkspaceFsFactory.id) {
-        throw new Error(`Unexpected token requested in edit-tools.test: ${String(token?.id)}`);
-      }
-
-      return {
-        create: async (agentId: string, permissions: PermissionConfig | undefined) =>
-          createTestWorkspaceFs(workspaceRoot, agentId, permissions),
-      };
-    },
-  } as any;
-
-  const manager = new ToolManager(
+  const workspaceFsFactory = {
+    create: (agentId: string, permissions: PermissionConfig | undefined) =>
+      createTestWorkspaceFs(workspaceRoot, agentId, permissions),
+  };
+  const readTool = new FsReadFileTool(workspaceRoot, workspaceFsFactory as any);
+  const editTool = new FsEditTool(workspaceRoot, accessChecker as any, ideAdapterFactory);
+  const patchTool = new ApplyPatchTool(workspaceRoot, accessChecker as any, ideAdapterFactory);
+  const multiEditTool = new MultiEditTool(
     workspaceRoot,
-    {
-      can: () => true,
-      canReadPath: () => true,
-      canWritePath: () => true,
-      canListPath: () => true,
-      assertCanReadPath: () => undefined,
-      assertCanWritePath: () => undefined,
-    },
-    registry,
-    container
+    editTool,
+    accessChecker as any,
+    ideAdapterFactory
   );
-  for (const tool of getBuiltInTools(workspaceRoot)) manager.register(tool);
-  return { manager };
+  return { readTool, editTool, patchTool, multiEditTool };
 }
 
-/** Build the minimal context object ToolManager.execute expects. */
-function ctx(ws: string, agent: Agent) {
-  return { agentId: agent.id, workspaceRoot: ws, history: [] };
+/** Build the minimal context object tools expect. */
+function ctx(agent: Agent, ws: string): ExecutionContext {
+  return { agent, invocationSurface: 'tool', workspaceRoot: ws, history: [] };
 }
 
-function toolPayload(result: { result?: unknown }) {
-  const envelope = (result.result ?? {}) as Record<string, unknown>;
-  const data = ((result.result as any)?.data ?? {}) as Record<string, unknown>;
-  return { ...envelope, ...data };
+function toolPayload(result: { data?: unknown; [key: string]: unknown }): Record<string, unknown> {
+  const data = (result.data ?? {}) as Record<string, unknown>;
+  return { ...result, ...data };
 }
 
 afterEach(async () => {
@@ -435,22 +344,20 @@ describe('edit', () => {
   it('performs a single replacement and returns _fileChanges', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, editTool } = await setupManager(ws);
 
     const filePath = path.join(ws, 'app.ts');
     await fs.writeFile(filePath, 'const x = 1;\nconst y = 2;\n', 'utf8');
 
     // fs_edit requires a prior fs_read
-    await manager.execute(agent, 'fs_read', { filePath: 'app.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'app.ts' }, ctx(agent, ws));
 
-    const result = await manager.execute(
-      agent,
-      'fs_edit',
+    const result = await editTool.execute(
       { filePath: 'app.ts', oldString: 'const x = 1;', newString: 'const x = 42;' },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.status).toBe('ok');
     const payload = toolPayload(result);
     expect(payload.edited).toBe(true);
     expect(payload.replacements).toBe(1);
@@ -467,7 +374,7 @@ describe('edit', () => {
   it('strips line-number prefixes from oldString and newString before matching', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, editTool } = await setupManager(ws);
 
     const filePath = path.join(ws, 'demo.ts');
     await fs.writeFile(
@@ -476,22 +383,20 @@ describe('edit', () => {
       'utf8'
     );
 
-    await manager.execute(agent, 'fs_read', { filePath: 'demo.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'demo.ts' }, ctx(agent, ws));
 
     // Simulate LLM pasting fs_read output with line numbers into both old and new
-    const result = await manager.execute(
-      agent,
-      'fs_edit',
+    const result = await editTool.execute(
       {
         filePath: 'demo.ts',
         oldString:
           '1: function demo(): string {\n2:   return "done";\n3:   console.log("unreachable");\n4: }',
         newString: '1: function demo(): string {\n2:   return "done";\n3: }',
       },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.status).toBe('ok');
     const payload = toolPayload(result);
     expect(payload.edited).toBe(true);
 
@@ -504,19 +409,17 @@ describe('edit', () => {
   it('fails when oldString is not found', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, editTool } = await setupManager(ws);
 
     await fs.writeFile(path.join(ws, 'file.ts'), 'const a = 1;\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'file.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'file.ts' }, ctx(agent, ws));
 
-    const result = await manager.execute(
-      agent,
-      'fs_edit',
+    const result = await editTool.execute(
       { filePath: 'file.ts', oldString: 'not in file', newString: 'whatever' },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.status).toBe('error');
     const payload = toolPayload(result);
     expect(payload.edited).toBe(false);
     expect(payload.error).toContain('not found');
@@ -525,18 +428,16 @@ describe('edit', () => {
   it('fails when file was not read first', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { editTool } = await setupManager(ws);
 
     await fs.writeFile(path.join(ws, 'unread.ts'), 'content\n', 'utf8');
 
-    const result = await manager.execute(
-      agent,
-      'fs_edit',
+    const result = await editTool.execute(
       { filePath: 'unread.ts', oldString: 'content', newString: 'replaced' },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.status).toBe('error');
     const payload = toolPayload(result);
     expect(payload.edited).toBe(false);
     expect(payload.hint).toContain('read');
@@ -545,16 +446,14 @@ describe('edit', () => {
   it('rejects ambiguous oldString with multiple matches', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, editTool } = await setupManager(ws);
 
     await fs.writeFile(path.join(ws, 'dup.ts'), 'aaa\nbbb\naaa\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'dup.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'dup.ts' }, ctx(agent, ws));
 
-    const result = await manager.execute(
-      agent,
-      'fs_edit',
+    const result = await editTool.execute(
       { filePath: 'dup.ts', oldString: 'aaa', newString: 'ccc' },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
     const payload = toolPayload(result);
@@ -565,16 +464,14 @@ describe('edit', () => {
   it('replaces all occurrences with replaceAll: true', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, editTool } = await setupManager(ws);
 
     await fs.writeFile(path.join(ws, 'multi.ts'), 'aaa\nbbb\naaa\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'multi.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'multi.ts' }, ctx(agent, ws));
 
-    const result = await manager.execute(
-      agent,
-      'fs_edit',
+    const result = await editTool.execute(
       { filePath: 'multi.ts', oldString: 'aaa', newString: 'ccc', replaceAll: true },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
     const payload = toolPayload(result);
@@ -586,21 +483,19 @@ describe('edit', () => {
   it('succeeds via fuzzy matching when oldString has trailing whitespace differences', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, editTool } = await setupManager(ws);
 
     // File has trailing spaces on line 1, but oldString does not
     await fs.writeFile(path.join(ws, 'fuzzy.ts'), 'const x = 1;  \nconst y = 2;\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'fuzzy.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'fuzzy.ts' }, ctx(agent, ws));
 
-    const result = await manager.execute(
-      agent,
-      'fs_edit',
+    const result = await editTool.execute(
       {
         filePath: 'fuzzy.ts',
         oldString: 'const x = 1;\nconst y = 2;',
         newString: 'const x = 42;\nconst y = 2;',
       },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
     const payload = toolPayload(result);
@@ -615,16 +510,14 @@ describe('edit', () => {
   it('includes no matchStage field for exact matches', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, editTool } = await setupManager(ws);
 
     await fs.writeFile(path.join(ws, 'exact.ts'), 'const a = 1;\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'exact.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'exact.ts' }, ctx(agent, ws));
 
-    const result = await manager.execute(
-      agent,
-      'fs_edit',
+    const result = await editTool.execute(
       { filePath: 'exact.ts', oldString: 'const a = 1;', newString: 'const a = 99;' },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
     const payload = toolPayload(result);
@@ -641,11 +534,11 @@ describe('patch', () => {
   it('applies a unified diff to update a file', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, patchTool } = await setupManager(ws);
 
     const filePath = path.join(ws, 'hello.ts');
     await fs.writeFile(filePath, 'function greet() {\n  return "hello";\n}\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'hello.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'hello.ts' }, ctx(agent, ws));
 
     const patchText = [
       '--- hello.ts',
@@ -657,9 +550,9 @@ describe('patch', () => {
       ' }',
     ].join('\n');
 
-    const result = await manager.execute(agent, 'edit_patch', { patchText }, ctx(ws, agent));
+    const result = await patchTool.execute({ patchText }, ctx(agent, ws));
 
-    expect(result.ok).toBe(true);
+    expect(result.status).toBe('ok');
     const payload = toolPayload(result);
     expect(payload.applied.length).toBe(1);
 
@@ -674,7 +567,7 @@ describe('patch', () => {
   it('creates a new file via add patch', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { patchTool } = await setupManager(ws);
 
     const patchText = [
       '--- /dev/null',
@@ -684,9 +577,9 @@ describe('patch', () => {
       '+',
     ].join('\n');
 
-    const result = await manager.execute(agent, 'edit_patch', { patchText }, ctx(ws, agent));
+    const result = await patchTool.execute({ patchText }, ctx(agent, ws));
 
-    expect(result.ok).toBe(true);
+    expect(result.status).toBe('ok');
     const payload = toolPayload(result);
     expect(payload.applied.length).toBe(1);
 
@@ -697,16 +590,14 @@ describe('patch', () => {
   it('returns error for invalid patch text', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { patchTool } = await setupManager(ws);
 
-    const result = await manager.execute(
-      agent,
-      'edit_patch',
+    const result = await patchTool.execute(
       { patchText: 'this is not a valid patch at all' },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.status).toBe('error');
     const payload = toolPayload(result);
     expect(payload.error).toBeTruthy();
   });
@@ -720,15 +611,13 @@ describe('multiedit', () => {
   it('applies multiple sequential edits to the same file', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, multiEditTool } = await setupManager(ws);
 
     const filePath = path.join(ws, 'multi.ts');
     await fs.writeFile(filePath, 'const a = 1;\nconst b = 2;\nconst c = 3;\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'multi.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'multi.ts' }, ctx(agent, ws));
 
-    const result = await manager.execute(
-      agent,
-      'edit_multiedit',
+    const result = await multiEditTool.execute(
       {
         filePath: 'multi.ts',
         edits: [
@@ -736,10 +625,10 @@ describe('multiedit', () => {
           { oldString: 'const c = 3;', newString: 'const c = 30;' },
         ],
       },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.status).toBe('ok');
     const payload = toolPayload(result);
     expect(payload.succeeded).toBe(2);
     expect(payload.totalEdits).toBe(2);
@@ -751,15 +640,13 @@ describe('multiedit', () => {
   it('returns aggregated _fileChanges tracking first old and last new', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, multiEditTool } = await setupManager(ws);
 
     const original = 'let x = 1;\nlet y = 2;\n';
     await fs.writeFile(path.join(ws, 'agg.ts'), original, 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'agg.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'agg.ts' }, ctx(agent, ws));
 
-    const result = await manager.execute(
-      agent,
-      'edit_multiedit',
+    const result = await multiEditTool.execute(
       {
         filePath: 'agg.ts',
         edits: [
@@ -767,7 +654,7 @@ describe('multiedit', () => {
           { oldString: 'let y = 2;', newString: 'let y = 20;' },
         ],
       },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
     const payload = toolPayload(result);
@@ -781,23 +668,21 @@ describe('multiedit', () => {
   it('sub-results do not contain _fileChanges', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, multiEditTool } = await setupManager(ws);
 
     await fs.writeFile(path.join(ws, 'sub.ts'), 'aaa\nbbb\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'sub.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'sub.ts' }, ctx(agent, ws));
 
-    const result = await manager.execute(
-      agent,
-      'edit_multiedit',
+    const result = await multiEditTool.execute(
       {
         filePath: 'sub.ts',
         edits: [{ oldString: 'aaa', newString: 'xxx' }],
       },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
     const payload = toolPayload(result);
-    for (const r of payload.results) {
+    for (const r of payload.results as Array<{ result: unknown }>) {
       expect(r.result).not.toHaveProperty('_fileChanges');
     }
   });
@@ -805,14 +690,12 @@ describe('multiedit', () => {
   it('stops at the first failing edit and reports failedAtIndex', async () => {
     const ws = await createWorkspace();
     const agent = makeEditAgent('ethan');
-    const { manager } = await setupManager(ws, [agent]);
+    const { readTool, multiEditTool } = await setupManager(ws);
 
     await fs.writeFile(path.join(ws, 'fail.ts'), 'line1\nline2\n', 'utf8');
-    await manager.execute(agent, 'fs_read', { filePath: 'fail.ts' }, ctx(ws, agent));
+    await readTool.execute({ filePath: 'fail.ts' }, ctx(agent, ws));
 
-    const result = await manager.execute(
-      agent,
-      'edit_multiedit',
+    const result = await multiEditTool.execute(
       {
         filePath: 'fail.ts',
         edits: [
@@ -821,7 +704,7 @@ describe('multiedit', () => {
           { oldString: 'line2', newString: 'changed2' },
         ],
       },
-      ctx(ws, agent)
+      ctx(agent, ws)
     );
 
     const payload = toolPayload(result);

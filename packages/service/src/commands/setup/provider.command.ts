@@ -7,6 +7,7 @@ import type {
   IModelDiscoveryRegistry,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { IQuestionService } from '../../questions/question-service.js';
 import { ProviderCommand } from './provider.js';
@@ -14,20 +15,24 @@ import { ProviderCommand } from './provider.js';
 type ConfigureParams = z.infer<typeof ProviderConfigureICommand.schema>;
 type AddParams = z.infer<typeof ProviderAddICommand.schema>;
 type SetParams = z.infer<typeof ProviderSetICommand.schema>;
+const _providerConfigureICommandSchema = z.object({
+  fromInit: z.boolean().optional(),
+  keepCurrentDefault: z.boolean().optional(),
+  setup: z.any().optional(),
+});
+
+export const ProviderConfigureICommandMetadata = {
+  key: 'providerConfigure',
+  cli: { command: 'configure', parentKey: 'provider' },
+  description: 'Configure default LLM provider',
+  availableIn: { cli: true, chat: true },
+  group: 'setup',
+  parameters: _providerConfigureICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class ProviderConfigureICommand implements ICommand<ConfigureParams, void> {
-  static readonly schema = z.object({
-    fromInit: z.boolean().optional(),
-    keepCurrentDefault: z.boolean().optional(),
-    setup: z.any().optional(),
-  });
-
-  readonly key = 'providerConfigure';
-  readonly cli = { command: 'configure', parentKey: 'provider' };
-  readonly description = 'Configure default LLM provider';
-  readonly availableIn = { cli: true, chat: true };
-  readonly group = 'setup';
-  readonly parameters = ProviderConfigureICommand.schema;
+  static readonly schema = _providerConfigureICommandSchema;
+  readonly metadata = ProviderConfigureICommandMetadata;
 
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
@@ -48,19 +53,23 @@ export class ProviderConfigureICommand implements ICommand<ConfigureParams, void
     return { status: 'ok' };
   }
 }
+const _providerAddICommandSchema = z.object({
+  makeDefault: z.boolean().optional(),
+  setup: z.any().optional(),
+});
+
+export const ProviderAddICommandMetadata = {
+  key: 'providerAdd',
+  cli: { command: 'add', parentKey: 'provider' },
+  description: 'Add a provider profile',
+  availableIn: { cli: true, chat: true },
+  group: 'setup',
+  parameters: _providerAddICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class ProviderAddICommand implements ICommand<AddParams, void> {
-  static readonly schema = z.object({
-    makeDefault: z.boolean().optional(),
-    setup: z.any().optional(),
-  });
-
-  readonly key = 'providerAdd';
-  readonly cli = { command: 'add', parentKey: 'provider' };
-  readonly description = 'Add a provider profile';
-  readonly availableIn = { cli: true, chat: true };
-  readonly group = 'setup';
-  readonly parameters = ProviderAddICommand.schema;
+  static readonly schema = _providerAddICommandSchema;
+  readonly metadata = ProviderAddICommandMetadata;
 
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
@@ -81,20 +90,24 @@ export class ProviderAddICommand implements ICommand<AddParams, void> {
     return { status: 'ok' };
   }
 }
+const _providerSetICommandSchema = z.object({
+  fromInit: z.boolean().optional(),
+  keepCurrentDefault: z.boolean().optional(),
+  setup: z.any().optional(),
+});
+
+export const ProviderSetICommandMetadata = {
+  key: 'providerSet',
+  cli: { command: 'set', parentKey: 'provider' },
+  description: 'Configure default LLM provider',
+  availableIn: { cli: true, chat: true },
+  group: 'setup',
+  parameters: _providerSetICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class ProviderSetICommand implements ICommand<SetParams, void> {
-  static readonly schema = z.object({
-    fromInit: z.boolean().optional(),
-    keepCurrentDefault: z.boolean().optional(),
-    setup: z.any().optional(),
-  });
-
-  readonly key = 'providerSet';
-  readonly cli = { command: 'set', parentKey: 'provider' };
-  readonly description = 'Configure default LLM provider';
-  readonly availableIn = { cli: true, chat: true };
-  readonly group = 'setup';
-  readonly parameters = ProviderSetICommand.schema;
+  static readonly schema = _providerSetICommandSchema;
+  readonly metadata = ProviderSetICommandMetadata;
 
   constructor(
     private readonly configurationStorage: IConfigurationStorage,

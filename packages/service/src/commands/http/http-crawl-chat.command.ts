@@ -1,21 +1,30 @@
-import type { ICommand, IToolManager, CommandResponse, ExecutionContext } from '@ai-team/core';
+import type {
+  ICommand,
+  IToolManager,
+  CommandResponse,
+  ExecutionContext,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { parseUrlAndJsonOptions } from './http-chat-utils.js';
+export const HttpCrawlChatCommandMetadata = {
+  key: 'crawl',
+  aliases: ['http-crawl'],
+  usage: '/crawl <url> [json-options]',
+  description:
+    'Crawl links via http_crawl and print extracted results (supports depth/page limits).',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class HttpCrawlChatCommand implements ICommand<string, string> {
-  readonly key = 'crawl';
-  readonly aliases = ['http-crawl'];
-  readonly usage = '/crawl <url> [json-options]';
-  readonly description =
-    'Crawl links via http_crawl and print extracted results (supports depth/page limits).';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = HttpCrawlChatCommandMetadata;
 
   constructor(private readonly toolManager: IToolManager) {}
 
   async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
     const parsed = parseUrlAndJsonOptions(args);
     if (parsed.error === 'missing-url') {
-      return { status: 'error', message: `Usage: ${this.usage}` };
+      return { status: 'error', message: `Usage: ${this.metadata.usage}` };
     }
     if (parsed.error === 'json-object-required') {
       return { status: 'error', message: 'JSON args must be an object, e.g. {"maxDepth":2}.' };

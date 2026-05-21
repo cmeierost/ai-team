@@ -1,4 +1,4 @@
-import { getEffectiveContextWindow } from '@ai-team/core';
+import { getEffectiveContextWindow, ICommandDescriptor } from '@ai-team/core';
 import type { IContextService } from '@ai-team/api-contracts';
 import type {
   ICommand,
@@ -44,13 +44,16 @@ async function resolveModelInfo(
   }
   return undefined;
 }
+export const SessionContextChatCommandMetadata = {
+  key: 'session-context',
+  usage: '/session context',
+  description: 'Show context window usage estimate for the current session',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class SessionContextChatCommand implements ICommand<string, string> {
-  readonly key = 'session-context';
-  readonly usage = '/session context';
-  readonly description = 'Show context window usage estimate for the current session';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = SessionContextChatCommandMetadata;
 
   constructor(
     private readonly contextService: Pick<IContextService, 'getContextEstimate'>,

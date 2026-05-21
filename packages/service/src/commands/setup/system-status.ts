@@ -13,6 +13,7 @@ import type {
   ExecutionContext,
   IConfigurationStorage,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { SystemStatus } from '@ai-team/api-contracts';
 import { resolveEffectiveLlmSettings } from '@ai-team/core';
@@ -26,16 +27,20 @@ export class SystemStatusCommand {
 }
 
 type Params = z.infer<typeof SystemStatusICommand.schema>;
+const _systemStatusICommandSchema = z.object({});
+
+export const SystemStatusICommandMetadata = {
+  key: 'system-status',
+  cli: { command: 'status', parentKey: 'system' },
+  description: 'Check system initialization status',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'system',
+  parameters: _systemStatusICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class SystemStatusICommand implements ICommand<Params, SystemStatus> {
-  static readonly schema = z.object({});
-
-  readonly key = 'system-status';
-  readonly cli = { command: 'status', parentKey: 'system' };
-  readonly description = 'Check system initialization status';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'system';
-  readonly parameters = SystemStatusICommand.schema;
+  static readonly schema = _systemStatusICommandSchema;
+  readonly metadata = SystemStatusICommandMetadata;
 
   constructor(private readonly configurationStorage: IConfigurationStorage) {}
 

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { ContextLevel, type Agent, type AgentTool } from '@ai-team/core';
+import { ContextLevel, type Agent, type ICommand, type ICommandDescriptor } from '@ai-team/core';
 import { ToolIdentity, ToolManager } from './tool-manager.js';
+import { CommandRegistry } from '../command-registry-impl.js';
 
 const permissivePathChecker = {
   canReadPath: () => true,
@@ -11,31 +12,30 @@ const permissivePathChecker = {
   assertCanWritePath: () => undefined,
 };
 
-function createEmptyRegistry() {
-  return {
-    register: () => undefined,
-    get: () => undefined,
-    getAll: () => [],
-    toLlmToolDefinitions: () => [],
-  } as any;
-}
-
 const noopContainer = {
   resolve: () => undefined,
 };
 
-function makeTool(name: string, group?: string): AgentTool {
-  return {
-    name,
+function makeTool(name: string, group?: string): ICommand {
+  const metadata: ICommandDescriptor = {
     key: name,
     group,
-    availableIn: { tool: true },
+    availableIn: { tool: true, cli: false, chat: false },
     description: `${group ? group + '_' : ''}${name}`,
     parameters: z.object({}),
+  };
+  return {
+    metadata,
     async execute() {
-      return { ok: true };
+      return { status: 'ok' as const };
     },
-  } as AgentTool;
+  };
+}
+
+function makeManager(...tools: ICommand[]): ToolManager {
+  const registry = new CommandRegistry();
+  for (const t of tools) registry.register(t.metadata, () => t);
+  return new ToolManager('/workspace', permissivePathChecker, registry, noopContainer);
 }
 
 function makeAgent(overrides?: Partial<Agent>): Agent {
@@ -52,13 +52,12 @@ function makeAgent(overrides?: Partial<Agent>): Agent {
       write: ['**'],
     },
     ...overrides,
-  } as Agent;
+  };
 }
 
 describe('ToolManager wildcard selectors and default-deny policy', () => {
   it('denies everything by default when no tools are configured', async () => {
-    const manager = new ToolManager('/workspace', permissivePathChecker, createEmptyRegistry(), noopContainer);
-    manager.register(makeTool('tree', 'fs'));
+    const manager = makeManager(makeTool('tree', 'fs'));
 
     const agent = makeAgent({ tools: [] });
     expect(manager.getForAgent(agent)).toEqual([]);
@@ -69,43 +68,43 @@ describe('ToolManager wildcard selectors and default-deny policy', () => {
   });
 
   it('supports wildcard allow selectors like fs_*', () => {
-    const manager = new ToolManager('/workspace', permissivePathChecker, createEmptyRegistry(), noopContainer);
-    manager.register(makeTool('tree', 'fs'));
-    manager.register(makeTool('read', 'fs'));
-    manager.register(makeTool('hire', 'hr'));
+    const manager = makeManager(
+      makeTool('tree', 'fs'),
+      makeTool('read', 'fs'),
+      makeTool('hire', 'hr')
+    );
 
     const agent = makeAgent({ tools: ['fs_*'] });
     const available = manager
       .getForAgent(agent)
-      .map(ToolIdentity.key)
+      .map((cmd) => ToolIdentity.key(cmd.metadata))
       .sort((a, b) => a.localeCompare(b));
 
     expect(available).toEqual(['fs_read', 'fs_tree']);
   });
 
   it('requires canonical selectors instead of short-name selectors', () => {
-    const manager = new ToolManager('/workspace', permissivePathChecker, createEmptyRegistry(), noopContainer);
-    manager.register(makeTool('tree', 'fs'));
-    manager.register(makeTool('read', 'fs'));
+    const manager = makeManager(makeTool('tree', 'fs'), makeTool('read', 'fs'));
 
     const agent = makeAgent({ tools: ['tree'] });
-    const available = manager.getForAgent(agent).map(ToolIdentity.key);
+    const available = manager.getForAgent(agent).map((cmd) => ToolIdentity.key(cmd.metadata));
 
     expect(available).toEqual([]);
   });
 
   it('applies disallowed selectors before allowed selectors', () => {
-    const manager = new ToolManager('/workspace', permissivePathChecker, createEmptyRegistry(), noopContainer);
-    manager.register(makeTool('tree', 'fs'));
-    manager.register(makeTool('read', 'fs'));
-    manager.register(makeTool('hire', 'hr'));
+    const manager = makeManager(
+      makeTool('tree', 'fs'),
+      makeTool('read', 'fs'),
+      makeTool('hire', 'hr')
+    );
 
     const agent = makeAgent({
       tools: ['fs_*', 'hr_*'],
       disallowedTools: ['fs_tree', 'hr_*'],
     });
 
-    const available = manager.getForAgent(agent).map(ToolIdentity.key);
+    const available = manager.getForAgent(agent).map((cmd) => ToolIdentity.key(cmd.metadata));
     expect(available).toEqual(['fs_read']);
   });
 });

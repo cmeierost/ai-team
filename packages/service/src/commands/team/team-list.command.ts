@@ -4,23 +4,28 @@ import type {
   IAgentManager,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { Employee } from '@ai-team/api-contracts';
 
 type Params = z.infer<typeof TeamListICommand.schema>;
+const _teamListICommandSchema = z.object({
+  role: z.string().optional().describe('Filter employees by role'),
+  feature: z.string().optional().describe('Filter employees by supported feature'),
+});
+
+export const TeamListICommandMetadata = {
+  key: 'team-list',
+  cli: { command: 'list', parentKey: 'team' },
+  description: 'List all team members',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'team',
+  parameters: _teamListICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class TeamListICommand implements ICommand<Params, Employee[]> {
-  static readonly schema = z.object({
-    role: z.string().optional().describe('Filter employees by role'),
-    feature: z.string().optional().describe('Filter employees by supported feature'),
-  });
-
-  readonly key = 'team-list';
-  readonly cli = { command: 'list', parentKey: 'team' };
-  readonly description = 'List all team members';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'team';
-  readonly parameters = TeamListICommand.schema;
+  static readonly schema = _teamListICommandSchema;
+  readonly metadata = TeamListICommandMetadata;
 
   constructor(private readonly agentManager: IAgentManager) {}
 

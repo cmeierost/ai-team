@@ -3,15 +3,19 @@ import type {
   ITeamGraphBuilder,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { GraphData } from '@ai-team/api-contracts';
+export const OrgCommandMetadata = {
+  key: 'getOrganizationGraph',
+  cli: { command: 'org' },
+  description: 'Show organization hierarchy',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'team',
+} satisfies ICommandDescriptor;
 
 export class OrgCommand implements ICommand<Record<string, never>, GraphData> {
-  readonly key = 'getOrganizationGraph';
-  readonly cli = { command: 'org' };
-  readonly description = 'Show organization hierarchy';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'team';
+  readonly metadata = OrgCommandMetadata;
 
   constructor(private readonly teamGraphBuilder: ITeamGraphBuilder) {}
 

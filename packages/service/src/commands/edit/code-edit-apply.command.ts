@@ -1,23 +1,33 @@
 import { z } from 'zod';
-import type { ICommand, ICodeEditManager, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ICodeEditManager,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { ProposalStatus } from '@ai-team/core';
 import type { IQuestionService } from '../../questions/question-service.js';
 
 type ApplyParams = z.infer<typeof CodeEditApplyCommand.schema>;
+const _codeEditApplyCommandSchema = z.object({
+  proposalId: z.string().describe('Proposal id to apply'),
+});
+
+export const CodeEditApplyCommandMetadata = {
+  key: 'codeEditApply',
+  cli: { command: 'code-edit apply <proposalId>' },
+  description: 'Apply an approved code edit proposal',
+  availableIn: { cli: true, chat: true, tool: true },
+  parameters: _codeEditApplyCommandSchema,
+} satisfies ICommandDescriptor;
 
 export class CodeEditApplyCommand implements ICommand<
   ApplyParams,
   { proposalId: string; files: string[] }
 > {
-  static readonly schema = z.object({
-    proposalId: z.string().describe('Proposal id to apply'),
-  });
-
-  readonly key = 'codeEditApply';
-  readonly cli = { command: 'code-edit apply <proposalId>' };
-  readonly description = 'Apply an approved code edit proposal';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly parameters = CodeEditApplyCommand.schema;
+  static readonly schema = _codeEditApplyCommandSchema;
+  readonly metadata = CodeEditApplyCommandMetadata;
 
   constructor(
     private readonly manager: ICodeEditManager,
@@ -42,12 +52,10 @@ export class CodeEditApplyCommand implements ICommand<
       };
     }
 
-    const confirmed = await this.questionService.confirm(
-      {
-        message: `Apply ${proposal.changes.length} file change(s) from proposal ${payload.proposalId.substring(0, 12)}...?`,
-        default: false,
-      }
-    );
+    const confirmed = await this.questionService.confirm({
+      message: `Apply ${proposal.changes.length} file change(s) from proposal ${payload.proposalId.substring(0, 12)}...?`,
+      default: false,
+    });
     if (!confirmed) {
       return {
         status: 'cancelled',

@@ -5,16 +5,15 @@ import type {
   ICommand,
   CommandResponse,
   IWorkspaceFsFactory,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { mapReadResult, failed } from './fs-tools-helpers.js';
 import type { FsReadParams, FsReadResult } from './fs-tool-types.js';
-
-export class FsReadFileTool implements ICommand<FsReadParams, FsReadResult> {
-  readonly name = 'read';
-  readonly key = 'read';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description = [
+export const FsReadFileToolMetadata = {
+  key: 'read',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: [
     'Read a file through access checks with structured access metadata.',
     'Reads line-by-line internally (never buffers the whole file into memory).',
     'Supports pagination via `offset` (1-based start line) and `limit` (max lines).',
@@ -26,12 +25,17 @@ export class FsReadFileTool implements ICommand<FsReadParams, FsReadResult> {
     'Image files and PDFs are returned as base64 data with their MIME type.',
     'Binary files are detected and a notice is returned instead of raw bytes.',
     'Tracking: records read time so fs_edit can validate staleness.',
-  ].join(' ');
-  readonly parameters = z.object({
+  ].join(' '),
+  parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
     offset: z.number().int().min(1).optional().describe('1-based line to start from (default 1)'),
     limit: z.number().int().min(1).optional().describe('Max lines to return (default 2000)'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class FsReadFileTool implements ICommand<FsReadParams, FsReadResult> {
+  readonly metadata = FsReadFileToolMetadata;
+  readonly name = 'read';
 
   constructor(
     private readonly workspaceRoot: string,

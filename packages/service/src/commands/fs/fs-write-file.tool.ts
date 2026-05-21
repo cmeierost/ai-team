@@ -5,20 +5,24 @@ import type {
   ICommand,
   CommandResponse,
   IWorkspaceFsFactory,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { failed } from './fs-tools-helpers.js';
 import type { FsWriteParams, FsWriteResult } from './fs-tool-types.js';
-
-export class FsWriteFileTool implements ICommand<FsWriteParams, FsWriteResult> {
-  readonly name = 'write_file';
-  readonly key = 'write_file';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description = 'Write (overwrite) a file through access checks.';
-  readonly parameters = z.object({
+export const FsWriteFileToolMetadata = {
+  key: 'write_file',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: 'Write (overwrite) a file through access checks.',
+  parameters: z.object({
     filePath: z.string().describe('Relative or absolute file path'),
     content: z.string().describe('Content to write'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class FsWriteFileTool implements ICommand<FsWriteParams, FsWriteResult> {
+  readonly metadata = FsWriteFileToolMetadata;
+  readonly name = 'write_file';
 
   constructor(private readonly workspaceFsFactory: IWorkspaceFsFactory) {}
 

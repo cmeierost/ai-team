@@ -6,6 +6,7 @@ import type {
   IAgentManager,
   IPathPermissionChecker,
   Agent,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { checkPathRight, resolveWorkspacePathMeta } from '@ai-team/core';
 import type { DoIHavePermissionResponse } from '@ai-team/api-contracts';
@@ -18,22 +19,24 @@ export interface DoIHaveAccessParams {
 }
 
 export type DoIHaveAccessResult = DoIHavePermissionResponse;
-
-export class DoIHaveAccessTool implements ICommand<DoIHaveAccessParams, DoIHaveAccessResult> {
-  readonly name = 'can_i';
-  readonly key = 'can_i';
-  readonly group = 'access';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Check whether the current agent (or an explicit agent) has access to a path/right.';
-  readonly parameters = z.object({
+export const DoIHaveAccessToolMetadata = {
+  key: 'can_i',
+  group: 'access',
+  availableIn: { tool: true },
+  description: 'Check whether the current agent (or an explicit agent) has access to a path/right.',
+  parameters: z.object({
     path: z.string().describe('Relative or absolute workspace path to check'),
     right: accessRightSchema.optional().describe('Access right to evaluate (default: list)'),
     agentId: z
       .string()
       .optional()
       .describe('Optional agent ID override (defaults to current agent)'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class DoIHaveAccessTool implements ICommand<DoIHaveAccessParams, DoIHaveAccessResult> {
+  readonly metadata = DoIHaveAccessToolMetadata;
+  readonly name = 'can_i';
 
   constructor(
     private readonly workspaceRoot: string,

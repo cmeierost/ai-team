@@ -5,25 +5,30 @@ import type {
   IAgentManager,
   IPathPermissionChecker,
   Agent,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { checkPathRight, resolveWorkspacePathMeta } from '@ai-team/core';
 import type { WhoHasPermissionResponse } from '@ai-team/api-contracts';
 
 type Params = z.infer<typeof AccessWhoCommand.schema>;
+const schema = z.object({
+  path: z.string().describe('Path to evaluate'),
+  right: z.enum(['read', 'write', 'list']).optional().describe('Right to evaluate'),
+  json: z.boolean().optional().describe('Output as JSON'),
+});
+
+export const AccessWhoCommandMetadata = {
+  key: 'accessWho',
+  cli: { command: 'who', parentKey: 'access' },
+  description: 'Show which contexts/agents can access a path for a right',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'access',
+  parameters: schema,
+} satisfies ICommandDescriptor;
 
 export class AccessWhoCommand implements ICommand<Params, WhoHasPermissionResponse> {
-  static readonly schema = z.object({
-    path: z.string().describe('Path to evaluate'),
-    right: z.enum(['read', 'write', 'list']).optional().describe('Right to evaluate'),
-    json: z.boolean().optional().describe('Output as JSON'),
-  });
-
-  readonly key = 'accessWho';
-  readonly cli = { command: 'who', parentKey: 'access' };
-  readonly description = 'Show which contexts/agents can access a path for a right';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'access';
-  readonly parameters = AccessWhoCommand.schema;
+  static readonly schema = schema;
+  readonly metadata = AccessWhoCommandMetadata;
 
   constructor(
     private readonly workspaceRoot: string,

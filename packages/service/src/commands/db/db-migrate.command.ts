@@ -1,12 +1,15 @@
-import type { ICommand, IMessageStorage, CommandResponse } from '@ai-team/core';
+import type { ICommand, IMessageStorage, CommandResponse, ICommandDescriptor } from '@ai-team/core';
 import type { DbMigrateResponse } from '@ai-team/api-contracts';
+export const DbMigrateCommandMetadata = {
+  key: 'dbMigrate',
+  cli: { command: 'db:migrate' },
+  description: 'Reset and initialize database schema (alpha)',
+  availableIn: { cli: true },
+  group: 'db',
+} satisfies ICommandDescriptor;
 
 export class DbMigrateCommand implements ICommand<Record<string, never>, DbMigrateResponse> {
-  readonly key = 'dbMigrate';
-  readonly cli = { command: 'db:migrate' };
-  readonly description = 'Reset and initialize database schema (alpha)';
-  readonly availableIn = { cli: true };
-  readonly group = 'db';
+  readonly metadata = DbMigrateCommandMetadata;
 
   constructor(private readonly storage: IMessageStorage) {}
 

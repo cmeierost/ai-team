@@ -6,25 +6,30 @@ import type {
   IMarkdownSectionService,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { UpdateAgentSkillResponse } from '@ai-team/api-contracts';
 import { removeSkillCommand } from './skills.js';
 
 type Params = z.infer<typeof SkillsRemoveCommand.schema>;
+const _skillsRemoveCommandSchema = z.object({
+  agent: z.string().describe('Agent id, name, or role query'),
+  skill: z.string().describe('Skill name to remove'),
+  json: z.boolean().optional().describe('Output as JSON'),
+});
+
+export const SkillsRemoveCommandMetadata = {
+  key: 'skillsRemove',
+  cli: { command: 'remove', parentKey: 'skills' },
+  description: 'Remove a skill from an agent',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'skills',
+  parameters: _skillsRemoveCommandSchema,
+} satisfies ICommandDescriptor;
 
 export class SkillsRemoveCommand implements ICommand<Params, UpdateAgentSkillResponse> {
-  static readonly schema = z.object({
-    agent: z.string().describe('Agent id, name, or role query'),
-    skill: z.string().describe('Skill name to remove'),
-    json: z.boolean().optional().describe('Output as JSON'),
-  });
-
-  readonly key = 'skillsRemove';
-  readonly cli = { command: 'remove', parentKey: 'skills' };
-  readonly description = 'Remove a skill from an agent';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'skills';
-  readonly parameters = SkillsRemoveCommand.schema;
+  static readonly schema = _skillsRemoveCommandSchema;
+  readonly metadata = SkillsRemoveCommandMetadata;
 
   constructor(
     private readonly agents: IAgentManager,

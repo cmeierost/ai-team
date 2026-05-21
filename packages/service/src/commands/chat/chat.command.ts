@@ -582,12 +582,12 @@ export class ChatCommand {
     };
 
     const registry = serviceContainer.resolve(COMMAND_FACTORY_TOKENS.CommandRegistry);
-    const staticSlashCommands = new SlashCommandDispatcher(registry).list();
+    const staticSlashDescriptors = new SlashCommandDispatcher(registry).list();
 
     const reservedSlashKeys = new Set<string>();
-    for (const command of staticSlashCommands) {
-      reservedSlashKeys.add(command.key.toLowerCase());
-      for (const alias of command.aliases ?? []) {
+    for (const desc of staticSlashDescriptors) {
+      reservedSlashKeys.add(desc.key.toLowerCase());
+      for (const alias of desc.aliases ?? []) {
         reservedSlashKeys.add(alias.toLowerCase());
       }
     }
@@ -618,7 +618,9 @@ export class ChatCommand {
       llmSelector: new DefaultLlmSelector(llm),
       outputHandler: new DefaultOutputHandler(),
       slashCommands: [
-        ...staticSlashCommands,
+        ...staticSlashDescriptors
+          .map((desc) => registry.resolve(desc.key, serviceContainer))
+          .filter((cmd): cmd is ICommand<string, unknown> => cmd !== undefined),
         ...buildDynamicSlashCommands(dynamicSlashCatalog.entries),
       ],
       turnResultParsers: buildDefaultTurnResultParsers(

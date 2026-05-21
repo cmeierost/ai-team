@@ -1,6 +1,11 @@
 import path from 'node:path';
 import { z } from 'zod';
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { ChatCommandEmitter } from '../../orchestrator/chat-emitter.js';
 import { withTimeout } from '../../utils/with-timeout.js';
 import { execFile } from 'node:child_process';
@@ -76,7 +81,7 @@ async function runCommand(
 }
 
 /** Tool version: structured params, LLM-callable, requires allowlist via register_cli. */
-export class RunCliTool  {
+export class RunCliTool {
   readonly name = 'run';
   readonly key = 'run';
   readonly group = 'tool';
@@ -107,14 +112,17 @@ export class RunCliTool  {
     return runCommand(params, context.workspaceRoot, context.agent!.cliTools ?? []);
   }
 }
+export const RunShellChatCommandMetadata = {
+  key: 'run',
+  usage: '/run <command> [args...]',
+  aliases: ['shell'],
+  description: 'Run a shell command → output shared with agent',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class RunShellChatCommand implements ICommand<string, void> {
-  readonly key = 'run';
-  readonly usage = '/run <command> [args...]';
-  readonly aliases = ['shell'];
-  readonly description = 'Run a shell command → output shared with agent';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = RunShellChatCommandMetadata;
 
   constructor(private readonly emitter: ChatCommandEmitter) {}
 

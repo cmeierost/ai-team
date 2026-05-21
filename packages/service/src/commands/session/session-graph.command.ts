@@ -1,4 +1,10 @@
-import type { ICommand, CommandResponse, ChatSession, ExecutionContext } from '@ai-team/core';
+import type {
+  ICommand,
+  CommandResponse,
+  ChatSession,
+  ExecutionContext,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 
 function buildGraphLines(chain: ChatSession[], currentSessionId: string): string[] {
@@ -31,13 +37,16 @@ function buildGraphLines(chain: ChatSession[], currentSessionId: string): string
   }
   return lines;
 }
+export const SessionGraphChatCommandMetadata = {
+  key: 'session-graph',
+  usage: '/session graph',
+  description: 'Show the handoff graph for the current session chain',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class SessionGraphChatCommand implements ICommand<string, string> {
-  readonly key = 'session-graph';
-  readonly usage = '/session graph';
-  readonly description = 'Show the handoff graph for the current session chain';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = SessionGraphChatCommandMetadata;
 
   constructor(private readonly sessionManager: Pick<SessionManager, 'getSessionChain'>) {}
 

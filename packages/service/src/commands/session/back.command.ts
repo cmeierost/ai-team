@@ -1,4 +1,10 @@
-import type { ExecutionContext, IAgentManager, ICommand, CommandResponse } from '@ai-team/core';
+import type {
+  ExecutionContext,
+  IAgentManager,
+  ICommand,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 
 export interface BackResult {
   agentId: string;
@@ -6,16 +12,17 @@ export interface BackResult {
   agentRole: string;
   sessionId?: string;
 }
+export const BackChatCommandMetadata = {
+  key: 'back',
+  description: 'Return to previous agent in handoff chain',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class BackChatCommand implements ICommand<string, BackResult> {
-  readonly key = 'back';
-  readonly description = 'Return to previous agent in handoff chain';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = BackChatCommandMetadata;
 
-  constructor(
-    private readonly agentManager: Pick<IAgentManager, 'getAgentAsync'>
-  ) {}
+  constructor(private readonly agentManager: Pick<IAgentManager, 'getAgentAsync'>) {}
 
   async execute(_args: string, ctx: ExecutionContext): Promise<CommandResponse<BackResult>> {
     const navStack = ctx.navStack ?? [];

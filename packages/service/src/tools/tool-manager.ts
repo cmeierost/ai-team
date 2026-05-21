@@ -3,7 +3,7 @@
  * for all tools in the system.
  *
  * Design principles (Open/Closed):
- *   - register()  adds capabilities without modifying existing code.
+ *   - Tools are registered via ICommandRegistry; ToolManager resolves them on demand.
  *   - canExecute() is the single authorization gate for every call surface
  *     (LLM tool call, CLI command, slash command, direct #tool syntax).
  *   - Tool implementations stay pure: no permission checks inside execute().
@@ -13,7 +13,9 @@
 import {
   Agent,
   ICommand,
+  type ICommandDescriptor,
   type ICommandRegistry,
+  type IServiceContainer,
   ExecutionContext,
   ContextLevel,
   type IPathPermissionChecker,
@@ -24,42 +26,36 @@ import {
 import { withTimeout } from '../utils/with-timeout.js';
 import { ZodSchemaTools } from '../utils/zod-schema.js';
 
-interface ToolResolverContainer {
-  resolve<T>(token: unknown): T;
-}
-
-// Re-export for convenience so callers only import from 'tools'.
 export type { PermissionResult, ToolCatalogEntry } from '@ai-team/core';
 
-type ToolIdentityField = 'key' | 'group';
-
 /**
- * Canonical lookup key for a tool.
+ * Canonical lookup key for a tool — works directly with ICommandDescriptor.
+ * Callers that have an ICommand instance should pass tool.metadata.
  */
 export class ToolIdentity {
-  static key(tool: Pick<ICommand, ToolIdentityField>): string {
-    const key = typeof tool.key === 'string' ? tool.key.trim() : '';
+  static key(meta: ICommandDescriptor): string {
+    const key = typeof meta.key === 'string' ? meta.key.trim() : '';
     if (!key) {
       throw new Error('Tool must define a non-empty `key`.');
     }
-    const group = typeof tool.group === 'string' ? tool.group.trim() : '';
+    const group = typeof meta.group === 'string' ? meta.group.trim() : '';
     return group ? `${group}_${key}` : key;
   }
 
   /**
-   * Match a tool selector against a tool.
+   * Match a tool selector against a tool descriptor.
    * Supports:
    * - exact canonical names (e.g. fs_tree)
    * - exact short names (e.g. tree)
    * - wildcard selectors (e.g. fs_*, *_list)
    */
-  static matchesSelector(selector: string, tool: Pick<ICommand, ToolIdentityField>): boolean {
+  static matchesSelector(selector: string, meta: ICommandDescriptor): boolean {
     const normalized = ToolIdentity.normalizeSelector(selector);
     if (!normalized) {
       return false;
     }
 
-    return ToolIdentity.matchesSelectorValue(normalized, ToolIdentity.key(tool));
+    return ToolIdentity.matchesSelectorValue(normalized, ToolIdentity.key(meta));
   }
 
   private static normalizeSelector(selector: string): string {
@@ -112,65 +108,64 @@ const DEFAULT_TIMEOUT_MS = 60_000;
  * which tools an agent may use, and how they are executed safely.
  */
 export class ToolManager {
-  private readonly tools = new Map<string, ICommand>();
   private static readonly schemaTools = new ZodSchemaTools();
 
   constructor(
     private readonly workspaceRoot: string,
     private readonly pathPermissionChecker: IPathPermissionChecker,
     private readonly registry: ICommandRegistry,
-    private readonly container: ToolResolverContainer
+    private readonly container: IServiceContainer
   ) {}
 
-  private getRegistryTools(): ICommand[] {
-    return this.registry.getAll({ availableIn: { tool: true } });
+  private resolveAll(): ICommand[] {
+    return this.registry
+      .getAll({ availableIn: { tool: true } })
+      .map((meta) => this.registry.resolve(meta.key, this.container))
+      .filter((t): t is ICommand<unknown, unknown> => t !== undefined);
+  }
+
+  /** All descriptors — no instance resolution. */
+  private getAllDescriptors(): ICommandDescriptor[] {
+    return this.registry.getAll();
+  }
+
+  /** Descriptors available to a specific agent — no instance resolution. */
+  private getDescriptorsForAgent(agent: Agent): ICommandDescriptor[] {
+    const allowedSelectors = (agent.tools ?? [])
+      .map((s) => ToolManager.normalizeToolSelector(String(s)))
+      .filter((s) => s.length > 0);
+    if (allowedSelectors.length === 0) return [];
+
+    const deniedSelectors = (agent.disallowedTools ?? [])
+      .map((s) => ToolManager.normalizeToolSelector(String(s)))
+      .filter((s) => s.length > 0);
+
+    return this.getAllDescriptors().filter((meta) => {
+      if (deniedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta))) return false;
+      return allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta));
+    });
   }
 
   private getAllResolvedTools(): ICommand[] {
-    const result: ICommand[] = [];
-    for (const tool of this.getRegistryTools()) {
-      ToolManager.pushIfMissing(result, tool);
-    }
-    for (const tool of this.tools.values()) {
-      ToolManager.pushIfMissing(result, tool);
-    }
-    return result;
+    return this.resolveAll();
   }
 
   // ── Registration ─────────────────────────────────────────────────────────
 
-  /**
-   * Register a tool. Calling register() with the same name replaces the
-   * previous entry — this is the Open/Closed plugin seam.
-   * Tools are stored under their canonical key (`tool.key`).
-   */
-  register(tool: ICommand): this {
-    this.tools.set(ToolIdentity.key(tool), tool);
-    return this;
-  }
-
   /** Look up a single tool by name. Returns undefined if not registered. */
   get(name: string): ICommand | undefined {
-    const local = this.tools.get(name);
-    if (local) {
-      return local;
-    }
-
-    const registryCommand = this.registry.get(name);
-    if (!registryCommand?.availableIn?.tool) {
-      return undefined;
-    }
-
-    return registryCommand;
+    const meta = this.registry.get(name);
+    if (!meta?.availableIn?.tool) return undefined;
+    return this.registry.resolve(name, this.container);
   }
 
-  /** All registered tools, regardless of agent. */
-  getAll(): ICommand[] {
-    return this.getAllResolvedTools();
+  /** All registered tool descriptors, regardless of agent. */
+  getAll(): ICommandDescriptor[] {
+    return this.registry.getAll();
   }
 
   /** Alias for getAll() required by IToolManager interface. */
-  list(): ICommand[] {
+  list(): ICommandDescriptor[] {
     return this.getAll();
   }
 
@@ -185,29 +180,19 @@ export class ToolManager {
    * - agent.disallowedTools[] takes precedence over allows
    */
   getForAgent(agent: Agent): ICommand[] {
-    const result: ICommand[] = [];
     const allowedSelectors = (agent.tools ?? [])
       .map((selector) => ToolManager.normalizeToolSelector(String(selector)))
       .filter((selector) => selector.length > 0);
-    if (allowedSelectors.length === 0) {
-      return result;
-    }
+    if (allowedSelectors.length === 0) return [];
 
     const deniedSelectors = (agent.disallowedTools ?? [])
       .map((selector) => ToolManager.normalizeToolSelector(String(selector)))
       .filter((selector) => selector.length > 0);
 
-    for (const tool of this.getAllResolvedTools()) {
-      if (deniedSelectors.some((selector) => ToolIdentity.matchesSelector(selector, tool))) {
-        continue;
-      }
-
-      if (allowedSelectors.some((selector) => ToolIdentity.matchesSelector(selector, tool))) {
-        ToolManager.pushIfMissing(result, tool);
-      }
-    }
-
-    return result;
+    return this.resolveAll().filter((tool) => {
+      if (deniedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata))) return false;
+      return allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata));
+    });
   }
 
   // ── Authorization ─────────────────────────────────────────────────────────
@@ -218,13 +203,13 @@ export class ToolManager {
    * No permission logic should live inside tool.execute().
    */
   async canExecute(agent: Agent, toolName: string, args: unknown): Promise<PermissionResult> {
-    const tool = this.get(toolName);
-    if (!tool) {
+    const meta = this.registry.get(toolName);
+    if (!meta) {
       return { allowed: false, reason: `Unknown tool: ${toolName}` };
     }
 
     // Is the tool in the agent's allowed set?
-    const available = this.getForAgent(agent).map(ToolIdentity.key);
+    const available = this.getDescriptorsForAgent(agent).map((d) => ToolIdentity.key(d));
     if (!available.includes(toolName)) {
       return {
         allowed: false,
@@ -232,7 +217,7 @@ export class ToolManager {
       };
     }
 
-    const descriptor: PermissionDescriptor = tool.permissionCheck ?? { type: 'none' };
+    const descriptor: PermissionDescriptor = meta.permissionCheck ?? { type: 'none' };
 
     try {
       return this.evaluatePermissionDescriptor(agent, descriptor, args);
@@ -278,8 +263,8 @@ export class ToolManager {
 
     // Zod validation
     const parsed =
-      tool.parameters && typeof tool.parameters.safeParse === 'function'
-        ? tool.parameters.safeParse(args)
+      tool.metadata.parameters && typeof tool.metadata.parameters.safeParse === 'function'
+        ? tool.metadata.parameters.safeParse(args)
         : { success: true as const, data: args };
     if (!parsed.success) {
       return {
@@ -350,15 +335,15 @@ export class ToolManager {
    * Powering `list_tools` and `ait tools list`.
    */
   catalog(agent: Agent): ToolCatalogEntry[] {
-    return this.getForAgent(agent).map((tool) => {
-      const key = ToolIdentity.key(tool);
+    return this.getDescriptorsForAgent(agent).map((meta) => {
+      const key = ToolIdentity.key(meta);
       return {
         name: key,
-        description: tool.summary ?? tool.description,
-        group: tool.group,
+        description: meta.summary ?? meta.description,
+        group: meta.group,
         schema: this.toSchema(key)?.parameters ?? {},
-        tags: tool.tags,
-        examples: tool.examples,
+        tags: meta.tags,
+        examples: meta.examples,
       };
     });
   }
@@ -368,13 +353,13 @@ export class ToolManager {
    * LlmService wraps this in the OpenAI { type: 'function', function: {...} } envelope itself.
    */
   toSchema(toolName: string): LlmToolDefinition | undefined {
-    const tool = this.get(toolName);
-    if (!tool) return undefined;
+    const meta = this.registry.get(toolName);
+    if (!meta) return undefined;
 
     return {
       name: toolName,
-      description: tool.summary ?? tool.description,
-      parameters: ToolManager.schemaTools.toJsonSchema(tool.parameters, {
+      description: meta.summary ?? meta.description,
+      parameters: ToolManager.schemaTools.toJsonSchema(meta.parameters, {
         additionalProperties: true,
       }),
     };
@@ -385,20 +370,13 @@ export class ToolManager {
    * Passed directly to the LLM as the `tools` array.
    */
   describeAll(agent: Agent): LlmToolDefinition[] {
-    return this.getForAgent(agent)
-      .map((t) => this.toSchema(ToolIdentity.key(t)))
+    return this.getDescriptorsForAgent(agent)
+      .map((meta) => this.toSchema(ToolIdentity.key(meta)))
       .filter((d): d is LlmToolDefinition => d !== undefined);
   }
 
   private static normalizeToolSelector(selector: string): string {
     return selector.trim();
-  }
-
-  private static pushIfMissing(result: ICommand[], tool: ICommand): void {
-    const key = ToolIdentity.key(tool);
-    if (!result.some((t) => ToolIdentity.key(t) === key)) {
-      result.push(tool);
-    }
   }
 
   private evaluatePermissionDescriptor(
@@ -475,5 +453,4 @@ export class ToolManager {
 
     return typeof current === 'string' ? current : undefined;
   }
-
 }

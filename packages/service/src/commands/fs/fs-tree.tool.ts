@@ -5,16 +5,31 @@ import type {
   ICommand,
   CommandResponse,
   IWorkspaceFsFactory,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { FsTreeParams, FsTreeResult } from './fs-tool-types.js';
 import { annotateFsTreeWithRights, matchesFsTreePreLlmIntent } from './fs-tree-helpers.js';
+export const FsTreeToolMetadata = {
+  key: 'tree',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: 'Build directory tree with access-filtered nodes.',
+  parameters: z.object({
+    path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
+    maxDepth: z
+      .number()
+      .int()
+      .min(0)
+      .max(64)
+      .optional()
+      .describe('Maximum recursion depth (default 6)'),
+    includeHidden: z.boolean().optional().describe('Include hidden files and directories'),
+  }),
+} satisfies ICommandDescriptor;
 
 export class FsTreeTool implements ICommand<FsTreeParams, FsTreeResult> {
+  readonly metadata = FsTreeToolMetadata;
   readonly name = 'tree';
-  readonly key = 'tree';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description = 'Build directory tree with access-filtered nodes.';
   readonly matchesIntent = matchesFsTreePreLlmIntent;
   readonly scorePreLlmIntent = (message: string) => {
     const text = message.trim();
@@ -64,17 +79,6 @@ export class FsTreeTool implements ICommand<FsTreeParams, FsTreeResult> {
 
     return undefined;
   };
-  readonly parameters = z.object({
-    path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
-    maxDepth: z
-      .number()
-      .int()
-      .min(0)
-      .max(64)
-      .optional()
-      .describe('Maximum recursion depth (default 6)'),
-    includeHidden: z.boolean().optional().describe('Include hidden files and directories'),
-  });
 
   constructor(private readonly workspaceFsFactory: IWorkspaceFsFactory) {}
 

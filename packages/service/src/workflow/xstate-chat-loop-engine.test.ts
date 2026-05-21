@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-import type { Agent, IServiceContainer } from '@ai-team/core';
+import type { Agent, ICommand, IServiceContainer } from '@ai-team/core';
 import { ContextLevel } from '@ai-team/core';
 
 import { ToolManager } from '../tools/tool-manager.js';
+import { CommandRegistry } from '../command-registry-impl.js';
 import {
   WORKFLOW_ENGINE_TOKENS,
   getChatLoopWorkflowDefinitionJson,
@@ -127,6 +128,7 @@ describe('xstate-chat-loop-engine', () => {
   });
 
   it('uses ToolManager registry first for tool round execution', async () => {
+    const registry = new CommandRegistry();
     const toolManager = new ToolManager(
       '/workspace',
       {
@@ -136,26 +138,19 @@ describe('xstate-chat-loop-engine', () => {
         assertCanReadPath: () => undefined,
         assertCanWritePath: () => undefined,
       },
-      {
-        register: () => undefined,
-        get: () => undefined,
-        getAll: () => [],
-        toLlmToolDefinitions: () => [],
-      } as any,
+      registry,
       { resolve: () => undefined } as any
     );
     const executeSpy = vi.fn(async () => ({ ok: true }));
-
-    toolManager.register({
-      group: 'fs',
-      name: 'read',
+    const readMeta = {
       key: 'read',
-      availableIn: { tool: true },
+      group: 'fs',
+      availableIn: { tool: true, cli: false, chat: false },
       description: 'Read file',
       parameters: z.object({ filePath: z.string() }),
-      permissionCheck: { type: 'none' },
-      execute: executeSpy,
-    } as any);
+      permissionCheck: { type: 'none' as const },
+    };
+    registry.register(readMeta, () => ({ metadata: readMeta, execute: executeSpy }) as ICommand);
 
     const services = createBaseServices({
       runSendTurnAsync: async () => ({

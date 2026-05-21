@@ -1,23 +1,32 @@
 import { z } from 'zod';
 import type { InitOptions } from '@ai-team/api-contracts';
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { InitCommand } from './init.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 import type { IQuestionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof InitICommand.schema>;
+const _initICommandSchema = z.object({
+  options: z.any().optional(),
+});
+
+export const InitICommandMetadata = {
+  key: 'init',
+  cli: { command: 'init' },
+  description: 'Initialize AI Team in current workspace',
+  availableIn: { cli: true, chat: true },
+  group: 'setup',
+  parameters: _initICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class InitICommand implements ICommand<Params, void> {
-  static readonly schema = z.object({
-    options: z.any().optional(),
-  });
-
-  readonly key = 'init';
-  readonly cli = { command: 'init' };
-  readonly description = 'Initialize AI Team in current workspace';
-  readonly availableIn = { cli: true, chat: true };
-  readonly group = 'setup';
-  readonly parameters = InitICommand.schema;
+  static readonly schema = _initICommandSchema;
+  readonly metadata = InitICommandMetadata;
 
   constructor(
     private readonly workspaceRoot: string,

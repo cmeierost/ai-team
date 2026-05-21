@@ -139,7 +139,7 @@ function createChatQuestionResponders(
   };
 
   return {
-    questionInput: async (request: QuestionInputRequest) => {
+    input: async (request: QuestionInputRequest) => {
       onQuestionStart?.();
       while (true) {
         const answer = await askWithSlashSuggestions(request.message, chatCommands, signal);
@@ -168,7 +168,7 @@ function createChatQuestionResponders(
         return answer;
       }
     },
-    questionConfirm: async (request: QuestionConfirmRequest) => {
+    confirm: async (request: QuestionConfirmRequest) => {
       onQuestionStart?.();
       const defaultValue = request.default ?? false;
       const suffix = defaultValue ? '[Y/n]' : '[y/N]';
@@ -190,7 +190,7 @@ function createChatQuestionResponders(
         process.stderr.write('Please answer yes or no.\n');
       }
     },
-    questionSelect: async (request: QuestionSelectRequest) => {
+    select: async (request: QuestionSelectRequest) => {
       onQuestionStart?.();
       if (process.stdin.isTTY) {
         const selected = await select({

@@ -1,28 +1,38 @@
 import { z } from 'zod';
-import type { HandoffRequest, ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  HandoffRequest,
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { IAgentRegistry, ISessionGateway } from '../orchestration/orchestration.types.js';
 
 type Params = z.infer<typeof HandoffCommand.schema>;
+const _handoffCommandSchema = z.object({
+  targetAgentId: z.string().min(1).describe('ID of the agent to hand off to'),
+  briefingNote: z
+    .string()
+    .min(1)
+    .describe('Concise summary of the conversation and what the target agent needs to do.'),
+});
 
-export class HandoffCommand implements ICommand<Params, HandoffRequest> {
-  static readonly schema = z.object({
-    targetAgentId: z.string().min(1).describe('ID of the agent to hand off to'),
-    briefingNote: z
-      .string()
-      .min(1)
-      .describe('Concise summary of the conversation and what the target agent needs to do.'),
-  });
-
-  readonly key = 'handoff';
-  readonly description =
+export const HandoffCommandMetadata = {
+  key: 'handoff',
+  description:
     'Transfer the current conversation to another agent who is better suited ' +
     'to handle the request. Use when a task is outside your area of responsibility. ' +
-    'You must have delegation permission to the target agent.';
-  readonly availableIn = { tool: true };
-  readonly group = 'com';
-  readonly parameters = HandoffCommand.schema;
-  readonly permissionCheck = { type: 'agent-delegation' as const, argsPath: 'targetAgentId' };
-  readonly tags = ['orchestration'];
+    'You must have delegation permission to the target agent.',
+  availableIn: { tool: true },
+  group: 'com',
+  parameters: _handoffCommandSchema,
+  permissionCheck: { type: 'agent-delegation' as const, argsPath: 'targetAgentId' },
+  tags: ['orchestration'],
+} satisfies ICommandDescriptor;
+
+export class HandoffCommand implements ICommand<Params, HandoffRequest> {
+  static readonly schema = _handoffCommandSchema;
+  readonly metadata = HandoffCommandMetadata;
 
   constructor(
     private readonly agents: IAgentRegistry,

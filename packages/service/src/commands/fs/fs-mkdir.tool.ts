@@ -4,20 +4,24 @@ import type {
   ICommand,
   CommandResponse,
   IWorkspaceFsFactory,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { failed } from './fs-tools-helpers.js';
 import type { FsMkdirParams, FsMkdirResult } from './fs-tool-types.js';
-
-export class FsMkdirTool implements ICommand<FsMkdirParams, FsMkdirResult> {
-  readonly name = 'mkdir';
-  readonly key = 'mkdir';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description = 'Create a directory through access checks.';
-  readonly parameters = z.object({
+export const FsMkdirToolMetadata = {
+  key: 'mkdir',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: 'Create a directory through access checks.',
+  parameters: z.object({
     path: z.string().describe('Relative or absolute directory path'),
     recursive: z.boolean().optional().describe('Create parent directories recursively'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class FsMkdirTool implements ICommand<FsMkdirParams, FsMkdirResult> {
+  readonly metadata = FsMkdirToolMetadata;
+  readonly name = 'mkdir';
 
   constructor(private readonly workspaceFsFactory: IWorkspaceFsFactory) {}
 

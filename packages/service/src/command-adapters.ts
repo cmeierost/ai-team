@@ -66,21 +66,21 @@ export function zodToCliOptions(schema: unknown): CommandOptionMetadata[] {
 export function toCliMetadata<TParams, TResult>(
   cmd: ICommand<TParams, TResult>
 ): CliCommandMetadata {
-  if (!cmd.cli) {
-    throw new Error(`ICommand '${cmd.key}' has no cli routing info (missing cmd.cli)`);
+  if (!cmd.metadata.cli) {
+    throw new Error(`ICommand '${cmd.metadata.key}' has no cli routing info (missing cmd.cli)`);
   }
   return {
-    key: cmd.key,
-    command: cmd.cli.command,
-    parentKey: cmd.cli.parentKey,
-    description: cmd.help?.description ?? cmd.description,
-    llmCallable: Boolean(cmd.availableIn.tool),
-    directCli: Boolean(cmd.availableIn.cli),
-    aliases: cmd.aliases,
-    options: cmd.parameters ? zodToCliOptions(cmd.parameters) : undefined,
-    hints: cmd.help?.hints,
-    examples: cmd.help?.examples?.map((example: { value: string }) => example.value),
-    jsonSignature: cmd.input?.jsonSignature,
+    key: cmd.metadata.key,
+    command: cmd.metadata.cli.command,
+    parentKey: cmd.metadata.cli.parentKey,
+    description: cmd.metadata.help?.description ?? cmd.metadata.description,
+    llmCallable: Boolean(cmd.metadata.availableIn.tool),
+    directCli: Boolean(cmd.metadata.availableIn.cli),
+    aliases: cmd.metadata.aliases,
+    options: cmd.metadata.parameters ? zodToCliOptions(cmd.metadata.parameters) : undefined,
+    hints: cmd.metadata.help?.hints,
+    examples: cmd.metadata.help?.examples?.map((example: { value: string }) => example.value),
+    jsonSignature: cmd.metadata.input?.jsonSignature,
   };
 }
 
@@ -96,48 +96,27 @@ export function toCliMetadata<TParams, TResult>(
 export function toCommandRegistration<TCommand extends string = string>(
   cmd: ICommand<unknown, unknown>
 ): RegisteredCommand<TCommand> {
-  const derivedCliPath = cmd.cli ? deriveCliPath(cmd.cli.command, cmd.cli.parentKey) : undefined;
+  const derivedCliPath = cmd.metadata.cli
+    ? deriveCliPath(cmd.metadata.cli.command, cmd.metadata.cli.parentKey)
+    : undefined;
 
   return {
-    key: cmd.key as TCommand,
-    aliases: cmd.aliases,
-    description: cmd.description,
-    usage: cmd.cli?.command,
-    availableIn: cmd.availableIn,
-    path: cmd.path ?? derivedCliPath,
-    help: cmd.help,
-    llm: cmd.llm,
-    intents: cmd.intents,
-    intentExamples: cmd.intentExamples,
-    input: cmd.input,
-    handler: async (workspaceRoot: string, payload: unknown, context?: InteractionContext) => {
-      const execCtx = interactionContextToExecutionContext(workspaceRoot, context ?? {});
+    key: cmd.metadata.key as TCommand,
+    aliases: cmd.metadata.aliases,
+    description: cmd.metadata.description,
+    usage: cmd.metadata.cli?.command,
+    availableIn: cmd.metadata.availableIn,
+    path: cmd.metadata.path ?? derivedCliPath,
+    help: cmd.metadata.help,
+    llm: cmd.metadata.llm,
+    intents: cmd.metadata.intents,
+    intentExamples: cmd.metadata.intentExamples,
+    input: cmd.metadata.input,
+    handler: async (workspaceRoot: string, payload: unknown, context: InteractionContext) => {
+      const execCtx = interactionContextToExecutionContext(workspaceRoot, context);
       const resolvedPayload = resolveCommandArgs(cmd, payload, execCtx);
       const result = await cmd.execute(resolvedPayload, execCtx);
 
-      if (isCommandResponse(result)) {
-        const r = result as unknown as CommandResponse<unknown>;
-        return { ...r, message: r.message ?? '' };
-      }
-      return { status: 'ok' as const, message: '', data: result } as CommandResponse<unknown>;
-    },
-  };
-}
-
-export function toCommandRegistrationWithContext<TCommand extends string = string>(
-  factory: (context: InteractionContext) => ICommand<unknown, unknown>
-): RegisteredCommand<TCommand> {
-  return {
-    key: '' as TCommand,
-    aliases: undefined,
-    description: '',
-    availableIn: { cli: false, chat: false, tool: false },
-    handler: async (workspaceRoot: string, payload: unknown, context?: InteractionContext) => {
-      const interactionContext = context ?? {};
-      const cmd = factory(interactionContext);
-      const execCtx = interactionContextToExecutionContext(workspaceRoot, interactionContext);
-      const resolvedPayload = resolveCommandArgs(cmd, payload, execCtx);
-      const result = await cmd.execute(resolvedPayload, execCtx);
       if (isCommandResponse(result)) {
         const r = result as unknown as CommandResponse<unknown>;
         return { ...r, message: r.message ?? '' };
@@ -185,24 +164,28 @@ function deriveCliPath(command: string, parentKey?: string): string[] {
  */
 export function toSlashCommand(cmd: ICommand<unknown, unknown>): ICommand<string, unknown> {
   return {
-    key: cmd.key,
-    aliases: cmd.aliases,
-    description: cmd.description,
-    usage: cmd.usage,
-    availableIn: {
-      chat: true,
-      cliChat: Boolean(cmd.availableIn.cliChat),
-      tool: Boolean(cmd.availableIn.tool),
-      cli: false,
+    metadata: {
+      key: cmd.metadata.key,
+      aliases: cmd.metadata.aliases,
+      description: cmd.metadata.description,
+      usage: cmd.metadata.usage,
+      availableIn: {
+        chat: true,
+        cliChat: Boolean(cmd.metadata.availableIn.cliChat),
+        tool: Boolean(cmd.metadata.availableIn.tool),
+        cli: false,
+      },
     },
     execute: async (rawArgs: string, ctx: ExecutionContext) => {
-      const parsed = cmd.parameters ? parseArgsIntelligently(rawArgs, cmd.parameters) : rawArgs;
+      const parsed = cmd.metadata.parameters
+        ? parseArgsIntelligently(rawArgs, cmd.metadata.parameters)
+        : rawArgs;
 
       // Extract context overrides from parsed params and merge with base context
       const parsedObj = typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
       const contextOverrides = mapParamsToContext(
         parsedObj,
-        cmd.input?.contextOverrideAllowlist,
+        cmd.metadata.input?.contextOverrideAllowlist,
         ctx.calledByHuman ?? true
       );
       const mergedCtx: ExecutionContext = { ...ctx, ...contextOverrides };
@@ -217,15 +200,17 @@ export function toSlashCommand(cmd: ICommand<unknown, unknown>): ICommand<string
 // ── ICommand → ILlmToolDefinition ────────────────────────────────────────────
 
 export function toLlmToolDefinition(cmd: ICommand<unknown, unknown>): ILlmToolDefinition {
-  const rawSchema = cmd.parameters ? new ZodSchemaTools().toJsonSchema(cmd.parameters) : undefined;
-  const defaultHidden = cmd.input?.contextParameters ?? [];
-  const explicitHidden = cmd.llm?.hiddenParameters ?? [];
+  const rawSchema = cmd.metadata.parameters
+    ? new ZodSchemaTools().toJsonSchema(cmd.metadata.parameters)
+    : undefined;
+  const defaultHidden = cmd.metadata.input?.contextParameters ?? [];
+  const explicitHidden = cmd.metadata.llm?.hiddenParameters ?? [];
   const schema = stripHiddenParameters(rawSchema, [...defaultHidden, ...explicitHidden]);
   return {
-    name: cmd.key,
-    description: cmd.llm?.description ?? cmd.summary ?? cmd.description,
+    name: cmd.metadata.key,
+    description: cmd.metadata.llm?.description ?? cmd.metadata.summary ?? cmd.metadata.description,
     parameters: schema as Record<string, unknown> | undefined,
-    group: cmd.group,
+    group: cmd.metadata.group,
   };
 }
 
@@ -291,7 +276,7 @@ function resolveCommandArgs(
 
   const resolved = { ...(payload as Record<string, unknown>) };
 
-  for (const contextParam of cmd.input?.contextParameters ?? []) {
+  for (const contextParam of cmd.metadata.input?.contextParameters ?? []) {
     if (getPathValue(resolved, contextParam) !== undefined) continue;
     const contextValue = getContextValue(ctx, contextParam);
     if (contextValue !== undefined) {
@@ -299,7 +284,7 @@ function resolveCommandArgs(
     }
   }
 
-  for (const [targetPath, binding] of Object.entries(cmd.workflowInputBindings ?? {})) {
+  for (const [targetPath, binding] of Object.entries(cmd.metadata.workflowInputBindings ?? {})) {
     if (getPathValue(resolved, targetPath) !== undefined) continue;
     if (binding.fromLastResult && ctx.workflowLastResult !== undefined) {
       const value = getPathValue(ctx.workflowLastResult, binding.fromLastResult);
@@ -307,7 +292,7 @@ function resolveCommandArgs(
     }
   }
 
-  const missingRequired = (cmd.input?.requiredAtRuntime ?? []).filter(
+  const missingRequired = (cmd.metadata.input?.requiredAtRuntime ?? []).filter(
     (path) => getPathValue(resolved, path) === undefined
   );
   if (missingRequired.length > 0) {
@@ -316,8 +301,8 @@ function resolveCommandArgs(
     );
   }
 
-  if (cmd.parameters && typeof (cmd.parameters as any).parse === 'function') {
-    return (cmd.parameters as any).parse(resolved);
+  if (cmd.metadata.parameters && typeof (cmd.metadata.parameters as any).parse === 'function') {
+    return (cmd.metadata.parameters as any).parse(resolved);
   }
 
   return resolved;
@@ -381,7 +366,7 @@ function interactionContextToExecutionContext(
     workflowId: (ctx as any).workflowId,
     workflowInstanceId: (ctx as any).workflowInstanceId,
     workflowLastResult: (ctx as any).workflowLastResult,
-    signal: ctx.signal,
+    signal: ctx.password,
     history: (ctx as any).history ?? [],
     workflowState: ctx.workflowState,
     onWorkflowFrame: ctx.onWorkflowFrame as ExecutionContext['onWorkflowFrame'],

@@ -146,9 +146,9 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
    * and `parameters` directly — no wrapper class needed.
    */
   asCommand<TState>(definition: WorkflowDefinition<TState>): ICommand {
+    const { id, steps, prepare, toResult, ...descriptorFields } = definition;
     return {
-      ...definition,
-      key: definition.id,
+      metadata: { ...descriptorFields, key: id },
       execute: (params: unknown, ctx: ExecutionContext): Promise<CommandResponse<unknown>> =>
         this.#runAsCommand(definition, params, ctx),
     };

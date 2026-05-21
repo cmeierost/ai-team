@@ -6,6 +6,7 @@ import type {
   IAgentManager,
   IPathPermissionChecker,
   Agent,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { checkPathRight, resolveWorkspacePathMeta } from '@ai-team/core';
 import type { WhoHasPermissionResponse } from '@ai-team/api-contracts';
@@ -17,17 +18,20 @@ export interface WhoHasAccessParams {
 }
 
 export type WhoHasAccessResult = WhoHasPermissionResponse;
-
-export class WhoHasAccessTool implements ICommand<WhoHasAccessParams, WhoHasAccessResult> {
-  readonly name = 'who_can';
-  readonly key = 'who_can';
-  readonly group = 'access';
-  readonly availableIn = { tool: true };
-  readonly description = 'Show which agents can access a path for a given right.';
-  readonly parameters = z.object({
+export const WhoHasAccessToolMetadata = {
+  key: 'who_can',
+  group: 'access',
+  availableIn: { tool: true },
+  description: 'Show which agents can access a path for a given right.',
+  parameters: z.object({
     path: z.string().describe('Relative or absolute workspace path to check'),
     right: accessRightSchema.optional().describe('Access right to evaluate (default: list)'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class WhoHasAccessTool implements ICommand<WhoHasAccessParams, WhoHasAccessResult> {
+  readonly metadata = WhoHasAccessToolMetadata;
+  readonly name = 'who_can';
 
   constructor(
     private readonly workspaceRoot: string,

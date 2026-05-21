@@ -1,11 +1,19 @@
-import type { ICommand, CommandResponse, ExecutionContext } from '@ai-team/core';
+import type {
+  ICommand,
+  CommandResponse,
+  ExecutionContext,
+  ICommandDescriptor,
+} from '@ai-team/core';
+export const HistoryChatCommandMetadata = {
+  key: 'history',
+  usage: '/history [n]',
+  description: 'Show recent messages (default: 20)',
+  availableIn: { chat: false, cliChat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class HistoryChatCommand implements ICommand<string, string> {
-  readonly key = 'history';
-  readonly usage = '/history [n]';
-  readonly description = 'Show recent messages (default: 20)';
-  readonly availableIn = { chat: false, cliChat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = HistoryChatCommandMetadata;
 
   async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
     const parsedLimit = Number.parseInt(args.trim(), 10);

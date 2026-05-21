@@ -1,16 +1,19 @@
 import path from 'node:path';
 import { z } from 'zod';
-import type { ExecutionContext, ICommand, CommandResponse, IWorkspaceFsFactory } from '@ai-team/core';
+import type {
+  ExecutionContext,
+  ICommand,
+  CommandResponse,
+  IWorkspaceFsFactory,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { FsSearchContentParams, FsSearchContentResult } from './fs-tool-types.js';
-
-export class FsSearchContentTool implements ICommand<FsSearchContentParams, FsSearchContentResult> {
-  readonly name = 'search_content';
-  readonly key = 'search_content';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Search file contents under a path. Every candidate path is access-checked.';
-  readonly parameters = z.object({
+export const FsSearchContentToolMetadata = {
+  key: 'search_content',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: 'Search file contents under a path. Every candidate path is access-checked.',
+  parameters: z.object({
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
     query: z.string().min(1).describe('Text to search for'),
     maxResults: z
@@ -21,7 +24,12 @@ export class FsSearchContentTool implements ICommand<FsSearchContentParams, FsSe
       .optional()
       .describe('Maximum number of matches to return'),
     caseSensitive: z.boolean().optional().describe('Case-sensitive search (default false)'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class FsSearchContentTool implements ICommand<FsSearchContentParams, FsSearchContentResult> {
+  readonly metadata = FsSearchContentToolMetadata;
+  readonly name = 'search_content';
 
   constructor(
     private readonly workspaceRoot: string,
@@ -44,9 +52,7 @@ export class FsSearchContentTool implements ICommand<FsSearchContentParams, FsSe
 
     const matches: Array<{ path: string; line: number; content: string }> = [];
     for (const match of rawMatches) {
-      const relativePath = path
-        .relative(this.workspaceRoot, match.filePath)
-        .replaceAll('\\', '/');
+      const relativePath = path.relative(this.workspaceRoot, match.filePath).replaceAll('\\', '/');
 
       if (
         targetPath !== '.' &&

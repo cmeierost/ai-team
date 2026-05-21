@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { ICommand, CommandResponse, ExecutionContext } from '@ai-team/core';
+import type {
+  ICommand,
+  CommandResponse,
+  ExecutionContext,
+  ICommandDescriptor,
+} from '@ai-team/core';
 
 // ─── DelegateToAgent ──────────────────────────────────────────────────────────
 
@@ -8,6 +13,17 @@ export interface DelegateToAgentParams {
   task: string;
   context?: string[];
 }
+export const DelegateToAgentToolMetadata = {
+  key: 'delegate',
+  group: 'com',
+  availableIn: { tool: true },
+  description: 'Delegate a task to another agent. Checks delegation permissions.',
+  parameters: z.object({
+    agentId: z.string().describe('Target agent ID'),
+    task: z.string().describe('Task description'),
+    context: z.array(z.string()).optional().describe('File paths for context'),
+  }),
+} satisfies ICommandDescriptor;
 
 export type DelegateToAgentResult = {
   delegatedTo: string;
@@ -17,16 +33,8 @@ export type DelegateToAgentResult = {
 };
 
 export class DelegateToAgentTool implements ICommand<DelegateToAgentParams, DelegateToAgentResult> {
+  readonly metadata = DelegateToAgentToolMetadata;
   readonly name = 'delegate';
-  readonly key = 'delegate';
-  readonly group = 'com';
-  readonly availableIn = { tool: true };
-  readonly description = 'Delegate a task to another agent. Checks delegation permissions.';
-  readonly parameters = z.object({
-    agentId: z.string().describe('Target agent ID'),
-    task: z.string().describe('Task description'),
-    context: z.array(z.string()).optional().describe('File paths for context'),
-  });
 
   async execute(
     params: DelegateToAgentParams,

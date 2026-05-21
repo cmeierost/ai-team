@@ -121,7 +121,7 @@ async function collectToolCandidates(
       for (const candidate of next) {
         candidates.push({
           ...candidate,
-          source: candidate.source ?? `tool:${tool.group ?? 'tool'}_${tool.key}`,
+          source: candidate.source ?? `tool:${tool.metadata.group ?? 'tool'}_${tool.metadata.key}`,
         });
       }
     } catch {

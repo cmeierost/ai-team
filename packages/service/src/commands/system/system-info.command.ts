@@ -3,16 +3,20 @@ import type {
   ISystemInfoService,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { SystemInfoResponse } from '@ai-team/api-contracts';
+export const SystemInfoCommandMetadata = {
+  key: 'systemInfo',
+  cli: { command: 'sysinfo' },
+  aliases: ['sys'],
+  description: 'Display system information about the workspace',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'system',
+} satisfies ICommandDescriptor;
 
 export class SystemInfoCommand implements ICommand<Record<string, never>, SystemInfoResponse> {
-  readonly key = 'systemInfo';
-  readonly cli = { command: 'sysinfo' };
-  readonly aliases = ['sys'];
-  readonly description = 'Display system information about the workspace';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'system';
+  readonly metadata = SystemInfoCommandMetadata;
 
   constructor(private readonly systemInfoService: ISystemInfoService) {}
 

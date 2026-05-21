@@ -11,6 +11,7 @@ import type {
   IConfigurationStorage,
   IEnvironmentStorage,
   IAvatarManager,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { AvatarOptions, QuestionSelectChoice } from '@ai-team/api-contracts';
 import type { IQuestionService } from '../../questions/question-service.js';
@@ -25,20 +26,24 @@ interface AvatarSource {
   prompt?: string;
   customUrl?: string;
 }
+const _avatarCommandSchema = z.object({
+  options: z.object({
+    agentQuery: z.string().describe('Agent id, name, or role query for avatar setup'),
+  }),
+});
+
+export const AvatarCommandMetadata = {
+  key: 'avatar',
+  cli: { command: 'avatar <agentQuery>' },
+  description: 'Generate or select an avatar image for an agent',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'hr',
+  parameters: _avatarCommandSchema,
+} satisfies ICommandDescriptor;
 
 export class AvatarCommand implements ICommand<Params, void> {
-  static readonly schema = z.object({
-    options: z.object({
-      agentQuery: z.string().describe('Agent id, name, or role query for avatar setup'),
-    }),
-  });
-
-  readonly key = 'avatar';
-  readonly cli = { command: 'avatar <agentQuery>' };
-  readonly description = 'Generate or select an avatar image for an agent';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'hr';
-  readonly parameters = AvatarCommand.schema;
+  static readonly schema = _avatarCommandSchema;
+  readonly metadata = AvatarCommandMetadata;
 
   constructor(
     private readonly workspaceRoot: string,

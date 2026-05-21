@@ -6,23 +6,28 @@ import type {
   IPermissionStorage,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { FilesPatternsResponse } from '@ai-team/api-contracts';
 
 type Params = z.infer<typeof FilesPatternsCommand.schema>;
+const _filesPatternsCommandSchema = z.object({
+  agent: z.string().optional().describe('Show patterns for a specific agent'),
+  json: z.boolean().optional().describe('Output as JSON'),
+});
+
+export const FilesPatternsCommandMetadata = {
+  key: 'filesPatterns',
+  cli: { command: 'patterns', parentKey: 'files' },
+  description: 'List configured file permission patterns (global or per-agent)',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'fs',
+  parameters: _filesPatternsCommandSchema,
+} satisfies ICommandDescriptor;
 
 export class FilesPatternsCommand implements ICommand<Params, FilesPatternsResponse> {
-  static readonly schema = z.object({
-    agent: z.string().optional().describe('Show patterns for a specific agent'),
-    json: z.boolean().optional().describe('Output as JSON'),
-  });
-
-  readonly key = 'filesPatterns';
-  readonly cli = { command: 'patterns', parentKey: 'files' };
-  readonly description = 'List configured file permission patterns (global or per-agent)';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'fs';
-  readonly parameters = FilesPatternsCommand.schema;
+  static readonly schema = _filesPatternsCommandSchema;
+  readonly metadata = FilesPatternsCommandMetadata;
 
   constructor(
     private readonly configStorage: IConfigurationStorage,

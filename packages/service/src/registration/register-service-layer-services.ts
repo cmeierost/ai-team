@@ -19,7 +19,7 @@ import type {
   IMcpGateway,
   ILlmSelector,
   IOutputHandler,
-  ICommand,
+  ICommandDescriptor,
   ISystemInfoService,
   ITeamGraphBuilder,
   IConfigurationStorage,
@@ -70,11 +70,33 @@ import {
   FindReferencesTool,
   LspTool,
   GrepCodeTool,
+  FindSymbolToolMetadata,
+  FindReferencesToolMetadata,
+  LspToolMetadata,
+  GrepCodeToolMetadata,
 } from '../commands/edit/code-tools.js';
-import { HttpFetchCommand } from '../commands/http/http-fetch.command.js';
-import { HttpCrawlCommand } from '../commands/http/http-crawl.command.js';
-import { CodeSearchTool } from '../commands/edit/codesearch-tool.js';
+import { HttpFetchCommand, HttpFetchCommandMetadata } from '../commands/http/http-fetch.command.js';
+import { HttpCrawlCommand, HttpCrawlCommandMetadata } from '../commands/http/http-crawl.command.js';
+import { CodeSearchTool, CodeSearchToolMetadata } from '../commands/edit/codesearch-tool.js';
 import { ApplyPatchTool, MultiEditTool, FsEditTool } from '../commands/fs/edit-tools.js';
+import { FsReadFileToolMetadata } from '../commands/fs/fs-read-file.tool.js';
+import { FsReadLinesToolMetadata } from '../commands/fs/fs-read-lines.tool.js';
+import { FsWriteFileToolMetadata } from '../commands/fs/fs-write-file.tool.js';
+import { FsCreateFileToolMetadata } from '../commands/fs/fs-create-file.tool.js';
+import { FsDeletePathToolMetadata } from '../commands/fs/fs-delete-path.tool.js';
+import { FsMkdirToolMetadata } from '../commands/fs/fs-mkdir.tool.js';
+import { FsExistsToolMetadata } from '../commands/fs/fs-exists.tool.js';
+import { FsInfoToolMetadata } from '../commands/fs/fs-info.tool.js';
+import { FsListToolMetadata } from '../commands/fs/fs-list.tool.js';
+import { FsTreeToolMetadata } from '../commands/fs/fs-tree.tool.js';
+import { FsSearchContentToolMetadata } from '../commands/fs/fs-search-content.tool.js';
+import { FsSearchMetadataToolMetadata } from '../commands/fs/fs-search-metadata.tool.js';
+import { WhoHasAccessToolMetadata } from '../commands/fs/who-has-access.tool.js';
+import { DoIHaveAccessToolMetadata } from '../commands/fs/do-i-have-access.tool.js';
+import { AnalyzePermissionOverlapToolMetadata } from '../commands/fs/analyze-permission-overlap.tool.js';
+import { FsEditToolMetadata } from '../commands/fs/fs-edit.tool.js';
+import { ApplyPatchToolMetadata } from '../commands/fs/apply-patch.tool.js';
+import { MultiEditToolMetadata } from '../commands/fs/multi-edit.tool.js';
 import { createOrchestrationTools } from '../tools/orchestration-tools.js';
 import { getWorkflowDefinitionResolvers } from '../workflow/index.js';
 import { NoOpCompressor } from '../orchestrator/defaults/context-compressor.js';
@@ -170,7 +192,6 @@ export interface ServiceLayerRegistrationTokens {
   McpGateway: IContainerToken<IMcpGateway>;
   LlmSelector: IContainerToken<ILlmSelector>;
   OutputHandler: IContainerToken<IOutputHandler>;
-  SlashCommands: IContainerToken<ICommand<any, any>[]>;
   TurnResultParsers: IContainerToken<any[]>;
   HookPlugins: IContainerToken<any>;
 
@@ -286,45 +307,142 @@ export function registerServiceLayerServices(
   // Register CommandRegistry with all built-in tools
   container.registerSingleton(COMMAND_FACTORY_TOKENS.CommandRegistry, (c) => {
     const registry = new CommandRegistry();
-    const workspaceRoot = c.resolve(tokens.WorkspaceRoot) as string;
-    const workspaceFsFactory = c.resolve(tokens.WorkspaceFsFactory);
     // File system tools
-    const fsReadFileTool = new FsReadFileTool(workspaceRoot, workspaceFsFactory);
-    const fsReadLinesTool = new FsReadLinesTool(fsReadFileTool);
-    registry.register(fsReadFileTool);
-    registry.register(fsReadLinesTool);
-    registry.register(new FsWriteFileTool(workspaceFsFactory));
-    registry.register(new FsCreateFileTool(workspaceFsFactory));
-    registry.register(new FsDeletePathTool(workspaceFsFactory));
-    registry.register(new FsMkdirTool(workspaceFsFactory));
-    registry.register(new FsExistsTool(workspaceFsFactory));
-    registry.register(new FsInfoTool(workspaceFsFactory));
-    registry.register(new FsListTool(workspaceFsFactory));
-    registry.register(new FsTreeTool(workspaceFsFactory));
-    registry.register(new FsSearchContentTool(workspaceRoot, workspaceFsFactory));
-    registry.register(new FsSearchMetadataTool(workspaceRoot, workspaceFsFactory));
-    // File system access tools
-    const accessChecker = c.resolve(tokens.PathPermissionChecker);
-    const accessAgentManager = c.resolve(tokens.AgentManager);
-    const ideAdapterFactory = c.resolve(tokens.IdeAdapterFactory);
-    registry.register(new WhoHasAccessTool(workspaceRoot, accessAgentManager, accessChecker));
-    registry.register(new DoIHaveAccessTool(workspaceRoot, accessAgentManager, accessChecker));
-    registry.register(new AnalyzePermissionOverlapTool(accessAgentManager));
-    // Code analysis and editing tools
-    registry.register(new FindSymbolTool(workspaceRoot, ideAdapterFactory));
-    registry.register(new FindReferencesTool(workspaceRoot, ideAdapterFactory));
-    registry.register(new LspTool(workspaceRoot, ideAdapterFactory));
-    registry.register(new GrepCodeTool());
-    // HTTP tools
-    registry.register(new HttpFetchCommand());
-    registry.register(new HttpCrawlCommand());
-    // Additional editing tools
-    registry.register(new CodeSearchTool());
-    const fsEditTool = new FsEditTool(workspaceRoot, accessChecker, ideAdapterFactory);
-    registry.register(fsEditTool);
-    registry.register(new ApplyPatchTool(workspaceRoot, accessChecker, ideAdapterFactory));
     registry.register(
-      new MultiEditTool(workspaceRoot, fsEditTool, accessChecker, ideAdapterFactory)
+      FsReadFileToolMetadata,
+      (r) =>
+        new FsReadFileTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.WorkspaceFsFactory))
+    );
+    registry.register(
+      FsReadLinesToolMetadata,
+      (r) =>
+        new FsReadLinesTool(
+          new FsReadFileTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.WorkspaceFsFactory))
+        )
+    );
+    registry.register(
+      FsWriteFileToolMetadata,
+      (r) => new FsWriteFileTool(r.resolve(tokens.WorkspaceFsFactory))
+    );
+    registry.register(
+      FsCreateFileToolMetadata,
+      (r) => new FsCreateFileTool(r.resolve(tokens.WorkspaceFsFactory))
+    );
+    registry.register(
+      FsDeletePathToolMetadata,
+      (r) => new FsDeletePathTool(r.resolve(tokens.WorkspaceFsFactory))
+    );
+    registry.register(
+      FsMkdirToolMetadata,
+      (r) => new FsMkdirTool(r.resolve(tokens.WorkspaceFsFactory))
+    );
+    registry.register(
+      FsExistsToolMetadata,
+      (r) => new FsExistsTool(r.resolve(tokens.WorkspaceFsFactory))
+    );
+    registry.register(
+      FsInfoToolMetadata,
+      (r) => new FsInfoTool(r.resolve(tokens.WorkspaceFsFactory))
+    );
+    registry.register(
+      FsListToolMetadata,
+      (r) => new FsListTool(r.resolve(tokens.WorkspaceFsFactory))
+    );
+    registry.register(
+      FsTreeToolMetadata,
+      (r) => new FsTreeTool(r.resolve(tokens.WorkspaceFsFactory))
+    );
+    registry.register(
+      FsSearchContentToolMetadata,
+      (r) =>
+        new FsSearchContentTool(
+          r.resolve(tokens.WorkspaceRoot),
+          r.resolve(tokens.WorkspaceFsFactory)
+        )
+    );
+    registry.register(
+      FsSearchMetadataToolMetadata,
+      (r) =>
+        new FsSearchMetadataTool(
+          r.resolve(tokens.WorkspaceRoot),
+          r.resolve(tokens.WorkspaceFsFactory)
+        )
+    );
+    // File system access tools
+    registry.register(
+      WhoHasAccessToolMetadata,
+      (r) =>
+        new WhoHasAccessTool(
+          r.resolve(tokens.WorkspaceRoot),
+          r.resolve(tokens.AgentManager),
+          r.resolve(tokens.PathPermissionChecker)
+        )
+    );
+    registry.register(
+      DoIHaveAccessToolMetadata,
+      (r) =>
+        new DoIHaveAccessTool(
+          r.resolve(tokens.WorkspaceRoot),
+          r.resolve(tokens.AgentManager),
+          r.resolve(tokens.PathPermissionChecker)
+        )
+    );
+    registry.register(
+      AnalyzePermissionOverlapToolMetadata,
+      (r) => new AnalyzePermissionOverlapTool(r.resolve(tokens.AgentManager))
+    );
+    // Code analysis and editing tools
+    registry.register(
+      FindSymbolToolMetadata,
+      (r) =>
+        new FindSymbolTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.IdeAdapterFactory))
+    );
+    registry.register(
+      FindReferencesToolMetadata,
+      (r) =>
+        new FindReferencesTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.IdeAdapterFactory))
+    );
+    registry.register(
+      LspToolMetadata,
+      (r) => new LspTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.IdeAdapterFactory))
+    );
+    registry.register(GrepCodeToolMetadata, (r) => new GrepCodeTool());
+    // HTTP tools
+    registry.register(HttpFetchCommandMetadata, (r) => new HttpFetchCommand());
+    registry.register(HttpCrawlCommandMetadata, (r) => new HttpCrawlCommand());
+    // Additional editing tools
+    registry.register(CodeSearchToolMetadata, (r) => new CodeSearchTool());
+    registry.register(
+      FsEditToolMetadata,
+      (r) =>
+        new FsEditTool(
+          r.resolve(tokens.WorkspaceRoot),
+          r.resolve(tokens.PathPermissionChecker),
+          r.resolve(tokens.IdeAdapterFactory)
+        )
+    );
+    registry.register(
+      ApplyPatchToolMetadata,
+      (r) =>
+        new ApplyPatchTool(
+          r.resolve(tokens.WorkspaceRoot),
+          r.resolve(tokens.PathPermissionChecker),
+          r.resolve(tokens.IdeAdapterFactory)
+        )
+    );
+    registry.register(
+      MultiEditToolMetadata,
+      (r) =>
+        new MultiEditTool(
+          r.resolve(tokens.WorkspaceRoot),
+          new FsEditTool(
+            r.resolve(tokens.WorkspaceRoot),
+            r.resolve(tokens.PathPermissionChecker),
+            r.resolve(tokens.IdeAdapterFactory)
+          ),
+          r.resolve(tokens.PathPermissionChecker),
+          r.resolve(tokens.IdeAdapterFactory)
+        )
     );
     return registry;
   });
@@ -346,10 +464,14 @@ export function registerServiceLayerServices(
           .map((t) => t.key);
       },
       async getWorkflowDefinition(workflowId: string) {
-        const tool = registry.get(`workflow_${workflowId}`) as
-          | { getDefinition?: () => unknown; availableIn?: { tool?: boolean } }
+        const meta = registry.get(`workflow_${workflowId}`);
+        if (!meta?.availableIn?.tool) {
+          throw new Error(`Workflow definition '${workflowId}' is not available.`);
+        }
+        const tool = registry.resolve(`workflow_${workflowId}`, c) as
+          | { getDefinition?: () => unknown }
           | undefined;
-        if (!tool?.availableIn?.tool || !tool?.getDefinition) {
+        if (!tool?.getDefinition) {
           throw new Error(`Workflow definition '${workflowId}' is not available.`);
         }
         return tool.getDefinition() as import('@ai-team/api-contracts').WorkflowDefinitionApiResponse;
@@ -367,7 +489,7 @@ export function registerServiceLayerServices(
       workflows: workflowCatalog,
       workflowResolvers,
     })) {
-      registry.register(tool);
+      registry.register(tool.metadata, (_r) => tool);
     }
 
     return manager;
@@ -407,9 +529,6 @@ export function registerServiceLayerServices(
     (c) => new DefaultLlmSelector(c.resolve(tokens.LlmService))
   );
   container.registerSingleton(tokens.OutputHandler, () => new DefaultOutputHandler());
-  container.registerSingleton(tokens.SlashCommands, (c) =>
-    new SlashCommandDispatcher(c.resolve(tokens.ToolManager) as any).list()
-  );
   container.registerSingleton(tokens.TurnResultParsers, (c) =>
     buildDefaultTurnResultParsers(c.resolve(tokens.AgentManager))
   );

@@ -1,14 +1,23 @@
-import type { ICommand, ILlmService, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ILlmService,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 import { parseContextArgs, summarizeMessage, type StoredMessage } from './context-utils.js';
+export const ContextAddChatCommandMetadata = {
+  key: 'context-add',
+  usage: '/context add [--message <id>] [--summarized [instruction]]',
+  description:
+    'Add a message back to LLM context, optionally replacing its content with a summary first',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class ContextAddChatCommand implements ICommand<string, string> {
-  readonly key = 'context-add';
-  readonly usage = '/context add [--message <id>] [--summarized [instruction]]';
-  readonly description =
-    'Add a message back to LLM context, optionally replacing its content with a summary first';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = ContextAddChatCommandMetadata;
 
   constructor(
     private readonly sessionManager: Pick<

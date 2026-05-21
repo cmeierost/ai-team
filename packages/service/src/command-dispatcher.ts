@@ -250,7 +250,7 @@ export class CommandDispatcher implements ICommandDispatcher {
   async dispatch<TCommand extends AnyICommand>(
     request: {
       requestId?: string;
-      command: TCommand['key'];
+      command: string;
       payload: CommandPayload<TCommand>;
     },
     context?: InteractionContext
@@ -296,7 +296,7 @@ export class CommandDispatcher implements ICommandDispatcher {
   ): Promise<TypedCommandResponse<TCommand>> {
     return this.dispatch<TCommand>(
       {
-        command: command.key,
+        command: command.metadata.key,
         payload,
       },
       context

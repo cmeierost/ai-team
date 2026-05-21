@@ -1,38 +1,52 @@
 import type {
   ICommand,
+  ICommandDescriptor,
   ICommandRegistry,
+  IServiceContainer,
   CommandAvailability,
   ILlmToolDefinition,
 } from '@ai-team/core';
 import { ZodSchemaTools } from './utils/zod-schema.js';
 
+type RegistryEntry = {
+  metadata: ICommandDescriptor;
+  factory: (resolver: IServiceContainer) => ICommand<unknown, unknown>;
+};
+
 /**
  * Concrete implementation of ICommandRegistry.
  *
- * Holds all registered commands and alias → canonical-key mappings.
+ * Stores (descriptor, factory) pairs. Commands are never instantiated at
+ * registration time — callers supply a resolver when they need an instance
+ * via `resolve()`. This enables lazy, scoped construction: each call site
+ * decides which DI scope the command should be created in.
+ *
  * Surface-agnostic: the registry does not care whether a command is a tool,
- * a slash command, or a CLI command — that is determined solely by
- * the `availableIn` flags on each ICommand.
+ * a slash command, or a CLI command — that is determined solely by the
+ * `availableIn` flags on each descriptor.
  */
 export class CommandRegistry implements ICommandRegistry {
-  private readonly commands = new Map<string, ICommand<unknown, unknown>>();
+  private readonly entries = new Map<string, RegistryEntry>();
   /** alias → canonical key */
   private readonly aliases = new Map<string, string>();
   private static readonly schemaTools = new ZodSchemaTools();
 
-  register(command: ICommand<unknown, unknown>): void {
-    const registryKey = CommandRegistry.getRegistryKey(command);
-    const toolAlias = CommandRegistry.getDerivedToolName(command);
-    const aliases = new Set(command.aliases ?? []);
+  register(
+    metadata: ICommandDescriptor,
+    factory: (resolver: IServiceContainer) => ICommand<unknown, unknown>
+  ): void {
+    const registryKey = CommandRegistry.getRegistryKey(metadata);
+    const toolAlias = CommandRegistry.getDerivedToolName(metadata);
+    const entryAliases = new Set(metadata.aliases ?? []);
     if (toolAlias && toolAlias !== registryKey) {
-      aliases.add(toolAlias);
+      entryAliases.add(toolAlias);
     }
 
-    if (this.commands.has(registryKey)) {
+    if (this.entries.has(registryKey)) {
       throw new Error(`Duplicate command key '${registryKey}' in CommandRegistry.`);
     }
 
-    for (const alias of aliases) {
+    for (const alias of entryAliases) {
       const existingAliasTarget = this.aliases.get(alias);
       if (existingAliasTarget && existingAliasTarget !== registryKey) {
         throw new Error(
@@ -40,71 +54,78 @@ export class CommandRegistry implements ICommandRegistry {
         );
       }
 
-      if (this.commands.has(alias) && alias !== registryKey) {
+      if (this.entries.has(alias) && alias !== registryKey) {
         throw new Error(
           `Command alias '${alias}' for '${registryKey}' conflicts with existing command key '${alias}'.`
         );
       }
     }
 
-    this.commands.set(registryKey, command);
-    for (const alias of aliases) {
+    this.entries.set(registryKey, { metadata, factory });
+    for (const alias of entryAliases) {
       this.aliases.set(alias, registryKey);
     }
   }
 
-  get(key: string): ICommand<unknown, unknown> | undefined {
+  get(key: string): ICommandDescriptor | undefined {
     const canonical = this.aliases.get(key) ?? key;
-    return this.commands.get(canonical);
+    return this.entries.get(canonical)?.metadata;
   }
 
   getAll(filter?: {
     availableIn?: Partial<CommandAvailability>;
     group?: string;
-  }): Array<ICommand<unknown, unknown>> {
-    const all = [...this.commands.values()];
+  }): ICommandDescriptor[] {
+    const all = [...this.entries.values()].map((e) => e.metadata);
     if (!filter) return all;
 
-    return all.filter((c) => {
-      if (filter.group !== undefined && c.group !== filter.group) return false;
+    return all.filter((d) => {
+      if (filter.group !== undefined && d.group !== filter.group) return false;
       const av = filter.availableIn;
       if (!av) return true;
-      if (av.cli && !c.availableIn.cli) return false;
-      if (av.chat && !c.availableIn.chat) return false;
-      if (av.cliChat && !c.availableIn.cliChat) return false;
-      if (av.tool && !c.availableIn.tool) return false;
+      if (av.cli && !d.availableIn.cli) return false;
+      if (av.chat && !d.availableIn.chat) return false;
+      if (av.cliChat && !d.availableIn.cliChat) return false;
+      if (av.tool && !d.availableIn.tool) return false;
       return true;
     });
+  }
+
+  resolve(key: string, resolver: IServiceContainer): ICommand<unknown, unknown> | undefined {
+    const canonical = this.aliases.get(key) ?? key;
+    const entry = this.entries.get(canonical);
+    if (!entry) return undefined;
+    return entry.factory(resolver);
   }
 
   toLlmToolDefinitions(): ILlmToolDefinition[] {
     const toolNameOwners = new Map<string, string>();
 
-    return this.getAll({ availableIn: { tool: true } }).map((c) => {
-      if (!c.group?.trim()) {
+    return this.getAll({ availableIn: { tool: true } }).map((d) => {
+      if (!d.group?.trim()) {
         throw new Error(
-          `Tool-exposed command '${c.key}' is missing group. Tool names must derive from group_snake_case.`
+          `Tool-exposed command '${d.key}' is missing group. Tool names must derive from group_snake_case.`
         );
       }
 
-      const derivedName = CommandRegistry.deriveLlmToolName(c.group, c.key);
+      const derivedName = CommandRegistry.deriveLlmToolName(d.group, d.key);
       const existingOwner = toolNameOwners.get(derivedName);
-      if (existingOwner && existingOwner !== c.key) {
+      if (existingOwner && existingOwner !== d.key) {
         throw new Error(
-          `Duplicate derived tool name '${derivedName}' from commands '${existingOwner}' and '${c.key}'.`
+          `Duplicate derived tool name '${derivedName}' from commands '${existingOwner}' and '${d.key}'.`
         );
       }
-      toolNameOwners.set(derivedName, c.key);
+      toolNameOwners.set(derivedName, d.key);
 
-      const schema = c.parameters
-        ? CommandRegistry.schemaTools.toJsonSchema(c.parameters)
+      const schema = d.parameters
+        ? CommandRegistry.schemaTools.toJsonSchema(d.parameters)
         : undefined;
 
       return {
         name: derivedName,
-        description: c.summary ?? c.description,
+        description: d.summary ?? d.description,
         parameters: schema,
-        group: c.group,
+        group: d.group,
       };
     });
   }
@@ -131,26 +152,26 @@ export class CommandRegistry implements ICommandRegistry {
     return `${normalizedGroup}_${normalizedKey}`;
   }
 
-  private static getDerivedToolName(command: ICommand<unknown, unknown>): string | undefined {
-    if (!command.availableIn?.tool) return undefined;
-    if (!command.group?.trim()) {
+  private static getDerivedToolName(d: ICommandDescriptor): string | undefined {
+    if (!d.availableIn?.tool) return undefined;
+    if (!d.group?.trim()) {
       throw new Error(
-        `Tool-exposed command '${command.key}' is missing group. Tool names must derive from group_snake_case.`
+        `Tool-exposed command '${d.key}' is missing group. Tool names must derive from group_snake_case.`
       );
     }
-    return CommandRegistry.deriveLlmToolName(command.group, command.key);
+    return CommandRegistry.deriveLlmToolName(d.group, d.key);
   }
 
-  private static isToolOnly(command: ICommand<unknown, unknown>): boolean {
-    const available = command.availableIn ?? {};
+  private static isToolOnly(d: ICommandDescriptor): boolean {
+    const available = d.availableIn ?? {};
     return Boolean(available.tool) && !available.chat && !available.cli && !available.cliChat;
   }
 
-  private static getRegistryKey(command: ICommand<unknown, unknown>): string {
-    const toolName = CommandRegistry.getDerivedToolName(command);
-    if (toolName && CommandRegistry.isToolOnly(command)) {
+  private static getRegistryKey(d: ICommandDescriptor): string {
+    const toolName = CommandRegistry.getDerivedToolName(d);
+    if (toolName && CommandRegistry.isToolOnly(d)) {
       return toolName;
     }
-    return command.key;
+    return d.key;
   }
 }

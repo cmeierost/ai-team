@@ -57,10 +57,10 @@ export class XStateChatOrchestrator {
   ) {
     this.toolDispatcher = toolDispatcher;
     this.handoffOrchestrator = handoffOrchestrator;
-    this.hooks = hooks ?? (ctx as any).hooks as ChatRuntimeHooks ?? {} as ChatRuntimeHooks;
-    this.agentManager = agentManager ?? (ctx as any).agentManager as IAgentManager;
-    this.sessionManager = sessionManager ?? (ctx as any).sessionManager as SessionManager;
-    this.llmService = llmService ?? (ctx as any).llmService as ILlmService;
+    this.hooks = hooks ?? ((ctx as any).hooks as ChatRuntimeHooks) ?? ({} as ChatRuntimeHooks);
+    this.agentManager = agentManager ?? ((ctx as any).agentManager as IAgentManager);
+    this.sessionManager = sessionManager ?? ((ctx as any).sessionManager as SessionManager);
+    this.llmService = llmService ?? ((ctx as any).llmService as ILlmService);
     this.serialization = serialization ?? new ToolSerializationService();
   }
 
@@ -231,7 +231,7 @@ export class XStateChatOrchestrator {
     const rawArgs = rest.join(' ');
 
     const command = this.plugins.slashCommands.find(
-      (c) => c.key === key || c.aliases?.includes(key)
+      (c) => c.metadata.key === key || c.metadata.aliases?.includes(key)
     );
 
     if (!command) {
@@ -308,16 +308,16 @@ export class XStateChatOrchestrator {
 
     try {
       const rawResult = await command.execute(rawArgs, this.ctx);
-      const executionResult = this.toCommandResponse(rawResult, command.key);
+      const executionResult = this.toCommandResponse(rawResult, command.metadata.key);
       return { executionResult, capturedEvents };
     } catch (error) {
       return {
         executionResult: {
           status: 'error',
-          message: `Command /${command.key} failed: ${this.toErrorMessage(error)}`,
+          message: `Command /${command.metadata.key} failed: ${this.toErrorMessage(error)}`,
           error: {
             code: 'slash_command_failed',
-            details: { command: command.key, args: rawArgs },
+            details: { command: command.metadata.key, args: rawArgs },
           },
         },
         capturedEvents,

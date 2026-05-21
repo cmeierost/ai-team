@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import type { ICommand, ExecutionContext, CommandResponse, IAgentDocumentStorage, IAgentManager } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  IAgentDocumentStorage,
+  IAgentManager,
+  ICommandDescriptor,
+} from '@ai-team/core';
 
 // ─── UpdateEmployeeLlm ────────────────────────────────────────────────────────
 
@@ -18,6 +25,13 @@ const updateEmployeeLlmSchema = z.object({
 });
 
 export type UpdateEmployeeLlmParams = z.infer<typeof updateEmployeeLlmSchema>;
+export const UpdateEmployeeLlmToolMetadata = {
+  key: 'update_llm',
+  group: 'hr',
+  availableIn: { tool: true },
+  description: "Update another employee's LLM profile (model, provider, and generation params).",
+  parameters: updateEmployeeLlmSchema,
+} satisfies ICommandDescriptor;
 
 export interface UpdateEmployeeLlmResult {
   employee: string;
@@ -29,18 +43,14 @@ export class UpdateEmployeeLlmTool implements ICommand<
   UpdateEmployeeLlmParams,
   UpdateEmployeeLlmResult
 > {
+  readonly metadata = UpdateEmployeeLlmToolMetadata;
+
   constructor(
     private readonly agentManager: IAgentManager,
     private readonly agentDocumentStorage: IAgentDocumentStorage
   ) {}
 
   readonly name = 'update_llm';
-  readonly key = 'update_llm';
-  readonly group = 'hr';
-  readonly availableIn = { tool: true };
-  readonly description =
-    "Update another employee's LLM profile (model, provider, and generation params).";
-  readonly parameters = updateEmployeeLlmSchema;
 
   async execute(
     params: UpdateEmployeeLlmParams,

@@ -262,11 +262,13 @@ async function loadPromptEntries(
 
 function buildSkillSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
   return {
-    key: entry.key,
-    usage: entry.usage,
-    description: entry.description,
-    availableIn: { chat: true, tool: false, cli: false },
-    group: 'chat',
+    metadata: {
+      key: entry.key,
+      usage: entry.usage,
+      description: entry.description,
+      availableIn: { chat: true, tool: false, cli: false },
+      group: 'chat',
+    },
     execute: async (_args, ctx) => {
       const relativeSkillPath = toWorkspaceRelative(ctx.workspaceRoot, entry.filePath);
       await (ctx as any).sessionManager.addSessionSkill(ctx.sessionId, relativeSkillPath);
@@ -294,11 +296,13 @@ function buildSkillSlashCommand(entry: DynamicSlashEntry): ICommand<string, unkn
 
 function buildPromptSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
   return {
-    key: entry.key,
-    usage: entry.usage,
-    description: entry.description,
-    availableIn: { chat: true, tool: false, cli: false },
-    group: 'chat',
+    metadata: {
+      key: entry.key,
+      usage: entry.usage,
+      description: entry.description,
+      availableIn: { chat: true, tool: false, cli: false },
+      group: 'chat',
+    },
     execute: async (_args, ctx) => {
       const header = `# Prompt: ${entry.name}`;
       const payload = [header, entry.instructions].filter(Boolean).join('\n\n').trim();
@@ -435,11 +439,13 @@ async function loadWorkflowEntries(
 
 function buildWorkflowSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
   return {
-    key: entry.key,
-    usage: entry.usage,
-    description: entry.description,
-    availableIn: { chat: true, tool: false, cli: false },
-    group: 'chat',
+    metadata: {
+      key: entry.key,
+      usage: entry.usage,
+      description: entry.description,
+      availableIn: { chat: true, tool: false, cli: false },
+      group: 'chat',
+    },
     execute: async (_args, ctx) => {
       const toolName = entry.name;
 

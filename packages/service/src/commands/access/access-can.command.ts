@@ -6,26 +6,31 @@ import type {
   IAgentManager,
   IPathPermissionChecker,
   Agent,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { checkPathRight, resolveWorkspacePathMeta } from '@ai-team/core';
 import type { DoIHavePermissionResponse } from '@ai-team/api-contracts';
 
 type Params = z.infer<typeof AccessCanCommand.schema>;
+const _accessCanCommandSchema = z.object({
+  path: z.string().describe('Path to evaluate'),
+  right: z.enum(['read', 'write', 'list']).default('list').describe('Right to evaluate'),
+  agent: z.string().optional().describe('Optional agent query override'),
+  json: z.boolean().optional().describe('Output as JSON'),
+});
+
+export const AccessCanCommandMetadata = {
+  key: 'accessCan',
+  cli: { command: 'can', parentKey: 'access' },
+  description: 'Check whether a context/agent can access a path for a right',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'access',
+  parameters: _accessCanCommandSchema,
+} satisfies ICommandDescriptor;
 
 export class AccessCanCommand implements ICommand<Params, DoIHavePermissionResponse> {
-  static readonly schema = z.object({
-    path: z.string().describe('Path to evaluate'),
-    right: z.enum(['read', 'write', 'list']).default('list').describe('Right to evaluate'),
-    agent: z.string().optional().describe('Optional agent query override'),
-    json: z.boolean().optional().describe('Output as JSON'),
-  });
-
-  readonly key = 'accessCan';
-  readonly cli = { command: 'can', parentKey: 'access' };
-  readonly description = 'Check whether a context/agent can access a path for a right';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'access';
-  readonly parameters = AccessCanCommand.schema;
+  static readonly schema = _accessCanCommandSchema;
+  readonly metadata = AccessCanCommandMetadata;
 
   constructor(
     private readonly workspaceRoot: string,

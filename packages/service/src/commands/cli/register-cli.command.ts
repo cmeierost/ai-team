@@ -5,6 +5,7 @@ import {
   type ICommand,
   type IAgentManager,
   type IAgentDocumentStorage,
+  ICommandDescriptor,
 } from '@ai-team/core';
 
 function normalizeExecutableName(command: string): string | undefined {
@@ -25,8 +26,24 @@ export interface RegisterCliResult {
   cliTools: string[];
   persisted: boolean;
 }
+export const RegisterCliToolMetadata = {
+  key: 'register_cli',
+  group: 'tool',
+  availableIn: { tool: true },
+  description:
+    'Allow this employee to run a command-line tool by executable name (e.g. git, pnpm, node).',
+  parameters: z.object({
+    command: z.string().min(1).describe('Executable name to allow (no args, e.g. git)'),
+    employee: z
+      .string()
+      .optional()
+      .describe('Optional target employee name/id/role (defaults to current agent)'),
+  }),
+} satisfies ICommandDescriptor;
 
 export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliResult> {
+  readonly metadata = RegisterCliToolMetadata;
+
   constructor(
     private readonly configurationStorage: {
       loadTeamConfigAsync(workspaceRoot: string): Promise<any>;
@@ -36,18 +53,6 @@ export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliR
   ) {}
 
   readonly name = 'register_cli';
-  readonly key = 'register_cli';
-  readonly group = 'tool';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Allow this employee to run a command-line tool by executable name (e.g. git, pnpm, node).';
-  readonly parameters = z.object({
-    command: z.string().min(1).describe('Executable name to allow (no args, e.g. git)'),
-    employee: z
-      .string()
-      .optional()
-      .describe('Optional target employee name/id/role (defaults to current agent)'),
-  });
 
   private async resolveTargetAgent(
     employee: string | undefined,

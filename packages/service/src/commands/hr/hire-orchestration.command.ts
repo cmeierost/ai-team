@@ -5,31 +5,34 @@ import {
   type HireResult,
   type ICommand,
   type CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { IAgentRegistry } from '../orchestration/orchestration.types.js';
 
 type Params = z.infer<typeof HireOrchestrationCommand.schema>;
+const _hireOrchestrationCommandSchema = z.object({
+  name: z.string().min(1).describe('Full name of the new team member'),
+  role: z.string().min(1).describe('Job role / title'),
+  specializations: z.array(z.string()).optional().describe('Areas of expertise'),
+  reportsTo: z.string().optional().describe('Agent ID of the direct manager'),
+});
+
+export const HireOrchestrationCommandMetadata = {
+  key: 'hire',
+  description:
+    'Create a new virtual team member with a defined role. Requires manage_agents permission.',
+  availableIn: { tool: true },
+  group: 'hr',
+  parameters: _hireOrchestrationCommandSchema,
+  permissionCheck: { type: 'manage-agents' as const },
+  tags: ['orchestration', 'hr'],
+} satisfies ICommandDescriptor;
 
 export class HireOrchestrationCommand implements ICommand<Params, HireResult> {
-  static readonly schema = z.object({
-    name: z.string().min(1).describe('Full name of the new team member'),
-    role: z.string().min(1).describe('Job role / title'),
-    specializations: z.array(z.string()).optional().describe('Areas of expertise'),
-    reportsTo: z.string().optional().describe('Agent ID of the direct manager'),
-  });
+  static readonly schema = _hireOrchestrationCommandSchema;
+  readonly metadata = HireOrchestrationCommandMetadata;
 
-  readonly key = 'hire';
-  readonly description =
-    'Create a new virtual team member with a defined role. Requires manage_agents permission.';
-  readonly availableIn = { tool: true };
-  readonly group = 'hr';
-  readonly parameters = HireOrchestrationCommand.schema;
-  readonly permissionCheck = { type: 'manage-agents' as const };
-  readonly tags = ['orchestration', 'hr'];
-
-  constructor(
-    private readonly agents: IAgentRegistry
-  ) {}
+  constructor(private readonly agents: IAgentRegistry) {}
 
   async execute(params: Params, ctx: ExecutionContext): Promise<CommandResponse<HireResult>> {
     const { name, role, specializations = [], reportsTo } = params;

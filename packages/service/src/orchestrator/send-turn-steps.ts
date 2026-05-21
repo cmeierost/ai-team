@@ -27,12 +27,12 @@ import type { SendTurnOptions } from './send-turn.js';
 function buildToolDefinitions(tools: ICommand[]): LlmToolDefinition[] {
   const schemaTools = new ZodSchemaTools();
   return tools.map((tool) => ({
-    name: ToolIdentity.key(tool),
-    description: tool.summary ?? tool.description,
-    parameters: tool.parameters
-      ? schemaTools.toJsonSchema(tool.parameters, { additionalProperties: true })
+    name: ToolIdentity.key(tool.metadata),
+    description: tool.metadata.summary ?? tool.metadata.description,
+    parameters: tool.metadata.parameters
+      ? schemaTools.toJsonSchema(tool.metadata.parameters, { additionalProperties: true })
       : undefined,
-    group: tool.group,
+    group: tool.metadata.group,
   }));
 }
 
@@ -47,15 +47,17 @@ function filterDiscoveredToolsForAgent(agent: Agent, discoveredTools: ICommand[]
     .filter(Boolean);
 
   return discoveredTools.filter((tool) => {
-    if (!tool.availableIn?.tool) {
+    if (!tool.metadata.availableIn?.tool) {
       return false;
     }
 
-    if (deniedSelectors.some((selector) => ToolIdentity.matchesSelector(selector, tool))) {
+    if (deniedSelectors.some((selector) => ToolIdentity.matchesSelector(selector, tool.metadata))) {
       return false;
     }
 
-    return allowedSelectors.some((selector) => ToolIdentity.matchesSelector(selector, tool));
+    return allowedSelectors.some((selector) =>
+      ToolIdentity.matchesSelector(selector, tool.metadata)
+    );
   });
 }
 

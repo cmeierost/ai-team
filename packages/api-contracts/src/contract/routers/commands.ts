@@ -1,9 +1,9 @@
 import type { ApiDescription } from '@ts-http/core';
-import type { ICommand } from '@ai-team/core';
+import type { ICommandDescriptor } from '@ai-team/core';
 
 /** Entry in the in-chat slash-command registry returned by `commands.list`. */
 export type ChatCommandRegistryEntry = Pick<
-  ICommand<unknown, unknown>,
+  ICommandDescriptor<unknown>,
   | 'key'
   | 'usage'
   | 'description'

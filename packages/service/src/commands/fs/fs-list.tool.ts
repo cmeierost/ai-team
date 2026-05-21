@@ -5,19 +5,23 @@ import type {
   ICommand,
   CommandResponse,
   IWorkspaceFsFactory,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { FsListParams, FsListResult } from './fs-tool-types.js';
-
-export class FsListTool implements ICommand<FsListParams, FsListResult> {
-  readonly name = 'list';
-  readonly key = 'list';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description = 'List directory entries with access checks.';
-  readonly parameters = z.object({
+export const FsListToolMetadata = {
+  key: 'list',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: 'List directory entries with access checks.',
+  parameters: z.object({
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
     includeHidden: z.boolean().optional().describe('Include hidden entries'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class FsListTool implements ICommand<FsListParams, FsListResult> {
+  readonly metadata = FsListToolMetadata;
+  readonly name = 'list';
 
   constructor(private readonly workspaceFsFactory: IWorkspaceFsFactory) {}
 

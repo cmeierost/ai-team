@@ -1,12 +1,20 @@
-import type { ICommand, CommandResponse, ExecutionContext } from '@ai-team/core';
+import type {
+  ICommand,
+  CommandResponse,
+  ExecutionContext,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
+export const SessionInfoChatCommandMetadata = {
+  key: 'session',
+  usage: '/session',
+  description: 'Show session info; subcommands: messages, graph, context',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class SessionInfoChatCommand implements ICommand<string, string> {
-  readonly key = 'session';
-  readonly usage = '/session';
-  readonly description = 'Show session info; subcommands: messages, graph, context';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = SessionInfoChatCommandMetadata;
 
   constructor(private readonly sessionManager: Pick<SessionManager, 'getSession'>) {}
 

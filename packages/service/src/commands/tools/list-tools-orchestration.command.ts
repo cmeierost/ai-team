@@ -4,6 +4,7 @@ import type {
   ToolCatalogResult,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 
 import type { ScoredPreLlmIntentCandidate } from '../../tools/pre-llm-intents.js';
@@ -22,20 +23,24 @@ export function matchesToolListPreLlmIntent(message: string): boolean {
 }
 
 type Params = z.infer<typeof ListToolsOrchestrationCommand.schema>;
+const _listToolsOrchestrationCommandSchema = z.object({
+  tag: z.string().optional().describe('Filter by tag (e.g. "file", "orchestration", "hr")'),
+});
+
+export const ListToolsOrchestrationCommandMetadata = {
+  key: 'list',
+  description:
+    'Show all tools currently available to you, including name, description, and parameters.',
+  availableIn: { tool: true },
+  group: 'tool',
+  parameters: _listToolsOrchestrationCommandSchema,
+  permissionCheck: { type: 'none' as const },
+  tags: ['orchestration'],
+} satisfies ICommandDescriptor;
 
 export class ListToolsOrchestrationCommand implements ICommand<Params, ToolCatalogResult> {
-  static readonly schema = z.object({
-    tag: z.string().optional().describe('Filter by tag (e.g. "file", "orchestration", "hr")'),
-  });
-
-  readonly key = 'list';
-  readonly description =
-    'Show all tools currently available to you, including name, description, and parameters.';
-  readonly availableIn = { tool: true };
-  readonly group = 'tool';
-  readonly parameters = ListToolsOrchestrationCommand.schema;
-  readonly permissionCheck = { type: 'none' as const };
-  readonly tags = ['orchestration'];
+  static readonly schema = _listToolsOrchestrationCommandSchema;
+  readonly metadata = ListToolsOrchestrationCommandMetadata;
 
   constructor(private readonly tools: IToolCatalog) {}
 

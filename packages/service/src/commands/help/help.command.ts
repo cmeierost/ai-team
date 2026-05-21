@@ -1,12 +1,23 @@
-import type { ICommand, CommandResponse, ExecutionContext } from '@ai-team/core';
+import type {
+  ICommand,
+  CommandResponse,
+  ExecutionContext,
+  ICommandDescriptor,
+} from '@ai-team/core';
 
-type RegistryEntry = Pick<ICommand, 'usage' | 'description' | 'key' | 'availableIn' | 'path'>;
+type RegistryEntry = Pick<
+  ICommandDescriptor,
+  'usage' | 'description' | 'key' | 'availableIn' | 'path'
+>;
+export const HelpChatCommandMetadata = {
+  key: 'help',
+  description: 'Show this help',
+  availableIn: { chat: true, tool: true },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class HelpChatCommand implements ICommand<string, string> {
-  readonly key = 'help';
-  readonly description = 'Show this help';
-  readonly availableIn = { chat: true, tool: true };
-  readonly group = 'chat';
+  readonly metadata = HelpChatCommandMetadata;
 
   constructor(private readonly getRegistry: () => RegistryEntry[]) {}
 

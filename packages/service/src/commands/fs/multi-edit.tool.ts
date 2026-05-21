@@ -6,6 +6,7 @@ import type {
   IPathPermissionChecker,
   IIdeAdapterFactory,
   LspProvider,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { resolveFsAbsolutePath, toFsPathAccessEnvelope } from './fs-access.js';
 import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
@@ -15,18 +16,16 @@ export interface MultiEditParams {
   filePath: string;
   edits: Array<{ oldString: string; newString: string; replaceAll?: boolean }>;
 }
-
-export class MultiEditTool implements ICommand<MultiEditParams, unknown> {
-  readonly name = 'multiedit';
-  readonly key = 'multiedit';
-  readonly group = 'edit';
-  readonly availableIn = { tool: true };
-  readonly description = [
+export const MultiEditToolMetadata = {
+  key: 'multiedit',
+  group: 'edit',
+  availableIn: { tool: true },
+  description: [
     'Apply multiple oldString→newString replacements to a single file in one call.',
     'Edits are applied sequentially; the file MUST have been read with read first.',
     'Stops on the first failed edit and returns partial results with the error index.',
-  ].join(' ');
-  readonly parameters = z.object({
+  ].join(' '),
+  parameters: z.object({
     filePath: z.string().describe('Relative or absolute path to the file to edit'),
     edits: z
       .array(
@@ -38,7 +37,12 @@ export class MultiEditTool implements ICommand<MultiEditParams, unknown> {
       )
       .min(1)
       .describe('Ordered list of edits to apply sequentially'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class MultiEditTool implements ICommand<MultiEditParams, unknown> {
+  readonly metadata = MultiEditToolMetadata;
+  readonly name = 'multiedit';
 
   constructor(
     private readonly workspaceRoot: string,

@@ -5,6 +5,7 @@
  */
 import type {
   ICommand,
+  ICommandDescriptor,
   IDeveloperIdentityService,
   IAgentManager,
   ILlmService,
@@ -16,9 +17,18 @@ import type { SessionManager } from '../../session-manager.js';
 import type { ChatCommandEmitter } from '../../orchestrator/chat-emitter.js';
 
 export type ChatCommandRegistryEntry = Pick<
-  ICommand<string, unknown>,
-  'key' | 'usage' | 'description' | 'aliases' | 'availableIn' | 'path' | 'help' | 'llm' |
-  'intents' | 'intentExamples' | 'input'
+  ICommandDescriptor<string>,
+  | 'key'
+  | 'usage'
+  | 'description'
+  | 'aliases'
+  | 'availableIn'
+  | 'path'
+  | 'help'
+  | 'llm'
+  | 'intents'
+  | 'intentExamples'
+  | 'input'
 >;
 
 export interface ChatCommandDependencyOptions {
@@ -27,10 +37,17 @@ export interface ChatCommandDependencyOptions {
   agentManager?: Pick<IAgentManager, 'getAgentAsync' | 'resolveAgentAsync'>;
   sessionManager?: Pick<
     SessionManager,
-    'createSession' | 'getSession' | 'getSessionChain' | 'getSessionMessages' |
-    'appendMessage' | 'listSessionMessages' | 'summarizeForContextAsync' |
-    'updateToolCallLlmResult' | 'updateMessageContent' | 'setMessageHiddenFromLlm' |
-    'getOrCreateLatestSession'
+    | 'createSession'
+    | 'getSession'
+    | 'getSessionChain'
+    | 'getSessionMessages'
+    | 'appendMessage'
+    | 'listSessionMessages'
+    | 'summarizeForContextAsync'
+    | 'updateToolCallLlmResult'
+    | 'updateMessageContent'
+    | 'setMessageHiddenFromLlm'
+    | 'getOrCreateLatestSession'
   >;
   llmService?: ILlmService;
   configurationStorage?: IConfigurationStorage;
@@ -55,8 +72,6 @@ export function buildChatCommandRegistry(
   return [];
 }
 
-export function buildChatCommandAliases(
-  _options?: ChatCommandListOptions
-): Record<string, string> {
+export function buildChatCommandAliases(_options?: ChatCommandListOptions): Record<string, string> {
   return {};
 }

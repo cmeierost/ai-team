@@ -1,4 +1,9 @@
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { z } from 'zod';
 import {
   applyHttpTextFilters,
@@ -12,16 +17,13 @@ import {
 } from './http-command-shared.js';
 
 export { type HttpCrawlParams, type HttpCrawlResult } from './http-command-shared.js';
-
-export class HttpCrawlCommand implements ICommand<HttpCrawlParams, HttpCrawlResult> {
-  readonly name = 'crawl';
-  readonly key = 'crawl';
-  readonly group = 'http';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Crawl links from a starting URL with depth/page limits and return filtered text chunks.';
-
-  readonly parameters = z.object({
+export const HttpCrawlCommandMetadata = {
+  key: 'crawl',
+  group: 'http',
+  availableIn: { tool: true },
+  description:
+    'Crawl links from a starting URL with depth/page limits and return filtered text chunks.',
+  parameters: z.object({
     url: z
       .string()
       .min(1)
@@ -91,7 +93,12 @@ export class HttpCrawlCommand implements ICommand<HttpCrawlParams, HttpCrawlResu
       .max(1000)
       .optional()
       .describe('Context window around regex matches'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class HttpCrawlCommand implements ICommand<HttpCrawlParams, HttpCrawlResult> {
+  readonly metadata = HttpCrawlCommandMetadata;
+  readonly name = 'crawl';
 
   formatForLlm(result: HttpCrawlResult): unknown {
     if (!result.crawled) return `${result.url}: crawling disabled (set crawlEnabled=true)`;

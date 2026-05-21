@@ -5,33 +5,38 @@ import type {
   Agent,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { IAgentRegistry, IToolCatalog } from '../orchestration/orchestration.types.js';
 
 type Params = z.infer<typeof WhoShouldCommand.schema>;
+const _whoShouldCommandSchema = z.object({
+  task: z.string().min(1).describe('Natural language description of the task'),
+  requiredTool: z
+    .string()
+    .optional()
+    .describe('Tool name that must be available (e.g. write_file)'),
+  requiredArgs: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('Arguments for requiredTool — used for permission checking'),
+});
+
+export const WhoShouldCommandMetadata = {
+  key: 'who_should',
+  description:
+    'Discover which team members are authorized to perform a specific action. ' +
+    'Call this before com_handoff to ensure you delegate to the right person.',
+  availableIn: { tool: true },
+  group: 'fs',
+  parameters: _whoShouldCommandSchema,
+  permissionCheck: { type: 'none' as const },
+  tags: ['orchestration'],
+} satisfies ICommandDescriptor;
 
 export class WhoShouldCommand implements ICommand<Params, FindCapableAgentResult> {
-  static readonly schema = z.object({
-    task: z.string().min(1).describe('Natural language description of the task'),
-    requiredTool: z
-      .string()
-      .optional()
-      .describe('Tool name that must be available (e.g. write_file)'),
-    requiredArgs: z
-      .record(z.string(), z.unknown())
-      .optional()
-      .describe('Arguments for requiredTool — used for permission checking'),
-  });
-
-  readonly key = 'who_should';
-  readonly description =
-    'Discover which team members are authorized to perform a specific action. ' +
-    'Call this before com_handoff to ensure you delegate to the right person.';
-  readonly availableIn = { tool: true };
-  readonly group = 'fs';
-  readonly parameters = WhoShouldCommand.schema;
-  readonly permissionCheck = { type: 'none' as const };
-  readonly tags = ['orchestration'];
+  static readonly schema = _whoShouldCommandSchema;
+  readonly metadata = WhoShouldCommandMetadata;
 
   constructor(
     private readonly agents: IAgentRegistry,

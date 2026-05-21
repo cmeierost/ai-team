@@ -60,8 +60,8 @@ export async function buildChatSlashCommands(
   const dispatcher = createCommandDispatcher(workspaceRoot, serviceContainer.child());
   const existingSlashKeys = new Set<string>();
   for (const command of [...staticSlashCommands, ...dynamicSlashCommands]) {
-    existingSlashKeys.add(command.key.toLowerCase());
-    for (const alias of command.aliases ?? []) {
+    existingSlashKeys.add(command.metadata.key.toLowerCase());
+    for (const alias of command.metadata.aliases ?? []) {
       existingSlashKeys.add(alias.toLowerCase());
     }
   }
@@ -70,23 +70,25 @@ export async function buildChatSlashCommands(
     .getCommands({ chat: true })
     .filter((entry) => !existingSlashKeys.has(entry.key.toLowerCase()))
     .map((entry) => ({
-      key: entry.key,
-      aliases: entry.aliases,
-      usage: entry.usage,
-      description: entry.description,
-      availableIn: { chat: true, tool: Boolean(entry.availableIn.tool), cli: false },
+      metadata: {
+        key: entry.key,
+        aliases: entry.aliases,
+        usage: entry.usage,
+        description: entry.description,
+        availableIn: { chat: true, tool: Boolean(entry.availableIn.tool), cli: false },
+      },
       execute: async (rawArgs: string) => {
         if (entry.key === 'help') {
           const help = new (await import('../help/help.command.js')).HelpChatCommand(() =>
             [...staticSlashCommands, ...dynamicSlashCommands, ...resolverSlashCommands].map(
               (command) => ({
-                key: command.key,
-                usage: command.usage,
-                description: command.description,
-                availableIn: command.availableIn,
-                path: dynamicSourceByKey.has(command.key)
-                  ? ['dynamic', dynamicSourceByKey.get(command.key) ?? 'dynamic']
-                  : command.path,
+                key: command.metadata.key,
+                usage: command.metadata.usage,
+                description: command.metadata.description,
+                availableIn: command.metadata.availableIn,
+                path: dynamicSourceByKey.has(command.metadata.key)
+                  ? ['dynamic', dynamicSourceByKey.get(command.metadata.key) ?? 'dynamic']
+                  : command.metadata.path,
               })
             )
           );

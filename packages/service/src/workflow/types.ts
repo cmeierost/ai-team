@@ -52,7 +52,7 @@ export type WorkflowStep<TState> = WorkflowCommandStep<TState> | WorkflowExecute
  * - `prepare`   maps command params to the initial workflow state (identity fallback).
  * - `toResult`  extracts the command result from the final state (full state fallback).
  */
-export interface WorkflowDefinition<TState> extends ICommandDescriptor {
+export interface WorkflowDefinition<TState> extends Omit<ICommandDescriptor, 'key'> {
   /** Serves as both workflow identifier and command key. */
   readonly id: string;
 

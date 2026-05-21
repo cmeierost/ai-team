@@ -1,18 +1,27 @@
 import { z } from 'zod';
-import type { ExecutionContext, ICommand, CommandResponse, IWorkspaceFsFactory } from '@ai-team/core';
+import type {
+  ExecutionContext,
+  ICommand,
+  CommandResponse,
+  IWorkspaceFsFactory,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { failed } from './fs-tools-helpers.js';
 import type { FsDeleteParams, FsDeleteResult } from './fs-tool-types.js';
-
-export class FsDeletePathTool implements ICommand<FsDeleteParams, FsDeleteResult> {
-  readonly name = 'delete_path';
-  readonly key = 'delete_path';
-  readonly group = 'fs';
-  readonly availableIn = { tool: true };
-  readonly description = 'Delete a file or directory through access checks.';
-  readonly parameters = z.object({
+export const FsDeletePathToolMetadata = {
+  key: 'delete_path',
+  group: 'fs',
+  availableIn: { tool: true },
+  description: 'Delete a file or directory through access checks.',
+  parameters: z.object({
     path: z.string().describe('Relative or absolute path'),
     recursive: z.boolean().optional().describe('Recursively delete directories'),
-  });
+  }),
+} satisfies ICommandDescriptor;
+
+export class FsDeletePathTool implements ICommand<FsDeleteParams, FsDeleteResult> {
+  readonly metadata = FsDeletePathToolMetadata;
+  readonly name = 'delete_path';
 
   constructor(private readonly workspaceFsFactory: IWorkspaceFsFactory) {}
 
@@ -38,4 +47,3 @@ export class FsDeletePathTool implements ICommand<FsDeleteParams, FsDeleteResult
     }
   }
 }
-

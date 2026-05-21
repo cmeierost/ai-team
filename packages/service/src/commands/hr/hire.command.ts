@@ -5,27 +5,32 @@ import type {
   IMarkdownSectionService,
   ExecutionContext,
   CommandResponse,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import { HireCommand as HireCommandImpl } from './hire.js';
 
 type Params = z.infer<typeof HireICommand.schema>;
+const _hireICommandSchema = z.object({
+  name: z.string().optional().describe('Employee name'),
+  role: z.string().optional().describe('Unique role name'),
+  skill: z.string().optional().describe('Skill from catalog'),
+  type: z.string().optional().describe('Role type'),
+  reportsTo: z.string().optional().describe('Manager employee ID'),
+  chat: z.boolean().optional().describe('Run onboarding chat phase'),
+});
+
+export const HireICommandMetadata = {
+  key: 'hire',
+  cli: { command: 'hire' },
+  description: 'Hire a new team member',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'hr',
+  parameters: _hireICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class HireICommand implements ICommand<Params, void> {
-  static readonly schema = z.object({
-    name: z.string().optional().describe('Employee name'),
-    role: z.string().optional().describe('Unique role name'),
-    skill: z.string().optional().describe('Skill from catalog'),
-    type: z.string().optional().describe('Role type'),
-    reportsTo: z.string().optional().describe('Manager employee ID'),
-    chat: z.boolean().optional().describe('Run onboarding chat phase'),
-  });
-
-  readonly key = 'hire';
-  readonly cli = { command: 'hire' };
-  readonly description = 'Hire a new team member';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'hr';
-  readonly parameters = HireICommand.schema;
+  static readonly schema = _hireICommandSchema;
+  readonly metadata = HireICommandMetadata;
 
   constructor(
     private readonly workspaceRoot: string,

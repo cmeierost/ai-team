@@ -8,7 +8,12 @@
  * with the `AI_TEAM_EXA_URL` environment variable.
  */
 import { z } from 'zod';
-import type { ExecutionContext, ICommand, CommandResponse } from '@ai-team/core';
+import type {
+  ExecutionContext,
+  ICommand,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +39,33 @@ const EXA_MAX_TOKENS = 50_000;
 function getExaBaseUrl(): string {
   return process.env.AI_TEAM_EXA_URL ?? 'https://mcp.exa.ai';
 }
+export const CodeSearchToolMetadata = {
+  key: 'codesearch',
+  group: 'search',
+  availableIn: { tool: true },
+  description:
+    'Search external libraries, APIs, and SDK documentation for code examples and reference material. ' +
+    'Use this when you need context about a third-party library, framework API, or programming concept ' +
+    'that is not part of the local codebase. Returns relevant code snippets and documentation.',
+  parameters: z.object({
+    query: z
+      .string()
+      .describe(
+        'Search query for APIs, libraries, or SDKs. ' +
+          "E.g. 'React useState hook examples', 'Express.js middleware', 'zod schema validation'."
+      ),
+    tokensNum: z
+      .number()
+      .int()
+      .min(EXA_MIN_TOKENS)
+      .max(EXA_MAX_TOKENS)
+      .default(EXA_DEFAULT_TOKENS)
+      .describe(
+        `Number of tokens to return (${EXA_MIN_TOKENS}–${EXA_MAX_TOKENS}). ` +
+          `Default ${EXA_DEFAULT_TOKENS}. Use lower values for focused queries, higher for comprehensive docs.`
+      ),
+  }),
+} satisfies ICommandDescriptor;
 
 // ─── SSE helpers ──────────────────────────────────────────────────────────────
 
@@ -64,33 +96,8 @@ function parseExaSseResult(body: string): string | null {
 // ─── Tool class ───────────────────────────────────────────────────────────────
 
 export class CodeSearchTool implements ICommand<CodeSearchParams, CodeSearchResult> {
+  readonly metadata = CodeSearchToolMetadata;
   readonly name = 'codesearch';
-  readonly key = 'codesearch';
-  readonly group = 'search';
-  readonly availableIn = { tool: true };
-  readonly description =
-    'Search external libraries, APIs, and SDK documentation for code examples and reference material. ' +
-    'Use this when you need context about a third-party library, framework API, or programming concept ' +
-    'that is not part of the local codebase. Returns relevant code snippets and documentation.';
-
-  readonly parameters = z.object({
-    query: z
-      .string()
-      .describe(
-        'Search query for APIs, libraries, or SDKs. ' +
-          "E.g. 'React useState hook examples', 'Express.js middleware', 'zod schema validation'."
-      ),
-    tokensNum: z
-      .number()
-      .int()
-      .min(EXA_MIN_TOKENS)
-      .max(EXA_MAX_TOKENS)
-      .default(EXA_DEFAULT_TOKENS)
-      .describe(
-        `Number of tokens to return (${EXA_MIN_TOKENS}–${EXA_MAX_TOKENS}). ` +
-          `Default ${EXA_DEFAULT_TOKENS}. Use lower values for focused queries, higher for comprehensive docs.`
-      ),
-  });
 
   formatForLlm(result: CodeSearchResult): unknown {
     if (result.error) return `codesearch error: ${result.error}`;
@@ -180,4 +187,3 @@ export class CodeSearchTool implements ICommand<CodeSearchParams, CodeSearchResu
     }
   }
 }
-

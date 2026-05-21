@@ -14,7 +14,7 @@
  * not here. No other file needs to change — Open/Closed.
  */
 
-import type { Agent, ICommand, IServiceContainer, IPathPermissionChecker } from '@ai-team/core';
+import type { Agent, IServiceContainer, IPathPermissionChecker } from '@ai-team/core';
 import { ToolManager } from './tool-manager.js';
 import { createOrchestrationTools } from './orchestration-tools.js';
 import { getWorkflowDefinitionResolvers } from '../workflow/index.js';
@@ -63,13 +63,17 @@ export function createToolManager(
         .map((t) => t.key);
     },
     async getWorkflowDefinition(workflowId: string) {
-      const tool = registry.get(`workflow_${workflowId}`);
-      const command = isToolCommand(tool) ? tool : undefined;
-      const definition = hasDefinition(tool) ? tool.getDefinition : undefined;
-      if (!command?.availableIn?.tool || !definition) {
+      const meta = registry.get(`workflow_${workflowId}`);
+      if (!meta?.availableIn?.tool) {
         throw new Error(`Workflow definition '${workflowId}' is not available.`);
       }
-      return definition() as import('@ai-team/api-contracts').WorkflowDefinitionApiResponse;
+      const tool = registry.resolve(`workflow_${workflowId}`, options.container) as
+        | { getDefinition?: () => unknown }
+        | undefined;
+      if (!tool?.getDefinition) {
+        throw new Error(`Workflow definition '${workflowId}' is not available.`);
+      }
+      return tool.getDefinition() as import('@ai-team/api-contracts').WorkflowDefinitionApiResponse;
     },
   };
 
@@ -84,18 +88,8 @@ export function createToolManager(
     workflows: workflowCatalog,
     workflowResolvers,
   })) {
-    registry.register(tool);
+    registry.register(tool.metadata, (_r) => tool);
   }
 
   return manager;
-}
-
-function isToolCommand(value: unknown): value is ICommand {
-  if (!value || typeof value !== 'object') return false;
-  return 'availableIn' in value;
-}
-
-function hasDefinition(value: unknown): value is { getDefinition: () => unknown } {
-  if (!value || typeof value !== 'object') return false;
-  return typeof (value as { getDefinition?: unknown }).getDefinition === 'function';
 }

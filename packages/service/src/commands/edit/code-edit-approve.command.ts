@@ -1,19 +1,29 @@
 import { z } from 'zod';
-import type { ICommand, ICodeEditManager, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ICodeEditManager,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import { ProposalStatus } from '@ai-team/core';
 
 type ApproveParams = z.infer<typeof CodeEditApproveCommand.schema>;
+const _codeEditApproveCommandSchema = z.object({
+  proposalId: z.string().describe('Proposal id to approve'),
+});
+
+export const CodeEditApproveCommandMetadata = {
+  key: 'codeEditApprove',
+  cli: { command: 'code-edit approve <proposalId>' },
+  description: 'Approve a code edit proposal',
+  availableIn: { cli: true, chat: true, tool: true },
+  parameters: _codeEditApproveCommandSchema,
+} satisfies ICommandDescriptor;
 
 export class CodeEditApproveCommand implements ICommand<ApproveParams, { proposalId: string }> {
-  static readonly schema = z.object({
-    proposalId: z.string().describe('Proposal id to approve'),
-  });
-
-  readonly key = 'codeEditApprove';
-  readonly cli = { command: 'code-edit approve <proposalId>' };
-  readonly description = 'Approve a code edit proposal';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly parameters = CodeEditApproveCommand.schema;
+  static readonly schema = _codeEditApproveCommandSchema;
+  readonly metadata = CodeEditApproveCommandMetadata;
 
   constructor(private readonly manager: ICodeEditManager) {}
 

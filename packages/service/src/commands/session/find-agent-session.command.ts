@@ -1,18 +1,28 @@
-import type { ICommand, CommandResponse, ChatMessage, ChatSession } from '@ai-team/core';
+import type {
+  ICommand,
+  CommandResponse,
+  ChatMessage,
+  ChatSession,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 
 export interface AgentSessionResult {
   session: ChatSession;
   history: ChatMessage[];
 }
+export const FindAgentSessionCommandMetadata = {
+  key: 'find-agent-session',
+  description: 'Find or create the latest session for a given agent',
+  availableIn: { chat: false, tool: false },
+  group: 'internal',
+} satisfies ICommandDescriptor;
 
-export class FindAgentSessionCommand
-  implements ICommand<{ agentId: string; developerId: string }, AgentSessionResult>
-{
-  readonly key = 'find-agent-session';
-  readonly description = 'Find or create the latest session for a given agent';
-  readonly availableIn = { chat: false, tool: false };
-  readonly group = 'internal';
+export class FindAgentSessionCommand implements ICommand<
+  { agentId: string; developerId: string },
+  AgentSessionResult
+> {
+  readonly metadata = FindAgentSessionCommandMetadata;
 
   constructor(
     private readonly sessionManager: Pick<

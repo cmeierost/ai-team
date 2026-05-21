@@ -1,4 +1,9 @@
-import type { ICommand, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 import type { StoredMessage } from './context-utils.js';
 
@@ -14,13 +19,16 @@ function formatMessageEntry(m: StoredMessage): string[] {
   const toolLines = (m.tool_calls ?? []).map((tc) => `    ↳ toolCall#${tc.id ?? '?'} ${tc.tool}`);
   return [header, preview, ...toolLines];
 }
+export const ContextListChatCommandMetadata = {
+  key: 'context-list',
+  usage: '/context list',
+  description: 'List all persisted messages with their LLM context visibility status',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class ContextListChatCommand implements ICommand<string, string> {
-  readonly key = 'context-list';
-  readonly usage = '/context list';
-  readonly description = 'List all persisted messages with their LLM context visibility status';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
+  readonly metadata = ContextListChatCommandMetadata;
 
   constructor(private readonly sessionManager: Pick<SessionManager, 'listSessionMessages'>) {}
 

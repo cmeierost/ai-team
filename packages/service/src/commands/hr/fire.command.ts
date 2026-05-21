@@ -1,31 +1,41 @@
 import fs from 'node:fs/promises';
 import { z } from 'zod';
 
-import type { ICommand, IAgentManager, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type {
+  ICommand,
+  IAgentManager,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
+} from '@ai-team/core';
 import type { FireOptions } from '@ai-team/api-contracts';
 import { WorkflowAbortError } from '../../workflow/types.js';
 import type { WorkflowDefinition } from '../../workflow/types.js';
 import type { IWorkflowRunnerFactory } from '../../workflow/runner.js';
 
 type Params = z.infer<typeof FireICommand.schema>;
+const _fireICommandSchema = z.object({
+  agentQuery: z.string().describe('Agent id, name, or role query'),
+  options: z
+    .object({
+      force: z.boolean().optional().describe('Do not prompt for confirmation'),
+    })
+    .optional()
+    .default({}),
+});
+
+export const FireICommandMetadata = {
+  key: 'fire',
+  cli: { command: 'fire <agent>' },
+  description: 'Fire (delete) an agent and remove their data',
+  availableIn: { cli: true, chat: true, tool: true },
+  group: 'hr',
+  parameters: _fireICommandSchema,
+} satisfies ICommandDescriptor;
 
 export class FireICommand implements ICommand<Params, void> {
-  static readonly schema = z.object({
-    agentQuery: z.string().describe('Agent id, name, or role query'),
-    options: z
-      .object({
-        force: z.boolean().optional().describe('Do not prompt for confirmation'),
-      })
-      .optional()
-      .default({}),
-  });
-
-  readonly key = 'fire';
-  readonly cli = { command: 'fire <agent>' };
-  readonly description = 'Fire (delete) an agent and remove their data';
-  readonly availableIn = { cli: true, chat: true, tool: true };
-  readonly group = 'hr';
-  readonly parameters = FireICommand.schema;
+  static readonly schema = _fireICommandSchema;
+  readonly metadata = FireICommandMetadata;
 
   constructor(
     private readonly agents: IAgentManager,

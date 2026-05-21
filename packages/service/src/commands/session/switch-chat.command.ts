@@ -5,17 +5,20 @@ import type {
   ICommand,
   CommandResponse,
   ExecutionContext,
+  ICommandDescriptor,
 } from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 import { FindAgentSessionCommand } from './find-agent-session.command.js';
+export const SwitchChatCommandMetadata = {
+  key: 'chat',
+  usage: '/chat <name|role>',
+  description: 'Switch to another team member',
+  availableIn: { chat: true, tool: false },
+  group: 'chat',
+} satisfies ICommandDescriptor;
 
 export class SwitchChatCommand implements ICommand<string, string> {
-  readonly key = 'chat';
-  readonly usage = '/chat <name|role>';
-  readonly description = 'Switch to another team member';
-  readonly availableIn = { chat: true, tool: false };
-  readonly group = 'chat';
-
+  readonly metadata = SwitchChatCommandMetadata;
   private readonly findAgentSession: FindAgentSessionCommand;
 
   constructor(
