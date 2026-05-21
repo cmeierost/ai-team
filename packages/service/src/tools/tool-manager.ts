@@ -148,7 +148,10 @@ export class ToolManager {
     return this.getAllDescriptors().filter((meta) => {
       if (deniedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta))) return false;
       const key = ToolIdentity.key(meta);
-      return ToolManager.DEFAULT_TOOLS.has(key) || allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta));
+      return (
+        ToolManager.DEFAULT_TOOLS.has(key) ||
+        allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta))
+      );
     });
   }
 
@@ -197,7 +200,10 @@ export class ToolManager {
     return this.resolveAll().filter((tool) => {
       if (deniedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata))) return false;
       const key = ToolIdentity.key(tool.metadata);
-      return ToolManager.DEFAULT_TOOLS.has(key) || allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata));
+      return (
+        ToolManager.DEFAULT_TOOLS.has(key) ||
+        allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata))
+      );
     });
   }
 

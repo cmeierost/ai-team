@@ -104,9 +104,7 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
       description: 'Start a chat session with an agent',
       llmCallable: false,
       directCli: true,
-      arguments: [
-        { syntax: '[employee-id]', description: 'Agent name, first name, ID, or role' },
-      ],
+      arguments: [{ syntax: '[employee-id]', description: 'Agent name, first name, ID, or role' }],
       options: [
         { flags: '-m, --message <text>', description: 'Send a single message (one-shot mode)' },
         { flags: '-s, --session-id <id>', description: 'Resume or continue a specific session' },

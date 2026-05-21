@@ -53,15 +53,9 @@ export function createOrchestrationCommands(
       resolver.resolve(COMMAND_FACTORY_TOKENS.SessionManager)
     ),
     new HireOrchestrationCommand(resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager)),
-    new WhoShouldCommand(
-      resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      dependencies.tools
-    ),
+    new WhoShouldCommand(resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager), dependencies.tools),
     new ListToolsOrchestrationCommand(dependencies.tools),
     new TeamListOrchestrationCommand(resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager)),
-    ...createWorkflowDefinitionCommands(
-      dependencies.workflows,
-      dependencies.workflowResolvers
-    ),
+    ...createWorkflowDefinitionCommands(dependencies.workflows, dependencies.workflowResolvers),
   ];
 }

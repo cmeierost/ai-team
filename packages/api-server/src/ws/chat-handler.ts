@@ -1,7 +1,5 @@
 import type { WebSocket } from 'ws';
-import type {
-  StreamEvent,
-} from '@ai-team/api-contracts';
+import type { StreamEvent } from '@ai-team/api-contracts';
 import type { IAgentManager, IdeAdapter, IServiceContainer } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/infrastructure';
 import { SessionManager, WsQuestionService } from '@ai-team/service';
