@@ -19,8 +19,7 @@ const _skillsRemoveCommandSchema = z.object({
 });
 
 export const SkillsRemoveCommandMetadata = {
-  key: 'skillsRemove',
-  cli: { command: 'remove', parentKey: 'skills' },
+  key: 'remove',
   description: 'Remove a skill from an agent',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'skills',

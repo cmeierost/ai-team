@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import type { ICommand, SessionSnapshot } from '@ai-team/core';
-import { toCommandRegistration, toLlmToolDefinition, toSlashCommand } from './command-adapters.js';
+import type { ICommand } from '@ai-team/core';
+import { toCommandRegistration, toLlmToolDefinition } from './command-adapters.js';
 
 describe('command-adapters runtime resolution', () => {
   it('resolves context parameters and workflow bindings before execution', async () => {
@@ -11,7 +11,6 @@ describe('command-adapters runtime resolution', () => {
       key: 'resolve_test',
       description: 'resolve test',
       availableIn: { cli: true },
-      cli: { command: 'resolve-test' },
       parameters: z.object({
         sessionId: z.string().optional(),
         target: z.object({ id: z.string().optional() }).optional(),
@@ -56,7 +55,6 @@ describe('command-adapters runtime resolution', () => {
       key: 'required_test',
       description: 'required test',
       availableIn: { cli: true },
-      cli: { command: 'required-test' },
       parameters: z.object({
         sessionId: z.string().optional(),
       }),
@@ -99,44 +97,3 @@ describe('command-adapters llm metadata', () => {
   });
 });
 
-describe('command-adapters slash context overrides', () => {
-  const baseContext: SessionSnapshot = {
-    agent: { id: 'agent-1', name: 'Agent One', role: 'role-1' },
-    sessionId: 'sess-1',
-    history: [],
-  };
-
-  it('allows human override for allowlisted context keys', async () => {
-    const cmd: ICommand<{ sessionId?: string }, { sessionId: string }> = {
-      key: 'who_test',
-      description: 'who test',
-      availableIn: { chat: true },
-      usage: '/who-test [json]',
-      parameters: z.object({ sessionId: z.string().optional() }),
-      input: { contextOverrideAllowlist: ['sessionId'] },
-      execute: async (_args, ctx) => ({ sessionId: ctx.sessionId }),
-    };
-
-    const slashCmd = toSlashCommand(cmd as ICommand<unknown, unknown>);
-    const result = await slashCmd.execute('{"sessionId":"sess-2"}', baseContext);
-
-    expect((result as any).data).toEqual({ sessionId: 'sess-2' });
-  });
-
-  it('ignores overrides for non-allowlisted keys', async () => {
-    const cmd: ICommand<{ sessionId?: string }, { sessionId: string }> = {
-      key: 'who_test_locked',
-      description: 'who test locked',
-      availableIn: { chat: true },
-      usage: '/who-test-locked [json]',
-      parameters: z.object({ sessionId: z.string().optional() }),
-      input: { contextOverrideAllowlist: ['workflow.continuationToken'] },
-      execute: async (_args, ctx) => ({ sessionId: ctx.sessionId }),
-    };
-
-    const slashCmd = toSlashCommand(cmd as ICommand<unknown, unknown>);
-    const result = await slashCmd.execute('{"sessionId":"sess-9"}', baseContext);
-
-    expect((result as any).data).toEqual({ sessionId: 'sess-1' });
-  });
-});

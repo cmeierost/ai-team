@@ -18,8 +18,7 @@ const schema = z.object({
 });
 
 export const AccessWhoCommandMetadata = {
-  key: 'accessWho',
-  cli: { command: 'who', parentKey: 'access' },
+  key: 'who',
   description: 'Show which contexts/agents can access a path for a right',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'access',

@@ -20,11 +20,11 @@ function formatMessageEntry(m: StoredMessage): string[] {
   return [header, preview, ...toolLines];
 }
 export const ContextListChatCommandMetadata = {
-  key: 'context-list',
+  key: 'list',
   usage: '/context list',
   description: 'List all persisted messages with their LLM context visibility status',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'context',
 } satisfies ICommandDescriptor;
 
 export class ContextListChatCommand implements ICommand<string, string> {

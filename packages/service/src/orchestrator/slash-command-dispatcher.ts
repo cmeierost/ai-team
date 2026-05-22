@@ -1,16 +1,7 @@
-import type {
-  ICommand,
-  ICommandDescriptor,
-  ICommandRegistry,
-  IServiceContainer,
-  ExecutionContext,
-} from '@ai-team/core';
+import type { ICommandDescriptor, ICommandRegistry, ExecutionContext } from '@ai-team/core';
 
 export class SlashCommandDispatcher {
-  constructor(
-    private readonly registry?: ICommandRegistry,
-    private readonly container?: IServiceContainer
-  ) {}
+  constructor(private readonly registry?: ICommandRegistry) {}
 
   /** Descriptors of all commands available in chat — no instance resolution. */
   list(): ICommandDescriptor[] {
@@ -20,7 +11,7 @@ export class SlashCommandDispatcher {
     return this.registry.getAll({ availableIn: { chat: true } });
   }
 
-  resolve(commandKey: string): ICommand<string, unknown> | undefined {
+  private resolve(commandKey: string) {
     if (!this.registry || typeof this.registry.get !== 'function') {
       return undefined;
     }
@@ -28,15 +19,22 @@ export class SlashCommandDispatcher {
     const key = commandKey.startsWith('/') ? commandKey.slice(1) : commandKey;
     const meta = this.registry.get(key);
     if (!meta?.availableIn?.chat) return undefined;
-    if (!this.container) return undefined;
-    return this.registry.resolve(key, this.container) as ICommand<string, unknown> | undefined;
+    // Chat-only command factories are lightweight and typically don't need DI.
+    // Production flows that require full DI use CommandDispatcher instead.
+    return this.registry.resolve(key, {} as any);
   }
 
   dispatch(commandKey: string, args: string, ctx: ExecutionContext) {
+    const key = commandKey.startsWith('/') ? commandKey.slice(1) : commandKey;
     const command = this.resolve(commandKey);
     if (!command) {
-      throw new Error(`Unknown slash command '${commandKey}'`);
+      return Promise.reject(new Error(`Unknown slash command '${key}'`));
     }
-    return command.execute(args, ctx);
+    const enrichedCtx: ExecutionContext = {
+      ...ctx,
+      invocationSurface: 'slash',
+      agentId: ctx.agent?.id ?? ctx.agentId,
+    };
+    return command.execute(args, enrichedCtx);
   }
 }

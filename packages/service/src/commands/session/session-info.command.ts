@@ -10,7 +10,6 @@ export const SessionInfoChatCommandMetadata = {
   usage: '/session',
   description: 'Show session info; subcommands: messages, graph, context',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
 } satisfies ICommandDescriptor;
 
 export class SessionInfoChatCommand implements ICommand<string, string> {

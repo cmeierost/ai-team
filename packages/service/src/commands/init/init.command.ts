@@ -17,10 +17,10 @@ const _initICommandSchema = z.object({
 
 export const InitICommandMetadata = {
   key: 'init',
-  cli: { command: 'init' },
   description: 'Initialize AI Team in current workspace',
   availableIn: { cli: true, chat: true },
   group: 'setup',
+  path: ['init'],
   parameters: _initICommandSchema,
 } satisfies ICommandDescriptor;
 

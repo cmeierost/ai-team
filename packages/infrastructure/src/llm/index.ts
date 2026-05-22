@@ -1292,6 +1292,28 @@ export function buildSystemPrompt(
   }
 
   parts.push('');
+  parts.push('## Tool Usage');
+  parts.push(
+    'You have tools available. Use them aggressively — do not guess or rely on memory when a tool can give you the answer.'
+  );
+  parts.push('Rules:');
+  parts.push(
+    '- When a task requires inspecting files, code, or the workspace, call the relevant tool immediately. Do not describe what you would do — do it.'
+  );
+  parts.push(
+    '- When you need information that a tool can retrieve (file contents, directory listing, symbol search, etc.), call the tool before responding.'
+  );
+  parts.push(
+    '- Prefer tool evidence over recalled knowledge. If you are unsure whether something is current, call a tool to verify.'
+  );
+  parts.push(
+    '- Chain tool calls when needed: run multiple tools in sequence to gather the full picture before composing your answer.'
+  );
+  parts.push(
+    '- Only fall back to answering from memory when no tool can provide the needed evidence.'
+  );
+
+  parts.push('');
   parts.push('## CLI Commands Available To The User');
   parts.push('The developer can run these in-chat commands:');
   parts.push('- chat <name|role>');

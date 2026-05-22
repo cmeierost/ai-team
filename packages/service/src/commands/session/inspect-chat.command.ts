@@ -37,7 +37,7 @@ export const InspectChatCommandMetadata = {
   usage: '/inspect [n]',
   description: 'Inspect raw tool-call results from this session (select from list)',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'session',
 } satisfies ICommandDescriptor;
 
 export class InspectChatCommand implements ICommand<string, string> {

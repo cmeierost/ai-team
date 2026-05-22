@@ -20,8 +20,17 @@ const serialization = new ToolSerializationService();
 const PRE_LLM_INTENT_PROVIDERS = [
   {
     resolveCandidates: (message: string) =>
-      /\b(file\s*tree|visible\s+file|visible\s+files|readable\s+file|readable\s+files)\b/i.test(message)
-        ? [{ kind: 'tool' as const, toolName: 'fs_tree', args: { path: '.', maxDepth: 6, includeHidden: true }, score: 100 }]
+      /\b(file\s*tree|visible\s+file|visible\s+files|readable\s+file|readable\s+files)\b/i.test(
+        message
+      )
+        ? [
+            {
+              kind: 'tool' as const,
+              toolName: 'fs_tree',
+              args: { path: '.', maxDepth: 6, includeHidden: true },
+              score: 100,
+            },
+          ]
         : [],
   },
   {
@@ -76,7 +85,11 @@ function makePlugins(): ResolvedPlugins {
     mcpGateway: { discover: vi.fn(async () => []) } as any,
     llmSelector: { select: vi.fn(async () => {}) } as any,
     outputHandler: { handle: vi.fn(async () => {}) } as any,
-    slashCommands: [],
+    commandDispatcher: {
+      dispatch: vi.fn(async () => ({ status: 'ok' as const, message: '' })),
+      getCommands: vi.fn(() => []),
+      getCommand: vi.fn(() => undefined),
+    },
     turnResultParsers: [],
     preLlmIntentProviders: PRE_LLM_INTENT_PROVIDERS as any,
   };

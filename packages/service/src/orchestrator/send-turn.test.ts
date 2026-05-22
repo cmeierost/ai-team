@@ -209,7 +209,11 @@ function makePlugins(): ResolvedPlugins {
     outputHandler: {
       handle: async (_result: any, _ctx: any) => {},
     } as any,
-    slashCommands: [],
+    commandDispatcher: {
+      dispatch: vi.fn(async () => ({ status: 'ok' as const, message: '' })),
+      getCommands: vi.fn(() => []),
+      getCommand: vi.fn(() => undefined),
+    },
     hookPlugins: buildDefaultHookPlugins(),
     turnResultParsers: buildDefaultTurnResultParsers(),
   };
@@ -583,7 +587,11 @@ function makePluginsWithTools(): ResolvedPlugins {
     mcpGateway: {} as any, // no discover → defensive wrapper returns []
     llmSelector: { select: vi.fn().mockResolvedValue(undefined) } as any,
     outputHandler: { handle: async () => {} } as any,
-    slashCommands: [],
+    commandDispatcher: {
+      dispatch: vi.fn(async () => ({ status: 'ok' as const, message: '' })),
+      getCommands: vi.fn(() => []),
+      getCommand: vi.fn(() => undefined),
+    },
     hookPlugins: buildDefaultHookPlugins(),
     turnResultParsers: [],
   };

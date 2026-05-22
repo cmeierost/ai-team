@@ -75,7 +75,11 @@ function makePlugins(): ResolvedPlugins {
     mcpGateway: { discover: vi.fn(async () => []) } as any,
     llmSelector: { select: vi.fn(async () => {}) } as any,
     outputHandler: { handle: vi.fn(async () => {}) } as any,
-    slashCommands: [],
+    commandDispatcher: {
+      dispatch: vi.fn(async () => ({ status: 'ok' as const, message: '' })),
+      getCommands: vi.fn(() => []),
+      getCommand: vi.fn(() => undefined),
+    },
     turnResultParsers: [],
   };
 }

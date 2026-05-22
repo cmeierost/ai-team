@@ -8,12 +8,12 @@ import type {
 import type { SessionManager } from '../../session-manager.js';
 import { parseContextArgs, summarizeMessage, type StoredMessage } from './context-utils.js';
 export const ContextAddChatCommandMetadata = {
-  key: 'context-add',
+  key: 'add',
   usage: '/context add [--message <id>] [--summarized [instruction]]',
   description:
     'Add a message back to LLM context, optionally replacing its content with a summary first',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'context',
 } satisfies ICommandDescriptor;
 
 export class ContextAddChatCommand implements ICommand<string, string> {

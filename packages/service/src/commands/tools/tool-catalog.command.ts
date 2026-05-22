@@ -28,7 +28,7 @@ const _listToolsOrchestrationCommandSchema = z.object({
 });
 
 export const ListToolsOrchestrationCommandMetadata = {
-  key: 'list',
+  key: 'catalog',
   description:
     'Show all tools currently available to you, including name, description, and parameters.',
   availableIn: { tool: true },

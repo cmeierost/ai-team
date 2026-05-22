@@ -10,10 +10,11 @@ vi.mock('../workflow/send-turn-machine.js', () => ({
 import { XStateChatOrchestrator } from './xstate-chat-orchestrator';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import type { ResolvedPlugins } from './pipeline.js';
-import type { CommandResponse } from '@ai-team/api-contracts';
+import type { CommandResponse, ICommandDispatcher } from '@ai-team/api-contracts';
 import { EmitService } from './services/emit-service.js';
 import { COMMAND_FACTORY_TOKENS } from '../types.js';
 import { setServiceContainer } from '../service-registry.js';
+import { ExecutionContext } from '@ai-team/core';
 
 type OrchestratorCtor = new (
   ctx: ExecutionContext,
@@ -64,7 +65,11 @@ function makePlugins(): ResolvedPlugins {
     mcpGateway: { discover: vi.fn(async () => []) } as any,
     llmSelector: { select: vi.fn(async () => {}) } as any,
     outputHandler: { handle: vi.fn(async () => {}) } as any,
-    slashCommands: [],
+    commandDispatcher: {
+      dispatch: vi.fn(async () => ({ status: 'ok' as const, message: '' })),
+      getCommands: vi.fn(() => []),
+      getCommand: vi.fn(() => undefined),
+    } as ICommandDispatcher,
     turnResultParsers: [],
   };
 }
@@ -92,15 +97,18 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
       (ctx.sessionManager as any) = { appendMessage };
 
       const plugins = makePlugins();
-      plugins.slashCommands = [
-        {
-          key: 'who',
-          description: 'whoami',
-          execute: vi.fn(async (_args: string, slashCtx: ExecutionContext) => {
-            slashCtx.hooks.emit?.({ kind: 'log', level: 'info', message: 'whoami result' } as any);
-          }),
-        } as any,
-      ];
+      plugins.commandDispatcher = {
+        dispatch: vi.fn(async (_key: string, _args: unknown, dispatchCtx: any) => {
+          dispatchCtx.hooks.emit?.({ kind: 'log', level: 'info', message: 'whoami result' } as any);
+          return { status: 'ok' as const, message: '' };
+        }),
+        getCommands: vi.fn(() => []),
+        getCommand: vi.fn((key: string) =>
+          key === 'who'
+            ? ({ key: 'who', description: 'whoami', availableIn: { chat: true } } as any)
+            : undefined
+        ),
+      };
 
       const orchestrator = new Orchestrator(ctx, plugins);
       const result = await orchestrator.run({ message: '/who' });
@@ -133,22 +141,25 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
 
       const promptText = 'You are a strict reviewer. Find edge cases.';
       const plugins = makePlugins();
-      plugins.slashCommands = [
-        {
-          key: 'prompt-review',
-          description: 'load prompt',
-          execute: vi.fn(
-            async (): Promise<CommandResponse> => ({
-              status: 'ok',
-              message: 'Loaded prompt "prompt-review".',
-              data: {
-                source: 'prompt',
-                promptText,
-              },
-            })
-          ),
-        } as any,
-      ];
+      plugins.commandDispatcher = {
+        dispatch: vi.fn(
+          async (): Promise<CommandResponse> => ({
+            status: 'ok',
+            message: 'Loaded prompt "prompt-review".',
+            data: { source: 'prompt', promptText },
+          })
+        ),
+        getCommands: vi.fn(() => []),
+        getCommand: vi.fn((key: string) =>
+          key === 'prompt-review'
+            ? ({
+                key: 'prompt-review',
+                description: 'load prompt',
+                availableIn: { chat: true },
+              } as any)
+            : undefined
+        ),
+      };
 
       const orchestrator = new Orchestrator(ctx, plugins);
       const result = await orchestrator.run({ message: '/prompt-review' });

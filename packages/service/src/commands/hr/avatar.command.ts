@@ -34,7 +34,6 @@ const _avatarCommandSchema = z.object({
 
 export const AvatarCommandMetadata = {
   key: 'avatar',
-  cli: { command: 'avatar <agentQuery>' },
   description: 'Generate or select an avatar image for an agent',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'hr',

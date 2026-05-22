@@ -42,14 +42,13 @@ import { DefaultLlmSelector } from '../../orchestrator/defaults/llm-selector.js'
 import { DefaultOutputHandler } from '../../orchestrator/defaults/output-handler.js';
 import { buildDefaultHookPlugins } from '../../orchestrator/defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from '../../orchestrator/defaults/turn-result-parsers.js';
-import { SlashCommandDispatcher } from '../../orchestrator/slash-command-dispatcher.js';
+import { createCommandDispatcher } from '../../command-dispatcher.js';
 import { ToolDispatcher } from '../../orchestrator/tool-dispatch.js';
 import { HandoffOrchestrator } from '../../orchestrator/handoff.js';
 import type { IInteractionService } from '../../questions/question-service.js';
 import { WorkflowIntentProvider } from '../../tools/workflow-intent-provider.js';
 import {
   buildDynamicSlashCatalog,
-  buildDynamicSlashCommands,
 } from '../../orchestrator/dynamic-slash/catalog.js';
 import { readDynamicSlashCatalogConfig } from '../../orchestrator/dynamic-slash/config.js';
 import type { ChatRuntimeHooks } from '../../orchestrator/hooks.js';
@@ -96,6 +95,7 @@ export interface ChatSessionExecutionDeps {
     | 'getSessionMessages'
     | 'createSession'
     | 'getLatestSession'
+    | 'listRecentSessions'
     | 'appendMessage'
     | 'setAutoTitleLlmService'
     | 'close'
@@ -581,16 +581,10 @@ export class ChatCommand {
       instructions,
     };
 
-    const registry = serviceContainer.resolve(COMMAND_FACTORY_TOKENS.CommandRegistry);
-    const staticSlashDescriptors = new SlashCommandDispatcher(registry).list();
-
-    const reservedSlashKeys = new Set<string>();
-    for (const desc of staticSlashDescriptors) {
-      reservedSlashKeys.add(desc.key.toLowerCase());
-      for (const alias of desc.aliases ?? []) {
-        reservedSlashKeys.add(alias.toLowerCase());
-      }
-    }
+    const commandDispatcher = createCommandDispatcher(workspaceRoot, serviceContainer);
+    const reservedSlashKeys = new Set(
+      commandDispatcher.getCommands({ chat: true }).flatMap((e) => [e.key, ...(e.aliases ?? [])])
+    );
 
     const dynamicSlashCatalog = await buildDynamicSlashCatalog({
       workspaceRoot,
@@ -605,6 +599,8 @@ export class ChatCommand {
       writeWarn(hooks, warning);
     }
 
+    commandDispatcher.registerDynamic(dynamicSlashCatalog.entries);
+
     const plugins: ResolvedPlugins = {
       compressor: new NoOpCompressor(),
       contextBuilder: new DefaultContextBuilder(),
@@ -617,12 +613,7 @@ export class ChatCommand {
       mcpGateway: new NoOpMcpGateway(),
       llmSelector: new DefaultLlmSelector(llm),
       outputHandler: new DefaultOutputHandler(),
-      slashCommands: [
-        ...staticSlashDescriptors
-          .map((desc) => registry.resolve(desc.key, serviceContainer))
-          .filter((cmd): cmd is ICommand<string, unknown> => cmd !== undefined),
-        ...buildDynamicSlashCommands(dynamicSlashCatalog.entries),
-      ],
+      commandDispatcher,
       turnResultParsers: buildDefaultTurnResultParsers(
         this.agentKnowledgeDeps.agentManager as IAgentManager
       ),

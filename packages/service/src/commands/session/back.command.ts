@@ -16,7 +16,7 @@ export const BackChatCommandMetadata = {
   key: 'back',
   description: 'Return to previous agent in handoff chain',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'session',
 } satisfies ICommandDescriptor;
 
 export class BackChatCommand implements ICommand<string, BackResult> {

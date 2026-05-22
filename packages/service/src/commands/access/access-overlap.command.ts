@@ -17,8 +17,7 @@ const schema = z.object({
 });
 
 export const AccessOverlapCommandMetadata = {
-  key: 'accessOverlap',
-  cli: { command: 'overlap', parentKey: 'access' },
+  key: 'overlap',
   description: 'Analyze overlap between agent .perm file responsibilities by right',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'access',

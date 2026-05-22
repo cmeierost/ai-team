@@ -260,7 +260,7 @@ async function loadPromptEntries(
   return entries;
 }
 
-function buildSkillSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
+export function buildSkillSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
   return {
     metadata: {
       key: entry.key,
@@ -294,7 +294,7 @@ function buildSkillSlashCommand(entry: DynamicSlashEntry): ICommand<string, unkn
   };
 }
 
-function buildPromptSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
+export function buildPromptSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
   return {
     metadata: {
       key: entry.key,
@@ -437,7 +437,7 @@ async function loadWorkflowEntries(
   return entries;
 }
 
-function buildWorkflowSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
+export function buildWorkflowSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
   return {
     metadata: {
       key: entry.key,

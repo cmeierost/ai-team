@@ -10,11 +10,11 @@ import type {
 import type { SessionManager } from '../../session-manager.js';
 import { FindAgentSessionCommand } from './find-agent-session.command.js';
 export const SwitchChatCommandMetadata = {
-  key: 'chat',
-  usage: '/chat <name|role>',
+  key: 'switch',
+  usage: 'switch <agent|role>',
   description: 'Switch to another team member',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'session',
 } satisfies ICommandDescriptor;
 
 export class SwitchChatCommand implements ICommand<string, string> {

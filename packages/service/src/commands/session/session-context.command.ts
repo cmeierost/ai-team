@@ -45,11 +45,11 @@ async function resolveModelInfo(
   return undefined;
 }
 export const SessionContextChatCommandMetadata = {
-  key: 'session-context',
+  key: 'context',
   usage: '/session context',
   description: 'Show context window usage estimate for the current session',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'session',
 } satisfies ICommandDescriptor;
 
 export class SessionContextChatCommand implements ICommand<string, string> {

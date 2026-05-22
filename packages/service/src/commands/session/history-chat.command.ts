@@ -9,7 +9,7 @@ export const HistoryChatCommandMetadata = {
   usage: '/history [n]',
   description: 'Show recent messages (default: 20)',
   availableIn: { chat: false, cliChat: true, tool: false },
-  group: 'chat',
+  group: 'session',
 } satisfies ICommandDescriptor;
 
 export class HistoryChatCommand implements ICommand<string, string> {

@@ -1,4 +1,5 @@
 import inquirer from 'inquirer';
+import chalk from 'chalk';
 import type {
   QuestionChecklistRequest,
   QuestionConfirmRequest,
@@ -7,6 +8,10 @@ import type {
   QuestionSelectRequest,
 } from '@ai-team/api-contracts';
 import type { IQuestionService } from '@ai-team/service';
+
+// Route all inquirer UI output to stderr so it is never captured by the
+// stdout patch that STDOUT_CAPTURE_SCOPE applies during command execution.
+const prompt = inquirer.createPromptModule({ output: process.stderr });
 
 export class InquirerQuestionService implements IQuestionService {
   private readTrimmedString(value: unknown): string {
@@ -68,19 +73,20 @@ export class InquirerQuestionService implements IQuestionService {
   }
 
   async input(request: QuestionInputRequest): Promise<string> {
-    const answer = await inquirer.prompt<{ value: string }>([
+    const answer = await prompt<{ value: string }>([
       {
         type: 'input',
         name: 'value',
         message: request.message,
         validate: request.validate,
+        transformer: (val: string) => chalk.white(val),
       },
     ]);
     return answer.value;
   }
 
   async confirm(request: QuestionConfirmRequest): Promise<boolean> {
-    const answer = await inquirer.prompt<{ value: boolean }>([
+    const answer = await prompt<{ value: boolean }>([
       {
         type: 'confirm',
         name: 'value',
@@ -98,7 +104,7 @@ export class InquirerQuestionService implements IQuestionService {
     }
 
     const defaultValue = typeof request.default === 'string' ? request.default : undefined;
-    const answer = await inquirer.prompt<{ value: string }>([
+    const answer = await prompt<{ value: string }>([
       {
         type: 'select',
         name: 'value',
@@ -111,7 +117,7 @@ export class InquirerQuestionService implements IQuestionService {
   }
 
   async password(request: QuestionPasswordRequest): Promise<string> {
-    const answer = await inquirer.prompt<{ value: string }>([
+    const answer = await prompt<{ value: string }>([
       {
         type: 'password',
         name: 'value',
@@ -128,7 +134,7 @@ export class InquirerQuestionService implements IQuestionService {
           (value): value is string => typeof value === 'string' && value.trim().length > 0
         )
       : undefined;
-    const answer = await inquirer.prompt<{ value: string[] }>([
+    const answer = await prompt<{ value: string[] }>([
       {
         type: 'checkbox',
         name: 'value',

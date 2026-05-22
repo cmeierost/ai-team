@@ -11,7 +11,7 @@ export const NewSessionChatCommandMetadata = {
   key: 'new',
   description: 'Start a new session with the current agent',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'session',
 } satisfies ICommandDescriptor;
 
 export class NewSessionChatCommand implements ICommand<string, string> {

@@ -25,12 +25,6 @@ export { serveApiCommand, type ServeApiOptions } from './commands/start/serve.js
 export { runUiCommand, type UiCommandOptions } from './commands/start/ui.js';
 export {
   COMMAND_FACTORY_TOKENS,
-  COMMAND_DEFINITION_REGISTRY_TOKEN,
-  createCommandDefinitionRegistry,
-  type AnyCommandDefinition,
-  type CommandDefinition,
-  type CommandDefinitionRegistry,
-  type CommandDefinitionSet,
 } from './types.js';
 
 // Interaction service (streaming interface for transports)
@@ -38,6 +32,10 @@ export { InteractionService, type IInteractionService } from './interaction-serv
 
 // Command dispatcher (unified command dispatch for CLI + chat + tools)
 export { CommandDispatcher, createCommandDispatcher } from './command-dispatcher.js';
+
+// Command registry utilities
+export { deriveRegistryKey } from './command-registry-impl.js';
+export { GROUP_REGISTRY, type GroupInfo } from './commands/groups.js';
 
 // Storage abstraction layer
 export type {

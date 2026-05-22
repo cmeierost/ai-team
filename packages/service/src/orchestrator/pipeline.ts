@@ -20,6 +20,7 @@ import type {
   StructuredToolResult,
   ExecutionContext,
 } from '@ai-team/core';
+import type { ICommandDispatcher } from '@ai-team/api-contracts';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import type { PreLlmIntentProvider } from '../tools/pre-llm-intents.js';
 
@@ -230,7 +231,7 @@ export interface IOrchestratorHookPlugin {
  * Full set of overridable pipeline stages passed to ChatOrchestrator.
  * All fields are optional — omitted stages use their default implementations.
  *
- * `enrichers` and `slashCommands` are additive arrays, merged with defaults.
+ * `enrichers` is an additive array, merged with defaults.
  * All other fields replace their default completely when provided.
  */
 export interface OrchestratorPlugins {
@@ -243,8 +244,8 @@ export interface OrchestratorPlugins {
   mcpGateway?: IMcpGateway;
   llmSelector?: ILlmSelector;
   outputHandler?: IOutputHandler;
-  /** Additional slash commands merged with the built-in set. */
-  slashCommands?: ICommand<string, unknown>[];
+  /** Slash command dispatcher — the single runtime for all /commands. */
+  commandDispatcher?: ICommandDispatcher;
   /** Turn-result parsers replacing the built-in set when provided. */
   turnResultParsers?: ITurnResultParser[];
   /** Hook plugins merged with the built-in set. */
@@ -267,7 +268,8 @@ export interface ResolvedPlugins {
   mcpGateway: IMcpGateway;
   llmSelector: ILlmSelector;
   outputHandler: IOutputHandler;
-  slashCommands: ICommand<string, unknown>[];
+  /** Slash command dispatcher — the single runtime for all /commands. */
+  commandDispatcher: ICommandDispatcher;
   turnResultParsers: ITurnResultParser[];
   /** Optional for backward compatibility in tests; default resolves to []. */
   hookPlugins?: IOrchestratorHookPlugin[];

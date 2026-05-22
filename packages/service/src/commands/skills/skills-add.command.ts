@@ -19,8 +19,7 @@ const _skillsAddCommandSchema = z.object({
 });
 
 export const SkillsAddCommandMetadata = {
-  key: 'skillsAdd',
-  cli: { command: 'add', parentKey: 'skills' },
+  key: 'add',
   description: 'Add a skill to an agent',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'skills',

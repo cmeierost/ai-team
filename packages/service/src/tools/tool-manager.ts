@@ -126,7 +126,7 @@ export class ToolManager {
   private resolveAll(): ICommand[] {
     return this.registry
       .getAll({ availableIn: { tool: true } })
-      .map((meta) => this.registry.resolve(meta.key, this.container))
+      .map((meta) => this.registry.resolve(ToolIdentity.key(meta), this.container))
       .filter((t): t is ICommand<unknown, unknown> => t !== undefined);
   }
 

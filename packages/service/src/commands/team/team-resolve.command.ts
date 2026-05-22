@@ -15,8 +15,7 @@ const _resolveEmployeesICommandSchema = z.object({
 });
 
 export const ResolveEmployeesICommandMetadata = {
-  key: 'resolveEmployees',
-  cli: { command: 'info <agent>' },
+  key: 'resolve',
   description: 'Show detailed information about an employee',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'team',

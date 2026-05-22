@@ -13,7 +13,7 @@ describe('TeamListICommand', () => {
 
   it('uses team-list key for single-source registration', () => {
     const cmd = new TeamListICommand(agentManager as any);
-    expect(cmd.key).toBe('team-list');
+    expect(cmd.key).toBe('list');
     expect(cmd.cli).toEqual({ command: 'list', parentKey: 'team' });
   });
 

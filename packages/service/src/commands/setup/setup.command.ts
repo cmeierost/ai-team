@@ -15,7 +15,6 @@ const _setupICommandSchema = z.object({
 
 export const SetupICommandMetadata = {
   key: 'setup',
-  cli: { command: 'setup' },
   description: 'Configure LLM provider connection',
   availableIn: { cli: true, chat: true },
   group: 'setup',

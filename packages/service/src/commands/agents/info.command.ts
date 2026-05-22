@@ -10,7 +10,7 @@ import { selectDefaultTopAgent } from '../../utils/agent-selection.js';
 import type { IInteractionService } from '../../questions/question-service.js';
 export const InfoChatCommandMetadata = {
   key: 'info',
-  usage: '/info [employee]',
+  usage: 'info [agent]',
   description: 'Get agent info (self when no argument, or named agent)',
   availableIn: { chat: true, tool: true, cli: true },
   group: 'chat',

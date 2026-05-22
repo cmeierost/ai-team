@@ -230,17 +230,15 @@ export class XStateChatOrchestrator {
     }
     const rawArgs = rest.join(' ');
 
-    const command = this.plugins.slashCommands.find(
-      (c) => c.metadata.key === key || c.metadata.aliases?.includes(key)
-    );
+    const descriptor = this.plugins.commandDispatcher.getCommand(key);
 
-    if (!command) {
+    if (!descriptor) {
       emitLog('warn', `Unknown command: /${key}. Try /help.`);
       return { kind: 'consumed', text: '' };
     }
 
     const { executionResult, capturedEvents } = await this.executeSlashCommandWithCapture(
-      command,
+      key,
       rawArgs
     );
 
@@ -281,8 +279,12 @@ export class XStateChatOrchestrator {
   private handleSlashExecutionResult(executionResult: CommandResponse | void): void {
     if (executionResult == null) return;
 
-    const level = executionResult.status === 'error' ? 'error' : 'info';
-    this.sendMessage(executionResult.message, level);
+    // Only emit a log when there is a non-empty message. Data-only results are
+    // already surfaced to the CLI via the tool event (emitSlashCommandResponseEvent).
+    if (executionResult.message) {
+      const level = executionResult.status === 'error' ? 'error' : 'info';
+      this.sendMessage(executionResult.message, level);
+    }
 
     const saveable = executionResult.saveable ?? executionResult.data ?? executionResult;
     this.lastManualOutput = this.serializeForStorage(saveable);
@@ -293,7 +295,7 @@ export class XStateChatOrchestrator {
   }
 
   private async executeSlashCommandWithCapture(
-    command: ResolvedPlugins['slashCommands'][number],
+    key: string,
     rawArgs: string
   ): Promise<{ executionResult: CommandResponse | void; capturedEvents: RuntimeStreamEvent[] }> {
     const capturedEvents: RuntimeStreamEvent[] = [];
@@ -307,21 +309,8 @@ export class XStateChatOrchestrator {
     }
 
     try {
-      const rawResult = await command.execute(rawArgs, this.ctx);
-      const executionResult = this.toCommandResponse(rawResult, command.metadata.key);
+      const executionResult = await this.plugins.commandDispatcher.dispatch(key, rawArgs, this.ctx);
       return { executionResult, capturedEvents };
-    } catch (error) {
-      return {
-        executionResult: {
-          status: 'error',
-          message: `Command /${command.metadata.key} failed: ${this.toErrorMessage(error)}`,
-          error: {
-            code: 'slash_command_failed',
-            details: { command: command.metadata.key, args: rawArgs },
-          },
-        },
-        capturedEvents,
-      };
     } finally {
       if (originalEmit) {
         this.hooks.emit = originalEmit;
@@ -397,7 +386,7 @@ export class XStateChatOrchestrator {
       kind: 'tool',
       toolName: `slash:${commandKey}`,
       toolPhase: executionResult.status === 'error' ? 'error' : 'result',
-      message: executionResult.message,
+      message: executionResult.message || this.getExecutionResultText(executionResult) || '',
       toolResult: {
         toolName: `slash:${commandKey}`,
         outcome: executionResult.status === 'error' ? 'error' : 'result',

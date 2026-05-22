@@ -14,8 +14,7 @@ const _graphCommandSchema = z.object({
 });
 
 export const GraphCommandMetadata = {
-  key: 'getTeamGraph',
-  cli: { command: 'graph' },
+  key: 'graph',
   description: 'Generate team graph',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'team',

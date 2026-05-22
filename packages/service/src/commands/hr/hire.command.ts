@@ -21,7 +21,6 @@ const _hireICommandSchema = z.object({
 
 export const HireICommandMetadata = {
   key: 'hire',
-  cli: { command: 'hire' },
   description: 'Hire a new team member',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'hr',

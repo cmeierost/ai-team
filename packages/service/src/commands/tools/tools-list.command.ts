@@ -15,8 +15,7 @@ const _toolsListCommandSchema = z.object({
 });
 
 export const ToolsListCommandMetadata = {
-  key: 'toolsList',
-  cli: { command: 'tools' },
+  key: 'list',
   description: 'List available tools and optionally annotate permissions for an agent',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'tool',

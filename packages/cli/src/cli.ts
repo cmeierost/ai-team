@@ -18,6 +18,8 @@ import {
 import { createQuestionResponders } from './handlers/question-responders.js';
 import { runCommandStream } from './handlers/stream-runner.js';
 import { registerCliResultHandlers } from './handlers/result-renderers.js';
+import type { ChatOptions } from '@ai-team/api-contracts';
+import { renderChat } from './handlers/chat.js';
 import { launchServer, launchServerWithUi } from './handlers/serve.js';
 import { launchUi } from './handlers/ui.js';
 import {
@@ -292,9 +294,82 @@ function createServiceCommandAction(config: ServiceCommandActionConfig): CliActi
 }
 
 const directCliActionHandlers: Record<string, CliActionHandler> = {
+  chat: (...args: unknown[]) => {
+    const opts = tryGetCommanderOptions(args) ?? {};
+    const agentId = args.find((a) => typeof a === 'string') as string | undefined;
+    const message = typeof opts.message === 'string' ? opts.message : undefined;
+    const chatOptions: ChatOptions = {
+      message,
+      oneShot: message !== undefined,
+      sessionId: typeof opts.sessionId === 'string' ? opts.sessionId : undefined,
+      createNewSession: opts.new === true,
+    };
+    return renderChat(commandClient, agentId, chatOptions, opts.mediatorLog === true);
+  },
   serve: (options) => launchServer(options, workspaceRoot),
   'serve.ui': (options) => launchServerWithUi(options, workspaceRoot),
   ui: (options) => launchUi(options, workspaceRoot),
+  help: (commandPath: unknown) => {
+    let parts: string[];
+    if (Array.isArray(commandPath)) {
+      parts = (commandPath as string[]).filter(Boolean);
+    } else if (typeof commandPath === 'string' && commandPath) {
+      parts = [commandPath];
+    } else {
+      parts = [];
+    }
+
+    const localExtras: Array<{
+      key: string;
+      description: string;
+      availableIn: { cli: boolean };
+    }> = [
+      {
+        key: 'chat',
+        description: 'Start a chat session with an agent',
+        availableIn: { cli: true },
+      },
+      {
+        key: 'serve',
+        description: 'Start API server (production mode)',
+        availableIn: { cli: true },
+      },
+      {
+        key: 'serve ui',
+        description: 'Start API server and launch UI',
+        availableIn: { cli: true },
+      },
+      {
+        key: 'ui',
+        description: 'Start UI dev server (starts API server if needed)',
+        availableIn: { cli: true },
+      },
+      {
+        key: 'help [command...]',
+        description: 'Show help (optionally for a command path)',
+        availableIn: { cli: true },
+      },
+    ];
+
+    if (parts.length === 0) {
+      return runCommandStream(
+        commandClient,
+        { command: 'system-help', payload: JSON.stringify({ extra: localExtras }) },
+        { executionContext: toCliExecutionContext([]) }
+      );
+    }
+
+    // Route through service to get Zod parameter descriptions.
+    // Pass localExtras so local-only entries (chat, serve, ui) are also findable.
+    return runCommandStream(
+      commandClient,
+      {
+        command: 'system-help',
+        payload: JSON.stringify({ filter: parts.join(' '), extra: localExtras }),
+      },
+      { executionContext: toCliExecutionContext([]) }
+    );
+  },
 };
 
 function registerDirectCliCommands(
@@ -344,5 +419,11 @@ function registerDirectCliCommands(
 
 program.name('ait').description('Manage virtual AI development teams').version('0.1.0');
 registerDirectCliCommands(program, CLI_COMMAND_REGISTRY, directCliActionHandlers);
+
+// Default: running `ait` with no subcommand is an alias for `ait init`
+const initEntry = CLI_COMMAND_REGISTRY.find((e) => e.key === 'init');
+if (initEntry) {
+  program.action(withCliErrorHandling(createDefaultRegistryAction(initEntry)));
+}
 
 program.parse();

@@ -1,14 +1,13 @@
 import type { CliCommandMetadata } from '@ai-team/core';
 import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
-import type { IServiceContainer } from '@ai-team/core';
 import {
   createCommandDispatcher,
+  deriveRegistryKey,
   findWorkspaceRoot,
-  IN_CHAT_COMMAND_ALIASES,
-  IN_CHAT_COMMAND_REGISTRY,
+  GROUP_REGISTRY,
 } from '@ai-team/service';
 import { createQuestionResponders } from '../handlers/question-responders.js';
-export { IN_CHAT_COMMAND_ALIASES, IN_CHAT_COMMAND_REGISTRY };
+export { IN_CHAT_COMMAND_ALIASES, IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
 
 const cliDispatchKeyByKey = new Map<string, string>();
 
@@ -60,17 +59,27 @@ function loadServiceCliCommandRegistry(): CliCommandMetadata[] {
   });
   const dispatcher = createCommandDispatcher(
     workspaceRoot,
-    container.child() as unknown as IServiceContainer
+    container.child() as unknown as import('@ai-team/core').IServiceContainer
   );
 
   return dispatcher.getCommands({ cli: true }).map((command) => {
-    const path = command.path?.filter(Boolean) ?? [];
-    const leaf = path.length > 0 ? path[path.length - 1] : undefined;
+    // Prefer explicit path; fall back to deriving from group + key
+    const rawPath = command.path?.filter(Boolean) ?? [];
+    let path: string[];
+    if (rawPath.length > 0) {
+      path = rawPath;
+    } else if (command.group) {
+      path = [command.group, command.key];
+    } else {
+      path = [command.key];
+    }
+    const leaf = path.at(-1)!;
     const usage = command.usage ?? command.key;
-    const alignedUsage = leaf ? alignUsageToLeaf(usage, leaf) : usage;
+    const alignedUsage = alignUsageToLeaf(usage, leaf);
+    const dispatchKey = deriveRegistryKey(command.group, command.key);
 
     return {
-      key: path.length > 0 ? path.join('.') : command.key,
+      key: path.join('.'),
       command: alignedUsage,
       parentKey: path.length > 1 ? path.slice(0, -1).join('.') : undefined,
       description: command.description,
@@ -81,13 +90,14 @@ function loadServiceCliCommandRegistry(): CliCommandMetadata[] {
       hints: command.help?.hints,
       examples: command.help?.examples?.map((example) => example.value),
       jsonSignature: command.input?.jsonSignature,
-    } as CliCommandMetadata;
+      _dispatchKey: dispatchKey,
+    } satisfies CliCommandMetadata & { _dispatchKey: string };
   });
 }
 
 function alignUsageToLeaf(usage: string, leaf: string): string {
   const parts = usage.trim().split(/\s+/);
-  const index = parts.findIndex((part) => part === leaf);
+  const index = parts.indexOf(leaf);
   if (index >= 0) {
     return parts.slice(index).join(' ');
   }
@@ -104,14 +114,25 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
       description: 'Start a chat session with an agent',
       llmCallable: false,
       directCli: true,
-      arguments: [{ syntax: '[employee-id]', description: 'Agent name, first name, ID, or role' }],
+      arguments: [{ syntax: '[agent-id]', description: 'Agent name, first name, ID, or role' }],
       options: [
         { flags: '-m, --message <text>', description: 'Send a single message (one-shot mode)' },
         { flags: '-s, --session-id <id>', description: 'Resume or continue a specific session' },
         { flags: '-n, --new', description: 'Force-create a new session instead of resuming' },
         { flags: '--mediator-log', description: 'Print mediator log to stderr (debug)' },
       ],
-      dispatchKey: 'chat',
+      dispatchKey: 'chat-chat',
+    },
+    {
+      key: 'help',
+      command: 'help [command...]',
+      description: 'Show grouped command help, or help for a specific command path',
+      llmCallable: false,
+      directCli: true,
+      arguments: [
+        { syntax: '[command...]', description: 'Command path to show help for (e.g. access can)' },
+      ],
+      dispatchKey: '',
     },
     {
       key: 'serve',
@@ -182,6 +203,7 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
   for (const raw of serviceEntries) {
     const normalized = normalizeCliRoute(raw.command, raw.parentKey);
     const key = deriveCliKey(normalized.command, normalized.parentKey);
+    const rawEntry = raw as CliCommandMetadata & { _dispatchKey?: string };
 
     upsert({
       ...raw,
@@ -189,7 +211,7 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
       command: normalized.command,
       parentKey: normalized.parentKey,
       directCli: true,
-      dispatchKey: raw.key,
+      dispatchKey: rawEntry._dispatchKey ?? raw.key,
     });
   }
 
@@ -203,7 +225,7 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
     }
 
     const parts = parentKey.split('.');
-    const command = parts[parts.length - 1];
+    const command = parts.at(-1)!;
     const parentOfParent = parts.length > 1 ? parts.slice(0, -1).join('.') : undefined;
 
     if (parentOfParent) {
@@ -214,14 +236,14 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
       key: parentKey,
       command,
       parentKey: parentOfParent,
-      description: `${command} commands`,
+      description: GROUP_REGISTRY[parentKey]?.description ?? `${command} commands`,
       llmCallable: false,
       directCli: true,
       dispatchKey: '',
     });
   };
 
-  for (const entry of [...merged.values()]) {
+  for (const entry of merged.values()) {
     if (entry.parentKey) {
       ensureSyntheticParent(entry.parentKey);
     }
@@ -234,7 +256,17 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
     }
   }
 
-  return orderedKeys
+  // Sort: parents first (no parentKey), then children — all alphabetically within their level
+  const sortedKeys = [...orderedKeys].sort((a, b) => {
+    const ea = merged.get(a)!;
+    const eb = merged.get(b)!;
+    const parentA = ea.parentKey ?? '';
+    const parentB = eb.parentKey ?? '';
+    if (parentA !== parentB) return parentA.localeCompare(parentB);
+    return (ea.command ?? a).localeCompare(eb.command ?? b);
+  });
+
+  return sortedKeys
     .map((key) => merged.get(key))
     .filter((entry): entry is ServiceCliEntry => Boolean(entry))
     .map(({ dispatchKey: _dispatchKey, ...entry }) => entry);

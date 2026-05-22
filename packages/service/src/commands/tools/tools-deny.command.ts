@@ -18,9 +18,7 @@ const _toolsDenyCommandSchema = z.object({
 });
 
 export const ToolsDenyCommandMetadata = {
-  key: 'toolsDeny',
-  aliases: ['remove'],
-  cli: { command: 'disallow', parentKey: 'tools' },
+  key: 'deny',
   description: 'Disallow a tool for an agent (governed)',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'tool',

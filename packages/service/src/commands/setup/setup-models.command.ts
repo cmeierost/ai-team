@@ -23,8 +23,7 @@ const _providerListICommandSchema = z.object({
 });
 
 export const ProviderListICommandMetadata = {
-  key: 'providerList',
-  cli: { command: 'list', parentKey: 'provider' },
+  key: 'list',
   description: 'List configured provider profiles',
   availableIn: { cli: true, chat: true },
   group: 'setup',
@@ -57,8 +56,7 @@ const _providerModelsICommandSchema = z.object({
 });
 
 export const ProviderModelsICommandMetadata = {
-  key: 'providerModels',
-  cli: { command: 'models', parentKey: 'provider' },
+  key: 'models',
   description: 'List model key dictionaries',
   availableIn: { cli: true, chat: true },
   group: 'setup',
@@ -90,8 +88,7 @@ const _providerModelsRefreshICommandSchema = z.object({
 });
 
 export const ProviderModelsRefreshICommandMetadata = {
-  key: 'providerModelsRefresh',
-  cli: { command: 'refresh', parentKey: 'provider.models' },
+  key: 'refresh',
   description: 'Refresh model dictionary from provider endpoint',
   availableIn: { cli: true, chat: true },
   group: 'setup',

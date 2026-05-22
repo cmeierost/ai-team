@@ -1,8 +1,7 @@
 import type { ICommand, IMessageStorage, CommandResponse, ICommandDescriptor } from '@ai-team/core';
 import type { DbMigrateResponse } from '@ai-team/api-contracts';
 export const DbMigrateCommandMetadata = {
-  key: 'dbMigrate',
-  cli: { command: 'db:migrate' },
+  key: 'migrate',
   description: 'Reset and initialize database schema (alpha)',
   availableIn: { cli: true },
   group: 'db',

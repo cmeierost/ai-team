@@ -19,7 +19,6 @@ import type {
   IMcpGateway,
   ILlmSelector,
   IOutputHandler,
-  ICommandDescriptor,
   ISystemInfoService,
   ITeamGraphBuilder,
   IConfigurationStorage,
@@ -97,6 +96,21 @@ import { FsEditToolMetadata } from '../commands/fs/fs-edit.tool.js';
 import { ApplyPatchToolMetadata } from '../commands/fs/apply-patch.tool.js';
 import { MultiEditToolMetadata } from '../commands/fs/multi-edit.tool.js';
 import { createOrchestrationTools } from '../tools/orchestration-tools.js';
+import {
+  DelegateToAgentCommand,
+  DelegateToAgentToolMetadata,
+} from '../commands/agents/delegate-to-agent.command.js';
+import {
+  UpdateEmployeeLlmTool,
+  UpdateEmployeeLlmToolMetadata,
+} from '../commands/agents/update-agent-llm.command.js';
+import { RegisterCliTool, RegisterCliToolMetadata } from '../commands/cli/register-cli.command.js';
+import {
+  SemanticSearchTool,
+  SemanticSearchToolMetadata,
+  GetErrorsTool,
+  GetErrorsToolMetadata,
+} from '../commands/edit/search-tools.js';
 import { getWorkflowDefinitionResolvers } from '../workflow/index.js';
 import { NoOpCompressor } from '../orchestrator/defaults/context-compressor.js';
 import { DefaultContextBuilder } from '../orchestrator/defaults/context-builder.js';
@@ -111,16 +125,11 @@ import { DefaultLlmSelector } from '../orchestrator/defaults/llm-selector.js';
 import { DefaultOutputHandler } from '../orchestrator/defaults/output-handler.js';
 import { buildDefaultHookPlugins } from '../orchestrator/defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from '../orchestrator/defaults/turn-result-parsers.js';
-import { SlashCommandDispatcher } from '../orchestrator/slash-command-dispatcher.js';
 import { EmitService } from '../orchestrator/services/emit-service.js';
 import { ToolSchemaService } from '../orchestrator/services/schema-service.js';
 import { ToolDispatchSupportService } from '../orchestrator/services/tool-dispatch-support-service.js';
 import { ToolSerializationService } from '../orchestrator/services/tool-serialization-service.js';
-import {
-  COMMAND_DEFINITION_REGISTRY_TOKEN,
-  COMMAND_FACTORY_TOKENS,
-  createCommandDefinitionRegistry,
-} from '../types.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
 import {
   InfoChatCommand,
   ChatCommand,
@@ -449,6 +458,36 @@ export function registerServiceLayerServices(
           r.resolve(tokens.IdeAdapterFactory)
         )
     );
+    registry.register(DelegateToAgentToolMetadata, (_r) => new DelegateToAgentCommand());
+    registry.register(
+      UpdateEmployeeLlmToolMetadata,
+      (r) =>
+        new UpdateEmployeeLlmTool(
+          r.resolve(tokens.AgentManager),
+          r.resolve(tokens.AgentDocumentStorage)
+        )
+    );
+    registry.register(
+      RegisterCliToolMetadata,
+      (r) =>
+        new RegisterCliTool(
+          r.resolve(tokens.ConfigurationStorage) as any,
+          r.resolve(tokens.AgentManager),
+          r.resolve(tokens.AgentDocumentStorage)
+        )
+    );
+    registry.register(
+      SemanticSearchToolMetadata,
+      (r) => new SemanticSearchTool(r.resolve(tokens.FileAnnotationService))
+    );
+    registry.register(
+      GetErrorsToolMetadata,
+      (r) =>
+        new GetErrorsTool(
+          r.resolve(tokens.WorkspaceRoot) as string,
+          r.resolve(tokens.IdeAdapterFactory)
+        )
+    );
     return registry;
   });
 
@@ -550,10 +589,6 @@ export function registerServiceLayerServices(
     buildDefaultTurnResultParsers(c.resolve(tokens.AgentManager))
   );
   container.registerSingleton(tokens.HookPlugins, () => buildDefaultHookPlugins());
-  container.registerSingleton(COMMAND_DEFINITION_REGISTRY_TOKEN, () =>
-    createCommandDefinitionRegistry()
-  );
-
   container.registerSingleton(
     tokens.SystemService,
     (c) =>

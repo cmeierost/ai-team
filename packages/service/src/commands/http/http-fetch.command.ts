@@ -17,12 +17,14 @@ import {
   type HttpFetchParams,
   type HttpFetchResult,
 } from './http-command-shared.js';
+import { parseUrlAndJsonOptions } from './http-chat-utils.js';
 
 export { type HttpFetchParams, type HttpFetchResult } from './http-command-shared.js';
 export const HttpFetchCommandMetadata = {
   key: 'fetch',
   group: 'http',
-  availableIn: { tool: true },
+  usage: '/fetch <url> [json-options]',
+  availableIn: { tool: true, chat: true, cli: true },
   description:
     'Fetch a URL and return filtered chunks (lines, regex/search, length) for safe LLM context usage.',
   parameters: z.object({
@@ -88,7 +90,7 @@ export const HttpFetchCommandMetadata = {
   }),
 } satisfies ICommandDescriptor;
 
-export class HttpFetchCommand implements ICommand<HttpFetchParams, HttpFetchResult> {
+export class HttpFetchCommand implements ICommand<HttpFetchParams | string, HttpFetchResult> {
   readonly metadata = HttpFetchCommandMetadata;
   readonly name = 'fetch';
 
@@ -99,15 +101,37 @@ export class HttpFetchCommand implements ICommand<HttpFetchParams, HttpFetchResu
   }
 
   async execute(
-    params: HttpFetchParams,
+    params: HttpFetchParams | string,
     _context: ExecutionContext
   ): Promise<CommandResponse<HttpFetchResult>> {
+    let fetchParams: HttpFetchParams;
+    let isChatInvoke = false;
+    if (typeof params === 'string') {
+      isChatInvoke = true;
+      const parsed = parseUrlAndJsonOptions(params);
+      if (parsed.error === 'missing-url') {
+        return { status: 'error', message: `Usage: ${this.metadata.usage}` };
+      }
+      if (parsed.error === 'json-object-required') {
+        return {
+          status: 'error',
+          message: 'JSON args must be an object, e.g. {"timeoutMs":12000}.',
+        };
+      }
+      if (parsed.error) {
+        return { status: 'error', message: parsed.error };
+      }
+      fetchParams = { url: parsed.url!, ...parsed.options };
+    } else {
+      fetchParams = params;
+    }
+
     const {
       url,
       timeoutMs = HTTP_DEFAULT_TIMEOUT_MS,
       includeLinks = true,
       ...filterOptions
-    } = params;
+    } = fetchParams;
 
     const boundedTimeout = clampNumber(timeoutMs, 500, HTTP_MAX_TIMEOUT_MS);
     const fetched = await fetchUrlText(url, boundedTimeout);
@@ -117,23 +141,31 @@ export class HttpFetchCommand implements ICommand<HttpFetchParams, HttpFetchResu
         ? extractLinksFromHtml(fetched.rawHtml, fetched.finalUrl)
         : [];
 
-    return {
-      status: 'ok',
-      data: {
-        url,
-        finalUrl: fetched.finalUrl,
-        status: fetched.status,
-        ok: fetched.ok,
-        contentType: fetched.contentType,
-        lineCount: processed.lineCount,
-        charCount: processed.charCount,
-        chunks: processed.chunks,
-        filtersApplied: processed.filtersApplied,
-        regexMatchCount: processed.regexMatchCount,
-        truncated: processed.truncated || fetched.bodyText.length >= HTTP_MAX_TEXT_BYTES,
-        links,
-        linkCount: links.length,
-      },
+    const data: HttpFetchResult = {
+      url,
+      finalUrl: fetched.finalUrl,
+      status: fetched.status,
+      ok: fetched.ok,
+      contentType: fetched.contentType,
+      lineCount: processed.lineCount,
+      charCount: processed.charCount,
+      chunks: processed.chunks,
+      filtersApplied: processed.filtersApplied,
+      regexMatchCount: processed.regexMatchCount,
+      truncated: processed.truncated || fetched.bodyText.length >= HTTP_MAX_TEXT_BYTES,
+      links,
+      linkCount: links.length,
     };
+
+    if (isChatInvoke) {
+      const formatted = this.formatForLlm(data) as string;
+      return {
+        status: 'ok',
+        message: `\n${formatted}\n\n(Result not in context — use /context add to include it.)`,
+        data,
+      };
+    }
+
+    return { status: 'ok', data };
   }
 }

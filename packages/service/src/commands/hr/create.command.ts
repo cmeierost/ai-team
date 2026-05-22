@@ -20,7 +20,6 @@ const _createICommandSchema = z.object({
 
 export const CreateICommandMetadata = {
   key: 'create',
-  cli: { command: 'create <type>' },
   description: 'Create a new entity (agent or skill)',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'hr',

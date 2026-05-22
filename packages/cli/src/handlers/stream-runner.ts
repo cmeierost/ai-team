@@ -1,4 +1,5 @@
 import type { InteractionRequest } from '@ai-team/api-contracts';
+import { isCommandResponse } from '@ai-team/api-contracts';
 import type { ExecutionContext, IServiceContainer } from '@ai-team/core';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { exec } from 'node:child_process';
@@ -139,17 +140,29 @@ export async function runCommandStream(
           continue;
         }
 
+        // Registered renderers expect the inner payload (TData), not the
+        // CommandResponse wrapper. Unwrap it when present.
+        const innerData = isCommandResponse(resultData) ? resultData.data : resultData;
+
+        if (innerData === undefined) {
+          continue;
+        }
+
         const resultHandlerRegistry = options.serviceContainer?.tryResolve(
           CLI_RESULT_HANDLER_REGISTRY_TOKEN
         ) as ICliResultHandlerRegistry | undefined;
         const resultHandler = resultHandlerRegistry?.resolve(request.command);
 
         if (resultHandler) {
-          await resultHandler(resultData, options.rendererOptions);
+          await resultHandler(innerData, options.rendererOptions);
           continue;
         }
 
-        process.stdout.write(`${JSON.stringify(resultData, null, 2)}\n`);
+        if (typeof innerData === 'string') {
+          process.stdout.write(`${innerData}\n`);
+        } else {
+          process.stdout.write(`${JSON.stringify(innerData, null, 2)}\n`);
+        }
         continue;
       }
 

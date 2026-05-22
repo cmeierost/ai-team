@@ -5,11 +5,11 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 export const SessionMessagesChatCommandMetadata = {
-  key: 'session-messages',
+  key: 'messages',
   usage: '/session messages',
   description: 'List all messages in the current session',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'session',
 } satisfies ICommandDescriptor;
 
 export class SessionMessagesChatCommand implements ICommand<string, string> {

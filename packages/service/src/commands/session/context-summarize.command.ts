@@ -8,11 +8,11 @@ import type {
 import type { SessionManager } from '../../session-manager.js';
 import { parseContextArgs, summarizeMessage, type StoredMessage } from './context-utils.js';
 export const ContextSummarizeChatCommandMetadata = {
-  key: 'context-summarize',
+  key: 'summarize',
   usage: '/context summarize [--message <id>] [--instruction <text>]',
   description: 'Summarize a message and replace its content in the LLM context',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'context',
 } satisfies ICommandDescriptor;
 
 export class ContextSummarizeChatCommand implements ICommand<string, string> {

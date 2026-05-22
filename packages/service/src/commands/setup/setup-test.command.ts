@@ -23,8 +23,7 @@ const _testConnectionICommandSchema = z.object({
 });
 
 export const TestConnectionICommandMetadata = {
-  key: 'testConnection',
-  cli: { command: 'test-connection' },
+  key: 'test',
   description: 'Test LLM provider/model connectivity',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'setup',

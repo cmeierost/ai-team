@@ -207,16 +207,16 @@ export interface ICommandDescriptor<TParams = unknown> {
   /** Optional path segments used as canonical command path across surfaces. */
   readonly path?: string[];
 
+  /**
+   * Surface-neutral argument pattern shown in help and error messages.
+   * Use only the argument tokens — no surface prefix (no leading `/`, `ait`, or command name).
+   * Example: `<url> [json-options]`, `<agent>`, `[n]`.
+   * The display prefix (`/group key` or `ait group key`) is added by the adapter.
+   */
   readonly usage?: string;
 
   /** Logical group (e.g. 'fs', 'hr', 'team', 'session'). */
   readonly group?: string;
-
-  /**
-   * CLI routing info. Required when availableIn.cli = true.
-   * `command` is the Commander word (e.g. 'can'); `parentKey` places it under a sub-group (e.g. 'access').
-   */
-  readonly cli?: { command: string; parentKey?: string };
 
   /**
    * Zod schema for the command's parameters.

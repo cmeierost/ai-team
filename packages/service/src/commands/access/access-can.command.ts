@@ -20,8 +20,7 @@ const _accessCanCommandSchema = z.object({
 });
 
 export const AccessCanCommandMetadata = {
-  key: 'accessCan',
-  cli: { command: 'can', parentKey: 'access' },
+  key: 'can',
   description: 'Check whether a context/agent can access a path for a right',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'access',

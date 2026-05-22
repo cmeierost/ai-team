@@ -15,7 +15,7 @@ import {
   createIdeAdapter,
   ConfigurationStorage,
 } from '@ai-team/infrastructure';
-import { findWorkspaceRoot, type IQuestionService as IInteractionService } from '@ai-team/service';
+import { findWorkspaceRoot, type IQuestionService } from '@ai-team/service';
 import { checkbox, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';
@@ -114,7 +114,7 @@ function createChatQuestionResponders(
   onQuestionStart?: () => void,
   projectNameFn?: () => Promise<string | undefined>,
   chatCommands: CommandDescriptor[] = []
-): Pick<IInteractionService, 'input' | 'confirm' | 'select' | 'checklist' | 'password'> {
+): Pick<IQuestionService, 'input' | 'confirm' | 'select' | 'checklist' | 'password'> {
   const normalizeSelection = (
     raw: string,
     choices: Array<{ name: string; value: string }>
@@ -476,6 +476,29 @@ function renderAsciiFileTree(
   return lines.join('\n');
 }
 
+/**
+ * Extracts the human-readable output from a `slash:*` tool result event.
+ * Returns the `message` field if non-empty, otherwise serializes `data`.
+ */
+function resolveSlashCommandOutput(event: Record<string, unknown>): string | undefined {
+  const toolResult = toPayloadRecord((event as { toolResult?: unknown }).toolResult);
+  if (!toolResult) return undefined;
+  const commandResponse = (
+    toolResult as { commandResponse?: { message?: unknown; data?: unknown; status?: unknown } }
+  ).commandResponse;
+  if (!commandResponse) return undefined;
+
+  if (typeof commandResponse.message === 'string' && commandResponse.message.trim()) {
+    return commandResponse.message;
+  }
+  if (commandResponse.data !== undefined) {
+    return typeof commandResponse.data === 'string'
+      ? commandResponse.data
+      : JSON.stringify(commandResponse.data, null, 2);
+  }
+  return undefined;
+}
+
 function formatToolEventMessage(event: Record<string, unknown>): string | undefined {
   const toolName = typeof event.toolName === 'string' ? event.toolName : undefined;
   const message = typeof event.message === 'string' ? event.message : undefined;
@@ -670,6 +693,9 @@ export async function renderChat(
   let currentAgentRole: string | undefined;
   let developerDisplayName = resolveDeveloperDisplayName(process.env);
   let tokenBurstOpen = false;
+  // Chalk instance locked in at burst open — stays consistent even if agent_info
+  // arrives mid-stream and updates currentAgentName to a different hash input.
+  let currentBurstChalk: ReturnType<typeof agentChalk> = chalk;
   let bufferingBracketToolCall = false;
   let bracketToolBuffer = '';
   let bracketToolRenderedViaEvent = false;
@@ -760,15 +786,14 @@ export async function renderChat(
     return chalk;
   }
 
-  function colorize(text: string, id?: string, name?: string): string {
-    return agentChalk(id, name)(text);
-  }
-
   function openTokenHeaderIfNeeded() {
     if (tokenBurstOpen) return;
     const agentName = currentAgentName || currentAgentId || 'Agent';
     const title = currentAgentRole ? `${agentName} (${currentAgentRole})` : agentName;
-    const styledTitle = agentChalk(currentAgentId, currentAgentName).bold(title);
+    // Lock in the chalk instance for this entire burst so every token uses the
+    // same color — even if agent_info arrives later and updates currentAgentName.
+    currentBurstChalk = agentChalk(currentAgentId, currentAgentName);
+    const styledTitle = currentBurstChalk.bold(title);
     process.stdout.write(`\n${styledTitle}${chalk.dim(' → ')}${developerDisplayName}: `);
     tokenBurstOpen = true;
   }
@@ -776,7 +801,7 @@ export async function renderChat(
   function writeVisibleAssistantToken(text: string) {
     if (!text) return;
     openTokenHeaderIfNeeded();
-    process.stdout.write(colorize(text, currentAgentId, currentAgentName));
+    process.stdout.write(currentBurstChalk(text));
   }
 
   function handleAssistantTokenChunk(deltaText: string) {
@@ -812,9 +837,10 @@ export async function renderChat(
   }
 
   try {
+    startSpinner();
     for await (const event of client.streamInteraction(
       {
-        command: 'chat',
+        command: 'chat-chat',
         payload: {
           employeeId: agentId,
           options,
@@ -841,6 +867,9 @@ export async function renderChat(
           },
           chatCommands
         ),
+        workspaceRoot,
+        invocationSurface: 'cli' as const,
+        calledByHuman: true,
         signal: abortControl.signal,
         logger:
           mediatorLoggerEnabled || frontendFileLogEnabled
@@ -920,6 +949,20 @@ export async function renderChat(
       if (event.kind === 'tool') {
         stopSpinner();
         const phase = event.toolPhase || 'event';
+
+        // Slash command results go directly to stdout — they ARE the response.
+        if (
+          typeof event.toolName === 'string' &&
+          event.toolName.startsWith('slash:') &&
+          (phase === 'result' || phase === 'error')
+        ) {
+          const slashOutput = resolveSlashCommandOutput(event);
+          if (slashOutput) {
+            process.stdout.write(slashOutput.endsWith('\n') ? slashOutput : slashOutput + '\n');
+          }
+          continue;
+        }
+
         if (
           bufferingBracketToolCall &&
           (phase === 'result' || phase === 'error' || phase === 'denied')
@@ -935,6 +978,10 @@ export async function renderChat(
         );
         const detail = formatToolEventDetail(event as unknown as Record<string, unknown>);
         if (detail) writeStderrLine(detail);
+        // After a tool result, the agent will continue thinking — restart the spinner
+        if (phase === 'result' || phase === 'error' || phase === 'denied') {
+          startSpinner();
+        }
         continue;
       }
 

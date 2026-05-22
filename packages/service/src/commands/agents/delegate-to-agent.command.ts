@@ -16,7 +16,7 @@ export interface DelegateToAgentParams {
 export const DelegateToAgentToolMetadata = {
   key: 'delegate',
   group: 'com',
-  availableIn: { tool: true },
+  availableIn: { tool: true, chat: true },
   description: 'Delegate a task to another agent. Checks delegation permissions.',
   parameters: z.object({
     agentId: z.string().describe('Target agent ID'),
@@ -32,7 +32,10 @@ export type DelegateToAgentResult = {
   timestamp: string;
 };
 
-export class DelegateToAgentTool implements ICommand<DelegateToAgentParams, DelegateToAgentResult> {
+export class DelegateToAgentCommand implements ICommand<
+  DelegateToAgentParams,
+  DelegateToAgentResult
+> {
   readonly metadata = DelegateToAgentToolMetadata;
   readonly name = 'delegate';
 

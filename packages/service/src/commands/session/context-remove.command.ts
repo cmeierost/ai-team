@@ -7,11 +7,11 @@ import type {
 import type { SessionManager } from '../../session-manager.js';
 import { parseContextArgs, type StoredMessage } from './context-utils.js';
 export const ContextRemoveChatCommandMetadata = {
-  key: 'context-remove',
+  key: 'remove',
   usage: '/context remove [--message <id>]',
   description: 'Hide a message from LLM context',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'context',
 } satisfies ICommandDescriptor;
 
 export class ContextRemoveChatCommand implements ICommand<string, string> {

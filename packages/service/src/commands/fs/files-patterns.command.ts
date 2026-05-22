@@ -17,8 +17,7 @@ const _filesPatternsCommandSchema = z.object({
 });
 
 export const FilesPatternsCommandMetadata = {
-  key: 'filesPatterns',
-  cli: { command: 'patterns', parentKey: 'files' },
+  key: 'patterns',
   description: 'List configured file permission patterns (global or per-agent)',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'fs',

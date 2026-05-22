@@ -15,8 +15,7 @@ const _teamListICommandSchema = z.object({
 });
 
 export const TeamListICommandMetadata = {
-  key: 'team-list',
-  cli: { command: 'list', parentKey: 'team' },
+  key: 'list',
   description: 'List all team members',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'team',
@@ -38,6 +37,9 @@ export class TeamListICommand implements ICommand<Params, Employee[]> {
       const feature = payload.feature;
       employees = employees.filter((e) => e.features?.includes(feature));
     }
-    return { status: 'ok', data: employees };
+    const names = employees.map((e) => e.name ?? e.id).join(', ');
+    const message =
+      employees.length === 0 ? 'No team members found.' : `Team (${employees.length}): ${names}`;
+    return { status: 'ok', message, data: employees };
   }
 }

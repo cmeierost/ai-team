@@ -4,6 +4,7 @@ import type {
   ExecutionContext,
   CommandResponse,
   ICommandDescriptor,
+  IAgentManager,
 } from '@ai-team/core';
 import type { ChatRuntimeHooks } from '../../orchestrator/hooks.js';
 import { ChatInfoService } from '../../orchestrator/chat-info-service.js';
@@ -34,9 +35,8 @@ const _chatICommandSchema = z.object({
     .default({}),
 });
 
-export const ChatICommandMetadata = {
+export const ChatCommandMetadata = {
   key: 'chat' as const,
-  cli: { command: 'chat [agent-id]' },
   description: 'Start a chat session with an agent',
   availableIn: { cli: true, chat: false, tool: false },
   group: 'chat',
@@ -45,7 +45,7 @@ export const ChatICommandMetadata = {
 
 export class ChatICommand implements ICommand<Params, void> {
   static readonly schema = _chatICommandSchema;
-  readonly metadata = ChatICommandMetadata;
+  readonly metadata = ChatCommandMetadata;
 
   constructor(
     private readonly configIdentityDeps: ChatConfigIdentityDeps,
@@ -57,6 +57,25 @@ export class ChatICommand implements ICommand<Params, void> {
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
+    let { employeeId } = payload;
+    const rawOptions = payload.options ?? {};
+    const options: typeof rawOptions & { createNewSession?: boolean } = {
+      ...rawOptions,
+      // `new` is the CLI flag; ChatCommand uses `createNewSession`
+      createNewSession: rawOptions.new,
+    };
+
+    // When no agent is specified and no session is pinned, jump back to the
+    // most recently active session regardless of which agent it belongs to.
+    if (!employeeId && !options.sessionId && !options.new) {
+      const recent = await this.sessionExecutionDeps.sessionManager.listRecentSessions(1);
+      if (recent.length > 0) {
+        const last = recent[0];
+        employeeId = last.agentId;
+        options.sessionId = last.id;
+      }
+    }
+
     const hooks: ChatRuntimeHooks = {
       invocationSurface: ctx.invocationSurface,
       signal: ctx.signal,
@@ -84,12 +103,12 @@ export class ChatICommand implements ICommand<Params, void> {
         this.configIdentityDeps.developerIdentityService
       ),
       new InfoChatCommand(
-        this.agentKnowledgeDeps.agentManager as unknown as import('@ai-team/core').IAgentManager,
+        this.agentKnowledgeDeps.agentManager as unknown as IAgentManager,
         this.questionService
       )
     );
 
-    await cmd.execute(ctx.workspaceRoot, payload.employeeId, payload.options ?? {}, hooks);
+    await cmd.execute(ctx.workspaceRoot, employeeId, options, hooks);
     return { status: 'ok' };
   }
 }

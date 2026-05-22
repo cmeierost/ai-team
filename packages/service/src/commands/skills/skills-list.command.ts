@@ -18,8 +18,7 @@ const _skillsListCommandSchema = z.object({
 });
 
 export const SkillsListCommandMetadata = {
-  key: 'skillsList',
-  cli: { command: 'skills' },
+  key: 'list',
   description: 'Search available skills and optionally show whether they are assigned to an agent',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'skills',

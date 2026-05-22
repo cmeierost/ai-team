@@ -7,9 +7,7 @@ import type {
 } from '@ai-team/core';
 import type { SystemInfoResponse } from '@ai-team/api-contracts';
 export const SystemInfoCommandMetadata = {
-  key: 'systemInfo',
-  cli: { command: 'sysinfo' },
-  aliases: ['sys'],
+  key: 'info',
   description: 'Display system information about the workspace',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'system',

@@ -22,8 +22,7 @@ const _providerConfigureICommandSchema = z.object({
 });
 
 export const ProviderConfigureICommandMetadata = {
-  key: 'providerConfigure',
-  cli: { command: 'configure', parentKey: 'provider' },
+  key: 'configure',
   description: 'Configure default LLM provider',
   availableIn: { cli: true, chat: true },
   group: 'setup',
@@ -59,8 +58,7 @@ const _providerAddICommandSchema = z.object({
 });
 
 export const ProviderAddICommandMetadata = {
-  key: 'providerAdd',
-  cli: { command: 'add', parentKey: 'provider' },
+  key: 'add',
   description: 'Add a provider profile',
   availableIn: { cli: true, chat: true },
   group: 'setup',
@@ -97,8 +95,7 @@ const _providerSetICommandSchema = z.object({
 });
 
 export const ProviderSetICommandMetadata = {
-  key: 'providerSet',
-  cli: { command: 'set', parentKey: 'provider' },
+  key: 'set',
   description: 'Configure default LLM provider',
   availableIn: { cli: true, chat: true },
   group: 'setup',

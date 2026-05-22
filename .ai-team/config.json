@@ -1,13 +1,9 @@
 {
   "version": "0.1.0",
-  "mcpConfigFiles": [
-    ".vscode/mcp.json"
-  ],
   "providers": {
     "api-llmhub-infs-ai": {
       "kind": "openai-compatible",
       "defaultModel": "best-chat",
-      "apiKeyEnvVar": "LLM_HUB_API_KEY",
       "models": [
         {
           "name": "apertus-70b-instruct-2509-qx64-mlx"
@@ -77,7 +73,8 @@
           "name": "Qwen/Qwen3.5-35B-A3B-GPTQ-Int4"
         }
       ],
-      "baseUrl": "https://api.llmhub.infs.ai/v1"
+      "baseUrl": "https://api.llmhub.infs.ai/v1",
+      "apiKeyEnvVar": "LLM_HUB_API_KEY"
     },
     "copilot": {
       "kind": "github-copilot",
@@ -587,10 +584,21 @@
         }
       ],
       "baseUrl": "http://localhost:11434/v1"
+    },
+    "personal-openai": {
+      "kind": "openai-compatible",
+      "baseUrl": "https://api.llmhub.infs.ai/v1",
+      "apiKeyEnvVar": "LLM_HUB_API_KEY",
+      "defaultModel": "best-chat",
+      "models": [
+        {
+          "name": "best-chat"
+        }
+      ]
     }
   },
   "defaultModel": {
-    "provider": "api-llmhub-infs-ai",
+    "provider": "personal-openai",
     "model": "best-chat"
   },
   "allowedCliTools": [
@@ -773,5 +781,16 @@
       "model": "best-chat",
       "contextWindow": 128000
     }
-  }
+  },
+  "mcpConfigFiles": [
+    ".vscode/mcp.json"
+  ],
+  "llm": {
+    "provider": "openai-compatible",
+    "model": "best-chat",
+    "baseUrl": "https://api.llmhub.infs.ai/v1"
+  },
+  "skillSources": [
+    "https://github.com/anthropics/skills"
+  ]
 }

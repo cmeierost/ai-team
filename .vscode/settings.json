@@ -36,7 +36,9 @@
         ".ai-team/skills": true
     },
     "chat.agentSessionProjection.enabled": true,
-    "chat.agentFilesLocations": {},
+    "chat.agentFilesLocations": {
+        ".ai-team/agents": true
+    },
     "cSpell.language": "en",
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnPaste": true,

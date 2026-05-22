@@ -18,9 +18,7 @@ const _toolsAllowCommandSchema = z.object({
 });
 
 export const ToolsAllowCommandMetadata = {
-  key: 'toolsAllow',
-  aliases: ['add'],
-  cli: { command: 'allow', parentKey: 'tools' },
+  key: 'allow',
   description: 'Allow a tool for an agent (governed)',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'tool',

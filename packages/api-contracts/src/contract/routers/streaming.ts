@@ -290,6 +290,7 @@ export interface CommandAvailability {
 /** Read-only descriptor exposed by the dispatcher for discovery. */
 export interface CommandDescriptor {
   key: string;
+  group?: string;
   aliases?: string[];
   description: string;
   usage?: string;

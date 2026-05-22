@@ -2,14 +2,12 @@
  * Surface adapters for ICommand.
  *
  * A single ICommand definition is the source of truth.
- * These functions derive what each surface needs — CLI metadata, LLM tool
- * definition, slash command, and command registration — without any
+ * These functions derive what each surface needs — LLM tool
+ * definition and command registration — without any
  * duplication in the command file itself.
  *
  *   ICommand
- *     ├── toCliMetadata()       → CliCommandMetadata  (Commander options from Zod schema)
  *     ├── toCommandRegistration() → CommandRegistration (dispatcher handler)
- *     ├── toSlashCommand()      → ICommand            (chat /key args)
  *     └── toLlmToolDefinition() → ILlmToolDefinition  (already in CommandRegistry)
  */
 
@@ -17,117 +15,10 @@ import type {
   ICommand,
   ExecutionContext,
   CommandResponse,
-  CliCommandMetadata,
-  CommandOptionMetadata,
   ILlmToolDefinition,
 } from '@ai-team/core';
 
 import { ZodSchemaTools } from './utils/zod-schema.js';
-
-// ── Zod → Commander options ───────────────────────────────────────────────────
-
-/**
- * Walk a Zod object schema and produce Commander-compatible option descriptors.
- * Covers the most common Zod types used in command parameters.
- */
-export function zodToCliOptions(schema: unknown): CommandOptionMetadata[] {
-  if (!schema || typeof schema !== 'object') return [];
-
-  const shape = (schema as any)._def?.shape?.() ?? (schema as any).shape;
-  if (!shape) return [];
-
-  return Object.entries(shape).map(([name, field]: [string, any]): CommandOptionMetadata => {
-    const isOptional =
-      field._def?.typeName === 'ZodOptional' ||
-      field._def?.typeName === 'ZodDefault' ||
-      field._def?.defaultValue !== undefined;
-
-    const inner = field._def?.innerType ?? field._def?.type ?? field;
-    const typeName: string = inner._def?.typeName ?? '';
-    const description: string = field.description ?? field._def?.description ?? name;
-    const defaultValue = field._def?.defaultValue?.();
-
-    const isBoolean = typeName === 'ZodBoolean';
-    const flagValue = isBoolean || isOptional ? `[${name}]` : `<${name}>`;
-    const flags = `--${name} ${isBoolean ? '' : flagValue}`.trimEnd();
-
-    return defaultValue === undefined
-      ? { flags, description }
-      : { flags, description, defaultValue };
-  });
-}
-
-// ── ICommand → CliCommandMetadata ────────────────────────────────────────────
-
-export function toCliMetadata<TParams, TResult>(
-  cmd: ICommand<TParams, TResult>
-): CliCommandMetadata {
-  if (!cmd.metadata.cli) {
-    throw new Error(`ICommand '${cmd.metadata.key}' has no cli routing info (missing cmd.cli)`);
-  }
-  return {
-    key: cmd.metadata.key,
-    command: cmd.metadata.cli.command,
-    parentKey: cmd.metadata.cli.parentKey,
-    description: cmd.metadata.help?.description ?? cmd.metadata.description,
-    llmCallable: Boolean(cmd.metadata.availableIn.tool),
-    directCli: Boolean(cmd.metadata.availableIn.cli),
-    aliases: cmd.metadata.aliases,
-    options: cmd.metadata.parameters ? zodToCliOptions(cmd.metadata.parameters) : undefined,
-    hints: cmd.metadata.help?.hints,
-    examples: cmd.metadata.help?.examples?.map((example: { value: string }) => example.value),
-    jsonSignature: cmd.metadata.input?.jsonSignature,
-  };
-}
-
-// ── ICommand → Slash ICommand ────────────────────────────────────────────────
-
-/**
- * Wrap an ICommand as a chat slash command.
- * Raw string args are parsed via the command's Zod schema when present,
- * or passed through as-is for commands that accept a raw string payload.
- *
- * Parameters can specify context overrides (agentId, sessionId, etc.) which
- * are merged into the command's execution context.
- *
- * Parsing strategy:
- * 1. Try JSON.parse first (user passed JSON literal like /hire {"name": "alice"})
- * 2. Fall back to key=value syntax (user passed /hire --name alice)
- */
-export function toSlashCommand(cmd: ICommand<unknown, unknown>): ICommand<string, unknown> {
-  return {
-    metadata: {
-      key: cmd.metadata.key,
-      aliases: cmd.metadata.aliases,
-      description: cmd.metadata.description,
-      usage: cmd.metadata.usage,
-      availableIn: {
-        chat: true,
-        cliChat: Boolean(cmd.metadata.availableIn.cliChat),
-        tool: Boolean(cmd.metadata.availableIn.tool),
-        cli: false,
-      },
-    },
-    execute: async (rawArgs: string, ctx: ExecutionContext) => {
-      const parsed = cmd.metadata.parameters
-        ? parseArgsIntelligently(rawArgs, cmd.metadata.parameters)
-        : rawArgs;
-
-      // Extract context overrides from parsed params and merge with base context
-      const parsedObj = typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-      const contextOverrides = mapParamsToContext(
-        parsedObj,
-        cmd.metadata.input?.contextOverrideAllowlist,
-        ctx.calledByHuman ?? true
-      );
-      const mergedCtx: ExecutionContext = { ...ctx, ...contextOverrides };
-      const resolvedPayload = resolveCommandArgs(cmd, parsed, mergedCtx);
-
-      const result = await cmd.execute(resolvedPayload, mergedCtx);
-      return toCommandResponse(result) ?? { status: 'ok' };
-    },
-  };
-}
 
 // ── ICommand → ILlmToolDefinition ────────────────────────────────────────────
 

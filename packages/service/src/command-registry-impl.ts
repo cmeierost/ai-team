@@ -8,6 +8,20 @@ import type {
 } from '@ai-team/core';
 import { ZodSchemaTools } from './utils/zod-schema.js';
 
+/**
+ * Derives the canonical dispatch/registry key for a command.
+ * When a group is set, the key is `{group}-{key}` (kebab-case).
+ * Without a group, the bare `key` is used.
+ */
+export function deriveRegistryKey(group: string | undefined, key: string): string {
+  return group ? `${group}-${key}` : key;
+}
+
+/** Converts `snake_case` or `kebab-case` to `camelCase` for key normalization. */
+function snakeToCamel(key: string): string {
+  return key.replace(/[-_]([a-z])/g, (_, c: string) => c.toUpperCase());
+}
+
 type RegistryEntry = {
   metadata: ICommandDescriptor;
   factory: (resolver: IServiceContainer) => ICommand<unknown, unknown>;
@@ -37,7 +51,7 @@ export class CommandRegistry implements ICommandRegistry {
   ): void {
     const registryKey = CommandRegistry.getRegistryKey(metadata);
     const toolAlias = CommandRegistry.getDerivedToolName(metadata);
-    const entryAliases = new Set(metadata.aliases ?? []);
+    const entryAliases = new Set<string>();
     if (toolAlias && toolAlias !== registryKey) {
       entryAliases.add(toolAlias);
     }
@@ -69,7 +83,14 @@ export class CommandRegistry implements ICommandRegistry {
 
   get(key: string): ICommandDescriptor | undefined {
     const canonical = this.aliases.get(key) ?? key;
-    return this.entries.get(canonical)?.metadata;
+    const direct = this.entries.get(canonical)?.metadata;
+    if (direct) return direct;
+    const camel = snakeToCamel(key);
+    if (camel !== key) {
+      const canonicalCamel = this.aliases.get(camel) ?? camel;
+      return this.entries.get(canonicalCamel)?.metadata;
+    }
+    return undefined;
   }
 
   getAll(filter?: {
@@ -93,9 +114,15 @@ export class CommandRegistry implements ICommandRegistry {
 
   resolve(key: string, resolver: IServiceContainer): ICommand<unknown, unknown> | undefined {
     const canonical = this.aliases.get(key) ?? key;
-    const entry = this.entries.get(canonical);
-    if (!entry) return undefined;
-    return entry.factory(resolver);
+    const direct = this.entries.get(canonical);
+    if (direct) return direct.factory(resolver);
+    const camel = snakeToCamel(key);
+    if (camel !== key) {
+      const canonicalCamel = this.aliases.get(camel) ?? camel;
+      const entry = this.entries.get(canonicalCamel);
+      if (entry) return entry.factory(resolver);
+    }
+    return undefined;
   }
 
   toLlmToolDefinitions(): ILlmToolDefinition[] {
@@ -168,10 +195,6 @@ export class CommandRegistry implements ICommandRegistry {
   }
 
   private static getRegistryKey(d: ICommandDescriptor): string {
-    const toolName = CommandRegistry.getDerivedToolName(d);
-    if (toolName && CommandRegistry.isToolOnly(d)) {
-      return toolName;
-    }
-    return d.key;
+    return deriveRegistryKey(d.group, d.key);
   }
 }

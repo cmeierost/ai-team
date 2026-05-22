@@ -20,8 +20,7 @@ const _filesDenyCommandSchema = z.object({
 });
 
 export const FilesDenyCommandMetadata = {
-  key: 'filesDeny',
-  cli: { command: 'disallow <path>', parentKey: 'files' },
+  key: 'deny',
   description: 'Disallow a path from file visibility (global config) or agent access rules',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'fs',

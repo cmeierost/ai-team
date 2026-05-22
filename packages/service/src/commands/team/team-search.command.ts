@@ -23,8 +23,7 @@ const _searchAgentsICommandSchema = z.object({
 });
 
 export const SearchAgentsICommandMetadata = {
-  key: 'searchAgents',
-  cli: { command: 'search [query]' },
+  key: 'search',
   description: 'Search for team members by name, role, skills, or expertise',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'team',

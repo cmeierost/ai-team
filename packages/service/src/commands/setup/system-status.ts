@@ -31,7 +31,6 @@ const _systemStatusICommandSchema = z.object({});
 
 export const SystemStatusICommandMetadata = {
   key: 'system-status',
-  cli: { command: 'status', parentKey: 'system' },
   description: 'Check system initialization status',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'system',

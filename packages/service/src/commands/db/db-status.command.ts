@@ -8,8 +8,7 @@ import type {
 } from '@ai-team/core';
 import type { DbStatusResponse } from '@ai-team/api-contracts';
 export const DbStatusCommandMetadata = {
-  key: 'dbStatus',
-  cli: { command: 'db:status' },
+  key: 'status',
   description: 'Show database status and statistics',
   availableIn: { cli: true },
   group: 'db',

@@ -20,8 +20,7 @@ const _filesAllowCommandSchema = z.object({
 });
 
 export const FilesAllowCommandMetadata = {
-  key: 'filesAllow',
-  cli: { command: 'allow <path>', parentKey: 'files' },
+  key: 'allow',
   description: 'Allow a path in file visibility (global config) or agent access rules',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'fs',

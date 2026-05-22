@@ -26,7 +26,6 @@ const _fireICommandSchema = z.object({
 
 export const FireICommandMetadata = {
   key: 'fire',
-  cli: { command: 'fire <agent>' },
   description: 'Fire (delete) an agent and remove their data',
   availableIn: { cli: true, chat: true, tool: true },
   group: 'hr',

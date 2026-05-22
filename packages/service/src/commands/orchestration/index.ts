@@ -4,7 +4,7 @@ import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 import { AskUserCommand } from '../com/ask.command.js';
 import { HandoffCommand } from '../com/handoff.command.js';
 import { HireOrchestrationCommand } from '../hr/hire-orchestration.command.js';
-import { ListToolsOrchestrationCommand } from '../tools/list-tools-orchestration.command.js';
+import { ListToolsOrchestrationCommand } from '../tools/tool-catalog.command.js';
 import { TeamListOrchestrationCommand } from '../team/list-team-orchestration.command.js';
 import { createWorkflowDefinitionCommands } from '../workflow/workflow-tools.command.js';
 import { WhoShouldCommand } from '../fs/who-should.command.js';
@@ -25,7 +25,7 @@ export {
   ListToolsOrchestrationCommand,
   TOOL_LIST_PRE_LLM_PATTERNS,
   matchesToolListPreLlmIntent,
-} from '../tools/list-tools-orchestration.command.js';
+} from '../tools/tool-catalog.command.js';
 export {
   TeamListOrchestrationCommand,
   TEAM_LIST_PRE_LLM_PATTERNS,

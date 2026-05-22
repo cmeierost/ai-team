@@ -16,9 +16,8 @@ const _codeEditRejectCommandSchema = z.object({
 });
 
 export const CodeEditRejectCommandMetadata = {
-  key: 'codeEditReject',
-  group: 'codeEdit',
-  cli: { command: 'code-edit reject <proposalId>' },
+  key: 'reject',
+  group: 'edit',
   description: 'Reject a code edit proposal',
   availableIn: { cli: true, chat: true, tool: true },
   parameters: _codeEditRejectCommandSchema,

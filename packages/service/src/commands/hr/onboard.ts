@@ -147,7 +147,6 @@ const _onboardICommandSchema = z.object({
 
 export const OnboardICommandMetadata = {
   key: 'onboard',
-  cli: { command: 'onboard' },
   description: 'Run team onboarding (CEO + HR + hiring)',
   availableIn: { cli: true, chat: true },
   group: 'hr',

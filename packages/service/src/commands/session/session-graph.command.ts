@@ -38,11 +38,11 @@ function buildGraphLines(chain: ChatSession[], currentSessionId: string): string
   return lines;
 }
 export const SessionGraphChatCommandMetadata = {
-  key: 'session-graph',
+  key: 'graph',
   usage: '/session graph',
   description: 'Show the handoff graph for the current session chain',
   availableIn: { chat: true, tool: false },
-  group: 'chat',
+  group: 'session',
 } satisfies ICommandDescriptor;
 
 export class SessionGraphChatCommand implements ICommand<string, string> {
