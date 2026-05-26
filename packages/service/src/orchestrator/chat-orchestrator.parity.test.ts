@@ -11,8 +11,8 @@ vi.mock('../workflow/send-turn-machine.js', () => ({
   })),
 }));
 
-import { XStateChatOrchestrator } from './xstate-chat-orchestrator.js';
-import { runChatLoopWorkflowAsync } from '../workflow/xstate-chat-loop-engine.js';
+import { ChatOrchestrator } from './chat-orchestrator.js';
+import { runChatLoopWorkflowAsync } from '../workflow/chat-loop-engine.js';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import { ToolSerializationService } from './services/tool-serialization-service.js';
@@ -35,7 +35,7 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins, handoffOrchestrat
       isError: false,
     })),
   } as any;
-  return new XStateChatOrchestrator(
+  return new ChatOrchestrator(
     ctx,
     plugins,
     toolDispatcher,

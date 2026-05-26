@@ -62,7 +62,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-order-1',
@@ -101,7 +101,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-ask-timeout',
@@ -131,7 +131,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-bridges',
@@ -169,7 +169,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-preview',
@@ -207,7 +207,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-preview-long',
@@ -250,7 +250,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-preview-json',
@@ -291,7 +291,7 @@ describe('dispatchToolCall denial metadata', () => {
     });
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any, questionService);
 
-    const result = await runWithEmitter(emit, () =>
+    const result = await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-1',
@@ -344,7 +344,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    const result = await runWithEmitter(emit, () =>
+    const result = await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-2',
@@ -393,7 +393,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    const result = await runWithEmitter(emit, () =>
+    const result = await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-3',
@@ -451,7 +451,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-auto-trim',
@@ -501,7 +501,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-auto-json',
@@ -546,7 +546,7 @@ describe('dispatchToolCall denial metadata', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, { rawChat } as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch(
         {
           toolCallId: 'tc-summary',
@@ -594,7 +594,7 @@ describe('code_edit_proposal emission', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch({ toolCallId: 'tc-write-file', toolName: 'fs_write_file', args: {} }, ctx)
     );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
@@ -632,7 +632,7 @@ describe('code_edit_proposal emission', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch({ toolCallId: 'tc-diff-1', toolName: 'fs_edit', args: {} }, ctx)
     );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
@@ -668,7 +668,7 @@ describe('code_edit_proposal emission', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch({ toolCallId: 'tc-diff-multi', toolName: 'multiedit', args: {} }, ctx)
     );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
@@ -694,7 +694,7 @@ describe('code_edit_proposal emission', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch({ toolCallId: 'tc-no-diff', toolName: 'fs_edit', args: {} }, ctx)
     );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
@@ -718,7 +718,7 @@ describe('code_edit_proposal emission', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch({ toolCallId: 'tc-empty-diff', toolName: 'fs_edit', args: {} }, ctx)
     );
     const events = emit.mock.calls.map((c: any[]) => c[0]);
@@ -746,7 +746,7 @@ describe('code_edit_proposal emission', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    const response = await runWithEmitter(emit, () =>
+    const response = await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch({ toolCallId: 'tc-strip', toolName: 'fs_edit', args: {} }, ctx)
     );
 
@@ -783,7 +783,7 @@ describe('code_edit_proposal emission', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch({ toolCallId: 'tc-hist', toolName: 'fs_edit', args: {} }, ctx)
     );
 
@@ -804,7 +804,7 @@ describe('code_edit_proposal emission', () => {
     createEmitService(emit);
     const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
 
-    await runWithEmitter(emit, () =>
+    await runWithEmitter(new EmitService(emit), () =>
       dispatcher.dispatch({ toolCallId: 'tc-fail', toolName: 'fs_edit', args: {} }, ctx)
     );
     const events = emit.mock.calls.map((c: any[]) => c[0]);

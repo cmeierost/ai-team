@@ -67,6 +67,7 @@ const deck = new Reveal({
   slideNumber: false,
   plugins: [RevealNotes, RevealHighlight],
 });
+globalThis.ostDeck = deck;
 deck.initialize();
 
 // Create fixed footer bar (skip in print-pdf mode)

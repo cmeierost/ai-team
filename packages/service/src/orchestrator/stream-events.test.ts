@@ -35,10 +35,3 @@ describe('emitLog fallback output', () => {
     expect(stdoutSpy).not.toHaveBeenCalled();
   });
 });
-
-    emitLog('info', 'via event');
-
-    expect(emit).toHaveBeenCalledWith({ kind: 'log', level: 'info', message: 'via event' });
-    expect(stdoutSpy).not.toHaveBeenCalled();
-  });
-});

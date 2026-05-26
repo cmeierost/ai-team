@@ -18,7 +18,7 @@ import type {
 } from '@ai-team/core';
 import type { ChatOptions, IContextService } from '@ai-team/api-contracts';
 import { SessionManager } from '../../session-manager.js';
-import { XStateChatOrchestrator } from '../../orchestrator/xstate-chat-orchestrator.js';
+import { ChatOrchestrator } from '../../orchestrator/chat-orchestrator.js';
 import { tryIntroduceUser as tryIntroduceUserNew } from '../../orchestrator/introduction.js';
 import type { ResolvedPlugins } from '../../orchestrator/pipeline.js';
 import { formatConsoleArgs } from '../../orchestrator/chat-emitter.js';
@@ -117,9 +117,6 @@ interface WorkflowChatOptions {
 type ChatCommandOptions = ChatOptions & WorkflowChatOptions;
 
 type ChatExecutionContext = ExecutionContext & {
-  toolManager: ToolManager;
-  toolDispatcher: ToolDispatcher;
-  sessionManager: SessionManager;
   hooks: ChatRuntimeHooks;
 };
 
@@ -513,7 +510,7 @@ export class ChatCommand {
     skillManager: ISkillManager;
     configurationStorage: Pick<IConfigurationStorage, 'loadEffectiveConfigAsync'>;
     questionService: IQuestionService;
-  }): Promise<{ ctx: ChatExecutionContext; orchestrator: XStateChatOrchestrator }> {
+  }): Promise<{ ctx: ExecutionContext; orchestrator: ChatOrchestrator }> {
     const {
       workspaceRoot,
       currentSessionId,
@@ -543,17 +540,10 @@ export class ChatCommand {
       questionService
     );
 
-    const ctx: ChatExecutionContext = {
+    const ctx: ExecutionContext = {
       agent,
       workspaceRoot,
       sessionId: currentSessionId,
-      hooks,
-      toolManager: chatToolManager,
-      sessionManager: this.sessionExecutionDeps.sessionManager as SessionManager,
-      agentManager: this.agentKnowledgeDeps.agentManager,
-      skillManager,
-      llmService: llm as any,
-      toolDispatcher,
       history,
       instructions,
     };
@@ -602,7 +592,7 @@ export class ChatCommand {
       llm
     );
 
-    const orchestrator = new XStateChatOrchestrator(
+    const orchestrator = new ChatOrchestrator(
       ctx,
       plugins,
       toolDispatcher,
@@ -618,7 +608,7 @@ export class ChatCommand {
   }
 
   private async runSingleMessageIfNeeded(
-    orchestrator: XStateChatOrchestrator,
+    orchestrator: ChatOrchestrator,
     options: ChatCommandOptions,
     hooks: ChatRuntimeHooks
   ): Promise<void> {
@@ -633,7 +623,7 @@ export class ChatCommand {
 
   private async runInteractiveLoop(params: {
     ctx: ChatExecutionContext;
-    orchestrator: XStateChatOrchestrator;
+    orchestrator: ChatOrchestrator;
     options: ChatCommandOptions;
     hooks: ChatRuntimeHooks;
     developerName: string;

@@ -17,7 +17,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { Agent, ChatMessage } from '@ai-team/core';
-import { XStateChatOrchestrator } from './xstate-chat-orchestrator.js';
+import { ChatOrchestrator } from './chat-orchestrator.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
 import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
@@ -72,7 +72,7 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
     ctx.llmService
   );
 
-  return new XStateChatOrchestrator(
+  return new ChatOrchestrator(
     ctx,
     plugins,
     toolDispatcher,

@@ -38,6 +38,8 @@ async function main() {
     '-e',
     `SLIDES_PDF_LOAD_PAUSE=${process.env.SLIDES_PDF_LOAD_PAUSE ?? '2000'}`,
     '-e',
+    `SLIDES_PDF_USE_PRINT_PDF=${process.env.SLIDES_PDF_USE_PRINT_PDF ?? 'false'}`,
+    '-e',
     `SLIDES_PDF_FORCE_PUPPETEER=${process.env.SLIDES_PDF_FORCE_PUPPETEER ?? 'true'}`,
     '-e',
     `SLIDES_PDF_MEDIA=${process.env.SLIDES_PDF_MEDIA ?? 'screen'}`,

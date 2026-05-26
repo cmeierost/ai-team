@@ -110,18 +110,6 @@ export interface ExecutionContext {
 
   currentFiles?: string[];
 
-  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
-  agentManager?: unknown;
-
-  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
-  skillManager?: unknown;
-
-  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
-  llmService?: unknown;
-
-  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
-  toolDispatcher?: unknown;
-
   /** Loaded workspace instructions for the active session. */
   instructions?: unknown;
 
@@ -137,11 +125,6 @@ export interface ExecutionContext {
   emit?: (event: unknown) => void;
   workflowState?: unknown;
   onWorkflowFrame?: (frame: unknown) => void;
-  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
-  lsp?: {
-    execute(operation: string, params: unknown): Promise<unknown>;
-    isAvailable(): boolean;
-  };
 
   /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
   hooks?: unknown;

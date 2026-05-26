@@ -64,7 +64,7 @@ export {
   getChatLoopWorkflowDefinitionJson,
   getChatLoopWorkflowDefinitionYaml,
   runChatLoopWorkflowAsync,
-} from './xstate-chat-loop-engine.js';
+} from './chat-loop-engine.js';
 
 export {
   getWorkflowDefinitionResolvers,
@@ -90,7 +90,7 @@ export type {
   ChatLoopWorkflowOutput,
   ChatLoopWorkflowTransitionJson,
   ChatLoopWorkflowServices,
-} from './xstate-chat-loop-engine.js';
+} from './chat-loop-engine.js';
 
 export type {
   SendTurnMachineOutput,

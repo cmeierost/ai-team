@@ -11,10 +11,10 @@ import type {
   ToolDenialEvent,
   ToolRuntimePayloadEvent,
 } from '@ai-team/api-contracts';
-import { EmitService } from './services/emit-service.js';
+import type { IEmitService } from './services/emit-service.js';
 
-// Per-request emitter threaded via runWithEmitter().
-const _store = new AsyncLocalStorage<EmitService | undefined>();
+// Bridging ALS for code paths not yet wired through DI injection.
+const _store = new AsyncLocalStorage<IEmitService | undefined>();
 
 // ── Delta extraction ──────────────────────────────────────────────────────────
 
@@ -56,7 +56,7 @@ function extractDeltaSegmentText(value: unknown): string {
 
 // ── Event emission ────────────────────────────────────────────────────────────
 
-function getActiveEmitter(): EmitService | undefined {
+function getActiveEmitter(): IEmitService | undefined {
   return _store.getStore();
 }
 
@@ -94,13 +94,13 @@ export function hasActiveEmitter(): boolean {
 }
 
 export function runWithEmitter<T>(
-  emitter: EmitService | undefined,
+  emitter: IEmitService | undefined,
   fn: () => Promise<T>
 ): Promise<T> {
   return _store.run(emitter, fn);
 }
 
-export function getCurrentEmitter(): EmitService | undefined {
+export function getCurrentEmitter(): IEmitService | undefined {
   return getActiveEmitter();
 }
 

@@ -7,7 +7,7 @@ vi.mock('../workflow/send-turn-machine.js', () => ({
   })),
 }));
 
-import { XStateChatOrchestrator } from './xstate-chat-orchestrator';
+import { ChatOrchestrator } from './chat-orchestrator';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import { ToolSerializationService } from './services/tool-serialization-service.js';
@@ -111,7 +111,7 @@ describe('ChatOrchestrator regex tool intents', () => {
       })),
     } as any;
     const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-    const orchestrator = new XStateChatOrchestrator(
+    const orchestrator = new ChatOrchestrator(
       ctx,
       plugins,
       toolDispatcher,
@@ -166,7 +166,7 @@ describe('ChatOrchestrator regex tool intents', () => {
       })),
     } as any;
     const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-    const orchestrator = new XStateChatOrchestrator(
+    const orchestrator = new ChatOrchestrator(
       ctx,
       plugins,
       toolDispatcher,
@@ -180,7 +180,7 @@ describe('ChatOrchestrator regex tool intents', () => {
 
     const result = await orchestrator.run({
       message: 'show your visible file tree',
-      contextFiles: ['packages/service/src/orchestrator/xstate-chat-orchestrator.ts'],
+      contextFiles: ['packages/service/src/orchestrator/chat-orchestrator.ts'],
     });
 
     expect(result).toBe('llm-called');
@@ -190,7 +190,7 @@ describe('ChatOrchestrator regex tool intents', () => {
         args: { path: '.', maxDepth: 6, includeHidden: true },
       }),
       ctx,
-      ['packages/service/src/orchestrator/xstate-chat-orchestrator.ts']
+      ['packages/service/src/orchestrator/chat-orchestrator.ts']
     );
     expect(runSendTurnMachineAsync).toHaveBeenCalled();
   });
@@ -207,7 +207,7 @@ describe('ChatOrchestrator regex tool intents', () => {
       })),
     } as any;
     const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-    const orchestrator = new XStateChatOrchestrator(
+    const orchestrator = new ChatOrchestrator(
       ctx,
       plugins,
       toolDispatcher,
@@ -245,7 +245,7 @@ describe('ChatOrchestrator regex tool intents', () => {
       })),
     } as any;
     const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-    const orchestrator = new XStateChatOrchestrator(
+    const orchestrator = new ChatOrchestrator(
       ctx,
       plugins,
       toolDispatcher,
@@ -275,7 +275,7 @@ describe('ChatOrchestrator regex tool intents', () => {
       })),
     } as any;
     const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-    const orchestrator = new XStateChatOrchestrator(
+    const orchestrator = new ChatOrchestrator(
       ctx,
       plugins,
       toolDispatcher,
@@ -313,7 +313,7 @@ describe('ChatOrchestrator regex tool intents', () => {
       })),
     } as any;
     const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-    const orchestrator = new XStateChatOrchestrator(
+    const orchestrator = new ChatOrchestrator(
       ctx,
       plugins,
       toolDispatcher,
@@ -389,7 +389,7 @@ describe('ChatOrchestrator regex tool intents', () => {
 
     const plugins = makePlugins();
     const handoffOrchestrator = { tryNlForward: vi.fn(async () => null) } as any;
-    const orchestrator = new XStateChatOrchestrator(
+    const orchestrator = new ChatOrchestrator(
       ctx,
       plugins,
       toolDispatcher,

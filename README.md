@@ -68,6 +68,7 @@ The goal is to evolve this into an open source coding tool of the future—one t
 ## Screenshots
 
 ![AI Team web chat](slides/images/chat.png)
+![AI Team CLI](slides/images/chat-cli.png)
 ![AI Team team graph](slides/images/team.png)
 ![AI Team organization view](slides/images/organigramm.png)
 

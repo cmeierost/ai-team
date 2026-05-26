@@ -8,7 +8,7 @@ vi.mock('../workflow/send-turn-machine.js', () => ({
   })),
 }));
 
-import { XStateChatOrchestrator } from './xstate-chat-orchestrator';
+import { ChatOrchestrator } from './chat-orchestrator.js';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import type { CommandResponse, ICommandDispatcher } from '@ai-team/api-contracts';
@@ -25,7 +25,7 @@ type OrchestratorCtor = new (
 };
 
 const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: OrchestratorCtor }> = [
-  { name: 'xstate-drop-in', Orchestrator: XStateChatOrchestrator },
+  { name: 'xstate-drop-in', Orchestrator: ChatOrchestrator },
 ];
 
 function makeContext(): { ctx: ExecutionContext; emitSpy: ReturnType<typeof vi.fn> } {
@@ -38,7 +38,6 @@ function makeContext(): { ctx: ExecutionContext; emitSpy: ReturnType<typeof vi.f
     sessionManager: {} as any,
     agentManager: { loadAllAgents: vi.fn(async () => {}) } as any,
     skillManager: {} as any,
-    llmService: {} as any,
     history: [],
   } as ExecutionContext;
 

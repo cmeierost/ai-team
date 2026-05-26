@@ -12,6 +12,7 @@ import type {
 } from '@ai-team/api-contracts';
 import { toServiceDomainError } from '@ai-team/service/src/errors.js';
 import { writeBackendDebugLog } from '@ai-team/service/src/utils/debug-log.js';
+import type { IEmitService } from '@ai-team/service/src/orchestrator/services/emit-service.js';
 import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service/src/stream-perf.js';
 import { runtimeEventToStreamEvent } from '@ai-team/service/src/runtime-event-translator.js';
 import { streamInteraction } from '@ai-team/service/src/interaction-stream.js';
@@ -23,8 +24,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 const STDOUT_CAPTURE_SCOPE = new AsyncLocalStorage<boolean>();
 const STDOUT_CAPTURE_BYPASS_SCOPE = new AsyncLocalStorage<boolean>();
-
-type CliEmit = ((event: RuntimeStreamEvent) => void) | undefined;
 
 function formatRuntimeConsoleArgs(args: unknown[]): string {
   if (args.length === 0) {
@@ -92,17 +91,17 @@ export class CliCommandClient implements ICliCommandClient {
 
   async invokeTool(
     request: InteractionRequest,
-    context: ExecutionContext = {} as ExecutionContext
+    context: ExecutionContext = {} as ExecutionContext,
+    emitService?: IEmitService
   ): Promise<CommandResponse<unknown>> {
     if (context.signal?.aborted) {
       throw new Error('Mediator invocation aborted');
     }
 
-    context.emit?.({
-      kind: 'status',
-      phase: 'dispatch',
-      message: `Dispatching command '${request.command}'`,
-    });
+    const svc = emitService;
+    const active = Boolean(svc);
+
+    svc?.status('dispatch', `Dispatching command '${request.command}'`);
     writeBackendDebugLog(this.workspaceRoot, {
       source: 'invoke',
       phase: 'dispatch',
@@ -116,40 +115,22 @@ export class CliCommandClient implements ICliCommandClient {
     const originalError = console.error;
     const originalStdoutWrite = process.stdout.write.bind(process.stdout);
 
-    // Wrap emit so every event reaches the client via the event queue.
+    // Patch console and stdout to route through the active EmitService when present.
     // Do NOT mirror log events back to console.log/warn/error here:
     // originalLog still calls process.stdout.write (which is patched when
-    // context.emit is present), so mirroring would emit a second token event
+    // the emitter is active), so mirroring would emit a second token event
     // for every log message and cause double-printing in the CLI.
-    const emitWithConsole: ((event: RuntimeStreamEvent) => void) | undefined = context.emit
-      ? (event: RuntimeStreamEvent) => {
-          context.emit!(event);
-        }
-      : undefined;
-
-    if (context.emit) {
+    if (active) {
       console.log = (...args: unknown[]) => {
-        emitWithConsole!({
-          kind: 'log',
-          level: 'info',
-          message: formatRuntimeConsoleArgs(args),
-        });
+        svc!.emit({ kind: 'log', level: 'info', message: formatRuntimeConsoleArgs(args) });
       };
 
       console.warn = (...args: unknown[]) => {
-        emitWithConsole!({
-          kind: 'log',
-          level: 'warn',
-          message: formatRuntimeConsoleArgs(args),
-        });
+        svc!.emit({ kind: 'log', level: 'warn', message: formatRuntimeConsoleArgs(args) });
       };
 
       console.error = (...args: unknown[]) => {
-        emitWithConsole!({
-          kind: 'log',
-          level: 'error',
-          message: formatRuntimeConsoleArgs(args),
-        });
+        svc!.emit({ kind: 'log', level: 'error', message: formatRuntimeConsoleArgs(args) });
       };
 
       process.stdout.write = (
@@ -171,10 +152,7 @@ export class CliCommandClient implements ICliCommandClient {
               ? chunk.toString(typeof encoding === 'string' ? encoding : undefined)
               : String(chunk);
 
-        emitWithConsole!({
-          kind: 'token',
-          text,
-        });
+        svc!.emit({ kind: 'token', text });
 
         if (typeof encoding === 'function') {
           encoding(null);
@@ -188,18 +166,9 @@ export class CliCommandClient implements ICliCommandClient {
     }
 
     const invokeCore = async (): Promise<CommandResponse<unknown>> => {
-      const execCtx: ExecutionContext = {
-        ...context,
-        emit: emitWithConsole as ((event: unknown) => void) | undefined,
-      };
+      const response = await this.dispatcher.dispatch(request.command, request.payload, context);
 
-      const response = await this.dispatcher.dispatch(request.command, request.payload, execCtx);
-
-      context.emit?.({
-        kind: 'status',
-        phase: 'completed',
-        message: `Completed command '${request.command}'`,
-      });
+      svc?.status('completed', `Completed command '${request.command}'`);
       writeBackendDebugLog(this.workspaceRoot, {
         source: 'invoke',
         phase: 'completed',
@@ -211,7 +180,7 @@ export class CliCommandClient implements ICliCommandClient {
     };
 
     try {
-      return context.emit ? await STDOUT_CAPTURE_SCOPE.run(true, invokeCore) : await invokeCore();
+      return active ? await STDOUT_CAPTURE_SCOPE.run(true, invokeCore) : await invokeCore();
     } catch (error) {
       const serviceError = toServiceDomainError(error, `Command '${request.command}' failed.`);
       writeBackendDebugLog(this.workspaceRoot, {
@@ -225,14 +194,14 @@ export class CliCommandClient implements ICliCommandClient {
           details: serviceError.details,
         },
       });
-      emitWithConsole?.({
-        kind: 'log',
-        level: 'error',
-        message: serviceError.message,
-      });
+      if (svc) {
+        svc.log('error', serviceError.message);
+      } else {
+        process.stderr.write(`${serviceError.message}\n`);
+      }
       throw serviceError;
     } finally {
-      if (context.emit) {
+      if (active) {
         console.log = originalLog;
         console.warn = originalWarn;
         console.error = originalError;
@@ -322,7 +291,7 @@ export class CliCommandClient implements ICliCommandClient {
     yield* streamInteraction({
       request,
       context: context,
-      invoke: (ctx: ExecutionContext) => this.invokeTool(request, ctx),
+      invoke: (ctx: ExecutionContext, emitService: IEmitService) => this.invokeTool(request, ctx, emitService),
       translateRuntimeEvent: runtimeEventToStreamEvent,
       normalizeError: (error: unknown) =>
         toServiceDomainError(error, `Command '${request.command}' failed.`),

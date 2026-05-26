@@ -6,13 +6,13 @@ import type {
 } from '@ai-team/api-contracts';
 import type { ExecutionContext } from '@ai-team/core';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
-import { EmitService } from './orchestrator/services/emit-service.js';
+import { EmitService, type IEmitService } from './orchestrator/services/emit-service.js';
 import { runWithEmitter } from './orchestrator/stream-events.js';
 
 export interface StreamInteractionOptions<TCommand extends string = string> {
   request: InteractionRequest;
   context?: Record<string, unknown>;
-  invoke: (ctx: ExecutionContext) => Promise<CommandResponse<unknown>>;
+  invoke: (ctx: ExecutionContext, emitService: IEmitService) => Promise<CommandResponse<unknown>>;
   timestamp?: () => string;
   translateRuntimeEvent?: (
     event: RuntimeStreamEvent,
@@ -99,12 +99,15 @@ export async function* streamInteraction<TCommand extends string = string>(
     timestamp: timestamp(),
   });
 
-  runWithEmitter(new EmitService(emitRuntimeEvent), () =>
-      options.invoke({
+  const emitService = new EmitService(emitRuntimeEvent);
+  runWithEmitter(emitService, () =>
+    options.invoke(
+      {
         ...(context as Partial<ExecutionContext>),
-        emit: emitRuntimeEvent as (event: unknown) => void,
-      } as ExecutionContext)
+      } as ExecutionContext,
+      emitService
     )
+  )
     .then((result) => {
       data = result;
     })

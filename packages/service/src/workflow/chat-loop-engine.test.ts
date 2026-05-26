@@ -13,7 +13,7 @@ import {
   runChatLoopWorkflowAsync,
   type ChatLoopToolRoundExecutionRequest,
   type ChatLoopWorkflowServices,
-} from './xstate-chat-loop-engine.js';
+} from './chat-loop-engine.js';
 
 function createAgent(): Agent {
   return {

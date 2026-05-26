@@ -13,7 +13,10 @@ const outputPath = path.resolve(workspaceRoot, outputArg ?? defaultOutputPath);
 const loadPause = Number(process.env.SLIDES_PDF_LOAD_PAUSE ?? 2000);
 const chromePath = resolveBrowserPath();
 const decktapeRuntime = resolveDecktapeRuntime();
-const forcePuppeteer = String(process.env.SLIDES_PDF_FORCE_PUPPETEER ?? '').toLowerCase() === 'true';
+const usePrintPdf =
+  String(process.env.SLIDES_PDF_USE_PRINT_PDF ?? 'false').toLowerCase() === 'true';
+const forcePuppeteer =
+  String(process.env.SLIDES_PDF_FORCE_PUPPETEER ?? '').toLowerCase() === 'true';
 const pdfMedia = (process.env.SLIDES_PDF_MEDIA ?? 'screen').toLowerCase();
 const pdfScale = Number(process.env.SLIDES_PDF_SCALE ?? 1);
 const viewportWidth = Number(process.env.SLIDES_PDF_VIEWPORT_WIDTH ?? 1920);
@@ -71,7 +74,7 @@ function resolveBrowserPath() {
   const found = candidates.find((candidate) => candidate && fssync.existsSync(candidate));
   if (!found) {
     throw new Error(
-      'No Chrome/Edge/Chromium executable found. Set CHROME_PATH, CHROME_BIN, or EDGE_PATH.',
+      'No Chrome/Edge/Chromium executable found. Set CHROME_PATH, CHROME_BIN, or EDGE_PATH.'
     );
   }
   return found;
@@ -82,7 +85,7 @@ function resolveDecktapeRuntime() {
     workspaceRoot,
     'node_modules',
     'decktape',
-    'decktape.js',
+    'decktape.js'
   );
 
   if (fssync.existsSync(localPackageEntrypoint)) {
@@ -104,7 +107,7 @@ function getMimeType(filePath) {
 
 function isInside(parent, child) {
   const rel = path.relative(parent, child);
-  return rel && !rel.startsWith('..') && !path.isAbsolute(rel) || rel === '';
+  return (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) || rel === '';
 }
 
 async function createStaticServer(rootDir) {
@@ -147,7 +150,7 @@ async function createStaticServer(rootDir) {
 
   return {
     server,
-    url: `http://127.0.0.1:${address.port}/index.html?print-pdf`,
+    url: `http://127.0.0.1:${address.port}/index.html${usePrintPdf ? '?print-pdf' : ''}`,
   };
 }
 
@@ -160,16 +163,114 @@ async function loadPuppeteer() {
     const mod = await import('puppeteer-core');
     return mod.default ?? mod;
   } catch {
-    const bundledPath = '/usr/local/lib/node_modules/decktape/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js';
+    const bundledPath =
+      '/usr/local/lib/node_modules/decktape/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js';
     if (fssync.existsSync(bundledPath)) {
       const mod = await import(pathToFileURL(bundledPath).href);
       return mod.default ?? mod;
     }
 
     throw new Error(
-      'puppeteer-core not found. Install it locally or use the Docker image with DeckTape bundled dependencies.',
+      'puppeteer-core not found. Install it locally or use the Docker image with DeckTape bundled dependencies.'
     );
   }
+}
+
+async function loadPdfLib() {
+  try {
+    const mod = await import('pdf-lib');
+    return mod;
+  } catch {
+    const bundledPath = '/usr/local/lib/node_modules/decktape/node_modules/pdf-lib/cjs/index.js';
+    if (fssync.existsSync(bundledPath)) {
+      const mod = await import(pathToFileURL(bundledPath).href);
+      return mod;
+    }
+
+    throw new Error('pdf-lib not found. Install it locally to build screenshot PDFs.');
+  }
+}
+
+async function waitForReveal(page) {
+  try {
+    await page.waitForFunction(
+      () => {
+        const reveal = globalThis.Reveal;
+        return reveal !== undefined && typeof reveal.getSlides === 'function';
+      },
+      { timeout: 60000 },
+    );
+    await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const reveal = globalThis.Reveal;
+          if (!reveal || typeof reveal.isReady !== 'function') {
+            resolve(false);
+            return;
+          }
+          if (reveal.isReady()) {
+            resolve(true);
+            return;
+          }
+          const timer = setTimeout(() => resolve(false), 15000);
+          try {
+            reveal.on('ready', () => {
+              clearTimeout(timer);
+              resolve(true);
+            });
+          } catch {
+            clearTimeout(timer);
+            resolve(false);
+          }
+        }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getSlideIndices(page) {
+  return page.evaluate(() => {
+    const reveal = globalThis.Reveal;
+    if (reveal && typeof reveal.getSlides === 'function') {
+      return reveal.getSlides().map((slide) => reveal.getIndices(slide));
+    }
+
+    const slides = Array.from(document.querySelectorAll('.slides > section'));
+    return slides.map((_, index) => ({ h: index, v: 0, f: 0 }));
+  });
+}
+
+async function showSlide(page, idx, revealAvailable) {
+  if (revealAvailable) {
+    await page.evaluate((target) => {
+      const reveal = globalThis.Reveal;
+      if (!reveal || typeof reveal.slide !== 'function') return;
+      reveal.slide(target.h, target.v, target.f ?? 0);
+    }, idx);
+    return;
+  }
+
+  await page.evaluate((target) => {
+    const slides = Array.from(document.querySelectorAll('.slides > section'));
+    slides.forEach((slide, index) => {
+      slide.style.display = index === target.h ? 'block' : 'none';
+    });
+  }, idx);
+}
+
+function parseLengthToPoints(value) {
+  if (!value) return null;
+  const match = /^([0-9.]+)(in|mm|cm|px)?$/i.exec(String(value).trim());
+  if (!match) return null;
+  const num = Number(match[1]);
+  const unit = (match[2] ?? 'px').toLowerCase();
+  if (!Number.isFinite(num)) return null;
+  if (unit === 'in') return num * 72;
+  if (unit === 'cm') return (num / 2.54) * 72;
+  if (unit === 'mm') return (num / 25.4) * 72;
+  return num * 0.75; // px -> pt approx (96dpi)
 }
 
 function runDecktape(url, pdfPath) {
@@ -229,25 +330,109 @@ async function renderWithPuppeteer(url, pdfPath) {
 
   try {
     const page = await browser.newPage();
+      page.on('console', (msg) => {
+        const type = msg.type();
+        const text = msg.text();
+        if (type === 'error' || type === 'warning') {
+          console.log(`[slides:pdf][browser:${type}] ${text}`);
+        }
+      });
+      page.on('pageerror', (error) => {
+        console.log(`[slides:pdf][pageerror] ${String(error)}`);
+      });
+      page.on('requestfailed', (request) => {
+        const url = request.url();
+        const failure = request.failure();
+        if (url.includes('reveal') || url.includes('unpkg')) {
+          console.log(`[slides:pdf][requestfailed] ${url} ${failure?.errorText ?? ''}`);
+        }
+      });
+    await page.setRequestInterception(true);
+    page.on('request', async (request) => {
+      const requestUrl = request.url();
+      const revealPrefix = 'https://unpkg.com/reveal.js@5/';
+
+      if (requestUrl.startsWith(revealPrefix)) {
+        const relativePath = requestUrl.slice(revealPrefix.length).split('?')[0];
+        const localPath = path.resolve(workspaceRoot, 'node_modules', 'reveal.js', relativePath);
+        if (fssync.existsSync(localPath)) {
+          console.log(`[slides:pdf][asset] ${relativePath} -> local`);
+          const body = await fs.readFile(localPath);
+          await request.respond({
+            status: 200,
+            contentType: getMimeType(localPath),
+            body,
+          });
+          return;
+        }
+
+        console.log(`[slides:pdf][asset-miss] ${relativePath} not found locally`);
+      }
+
+      await request.continue();
+    });
     await page.setViewport({ width: viewportWidth, height: viewportHeight, deviceScaleFactor: 1 });
     await page.goto(url, { waitUntil: 'domcontentloaded' });
+    const revealState = await page.evaluate(() => typeof globalThis.Reveal);
+    console.log(`[slides:pdf] Reveal global after DOMContentLoaded: ${revealState}`);
 
     await page.evaluate(async () => {
       if (document.fonts !== undefined) {
         await document.fonts.ready;
       }
     });
+    const revealAvailable = await waitForReveal(page);
+    if (!revealAvailable) {
+      throw new Error('Reveal did not initialize in time. Export requires Reveal to update slide backgrounds.');
+    }
     await new Promise((resolve) => setTimeout(resolve, Math.max(2500, loadPause)));
 
-    await page.emulateMediaType(pdfMedia === 'screen' ? 'screen' : 'print');
-    await page.pdf({
-      path: pdfPath,
-      printBackground: true,
-      preferCSSPageSize: !pdfWidth && !pdfHeight,
-      ...(pdfWidth ? { width: pdfWidth } : {}),
-      ...(pdfHeight ? { height: pdfHeight } : {}),
-      scale: Number.isFinite(pdfScale) ? pdfScale : 1,
-    });
+    if (usePrintPdf) {
+      await page.emulateMediaType(pdfMedia === 'screen' ? 'screen' : 'print');
+      await page.pdf({
+        path: pdfPath,
+        printBackground: true,
+        preferCSSPageSize: !pdfWidth && !pdfHeight,
+        ...(pdfWidth ? { width: pdfWidth } : {}),
+        ...(pdfHeight ? { height: pdfHeight } : {}),
+        scale: Number.isFinite(pdfScale) ? pdfScale : 1,
+      });
+      return;
+    }
+
+    await page.emulateMediaType('screen');
+    const { PDFDocument } = await loadPdfLib();
+    const pdfDoc = await PDFDocument.create();
+    const pageWidth = parseLengthToPoints(pdfWidth) ?? viewportWidth * 0.75;
+    const pageHeight = parseLengthToPoints(pdfHeight) ?? viewportHeight * 0.75;
+
+    const indices = await getSlideIndices(page);
+
+    const slideIndices =
+      Array.isArray(indices) && indices.length > 0 ? indices : [{ h: 0, v: 0, f: 0 }];
+
+    for (const idx of slideIndices) {
+      await showSlide(page, idx, revealAvailable);
+
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      const buffer = await page.screenshot({
+        type: 'png',
+        clip: { x: 0, y: 0, width: viewportWidth, height: viewportHeight },
+      });
+
+      const image = await pdfDoc.embedPng(buffer);
+      const pageRef = pdfDoc.addPage([pageWidth, pageHeight]);
+      pageRef.drawImage(image, {
+        x: 0,
+        y: 0,
+        width: pageWidth,
+        height: pageHeight,
+      });
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    await fs.writeFile(pdfPath, pdfBytes);
   } finally {
     await browser.close();
   }
@@ -265,7 +450,10 @@ async function main() {
         await runDecktape(url, outputPath);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (/Unable to activate the Reveal JS DeckTape plugin/i.test(message) || /DeckTape exited with code 1/i.test(message)) {
+        if (
+          /Unable to activate the Reveal JS DeckTape plugin/i.test(message) ||
+          /DeckTape exited with code 1/i.test(message)
+        ) {
           await renderWithPuppeteer(url, outputPath);
         } else {
           throw error;
