@@ -12,6 +12,7 @@ dist/
 out/
 build/
 *.vsix
+storybook-static/
 
 # TypeScript
 *.tsbuildinfo
