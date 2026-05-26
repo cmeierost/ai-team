@@ -488,11 +488,22 @@ export function registerServiceLayerServices(
           r.resolve(tokens.IdeAdapterFactory)
         )
     );
+    // AskUserCommand is registered here so each invocation resolves the
+    // current per-connection QuestionService via the container passed at
+    // tool-resolution time (the scoped ToolManager's per-connection container).
+    registry.register(
+      AskUserCommandMetadata,
+      (r) => new AskUserCommand(r.resolve(COMMAND_FACTORY_TOKENS.QuestionService))
+    );
     return registry;
   });
 
-  // Register ToolManager with pure DI — resolves from registry and container
-  container.registerSingleton(tokens.ToolManager, (c) => {
+  // Register ToolManager with pure DI — resolves from registry and container.
+  // registerScoped ensures each WebSocket connection gets its own ToolManager
+  // instance bound to the per-connection child container, so tool factories
+  // (e.g. AskUserCommand) resolve the live WsQuestionService rather than the
+  // root-container no-op fallback.
+  container.registerScoped(tokens.ToolManager, (c) => {
     const workspaceRoot = c.resolve(tokens.WorkspaceRoot) as string;
     const pathPermissionChecker = c.resolve(tokens.PathPermissionChecker);
     const registry = c.resolve(COMMAND_FACTORY_TOKENS.CommandRegistry);
@@ -524,6 +535,9 @@ export function registerServiceLayerServices(
 
     const workflowResolvers = getWorkflowDefinitionResolvers();
 
+    // Register orchestration tools as direct tools on this manager instance
+    // (not on the shared CommandRegistry) so that each scoped ToolManager can
+    // add them independently without causing "Duplicate command key" errors.
     for (const tool of createOrchestrationTools(c, {
       tools: {
         whoCanExecute: (toolName: string, args: unknown, agents: import('@ai-team/core').Agent[]) =>
@@ -533,16 +547,8 @@ export function registerServiceLayerServices(
       workflows: workflowCatalog,
       workflowResolvers,
     })) {
-      registry.register(tool.metadata, (_r) => tool);
+      manager.register(tool);
     }
-
-    // AskUserCommand is registered lazily so each invocation resolves the
-    // current per-connection QuestionService (set via registerInstance in the
-    // WebSocket handler) rather than a service baked in at startup.
-    registry.register(
-      AskUserCommandMetadata,
-      (r) => new AskUserCommand(r.resolve(COMMAND_FACTORY_TOKENS.QuestionService))
-    );
 
     return manager;
   });

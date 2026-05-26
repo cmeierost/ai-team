@@ -316,7 +316,7 @@ class ApplyPatchService {
     try {
       await FileTime.assert(agentId, absolutePath);
     } catch (assertErr) {
-      const msg = `${assertErr instanceof Error ? assertErr.message : String(assertErr)} — call read on '${displayPath}' before patch.`;
+      const msg = `${assertErr instanceof Error ? assertErr.message : String(assertErr)} — call fs_read on '${displayPath}' before patch.`;
       throw new Error(msg);
     }
   }
@@ -328,7 +328,7 @@ export const ApplyPatchToolMetadata = {
   description: [
     'Apply a standard unified diff (--- / +++ / @@ format) to one or more files.',
     'Each changed file is access-checked individually.',
-    'Existing files MUST have been read with read in the current session.',
+    'Existing files MUST have been read with fs_read in the current session.',
     'New files (add hunks) do not require a prior read.',
   ].join(' '),
   parameters: z.object({

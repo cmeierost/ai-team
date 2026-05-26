@@ -26,10 +26,10 @@ export const FsEditToolMetadata = {
   availableIn: { tool: true },
   description: [
     'Perform a surgical in-place edit of a file by replacing an exact string.',
-    'REQUIRES the file to have been read first with read in the same session.',
+    'REQUIRES the file to have been read first with fs_read in the same session.',
     'The edit will fail if the file has been modified on disk since the last read.',
     'Use `replaceAll: true` to replace every occurrence; default replaces only the first.',
-    'Always read the file with `read` immediately before calling this tool.',
+    'Always read the file with `fs_read` immediately before calling this tool.',
   ].join(' '),
   parameters: z.object({
     filePath: z.string().describe('Relative or absolute path to the file to edit'),
@@ -228,7 +228,7 @@ export class FsEditTool implements ICommand<FsEditParams, unknown> {
           path: pathMeta,
           edited: false,
           error: msg,
-          hint: 'Call read on this file before calling edit.',
+          hint: 'Call fs_read on this file before calling edit.',
           access,
         },
       };
@@ -295,7 +295,7 @@ export class FsEditTool implements ICommand<FsEditParams, unknown> {
             path: pathMeta,
             edited: false,
             error: msg,
-            hint: 'Use read to verify the current content of the file before calling edit.',
+            hint: 'Use fs_read to verify the current content of the file before calling edit.',
             access,
           },
         },

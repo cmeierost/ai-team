@@ -22,7 +22,7 @@ export const MultiEditToolMetadata = {
   availableIn: { tool: true },
   description: [
     'Apply multiple oldString→newString replacements to a single file in one call.',
-    'Edits are applied sequentially; the file MUST have been read with read first.',
+    'Edits are applied sequentially; the file MUST have been read with fs_read first.',
     'Stops on the first failed edit and returns partial results with the error index.',
   ].join(' '),
   parameters: z.object({
