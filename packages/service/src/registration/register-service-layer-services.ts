@@ -581,7 +581,7 @@ export function registerServiceLayerServices(
     tokens.LlmSelector,
     (c) => new DefaultLlmSelector(c.resolve(tokens.LlmService))
   );
-  container.registerSingleton(tokens.OutputHandler, () => new DefaultOutputHandler());
+  container.registerSingleton(tokens.OutputHandler, (c) => new DefaultOutputHandler(c.resolve(COMMAND_FACTORY_TOKENS.EmitService)));
   container.registerSingleton(tokens.TurnResultParsers, () => buildDefaultTurnResultParsers());
   container.registerSingleton(tokens.HookPlugins, () => buildDefaultHookPlugins());
   container.registerSingleton(

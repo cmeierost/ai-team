@@ -625,7 +625,7 @@ export class ChatCommand {
       toolResolver: new DefaultToolResolver(chatToolManager),
       mcpGateway: new NoOpMcpGateway(),
       llmSelector: new DefaultLlmSelector(llm),
-      outputHandler: new DefaultOutputHandler(),
+      outputHandler: new DefaultOutputHandler(emitService),
       commandDispatcher,
       turnResultParsers: buildDefaultTurnResultParsers(),
       hookPlugins: buildDefaultHookPlugins(),

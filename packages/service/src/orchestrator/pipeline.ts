@@ -130,7 +130,7 @@ export interface ILlmSelector {
  * Persists turn results and emits runtime events to connected surfaces.
  * Called once per completed LLM turn (including tool resolution).
  *
- * Default: DefaultOutputHandler — persist to SessionManager, emit via hooks.emit.
+ * Default: DefaultOutputHandler — emit via IEmitService.
  * Future: distributed event bus, audit logging, analytics.
  */
 export interface IOutputHandler {
