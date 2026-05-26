@@ -30,6 +30,12 @@ AI-Team translates abstract design patterns into strict multi-agent guardrails. 
 
 The goal is to evolve this into an open source coding tool of the future—one that makes architectural intent executable, keeps teams aligned, and reduces regressions as systems grow.
 
+## Slides
+
+[View presentation](https://cmeierost.github.io/ai-team/slides/)
+
+> GitHub Pages: [https://cmeierost.github.io/ai-team/](https://cmeierost.github.io/ai-team/)
+
 ## What you’ll find here
 
 - A TypeScript monorepo with CLI, VS Code, and web adapters
@@ -125,5 +131,5 @@ Provider URLs and defaults live in `.ai-team/config.user.json`:
 For package-specific verification and guardrails, follow [.github/copilot-instructions.md](.github/copilot-instructions.md).
 
 <p align="center">
-   <img src="slides/brand/ost-logo-english.png" alt="OST Logo" width="180" style="background: #ffffff; padding: 6px 10px; border-radius: 8px;" />
+   <a href="https://www.ost.ch" target="_blank"><img src="slides/brand/ost-logo-english.png" alt="OST Logo" width="180" style="background: #ffffff; padding: 6px 10px; border-radius: 8px;" /></a>
 </p>
