@@ -1,0 +1,17 @@
+FROM node:23-slim
+
+WORKDIR /workspace
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    fonts-noto \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+  && npm i -g decktape@3 \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV CHROME_BIN=/usr/bin/chromium \
+    CHROME_PATH=/usr/bin/chromium \
+    SLIDES_PDF_LOAD_PAUSE=2000
+
+CMD ["node", "tools/export-slides-pdf.mjs"]

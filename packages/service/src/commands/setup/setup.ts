@@ -23,7 +23,7 @@ import { resolveEffectiveLlmSettings } from '@ai-team/core';
 import { updateWorkspaceSettings } from '../init/update-workspace-settings.js';
 import { updateGitignore } from '../init/update-gitignore.js';
 import { askLlmSetup, type LlmSetupResult, type LlmSettingsIo } from '../init/llm-settings.js';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 export interface SetupCommandParams {
   workspaceRoot: string;
@@ -40,7 +40,7 @@ export class SetupCommand {
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
     private readonly llmProviderTester: ILlmProviderTester,
     private readonly developerIdentityService: IDeveloperIdentityService,
-    private readonly questionService: IInteractionService
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(params: SetupCommandParams, context: ExecutionContext): Promise<void> {

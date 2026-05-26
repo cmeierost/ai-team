@@ -63,8 +63,7 @@ function makeContext(): ExecutionContext {
     history: [],
   } as ExecutionContext;
 
-  const emitService = new EmitService();
-  emitService.setDefaultEmitter(emit as any);
+  const emitService = new EmitService(emit as any);
   setServiceContainer({
     resolve: (token: { id?: string }) => {
       if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) return emitService;

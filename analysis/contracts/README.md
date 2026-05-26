@@ -1,8 +1,8 @@
 # @aspect/contracts
 
 Technology-agnostic JSON Schema contracts for the Aspect analysis system.
-Defines the intermediate representation that collectors produce and the engine
-consumes, plus a binary framing protocol for stdio communication.
+Defines the intermediate representation that collectors produce and the
+pipelines/calculators consume, plus a binary framing protocol for stdio communication.
 
 ## Schemas
 
@@ -31,7 +31,7 @@ Eleven schemas organised in three groups:
 | Schema | File | Defines |
 |--------|------|---------|
 | Collected Data | `collected-data.schema.json` | Full collector output (entities + relationships + signals) |
-| Analyzed Data | `analyzed-data.schema.json` | Engine output (metrics, scores, summaries) |
+| Analyzed Data | `analyzed-data.schema.json` | Analysis output (metrics, scores, summaries) |
 | Protocol | `protocol.schema.json` | Stdio message types (invoke, progress, chunk, result, error, complete) |
 
 ## Generated Types

@@ -20,12 +20,15 @@
     "analyze:perms": "pnpm --filter @ai-team/core build && pnpm --filter @ai-team/api-contracts build && pnpm --filter @ai-team/service build && pnpm --filter @ai-team/cli build && node packages/cli/dist/cli.js access overlap --json",
     "docs:pdf": "node tools/export-md-pdf.mjs",
     "docs:orchestrator:pdf": "node tools/export-md-pdf.mjs docs/architecture/orchestrator-overview.md docs/architecture/orchestrator-overview.pdf",
+    "slides:pdf": "node tools/export-slides-pdf-docker.mjs",
+    "slides:pdf:local": "node tools/export-slides-pdf.mjs",
     "clean": "pnpm -r clean && rm -rf node_modules",
     "logs:clean": "node -e \"const fs=require('fs');const d='.ai-team/logs';if(fs.existsSync(d))fs.readdirSync(d).forEach(f=>fs.rmSync(d+'/'+f,{recursive:true,force:true}))\"",
     "reinstall-vscplugin": "pnpm --filter ai-team reinstall"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "decktape": "^3.14.1",
     "eslint": "^10.1.0",
     "highlight.js": "^11.11.1",
     "jscpd": "^4.0.8",

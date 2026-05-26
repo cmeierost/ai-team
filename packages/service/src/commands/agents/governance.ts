@@ -1,5 +1,5 @@
 import type { Agent, IAgentManager, ExecutionContext } from '@ai-team/core';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 export interface GovernanceRequest {
   /** Agent query (id/name) initiating the governance mutation. */
@@ -13,7 +13,7 @@ export class GovernanceService {
 
   constructor(
     private readonly agentManager: IAgentManager,
-    private readonly questionService: IInteractionService
+    private readonly questionService: IQuestionService
   ) {}
 
   /**

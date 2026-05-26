@@ -34,8 +34,7 @@ import { InteractionQuestionService } from '../questions/question-service.js';
 const serialization = new ToolSerializationService();
 
 function installEmitService(emit: (event: any) => void) {
-  const emitService = new EmitService();
-  emitService.setDefaultEmitter(emit);
+  const emitService = new EmitService(emit);
   setServiceContainer({
     resolve: (token: { id?: string }) => {
       if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {

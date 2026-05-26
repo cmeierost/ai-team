@@ -14,7 +14,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import type { AvatarOptions, QuestionSelectChoice } from '@ai-team/api-contracts';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof AvatarCommand.schema>;
 
@@ -50,7 +50,7 @@ export class AvatarCommand implements ICommand<Params, void> {
     private readonly configurationStorage: IConfigurationStorage,
     private readonly environmentStorage: IEnvironmentStorage,
     private readonly avatarManager: IAvatarManager,
-    private readonly questionService: IInteractionService
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {

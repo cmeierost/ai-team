@@ -110,6 +110,9 @@ export interface ILlmService {
   /** Provider registry key, if resolved from TeamConfig providers dictionary */
   get providerName(): string | undefined;
 
+  /** The base URL used by the active provider (undefined for built-in providers like github-copilot) */
+  get baseUrl(): string | undefined;
+
   /** The underlying OpenAI client, for advanced use */
   get openai(): OpenAIAdapter;
 

@@ -22,7 +22,7 @@ import {
 } from '@ai-team/core';
 import type { ToolManager } from '../tools/tool-manager.js';
 import type { SessionManager } from '../session-manager.js';
-import type { IInteractionService } from '../questions/question-service.js';
+import type { IQuestionService } from '../questions/question-service.js';
 import { emitEvent, emitToolEvent } from './stream-events.js';
 import type { RuntimeStreamEvent, ToolRuntimePayloadEvent } from '@ai-team/api-contracts';
 import {
@@ -60,7 +60,7 @@ export class ToolDispatcher {
     private readonly toolManager: ToolManager,
     private readonly sessionManager: SessionManager,
     private readonly support: ToolDispatchSupportService,
-    private readonly questionService: IInteractionService
+    private readonly questionService: IQuestionService
   ) {}
 
   async dispatch(

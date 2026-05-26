@@ -7,7 +7,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { ProposalStatus } from '@ai-team/core';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type RejectParams = z.infer<typeof CodeEditRejectCommand.schema>;
 const _codeEditRejectCommandSchema = z.object({
@@ -29,7 +29,7 @@ export class CodeEditRejectCommand implements ICommand<RejectParams, { proposalI
 
   constructor(
     private readonly manager: ICodeEditManager,
-    private readonly questionService: IInteractionService
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(

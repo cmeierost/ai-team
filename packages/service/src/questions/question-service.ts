@@ -17,7 +17,7 @@ export type {
   QuestionChecklistRequest,
 };
 
-export interface IInteractionService {
+export interface IQuestionService {
   input(request: QuestionInputRequest): Promise<string>;
   confirm(request: QuestionConfirmRequest): Promise<boolean>;
   select(request: QuestionSelectRequest): Promise<string>;
@@ -31,7 +31,7 @@ export interface IInteractionService {
 
 /** @deprecated Pass an IInteractionService object directly. */
 export function InteractionQuestionService(
-  handlers: Partial<IInteractionService>
-): IInteractionService {
-  return handlers as IInteractionService;
+  handlers: Partial<IQuestionService>
+): IQuestionService {
+  return handlers as IQuestionService;
 }

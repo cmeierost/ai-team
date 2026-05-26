@@ -1,9 +1,8 @@
 import type { WebSocket } from 'ws';
 import type { StreamEvent } from '@ai-team/api-contracts';
-import type { IAgentManager, IdeAdapter, IServiceContainer } from '@ai-team/core';
+import type { IAgentManager, IdeAdapter } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/infrastructure';
-import { SessionManager, WsQuestionService } from '@ai-team/service';
-import { TOKENS } from '@ai-team/container';
+import { type IInteractionService, SessionManager, WsQuestionService } from '@ai-team/service';
 
 /**
  * Messages sent from client to server over WebSocket.
@@ -124,12 +123,19 @@ export interface ChatWebSocketSetupOptions {
   agentManager?: IAgentManager;
   workspaceRoot?: string;
   llmService?: { ensureInitialized(): Promise<void> };
+  /**
+   * Pre-created WsQuestionService shared with the DI container.
+   * When provided (production), the same instance handles both hook-based
+   * and DI-based question flows. When omitted (tests), a new instance is
+   * created internally.
+   */
+  questionService?: WsQuestionService;
 }
 
 export async function setupChatWebSocket(
   ws: WebSocket,
   agentQuery: string,
-  container: IServiceContainer,
+  interactionService: IInteractionService,
   sessionManager: SessionManager,
   sessionId: string | null,
   options: ChatWebSocketSetupOptions = {}
@@ -171,13 +177,13 @@ export async function setupChatWebSocket(
 
   let currentAbortController: AbortController | null = null;
 
-  // Set up WebSocket-backed question service for this connection.
-  const questionService = new WsQuestionService();
-  questionService.setup((data) => {
-    ws.send(JSON.stringify({ type: 'question', data }));
-  });
-  container.registerInstance(TOKENS.QuestionService, questionService);
-  const interactionService = container.resolve(TOKENS.InteractionService);
+  let questionService = options.questionService;
+  if (!questionService) {
+    questionService = new WsQuestionService();
+    questionService.setup((data) => {
+      ws.send(JSON.stringify({ type: 'question', data }));
+    });
+  }
 
   ws.on('message', async (data: Buffer) => {
     try {
@@ -245,6 +251,11 @@ export async function setupChatWebSocket(
             },
             {
               signal: currentAbortController.signal,
+              questionInput: (r) => questionService.input(r),
+              questionConfirm: (r) => questionService.confirm(r),
+              questionSelect: (r) => questionService.select(r),
+              questionPassword: (r) => questionService.password(r),
+              questionChecklist: (r) => questionService.checklist(r),
             }
           );
 

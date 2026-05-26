@@ -5,7 +5,7 @@ import type {
   ExecutionContext,
   CommandResponse,
 } from '@ai-team/core';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 export type AskKind = 'input' | 'confirm' | 'select' | 'password' | 'checklist';
 
@@ -113,7 +113,7 @@ export class AskUserCommand implements ICommand<Params, AskUserResult> {
   static readonly schema = _askUserCommandSchema;
   readonly metadata = AskUserCommandMetadata;
 
-  constructor(private readonly questionService: IInteractionService) {}
+  constructor(private readonly questionService: IQuestionService) {}
 
   async execute(
     params: Params,

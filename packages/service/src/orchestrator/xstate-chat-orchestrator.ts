@@ -11,7 +11,14 @@ import type { ChatMessage, ExecutionContext, IAgentManager, ILlmService } from '
 import { isCommandResponse } from '@ai-team/api-contracts';
 import type { CommandResponse, RuntimeStreamEvent } from '@ai-team/api-contracts';
 
-import { emitLog, emitStatus } from './stream-events.js';
+import {
+  emitLog,
+  emitStatus,
+  emitEvent,
+  runWithEmitter,
+  getCurrentEmitter,
+} from './stream-events.js';
+import { EmitService } from './services/emit-service.js';
 import { resolvePreLlmIntent, type PreLlmIntent } from '../tools/pre-llm-intents.js';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
 import { ToolDispatcher } from './tool-dispatch.js';
@@ -299,23 +306,17 @@ export class XStateChatOrchestrator {
     rawArgs: string
   ): Promise<{ executionResult: CommandResponse | void; capturedEvents: RuntimeStreamEvent[] }> {
     const capturedEvents: RuntimeStreamEvent[] = [];
-    const originalEmit = this.hooks.emit;
+    const outerEmitter = getCurrentEmitter();
 
-    if (originalEmit) {
-      this.hooks.emit = (event: any) => {
+    const executionResult = await runWithEmitter(
+      new EmitService((event) => {
         capturedEvents.push(event);
-        originalEmit(event);
-      };
-    }
+        outerEmitter?.emit(event);
+      }),
+      () => this.plugins.commandDispatcher.dispatch(key, rawArgs, this.ctx)
+    );
 
-    try {
-      const executionResult = await this.plugins.commandDispatcher.dispatch(key, rawArgs, this.ctx);
-      return { executionResult, capturedEvents };
-    } finally {
-      if (originalEmit) {
-        this.hooks.emit = originalEmit;
-      }
-    }
+    return { executionResult, capturedEvents };
   }
 
   private formatCapturedSlashOutput(
@@ -382,7 +383,7 @@ export class XStateChatOrchestrator {
       return;
     }
 
-    this.hooks.emit?.({
+    emitEvent({
       kind: 'tool',
       toolName: `slash:${commandKey}`,
       toolPhase: executionResult.status === 'error' ? 'error' : 'result',
@@ -554,7 +555,7 @@ export class XStateChatOrchestrator {
     );
 
     if (generatedTitle) {
-      this.hooks?.emit?.({
+      emitEvent({
         kind: 'session_title_updated',
         sessionId: this.ctx.sessionId!,
         title: generatedTitle,

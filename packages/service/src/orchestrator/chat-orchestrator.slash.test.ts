@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { emitEvent } from './stream-events.js';
 
 vi.mock('../workflow/send-turn-machine.js', () => ({
   runSendTurnMachineAsync: vi.fn(async () => ({
@@ -27,12 +28,12 @@ const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: Orchestr
   { name: 'xstate-drop-in', Orchestrator: XStateChatOrchestrator },
 ];
 
-function makeContext(): ExecutionContext {
+function makeContext(): { ctx: ExecutionContext; emitSpy: ReturnType<typeof vi.fn> } {
   const ctx = {
     agent: { id: 'hr-director', name: 'Robert Davis', role: 'hr-director' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
-    hooks: { emit: vi.fn() } as any,
+    hooks: {} as any,
     toolManager: {} as any,
     sessionManager: {} as any,
     agentManager: { loadAllAgents: vi.fn(async () => {}) } as any,
@@ -41,8 +42,8 @@ function makeContext(): ExecutionContext {
     history: [],
   } as ExecutionContext;
 
-  const emitService = new EmitService();
-  emitService.setDefaultEmitter(ctx.hooks.emit as any);
+  const emitSpy = vi.fn();
+  const emitService = new EmitService(emitSpy);
   setServiceContainer({
     resolve: (token: { id?: string }) => {
       if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
@@ -52,7 +53,7 @@ function makeContext(): ExecutionContext {
     },
   } as any);
 
-  return ctx;
+  return { ctx, emitSpy };
 }
 
 function makePlugins(): ResolvedPlugins {
@@ -78,7 +79,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
   'ChatOrchestrator slash handling [$name]',
   ({ Orchestrator }) => {
     it('consumes unknown slash commands and does not forward to LLM turn execution', async () => {
-      const ctx = makeContext();
+      const { ctx, emitSpy } = makeContext();
       const plugins = makePlugins();
       const orchestrator = new Orchestrator(ctx, plugins);
 
@@ -86,20 +87,18 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
 
       expect(result).toBe('');
       expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
-      expect(ctx.hooks.emit).toHaveBeenCalledWith(
-        expect.objectContaining({ kind: 'log', level: 'warn' })
-      );
+      expect(emitSpy).toHaveBeenCalledWith(expect.objectContaining({ kind: 'log', level: 'warn' }));
     });
 
     it('persists executed slash commands as hidden tool-call messages', async () => {
       const appendMessage = vi.fn(async () => null);
-      const ctx = makeContext();
+      const { ctx } = makeContext();
       (ctx.sessionManager as any) = { appendMessage };
 
       const plugins = makePlugins();
       plugins.commandDispatcher = {
-        dispatch: vi.fn(async (_key: string, _args: unknown, dispatchCtx: any) => {
-          dispatchCtx.hooks.emit?.({ kind: 'log', level: 'info', message: 'whoami result' } as any);
+        dispatch: vi.fn(async (_key: string, _args: unknown, _dispatchCtx: any) => {
+          emitEvent({ kind: 'log', level: 'info', message: 'whoami result' } as any);
           return { status: 'ok' as const, message: '' };
         }),
         getCommands: vi.fn(() => []),
@@ -136,7 +135,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
 
     it('continues to LLM with prompt text when a prompt slash command is invoked', async () => {
       const appendMessage = vi.fn(async () => null);
-      const ctx = makeContext();
+      const { ctx } = makeContext();
       (ctx.sessionManager as any) = { appendMessage };
 
       const promptText = 'You are a strict reviewer. Find edge cases.';

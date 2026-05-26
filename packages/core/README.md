@@ -1,55 +1,28 @@
 # @ai-team/core
 
-Pure TypeScript library for managing AI agent teams. This package contains all business logic and has ZERO UI dependencies.
+UI-free domain library for AI Team. This package owns the shared contracts, schemas, and workspace-backed behavior that every adapter relies on.
 
-## Design Principles
+## Responsibilities
 
-- **IDE-Agnostic**: No imports from vscode, react, electron, or any UI framework
-- **File-Based**: All state stored in `.ai-team/` folder
-- **Fully Testable**: Can be tested without any IDE or UI
-- **Cross-Platform**: Works on Windows, macOS, Linux
-- **Runtime Source of Truth**: Core runtime state comes from `.ai-team/*`, with each agent in a single `.agent.md` file (YAML frontmatter for all metadata, Markdown body for the portfolio)
+- Agent, team, and skill domain operations
+- Context permissions and workspace rules (backed by `fs-context`)
+- Tool metadata, question primitives, and command catalog metadata
+- Zod-backed schema validation and JSON schema conversion
+- File-backed runtime model under `.ai-team/`
 
-## Architecture
+## Boundaries
 
-```
-src/
-├── index.ts              # Public API exports
-├── types/                # TypeScript interfaces and Zod schemas
-├── agent/                # Agent management (CRUD)
-├── skill/                # Skill (role) management
-├── team/                 # Team graph and hierarchy
-├── context/              # Context sharing and permissions
-├── chat/                 # Chat orchestration
-├── tools/                # Agent tool system
-├── storage/              # File I/O and persistence
-├── avatar/               # Avatar generation
-└── watcher/              # File watching
-```
+- **No UI dependencies** (VS Code, React, Electron, etc.)
+- **No transport concerns** (HTTP, WebSocket, CLI rendering)
+- **Pure logic** that is testable without an IDE or UI
 
-## Usage
+## Where it fits
 
-```typescript
-import { TeamGraph, AgentManager } from '@ai-team/core';
-
-// Load team from workspace
-const team = await TeamGraph.load('/path/to/workspace');
-
-// Get all agents
-const agents = team.getAgents();
-
-// Create new agent
-const agent = await AgentManager.create('/path/to/workspace', {
-  name: 'Sarah Chen',
-  role: 'senior-frontend-developer',
-  reportsTo: 'tech-lead',
-});
-```
+`@ai-team/core` sits underneath `@ai-team/service` and is shared by CLI, web, API server, and VS Code adapters. See `ARCHITECTURE.md` for the full dependency model.
 
 ## Development
 
 ```bash
-pnpm install
-pnpm build
-pnpm test
+pnpm --filter @ai-team/core build
+pnpm --filter @ai-team/core test
 ```

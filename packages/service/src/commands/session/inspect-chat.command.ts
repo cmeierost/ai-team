@@ -4,7 +4,7 @@ import type {
   ExecutionContext,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type IndexedToolCall = {
   msgTimestamp: string;
@@ -43,7 +43,7 @@ export const InspectChatCommandMetadata = {
 export class InspectChatCommand implements ICommand<string, string> {
   readonly metadata = InspectChatCommandMetadata;
 
-  constructor(private readonly questionService: IInteractionService) {}
+  constructor(private readonly questionService: IQuestionService) {}
 
   async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
     const allCalls: IndexedToolCall[] = [];

@@ -22,6 +22,8 @@ import type {
 } from './pipeline.js';
 import { invokeLlm } from './llm-invoke.js';
 import { emitLog, emitStatus } from './stream-events.js';
+import { getServiceContainer } from '../service-registry.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
 import type { SendTurnOptions } from './send-turn.js';
 
 function buildToolDefinitions(tools: ICommand[]): LlmToolDefinition[] {
@@ -245,7 +247,8 @@ export async function resolveSkillsAndToolsAsync(
   }
 
   const skills: Skill[] = [...resolvedSkills.skills, ...(sessionSkillFiles as unknown as Skill[])];
-  const teamRoster = await (ctx as any).agentManager.getAllAgentsAsync();
+  const agentManager = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.AgentManager);
+  const teamRoster = await agentManager.getAllAgentsAsync();
 
   const discoverMcpTools = (plugins.mcpGateway as { discover?: () => Promise<ICommand[]> })
     .discover;
@@ -412,7 +415,9 @@ export async function persistAssistantMessageAsync(
     (ctx as any).hooks
   );
 
-  await (ctx as any).agentManager.recordInteractionAsync((ctx as any).agent.id);
+  await getServiceContainer()
+    .resolve(COMMAND_FACTORY_TOKENS.AgentManager)
+    .recordInteractionAsync((ctx as any).agent.id);
 
   return {
     persistedContent,

@@ -48,31 +48,7 @@ import {
   parseTemplateBulletList,
 } from '../init/template-utils.js';
 import { type InitRuntimeHooks } from '../init/workflow-questions.js';
-import type { IInteractionService } from '../../questions/question-service.js';
-
-function requestSelect(
-  hooks: InitRuntimeHooks | undefined,
-  request: { message: string; choices: Array<{ name: string; value: string }> }
-): Promise<string> {
-  if (!hooks?.questionSelect) return Promise.resolve(request.choices[0]?.value ?? '');
-  return hooks.questionSelect(request);
-}
-
-function requestInput(
-  hooks: InitRuntimeHooks | undefined,
-  request: { message: string; validate?: (value: string) => true | string }
-): Promise<string> {
-  if (!hooks?.questionInput) return Promise.resolve('');
-  return hooks.questionInput(request);
-}
-
-function requestConfirm(
-  hooks: InitRuntimeHooks | undefined,
-  request: { message: string; default?: boolean }
-): Promise<boolean> {
-  if (!hooks?.questionConfirm) return Promise.resolve(request.default ?? false);
-  return hooks.questionConfirm(request);
-}
+import type { IQuestionService } from '../../questions/question-service.js';
 import { pickAgentName } from '../init/name-picking.js';
 import { createAgentFile } from '../init/agent-file.js';
 import { saveOnboardingTranscriptAsync } from '../init/onboarding-docs.js';
@@ -90,54 +66,6 @@ const HIRE_DIRECTIVE_RE = /^HIRE:\s*(.+?)\s*\|\s*(.+?)\s*$/gm;
 interface HireDirective {
   name: string;
   role: string;
-}
-
-function parseHireDirectives(history: ChatMessage[]): HireDirective[] {
-  const hires: HireDirective[] = [];
-  const seen = new Set<string>();
-  for (const msg of history) {
-    if (msg.isHuman) continue;
-    for (const match of msg.content.matchAll(HIRE_DIRECTIVE_RE)) {
-      const name = match[1].trim();
-      const role = match[2].trim();
-      const key = `${name.toLowerCase()}|${role.toLowerCase()}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        hires.push({ name, role });
-      }
-    }
-  }
-  return hires;
-}
-
-function inferRoleType(role: string): RoleType {
-  const r = role.toLowerCase();
-  if (/ceo|cto|cfo|coo|chief|vp|director/.test(r)) return RoleType.EXECUTIVE;
-  if (/lead|head|manager|principal/.test(r)) return RoleType.TEAM_LEAD;
-  return RoleType.INDIVIDUAL_CONTRIBUTOR;
-}
-
-function resolveOnboardingPhaseAgent(
-  phase: OnboardingWorkflowPhase,
-  ceoAgent: Agent,
-  hrAgent: Agent
-): Agent {
-  return phase.agentRole === 'ceo' ? ceoAgent : hrAgent;
-}
-
-function buildStrictWorkflowPrompt(phase: OnboardingWorkflowPhase): string {
-  return [
-    phase.strictSystemPrompt.trim(),
-    '## Workflow goal (strict)',
-    phase.goal,
-    '',
-    '## Runtime contract',
-    '- Stay in role and keep this phase focused on its goal.',
-    '- If the developer indicates completion, give a concise recap and let them continue.',
-    '- Keep responses concise and decision-oriented by default.',
-  ]
-    .join('\n')
-    .trim();
 }
 
 // ── OnboardCommand ────────────────────────────────────────────────────────────
@@ -167,7 +95,7 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
   constructor(
     private readonly onboardCommand: Pick<OnboardCommand, 'execute'>,
     private readonly sessionManager: SessionManager | undefined,
-    private readonly questionService: IInteractionService
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(
@@ -213,7 +141,7 @@ export class OnboardCommand {
     private readonly markdownSectionService: IMarkdownSectionService,
     private readonly pathPermissionChecker: IPathPermissionChecker,
     private readonly contextService: Pick<IContextService, 'getContextEstimate'>,
-    private readonly questionService: IInteractionService,
+    private readonly questionService: IQuestionService,
     private readonly defaultSessionManager?: SessionManager,
     private readonly developerIdentityService?: IDeveloperIdentityService,
     private readonly serviceContainer?: IServiceContainer
@@ -264,6 +192,78 @@ export class OnboardCommand {
     if (!hooks?.emit) process.stdout.write(`${message}\n`);
   }
 
+  private requestSelect(
+    hooks: InitRuntimeHooks | undefined,
+    request: { message: string; choices: Array<{ name: string; value: string }> }
+  ): Promise<string> {
+    if (!hooks?.questionSelect) return Promise.resolve(request.choices[0]?.value ?? '');
+    return hooks.questionSelect(request);
+  }
+
+  private requestInput(
+    hooks: InitRuntimeHooks | undefined,
+    request: { message: string; validate?: (value: string) => true | string }
+  ): Promise<string> {
+    if (!hooks?.questionInput) return Promise.resolve('');
+    return hooks.questionInput(request);
+  }
+
+  private requestConfirm(
+    hooks: InitRuntimeHooks | undefined,
+    request: { message: string; default?: boolean }
+  ): Promise<boolean> {
+    if (!hooks?.questionConfirm) return Promise.resolve(request.default ?? false);
+    return hooks.questionConfirm(request);
+  }
+
+  private parseHireDirectives(history: ChatMessage[]): HireDirective[] {
+    const hires: HireDirective[] = [];
+    const seen = new Set<string>();
+    for (const msg of history) {
+      if (msg.isHuman) continue;
+      for (const match of msg.content.matchAll(HIRE_DIRECTIVE_RE)) {
+        const name = match[1].trim();
+        const role = match[2].trim();
+        const key = `${name.toLowerCase()}|${role.toLowerCase()}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          hires.push({ name, role });
+        }
+      }
+    }
+    return hires;
+  }
+
+  private inferRoleType(role: string): RoleType {
+    const r = role.toLowerCase();
+    if (/ceo|cto|cfo|coo|chief|vp|director/.test(r)) return RoleType.EXECUTIVE;
+    if (/lead|head|manager|principal/.test(r)) return RoleType.TEAM_LEAD;
+    return RoleType.INDIVIDUAL_CONTRIBUTOR;
+  }
+
+  private resolveOnboardingPhaseAgent(
+    phase: OnboardingWorkflowPhase,
+    ceoAgent: Agent,
+    hrAgent: Agent
+  ): Agent {
+    return phase.agentRole === 'ceo' ? ceoAgent : hrAgent;
+  }
+
+  private buildStrictWorkflowPrompt(phase: OnboardingWorkflowPhase): string {
+    return [
+      phase.strictSystemPrompt.trim(),
+      '## Workflow goal (strict)',
+      phase.goal,
+      '',
+      '## Runtime contract',
+      '- Stay in role and keep this phase focused on its goal.',
+      '- If the developer indicates completion, give a concise recap and let them continue.',
+      '- Keep responses concise and decision-oriented by default.',
+    ]
+      .join('\n')
+      .trim();
+  }
+
   private async writeFileIfMissingAsync(filePath: string, content: string): Promise<void> {
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
@@ -303,8 +303,8 @@ export class OnboardCommand {
     this.writeLine(hooks, "First, let's name your founding team.");
 
     const ceoName = await pickAgentName(llm, templates, 'CEO', [], hooks, {
-      requestSelect,
-      requestInput,
+      requestSelect: (h, r) => this.requestSelect(h, r),
+      requestInput: (h, r) => this.requestInput(h, r),
       writeWarn: (h: InitRuntimeHooks | undefined, m: string) => this.writeWarn(h, m),
     });
     this.writeLine(hooks, `CEO: My name is ${ceoName}.`);
@@ -316,8 +316,8 @@ export class OnboardCommand {
       [ceoName],
       hooks,
       {
-        requestSelect,
-        requestInput,
+        requestSelect: (h, r) => this.requestSelect(h, r),
+        requestInput: (h, r) => this.requestInput(h, r),
         writeWarn: (h: InitRuntimeHooks | undefined, m: string) => this.writeWarn(h, m),
       }
     );
@@ -396,7 +396,7 @@ export class OnboardCommand {
     });
 
     const businessPhase = getOnboardingPhase(onboardingWorkflow, 'business-definition');
-    const businessAgent = resolveOnboardingPhaseAgent(businessPhase, ceoAgent, hrAgent);
+    const businessAgent = this.resolveOnboardingPhaseAgent(businessPhase, ceoAgent, hrAgent);
 
     this.writeLine(hooks, `--- ${businessPhase.heading} ---`);
     for (const line of businessPhase.introLines) {
@@ -423,7 +423,7 @@ export class OnboardCommand {
     }
 
     const planningPhase = getOnboardingPhase(onboardingWorkflow, 'team-planning');
-    const planningAgent = resolveOnboardingPhaseAgent(planningPhase, ceoAgent, hrAgent);
+    const planningAgent = this.resolveOnboardingPhaseAgent(planningPhase, ceoAgent, hrAgent);
 
     this.writeLine(hooks, `--- ${planningPhase.heading} ---`);
     for (const line of planningPhase.introLines) {
@@ -449,7 +449,7 @@ export class OnboardCommand {
       this.writeLine(hooks, `Transcript saved to ${planningPhase.transcript.relativePath}`);
     }
 
-    const hireDirectives = parseHireDirectives(hrHistory);
+    const hireDirectives = this.parseHireDirectives(hrHistory);
     if (hireDirectives.length > 0) {
       this.writeLine(hooks, '');
       this.writeLine(hooks, '--- Hiring Team ---');
@@ -501,7 +501,7 @@ export class OnboardCommand {
 
     const hiredAgents: Agent[] = [];
     for (const [index, hire] of hires.entries()) {
-      const shouldHire = await requestConfirm(hooks, {
+      const shouldHire = await this.requestConfirm(hooks, {
         message: `Hire now (${index + 1}/${hires.length}): ${hire.name} as ${hire.role}?`,
         default: true,
       });
@@ -511,7 +511,7 @@ export class OnboardCommand {
         continue;
       }
 
-      const roleType = inferRoleType(hire.role);
+      const roleType = this.inferRoleType(hire.role);
       const preset = getPersonalityForHire(hire.role, roleType);
 
       let reportsTo: string | undefined;
@@ -577,7 +577,7 @@ export class OnboardCommand {
       {
         createNewSession: true,
         workflowMode: true,
-        workflowSystemPrompt: buildStrictWorkflowPrompt(phase),
+        workflowSystemPrompt: this.buildStrictWorkflowPrompt(phase),
         workflowExitWords: phase.exitWords,
         suppressAutoIntroduction: phase.suppressAutoIntroduction,
         disableProcessExit: true,
@@ -665,7 +665,6 @@ export class OnboardCommand {
 
     await cmd.execute(workspaceRoot, agentId, options, {
       signal: hooks?.signal,
-      emit: hooks?.emit,
       questionInput: hooks?.questionInput,
       questionConfirm: hooks?.questionConfirm,
       questionSelect: hooks?.questionSelect,

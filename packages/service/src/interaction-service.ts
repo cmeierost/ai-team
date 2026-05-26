@@ -56,8 +56,6 @@ export class InteractionService implements IInteractionService {
       history: [],
       invocationSurface: hooks.invocationSurface,
       signal: hooks.signal,
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      emit: hooks.emit as ((event: unknown) => void) | undefined,
       workflowState: hooks.workflowState,
       onWorkflowFrame: hooks.onWorkflowFrame as ((frame: unknown) => void) | undefined,
     };
@@ -69,8 +67,6 @@ export class InteractionService implements IInteractionService {
         await this.runChat(this.workspaceRoot, payload.employeeId, payload.options, {
           ...hooks,
           signal: invokeCtx.signal,
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          emit: invokeCtx.emit as ChatRuntimeHooks['emit'],
           workflowState: invokeCtx.workflowState as WorkflowStateSnapshot | undefined,
           onWorkflowFrame: invokeCtx.onWorkflowFrame as ChatRuntimeHooks['onWorkflowFrame'],
         });

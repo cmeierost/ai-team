@@ -1,26 +1,14 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
 import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
 
-export type RuntimeEventEmitter = (event: RuntimeStreamEvent) => void;
-
+/**
+ * Per-connection event emitter holder.
+ * Construct with the emitter at connection time; the DI container
+ * provides isolation — no AsyncLocalStorage needed.
+ */
 export class EmitService {
-  private readonly store = new AsyncLocalStorage<RuntimeEventEmitter | undefined>();
-  private defaultEmitter: RuntimeEventEmitter | undefined;
-
-  runWithEmitter<T>(emitter: RuntimeEventEmitter | undefined, fn: () => Promise<T>): Promise<T> {
-    return this.store.run(emitter, fn);
-  }
+  constructor(private readonly emitter: (event: RuntimeStreamEvent) => void) {}
 
   emit(event: RuntimeStreamEvent): void {
-    const emitter = this.store.getStore() ?? this.defaultEmitter;
-    emitter?.(event);
-  }
-
-  hasEmitter(): boolean {
-    return Boolean(this.store.getStore() ?? this.defaultEmitter);
-  }
-
-  setDefaultEmitter(emitter: RuntimeEventEmitter | undefined): void {
-    this.defaultEmitter = emitter;
+    this.emitter(event);
   }
 }

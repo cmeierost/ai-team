@@ -8,13 +8,11 @@ import type {
   ResolveChatSessionResult,
 } from './resolve-chat-session.command.js';
 import type { LoadSessionMessagesCommand } from './load-session-messages.command.js';
-import type { EmitSink } from '../../orchestrator/chat-emitter.js';
 
 interface ChatSessionStartupState {
   currentAgentId: string;
   options: Pick<ChatOptions, 'sessionId' | 'createNewSession'>;
   developerName?: string;
-  sink?: EmitSink;
   sessionId?: string;
   shouldLoadHistory?: boolean;
   reason?: 'startup' | 'back-nav';
@@ -68,7 +66,6 @@ const chatSessionStartupWorkflow: WorkflowDefinition<ChatSessionStartupState> = 
       params: (state) => ({
         sessionId: state.sessionId!,
         reason: state.reason ?? 'startup',
-        sink: state.sink,
       }),
       applyResult: (state, raw) => ({
         ...state,
@@ -87,7 +84,6 @@ interface ChatSessionStartupInput {
   currentAgentId: string;
   options: Pick<ChatOptions, 'sessionId' | 'createNewSession'>;
   developerName?: string;
-  sink?: EmitSink;
 }
 
 export interface ChatSessionStartupResult {
@@ -101,17 +97,15 @@ export async function runChatSessionStartupWorkflow(
   context: ExecutionContext,
   runnerFactory: IWorkflowRunnerFactory
 ): Promise<ChatSessionStartupResult> {
-  const result = await runnerFactory.create().run(
-    chatSessionStartupWorkflow,
-    chatSessionStartupWorkflow.prepare!(input),
-    {
+  const result = await runnerFactory
+    .create()
+    .run(chatSessionStartupWorkflow, chatSessionStartupWorkflow.prepare!(input), {
       executionContext: context,
       commands: {
         'resolve-chat-session': deps.resolveChatSessionCommand,
         'load-session-messages': deps.loadSessionMessagesCommand,
       },
-    }
-  );
+    });
 
   if (result.aborted) {
     throw new Error('Chat session startup workflow was aborted.');

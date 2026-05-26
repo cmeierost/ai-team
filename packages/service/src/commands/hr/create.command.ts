@@ -8,7 +8,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { CreateCommand as CreateCommandImpl } from './create.js';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof CreateICommand.schema>;
 const _createICommandSchema = z.object({
@@ -33,7 +33,7 @@ export class CreateICommand implements ICommand<Params, void> {
   constructor(
     private readonly agents: IAgentManager,
     private readonly skills: ISkillManager,
-    private readonly interactionService: IInteractionService
+    private readonly interactionService: IQuestionService
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {

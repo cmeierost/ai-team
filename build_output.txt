@@ -1,8 +1,0 @@
-
-> @ai-team/service@0.1.0 build C:\Projects\ai-team\packages\service
-> tsc
-
-src/orchestrator/tool-dispatch.ts(282,5): error TS2353: Object literal may only specify known properties, and 'style' does not exist in type 'QuestionConfirmRequest'.
-C:\Projects\ai-team\packages\service:
-ÔÇëERR_PNPM_RECURSIVE_RUN_FIRST_FAILÔÇë @ai-team/service@0.1.0 build: `tsc`
-Exit status 1

@@ -6,7 +6,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
-import { emitRuntimeEvent } from '../../orchestrator/chat-emitter.js';
+import { emitEvent } from '../../orchestrator/stream-events.js';
 export const NewSessionChatCommandMetadata = {
   key: 'new',
   description: 'Start a new session with the current agent',
@@ -27,7 +27,7 @@ export class NewSessionChatCommand implements ICommand<string, string> {
     const fresh = await this.sessionManager.createSession(ctx.agent!.id, developerId);
     ctx.sessionId = fresh.id;
     ctx.history = [];
-    emitRuntimeEvent(ctx, { kind: 'session_switched', sessionId: fresh.id });
+    emitEvent({ kind: 'session_switched', sessionId: fresh.id });
     const message = `New session started: ${fresh.id}`;
     return { status: 'ok', message, data: fresh.id };
   }

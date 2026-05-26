@@ -35,7 +35,7 @@ import type { ToolDispatchSupportService } from './orchestrator/services/tool-di
 import type { ToolSerializationService } from './orchestrator/services/tool-serialization-service.js';
 import type { EmitService } from './orchestrator/services/emit-service.js';
 import type { ToolSchemaService } from './orchestrator/services/schema-service.js';
-import type { IInteractionService } from './questions/question-service.js';
+import type { IQuestionService } from './questions/question-service.js';
 import type { IWorkflowRunnerFactory } from './workflow/runner.js';
 
 function createContainerToken<T>(id: string): IContainerToken<T> {
@@ -57,7 +57,7 @@ export const COMMAND_FACTORY_TOKENS = {
   ToolSerializationService: createContainerToken<ToolSerializationService>(
     'ToolSerializationService'
   ),
-  QuestionService: createContainerToken<IInteractionService>('QuestionService'),
+  QuestionService: createContainerToken<IQuestionService>('QuestionService'),
   EmitService: createContainerToken<EmitService>('EmitService'),
   ToolSchemaService: createContainerToken<ToolSchemaService>('ToolSchemaService'),
   ConfigurationStorage: createContainerToken<IConfigurationStorage>('ConfigurationStorage'),

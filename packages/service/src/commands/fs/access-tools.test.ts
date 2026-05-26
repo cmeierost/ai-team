@@ -5,7 +5,6 @@ import path from 'node:path';
 import { ContextLevel, type Agent, type ICommand } from '@ai-team/core';
 import { WorkspaceFs } from 'fs-context';
 import { ToolManager } from '../../tools/tool-manager.js';
-import { CommandRegistry } from '../../command-registry-impl.js';
 import {
   WhoHasAccessTool,
   DoIHaveAccessTool,
@@ -123,7 +122,12 @@ async function setupManager(
   agents: Agent[],
   analyzeResult?: unknown
 ): Promise<ToolManager> {
-  const registry = new CommandRegistry();
+  const registry = {
+    register: () => undefined,
+    get: () => undefined,
+    getAll: () => [],
+    toLlmToolDefinitions: () => [],
+  } as any;
   const manager = new ToolManager(
     workspaceRoot,
     {
@@ -138,7 +142,7 @@ async function setupManager(
     { resolve: () => undefined } as any
   );
   for (const tool of getBuiltInTools(workspaceRoot, agents, analyzeResult))
-    registry.register(tool.metadata, () => tool as ICommand);
+    manager.register(tool as ICommand);
   return manager;
 }
 

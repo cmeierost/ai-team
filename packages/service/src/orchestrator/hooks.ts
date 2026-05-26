@@ -1,5 +1,4 @@
 import type {
-  RuntimeStreamEvent,
   QuestionChecklistRequest,
   QuestionConfirmRequest,
   QuestionInputRequest,
@@ -12,7 +11,6 @@ import type {
 export interface ChatRuntimeHooks {
   invocationSurface?: 'slash' | 'tool' | 'cli' | 'api';
   signal?: AbortSignal;
-  emit?: (event: RuntimeStreamEvent) => void;
   questionInput?: (request: QuestionInputRequest) => Promise<string>;
   questionConfirm?: (request: QuestionConfirmRequest) => Promise<boolean>;
   questionSelect?: (request: QuestionSelectRequest) => Promise<string>;

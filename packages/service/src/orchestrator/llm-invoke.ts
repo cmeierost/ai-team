@@ -23,7 +23,7 @@ import type {
 import { withAbortSignal } from '../utils/async-utils.js';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 
-import { extractStreamDeltaText } from './stream-events.js';
+import { emitToken, extractStreamDeltaText } from './stream-events.js';
 
 type RuntimeLlmService = ILlmService & {
   streamChat(
@@ -173,16 +173,7 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
   const state = makeFilterState();
   let fullResponse = '';
   const structuredResults: StructuredToolResult[] = [];
-  const writeToken = (text: string) => {
-    if (!text) {
-      return;
-    }
-    if (hooks?.emit) {
-      hooks.emit({ kind: 'token', text });
-      return;
-    }
-    process.stdout.write(text);
-  };
+  const writeToken = (text: string) => emitToken(text);
 
   const workingMessages: ILlmChatMessageParam[] =
     toolDefs.length > 0 ? [buildToolPolicyMessage(tools), ...messages] : messages;

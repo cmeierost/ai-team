@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
-import { findWorkspaceRoot } from '@ai-team/service';
+import { findWorkspaceRoot, WsQuestionService } from '@ai-team/service';
 import { SqliteBackend } from '@ai-team/infrastructure';
 import { createExpressRouter } from '@ts-http/express';
 import {
@@ -189,10 +189,17 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
 
     console.log(`WebSocket connected: agent=${agentId}, session=${sessionId || 'none'}`);
 
-    setupChatWebSocket(ws, agentId, container.child() as any, sessionManager, sessionId, {
+    const connectionContainer = container.child();
+    const questionService = new WsQuestionService();
+    questionService.setup((data) => ws.send(JSON.stringify({ type: 'question', data })));
+    connectionContainer.registerInstance(TOKENS.QuestionService, questionService);
+    const interactionService = connectionContainer.resolve(TOKENS.InteractionService);
+
+    setupChatWebSocket(ws, agentId, interactionService, sessionManager, sessionId, {
       agentManager,
       workspaceRoot,
       llmService: container.resolve(TOKENS.LlmService),
+      questionService,
     });
   });
 

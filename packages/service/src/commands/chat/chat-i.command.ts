@@ -18,7 +18,7 @@ import {
   type ChatSessionExecutionDeps,
   type ChatOrchestrationDeps,
 } from './chat.command.js';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof ChatICommand.schema>;
 const _chatICommandSchema = z.object({
@@ -53,7 +53,7 @@ export class ChatICommand implements ICommand<Params, void> {
     private readonly sessionExecutionDeps: ChatSessionExecutionDeps,
     private readonly orchestrationDeps: ChatOrchestrationDeps,
     private readonly chatInfoService: IChatInfoService = new ChatInfoService(),
-    private readonly questionService: IInteractionService
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
@@ -79,7 +79,6 @@ export class ChatICommand implements ICommand<Params, void> {
     const hooks: ChatRuntimeHooks = {
       invocationSurface: ctx.invocationSurface,
       signal: ctx.signal,
-      emit: ctx.emit,
       questionInput: (request) => this.questionService.input(request),
       questionConfirm: (request) => this.questionService.confirm(request),
       questionSelect: (request) => this.questionService.select(request),

@@ -37,8 +37,7 @@ import type {
   IPlanningRepository,
   IWorkspaceFsFactory,
 } from '@ai-team/core';
-import { type IInteractionService as IQuestionService } from '../questions/question-service.js';
-import { WsQuestionService } from '../questions/ws-question-service.js';
+import { type IQuestionService } from '../questions/question-service.js';
 import { AskUserCommand, AskUserCommandMetadata } from '../commands/com/ask.command.js';
 import { SessionManager } from '../session-manager.js';
 import { ToolManager } from '../tools/tool-manager.js';
@@ -491,10 +490,6 @@ export function registerServiceLayerServices(
     return registry;
   });
 
-  // QuestionService: scoped WebSocket-backed implementation. Overridden per connection
-  // in the WebSocket handler via registerInstance before InteractionService is resolved.
-  container.registerScoped(tokens.QuestionService, () => new WsQuestionService());
-
   // Register ToolManager with pure DI — resolves from registry and container
   container.registerSingleton(tokens.ToolManager, (c) => {
     const workspaceRoot = c.resolve(tokens.WorkspaceRoot) as string;
@@ -569,7 +564,8 @@ export function registerServiceLayerServices(
     new WorkspaceOverviewEnricher(),
     new TeamRosterEnricher(c.resolve(tokens.AgentManager)),
   ]);
-  container.registerSingleton(COMMAND_FACTORY_TOKENS.EmitService, () => new EmitService());
+  const emitServiceInstance = new EmitService(() => {});
+  container.registerSingleton(COMMAND_FACTORY_TOKENS.EmitService, () => emitServiceInstance);
   container.registerSingleton(
     COMMAND_FACTORY_TOKENS.ToolSchemaService,
     (c) => new ToolSchemaService(c.resolve(COMMAND_FACTORY_TOKENS.ToolManager))
@@ -585,9 +581,7 @@ export function registerServiceLayerServices(
     (c) => new DefaultLlmSelector(c.resolve(tokens.LlmService))
   );
   container.registerSingleton(tokens.OutputHandler, () => new DefaultOutputHandler());
-  container.registerSingleton(tokens.TurnResultParsers, (c) =>
-    buildDefaultTurnResultParsers(c.resolve(tokens.AgentManager))
-  );
+  container.registerSingleton(tokens.TurnResultParsers, () => buildDefaultTurnResultParsers());
   container.registerSingleton(tokens.HookPlugins, () => buildDefaultHookPlugins());
   container.registerSingleton(
     tokens.SystemService,
@@ -615,6 +609,16 @@ export function registerServiceLayerServices(
     tokens.TeamService,
     (c) => new TeamService(c.resolve(tokens.TeamGraphBuilder))
   );
+  // Fallback QuestionService for the root container — satisfies the DI
+  // requirement of InfoChatCommand at startup. Per-connection child containers
+  // override this with a live WsQuestionService via registerInstance.
+  container.registerSingleton(tokens.QuestionService, (): IQuestionService => {
+    const noWs = (): never => {
+      throw new Error('QuestionService: no active WebSocket connection');
+    };
+    return { input: noWs, confirm: noWs, select: noWs, password: noWs, checklist: noWs };
+  });
+
   container.registerScoped(tokens.InteractionService, (c) =>
     buildInteractionService(c, tokens, cfg.workspaceRoot)
   );

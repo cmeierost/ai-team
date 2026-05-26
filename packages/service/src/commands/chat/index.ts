@@ -12,15 +12,7 @@
 
 // ── Service modules ───────────────────────────────────────────────────────────
 export type { ChatRuntimeHooks } from '../../orchestrator/hooks.js';
-export {
-  emitRuntimeEvent,
-  formatConsoleArgs,
-  writeInfo,
-  writeWarn,
-  writeError,
-  printSessionResume,
-  type EmitSink,
-} from '../../orchestrator/chat-emitter.js';
+export { formatConsoleArgs, printSessionResume } from '../../orchestrator/chat-emitter.js';
 export { requestInput, requestSelect } from '../com/questions.js';
 export { ChatInfoService } from '../../orchestrator/chat-info-service.js';
 export type { IChatInfoService } from '../../orchestrator/chat-info-service.js';

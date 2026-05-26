@@ -16,6 +16,8 @@ import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service/sr
 import { runtimeEventToStreamEvent } from '@ai-team/service/src/runtime-event-translator.js';
 import { streamInteraction } from '@ai-team/service/src/interaction-stream.js';
 import type { ExecutionContext, IServiceContainer } from '@ai-team/core';
+import type { IQuestionService } from '@ai-team/service';
+import { COMMAND_FACTORY_TOKENS } from '@ai-team/service/src/types.js';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -58,15 +60,30 @@ export interface ICliCommandClient {
     context?: Record<string, unknown>
   ): AsyncIterable<StreamEvent<TCommand>>;
   getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[];
+  /**
+   * Returns a new client scoped to a single chat session that uses `service`
+   * as the `IQuestionService` for all commands dispatched through it.  The
+   * caller owns the returned client's lifetime — dropping the reference is
+   * sufficient cleanup because no persistent resources are held.
+   */
+  withQuestionService(service: IQuestionService): ICliCommandClient;
 }
 
 export class CliCommandClient implements ICliCommandClient {
   public readonly workspaceRoot: string;
+  private readonly resolver: IServiceContainer;
   private readonly dispatcher: CommandDispatcher;
 
   constructor(workspaceRoot: string, resolver: IServiceContainer) {
     this.workspaceRoot = workspaceRoot;
+    this.resolver = resolver;
     this.dispatcher = createCommandDispatcher(workspaceRoot, resolver);
+  }
+
+  withQuestionService(service: IQuestionService): CliCommandClient {
+    const sessionContainer = this.resolver.child();
+    sessionContainer.registerInstance(COMMAND_FACTORY_TOKENS.QuestionService, service);
+    return new CliCommandClient(this.workspaceRoot, sessionContainer);
   }
 
   getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[] {

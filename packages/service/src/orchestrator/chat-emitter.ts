@@ -3,17 +3,6 @@ import type { ChatMessage } from '@ai-team/core';
 import type { RuntimeStreamEvent } from '@ai-team/api-contracts';
 import { emitLog, emitEvent } from './stream-events.js';
 
-// ── Minimal sink abstraction ──────────────────────────────────────────────────
-
-/** Minimal context needed for emission — satisfied by both ChatRuntimeHooks and ExecutionContext. */
-export interface EmitSink {
-  emit?: (event: RuntimeStreamEvent) => void;
-}
-
-export function emitRuntimeEvent(sink: EmitSink | undefined, event: RuntimeStreamEvent): void {
-  sink?.emit?.(event);
-}
-
 export function formatConsoleArgs(args: unknown[]): string {
   if (args.length === 0) return '';
   if (typeof args[0] === 'string') return formatMessage(args[0], ...args.slice(1));
@@ -29,19 +18,16 @@ export function formatConsoleArgs(args: unknown[]): string {
     .join(' ');
 }
 
-export function writeInfo(sink: EmitSink | undefined, message: string): void {
-  emitRuntimeEvent(sink, { kind: 'log', level: 'info', message });
-  if (!sink?.emit) process.stdout.write(`${message}\n`);
+export function writeInfo(sink: unknown, message: string): void {
+  emitLog('info', message);
 }
 
-export function writeWarn(sink: EmitSink | undefined, message: string): void {
-  emitRuntimeEvent(sink, { kind: 'log', level: 'warn', message });
-  if (!sink?.emit) process.stdout.write(`${message}\n`);
+export function writeWarn(sink: unknown, message: string): void {
+  emitLog('warn', message);
 }
 
-export function writeError(sink: EmitSink | undefined, message: string): void {
-  emitRuntimeEvent(sink, { kind: 'log', level: 'error', message });
-  if (!sink?.emit) process.stderr.write(`${message}\n`);
+export function writeError(sink: unknown, message: string): void {
+  emitLog('error', message);
 }
 
 /**
@@ -51,13 +37,12 @@ export function writeError(sink: EmitSink | undefined, message: string): void {
 export function printSessionResume(
   history: ChatMessage[],
   agentName: string,
-  developerName: string | undefined,
-  sink: EmitSink | undefined
+  developerName: string | undefined
 ): void {
   const visible = history.filter((m) => !m.archived && !m.handoffType && m.importance !== 'low');
   if (visible.length === 0) return;
 
-  writeInfo(sink, '\n─── Previous conversation ───────────────────────────────');
+  emitLog('info', '\n─── Previous conversation ───────────────────────────────');
   for (const msg of visible) {
     const speaker = msg.isHuman ? (developerName ?? 'You') : agentName;
     const lines = msg.content
@@ -67,9 +52,9 @@ export function printSessionResume(
       )
       .map((l: string, i: number) => (i === 0 ? l : `  ${l}`))
       .join('\n');
-    writeInfo(sink, `\n${speaker}: ${lines}`);
+    emitLog('info', `\n${speaker}: ${lines}`);
   }
-  writeInfo(sink, '\n─────────────────────────────────────────────────────────\n');
+  emitLog('info', '\n─────────────────────────────────────────────────────────\n');
 }
 
 // ── ChatCommandEmitter — structured emitter backed by ChatRuntimeHooks ────────

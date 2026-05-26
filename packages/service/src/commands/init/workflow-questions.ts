@@ -9,7 +9,7 @@ import type {
   WorkflowStateSnapshot,
 } from '@ai-team/api-contracts';
 import type { Agent, ExecutionContext, CommandResponse } from '@ai-team/core';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 // ─── Runtime hooks ────────────────────────────────────────────────────────────
 
@@ -97,7 +97,7 @@ function resolveSelectAnswer(
  */
 export class WorkflowQuestioner {
   constructor(
-    private readonly questionService: IInteractionService,
+    private readonly questionService: IQuestionService,
     private readonly context: ExecutionContext,
     private readonly workflowService?: IWorkflowService,
     private readonly emit?: (event: RuntimeStreamEvent) => void,

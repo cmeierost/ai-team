@@ -7,13 +7,13 @@ import type {
   LlmProfile,
   LlmGenerationParams,
 } from '@ai-team/api-contracts';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 export class CreateCommand {
   constructor(
     private readonly agentManager: IAgentManager,
     private readonly skillManager: ISkillManager,
-    private readonly interactionService: IInteractionService
+    private readonly interactionService: IQuestionService
   ) {}
 
   async execute(type: string, options: CreateOptions): Promise<void> {
@@ -118,7 +118,7 @@ async function createSkillFromSetupAsync(
 // ── Interactive question flows ────────────────────────────────────────────────
 
 async function askAgentSetupAsync(
-  interactionService: IInteractionService
+  interactionService: IQuestionService
 ): Promise<CreateAgentSetupInput> {
   const name = await interactionService.input({
     message: 'Agent name:',
@@ -165,7 +165,7 @@ async function askAgentSetupAsync(
 }
 
 async function askSkillSetupAsync(
-  questionService: IInteractionService
+  questionService: IQuestionService
 ): Promise<CreateSkillSetupInput> {
   const name = await questionService.input({
     message: 'Skill name:',
@@ -208,7 +208,7 @@ async function askSkillSetupAsync(
 }
 
 async function askLlmProfileAsync(
-  questionService: IInteractionService,
+  questionService: IQuestionService,
   promptMessage: string
 ): Promise<LlmProfile | undefined> {
   if (!questionService.confirm || !questionService.input) {
@@ -285,7 +285,7 @@ async function askLlmProfileAsync(
 
 // ── Utility helpers ───────────────────────────────────────────────────────────
 
-function emitLog(context: IInteractionService, message: string) {
+function emitLog(context: IQuestionService, message: string) {
   context.emit?.({ kind: 'log', level: 'info', message });
 }
 

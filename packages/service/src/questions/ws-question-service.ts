@@ -5,7 +5,7 @@ import type {
   QuestionPasswordRequest,
   QuestionChecklistRequest,
 } from '@ai-team/api-contracts';
-import type { IInteractionService } from './question-service.js';
+import type { IQuestionService } from './question-service.js';
 
 type PendingAnswer = { resolve: (value: unknown) => void; reject: (error: Error) => void };
 type SendFn = (data: Record<string, unknown>) => void;
@@ -18,7 +18,7 @@ type SendFn = (data: Record<string, unknown>) => void;
  * incoming answer messages back via `receiveAnswer(questionId, value)`.
  * Call `cancelAll(error)` when the connection closes or the operation is aborted.
  */
-export class WsQuestionService implements IInteractionService {
+export class WsQuestionService implements IQuestionService {
   private readonly pending = new Map<string, PendingAnswer>();
   private counter = 0;
   private send: SendFn | null = null;

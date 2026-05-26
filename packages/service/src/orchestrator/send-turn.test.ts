@@ -181,12 +181,14 @@ function makeCtx(llmResponse: string): {
     } as any,
   };
 
-  const emitService = new EmitService();
-  emitService.setDefaultEmitter(ctx.hooks.emit as any);
+  const emitService = new EmitService(ctx.hooks.emit as any);
   setServiceContainer({
     resolve: (token: { id?: string }) => {
       if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
         return emitService;
+      }
+      if (token?.id === COMMAND_FACTORY_TOKENS.AgentManager.id) {
+        return ctx.agentManager;
       }
       throw new Error(`Unexpected token: ${String(token?.id)}`);
     },
@@ -548,12 +550,14 @@ function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
     } as any,
   };
 
-  const emitService = new EmitService();
-  emitService.setDefaultEmitter(ctx.hooks.emit as any);
+  const emitService = new EmitService(ctx.hooks.emit as any);
   setServiceContainer({
     resolve: (token: { id?: string }) => {
       if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
         return emitService;
+      }
+      if (token?.id === COMMAND_FACTORY_TOKENS.AgentManager.id) {
+        return ctx.agentManager;
       }
       throw new Error(`Unexpected token: ${String(token?.id)}`);
     },

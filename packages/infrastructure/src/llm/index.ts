@@ -33,14 +33,8 @@ import type {
   IConfigurationStorage,
   IEnvironmentStorage,
 } from '@ai-team/core';
-import {
-  resolveEffectiveLlmSettings,
-} from '@ai-team/core';
-import type {
-  LlmChatOptions,
-  LlmDiagnosticMessage,
-  LlmDiagnosticReporter,
-} from '@ai-team/core';
+import { resolveEffectiveLlmSettings } from '@ai-team/core';
+import type { LlmChatOptions, LlmDiagnosticMessage, LlmDiagnosticReporter } from '@ai-team/core';
 import { ConfigurationStorage } from '../agent/configuration-storage.js';
 import { EnvironmentStorage } from '../agent/environment-storage.js';
 
@@ -241,6 +235,12 @@ export class LlmService {
   get providerName(): string | undefined {
     this.assertReady();
     return this.providerRef;
+  }
+
+  /** The base URL used by the active provider (undefined for built-in providers like github-copilot) */
+  get baseUrl(): string | undefined {
+    this.assertReady();
+    return this.config.baseUrl;
   }
 
   /** The underlying OpenAI client, for advanced use */

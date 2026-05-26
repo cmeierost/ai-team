@@ -838,7 +838,29 @@ export async function renderChat(
 
   try {
     startSpinner();
-    for await (const event of client.streamInteraction(
+    const sessionClient = client.withQuestionService(
+      createChatQuestionResponders(
+        abortControl.signal,
+        startSpinner,
+        stopSpinner,
+        async () => {
+          const cfg = await new ConfigurationStorage().loadTeamConfigAsync(workspaceRoot);
+          const cfgName = (cfg as any)?.projectName as string | undefined;
+          if (cfgName) return cfgName;
+          // Fall back to package.json name
+          try {
+            const { readFile } = await import('node:fs/promises');
+            const { join } = await import('node:path');
+            const pkg = JSON.parse(await readFile(join(workspaceRoot, 'package.json'), 'utf8'));
+            return pkg.name as string | undefined;
+          } catch {
+            return undefined;
+          }
+        },
+        chatCommands
+      )
+    );
+    for await (const event of sessionClient.streamInteraction(
       {
         command: 'chat-chat',
         payload: {
@@ -847,26 +869,6 @@ export async function renderChat(
         },
       },
       {
-        ...createChatQuestionResponders(
-          abortControl.signal,
-          startSpinner,
-          stopSpinner,
-          async () => {
-            const cfg = await new ConfigurationStorage().loadTeamConfigAsync(workspaceRoot);
-            const cfgName = (cfg as any)?.projectName as string | undefined;
-            if (cfgName) return cfgName;
-            // Fall back to package.json name
-            try {
-              const { readFile } = await import('node:fs/promises');
-              const { join } = await import('node:path');
-              const pkg = JSON.parse(await readFile(join(workspaceRoot, 'package.json'), 'utf8'));
-              return pkg.name as string | undefined;
-            } catch {
-              return undefined;
-            }
-          },
-          chatCommands
-        ),
         workspaceRoot,
         invocationSurface: 'cli' as const,
         calledByHuman: true,

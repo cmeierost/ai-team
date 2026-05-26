@@ -11,6 +11,7 @@ import {
 } from '@ai-team/core';
 import type { SessionManager } from '../session-manager.js';
 import type { ChatRuntimeHooks } from '../commands/chat/index.js';
+import { emitToken, hasActiveEmitter } from './stream-events.js';
 
 const DEFAULT_GREETING_TEMPLATE =
   "Hi {{developerName}}, I'm {{agentName}} ({{agentRole}}). How can I help today?";
@@ -92,7 +93,7 @@ export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promis
     hooks,
   } = request;
 
-  if (!hooks.emit) {
+  if (!hasActiveEmitter()) {
     process.stdout.write(`\n${agent.name} (${agent.role}): `);
   }
 
@@ -103,8 +104,8 @@ export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promis
     hooks.signal
   );
 
-  if (hooks.emit) {
-    hooks.emit({ kind: 'token', text: `${text}\n\n` });
+  if (hasActiveEmitter()) {
+    emitToken(`${text}\n\n`);
   } else {
     process.stdout.write(`${text}\n\n`);
   }

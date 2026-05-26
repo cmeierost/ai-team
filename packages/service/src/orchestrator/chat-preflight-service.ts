@@ -8,7 +8,7 @@ import { resolveDeveloperName } from '../utils/agent-selection.js';
 import { withAbortSignal } from '../utils/async-utils.js';
 import { withTimeout } from '../utils/with-timeout.js';
 import type { ChatRuntimeHooks } from './hooks.js';
-import { writeInfo } from './chat-emitter.js';
+import { emitLog } from './stream-events.js';
 
 const PREFLIGHT_STEP_TIMEOUT_MS = 15_000;
 
@@ -73,7 +73,7 @@ export class ChatPreflightService implements IChatPreflightService {
     task: () => Promise<T>,
     timeoutMs: number = PREFLIGHT_STEP_TIMEOUT_MS
   ): Promise<T> {
-    writeInfo(hooks, message);
+    emitLog('info', message);
     return withAbortSignal(
       withTimeout(
         task(),

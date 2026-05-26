@@ -1,26 +1,22 @@
 import type { ChatMessage } from '@ai-team/core';
-import { writeInfo } from '../../orchestrator/chat-emitter.js';
-import type { EmitSink } from '../../orchestrator/chat-emitter.js';
+import { emitLog } from '../../orchestrator/stream-events.js';
 import type { SessionManager } from '../../session-manager.js';
 
 export interface LoadSessionMessagesParams {
   sessionId: string;
   reason: 'startup' | 'back-nav';
-  sink?: EmitSink;
 }
 
 export class LoadSessionMessagesCommand {
-  constructor(
-    private readonly sessionManager: Pick<SessionManager, 'getSessionMessages'>
-  ) {}
+  constructor(private readonly sessionManager: Pick<SessionManager, 'getSessionMessages'>) {}
 
   async execute(params: LoadSessionMessagesParams): Promise<ChatMessage[]> {
-    const { sessionId, reason, sink } = params;
+    const { sessionId, reason } = params;
     const startedAt = Date.now();
     const messages = await this.sessionManager.getSessionMessages(sessionId);
     const elapsedMs = Date.now() - startedAt;
-    writeInfo(
-      sink,
+    emitLog(
+      'info',
       `[perf] loaded ${messages.length} message(s) for session ${sessionId} in ${elapsedMs}ms (${reason})`
     );
     return messages;

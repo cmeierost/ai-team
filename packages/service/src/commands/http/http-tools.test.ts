@@ -5,7 +5,6 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ContextLevel, type Agent, type ICommand } from '@ai-team/core';
 import { ToolManager } from '../../tools/tool-manager.js';
-import { CommandRegistry } from '../../command-registry-impl.js';
 import {
   FsReadFileTool,
   FsReadLinesTool,
@@ -168,7 +167,12 @@ describe('http commands', () => {
   it('http_fetch supports regex/snippet filtering and returns links', async () => {
     const workspaceRoot = await createWorkspace();
     const agent = makeAgent();
-    const registry = new CommandRegistry();
+    const registry = {
+      register: () => undefined,
+      get: () => undefined,
+      getAll: () => [],
+      toLlmToolDefinitions: () => [],
+    } as any;
     const manager = new ToolManager(
       workspaceRoot,
       {
@@ -181,7 +185,7 @@ describe('http commands', () => {
       registry,
       { resolve: () => undefined } as any
     );
-    for (const tool of getBuiltInTools(workspaceRoot)) registry.register(tool.metadata, () => tool);
+    for (const tool of getBuiltInTools(workspaceRoot)) manager.register(tool);
 
     const srv = await withTestServer((req, res) => {
       if (req.url === '/article') {
@@ -221,7 +225,12 @@ describe('http commands', () => {
   it('http_crawl respects maxDepth and maxPages constraints', async () => {
     const workspaceRoot = await createWorkspace();
     const agent = makeAgent();
-    const registry = new CommandRegistry();
+    const registry = {
+      register: () => undefined,
+      get: () => undefined,
+      getAll: () => [],
+      toLlmToolDefinitions: () => [],
+    } as any;
     const manager = new ToolManager(
       workspaceRoot,
       {
@@ -234,7 +243,7 @@ describe('http commands', () => {
       registry,
       { resolve: () => undefined } as any
     );
-    for (const tool of getBuiltInTools(workspaceRoot)) registry.register(tool.metadata, () => tool);
+    for (const tool of getBuiltInTools(workspaceRoot)) manager.register(tool);
 
     const srv = await withTestServer((req, res) => {
       if (req.url === '/root') {

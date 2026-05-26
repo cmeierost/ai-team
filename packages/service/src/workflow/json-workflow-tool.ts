@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 import type { ExecutionContext } from '@ai-team/core';
-import type { IInteractionService } from '../questions/question-service.js';
+import type { IQuestionService } from '../questions/question-service.js';
 import { WorkflowAbortError } from './types.js';
 import type { IWorkflowRunnerFactory } from './runner.js';
 import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
@@ -103,7 +103,7 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
   constructor(
     private readonly definition: JsonWorkflow,
     private readonly runnerFactory: IWorkflowRunnerFactory,
-    private readonly questionService: IInteractionService
+    private readonly questionService: IQuestionService
   ) {
     this.key = definition.id;
     this.name = definition.name;

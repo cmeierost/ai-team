@@ -176,7 +176,7 @@ export async function askWithSlashSuggestions(
       const idx = selectedIdx >= 0 ? selectedIdx : 0;
       const cmd = suggs[idx];
       if (!cmd) return false;
-      buffer = `/${cmd.key}`;
+      buffer = cmd.usage ?? `/${cmd.key}`;
       selectedIdx = -1;
       dismissed = false;
       rerender();

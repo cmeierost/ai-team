@@ -2,7 +2,7 @@
 
 Extracts raw architectural facts from TypeScript and JavaScript projects.
 Produces `CollectedCodeData` conforming to the `@aspect/contracts` schema,
-ready for consumption by `@aspect/engine`.
+ready for consumption by `@aspect/structural` and the calculator packages.
 
 ## Adapters
 
@@ -131,6 +131,9 @@ interface CollectionResult {
 
 The `data.collector` metadata records tool versions and aspect durations
 in `data.provenance.toolRuns`.
+
+Use the returned `data` with `runStructuralPipeline()` or the individual
+calculator libraries (complexity, duplication, SOLID/cohesion).
 
 ## Building
 

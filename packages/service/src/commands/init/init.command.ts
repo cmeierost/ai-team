@@ -8,7 +8,7 @@ import type {
 } from '@ai-team/core';
 import { InitCommand } from './init.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof InitICommand.schema>;
 const _initICommandSchema = z.object({
@@ -30,7 +30,7 @@ export class InitICommand implements ICommand<Params, void> {
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly questionService: IInteractionService,
+    private readonly questionService: IQuestionService,
     private readonly initCmd: InitCommand
   ) {}
 

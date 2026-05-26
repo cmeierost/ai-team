@@ -824,7 +824,8 @@ export function createCommandDispatcher(
     (r) =>
       new InfoChatCommand(
         r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+        r.resolve(COMMAND_FACTORY_TOKENS.LlmService)
       )
   );
 

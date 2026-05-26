@@ -22,8 +22,14 @@ import {
 } from '@ai-team/core';
 import type { ITurnResultParser, TurnResult } from '../pipeline.js';
 import { parseHandoffDirective } from '../../commands/chat/index.js';
+import { getServiceContainer } from '../../service-registry.js';
+import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 
 // ── Shared agent resolution helper ────────────────────────────────────────────
+
+function resolveAgentManager(): IAgentManager {
+  return getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.AgentManager);
+}
 
 /**
  * Resolves a target agent ID to an Agent that is not the current agent.
@@ -50,7 +56,7 @@ function resolveNonSelfAgent(
 // ── 1. Handoff from tool call ─────────────────────────────────────────────────
 
 export class HandoffToolResultParser implements ITurnResultParser {
-  constructor(private readonly agentManager: IAgentManager) {}
+  constructor(private readonly agentManager?: IAgentManager) {}
 
   parse(
     structuredResults: StructuredToolResult[],
@@ -61,7 +67,11 @@ export class HandoffToolResultParser implements ITurnResultParser {
     const handoffReq = structuredResults.find(isHandoffRequest);
     if (!handoffReq || !isHandoffRequest(handoffReq)) return null;
 
-    const target = resolveNonSelfAgent(handoffReq.targetAgentId, ctx, this.agentManager);
+    const target = resolveNonSelfAgent(
+      handoffReq.targetAgentId,
+      ctx,
+      this.agentManager ?? resolveAgentManager()
+    );
 
     if (!target) {
       return { text: persistedContent, done: false };
@@ -81,7 +91,7 @@ export class HandoffToolResultParser implements ITurnResultParser {
 // ── 2. Handoff from text directive ────────────────────────────────────────────
 
 export class TextHandoffParser implements ITurnResultParser {
-  constructor(private readonly agentManager: IAgentManager) {}
+  constructor(private readonly agentManager?: IAgentManager) {}
 
   parse(
     _structuredResults: StructuredToolResult[],
@@ -92,7 +102,11 @@ export class TextHandoffParser implements ITurnResultParser {
     const textHandoff = parseHandoffDirective(fullResponse);
     if (!textHandoff) return null;
 
-    const target = resolveNonSelfAgent(textHandoff.targetAgentId, ctx, this.agentManager);
+    const target = resolveNonSelfAgent(
+      textHandoff.targetAgentId,
+      ctx,
+      this.agentManager ?? resolveAgentManager()
+    );
 
     // Ignore invalid or self-targeting handoff directives.
     if (!target) {
@@ -112,6 +126,6 @@ export class TextHandoffParser implements ITurnResultParser {
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /** Returns the default ordered set of turn-result parsers. */
-export function buildDefaultTurnResultParsers(agentManager: IAgentManager): ITurnResultParser[] {
-  return [new HandoffToolResultParser(agentManager), new TextHandoffParser(agentManager)];
+export function buildDefaultTurnResultParsers(): ITurnResultParser[] {
+  return [new HandoffToolResultParser(), new TextHandoffParser()];
 }

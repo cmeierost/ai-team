@@ -27,8 +27,8 @@
 </head>
 
 <body>
-  <div class="reveal" data-organization="Departement I / Institut f&#252;r Software (IFS)" data-speaker="Clemens Meier"
-    data-email="clemens.meier@ost.ch" data-date="24. März 2026" data-module="Software Crafters">
+  <div class="reveal" data-organization="Department I / Institute of Software (IFS)" data-speaker="Clemens Meier"
+    data-email="clemens.meier@ost.ch" data-date="24 March 2026" data-module="Software Crafters">
     <div class="slides">
 
       <!-- =============================================
@@ -36,7 +36,7 @@
            ============================================= -->
       <section data-slide-type="title" data-background-image="images/saentis.jpg" data-background-size="cover">
         <h1>AI-TEAM</h1>
-        <h2>Using Coding Agents - Without Losing Control</h2>
+        <h2>Software Architecture by Agent Responsibility</h2>
         <h3>Conway's Law Applied to Agentic Software Engineering</h3>
       </section>
 
@@ -45,18 +45,23 @@
            ============================================= -->
       <section data-slide-type="chapter" data-background-image="images/rappi2.jpeg" data-background-size="cover">
         <h1>Agentic Workflows</h1>
-        <h2>Wie Coding Agents arbeiten</h2>
+        <h2>How coding agents work</h2>
       </section>
 
       <section>
-        <h1>LLMs vs Agents</h1>
+        <h1>LLMs vs RAG vs Agents</h1>
         <div class="content">
-          <img src="images/agents.webp" alt="LLMs vs Agents" style="max-height: 640px;">
+          <figure>
+            <img src="images/agents.png" alt="LLMs vs RAG vs Agents" style="max-height: 640px;">
+            <figcaption>Source: Muhammad Usama Khan (Medium),
+              <a href="https://usamakhaninsights.medium.com/" target="_blank">usamakhaninsights.medium.com</a>
+            </figcaption>
+          </figure>
         </div>
       </section>
 
       <section>
-        <h1>Beispiele heutiger Coding Agents</h1>
+        <h1>Examples of today's coding agents</h1>
         <div class="content r-stretch">
           <div class="logo-grid">
             <a class="logo-item" href="https://github.com/features/copilot" target="_blank"><img
@@ -87,9 +92,21 @@
       </section>
 
       <section>
+        <h1>Reflection Pattern</h1>
+        <div class="content">
+          <img src="images/reflection.webp" alt="Reflection Pattern" style="max-height: 640px;">
+          <figcaption>Source: <a href="https://blog.dailydoseofds.com/p/5-agentic-ai-design-patterns"
+              target="_blank">blog.dailydoseofds.com
+            </a></figcaption>
+        </div>
+      </section>
+
+      <section>
         <h1>Tool Use Pattern</h1>
         <div class="content">
-          <img src="images/tool-use.png" alt="Tool Use Pattern" style="max-height: 640px;">
+          <img src="images/tool.webp" alt="Tool Use Pattern" style="max-height: 640px;">
+          <figcaption>Source: <a href="https://blog.dailydoseofds.com/" target="_blank">blog.dailydoseofds.com</a>
+          </figcaption>
         </div>
       </section>
 
@@ -97,6 +114,8 @@
         <h1>Reason and Act (ReAct)</h1>
         <div class="content">
           <img src="images/react.webp" alt="Reason and Act Pattern" style="max-height: 640px;">
+          <figcaption>Source: <a href="https://blog.dailydoseofds.com/" target="_blank">blog.dailydoseofds.com</a>
+          </figcaption>
         </div>
       </section>
 
@@ -104,6 +123,8 @@
         <h1>Planning Pattern</h1>
         <div class="content">
           <img src="images/plan.webp" alt="Planning Pattern" style="max-height: 640px;">
+          <figcaption>Source: <a href="https://blog.dailydoseofds.com/" target="_blank">blog.dailydoseofds.com</a>
+          </figcaption>
         </div>
       </section>
 
@@ -111,13 +132,22 @@
         <h1>Agent in Action</h1>
         <div class="content">
           <img src="images/copilot-tools.png" alt="How It Works" style="max-height: 640px;">
+          <figcaption>Source: <a
+              href="https://code.visualstudio.com/blogs/2025/02/24/introducing-copilot-agent-mode?ref=baus-net"
+              target="_blank">VS Code Blog: Introducing GitHub Copilot agent mode (preview)</a>
+          </figcaption>
         </div>
       </section>
 
       <section>
         <h1>Skills</h1>
         <div class="content">
-          <img src="images/typical-agent-loop.png" alt="Agent Loop" style="max-height: 640px;">
+          <figure>
+            <img src="images/typical-agent-loop.png" alt="Agent Loop" style="max-height: 640px;">
+            <figcaption>Source: <a href="https://www.bytebytego.com/" target="_blank">ByteByteGo</a>, visual about
+              Skills / MCP (ByteByteGo branding is visible in the image).
+            </figcaption>
+          </figure>
         </div>
       </section>
 
@@ -125,50 +155,60 @@
         <h1>Context Window</h1>
         <div class="content">
           <img src="images/context-window.svg" alt="Context Window" style="max-height: 640px;">
+          <figcaption>Source: <a href="https://undetectable.ai/blog/claude-vs-gpt-4/" target="_blank">Undetectable
+              AI https://undetectable.ai/blog/claude-vs-gpt-4/</a>
+          </figcaption>
         </div>
       </section>
 
       <section>
-        <h1>Gr&#246;sseres Context Window = besser?</h1>
+        <h1>Larger context window = better?</h1>
         <div class="content r-stretch" style="display: flex; gap: 1.2em; align-items: stretch; font-size: 1.2em;">
           <div class="fragment"
             style="flex: 1; border: 3px solid #db4437; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
-            <h3 style="color: #db4437; margin: 0 0 0.3em; font-size: 1em;">Überforderung</h3>
-            <p style="font-size: 0.65em; margin: 0;">Zu viel Kontext &#252;berfordert das Modell &ndash; der Fokus geht
-              verloren, die Antwortzeit steigt.</p>
+            <h3 style="color: #db4437; margin: 0 0 0.3em; font-size: 1em;">Overload</h3>
+            <p style="font-size: 0.65em; margin: 0;">Too much context overwhelms the model &ndash; focus is lost and
+              response time increases.</p>
           </div>
           <div class="fragment"
             style="flex: 1; border: 3px solid #f4b400; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
             <h3 style="color: #f4b400; margin: 0 0 0.3em; font-size: 1em;">Lost in the Middle</h3>
-            <p style="font-size: 0.65em; margin: 0;">Das Modell gewichtet Anfang und Ende st&#228;rker &ndash; relevante
-              Inhalte in der Mitte werden &#252;bersehen.</p>
+            <p style="font-size: 0.65em; margin: 0;">The model weighs the beginning and the end more heavily &ndash;
+              relevant content in the middle gets overlooked.</p>
           </div>
           <div class="fragment"
             style="flex: 1; border: 3px solid #0f9d58; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
-            <h3 style="color: #0f9d58; margin: 0 0 0.3em; font-size: 1em;">Rauschen</h3>
-            <p style="font-size: 0.65em; margin: 0;">Mehr Kontext f&#252;hrt zu Redundanz, Widerspr&#252;chen und
-              verzerrten Schlussfolgerungen.</p>
+            <h3 style="color: #0f9d58; margin: 0 0 0.3em; font-size: 1em;">Noise</h3>
+            <p style="font-size: 0.65em; margin: 0;">More context leads to redundancy, contradictions, and distorted
+              conclusions.</p>
           </div>
           <div class="fragment"
             style="flex: 1; border: 3px solid #4285f4; border-radius: 12px; padding: 0.8em; display: flex; flex-direction: column;">
-            <h3 style="color: #4285f4; margin: 0 0 0.3em; font-size: 1em;">Weite Distanzen</h3>
-            <p style="font-size: 0.65em; margin: 0;">Mit wachsendem Kontext f&#228;llt es dem Modell schwerer, weit
-              auseinanderliegende Informationen zu verkn&#252;pfen.</p>
+            <h3 style="color: #4285f4; margin: 0 0 0.3em; font-size: 1em;">Long distances</h3>
+            <p style="font-size: 0.65em; margin: 0;">As context grows, it becomes harder for the model to connect
+              information that is far apart.</p>
           </div>
         </div>
       </section>
       <section>
         <h1>Context Window</h1>
         <div class="content">
-          <img src="images/context-window.webp" alt="Context Window" style="max-height: 640px;">
+          <figure>
+            <img src="images/context-window.webp" alt="Context Window" style="max-height: 640px;">
+            <figcaption>Source: Auxten Wang,
+              <a href="https://auxten.com/blog/context-management-is-the-real-bottleneck-for-ai-agents.html"
+                target="_blank">Context Management Is the Real Bottleneck for AI Agents</a>
+              (CC BY-NC 4.0).
+            </figcaption>
+          </figure>
         </div>
       </section>
       <section>
-        <h1>Das Problem</h1>
+        <h1>The problem</h1>
         <div class="content">
           <ul>
-            <li>Ein Agent &#8594; ein Context Window</li>
-            <li>Ganzes Projekt in ein Context Window? Opus kann alles! ;)</li>
+            <li>One agent &#8594; one context window</li>
+            <li>The entire project in a single context window? Opus can do everything! ;)</li>
             <li class="fragment">Subagents?</li>
             <li class="fragment">Lazy RAG?</li>
             <li class="fragment">Context Compression?</li>
@@ -179,7 +219,7 @@
               <h1>&#129300;</h1>
             </div>
             <div class="r-hstack">
-              <p>Wie schaffen wir fokussierte Agents?</p>
+              <p>How do we create focused agents?</p>
             </div>
           </div>
         </div>
@@ -188,25 +228,29 @@
       <section>
         <h1>Multi-Agent Pattern?</h1>
         <div class="content">
-          <img src="images/multi-agent.png" alt="Multi-Agent Pattern" style="max-height: 640px;">
+          <figure>
+            <img src="images/multi-agent.webp" alt="Multi-Agent Pattern" style="max-height: 640px;">
+            <figcaption>Source: <a href="https://blog.dailydoseofds.com/" target="_blank">blog.dailydoseofds.com</a>
+            </figcaption>
+          </figure>
         </div>
       </section>
 
       <!-- =============================================
            CHAPTER 3: Conway's Law
            ============================================= -->
-      <section data-slide-type="chapter" data-background-image="images/organization.webp" data-background-size="cover">
+      <section data-slide-type="chapter" data-background-image="images/organization.png" data-background-size="cover">
         <h1>Conway's Law &#8211; Applied to AI</h1>
-        <h2>Organisation pr&#228;gt Architektur</h2>
+        <h2>Organization shapes architecture</h2>
       </section>
 
       <section>
         <h1>Conway's Law</h1>
         <div class="content">
-          <p>Systeme spiegeln die Kommunikationsstruktur ihrer Organisation.</p>
+          <p>Systems reflect the communication structure of their organization.</p>
           <ul>
-            <li>klare Struktur &#8594; klare Software</li>
-            <li>chaotische Struktur &#8594; chaotischer Code</li>
+            <li>clear structure &#8594; clear software</li>
+            <li>chaotic structure &#8594; chaotic code</li>
           </ul>
           <div class="r-vstack fragment">
             <p>&nbsp;</p>
@@ -214,7 +258,7 @@
               <h1>&#129300;</h1>
             </div>
             <div class="r-hstack">
-              <p>Gilt das auch f&#252;r Coding Agents?</p>
+              <p>Does this also apply to coding agents?</p>
             </div>
           </div>
           <div class="r-stretch"></div>
@@ -222,29 +266,29 @@
       </section>
 
       <section>
-        <h1>AI-Team Organigramm</h1>
+        <h1>AI-Team organizational chart</h1>
         <div class="content">
-          <img src="images/organigramm.png" alt="AI-Team Organigramm" style="max-height: 640px;">
-          <p>Die Organisation des AI-Teams (Virtuelles Team das an AI-Team arbeitet!)</p>
+          <img src="images/organigramm.png" alt="AI-Team organizational chart" style="max-height: 640px;">
+          <p>The organization of the AI-Team (a virtual team working on AI-Team!).</p>
         </div>
       </section>
 
       <section>
-        <h1>Klare Verantwortung in Organisationen</h1>
+        <h1>Clear responsibilities in organizations</h1>
         <div class="content">
           <ul>
-            <li>Fokus statt &#220;berladung</li>
-            <li>klare Zust&#228;ndigkeiten</li>
-            <li>bessere Kommunikation</li>
-            <li>h&#246;here Qualit&#228;t</li>
+            <li>focus instead of overload</li>
+            <li>clear responsibilities</li>
+            <li>better communication</li>
+            <li>higher quality</li>
           </ul>
         </div>
-        <h1 class="fragment" data-fragment-index="1">AI Team erschafft eine geeignete Agent Struktur</h1>
+        <h1 class="fragment" data-fragment-index="1">AI-Team creates a suitable agent structure</h1>
         <div class="content fragment" data-fragment-index="1">
           <ul>
-            <li>klare Grenzen im virtuellen Team</li>
-            <li>klare Grenzen im Code</li>
-            <li>jeder Agent kennt seinen Scope</li>
+            <li>clear boundaries in the virtual team</li>
+            <li>clear boundaries in the code</li>
+            <li>each agent knows its scope</li>
           </ul>
         </div>
       </section>
@@ -264,20 +308,20 @@
       </section>
 
       <section>
-        <h1>Ver&#228;nderung und Optimierung</h1>
+        <h1>Change and optimization</h1>
         <div class="content">
           <ul>
-            <li>Priorit&#228;ten ver&#228;ndern sich</li>
-            <li>erfolgreiche Teams optimieren ihre Struktur laufend</li>
+            <li>priorities change</li>
+            <li>successful teams continuously optimize their structure</li>
           </ul>
         </div>
-        <h1 class="fragment" data-fragment-index="1">AI-Team optimiert das Agententeam</h1>
+        <h1 class="fragment" data-fragment-index="1">AI-Team optimizes the agent team</h1>
         <div class="content fragment" data-fragment-index="1">
           <ul>
-            <li>berechnet Verantwortlichkeiten</li>
-            <li>misst Effektivit&#228;t der Agenten</li>
-            <li>schl&#228;gt bessere Strukturen vor</li>
-            <li>erstellt neue Agenten bei Bedarf</li>
+            <li>calculates responsibilities</li>
+            <li>measures the effectiveness of agents</li>
+            <li>suggests better structures</li>
+            <li>creates new agents when needed</li>
           </ul>
         </div>
       </section>
@@ -286,41 +330,42 @@
         <h1>Onboarding &amp; Pair Programming</h1>
         <div class="content">
           <ul>
-            <li>Neue Entwickler (menschliche) brauchen Orientierung.</li>
-            <li>Wer kennt sich wo aus?</li>
-            <li>Welche Tools passen zu meiner Aufgabe?</li>
+            <li>New developers (the human kind) need orientation.</li>
+            <li>Who knows what area best?</li>
+            <li>Which tools fit my task?</li>
           </ul>
         </div>
-        <h1 class="fragment" data-fragment-index="1">AI-Team als Navigator</h1>
+        <h1 class="fragment" data-fragment-index="1">AI-Team as navigator</h1>
         <div class="content fragment" data-fragment-index="1">
           <ul>
-            <li>CSS-Spezialist bekommt automatisch Playwright &amp; Storybook</li>
-            <li>Backend-Dev bekommt DB-Tools &amp; Testrunner</li>
-            <li>Passender Pair Programmer wird automatisch zugewiesen</li>
-            <li>Entwickler finden sich sofort zurecht, da sie automatisch mit den Spezialisten verbunden werden.</li>
+            <li>CSS specialists automatically get Playwright &amp; Storybook</li>
+            <li>Backend developers get DB tools &amp; test runners</li>
+            <li>A suitable pair programmer is assigned automatically</li>
+            <li>Developers find their way immediately because they are automatically connected with the specialists.
+            </li>
           </ul>
         </div>
       </section>
 
       <section>
-        <h1>Setup ist m&#252;hsam</h1>
+        <h1>Setup is tedious</h1>
         <div class="content">
           <ul>
             <li>Prompts</li>
             <li>Tools</li>
             <li>Agent.md, Skill.md, instruction.md</li>
             <li>MCP</li>
-            <li>Modelle</li>
+            <li>Models</li>
           </ul>
         </div>
-        <h1 class="fragment" data-fragment-index="1">AI-Team macht es menschlich</h1>
+        <h1 class="fragment" data-fragment-index="1">AI-Team makes it human-friendly</h1>
         <div class="content fragment" data-fragment-index="1">
           <ul>
             <li>&#8222;hire react specialist&#8220;</li>
             <li>&#8222;hire db expert&#8220;</li>
             <li>&#8222;hire backend lead&#8220;</li>
           </ul>
-          <p>Die Komplexit&#228;t bleibt unter der Haube.</p>
+          <p>The complexity stays under the hood.</p>
         </div>
       </section>
 
@@ -339,12 +384,12 @@
       </section>
 
       <section>
-        <h1>Copilot oder Claude Code sind Datenkraken</h1>
+        <h1>Copilot or Claude Code are data-hungry</h1>
         <div>
           <ul>
-            <li>laden Unmengen an Code in die Cloud</li>
-            <li>verlangen viel Geld f&#252;r Token</li>
-            <li>verursachen durch Vertr&#228;ge Vendor-Lockin</li>
+            <li>upload huge amounts of code to the cloud</li>
+            <li>charge a lot of money for tokens</li>
+            <li>create vendor lock-in through contracts</li>
           </ul>
         </div>
         <h1 class="fragment" data-fragment-index="1">AI-Team:</h1>
@@ -353,23 +398,23 @@
             <li>Open Source</li>
             <li>Bring Your Own Model</li>
             <li>Bring Your Own Provider</li>
-            <li>Bestehende Subscriptions nutzbar</li>
+            <li>Existing subscriptions can be used</li>
           </ul>
         </div>
       </section>
 
       <section>
-        <h1>These</h1>
+        <h1>Thesis</h1>
         <div class="content">
           <ul>
-            <li>heutige Agents sind m&#228;chtig &#8211; aber schlecht organisiert</li>
-            <li>Context Pollution wird nicht weniger, wenn man dem LLM 100 Agenten und 1000 Skills zur Verfügung stellt
+            <li>today's agents are powerful &#8211; but poorly organized</li>
+            <li>Context pollution does not decrease if you give the LLM 100 agents and 1000 skills
             </li>
-            <li>Kontext aufräumen ist nur dann nötig, wenn er nicht von Anfang an aufgeräumt ist.</li>
-            <li>Wir müssen Struktur in die Agentenlandschaft bringen</li>
-            <li>Struktur schafft Qualit&#228;t</li>
-            <li>Gut organisierte Agenten bewirken eine gute Softwarearchitektur</li>
-            <li>Conway's Law gilt auch f&#252;r KI</li>
+            <li>Context cleanup is only necessary when context was not clean from the start.</li>
+            <li>We need to bring structure to the agent landscape</li>
+            <li>Structure creates quality</li>
+            <li>Well-organized agents lead to good software architecture</li>
+            <li>Conway's Law also applies to AI</li>
           </ul>
         </div>
       </section>
@@ -387,27 +432,27 @@
           <ul>
             <li>
               <a href="https://gitlab.ost.ch/clemens.meier/ai-team" target="_blank">AI Gitlab-OST
-                Repository</a>&nbsp;(OST intern)
-              <br />Achtung! Heavy Development and Vibe Coding Chaos ;) Es werden noch keine Pull Requests angenommen.
-              Aber Ideen sind herzlich willkommen!
+                Repository</a>&nbsp;(OST internal)
+              <br />Attention! Heavy development and vibe-coding chaos ;) Pull requests are not accepted yet,
+              but ideas are very welcome!
             </li>
           </ul>
-          <h2>Workshops zu Copilot:</h2>
+          <h2>Workshops about Copilot:</h2>
           <ul>
             <li>
               <a href="https://copilot-dev-days.github.io/" target="_blank">Copilot Dev Days Online Workshop</a>
-              <br />Sehr zu empfehlen für diejenigen die tiefer in die Funktionsweise von Copilot eintauchen möchten. Es
-              werden viele praktische Übungen und Beispiele geboten, um die Fähigkeiten von Copilot optimal zu
-              nutzen.<br />
-              Eine GitHub Academic License (gratis für Studenten der OST mit eingescannter Legi) ist erforderlich um
-              alle Übungen zu lösen, aber es lohnt sich auf
-              jeden Fall!
+              <br />Highly recommended for anyone who wants to dive deeper into how Copilot works. It offers many
+              practical exercises and examples to help you make the most of Copilot's capabilities.<br />
+              A GitHub Academic License (free for OST students with a scanned student ID) is required to complete
+              all exercises, but it is definitely worth it!
             </li>
             <li> <a href="https://alexop.dev/posts/vs-code-copilot-workshop/" target="_blank">Next Level GitHub
-                Copilot</a> (interessante Webseite)
+                Copilot</a> (interesting website)
             </li>
           </ul>
         </div>
+      </section>
+
     </div>
   </div>
 

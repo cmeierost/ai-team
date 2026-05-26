@@ -7,7 +7,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { ProposalStatus } from '@ai-team/core';
-import type { IInteractionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 type ApplyParams = z.infer<typeof CodeEditApplyCommand.schema>;
 const _codeEditApplyCommandSchema = z.object({
@@ -31,7 +31,7 @@ export class CodeEditApplyCommand implements ICommand<
 
   constructor(
     private readonly manager: ICodeEditManager,
-    private readonly questionService: IInteractionService
+    private readonly questionService: IQuestionService
   ) {}
 
   async execute(

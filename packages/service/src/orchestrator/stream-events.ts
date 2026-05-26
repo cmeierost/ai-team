@@ -5,14 +5,16 @@
  * All other modules go through emitEvent() rather than calling hooks.emit directly.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type {
   RuntimeStreamEvent,
   ToolDenialEvent,
   ToolRuntimePayloadEvent,
 } from '@ai-team/api-contracts';
-import { getServiceContainer } from '../service-registry.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import type { EmitService } from './services/emit-service.js';
+import { EmitService } from './services/emit-service.js';
+
+// Per-request emitter threaded via runWithEmitter().
+const _store = new AsyncLocalStorage<EmitService | undefined>();
 
 // ── Delta extraction ──────────────────────────────────────────────────────────
 
@@ -54,21 +56,18 @@ function extractDeltaSegmentText(value: unknown): string {
 
 // ── Event emission ────────────────────────────────────────────────────────────
 
-function getEmitter(): EmitService {
-  return getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.EmitService);
+function getActiveEmitter(): EmitService | undefined {
+  return _store.getStore();
 }
 
-/** Emit a runtime event through the EmitService, if a listener is registered. */
+/** Emit a runtime event, if a listener is registered. */
 export function emitEvent(event: RuntimeStreamEvent): void {
-  getEmitter().emit(event);
+  getActiveEmitter()?.emit(event);
 }
 
-export function emitLog(
-  level: 'info' | 'warn' | 'error',
-  message: string
-): void {
+export function emitLog(level: 'info' | 'warn' | 'error', message: string): void {
   emitEvent({ kind: 'log', level, message });
-  if (!getEmitter().hasEmitter()) {
+  if (!getActiveEmitter()) {
     if (level === 'error') {
       process.stderr.write(`${message}\n`);
     } else {
@@ -77,11 +76,32 @@ export function emitLog(
   }
 }
 
-export function emitStatus(
-  phase: string,
-  message?: string
-): void {
+export function emitStatus(phase: string, message?: string): void {
   emitEvent({ kind: 'status', phase, message });
+}
+
+export function emitToken(text: string): void {
+  if (!text) return;
+  if (getActiveEmitter()) {
+    emitEvent({ kind: 'token', text });
+    return;
+  }
+  process.stdout.write(text);
+}
+
+export function hasActiveEmitter(): boolean {
+  return Boolean(getActiveEmitter());
+}
+
+export function runWithEmitter<T>(
+  emitter: EmitService | undefined,
+  fn: () => Promise<T>
+): Promise<T> {
+  return _store.run(emitter, fn);
+}
+
+export function getCurrentEmitter(): EmitService | undefined {
+  return getActiveEmitter();
 }
 
 export function emitToolEvent(
