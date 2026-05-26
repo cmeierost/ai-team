@@ -1,20 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { resolvePreLlmIntent } from './pre-llm-intents.js';
+import { PreLlmIntentResolver } from './pre-llm-intents.js';
+import type { IPreLlmToolSource } from './pre-llm-intents.js';
 
-function makeContext(tools: unknown[]) {
+function makeContext() {
   return {
     agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' },
-    toolManager: {
-      getForAgent: () => tools,
-    },
   } as any;
 }
 
-describe('resolvePreLlmIntent', () => {
-  it('uses toolManager.getForAgent with correct this binding', async () => {
+function makeToolSource(tools: unknown[]): IPreLlmToolSource {
+  return { getForAgent: () => tools as any };
+}
+
+describe('PreLlmIntentResolver', () => {
+  it('uses toolSource.getForAgent with correct this binding', async () => {
     const scoredTool = {
-      key: 'list',
-      group: 'tool',
+      metadata: { key: 'list', group: 'tool' },
       scorePreLlmIntent: () => ({
         kind: 'tool' as const,
         toolName: 'tool_list',
@@ -23,19 +24,15 @@ describe('resolvePreLlmIntent', () => {
       }),
     };
 
-    const toolManager = {
+    const toolSource: IPreLlmToolSource = {
       tools: [scoredTool],
       getForAgent(this: { tools: unknown[] }, _agent: unknown) {
         return this.tools as any;
       },
-    };
-
-    const ctx = {
-      agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' },
-      toolManager,
     } as any;
 
-    const intent = await resolvePreLlmIntent('what tools can you use?', ctx);
+    const resolver = new PreLlmIntentResolver(toolSource);
+    const intent = await resolver.resolve('what tools can you use?', makeContext());
     expect(intent).toEqual(
       expect.objectContaining({
         kind: 'tool',
@@ -46,33 +43,27 @@ describe('resolvePreLlmIntent', () => {
   });
 
   it('returns undefined (no crash) when context has no current agent', async () => {
-    const ctx = {
-      toolManager: {
-        getForAgent: () => {
-          throw new Error('should not be called without ctx.agent');
-        },
-      },
-    } as any;
-
-    const intent = await resolvePreLlmIntent('forward me to emily', ctx);
+    const resolver = new PreLlmIntentResolver(makeToolSource([]));
+    const intent = await resolver.resolve('forward me to emily', { history: [] } as any);
     expect(intent).toBeUndefined();
   });
 
   it('returns an executable tool intent for score=100 matches', async () => {
-    const ctx = makeContext([
-      {
-        key: 'list',
-        group: 'tool',
-        scorePreLlmIntent: () => ({
-          kind: 'tool',
-          toolName: 'tool_list',
-          args: {},
-          score: 100,
-        }),
-      },
-    ]);
+    const resolver = new PreLlmIntentResolver(
+      makeToolSource([
+        {
+          metadata: { key: 'list', group: 'tool' },
+          scorePreLlmIntent: () => ({
+            kind: 'tool',
+            toolName: 'tool_list',
+            args: {},
+            score: 100,
+          }),
+        },
+      ])
+    );
 
-    const intent = await resolvePreLlmIntent('what tools can you use?', ctx);
+    const intent = await resolver.resolve('what tools can you use?', makeContext());
 
     expect(intent).toEqual(
       expect.objectContaining({
@@ -84,34 +75,35 @@ describe('resolvePreLlmIntent', () => {
   });
 
   it('returns clarify_then_tool confirmation when score is >=80 and <100', async () => {
-    const ctx = makeContext([
-      {
-        key: 'tree',
-        group: 'fs',
-        scorePreLlmIntent: () => ({
-          kind: 'tool',
-          toolName: 'fs_tree',
-          args: { path: '.', maxDepth: 6 },
-          score: 82,
-          clarification: {
-            ask: {
-              kind: 'select',
-              message: 'How deep should I scan?',
-              choices: [
-                { name: 'Quick', value: 'quick' },
-                { name: 'Deep', value: 'deep' },
-              ],
-              defaultText: 'quick',
+    const resolver = new PreLlmIntentResolver(
+      makeToolSource([
+        {
+          metadata: { key: 'tree', group: 'fs' },
+          scorePreLlmIntent: () => ({
+            kind: 'tool',
+            toolName: 'fs_tree',
+            args: { path: '.', maxDepth: 6 },
+            score: 82,
+            clarification: {
+              ask: {
+                kind: 'select',
+                message: 'How deep should I scan?',
+                choices: [
+                  { name: 'Quick', value: 'quick' },
+                  { name: 'Deep', value: 'deep' },
+                ],
+                defaultText: 'quick',
+              },
+              resolveArgs(answer: unknown) {
+                return { path: '.', maxDepth: answer === 'deep' ? 10 : 3 };
+              },
             },
-            resolveArgs(answer: unknown) {
-              return { path: '.', maxDepth: answer === 'deep' ? 10 : 3 };
-            },
-          },
-        }),
-      },
-    ]);
+          }),
+        },
+      ])
+    );
 
-    const intent = await resolvePreLlmIntent('show project structure', ctx);
+    const intent = await resolver.resolve('show project structure', makeContext());
 
     expect(intent?.kind).toBe('clarify_then_tool');
     if (!intent || intent.kind !== 'clarify_then_tool') return;
@@ -122,50 +114,51 @@ describe('resolvePreLlmIntent', () => {
   });
 
   it('returns undefined when best score is below minimum action threshold', async () => {
-    const ctx = makeContext([
-      {
-        key: 'list',
-        group: 'team',
-        scorePreLlmIntent: () => ({
-          kind: 'tool',
-          toolName: 'team_list',
-          args: {},
-          score: 40,
-        }),
-      },
-    ]);
+    const resolver = new PreLlmIntentResolver(
+      makeToolSource([
+        {
+          metadata: { key: 'list', group: 'team' },
+          scorePreLlmIntent: () => ({
+            kind: 'tool',
+            toolName: 'team_list',
+            args: {},
+            score: 40,
+          }),
+        },
+      ])
+    );
 
-    const intent = await resolvePreLlmIntent('who is on the team?', ctx);
+    const intent = await resolver.resolve('who is on the team?', makeContext());
     expect(intent).toBeUndefined();
   });
 
   it('returns ordered selection when several tools score >=80', async () => {
-    const ctx = makeContext([
-      {
-        key: 'list',
-        group: 'tool',
-        scorePreLlmIntent: () => ({
-          kind: 'tool',
-          toolName: 'tool_list',
-          args: {},
-          score: 88,
-          reason: 'Tool capability request',
-        }),
-      },
-      {
-        key: 'list',
-        group: 'team',
-        scorePreLlmIntent: () => ({
-          kind: 'tool',
-          toolName: 'team_list',
-          args: {},
-          score: 86,
-          reason: 'Team roster request',
-        }),
-      },
-    ]);
+    const resolver = new PreLlmIntentResolver(
+      makeToolSource([
+        {
+          metadata: { key: 'list', group: 'tool' },
+          scorePreLlmIntent: () => ({
+            kind: 'tool',
+            toolName: 'tool_list',
+            args: {},
+            score: 88,
+            reason: 'Tool capability request',
+          }),
+        },
+        {
+          metadata: { key: 'list', group: 'team' },
+          scorePreLlmIntent: () => ({
+            kind: 'tool',
+            toolName: 'team_list',
+            args: {},
+            score: 86,
+            reason: 'Team roster request',
+          }),
+        },
+      ])
+    );
 
-    const intent = await resolvePreLlmIntent('list what we have', ctx);
+    const intent = await resolver.resolve('list what we have', makeContext());
 
     expect(intent?.kind).toBe('clarify_then_tool');
     if (!intent || intent.kind !== 'clarify_then_tool') return;

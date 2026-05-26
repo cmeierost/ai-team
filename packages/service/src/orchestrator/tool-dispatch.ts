@@ -126,7 +126,7 @@ export class ToolDispatcher {
 
     if (execResult.ok && toolName === 'fs_apply_patch') {
       await this.support
-        .persistCodeEditProposal(execResult.result, args, ctx)
+        .persistCodeEditProposal(execResult.result, args, ctx, this.emitService)
         .catch((err) =>
           console.error('[tool-dispatch] Failed to persist code edit proposal:', err)
         );

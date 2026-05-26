@@ -4,11 +4,13 @@ import type {
   ExecutionContext,
   CommandResponse,
 } from '@ai-team/core';
-import { emitLog } from './stream-events.js';
+import type { IEmitService } from './services/emit-service.js';
 import { getServiceContainer } from '../service-registry.js';
 import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
 export class WorkflowSlashCommand implements ICommand<string, void> {
+  constructor(private readonly emitService: IEmitService) {}
+
   readonly metadata: ICommandDescriptor<string> = {
     key: 'workflow',
     description: 'Run workflow tools (/workflow list or /workflow <id>)',
@@ -33,11 +35,14 @@ export class WorkflowSlashCommand implements ICommand<string, void> {
     );
 
     if (!result.ok) {
-      emitLog('error', result.error ?? `Workflow command failed for tool '${toolName}'.`);
+      this.emitService.log(
+        'error',
+        result.error ?? `Workflow command failed for tool '${toolName}'.`
+      );
       return { status: 'ok' };
     }
 
-    emitLog('info', `[workflow] ${JSON.stringify(result.result)}`);
+    this.emitService.log('info', `[workflow] ${JSON.stringify(result.result)}`);
     return { status: 'ok' };
   }
 }

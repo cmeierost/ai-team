@@ -7,10 +7,12 @@ import type {
   WorkflowFrame,
   WorkflowStateSnapshot,
 } from '@ai-team/api-contracts';
+import type { ISkillManager } from '@ai-team/core';
 import type { IEmitService } from './services/emit-service.js';
 
 export interface ChatRuntimeHooks {
   emitService?: IEmitService;
+  skillManager?: ISkillManager;
   invocationSurface?: 'slash' | 'tool' | 'cli' | 'api';
   signal?: AbortSignal;
   questionInput?: (request: QuestionInputRequest) => Promise<string>;

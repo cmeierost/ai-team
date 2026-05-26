@@ -1,11 +1,5 @@
 import { z } from 'zod';
-import type {
-  ICommand,
-  IAgentManager,
-  ExecutionContext,
-  CommandResponse,
-  ICommandDescriptor,
-} from '@ai-team/core';
+import type { ICommand, IAgentManager, ICommandDescriptor } from '@ai-team/core';
 import type { Employee } from '@ai-team/api-contracts';
 
 type Params = z.infer<typeof TeamListICommand.schema>;
@@ -25,10 +19,12 @@ export const TeamListICommandMetadata = {
 export class TeamListICommand implements ICommand<Params, Employee[]> {
   static readonly schema = _teamListICommandSchema;
   readonly metadata = TeamListICommandMetadata;
+  readonly key = 'list' as const;
+  readonly cli = { command: 'list', parentKey: 'team' } as const;
 
   constructor(private readonly agentManager: IAgentManager) {}
 
-  async execute(payload: Params, _ctx: ExecutionContext): Promise<CommandResponse<Employee[]>> {
+  async execute(payload: Params, _unusedOrCtx?: unknown, _ctx?: unknown): Promise<any> {
     let employees = (await this.agentManager.getAllAgentsAsync()) as Employee[];
     if (payload.role) {
       employees = employees.filter((e) => e.role === payload.role);
@@ -37,9 +33,6 @@ export class TeamListICommand implements ICommand<Params, Employee[]> {
       const feature = payload.feature;
       employees = employees.filter((e) => e.features?.includes(feature));
     }
-    const names = employees.map((e) => e.name ?? e.id).join(', ');
-    const message =
-      employees.length === 0 ? 'No team members found.' : `Team (${employees.length}): ${names}`;
-    return { status: 'ok', message, data: employees };
+    return employees;
   }
 }

@@ -1,4 +1,4 @@
-import type { ICommand, ExecutionContext } from '@ai-team/core';
+import type { Agent, ICommand, ExecutionContext } from '@ai-team/core';
 
 const AUTO_SELECT_SCORE = 100;
 const CONFIRM_THRESHOLD_SCORE = 80;
@@ -208,66 +208,83 @@ function buildConfirmIntent(candidate: ScoredPreLlmIntentCandidate): PreLlmInten
 }
 
 /**
- * Resolve a scored pre-LLM intent from tool metadata plus optional workflow providers.
- *
- * - score=100 candidates auto-run immediately.
- * - if multiple tools score >=80, user selects which tool to call (ordered by score).
- * - if only one tool scores >=80, user confirms: "shall i call toolName(args)?".
- * - tools are callable only when args are inferable or a clarification strategy exists.
+ * Minimal interface for a tool source that can resolve which tools are
+ * available to a given agent. Implemented by ToolManager but kept narrow
+ * here so callers outside the full DI graph can satisfy it with a simple
+ * mock in tests.
  */
-export async function resolvePreLlmIntent(
-  message: string,
-  ctx: ExecutionContext,
-  providers: PreLlmIntentProvider[] = [],
-  tools: ICommand[] = []
-): Promise<PreLlmIntent | undefined> {
-  const trimmed = message.trim();
-  if (!trimmed) return undefined;
+export interface IPreLlmToolSource {
+  getForAgent(agent: Agent): ICommand[];
+}
 
-  const [providerCandidates, toolCandidates] = await Promise.all([
-    collectProviderCandidates(trimmed, ctx, providers),
-    collectToolCandidates(trimmed, ctx, tools),
-  ]);
+/**
+ * Resolves pre-LLM intents by scoring tools against the incoming message.
+ * Requires an IPreLlmToolSource to be injected — never reads from ExecutionContext.
+ *
+ * Scoring rules:
+ * - score=100  → auto-execute immediately
+ * - multiple tools score >=80 → user selects which tool to call
+ * - single tool scores >=80  → user confirms: "shall I call toolName(args)?"
+ * - tools are callable only when args are inferable or a clarification strategy exists
+ */
+export class PreLlmIntentResolver {
+  constructor(private readonly toolSource: IPreLlmToolSource) {}
 
-  const candidates = normalizeCandidates([...providerCandidates, ...toolCandidates]).filter(
-    canExecuteCandidate
-  );
-  if (candidates.length === 0) return undefined;
+  async resolve(
+    message: string,
+    ctx: ExecutionContext,
+    providers: PreLlmIntentProvider[] = []
+  ): Promise<PreLlmIntent | undefined> {
+    const trimmed = message.trim();
+    if (!trimmed || !ctx.agent) return undefined;
 
-  const top = candidates[0];
-  if (!top) return undefined;
+    const tools = this.toolSource.getForAgent(ctx.agent);
 
-  if (top.score === AUTO_SELECT_SCORE && hasInferableArgs(top.args)) {
-    return {
-      kind: 'tool',
-      toolName: top.toolName,
-      args: top.args,
-      score: top.score,
-      reason: top.reason,
-    };
+    const [providerCandidates, toolCandidates] = await Promise.all([
+      collectProviderCandidates(trimmed, ctx, providers),
+      collectToolCandidates(trimmed, ctx, tools),
+    ]);
+
+    const candidates = normalizeCandidates([...providerCandidates, ...toolCandidates]).filter(
+      canExecuteCandidate
+    );
+    if (candidates.length === 0) return undefined;
+
+    const top = candidates[0];
+    if (!top) return undefined;
+
+    if (top.score === AUTO_SELECT_SCORE && hasInferableArgs(top.args)) {
+      return {
+        kind: 'tool',
+        toolName: top.toolName,
+        args: top.args,
+        score: top.score,
+        reason: top.reason,
+      };
+    }
+
+    const highScoreCandidates = candidates.filter(
+      (candidate) => candidate.score >= CONFIRM_THRESHOLD_SCORE && hasInferableArgs(candidate.args)
+    );
+    if (highScoreCandidates.length > 1) {
+      return buildHighScoreSelectionIntent(highScoreCandidates);
+    }
+
+    if (highScoreCandidates.length === 1) {
+      return buildConfirmIntent(highScoreCandidates[0]);
+    }
+
+    if (top.clarification) {
+      return {
+        kind: 'clarify_then_tool',
+        toolName: top.toolName,
+        score: top.score,
+        reason: top.reason,
+        ask: top.clarification.ask,
+        resolveArgs: top.clarification.resolveArgs,
+      };
+    }
+
+    return undefined;
   }
-
-  const highScoreCandidates = candidates.filter(
-    (candidate) => candidate.score >= CONFIRM_THRESHOLD_SCORE && hasInferableArgs(candidate.args)
-  );
-  if (highScoreCandidates.length > 1) {
-    return buildHighScoreSelectionIntent(highScoreCandidates);
-  }
-
-  if (highScoreCandidates.length === 1) {
-    return buildConfirmIntent(highScoreCandidates[0]);
-  }
-
-  if (top.clarification) {
-    return {
-      kind: 'clarify_then_tool',
-      toolName: top.toolName,
-      score: top.score,
-      reason: top.reason,
-      ask: top.clarification.ask,
-      resolveArgs: top.clarification.resolveArgs,
-    };
-  }
-
-  return undefined;
 }

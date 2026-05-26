@@ -571,12 +571,13 @@ function makePluginsWithTools(): ResolvedPlugins {
     const [group, ...rest] = canonicalName.split('_');
     const key = rest.join('_');
     return {
-      name: key,
-      key,
-      group,
-      availableIn: { tool: true },
-      description: `${canonicalName} tool`,
-      parameters: {},
+      metadata: {
+        key,
+        group,
+        availableIn: { tool: true },
+        description: `${canonicalName} tool`,
+      },
+      execute: vi.fn().mockResolvedValue({ status: 'ok', message: '' }),
     };
   };
 

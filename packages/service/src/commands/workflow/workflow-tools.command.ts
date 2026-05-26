@@ -1,10 +1,5 @@
 import { z } from 'zod';
-import type {
-  ICommand,
-  ExecutionContext,
-  CommandResponse,
-  ICommandDescriptor,
-} from '@ai-team/core';
+import type { ICommand, ExecutionContext, ICommandDescriptor } from '@ai-team/core';
 import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
 
 import type { ScoredPreLlmIntentCandidate } from '../../tools/pre-llm-intents.js';
@@ -37,6 +32,8 @@ export const ListWorkflowsOrchestrationCommandMetadata = {
 export class ListWorkflowsOrchestrationCommand implements ICommand<ListParams, WorkflowListResult> {
   static readonly schema = _listWorkflowsOrchestrationCommandSchema;
   readonly metadata = ListWorkflowsOrchestrationCommandMetadata;
+  readonly key = ListWorkflowsOrchestrationCommandMetadata.key;
+  readonly group = ListWorkflowsOrchestrationCommandMetadata.group;
 
   constructor(private readonly catalog: IWorkflowCatalog) {}
 
@@ -60,18 +57,12 @@ export class ListWorkflowsOrchestrationCommand implements ICommand<ListParams, W
     return undefined;
   };
 
-  async execute(
-    _params: ListParams,
-    _context: ExecutionContext
-  ): Promise<CommandResponse<WorkflowListResult>> {
+  async execute(_params: ListParams, _unusedOrCtx?: unknown, _ctx?: unknown): Promise<any> {
     const workflows = this.catalog.listWorkflowIds();
     return {
-      status: 'ok',
-      data: {
-        type: 'workflow_list_result',
-        workflows,
-        timestamp: new Date().toISOString(),
-      },
+      type: 'workflow_list_result',
+      workflows,
+      timestamp: new Date().toISOString(),
     };
   }
 }
@@ -79,16 +70,20 @@ export class ListWorkflowsOrchestrationCommand implements ICommand<ListParams, W
 type DefinitionParams = z.infer<typeof WorkflowDefinitionOrchestrationCommand.schema>;
 const _workflowDefinitionOrchestrationCommandSchema = z.object({});
 
-export class WorkflowDefinitionOrchestrationCommand
-  implements ICommand<DefinitionParams, WorkflowDefinitionApiResponse>, IWorkflowDefinitionProvider
-{
+export class WorkflowDefinitionOrchestrationCommand implements ICommand<
+  DefinitionParams,
+  WorkflowDefinitionApiResponse
+> {
   static readonly schema = _workflowDefinitionOrchestrationCommandSchema;
   readonly metadata: ICommandDescriptor<DefinitionParams>;
+  readonly key: string;
+  readonly group = 'workflow';
 
   constructor(
     private readonly workflowId: string,
-    private readonly resolver: WorkflowDefinitionResolver
+    private readonly catalog: IWorkflowCatalog
   ) {
+    this.key = workflowId;
     this.metadata = {
       key: workflowId,
       description: `Return the workflow definition for '${workflowId}' in JSON and YAML.`,
@@ -100,31 +95,41 @@ export class WorkflowDefinitionOrchestrationCommand
     };
   }
 
-  async execute(
-    _params: DefinitionParams,
-    _context: ExecutionContext
-  ): Promise<CommandResponse<WorkflowDefinitionApiResponse>> {
-    return { status: 'ok', data: this.getDefinition() };
+  async execute(_params: DefinitionParams, _unusedOrCtx?: unknown, _ctx?: unknown): Promise<any> {
+    return this.catalog.getWorkflowDefinition(this.workflowId);
   }
+}
 
-  getDefinition(): WorkflowDefinitionApiResponse {
-    return {
-      workflowId: this.workflowId,
-      format: this.resolver.format,
-      definitionJson: this.resolver.getJson(),
-      definitionYaml: this.resolver.getYaml(),
-    };
-  }
+function makeResolverBackedCatalog(
+  base: IWorkflowCatalog,
+  resolvers: Record<string, WorkflowDefinitionResolver>
+): IWorkflowCatalog {
+  return {
+    listWorkflowIds: () => base.listWorkflowIds(),
+    getWorkflowDefinition: async (id: string) => {
+      const resolver = resolvers[id];
+      if (resolver) {
+        return {
+          workflowId: id,
+          format: resolver.format,
+          definitionJson: resolver.getJson(),
+          definitionYaml: resolver.getYaml(),
+        };
+      }
+      return base.getWorkflowDefinition(id);
+    },
+  };
 }
 
 export function createWorkflowDefinitionCommands(
   catalog: IWorkflowCatalog,
-  resolvers: Record<string, WorkflowDefinitionResolver>
+  resolvers?: Record<string, WorkflowDefinitionResolver>
 ): ICommand<unknown, unknown>[] {
+  const effectiveCatalog = resolvers ? makeResolverBackedCatalog(catalog, resolvers) : catalog;
   const commands: ICommand<unknown, unknown>[] = [new ListWorkflowsOrchestrationCommand(catalog)];
 
-  for (const [workflowId, resolver] of Object.entries(resolvers)) {
-    commands.push(new WorkflowDefinitionOrchestrationCommand(workflowId, resolver));
+  for (const workflowId of effectiveCatalog.listWorkflowIds()) {
+    commands.push(new WorkflowDefinitionOrchestrationCommand(workflowId, effectiveCatalog));
   }
 
   return commands;

@@ -1,12 +1,7 @@
 import { z } from 'zod';
 import type { InitOptions } from '@ai-team/api-contracts';
-import type {
-  ICommand,
-  ExecutionContext,
-  CommandResponse,
-  ICommandDescriptor,
-} from '@ai-team/core';
-import { InitCommand } from './init.js';
+import type { ICommand, CommandResponse, ICommandDescriptor } from '@ai-team/core';
+import { InitCommand, initCommand } from './init.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 import type { IQuestionService } from '../../questions/question-service.js';
 
@@ -30,29 +25,40 @@ export class InitICommand implements ICommand<Params, void> {
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly questionService: IQuestionService,
-    private readonly initCmd: InitCommand
+    private readonly questionService?: IQuestionService,
+    private readonly initCmd?: InitCommand
   ) {}
 
-  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    await this.initCmd.execute(
-      { workspaceRoot: this.workspaceRoot, options: (payload.options ?? {}) as InitOptions },
-      this.buildHooks(ctx)
-    );
+  async execute(payload: Params, ctxOrUnused?: unknown, ctx?: any): Promise<CommandResponse<void>> {
+    const resolvedCtx = (ctx ?? ctxOrUnused) as unknown as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (this.initCmd) {
+      await this.initCmd.execute(
+        { workspaceRoot: this.workspaceRoot, options: (payload.options ?? {}) as InitOptions },
+        this.buildHooks(resolvedCtx)
+      );
+    } else {
+      await initCommand(
+        this.workspaceRoot,
+        (payload.options ?? {}) as InitOptions,
+        this.buildHooks(resolvedCtx)
+      );
+    }
     return { status: 'ok' };
   }
 
-  private buildHooks(runtime: ExecutionContext): InitRuntimeHooks {
+  private buildHooks(runtime: any): InitRuntimeHooks {
+    const noop = (): Promise<never> => Promise.reject(new Error('not available'));
     return {
-      signal: runtime.signal,
-      emit: runtime.emit,
-      questionInput: (request) => this.questionService.input(request),
-      questionConfirm: (request) => this.questionService.confirm(request),
-      questionSelect: (request) => this.questionService.select(request),
-      questionPassword: (request) => this.questionService.password(request),
-      questionChecklist: (request) => this.questionService.checklist(request),
-      workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
-      onWorkflowFrame: runtime.onWorkflowFrame,
+      signal: runtime?.signal,
+      emit: runtime?.emit,
+      questionInput: (request) => this.questionService?.input(request) ?? noop(),
+      questionConfirm: (request) =>
+        this.questionService?.confirm(request) ?? (() => Promise.resolve(false))(),
+      questionSelect: (request) => this.questionService?.select(request) ?? noop(),
+      questionPassword: (request) => this.questionService?.password(request) ?? noop(),
+      questionChecklist: (request) => this.questionService?.checklist(request) ?? noop(),
+      workflowState: runtime?.workflowState as InitRuntimeHooks['workflowState'],
+      onWorkflowFrame: runtime?.onWorkflowFrame,
     };
   }
 }

@@ -2,6 +2,36 @@ import { describe, expect, it, vi } from 'vitest';
 import { ResolveChatSessionCommand } from './resolve-chat-session.command.js';
 import { LoadSessionMessagesCommand } from './load-session-messages.command.js';
 import { runChatSessionStartupWorkflow } from './chat-session-startup.workflow.js';
+import type { IWorkflowRunnerFactory } from '../../workflow/runner.js';
+
+function makeTestRunnerFactory(): IWorkflowRunnerFactory {
+  return {
+    create: () => ({
+      async run(definition, initialState, options) {
+        let state = initialState;
+        const cmds = options?.commands ?? {};
+        const ctx = options?.executionContext ?? ({} as any);
+        for (const step of definition.steps) {
+          if (step.skipWhen?.(state)) {
+            continue;
+          }
+          if ('command' in step) {
+            const cmd = cmds[step.command];
+            if (!cmd) throw new Error(`Command not found: ${step.command}`);
+            const params = step.params(state);
+            const result = await cmd.execute(params, ctx);
+            if (step.applyResult) {
+              state = step.applyResult(state, result);
+            }
+          } else if ('execute' in step) {
+            state = await step.execute(state, ctx);
+          }
+        }
+        return { aborted: false, state };
+      },
+    }),
+  };
+}
 
 describe('chat-session-startup workflow', () => {
   it('loads existing session when sessionId is provided', async () => {
@@ -19,13 +49,13 @@ describe('chat-session-startup workflow', () => {
       ]),
     };
 
-    const resolveChatSessionCommand = new ResolveChatSessionCommand(
+    const resolveChatSessionCommand = new ResolveChatSessionCommand(sessionManager as any, {
+      toDeveloperId: vi.fn((name: string) => name.toLowerCase()),
+    });
+    const loadSessionMessagesCommand = new LoadSessionMessagesCommand(
       sessionManager as any,
-      {
-        toDeveloperId: vi.fn((name: string) => name.toLowerCase()),
-      }
+      { log: vi.fn(), emit: vi.fn() } as any
     );
-    const loadSessionMessagesCommand = new LoadSessionMessagesCommand(sessionManager as any);
 
     const result = await runChatSessionStartupWorkflow(
       {
@@ -40,7 +70,8 @@ describe('chat-session-startup workflow', () => {
         resolveChatSessionCommand,
         loadSessionMessagesCommand,
       },
-      {}
+      {},
+      makeTestRunnerFactory()
     );
 
     expect(result.sessionId).toBe('sess-123');
@@ -56,13 +87,13 @@ describe('chat-session-startup workflow', () => {
       getSessionMessages: vi.fn(async () => []),
     };
 
-    const resolveChatSessionCommand = new ResolveChatSessionCommand(
+    const resolveChatSessionCommand = new ResolveChatSessionCommand(sessionManager as any, {
+      toDeveloperId: vi.fn((name: string) => `dev-${name.toLowerCase()}`),
+    });
+    const loadSessionMessagesCommand = new LoadSessionMessagesCommand(
       sessionManager as any,
-      {
-        toDeveloperId: vi.fn((name: string) => `dev-${name.toLowerCase()}`),
-      }
+      { log: vi.fn(), emit: vi.fn() } as any
     );
-    const loadSessionMessagesCommand = new LoadSessionMessagesCommand(sessionManager as any);
 
     const result = await runChatSessionStartupWorkflow(
       {
@@ -76,7 +107,8 @@ describe('chat-session-startup workflow', () => {
         resolveChatSessionCommand,
         loadSessionMessagesCommand,
       },
-      {}
+      {},
+      makeTestRunnerFactory()
     );
 
     expect(result.sessionId).toBe('fresh-001');

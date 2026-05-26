@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-vi.mock('../workflow/xstate-chat-loop-engine.js', () => ({
+vi.mock('../workflow/chat-loop-engine.js', () => ({
   runChatLoopWorkflowAsync: vi.fn(),
 }));
 

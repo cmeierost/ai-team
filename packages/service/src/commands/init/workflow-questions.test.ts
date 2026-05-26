@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import type { ExecutionContext } from '@ai-team/core';
+import type { IQuestionService } from '../../questions/question-service.js';
 
 const askExecute = vi.hoisted(() => vi.fn());
 
@@ -8,13 +10,10 @@ vi.mock('../com/ask.command.js', () => ({
   },
 }));
 
-import {
-  requestInput,
-  requestConfirm,
-  requestSelect,
-  requestChecklist,
-} from './workflow-questions.js';
-import { InteractionQuestionService } from '../../questions/question-service.js';
+import { WorkflowQuestioner } from './workflow-questions.js';
+
+const minimalCtx: ExecutionContext = { workspaceRoot: '', history: [] };
+const noopService = {} as IQuestionService;
 
 describe('workflow questions ask-tool bridge', () => {
   beforeEach(() => {
@@ -23,13 +22,17 @@ describe('workflow questions ask-tool bridge', () => {
 
   it('routes input questions through com_ask and preserves workflow request payload', async () => {
     const questionInput = vi.fn().mockResolvedValue('ok-value');
-    const questionService = InteractionQuestionService({ input: questionInput });
+    const questionService = { input: questionInput } as IQuestionService;
+    const questioner = new WorkflowQuestioner(questionService, minimalCtx);
 
     askExecute.mockImplementation(async (params) => {
       expect(params.kind).toBe('input');
       expect(params.message).toBe('Original message');
 
-      const answer = await questionService.input({ message: 'Tool-adjusted prompt' });
+      const answer = await questionService.input({
+        message: 'Tool-adjusted prompt',
+        workflow: params.workflow,
+      });
       return {
         status: 'ok',
         data: {
@@ -40,14 +43,11 @@ describe('workflow questions ask-tool bridge', () => {
       };
     });
 
-    const answer = await requestInput(
-      { questionInput },
-      {
-        message: 'Original message',
-        workflow: { workflowId: 'wf-1', questionId: 'step-1' },
-        validate: (value: string) => (value.startsWith('ok') ? true : 'bad value'),
-      }
-    );
+    const answer = await questioner.requestInput({
+      message: 'Original message',
+      workflow: { workflowId: 'wf-1', questionId: 'step-1' },
+      validate: (value: string) => (value.startsWith('ok') ? true : 'bad value'),
+    });
 
     expect(answer).toBe('ok-value');
     expect(questionInput).toHaveBeenCalledWith(
@@ -59,6 +59,8 @@ describe('workflow questions ask-tool bridge', () => {
   });
 
   it('routes confirm questions through com_ask', async () => {
+    const questioner = new WorkflowQuestioner(noopService, minimalCtx);
+
     askExecute.mockResolvedValue({
       status: 'ok',
       data: {
@@ -68,13 +70,10 @@ describe('workflow questions ask-tool bridge', () => {
       },
     });
 
-    const answer = await requestConfirm(
-      {},
-      {
-        message: 'Proceed?',
-        default: false,
-      }
-    );
+    const answer = await questioner.requestConfirm({
+      message: 'Proceed?',
+      default: false,
+    });
 
     expect(answer).toBe(true);
     expect(askExecute).toHaveBeenCalledWith(
@@ -88,6 +87,8 @@ describe('workflow questions ask-tool bridge', () => {
   });
 
   it('normalizes select answers returned by com_ask', async () => {
+    const questioner = new WorkflowQuestioner(noopService, minimalCtx);
+
     askExecute.mockResolvedValue({
       status: 'ok',
       data: {
@@ -97,21 +98,20 @@ describe('workflow questions ask-tool bridge', () => {
       },
     });
 
-    const answer = await requestSelect(
-      {},
-      {
-        message: 'Pick one',
-        choices: [
-          { name: 'Primary', value: 'primary' },
-          { name: 'Secondary', value: 'secondary' },
-        ],
-      }
-    );
+    const answer = await questioner.requestSelect({
+      message: 'Pick one',
+      choices: [
+        { name: 'Primary', value: 'primary' },
+        { name: 'Secondary', value: 'secondary' },
+      ],
+    });
 
     expect(answer).toBe('primary');
   });
 
   it('returns checklist values from com_ask', async () => {
+    const questioner = new WorkflowQuestioner(noopService, minimalCtx);
+
     askExecute.mockResolvedValue({
       status: 'ok',
       data: {
@@ -121,16 +121,13 @@ describe('workflow questions ask-tool bridge', () => {
       },
     });
 
-    const answer = await requestChecklist(
-      {},
-      {
-        message: 'Choose channels',
-        choices: [
-          { name: 'Primary', value: 'primary' },
-          { name: 'Secondary', value: 'secondary' },
-        ],
-      }
-    );
+    const answer = await questioner.requestChecklist({
+      message: 'Choose channels',
+      choices: [
+        { name: 'Primary', value: 'primary' },
+        { name: 'Secondary', value: 'secondary' },
+      ],
+    });
 
     expect(answer).toEqual(['primary', 'secondary']);
   });

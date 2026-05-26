@@ -7,19 +7,23 @@
  *   preserving the legacy public API and behavior.
  */
 
-import type { ChatMessage, ExecutionContext, IAgentManager, ILlmService } from '@ai-team/core';
+import type {
+  ChatMessage,
+  ExecutionContext,
+  IAgentManager,
+  ILlmService,
+  ISkillManager,
+} from '@ai-team/core';
 import { isCommandResponse } from '@ai-team/api-contracts';
 import type { CommandResponse, RuntimeStreamEvent } from '@ai-team/api-contracts';
 
+import { EmitService, type IEmitService } from './services/emit-service.js';
+import type { SendTurnDeps } from '../workflow/send-turn-contracts.js';
 import {
-  emitLog,
-  emitStatus,
-  emitEvent,
-  runWithEmitter,
-  getCurrentEmitter,
-} from './stream-events.js';
-import { EmitService } from './services/emit-service.js';
-import { resolvePreLlmIntent, type PreLlmIntent } from '../tools/pre-llm-intents.js';
+  PreLlmIntentResolver,
+  type IPreLlmToolSource,
+  type PreLlmIntent,
+} from '../tools/pre-llm-intents.js';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
 import { ToolDispatcher } from './tool-dispatch.js';
 import { ToolSerializationService } from './services/tool-serialization-service.js';
@@ -50,7 +54,11 @@ export class ChatOrchestrator {
   private readonly sessionManager: SessionManager;
   private readonly llmService: ILlmService;
   private readonly serialization: ToolSerializationService;
+  private readonly emitService: IEmitService;
+  private readonly skillManager: ISkillManager | undefined;
+  private readonly intentResolver: PreLlmIntentResolver;
 
+  // eslint-disable-next-line max-params
   constructor(
     private readonly ctx: ExecutionContext,
     private readonly plugins: ResolvedPlugins,
@@ -60,15 +68,19 @@ export class ChatOrchestrator {
     agentManager?: IAgentManager,
     sessionManager?: SessionManager,
     llmService?: ILlmService,
-    serialization?: ToolSerializationService
+    serialization?: ToolSerializationService,
+    toolSource?: IPreLlmToolSource
   ) {
     this.toolDispatcher = toolDispatcher;
     this.handoffOrchestrator = handoffOrchestrator;
-    this.hooks = hooks ?? ((ctx as any).hooks as ChatRuntimeHooks) ?? ({} as ChatRuntimeHooks);
-    this.agentManager = agentManager ?? ((ctx as any).agentManager as IAgentManager);
-    this.sessionManager = sessionManager ?? ((ctx as any).sessionManager as SessionManager);
-    this.llmService = llmService ?? ((ctx as any).llmService as ILlmService);
+    this.hooks = hooks ?? ({} as ChatRuntimeHooks);
+    this.agentManager = agentManager!;
+    this.sessionManager = sessionManager!;
+    this.llmService = llmService!;
     this.serialization = serialization ?? new ToolSerializationService();
+    this.emitService = this.hooks.emitService ?? EmitService.forConsole();
+    this.skillManager = this.hooks.skillManager;
+    this.intentResolver = new PreLlmIntentResolver(toolSource ?? { getForAgent: () => [] });
   }
 
   async run(options: RunOptions): Promise<string> {
@@ -105,11 +117,20 @@ export class ChatOrchestrator {
               ? this.preTurnUserMessageOverride
               : message;
 
+          const deps: SendTurnDeps = {
+            sessionManager: this.sessionManager,
+            llmService: this.llmService,
+            skillManager: this.skillManager!,
+            hooks: this.hooks,
+            emitService: this.emitService,
+            toolDispatcher: this.toolDispatcher,
+          };
           const output = await runSendTurnMachineAsync({
             userMessage: effectiveMessage,
             hop,
             ctx: this.ctx,
             plugins: this.plugins,
+            deps,
             options: {
               skipPersist:
                 hop > 0 ||
@@ -141,7 +162,7 @@ export class ChatOrchestrator {
             );
 
           if (!targetKnown) {
-            emitLog(
+            this.emitService.log(
               'warn',
               `Handoff requested to unknown agent "${current.handoffTargetId}" — staying with ${this.ctx.agent!.name}.`
             );
@@ -176,11 +197,11 @@ export class ChatOrchestrator {
             );
           }
 
-          emitStatus('handoff', `${this.ctx.agent!.name} taking over.`);
+          this.emitService.status('handoff', `${this.ctx.agent!.name} taking over.`);
           return { autoMessage: AUTO_REACT_MESSAGE };
         },
         runFailureAsync: async ({ error, state }) => {
-          emitLog('error', `[xstate-chat-loop] ${state}: ${error}`);
+          this.emitService.log('error', `[xstate-chat-loop] ${state}: ${error}`);
         },
       }
     );
@@ -232,7 +253,7 @@ export class ChatOrchestrator {
     const [rawKey, ...rest] = trimmed.slice(1).split(/\s+/);
     const key = (rawKey ?? '').toLowerCase();
     if (!key) {
-      emitLog('warn', 'Please enter a slash command name. Try /help.');
+      this.emitService.log('warn', 'Please enter a slash command name. Try /help.');
       return { kind: 'consumed', text: '' };
     }
     const rawArgs = rest.join(' ');
@@ -240,7 +261,7 @@ export class ChatOrchestrator {
     const descriptor = this.plugins.commandDispatcher.getCommand(key);
 
     if (!descriptor) {
-      emitLog('warn', `Unknown command: /${key}. Try /help.`);
+      this.emitService.log('warn', `Unknown command: /${key}. Try /help.`);
       return { kind: 'consumed', text: '' };
     }
 
@@ -298,25 +319,15 @@ export class ChatOrchestrator {
   }
 
   private sendMessage(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
-    emitLog(level, message);
+    this.emitService.log(level, message);
   }
 
   private async executeSlashCommandWithCapture(
     key: string,
     rawArgs: string
   ): Promise<{ executionResult: CommandResponse | void; capturedEvents: RuntimeStreamEvent[] }> {
-    const capturedEvents: RuntimeStreamEvent[] = [];
-    const outerEmitter = getCurrentEmitter();
-
-    const executionResult = await runWithEmitter(
-      new EmitService((event) => {
-        capturedEvents.push(event);
-        outerEmitter?.emit(event);
-      }),
-      () => this.plugins.commandDispatcher.dispatch(key, rawArgs, this.ctx)
-    );
-
-    return { executionResult, capturedEvents };
+    const executionResult = await this.plugins.commandDispatcher.dispatch(key, rawArgs, this.ctx);
+    return { executionResult, capturedEvents: [] };
   }
 
   private formatCapturedSlashOutput(
@@ -383,7 +394,7 @@ export class ChatOrchestrator {
       return;
     }
 
-    emitEvent({
+    this.emitService.emit({
       kind: 'tool',
       toolName: `slash:${commandKey}`,
       toolPhase: executionResult.status === 'error' ? 'error' : 'result',
@@ -394,7 +405,7 @@ export class ChatOrchestrator {
         request: rawArgs,
         commandResponse: executionResult,
       },
-    });
+    } as RuntimeStreamEvent);
   }
 
   private toCommandResponse(rawResult: unknown, commandKey: string): CommandResponse | void {
@@ -496,7 +507,10 @@ export class ChatOrchestrator {
     );
 
     if (askResult.isError) {
-      emitLog('warn', 'Pre-LLM clarification failed; continuing without auto-tool execution.');
+      this.emitService.log(
+        'warn',
+        'Pre-LLM clarification failed; continuing without auto-tool execution.'
+      );
       return false;
     }
 
@@ -504,7 +518,10 @@ export class ChatOrchestrator {
     const resolvedArgs = intent.resolveArgs(answer);
     if (!resolvedArgs) {
       if (intent.ask.kind !== 'confirm') {
-        emitLog('warn', 'Pre-LLM clarification did not produce executable tool arguments.');
+        this.emitService.log(
+          'warn',
+          'Pre-LLM clarification did not produce executable tool arguments.'
+        );
       }
       return false;
     }
@@ -522,7 +539,7 @@ export class ChatOrchestrator {
   }
 
   private async tryPreLlmIntent(message: string, contextFiles?: string[]): Promise<boolean> {
-    const intent = await resolvePreLlmIntent(
+    const intent = await this.intentResolver.resolve(
       message,
       this.ctx,
       this.plugins.preLlmIntentProviders ?? []
@@ -555,11 +572,11 @@ export class ChatOrchestrator {
     );
 
     if (generatedTitle) {
-      emitEvent({
+      this.emitService.emit({
         kind: 'session_title_updated',
         sessionId: this.ctx.sessionId!,
         title: generatedTitle,
-      });
+      } as RuntimeStreamEvent);
     }
 
     this.ctx.history.push(userMsg);

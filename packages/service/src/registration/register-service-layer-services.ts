@@ -279,11 +279,12 @@ export function buildInteractionService(
       pathPermissionChecker: c.resolve(tokens.PathPermissionChecker),
       serviceContainer: c as any,
     },
-    new ChatInfoService(),
+    new ChatInfoService(EmitService.forConsole()),
     new ChatPreflightService(
       c.resolve(tokens.ConfigurationStorage),
       c.resolve(tokens.EnvironmentStorage),
-      c.resolve(tokens.DeveloperIdentityService)
+      c.resolve(tokens.DeveloperIdentityService),
+      EmitService.forConsole()
     ),
     new InfoChatCommand(c.resolve(tokens.AgentManager), c.resolve(tokens.QuestionService))
   );

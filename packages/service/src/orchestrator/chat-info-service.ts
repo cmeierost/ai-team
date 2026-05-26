@@ -1,5 +1,4 @@
 import type { Agent, ChatMessage } from '@ai-team/core';
-import { printSessionResume } from './chat-emitter.js';
 import type { IEmitService } from './services/emit-service.js';
 
 export interface IChatInfoService {
@@ -63,8 +62,21 @@ export class ChatInfoService implements IChatInfoService {
     agentName: string,
     developerName: string | undefined
   ): void {
-    if (history.length > 0) {
-      printSessionResume(history, agentName, developerName, this.emitService);
+    const visible = history.filter((m) => !m.archived && !m.handoffType && m.importance !== 'low');
+    if (visible.length === 0) return;
+
+    this.emitService.log('info', '\n─── Previous conversation ───────────────────────────────');
+    for (const msg of visible) {
+      const speaker = msg.isHuman ? (developerName ?? 'You') : agentName;
+      const lines = msg.content
+        .split('\n')
+        .flatMap((line: string) =>
+          line.length <= 100 ? [line] : (line.match(/.{1,100}(\s|$)/g) ?? [line])
+        )
+        .map((l: string, i: number) => (i === 0 ? l : `  ${l}`))
+        .join('\n');
+      this.emitService.log('info', `\n${speaker}: ${lines}`);
     }
+    this.emitService.log('info', '\n─────────────────────────────────────────────────────────\n');
   }
 }

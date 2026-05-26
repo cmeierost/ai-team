@@ -7,7 +7,7 @@ import type {
   ToolDenialEvent,
   ToolRuntimePayloadEvent,
 } from '@ai-team/api-contracts';
-import { emitEvent } from '../stream-events.js';
+import type { IEmitService } from './emit-service.js';
 import { ToolSerializationService } from './tool-serialization-service.js';
 
 export type ToolDenialKind = 'user-denied' | 'policy-denied' | 'execution-failed';
@@ -268,7 +268,8 @@ export class ToolDispatchSupportService {
   async persistCodeEditProposal(
     result: unknown,
     args: unknown,
-    ctx: ExecutionContext
+    ctx: ExecutionContext,
+    emitService?: IEmitService
   ): Promise<void> {
     const r = result as Record<string, unknown>;
     if (r?.status !== 'pending_approval') return;
@@ -294,7 +295,7 @@ export class ToolDispatchSupportService {
 
     const { additions, deletions } = this.resolveDiffCounts(r, resolvedFiles);
 
-    emitEvent({
+    emitService?.emit({
       kind: 'code_edit_proposal',
       proposalId,
       agentName,

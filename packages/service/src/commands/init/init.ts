@@ -86,12 +86,18 @@ export class InitCommand {
   async execute(params: InitCommandParams, hooks?: InitRuntimeHooks): Promise<void> {
     const { workspaceRoot, options, injected } = params;
 
-    await runInitWorkflowAsync(workspaceRoot, options, hooks, {
-      onboard: this.onboard,
-      setup: this.setup,
-      testConnection: this.testConnection,
-      sessionManager: injected?.sessionManager,
-    }, this.runnerFactory);
+    await runInitWorkflowAsync(
+      workspaceRoot,
+      options,
+      hooks,
+      {
+        onboard: this.onboard,
+        setup: this.setup,
+        testConnection: this.testConnection,
+        sessionManager: injected?.sessionManager,
+      },
+      this.runnerFactory
+    );
   }
 }
 
@@ -365,11 +371,13 @@ async function tryReuseExistingLlm(
     `  Current LLM: ${describeResolvedProvider(existingResolved)}${providerRefLabel}`
   );
 
+  const questionParams = {
+    message: 'Reuse existing default LLM connection?',
+    default: true,
+  };
+  hooks?.emit?.({ kind: 'question', ...questionParams });
   const reuse =
-    (await hooks?.questionConfirm?.({
-      message: 'Reuse existing default LLM connection?',
-      default: true,
-    })) ?? true;
+    (await hooks?.questionConfirm?.(questionParams)) ?? true;
 
   if (!reuse) return false;
 

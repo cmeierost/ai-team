@@ -16,6 +16,8 @@ import type {
   ICommand,
   ILlmChatMessageParam,
   ILlmService,
+  InstructionFile,
+  LlmChatOptions,
   Skill,
   StructuredToolResult,
   ExecutionContext,
@@ -32,7 +34,7 @@ type RuntimeLlmService = ILlmService & {
   streamChat(
     agent: Agent,
     messages: ILlmChatMessageParam[],
-    options?: unknown,
+    options?: LlmChatOptions,
     skills?: Skill[],
     teamRoster?: Agent[]
   ): AsyncIterable<unknown>;
@@ -45,12 +47,12 @@ type RuntimeLlmService = ILlmService & {
       toolName: string;
       args: unknown;
     }) => Promise<{ toolCallId: string; toolName: string; result: unknown; isError?: boolean }>,
-    options?: unknown,
+    options?: LlmChatOptions,
     skills?: Skill[],
     teamRoster?: Agent[],
     maxToolRounds?: number,
     onToken?: (delta: string) => void,
-    instructions?: unknown
+    instructions?: InstructionFile[]
   ): Promise<{ text: string }>;
 };
 

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ServiceDomainError } from '../../errors.js';
-import { findWorkspaceRoot } from '../../utils/workspace.js';
+import { findWorkspaceRoot } from 'fs-context';
 
 export interface ServeApiOptions {
   port?: string | number;
@@ -73,7 +73,7 @@ function normalizePort(port: string | number | undefined): number | undefined {
   return parsed;
 }
 
-function resolveWorkspace(workspaceRoot: string, workspaceOverride?: string): string {
+async function resolveWorkspace(workspaceRoot: string, workspaceOverride?: string): Promise<string> {
   if (!workspaceOverride || workspaceOverride.trim().length === 0) {
     return findWorkspaceRoot(workspaceRoot);
   }
@@ -81,8 +81,8 @@ function resolveWorkspace(workspaceRoot: string, workspaceOverride?: string): st
   return resolve(workspaceRoot, workspaceOverride);
 }
 
-function resolveApiServerEntry(workspaceRoot: string): string {
-  const repositoryRoot = findWorkspaceRoot(workspaceRoot);
+async function resolveApiServerEntry(workspaceRoot: string): Promise<string> {
+  const repositoryRoot = await findWorkspaceRoot(workspaceRoot);
   const entry = resolve(repositoryRoot, 'packages', 'api-server', 'dist', 'index.js');
 
   if (!existsSync(entry)) {
@@ -100,10 +100,10 @@ export async function serveApiCommand(
   options: ServeApiOptions = {}
 ): Promise<void> {
   const port = normalizePort(options.port);
-  const resolvedWorkspace = resolveWorkspace(workspaceRoot, options.workspace);
+  const resolvedWorkspace = await resolveWorkspace(workspaceRoot, options.workspace);
   const effectivePort = port ?? 3002;
   const uiServerUrl = options.uiServerUrl?.trim() || `http://127.0.0.1:${effectivePort}`;
-  const apiServerEntry = resolveApiServerEntry(workspaceRoot);
+  const apiServerEntry = await resolveApiServerEntry(workspaceRoot);
   const command = process.execPath;
   const args = [apiServerEntry];
 

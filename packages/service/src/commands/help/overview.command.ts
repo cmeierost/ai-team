@@ -5,7 +5,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
-import type { ChatCommandEmitter } from '../../orchestrator/chat-emitter.js';
+import type { ChatCommandEmitter } from '../../orchestrator/services/emit-service.js';
 export const OverviewChatCommandMetadata = {
   key: 'overview',
   description: 'Workspace file overview → shared with agent',

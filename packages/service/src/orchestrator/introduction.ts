@@ -11,7 +11,7 @@ import {
 } from '@ai-team/core';
 import type { SessionManager } from '../session-manager.js';
 import type { ChatRuntimeHooks } from '../commands/chat/index.js';
-import { emitToken, hasActiveEmitter } from './stream-events.js';
+import type { IEmitService } from './services/emit-service.js';
 
 const DEFAULT_GREETING_TEMPLATE =
   "Hi {{developerName}}, I'm {{agentName}} ({{agentRole}}). How can I help today?";
@@ -79,6 +79,7 @@ export interface TryIntroduceUserRequest {
   sessionManager: SessionManager;
   sessionId: string;
   hooks: ChatRuntimeHooks;
+  emitService: IEmitService;
 }
 
 export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promise<void> {
@@ -91,10 +92,12 @@ export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promis
     sessionManager,
     sessionId,
     hooks,
+    emitService,
   } = request;
 
-  if (!hasActiveEmitter()) {
-    process.stdout.write(`\n${agent.name} (${agent.role}): `);
+  // In CLI mode (no web emitter), print the agent name prefix to stdout.
+  if (!hooks.emitService) {
+    emitService.token(`\n${agent.name} (${agent.role}): `);
   }
 
   const text = await generateIntroduction(
@@ -104,11 +107,7 @@ export async function tryIntroduceUser(request: TryIntroduceUserRequest): Promis
     hooks.signal
   );
 
-  if (hasActiveEmitter()) {
-    emitToken(`${text}\n\n`);
-  } else {
-    process.stdout.write(`${text}\n\n`);
-  }
+  emitService.token(`${text}\n\n`);
 
   const agentMsg: ChatMessage = {
     timestamp: new Date().toISOString(),

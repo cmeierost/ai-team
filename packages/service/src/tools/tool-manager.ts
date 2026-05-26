@@ -116,6 +116,9 @@ export class ToolManager {
    */
   private static readonly DEFAULT_TOOLS: ReadonlySet<string> = new Set(['com_ask']);
 
+  /** Directly-registered tool instances, keyed by canonical name. */
+  private readonly directTools = new Map<string, ICommand>();
+
   constructor(
     private readonly workspaceRoot: string,
     private readonly pathPermissionChecker: IPathPermissionChecker,
@@ -123,16 +126,30 @@ export class ToolManager {
     private readonly container: IServiceContainer
   ) {}
 
+  /** Register a fully-constructed ICommand instance directly. */
+  register(tool: ICommand): void {
+    this.directTools.set(ToolIdentity.key(tool.metadata), tool);
+  }
+
   private resolveAll(): ICommand[] {
-    return this.registry
+    const fromRegistry = this.registry
       .getAll({ availableIn: { tool: true } })
       .map((meta) => this.registry.resolve(ToolIdentity.key(meta), this.container))
       .filter((t): t is ICommand<unknown, unknown> => t !== undefined);
+
+    const fromDirect = [...this.directTools.values()].filter(
+      (t) => t.metadata.availableIn?.tool !== false
+    );
+
+    return [...fromRegistry, ...fromDirect];
   }
 
   /** All descriptors — no instance resolution. */
   private getAllDescriptors(): ICommandDescriptor[] {
-    return this.registry.getAll();
+    const fromRegistry = this.registry.getAll();
+    const fromDirect = [...this.directTools.values()].map((t) => t.metadata);
+    const seen = new Set(fromRegistry.map((m) => ToolIdentity.key(m)));
+    return [...fromRegistry, ...fromDirect.filter((m) => !seen.has(ToolIdentity.key(m)))];
   }
 
   /** Descriptors available to a specific agent — no instance resolution. */
@@ -163,6 +180,8 @@ export class ToolManager {
 
   /** Look up a single tool by name. Returns undefined if not registered. */
   get(name: string): ICommand | undefined {
+    const direct = this.directTools.get(name);
+    if (direct) return direct;
     const meta = this.registry.get(name);
     if (!meta?.availableIn?.tool) return undefined;
     return this.registry.resolve(name, this.container);
@@ -215,7 +234,7 @@ export class ToolManager {
    * No permission logic should live inside tool.execute().
    */
   async canExecute(agent: Agent, toolName: string, args: unknown): Promise<PermissionResult> {
-    const meta = this.registry.get(toolName);
+    const meta = this.registry.get(toolName) ?? this.directTools.get(toolName)?.metadata;
     if (!meta) {
       return { allowed: false, reason: `Unknown tool: ${toolName}` };
     }
@@ -291,6 +310,7 @@ export class ToolManager {
       ...context,
       agent,
       agentId: agent.id,
+      resolve: this.container.resolve.bind(this.container),
     } as ExecutionContext;
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 

@@ -15,7 +15,7 @@ import { writeBackendDebugLog } from '@ai-team/service/src/utils/debug-log.js';
 import type { IEmitService } from '@ai-team/service/src/orchestrator/services/emit-service.js';
 import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service/src/stream-perf.js';
 import { runtimeEventToStreamEvent } from '@ai-team/service/src/runtime-event-translator.js';
-import { streamInteraction } from '@ai-team/service/src/interaction-stream.js';
+import { InteractionStream } from '@ai-team/service/src/interaction-stream.js';
 import type { ExecutionContext, IServiceContainer } from '@ai-team/core';
 import type { IQuestionService } from '@ai-team/service';
 import { COMMAND_FACTORY_TOKENS } from '@ai-team/service/src/types.js';
@@ -288,11 +288,11 @@ export class CliCommandClient implements ICliCommandClient {
         logger({ channel: 'stream', event });
       }
     };
-    yield* streamInteraction({
+    const interactionStream = new InteractionStream({ translateRuntimeEvent: runtimeEventToStreamEvent });
+    yield* interactionStream.stream({
       request,
       context: context,
       invoke: (ctx: ExecutionContext, emitService: IEmitService) => this.invokeTool(request, ctx, emitService),
-      translateRuntimeEvent: runtimeEventToStreamEvent,
       normalizeError: (error: unknown) =>
         toServiceDomainError(error, `Command '${request.command}' failed.`),
       onRuntimeEvent: handleRuntimeEvent,

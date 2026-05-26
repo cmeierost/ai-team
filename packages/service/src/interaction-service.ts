@@ -8,7 +8,8 @@ import type {
 import type { ExecutionContext } from '@ai-team/core';
 import type { ChatRuntimeHooks } from './commands/chat/index.js';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
-import { streamInteraction } from './interaction-stream.js';
+import { InteractionStream } from './interaction-stream.js';
+import type { IEmitService } from './orchestrator/services/emit-service.js';
 
 // ─── Public interface ─────────────────────────────────────────────────────────
 
@@ -60,12 +61,14 @@ export class InteractionService implements IInteractionService {
       onWorkflowFrame: hooks.onWorkflowFrame as ((frame: unknown) => void) | undefined,
     };
 
-    yield* streamInteraction({
+    const interactionStream = new InteractionStream({ translateRuntimeEvent: runtimeEventToStreamEvent });
+    yield* interactionStream.stream({
       request,
       context: context as unknown as Record<string, unknown>,
-      invoke: async (invokeCtx) => {
+      invoke: async (invokeCtx: ExecutionContext, emitService: IEmitService) => {
         await this.runChat(this.workspaceRoot, payload.employeeId, payload.options, {
           ...hooks,
+          emitService,
           signal: invokeCtx.signal,
           workflowState: invokeCtx.workflowState as WorkflowStateSnapshot | undefined,
           onWorkflowFrame: invokeCtx.onWorkflowFrame as ChatRuntimeHooks['onWorkflowFrame'],
@@ -73,7 +76,6 @@ export class InteractionService implements IInteractionService {
 
         return { status: 'ok' as const, message: '' } satisfies CommandResponse<void>;
       },
-      translateRuntimeEvent: runtimeEventToStreamEvent,
     });
   }
 }

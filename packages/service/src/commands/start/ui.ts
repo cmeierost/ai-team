@@ -3,7 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { resolve } from 'node:path';
 import { ServiceDomainError } from '../../errors.js';
-import { findWorkspaceRoot } from '../../utils/workspace.js';
+import { findWorkspaceRoot } from 'fs-context';
 
 const DEFAULT_API_PORT = 3002;
 const API_HOST = '127.0.0.1';
@@ -38,7 +38,10 @@ function buildSafeEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv
   return safeEnv;
 }
 
-function resolveWorkspace(workspaceRoot: string, workspaceOverride?: string): string {
+async function resolveWorkspace(
+  workspaceRoot: string,
+  workspaceOverride?: string
+): Promise<string> {
   if (!workspaceOverride || workspaceOverride.trim().length === 0) {
     return findWorkspaceRoot(workspaceRoot);
   }
@@ -217,7 +220,7 @@ export async function runUiCommand(
   workspaceRoot: string,
   options: UiCommandOptions = {}
 ): Promise<void> {
-  const resolvedWorkspace = resolveWorkspace(workspaceRoot, options.workspace);
+  const resolvedWorkspace = await resolveWorkspace(workspaceRoot, options.workspace);
   const customServerUrl = normalizeServerUrl(options.serverUrl);
   const forceStartApi = options.includeApi === true;
   const apiAlreadyRunning = forceStartApi

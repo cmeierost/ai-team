@@ -20,6 +20,32 @@ import type {
 
 import { ZodSchemaTools } from './utils/zod-schema.js';
 
+// ── ICommand → CommandRegistration ───────────────────────────────────────────
+
+export function toCommandRegistration(cmd: ICommand<unknown, unknown>): {
+  handler: (
+    workspaceRoot: string,
+    payload: unknown,
+    ctx: ExecutionContext
+  ) => Promise<CommandResponse>;
+} {
+  return {
+    handler: async (
+      _workspaceRoot: string,
+      payload: unknown,
+      ctx: ExecutionContext
+    ): Promise<CommandResponse> => {
+      const resolved = resolveCommandArgs(cmd, payload, ctx);
+      const result = await cmd.execute(resolved, ctx);
+      if (result && typeof result === 'object' && 'status' in result) {
+        const r = result as CommandResponse;
+        return { ...r, message: r.message ?? '' };
+      }
+      return { status: 'ok', message: '', data: result };
+    },
+  };
+}
+
 // ── ICommand → ILlmToolDefinition ────────────────────────────────────────────
 
 export function toLlmToolDefinition(cmd: ICommand<unknown, unknown>): ILlmToolDefinition {

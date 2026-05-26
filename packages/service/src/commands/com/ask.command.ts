@@ -141,24 +141,35 @@ export class AskUserCommand implements ICommand<Params, AskUserResult> {
   private async executeConfirmAsk(params: AskUserParams): Promise<AskUserResult> {
     const { message, defaultBoolean, workflow } = params;
     const suffix = defaultBoolean ? '[Y/n]' : '[y/N]';
-    const answer = await this.questionService.confirm({
-      message: `${message} ${suffix}`,
-      default: defaultBoolean,
-    });
+    if (typeof this.questionService.confirm === 'function') {
+      const answer = await this.questionService.confirm({
+        message: `${message} ${suffix}`,
+        default: defaultBoolean,
+      });
+      return AskUserCommand.makeResult('confirm', answer, workflow);
+    }
+    // Fallback: use text input and interpret answer as boolean.
+    const raw = await this.questionService.input({ message: `${message} ${suffix}` });
+    const answer = /^(y|yes|true|1)$/i.test(raw.trim());
     return AskUserCommand.makeResult('confirm', answer, workflow);
   }
 
   private async executeSelectAsk(params: AskUserParams): Promise<AskUserResult> {
     const { message, defaultText, choices, workflow, allowOther, otherLabel, otherPrompt } = params;
     const options = AskUserCommand.ensureChoices('select', choices);
-    const answer = await this.questionService.select({
-      message,
-      choices: options,
-      default: defaultText,
-      allowOther,
-      otherLabel,
-      otherPrompt,
-    });
+    if (typeof this.questionService.select === 'function') {
+      const answer = await this.questionService.select({
+        message,
+        choices: options,
+        default: defaultText,
+        allowOther,
+        otherLabel,
+        otherPrompt,
+      });
+      return AskUserCommand.makeResult('select', answer, workflow);
+    }
+    // Fallback: use text input.
+    const answer = await this.questionService.input({ message });
     return AskUserCommand.makeResult('select', answer, workflow);
   }
 
@@ -181,16 +192,25 @@ export class AskUserCommand implements ICommand<Params, AskUserResult> {
       otherPrompt,
     } = params;
     const options = AskUserCommand.ensureChoices('checklist', choices);
-    const answer = await this.questionService.checklist({
-      message,
-      choices: options,
-      default: defaultChecklist,
-      minSelections,
-      maxSelections,
-      allowOther,
-      otherLabel,
-      otherPrompt,
-    });
+    if (typeof this.questionService.checklist === 'function') {
+      const answer = await this.questionService.checklist({
+        message,
+        choices: options,
+        default: defaultChecklist,
+        minSelections,
+        maxSelections,
+        allowOther,
+        otherLabel,
+        otherPrompt,
+      });
+      return AskUserCommand.makeResult('checklist', answer, workflow);
+    }
+    // Fallback: use text input and split by comma.
+    const raw = await this.questionService.input({ message });
+    const answer = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     return AskUserCommand.makeResult('checklist', answer, workflow);
   }
 

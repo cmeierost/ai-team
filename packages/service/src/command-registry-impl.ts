@@ -55,6 +55,12 @@ export class CommandRegistry implements ICommandRegistry {
     if (toolAlias && toolAlias !== registryKey) {
       entryAliases.add(toolAlias);
     }
+    // Register explicit aliases declared in the descriptor.
+    for (const alias of metadata.aliases ?? []) {
+      if (alias !== registryKey) {
+        entryAliases.add(alias);
+      }
+    }
 
     if (this.entries.has(registryKey)) {
       throw new Error(`Duplicate command key '${registryKey}' in CommandRegistry.`);

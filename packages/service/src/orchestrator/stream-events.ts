@@ -1,20 +1,8 @@
 /**
- * stream-events.ts — LLM streaming delta extraction + runtime event emission.
+ * stream-events.ts — LLM streaming delta extraction.
  *
  * Keeps knowledge of the raw OpenAI streaming chunk shape in one place.
- * All other modules go through emitEvent() rather than calling hooks.emit directly.
  */
-
-import { AsyncLocalStorage } from 'node:async_hooks';
-import type {
-  RuntimeStreamEvent,
-  ToolDenialEvent,
-  ToolRuntimePayloadEvent,
-} from '@ai-team/api-contracts';
-import type { IEmitService } from './services/emit-service.js';
-
-// Bridging ALS for code paths not yet wired through DI injection.
-const _store = new AsyncLocalStorage<IEmitService | undefined>();
 
 // ── Delta extraction ──────────────────────────────────────────────────────────
 
@@ -52,73 +40,4 @@ function extractDeltaSegmentText(value: unknown): string {
       return typeof nested === 'string' ? nested : '';
     })
     .join('');
-}
-
-// ── Event emission ────────────────────────────────────────────────────────────
-
-function getActiveEmitter(): IEmitService | undefined {
-  return _store.getStore();
-}
-
-/** Emit a runtime event, if a listener is registered. */
-export function emitEvent(event: RuntimeStreamEvent): void {
-  getActiveEmitter()?.emit(event);
-}
-
-export function emitLog(level: 'info' | 'warn' | 'error', message: string): void {
-  emitEvent({ kind: 'log', level, message });
-  if (!getActiveEmitter()) {
-    if (level === 'error') {
-      process.stderr.write(`${message}\n`);
-    } else {
-      process.stdout.write(`${message}\n`);
-    }
-  }
-}
-
-export function emitStatus(phase: string, message?: string): void {
-  emitEvent({ kind: 'status', phase, message });
-}
-
-export function emitToken(text: string): void {
-  if (!text) return;
-  if (getActiveEmitter()) {
-    emitEvent({ kind: 'token', text });
-    return;
-  }
-  process.stdout.write(text);
-}
-
-export function hasActiveEmitter(): boolean {
-  return Boolean(getActiveEmitter());
-}
-
-export function runWithEmitter<T>(
-  emitter: IEmitService | undefined,
-  fn: () => Promise<T>
-): Promise<T> {
-  return _store.run(emitter, fn);
-}
-
-export function getCurrentEmitter(): IEmitService | undefined {
-  return getActiveEmitter();
-}
-
-export function emitToolEvent(
-  toolName: string,
-  toolCallId: string | undefined,
-  toolPhase: 'start' | 'result' | 'error' | 'denied',
-  message?: string,
-  toolDenial?: ToolDenialEvent,
-  toolResult?: ToolRuntimePayloadEvent
-): void {
-  emitEvent({
-    kind: 'tool',
-    toolName,
-    toolCallId,
-    toolPhase,
-    message,
-    toolDenial,
-    toolResult,
-  } as RuntimeStreamEvent);
 }

@@ -59,6 +59,14 @@ vi.mock('./test-connection.js', () => ({
   testConnectionCommand: connectionApi.testConnectionCommand,
 }));
 
+vi.mock('./init-compat.js', () => ({
+  ensureAiTeamDirectory: coreApi.ensureAiTeamDirectory,
+  loadTeamConfig: coreApi.loadTeamConfig,
+  loadEnvFile: coreApi.loadEnvFile,
+  saveAgentAccessPatterns: coreApi.saveAgentAccessPatterns,
+  testLlmConnection: coreApi.testLlmConnection,
+}));
+
 vi.mock('ora', () => {
   const spinner = {
     start: vi.fn().mockReturnThis(),

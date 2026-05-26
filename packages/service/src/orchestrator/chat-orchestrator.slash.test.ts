@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { emitEvent } from './stream-events.js';
 
 vi.mock('../workflow/send-turn-machine.js', () => ({
   runSendTurnMachineAsync: vi.fn(async () => ({
@@ -13,8 +12,6 @@ import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import type { CommandResponse, ICommandDispatcher } from '@ai-team/api-contracts';
 import { EmitService } from './services/emit-service.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import { setServiceContainer } from '../service-registry.js';
 import { ExecutionContext } from '@ai-team/core';
 
 type OrchestratorCtor = new (
@@ -29,28 +26,19 @@ const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: Orchestr
 ];
 
 function makeContext(): { ctx: ExecutionContext; emitSpy: ReturnType<typeof vi.fn> } {
+  const emitSpy = vi.fn();
+  const emitService = new EmitService(emitSpy);
   const ctx = {
     agent: { id: 'hr-director', name: 'Robert Davis', role: 'hr-director' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
-    hooks: {} as any,
+    hooks: { emitService } as any,
     toolManager: {} as any,
     sessionManager: {} as any,
     agentManager: { loadAllAgents: vi.fn(async () => {}) } as any,
     skillManager: {} as any,
     history: [],
   } as ExecutionContext;
-
-  const emitSpy = vi.fn();
-  const emitService = new EmitService(emitSpy);
-  setServiceContainer({
-    resolve: (token: { id?: string }) => {
-      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
-        return emitService;
-      }
-      throw new Error(`Unexpected token: ${String(token?.id)}`);
-    },
-  } as any);
 
   return { ctx, emitSpy };
 }
@@ -97,8 +85,7 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
       const plugins = makePlugins();
       plugins.commandDispatcher = {
         dispatch: vi.fn(async (_key: string, _args: unknown, _dispatchCtx: any) => {
-          emitEvent({ kind: 'log', level: 'info', message: 'whoami result' } as any);
-          return { status: 'ok' as const, message: '' };
+          return { status: 'ok' as const, message: 'whoami result' };
         }),
         getCommands: vi.fn(() => []),
         getCommand: vi.fn((key: string) =>

@@ -6,7 +6,7 @@ import type {
   CommandResponse,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { ChatCommandEmitter } from '../../orchestrator/chat-emitter.js';
+import type { ChatCommandEmitter } from '../../orchestrator/services/emit-service.js';
 import { withTimeout } from '../../utils/with-timeout.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';

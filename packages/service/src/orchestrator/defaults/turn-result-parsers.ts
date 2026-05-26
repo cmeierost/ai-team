@@ -126,6 +126,6 @@ export class TextHandoffParser implements ITurnResultParser {
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /** Returns the default ordered set of turn-result parsers. */
-export function buildDefaultTurnResultParsers(): ITurnResultParser[] {
-  return [new HandoffToolResultParser(), new TextHandoffParser()];
+export function buildDefaultTurnResultParsers(agentManager?: IAgentManager): ITurnResultParser[] {
+  return [new HandoffToolResultParser(agentManager), new TextHandoffParser(agentManager)];
 }

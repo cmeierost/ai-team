@@ -1,15 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import type { ICommand } from '@ai-team/core';
+import type { ICommand, IServiceContainer } from '@ai-team/core';
 import { CommandDispatcher } from './command-dispatcher.js';
+import { CommandRegistry } from './command-registry-impl.js';
+
+function makeDispatcher(): CommandDispatcher {
+  const registry = new CommandRegistry();
+  const resolver = {
+    resolve: () => {
+      throw new Error('not used in tests');
+    },
+    tryResolve: () => undefined,
+    has: () => false,
+    child: function () {
+      return this;
+    },
+    register: function () {
+      return this;
+    },
+    registerSingleton: function () {
+      return this;
+    },
+    registerTransient: function () {
+      return this;
+    },
+    registerScoped: function () {
+      return this;
+    },
+    registerInstance: function () {
+      return this;
+    },
+  } as unknown as IServiceContainer;
+  return new CommandDispatcher(registry, resolver);
+}
 
 describe('CommandDispatcher typed dispatch', () => {
   it('supports registerCommand(ICommand) and typed dispatchCommand', async () => {
-    const dispatcher = new CommandDispatcher('C:/workspace');
+    const dispatcher = makeDispatcher();
 
     const command: ICommand<{ name: string }, { greeting: string }> = {
-      key: 'typed-greet-register',
-      description: 'typed greet register',
-      availableIn: { cli: true },
+      metadata: {
+        key: 'typed-greet-register',
+        description: 'typed greet register',
+        availableIn: { cli: true },
+      },
       execute: async (payload) => ({ greeting: `Hi ${payload.name}` }),
     };
 
@@ -22,7 +55,7 @@ describe('CommandDispatcher typed dispatch', () => {
   });
 
   it('supports dispatchCommand(command, payload) with typed payload/result', async () => {
-    const dispatcher = new CommandDispatcher('C:/workspace');
+    const dispatcher = makeDispatcher();
 
     dispatcher.register({
       key: 'typed-greet',
@@ -39,9 +72,7 @@ describe('CommandDispatcher typed dispatch', () => {
     });
 
     const typedCommand: ICommand<{ name: string }, { greeting: string }> = {
-      key: 'typed-greet',
-      description: 'typed greet',
-      availableIn: { cli: true },
+      metadata: { key: 'typed-greet', description: 'typed greet', availableIn: { cli: true } },
       execute: async () => ({ greeting: 'unused' }),
     };
 
@@ -52,7 +83,7 @@ describe('CommandDispatcher typed dispatch', () => {
   });
 
   it('supports generic dispatch<TCommand>(request) overload', async () => {
-    const dispatcher = new CommandDispatcher('C:/workspace');
+    const dispatcher = makeDispatcher();
 
     dispatcher.register({
       key: 'typed-greet',

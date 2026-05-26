@@ -10,6 +10,7 @@ import type { ChatRuntimeHooks } from '../../orchestrator/hooks.js';
 import { ChatInfoService } from '../../orchestrator/chat-info-service.js';
 import type { IChatInfoService } from '../../orchestrator/chat-info-service.js';
 import { ChatPreflightService } from '../../orchestrator/chat-preflight-service.js';
+import { EmitService } from '../../orchestrator/services/emit-service.js';
 import { InfoChatCommand } from '../agents/info.command.js';
 import {
   ChatCommand,
@@ -52,7 +53,9 @@ export class ChatICommand implements ICommand<Params, void> {
     private readonly agentKnowledgeDeps: ChatAgentKnowledgeDeps,
     private readonly sessionExecutionDeps: ChatSessionExecutionDeps,
     private readonly orchestrationDeps: ChatOrchestrationDeps,
-    private readonly chatInfoService: IChatInfoService = new ChatInfoService(),
+    private readonly chatInfoService: IChatInfoService = new ChatInfoService(
+      EmitService.forConsole()
+    ),
     private readonly questionService: IQuestionService
   ) {}
 
@@ -99,7 +102,8 @@ export class ChatICommand implements ICommand<Params, void> {
       new ChatPreflightService(
         this.configIdentityDeps.configurationStorage,
         this.configIdentityDeps.environmentStorage,
-        this.configIdentityDeps.developerIdentityService
+        this.configIdentityDeps.developerIdentityService,
+        EmitService.forConsole()
       ),
       new InfoChatCommand(
         this.agentKnowledgeDeps.agentManager as unknown as IAgentManager,

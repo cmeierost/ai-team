@@ -18,7 +18,9 @@ import {
   persistUserMessageAsync,
   prepareMessagesAsync,
   resolveSkillsAndToolsAsync,
+  type SendTurnDeps,
 } from './send-turn-steps.js';
+import { EmitService } from './services/emit-service.js';
 
 export interface SendTurnOptions {
   /**
@@ -33,34 +35,48 @@ export async function sendTurn(
   userMessage: string,
   plugins: ResolvedPlugins,
   ctx: ExecutionContext,
-  options?: SendTurnOptions
+  options?: SendTurnOptions,
+  deps?: SendTurnDeps
 ): Promise<TurnResult> {
-  await ensureTurnStartAsync(userMessage, plugins, ctx, options);
-  await persistUserMessageAsync(userMessage, ctx, options);
+  // Build deps from ctx when not provided (compatibility path used by tests and
+  // callers that still embed services directly on the context object).
+  const ctxAny = ctx as any;
+  const resolvedDeps: SendTurnDeps = deps ?? {
+    sessionManager: ctxAny.sessionManager,
+    llmService: ctxAny.llmService,
+    skillManager: ctxAny.skillManager,
+    hooks: ctxAny.hooks ?? {},
+    emitService:
+      ctxAny.hooks?.emitService ?? new EmitService(ctxAny.hooks?.emit ?? ctxAny.emit ?? (() => {})),
+  };
 
-  const messages = await prepareMessagesAsync(userMessage, plugins, ctx);
-  const resolved = await resolveSkillsAndToolsAsync(userMessage, plugins, ctx);
+  await ensureTurnStartAsync(userMessage, plugins, ctx, options, resolvedDeps);
+  await persistUserMessageAsync(userMessage, ctx, options, resolvedDeps);
+
+  const messages = await prepareMessagesAsync(userMessage, plugins, ctx, resolvedDeps);
+  const resolved = await resolveSkillsAndToolsAsync(userMessage, plugins, ctx, resolvedDeps);
 
   let fullResponse = '';
   let structuredResults: StructuredToolResult[] = [];
 
   try {
-    const invoked = await invokeTurnLlmAsync(messages, resolved, ctx);
+    const invoked = await invokeTurnLlmAsync(messages, resolved, ctx, resolvedDeps);
     fullResponse = invoked.fullResponse;
     structuredResults = invoked.structuredResults;
   } catch (error) {
-    return handleLlmFailureAsync(error, plugins, ctx, options, structuredResults);
+    return handleLlmFailureAsync(error, plugins, ctx, options, structuredResults, resolvedDeps);
   }
 
   process.stdout.write('\n');
 
-  const persisted = await persistAssistantMessageAsync(fullResponse, plugins, ctx);
+  const persisted = await persistAssistantMessageAsync(fullResponse, plugins, ctx, resolvedDeps);
   const parsed = await parseTurnResultAsync(
     structuredResults,
     fullResponse,
     persisted.persistedContent,
     plugins,
-    ctx
+    ctx,
+    resolvedDeps
   );
 
   const turnResult: TurnResult = parsed ?? { text: persisted.persistedContent, done: false };
@@ -70,7 +86,8 @@ export async function sendTurn(
     persisted.persistedContent,
     structuredResults,
     plugins,
-    ctx
+    ctx,
+    resolvedDeps
   );
 }
 

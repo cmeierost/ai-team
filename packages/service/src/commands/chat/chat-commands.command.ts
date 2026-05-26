@@ -14,7 +14,7 @@ import type {
 } from '@ai-team/core';
 import type { IContextService } from '@ai-team/api-contracts';
 import type { SessionManager } from '../../session-manager.js';
-import type { ChatCommandEmitter } from '../../orchestrator/chat-emitter.js';
+import type { ChatCommandEmitter } from '../../orchestrator/services/emit-service.js';
 
 export type ChatCommandRegistryEntry = Pick<
   ICommandDescriptor<string>,

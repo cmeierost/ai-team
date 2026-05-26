@@ -72,12 +72,17 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
     ctx.llmService
   );
 
+  const hooks = {
+    ...ctx.hooks,
+    skillManager: ctx.skillManager,
+  };
+
   return new ChatOrchestrator(
     ctx,
     plugins,
     toolDispatcher,
     handoffOrchestrator,
-    ctx.hooks,
+    hooks,
     ctx.agentManager,
     ctx.sessionManager,
     ctx.llmService,

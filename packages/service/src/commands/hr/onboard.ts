@@ -23,7 +23,6 @@ import type {
   Agent,
   ChatMessage,
   ICommand,
-  ExecutionContext,
   CommandResponse,
   ICommandDescriptor,
 } from '@ai-team/core';
@@ -58,6 +57,7 @@ import {
   type OnboardingWorkflowPhase,
 } from '../init/onboarding-workflow-definition.js';
 import { getPersonalityForHire } from './hire.js';
+import { EmitService } from '../../orchestrator/services/emit-service.js';
 
 // ── HIRE: directive parsing ──────────────────────────────────────────────────
 
@@ -95,34 +95,37 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
   constructor(
     private readonly onboardCommand: Pick<OnboardCommand, 'execute'>,
     private readonly sessionManager: SessionManager | undefined,
-    private readonly questionService: IQuestionService
+    private readonly questionService?: IQuestionService
   ) {}
 
   async execute(
     payload: OnboardICommandParams,
-    ctx: ExecutionContext
+    _unusedOrCtx?: unknown,
+    ctx?: any
   ): Promise<CommandResponse<void>> {
+    const resolvedCtx = (ctx ?? _unusedOrCtx) as unknown as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     await this.onboardCommand.execute(
       {
         options: (payload.options ?? {}) as OnboardOptions,
         injected: this.sessionManager ? { sessionManager: this.sessionManager } : undefined,
       },
-      this.buildHooks(ctx)
+      this.buildHooks(resolvedCtx)
     );
     return { status: 'ok' };
   }
 
-  private buildHooks(runtime: ExecutionContext): InitRuntimeHooks {
+  private buildHooks(runtime: any): InitRuntimeHooks {
+    const noop = (): Promise<never> => Promise.reject(new Error('not available'));
     return {
-      signal: runtime.signal,
-      emit: runtime.emit,
-      questionInput: (request) => this.questionService.input(request),
-      questionConfirm: (request) => this.questionService.confirm(request),
-      questionSelect: (request) => this.questionService.select(request),
-      questionPassword: (request) => this.questionService.password(request),
-      questionChecklist: (request) => this.questionService.checklist(request),
-      workflowState: runtime.workflowState as InitRuntimeHooks['workflowState'],
-      onWorkflowFrame: runtime.onWorkflowFrame,
+      signal: runtime?.signal,
+      emit: runtime?.emit,
+      questionInput: (request) => this.questionService?.input(request) ?? noop(),
+      questionConfirm: (request) => this.questionService?.confirm(request) ?? noop(),
+      questionSelect: (request) => this.questionService?.select(request) ?? noop(),
+      questionPassword: (request) => this.questionService?.password(request) ?? noop(),
+      questionChecklist: (request) => this.questionService?.checklist(request) ?? noop(),
+      workflowState: runtime?.workflowState as InitRuntimeHooks['workflowState'],
+      onWorkflowFrame: runtime?.onWorkflowFrame,
     };
   }
 }
@@ -654,11 +657,12 @@ export class OnboardCommand {
         pathPermissionChecker: this.pathPermissionChecker,
         serviceContainer: this.serviceContainer,
       },
-      new ChatInfoService(),
+      new ChatInfoService(EmitService.forConsole()),
       new ChatPreflightService(
         this.configurationStorage,
         this.environmentStorage,
-        this.developerIdentityService
+        this.developerIdentityService,
+        EmitService.forConsole()
       ),
       new InfoChatCommand(this.agentManager, this.questionService)
     );

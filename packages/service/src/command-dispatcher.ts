@@ -14,7 +14,12 @@ import type {
   ICommandDispatcher,
 } from '@ai-team/api-contracts';
 import { isCommandResponse } from '@ai-team/api-contracts';
-import type { ICommandRegistry, IServiceContainer, ExecutionContext } from '@ai-team/core';
+import type {
+  ICommandRegistry,
+  IServiceContainer,
+  ExecutionContext,
+  ICommand,
+} from '@ai-team/core';
 import { COMMAND_FACTORY_TOKENS } from './types.js';
 import type { SessionManager } from './session-manager.js';
 import { resolveCommandArgs, parseArgsIntelligently } from './command-adapters.js';
@@ -144,7 +149,7 @@ import { ChatICommand, ChatCommandMetadata } from './commands/chat/chat-i.comman
 import { HelpChatCommand } from './commands/help/help.command.js';
 import { ChatInfoService } from './orchestrator/chat-info-service.js';
 import { MetaService } from './routers/meta-service.js';
-import { DefaultChatCommandEmitter } from './orchestrator/chat-emitter.js';
+
 import { InfoChatCommand, InfoChatCommandMetadata } from './commands/agents/info.command.js';
 import {
   TeamListChatCommand,
@@ -224,16 +229,117 @@ import {
  * caller-provided ExecutionContext. No context conversion happens here.
  */
 export class CommandDispatcher implements ICommandDispatcher {
+  private readonly _directHandlers: Map<
+    string,
+    (workspaceRoot: string, payload: unknown, ctx: ExecutionContext) => Promise<CommandResponse>
+  > = new Map();
+  private readonly _directCommands: Map<string, ICommand<unknown, unknown>> = new Map();
+
   constructor(
     private readonly registry: ICommandRegistry,
     private readonly resolver: IServiceContainer
   ) {}
 
+  register(entry: {
+    key: string;
+    description: string;
+    availableIn: CommandAvailability;
+    handler: (
+      workspaceRoot: string,
+      payload: unknown,
+      ctx: ExecutionContext
+    ) => Promise<CommandResponse>;
+  }): void {
+    this._directHandlers.set(entry.key, entry.handler);
+    try {
+      this.registry.register(
+        { key: entry.key, description: entry.description, availableIn: entry.availableIn },
+        () =>
+          ({
+            metadata: {
+              key: entry.key,
+              description: entry.description,
+              availableIn: entry.availableIn,
+            },
+            execute: async (params: unknown, ctx: ExecutionContext) =>
+              entry.handler((ctx as any).workspaceRoot ?? '', params, ctx),
+          }) as unknown as ICommand<unknown, unknown>
+      );
+    } catch {
+      // duplicate key — already registered
+    }
+  }
+
+  registerCommand<TIn, TOut>(cmd: ICommand<TIn, TOut>): void {
+    this._directCommands.set(cmd.metadata.key, cmd as unknown as ICommand<unknown, unknown>);
+  }
+
+  async dispatchCommand<TIn, TOut>(
+    command: ICommand<TIn, TOut>,
+    payload: TIn
+  ): Promise<CommandResponse<TOut>> {
+    const key = command.metadata.key;
+    // Prefer a registered handler for this key, falling back to command.execute directly
+    const directHandler = this._directHandlers.get(key);
+    if (directHandler) {
+      const minimalCtx = { workspaceRoot: '' } as ExecutionContext;
+      return directHandler('', payload, minimalCtx) as Promise<CommandResponse<TOut>>;
+    }
+    const minimalCtx = { workspaceRoot: '' } as ExecutionContext;
+    try {
+      const result = await command.execute(payload, minimalCtx);
+      if (result && typeof result === 'object' && 'status' in result) {
+        const r = result as CommandResponse<TOut>;
+        return { ...r, message: r.message ?? '' };
+      }
+      return { status: 'ok', message: '', data: result as TOut };
+    } catch (error) {
+      return {
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Command dispatch failed',
+        error: { code: 'COMMAND_DISPATCH_FAILED', details: error },
+      };
+    }
+  }
+
+  dispatch(key: string, params: unknown, ctx: ExecutionContext): Promise<CommandResponse<unknown>>;
+  dispatch<TCmd = unknown>(request: {
+    command: string;
+    payload: unknown;
+  }): Promise<CommandResponse>;
   async dispatch(
-    key: string,
-    params: unknown,
-    ctx: ExecutionContext
+    keyOrRequest: string | { command: string; payload: unknown },
+    params?: unknown,
+    ctx?: ExecutionContext
   ): Promise<CommandResponse<unknown>> {
+    if (typeof keyOrRequest === 'object' && 'command' in keyOrRequest) {
+      // New overload: dispatch<TCommand>({command, payload})
+      const { command: key, payload } = keyOrRequest;
+      const directHandler = this._directHandlers.get(key);
+      if (directHandler) {
+        const minimalCtx = { workspaceRoot: '' } as ExecutionContext;
+        return directHandler('', payload, minimalCtx);
+      }
+      const descriptor = this.registry.get(key);
+      if (!descriptor) {
+        return {
+          status: 'error',
+          message: `Unknown command '${key}'`,
+          error: { code: 'UNKNOWN_COMMAND', details: { key } },
+        };
+      }
+      const cmd = this.registry.resolve(key, this.resolver!)!;
+      const minimalCtx = { workspaceRoot: '' } as ExecutionContext;
+      const result = await cmd.execute(payload, minimalCtx);
+      if (result && typeof result === 'object' && 'status' in result) {
+        const r = result as CommandResponse;
+        return { ...r, message: r.message ?? '' };
+      }
+      return { status: 'ok', message: '', data: result };
+    }
+
+    // Existing overload: dispatch(key, params, ctx)
+    const key = keyOrRequest;
     const descriptor = this.registry.get(key);
     if (!descriptor) {
       return {
@@ -242,6 +348,13 @@ export class CommandDispatcher implements ICommandDispatcher {
         error: { code: 'UNKNOWN_COMMAND', details: { key } },
       };
     }
+
+    // Check direct handlers first (registered via register())
+    const directHandler = this._directHandlers.get(key);
+    if (directHandler) {
+      return directHandler((ctx as any)?.workspaceRoot ?? '', params, ctx!);
+    }
+
     try {
       // Parse raw string args using the Zod schema from the descriptor metadata —
       // no command instantiation needed at this stage.
@@ -249,9 +362,9 @@ export class CommandDispatcher implements ICommandDispatcher {
         typeof params === 'string' && descriptor.parameters
           ? parseArgsIntelligently(params, descriptor.parameters)
           : params;
-      const cmd = this.registry.resolve(key, this.resolver)!;
-      const resolvedParams = resolveCommandArgs(cmd, parsed, ctx);
-      const result = await cmd.execute(resolvedParams, ctx);
+      const cmd = this.registry.resolve(key, this.resolver!)!;
+      const resolvedParams = resolveCommandArgs(cmd, parsed, ctx!);
+      const result = await cmd.execute(resolvedParams, ctx!);
       if (isCommandResponse(result)) {
         return { ...result, message: result.message ?? '' };
       }
@@ -832,7 +945,7 @@ export function createCommandDispatcher(
       )
   );
 
-  const sharedEmitter = new DefaultChatCommandEmitter();
+  const sharedEmitter = EmitService.forConsole();
 
   registry.register(
     TeamListChatCommandMetadata,

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { IPreLlmToolSource } from '../tools/pre-llm-intents.js';
 
 vi.mock('../workflow/send-turn-machine.js', () => ({
   runSendTurnMachineAsync: vi.fn(async () => ({
@@ -341,36 +342,37 @@ describe('ChatOrchestrator regex tool intents', () => {
 
   it('asks for confirmation before pre-LLM tool execution when score is below 100%', async () => {
     const ctx = makeContext();
-    (ctx.toolManager as any).getForAgent = vi.fn(() => [
-      {
-        key: 'tree',
-        group: 'fs',
-        scorePreLlmIntent: () => ({
-          kind: 'tool',
-          toolName: 'fs_tree',
-          args: { path: '.', maxDepth: 6, includeHidden: false },
-          score: 82,
-          clarification: {
-            ask: {
-              kind: 'select',
-              message: 'Choose depth',
-              choices: [
-                { name: 'Quick', value: 'quick' },
-                { name: 'Deep', value: 'deep' },
-              ],
-              defaultText: 'quick',
+    const toolSource: IPreLlmToolSource = {
+      getForAgent: () => [
+        {
+          metadata: { key: 'tree', group: 'fs' },
+          scorePreLlmIntent: () => ({
+            kind: 'tool',
+            toolName: 'fs_tree',
+            args: { path: '.', maxDepth: 6, includeHidden: false },
+            score: 82,
+            clarification: {
+              ask: {
+                kind: 'select',
+                message: 'Choose depth',
+                choices: [
+                  { name: 'Quick', value: 'quick' },
+                  { name: 'Deep', value: 'deep' },
+                ],
+                defaultText: 'quick',
+              },
+              resolveArgs(answer: unknown) {
+                return {
+                  path: '.',
+                  maxDepth: answer === 'deep' ? 10 : 3,
+                  includeHidden: false,
+                };
+              },
             },
-            resolveArgs(answer: unknown) {
-              return {
-                path: '.',
-                maxDepth: answer === 'deep' ? 10 : 3,
-                includeHidden: false,
-              };
-            },
-          },
-        }),
-      },
-    ]);
+          }),
+        } as any,
+      ],
+    };
 
     const toolDispatcher = { dispatch: vi.fn() } as any;
     toolDispatcher.dispatch
@@ -398,7 +400,8 @@ describe('ChatOrchestrator regex tool intents', () => {
       ctx.agentManager as any,
       ctx.sessionManager as any,
       ctx.llmService as any,
-      serialization
+      serialization,
+      toolSource
     );
     const result = await orchestrator.run({ message: 'show structure please' });
 

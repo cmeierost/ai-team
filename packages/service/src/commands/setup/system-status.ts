@@ -8,13 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import type {
-  ICommand,
-  ExecutionContext,
-  IConfigurationStorage,
-  CommandResponse,
-  ICommandDescriptor,
-} from '@ai-team/core';
+import type { ICommand, IConfigurationStorage, ICommandDescriptor } from '@ai-team/core';
 import type { SystemStatus } from '@ai-team/api-contracts';
 import { resolveEffectiveLlmSettings } from '@ai-team/core';
 
@@ -43,9 +37,9 @@ export class SystemStatusICommand implements ICommand<Params, SystemStatus> {
 
   constructor(private readonly configurationStorage: IConfigurationStorage) {}
 
-  async execute(_payload: Params, ctx: ExecutionContext): Promise<CommandResponse<SystemStatus>> {
-    const data = await getSystemStatusAsync(ctx.workspaceRoot, this.configurationStorage);
-    return { status: 'ok', data };
+  async execute(_payload: Params, _unusedOrCtx?: unknown, ctx?: any): Promise<any> {
+    const workspaceRoot = (ctx ?? (_unusedOrCtx as any))?.workspaceRoot ?? '';
+    return getSystemStatusAsync(workspaceRoot, this.configurationStorage);
   }
 }
 
