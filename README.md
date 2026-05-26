@@ -3,7 +3,7 @@
 > GitHub Pages: [https://cmeierost.github.io/ai-team/](https://cmeierost.github.io/ai-team/)  
 > Repository: [https://github.com/cmeierost/ai-team](https://github.com/cmeierost/ai-team)
 
-> **Note:** AI Team is actively developed on the [internal OST GitLab](https://gitlab.ost.ch/clemens.meier/ai-team) and sporadically published to this GitHub repository.
+> **Note:** AI Team is at the moment actively developed on the [internal OST GitLab](https://gitlab.ost.ch/clemens.meier/ai-team) and sporadically published to this GitHub repository. We will completely switch to github as soon as we are ready for public collaboration.
 
 <p align="center">
    <svg width="140" height="140" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" aria-label="AI Team Logo">
