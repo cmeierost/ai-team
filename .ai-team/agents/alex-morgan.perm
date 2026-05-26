@@ -1,0 +1,30 @@
+# Managed by AI Team. Edit with care.
+# Section names map to permission modes: [read], [write].
+
+[read]
+ARCHITECTURE.md
+COPILOT-CONTEXT.md
+packages/api-client-http/**/*
+packages/api-client/**/*
+packages/api-server/**/*
+packages/cli/**/*
+packages/core/**/*
+packages/fs/**/*
+packages/ide-interface/**/*
+packages/permission/**/*
+packages/service/**/*
+
+
+[write]
+.ai-team/agents/ethan-carter.perm
+.ai-team/agents/leah-brooks.agent.md
+.ai-team/agents/leah-brooks.perm
+.ai-team/agents/maya-patel.agent.md
+.ai-team/agents/maya-patel.perm
+.ai-team/agents/victor-alvarez.agent.md
+.ai-team/agents/victor-alvarez.perm
+.ai-team/instructions/backend-team.instructions.md
+docs/api/**/*
+docs/architecture/**/*
+docs/implementation/**/*
+packages/api-client/src/**/*

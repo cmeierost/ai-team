@@ -1,0 +1,260 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/protocol.schema.json",
+  "title": "Aspect Protocol Message",
+  "description": "Framed stdio protocol for cross-language communication between aspect clients and collectors. Transport: stdin/stdout with 4-byte big-endian uint32 length prefix followed by UTF-8 JSON payload. Stderr is reserved for diagnostics.",
+  "oneOf": [
+    { "$ref": "#/definitions/InvokeMessage" },
+    { "$ref": "#/definitions/ProgressMessage" },
+    { "$ref": "#/definitions/ChunkMessage" },
+    { "$ref": "#/definitions/ResultMessage" },
+    { "$ref": "#/definitions/ErrorMessage" },
+    { "$ref": "#/definitions/CompleteMessage" }
+  ],
+  "definitions": {
+    "InvokeMessage": {
+      "type": "object",
+      "description": "Client → Collector request to run an analysis method. The 'method' field selects the operation and 'params' carries method-specific arguments.",
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "description": "Semantic version of the framed stdio protocol. Must be '1.0' for this schema revision.",
+          "enum": ["1.0"]
+        },
+        "type": {
+          "const": "invoke",
+          "description": "Message type discriminator. Always 'invoke' for invocation requests."
+        },
+        "requestId": {
+          "type": "string",
+          "description": "Unique identifier that correlates this request with its response messages (progress, chunk, result, error, complete)."
+        },
+        "method": {
+          "type": "string",
+          "description": "The analysis method to invoke. Known methods: 'collect' (run aspect collection), 'getCapabilities' (query supported aspects and options).",
+          "examples": ["collect", "getCapabilities"]
+        },
+        "params": {
+          "type": "object",
+          "description": "Method-specific parameters. Shape depends on the 'method' field. For 'collect': includes rootDir, includeAspects, excludeAspects, options. For 'getCapabilities': may be omitted or empty.",
+          "properties": {
+            "rootDir": {
+              "type": "string",
+              "description": "Absolute path to the project root directory to analyse."
+            },
+            "includeAspects": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "If provided, only these aspects will be collected. Null or omitted means collect all available aspects."
+            },
+            "excludeAspects": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "Aspects to skip during collection. Null or omitted means no exclusions."
+            },
+            "options": {
+              "type": ["object", "null"],
+              "description": "Tool-specific options forwarded to the collector. Shape is defined by each collector implementation."
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": ["protocolVersion", "type", "requestId", "method"],
+      "additionalProperties": false
+    },
+
+    "ProgressMessage": {
+      "type": "object",
+      "description": "Collector → Client status update emitted during collection. Multiple progress messages may be sent per request.",
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "description": "Semantic version of the framed stdio protocol.",
+          "enum": ["1.0"]
+        },
+        "type": {
+          "const": "progress",
+          "description": "Message type discriminator. Always 'progress' for status updates."
+        },
+        "requestId": {
+          "type": "string",
+          "description": "Identifier of the originating invoke request this progress belongs to."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable status message describing what the collector is currently doing."
+        },
+        "percentage": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Estimated completion percentage (0–100). Null when the collector cannot estimate progress."
+        },
+        "aspect": {
+          "type": ["string", "null"],
+          "description": "The aspect currently being collected, if applicable. Null when progress is not aspect-specific."
+        }
+      },
+      "required": ["protocolVersion", "type", "requestId", "message"],
+      "additionalProperties": false
+    },
+
+    "ChunkMessage": {
+      "type": "object",
+      "description": "Collector → Client partial data delivery for streaming large results. Each chunk carries items for a single section of CollectedCodeData.",
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "description": "Semantic version of the framed stdio protocol.",
+          "enum": ["1.0"]
+        },
+        "type": {
+          "const": "chunk",
+          "description": "Message type discriminator. Always 'chunk' for partial data delivery."
+        },
+        "requestId": {
+          "type": "string",
+          "description": "Identifier of the originating invoke request this chunk belongs to."
+        },
+        "section": {
+          "type": "string",
+          "description": "Which section of CollectedCodeData this chunk belongs to (e.g. 'entities', 'relationships', 'duplicationSignals').",
+          "examples": ["entities", "relationships", "duplicationSignals"]
+        },
+        "data": {
+          "type": "array",
+          "description": "Array of items for the specified section. Item shape depends on the section type.",
+          "items": {}
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based chunk index within this section. Chunks for the same section arrive in order."
+        },
+        "final": {
+          "type": "boolean",
+          "description": "True if this is the last chunk for this section. The client can consider the section complete once a chunk with final=true is received."
+        }
+      },
+      "required": ["protocolVersion", "type", "requestId", "section", "data", "index", "final"],
+      "additionalProperties": false
+    },
+
+    "ResultMessage": {
+      "type": "object",
+      "description": "Collector → Client final complete result for an invocation. For 'collect' the data is CollectedCodeData; for 'getCapabilities' the data is CapabilitiesResult.",
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "description": "Semantic version of the framed stdio protocol.",
+          "enum": ["1.0"]
+        },
+        "type": {
+          "const": "result",
+          "description": "Message type discriminator. Always 'result' for final results."
+        },
+        "requestId": {
+          "type": "string",
+          "description": "Identifier of the originating invoke request this result answers."
+        },
+        "data": {
+          "type": "object",
+          "description": "The complete result payload. Shape depends on the invoked method — CollectedCodeData for 'collect', CapabilitiesResult for 'getCapabilities'."
+        }
+      },
+      "required": ["protocolVersion", "type", "requestId", "data"],
+      "additionalProperties": false
+    },
+
+    "ErrorMessage": {
+      "type": "object",
+      "description": "Collector → Client error response. Sent when an invocation fails. May be followed by a 'complete' message.",
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "description": "Semantic version of the framed stdio protocol.",
+          "enum": ["1.0"]
+        },
+        "type": {
+          "const": "error",
+          "description": "Message type discriminator. Always 'error' for error responses."
+        },
+        "requestId": {
+          "type": "string",
+          "description": "Identifier of the originating invoke request that failed."
+        },
+        "code": {
+          "type": "string",
+          "description": "Machine-readable error code for programmatic handling.",
+          "examples": ["TOOL_FAILED", "INVALID_PARAMS", "INTERNAL_ERROR"]
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable error description suitable for logging or display."
+        },
+        "details": {
+          "type": ["object", "null"],
+          "description": "Additional structured error context (stack traces, failed aspect names, etc.). Null when no extra context is available."
+        }
+      },
+      "required": ["protocolVersion", "type", "requestId", "code", "message"],
+      "additionalProperties": false
+    },
+
+    "CompleteMessage": {
+      "type": "object",
+      "description": "Collector → Client terminal message. Exactly one 'complete' is sent per requestId after 'result' or 'error'. Signals that no further messages will arrive for this request.",
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "description": "Semantic version of the framed stdio protocol.",
+          "enum": ["1.0"]
+        },
+        "type": {
+          "const": "complete",
+          "description": "Message type discriminator. Always 'complete' for terminal acknowledgements."
+        },
+        "requestId": {
+          "type": "string",
+          "description": "Identifier of the originating invoke request this completion signals."
+        },
+        "success": {
+          "type": "boolean",
+          "description": "True if the invocation succeeded (a 'result' was sent), false if it failed (an 'error' was sent)."
+        },
+        "summary": {
+          "oneOf": [
+            {
+              "type": "object",
+              "description": "Execution summary with timing and per-aspect outcome.",
+              "properties": {
+                "aspectsCompleted": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Names of aspects that completed successfully."
+                },
+                "aspectsFailed": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Names of aspects that failed during collection."
+                },
+                "duration": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Total wall-clock duration of the invocation in milliseconds."
+                }
+              },
+              "required": ["aspectsCompleted", "aspectsFailed", "duration"],
+              "additionalProperties": false
+            },
+            { "type": "null" }
+          ],
+          "description": "Execution summary. Null when summary information is not available (e.g. for non-collect methods)."
+        }
+      },
+      "required": ["protocolVersion", "type", "requestId", "success"],
+      "additionalProperties": false
+    }
+  }
+}

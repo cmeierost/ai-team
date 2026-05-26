@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/signals/coverage.schema.json",
+  "title": "CoverageSignal",
+  "description": "Code-coverage signals from tools such as LCOV, Istanbul, or Cobertura. Represents per-file line, branch, and function coverage data.",
+  "type": "object",
+  "required": ["source", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "description": "Metadata about the coverage tool and format that produced these signals.",
+      "type": "object",
+      "required": ["tool", "format", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "description": "Name of the coverage tool (e.g. \"istanbul\", \"llvm-cov\").",
+          "type": "string"
+        },
+        "format": {
+          "description": "Coverage report format used as input.",
+          "type": "string",
+          "enum": ["lcov", "cobertura", "istanbul", "clover", "other"]
+        },
+        "version": {
+          "description": "Version of the tool that produced the coverage data.",
+          "type": "string"
+        }
+      }
+    },
+    "files": {
+      "description": "Per-file coverage data.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fileCoverage"
+      }
+    }
+  },
+  "$defs": {
+    "fileCoverage": {
+      "description": "Coverage data for a single source file.",
+      "type": "object",
+      "required": ["filePath", "linesCovered", "linesTotal"],
+      "additionalProperties": false,
+      "properties": {
+        "filePath": {
+          "description": "Path to the source file, relative to the repository root.",
+          "type": "string"
+        },
+        "linesCovered": {
+          "description": "Number of lines executed at least once.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "linesTotal": {
+          "description": "Total number of instrumentable lines in the file.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "branchesCovered": {
+          "description": "Number of branches executed at least once, if available.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "branchesTotal": {
+          "description": "Total number of branches in the file, if available.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "functions": {
+          "description": "Per-function execution counts.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/functionCoverage"
+          }
+        }
+      }
+    },
+    "functionCoverage": {
+      "description": "Execution data for a single function.",
+      "type": "object",
+      "required": ["name", "line", "executionCount"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Name of the function as reported by the coverage tool.",
+          "type": "string"
+        },
+        "line": {
+          "description": "One-based line number where the function is defined.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "executionCount": {
+          "description": "Number of times the function was executed during the test run.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

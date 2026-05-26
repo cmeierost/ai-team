@@ -1,0 +1,17 @@
+# Managed by AI Team. Edit with care.
+# Section names map to permission modes: [read], [write].
+
+[read]
+.github/copilot-instructions.md
+
+
+[write]
+.ai-team/agents/daniel-navarro.perm
+.ai-team/agents/marcus-vale.perm
+.ai-team/agents/sarah-lee.agent.md
+.ai-team/agents/sarah-lee.agent.yml
+ARCHITECTURE.md
+COPILOT-CONTEXT.md
+docs/api/**/*
+docs/architecture/**/*
+docs/implementation/**/*

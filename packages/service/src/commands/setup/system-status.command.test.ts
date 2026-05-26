@@ -1,0 +1,50 @@
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SystemStatusICommand } from './system-status.js';
+
+const tmpDirs: string[] = [];
+
+async function createTempWorkspace(): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-system-status-'));
+  tmpDirs.push(dir);
+  return dir;
+}
+
+afterEach(async () => {
+  await Promise.all(
+    tmpDirs.splice(0).map(async (dir) => {
+      await fs.rm(dir, { recursive: true, force: true });
+    })
+  );
+});
+
+describe('SystemStatusICommand', () => {
+  it('reports not initialized when .ai-team is missing', async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const configurationStorage = {
+      loadTeamConfigAsync: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const cmd = new SystemStatusICommand(configurationStorage as any);
+    const result = await cmd.execute({}, undefined, { workspaceRoot } as any);
+
+    expect(result).toEqual({ initialized: false, hasLlmConfig: false, hasAgents: false });
+  });
+
+  it('reports initialized and agents when agent files exist', async () => {
+    const workspaceRoot = await createTempWorkspace();
+    await fs.mkdir(path.join(workspaceRoot, '.ai-team', 'agents'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, '.ai-team', 'agents', 'alex.agent.md'), '# Alex');
+
+    const configurationStorage = {
+      loadTeamConfigAsync: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const cmd = new SystemStatusICommand(configurationStorage as any);
+    const result = await cmd.execute({}, undefined, { workspaceRoot } as any);
+
+    expect(result).toEqual({ initialized: true, hasLlmConfig: false, hasAgents: true });
+  });
+});

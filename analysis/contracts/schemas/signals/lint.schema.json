@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/signals/lint.schema.json",
+  "title": "LintSignal",
+  "description": "Lint signals from static-analysis tools such as ESLint, Stylelint, or Biome. Represents a collection of rule violations found in source files.",
+  "type": "object",
+  "required": ["source", "results"],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "description": "Metadata about the lint tool that produced these signals.",
+      "type": "object",
+      "required": ["tool", "version", "ruleSet"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "description": "Name of the lint tool (e.g. \"eslint\", \"biome\").",
+          "type": "string"
+        },
+        "version": {
+          "description": "Version of the lint tool.",
+          "type": "string"
+        },
+        "ruleSet": {
+          "description": "Rule set or configuration name used for the run (e.g. \"recommended\", \"custom\").",
+          "type": "string"
+        }
+      }
+    },
+    "results": {
+      "description": "Array of individual lint violations.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/lintResult"
+      }
+    }
+  },
+  "$defs": {
+    "lintResult": {
+      "description": "A single lint rule violation at a specific location in a source file.",
+      "type": "object",
+      "required": ["filePath", "ruleId", "severity", "message", "line", "column"],
+      "additionalProperties": false,
+      "properties": {
+        "filePath": {
+          "description": "Path to the source file, relative to the repository root.",
+          "type": "string"
+        },
+        "ruleId": {
+          "description": "Identifier of the lint rule that was violated (e.g. \"no-unused-vars\").",
+          "type": "string"
+        },
+        "severity": {
+          "description": "Severity level of the violation.",
+          "type": "string",
+          "enum": ["error", "warning", "info"]
+        },
+        "message": {
+          "description": "Human-readable description of the violation.",
+          "type": "string"
+        },
+        "line": {
+          "description": "One-based line number where the violation starts.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "description": "Zero-based column number where the violation starts.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "endLine": {
+          "description": "One-based line number where the violation ends, if available.",
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "null" }
+          ]
+        },
+        "endColumn": {
+          "description": "Zero-based column number where the violation ends, if available.",
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}

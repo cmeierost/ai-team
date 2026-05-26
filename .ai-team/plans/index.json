@@ -1,0 +1,153 @@
+[
+    {
+        "id": "FEAT-20260412-A001",
+        "type": "feature",
+        "title": "Transition service boundaries away from transport-coupled mediator naming",
+        "description": "Move AI Team toward transport-independent service interfaces without breaking current CLI, web, or API behavior.",
+        "createdBy": "human",
+        "createdByType": "human",
+        "status": "in_progress",
+        "priority": "urgent",
+        "requiresApproval": false,
+        "subtaskIds": [
+            "DOC-20260412-A001",
+            "FEAT-20260412-A002",
+            "FEAT-20260412-A003",
+            "FEAT-20260412-A004",
+            "FEAT-20260412-A005"
+        ],
+        "estimatedHours": 40,
+        "tags": [
+            "architecture",
+            "backlog",
+            "local-only",
+            "transition"
+        ],
+        "metadata": {
+            "scope": "service-boundary-transition",
+            "pushBlocker": true
+        },
+        "createdAt": "2026-04-12T12:00:00.000Z",
+        "updatedAt": "2026-04-12T12:00:00.000Z"
+    },
+    {
+        "id": "DOC-20260412-A001",
+        "type": "documentation",
+        "title": "Document the architecture transition and local backlog",
+        "description": "Refresh the architecture docs so they clearly distinguish current implementation, target architecture, active migration work, and the durable local backlog.",
+        "createdBy": "human",
+        "createdByType": "human",
+        "parentTaskId": "FEAT-20260412-A001",
+        "status": "completed",
+        "priority": "urgent",
+        "requiresApproval": false,
+        "estimatedHours": 3,
+        "completedAt": "2026-04-12T12:00:00.000Z",
+        "tags": [
+            "architecture",
+            "docs",
+            "backlog"
+        ],
+        "metadata": {
+            "deliverable": "architecture-doc-refresh"
+        },
+        "createdAt": "2026-04-12T12:00:00.000Z",
+        "updatedAt": "2026-04-12T12:00:00.000Z"
+    },
+    {
+        "id": "FEAT-20260412-A002",
+        "type": "feature",
+        "title": "Clarify service interfaces, internal mediator, and UI notifier split",
+        "description": "Separate public service interfaces, internal service-layer mediation, UI notifier delivery, and surface-specific handlers.",
+        "createdBy": "human",
+        "createdByType": "human",
+        "parentTaskId": "FEAT-20260412-A001",
+        "status": "not_started",
+        "priority": "urgent",
+        "requiresApproval": false,
+        "estimatedHours": 12,
+        "tags": [
+            "architecture",
+            "service",
+            "streaming",
+            "ui-notifier"
+        ],
+        "metadata": {
+            "immediateAfterDocs": true
+        },
+        "createdAt": "2026-04-12T12:00:00.000Z",
+        "updatedAt": "2026-04-12T12:00:00.000Z"
+    },
+    {
+        "id": "FEAT-20260412-A003",
+        "type": "feature",
+        "title": "Roll out stricter dependency injection across service composition seams",
+        "description": "Move from ad-hoc concrete dependency wiring toward explicit constructor/function injection and cleaner startup composition.",
+        "createdBy": "human",
+        "createdByType": "human",
+        "parentTaskId": "FEAT-20260412-A001",
+        "status": "not_started",
+        "priority": "high",
+        "requiresApproval": false,
+        "estimatedHours": 16,
+        "tags": [
+            "architecture",
+            "dependency-injection",
+            "container"
+        ],
+        "metadata": {
+            "followUp": true
+        },
+        "createdAt": "2026-04-12T12:00:00.000Z",
+        "updatedAt": "2026-04-12T12:00:00.000Z"
+    },
+    {
+        "id": "FEAT-20260412-A004",
+        "type": "feature",
+        "title": "Remove direct service to infrastructure dependencies via core boundary interfaces",
+        "description": "Make @ai-team/core the boundary-interface package between @ai-team/service and @ai-team/infrastructure.",
+        "createdBy": "human",
+        "createdByType": "human",
+        "parentTaskId": "FEAT-20260412-A001",
+        "status": "not_started",
+        "priority": "high",
+        "requiresApproval": false,
+        "estimatedHours": 20,
+        "tags": [
+            "architecture",
+            "service",
+            "infrastructure",
+            "core"
+        ],
+        "metadata": {
+            "followUp": true
+        },
+        "createdAt": "2026-04-12T12:00:00.000Z",
+        "updatedAt": "2026-04-12T12:00:00.000Z"
+    },
+    {
+        "id": "FEAT-20260412-A005",
+        "type": "feature",
+        "title": "Plan explicit user-triggered tool, MCP, and CLI execution surface",
+        "description": "Capture the future architecture for explicit user-triggered execution without implementing it during the current stabilization pass.",
+        "createdBy": "human",
+        "createdByType": "human",
+        "parentTaskId": "FEAT-20260412-A001",
+        "status": "not_started",
+        "priority": "medium",
+        "requiresApproval": false,
+        "estimatedHours": 10,
+        "tags": [
+            "architecture",
+            "tools",
+            "mcp",
+            "cli",
+            "future"
+        ],
+        "metadata": {
+            "plannedFeature": true
+        },
+        "createdAt": "2026-04-12T12:00:00.000Z",
+        "updatedAt": "2026-04-12T12:00:00.000Z"
+    }
+]

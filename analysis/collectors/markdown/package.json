@@ -1,0 +1,36 @@
+{
+  "name": "@aspect/collector-markdown",
+  "version": "0.1.0",
+  "description": "Markdown documentation collector — extracts entities and relationships from .md/.mdx files for documentation quality analysis",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "code-analysis",
+    "markdown",
+    "documentation",
+    "docs-quality"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@aspect/contracts": "workspace:*",
+    "mdast-util-to-string": "^4.0.0",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "@types/node": "^25.5.2",
+    "@vitest/coverage-v8": "^4.1.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.2"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "id": "funny-questions",
+  "name": "Funny Questions Workflow",
+  "description": "Asks you a series of deeply important philosophical questions, then lets the LLM roast your answers.",
+  "steps": [
+    {
+      "kind": "input",
+      "id": "q1",
+      "message": "If your cat could speak for one sentence, what would it say about you?",
+      "storeAs": "cat_verdict"
+    },
+    {
+      "kind": "select",
+      "id": "q2",
+      "message": "You discover a time machine. What is your FIRST move?",
+      "storeAs": "time_machine_plan",
+      "choices": [
+        { "name": "Go back and buy Bitcoin in 2010", "value": "bitcoin" },
+        { "name": "Warn myself never to touch a Kubernetes cluster", "value": "kubernetes" },
+        { "name": "Skip to the future to see if AI took everyone's job", "value": "future" },
+        { "name": "Go back 5 minutes and get the snack I forgot", "value": "snack" }
+      ]
+    },
+    {
+      "kind": "input",
+      "id": "q3",
+      "message": "You have to debug someone else's code for the rest of your life. What's your coping strategy?",
+      "storeAs": "coping_strategy"
+    },
+    {
+      "kind": "checklist",
+      "id": "q4",
+      "message": "Which of these describe your relationship with documentation?",
+      "storeAs": "doc_relationship",
+      "choices": [
+        { "name": "I write it only under duress", "value": "duress" },
+        { "name": "I read it but don't trust it", "value": "skeptical" },
+        { "name": "I update it religiously", "value": "saint" },
+        { "name": "What is documentation?", "value": "chaos" }
+      ],
+      "minSelections": 1
+    },
+    {
+      "kind": "input",
+      "id": "q5",
+      "message": "A rubber duck sits on your desk. In one sentence, explain your current biggest problem to it.",
+      "storeAs": "rubber_duck_confession"
+    },
+    {
+      "kind": "llm-summarize",
+      "id": "summary",
+      "prompt": "You are a witty comedian roast host. Given these answers from a developer who just took a personality quiz, write a short, funny, warm roast (3-5 sentences) that gently pokes fun at their responses. Be playful, not mean. Here are their answers:"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+.logo {
+  color: #cccccc;
+}
+
+.logo-gradient-start {
+  stop-color: #007acc;
+  stop-opacity: 1;
+}
+
+.logo-gradient-end {
+  stop-color: #00a8e8;
+  stop-opacity: 1;
+}
+
+.logo-connection {
+  stroke: #007acc;
+  opacity: 0.6;
+}

@@ -1,0 +1,41 @@
+{
+  "name": "@ai-team/core",
+  "version": "0.1.0",
+  "description": "Core library for AI Team management - IDE-agnostic business logic",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "ai",
+    "team",
+    "agents",
+    "context-management"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "fs-context": "workspace:*",
+    "minimatch": "^10.2.4",
+    "web-tree-sitter": "^0.26.6",
+    "zod": "^4.3.6",
+    "zod-to-json-schema": "3.24.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.0",
+    "@typescript-eslint/parser": "^8.56.0",
+    "@vitest/coverage-v8": "^4.1.2",
+    "eslint": "^10.0.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.2",
+    "vscode-languageserver-types": "3.17.5"
+  }
+}

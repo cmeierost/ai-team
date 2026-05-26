@@ -1,0 +1,315 @@
+import {
+  createCommandDispatcher,
+  type CommandDispatcher,
+} from '@ai-team/service/src/command-dispatcher.js';
+import type {
+  CommandAvailability,
+  CommandDescriptor,
+  CommandResponse,
+  StreamEvent,
+  InteractionRequest,
+  RuntimeStreamEvent,
+} from '@ai-team/api-contracts';
+import { toServiceDomainError } from '@ai-team/service/src/errors.js';
+import { writeBackendDebugLog } from '@ai-team/service/src/utils/debug-log.js';
+import type { IEmitService } from '@ai-team/service/src/orchestrator/services/emit-service.js';
+import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service/src/stream-perf.js';
+import { runtimeEventToStreamEvent } from '@ai-team/service/src/runtime-event-translator.js';
+import { InteractionStream } from '@ai-team/service/src/interaction-stream.js';
+import type { ExecutionContext, IServiceContainer } from '@ai-team/core';
+import type { IQuestionService } from '@ai-team/service';
+import { COMMAND_FACTORY_TOKENS } from '@ai-team/service/src/types.js';
+
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const STDOUT_CAPTURE_SCOPE = new AsyncLocalStorage<boolean>();
+const STDOUT_CAPTURE_BYPASS_SCOPE = new AsyncLocalStorage<boolean>();
+
+function formatRuntimeConsoleArgs(args: unknown[]): string {
+  if (args.length === 0) {
+    return '';
+  }
+
+  if (typeof args[0] === 'string') {
+    return String(args[0]);
+  }
+
+  return args
+    .map((part) => {
+      if (typeof part === 'string') {
+        return part;
+      }
+
+      try {
+        return JSON.stringify(part);
+      } catch {
+        return String(part);
+      }
+    })
+    .join(' ');
+}
+
+/**
+ * Narrow contract for CLI command dispatch.
+ * CLI commands only call `streamInteraction()`.
+ */
+export interface ICliCommandClient {
+  streamInteraction<TCommand extends string = string>(
+    request: InteractionRequest,
+    context?: Record<string, unknown>
+  ): AsyncIterable<StreamEvent<TCommand>>;
+  getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[];
+  /**
+   * Returns a new client scoped to a single chat session that uses `service`
+   * as the `IQuestionService` for all commands dispatched through it.  The
+   * caller owns the returned client's lifetime — dropping the reference is
+   * sufficient cleanup because no persistent resources are held.
+   */
+  withQuestionService(service: IQuestionService): ICliCommandClient;
+}
+
+export class CliCommandClient implements ICliCommandClient {
+  public readonly workspaceRoot: string;
+  private readonly resolver: IServiceContainer;
+  private readonly dispatcher: CommandDispatcher;
+
+  constructor(workspaceRoot: string, resolver: IServiceContainer) {
+    this.workspaceRoot = workspaceRoot;
+    this.resolver = resolver;
+    this.dispatcher = createCommandDispatcher(workspaceRoot, resolver);
+  }
+
+  withQuestionService(service: IQuestionService): CliCommandClient {
+    const sessionContainer = this.resolver.child();
+    sessionContainer.registerInstance(COMMAND_FACTORY_TOKENS.QuestionService, service);
+    return new CliCommandClient(this.workspaceRoot, sessionContainer);
+  }
+
+  getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[] {
+    return this.dispatcher.getCommands(filter);
+  }
+
+  async invokeTool(
+    request: InteractionRequest,
+    context: ExecutionContext = {} as ExecutionContext,
+    emitService?: IEmitService
+  ): Promise<CommandResponse<unknown>> {
+    if (context.signal?.aborted) {
+      throw new Error('Mediator invocation aborted');
+    }
+
+    const svc = emitService;
+    const active = Boolean(svc);
+
+    svc?.status('dispatch', `Dispatching command '${request.command}'`);
+    writeBackendDebugLog(this.workspaceRoot, {
+      source: 'invoke',
+      phase: 'dispatch',
+      command: request.command,
+      requestId: request.requestId,
+      payload: request.payload,
+    });
+
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+
+    // Patch console and stdout to route through the active EmitService when present.
+    // Do NOT mirror log events back to console.log/warn/error here:
+    // originalLog still calls process.stdout.write (which is patched when
+    // the emitter is active), so mirroring would emit a second token event
+    // for every log message and cause double-printing in the CLI.
+    if (active) {
+      console.log = (...args: unknown[]) => {
+        svc!.emit({ kind: 'log', level: 'info', message: formatRuntimeConsoleArgs(args) });
+      };
+
+      console.warn = (...args: unknown[]) => {
+        svc!.emit({ kind: 'log', level: 'warn', message: formatRuntimeConsoleArgs(args) });
+      };
+
+      console.error = (...args: unknown[]) => {
+        svc!.emit({ kind: 'log', level: 'error', message: formatRuntimeConsoleArgs(args) });
+      };
+
+      process.stdout.write = (
+        chunk: unknown,
+        encoding?: BufferEncoding | ((error?: Error | null) => void),
+        cb?: (error?: Error | null) => void
+      ) => {
+        if (!STDOUT_CAPTURE_SCOPE.getStore() || STDOUT_CAPTURE_BYPASS_SCOPE.getStore()) {
+          if (typeof encoding === 'function') {
+            return originalStdoutWrite(chunk as never, encoding as never);
+          }
+          return originalStdoutWrite(chunk as never, encoding as never, cb as never);
+        }
+
+        const text =
+          typeof chunk === 'string'
+            ? chunk
+            : Buffer.isBuffer(chunk)
+              ? chunk.toString(typeof encoding === 'string' ? encoding : undefined)
+              : String(chunk);
+
+        svc!.emit({ kind: 'token', text });
+
+        if (typeof encoding === 'function') {
+          encoding(null);
+          return true;
+        }
+        if (cb) {
+          cb(null);
+        }
+        return true;
+      };
+    }
+
+    const invokeCore = async (): Promise<CommandResponse<unknown>> => {
+      const response = await this.dispatcher.dispatch(request.command, request.payload, context);
+
+      svc?.status('completed', `Completed command '${request.command}'`);
+      writeBackendDebugLog(this.workspaceRoot, {
+        source: 'invoke',
+        phase: 'completed',
+        command: request.command,
+        requestId: request.requestId,
+      });
+
+      return response;
+    };
+
+    try {
+      return active ? await STDOUT_CAPTURE_SCOPE.run(true, invokeCore) : await invokeCore();
+    } catch (error) {
+      const serviceError = toServiceDomainError(error, `Command '${request.command}' failed.`);
+      writeBackendDebugLog(this.workspaceRoot, {
+        source: 'invoke',
+        phase: 'error',
+        command: request.command,
+        requestId: request.requestId,
+        error: {
+          message: serviceError.message,
+          code: serviceError.code,
+          details: serviceError.details,
+        },
+      });
+      if (svc) {
+        svc.log('error', serviceError.message);
+      } else {
+        process.stderr.write(`${serviceError.message}\n`);
+      }
+      throw serviceError;
+    } finally {
+      if (active) {
+        console.log = originalLog;
+        console.warn = originalWarn;
+        console.error = originalError;
+        process.stdout.write = originalStdoutWrite;
+      }
+    }
+  }
+
+  async *streamInteraction<TCommand extends string = string>(
+    request: InteractionRequest,
+    context: Record<string, unknown> = {}
+  ): AsyncIterable<StreamEvent<TCommand>> {
+    const { enabled: perfEnabled, slowMs: perfSlowMs } = parseStreamPerfEnv();
+    const perf = perfEnabled
+      ? createStreamPerfTracker(this.workspaceRoot, request.command, request.requestId, perfSlowMs)
+      : null;
+
+    // No-op default logger: calling console.log here would trigger a feedback loop
+    // because invoke() patches console.log to emit {kind:'log'} runtime events.
+    // Each event through passThrough → logger → patched console.log → new log event
+    // → passThrough → logger → ... causes the message to grow exponentially via
+    // JSON escaping until JSON.stringify throws "Invalid string length" (~5s).
+    // Callers that need debug output should pass context.logger explicitly.
+    const logger =
+      (context.logger as ((entry: { channel: string; event: unknown }) => void) | undefined) ??
+      (() => {});
+
+    const handleRuntimeEvent = (event: RuntimeStreamEvent) => {
+      if (perf) {
+        const t0 = perf.nowNs();
+        writeBackendDebugLog(this.workspaceRoot, {
+          source: 'runtime',
+          command: request.command,
+          requestId: request.requestId,
+          event,
+        });
+        perf.state.emitRuntimeWriteLogMs += perf.elapsedMs(t0);
+        const t1 = perf.nowNs();
+        logger({ channel: 'runtime', event });
+        perf.state.emitRuntimeLoggerMs += perf.elapsedMs(t1);
+        perf.state.runtimeEventsQueued += 1;
+      } else {
+        writeBackendDebugLog(this.workspaceRoot, {
+          source: 'runtime',
+          command: request.command,
+          requestId: request.requestId,
+          event,
+        });
+        logger({ channel: 'runtime', event });
+      }
+    };
+
+    const handleStreamEvent = (event: StreamEvent<TCommand>) => {
+      if (perf) {
+        const totalStart = perf.nowNs();
+        const t0 = perf.nowNs();
+        writeBackendDebugLog(this.workspaceRoot, {
+          source: 'stream',
+          command: request.command,
+          requestId: request.requestId,
+          event,
+        });
+        perf.state.toStreamWriteLogMs += perf.elapsedMs(t0);
+        const t1 = perf.nowNs();
+        logger({ channel: 'stream', event });
+        perf.state.toStreamLoggerMs += perf.elapsedMs(t1);
+        const durationMs = perf.elapsedMs(totalStart);
+        perf.state.toStreamTotalMs += durationMs;
+        perf.state.streamEventsYielded += 1;
+        perf.state.byKind[event.kind] = (perf.state.byKind[event.kind] ?? 0) + 1;
+        if (durationMs > perf.state.maxToStreamEventMs) {
+          perf.state.maxToStreamEventMs = durationMs;
+          perf.state.maxToStreamEventKind = event.kind;
+        }
+        if (durationMs >= perf.slowThresholdMs) perf.state.slowToStreamEventCount += 1;
+        perf.logSlowEvent(event.kind, durationMs);
+      } else {
+        writeBackendDebugLog(this.workspaceRoot, {
+          source: 'stream',
+          command: request.command,
+          requestId: request.requestId,
+          event,
+        });
+        logger({ channel: 'stream', event });
+      }
+    };
+    const interactionStream = new InteractionStream({ translateRuntimeEvent: runtimeEventToStreamEvent });
+    yield* interactionStream.stream({
+      request,
+      context: context,
+      invoke: (ctx: ExecutionContext, emitService: IEmitService) => this.invokeTool(request, ctx, emitService),
+      normalizeError: (error: unknown) =>
+        toServiceDomainError(error, `Command '${request.command}' failed.`),
+      onRuntimeEvent: handleRuntimeEvent,
+      onRuntimeEventDequeued: () => {
+        if (perf) {
+          perf.state.runtimeEventsDequeued += 1;
+        }
+      },
+      onQueueWait: (elapsedMs: number) => {
+        if (perf) {
+          perf.state.queueWaitMs += elapsedMs;
+        }
+      },
+      onStreamEvent: handleStreamEvent,
+      onTerminalState: (state: 'done' | 'error' | 'aborted') => {
+        perf?.flush(state);
+      },
+    });
+  }
+}

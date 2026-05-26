@@ -1,0 +1,51 @@
+.slash-command-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: var(--vscode-dropdown-background, #1e1e2e);
+  border: 1px solid var(--vscode-dropdown-border, #3c3c5c);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.slash-command-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.slash-command-item:hover,
+.slash-command-item--selected {
+  background: var(--vscode-list-hoverBackground, #2a2d3e);
+}
+
+.slash-command-item--selected {
+  background: var(--vscode-list-activeSelectionBackground, #094771);
+}
+
+.slash-command-usage {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--vscode-textLink-foreground, #6cb6ff);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.slash-command-description {
+  font-size: 0.82em;
+  color: var(--vscode-descriptionForeground, #aaa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

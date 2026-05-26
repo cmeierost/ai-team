@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/common/relationship.schema.json",
+  "title": "Relationship",
+  "description": "A directed edge between two entities representing a dependency, containment, inheritance, or other structural relationship discovered during analysis.",
+  "type": "object",
+  "properties": {
+    "sourceEntityId": {
+      "type": "string",
+      "description": "Identifier of the entity from which this relationship originates."
+    },
+    "targetEntityId": {
+      "description": "Identifier of the entity that this relationship points to. Null when the target cannot be resolved (external or unresolved dependency).",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "import",
+        "use",
+        "call",
+        "contain",
+        "extend",
+        "implement",
+        "reference",
+        "override",
+        "re-export"
+      ],
+      "description": "The semantic kind of relationship between the two entities."
+    },
+    "sourceFilePath": {
+      "type": "string",
+      "description": "Repository-relative path of the file containing the source entity. Denormalized for efficient lookup without entity join."
+    },
+    "targetFilePath": {
+      "description": "Repository-relative path of the file containing the target entity. Null when unresolved.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    },
+    "sourceRange": {
+      "$ref": "source-range.schema.json",
+      "description": "Source location of the statement or expression that creates this relationship."
+    },
+    "targetRange": {
+      "description": "Source location of the target symbol definition. Null when the target is unresolved or external.",
+      "oneOf": [
+        { "$ref": "source-range.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "resolutionKind": {
+      "type": "string",
+      "enum": ["resolved", "proxy", "unresolved"],
+      "description": "How the target was resolved: 'resolved' = fully matched to a known entity, 'proxy' = matched to a file/module but not a specific entity, 'unresolved' = target could not be found."
+    },
+    "targetClassification": {
+      "type": "string",
+      "enum": [
+        "abstract",
+        "interface",
+        "concrete",
+        "function",
+        "type-alias",
+        "enum",
+        "unknown"
+      ],
+      "description": "Semantic classification of the target entity, used for Dependency Inversion Principle analysis."
+    },
+    "targetIsAbstraction": {
+      "type": "boolean",
+      "description": "True if the target entity is considered an abstraction (interface, abstract class, type alias). Used for DIP compliance scoring."
+    },
+    "consumedMembers": {
+      "description": "Names of the target's public API members that the source entity actually uses. Null when consumption cannot be determined. Used for Interface Segregation Principle analysis.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "targetTotalMembers": {
+      "description": "Total number of public API members on the target entity. Null when the count cannot be determined. Used alongside consumedMembers for ISP ratio calculation.",
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "null" }
+      ]
+    },
+    "crossModule": {
+      "type": "boolean",
+      "description": "True if this relationship crosses a module boundary."
+    },
+    "crossPackage": {
+      "type": "boolean",
+      "description": "True if this relationship crosses a package boundary."
+    },
+    "thirdParty": {
+      "type": "boolean",
+      "description": "True if the target entity belongs to a third-party dependency (not part of the analysed codebase)."
+    },
+    "typeOnly": {
+      "type": "boolean",
+      "description": "True if this relationship exists only at the type level and has no runtime effect (e.g. TypeScript 'import type')."
+    },
+    "dynamic": {
+      "type": "boolean",
+      "description": "True if this relationship was created via a dynamic import (import()) rather than a static import declaration."
+    }
+  },
+  "required": [
+    "sourceEntityId",
+    "targetEntityId",
+    "kind",
+    "sourceFilePath",
+    "sourceRange",
+    "resolutionKind",
+    "targetClassification",
+    "targetIsAbstraction",
+    "crossModule",
+    "crossPackage",
+    "thirdParty",
+    "typeOnly",
+    "dynamic"
+  ],
+  "additionalProperties": false
+}

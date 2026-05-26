@@ -1,0 +1,47 @@
+.tool-value-view {
+  min-width: 0;
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+.tool-value-view--markdown :first-child {
+  margin-top: 0;
+}
+
+.tool-value-view--markdown :last-child {
+  margin-bottom: 0;
+}
+
+.tool-value-pre {
+  margin: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+.tool-value-view--overlay .tool-value-pre {
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.tool-value-view--inline .tool-value-pre {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.tool-value-view--markdown .code-block,
+.tool-value-view--code .tool-value-pre,
+.tool-value-view--json .tool-value-pre {
+  background: rgba(0, 0, 0, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.tool-value-view--markdown .inline-code {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+}

@@ -1,0 +1,81 @@
+{
+    "outputPath": "./openapi.json",
+    "tsconfigPath": "./tsconfig.json",
+    "serverUrl": "http://localhost:3002",
+    "info": {
+        "title": "AI Team API",
+        "description": "HTTP REST API for the AI Team web UI and CLI.",
+        "version": "0.1.0"
+    },
+    "tags": [
+        {
+            "name": "system",
+            "description": "Server health and workspace info"
+        },
+        {
+            "name": "agents",
+            "description": "Agent directory and management"
+        },
+        {
+            "name": "team",
+            "description": "Organisational structure"
+        },
+        {
+            "name": "chat",
+            "description": "Chat session operations"
+        },
+        {
+            "name": "sessions",
+            "description": "Session management"
+        },
+        {
+            "name": "artifacts",
+            "description": "Session artifacts"
+        },
+        {
+            "name": "tasks",
+            "description": "Agent task management"
+        },
+        {
+            "name": "developer",
+            "description": "Developer / debug utilities"
+        },
+        {
+            "name": "files",
+            "description": "Workspace file operations"
+        },
+        {
+            "name": "ide",
+            "description": "IDE integration endpoints"
+        },
+        {
+            "name": "skills",
+            "description": "Agent skill directory"
+        },
+        {
+            "name": "tools",
+            "description": "Tool registry"
+        },
+        {
+            "name": "config",
+            "description": "Configuration management"
+        },
+        {
+            "name": "meta",
+            "description": "Agent metadata"
+        },
+        {
+            "name": "commands",
+            "description": "Command execution"
+        },
+        {
+            "name": "access",
+            "description": "Access control and permissions"
+        }
+    ],
+    "contracts": [
+        {
+            "variablePattern": "*Desc"
+        }
+    ]
+}

@@ -1,0 +1,47 @@
+{
+  "name": "@ai-team/service",
+  "version": "0.1.0",
+  "description": "Service layer for AI Team business operations",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./src/*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*"
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ai-team/api-contracts": "workspace:*",
+    "@ai-team/core": "workspace:*",
+    "fs-context": "workspace:*",
+    "glob": "^13.0.6",
+    "gray-matter": "^4.0.3",
+    "ora": "^9.3.0",
+    "pdf-parse": "^2.4.5",
+    "xstate": "^5.30.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/pdf-parse": "^1.1.5",
+    "@typescript-eslint/eslint-plugin": "^8.57.2",
+    "@typescript-eslint/parser": "^8.57.2",
+    "@vitest/coverage-v8": "^4.1.2",
+    "eslint": "^10.1.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.2"
+  }
+}

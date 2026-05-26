@@ -1,0 +1,138 @@
+{
+    "files.associations": {
+        "**/.ai-team/agents/*.agent.md": "markdown"
+    },
+    "chat.tools.terminal.autoApprove": {
+        "pnpm": true,
+        "Test-Path": true,
+        "sqlite3": true,
+        "npx vitest": true,
+        "reads": true
+    },
+    "github.copilot.chat.alternateGptPrompt.enabled": true,
+    "github.copilot.chat.anthropic.tools.websearch.enabled": false,
+    "chat.viewProgressBadge.enabled": true,
+    "chat.useNestedAgentsMdFiles": true,
+    "chat.unifiedAgentsBar.enabled": true,
+    "chat.tools.terminal.enforceTimeoutFromModel": false,
+    "chat.promptFilesLocations": {
+        ".ai-team/prompts": true
+    },
+    "chat.mcp.gallery.enabled": true,
+    "chat.mcp.assisted.nuget.enabled": true,
+    "chat.instructionsFilesLocations": {
+        ".ai-team/instructions": true
+    },
+    "chat.includeReferencedInstructions": true,
+    "chat.hookFilesLocations": {
+        ".ai-team/hooks": true
+    },
+    "chat.experimental.useSkillAdherencePrompt": true,
+    "chat.editing.explainChanges.enabled": true,
+    "chat.customAgentInSubagent.enabled": true,
+    "chat.checkpoints.showFileChanges": true,
+    "chat.allowAnonymousAccess": true,
+    "chat.agentSkillsLocations": {
+        ".ai-team/skills": true
+    },
+    "chat.agentSessionProjection.enabled": true,
+    "chat.agentFilesLocations": {
+        ".ai-team/agents": true
+    },
+    "cSpell.language": "en",
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnPaste": true,
+    "editor.formatOnSave": true,
+    "[json]": {
+        "editor.defaultFormatter": "vscode.json-language-features"
+    },
+    "js/ts.tsdk.path": "node_modules/typescript/lib",
+    "js/ts.tsdk.promptToUseWorkspaceVersion": true,
+    "js/ts.tsserver.maxMemory": 4096,
+    "files.watcherExclude": {
+        "**/.git/**": true,
+        "**/node_modules/**": true,
+        "**/dist/**": true,
+        "**/build/**": true,
+        "**/coverage/**": true,
+        "**/.turbo/**": true,
+        "**/.next/**": true
+    },
+    "search.exclude": {
+        "**/dist": true,
+        "**/build": true,
+        "**/coverage": true
+    },
+    "chat.mcp.serverSampling": {
+        "ai-team/.vscode/mcp.json: chrome-devtools": {
+            "allowedModels": [
+                "copilot/auto",
+                "copilotcli/claude-haiku-4.5",
+                "claude-code/claude-haiku-4.5",
+                "copilot/claude-haiku-4.5",
+                "copilotcli/claude-opus-4.5",
+                "claude-code/claude-opus-4.5",
+                "copilot/claude-opus-4.5",
+                "copilotcli/claude-opus-4.6",
+                "claude-code/claude-opus-4.6",
+                "copilot/claude-opus-4.6",
+                "copilotcli/claude-opus-4.6-fast",
+                "claude-code/claude-opus-4.6-fast",
+                "copilot/claude-opus-4.6-fast",
+                "copilotcli/claude-sonnet-4",
+                "claude-code/claude-sonnet-4",
+                "copilot/claude-sonnet-4",
+                "copilotcli/claude-sonnet-4.5",
+                "claude-code/claude-sonnet-4.5",
+                "copilot/claude-sonnet-4.5",
+                "copilotcli/claude-sonnet-4.6",
+                "claude-code/claude-sonnet-4.6",
+                "copilot/claude-sonnet-4.6",
+                "ollama/Ollama/deepseek-r1:8b",
+                "copilot/gemini-2.5-pro",
+                "copilot/gemini-3-flash-preview",
+                "copilotcli/gemini-3-pro-preview",
+                "copilot/gemini-3-pro-preview",
+                "copilot/gemini-3.1-pro-preview",
+                "ollama/Ollama/gemma3:4b",
+                "ollama/Ollama/glm-4.7-flash:latest",
+                "copilotcli/gpt-4.1",
+                "copilot/gpt-4.1",
+                "copilot/gpt-4o",
+                "copilotcli/gpt-5-mini",
+                "copilot/gpt-5-mini",
+                "copilotcli/gpt-5.1",
+                "copilot/gpt-5.1",
+                "copilotcli/gpt-5.1-codex",
+                "copilot/gpt-5.1-codex",
+                "copilotcli/gpt-5.1-codex-max",
+                "copilot/gpt-5.1-codex-max",
+                "copilotcli/gpt-5.1-codex-mini",
+                "copilot/gpt-5.1-codex-mini",
+                "copilotcli/gpt-5.2",
+                "copilot/gpt-5.2",
+                "copilotcli/gpt-5.2-codex",
+                "copilot/gpt-5.2-codex",
+                "copilotcli/gpt-5.3-codex",
+                "copilot/gpt-5.3-codex",
+                "copilot/gpt-5.4",
+                "copilot/gpt-5.4-mini",
+                "copilot/grok-code-fast-1",
+                "ollama/Ollama/qwen2.5-coder:7b",
+                "ollama/Ollama/qwen3:8b",
+                "ollama/Ollama/qwen3-coder:30b",
+                "ollama/Ollama/qwen3.5:latest",
+                "copilot/oswe-vscode-prime"
+            ]
+        }
+    },
+    "[jsonc]": {
+        "editor.defaultFormatter": "vscode.json-language-features"
+    },
+    "[html]": {
+        "editor.defaultFormatter": "vscode.html-language-features"
+    },
+    "vitest.enable": true,
+    "jestrunner.jestCommand": "pnpm vitest run",
+    "jestrunner.isMonorepo": true
+}
