@@ -23,7 +23,7 @@ AI Team is an open-source effort to make software development with AI feel relia
 > GitHub Pages: [https://cmeierost.github.io/ai-team/](https://cmeierost.github.io/ai-team/)  
 > Repository: [https://github.com/cmeierost/ai-team](https://github.com/cmeierost/ai-team)
 
-> **Note:** AI Team is at the moment actively developed on the [internal OST GitLab](https://gitlab.ost.ch/clemens.meier/ai-team) and sporadically published to this GitHub repository. We will completely switch to github as soon as we are ready for public collaboration.
+> **Note:** AI Team is at the moment actively developed on the [internal OST GitLab](https://gitlab.ost.ch/clemens.meier/ai-team) and sporadically published to this GitHub repository. We will completely switch to GitHub as soon as we are ready for public collaboration.
 
 ## Project Goal
 
