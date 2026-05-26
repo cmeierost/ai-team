@@ -8,7 +8,7 @@ import { resolveDeveloperName } from '../utils/agent-selection.js';
 import { withAbortSignal } from '../utils/async-utils.js';
 import { withTimeout } from '../utils/with-timeout.js';
 import type { ChatRuntimeHooks } from './hooks.js';
-import { emitLog } from './stream-events.js';
+import type { IEmitService } from './services/emit-service.js';
 
 const PREFLIGHT_STEP_TIMEOUT_MS = 15_000;
 
@@ -26,7 +26,8 @@ export class ChatPreflightService implements IChatPreflightService {
       IEnvironmentStorage,
       'loadEnvFileAsync' | 'saveEnvFileAsync'
     >,
-    private readonly developerIdentityService: Pick<IDeveloperIdentityService, 'getUserName'>
+    private readonly developerIdentityService: Pick<IDeveloperIdentityService, 'getUserName'>,
+    private readonly emitService: IEmitService
   ) {}
 
   async resolve(
@@ -73,7 +74,7 @@ export class ChatPreflightService implements IChatPreflightService {
     task: () => Promise<T>,
     timeoutMs: number = PREFLIGHT_STEP_TIMEOUT_MS
   ): Promise<T> {
-    emitLog('info', message);
+    this.emitService.log('info', message);
     return withAbortSignal(
       withTimeout(
         task(),

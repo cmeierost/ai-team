@@ -1,7 +1,8 @@
 import type { ILlmChatMessageParam, StructuredToolResult, ExecutionContext } from '@ai-team/core';
 import { z } from 'zod';
 
-import type { SendTurnResolvedSkillsAndTools } from '../orchestrator/send-turn-steps.js';
+import type { SendTurnResolvedSkillsAndTools, SendTurnDeps } from '../orchestrator/send-turn-steps.js';
+export type { SendTurnDeps } from '../orchestrator/send-turn-steps.js';
 import type { SendTurnOptions } from '../orchestrator/send-turn.js';
 import type { ResolvedPlugins, TurnResult } from '../orchestrator/pipeline.js';
 import { chatSendTurnResultSchema, type ChatSendTurnResult } from './chat-loop-contracts.js';
@@ -21,6 +22,7 @@ export type SendTurnMachineInput = z.infer<typeof sendTurnMachineInputSchema>;
 export interface SendTurnMachineRuntimeInput extends SendTurnMachineInput {
   ctx: ExecutionContext;
   plugins: ResolvedPlugins;
+  deps: SendTurnDeps;
 }
 
 export interface SendTurnMachineContext {
@@ -29,6 +31,7 @@ export interface SendTurnMachineContext {
   options?: SendTurnOptions;
   ctx: ExecutionContext;
   plugins: ResolvedPlugins;
+  deps: SendTurnDeps;
   messages: ILlmChatMessageParam[];
   resolved?: SendTurnResolvedSkillsAndTools;
   fullResponse: string;

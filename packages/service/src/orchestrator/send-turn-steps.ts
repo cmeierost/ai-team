@@ -6,6 +6,8 @@ import type {
   ICommand,
   ChatMessage,
   ILlmChatMessageParam,
+  ILlmService,
+  ISkillManager,
   Skill,
   StructuredToolResult,
   ExecutionContext,
@@ -21,10 +23,25 @@ import type {
   TurnResult,
 } from './pipeline.js';
 import { invokeLlm } from './llm-invoke.js';
-import { emitLog, emitStatus } from './stream-events.js';
+import type { IEmitService } from './services/emit-service.js';
+import type { ToolDispatcher } from './tool-dispatch.js';
 import { getServiceContainer } from '../service-registry.js';
 import { COMMAND_FACTORY_TOKENS } from '../types.js';
 import type { SendTurnOptions } from './send-turn.js';
+import type { SessionManager } from '../session-manager.js';
+
+/**
+ * Runtime dependencies threaded explicitly into send-turn steps.
+ * These are NOT on ExecutionContext — they are injected by the orchestrator.
+ */
+export interface SendTurnDeps {
+  sessionManager: Pick<SessionManager, 'appendMessage' | 'getSessionSkills' | 'addSessionSkill'>;
+  llmService: ILlmService | undefined;
+  skillManager: ISkillManager;
+  hooks: ChatRuntimeHooks;
+  emitService: IEmitService;
+  toolDispatcher?: ToolDispatcher;
+}
 
 function buildToolDefinitions(tools: ICommand[]): LlmToolDefinition[] {
   const schemaTools = new ZodSchemaTools();
@@ -100,9 +117,10 @@ export async function ensureTurnStartAsync(
   userMessage: string,
   plugins: ResolvedPlugins,
   ctx: ExecutionContext,
-  options?: SendTurnOptions
+  options?: SendTurnOptions,
+  deps?: SendTurnDeps
 ): Promise<void> {
-  if ((ctx as any).hooks?.signal?.aborted) {
+  if (deps?.hooks?.signal?.aborted) {
     throw new DOMException('Chat request aborted by user.', 'AbortError');
   }
 
@@ -114,31 +132,32 @@ export async function ensureTurnStartAsync(
       options: options ? { skipPersist: options.skipPersist } : undefined,
       ctx,
     },
-    (ctx as any).hooks
+    deps?.hooks
   );
 }
 
 export async function persistUserMessageAsync(
   userMessage: string,
   ctx: ExecutionContext,
-  options?: SendTurnOptions
+  options?: SendTurnOptions,
+  deps?: SendTurnDeps
 ): Promise<ChatMessage> {
   const userMsg: ChatMessage = {
     timestamp: new Date().toISOString(),
     from: 'human',
-    to: (ctx as any).agent.id,
+    to: ctx.agent!.id,
     isHuman: true,
     content: userMessage,
   };
 
   if (!options?.skipPersist) {
-    const generatedTitle = await (ctx as any).sessionManager.appendMessage(
+    const generatedTitle = await deps!.sessionManager.appendMessage(
       ctx.sessionId!,
       userMsg,
-      (ctx as any).llmService
+      deps!.llmService
     );
     if (generatedTitle) {
-      (ctx as any).hooks?.emit?.({
+      deps!.emitService.emit({
         kind: 'session_title_updated',
         sessionId: ctx.sessionId!,
         title: generatedTitle,
@@ -147,14 +166,15 @@ export async function persistUserMessageAsync(
   }
 
   ctx.history.push(userMsg);
-  emitStatus('thinking');
+  deps!.emitService.status('thinking');
   return userMsg;
 }
 
 export async function prepareMessagesAsync(
   userMessage: string,
   plugins: ResolvedPlugins,
-  ctx: ExecutionContext
+  ctx: ExecutionContext,
+  deps?: SendTurnDeps
 ): Promise<ILlmChatMessageParam[]> {
   const compressed = await plugins.compressor.compress(ctx.history, ctx);
   const messages = await plugins.contextBuilder.build(compressed, ctx);
@@ -175,7 +195,7 @@ export async function prepareMessagesAsync(
     plugins.hookPlugins ?? [],
     'onMessagesPrepared',
     { messages, ctx },
-    (ctx as any).hooks
+    deps?.hooks
   );
 
   return messages;
@@ -184,20 +204,21 @@ export async function prepareMessagesAsync(
 export async function resolveSkillsAndToolsAsync(
   userMessage: string,
   plugins: ResolvedPlugins,
-  ctx: ExecutionContext
+  ctx: ExecutionContext,
+  deps?: SendTurnDeps
 ): Promise<SendTurnResolvedSkillsAndTools> {
-  const resolvedSkills = await (ctx as any).skillManager.resolveSkillsForAgent((ctx as any).agent);
+  const resolvedSkills = await deps!.skillManager.resolveSkillsForAgent(ctx.agent!);
 
   if (resolvedSkills.roleSkill) {
-    emitLog('info', `[skills] Loaded role skill: ${resolvedSkills.roleSkill.name}`);
+    deps!.emitService.log('info', `[skills] Loaded role skill: ${resolvedSkills.roleSkill.name}`);
   }
 
   for (const skill of resolvedSkills.specializationSkills) {
-    emitLog('info', `[skills] Loaded specialization skill: ${skill.name}`);
+    deps!.emitService.log('info', `[skills] Loaded specialization skill: ${skill.name}`);
   }
 
   for (const missing of resolvedSkills.missingSkillNames) {
-    emitLog('warn', `[skills] Skill not found: ${missing}`);
+    deps!.emitService.log('warn', `[skills] Skill not found: ${missing}`);
   }
 
   await runVoidHookAsync(
@@ -208,24 +229,20 @@ export async function resolveSkillsAndToolsAsync(
       missingSkillNames: resolvedSkills.missingSkillNames,
       ctx,
     },
-    (ctx as any).hooks
+    deps?.hooks
   );
 
-  const allowedSkillIds = ((ctx as any).agent.skills ?? []).map(
-    (skill: { id: string }) => skill.id
-  );
+  const allowedSkillIds = (ctx.agent!.skills ?? []).map((skill: { id: string }) => skill.id);
   let sessionSkillFiles: AgentSkillFile[] = [];
 
   if (allowedSkillIds.length > 0) {
-    const existingSessionSkills = await (ctx as any).sessionManager.getSessionSkills(
-      ctx.sessionId!
-    );
+    const existingSessionSkills = await deps!.sessionManager.getSessionSkills(ctx.sessionId!);
     const loadedRecords = existingSessionSkills.map((record: any) => ({
       skillPath: record.skillPath,
       paused: record.paused,
     }));
 
-    const { newlyLoaded, activeSkills } = await (ctx as any).skillManager.resolveSessionSkills(
+    const { newlyLoaded, activeSkills } = await deps!.skillManager.resolveSessionSkills(
       allowedSkillIds,
       loadedRecords,
       userMessage
@@ -233,13 +250,13 @@ export async function resolveSkillsAndToolsAsync(
 
     for (const skill of newlyLoaded) {
       const relPath = path.relative(ctx.workspaceRoot, skill.filePath).replaceAll('\\', '/');
-      await (ctx as any).sessionManager.addSessionSkill(ctx.sessionId!, relPath);
-      emitLog('info', `[session-skills] Triggered: ${skill.name}`);
+      await deps!.sessionManager.addSessionSkill(ctx.sessionId!, relPath);
+      deps!.emitService.log('info', `[session-skills] Triggered: ${skill.name}`);
     }
 
     for (const skill of activeSkills) {
       if (!newlyLoaded.includes(skill)) {
-        emitLog('info', `[session-skills] Active: ${skill.name}`);
+        deps!.emitService.log('info', `[session-skills] Active: ${skill.name}`);
       }
     }
 
@@ -259,7 +276,7 @@ export async function resolveSkillsAndToolsAsync(
       : Promise.resolve([] as ICommand[]),
   ]);
 
-  const allowedMcpTools = filterDiscoveredToolsForAgent((ctx as any).agent, mcpTools);
+  const allowedMcpTools = filterDiscoveredToolsForAgent(ctx.agent!, mcpTools);
   const allTools = [...tools, ...allowedMcpTools];
 
   await plugins.llmSelector.select(ctx);
@@ -274,7 +291,7 @@ export async function resolveSkillsAndToolsAsync(
       toolDefs,
       ctx,
     },
-    (ctx as any).hooks
+    deps?.hooks
   );
 
   return {
@@ -288,7 +305,8 @@ export async function resolveSkillsAndToolsAsync(
 export async function invokeTurnLlmAsync(
   messages: ILlmChatMessageParam[],
   resolved: SendTurnResolvedSkillsAndTools,
-  ctx: ExecutionContext
+  ctx: ExecutionContext,
+  deps?: SendTurnDeps
 ): Promise<SendTurnLlmInvocationResult> {
   const invoked = await invokeLlm({
     messages,
@@ -297,6 +315,10 @@ export async function invokeTurnLlmAsync(
     skills: resolved.skills,
     teamRoster: resolved.teamRoster,
     ctx,
+    emitService: deps!.emitService,
+    llmService: deps!.llmService!,
+    hooks: deps!.hooks,
+    toolDispatcher: deps!.toolDispatcher,
   });
 
   return {
@@ -310,7 +332,8 @@ export async function handleLlmFailureAsync(
   plugins: ResolvedPlugins,
   ctx: ExecutionContext,
   options?: SendTurnOptions,
-  structuredResults: StructuredToolResult[] = []
+  structuredResults: StructuredToolResult[] = [],
+  deps?: SendTurnDeps
 ): Promise<TurnResult> {
   if (isAbortError(error)) {
     throw error;
@@ -318,7 +341,7 @@ export async function handleLlmFailureAsync(
 
   const message = toErrorMessage(error);
   process.stderr.write(`\n[LLM error] ${message}\n`);
-  emitStatus('error', message);
+  deps!.emitService.status('error', message);
 
   const fallbackContent = buildRetryableFailureMessage(message);
   const persistedContent = await runBeforePersistMessageHooksAsync(
@@ -328,12 +351,12 @@ export async function handleLlmFailureAsync(
       persistedContent: fallbackContent,
       ctx,
     },
-    (ctx as any).hooks
+    deps?.hooks
   );
 
   const failedAgentMsg: ChatMessage = {
     timestamp: new Date().toISOString(),
-    from: (ctx as any).agent.id,
+    from: ctx.agent!.id,
     to: 'human',
     content: persistedContent,
     isHuman: false,
@@ -341,7 +364,7 @@ export async function handleLlmFailureAsync(
   };
 
   if (!options?.skipPersist) {
-    await (ctx as any).sessionManager.appendMessage(ctx.sessionId!, failedAgentMsg);
+    await deps!.sessionManager.appendMessage(ctx.sessionId!, failedAgentMsg);
   }
 
   ctx.history.push(failedAgentMsg);
@@ -359,7 +382,7 @@ export async function handleLlmFailureAsync(
       turnResult: failedTurnResult,
       ctx,
     },
-    (ctx as any).hooks
+    deps?.hooks
   );
 
   return failedTurnResult;
@@ -368,7 +391,8 @@ export async function handleLlmFailureAsync(
 export async function persistAssistantMessageAsync(
   fullResponse: string,
   plugins: ResolvedPlugins,
-  ctx: ExecutionContext
+  ctx: ExecutionContext,
+  deps?: SendTurnDeps
 ): Promise<{ persistedContent: string; persistedMessage: ChatMessage }> {
   const persistedContent = await runBeforePersistMessageHooksAsync(
     plugins.hookPlugins ?? [],
@@ -377,26 +401,26 @@ export async function persistAssistantMessageAsync(
       persistedContent: fullResponse,
       ctx,
     },
-    (ctx as any).hooks
+    deps?.hooks
   );
 
   const agentMsg: ChatMessage = {
     timestamp: new Date().toISOString(),
-    from: (ctx as any).agent.id,
+    from: ctx.agent!.id,
     to: 'human',
     content: persistedContent,
     isHuman: false,
   };
 
-  const generatedTitle = await (ctx as any).sessionManager.appendMessage(
+  const generatedTitle = await deps!.sessionManager.appendMessage(
     ctx.sessionId!,
     agentMsg,
-    (ctx as any).llmService
+    deps!.llmService
   );
   ctx.history.push(agentMsg);
 
   if (generatedTitle) {
-    (ctx as any).hooks?.emit?.({
+    deps!.emitService.emit({
       kind: 'session_title_updated',
       sessionId: ctx.sessionId!,
       title: generatedTitle,
@@ -412,12 +436,12 @@ export async function persistAssistantMessageAsync(
       persistedMessage: agentMsg,
       ctx,
     },
-    (ctx as any).hooks
+    deps?.hooks
   );
 
   await getServiceContainer()
     .resolve(COMMAND_FACTORY_TOKENS.AgentManager)
-    .recordInteractionAsync((ctx as any).agent.id);
+    .recordInteractionAsync(ctx.agent!.id);
 
   return {
     persistedContent,
@@ -430,7 +454,8 @@ export async function parseTurnResultAsync(
   fullResponse: string,
   persistedContent: string,
   plugins: ResolvedPlugins,
-  ctx: ExecutionContext
+  ctx: ExecutionContext,
+  deps?: SendTurnDeps
 ): Promise<TurnResult | null> {
   for (const parser of plugins.turnResultParsers) {
     const override = parser.parse(structuredResults, fullResponse, persistedContent, ctx);
@@ -447,7 +472,7 @@ export async function parseTurnResultAsync(
           turnResult: parsedResult,
           ctx,
         },
-        (ctx as any).hooks
+        deps?.hooks
       );
 
       return parsedResult;
@@ -463,7 +488,8 @@ export async function finalizeTurnResultAsync(
   persistedContent: string,
   structuredResults: StructuredToolResult[],
   plugins: ResolvedPlugins,
-  ctx: ExecutionContext
+  ctx: ExecutionContext,
+  deps?: SendTurnDeps
 ): Promise<TurnResult> {
   await plugins.outputHandler.handle(turnResult, ctx);
 
@@ -477,7 +503,7 @@ export async function finalizeTurnResultAsync(
       turnResult,
       ctx,
     },
-    (ctx as any).hooks
+    deps?.hooks
   );
 
   return turnResult;
@@ -516,7 +542,16 @@ export async function runVoidHookAsync<T extends keyof IOrchestratorHookPlugin>(
       await (hook as (hookPayload: typeof payload) => Promise<void> | void)(payload);
     } catch (error) {
       const message = toErrorMessage(error);
-      emitLog('warn', `[plugin:${plugin.name}] Hook ${String(hookName)} failed: ${message}`);
+      if (hooks?.emitService) {
+        hooks.emitService.log(
+          'warn',
+          `[plugin:${plugin.name}] Hook ${String(hookName)} failed: ${message}`
+        );
+      } else {
+        process.stderr.write(
+          `[warn] [plugin:${plugin.name}] Hook ${String(hookName)} failed: ${message}\n`
+        );
+      }
     }
   }
 }
@@ -541,10 +576,16 @@ export async function runBeforePersistMessageHooksAsync(
       }
     } catch (error) {
       const message = toErrorMessage(error);
-      emitLog(
-        'warn',
-        `[plugin:${plugin.name}] Hook onBeforePersistAssistantMessage failed: ${message}`
-      );
+      if (hooks?.emitService) {
+        hooks.emitService.log(
+          'warn',
+          `[plugin:${plugin.name}] Hook onBeforePersistAssistantMessage failed: ${message}`
+        );
+      } else {
+        process.stderr.write(
+          `[warn] [plugin:${plugin.name}] Hook onBeforePersistAssistantMessage failed: ${message}\n`
+        );
+      }
     }
   }
 

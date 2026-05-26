@@ -105,6 +105,29 @@ function getMimeType(filePath) {
   return mimeTypes.get(path.extname(filePath).toLowerCase()) ?? 'application/octet-stream';
 }
 
+function resolveRevealAssetPath(relativePath) {
+  const directPath = path.resolve(workspaceRoot, 'node_modules', 'reveal.js', relativePath);
+  if (fssync.existsSync(directPath)) return directPath;
+
+  const pnpmDir = path.resolve(workspaceRoot, 'node_modules', '.pnpm');
+  if (fssync.existsSync(pnpmDir)) {
+    const entries = fssync.readdirSync(pnpmDir);
+    const revealEntry = entries.find((entry) => entry.startsWith('reveal.js@'));
+    if (revealEntry) {
+      const pnpmPath = path.resolve(
+        pnpmDir,
+        revealEntry,
+        'node_modules',
+        'reveal.js',
+        relativePath,
+      );
+      if (fssync.existsSync(pnpmPath)) return pnpmPath;
+    }
+  }
+
+  return null;
+}
+
 function isInside(parent, child) {
   const rel = path.relative(parent, child);
   return (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) || rel === '';
@@ -195,15 +218,15 @@ async function waitForReveal(page) {
   try {
     await page.waitForFunction(
       () => {
-        const reveal = globalThis.Reveal;
+        const reveal = globalThis.__revealInstance;
         return reveal !== undefined && typeof reveal.getSlides === 'function';
       },
-      { timeout: 60000 },
+      { timeout: 60000 }
     );
     await page.evaluate(
       () =>
         new Promise((resolve) => {
-          const reveal = globalThis.Reveal;
+          const reveal = globalThis.__revealInstance;
           if (!reveal || typeof reveal.isReady !== 'function') {
             resolve(false);
             return;
@@ -222,7 +245,7 @@ async function waitForReveal(page) {
             clearTimeout(timer);
             resolve(false);
           }
-        }),
+        })
     );
     return true;
   } catch {
@@ -232,7 +255,7 @@ async function waitForReveal(page) {
 
 async function getSlideIndices(page) {
   return page.evaluate(() => {
-    const reveal = globalThis.Reveal;
+    const reveal = globalThis.__revealInstance;
     if (reveal && typeof reveal.getSlides === 'function') {
       return reveal.getSlides().map((slide) => reveal.getIndices(slide));
     }
@@ -245,7 +268,7 @@ async function getSlideIndices(page) {
 async function showSlide(page, idx, revealAvailable) {
   if (revealAvailable) {
     await page.evaluate((target) => {
-      const reveal = globalThis.Reveal;
+      const reveal = globalThis.__revealInstance;
       if (!reveal || typeof reveal.slide !== 'function') return;
       reveal.slide(target.h, target.v, target.f ?? 0);
     }, idx);
@@ -258,6 +281,57 @@ async function showSlide(page, idx, revealAvailable) {
       slide.style.display = index === target.h ? 'block' : 'none';
     });
   }, idx);
+}
+
+async function settleSlide(page, revealAvailable) {
+  await page.evaluate((useReveal) => {
+    document.documentElement.scrollLeft = 0;
+    document.documentElement.scrollTop = 0;
+    document.body.scrollLeft = 0;
+    document.body.scrollTop = 0;
+
+    if (!useReveal) return;
+
+    const reveal = globalThis.__revealInstance;
+    if (!reveal) return;
+
+    try {
+      if (typeof reveal.configure === 'function') {
+        reveal.configure({ transition: 'none', backgroundTransition: 'none', center: true });
+      }
+      if (typeof reveal.sync === 'function') {
+        reveal.sync();
+      }
+      if (typeof reveal.layout === 'function') {
+        reveal.layout();
+      }
+    } catch {
+      // ignore
+    }
+  }, revealAvailable);
+
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const reveal = globalThis.__revealInstance;
+        if (!reveal || typeof reveal.on !== 'function') {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+          return;
+        }
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          resolve(true);
+        };
+        const timer = setTimeout(finish, 800);
+        reveal.on('slidetransitionend', () => {
+          clearTimeout(timer);
+          finish();
+        });
+        requestAnimationFrame(() => requestAnimationFrame(finish));
+      }),
+  );
 }
 
 function parseLengthToPoints(value) {
@@ -330,23 +404,45 @@ async function renderWithPuppeteer(url, pdfPath) {
 
   try {
     const page = await browser.newPage();
-      page.on('console', (msg) => {
-        const type = msg.type();
-        const text = msg.text();
-        if (type === 'error' || type === 'warning') {
-          console.log(`[slides:pdf][browser:${type}] ${text}`);
-        }
+    page.on('console', (msg) => {
+      const type = msg.type();
+      const text = msg.text();
+      if (type === 'error' || type === 'warning') {
+        console.log(`[slides:pdf][browser:${type}] ${text}`);
+      }
+    });
+    page.on('pageerror', (error) => {
+      console.log(`[slides:pdf][pageerror] ${String(error)}`);
+    });
+    page.on('requestfailed', (request) => {
+      const url = request.url();
+      const failure = request.failure();
+      if (url.includes('reveal') || url.includes('unpkg')) {
+        console.log(`[slides:pdf][requestfailed] ${url} ${failure?.errorText ?? ''}`);
+      }
+    });
+    await page.evaluateOnNewDocument(() => {
+      let revealClass;
+      Object.defineProperty(globalThis, 'Reveal', {
+        configurable: true,
+        get() {
+          return revealClass;
+        },
+        set(value) {
+          revealClass = value;
+          if (typeof value === 'function') {
+            const Wrapped = function (...args) {
+              const instance = new value(...args);
+              globalThis.__revealInstance = instance;
+              return instance;
+            };
+            Wrapped.prototype = value.prototype;
+            Object.assign(Wrapped, value);
+            revealClass = Wrapped;
+          }
+        },
       });
-      page.on('pageerror', (error) => {
-        console.log(`[slides:pdf][pageerror] ${String(error)}`);
-      });
-      page.on('requestfailed', (request) => {
-        const url = request.url();
-        const failure = request.failure();
-        if (url.includes('reveal') || url.includes('unpkg')) {
-          console.log(`[slides:pdf][requestfailed] ${url} ${failure?.errorText ?? ''}`);
-        }
-      });
+    });
     await page.setRequestInterception(true);
     page.on('request', async (request) => {
       const requestUrl = request.url();
@@ -354,8 +450,8 @@ async function renderWithPuppeteer(url, pdfPath) {
 
       if (requestUrl.startsWith(revealPrefix)) {
         const relativePath = requestUrl.slice(revealPrefix.length).split('?')[0];
-        const localPath = path.resolve(workspaceRoot, 'node_modules', 'reveal.js', relativePath);
-        if (fssync.existsSync(localPath)) {
+        const localPath = resolveRevealAssetPath(relativePath);
+        if (localPath) {
           console.log(`[slides:pdf][asset] ${relativePath} -> local`);
           const body = await fs.readFile(localPath);
           await request.respond({
@@ -383,7 +479,9 @@ async function renderWithPuppeteer(url, pdfPath) {
     });
     const revealAvailable = await waitForReveal(page);
     if (!revealAvailable) {
-      throw new Error('Reveal did not initialize in time. Export requires Reveal to update slide backgrounds.');
+      throw new Error(
+        'Reveal did not initialize in time. Export requires Reveal to update slide backgrounds.'
+      );
     }
     await new Promise((resolve) => setTimeout(resolve, Math.max(2500, loadPause)));
 
@@ -413,8 +511,7 @@ async function renderWithPuppeteer(url, pdfPath) {
 
     for (const idx of slideIndices) {
       await showSlide(page, idx, revealAvailable);
-
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await settleSlide(page, revealAvailable);
 
       const buffer = await page.screenshot({
         type: 'png',

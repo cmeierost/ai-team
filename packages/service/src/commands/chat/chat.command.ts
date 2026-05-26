@@ -23,7 +23,6 @@ import { tryIntroduceUser as tryIntroduceUserNew } from '../../orchestrator/intr
 import type { ResolvedPlugins } from '../../orchestrator/pipeline.js';
 import { formatConsoleArgs } from '../../orchestrator/chat-emitter.js';
 import { emitLog, hasActiveEmitter } from '../../orchestrator/stream-events.js';
-import type { ToolManager } from '../../tools/tool-manager.js';
 import { NoOpCompressor } from '../../orchestrator/defaults/context-compressor.js';
 import { DefaultContextBuilder } from '../../orchestrator/defaults/context-builder.js';
 import {
@@ -115,10 +114,6 @@ interface WorkflowChatOptions {
 }
 
 type ChatCommandOptions = ChatOptions & WorkflowChatOptions;
-
-type ChatExecutionContext = ExecutionContext & {
-  hooks: ChatRuntimeHooks;
-};
 
 function wireLlmDiagnostics(llm: ILlmService): void {
   llm.setDiagnosticReporter((entry) => {
@@ -622,7 +617,7 @@ export class ChatCommand {
   }
 
   private async runInteractiveLoop(params: {
-    ctx: ChatExecutionContext;
+    ctx: ExecutionContext;
     orchestrator: ChatOrchestrator;
     options: ChatCommandOptions;
     hooks: ChatRuntimeHooks;
@@ -695,7 +690,7 @@ export class ChatCommand {
   }
 
   private async handleBackNavigation(params: {
-    ctx: ChatExecutionContext;
+    ctx: ExecutionContext;
     hooks: ChatRuntimeHooks;
     navStack: Array<{ agentId: string; sessionId: string; agentName: string }>;
     loadSessionMessagesCommand: LoadSessionMessagesCommand;

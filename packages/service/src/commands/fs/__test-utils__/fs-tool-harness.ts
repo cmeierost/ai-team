@@ -5,6 +5,7 @@ import { vi } from 'vitest';
 import { WorkspaceFs, canRead, canWrite } from 'fs-context';
 import { ContextLevel, type Agent, type PermissionConfig, type ICommand } from '@ai-team/core';
 import { COMMAND_FACTORY_TOKENS } from '../../../types.js';
+import { CommandRegistry } from '../../../command-registry-impl.js';
 import { ToolManager } from '../../../tools/tool-manager.js';
 import {
   FsReadFileTool,
@@ -169,12 +170,7 @@ export async function createWorkspace(): Promise<string> {
 }
 
 export async function setupManager(workspaceRoot: string): Promise<ToolManager> {
-  const registry = {
-    register: () => undefined,
-    get: () => undefined,
-    getAll: () => [],
-    toLlmToolDefinitions: () => [],
-  } as any;
+  const registry = new CommandRegistry();
 
   const container = {
     resolve: (token: { id?: string }) => {
@@ -189,7 +185,12 @@ export async function setupManager(workspaceRoot: string): Promise<ToolManager> 
     },
   } as any;
 
-  const manager = new ToolManager(
+  for (const tool of getFsTools(workspaceRoot)) {
+    const instance = tool;
+    registry.register(instance.metadata, () => instance);
+  }
+
+  return new ToolManager(
     workspaceRoot,
     {
       can: vi.fn().mockReturnValue(true),
@@ -202,9 +203,6 @@ export async function setupManager(workspaceRoot: string): Promise<ToolManager> 
     registry,
     container
   );
-
-  for (const tool of getFsTools(workspaceRoot)) manager.register(tool);
-  return manager;
 }
 
 export function ctx(agent: Agent, ws: string) {

@@ -21,6 +21,8 @@ import { resolveCommandArgs, parseArgsIntelligently } from './command-adapters.j
 import { setServiceContainer } from './service-registry.js';
 import { CommandRegistry } from './command-registry-impl.js';
 import type { DynamicSlashEntry } from './orchestrator/dynamic-slash/catalog.js';
+import type { IEmitService } from './orchestrator/services/emit-service.js';
+import { EmitService } from './orchestrator/services/emit-service.js';
 import {
   buildSkillSlashCommand,
   buildPromptSlashCommand,
@@ -277,7 +279,8 @@ export class CommandDispatcher implements ICommandDispatcher {
    * typed factory based on the entry source. Built-in commands always win — duplicate
    * keys are silently skipped, not overwritten.
    */
-  registerDynamic(entries: DynamicSlashEntry[]): void {
+  registerDynamic(entries: DynamicSlashEntry[], emitService?: IEmitService): void {
+    const es: IEmitService = emitService ?? EmitService.forConsole();
     for (const entry of entries) {
       try {
         const descriptor = {
@@ -289,9 +292,9 @@ export class CommandDispatcher implements ICommandDispatcher {
           path: ['dynamic', entry.source],
         };
         this.registry.register(descriptor, () => {
-          if (entry.source === 'skill') return buildSkillSlashCommand(entry);
-          if (entry.source === 'workflow') return buildWorkflowSlashCommand(entry);
-          return buildPromptSlashCommand(entry);
+          if (entry.source === 'skill') return buildSkillSlashCommand(entry, es);
+          if (entry.source === 'workflow') return buildWorkflowSlashCommand(entry, es);
+          return buildPromptSlashCommand(entry, es);
         });
       } catch {
         // Built-in command with the same key already registered — skip silently.
@@ -784,7 +787,7 @@ export function createCommandDispatcher(
           pathPermissionChecker: r.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
           serviceContainer: r,
         },
-        new ChatInfoService(),
+        new ChatInfoService(EmitService.forConsole()),
         r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
       )
   );
@@ -859,7 +862,8 @@ export function createCommandDispatcher(
     (r) =>
       new NewSessionChatCommand(
         r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-        r.resolve(COMMAND_FACTORY_TOKENS.SessionManager)
+        r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
+        EmitService.forConsole()
       )
   );
 

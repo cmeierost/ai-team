@@ -23,7 +23,7 @@ import {
 import type { ToolManager } from '../tools/tool-manager.js';
 import type { SessionManager } from '../session-manager.js';
 import type { IQuestionService } from '../questions/question-service.js';
-import { emitEvent, emitToolEvent } from './stream-events.js';
+import type { IEmitService } from './services/emit-service.js';
 import type { RuntimeStreamEvent, ToolRuntimePayloadEvent } from '@ai-team/api-contracts';
 import {
   ToolDispatchSupportService,
@@ -60,7 +60,8 @@ export class ToolDispatcher {
     private readonly toolManager: ToolManager,
     private readonly sessionManager: SessionManager,
     private readonly support: ToolDispatchSupportService,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IQuestionService,
+    private readonly emitService: IEmitService
   ) {}
 
   async dispatch(
@@ -112,7 +113,7 @@ export class ToolDispatcher {
     );
 
     const toolEvent = this.buildToolEvent(toolName, args, processed);
-    emitToolEvent(
+    this.emitService.toolEvent(
       toolName,
       toolCallId,
       toolEvent.toolPhase,
@@ -166,7 +167,7 @@ export class ToolDispatcher {
       reasonCode: 'user_declined',
       message: denied,
     };
-    emitToolEvent(
+    this.emitService.toolEvent(
       toolName,
       toolCallId,
       'denied',
@@ -244,7 +245,7 @@ export class ToolDispatcher {
     args: unknown,
     ctx: ExecutionContext
   ): void {
-    emitEvent({
+    this.emitService.emit({
       kind: 'tool',
       toolName,
       toolCallId,
@@ -394,7 +395,7 @@ export class ToolDispatcher {
       }
     }
 
-    emitEvent({
+    this.emitService.emit({
       kind: 'code_edit_proposal',
       proposalId: `${toolName}-${toolCallId}`,
       agentName: ctx.agent!.name,

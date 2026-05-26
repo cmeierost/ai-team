@@ -16,7 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Agent, ChatMessage, IAgentManager, ILlmService, ExecutionContext } from '@ai-team/core';
 import type { SessionManager } from '../session-manager.js';
-import { emitEvent, emitLog } from './stream-events.js';
+import type { IEmitService } from './services/emit-service.js';
 import { detectForwardRequestWithFallbackAsync, extractForwardNote } from './forward-detection.js';
 
 // ── HandoffOrchestrator ───────────────────────────────────────────────────────
@@ -25,7 +25,8 @@ export class HandoffOrchestrator {
   constructor(
     private readonly agentManager: IAgentManager,
     private readonly sessionManager: SessionManager,
-    private readonly llmService: ILlmService
+    private readonly llmService: ILlmService,
+    private readonly emitService: IEmitService
   ) {}
 
   /**
@@ -60,12 +61,12 @@ export class HandoffOrchestrator {
 
       const note = extractForwardNote(message, resolved.name);
       await this.executeHandoff(ctx, resolved.id, undefined, note);
-      emitLog('info', `\nSwitching to ${resolved.name} (${resolved.role})...\n`);
+      this.emitService.log('info', `\nSwitching to ${resolved.name} (${resolved.role})...\n`);
       return 'forwarded';
     }
 
     if (looksLikeForward) {
-      emitLog(
+      this.emitService.log(
         'warn',
         `I couldn't find anyone on your team matching that request. Try using their name directly.`
       );
@@ -145,7 +146,7 @@ export class HandoffOrchestrator {
     await this.sessionManager.appendMessage(fromSessionId, briefingMsg);
 
     // ── 5. Emit handoff event ────────────────────────────────────────────────
-    emitEvent({
+    this.emitService.emit({
       kind: 'handoff',
       fromAgentId: fromAgent.id,
       fromAgentName: fromAgent.name,

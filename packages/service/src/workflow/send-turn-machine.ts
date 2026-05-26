@@ -237,42 +237,50 @@ export function createSendTurnMachine() {
     actors: {
       ensureTurnStart: fromPromise<
         void,
-        Pick<SendTurnMachineContext, 'userMessage' | 'plugins' | 'ctx' | 'options'>
+        Pick<SendTurnMachineContext, 'userMessage' | 'plugins' | 'ctx' | 'options' | 'deps'>
       >(async ({ input }) => {
-        await ensureTurnStartAsync(input.userMessage, input.plugins, input.ctx, input.options);
+        await ensureTurnStartAsync(
+          input.userMessage,
+          input.plugins,
+          input.ctx,
+          input.options,
+          input.deps
+        );
       }),
       persistUserMessage: fromPromise<
         void,
-        Pick<SendTurnMachineContext, 'userMessage' | 'ctx' | 'options'>
+        Pick<SendTurnMachineContext, 'userMessage' | 'ctx' | 'options' | 'deps'>
       >(async ({ input }) => {
-        await persistUserMessageAsync(input.userMessage, input.ctx, input.options);
+        await persistUserMessageAsync(input.userMessage, input.ctx, input.options, input.deps);
       }),
       prepareMessages: fromPromise<
         ILlmChatMessageParam[],
-        Pick<SendTurnMachineContext, 'userMessage' | 'plugins' | 'ctx'>
-      >(async ({ input }) => prepareMessagesAsync(input.userMessage, input.plugins, input.ctx)),
+        Pick<SendTurnMachineContext, 'userMessage' | 'plugins' | 'ctx' | 'deps'>
+      >(async ({ input }) =>
+        prepareMessagesAsync(input.userMessage, input.plugins, input.ctx, input.deps)
+      ),
       resolveSkillsTools: fromPromise<
         NonNullable<SendTurnMachineContext['resolved']>,
-        Pick<SendTurnMachineContext, 'userMessage' | 'plugins' | 'ctx'>
+        Pick<SendTurnMachineContext, 'userMessage' | 'plugins' | 'ctx' | 'deps'>
       >(async ({ input }) =>
-        resolveSkillsAndToolsAsync(input.userMessage, input.plugins, input.ctx)
+        resolveSkillsAndToolsAsync(input.userMessage, input.plugins, input.ctx, input.deps)
       ),
       invokeLlm: fromPromise<
         { fullResponse: string; structuredResults: StructuredToolResult[] },
-        Pick<SendTurnMachineContext, 'messages' | 'resolved' | 'ctx'>
+        Pick<SendTurnMachineContext, 'messages' | 'resolved' | 'ctx' | 'deps'>
       >(async ({ input }) => {
         const resolved = input.resolved;
         if (!resolved) {
           throw new Error('invokeLlm requires resolved skills/tools state.');
         }
 
-        return invokeTurnLlmAsync(input.messages, resolved, input.ctx);
+        return invokeTurnLlmAsync(input.messages, resolved, input.ctx, input.deps);
       }),
       handleLlmFailure: fromPromise<
         TurnResult,
         Pick<
           SendTurnMachineContext,
-          'invocationError' | 'plugins' | 'ctx' | 'options' | 'structuredResults'
+          'invocationError' | 'plugins' | 'ctx' | 'options' | 'structuredResults' | 'deps'
         >
       >(async ({ input }) => {
         if (!input.invocationError) {
@@ -284,17 +292,19 @@ export function createSendTurnMachine() {
           input.plugins,
           input.ctx,
           input.options,
-          input.structuredResults
+          input.structuredResults,
+          input.deps
         );
       }),
       persistAssistantMessage: fromPromise<
         { persistedContent: string },
-        Pick<SendTurnMachineContext, 'fullResponse' | 'plugins' | 'ctx'>
+        Pick<SendTurnMachineContext, 'fullResponse' | 'plugins' | 'ctx' | 'deps'>
       >(async ({ input }) => {
         const persisted = await persistAssistantMessageAsync(
           input.fullResponse,
           input.plugins,
-          input.ctx
+          input.ctx,
+          input.deps
         );
         return { persistedContent: persisted.persistedContent };
       }),
@@ -302,7 +312,7 @@ export function createSendTurnMachine() {
         TurnResult | null,
         Pick<
           SendTurnMachineContext,
-          'structuredResults' | 'fullResponse' | 'persistedContent' | 'plugins' | 'ctx'
+          'structuredResults' | 'fullResponse' | 'persistedContent' | 'plugins' | 'ctx' | 'deps'
         >
       >(async ({ input }) =>
         parseTurnResultAsync(
@@ -310,7 +320,8 @@ export function createSendTurnMachine() {
           input.fullResponse,
           input.persistedContent,
           input.plugins,
-          input.ctx
+          input.ctx,
+          input.deps
         )
       ),
       finalizeResult: fromPromise<
@@ -323,6 +334,7 @@ export function createSendTurnMachine() {
           | 'structuredResults'
           | 'plugins'
           | 'ctx'
+          | 'deps'
         >
       >(async ({ input }) => {
         const turnResult: TurnResult = input.parsedTurnResult ?? {
@@ -336,7 +348,8 @@ export function createSendTurnMachine() {
           input.persistedContent,
           input.structuredResults,
           input.plugins,
-          input.ctx
+          input.ctx,
+          input.deps
         );
       }),
     },
@@ -358,6 +371,7 @@ export function createSendTurnMachine() {
         options: normalizedInput.options,
         ctx: input.ctx,
         plugins: input.plugins,
+        deps: input.deps,
         messages: [],
         resolved: undefined,
         fullResponse: '',
@@ -379,6 +393,7 @@ export function createSendTurnMachine() {
             plugins: context.plugins,
             ctx: context.ctx,
             options: context.options,
+            deps: context.deps,
           }),
           onDone: { target: 'persistUserMessage' },
           onError: {
@@ -399,6 +414,7 @@ export function createSendTurnMachine() {
             userMessage: context.userMessage,
             ctx: context.ctx,
             options: context.options,
+            deps: context.deps,
           }),
           onDone: { target: 'prepareMessages' },
           onError: {
@@ -419,6 +435,7 @@ export function createSendTurnMachine() {
             userMessage: context.userMessage,
             plugins: context.plugins,
             ctx: context.ctx,
+            deps: context.deps,
           }),
           onDone: {
             target: 'resolveSkillsTools',
@@ -444,6 +461,7 @@ export function createSendTurnMachine() {
             userMessage: context.userMessage,
             plugins: context.plugins,
             ctx: context.ctx,
+            deps: context.deps,
           }),
           onDone: {
             target: 'invokeLlm',
@@ -469,6 +487,7 @@ export function createSendTurnMachine() {
             messages: context.messages,
             resolved: context.resolved,
             ctx: context.ctx,
+            deps: context.deps,
           }),
           onDone: {
             target: 'persistAssistantMessage',
@@ -501,6 +520,7 @@ export function createSendTurnMachine() {
             ctx: context.ctx,
             options: context.options,
             structuredResults: context.structuredResults,
+            deps: context.deps,
           }),
           onDone: {
             target: 'completed',
@@ -526,6 +546,7 @@ export function createSendTurnMachine() {
             fullResponse: context.fullResponse,
             plugins: context.plugins,
             ctx: context.ctx,
+            deps: context.deps,
           }),
           onDone: {
             target: 'parseResult',
@@ -555,6 +576,7 @@ export function createSendTurnMachine() {
             persistedContent: context.persistedContent,
             plugins: context.plugins,
             ctx: context.ctx,
+            deps: context.deps,
           }),
           onDone: {
             target: 'finalizeResult',
@@ -583,6 +605,7 @@ export function createSendTurnMachine() {
             structuredResults: context.structuredResults,
             plugins: context.plugins,
             ctx: context.ctx,
+            deps: context.deps,
           }),
           onDone: {
             target: 'completed',

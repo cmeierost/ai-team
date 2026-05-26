@@ -67,7 +67,6 @@ const deck = new Reveal({
   slideNumber: false,
   plugins: [RevealNotes, RevealHighlight],
 });
-globalThis.ostDeck = deck;
 deck.initialize();
 
 // Create fixed footer bar (skip in print-pdf mode)
@@ -119,10 +118,8 @@ function updateFooter(slide) {
   const indices = deck.getIndices();
   footerBar.querySelector('.ost-footer-number').textContent = indices.h + 1;
 
-  footerBar.querySelector('.ost-footer-text').textContent =
-    slide.dataset.footer || '';
-  footerBar.querySelector('.ost-footer-date').textContent =
-    slide.dataset.date || '';
+  footerBar.querySelector('.ost-footer-text').textContent = slide.dataset.footer || '';
+  footerBar.querySelector('.ost-footer-date').textContent = slide.dataset.date || '';
 }
 
 deck.on('ready', (event) => {
@@ -265,15 +262,11 @@ deck.on('ready', (event) => {
   // Auto-wrap standalone <img> in <figure> and generate <figcaption> from data-caption
   document
     .querySelectorAll(
-      '.reveal section:not([data-slide-type]) img:not(.ost-footer-logo):not(.chapter-footer-logo)',
+      '.reveal section:not([data-slide-type]) img:not(.ost-footer-logo):not(.chapter-footer-logo)'
     )
     .forEach((img) => {
       // Skip background images and logos
-      if (
-        img.closest('.ost-footer-bar') ||
-        img.closest('.ost-chapter-footer-bar')
-      )
-        return;
+      if (img.closest('.ost-footer-bar') || img.closest('.ost-chapter-footer-bar')) return;
 
       // Wrap in <figure> if not already inside one
       if (!img.closest('figure')) {
@@ -333,9 +326,6 @@ deck.on('slidechanged', (event) => {
   if (controls) {
     controls.classList.add('visible');
     clearTimeout(controlsTimeout);
-    controlsTimeout = setTimeout(
-      () => controls.classList.remove('visible'),
-      1500,
-    );
+    controlsTimeout = setTimeout(() => controls.classList.remove('visible'), 1500);
   }
 });

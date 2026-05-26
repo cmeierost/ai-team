@@ -22,8 +22,11 @@ import type {
 } from '@ai-team/core';
 import { withAbortSignal } from '../utils/async-utils.js';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
+import type { ChatRuntimeHooks } from './hooks.js';
+import type { IEmitService } from './services/emit-service.js';
+import type { ToolDispatcher } from './tool-dispatch.js';
 
-import { emitToken, extractStreamDeltaText } from './stream-events.js';
+import { extractStreamDeltaText } from './stream-events.js';
 
 type RuntimeLlmService = ILlmService & {
   streamChat(
@@ -153,6 +156,10 @@ export interface LlmInvokeParams {
   skills: Skill[];
   teamRoster: Agent[];
   ctx: ExecutionContext;
+  emitService: IEmitService;
+  llmService: ILlmService;
+  hooks?: ChatRuntimeHooks;
+  toolDispatcher?: ToolDispatcher;
 }
 
 export interface LlmInvokeResult {
@@ -166,14 +173,13 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
   if (!agent) {
     throw new Error('LLM invocation requires an active agent.');
   }
-  const hooks = (ctx as any).hooks;
-  const llmService = (ctx as any).llmService;
-  const runtimeLlm = llmService as RuntimeLlmService;
+  const { hooks, emitService } = params;
+  const runtimeLlm = params.llmService as RuntimeLlmService;
 
   const state = makeFilterState();
   let fullResponse = '';
   const structuredResults: StructuredToolResult[] = [];
-  const writeToken = (text: string) => emitToken(text);
+  const writeToken = (text: string) => emitService.token(text);
 
   const workingMessages: ILlmChatMessageParam[] =
     toolDefs.length > 0 ? [buildToolPolicyMessage(tools), ...messages] : messages;
@@ -203,7 +209,7 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
           workingMessages,
           toolDefs,
           async (toolCall) => {
-            const response = await (ctx as any).toolDispatcher.dispatch(
+            const response = await params.toolDispatcher!.dispatch(
               { toolCallId: toolCall.toolCallId, toolName: toolCall.toolName, args: toolCall.args },
               ctx
             );

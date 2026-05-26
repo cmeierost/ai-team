@@ -6,7 +6,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
-import { emitEvent } from '../../orchestrator/stream-events.js';
+import type { IEmitService } from '../../orchestrator/services/emit-service.js';
 export const NewSessionChatCommandMetadata = {
   key: 'new',
   description: 'Start a new session with the current agent',
@@ -19,7 +19,8 @@ export class NewSessionChatCommand implements ICommand<string, string> {
 
   constructor(
     private readonly developerIdentityService: IDeveloperIdentityService,
-    private readonly sessionManager: Pick<SessionManager, 'createSession'>
+    private readonly sessionManager: Pick<SessionManager, 'createSession'>,
+    private readonly emitService: IEmitService
   ) {}
 
   async execute(_args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
@@ -27,7 +28,7 @@ export class NewSessionChatCommand implements ICommand<string, string> {
     const fresh = await this.sessionManager.createSession(ctx.agent!.id, developerId);
     ctx.sessionId = fresh.id;
     ctx.history = [];
-    emitEvent({ kind: 'session_switched', sessionId: fresh.id });
+    this.emitService.emit({ kind: 'session_switched', sessionId: fresh.id });
     const message = `New session started: ${fresh.id}`;
     return { status: 'ok', message, data: fresh.id };
   }

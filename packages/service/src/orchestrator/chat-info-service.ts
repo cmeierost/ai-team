@@ -1,6 +1,6 @@
 import type { Agent, ChatMessage } from '@ai-team/core';
 import { printSessionResume } from './chat-emitter.js';
-import { emitLog, emitEvent } from './stream-events.js';
+import type { IEmitService } from './services/emit-service.js';
 
 export interface IChatInfoService {
   showSessionIntro(args: {
@@ -18,6 +18,7 @@ export interface IChatInfoService {
 }
 
 export class ChatInfoService implements IChatInfoService {
+  constructor(private readonly emitService: IEmitService) {}
   showSessionIntro(args: {
     agent: Agent;
     developerName: string | undefined;
@@ -26,8 +27,8 @@ export class ChatInfoService implements IChatInfoService {
   }): void {
     const { agent, developerName, workflowMode, workflowExitWords } = args;
 
-    emitLog('info', `\nChat with ${agent.name} (${agent.role})`);
-    emitEvent({
+    this.emitService.log('info', `\nChat with ${agent.name} (${agent.role})`);
+    this.emitService.emit({
       kind: 'agent_info',
       agentId: agent.id,
       agentName: agent.name,
@@ -35,22 +36,25 @@ export class ChatInfoService implements IChatInfoService {
       developerName: developerName ?? undefined,
     });
 
-    emitLog('info', 'Type "exit" to end the conversation');
-    emitLog('info', 'Type "/help" to see available in-chat commands');
-    emitLog('info', 'Ask to be forwarded or type "/chat <name>" to switch agents');
-    emitLog('info', 'Use "#tool_name {json}" or "/tool tool_name {json}" for direct tool calls');
+    this.emitService.log('info', 'Type "exit" to end the conversation');
+    this.emitService.log('info', 'Type "/help" to see available in-chat commands');
+    this.emitService.log('info', 'Ask to be forwarded or type "/chat <name>" to switch agents');
+    this.emitService.log(
+      'info',
+      'Use "#tool_name {json}" or "/tool tool_name {json}" for direct tool calls'
+    );
 
     if (workflowMode && (workflowExitWords?.length ?? 0) > 0) {
       const exitWords = workflowExitWords?.filter(Boolean).join(', ');
       if (exitWords) {
-        emitLog('info', `Type ${exitWords} to continue to the next workflow step`);
+        this.emitService.log('info', `Type ${exitWords} to continue to the next workflow step`);
       }
     }
   }
 
   showLoadedInstructions(instructionCount: number): void {
     if (instructionCount > 0) {
-      emitLog('info', `Loaded ${instructionCount} instruction file(s)`);
+      this.emitService.log('info', `Loaded ${instructionCount} instruction file(s)`);
     }
   }
 
@@ -60,7 +64,7 @@ export class ChatInfoService implements IChatInfoService {
     developerName: string | undefined
   ): void {
     if (history.length > 0) {
-      printSessionResume(history, agentName, developerName);
+      printSessionResume(history, agentName, developerName, this.emitService);
     }
   }
 }

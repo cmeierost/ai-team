@@ -1,6 +1,7 @@
 import type { ICommandsService } from '@ai-team/api-contracts';
 import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 import type { IConfigurationStorage, ISkillManager } from '@ai-team/core';
+import { EmitService } from '../orchestrator/services/emit-service.js';
 import { buildChatCommandRegistry } from '../commands/chat/chat-commands.command.js';
 import {
   buildDynamicSlashCatalog,
@@ -34,6 +35,7 @@ export class CommandsService implements ICommandsService {
       dynamicSlashCatalog: readDynamicSlashCatalogConfig(
         await this.configurationStorage.loadEffectiveConfigAsync(this.workspaceRoot)
       ),
+      emitService: EmitService.forConsole(),
     });
 
     for (const warning of dynamic.warnings) {

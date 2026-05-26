@@ -4,7 +4,7 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import { glob } from 'glob/raw';
 import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
-import { emitLog } from '../stream-events.js';
+import type { IEmitService } from '../services/emit-service.js';
 import { getServiceContainer } from '../../service-registry.js';
 import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 import { JsonWorkflowSchema } from '../../workflow/json-workflow-tool.js';
@@ -15,6 +15,7 @@ export interface DynamicSlashCatalogOptions {
   skillManager: ISkillManager;
   reservedKeys?: Iterable<string>;
   dynamicSlashCatalog?: DynamicSlashCatalogConfigInput;
+  emitService: IEmitService;
 }
 
 export interface DynamicSlashEntry {
@@ -138,17 +139,18 @@ export async function buildDynamicSlashCatalog(
 }
 
 export function buildDynamicSlashCommands(
-  entries: DynamicSlashEntry[]
+  entries: DynamicSlashEntry[],
+  emitService: IEmitService
 ): ICommand<string, unknown>[] {
   assertUniqueDynamicSlashEntries(entries, 'buildDynamicSlashCommands');
   return entries.map((entry) => {
     if (entry.source === 'skill') {
-      return buildSkillSlashCommand(entry);
+      return buildSkillSlashCommand(entry, emitService);
     }
     if (entry.source === 'workflow') {
-      return buildWorkflowSlashCommand(entry);
+      return buildWorkflowSlashCommand(entry, emitService);
     }
-    return buildPromptSlashCommand(entry);
+    return buildPromptSlashCommand(entry, emitService);
   });
 }
 
@@ -260,7 +262,10 @@ async function loadPromptEntries(
   return entries;
 }
 
-export function buildSkillSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
+export function buildSkillSlashCommand(
+  entry: DynamicSlashEntry,
+  emitService: IEmitService
+): ICommand<string, unknown> {
   return {
     metadata: {
       key: entry.key,
@@ -278,7 +283,10 @@ export function buildSkillSlashCommand(entry: DynamicSlashEntry): ICommand<strin
         false
       );
 
-      emitLog('info', `[skills] Loaded ${entry.name}. Active on next turns in this session.`);
+      emitService.log(
+        'info',
+        `[skills] Loaded ${entry.name}. Active on next turns in this session.`
+      );
 
       return {
         status: 'ok',
@@ -294,7 +302,10 @@ export function buildSkillSlashCommand(entry: DynamicSlashEntry): ICommand<strin
   };
 }
 
-export function buildPromptSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
+export function buildPromptSlashCommand(
+  entry: DynamicSlashEntry,
+  emitService: IEmitService
+): ICommand<string, unknown> {
   return {
     metadata: {
       key: entry.key,
@@ -306,7 +317,7 @@ export function buildPromptSlashCommand(entry: DynamicSlashEntry): ICommand<stri
     execute: async (_args, ctx) => {
       const header = `# Prompt: ${entry.name}`;
       const payload = [header, entry.instructions].filter(Boolean).join('\n\n').trim();
-      emitLog('info', payload);
+      emitService.log('info', payload);
 
       return {
         status: 'ok',
@@ -437,7 +448,10 @@ async function loadWorkflowEntries(
   return entries;
 }
 
-export function buildWorkflowSlashCommand(entry: DynamicSlashEntry): ICommand<string, unknown> {
+export function buildWorkflowSlashCommand(
+  entry: DynamicSlashEntry,
+  emitService: IEmitService
+): ICommand<string, unknown> {
   return {
     metadata: {
       key: entry.key,
@@ -450,11 +464,16 @@ export function buildWorkflowSlashCommand(entry: DynamicSlashEntry): ICommand<st
       const toolName = entry.name;
 
       const toolManager = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.ToolManager);
-      const result = await toolManager.execute(ctx.agent!, toolName, {}, {
-        agentId: ctx.agent!.id,
-        workspaceRoot: ctx.workspaceRoot,
-        history: [],
-      });
+      const result = await toolManager.execute(
+        ctx.agent!,
+        toolName,
+        {},
+        {
+          agentId: ctx.agent!.id,
+          workspaceRoot: ctx.workspaceRoot,
+          history: [],
+        }
+      );
 
       if (!result.ok) {
         return {
@@ -468,7 +487,7 @@ export function buildWorkflowSlashCommand(entry: DynamicSlashEntry): ICommand<st
         };
       }
 
-      emitLog('info', `[workflow] Executed ${entry.name} (${toolName}).`);
+      emitService.log('info', `[workflow] Executed ${entry.name} (${toolName}).`);
 
       return {
         status: 'ok',
