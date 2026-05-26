@@ -1,8 +1,0 @@
-import{j as e}from"./iframe-DtiPFMsg.js";import"./preload-helper-Dp1pzeXC.js";function n({targetAgentName:a}){return e.jsxs("span",{style:{display:"inline-flex",alignItems:"center",gap:"4px",padding:"2px 8px",backgroundColor:"rgba(59, 130, 246, 0.1)",border:"1px solid rgba(59, 130, 246, 0.3)",borderRadius:"12px",fontSize:"0.75rem",fontWeight:500,color:"rgb(59, 130, 246)",marginLeft:"8px"},children:[e.jsx("span",{style:{fontSize:"0.8rem"},children:"→"}),e.jsx("span",{children:a})]})}n.__docgenInfo={description:"",methods:[],displayName:"AgentBriefingBadge",props:{targetAgentName:{required:!0,tsType:{name:"string"},description:""}}};const l={title:"Components/AgentBriefingBadge",component:n,tags:["autodocs"],args:{targetAgentName:"Sarah Lee"}},r={},s={render:a=>e.jsx("div",{className:"storybook-card card",children:e.jsxs("div",{className:"storybook-row",children:[e.jsx("strong",{children:"Agent briefing"}),e.jsx(n,{...a})]})})};var o,t,i;r.parameters={...r.parameters,docs:{...(o=r.parameters)==null?void 0:o.docs,source:{originalSource:"{}",...(i=(t=r.parameters)==null?void 0:t.docs)==null?void 0:i.source}}};var d,g,c;s.parameters={...s.parameters,docs:{...(d=s.parameters)==null?void 0:d.docs,source:{originalSource:`{
-  render: args => <div className="storybook-card card">\r
-      <div className="storybook-row">\r
-        <strong>Agent briefing</strong>\r
-        <AgentBriefingBadge {...args} />\r
-      </div>\r
-    </div>
-}`,...(c=(g=s.parameters)==null?void 0:g.docs)==null?void 0:c.source}}};const x=["Default","InMessageRow"];export{r as Default,s as InMessageRow,x as __namedExportsOrder,l as default};
