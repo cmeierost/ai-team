@@ -1,10 +1,5 @@
 # AI Team - Software Architecture Through Agent Responsibilities
 
-> GitHub Pages: [https://cmeierost.github.io/ai-team/](https://cmeierost.github.io/ai-team/)  
-> Repository: [https://github.com/cmeierost/ai-team](https://github.com/cmeierost/ai-team)
-
-> **Note:** AI Team is at the moment actively developed on the [internal OST GitLab](https://gitlab.ost.ch/clemens.meier/ai-team) and sporadically published to this GitHub repository. We will completely switch to github as soon as we are ready for public collaboration.
-
 <p align="center">
    <svg width="140" height="140" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" aria-label="AI Team Logo">
       <defs>
@@ -24,6 +19,11 @@
 </p>
 
 AI Team is an open-source effort to make software development with AI feel reliable, structured, and team-aware. It’s not just a single assistant—it’s a system for coordinating multiple specialized agents, each bound to clear responsibilities and architectural boundaries.
+
+> GitHub Pages: [https://cmeierost.github.io/ai-team/](https://cmeierost.github.io/ai-team/)  
+> Repository: [https://github.com/cmeierost/ai-team](https://github.com/cmeierost/ai-team)
+
+> **Note:** AI Team is at the moment actively developed on the [internal OST GitLab](https://gitlab.ost.ch/clemens.meier/ai-team) and sporadically published to this GitHub repository. We will completely switch to github as soon as we are ready for public collaboration.
 
 ## Project Goal
 
