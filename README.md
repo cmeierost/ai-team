@@ -20,7 +20,7 @@
 
 AI Team is an open-source effort to make software development with AI feel reliable, structured, and team-aware. It’s not just a single assistant—it’s a system for coordinating multiple specialized agents, each bound to clear responsibilities and architectural boundaries.
 
-## Why this exists
+## Project Goal
 
 While individual AI coding tools accelerate isolated tasks, they lack structural and collective awareness within teams. A shared codebase is a socio-technical artifact of shifting conventions. Large context windows expose AI to conflicting historical patterns, causing it to replicate legacy defects and introduce cross-cutting regressions that break adjacent sub-systems. Even spec-driven frameworks desynchronize as repositories evolve. Furthermore, unconstrained contexts require expensive frontier models, whereas restricting focus to localized scopes enables smaller, efficient models to operate productively. Engineering teams require an active governance mechanism mapping architectural context boundaries onto agent constraints.
 
