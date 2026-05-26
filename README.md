@@ -1,5 +1,10 @@
 # AI Team - Software Architecture Through Agent Responsibilities
 
+> GitHub Pages: [https://cmeierost.github.io/ai-team/](https://cmeierost.github.io/ai-team/)  
+> Repository: [https://github.com/cmeierost/ai-team](https://github.com/cmeierost/ai-team)
+
+> **Note:** AI Team is actively developed on the [internal OST GitLab](https://gitlab.ost.ch/clemens.meier/ai-team) and sporadically published to this GitHub repository.
+
 <p align="center">
    <svg width="140" height="140" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" aria-label="AI Team Logo">
       <defs>
@@ -30,11 +35,9 @@ AI-Team translates abstract design patterns into strict multi-agent guardrails. 
 
 The goal is to evolve this into an open source coding tool of the future—one that makes architectural intent executable, keeps teams aligned, and reduces regressions as systems grow.
 
-## Slides
+## Presentation
 
 [View presentation](https://cmeierost.github.io/ai-team/slides/)
-
-> GitHub Pages: [https://cmeierost.github.io/ai-team/](https://cmeierost.github.io/ai-team/)
 
 ## What you’ll find here
 
