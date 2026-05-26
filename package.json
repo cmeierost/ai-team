@@ -24,7 +24,8 @@
     "slides:pdf:local": "node tools/export-slides-pdf.mjs",
     "clean": "pnpm -r clean && rm -rf node_modules",
     "logs:clean": "node -e \"const fs=require('fs');const d='.ai-team/logs';if(fs.existsSync(d))fs.readdirSync(d).forEach(f=>fs.rmSync(d+'/'+f,{recursive:true,force:true}))\"",
-    "reinstall-vscplugin": "pnpm --filter ai-team reinstall"
+    "reinstall-vscplugin": "pnpm --filter ai-team reinstall",
+    "publish:github": "node scripts/publish-github.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
