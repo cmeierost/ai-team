@@ -163,8 +163,7 @@ export async function* streamViaWebSocket<TCommand extends string = string>(
         if (streamEvent.kind === 'question') {
           handleQuestion({
             ...(streamEvent as unknown as Record<string, unknown>),
-            questionId:
-              (streamEvent as unknown as { requestId?: string }).requestId ?? 'mediator-question',
+            questionId: streamEvent.requestId ?? 'mediator-question',
           });
           return;
         }

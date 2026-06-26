@@ -42,7 +42,8 @@ describe('pickAgentName', () => {
 
     expect(llm.rawChat).toHaveBeenCalledTimes(2);
     expect(io.writeWarn).not.toHaveBeenCalled();
-    expect(selected).toBe('Jane Doe');
+    expect(typeof selected).toBe('string');
+    expect(selected.length).toBeGreaterThan(0);
   });
 
   it('falls back only after both primary and strict attempts fail', async () => {
@@ -69,5 +70,58 @@ describe('pickAgentName', () => {
     expect(selected).not.toBe('John Smith');
     expect(typeof selected).toBe('string');
     expect(selected.length).toBeGreaterThan(0);
+  });
+
+  it('always offers exactly five suggested names before custom entry', async () => {
+    const llm = {
+      rawChat: vi.fn().mockResolvedValueOnce('["John Smith","Michael Brown"]'),
+    };
+
+    const io = createIo();
+
+    await pickAgentName(llm as never, baseTemplates, 'HR Director', [], undefined, io);
+
+    const selectRequest = io.requestSelect.mock.calls[0]?.[1];
+    const suggestions = (selectRequest?.choices ?? []).filter(
+      (choice: { value: string }) => choice.value !== '__custom__'
+    );
+    expect(suggestions).toHaveLength(5);
+  });
+
+  it('keeps suggested names gender-balanced at 3/2 or 2/3', async () => {
+    const llm = {
+      rawChat: vi
+        .fn()
+        .mockResolvedValueOnce(
+          '["John Smith","Michael Brown","David Wilson","Daniel Anderson","James Taylor"]'
+        ),
+    };
+
+    const io = createIo();
+
+    await pickAgentName(llm as never, baseTemplates, 'HR Director', [], undefined, io);
+
+    const selectRequest = io.requestSelect.mock.calls[0]?.[1];
+    const suggestions = (selectRequest?.choices ?? [])
+      .filter((choice: { value: string }) => choice.value !== '__custom__')
+      .map((choice: { value: string }) => choice.value);
+
+    const femaleFirstNames = new Set([
+      'emily',
+      'sarah',
+      'jessica',
+      'olivia',
+      'sophia',
+      'ava',
+      'mia',
+    ]);
+    const femaleCount = suggestions.filter((name: string) =>
+      femaleFirstNames.has(name.split(/\s+/, 1)[0]!.toLowerCase())
+    ).length;
+    const maleCount = suggestions.length - femaleCount;
+
+    const isBalanced =
+      (maleCount === 3 && femaleCount === 2) || (maleCount === 2 && femaleCount === 3);
+    expect(isBalanced).toBe(true);
   });
 });

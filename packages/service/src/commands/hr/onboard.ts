@@ -252,6 +252,15 @@ export class OnboardCommand {
     return phase.agentRole === 'ceo' ? ceoAgent : hrAgent;
   }
 
+  private isGreetingIntroLine(line: string): boolean {
+    const lower = line.toLowerCase();
+    return (
+      lower.includes("i'm") ||
+      lower.includes('i am ') ||
+      (lower.includes('hi ') && (lower.includes("let's") || lower.includes("let us")))
+    );
+  }
+
   private buildStrictWorkflowPrompt(phase: OnboardingWorkflowPhase): string {
     return [
       phase.strictSystemPrompt.trim(),
@@ -303,32 +312,15 @@ export class OnboardCommand {
     await createBootstrapSkills(workspaceRoot, templates);
     await createRoleTemplates(workspaceRoot, templates);
 
-    this.writeLine(hooks, "First, let's name your founding team.");
+    this.writeLine(hooks, "First, let's name your CEO.");
 
     const ceoName = await pickAgentName(llm, templates, 'CEO', [], hooks, {
       requestSelect: (h, r) => this.requestSelect(h, r),
       requestInput: (h, r) => this.requestInput(h, r),
+      writeInfo: (h: InitRuntimeHooks | undefined, m: string) => this.writeLine(h, m),
       writeWarn: (h: InitRuntimeHooks | undefined, m: string) => this.writeWarn(h, m),
     });
     this.writeLine(hooks, `CEO: My name is ${ceoName}.`);
-
-    const hrName = await pickAgentName(
-      llm,
-      templates,
-      'Head of Human Resources',
-      [ceoName],
-      hooks,
-      {
-        requestSelect: (h, r) => this.requestSelect(h, r),
-        requestInput: (h, r) => this.requestInput(h, r),
-        writeWarn: (h: InitRuntimeHooks | undefined, m: string) => this.writeWarn(h, m),
-      }
-    );
-    this.writeLine(
-      hooks,
-      `CEO: I need an HR Director to build the team. Let's call them ${hrName}.`
-    );
-    this.writeLine(hooks, `  HR Director: ${hrName}`);
 
     this.writeLine(hooks, '--- Creating Founding Team ---');
 
@@ -344,12 +336,82 @@ export class OnboardCommand {
           expertise_level: 'executive',
           mentoring: true,
         },
-        introduction: renderTemplate(templates.ceoAgentIntroduction, { ceoName, hrName }).trim(),
+        introduction: renderTemplate(templates.ceoAgentIntroduction, {
+          ceoName,
+          hrName: 'HR Director',
+        }).trim(),
         personalityProfile: parseTemplateBulletList(templates.ceoAgentPersonality),
       },
       this.agentDocumentStorage
     );
     this.writeLine(hooks, `  ${ceoName} has joined as CEO`);
+
+    await this.permissionStorage.saveAsync(ceoAgent.id, {
+      list: ['**/*'],
+      read: ['**/*'],
+      write: ['.ai-team/**/*', '.github/copilot-instructions.md', 'AGENTS.md', 'docs/**/*'],
+    });
+
+    const developerName = this.developerIdentityService?.getUserName();
+    const businessWorkflow = loadOnboardingWorkflowDefinitionFromTemplates({
+      templates,
+      ceoName,
+      hrName: 'HR Director',
+      developerName,
+    });
+
+    const businessPhase = getOnboardingPhase(businessWorkflow, 'business-definition');
+
+    this.writeLine(hooks, `--- ${businessPhase.heading} ---`);
+    for (const line of businessPhase.introLines) {
+      if (this.isGreetingIntroLine(line)) continue;
+      this.writeLine(hooks, line);
+    }
+
+    const businessContext = await this.runWorkflowChatPhaseAsync(
+      llm,
+      ceoAgent,
+      developerName,
+      businessPhase,
+      hooks,
+      injected?.sessionManager
+    );
+
+    if (businessContext.length > 0) {
+      await this.saveOnboardingPhaseTranscriptAsync(
+        businessContext,
+        ceoAgent,
+        developerName,
+        businessPhase
+      );
+      this.writeLine(hooks, `Transcript saved to ${businessPhase.transcript.relativePath}`);
+    }
+
+    this.writeLine(hooks, '');
+    this.writeLine(
+      hooks,
+      `${ceoName} (ceo): The business direction is clear. Let's bring in an HR Director to design the first hiring wave.`
+    );
+
+    const hrName = await pickAgentName(
+      llm,
+      templates,
+      'Head of Human Resources',
+      [ceoName],
+      hooks,
+      {
+        requestSelect: (h, r) => this.requestSelect(h, r),
+        requestInput: (h, r) => this.requestInput(h, r),
+        writeInfo: (h: InitRuntimeHooks | undefined, m: string) => this.writeLine(h, m),
+        writeWarn: (h: InitRuntimeHooks | undefined, m: string) => this.writeWarn(h, m),
+      },
+      {
+        selectionMessage: 'Which candidate should we hire as HR Director?',
+        suggestionAnnouncement: (suggestions) =>
+          `${ceoName} (ceo): I know these 5 people who could help us as HR Director: ${suggestions.join(', ')}. These are suggestions — we can also enter a custom name.`,
+      }
+    );
+    this.writeLine(hooks, `CEO: Great. Hiring ${hrName} as HR Director to lead team planning.`);
 
     const hrAgent = await createAgentFile(
       workspaceRoot,
@@ -371,12 +433,6 @@ export class OnboardCommand {
     );
     this.writeLine(hooks, `  ${hrName} has joined as HR Director`);
 
-    await this.permissionStorage.saveAsync(ceoAgent.id, {
-      list: ['**/*'],
-      read: ['**/*'],
-      write: ['.ai-team/**/*', '.github/copilot-instructions.md', 'AGENTS.md', 'docs/**/*'],
-    });
-
     await this.permissionStorage.saveAsync(hrAgent.id, {
       list: ['**/*'],
       read: ['**/*'],
@@ -390,46 +446,19 @@ export class OnboardCommand {
       ],
     });
 
-    const developerName = this.developerIdentityService?.getUserName();
-    const onboardingWorkflow = loadOnboardingWorkflowDefinitionFromTemplates({
+    const planningWorkflow = loadOnboardingWorkflowDefinitionFromTemplates({
       templates,
       ceoName,
       hrName,
       developerName,
     });
 
-    const businessPhase = getOnboardingPhase(onboardingWorkflow, 'business-definition');
-    const businessAgent = this.resolveOnboardingPhaseAgent(businessPhase, ceoAgent, hrAgent);
-
-    this.writeLine(hooks, `--- ${businessPhase.heading} ---`);
-    for (const line of businessPhase.introLines) {
-      this.writeLine(hooks, line);
-    }
-
-    const businessContext = await this.runWorkflowChatPhaseAsync(
-      llm,
-      businessAgent,
-      developerName,
-      businessPhase,
-      hooks,
-      injected?.sessionManager
-    );
-
-    if (businessContext.length > 0) {
-      await this.saveOnboardingPhaseTranscriptAsync(
-        businessContext,
-        businessAgent,
-        developerName,
-        businessPhase
-      );
-      this.writeLine(hooks, `Transcript saved to ${businessPhase.transcript.relativePath}`);
-    }
-
-    const planningPhase = getOnboardingPhase(onboardingWorkflow, 'team-planning');
+    const planningPhase = getOnboardingPhase(planningWorkflow, 'team-planning');
     const planningAgent = this.resolveOnboardingPhaseAgent(planningPhase, ceoAgent, hrAgent);
 
     this.writeLine(hooks, `--- ${planningPhase.heading} ---`);
     for (const line of planningPhase.introLines) {
+      if (this.isGreetingIntroLine(line)) continue;
       this.writeLine(hooks, line);
     }
 
@@ -566,6 +595,51 @@ export class OnboardCommand {
     return hiredAgents;
   }
 
+  private async generateWorkflowOpeningAsync(
+    llm: ILlmService,
+    agent: Agent,
+    developerName: string | undefined,
+    phase: OnboardingWorkflowPhase
+  ): Promise<string> {
+    const systemPrompt = this.buildStrictWorkflowPrompt(phase);
+    const safeDeveloper = developerName?.trim() || 'developer';
+
+    const openingPrompt = [
+      `You are about to start a conversation with ${safeDeveloper}.`,
+      `Generate a single opening message that:`,
+      `1. Greets ${safeDeveloper} warmly and introduces yourself`,
+      `2. Sets the context for what you'll work on together`,
+      `3. Asks the first focused question to kick off the conversation`,
+      ``,
+      `Keep it concise (2-4 sentences). Be specific, not generic.`,
+      `Return only the message text — no labels, no prefixes.`,
+    ].join('\n');
+
+    try {
+      const rawResponse = await llm.rawChat(systemPrompt, [{ role: 'user', content: openingPrompt }], {
+        maxTokens: 200,
+        temperature: 0.7,
+      });
+
+      const trimmed = rawResponse.trim();
+      if (trimmed.length > 20) {
+        return trimmed;
+      }
+    } catch {
+      // Fall through to deterministic greeting
+    }
+
+    // Deterministic fallback using first introLine if available
+    const greetingLine = phase.introLines.find((line) =>
+      line.toLowerCase().includes("i'm") || line.toLowerCase().includes('i am')
+    );
+    if (greetingLine) {
+      return greetingLine;
+    }
+
+    return `Hi ${safeDeveloper}, I'm ${agent.name} (${agent.role}). Let's get started.`;
+  }
+
   private async runWorkflowChatPhaseAsync(
     llm: ILlmService,
     agent: Agent,
@@ -574,6 +648,13 @@ export class OnboardCommand {
     hooks?: InitRuntimeHooks,
     sessionManager?: SessionManager
   ): Promise<ChatMessage[]> {
+    const openingMessage = await this.generateWorkflowOpeningAsync(
+      llm,
+      agent,
+      developerName,
+      phase
+    );
+
     await this.startChatAsync(
       llm,
       agent.id,
@@ -582,11 +663,9 @@ export class OnboardCommand {
         workflowMode: true,
         workflowSystemPrompt: this.buildStrictWorkflowPrompt(phase),
         workflowExitWords: phase.exitWords,
-        suppressAutoIntroduction: phase.suppressAutoIntroduction,
+        suppressAutoIntroduction: true,
+        pendingIntroduction: openingMessage,
         disableProcessExit: true,
-        pendingIntroduction: developerName
-          ? `Workflow phase started: ${phase.heading}. Developer: ${developerName}.`
-          : `Workflow phase started: ${phase.heading}.`,
       },
       hooks,
       sessionManager ? { sessionManager } : undefined

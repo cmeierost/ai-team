@@ -252,3 +252,13 @@ export class InteractionStream {
   }
 }
 
+/**
+ * Convenience wrapper that calls `new InteractionStream().stream(params)`.
+ * Use this when you don't need to inject custom deps (timestamp, translateRuntimeEvent).
+ */
+export function streamInteraction<TCommand extends string = string>(
+  params: StreamParams<TCommand>
+): AsyncIterable<StreamEvent<TCommand>> {
+  return new InteractionStream().stream(params);
+}
+

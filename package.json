@@ -11,6 +11,7 @@
     "dev:web": "pnpm --filter @ai-team/api-server --filter @ai-team/web --parallel dev",
     "dev:cli": "pnpm --filter @ai-team/cli dev",
     "dev:api": "pnpm --filter @ai-team/api-server dev",
+    "analysis:ui": "pnpm --filter @aspect/viewer-app dev -- --host 127.0.0.1 --port 4173",
     "server:start": "pnpm --filter @ai-team/api-server dev",
     "web:start": "pnpm --filter @ai-team/web dev",
     "server:kill": "node scripts/kill-ait-processes.mjs",

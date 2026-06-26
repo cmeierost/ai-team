@@ -56,13 +56,13 @@ export async function renderInit(client: ICliCommandClient, options: InitOptions
   const frontendFileLogEnabled = isFrontendFileLogEnabled();
 
   try {
-    for await (const event of client.streamInteraction(
+    const sessionClient = client.withQuestionService(createQuestionResponders());
+    for await (const event of sessionClient.streamInteraction(
       {
         command: 'init',
         payload: { options },
       },
       {
-        ...createQuestionResponders(),
         signal: abortControl.signal,
         logger:
           mediatorLoggerEnabled || frontendFileLogEnabled

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InitTemplates } from './template-utils.js';
+import { readDefaultTemplate } from './template-utils.js';
 import {
   getOnboardingPhase,
   loadOnboardingWorkflowDefinitionFromTemplates,
@@ -128,5 +129,28 @@ phases:
         hrName: 'HR',
       })
     ).toThrow(/first onboarding phase must start with the CEO/i);
+  });
+
+  it('default template requires CEO discovery questions and HR handoff after business clarity', async () => {
+    const workflowTemplate = await readDefaultTemplate('onboardingWorkflowDefinition');
+    const templates = createTemplates(workflowTemplate);
+
+    const definition = loadOnboardingWorkflowDefinitionFromTemplates({
+      templates,
+      ceoName: 'Thomas Anderson',
+      hrName: 'Emily Davis',
+      developerName: 'Clemens',
+    });
+
+    const business = getOnboardingPhase(definition, 'business-definition');
+    expect(business.agentRole).toBe('ceo');
+    expect(business.strictSystemPrompt).toContain('You may address the developer by first name');
+    expect(business.strictSystemPrompt).toContain('Address Clemens naturally by name');
+    expect(business.strictSystemPrompt).toContain('Your primary method is discovery through questions');
+    expect(business.strictSystemPrompt).toContain('Stay strictly in business mode');
+    expect(business.strictSystemPrompt).toContain('Do not assume monetization');
+    expect(business.strictSystemPrompt).toContain('Never force revenue/profit language');
+    expect(business.strictSystemPrompt).toContain('HR Director will be hired after this business phase is complete');
+    expect(business.strictSystemPrompt).toContain('Technical planning is intentionally deferred until a Head of Development');
   });
 });

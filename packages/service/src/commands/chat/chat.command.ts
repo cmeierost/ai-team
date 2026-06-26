@@ -526,6 +526,12 @@ export class ChatCommand {
     }
 
     if (options.pendingIntroduction && history.length === 0) {
+      // Display the introduction to the user (same path as tryIntroduceUser)
+      if (!hooks.emitService) {
+        emitService.token(`\n${agent.name} (${agent.role}): `);
+      }
+      emitService.token(`${options.pendingIntroduction}\n\n`);
+
       const introMsg: ChatMessage = {
         timestamp: new Date().toISOString(),
         from: agent.id,

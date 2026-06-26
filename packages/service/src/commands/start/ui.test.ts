@@ -14,9 +14,13 @@ const workspaceApi = vi.hoisted(() => ({
   findWorkspaceRoot: vi.fn(),
 }));
 
-vi.mock('node:child_process', () => ({
-  spawn: childProcessApi.spawn,
-}));
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    spawn: childProcessApi.spawn,
+  };
+});
 
 vi.mock('node:net', () => ({
   createConnection: netApi.createConnection,

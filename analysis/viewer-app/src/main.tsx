@@ -103,7 +103,16 @@ function extractMasterPayload(value: unknown): {
 
 function buildPayloadFromRaw(raw: unknown): ViewerPayload | null {
   const master = extractMasterPayload(raw);
-  if (!master) return null;
+  if (!master) {
+    // Also accept already-analyzed pipeline output (e.g. generated analysis-result.json).
+    if (isRecord(raw)
+      && isRecord(raw.summary)
+      && Array.isArray(raw.fileClassifications)
+      && isRecord(raw.alignment)) {
+      return raw as unknown as ViewerPayload;
+    }
+    return null;
+  }
 
   const analyzed = runStructuralPipeline(
     master.entities as Parameters<typeof runStructuralPipeline>[0],
@@ -135,6 +144,7 @@ function App() {
   const [entities, setEntities] = React.useState<ViewerPayload['entities']>([]);
   const [relationships, setRelationships] = React.useState<ViewerPayload['relationships']>([]);
   const [loading, setLoading] = React.useState(true);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     loadData().then((d) => {
@@ -149,14 +159,26 @@ function App() {
   const handleUpload = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setUploadError(null);
     const reader = new FileReader();
     reader.onload = () => {
-      const next = buildPayloadFromRaw(JSON.parse(reader.result as string));
-      setData(next);
-      setFileContents(next?.fileContents ?? {});
-      setEntities(next?.entities ?? []);
-      setRelationships(next?.relationships ?? []);
+      try {
+        const next = buildPayloadFromRaw(JSON.parse(reader.result as string));
+        if (!next) {
+          setUploadError('Unsupported JSON shape. Use generated analysis-result.json or collector output.');
+          return;
+        }
+        setData(next);
+        setFileContents(next?.fileContents ?? {});
+        setEntities(next?.entities ?? []);
+        setRelationships(next?.relationships ?? []);
+      } catch {
+        setUploadError('Invalid JSON file.');
+      }
     };
+    reader.onerror = () => setUploadError('Could not read uploaded file.');
+    // Allow re-uploading the same file path after a failure.
+    e.target.value = '';
     reader.readAsText(file);
   }, []);
 
@@ -173,6 +195,7 @@ function App() {
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 16, fontFamily: 'system-ui' }}>
         <p style={{ color: '#64748b' }}>No analysis data found. Upload a result file:</p>
         <input type="file" accept=".json" onChange={handleUpload} />
+        {uploadError ? <p style={{ color: '#ef4444', margin: 0 }}>{uploadError}</p> : null}
       </div>
     );
   }

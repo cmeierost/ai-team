@@ -3,12 +3,16 @@ import type { ICliCommandClient } from '../cli-command-client.js';
 
 const clientApi = vi.hoisted(() => ({
   streamInteraction: vi.fn(),
+  withQuestionService: vi.fn(),
+  getCommands: vi.fn(),
 }));
 
 import { renderChat } from './chat.js';
 
 const client = {
   streamInteraction: clientApi.streamInteraction,
+  withQuestionService: clientApi.withQuestionService,
+  getCommands: clientApi.getCommands,
 } as unknown as ICliCommandClient;
 
 describe('chat command', () => {
@@ -20,6 +24,8 @@ describe('chat command', () => {
     vi.clearAllMocks();
     process.env.AI_TEAM_MEDIATOR_LOG = '0';
     process.env.AI_TEAM_FRONTEND_FILE_LOG = '0';
+    clientApi.getCommands.mockReturnValue([]);
+    clientApi.withQuestionService.mockReturnValue({ streamInteraction: clientApi.streamInteraction });
     clientApi.streamInteraction.mockReturnValue(
       (async function* () {
         yield {
@@ -58,9 +64,10 @@ describe('chat command', () => {
   it('forwards chat request to api client stream', async () => {
     await renderChat(client, 'maya', { message: 'hello', oneShot: true });
 
+    expect(clientApi.withQuestionService).toHaveBeenCalledWith(expect.any(Object));
     expect(clientApi.streamInteraction).toHaveBeenCalledWith(
       {
-        command: 'chat',
+        command: 'chat-chat',
         payload: {
           employeeId: 'maya',
           options: { message: 'hello', oneShot: true },
@@ -68,8 +75,9 @@ describe('chat command', () => {
       },
       expect.objectContaining({
         logger: undefined,
-        questionInput: expect.any(Function),
-        questionConfirm: expect.any(Function),
+        invocationSurface: 'cli',
+        calledByHuman: true,
+        signal: expect.any(AbortSignal),
       })
     );
   });
@@ -77,9 +85,10 @@ describe('chat command', () => {
   it('enables mediator logger when mediatorLog flag is passed', async () => {
     await renderChat(client, 'maya', { message: 'hello', oneShot: true }, true);
 
+    expect(clientApi.withQuestionService).toHaveBeenCalledWith(expect.any(Object));
     expect(clientApi.streamInteraction).toHaveBeenCalledWith(
       {
-        command: 'chat',
+        command: 'chat-chat',
         payload: {
           employeeId: 'maya',
           options: { message: 'hello', oneShot: true },
@@ -87,8 +96,9 @@ describe('chat command', () => {
       },
       expect.objectContaining({
         logger: expect.any(Function),
-        questionInput: expect.any(Function),
-        questionConfirm: expect.any(Function),
+        invocationSurface: 'cli',
+        calledByHuman: true,
+        signal: expect.any(AbortSignal),
       })
     );
   });

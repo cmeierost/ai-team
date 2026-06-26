@@ -38,7 +38,7 @@ describe('StreamingClient', () => {
     });
 
     const client = new StreamingClient('http://localhost:3002', 'ws://localhost:3002');
-    const questionInput = vi.fn(async () => 'alice');
+    const input = vi.fn(async () => 'alice');
 
     const stream = client.stream(
       {
@@ -49,7 +49,7 @@ describe('StreamingClient', () => {
         },
       },
       {
-        questionInput,
+        input,
       }
     );
 
@@ -58,7 +58,7 @@ describe('StreamingClient', () => {
       events.push(event);
     }
 
-    expect(questionInput).toHaveBeenCalledTimes(1);
+    expect(input).toHaveBeenCalledTimes(1);
     expect(events).toContainEqual(expect.objectContaining({ kind: 'token', text: 'alice' }));
   });
 });

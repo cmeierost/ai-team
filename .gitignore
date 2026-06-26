@@ -65,3 +65,5 @@ other-projects/
 .playwright-mcp/**/*.*
 analysis/viewer-app/public/analysis-result.json
 .ai-team/.ide-server.json
+
+.vite/
