@@ -191,7 +191,6 @@ export async function setupManager(workspaceRoot: string): Promise<ToolManager> 
   }
 
   return new ToolManager(
-    workspaceRoot,
     {
       can: vi.fn().mockReturnValue(true),
       canReadPath: vi.fn().mockReturnValue(true),

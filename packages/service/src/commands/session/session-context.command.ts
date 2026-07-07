@@ -4,7 +4,7 @@ import type {
   ICommand,
   CommandResponse,
   ILlmService,
-  IConfigurationStorage,
+  TeamConfig,
   ExecutionContext,
   Agent,
 } from '@ai-team/core';
@@ -16,16 +16,15 @@ interface ModelInfo {
 
 async function resolveModelInfo(
   agent: Agent,
-  workspaceRoot: string,
+  _workspaceRoot: string,
   llmService: ILlmService,
-  configurationStorage: IConfigurationStorage
+  teamConfig: TeamConfig
 ): Promise<ModelInfo | undefined> {
   try {
     await llmService.initializeForChat(agent);
     const modelName = (llmService as any).modelName as string | undefined;
     if (!modelName) return undefined;
 
-    const teamConfig = await configurationStorage.loadEffectiveConfigAsync(workspaceRoot);
     const registry = (teamConfig as any)?.providers as
       | Record<
           string,
@@ -58,7 +57,7 @@ export class SessionContextChatCommand implements ICommand<string, string> {
   constructor(
     private readonly contextService: Pick<IContextService, 'getContextEstimate'>,
     private readonly llmService: ILlmService,
-    private readonly configurationStorage: IConfigurationStorage
+    private readonly teamConfig: TeamConfig
   ) {}
 
   async execute(_args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
@@ -78,7 +77,7 @@ export class SessionContextChatCommand implements ICommand<string, string> {
       ctx.agent!,
       ctx.workspaceRoot,
       this.llmService,
-      this.configurationStorage
+      this.teamConfig
     );
 
     const kb = (n: number) => `${(n / 1000).toFixed(1)}k`;

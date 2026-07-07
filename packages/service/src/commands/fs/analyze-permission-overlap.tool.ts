@@ -44,7 +44,7 @@ export class AnalyzePermissionOverlapTool implements ICommand<
 
   async execute(
     params: AnalyzePermissionOverlapParams,
-    context: ExecutionContext
+    _context: ExecutionContext
   ): Promise<CommandResponse<unknown>> {
     const { mode = 'files', agentId, maxDepth } = params;
     return {

@@ -8,7 +8,7 @@ export interface ApiError {
   statusCode?: number;
 }
 
-export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction): void {
+export function errorHandler(err: Error, _req: Request, res: Response, next: NextFunction): void {
   console.error('API Error:', err);
 
   // Check if headers already sent

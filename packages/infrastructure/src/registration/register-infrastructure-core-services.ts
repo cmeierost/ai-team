@@ -1,4 +1,9 @@
-import type { IContainerToken, IServiceContainerRegistrar } from '@ai-team/core';
+import type {
+  IConfigurationStorage,
+  IContainerToken,
+  IServiceContainerRegistrar,
+} from '@ai-team/core';
+import { ProviderConfigurationService } from '@ai-team/core';
 import { SqliteBackend } from '../storage/sqlite/sqlite-storage.js';
 import { NotesRepository } from '../repositories/notes-repository.js';
 import { MessagesRepository } from '../repositories/messages-repository.js';
@@ -6,7 +11,6 @@ import { SessionsRepository } from '../repositories/sessions-repository.js';
 import { PlanningRepository } from '../repositories/planning-repository.js';
 import { LlmService } from '../llm/index.js';
 import { ConfigurationStorage } from '../agent/configuration-storage.js';
-import { EnvironmentStorage } from '../agent/environment-storage.js';
 import { PathPermissionChecker } from '../context/path-permission-checker.js';
 import { DeveloperIdentityService } from '../platform/developer-identity-service.js';
 import { SystemInfoService } from '../platform/system-info-service.js';
@@ -38,14 +42,14 @@ export interface InfrastructureCoreRegistrationTokens {
   SessionsRepository: IContainerToken<any>;
   PlanningRepository: IContainerToken<any>;
   LlmService: IContainerToken<any>;
-  ConfigurationStorage: IContainerToken<any>;
-  EnvironmentStorage: IContainerToken<any>;
+  ConfigurationStorage: IContainerToken<IConfigurationStorage>;
   PathPermissionChecker: IContainerToken<any>;
   DeveloperIdentityService: IContainerToken<any>;
   SystemInfoService: IContainerToken<any>;
   PermissionStorage: IContainerToken<any>;
   ModelDiscoveryRegistry: IContainerToken<any>;
   LlmProviderTester: IContainerToken<any>;
+  ProviderConfigurationService: IContainerToken<any>;
   MarkdownSectionService: IContainerToken<any>;
   WorkspaceStorage: IContainerToken<any>;
   AgentDocumentStorage: IContainerToken<any>;
@@ -92,43 +96,39 @@ export function registerInfrastructureCoreServices(
     return new PlanningRepository(b.ensureReadyAsync, b.getDb);
   });
 
-  container.registerSingleton(tokens.ConfigurationStorage, () => new ConfigurationStorage());
-  container.registerSingleton(tokens.EnvironmentStorage, () => new EnvironmentStorage());
   container.registerSingleton(
-    tokens.LlmService,
-    (c) =>
-      new LlmService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.ConfigurationStorage),
-        c.resolve(tokens.EnvironmentStorage)
-      )
+    tokens.ConfigurationStorage,
+    (c) => new ConfigurationStorage(c.resolve(tokens.WorkspaceRoot))
   );
+  container.registerSingleton(tokens.LlmService, (c) => {
+    const configStorage = c.resolve(tokens.ConfigurationStorage);
+    const teamConfig = configStorage.get();
+    return new LlmService(c.resolve(tokens.WorkspaceRoot), teamConfig);
+  });
 
   container.registerSingleton(
     tokens.PathPermissionChecker,
     (c) => new PathPermissionChecker(c.resolve(tokens.WorkspaceRoot))
   );
-  container.registerSingleton(
-    tokens.DeveloperIdentityService,
-    (c) =>
-      new DeveloperIdentityService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.ConfigurationStorage)
-      )
-  );
+  container.registerSingleton(tokens.DeveloperIdentityService, (c) => {
+    const configStorage = c.resolve(tokens.ConfigurationStorage);
+    return new DeveloperIdentityService(configStorage.get('developer'));
+  });
   container.registerSingleton(tokens.SystemInfoService, () => new SystemInfoService());
   container.registerSingleton(
     tokens.PermissionStorage,
     (c) => new PermFileRegistry(c.resolve(tokens.WorkspaceRoot))
   );
   container.registerSingleton(tokens.ModelDiscoveryRegistry, () => createModelDiscoveryRegistry());
+  container.registerSingleton(tokens.LlmProviderTester, () => new LlmProviderTester());
   container.registerSingleton(
-    tokens.LlmProviderTester,
-    (c) => new LlmProviderTester(c.resolve(tokens.EnvironmentStorage))
+    tokens.ProviderConfigurationService,
+    () => new ProviderConfigurationService()
   );
 
   registerAgentInfrastructureServices(container, {
     WorkspaceRoot: tokens.WorkspaceRoot,
+    ConfigurationStorage: tokens.ConfigurationStorage,
     PermissionStorage: tokens.PermissionStorage,
     MarkdownSectionService: tokens.MarkdownSectionService,
     WorkspaceStorage: tokens.WorkspaceStorage,
@@ -139,7 +139,7 @@ export function registerInfrastructureCoreServices(
 
   container.registerSingleton(
     tokens.AvatarManager,
-    (c) => new AvatarManager(c.resolve(tokens.AgentDocumentStorage))
+    (c) => new AvatarManager(c.resolve(tokens.WorkspaceRoot), c.resolve(tokens.AgentDocumentStorage))
   );
   container.registerSingleton(tokens.CodeEditManager, () => new CodeEditManager());
   container.registerSingleton(tokens.TypeScriptAnalyzer, () => new TypeScriptAnalyzer());
@@ -151,7 +151,7 @@ export function registerInfrastructureCoreServices(
   );
   container.registerSingleton(
     tokens.WorkspaceAccessRuntime,
-    () => new InfrastructureWorkspaceAccessRuntime()
+    (c) => new InfrastructureWorkspaceAccessRuntime(c.resolve(tokens.ConfigurationStorage))
   );
   container.registerSingleton(
     tokens.WorkspaceFsFactory,

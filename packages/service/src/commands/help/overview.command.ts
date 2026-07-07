@@ -17,13 +17,14 @@ export class OverviewChatCommand implements ICommand<string, void> {
   readonly metadata = OverviewChatCommandMetadata;
 
   constructor(
+    private readonly workspaceRoot: string,
     private readonly sessionManager: Pick<SessionManager, 'appendMessage'>,
     private readonly emitter: ChatCommandEmitter
   ) {}
 
   async execute(_args: string, ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const { getWorkspaceOverview } = await import('../../utils/workspace.js');
-    const overview = await getWorkspaceOverview(ctx.workspaceRoot);
+    const overview = await getWorkspaceOverview(this.workspaceRoot);
     this.emitter.write('\n── Workspace Overview ──────────────────────────────────────\n');
     this.emitter.write(overview);
     const sysMsg = {

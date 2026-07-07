@@ -2,7 +2,32 @@
 
 This document is the short, human-readable summary of the current AI Team architecture. For the canonical detail, see [ARCHITECTURE.md](../../ARCHITECTURE.md). For visual references, see [diagrams.md](./diagrams.md).
 
+## Progressive disclosure map (read order)
+
+Use this order to avoid loading excessive context:
+
+1. **This file (`overview.md`)** — fast orientation (start here)
+2. **`docs/architecture/diagrams.md`** — visual runtime/package map
+3. **`ARCHITECTURE.md`** — deep architecture narrative (only when needed)
+4. **`docs/architecture/implementation-entry-points.md`** — deep code-navigation index (only when needed)
+5. **`docs/api/contracts.md`** — API/WebSocket contracts (only for API/transport tasks)
+
+If your task is small or local, do not preload steps 3–5.
+
 The long-running local backlog for this transition lives in [`.ai-team/tasks/`](../../.ai-team/tasks/). Use that backlog together with this document to distinguish the **current implementation**, the **target direction**, and the **active work in progress**.
+
+## Token/cost budget guidance
+
+- Keep default task context lean: load the smallest doc surface that can answer the current question.
+- Escalate to deeper docs only after identifying a concrete gap.
+- Prefer links over duplicating deep content across entry docs.
+
+## Service-layer DI invariant (must follow)
+
+- Emitter usage must be DI-driven (`IEmitService`), not context/hook lookups.
+- Avoid patterns like `hooks.emitService` / `ctx.emitService` / reading emit from `ExecutionContext` inside service/orchestrator helpers.
+- Keep `ExecutionContext` focused on conversation/runtime state.
+- Identity fallbacks from execution context (for example `ctx.agent?.id ?? ctx.agentId`) are acceptable where runtime identity can legitimately be absent.
 
 ## What AI Team is
 
@@ -171,6 +196,40 @@ The active architecture transition is about separating:
 - outward **UI notifier** delivery
 - UI-specific **surface handlers/controllers**
 
+## Onboarding and hiring runtime (current)
+
+Onboarding is now implemented as a workflow-driven orchestration path rather than a large imperative command.
+
+- Entry command: `OnboardICommand` (`packages/service/src/commands/hr/onboard.ts`)
+- Main workflow: `onboard_workflow` (`packages/service/src/commands/hr/onboarding-workflow.ts`)
+- Hiring sub-workflow: `hire_workflow` (`packages/service/src/commands/hr/hire-workflow.ts`)
+
+The onboarding workflow composes reusable orchestration tools (`llm_init`, `init_bootstrap_files`, `init_prepare_onboarding`, `chat_phase`, `docs_save_transcript`, `access_set_permissions`, etc.) plus the `hire_workflow` tool-command.
+
+This is now the source of truth for onboarding flow behavior (CEO/HR creation, business-definition chat, optional hiring branch), and architecture updates should follow workflow definition changes.
+
+## Workflow engine behavior (current)
+
+The workflow runtime in `packages/service/src/workflow/runner.ts` and `param-resolver.ts` supports:
+
+- declarative step args with template interpolation (`args`)
+- declarative guards (`when`) alongside callback guards (`skipWhen`)
+- loop steps (`kind: 'loop'`)
+- declarative result projection (`result`) and typed projection (`toResult`)
+- declarative transforms such as `$map` and `$coalesce`
+
+This functionality is used by onboarding/hiring workflows and is part of the current orchestration architecture.
+
+## Runtime event streaming and correlation (current)
+
+`InteractionStream` + `EmitService` now use per-connection emitter instances with request-scoped sink rebinding:
+
+- each connection owns an `EmitService`
+- each streamed request temporarily binds that emitter to a request queue
+- completion restores the connection-level sink
+
+This keeps runtime events correctly correlated to the active request while preserving shared command/orchestrator emit paths.
+
 ## What happens after you send a message to the server
 
 This is the practical end-to-end flow for the **remote browser path** (`web -> api-server -> service`).
@@ -210,7 +269,7 @@ sequenceDiagram
     Turn->>Tools: dispatchToolCall(...)
     Tools-->>Turn: tool result / structured handoff/hire
   end
-  Turn-->>WS: runtime events via hooks.emit
+  Turn-->>WS: runtime events via emitService.emit
   WS-->>UI: token/status/tool/question/handoff/log
   WS-->>UI: { type: "done" }
 ```
@@ -239,6 +298,15 @@ In short: the architecture direction is clear, but the frontend is still mid-mig
 - Remote and local clients are different on purpose.
 - IDE integration stays behind `@ai-team/ide-interface` and the VS Code adapter.
 - Runtime state conventions stay under `.ai-team/`.
+
+## Verification gate for feature and cleanup work
+
+For every new feature implementation and code cleanup/refactor, run fuzzy duplication scanning on the affected scope and review hotspots before merge:
+
+- `pnpm --filter @aspect/duplication build`
+- `node analysis/duplication/dist/cli/fuzzy-dup.js <scope> --format text`
+
+Use `analysis/README.md` for advanced options and JSON output mode.
 
 ## Access and file-system model (current)
 

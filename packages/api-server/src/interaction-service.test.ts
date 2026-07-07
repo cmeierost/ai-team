@@ -9,19 +9,19 @@ describe('InteractionService', () => {
         _workspaceRoot: string,
         _agentId: string | undefined,
         _options: ChatOptions,
-        hooks: { emit?: (event: unknown) => void }
+        hooks: { emitService: { emit: (event: unknown) => void } }
       ) => {
-        hooks.emit?.({
+        hooks.emitService.emit({
           kind: 'agent_info',
           agentId: 'michael-brown',
           agentName: 'Michael Brown',
           agentRole: 'ceo',
         });
-        hooks.emit?.({ kind: 'token', text: 'Hello from the API server.' });
+        hooks.emitService.emit({ kind: 'token', text: 'Hello from the API server.' });
       }
     );
 
-    const service = new InteractionService('c:\\Projects\\ai-team', runChat);
+    const service = new InteractionService(String.raw`c:\Projects\ai-team`, runChat);
 
     const events = [] as Array<{ kind: string; [key: string]: unknown }>;
     for await (const event of service.stream({
@@ -31,7 +31,7 @@ describe('InteractionService', () => {
         options: { message: 'Hello' },
       },
     })) {
-      events.push(event as { kind: string; [key: string]: unknown });
+      events.push(event);
     }
 
     expect(runChat).toHaveBeenCalledOnce();

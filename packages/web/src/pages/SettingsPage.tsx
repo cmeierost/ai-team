@@ -5,9 +5,6 @@ import {
   useAgentModelKeys,
   useUserConfig,
   useSaveUserConfig,
-  useTestProviderConnection,
-  useEnvStatus,
-  useSetEnvVar,
   useRefreshDevProviderModels,
 } from '../hooks/useConfig';
 import type { TeamConfig, UserConfig, ProviderConfig, ModelKeyEntry } from '../hooks/useConfig';
@@ -334,7 +331,6 @@ function CollapsibleSection({
 interface DevProviderCardProps {
   providerRef: string;
   provider: ProviderConfig;
-  envStatus: Record<string, boolean>;
   onChange: (p: ProviderConfig) => void;
   onSave: () => void;
   allowProviderEdit?: boolean;
@@ -343,36 +339,17 @@ interface DevProviderCardProps {
 function DevProviderCard({
   providerRef,
   provider,
-  envStatus,
   onChange,
   onSave,
   allowProviderEdit = true,
 }: Readonly<DevProviderCardProps>) {
-  const {
-    mutate: testConn,
-    isPending: testing,
-    data: testResult,
-    reset: resetTest,
-  } = useTestProviderConnection();
   const { mutate: refreshModels, isPending: refreshing } = useRefreshDevProviderModels();
-  const { mutate: setEnvVar, isPending: savingKey } = useSetEnvVar();
   const isOpenAiCompatible = provider.kind === 'openai-compatible';
   const isGithubCopilot = provider.kind === 'github-copilot';
   const [newModelId, setNewModelId] = useState('');
   const [isOpen, setIsOpen] = useState(false);
 
-  const handleTest = () => {
-    resetTest();
-    testConn(providerRef);
-  };
-
   const handleRefresh = () => refreshModels(providerRef);
-
-  const handleEnvSave = (value: string) => {
-    if (provider.apiKeyEnvVar) {
-      setEnvVar({ key: provider.apiKeyEnvVar, value }, { onSuccess: onSave });
-    }
-  };
 
   const providerModelIds = getProviderModelIds(provider);
 
@@ -434,32 +411,8 @@ function DevProviderCard({
           >
             {refreshing ? 'Refreshing…' : '⟳ Refresh models'}
           </button>
-          <button type="button" className="btn-secondary" onClick={handleTest} disabled={testing}>
-            {testing ? 'Testing…' : '⚡ Test connection'}
-          </button>
         </div>
       </div>
-
-      {testResult && (
-        <div
-          className={`test-result test-result-compact ${testResult.ok ? 'test-result--ok' : 'test-result--error'}`}
-        >
-          <span>
-            {testResult.ok
-              ? `✓ Connected (${testResult.latencyMs}ms)`
-              : `✗ ${testResult.error ?? 'Connection failed'}`}
-          </span>
-          <button
-            type="button"
-            className="test-result-remove"
-            onClick={resetTest}
-            aria-label="Remove test result message"
-            title="Remove message"
-          >
-            ✕
-          </button>
-        </div>
-      )}
 
       {isOpen && (
         <div className="provider-card-body">
@@ -481,31 +434,6 @@ function DevProviderCard({
                 disabled={!allowProviderEdit}
               />
             </label>
-          )}
-          {isOpenAiCompatible && (
-            <label className="provider-field-row">
-              <span>API key env var</span>
-              <input
-                type="text"
-                value={provider.apiKeyEnvVar ?? ''}
-                onChange={(e) =>
-                  onChange({ ...provider, apiKeyEnvVar: e.target.value || undefined })
-                }
-                placeholder="e.g. AI_TEAM_LLM_API_KEY"
-                disabled={!allowProviderEdit}
-              />
-            </label>
-          )}
-          {isOpenAiCompatible && provider.apiKeyEnvVar && (
-            <div className="provider-field-row">
-              <span>API key value</span>
-              <ApiKeyField
-                envVarName={provider.apiKeyEnvVar}
-                isSet={envStatus[provider.apiKeyEnvVar] ?? false}
-                onSave={handleEnvSave}
-                saving={savingKey}
-              />
-            </div>
           )}
           {isGithubCopilot && (
             <div className="provider-field-row">
@@ -626,17 +554,13 @@ function DevProviderCard({
 interface UserProvidersSectionProps {
   devDraft: UserConfig;
   teamProviders: Record<string, ProviderConfig>;
-  envStatus: Record<string, boolean>;
   onChange: (d: UserConfig) => void;
-  onRefreshEnv: () => void;
 }
 
 function UserProvidersSection({
   devDraft,
   teamProviders,
-  envStatus,
   onChange,
-  onRefreshEnv,
 }: Readonly<UserProvidersSectionProps>) {
   const [newRef, setNewRef] = useState('');
 
@@ -663,13 +587,12 @@ function UserProvidersSection({
           key={ref}
           providerRef={ref}
           provider={provider}
-          envStatus={envStatus}
           allowProviderEdit={isUserProvider}
           onChange={(p) => {
             if (!isUserProvider) return;
             onChange(setUserProviders(devDraft, { ...providers, [ref]: p }));
           }}
-          onSave={onRefreshEnv}
+          onSave={() => {}}
         />
         );
       })}
@@ -1512,7 +1435,6 @@ type SettingsTab = 'user' | 'team';
 export function SettingsPage() {
   const { data: config, isLoading: configLoading, error: configError } = useConfig();
   const { data: devConfig, isLoading: devLoading } = useUserConfig();
-  const { data: envStatus = {} } = useEnvStatus();
   const { data: agentModelKeys } = useAgentModelKeys();
   const { mutate: saveConfig, isPending: savingConfig } = useSaveConfig();
   const { mutate: saveDevConfig, isPending: savingDev } = useSaveUserConfig();
@@ -1618,9 +1540,7 @@ export function SettingsPage() {
           <UserProvidersSection
             devDraft={devDraft}
             teamProviders={teamProviders}
-            envStatus={envStatus}
             onChange={patchDev}
-            onRefreshEnv={() => {}}
           />
 
           <UnifiedModelSection

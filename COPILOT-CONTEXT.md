@@ -51,13 +51,16 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 
 ## Read next (detailed docs)
 
-1. `ARCHITECTURE.md`
+1. `docs/architecture/overview.md`
 2. `.ai-team/tasks/`
 3. `.github/copilot-instructions.md`
-4. `docs/architecture/overview.md`
-5. `docs/architecture/diagrams.md`
-6. `docs/api/contracts.md`
-7. `docs/implementation/web-state-architecture.md`
+4. `docs/architecture/diagrams.md`
+5. `ARCHITECTURE.md` (deep architecture narrative)
+6. `docs/architecture/implementation-entry-points.md` (deep code-navigation index)
+7. `docs/api/contracts.md` (only for API/transport work)
+8. `docs/implementation/web-state-architecture.md`
+
+Default posture: do not load items 5–7 unless the task requires them.
 
 ## High-value implementation hotspots
 
@@ -82,6 +85,18 @@ For any change affecting `packages/web`, use the **Chrome / browser MCP tools** 
 - `mcp_microsoft_pla_browser_console_messages` — read console errors and warnings
 
 Do not rely on a successful build alone for UI work. Open the browser, navigate to the affected screen, and confirm visually.
+
+## Duplication Verification
+
+For every new feature and every cleanup/refactor, run fuzzy duplication scanning on the affected scope before finishing:
+
+- `pnpm --filter @aspect/duplication build`
+- `node analysis/duplication/dist/cli/fuzzy-dup.js <scope> --format text`
+
+Examples:
+
+- `node analysis/duplication/dist/cli/fuzzy-dup.js packages/service --match-length 12 --fuzz 2 --gap-tolerance 1 --max-hole-size 1`
+- `node analysis/duplication/dist/cli/fuzzy-dup.js packages/web --format text`
 
 ## Change rule
 

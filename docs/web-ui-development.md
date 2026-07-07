@@ -55,6 +55,17 @@ pnpm --filter @ai-team/web build
 - Outputs to `packages/web/dist/`
 - Use only when testing production build or deploying
 
+## Required quality gate for feature and cleanup work
+
+When implementing a new feature in the web package, or during refactor/cleanup work, run fuzzy duplication scanning on the changed scope before finishing:
+
+```powershell
+pnpm --filter @aspect/duplication build
+node analysis/duplication/dist/cli/fuzzy-dup.js packages/web --format text
+```
+
+If the change touches shared frontend/runtime code, also scan a broader scope (for example `packages/`).
+
 ## State Architecture Direction
 
 The target frontend state split for `packages/web` is:

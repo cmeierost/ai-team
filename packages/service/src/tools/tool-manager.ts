@@ -120,7 +120,6 @@ export class ToolManager {
   private readonly directTools = new Map<string, ICommand>();
 
   constructor(
-    private readonly workspaceRoot: string,
     private readonly pathPermissionChecker: IPathPermissionChecker,
     private readonly registry: ICommandRegistry,
     private readonly container: IServiceContainer

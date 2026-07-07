@@ -55,9 +55,7 @@ export async function saveAgentAccessPatterns(
 
 export async function testLlmConnection(workspaceRoot: string): Promise<{ success: boolean }> {
   const env = await loadEnvFile(workspaceRoot);
-  const hasKey = Boolean(
-    env.AI_TEAM_LLM_API_KEY || env.LLM_API_KEY || env.OPENAI_API_KEY || env.GITHUB_TOKEN
-  );
+  const hasKey = Boolean(Object.values(env).some((value) => value.trim().length > 0));
   if (!hasKey) {
     throw new Error('No LLM API key found in .ai-team/.env.');
   }

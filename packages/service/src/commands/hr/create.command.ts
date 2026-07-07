@@ -36,7 +36,7 @@ export class CreateICommand implements ICommand<Params, void> {
     private readonly interactionService: IQuestionService
   ) {}
 
-  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
+  async execute(payload: Params, _ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const cmd = new CreateCommandImpl(this.agents, this.skills, this.interactionService);
     const { type, ...options } = payload;
     await cmd.execute(type, options);

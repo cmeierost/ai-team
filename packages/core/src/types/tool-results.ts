@@ -31,7 +31,10 @@ export interface ToolCatalogEntry {
 export interface HandoffRequest {
   type: 'handoff';
   targetAgentId: string;
+  /** Final dominant instruction for the target agent. May include prepended prior-context summary. */
   briefingNote: string;
+  /** Optional summary of the prior conversation, prepended into briefingNote as context. */
+  summary?: string;
   /** Pre-resolved by com_handoff via ISessionGateway — skips a redundant lookup in tool-dispatch. */
   targetSessionId?: string;
   timestamp: string;
@@ -106,7 +109,9 @@ export function isHireResult(value: unknown): value is HireResult {
 }
 
 export function isFindCapableAgentResult(value: unknown): value is FindCapableAgentResult {
-  return typeof value === 'object' && value !== null && (value as any).type === 'fs_who_should_result';
+  return (
+    typeof value === 'object' && value !== null && (value as any).type === 'fs_who_should_result'
+  );
 }
 
 export function isToolCatalogResult(value: unknown): value is ToolCatalogResult {

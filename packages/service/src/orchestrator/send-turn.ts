@@ -7,28 +7,57 @@
 
 import type { StructuredToolResult, ExecutionContext } from '@ai-team/core';
 import type { ResolvedPlugins, TurnResult } from './pipeline.js';
-import {
-  buildRetryableFailureMessage as buildRetryableFailureMessageImpl,
-  ensureTurnStartAsync,
-  finalizeTurnResultAsync,
-  handleLlmFailureAsync,
-  invokeTurnLlmAsync,
-  parseTurnResultAsync,
-  persistAssistantMessageAsync,
-  persistUserMessageAsync,
-  prepareMessagesAsync,
-  resolveSkillsAndToolsAsync,
-  type SendTurnDeps,
-} from './send-turn-steps.js';
-import { EmitService } from './services/emit-service.js';
+import { SendTurnStepService, type SendTurnOptions, type SendTurnDeps } from './send-turn-steps.js';
 
-export interface SendTurnOptions {
-  /**
-   * When true the user message is injected into the LLM context but NOT
-   * persisted to the session store.  Used for synthetic / system-generated
-   * prompts (e.g. post-handoff auto-react) that should never appear in the DB.
-   */
-  skipPersist?: boolean;
+export class SendTurnService {
+  constructor(private readonly deps: SendTurnDeps) {}
+
+  async run(
+    userMessage: string,
+    plugins: ResolvedPlugins,
+    ctx: ExecutionContext,
+    options?: SendTurnOptions
+  ): Promise<TurnResult> {
+    const steps = new SendTurnStepService(this.deps);
+
+    await steps.ensureTurnStartAsync(userMessage, plugins, ctx, options);
+    await steps.persistUserMessageAsync(userMessage, ctx, options);
+
+    const messages = await steps.prepareMessagesAsync(userMessage, plugins, ctx);
+    const resolved = await steps.resolveSkillsAndToolsAsync(userMessage, plugins, ctx);
+
+    let fullResponse = '';
+    let structuredResults: StructuredToolResult[] = [];
+
+    try {
+      const invoked = await steps.invokeTurnLlmAsync(messages, resolved, ctx);
+      fullResponse = invoked.fullResponse;
+      structuredResults = invoked.structuredResults;
+    } catch (error) {
+      return steps.handleLlmFailureAsync(error, plugins, ctx, options, structuredResults);
+    }
+
+    process.stdout.write('\n');
+
+    const persisted = await steps.persistAssistantMessageAsync(fullResponse, plugins, ctx);
+    const parsed = await steps.parseTurnResultAsync(
+      structuredResults,
+      fullResponse,
+      persisted.persistedContent,
+      plugins,
+      ctx
+    );
+
+    const turnResult: TurnResult = parsed ?? { text: persisted.persistedContent, done: false };
+    return steps.finalizeTurnResultAsync(
+      turnResult,
+      fullResponse,
+      persisted.persistedContent,
+      structuredResults,
+      plugins,
+      ctx
+    );
+  }
 }
 
 export async function sendTurn(
@@ -38,57 +67,11 @@ export async function sendTurn(
   options?: SendTurnOptions,
   deps?: SendTurnDeps
 ): Promise<TurnResult> {
-  // Build deps from ctx when not provided (compatibility path used by tests and
-  // callers that still embed services directly on the context object).
-  const ctxAny = ctx as any;
-  const resolvedDeps: SendTurnDeps = deps ?? {
-    sessionManager: ctxAny.sessionManager,
-    llmService: ctxAny.llmService,
-    skillManager: ctxAny.skillManager,
-    hooks: ctxAny.hooks ?? {},
-    emitService:
-      ctxAny.hooks?.emitService ?? new EmitService(ctxAny.hooks?.emit ?? ctxAny.emit ?? (() => {})),
-  };
-
-  await ensureTurnStartAsync(userMessage, plugins, ctx, options, resolvedDeps);
-  await persistUserMessageAsync(userMessage, ctx, options, resolvedDeps);
-
-  const messages = await prepareMessagesAsync(userMessage, plugins, ctx, resolvedDeps);
-  const resolved = await resolveSkillsAndToolsAsync(userMessage, plugins, ctx, resolvedDeps);
-
-  let fullResponse = '';
-  let structuredResults: StructuredToolResult[] = [];
-
-  try {
-    const invoked = await invokeTurnLlmAsync(messages, resolved, ctx, resolvedDeps);
-    fullResponse = invoked.fullResponse;
-    structuredResults = invoked.structuredResults;
-  } catch (error) {
-    return handleLlmFailureAsync(error, plugins, ctx, options, structuredResults, resolvedDeps);
+  if (!deps) {
+    throw new Error('sendTurn requires explicit SendTurnDeps injection.');
   }
 
-  process.stdout.write('\n');
-
-  const persisted = await persistAssistantMessageAsync(fullResponse, plugins, ctx, resolvedDeps);
-  const parsed = await parseTurnResultAsync(
-    structuredResults,
-    fullResponse,
-    persisted.persistedContent,
-    plugins,
-    ctx,
-    resolvedDeps
-  );
-
-  const turnResult: TurnResult = parsed ?? { text: persisted.persistedContent, done: false };
-  return finalizeTurnResultAsync(
-    turnResult,
-    fullResponse,
-    persisted.persistedContent,
-    structuredResults,
-    plugins,
-    ctx,
-    resolvedDeps
-  );
+  return new SendTurnService(deps).run(userMessage, plugins, ctx, options);
 }
 
-export const buildRetryableFailureMessage = buildRetryableFailureMessageImpl;
+export { buildRetryableFailureMessage } from './send-turn-steps.js';

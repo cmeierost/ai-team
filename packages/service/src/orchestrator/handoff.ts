@@ -14,20 +14,42 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Agent, ChatMessage, IAgentManager, ILlmService, ExecutionContext } from '@ai-team/core';
+import type {
+  Agent,
+  ChatMessage,
+  IAgentManager,
+  ILlmService,
+  ExecutionContext,
+} from '@ai-team/core';
 import type { SessionManager } from '../session-manager.js';
 import type { IEmitService } from './services/emit-service.js';
+import { EmitService } from './services/emit-service.js';
 import { detectForwardRequestWithFallbackAsync, extractForwardNote } from './forward-detection.js';
+import { getServiceContainer } from '../service-registry.js';
+import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
 // ── HandoffOrchestrator ───────────────────────────────────────────────────────
 
 export class HandoffOrchestrator {
+  private readonly emitService: IEmitService;
+
   constructor(
     private readonly agentManager: IAgentManager,
     private readonly sessionManager: SessionManager,
     private readonly llmService: ILlmService,
-    private readonly emitService: IEmitService
-  ) {}
+    emitService?: IEmitService
+  ) {
+    this.emitService = emitService ?? this.resolveDefaultEmitService();
+  }
+
+  // nonsense this needs to be here and come from the constructor / service container
+  private resolveDefaultEmitService(): IEmitService {
+    try {
+      return getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.EmitService);
+    } catch {
+      return new EmitService(() => {});
+    }
+  }
 
   /**
    * Detect if the message is a natural-language request to be forwarded to
@@ -92,7 +114,9 @@ export class HandoffOrchestrator {
   ): Promise<boolean> {
     const target =
       (await this.agentManager.getAgentAsync(targetAgentId)) ??
-      (await this.agentManager.resolveAgentAsync(targetAgentId)).find((a) => a.id !== ctx.agent!.id);
+      (await this.agentManager.resolveAgentAsync(targetAgentId)).find(
+        (a) => a.id !== ctx.agent!.id
+      );
     if (!target) return false;
 
     const currentSession = await this.sessionManager.getSession(ctx.sessionId!);

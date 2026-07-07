@@ -2,13 +2,21 @@
 
 Scope: technical flow inside `@ai-team/service` after a message is submitted.
 
+## Non-negotiable runtime rules
+
+- Runtime emission must use an injected `IEmitService` from DI.
+- Do **not** read emitter state from `hooks.emitService`, `ctx.emitService`, or `ExecutionContext` in orchestration/service helpers.
+- `ExecutionContext` is for conversational/runtime state, not infrastructure dependency resolution.
+- The only justified `ExecutionContext` fallback is agent identity/state fallback (for example `ctx.agent?.id ?? ctx.agentId`) where identity is part of runtime context, not DI.
+- This is a hard rule for future changes: do not reintroduce emitter/service resolution from hooks/context once removed.
+
 ## Components and responsibilities
 
 - `chat-orchestrator.ts`: entry loop, pre-turn interceptors, hop control, handoff/hire handling
 - `send-turn.ts`: one LLM turn (persist, build context, resolve skills, call model, run hook plugins, parse outcomes)
 - `tool-dispatch.ts`: single tool gate (confirm, policy, execute, emit tool events)
 - `handoff.ts`: session resolution + briefing + context switch
-- `stream-events.ts`: runtime event wrappers over `hooks.emit`
+- `stream-events.ts`: runtime event wrappers over `emitService.emit`
 - `pipeline.ts`: all extension-surface interfaces (open/closed principle)
 - `defaults/hook-plugins.ts`: default `IOrchestratorHookPlugin` implementations including `StripInternalHandoffDirectivePlugin`
 
@@ -378,7 +386,7 @@ emitLog(hooks, 'warn', 'Handoff requested to unknown agent');
 
 ## Runtime events emitted
 
-The orchestrator path emits structured runtime events through `hooks.emit`:
+The orchestrator path emits structured runtime events through `emitService.emit`:
 
 - `status`: phase changes (`thinking`, `handoff`, `error`)
 - `token`: streamed text deltas

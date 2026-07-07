@@ -55,11 +55,6 @@ describe('provider commands', () => {
           defaultModel: 'llama3',
           models: [{ name: 'llama3' }],
         },
-        legacyLlm: {
-          provider: 'openai-compatible',
-          baseUrl: 'http://localhost:11434/v1',
-          model: 'llama3',
-        },
       },
     });
 
@@ -76,11 +71,6 @@ describe('provider commands', () => {
                 baseUrl: 'http://localhost:11434/v1',
                 defaultModel: 'llama3',
                 models: [{ name: 'llama3' }],
-              },
-              legacyLlm: {
-                provider: 'openai-compatible',
-                baseUrl: 'http://localhost:11434/v1',
-                model: 'llama3',
               },
             },
           },

@@ -23,7 +23,6 @@ describe('ToolManager DI resolve wiring', () => {
     };
 
     const manager = new ToolManager(
-      'C:/workspace',
       {
         canReadPath: () => true,
         canWritePath: () => true,

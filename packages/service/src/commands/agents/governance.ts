@@ -70,7 +70,7 @@ export class GovernanceService {
    * Falls back to interactive input via questionService.
    */
   public async resolveRequestedByFromRuntime(
-    context: ExecutionContext,
+    _context: ExecutionContext,
     requestedBy: string | undefined,
     errorMessage: string
   ): Promise<string> {
@@ -90,7 +90,7 @@ export class GovernanceService {
    * Returns the explicit value if provided, otherwise prompts via questionService.
    */
   public async confirmGovernanceActionFromRuntime(
-    context: ExecutionContext,
+    _context: ExecutionContext,
     approvedByUser: boolean | undefined,
     message: string
   ): Promise<boolean> {

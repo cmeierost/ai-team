@@ -1,31 +1,22 @@
 import ora from 'ora';
 import type {
-  ChatMessage,
   Agent,
-  IAgentManager,
+  ChatMessage,
+  ExecutionContext,
   ICommand,
   IServiceContainer,
-  IConfigurationStorage,
-  IEnvironmentStorage,
-  IDeveloperIdentityService,
-  IAgentDocumentStorage,
-  ExecutionContext,
-  IPathPermissionChecker,
+  IAgentManager,
   ILlmService,
   IMarkdownSectionService,
-  IProposalStoreFactory,
   ISkillManager,
+  TeamConfig,
 } from '@ai-team/core';
-import type { ChatOptions, IContextService } from '@ai-team/api-contracts';
+import type { ChatOptions } from '@ai-team/api-contracts';
 import { SessionManager } from '../../session-manager.js';
 import { ChatOrchestrator } from '../../orchestrator/chat-orchestrator.js';
 import { tryIntroduceUser as tryIntroduceUserNew } from '../../orchestrator/introduction.js';
 import type { ResolvedPlugins } from '../../orchestrator/pipeline.js';
-import {
-  EmitService,
-  formatConsoleArgs,
-  type IEmitService,
-} from '../../orchestrator/services/emit-service.js';
+import { type IEmitService } from '../../orchestrator/services/emit-service.js';
 import { NoOpCompressor } from '../../orchestrator/defaults/context-compressor.js';
 import { DefaultContextBuilder } from '../../orchestrator/defaults/context-builder.js';
 import {
@@ -34,6 +25,7 @@ import {
 } from '../../orchestrator/defaults/context-enrichers.js';
 import { NoOpRagProvider } from '../../orchestrator/defaults/rag-provider.js';
 import { DefaultToolResolver } from '../../orchestrator/defaults/tool-resolver.js';
+import { WorkflowToolResolver } from '../../orchestrator/defaults/workflow-tool-resolver.js';
 import { NoOpMcpGateway } from '../../orchestrator/defaults/mcp-gateway.js';
 import { DefaultLlmSelector } from '../../orchestrator/defaults/llm-selector.js';
 import { DefaultOutputHandler } from '../../orchestrator/defaults/output-handler.js';
@@ -49,62 +41,19 @@ import { readDynamicSlashCatalogConfig } from '../../orchestrator/dynamic-slash/
 import type { ChatRuntimeHooks } from '../../orchestrator/hooks.js';
 import { withAbortSignal, isAbortError, throwIfAborted } from '../../utils/async-utils.js';
 import { withTimeout } from '../../utils/with-timeout.js';
-import { requestInput } from '../com/questions.js';
 import { formatUserPrompt } from '../../utils/agent-selection.js';
-import type { IChatInfoService } from '../../orchestrator/chat-info-service.js';
-import type { IChatPreflightService } from '../../orchestrator/chat-preflight-service.js';
+import { ChatInfoService, type IChatInfoService } from '../../orchestrator/chat-info-service.js';
+import {
+  ChatPreflightService,
+  type IChatPreflightService,
+} from '../../orchestrator/chat-preflight-service.js';
+import { InfoChatCommand } from '../agents/info.command.js';
 import { ResolveChatSessionCommand } from './resolve-chat-session.command.js';
 import { LoadSessionMessagesCommand } from './load-session-messages.command.js';
 import { runChatSessionStartupWorkflow } from './chat-session-startup.workflow.js';
 import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 import { setServiceContainer } from '../../service-registry.js';
-
-// ── Dep interfaces ────────────────────────────────────────────────────────────
-
-export interface ChatConfigIdentityDeps {
-  configurationStorage: Pick<IConfigurationStorage, 'loadEffectiveConfigAsync'>;
-  environmentStorage: Pick<IEnvironmentStorage, 'loadEnvFileAsync' | 'saveEnvFileAsync'>;
-  developerIdentityService: Pick<
-    IDeveloperIdentityService,
-    'getUserName' | 'getUserEmail' | 'toDeveloperId'
-  >;
-  contextService: Pick<IContextService, 'getContextEstimate'>;
-}
-
-export interface ChatAgentKnowledgeDeps {
-  agentManager: Pick<
-    IAgentManager,
-    'getAllAgentsAsync' | 'resolveAgentAsync' | 'getAgentAsync' | 'recordInteractionAsync'
-  >;
-  agentDocumentStorage: Pick<
-    IAgentDocumentStorage,
-    'loadSkillAsync' | 'loadAllInstructionFilesAsync'
-  >;
-  markdownSectionService: Pick<IMarkdownSectionService, 'parseMarkdownSections'>;
-  skillManager: ISkillManager;
-}
-
-export interface ChatSessionExecutionDeps {
-  sessionManager: Pick<
-    SessionManager,
-    | 'getSessionMessages'
-    | 'createSession'
-    | 'getLatestSession'
-    | 'listRecentSessions'
-    | 'appendMessage'
-    | 'setAutoTitleLlmService'
-    | 'close'
-  >;
-  llmService: Pick<ILlmService, 'initialize' | 'setDiagnosticReporter' | 'provider' | 'modelName'>;
-  proposalStoreFactory: IProposalStoreFactory;
-}
-
-export interface ChatOrchestrationDeps {
-  pathPermissionChecker: IPathPermissionChecker;
-  serviceContainer: IServiceContainer;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
+import type { WorkflowToolPolicy } from '../../workflow/chat-loop-contracts.js';
 
 const CHAT_CONNECT_TIMEOUT_MS = 20_000;
 
@@ -114,6 +63,7 @@ interface WorkflowChatOptions {
   workflowExitWords?: string[];
   suppressAutoIntroduction?: boolean;
   disableProcessExit?: boolean;
+  toolPolicy?: WorkflowToolPolicy;
 }
 
 type ChatCommandOptions = ChatOptions & WorkflowChatOptions;
@@ -125,70 +75,32 @@ function wireLlmDiagnostics(llm: ILlmService, emitService: IEmitService): void {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+interface ChatResolvedDeps {
+  teamConfig: TeamConfig;
+  emitService: IEmitService;
+  questionService: IQuestionService;
+  chatInfoService: IChatInfoService;
+  preflightService: IChatPreflightService;
+  agentResolutionService: ICommand<string, Agent[]>;
+  agentManager: IAgentManager;
+  sessionManager: SessionManager;
+  llmService: ILlmService;
+  skillManager: ISkillManager;
+  markdownSectionService: IMarkdownSectionService;
+  serviceContainer: IServiceContainer;
+}
 
 export class ChatCommand {
-  constructor(
-    private readonly configIdentityDeps: ChatConfigIdentityDeps,
-    private readonly agentKnowledgeDeps: ChatAgentKnowledgeDeps,
-    private readonly sessionExecutionDeps: ChatSessionExecutionDeps,
-    private readonly orchestrationDeps: ChatOrchestrationDeps,
-    private readonly chatInfoService: IChatInfoService,
-    private readonly preflightService: IChatPreflightService,
-    private readonly agentResolutionService: ICommand<string, Agent[]>
-  ) {}
+  constructor(private readonly serviceContainer: IServiceContainer) {}
 
   async execute(
     workspaceRoot: string,
     agentId: string | undefined,
     options: ChatCommandOptions,
     hooks: ChatRuntimeHooks = {}
-  ) {
-    const { configurationStorage } = this.configIdentityDeps;
-    const { markdownSectionService, skillManager } = this.agentKnowledgeDeps;
-    const { serviceContainer } = this.orchestrationDeps;
-    setServiceContainer(serviceContainer);
-    const questionService = serviceContainer.resolve(
-      COMMAND_FACTORY_TOKENS.QuestionService
-    ) as IQuestionService;
-
-    return this.runWithEmitter({
-      workspaceRoot,
-      agentId,
-      options,
-      hooks,
-      configurationStorage,
-      markdownSectionService,
-      skillManager,
-      serviceContainer,
-      questionService,
-    });
-  }
-
-  private async runWithEmitter(params: {
-    workspaceRoot: string;
-    agentId: string | undefined;
-    options: ChatCommandOptions;
-    hooks: ChatRuntimeHooks;
-    configurationStorage: Pick<IConfigurationStorage, 'loadEffectiveConfigAsync'>;
-    markdownSectionService: Pick<IMarkdownSectionService, 'parseMarkdownSections'>;
-    skillManager: ISkillManager;
-    serviceContainer: IServiceContainer;
-    questionService: IQuestionService;
-  }): Promise<void> {
-    const {
-      workspaceRoot,
-      agentId,
-      options,
-      hooks,
-      configurationStorage,
-      markdownSectionService,
-      skillManager,
-      serviceContainer,
-      questionService,
-    } = params;
-    const emitService: IEmitService = hooks.emitService ?? EmitService.forConsole();
-    const restoreConsole = this.applyConsoleHookOverrides(hooks, emitService);
+  ): Promise<void> {
+    setServiceContainer(this.serviceContainer);
+    const deps = this.resolveDeps();
 
     try {
       const navStack: Array<{ agentId: string; sessionId: string; agentName: string }> = [];
@@ -197,9 +109,11 @@ export class ChatCommand {
         agentId,
         options,
         hooks,
-        markdownSectionService,
-        serviceContainer,
-        emitService,
+        markdownSectionService: deps.markdownSectionService,
+        preflightService: deps.preflightService,
+        agentResolutionService: deps.agentResolutionService,
+        sessionManager: deps.sessionManager,
+        emitService: deps.emitService,
       });
 
       const { ctx, orchestrator } = await this.buildOrchestrator({
@@ -210,11 +124,13 @@ export class ChatCommand {
         instructions: prepared.instructions,
         llm: prepared.llm,
         hooks,
-        serviceContainer,
-        skillManager,
-        configurationStorage,
-        questionService,
-        emitService,
+        sessionManager: deps.sessionManager,
+        agentManager: deps.agentManager,
+        skillManager: deps.skillManager,
+        teamConfig: deps.teamConfig,
+        questionService: deps.questionService,
+        emitService: deps.emitService,
+        toolPolicy: options.toolPolicy,
       });
 
       await this.runSingleMessageIfNeeded(orchestrator, options, hooks);
@@ -230,26 +146,64 @@ export class ChatCommand {
         loadSessionMessagesCommand: prepared.loadSessionMessagesCommand,
         currentSessionId: prepared.currentSessionId,
         initialAgent: prepared.agent,
-        emitService,
+        emitService: deps.emitService,
+        questionService: deps.questionService,
+        agentManager: deps.agentManager,
       });
     } catch (error) {
       if (isAbortError(error)) {
-        emitService.log('info', 'Chat aborted.');
+        deps.emitService.log('info', 'Chat aborted.');
         return;
       }
-      emitService.log(
+
+      deps.emitService.log(
         'error',
         `Error in chat: ${error instanceof Error ? error.message : String(error)}`
       );
       throw new Error(error instanceof Error ? error.message : String(error));
     } finally {
-      if (this.sessionExecutionDeps.sessionManager) {
-        try {
-          await this.sessionExecutionDeps.sessionManager.close();
-        } catch {}
+      try {
+        await deps.sessionManager.close();
+      } catch {
+        // no-op
       }
-      restoreConsole();
     }
+  }
+
+  private resolveDeps(): ChatResolvedDeps {
+    const configStorage = this.serviceContainer.resolve(
+      COMMAND_FACTORY_TOKENS.ConfigurationStorage
+    );
+    const teamConfig = configStorage.get();
+    const emitService = this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.EmitService);
+    const questionService = this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.QuestionService);
+
+    return {
+      teamConfig,
+      emitService,
+      questionService,
+      chatInfoService: new ChatInfoService(emitService),
+      preflightService: new ChatPreflightService(
+        teamConfig,
+        configStorage,
+        this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
+        emitService,
+        this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.ProviderConfigurationService)
+      ),
+      agentResolutionService: new InfoChatCommand(
+        this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+        questionService,
+        this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.LlmService)
+      ),
+      agentManager: this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      sessionManager: this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
+      llmService: this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.LlmService),
+      skillManager: this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
+      markdownSectionService: this.serviceContainer.resolve(
+        COMMAND_FACTORY_TOKENS.MarkdownSectionService
+      ),
+      serviceContainer: this.serviceContainer,
+    };
   }
 
   private async prepareChatSession(params: {
@@ -258,7 +212,9 @@ export class ChatCommand {
     options: ChatCommandOptions;
     hooks: ChatRuntimeHooks;
     markdownSectionService: Pick<IMarkdownSectionService, 'parseMarkdownSections'>;
-    serviceContainer: IServiceContainer;
+    preflightService: IChatPreflightService;
+    agentResolutionService: ICommand<string, Agent[]>;
+    sessionManager: SessionManager;
     emitService: IEmitService;
   }): Promise<{
     developerName: string;
@@ -275,23 +231,45 @@ export class ChatCommand {
       options,
       hooks,
       markdownSectionService,
-      serviceContainer,
+      preflightService,
+      agentResolutionService,
+      sessionManager,
       emitService,
     } = params;
-    const runnerFactory = serviceContainer.resolve(COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory);
-    const { developerName, agent, resolveChatSessionCommand, loadSessionMessagesCommand } =
-      await this.resolveAgentAndIdentity(workspaceRoot, agentId, hooks, emitService);
 
-    const llm = await this.initializeLlm(hooks, emitService);
+    const runnerFactory = this.serviceContainer.resolve(
+      COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory
+    );
+    const { developerName: resolvedName } = await preflightService.resolve(workspaceRoot, hooks);
+    const developerName = resolvedName ?? 'Developer';
 
+    const resolveChatSessionCommand = new ResolveChatSessionCommand(
+      sessionManager,
+      this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService)
+    );
+    const loadSessionMessagesCommand = new LoadSessionMessagesCommand(sessionManager, emitService);
+
+    const resolveCtx: ExecutionContext = {
+      history: [],
+      signal: hooks.signal,
+      invocationSurface: hooks.invocationSurface,
+    };
+
+    const agentResolution = await agentResolutionService.execute(agentId ?? '', resolveCtx);
+    if (agentResolution.status === 'error') {
+      throw new Error(agentResolution.message);
+    }
+
+    const agent = agentResolution.data![0];
+    const llm = await this.initializeLlm(hooks, emitService, sessionManager);
     const instructions = await this.loadSkillAndInstructions(
       workspaceRoot,
       agent,
       options,
-      hooks,
       emitService
     );
-    this.chatInfoService.showSessionIntro({
+
+    this.resolveDeps().chatInfoService.showSessionIntro({
       agent,
       developerName,
       workflowMode: options.workflowMode,
@@ -299,7 +277,6 @@ export class ChatCommand {
     });
 
     const workflowContext: ExecutionContext = {
-      workspaceRoot,
       history: [],
       signal: hooks.signal,
       workflowState: hooks.workflowState,
@@ -323,9 +300,11 @@ export class ChatCommand {
       workflowContext,
       runnerFactory
     );
+
     const currentSessionId = startup.sessionId;
     const history = startup.history;
-    this.chatInfoService.showSessionResume(history, agent.name, developerName);
+
+    this.resolveDeps().chatInfoService.showSessionResume(history, agent.name, developerName);
 
     await this.handleInitialIntroductions({
       agent,
@@ -335,7 +314,9 @@ export class ChatCommand {
       options,
       hooks,
       markdownSectionService,
+      sessionManager,
       emitService,
+      agentManager: this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
     });
 
     return {
@@ -349,80 +330,12 @@ export class ChatCommand {
     };
   }
 
-  private applyConsoleHookOverrides(
-    hooks: ChatRuntimeHooks,
-    emitService: IEmitService
-  ): () => void {
-    const originalLog = console.log;
-    const originalWarn = console.warn;
-    const originalError = console.error;
-    const shouldPatch = hooks.emitService !== undefined;
-
-    if (shouldPatch) {
-      console.log = (...args: unknown[]) => emitService.log('info', formatConsoleArgs(args));
-      console.warn = (...args: unknown[]) => emitService.log('warn', formatConsoleArgs(args));
-      console.error = (...args: unknown[]) => emitService.log('error', formatConsoleArgs(args));
-    }
-
-    return () => {
-      if (shouldPatch) {
-        console.log = originalLog;
-        console.warn = originalWarn;
-        console.error = originalError;
-      }
-    };
-  }
-
-  private async resolveAgentAndIdentity(
-    workspaceRoot: string,
-    agentId: string | undefined,
-    hooks: ChatRuntimeHooks,
-    emitService: IEmitService
-  ): Promise<{
-    developerName: string;
-    agent: Agent;
-    resolveChatSessionCommand: ResolveChatSessionCommand;
-    loadSessionMessagesCommand: LoadSessionMessagesCommand;
-  }> {
-    const { developerIdentityService } = this.configIdentityDeps;
-
-    const { developerName: resolvedName } = await this.preflightService.resolve(
-      workspaceRoot,
-      hooks
-    );
-    const developerName = resolvedName ?? 'Developer';
-    const resolveChatSessionCommand = new ResolveChatSessionCommand(
-      this.sessionExecutionDeps.sessionManager,
-      developerIdentityService
-    );
-    const loadSessionMessagesCommand = new LoadSessionMessagesCommand(
-      this.sessionExecutionDeps.sessionManager,
-      emitService
-    );
-
-    const resolveCtx: ExecutionContext = {
-      workspaceRoot,
-      history: [],
-      signal: hooks.signal,
-      invocationSurface: hooks.invocationSurface,
-    };
-    const agentResolution = await this.agentResolutionService.execute(agentId ?? '', resolveCtx);
-    if (agentResolution.status === 'error') throw new Error(agentResolution.message);
-
-    return {
-      developerName,
-      agent: agentResolution.data![0],
-      resolveChatSessionCommand,
-      loadSessionMessagesCommand,
-    };
-  }
-
   private async initializeLlm(
     hooks: ChatRuntimeHooks,
-    emitService: IEmitService
+    emitService: IEmitService,
+    sessionManager: SessionManager
   ): Promise<ILlmService> {
-    const llm = this.sessionExecutionDeps.llmService as ILlmService;
-    if (!llm) throw new Error('ChatCommand: llmService is required but was not provided');
+    const llm = this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.LlmService);
 
     wireLlmDiagnostics(llm, emitService);
     const useSpinner = hooks.emitService === undefined && Boolean(process.stderr.isTTY);
@@ -436,15 +349,16 @@ export class ChatCommand {
           CHAT_CONNECT_TIMEOUT_MS,
           `LLM initialization timed out after ${CHAT_CONNECT_TIMEOUT_MS / 1000}s.`
         ),
-        hooks?.signal,
+        hooks.signal,
         'Chat connection aborted by user.'
       );
+
       if (spinner) {
         spinner.succeed(`Connected to ${llm.provider} using ${llm.modelName}`);
       } else {
         emitService.log('info', `Connected to ${llm.provider} using ${llm.modelName}`);
       }
-      this.sessionExecutionDeps.sessionManager.setAutoTitleLlmService(llm);
+      sessionManager.setAutoTitleLlmService(llm);
     } catch (error) {
       if (spinner) spinner.fail('Could not connect to configured LLM');
       emitService.log('error', (error as Error).message);
@@ -462,10 +376,11 @@ export class ChatCommand {
     workspaceRoot: string,
     agent: Agent,
     options: ChatCommandOptions,
-    hooks: ChatRuntimeHooks,
     emitService: IEmitService
   ) {
-    const { agentDocumentStorage } = this.agentKnowledgeDeps;
+    const agentDocumentStorage = this.serviceContainer.resolve(
+      COMMAND_FACTORY_TOKENS.AgentDocumentStorage
+    );
 
     try {
       const skill = await agentDocumentStorage.loadSkillAsync(agent.skillPath);
@@ -486,7 +401,7 @@ export class ChatCommand {
       ];
     }
 
-    this.chatInfoService.showLoadedInstructions(instructions.length);
+    this.resolveDeps().chatInfoService.showLoadedInstructions(instructions.length);
     return instructions;
   }
 
@@ -498,7 +413,9 @@ export class ChatCommand {
     options: ChatCommandOptions;
     hooks: ChatRuntimeHooks;
     markdownSectionService: Pick<IMarkdownSectionService, 'parseMarkdownSections'>;
+    sessionManager: SessionManager;
     emitService: IEmitService;
+    agentManager: IAgentManager;
   }): Promise<void> {
     const {
       agent,
@@ -508,17 +425,19 @@ export class ChatCommand {
       options,
       hooks,
       markdownSectionService,
+      sessionManager,
       emitService,
+      agentManager,
     } = params;
 
     if (history.length === 0 && !options.pendingIntroduction && !options.suppressAutoIntroduction) {
       await tryIntroduceUserNew({
-        agentManager: this.agentKnowledgeDeps.agentManager as IAgentManager,
+        agentManager,
         markdownSectionService: markdownSectionService as IMarkdownSectionService,
         agent,
         history,
         developerName,
-        sessionManager: this.sessionExecutionDeps.sessionManager as SessionManager,
+        sessionManager,
         sessionId,
         hooks,
         emitService,
@@ -526,7 +445,6 @@ export class ChatCommand {
     }
 
     if (options.pendingIntroduction && history.length === 0) {
-      // Display the introduction to the user (same path as tryIntroduceUser)
       if (!hooks.emitService) {
         emitService.token(`\n${agent.name} (${agent.role}): `);
       }
@@ -539,9 +457,7 @@ export class ChatCommand {
         content: options.pendingIntroduction,
         importance: 'low',
       };
-      if (this.sessionExecutionDeps.sessionManager) {
-        await this.sessionExecutionDeps.sessionManager.appendMessage(sessionId, introMsg);
-      }
+      await sessionManager.appendMessage(sessionId, introMsg);
       history.push(introMsg);
     }
   }
@@ -554,11 +470,13 @@ export class ChatCommand {
     instructions: unknown;
     llm: ILlmService;
     hooks: ChatRuntimeHooks;
-    serviceContainer: IServiceContainer;
+    sessionManager: SessionManager;
+    agentManager: IAgentManager;
     skillManager: ISkillManager;
-    configurationStorage: Pick<IConfigurationStorage, 'loadEffectiveConfigAsync'>;
+    teamConfig: TeamConfig;
     questionService: IQuestionService;
     emitService: IEmitService;
+    toolPolicy?: WorkflowToolPolicy;
   }): Promise<{ ctx: ExecutionContext; orchestrator: ChatOrchestrator }> {
     const {
       workspaceRoot,
@@ -568,24 +486,26 @@ export class ChatCommand {
       instructions,
       llm,
       hooks,
-      serviceContainer,
+      sessionManager,
+      agentManager,
       skillManager,
-      configurationStorage,
+      teamConfig,
       questionService,
       emitService,
+      toolPolicy,
     } = params;
 
-    const chatToolManager = serviceContainer.resolve(COMMAND_FACTORY_TOKENS.ToolManager);
-    const toolDispatchSupport = serviceContainer.resolve(
+    const chatToolManager = this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.ToolManager);
+    const toolDispatchSupport = this.serviceContainer.resolve(
       COMMAND_FACTORY_TOKENS.ToolDispatchSupportService
     );
-    const toolSerialization = serviceContainer.resolve(
+    const toolSerialization = this.serviceContainer.resolve(
       COMMAND_FACTORY_TOKENS.ToolSerializationService
     );
 
     const toolDispatcher = new ToolDispatcher(
       chatToolManager,
-      this.sessionExecutionDeps.sessionManager as SessionManager,
+      sessionManager,
       toolDispatchSupport,
       questionService,
       emitService
@@ -593,13 +513,12 @@ export class ChatCommand {
 
     const ctx: ExecutionContext = {
       agent,
-      workspaceRoot,
       sessionId: currentSessionId,
       history,
       instructions,
     };
 
-    const commandDispatcher = createCommandDispatcher(workspaceRoot, serviceContainer);
+    const commandDispatcher = createCommandDispatcher(workspaceRoot, this.serviceContainer);
     const reservedSlashKeys = new Set(
       commandDispatcher.getCommands({ chat: true }).flatMap((e) => [e.key, ...(e.aliases ?? [])])
     );
@@ -609,9 +528,9 @@ export class ChatCommand {
       skillManager,
       reservedKeys: reservedSlashKeys,
       emitService,
-      dynamicSlashCatalog: readDynamicSlashCatalogConfig(
-        await configurationStorage.loadEffectiveConfigAsync(workspaceRoot)
-      ),
+      dynamicSlashCatalog: readDynamicSlashCatalogConfig({
+        dynamicSlashCatalog: (teamConfig as any)?.dynamicSlashCatalog ?? undefined,
+      }),
     });
 
     for (const warning of dynamicSlashCatalog.warnings) {
@@ -623,12 +542,11 @@ export class ChatCommand {
     const plugins: ResolvedPlugins = {
       compressor: new NoOpCompressor(),
       contextBuilder: new DefaultContextBuilder(),
-      enrichers: [
-        new WorkspaceOverviewEnricher(),
-        new TeamRosterEnricher(this.agentKnowledgeDeps.agentManager as IAgentManager),
-      ],
+      enrichers: [new WorkspaceOverviewEnricher(), new TeamRosterEnricher(agentManager)],
       ragProvider: new NoOpRagProvider(),
-      toolResolver: new DefaultToolResolver(chatToolManager),
+      toolResolver: toolPolicy
+        ? new WorkflowToolResolver(new DefaultToolResolver(chatToolManager), toolPolicy)
+        : new DefaultToolResolver(chatToolManager),
       mcpGateway: new NoOpMcpGateway(),
       llmSelector: new DefaultLlmSelector(llm),
       outputHandler: new DefaultOutputHandler(emitService),
@@ -639,8 +557,8 @@ export class ChatCommand {
     };
 
     const handoffOrchestrator = new HandoffOrchestrator(
-      this.agentKnowledgeDeps.agentManager as IAgentManager,
-      this.sessionExecutionDeps.sessionManager as SessionManager,
+      agentManager,
+      sessionManager,
       llm,
       emitService
     );
@@ -652,8 +570,8 @@ export class ChatCommand {
       toolDispatcher,
       handoffOrchestrator,
       orchestratorHooks,
-      this.agentKnowledgeDeps.agentManager as IAgentManager,
-      this.sessionExecutionDeps.sessionManager as SessionManager,
+      agentManager,
+      sessionManager,
       llm,
       toolSerialization,
       chatToolManager
@@ -687,6 +605,8 @@ export class ChatCommand {
     currentSessionId: string;
     initialAgent: Agent;
     emitService: IEmitService;
+    questionService: IQuestionService;
+    agentManager: IAgentManager;
   }): Promise<void> {
     const {
       ctx,
@@ -699,16 +619,16 @@ export class ChatCommand {
       currentSessionId,
       initialAgent,
       emitService,
+      questionService,
+      agentManager,
     } = params;
-
-    if (!hooks.questionInput) return;
 
     while (true) {
       throwIfAborted(hooks.signal, 'Chat request aborted by user.');
 
       const promptAgent = ctx.agent ?? initialAgent;
       const message = await withAbortSignal(
-        requestInput(hooks, {
+        questionService.input({
           message: formatUserPrompt(promptAgent, developerName),
           validate: (val: string) => val.length > 0 || 'Message cannot be empty',
         }),
@@ -736,10 +656,10 @@ export class ChatCommand {
       if (message.trim() === '/back') {
         await this.handleBackNavigation({
           ctx,
-          hooks,
           navStack,
           loadSessionMessagesCommand,
           emitService,
+          agentManager,
         });
         continue;
       }
@@ -759,12 +679,12 @@ export class ChatCommand {
 
   private async handleBackNavigation(params: {
     ctx: ExecutionContext;
-    hooks: ChatRuntimeHooks;
     navStack: Array<{ agentId: string; sessionId: string; agentName: string }>;
     loadSessionMessagesCommand: LoadSessionMessagesCommand;
     emitService: IEmitService;
+    agentManager: IAgentManager;
   }): Promise<void> {
-    const { ctx, navStack, loadSessionMessagesCommand, emitService } = params;
+    const { ctx, navStack, loadSessionMessagesCommand, emitService, agentManager } = params;
 
     if (navStack.length === 0) {
       emitService.log('warn', 'No previous agent to return to.');
@@ -773,7 +693,7 @@ export class ChatCommand {
     }
 
     const prev = navStack.pop()!;
-    const prevAgent = await this.agentKnowledgeDeps.agentManager.getAgentAsync(prev.agentId);
+    const prevAgent = await agentManager.getAgentAsync(prev.agentId);
     if (!prevAgent) {
       emitService.log('error', `Previous agent ${prev.agentId} no longer found.`);
       return;
@@ -783,6 +703,7 @@ export class ChatCommand {
       sessionId: prev.sessionId,
       reason: 'back-nav',
     });
+
     ctx.agent = prevAgent;
     ctx.sessionId = prev.sessionId;
     ctx.history = prevHistory;

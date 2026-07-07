@@ -36,7 +36,9 @@ function createDispatcher(
   })
 ) {
   const serialization = new ToolSerializationService();
-  const support = new ToolDispatchSupportService(serialization, llmService);
+  const support = new ToolDispatchSupportService('c:/workspace', serialization, llmService, {
+    create: () => ({ save: vi.fn() }),
+  } as any);
   const emitService = new EmitService(_testEmitFn);
   return new ToolDispatcher(toolManager, sessionManager, support, questionService, emitService);
 }

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { IConfigurationStorage } from '@ai-team/core';
+import { ConfigurationStorage } from '../agent/configuration-storage.js';
 import { DeveloperIdentityService } from './developer-identity-service.js';
 
 const createdDirs: string[] = [];
@@ -12,18 +12,6 @@ async function createWorkspace(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-dev-id-'));
   createdDirs.push(dir);
   return dir;
-}
-
-function createConfigStorage(workspaceRoot: string): IConfigurationStorage {
-  return {
-    getConfigPath: () => path.join(workspaceRoot, '.ai-team', 'config.json'),
-    loadTeamConfigAsync: async () => undefined,
-    saveTeamConfigAsync: async () => undefined,
-    getUserConfigPath: () => path.join(workspaceRoot, '.ai-team', 'config.user.json'),
-    loadUserConfigAsync: async () => undefined,
-    saveUserConfigAsync: async (config) => config,
-    loadEffectiveConfigAsync: async () => undefined,
-  } as IConfigurationStorage;
 }
 
 afterEach(async () => {
@@ -44,6 +32,7 @@ function hasGit(): boolean {
 describe('DeveloperIdentityService', () => {
   it('prefers user config identity over git config', async () => {
     const workspace = await createWorkspace();
+    const storage = new ConfigurationStorage(workspace);
     const userConfigPath = path.join(workspace, '.ai-team', 'config.user.json');
     await fs.mkdir(path.dirname(userConfigPath), { recursive: true });
     await fs.writeFile(
@@ -62,7 +51,8 @@ describe('DeveloperIdentityService', () => {
       'utf-8'
     );
 
-    const service = new DeveloperIdentityService(workspace, createConfigStorage(workspace));
+    const developerProfile = storage.getDeveloperProfile();
+    const service = new DeveloperIdentityService(developerProfile);
 
     expect(service.getUserName()).toBe('Configured Name');
     expect(service.getUserEmail()).toBe('configured@example.com');
@@ -74,7 +64,7 @@ describe('DeveloperIdentityService', () => {
     expect(saved.developer?.email).toBe('configured@example.com');
   });
 
-  it('falls back to git config and persists developer identity for future calls', async () => {
+  it('hydrates from git during settings load and persists developer identity for future calls', async () => {
     if (!hasGit()) {
       // Environment without git: treat as not applicable.
       expect(true).toBe(true);
@@ -82,11 +72,18 @@ describe('DeveloperIdentityService', () => {
     }
 
     const workspace = await createWorkspace();
+    const storage = new ConfigurationStorage(workspace);
     execSync('git init', { cwd: workspace, stdio: 'ignore' });
     execSync('git config user.name "Git Name"', { cwd: workspace, stdio: 'ignore' });
     execSync('git config user.email "git@example.com"', { cwd: workspace, stdio: 'ignore' });
 
-    const service = new DeveloperIdentityService(workspace, createConfigStorage(workspace));
+    await storage.set('providers.demo.kind', 'openai-compatible' as any);
+
+    // Trigger lazy init which hydrates developer profile from git
+    storage.get();
+
+    const developerProfile = storage.getDeveloperProfile();
+    const service = new DeveloperIdentityService(developerProfile);
 
     expect(service.getUserName()).toBe('Git Name');
     expect(service.getUserEmail()).toBe('git@example.com');

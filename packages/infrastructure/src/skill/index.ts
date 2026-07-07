@@ -243,6 +243,7 @@ export function createSkillManager(workspaceRoot: string): SkillManager {
   const workspaceStorage = new WorkspaceStorage();
   const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
   const agentDocumentStorage = new AgentDocumentStorage(
+    workspaceRoot,
     markdownSectionService,
     workspaceStorage,
     workspaceDiscoveryStorage

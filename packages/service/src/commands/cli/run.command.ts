@@ -100,6 +100,8 @@ export class RunCliTool {
       .describe('Optional relative working directory (defaults to workspace root)'),
   });
 
+  constructor(private readonly workspaceRoot: string) {}
+
   formatForLlm(result: unknown): unknown {
     const r = result as RunCliResult;
     const cmd = `$ ${r.command}${r.args?.length ? ' ' + r.args.join(' ') : ''}`;
@@ -109,7 +111,7 @@ export class RunCliTool {
   }
 
   async execute(params: RunCliParams, context: ExecutionContext): Promise<RunCliResult> {
-    return runCommand(params, context.workspaceRoot, context.agent!.cliTools ?? []);
+    return runCommand(params, this.workspaceRoot, context.agent!.cliTools ?? []);
   }
 }
 export const RunShellChatCommandMetadata = {
@@ -124,7 +126,10 @@ export const RunShellChatCommandMetadata = {
 export class RunShellChatCommand implements ICommand<string, void> {
   readonly metadata = RunShellChatCommandMetadata;
 
-  constructor(private readonly emitter: ChatCommandEmitter) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly emitter: ChatCommandEmitter
+  ) {}
 
   async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const [command, ...rest] = args.trim().split(/\s+/);
@@ -137,8 +142,8 @@ export class RunShellChatCommand implements ICommand<string, void> {
     try {
       const result = await runCommand(
         { command, args: rest },
-        ctx.workspaceRoot,
-        (ctx.agent!! as any)?.cliTools
+        this.workspaceRoot,
+        (ctx.agent! as any)?.cliTools
       );
       const out = [result.stdout, result.stderr].filter(Boolean).join('\n\n') || '(no output)';
       this.emitter.write(out);

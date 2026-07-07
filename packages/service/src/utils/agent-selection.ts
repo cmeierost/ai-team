@@ -57,12 +57,3 @@ export function selectDefaultTopAgent(agents: Agent[]): Agent | undefined {
 export function formatUserPrompt(agent: Agent, developerName?: string | null): string {
   return `${developerName || 'You'} → ${agent.name} (${agent.role}):`;
 }
-
-/** Extract the developer's display name from user-env vars. */
-export function resolveDeveloperName(env: Record<string, string>): string | undefined {
-  return (
-    env['AI_TEAM_USER_NAME']?.trim() ||
-    env['AI_TEAM_USER']?.trim() ||
-    env['AI_TEAM_DEVELOPER']?.trim()
-  );
-}

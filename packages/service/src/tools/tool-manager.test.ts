@@ -35,7 +35,7 @@ function makeTool(name: string, group?: string): ICommand {
 function makeManager(...tools: ICommand[]): ToolManager {
   const registry = new CommandRegistry();
   for (const t of tools) registry.register(t.metadata, () => t);
-  return new ToolManager('/workspace', permissivePathChecker, registry, noopContainer);
+  return new ToolManager(permissivePathChecker, registry, noopContainer);
 }
 
 function makeAgent(overrides?: Partial<Agent>): Agent {

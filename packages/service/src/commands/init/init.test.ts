@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EmitService } from '../../orchestrator/services/emit-service.js';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
 
@@ -82,13 +83,11 @@ import { initCommand } from './init.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/** Collect all events emitted through hooks.emit. */
+/** Collect all events emitted through the injected emit service. */
 function createEventCollector() {
   const events: Array<Record<string, unknown>> = [];
-  const emit = (event: Record<string, unknown>) => {
-    events.push(event);
-  };
-  return { events, emit };
+  const emitService = new EmitService((event) => events.push(event));
+  return { events, emitService };
 }
 
 /** Return log-level messages for easy assertion on output text / ordering. */
@@ -135,7 +134,8 @@ describe('initCommand', () => {
       }) => {
         const profile =
           personalityProfile.length > 0
-            ? `\n## Personality Profile\n${personalityProfile.map((line) => `- ${line}`).join('\n')}`
+            ? '\n## Personality Profile\n' +
+              personalityProfile.map((line) => `- ${line}`).join('\n')
             : '';
         return `## Introduction\n${introduction}${profile}`;
       }
@@ -183,9 +183,9 @@ describe('initCommand', () => {
     });
 
     it('emits "already initialized" warning and "Skipping" message', async () => {
-      const { events, emit } = createEventCollector();
+      const { events, emitService } = createEventCollector();
 
-      await initCommand(workspaceRoot, {}, { emit });
+      await initCommand(workspaceRoot, {}, { emitService });
 
       const messages = logMessages(events);
       expect(messages.some((m) => m.includes('already initialized'))).toBe(true);
@@ -200,11 +200,11 @@ describe('initCommand', () => {
     });
 
     it('continues initialization instead of skipping', async () => {
-      const { events, emit } = createEventCollector();
+      const { events, emitService } = createEventCollector();
       const questionSelect = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, {}, { emit, questionSelect });
+        await initCommand(workspaceRoot, {}, { emitService, questionSelect });
       } catch {
         // expected — abort in askLlmSetup
       }
@@ -223,11 +223,11 @@ describe('initCommand', () => {
     });
 
     it('continues initialization without emitting partial-scaffold warning', async () => {
-      const { events, emit } = createEventCollector();
+      const { events, emitService } = createEventCollector();
       const questionSelect = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, {}, { emit, questionSelect });
+        await initCommand(workspaceRoot, {}, { emitService, questionSelect });
       } catch {
         // expected — abort in askLlmSetup
       }
@@ -240,13 +240,13 @@ describe('initCommand', () => {
     });
 
     it('continues without warning when only runtime-generated artifacts exist', async () => {
-      const { events, emit } = createEventCollector();
+      const { events, emitService } = createEventCollector();
       await fs.mkdir(path.join(workspaceRoot, '.ai-team', 'logs'), { recursive: true });
       await fs.writeFile(path.join(workspaceRoot, '.ai-team', 'logs', 'backend.log'), '', 'utf-8');
       const questionSelect = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, {}, { emit, questionSelect });
+        await initCommand(workspaceRoot, {}, { emitService, questionSelect });
       } catch {
         // expected — abort in askLlmSetup
       }
@@ -275,7 +275,7 @@ describe('initCommand', () => {
     });
 
     it('removes everything except config.json and .env', async () => {
-      const { events, emit } = createEventCollector();
+      const { events, emitService } = createEventCollector();
 
       // No existing LLM config → askLlmSetup path, which we abort
       const questionSelect = vi.fn().mockRejectedValue(new Error('abort'));
@@ -286,7 +286,7 @@ describe('initCommand', () => {
           workspaceRoot,
           { force: true },
           {
-            emit,
+            emitService,
             questionSelect,
             questionInput,
           }
@@ -331,12 +331,12 @@ describe('initCommand', () => {
       coreApi.resolveEffectiveLlmSettings.mockReturnValue({
         config: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
         providerRef: 'openai',
-        apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY',
+        apiKey: '${AI_TEAM_LLM_API_KEY}',
       });
     });
 
     it('asks LLM-reuse confirm BEFORE emitting "Welcome to AI Team!"', async () => {
-      const { events, emit } = createEventCollector();
+      const { events, emitService } = createEventCollector();
       const questionConfirm = vi.fn().mockResolvedValue(true);
       coreApi.loadEnvFile.mockResolvedValue({ AI_TEAM_LLM_API_KEY: 'sk-test' });
       coreApi.testLlmConnection.mockResolvedValue({ success: true });
@@ -347,7 +347,7 @@ describe('initCommand', () => {
           workspaceRoot,
           { force: true },
           {
-            emit,
+            emitService,
             questionConfirm,
             questionInput,
           }
@@ -364,10 +364,14 @@ describe('initCommand', () => {
       );
 
       // Critical ordering: confirm question event must precede "Welcome" log
-      const allKinds = events.map((e) => ({
-        kind: e.kind,
-        msg: String(e.message ?? e.text ?? ''),
-      }));
+      const allKinds = events.map((e) => {
+        const messageValue = e.message ?? e.text;
+        const msg = typeof messageValue === 'string' ? messageValue : '';
+        return {
+          kind: e.kind,
+          msg,
+        };
+      });
 
       const confirmIdx = allKinds.findIndex(
         (e) => e.kind === 'question' && e.msg.includes('Reuse')
@@ -382,7 +386,7 @@ describe('initCommand', () => {
     });
 
     it('reuses existing OpenAI-compatible config when user confirms', async () => {
-      const { events, emit } = createEventCollector();
+      const { events, emitService } = createEventCollector();
       const questionConfirm = vi.fn().mockResolvedValue(true);
       coreApi.loadEnvFile.mockResolvedValue({ AI_TEAM_LLM_API_KEY: 'sk-test' });
       coreApi.testLlmConnection.mockResolvedValue({ success: true });
@@ -393,7 +397,7 @@ describe('initCommand', () => {
           workspaceRoot,
           { force: true },
           {
-            emit,
+            emitService,
             questionConfirm,
             questionInput,
           }
@@ -434,7 +438,7 @@ describe('initCommand', () => {
   // ── Event emission — no raw stdout ───────────────────────────────────────
 
   describe('event emission routing', () => {
-    it('emits log events through hooks.emit for "Welcome to AI Team!"', async () => {
+    it('emits log events through emitService for "Welcome to AI Team!"', async () => {
       // Use an already-initialized workspace with existing LLM config so the
       // flow reaches "Welcome to AI Team!" (which appears after askLlmSetup).
       await fs.mkdir(path.join(workspaceRoot, '.ai-team'), { recursive: true });
@@ -445,12 +449,12 @@ describe('initCommand', () => {
       coreApi.resolveEffectiveLlmSettings.mockReturnValue({
         config: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
         providerRef: 'openai',
-        apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY',
+        apiKey: '${AI_TEAM_LLM_API_KEY}',
       });
       coreApi.loadEnvFile.mockResolvedValue({ AI_TEAM_LLM_API_KEY: 'sk-test' });
       coreApi.testLlmConnection.mockResolvedValue({ success: true });
 
-      const { events, emit } = createEventCollector();
+      const { events, emitService } = createEventCollector();
       const questionConfirm = vi.fn().mockResolvedValue(true);
       // Abort after LLM reuse so we don't need to mock the full onboarding flow
       const questionInput = vi.fn().mockRejectedValue(new Error('abort'));
@@ -460,7 +464,7 @@ describe('initCommand', () => {
           workspaceRoot,
           { force: true },
           {
-            emit,
+            emitService,
             questionConfirm,
             questionInput,
           }
@@ -475,11 +479,11 @@ describe('initCommand', () => {
     });
 
     it('all emitted events have a valid kind property', async () => {
-      const { events, emit } = createEventCollector();
+      const { events, emitService } = createEventCollector();
       const questionSelect = vi.fn().mockRejectedValue(new Error('abort'));
 
       try {
-        await initCommand(workspaceRoot, {}, { emit, questionSelect });
+        await initCommand(workspaceRoot, {}, { emitService, questionSelect });
       } catch {
         // expected
       }
@@ -497,7 +501,6 @@ describe('initCommand', () => {
       coreApi.resolveEffectiveLlmSettings.mockReturnValue({
         config: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
         providerRef: 'openai',
-        apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY',
       });
       coreApi.loadEnvFile.mockResolvedValue({ AI_TEAM_LLM_API_KEY: 'sk-test' });
       coreApi.testLlmConnection.mockResolvedValue({ success: true });
@@ -622,7 +625,7 @@ describe('initCommand', () => {
       coreApi.resolveEffectiveLlmSettings.mockReturnValue({
         config: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
         providerRef: 'openai',
-        apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY',
+        apiKey: '${AI_TEAM_LLM_API_KEY}',
       });
       coreApi.loadEnvFile.mockResolvedValue({ AI_TEAM_LLM_API_KEY: 'sk-test' });
       coreApi.testLlmConnection.mockResolvedValue({ success: true });
@@ -703,9 +706,13 @@ describe('initCommand', () => {
         llm: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
       });
       coreApi.resolveEffectiveLlmSettings.mockReturnValue({
-        config: { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' },
+        config: {
+          provider: 'openai-compatible',
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: '${AI_TEAM_LLM_API_KEY}',
+        },
         providerRef: 'openai',
-        apiKeyEnvVar: 'AI_TEAM_LLM_API_KEY',
+        apiKey: '${AI_TEAM_LLM_API_KEY}',
       });
       coreApi.loadEnvFile.mockResolvedValue({ AI_TEAM_LLM_API_KEY: 'sk-test' });
       coreApi.testLlmConnection.mockResolvedValue({ success: true });

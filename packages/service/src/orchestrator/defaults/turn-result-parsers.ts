@@ -31,6 +31,16 @@ function resolveAgentManager(): IAgentManager {
   return getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.AgentManager);
 }
 
+function resolveAgentManagerFromContext(
+  ctx: ExecutionContext,
+  explicit?: IAgentManager
+): IAgentManager {
+  if (explicit) return explicit;
+  const ctxAgentManager = (ctx as unknown as { agentManager?: IAgentManager }).agentManager;
+  if (ctxAgentManager) return ctxAgentManager;
+  return resolveAgentManager();
+}
+
 /**
  * Resolves a target agent ID to an Agent that is not the current agent.
  * Tries exact lookup first, then fuzzy resolution via resolveAgent.
@@ -70,7 +80,7 @@ export class HandoffToolResultParser implements ITurnResultParser {
     const target = resolveNonSelfAgent(
       handoffReq.targetAgentId,
       ctx,
-      this.agentManager ?? resolveAgentManager()
+      resolveAgentManagerFromContext(ctx, this.agentManager)
     );
 
     if (!target) {
@@ -105,7 +115,7 @@ export class TextHandoffParser implements ITurnResultParser {
     const target = resolveNonSelfAgent(
       textHandoff.targetAgentId,
       ctx,
-      this.agentManager ?? resolveAgentManager()
+      resolveAgentManagerFromContext(ctx, this.agentManager)
     );
 
     // Ignore invalid or self-targeting handoff directives.

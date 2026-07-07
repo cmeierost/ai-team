@@ -7,7 +7,6 @@ import type {
 import type {
   ICommand,
   IConfigurationStorage,
-  IEnvironmentStorage,
   IModelDiscoveryRegistry,
   ExecutionContext,
   CommandResponse,
@@ -36,17 +35,15 @@ export class ProviderListICommand implements ICommand<ListParams, void> {
 
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
-    private readonly environmentStorage: IEnvironmentStorage,
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry
   ) {}
 
-  async execute(payload: ListParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
+  async execute(payload: ListParams, _ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const cmd = new ModelsCommand(
       this.configurationStorage,
-      this.environmentStorage,
       this.modelDiscoveryRegistry
     );
-    await cmd.providerListAsync(ctx.workspaceRoot, payload as ProviderListOptions);
+    await cmd.providerListAsync(payload as ProviderListOptions);
     return { status: 'ok' };
   }
 }
@@ -69,17 +66,15 @@ export class ProviderModelsICommand implements ICommand<ModelsParams, void> {
 
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
-    private readonly environmentStorage: IEnvironmentStorage,
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry
   ) {}
 
-  async execute(payload: ModelsParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
+  async execute(payload: ModelsParams, _ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const cmd = new ModelsCommand(
       this.configurationStorage,
-      this.environmentStorage,
       this.modelDiscoveryRegistry
     );
-    await cmd.providerModelsAsync(ctx.workspaceRoot, payload as ProviderModelsOptions);
+    await cmd.providerModelsAsync(payload as ProviderModelsOptions);
     return { status: 'ok' };
   }
 }
@@ -101,18 +96,15 @@ export class ProviderModelsRefreshICommand implements ICommand<RefreshParams, vo
 
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
-    private readonly environmentStorage: IEnvironmentStorage,
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry
   ) {}
 
-  async execute(payload: RefreshParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
+  async execute(payload: RefreshParams, _ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const cmd = new ModelsCommand(
       this.configurationStorage,
-      this.environmentStorage,
       this.modelDiscoveryRegistry
     );
     await cmd.providerModelsRefreshAsync(
-      ctx.workspaceRoot,
       payload as RefreshProviderModelsOptions
     );
     return { status: 'ok' };

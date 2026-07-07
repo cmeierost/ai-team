@@ -36,7 +36,7 @@ export class CodeEditApplyCommand implements ICommand<
 
   async execute(
     payload: ApplyParams,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<CommandResponse<{ proposalId: string; files: string[] }>> {
     const proposal = this.manager.getProposal(payload.proposalId);
     if (!proposal) {

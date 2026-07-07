@@ -2,13 +2,13 @@ import { z } from 'zod';
 import type {
   ICommand,
   IConfigurationStorage,
-  IEnvironmentStorage,
   IAgentManager,
   ILlmProviderTester,
   ITextToolCallParser,
   ExecutionContext,
   CommandResponse,
   ICommandDescriptor,
+  TeamConfig,
 } from '@ai-team/core';
 import { TestConnectionCommand as TestConnectionCommandImpl } from './test-connection.js';
 
@@ -36,7 +36,6 @@ export class TestConnectionICommand implements ICommand<Params, void> {
 
   constructor(
     private readonly configStorage: IConfigurationStorage,
-    private readonly envStorage: IEnvironmentStorage,
     private readonly agentManager: IAgentManager,
     private readonly llmProviderTester: ILlmProviderTester,
     private readonly textToolCallParser: ITextToolCallParser
@@ -44,8 +43,7 @@ export class TestConnectionICommand implements ICommand<Params, void> {
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const cmd = new TestConnectionCommandImpl(
-      this.configStorage,
-      this.envStorage,
+      this.configStorage.get() as TeamConfig,
       this.agentManager,
       this.llmProviderTester,
       this.textToolCallParser

@@ -3,7 +3,6 @@ import path from 'node:path';
 import { resolveEffectiveLlmSettings } from '@ai-team/core';
 import {
   ensureAiTeamDirectory,
-  loadEnvFile,
   loadTeamConfig,
   saveAgentAccessPatterns,
   testLlmConnection,
@@ -28,46 +27,14 @@ import {
   type InitTemplateKey,
 } from './template-utils.js';
 import { updateWorkspaceSettings } from './update-workspace-settings.js';
-import type { OnboardCommand } from '../hr/onboard.js';
+import type { OnboardICommand } from '../hr/onboard.js';
 import type { SetupCommand } from '../setup/setup.js';
 import type { TestConnectionCommand } from '../setup/test-connection.js';
-
-function writeLine(hooks: InitRuntimeHooks | undefined, message: string) {
-  hooks?.emit?.({ kind: 'log', level: 'info', message });
-  if (!hooks?.emit) process.stdout.write(`${message}\n`);
-}
-
-function writeWarn(hooks: InitRuntimeHooks | undefined, message: string) {
-  hooks?.emit?.({ kind: 'log', level: 'warn', message });
-  if (!hooks?.emit) process.stdout.write(`${message}\n`);
-}
+import type { IEmitService } from '../../orchestrator/services/emit-service.js';
+import { EmitService } from '../../orchestrator/services/emit-service.js';
 
 const FORCE_KEEP = new Set(['config.json', '.env']);
 const INIT_RUNTIME_ARTIFACTS = new Set(['agents', 'logs', 'private', '.ide-server.json']);
-
-async function clearAiTeamDirectory(workspaceRoot: string, hooks?: InitRuntimeHooks) {
-  const aiTeamDir = path.join(workspaceRoot, '.ai-team');
-  let entries: import('node:fs').Dirent[];
-  try {
-    entries = await fs.readdir(aiTeamDir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  for (const entry of entries) {
-    if (FORCE_KEEP.has(entry.name)) continue;
-    const target = path.join(aiTeamDir, entry.name);
-    try {
-      await fs.rm(target, { recursive: true, force: true });
-      writeLine(hooks, `  Removed: ${entry.name}`);
-    } catch (err) {
-      writeWarn(
-        hooks,
-        `  Could not remove ${entry.name}: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-  }
-}
 
 export interface InitCommandParams {
   workspaceRoot: string;
@@ -77,24 +44,25 @@ export interface InitCommandParams {
 
 export class InitCommand {
   constructor(
-    private readonly onboard: OnboardCommand,
+    private readonly onboard: Pick<OnboardICommand, 'executeOnboarding'>,
     private readonly setup: SetupCommand,
     private readonly testConnection: TestConnectionCommand,
     private readonly runnerFactory: IWorkflowRunnerFactory
   ) {}
 
   async execute(params: InitCommandParams, hooks?: InitRuntimeHooks): Promise<void> {
-    const { workspaceRoot, options, injected } = params;
+    const { workspaceRoot, options } = params;
 
     await runInitWorkflowAsync(
       workspaceRoot,
       options,
       hooks,
       {
-        onboard: this.onboard,
+        onboard: {
+          execute: (params, signal) => this.onboard.executeOnboarding(params, signal),
+        },
         setup: this.setup,
         testConnection: this.testConnection,
-        sessionManager: injected?.sessionManager,
       },
       this.runnerFactory
     );
@@ -127,6 +95,114 @@ function describeResolvedProvider(effective: {
   }
 
   return `OpenAI-compatible (${effective.config?.baseUrl ?? 'custom base URL'})`;
+}
+
+class InitLegacyFlow {
+  constructor(private readonly emitService: IEmitService) {}
+
+  private writeLine(message: string) {
+    this.emitService.log('info', message);
+  }
+
+  private writeWarn(message: string) {
+    this.emitService.log('warn', message);
+  }
+
+  async clearAiTeamDirectory(workspaceRoot: string) {
+    const aiTeamDir = path.join(workspaceRoot, '.ai-team');
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(aiTeamDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (FORCE_KEEP.has(entry.name)) continue;
+      const target = path.join(aiTeamDir, entry.name);
+      try {
+        await fs.rm(target, { recursive: true, force: true });
+        this.writeLine(`  Removed: ${entry.name}`);
+      } catch (err) {
+        this.writeWarn(
+          `  Could not remove ${entry.name}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+  }
+
+  async handleExistingState(
+    workspaceRoot: string,
+    options: InitOptions,
+    state: { aiTeamDir: string; hasAgentFiles: boolean; hasNonAgentArtifacts: boolean }
+  ): Promise<boolean> {
+    if (options.force) {
+      if (state.hasAgentFiles || state.hasNonAgentArtifacts) {
+        this.writeWarn(
+          state.hasAgentFiles
+            ? '  Force flag detected - reinitializing...'
+            : '  Force flag detected - clearing existing AI Team scaffold...'
+        );
+        await this.clearAiTeamDirectory(workspaceRoot);
+      }
+      return true;
+    }
+
+    if (state.hasAgentFiles) {
+      this.writeWarn('AI Team is already initialized in this workspace');
+      this.writeLine(`  Location: ${state.aiTeamDir}`);
+      this.writeLine('  Use --force to fully reinitialize team onboarding.');
+      this.writeLine('  Skipping initialization.');
+      return false;
+    }
+
+    if (state.hasNonAgentArtifacts) {
+      this.writeWarn(
+        `Found existing .ai-team scaffold without agents at ${state.aiTeamDir}; continuing initialization.`
+      );
+    }
+
+    return true;
+  }
+
+  async tryReuseExistingLlm(
+    options: InitOptions,
+    existingResolved: ReturnType<typeof resolveEffectiveLlmSettings> | undefined,
+    hooks: InitRuntimeHooks | undefined
+  ): Promise<boolean> {
+    if (!options.force || !existingResolved) return false;
+
+    const providerRefLabel = existingResolved.providerRef ? ` [${existingResolved.providerRef}]` : '';
+    this.writeLine(`  Current LLM: ${describeResolvedProvider(existingResolved)}${providerRefLabel}`);
+
+    const questionParams = {
+      message: 'Reuse existing default LLM connection?',
+      default: true,
+    };
+    const reuse = (await hooks?.questionConfirm?.(questionParams)) ?? true;
+
+    if (!reuse) return false;
+
+    if (!existingResolved.config.apiKey) return false;
+
+    const kind =
+      existingResolved.config.provider === 'github-copilot'
+        ? 'GitHub Copilot'
+        : 'OpenAI-compatible';
+    this.writeLine(`Reusing existing ${kind} connection.`);
+    return true;
+  }
+
+  writeWelcomeAndVerify() {
+    this.writeLine('');
+    this.writeLine('Verifying LLM connection...');
+  }
+
+  writeWelcomeBanner() {
+    this.writeLine('');
+    this.writeLine('Welcome to AI Team!');
+    this.writeLine("Let's set up your virtual development team.");
+  }
 }
 
 async function bootstrapOnboardingAssets(workspaceRoot: string): Promise<void> {
@@ -242,14 +318,19 @@ export async function initCommand(
   options: InitOptions = {},
   hooks?: InitRuntimeHooks
 ): Promise<void> {
+  const emitService =
+    hooks?.emitService ??
+    EmitService.forConsole();
+  const flow = new InitLegacyFlow(emitService);
+
   const state = await getInitState(workspaceRoot);
-  const shouldContinue = await handleExistingState(workspaceRoot, options, hooks, state);
+  const shouldContinue = await flow.handleExistingState(workspaceRoot, options, state);
   if (!shouldContinue) {
     return;
   }
 
   const existingResolved = await resolveExistingLlmConfig(workspaceRoot);
-  const llmReady = await tryReuseExistingLlm(options, existingResolved, workspaceRoot, hooks);
+  const llmReady = await flow.tryReuseExistingLlm(options, existingResolved, hooks);
 
   if (!llmReady) {
     await ensureAiTeamDirectory(workspaceRoot);
@@ -262,15 +343,13 @@ export async function initCommand(
     });
   }
 
-  writeLine(hooks, '');
-  writeLine(hooks, 'Verifying LLM connection...');
+  flow.writeWelcomeAndVerify();
   await testLlmConnection(workspaceRoot);
 
-  writeLine(hooks, '');
-  writeLine(hooks, 'Welcome to AI Team!');
-  writeLine(hooks, "Let's set up your virtual development team.");
+  flow.writeWelcomeBanner();
 
   await updateWorkspaceSettings(workspaceRoot);
+  await bootstrapOnboardingAssets(workspaceRoot);
   await runCompatibilityOnboarding(workspaceRoot, hooks);
 }
 
@@ -308,43 +387,6 @@ async function getInitState(workspaceRoot: string): Promise<{
   return { aiTeamDir, hasAgentFiles, hasNonAgentArtifacts };
 }
 
-async function handleExistingState(
-  workspaceRoot: string,
-  options: InitOptions,
-  hooks: InitRuntimeHooks | undefined,
-  state: { aiTeamDir: string; hasAgentFiles: boolean; hasNonAgentArtifacts: boolean }
-): Promise<boolean> {
-  if (options.force) {
-    if (state.hasAgentFiles || state.hasNonAgentArtifacts) {
-      writeWarn(
-        hooks,
-        state.hasAgentFiles
-          ? '  Force flag detected - reinitializing...'
-          : '  Force flag detected - clearing existing AI Team scaffold...'
-      );
-      await clearAiTeamDirectory(workspaceRoot, hooks);
-    }
-    return true;
-  }
-
-  if (state.hasAgentFiles) {
-    writeWarn(hooks, 'AI Team is already initialized in this workspace');
-    writeLine(hooks, `  Location: ${state.aiTeamDir}`);
-    writeLine(hooks, '  Use --force to fully reinitialize team onboarding.');
-    writeLine(hooks, '  Skipping initialization.');
-    return false;
-  }
-
-  if (state.hasNonAgentArtifacts) {
-    writeWarn(
-      hooks,
-      `Found existing .ai-team scaffold without agents at ${state.aiTeamDir}; continuing initialization.`
-    );
-  }
-
-  return true;
-}
-
 async function resolveExistingLlmConfig(
   workspaceRoot: string
 ): Promise<ReturnType<typeof resolveEffectiveLlmSettings> | undefined> {
@@ -355,42 +397,4 @@ async function resolveExistingLlmConfig(
   } catch {
     return undefined;
   }
-}
-
-async function tryReuseExistingLlm(
-  options: InitOptions,
-  existingResolved: ReturnType<typeof resolveEffectiveLlmSettings> | undefined,
-  workspaceRoot: string,
-  hooks: InitRuntimeHooks | undefined
-): Promise<boolean> {
-  if (!options.force || !existingResolved) return false;
-
-  const providerRefLabel = existingResolved.providerRef ? ` [${existingResolved.providerRef}]` : '';
-  writeLine(
-    hooks,
-    `  Current LLM: ${describeResolvedProvider(existingResolved)}${providerRefLabel}`
-  );
-
-  const questionParams = {
-    message: 'Reuse existing default LLM connection?',
-    default: true,
-  };
-  hooks?.emit?.({ kind: 'question', ...questionParams });
-  const reuse =
-    (await hooks?.questionConfirm?.(questionParams)) ?? true;
-
-  if (!reuse) return false;
-
-  const envVars = await loadEnvFile(workspaceRoot);
-  const keyEnvVar = existingResolved.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-  const apiKey =
-    envVars[keyEnvVar] ||
-    envVars['AI_TEAM_LLM_API_KEY'] ||
-    envVars['LLM_API_KEY'] ||
-    envVars['OPENAI_API_KEY'];
-
-  if (!apiKey) return false;
-
-  writeLine(hooks, `Reusing existing ${describeResolvedProvider(existingResolved)} connection.`);
-  return true;
 }

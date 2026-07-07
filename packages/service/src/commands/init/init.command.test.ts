@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { InitICommand } from './init.command.js';
 import { initCommand } from './init.js';
+import { EmitService } from '../../orchestrator/services/emit-service.js';
 
 vi.mock('./init.js', () => ({
   initCommand: vi.fn(async () => undefined),
@@ -8,7 +9,7 @@ vi.mock('./init.js', () => ({
 
 describe('InitICommand', () => {
   it('delegates to InitCommand with runtime workspace/options and injected session manager', async () => {
-    const cmd = new InitICommand('C:/workspace');
+    const cmd = new InitICommand('C:/workspace', undefined, new EmitService(() => {}));
 
     await cmd.execute({ options: { force: true } }, undefined as unknown as any);
 

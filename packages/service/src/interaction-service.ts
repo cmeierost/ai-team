@@ -71,7 +71,7 @@ export class InteractionService implements IInteractionService {
           emitService,
           signal: invokeCtx.signal,
           workflowState: invokeCtx.workflowState as WorkflowStateSnapshot | undefined,
-          onWorkflowFrame: invokeCtx.onWorkflowFrame as ChatRuntimeHooks['onWorkflowFrame'],
+          onWorkflowFrame: invokeCtx.onWorkflowFrame,
         });
 
         return { status: 'ok' as const, message: '' } satisfies CommandResponse<void>;

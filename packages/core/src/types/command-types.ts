@@ -85,9 +85,6 @@ export interface ExecutionContext {
   callerType?: 'human' | 'agent' | 'system';
   /** Convenience flag for callerType === 'human'. */
   calledByHuman?: boolean;
-  /** Absolute workspace root path. */
-  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
-  workspaceRoot: string;
   /** ID of the agent executing this command, if called by an agent. */
   agentId?: string;
 
@@ -117,17 +114,8 @@ export interface ExecutionContext {
   navStack?: SessionNavEntry[];
 
   /** Back-navigation stack for handoff chains. */
-  /**
-   * Per-request interaction bridge. Populated by adapter at dispatch time.
-   * Uses broad `unknown` param types to avoid circular deps with api-contracts.
-   */
-  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
-  emit?: (event: unknown) => void;
   workflowState?: unknown;
   onWorkflowFrame?: (frame: unknown) => void;
-
-  /** @deprecated Use constructor injection for dependencies instead of ExecutionContext. */
-  hooks?: unknown;
 }
 
 // ── SessionSnapshot ───────────────────────────────────────────────────────────

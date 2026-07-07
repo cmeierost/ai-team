@@ -21,6 +21,8 @@ import {
   type IWorkspaceAccessRuntime,
   type IWorkspaceFs,
   type IWorkspaceFsFactory,
+  type IConfigurationStorage,
+  type FileTypeGroupConfig,
 } from '@ai-team/core';
 
 function toPatternSet(permissions: PermissionConfig | undefined): AccessPatternSet {
@@ -266,6 +268,10 @@ export class FileTreeServiceImpl implements IFileTreeService {
 }
 
 export class InfrastructureWorkspaceAccessRuntime implements IWorkspaceAccessRuntime {
+  constructor(
+    private readonly configurationStorage?: IConfigurationStorage
+  ) {}
+
   async createAgentRuntime(
     contextId: string,
     workspaceRoot: string,
@@ -284,7 +290,14 @@ export class InfrastructureWorkspaceAccessRuntime implements IWorkspaceAccessRun
     }
   ): Promise<unknown> {
     const { analyzeWorkspacePermissionOverlap } = await import('./perm-overlap.js');
-    return analyzeWorkspacePermissionOverlap(workspaceRoot, options);
+    let fileTypeGroupsFromConfig: Record<string, FileTypeGroupConfig> | undefined;
+    try {
+      fileTypeGroupsFromConfig = this.configurationStorage?.get('fileTypeGroups') as Record<string, FileTypeGroupConfig> | undefined;
+    } catch {
+      fileTypeGroupsFromConfig = undefined;
+    }
+
+    return analyzeWorkspacePermissionOverlap(workspaceRoot, options, fileTypeGroupsFromConfig);
   }
 }
 

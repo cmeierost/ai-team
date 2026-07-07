@@ -1,7 +1,6 @@
 import type { ICommand, IServiceContainer } from '@ai-team/core';
 import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 
-import { AskUserCommand } from '../com/ask.command.js';
 import { HandoffCommand } from '../com/handoff.command.js';
 import { HireOrchestrationCommand } from '../hr/hire-orchestration.command.js';
 import { ListToolsOrchestrationCommand } from '../tools/tool-catalog.command.js';
@@ -52,7 +51,10 @@ export function createOrchestrationCommands(
       resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
       resolver.resolve(COMMAND_FACTORY_TOKENS.SessionManager)
     ),
-    new HireOrchestrationCommand(resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager)),
+    new HireOrchestrationCommand(
+      resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      resolver.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
+    ),
     new WhoShouldCommand(resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager), dependencies.tools),
     new ListToolsOrchestrationCommand(dependencies.tools),
     new TeamListOrchestrationCommand(resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager)),

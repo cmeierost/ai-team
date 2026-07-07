@@ -12,6 +12,7 @@ function createTestAgentManager(workspaceRoot: string): AgentManager {
   return new AgentManager(
     workspaceRoot,
     new AgentDocumentStorage(
+      workspaceRoot,
       new MarkdownSectionService(),
       new WorkspaceStorage(),
       new WorkspaceDiscoveryStorage()

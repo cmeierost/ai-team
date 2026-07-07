@@ -1,13 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  ProviderAddICommand,
-  ProviderConfigureICommand,
-  ProviderSetICommand,
-} from './provider.command.js';
+import { ProviderICommand } from './provider.command.js';
+import { ProviderCommand } from './provider.js';
 
 function createDeps() {
   const configurationStorage = {
-    loadTeamConfigAsync: vi.fn().mockResolvedValue({
+    get: vi.fn().mockReturnValue({
       version: '0.1.0',
       randomAvatarUrls: [],
       providers: {
@@ -15,14 +12,8 @@ function createDeps() {
       },
       defaultModel: { provider: 'existing', model: 'gpt-4o' },
     }),
-    loadUserConfigAsync: vi.fn().mockResolvedValue({}),
-    saveTeamConfigAsync: vi.fn().mockResolvedValue(undefined),
-    saveUserConfigAsync: vi.fn().mockResolvedValue(undefined),
-  };
-
-  const environmentStorage = {
-    loadEnvFileAsync: vi.fn().mockResolvedValue({}),
-    saveEnvFileAsync: vi.fn().mockResolvedValue(undefined),
+    set: vi.fn().mockResolvedValue(undefined),
+    setSecret: vi.fn().mockResolvedValue(undefined),
   };
 
   const llmProviderTester = {
@@ -33,11 +24,24 @@ function createDeps() {
     getForKind: vi.fn().mockReturnValue(undefined),
   };
 
+  const questionService = {
+    confirm: vi.fn().mockResolvedValue(true),
+    select: vi.fn().mockResolvedValue('gpt-4o'),
+    input: vi.fn().mockResolvedValue('test'),
+    password: vi.fn().mockResolvedValue('secret'),
+    checklist: vi.fn().mockResolvedValue([]),
+  };
+
+  const providerConfigurationService = {
+    resolveDefaultProvider: vi.fn().mockReturnValue(undefined),
+  };
+
   return {
     configurationStorage,
-    environmentStorage,
     llmProviderTester,
     modelDiscoveryRegistry,
+    questionService,
+    providerConfigurationService,
   };
 }
 
@@ -49,52 +53,81 @@ const setupPayload = {
       defaultModel: 'gpt-4o',
       models: [{ name: 'gpt-4o' }],
     },
-    legacyLlm: {
-      provider: 'github-copilot',
-      model: 'gpt-4o',
-    },
   },
 };
 
-describe('Provider * ICommand wrappers', () => {
-  it('configure command keeps provider command metadata and executes', async () => {
+describe('ProviderICommand', () => {
+  it('configure sub-command executes and persists config', async () => {
     const deps = createDeps();
-    const cmd = new ProviderConfigureICommand(
-      deps.configurationStorage as any,
-      deps.environmentStorage as any,
-      deps.llmProviderTester as any,
-      deps.modelDiscoveryRegistry as any
+    const providerCmd = new ProviderCommand(
+      deps.configurationStorage,
+      deps.llmProviderTester,
+      deps.modelDiscoveryRegistry,
+      deps.questionService,
+      deps.providerConfigurationService
     );
+    const cmd = new ProviderICommand(providerCmd);
 
-    expect(cmd.key).toBe('providerConfigure');
-    expect(cmd.cli).toEqual({ command: 'configure', parentKey: 'provider' });
+    expect(cmd.key).toBe('provider');
+    expect(cmd.cli).toEqual({ command: 'provider', parentKey: undefined });
+
+    await cmd.execute({ ...setupPayload, subCommand: 'configure' }, undefined, {
+      workspaceRoot: 'C:/ws',
+    } as any);
+
+    expect(deps.configurationStorage.set).toHaveBeenCalled();
+  });
+
+  it('add sub-command executes with makeDefault', async () => {
+    const deps = createDeps();
+    const providerCmd = new ProviderCommand(
+      deps.configurationStorage,
+      deps.llmProviderTester,
+      deps.modelDiscoveryRegistry,
+      deps.questionService,
+      deps.providerConfigurationService
+    );
+    const cmd = new ProviderICommand(providerCmd);
+
+    await cmd.execute({ ...setupPayload, subCommand: 'add', makeDefault: true }, undefined, {
+      workspaceRoot: 'C:/ws',
+    } as any);
+
+    expect(deps.configurationStorage.set).toHaveBeenCalled();
+    expect(deps.llmProviderTester.testConnectionAsync).toHaveBeenCalled();
+  });
+
+  it('set sub-command delegates to configure', async () => {
+    const deps = createDeps();
+    const providerCmd = new ProviderCommand(
+      deps.configurationStorage,
+      deps.llmProviderTester,
+      deps.modelDiscoveryRegistry,
+      deps.questionService,
+      deps.providerConfigurationService
+    );
+    const cmd = new ProviderICommand(providerCmd);
+
+    await cmd.execute({ ...setupPayload, subCommand: 'set' }, undefined, {
+      workspaceRoot: 'C:/ws',
+    } as any);
+
+    expect(deps.configurationStorage.set).toHaveBeenCalled();
+  });
+
+  it('defaults to configure when no subCommand provided', async () => {
+    const deps = createDeps();
+    const providerCmd = new ProviderCommand(
+      deps.configurationStorage,
+      deps.llmProviderTester,
+      deps.modelDiscoveryRegistry,
+      deps.questionService,
+      deps.providerConfigurationService
+    );
+    const cmd = new ProviderICommand(providerCmd);
 
     await cmd.execute(setupPayload, undefined, { workspaceRoot: 'C:/ws' } as any);
 
-    expect(deps.configurationStorage.saveTeamConfigAsync).toHaveBeenCalled();
-  });
-
-  it('add/set commands execute via shared provider flow', async () => {
-    const deps = createDeps();
-    const addCmd = new ProviderAddICommand(
-      deps.configurationStorage as any,
-      deps.environmentStorage as any,
-      deps.llmProviderTester as any,
-      deps.modelDiscoveryRegistry as any
-    );
-    const setCmd = new ProviderSetICommand(
-      deps.configurationStorage as any,
-      deps.environmentStorage as any,
-      deps.llmProviderTester as any,
-      deps.modelDiscoveryRegistry as any
-    );
-
-    await addCmd.execute({ ...setupPayload, makeDefault: true }, undefined, {
-      workspaceRoot: 'C:/ws',
-    } as any);
-    await setCmd.execute(setupPayload, undefined, { workspaceRoot: 'C:/ws' } as any);
-
-    expect(deps.configurationStorage.saveTeamConfigAsync).toHaveBeenCalledTimes(2);
-    expect(deps.llmProviderTester.testConnectionAsync).toHaveBeenCalled();
+    expect(deps.configurationStorage.set).toHaveBeenCalled();
   });
 });

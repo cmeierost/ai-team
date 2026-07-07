@@ -13,7 +13,6 @@ export interface LlmProviderConfig {
   }>;
   imageModels?: Record<string, string>;
   baseUrl?: string;
-  apiKeyEnvVar?: string;
   contextWindow?: number;
   modelDiscovery?: {
     lastRefreshedAt?: string;
@@ -43,7 +42,6 @@ export interface ProviderConfig {
     stop?: string[];
   };
   baseUrl?: string;
-  apiKeyEnvVar?: string;
   contextWindow?: number;
   modelDiscovery?: {
     lastRefreshedAt?: string;
@@ -178,38 +176,11 @@ export function useSaveUserConfig() {
   });
 }
 
-export function useTestProviderConnection() {
-  const { client } = useTeam();
-  return useMutation({
-    mutationFn: (providerRef: string) => client.config.testProviderConnection(providerRef),
-  });
-}
-
-export function useEnvStatus() {
-  const { client } = useTeam();
-  return useQuery({
-    queryKey: configQueryKeys.envStatus,
-    queryFn: () => client.config.getEnvStatus() as Promise<Record<string, boolean>>,
-  });
-}
-
-export function useSetEnvVar() {
-  const { client } = useTeam();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ key, value }: { key: string; value: string }) =>
-      client.config.setEnvVar({ key, value }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: configQueryKeys.envStatus });
-    },
-  });
-}
-
 export function useRefreshDevProviderModels() {
   const { client } = useTeam();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (providerRef: string) => client.config.refreshUserProviderModels(providerRef),
+    mutationFn: (providerRef: string) => client.config.refreshProviderModels(providerRef),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: configQueryKeys.userConfig });
     },

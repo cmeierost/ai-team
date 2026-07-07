@@ -11,6 +11,7 @@ vi.mock('../com/ask.command.js', () => ({
 }));
 
 import { WorkflowQuestioner } from './workflow-questions.js';
+import { EmitService } from '../../orchestrator/services/emit-service.js';
 
 const minimalCtx: ExecutionContext = { workspaceRoot: '', history: [] };
 const noopService = {} as IQuestionService;
@@ -23,7 +24,7 @@ describe('workflow questions ask-tool bridge', () => {
   it('routes input questions through com_ask and preserves workflow request payload', async () => {
     const questionInput = vi.fn().mockResolvedValue('ok-value');
     const questionService = { input: questionInput } as IQuestionService;
-    const questioner = new WorkflowQuestioner(questionService, minimalCtx);
+    const questioner = new WorkflowQuestioner(questionService, new EmitService(() => {}));
 
     askExecute.mockImplementation(async (params) => {
       expect(params.kind).toBe('input');
@@ -59,7 +60,7 @@ describe('workflow questions ask-tool bridge', () => {
   });
 
   it('routes confirm questions through com_ask', async () => {
-    const questioner = new WorkflowQuestioner(noopService, minimalCtx);
+    const questioner = new WorkflowQuestioner(noopService, new EmitService(() => {}));
 
     askExecute.mockResolvedValue({
       status: 'ok',
@@ -87,7 +88,7 @@ describe('workflow questions ask-tool bridge', () => {
   });
 
   it('normalizes select answers returned by com_ask', async () => {
-    const questioner = new WorkflowQuestioner(noopService, minimalCtx);
+    const questioner = new WorkflowQuestioner(noopService, new EmitService(() => {}));
 
     askExecute.mockResolvedValue({
       status: 'ok',
@@ -110,7 +111,7 @@ describe('workflow questions ask-tool bridge', () => {
   });
 
   it('returns checklist values from com_ask', async () => {
-    const questioner = new WorkflowQuestioner(noopService, minimalCtx);
+    const questioner = new WorkflowQuestioner(noopService, new EmitService(() => {}));
 
     askExecute.mockResolvedValue({
       status: 'ok',

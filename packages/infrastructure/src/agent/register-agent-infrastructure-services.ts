@@ -1,6 +1,7 @@
 import type {
   IAgentDocumentStorage,
   IAgentManager,
+  IConfigurationStorage,
   IContainerToken,
   IMarkdownSectionService,
   IPermissionStorage,
@@ -23,6 +24,7 @@ import { SkillManager } from '../skill/index.js';
  */
 export interface AgentInfrastructureRegistrationTokens {
   WorkspaceRoot: IContainerToken<string>;
+  ConfigurationStorage: IContainerToken<IConfigurationStorage>;
   PermissionStorage: IContainerToken<IPermissionStorage>;
   MarkdownSectionService: IContainerToken<IMarkdownSectionService>;
   WorkspaceStorage: IContainerToken<IWorkspaceStorage>;
@@ -45,6 +47,7 @@ export function registerAgentInfrastructureServices(
     const workspaceStorage = c.resolve(tokens.WorkspaceStorage);
     const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
     return new AgentDocumentStorage(
+      c.resolve(tokens.WorkspaceRoot),
       c.resolve(tokens.MarkdownSectionService),
       workspaceStorage,
       workspaceDiscoveryStorage
@@ -61,7 +64,8 @@ export function registerAgentInfrastructureServices(
       agentDocumentStorage,
       workspaceStorage,
       workspaceDiscoveryStorage,
-      c.resolve(tokens.PermissionStorage)
+      c.resolve(tokens.PermissionStorage),
+      c.resolve(tokens.ConfigurationStorage)
     );
   });
 

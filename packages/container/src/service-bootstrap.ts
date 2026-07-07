@@ -10,7 +10,6 @@ import type {
   IContextCompressor,
   IContextEnricher,
   IDeveloperIdentityService,
-  IEnvironmentStorage,
   IFileAnnotationService,
   IFileTreeService,
   ITypeScriptAnalyzer,
@@ -38,6 +37,7 @@ import type {
   INoteAttachmentReader,
   ITextToolCallParser,
   IProposalStoreFactory,
+  IProviderConfigurationService,
   CliCommandMetadata,
 } from '@ai-team/core';
 import { createBootstrappedContainer, type ContainerBootstrapper } from './bootstrap.js';
@@ -79,6 +79,7 @@ import {
   type ToolDispatchSupportService,
   type ToolSerializationService,
   type IQuestionService,
+  type IEmitService,
   registerServiceLayerServices,
   type ServiceLayerRegistrationTokens,
 } from '@ai-team/service';
@@ -113,12 +114,12 @@ export const TOKENS = {
   ToolDispatchSupportService: new Token<ToolDispatchSupportService>('ToolDispatchSupportService'),
   ToolSerializationService: new Token<ToolSerializationService>('ToolSerializationService'),
   QuestionService: new Token<IQuestionService>('QuestionService'),
+  EmitService: new Token<IEmitService>('EmitService'),
   ChatStorage: new Token<ChatStorage>('ChatStorage'),
   ChatManager: new Token<ChatManager>('ChatManager'),
 
   // ── Storage interfaces (shared singletons) ───────────────────────────────
   ConfigurationStorage: new Token<IConfigurationStorage>('ConfigurationStorage'),
-  EnvironmentStorage: new Token<IEnvironmentStorage>('EnvironmentStorage'),
   DeveloperIdentityService: new Token<IDeveloperIdentityService>('DeveloperIdentityService'),
   SystemInfoService: new Token<ISystemInfoService>('SystemInfoService'),
   PermissionStorage: new Token<IPermissionStorage>('PermissionStorage'),
@@ -137,6 +138,7 @@ export const TOKENS = {
   // ── Model discovery ──────────────────────────────────────────────────────
   ModelDiscoveryRegistry: new Token<IModelDiscoveryRegistry>('ModelDiscoveryRegistry'),
   LlmProviderTester: new Token<ILlmProviderTester>('LlmProviderTester'),
+  ProviderConfigurationService: new Token<IProviderConfigurationService>('ProviderConfigurationService'),
   TeamGraphBuilder: new Token<ITeamGraphBuilder>('TeamGraphBuilder'),
 
   // ── HTTP route services ──────────────────────────────────────────────────

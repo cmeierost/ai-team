@@ -33,10 +33,7 @@ export interface CreateToolManagerOptions {
  *                       for permission checks).
  * @param options        Dependencies: pathPermissionChecker, container.
  */
-export function createToolManager(
-  workspaceRoot: string,
-  options: CreateToolManagerOptions
-): ToolManager {
+export function createToolManager(options: CreateToolManagerOptions): ToolManager {
   if (!options.pathPermissionChecker) {
     throw new Error('createToolManager requires options.pathPermissionChecker');
   }
@@ -44,12 +41,7 @@ export function createToolManager(
   // Resolve CommandRegistry (single source of truth for all tools)
   const registry = options.container.resolve(COMMAND_FACTORY_TOKENS.CommandRegistry);
 
-  const manager = new ToolManager(
-    workspaceRoot,
-    options.pathPermissionChecker,
-    registry,
-    options.container
-  );
+  const manager = new ToolManager(options.pathPermissionChecker, registry, options.container);
 
   // 2. Orchestration tools — factory-constructed with injected dependencies
   // ToolManager is the single source of truth for registered workflows.
@@ -58,22 +50,30 @@ export function createToolManager(
   const workflowCatalog = {
     listWorkflowIds(): string[] {
       return registry
-        .getAll({ availableIn: { tool: true }, group: 'workflow' })
-        .filter((t) => t.key !== 'list')
+        .getAll({ availableIn: { tool: true } })
+        .filter(
+          (t) =>
+            t.key !== 'list' &&
+            (t.group === 'workflow' || (t.tags ?? []).includes('workflow-definition'))
+        )
         .map((t) => t.key);
     },
     async getWorkflowDefinition(workflowId: string) {
-      const meta = registry.get(`workflow_${workflowId}`);
-      if (!meta?.availableIn?.tool) {
-        throw new Error(`Workflow definition '${workflowId}' is not available.`);
+      const candidates = [workflowId, `workflow_${workflowId}`];
+
+      for (const candidate of candidates) {
+        const meta = registry.get(candidate);
+        if (!meta?.availableIn?.tool) continue;
+
+        const tool = registry.resolve(candidate, options.container) as
+          | { getDefinition?: () => unknown }
+          | undefined;
+        if (tool?.getDefinition) {
+          return tool.getDefinition() as import('@ai-team/api-contracts').WorkflowDefinitionApiResponse;
+        }
       }
-      const tool = registry.resolve(`workflow_${workflowId}`, options.container) as
-        | { getDefinition?: () => unknown }
-        | undefined;
-      if (!tool?.getDefinition) {
-        throw new Error(`Workflow definition '${workflowId}' is not available.`);
-      }
-      return tool.getDefinition() as import('@ai-team/api-contracts').WorkflowDefinitionApiResponse;
+
+      throw new Error(`Workflow definition '${workflowId}' is not available.`);
     },
   };
 

@@ -1,14 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { TeamConfig } from '@ai-team/core';
 
 import { TestConnectionCommand } from './test-connection.js';
 
+const defaultTeamConfig: TeamConfig = {
+  version: '1',
+  randomAvatarUrls: [],
+  llm: {
+    provider: 'openai-compatible',
+    model: 'qwen2.5-coder:7b',
+  },
+  providers: {
+    'ollama-local': {
+      kind: 'openai-compatible',
+      baseUrl: 'http://localhost:11434/v1',
+      defaultModel: 'qwen2.5-coder:7b',
+    },
+  },
+  defaultModel: {
+    provider: 'ollama-local',
+    model: 'qwen2.5-coder:7b',
+  },
+};
+
 const mocks = {
-  configurationStorage: {
-    loadEffectiveConfigAsync: vi.fn(),
-  },
-  environmentStorage: {
-    loadEnvFileAsync: vi.fn(),
-  },
   agentManager: {
     resolveAgentAsync: vi.fn(),
     getAllAgentsAsync: vi.fn(),
@@ -26,57 +41,35 @@ describe('commands/test-connection --tool-call', () => {
     vi.clearAllMocks();
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    mocks.configurationStorage.loadEffectiveConfigAsync.mockResolvedValue({
-      providers: {
-        'ollama-local': {
-          kind: 'openai-compatible',
-          baseUrl: 'http://localhost:11434/v1',
-          defaultModel: 'qwen2.5-coder:7b',
-        },
-      },
-      defaultModel: {
-        provider: 'ollama-local',
-        model: 'qwen2.5-coder:7b',
-      },
-    });
-    mocks.environmentStorage.loadEnvFileAsync.mockResolvedValue({});
     mocks.llmProviderTester.testLlmConnectionAsync.mockResolvedValue(undefined);
     mocks.textToolCallParser.parseTextToolCalls.mockReturnValue([]);
     mocks.agentManager.resolveAgentAsync.mockResolvedValue([]);
     mocks.agentManager.getAllAgentsAsync.mockResolvedValue([]);
   });
 
-  function createCommand() {
+  function createCommand(teamConfig: TeamConfig = defaultTeamConfig) {
     return new TestConnectionCommand(
-      mocks.configurationStorage as any,
-      mocks.environmentStorage as any,
+      teamConfig,
       mocks.agentManager as any,
       mocks.llmProviderTester as any,
       mocks.textToolCallParser as any
     );
   }
 
-  it('uses resolved provider-specific API key env var', async () => {
-    mocks.environmentStorage.loadEnvFileAsync.mockResolvedValue({
-      LLM_HUB_API_KEY: 'hub-secret',
-    });
-    const command = createCommand();
-    const effectiveConfig = {
-      config: {
+  it('uses resolved provider-specific apiKey from config', async () => {
+    const teamConfig: TeamConfig = {
+      version: '1',
+      randomAvatarUrls: [],
+      llm: {
         provider: 'openai-compatible',
-        baseUrl: 'https://llmhub.example.com/v1',
         model: 'gpt-4o-mini',
       },
-      providerRef: 'llm-hub',
-      apiKeyEnvVar: 'LLM_HUB_API_KEY',
-    };
-    mocks.configurationStorage.loadEffectiveConfigAsync.mockResolvedValue({
       providers: {
         'llm-hub': {
           kind: 'openai-compatible',
           baseUrl: 'https://llmhub.example.com/v1',
           defaultModel: 'gpt-4o-mini',
-          apiKeyEnvVar: 'LLM_HUB_API_KEY',
+          apiKey: 'hub-secret',
         },
       },
       defaultModel: {
@@ -84,7 +77,17 @@ describe('commands/test-connection --tool-call', () => {
         provider: 'llm-hub',
         model: 'gpt-4o-mini',
       },
-    });
+    };
+    const command = createCommand(teamConfig);
+    const effectiveConfig = {
+      config: {
+        provider: 'openai-compatible',
+        baseUrl: 'https://llmhub.example.com/v1',
+        model: 'gpt-4o-mini',
+        apiKey: 'hub-secret',
+      },
+      providerRef: 'llm-hub',
+    };
 
     await expect(command.executeAsync('C:/workspace')).resolves.toBeUndefined();
 
@@ -97,9 +100,9 @@ describe('commands/test-connection --tool-call', () => {
   it('rejects --all with --tool-call', async () => {
     const command = createCommand();
 
-    await expect(command.executeAsync('C:/workspace', { all: true, toolCall: true })).rejects.toThrow(
-      'Do not combine --all with --tool-call.'
-    );
+    await expect(
+      command.executeAsync('C:/workspace', { all: true, toolCall: true })
+    ).rejects.toThrow('Do not combine --all with --tool-call.');
   });
 
   it('passes when provider returns structured tool_calls', async () => {

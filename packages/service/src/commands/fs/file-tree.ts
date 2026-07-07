@@ -7,15 +7,12 @@ import {
   IConfigurationStorage,
   IPermissionStorage,
   Agent,
-  TeamConfig,
 } from '@ai-team/core';
 
 import type { FilesTreeResponse } from '@ai-team/api-contracts';
 import { type GovernanceRequest, GovernanceService } from '../agents/governance.js';
 
 export type PathMode = 'read' | 'write' | 'list';
-
-const DEFAULT_CONFIG: TeamConfig = { version: '1', randomAvatarUrls: [] };
 
 export class FileTreeService {
   constructor(
@@ -32,41 +29,56 @@ export class FileTreeService {
     if (!this.fileTreeService) {
       throw new Error('File tree service is not available.');
     }
-    const config = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
+    const fileTree = this.configurationStorage.get('fileTree') as
+      | {
+          readPaths?: string[];
+          writePaths?: string[];
+        }
+      | undefined;
     const allowPaths = Array.from(
-      new Set([...(config?.fileTree?.readPaths ?? []), ...(config?.fileTree?.writePaths ?? [])])
+      new Set([...(fileTree?.readPaths ?? []), ...(fileTree?.writePaths ?? [])])
     );
     return this.fileTreeService.getCachedFileTree(this.workspaceRoot, { ...options, allowPaths });
   }
 
   async allowPath(filePath: string, mode: PathMode): Promise<string[]> {
-    const config = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
+    const fileTree =
+      (this.configurationStorage.get('fileTree') as {
+        readPaths?: string[];
+        writePaths?: string[];
+      }) ?? {};
     const key = mode === 'write' ? 'writePaths' : 'readPaths';
-    const current: string[] = (config?.fileTree as any)?.[key] ?? [];
+    const current: string[] = (fileTree as any)?.[key] ?? [];
 
     if (current.includes(filePath)) return current;
 
     const next = [...current, filePath];
-    await this.configurationStorage.saveTeamConfigAsync(this.workspaceRoot, {
-      ...DEFAULT_CONFIG,
-      ...config,
-      fileTree: { readPaths: [], writePaths: [], ...config?.fileTree, [key]: next },
+    await this.configurationStorage.set('fileTree', {
+      readPaths: [],
+      writePaths: [],
+      ...fileTree,
+      [key]: next,
     });
     return next;
   }
 
   async disallowPath(filePath: string, mode: PathMode): Promise<string[]> {
-    const config = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
+    const fileTree =
+      (this.configurationStorage.get('fileTree') as {
+        readPaths?: string[];
+        writePaths?: string[];
+      }) ?? {};
     const key = mode === 'write' ? 'writePaths' : 'readPaths';
-    const current: string[] = (config?.fileTree as any)?.[key] ?? [];
+    const current: string[] = (fileTree as any)?.[key] ?? [];
     const next = current.filter((p) => p !== filePath);
 
     if (next.length === current.length) return current;
 
-    await this.configurationStorage.saveTeamConfigAsync(this.workspaceRoot, {
-      ...DEFAULT_CONFIG,
-      ...config,
-      fileTree: { readPaths: [], writePaths: [], ...config?.fileTree, [key]: next },
+    await this.configurationStorage.set('fileTree', {
+      readPaths: [],
+      writePaths: [],
+      ...fileTree,
+      [key]: next,
     });
     return next;
   }

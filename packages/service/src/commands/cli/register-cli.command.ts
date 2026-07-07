@@ -3,6 +3,7 @@ import {
   CommandResponse,
   ExecutionContext,
   type ICommand,
+  type IConfigurationStorage,
   type IAgentManager,
   type IAgentDocumentStorage,
   ICommandDescriptor,
@@ -45,9 +46,7 @@ export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliR
   readonly metadata = RegisterCliToolMetadata;
 
   constructor(
-    private readonly configurationStorage: {
-      loadTeamConfigAsync(workspaceRoot: string): Promise<any>;
-    },
+    private readonly configurationStorage: IConfigurationStorage,
     private readonly agentManager: IAgentManager,
     private readonly agentDocumentStorage: IAgentDocumentStorage
   ) {}
@@ -91,8 +90,7 @@ export class RegisterCliTool implements ICommand<RegisterCliParams, RegisterCliR
       throw new Error('Invalid command name. Provide executable only (for example: git)');
     }
 
-    const teamConfig = await this.configurationStorage.loadTeamConfigAsync(context.workspaceRoot);
-    const allowedGlobal = teamConfig?.allowedCliTools;
+    const allowedGlobal = this.configurationStorage.get('allowedCliTools') as string[] | undefined;
     if (allowedGlobal && allowedGlobal.length > 0) {
       const normalizedGlobal = new Set(
         allowedGlobal.map(normalizeExecutableName).filter(Boolean) as string[]

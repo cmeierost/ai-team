@@ -7,7 +7,6 @@
  */
 import type {
   IConfigurationStorage,
-  IEnvironmentStorage,
   IModelDiscoveryRegistry,
   ExecutionContext,
   CommandResponse,
@@ -22,8 +21,8 @@ export class ProviderListICommand {
   readonly cli = { command: 'list', parentKey: 'provider' } as const;
   private readonly _inner: BaseList;
 
-  constructor(cs: IConfigurationStorage, es: IEnvironmentStorage, mdr: IModelDiscoveryRegistry) {
-    this._inner = new BaseList(cs, es, mdr);
+  constructor(cs: IConfigurationStorage, mdr: IModelDiscoveryRegistry) {
+    this._inner = new BaseList(cs, mdr);
   }
 
   execute(
@@ -35,12 +34,12 @@ export class ProviderListICommand {
   }
 }
 
-export class ProviderModelsICommand {
+export class ProviderModelsCommand {
   readonly cli = { command: 'models', parentKey: 'provider' } as const;
   private readonly _inner: BaseModels;
 
-  constructor(cs: IConfigurationStorage, es: IEnvironmentStorage, mdr: IModelDiscoveryRegistry) {
-    this._inner = new BaseModels(cs, es, mdr);
+  constructor(cs: IConfigurationStorage, mdr: IModelDiscoveryRegistry) {
+    this._inner = new BaseModels(cs, mdr);
   }
 
   execute(
@@ -56,8 +55,8 @@ export class ProviderModelsRefreshICommand {
   readonly cli = { command: 'refresh', parentKey: 'provider' } as const;
   private readonly _inner: BaseRefresh;
 
-  constructor(cs: IConfigurationStorage, es: IEnvironmentStorage, mdr: IModelDiscoveryRegistry) {
-    this._inner = new BaseRefresh(cs, es, mdr);
+  constructor(cs: IConfigurationStorage, mdr: IModelDiscoveryRegistry) {
+    this._inner = new BaseRefresh(cs, mdr);
   }
 
   execute(

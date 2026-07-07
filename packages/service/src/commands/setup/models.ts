@@ -1,8 +1,4 @@
-import type {
-  IConfigurationStorage,
-  IEnvironmentStorage,
-  IModelDiscoveryRegistry,
-} from '@ai-team/core';
+import type { IConfigurationStorage, IModelDiscoveryRegistry, TeamConfig } from '@ai-team/core';
 import {
   ProviderListOptions,
   ProviderModelsOptions,
@@ -12,61 +8,50 @@ import {
 export class ModelsCommand {
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
-    private readonly environmentStorage: IEnvironmentStorage,
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry
   ) {}
 
-  async providerListAsync(workspaceRoot: string, options: ProviderListOptions = {}): Promise<void> {
-    return providerListCommandAsync(workspaceRoot, options, this.configurationStorage);
+  async providerListAsync(options: ProviderListOptions = {}): Promise<void> {
+    return providerListCommandAsync(options, this.configurationStorage);
   }
 
-  async providerModelsAsync(workspaceRoot: string, options: ProviderModelsOptions): Promise<void> {
-    return providerModelsCommandAsync(workspaceRoot, options, this.configurationStorage);
+  async providerModelsAsync(options: ProviderModelsOptions): Promise<void> {
+    return providerModelsCommandAsync(options, this.configurationStorage);
   }
 
   async providerModelsRefreshAsync(
-    workspaceRoot: string,
     options: RefreshProviderModelsOptions
   ): Promise<void> {
     return providerModelsRefreshCommandAsync(
-      workspaceRoot,
       options,
       this.configurationStorage,
-      this.environmentStorage,
       this.modelDiscoveryRegistry
     );
   }
 }
 
 async function providerListCommandAsync(
-  workspaceRoot: string,
   options: ProviderListOptions = {},
   configurationStorage: IConfigurationStorage
 ): Promise<void> {
-  const config = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
-  const developerConfig = await configurationStorage.loadUserConfigAsync(workspaceRoot);
-
-  if (!config && !developerConfig) {
-    throw new Error('No LLM configured. Run ait init first.');
-  }
-
-  const registry = developerConfig?.providers || config?.providers;
+  const config = configurationStorage.get() as TeamConfig;
+  const registry = config.providers;
   if (!registry || Object.keys(registry).length === 0) {
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
   }
 
-  const defaultProviderRef = resolveProviderRef(
-    registry,
-    developerConfig?.defaultModel?.provider || config?.defaultModel?.provider
-  );
-  const providerEntries = Object.entries(registry).map(([providerRef, providerConfig]) => ({
-    providerRef,
-    kind: providerConfig.kind,
-    isDefault: providerRef === defaultProviderRef,
-    baseUrl: providerConfig.kind === 'openai-compatible' ? providerConfig.baseUrl : undefined,
-    defaultModel: providerConfig.defaultModel,
-    modelsCount: providerConfig.models?.length || 0,
-  }));
+  const defaultProviderRef = resolveProviderRef(registry, config.defaultModel?.provider);
+  const providerEntries = Object.entries(registry).map(([providerRef, providerConfig]) => {
+    const cfg = providerConfig as Record<string, unknown>;
+    return {
+      providerRef,
+      kind: cfg.kind as string,
+      isDefault: providerRef === defaultProviderRef,
+      baseUrl: cfg.kind === 'openai-compatible' ? (cfg.baseUrl as string) : undefined,
+      defaultModel: cfg.defaultModel as string,
+      modelsCount: Array.isArray(cfg.models) ? cfg.models.length : 0,
+    };
+  });
 
   if (options.json) {
     console.log(
@@ -94,37 +79,27 @@ async function providerListCommandAsync(
 }
 
 async function providerModelsCommandAsync(
-  workspaceRoot: string,
   options: ProviderModelsOptions,
   configurationStorage: IConfigurationStorage
 ): Promise<void> {
-  const config = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
-  const developerConfig = await configurationStorage.loadUserConfigAsync(workspaceRoot);
-
-  if (!config && !developerConfig) {
-    throw new Error('No LLM configured. Run ait init first.');
-  }
-
-  const registry = developerConfig?.providers || config?.providers;
+  const config = configurationStorage.get() as TeamConfig;
+  const registry = config.providers;
   if (!registry || Object.keys(registry).length === 0) {
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
   }
 
-  const defaultProviderRef = resolveProviderRef(
-    registry,
-    developerConfig?.defaultModel?.provider || config?.defaultModel?.provider
-  );
+  const defaultProviderRef = resolveProviderRef(registry, config.defaultModel?.provider);
   const providerRefs = options.provider
     ? [resolveProviderRef(registry, config?.defaultModel?.provider, options.provider)]
     : Object.keys(registry);
 
   const providerEntries = providerRefs.map((providerRef) => {
-    const providerConfig = registry[providerRef];
-    const models = providerConfig.models || [];
-    const defaultModel = providerConfig.defaultModel;
+    const providerConfig = registry[providerRef] as Record<string, unknown>;
+    const models = (providerConfig.models as Array<{ name: string }>) || [];
+    const defaultModel = providerConfig.defaultModel as string | undefined;
     return {
       providerRef,
-      kind: providerConfig.kind,
+      kind: providerConfig.kind as string,
       isDefault: providerRef === defaultProviderRef,
       defaultModel,
       models,
@@ -192,20 +167,12 @@ async function providerModelsCommandAsync(
 }
 
 async function providerModelsRefreshCommandAsync(
-  workspaceRoot: string,
   options: RefreshProviderModelsOptions,
   configurationStorage: IConfigurationStorage,
-  environmentStorage: IEnvironmentStorage,
   modelDiscoveryRegistry: IModelDiscoveryRegistry
 ): Promise<void> {
-  const config = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
-  const developerConfig = await configurationStorage.loadUserConfigAsync(workspaceRoot);
-
-  if (!config && !developerConfig) {
-    throw new Error('No LLM configured. Run ait init first.');
-  }
-
-  const registrySource = developerConfig?.providers || config?.providers;
+  const config = (await configurationStorage.get()) as TeamConfig;
+  const registrySource = config.providers;
   const registry = registrySource ? { ...registrySource } : {};
   if (Object.keys(registry).length === 0) {
     throw new Error('No providers dictionary found in config. Run ait provider set first.');
@@ -213,35 +180,25 @@ async function providerModelsRefreshCommandAsync(
 
   let providerRef: string;
   try {
-    providerRef = resolveProviderRef(
-      registry,
-      developerConfig?.defaultModel?.provider || config?.defaultModel?.provider,
-      options.provider
-    );
+    providerRef = resolveProviderRef(registry, config?.defaultModel?.provider, options.provider);
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : 'Invalid provider reference.');
   }
-  const providerConfig = registry[providerRef];
+  const providerConfig = registry[providerRef] as Record<string, unknown>;
 
-  const discoveryService = modelDiscoveryRegistry.getForKind(providerConfig.kind);
+  const discoveryService = modelDiscoveryRegistry.getForKind(providerConfig.kind as string);
   if (!discoveryService) {
     throw new Error(
       `No model discovery service registered for provider kind '${providerConfig.kind}'.`
     );
   }
 
-  let apiKey: string | undefined;
-  if (providerConfig.kind === 'openai-compatible') {
-    if (!providerConfig.baseUrl) {
-      throw new Error(`Provider '${providerRef}' is openai-compatible but has no baseUrl.`);
-    }
-    const env = await environmentStorage.loadEnvFileAsync(workspaceRoot);
-    const apiKeyName = providerConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-    apiKey =
-      env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
-  }
+  const apiKey =
+    providerConfig.kind === 'openai-compatible'
+      ? (providerConfig.apiKey as string | undefined)
+      : undefined;
 
-  const discovered = await discoveryService.fetchModelsAsync(providerConfig.baseUrl, apiKey);
+  const discovered = await discoveryService.fetchModelsAsync(providerConfig.baseUrl as string | undefined, apiKey);
   let models: Array<{
     name: string;
     contextWindow?: number;
@@ -263,28 +220,25 @@ async function providerModelsRefreshCommandAsync(
   models = buildModelsList(models);
   const defaultModel =
     providerConfig.defaultModel && models.some((m) => m.name === providerConfig.defaultModel)
-      ? providerConfig.defaultModel
+      ? (providerConfig.defaultModel as string)
       : models[0]?.name;
 
   registry[providerRef] = {
     ...providerConfig,
+    kind: providerConfig.kind as 'github-copilot' | 'openai-compatible',
     models,
     defaultModel,
   };
 
-  if (config) {
-    const nextConfig = {
-      ...config,
-      providers: registry,
-      defaultModel: { provider: providerRef, model: defaultModel },
-    };
-    await configurationStorage.saveTeamConfigAsync(workspaceRoot, nextConfig);
-  }
-
-  await configurationStorage.saveUserConfigAsync(workspaceRoot, {
+  const nextValues = {
     providers: registry,
     defaultModel: { provider: providerRef, model: defaultModel },
-  });
+  };
+
+  await configurationStorage.set('providers', nextValues.providers);
+  await configurationStorage.set('defaultModel', nextValues.defaultModel);
+  await configurationStorage.set('providers', nextValues.providers, 'user');
+  await configurationStorage.set('defaultModel', nextValues.defaultModel, 'user');
 }
 
 function resolveProviderRef(

@@ -10,6 +10,7 @@ async function createWorkspaceFixture(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ai-team-perm-overlap-'));
   tempRoots.push(root);
   await mkdir(path.join(root, '.ai-team', 'agents'), { recursive: true });
+  await writeFile(path.join(root, '.ai-team', 'config.json'), JSON.stringify({ version: '1' }), 'utf8');
   return root;
 }
 
@@ -91,7 +92,7 @@ describe('permission overlap workspace loading', () => {
 
     const report = await analyzeWorkspacePermissionOverlap(workspaceRoot, { agentId: 'ethan-carter' }) as FilePermissionOverlapReport;
     expect(report.kind).toBe('files');
-    expect(report.workspaceFileCount).toBe(7);
+    expect(report.workspaceFileCount).toBe(8);
     expect(report.rights.write.overlappingFiles.some((file) => file.path === 'src/shared.ts')).toBe(true);
     expect(report.rights.write.uncoveredFiles.some((file) => file.path === 'src/guide.md')).toBe(true);
     const ethanWrite = report.rights.write.agentResponsibilities.find((entry) => entry.agentId === 'ethan-carter');
@@ -127,7 +128,7 @@ describe('permission overlap workspace loading', () => {
 
     const report = await analyzeWorkspacePermissionOverlap(workspaceRoot) as FilePermissionOverlapReport;
     expect(report.kind).toBe('files');
-    expect(report.workspaceFileCount).toBe(5);
+    expect(report.workspaceFileCount).toBe(6);
     expect(report.rights.write.overlappingFiles.some((file) => file.path.endsWith('generated.js'))).toBe(false);
     expect(report.rights.write.overlappingFiles.some((file) => file.path.includes('storybook-static'))).toBe(false);
     expect(report.rights.write.overlappingFiles.some((file) => file.path.endsWith('keep.ts'))).toBe(true);

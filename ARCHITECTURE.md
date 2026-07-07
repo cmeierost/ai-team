@@ -1,5 +1,8 @@
 # AI Team - Architecture
 
+> **Deep reference (on-demand):** This file is intentionally detailed and can be expensive to load in every chat.
+> Start with `docs/architecture/overview.md` and open this file only when your task needs deeper architecture or code-entry-point detail.
+
 ## Documentation Map
 
 - [README.md](README.md) - repository front door, setup, and navigation.
@@ -7,8 +10,17 @@
 - [`.ai-team/tasks/`](.ai-team/tasks/) - local long-running backlog for architecture transitions and planned features.
 - [docs/architecture/overview.md](docs/architecture/overview.md) - concise human-readable summary of the current architecture.
 - [docs/architecture/diagrams.md](docs/architecture/diagrams.md) - Mermaid diagrams for package boundaries and runtime flows.
+- [docs/architecture/implementation-entry-points.md](docs/architecture/implementation-entry-points.md) - deep code-entry-point index for architecture-heavy tasks.
 - [docs/api/contracts.md](docs/api/contracts.md) - transport-facing API documentation for the API server surface.
 - [docs/implementation/web-state-architecture.md](docs/implementation/web-state-architecture.md) - target frontend state split and migration guidance.
+
+### Recommended read order (progressive disclosure)
+
+1. `docs/architecture/overview.md` (short summary)
+2. `docs/architecture/diagrams.md` (visual map)
+3. `ARCHITECTURE.md` (this file, deep architecture narrative)
+4. `docs/architecture/implementation-entry-points.md` (code-navigation deep dive)
+5. `docs/api/contracts.md` (API/transport specifics only when relevant)
 
 ## Purpose
 
@@ -43,34 +55,9 @@ This document intentionally describes both the **current implementation shape** 
 
 ## Implementation Entry Points
 
-Use this as a “where should I change code?” index.
+The detailed code-entry-point index was moved to keep this file lighter:
 
-| What                                                                                     | Where                                                                                                                                                    |
-| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mediator command payload/response/event contracts                                        | [packages/service/src/contracts.ts](packages/service/src/contracts.ts)                                                                                   |
-| Service command dispatch, `invoke()`, `stream()`, and runtime event bridging             | [packages/service/src/index.ts](packages/service/src/index.ts)                                                                                           |
-| Thin chat bootstrap: env checks, agent resolution, session selection, orchestrator setup | [packages/service/src/commands/chat/index.ts](packages/service/src/commands/chat/index.ts)                                                               |
-| Chat turn controller: slash commands, NL forwarding, handoffs, turn loop                 | [packages/service/src/orchestrator/chat-orchestrator.ts](packages/service/src/orchestrator/chat-orchestrator.ts)                                         |
-| Single-turn LLM pipeline: context build, tool dispatch, handoff/hire detection           | [packages/service/src/orchestrator/send-turn.ts](packages/service/src/orchestrator/send-turn.ts)                                                         |
-| Handoff protocol and context mutation                                                    | [packages/service/src/orchestrator/handoff.ts](packages/service/src/orchestrator/handoff.ts)                                                             |
-| Pipeline extension interfaces                                                            | [packages/service/src/orchestrator/pipeline.ts](packages/service/src/orchestrator/pipeline.ts)                                                           |
-| Workflow continuation persistence                                                        | [packages/service/src/workflow-state.ts](packages/service/src/workflow-state.ts)                                                                         |
-| Session lifecycle and persisted chat behavior                                            | [packages/service/src/session-manager.ts](packages/service/src/session-manager.ts)                                                                       |
-| Task lifecycle and task-oriented state                                                   | [packages/service/src/task-manager.ts](packages/service/src/task-manager.ts)                                                                             |
-| Service interface contracts and wire protocol types                                      | [packages/api-contracts/src/index.ts](packages/api-contracts/src/index.ts)                                                                               |
-
-| API server transport assembly                                                            | [packages/api-server/src/server.ts](packages/api-server/src/server.ts)                                                                                   |
-| API server HTTP routes                                                                   | [packages/api-server/src/routes/](packages/api-server/src/routes/)                                                                                       |
-| API server WebSocket chat bridge                                                         | [packages/api-server/src/ws/chat-handler.ts](packages/api-server/src/ws/chat-handler.ts)                                                                 |
-| FS context permission runtime (`ContextRuntime`, parser, matcher)                      | [fs-context/](fs-context/)                                                                                                                           |
-| Core tools and question primitives                                                       | [packages/core/src/tools/index.ts](packages/core/src/tools/index.ts)                                                                                     |
-| Context manager (Agent API adapter over `ContextRuntime`)                                | [packages/core/src/context/index.ts](packages/core/src/context/index.ts)                                                                                 |
-| DI container primitives and bootstrap helpers                                            | [packages/container/src/](packages/container/src/)                                                                                                       |
-| Model-facing command metadata                                                            | [packages/core/src/command-catalog/index.ts](packages/core/src/command-catalog/index.ts)                                                                 |
-| IDE bridge contracts and discovery file                                                  | [packages/ide-interface/src/index.ts](packages/ide-interface/src/index.ts)                                                                               |
-| VS Code extension activation and IDE-local server                                        | [packages/vscode/src/extension.ts](packages/vscode/src/extension.ts), [packages/vscode/src/ide-local-server.ts](packages/vscode/src/ide-local-server.ts) |
-| Web frontend bootstrap and routing                                                       | [packages/web/src/main.tsx](packages/web/src/main.tsx), [packages/web/src/App.tsx](packages/web/src/App.tsx)                                             |
-| Current web chat/runtime hotspot                                                         | [packages/web/src/components/ChatPanel.tsx](packages/web/src/components/ChatPanel.tsx)                                                                   |
+- [docs/architecture/implementation-entry-points.md](docs/architecture/implementation-entry-points.md)
 
 ## System Model
 
@@ -254,6 +241,60 @@ The durable local backlog for this transition lives in [`.ai-team/tasks/`](.ai-t
 - CLI and API server use `@ai-team/ide-interface` to forward proposals/open-file requests to a running VS Code extension.
 - The extension renders diff/review UX and sends acknowledgements back so upstream layers can reconcile proposal state.
 
+## Onboarding workflow architecture (current implementation)
+
+The onboarding runtime in `@ai-team/service` is now workflow-first.
+
+- Command entry: `OnboardICommand` in `packages/service/src/commands/hr/onboard.ts`
+- Workflow definition: `createOnboardingWorkflowDefinition()` in `packages/service/src/commands/hr/onboarding-workflow.ts`
+- Sub-workflow: `hire_workflow` in `packages/service/src/commands/hr/hire-workflow.ts`
+
+`OnboardICommand.executeOnboarding()` resolves `WorkflowRunnerFactory` from DI and runs `onboard_workflow` with the current `ExecutionContext` (including signal + invocation surface). The command no longer embeds the prior hand-written onboarding sequence directly.
+
+The current onboarding workflow composes generic orchestration tools and workflow-defined tools, including:
+
+- `llm_init`
+- `init_bootstrap_files`
+- `init_prepare_onboarding`
+- `hr_name_suggestions`
+- `com_ask`
+- `hr_hire`
+- `access_set_permissions`
+- `chat_phase`
+- `docs_save_transcript`
+- `llm_call`
+- `hire_workflow`
+
+This keeps onboarding behavior declarative and easier to evolve by editing workflow definitions rather than duplicating orchestration logic in imperative command code.
+
+## Workflow engine semantics (current implementation)
+
+The workflow runtime (`packages/service/src/workflow/runner.ts` + `param-resolver.ts`) supports both typed and declarative workflow definitions:
+
+- Step args can be declared with template interpolation (`args`) or computed in code (`params`).
+- Step guards support both callback checks (`skipWhen`) and declarative expressions (`when`).
+- Loop steps are supported via `kind: 'loop'` + `while` + `maxIterations`.
+- Step outputs are stored by default under `state[step.id]` unless `applyResult` overrides state mapping.
+- Workflow result projection supports declarative `result` and typed `toResult`.
+
+Declarative arg/result transforms currently include:
+
+- `$literal`
+- `$coalesce`
+- `$map`
+
+These semantics are relied on by onboarding/hiring workflows and are part of the current architecture contract for workflow-authored orchestration.
+
+## Request-scoped runtime event correlation (current implementation)
+
+Streaming paths now use a per-connection `EmitService` and request-scoped sink rebinding:
+
+- `InteractionStream` accepts an optional connection-scoped `emitService`.
+- For each request, `InteractionStream` calls `emitService.bindSink(...)` so runtime events are routed through that request's queue/correlation path.
+- On request completion, the restore callback returns the sink to the connection default.
+
+This keeps runtime event routing isolated and predictable across concurrent requests on the same connection, while preserving command/tool code paths that emit through injected `IEmitService`.
+
 ## ChatOrchestrator Pipeline
 
 `packages/service/src/commands/chat/index.ts` is intentionally thin. It performs preflight checks, resolves the current agent/session, builds the orchestration context, and hands control to `ChatOrchestrator`.
@@ -308,7 +349,7 @@ This keeps orchestration behavior consistent across surfaces that use the same s
 1. **`@ai-team/core` stays UI-free** - no `vscode`, `react`, `react-dom`, or `electron` imports.
 2. **Adapters stay thin** - UX lives at the edge; business logic flows through shared clients/service/core.
 3. **`@ai-team/service` owns orchestration** - command dispatch, runtime events, workflow continuation, and chat control flow live there.
-3. **Remote and local clients are different on purpose** - CLI calls service directly; the web client uses `@ts-http` to call the API server.
+4. **Remote and local clients are different on purpose** - CLI calls service directly; the web client uses `@ts-http` to call the API server.
 5. **IDE integration is its own boundary** - `@ai-team/ide-interface` and `@ai-team/vscode` handle editor-local workflows without pushing IDE concerns down into service/core.
 6. **Runtime state conventions remain under `.ai-team/`**.
 7. **Typed command contracts remain centralized in service**.
@@ -328,6 +369,7 @@ When adding or changing capabilities:
 4. Wire UX in the appropriate adapter package (`cli`, `vscode`, or `web`).
 5. Update architecture docs in the same change when the architecture, boundaries, runtime storage, or execution path changes.
 6. When the change is part of an ongoing transition, update the relevant task files in [`.ai-team/tasks/`](.ai-team/tasks/) so the local backlog stays truthful.
+7. For every feature implementation and code-cleanup/refactor, run fuzzy duplication scanning on the affected scope and review hotspots before merging (`pnpm --filter @aspect/duplication build` then `node analysis/duplication/dist/cli/fuzzy-dup.js <scope>`).
 
 ## Related Reading
 

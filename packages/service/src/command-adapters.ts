@@ -65,55 +65,6 @@ export function toLlmToolDefinition(cmd: ICommand<unknown, unknown>): ILlmToolDe
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * Extract context from parsed command parameters.
- *
- * Supports optional context overrides in params:
- *   { agentId?: string, sessionId?: string, workspaceRoot?: string, workflowId?: string, ... }
- *
- * Returns a partial context object that can be merged with orchestrator context.
- */
-function mapParamsToContext(
-  params: Record<string, unknown>,
-  allowlist: string[] | undefined,
-  calledByHuman: boolean | undefined
-): Partial<ExecutionContext> {
-  if (!calledByHuman) {
-    return {};
-  }
-
-  const overrides: Partial<ExecutionContext> = {};
-  const allowed = allowlist && allowlist.length > 0 ? new Set(allowlist) : undefined;
-
-  const isAllowed = (key: string): boolean => !allowed || allowed.has(key);
-
-  if (isAllowed('agentId') && 'agentId' in params && typeof params.agentId === 'string') {
-    overrides.agentId = params.agentId;
-  }
-  if (isAllowed('sessionId') && 'sessionId' in params && typeof params.sessionId === 'string') {
-    overrides.sessionId = params.sessionId;
-  }
-  if (
-    isAllowed('workspaceRoot') &&
-    'workspaceRoot' in params &&
-    typeof params.workspaceRoot === 'string'
-  ) {
-    overrides.workspaceRoot = params.workspaceRoot;
-  }
-  if (isAllowed('workflowId') && 'workflowId' in params && typeof params.workflowId === 'string') {
-    overrides.workflowId = params.workflowId;
-  }
-  if (
-    isAllowed('workflowInstanceId') &&
-    'workflowInstanceId' in params &&
-    typeof params.workflowInstanceId === 'string'
-  ) {
-    overrides.workflowInstanceId = params.workflowInstanceId;
-  }
-
-  return overrides;
-}
-
 export function resolveCommandArgs(
   cmd: ICommand<unknown, unknown>,
   payload: unknown,
@@ -390,19 +341,6 @@ function coerceArgValue(value: string): string | number | boolean {
   }
 
   return value;
-}
-
-function toCommandResponse(result: unknown): CommandResponse | void {
-  if (result === undefined) return undefined;
-  if (isCommandResponseLike(result)) {
-    return result;
-  }
-
-  return {
-    status: 'ok',
-    message: typeof result === 'string' ? result : 'Command executed successfully.',
-    data: result,
-  };
 }
 
 function isCommandResponseLike(value: unknown): value is CommandResponse {

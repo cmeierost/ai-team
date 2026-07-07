@@ -15,7 +15,7 @@ export class CommandsService implements ICommandsService {
   constructor(
     private readonly workspaceRoot: string,
     private readonly skillManager: ISkillManager,
-    private readonly configurationStorage: Pick<IConfigurationStorage, 'loadEffectiveConfigAsync'>
+    private readonly configurationStorage: IConfigurationStorage
   ) {}
 
   async list(): Promise<ChatCommandRegistryEntry[]> {
@@ -32,9 +32,10 @@ export class CommandsService implements ICommandsService {
       workspaceRoot: this.workspaceRoot,
       skillManager: this.skillManager,
       reservedKeys,
-      dynamicSlashCatalog: readDynamicSlashCatalogConfig(
-        await this.configurationStorage.loadEffectiveConfigAsync(this.workspaceRoot)
-      ),
+      dynamicSlashCatalog: readDynamicSlashCatalogConfig({
+        dynamicSlashCatalog:
+          this.configurationStorage.get('dynamicSlashCatalog') ?? undefined,
+      }),
       emitService: EmitService.forConsole(),
     });
 

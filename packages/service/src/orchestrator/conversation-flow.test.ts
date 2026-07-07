@@ -29,7 +29,7 @@ import { HandoffOrchestrator } from './handoff.js';
 import { EmitService } from './services/emit-service.js';
 import { COMMAND_FACTORY_TOKENS } from '../types.js';
 import { setServiceContainer } from '../service-registry.js';
-import { InteractionQuestionService } from '../questions/question-service.js';
+import type { IQuestionService } from '../questions/question-service.js';
 
 const serialization = new ToolSerializationService();
 
@@ -51,20 +51,28 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
     get: vi.fn(() => undefined),
     execute: vi.fn(async () => ({ ok: true, result: { ok: true } })),
   } as any;
-  const support = new ToolDispatchSupportService(serialization, ctx.llmService);
-  installEmitService(ctx.hooks.emit);
-  const questionService = InteractionQuestionService({
+  const support = new ToolDispatchSupportService(
+    ctx.workspaceRoot,
+    serialization,
+    ctx.llmService,
+    {
+      create: () => ({ save: vi.fn() }),
+    } as any
+  );
+  const emitService = installEmitService((event: any) => ctx.runtime.emit(event));
+  const questionService: IQuestionService = {
     input: vi.fn(async () => ''),
     confirm: vi.fn(async () => true),
     select: vi.fn(async () => ''),
     password: vi.fn(async () => ''),
     checklist: vi.fn(async () => []),
-  });
+  };
   const toolDispatcher = new ToolDispatcher(
     toolManager,
     ctx.sessionManager,
     support,
-    questionService
+    questionService,
+    emitService
   );
   const handoffOrchestrator = new HandoffOrchestrator(
     ctx.agentManager,
@@ -349,7 +357,7 @@ function buildContext(opts: {
     agent: opts.agent,
     workspaceRoot: '/workspace',
     sessionId: opts.sessionId,
-    hooks: { emit: vi.fn() },
+    runtime: { emit: vi.fn() },
     history: opts.history ?? opts.db.getSessionMessages(opts.sessionId),
     toolManager: { toSchema: vi.fn(() => null), getToolsForAgent: vi.fn(() => []) } as any,
     sessionManager: opts.sessionManager as any,
@@ -776,7 +784,7 @@ describe('CLI handoff — natural-language phrase variants', () => {
     expect(briefingInMichael!.handoffId).toBe(emilyBriefing!.handoffId);
 
     // Handoff event should have been emitted
-    const emitCalls = (ctx.hooks.emit as any).mock.calls;
+    const emitCalls = (ctx.runtime.emit as any).mock.calls;
     const handoffEvent = emitCalls.find(
       (call: unknown[]) => (call[0] as RuntimeStreamEvent).kind === 'handoff'
     );
@@ -860,7 +868,7 @@ describe('CLI handoff — natural-language phrase variants', () => {
     const ctx = await assertForwardHandoff('i want to talk to michael');
 
     // Verify the handoff event has all fields a stream consumer needs
-    const emitCalls = (ctx.hooks.emit as any).mock.calls;
+    const emitCalls = (ctx.runtime.emit as any).mock.calls;
     const handoffEvent = emitCalls.find(
       (call: unknown[]) => (call[0] as RuntimeStreamEvent).kind === 'handoff'
     );

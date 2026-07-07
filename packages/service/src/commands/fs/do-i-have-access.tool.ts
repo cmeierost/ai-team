@@ -10,7 +10,12 @@ import type {
 } from '@ai-team/core';
 import { checkPathRight, resolveWorkspacePathMeta } from '@ai-team/core';
 import type { DoIHavePermissionResponse } from '@ai-team/api-contracts';
-import { accessRightSchema, type AccessRight } from './fs-access.js';
+import {
+  accessRightSchema,
+  getAccessRightsForPath,
+  toAccessPathPayload,
+  type AccessRight,
+} from './fs-access.js';
 
 export interface DoIHaveAccessParams {
   path: string;
@@ -55,11 +60,7 @@ export class DoIHaveAccessTool implements ICommand<DoIHaveAccessParams, DoIHaveA
       return {
         status: 'ok',
         data: {
-          path: {
-            input: targetPath,
-            absolute: pathMeta.absolute,
-            relative: pathMeta.relative,
-          },
+          path: toAccessPathPayload(targetPath, pathMeta),
           right,
           contextId: agentId ?? context.agent?.id ?? 'unknown',
           selectedBy: agentId ? 'explicit' : 'default-first-agent',
@@ -98,22 +99,16 @@ export class DoIHaveAccessTool implements ICommand<DoIHaveAccessParams, DoIHaveA
       pathMeta.relative,
       right
     );
-    const allRights: DoIHavePermissionResponse['allRights'] = [];
-    if (checkPathRight(this.pathPermissionChecker, agent.permissions, pathMeta.relative, 'read'))
-      allRights.push('read');
-    if (checkPathRight(this.pathPermissionChecker, agent.permissions, pathMeta.relative, 'write'))
-      allRights.push('write');
-    if (checkPathRight(this.pathPermissionChecker, agent.permissions, pathMeta.relative, 'list'))
-      allRights.push('list');
+    const allRights: DoIHavePermissionResponse['allRights'] = getAccessRightsForPath(
+      this.pathPermissionChecker,
+      agent.permissions,
+      pathMeta.relative
+    );
 
     return {
       status: 'ok',
       data: {
-        path: {
-          input: targetPath,
-          absolute: pathMeta.absolute,
-          relative: pathMeta.relative,
-        },
+        path: toAccessPathPayload(targetPath, pathMeta),
         right,
         contextId: agent.id,
         contextLabel: agent.name,

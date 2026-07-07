@@ -5,31 +5,45 @@ import {
   IWorkspaceDiscoveryStorage,
   Agent,
   AgentSchema,
-  AgentConfig,
   ValidationError,
   FileNotFoundError,
   Skill,
   SkillSchema,
-  SkillConfig,
   AgentSkillFile,
   AgentSkillFileSchema,
   InstructionFile,
   MarkdownSection,
+  AgentMarkdownParts,
 } from '@ai-team/core';
 import matter from 'gray-matter';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { generateAgentColor } from './avatar.js';
 
 export class AgentDocumentStorage implements IAgentDocumentStorage {
   constructor(
+    private readonly workspaceRoot: string,
     private readonly markdownSectionService: IMarkdownSectionService,
     private readonly workspaceStorage: IWorkspaceStorage,
     private readonly workspaceDiscoveryStorage: IWorkspaceDiscoveryStorage
   ) {}
 
-  public buildAgentMarkdown(parts: import('@ai-team/core').AgentMarkdownParts): string {
+  public buildAgentMarkdown(parts: AgentMarkdownParts): string {
     return this.markdownSectionService.buildAgentMarkdown(parts);
+  }
+
+  private hashStringToHue(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (str.codePointAt(i) ?? 0) + ((hash << 5) - hash);
+    }
+    return Math.abs(hash % 360);
+  }
+
+  private generateAgentColor(agent: Pick<Agent, 'name' | 'avatar'>): string {
+    if (agent.avatar?.color) return agent.avatar.color;
+    const seed = agent.avatar?.seed || agent.name;
+    const hue = this.hashStringToHue(seed);
+    return `hsl(${hue}, 70%, 60%)`;
   }
 
   public async loadAgentAsync(filePath: string): Promise<Agent> {
@@ -53,7 +67,7 @@ export class AgentDocumentStorage implements IAgentDocumentStorage {
       const config = AgentSchema.parse({
         ...markdownRecord.data,
         ...metadataRecord,
-      }) as AgentConfig;
+      });
 
       const explicitId = this.normalizeText(config.id);
       const explicitName = this.normalizeText(config.name);
@@ -105,7 +119,7 @@ export class AgentDocumentStorage implements IAgentDocumentStorage {
           type: config.avatar?.type ?? 'initials',
           color:
             config.avatar?.color ??
-            generateAgentColor({ name: effectiveName, avatar: config.avatar }),
+            this.generateAgentColor({ name: effectiveName, avatar: config.avatar }),
         },
       };
     } catch (error) {
@@ -225,7 +239,7 @@ export class AgentDocumentStorage implements IAgentDocumentStorage {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const { data, content: markdown } = matter(content);
-      const config = SkillSchema.parse(data) as SkillConfig;
+        const config = SkillSchema.parse(data);
 
       return {
         filePath,
@@ -299,8 +313,8 @@ export class AgentDocumentStorage implements IAgentDocumentStorage {
     };
   }
 
-  public async loadAllInstructionFilesAsync(workspaceRoot: string): Promise<InstructionFile[]> {
-    const filePaths = await this.workspaceDiscoveryStorage.findInstructionFilesAsync(workspaceRoot);
+  public async loadAllInstructionFilesAsync(): Promise<InstructionFile[]> {
+    const filePaths = await this.workspaceDiscoveryStorage.findInstructionFilesAsync(this.workspaceRoot);
     const results: InstructionFile[] = [];
     for (const fp of filePaths) {
       try {
@@ -402,7 +416,7 @@ export class AgentDocumentStorage implements IAgentDocumentStorage {
       throw new ValidationError(`Invalid agent YAML metadata in ${filePath}`);
     }
 
-    return data as Record<string, unknown>;
+    return data;
   }
 
   private async readMarkdownAgentFileAsync(
@@ -417,7 +431,7 @@ export class AgentDocumentStorage implements IAgentDocumentStorage {
       );
     }
 
-    return { data: data as Record<string, unknown>, markdown };
+    return { data: data, markdown };
   }
 
   private humanizeId(id: string): string {

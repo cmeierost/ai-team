@@ -9,7 +9,6 @@ import type { IModelDiscoveryRegistry } from '@ai-team/core';
 export interface LlmSetupResult {
   provider: string;
   providerRef?: string;
-  apiKeyEnvVar?: string;
   model?: string;
   baseUrl?: string;
   apiKey?: string;
@@ -52,15 +51,6 @@ export function providerNameToProviderRef(providerName: string): string {
   const normalized = providerName.trim().toLowerCase();
   const slug = normalized.replaceAll(/[^a-z0-9]+/g, '-').replaceAll(/^-+|-+$/g, '');
   return slug || 'openai-compatible';
-}
-
-export function providerRefToApiKeyEnvVar(providerRef: string): string {
-  const normalized = providerRef
-    .trim()
-    .toUpperCase()
-    .replaceAll(/[^A-Z0-9]+/g, '_')
-    .replaceAll(/^_+|_+$/g, '');
-  return `${normalized || 'OPENAI_COMPATIBLE'}_API_KEY`;
 }
 
 async function askGitHubCopilotSetup(
@@ -109,7 +99,6 @@ async function askOpenAICompatibleSetup(io: LlmSettingsIo): Promise<LlmSetupResu
   });
 
   const providerRef = providerNameToProviderRef(providerName);
-  const apiKeyEnvVar = providerRefToApiKeyEnvVar(providerRef);
 
   io.writeLine(`  Provider key: ${providerRef}`);
 
@@ -125,10 +114,8 @@ async function askOpenAICompatibleSetup(io: LlmSettingsIo): Promise<LlmSetupResu
     },
   });
 
-  io.writeLine(`  API key will be saved under ${apiKeyEnvVar} in .ai-team/.env.`);
-
   const apiKey = await io.password({
-    message: `API key for ${apiKeyEnvVar}:`,
+    message: 'API key:',
     mask: '*',
   });
 
@@ -155,7 +142,6 @@ async function askOpenAICompatibleSetup(io: LlmSettingsIo): Promise<LlmSetupResu
   return {
     provider: 'openai-compatible',
     providerRef,
-    apiKeyEnvVar,
     baseUrl,
     ...(apiKey ? { apiKey } : {}),
     ...(model ? { model } : {}),

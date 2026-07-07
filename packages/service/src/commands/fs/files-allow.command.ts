@@ -33,7 +33,6 @@ export class FilesAllowCommand implements ICommand<Params, Result> {
 
   constructor(
     private readonly fileTreeService: FileTreeService,
-    private readonly questionService: IQuestionService,
     private readonly governanceService: GovernanceService
   ) {}
 

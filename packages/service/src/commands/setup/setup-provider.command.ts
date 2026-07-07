@@ -1,127 +1,71 @@
 import { z } from 'zod';
 import type {
   ICommand,
-  IConfigurationStorage,
-  IEnvironmentStorage,
-  ILlmProviderTester,
-  IModelDiscoveryRegistry,
   ExecutionContext,
   CommandResponse,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { IQuestionService } from '../../questions/question-service.js';
 import { ProviderCommand } from './provider.js';
 
-type ConfigureParams = z.infer<typeof ProviderConfigureICommand.schema>;
-type AddParams = z.infer<typeof ProviderAddICommand.schema>;
-type SetParams = z.infer<typeof ProviderSetICommand.schema>;
-const _providerConfigureICommandSchema = z.object({
+type ProviderSubCommand = 'configure' | 'add' | 'set';
+
+const _providerCommandSchema = z.object({
+  subCommand: z.enum(['configure', 'add', 'set']).optional(),
   fromInit: z.boolean().optional(),
   keepCurrentDefault: z.boolean().optional(),
-  setup: z.any().optional(),
-});
-
-export const ProviderConfigureICommandMetadata = {
-  key: 'configure',
-  description: 'Configure default LLM provider',
-  availableIn: { cli: true, chat: true },
-  group: 'setup',
-  parameters: _providerConfigureICommandSchema,
-} satisfies ICommandDescriptor;
-
-export class ProviderConfigureICommand implements ICommand<ConfigureParams, void> {
-  static readonly schema = _providerConfigureICommandSchema;
-  readonly metadata = ProviderConfigureICommandMetadata;
-
-  constructor(
-    private readonly configurationStorage: IConfigurationStorage,
-    private readonly environmentStorage: IEnvironmentStorage,
-    private readonly llmProviderTester: ILlmProviderTester,
-    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
-    private readonly questionService: IQuestionService
-  ) {}
-
-  async execute(payload: ConfigureParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    const cmd = new ProviderCommand(
-      this.configurationStorage,
-      this.environmentStorage,
-      this.llmProviderTester,
-      this.modelDiscoveryRegistry
-    );
-    await cmd.configureAsync(ctx.workspaceRoot, payload, this.questionService, ctx);
-    return { status: 'ok' };
-  }
-}
-const _providerAddICommandSchema = z.object({
   makeDefault: z.boolean().optional(),
   setup: z.any().optional(),
 });
 
-export const ProviderAddICommandMetadata = {
-  key: 'add',
-  description: 'Add a provider profile',
+export const ProviderCommandMetadata = {
+  key: 'provider',
+  description: 'Manage LLM provider configuration (configure, add, set)',
   availableIn: { cli: true, chat: true },
   group: 'setup',
-  parameters: _providerAddICommandSchema,
+  aliases: [
+    'provider-configure',
+    'provider_configure',
+    'provider-add',
+    'provider_add',
+    'provider-set',
+    'provider_set',
+  ],
+  parameters: _providerCommandSchema,
 } satisfies ICommandDescriptor;
 
-export class ProviderAddICommand implements ICommand<AddParams, void> {
-  static readonly schema = _providerAddICommandSchema;
-  readonly metadata = ProviderAddICommandMetadata;
+export class ProviderICommand implements ICommand<z.infer<typeof _providerCommandSchema>, void> {
+  static readonly schema = _providerCommandSchema;
+  readonly metadata = ProviderCommandMetadata;
 
-  constructor(
-    private readonly configurationStorage: IConfigurationStorage,
-    private readonly environmentStorage: IEnvironmentStorage,
-    private readonly llmProviderTester: ILlmProviderTester,
-    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
-    private readonly questionService: IQuestionService
-  ) {}
+  constructor(private readonly providerCommand: ProviderCommand) {}
 
-  async execute(payload: AddParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    const cmd = new ProviderCommand(
-      this.configurationStorage,
-      this.environmentStorage,
-      this.llmProviderTester,
-      this.modelDiscoveryRegistry
-    );
-    await cmd.addAsync(ctx.workspaceRoot, payload, this.questionService, ctx);
-    return { status: 'ok' };
-  }
-}
-const _providerSetICommandSchema = z.object({
-  fromInit: z.boolean().optional(),
-  keepCurrentDefault: z.boolean().optional(),
-  setup: z.any().optional(),
-});
-
-export const ProviderSetICommandMetadata = {
-  key: 'set',
-  description: 'Configure default LLM provider',
-  availableIn: { cli: true, chat: true },
-  group: 'setup',
-  parameters: _providerSetICommandSchema,
-} satisfies ICommandDescriptor;
-
-export class ProviderSetICommand implements ICommand<SetParams, void> {
-  static readonly schema = _providerSetICommandSchema;
-  readonly metadata = ProviderSetICommandMetadata;
-
-  constructor(
-    private readonly configurationStorage: IConfigurationStorage,
-    private readonly environmentStorage: IEnvironmentStorage,
-    private readonly llmProviderTester: ILlmProviderTester,
-    private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
-    private readonly questionService: IQuestionService
-  ) {}
-
-  async execute(payload: SetParams, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    const cmd = new ProviderCommand(
-      this.configurationStorage,
-      this.environmentStorage,
-      this.llmProviderTester,
-      this.modelDiscoveryRegistry
-    );
-    await cmd.setAsync(ctx.workspaceRoot, payload, this.questionService, ctx);
+  async execute(
+    payload: z.infer<typeof _providerCommandSchema>,
+    _ctx: ExecutionContext
+  ): Promise<CommandResponse<void>> {
+    const sub = (payload.subCommand as ProviderSubCommand) ?? 'configure';
+    switch (sub) {
+      case 'configure':
+        await this.providerCommand.configureAsync({
+          fromInit: payload.fromInit,
+          keepCurrentDefault: payload.keepCurrentDefault,
+          setup: payload.setup,
+        });
+        break;
+      case 'add':
+        await this.providerCommand.addAsync({
+          makeDefault: payload.makeDefault,
+          setup: payload.setup,
+        });
+        break;
+      case 'set':
+        await this.providerCommand.setAsync({
+          fromInit: payload.fromInit,
+          keepCurrentDefault: payload.keepCurrentDefault,
+          setup: payload.setup,
+        });
+        break;
+    }
     return { status: 'ok' };
   }
 }

@@ -249,7 +249,14 @@ export async function invokeLlm(params: LlmInvokeParams): Promise<LlmInvokeResul
       // capturing text both before and after every tool call.
       // result.text only contains the final round's assistantText — using it would
       // silently drop any text the model emitted before the last tool call.
-      if (!fullResponse && result?.text) fullResponse = result.text;
+      if (!fullResponse && result?.text) {
+        // Some providers/tool-loop paths return only a final text payload and do
+        // not invoke the onToken callback. Emit that fallback text so CLI/Web
+        // clients still receive visible assistant output.
+        writeFiltered(result.text, state, writeToken);
+        flushFilter(state, writeToken);
+        fullResponse = result.text;
+      }
     }
   } catch (err: unknown) {
     if (isAbortError(err)) throw err;

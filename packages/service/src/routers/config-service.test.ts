@@ -1,120 +1,85 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ConfigService } from './config-service.js';
 
-const mocks = {
-  agentManager: {
+describe('ConfigService', () => {
+  const agentManager = {
     refreshAsync: vi.fn(async () => undefined),
     getAllAgentsAsync: vi.fn(async () => []),
     getAgentAsync: vi.fn(async () => undefined),
     updateAgentAsync: vi.fn(async () => undefined),
-  },
-  configurationStorage: {
-    loadTeamConfigAsync: vi.fn(),
-    saveTeamConfigAsync: vi.fn(),
-    loadUserConfigAsync: vi.fn(),
-    saveUserConfigAsync: vi.fn(),
-  },
-  environmentStorage: {
-    loadEnvFileAsync: vi.fn(),
-    saveEnvFileAsync: vi.fn(),
-  },
-  llmProviderTester: {
-    testLlmConnectionAsync: vi.fn(),
-  },
-};
+  };
 
-import { ConfigService } from './config-service.js';
+  const configurationStorage = {
+    get: vi.fn(),
+    set: vi.fn(async () => undefined),
+  };
 
-describe('ConfigService.testProviderConnection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.configurationStorage.loadUserConfigAsync.mockResolvedValue({});
-    mocks.configurationStorage.loadTeamConfigAsync.mockResolvedValue({});
-    mocks.environmentStorage.loadEnvFileAsync.mockResolvedValue({});
-    mocks.llmProviderTester.testLlmConnectionAsync.mockResolvedValue('Connection successful!');
   });
 
   function createService() {
-    return new ConfigService(
-      'C:/workspace',
-      mocks.agentManager as any,
-      mocks.configurationStorage as any,
-      mocks.environmentStorage as any,
-      mocks.llmProviderTester as any
-    );
+    return new ConfigService('C:/workspace', agentManager as any, configurationStorage as any);
   }
 
-  it('returns success for configured openai-compatible provider in user config', async () => {
-    mocks.configurationStorage.loadUserConfigAsync.mockResolvedValue({
-      providers: {
-        demo: {
-          kind: 'openai-compatible',
-          baseUrl: 'http://localhost:11434/v1',
-          defaultModel: 'qwen2.5-coder:7b',
-          apiKeyEnvVar: 'DEMO_API_KEY',
-        },
-      },
-    });
-    mocks.environmentStorage.loadEnvFileAsync.mockResolvedValue({ DEMO_API_KEY: 'secret' });
+  it('returns full config from storage', async () => {
+    const config = { version: '0.1.0', providers: { demo: { kind: 'openai-compatible' } } };
+    configurationStorage.get.mockReturnValue(config);
 
     const service = createService();
-    const result = await service.testProviderConnection('demo');
+    await expect(service.getConfig()).resolves.toBe(config as any);
+  });
 
-    expect(result.ok).toBe(true);
-    expect(result.message).toBe('Connection successful!');
-    expect(mocks.llmProviderTester.testLlmConnectionAsync).toHaveBeenCalledWith(
-      {
-        provider: 'openai-compatible',
-        model: 'qwen2.5-coder:7b',
-        baseUrl: 'http://localhost:11434/v1',
-        params: undefined,
-      },
-      'secret'
+  it('updates config keys and returns latest config', async () => {
+    configurationStorage.get.mockReturnValue({ version: '0.1.0', projectName: 'AI-Team' });
+    const service = createService();
+
+    const updated = await service.updateConfig({ projectName: 'AI Team X' } as any);
+
+    expect(configurationStorage.set).toHaveBeenCalledWith('projectName', 'AI Team X');
+    expect(updated).toEqual({ version: '0.1.0', projectName: 'AI-Team' });
+  });
+
+  it('returns user config projection', async () => {
+    configurationStorage.get.mockReturnValue({
+      version: '0.1.0',
+      developer: { name: 'Clemens' },
+      providers: { demo: { kind: 'openai-compatible' } },
+      defaultModel: { provider: 'demo', model: 'best-chat' },
+      modelKeys: { best: { provider: 'demo', model: 'best-chat' } },
+      systemModels: { title: { provider: 'demo', model: 'best-chat' } },
+    });
+
+    const service = createService();
+    const result = await service.getUserConfig();
+
+    expect(result).toEqual({
+      developer: { name: 'Clemens' },
+      providers: { demo: { kind: 'openai-compatible' } },
+      defaultModel: { provider: 'demo', model: 'best-chat' },
+      modelKeys: { best: { provider: 'demo', model: 'best-chat' } },
+      systemModels: { title: { provider: 'demo', model: 'best-chat' } },
+    });
+  });
+
+  it('saves user config values to user scope', async () => {
+    configurationStorage.get.mockReturnValue({ version: '0.1.0' });
+
+    const service = createService();
+    await service.saveUserConfig({
+      defaultModel: { provider: 'demo', model: 'best-chat' },
+      providers: { demo: { kind: 'openai-compatible' } as any },
+    });
+
+    expect(configurationStorage.set).toHaveBeenCalledWith(
+      'defaultModel',
+      { provider: 'demo', model: 'best-chat' },
+      'user'
     );
-  });
-
-  it('returns missing-provider error when providerRef is unknown', async () => {
-    const service = createService();
-    const result = await service.testProviderConnection('missing');
-
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe("Unknown provider 'missing'.");
-    expect(mocks.llmProviderTester.testLlmConnectionAsync).not.toHaveBeenCalled();
-  });
-
-  it('returns baseUrl error for openai-compatible provider without baseUrl', async () => {
-    mocks.configurationStorage.loadUserConfigAsync.mockResolvedValue({
-      providers: {
-        broken: {
-          kind: 'openai-compatible',
-          defaultModel: 'qwen2.5-coder:7b',
-        },
-      },
-    });
-
-    const service = createService();
-    const result = await service.testProviderConnection('broken');
-
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("Provider 'broken' is openai-compatible but has no baseUrl.");
-    expect(mocks.llmProviderTester.testLlmConnectionAsync).not.toHaveBeenCalled();
-  });
-
-  it('returns provider test error when testLlmConnection throws', async () => {
-    mocks.configurationStorage.loadUserConfigAsync.mockResolvedValue({
-      providers: {
-        demo: {
-          kind: 'openai-compatible',
-          baseUrl: 'http://localhost:11434/v1',
-          defaultModel: 'qwen2.5-coder:7b',
-        },
-      },
-    });
-    mocks.llmProviderTester.testLlmConnectionAsync.mockRejectedValue(new Error('boom'));
-
-    const service = createService();
-    const result = await service.testProviderConnection('demo');
-
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe('boom');
+    expect(configurationStorage.set).toHaveBeenCalledWith(
+      'providers',
+      { demo: { kind: 'openai-compatible' } },
+      'user'
+    );
   });
 });

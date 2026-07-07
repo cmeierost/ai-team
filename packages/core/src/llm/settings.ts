@@ -4,14 +4,9 @@
  * modules can call it without importing from @ai-team/infrastructure.
  */
 
-import type {
-  LlmConfig,
-  Agent,
-  Skill,
-  TeamConfig,
-  LlmGenerationParams,
-} from '../types/index.js';
+import type { LlmConfig, Agent, Skill, TeamConfig, LlmGenerationParams } from '../types/index.js';
 import type { LlmChatOptions } from './index.js';
+import type { IProviderConfigurationService } from './provider-configuration.service.js';
 
 // ---------------------------------------------------------------------------
 // ResolvedLlmSettings
@@ -21,7 +16,6 @@ export interface ResolvedLlmSettings {
   config: LlmConfig;
   options: LlmChatOptions;
   providerRef?: string;
-  apiKeyEnvVar?: string;
   contextWindow?: number;
 }
 
@@ -69,7 +63,11 @@ function getProviderModels(
 
 function resolveProviderDefaultModel(
   provider:
-    | { model?: string; defaultModel?: string; models?: Array<{ name: string; contextWindow?: number }> }
+    | {
+        model?: string;
+        defaultModel?: string;
+        models?: Array<{ name: string; contextWindow?: number }>;
+      }
     | undefined
 ): string | undefined {
   if (!provider) return undefined;
@@ -78,15 +76,11 @@ function resolveProviderDefaultModel(
   return getProviderModels(provider)[0]?.name;
 }
 
-function findDefaultProviderRef(teamConfig?: TeamConfig): string | undefined {
-  const registry = getProviderRegistry(teamConfig);
-  if (!registry) return undefined;
-  if (teamConfig?.defaultModel?.provider && registry[teamConfig.defaultModel.provider]) {
-    return teamConfig.defaultModel.provider;
-  }
-  const withDefault = Object.entries(registry).find(([, cfg]) => cfg.defaultModel);
-  if (withDefault) return withDefault[0];
-  return Object.keys(registry)[0];
+function findDefaultProviderRef(
+  teamConfig: TeamConfig | undefined,
+  providerConfig: IProviderConfigurationService
+): string | undefined {
+  return providerConfig.resolveDefaultProviderRef(teamConfig);
 }
 
 function findModelKeyForModel(
@@ -105,27 +99,28 @@ function applyProfile(
         modelKey?: string;
         model?: string;
         baseUrl?: string;
+        apiKey?: string;
         params?: LlmGenerationParams;
       }
     | undefined,
-  teamConfig?: TeamConfig
-): { config: LlmConfig; providerRef?: string; apiKeyEnvVar?: string } {
+  teamConfig: TeamConfig | undefined,
+  providerConfig: IProviderConfigurationService
+): { config: LlmConfig; providerRef?: string } {
   if (!profile) return { config };
 
   let nextConfig: LlmConfig = { ...config };
   let providerRef: string | undefined;
-  let apiKeyEnvVar: string | undefined;
   const registry = getProviderRegistry(teamConfig);
 
   if (profile.provider) {
     const providerFromRegistry = registry?.[profile.provider];
     if (providerFromRegistry) {
       providerRef = profile.provider;
-      apiKeyEnvVar = providerFromRegistry.apiKeyEnvVar;
       nextConfig = {
         provider: providerFromRegistry.kind,
         model: resolveProviderDefaultModel(providerFromRegistry),
         baseUrl: providerFromRegistry.baseUrl,
+        apiKey: providerFromRegistry.apiKey,
         params: providerFromRegistry.params,
       };
     } else {
@@ -141,15 +136,19 @@ function applyProfile(
 
     if (modelKeyEntry && mappedProvider && explicitProviderMatchesMapping) {
       providerRef = mappedProviderRef;
-      apiKeyEnvVar = mappedProvider.apiKeyEnvVar;
       nextConfig = {
         provider: mappedProvider.kind,
         model: modelKeyEntry.model,
         baseUrl: mappedProvider.baseUrl,
+        apiKey: mappedProvider.apiKey,
         params: mappedProvider.params,
       };
     } else {
-      const selectedProviderRef = providerRef || findDefaultProviderRef(teamConfig);
+      const selectedProviderRef =
+        providerRef ||
+        (providerConfig
+          ? findDefaultProviderRef(teamConfig, providerConfig)
+          : teamConfig?.defaultModel?.provider);
       const selectedProvider = selectedProviderRef ? registry?.[selectedProviderRef] : undefined;
       const resolvedModel = getProviderModels(selectedProvider).find(
         (m) => m.name === profile.modelKey
@@ -167,9 +166,10 @@ function applyProfile(
 
   if (profile.model !== undefined) nextConfig.model = profile.model;
   if (profile.baseUrl !== undefined) nextConfig.baseUrl = profile.baseUrl;
+  if (profile.apiKey !== undefined) nextConfig.apiKey = profile.apiKey;
   nextConfig.params = mergeLlmParams(nextConfig.params, profile.params);
 
-  return { config: nextConfig, providerRef, apiKeyEnvVar };
+  return { config: nextConfig, providerRef };
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +187,9 @@ export function getEffectiveContextWindow(
 ): number | undefined {
   if (!providerConfig) return undefined;
   if (modelKey) {
-    const arrayModelContext = providerConfig.models?.find((m) => m.name === modelKey)?.contextWindow;
+    const arrayModelContext = providerConfig.models?.find(
+      (m) => m.name === modelKey
+    )?.contextWindow;
     if (arrayModelContext !== undefined) return arrayModelContext;
   }
   return providerConfig.contextWindow;
@@ -201,22 +203,25 @@ export function resolveEffectiveLlmSettings(
   teamConfig: TeamConfig,
   agent?: Pick<Agent, 'llm'>,
   skill?: Pick<Skill, 'llm'>,
-  runtimeOverrides?: LlmChatOptions
+  runtimeOverrides?: LlmChatOptions,
+  providerConfig?: IProviderConfigurationService
 ): ResolvedLlmSettings {
   let providerRef: string | undefined;
-  let apiKeyEnvVar: string | undefined;
   const registry = getProviderRegistry(teamConfig);
 
-  let baseConfig: LlmConfig | undefined = teamConfig.llm;
-  const defaultProviderRef = findDefaultProviderRef(teamConfig);
+  const pc = providerConfig;
+  const defaultProviderRef = pc
+    ? findDefaultProviderRef(teamConfig, pc)
+    : teamConfig.defaultModel?.provider;
+  let baseConfig: LlmConfig | undefined;
   if (defaultProviderRef && registry?.[defaultProviderRef]) {
     const providerConfig = registry[defaultProviderRef];
     providerRef = defaultProviderRef;
-    apiKeyEnvVar = providerConfig.apiKeyEnvVar;
     baseConfig = {
       provider: providerConfig.kind,
       model: teamConfig.defaultModel?.model ?? resolveProviderDefaultModel(providerConfig),
       baseUrl: providerConfig.baseUrl,
+      apiKey: providerConfig.apiKey,
       params: providerConfig.params,
     };
   }
@@ -227,13 +232,11 @@ export function resolveEffectiveLlmSettings(
     );
   }
 
-  let merged = applyProfile(baseConfig, skill?.llm, teamConfig);
+  let merged = pc ? applyProfile(baseConfig, skill?.llm, teamConfig, pc) : { config: baseConfig };
   if (merged.providerRef) providerRef = merged.providerRef;
-  if (merged.apiKeyEnvVar) apiKeyEnvVar = merged.apiKeyEnvVar;
 
-  merged = applyProfile(merged.config, agent?.llm, teamConfig);
+  merged = pc ? applyProfile(merged.config, agent?.llm, teamConfig, pc) : { config: merged.config };
   if (merged.providerRef) providerRef = merged.providerRef;
-  if (merged.apiKeyEnvVar) apiKeyEnvVar = merged.apiKeyEnvVar;
 
   const profileOptions = profileToOptions(merged.config.params);
   const options: LlmChatOptions = { ...profileOptions, ...(runtimeOverrides || {}) };
@@ -244,7 +247,7 @@ export function resolveEffectiveLlmSettings(
     teamConfig.defaultModel?.contextWindow ??
     getEffectiveContextWindow(finalProvider, effectiveModelKey);
 
-  return { config: merged.config, options, providerRef, apiKeyEnvVar, contextWindow };
+  return { config: merged.config, options, providerRef, contextWindow };
 }
 
 /**
@@ -252,11 +255,18 @@ export function resolveEffectiveLlmSettings(
  */
 export function resolveSystemLlmSettings(
   teamConfig: TeamConfig,
-  purposeKey: string
+  purposeKey: string,
+  providerConfig?: IProviderConfigurationService
 ): ResolvedLlmSettings {
   const profile = teamConfig.systemModels?.[purposeKey];
   const agent = profile
     ? { llm: { provider: profile.provider, modelKey: profile.modelKey } }
     : undefined;
-  return resolveEffectiveLlmSettings(teamConfig, agent as any);
+  return resolveEffectiveLlmSettings(
+    teamConfig,
+    agent as any,
+    undefined,
+    undefined,
+    providerConfig
+  );
 }

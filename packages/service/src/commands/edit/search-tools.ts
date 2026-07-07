@@ -51,7 +51,10 @@ export class SemanticSearchTool implements ICommand<SemanticSearchParams, Semant
   readonly metadata = SemanticSearchToolMetadata;
   readonly name = 'semantic';
 
-  constructor(private readonly fileAnnotationService: IFileAnnotationService) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly fileAnnotationService: IFileAnnotationService
+  ) {}
 
   async execute(
     params: SemanticSearchParams,
@@ -60,7 +63,7 @@ export class SemanticSearchTool implements ICommand<SemanticSearchParams, Semant
     const { query, maxResults = 100 } = params;
 
     const allAnnotated = this.fileAnnotationService.getAnnotatedFiles(
-      context.workspaceRoot,
+      this.workspaceRoot,
       context.agent?.permissions,
       []
     );

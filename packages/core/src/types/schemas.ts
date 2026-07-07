@@ -44,6 +44,7 @@ export const LlmProfileSchema = z.object({
   modelKey: z.string().min(1).optional(),
   model: z.string().optional(),
   baseUrl: z.string().url().optional(),
+  apiKey: z.string().min(1).optional(),
   params: LlmGenerationParamsSchema.optional(),
 });
 
@@ -53,7 +54,7 @@ export const LlmProviderConfigSchema = z.object({
   models: z.array(ProviderModelSchema).optional(),
   imageModels: z.record(z.string(), z.string()).optional(),
   baseUrl: z.string().url().optional(),
-  apiKeyEnvVar: z.string().min(1).optional(),
+  apiKey: z.string().min(1).optional(),
   params: LlmGenerationParamsSchema.optional(),
   contextWindow: z.number().int().positive().optional(),
 });
@@ -64,7 +65,7 @@ export const ProviderConfigSchema = z.object({
   models: z.array(ProviderModelSchema).optional(),
   imageModels: z.record(z.string(), z.string()).optional(),
   baseUrl: z.string().url().optional(),
-  apiKeyEnvVar: z.string().min(1).optional(),
+  apiKey: z.string().min(1).optional(),
   contextWindow: z.number().int().positive().optional(),
   params: LlmGenerationParamsSchema.optional(),
   modelDiscovery: z
@@ -202,6 +203,7 @@ export const LlmConfigSchema = z.object({
   provider: z.string().min(1),
   model: z.string().optional(),
   baseUrl: z.string().url().optional(),
+  apiKey: z.string().min(1).optional(),
   params: LlmGenerationParamsSchema.optional(),
 });
 
@@ -232,7 +234,7 @@ export type DynamicSlashCatalogConfig = z.infer<typeof DynamicSlashCatalogConfig
 
 export const TeamConfigSchema = z.object({
   version: z.string(),
-  llm: LlmConfigSchema.optional(),
+  developer: UserProfileSchema.optional(),
   providers: z.record(z.string(), LlmProviderConfigSchema).optional(),
   defaultModel: z
     .object({

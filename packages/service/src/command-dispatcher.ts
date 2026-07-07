@@ -4,7 +4,7 @@
  * Dispatches by command key against an ICommandRegistry. The caller provides
  * a fully-constructed ExecutionContext — no interaction hooks or context
  * conversion happens here. CLI creates a fresh context from request parameters;
- * slash commands inherit the running workflow/chat context.
+   (r) => new ChatICommand(r)
  */
 
 import type {
@@ -19,9 +19,9 @@ import type {
   IServiceContainer,
   ExecutionContext,
   ICommand,
+  TeamConfig,
 } from '@ai-team/core';
 import { COMMAND_FACTORY_TOKENS } from './types.js';
-import type { SessionManager } from './session-manager.js';
 import { resolveCommandArgs, parseArgsIntelligently } from './command-adapters.js';
 import { setServiceContainer } from './service-registry.js';
 import { CommandRegistry } from './command-registry-impl.js';
@@ -105,16 +105,13 @@ import {
 import { InitICommand, InitICommandMetadata } from './commands/init/init.command.js';
 import { InitCommand } from './commands/init/init.js';
 import { SetupICommand, SetupICommandMetadata } from './commands/setup/setup.command.js';
-import { OnboardCommand, OnboardICommand, OnboardICommandMetadata } from './commands/hr/onboard.js';
+import { OnboardICommand, OnboardICommandMetadata } from './commands/hr/onboard.js';
 import { SetupCommand } from './commands/setup/setup.js';
 import {
-  ProviderAddICommand,
-  ProviderAddICommandMetadata,
-  ProviderConfigureICommand,
-  ProviderConfigureICommandMetadata,
-  ProviderSetICommand,
-  ProviderSetICommandMetadata,
+  ProviderICommand,
+  ProviderCommandMetadata,
 } from './commands/setup/setup-provider.command.js';
+import { ProviderCommand } from './commands/setup/provider.js';
 import {
   ProviderListICommand,
   ProviderListICommandMetadata,
@@ -147,7 +144,6 @@ import { AgentToolsService } from './commands/tools/tools-service.js';
 import { GovernanceService } from './commands/agents/governance.js';
 import { ChatICommand, ChatCommandMetadata } from './commands/chat/chat-i.command.js';
 import { HelpChatCommand } from './commands/help/help.command.js';
-import { ChatInfoService } from './orchestrator/chat-info-service.js';
 import { MetaService } from './routers/meta-service.js';
 
 import { InfoChatCommand, InfoChatCommandMetadata } from './commands/agents/info.command.js';
@@ -222,6 +218,17 @@ import {
   ListWorkflowsOrchestrationCommandMetadata,
 } from './commands/workflow/workflow-tools.command.js';
 
+function readWorkspaceRootFromExecutionContext(ctx?: ExecutionContext): string {
+  return (ctx as unknown as { workspaceRoot?: string } | undefined)?.workspaceRoot ?? '';
+}
+
+function createMinimalExecutionContext(): ExecutionContext {
+  return {
+    workspaceRoot: '',
+    history: [],
+  };
+}
+
 // ── Dispatcher ────────────────────────────────────────────────────────────────
 
 /**
@@ -262,7 +269,7 @@ export class CommandDispatcher implements ICommandDispatcher {
               availableIn: entry.availableIn,
             },
             execute: async (params: unknown, ctx: ExecutionContext) =>
-              entry.handler((ctx as any).workspaceRoot ?? '', params, ctx),
+              entry.handler(readWorkspaceRootFromExecutionContext(ctx), params, ctx),
           }) as unknown as ICommand<unknown, unknown>
       );
     } catch {
@@ -271,7 +278,7 @@ export class CommandDispatcher implements ICommandDispatcher {
   }
 
   registerCommand<TIn, TOut>(cmd: ICommand<TIn, TOut>): void {
-    this._directCommands.set(cmd.metadata.key, cmd as unknown as ICommand<unknown, unknown>);
+    this._directCommands.set(cmd.metadata.key, cmd);
   }
 
   async dispatchCommand<TIn, TOut>(
@@ -282,17 +289,17 @@ export class CommandDispatcher implements ICommandDispatcher {
     // Prefer a registered handler for this key, falling back to command.execute directly
     const directHandler = this._directHandlers.get(key);
     if (directHandler) {
-      const minimalCtx = { workspaceRoot: '' } as ExecutionContext;
+      const minimalCtx = createMinimalExecutionContext();
       return directHandler('', payload, minimalCtx) as Promise<CommandResponse<TOut>>;
     }
-    const minimalCtx = { workspaceRoot: '' } as ExecutionContext;
+    const minimalCtx = createMinimalExecutionContext();
     try {
       const result = await command.execute(payload, minimalCtx);
       if (result && typeof result === 'object' && 'status' in result) {
         const r = result as CommandResponse<TOut>;
         return { ...r, message: r.message ?? '' };
       }
-      return { status: 'ok', message: '', data: result as TOut };
+      return { status: 'ok', message: '', data: result };
     } catch (error) {
       return {
         status: 'error',
@@ -303,79 +310,104 @@ export class CommandDispatcher implements ICommandDispatcher {
   }
 
   dispatch(key: string, params: unknown, ctx: ExecutionContext): Promise<CommandResponse<unknown>>;
-  dispatch<TCmd = unknown>(request: {
-    command: string;
-    payload: unknown;
-  }): Promise<CommandResponse>;
+  dispatch(request: { command: string; payload: unknown }): Promise<CommandResponse>;
   async dispatch(
     keyOrRequest: string | { command: string; payload: unknown },
     params?: unknown,
     ctx?: ExecutionContext
   ): Promise<CommandResponse<unknown>> {
     if (typeof keyOrRequest === 'object' && 'command' in keyOrRequest) {
-      // New overload: dispatch<TCommand>({command, payload})
-      const { command: key, payload } = keyOrRequest;
-      const directHandler = this._directHandlers.get(key);
-      if (directHandler) {
-        const minimalCtx = { workspaceRoot: '' } as ExecutionContext;
-        return directHandler('', payload, minimalCtx);
-      }
-      const descriptor = this.registry.get(key);
-      if (!descriptor) {
-        return {
-          status: 'error',
-          message: `Unknown command '${key}'`,
-          error: { code: 'UNKNOWN_COMMAND', details: { key } },
-        };
-      }
-      const cmd = this.registry.resolve(key, this.resolver!)!;
-      const minimalCtx = { workspaceRoot: '' } as ExecutionContext;
-      const result = await cmd.execute(payload, minimalCtx);
-      if (result && typeof result === 'object' && 'status' in result) {
-        const r = result as CommandResponse;
-        return { ...r, message: r.message ?? '' };
-      }
-      return { status: 'ok', message: '', data: result };
+      return this.dispatchFromRequestAsync(keyOrRequest);
     }
+    return this.dispatchByKeyAsync(keyOrRequest, params, ctx);
+  }
 
-    // Existing overload: dispatch(key, params, ctx)
-    const key = keyOrRequest;
-    const descriptor = this.registry.get(key);
-    if (!descriptor) {
-      return {
-        status: 'error',
-        message: `Unknown command '${key}'`,
-        error: { code: 'UNKNOWN_COMMAND', details: { key } },
-      };
-    }
-
-    // Check direct handlers first (registered via register())
+  private async dispatchFromRequestAsync(request: {
+    command: string;
+    payload: unknown;
+  }): Promise<CommandResponse<unknown>> {
+    const { command: key, payload } = request;
     const directHandler = this._directHandlers.get(key);
     if (directHandler) {
-      return directHandler((ctx as any)?.workspaceRoot ?? '', params, ctx!);
+      return directHandler('', payload, createMinimalExecutionContext());
+    }
+
+    const descriptor = this.registry.get(key);
+    if (!descriptor) {
+      return this.unknownCommandResponse(key);
+    }
+
+    const cmd = this.registry.resolve(key, this.resolver);
+    if (!cmd) {
+      return this.unknownCommandResponse(key);
+    }
+
+    const result = await cmd.execute(payload, createMinimalExecutionContext());
+    if (isCommandResponse(result)) {
+      return { ...result, message: result.message ?? '' };
+    }
+    return { status: 'ok', message: '', data: result };
+  }
+
+  private async dispatchByKeyAsync(
+    key: string,
+    params: unknown,
+    ctx?: ExecutionContext
+  ): Promise<CommandResponse<unknown>> {
+    const descriptor = this.registry.get(key);
+    if (!descriptor) {
+      return this.unknownCommandResponse(key);
+    }
+
+    const directHandler = this._directHandlers.get(key);
+    if (directHandler) {
+      const executionContext = ctx ?? createMinimalExecutionContext();
+      return directHandler(
+        readWorkspaceRootFromExecutionContext(executionContext),
+        params,
+        executionContext
+      );
     }
 
     try {
+      const executionContext = ctx ?? createMinimalExecutionContext();
       // Parse raw string args using the Zod schema from the descriptor metadata —
       // no command instantiation needed at this stage.
       const parsed =
         typeof params === 'string' && descriptor.parameters
           ? parseArgsIntelligently(params, descriptor.parameters)
           : params;
-      const cmd = this.registry.resolve(key, this.resolver!)!;
-      const resolvedParams = resolveCommandArgs(cmd, parsed, ctx!);
-      const result = await cmd.execute(resolvedParams, ctx!);
+
+      const cmd = this.registry.resolve(key, this.resolver);
+      if (!cmd) {
+        return this.unknownCommandResponse(key);
+      }
+
+      const resolvedParams = resolveCommandArgs(cmd, parsed, executionContext);
+      const result = await cmd.execute(resolvedParams, executionContext);
       if (isCommandResponse(result)) {
         return { ...result, message: result.message ?? '' };
       }
       return { status: 'ok', message: '', data: result };
     } catch (error) {
-      return {
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Command dispatch failed',
-        error: { code: 'COMMAND_DISPATCH_FAILED', details: error },
-      };
+      return this.commandDispatchFailedResponse(error);
     }
+  }
+
+  private unknownCommandResponse(key: string): CommandResponse<unknown> {
+    return {
+      status: 'error',
+      message: `Unknown command '${key}'`,
+      error: { code: 'UNKNOWN_COMMAND', details: { key } },
+    };
+  }
+
+  private commandDispatchFailedResponse(error: unknown): CommandResponse<unknown> {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Command dispatch failed',
+      error: { code: 'COMMAND_DISPATCH_FAILED', details: error },
+    };
   }
 
   getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[] {
@@ -484,40 +516,26 @@ export function createCommandDispatcher(
   registry.register(InitICommandMetadata, (r) => {
     const setupCmd = new SetupCommand(
       r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-      r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
       r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceStorage),
       r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
       r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
       r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
       r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
     );
-    const onboardCmd = new OnboardCommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-      r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-      r.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
+    const onboardCmd = new OnboardICommand(
       r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-      r.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage),
-      r.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory),
-      r.resolve(COMMAND_FACTORY_TOKENS.LlmService),
-      r.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
-      r.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
-      r.resolve(COMMAND_FACTORY_TOKENS.ContextService),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-      r.tryResolve<SessionManager>(COMMAND_FACTORY_TOKENS.SessionManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
+      r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
       r
     );
     return new InitICommand(
       r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
       r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+      r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
       new InitCommand(
         onboardCmd,
         setupCmd,
         new TestConnectionCommand(
-          r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-          r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
+          null as any, // resolved below
           r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
           r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
           r.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
@@ -533,7 +551,6 @@ export function createCommandDispatcher(
       new SetupICommand(
         new SetupCommand(
           r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-          r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
           r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceStorage),
           r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
           r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
@@ -547,78 +564,35 @@ export function createCommandDispatcher(
     OnboardICommandMetadata,
     (r) =>
       new OnboardICommand(
-        new OnboardCommand(
-          r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-          r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-          r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-          r.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
-          r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-          r.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage),
-          r.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory),
-          r.resolve(COMMAND_FACTORY_TOKENS.LlmService),
-          r.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-          r.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
-          r.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
-          r.resolve(COMMAND_FACTORY_TOKENS.ContextService),
-          r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-          r.tryResolve<SessionManager>(COMMAND_FACTORY_TOKENS.SessionManager),
-          r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-          r
-        ),
-        r.tryResolve<SessionManager>(COMMAND_FACTORY_TOKENS.SessionManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+        r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
+        r
       )
   );
 
-  registry.register(
-    SystemStatusICommandMetadata,
-    (r) => new SystemStatusICommand(r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage))
-  );
+  registry.register(SystemStatusICommandMetadata, (r) => {
+    const configStorage = r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage);
+    return new SystemStatusICommand(configStorage.get() as TeamConfig);
+  });
 
   // ── Provider commands ──────────────────────────────────────────────────
 
-  registry.register(
-    ProviderConfigureICommandMetadata,
-    (r) =>
-      new ProviderConfigureICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-  );
-
-  registry.register(
-    ProviderAddICommandMetadata,
-    (r) =>
-      new ProviderAddICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-  );
-
-  registry.register(
-    ProviderSetICommandMetadata,
-    (r) =>
-      new ProviderSetICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-  );
+  registry.register(ProviderCommandMetadata, (r) => {
+    const providerCmd = new ProviderCommand(
+      r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
+      r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
+      r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
+      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+      r.resolve(COMMAND_FACTORY_TOKENS.ProviderConfigurationService)
+    );
+    return new ProviderICommand(providerCmd);
+  });
 
   registry.register(
     ProviderListICommandMetadata,
     (r) =>
       new ProviderListICommand(
         r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
       )
   );
@@ -628,7 +602,6 @@ export function createCommandDispatcher(
     (r) =>
       new ProviderModelsICommand(
         r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
       )
   );
@@ -638,7 +611,6 @@ export function createCommandDispatcher(
     (r) =>
       new ProviderModelsRefreshICommand(
         r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
       )
   );
@@ -748,7 +720,6 @@ export function createCommandDispatcher(
         r.resolve(COMMAND_FACTORY_TOKENS.FileTreeService),
         r.resolve(COMMAND_FACTORY_TOKENS.FileAnnotationService)
       ),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
       governance
     );
   });
@@ -768,20 +739,19 @@ export function createCommandDispatcher(
         r.resolve(COMMAND_FACTORY_TOKENS.FileTreeService),
         r.resolve(COMMAND_FACTORY_TOKENS.FileAnnotationService)
       ),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
       governance
     );
   });
 
-  registry.register(
-    FilesPatternsCommandMetadata,
-    (r) =>
-      new FilesPatternsCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage)
-      )
-  );
+  registry.register(FilesPatternsCommandMetadata, (r) => {
+    const configStorage = r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage);
+    const fileTree = configStorage.get('fileTree') ?? {};
+    return new FilesPatternsCommand(
+      fileTree,
+      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      r.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage)
+    );
+  });
 
   // ── Org commands ───────────────────────────────────────────────────────
 
@@ -821,18 +791,15 @@ export function createCommandDispatcher(
       )
   );
 
-  registry.register(
-    AvatarCommandMetadata,
-    (r) =>
-      new AvatarCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.AvatarManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-  );
+  registry.register(AvatarCommandMetadata, (r) => {
+    const configStorage = r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage);
+    return new AvatarCommand(
+      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      configStorage.get(),
+      r.resolve(COMMAND_FACTORY_TOKENS.AvatarManager),
+      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+    );
+  });
 
   registry.register(HhRefreshCommandMetadata, () => new HhRefreshCommand());
 
@@ -848,7 +815,6 @@ export function createCommandDispatcher(
     (r) =>
       new TestConnectionICommand(
         r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
         r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
         r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
         r.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
@@ -875,35 +841,7 @@ export function createCommandDispatcher(
       )
   );
 
-  registry.register(
-    ChatCommandMetadata,
-    (r) =>
-      new ChatICommand(
-        {
-          configurationStorage: r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-          environmentStorage: r.resolve(COMMAND_FACTORY_TOKENS.EnvironmentStorage),
-          developerIdentityService: r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-          contextService: r.resolve(COMMAND_FACTORY_TOKENS.ContextService),
-        },
-        {
-          agentManager: r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-          agentDocumentStorage: r.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage),
-          markdownSectionService: r.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
-          skillManager: r.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-        },
-        {
-          sessionManager: r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-          llmService: r.resolve(COMMAND_FACTORY_TOKENS.LlmService),
-          proposalStoreFactory: r.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory),
-        },
-        {
-          pathPermissionChecker: r.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker),
-          serviceContainer: r,
-        },
-        new ChatInfoService(EmitService.forConsole()),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-      )
-  );
+  registry.register(ChatCommandMetadata, (r) => new ChatICommand(r));
 
   registry.register(
     CodeEditListCommandMetadata,
@@ -1032,15 +970,14 @@ export function createCommandDispatcher(
     (r) => new SessionGraphChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.SessionManager))
   );
 
-  registry.register(
-    SessionContextChatCommandMetadata,
-    (r) =>
-      new SessionContextChatCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.ContextService),
-        r.resolve(COMMAND_FACTORY_TOKENS.LlmService),
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage)
-      )
-  );
+  registry.register(SessionContextChatCommandMetadata, (r) => {
+    const configStorage = r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage);
+    return new SessionContextChatCommand(
+      r.resolve(COMMAND_FACTORY_TOKENS.ContextService),
+      r.resolve(COMMAND_FACTORY_TOKENS.LlmService),
+      configStorage.get() as TeamConfig
+    );
+  });
 
   // ── HTTP chat commands ─────────────────────────────────────────────────
 
@@ -1061,11 +998,23 @@ export function createCommandDispatcher(
   // ── Workflow commands (cli + chat) ─────────────────────────────────────
 
   registry.register(ListWorkflowsOrchestrationCommandMetadata, (r) => {
+    const serviceCommandRegistry = r.resolve(COMMAND_FACTORY_TOKENS.CommandRegistry) as
+      | ICommandRegistry
+      | undefined;
+
     const workflowCatalog = {
       listWorkflowIds(): string[] {
-        return registry
-          .getAll({ availableIn: { tool: true }, group: 'workflow' })
-          .filter((t) => t.key !== 'list')
+        if (!serviceCommandRegistry) {
+          return [];
+        }
+
+        return serviceCommandRegistry
+          .getAll({ availableIn: { tool: true } })
+          .filter(
+            (t) =>
+              t.key !== 'list' &&
+              (t.group === 'workflow' || (t.tags ?? []).includes('workflow-definition'))
+          )
           .map((t) => t.key);
       },
     };

@@ -38,6 +38,7 @@ export class PatchApplyCommand implements ICommand<Params, Result> {
   readonly metadata = PatchApplyCommandMetadata;
 
   constructor(
+    private readonly workspaceRoot: string,
     private readonly codeEditManager: ICodeEditManager,
     private readonly ideAdapterFactory: IIdeAdapterFactory,
     private readonly proposalStoreFactory: IProposalStoreFactory
@@ -45,7 +46,7 @@ export class PatchApplyCommand implements ICommand<Params, Result> {
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<Result>> {
     const data = await patchApplyCommandAsync(
-      ctx.workspaceRoot,
+      this.workspaceRoot,
       payload,
       this.codeEditManager,
       this.ideAdapterFactory,

@@ -375,7 +375,7 @@ async function createWorkspace(): Promise<string> {
   return dir;
 }
 
-async function setupManager(workspaceRoot: string, agents: Agent[]) {
+async function setupManager(workspaceRoot: string) {
   const registry = {
     register: () => undefined,
     get: () => undefined,
@@ -396,7 +396,6 @@ async function setupManager(workspaceRoot: string, agents: Agent[]) {
   } as any;
 
   const manager = new ToolManager(
-    workspaceRoot,
     {
       can: () => true,
       canReadPath: () => true,

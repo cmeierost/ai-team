@@ -15,12 +15,12 @@ export {
   type ServiceErrorCode,
   type ServiceErrorInputRequest,
 } from './errors.js';
-export { MissingUserInputError } from './utils/user-env.js';
 export { SessionManager } from './session-manager.js';
 export { findWorkspaceRoot } from './utils/workspace.js';
 export { type ChatRuntimeHooks } from './commands/chat/index.js';
 export { type IQuestionService } from './questions/question-service.js';
 export { WsQuestionService } from './questions/ws-question-service.js';
+export { EmitService, type IEmitService } from './orchestrator/services/emit-service.js';
 export { serveApiCommand, type ServeApiOptions } from './commands/start/serve.js';
 export { runUiCommand, type UiCommandOptions } from './commands/start/ui.js';
 export {

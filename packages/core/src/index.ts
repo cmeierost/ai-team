@@ -33,6 +33,11 @@ export {
   getEffectiveContextWindow,
   type ResolvedLlmSettings,
 } from './llm/settings.js';
+export {
+  ProviderConfigurationService,
+  type IProviderConfigurationService,
+  type ResolvedDefaultProvider,
+} from './llm/provider-configuration.service.js';
 export type {
   CliCommandMetadata,
   CommandOptionMetadata,

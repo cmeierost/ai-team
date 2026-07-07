@@ -23,10 +23,13 @@ import { buildRetryableFailureMessage, sendTurn } from './send-turn.js';
 import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
 import type { ResolvedPlugins } from './pipeline.js';
-import type { Agent, ChatMessage } from '@ai-team/core';
+import type { Agent, ChatMessage, ExecutionContext } from '@ai-team/core';
 import { EmitService } from './services/emit-service.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import { setServiceContainer } from '../service-registry.js';
+import type { SendTurnDeps } from './send-turn-steps.js';
+import type { IQuestionService } from '../questions/question-service.js';
+import { ToolDispatcher } from './tool-dispatch.js';
+import { ToolDispatchSupportService } from './services/tool-dispatch-support-service.js';
+import { ToolSerializationService } from './services/tool-serialization-service.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // parseHandoffDirective — unit tests covering every directive variant
@@ -119,85 +122,80 @@ function makeAgent(id: string, name: string): Agent {
 
 function makeCtx(llmResponse: string): {
   ctx: ExecutionContext;
+  deps: SendTurnDeps;
+  emit: ReturnType<typeof vi.fn>;
   appendMessage: ReturnType<typeof vi.fn>;
 } {
   const appendMessage = vi.fn().mockResolvedValue(undefined);
+  const emit = vi.fn();
+  const emitService = new EmitService(emit);
   const agent = makeAgent('emily-davis', 'Emily Davis');
   const michael = makeAgent('michael-brown', 'Michael Brown');
   const sarah = makeAgent('sarah-morgan', 'Sarah Morgan');
   const knownAgents = [agent, michael, sarah];
 
+  const sessionManager = {
+    appendMessage,
+    getSession: vi.fn().mockResolvedValue({ id: 'sess-emily-1', developerId: 'clemens' }),
+  };
+  const agentManager = {
+    recordInteractionAsync: vi.fn().mockResolvedValue(undefined),
+    getAllAgentsAsync: vi.fn(async () => knownAgents),
+    getAgent: (id: string) => knownAgents.find((candidate) => candidate.id === id),
+    getAgentAsync: vi.fn(
+      async (id: string) => knownAgents.find((candidate) => candidate.id === id) ?? null
+    ),
+    resolveAgent: (query: string) => {
+      const normalized = query.trim().toLowerCase();
+      return knownAgents.filter(
+        (candidate) =>
+          candidate.id.toLowerCase() === normalized || candidate.name.toLowerCase() === normalized
+      );
+    },
+    resolveAgentAsync: vi.fn(async (query: string) => {
+      const normalized = query.trim().toLowerCase();
+      return knownAgents.filter(
+        (candidate) =>
+          candidate.id.toLowerCase() === normalized || candidate.name.toLowerCase() === normalized
+      );
+    }),
+  };
+  const skillManager = {
+    resolveSkillsForAgent: vi.fn(() => ({
+      roleSkill: undefined,
+      specializationSkills: [],
+      skills: [],
+      missingSkillNames: [],
+    })),
+  };
+  const llmService = {
+    streamChat: vi.fn(async function* (_agent: any, _msgs: any) {
+      yield { choices: [{ delta: { content: llmResponse } }] } as any;
+    }),
+    chatWithTools: vi.fn(),
+  };
+
   const ctx: ExecutionContext = {
     agent,
     workspaceRoot: '/workspace',
     sessionId: 'sess-emily-1',
-    hooks: { emit: vi.fn() },
     history: [],
-    toolManager: {
-      getToolsForAgent: vi.fn().mockReturnValue([]),
-      toSchema: vi.fn().mockReturnValue(undefined),
-    } as any,
-    sessionManager: {
-      appendMessage,
-      getSession: vi.fn().mockResolvedValue({ id: 'sess-emily-1', developerId: 'clemens' }),
-    } as any,
-    agentManager: {
-      recordInteractionAsync: vi.fn().mockResolvedValue(undefined),
-      getAllAgentsAsync: vi.fn(async () => knownAgents),
-      getAgent: (id: string) => knownAgents.find((candidate) => candidate.id === id),
-      getAgentAsync: vi.fn(
-        async (id: string) => knownAgents.find((candidate) => candidate.id === id) ?? null
-      ),
-      resolveAgent: (query: string) => {
-        const normalized = query.trim().toLowerCase();
-        return knownAgents.filter(
-          (candidate) =>
-            candidate.id.toLowerCase() === normalized || candidate.name.toLowerCase() === normalized
-        );
-      },
-      resolveAgentAsync: vi.fn(async (query: string) => {
-        const normalized = query.trim().toLowerCase();
-        return knownAgents.filter(
-          (candidate) =>
-            candidate.id.toLowerCase() === normalized || candidate.name.toLowerCase() === normalized
-        );
-      }),
-    } as any,
-    skillManager: {
-      resolveSkillsForAgent: vi.fn(() => ({
-        roleSkill: undefined,
-        specializationSkills: [],
-        skills: [],
-        missingSkillNames: [],
-      })),
-    } as any,
-    llmService: {
-      // send-turn uses streamChat (async generator, no tools path)
-      streamChat: vi.fn(async function* (_agent: any, _msgs: any) {
-        yield { choices: [{ delta: { content: llmResponse } }] } as any;
-      }),
-      // chatWithTools is not exercised in these tests (no tools registered)
-      chatWithTools: vi.fn(),
-    } as any,
   };
 
-  const emitService = new EmitService(ctx.hooks.emit as any);
-  setServiceContainer({
-    resolve: (token: { id?: string }) => {
-      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
-        return emitService;
-      }
-      if (token?.id === COMMAND_FACTORY_TOKENS.AgentManager.id) {
-        return ctx.agentManager;
-      }
-      throw new Error(`Unexpected token: ${String(token?.id)}`);
-    },
-  } as any);
+  const deps: SendTurnDeps = {
+    sessionManager: sessionManager as any,
+    llmService: llmService as any,
+    skillManager: skillManager as any,
+    agentManager: agentManager as any,
+    hooks: {},
+    emitService,
+    toolDispatcher: undefined,
+  };
 
-  return { ctx, appendMessage };
+  return { ctx, deps, emit, appendMessage, llmService, skillManager, agentManager };
 }
 
-function makePlugins(): ResolvedPlugins {
+function makePlugins(agentManager?: any): ResolvedPlugins {
   return {
     compressor: { compress: (_h: ChatMessage[]) => Promise.resolve(_h) } as any,
     contextBuilder: {
@@ -207,7 +205,7 @@ function makePlugins(): ResolvedPlugins {
     ragProvider: { retrieve: vi.fn().mockResolvedValue(null) } as any,
     toolResolver: { resolve: vi.fn().mockReturnValue([]) } as any,
     mcpGateway: { listTools: vi.fn().mockResolvedValue([]) } as any,
-    llmSelector: { select: (_ctx: ExecutionContext) => _ctx.llmService } as any,
+    llmSelector: { select: vi.fn().mockResolvedValue(undefined) } as any,
     outputHandler: {
       handle: async (_result: any, _ctx: any) => {},
     } as any,
@@ -217,7 +215,7 @@ function makePlugins(): ResolvedPlugins {
       getCommand: vi.fn(() => undefined),
     },
     hookPlugins: buildDefaultHookPlugins(),
-    turnResultParsers: buildDefaultTurnResultParsers(),
+    turnResultParsers: buildDefaultTurnResultParsers(agentManager),
   };
 }
 
@@ -226,10 +224,11 @@ describe('sendTurn — spec path 1 / 4 (HANDOFF: text directive)', () => {
   it('sets handedOff:true and handoffTargetId when response contains HANDOFF: agentId | note', async () => {
     const llmResponse =
       "Absolutely, I'll hand you over to Michael.\n\nHANDOFF: michael-brown | Clemens would like to talk with you directly.";
-    const { ctx } = makeCtx(llmResponse);
+    const { ctx, deps, agentManager } = makeCtx(llmResponse);
     const plugins = makePlugins();
+    plugins.turnResultParsers = buildDefaultTurnResultParsers(agentManager as any);
 
-    const result = await sendTurn('can i talk to michael?', plugins, ctx);
+    const result = await sendTurn('can i talk to michael?', plugins, ctx, undefined, deps);
 
     expect(result.handedOff).toBe(true);
     expect(result.handoffTargetId).toBe('michael-brown');
@@ -238,9 +237,10 @@ describe('sendTurn — spec path 1 / 4 (HANDOFF: text directive)', () => {
 
   it('sets handedOff:true when response contains HANDOFF: with no note', async () => {
     const llmResponse = 'Sure!\n\nHANDOFF: michael-brown';
-    const { ctx } = makeCtx(llmResponse);
+    const { ctx, deps, agentManager } = makeCtx(llmResponse);
+    const plugins = makePlugins(agentManager);
 
-    const result = await sendTurn('can i talk to michael?', makePlugins(), ctx);
+    const result = await sendTurn('can i talk to michael?', plugins, ctx, undefined, deps);
 
     expect(result.handedOff).toBe(true);
     expect(result.handoffTargetId).toBe('michael-brown');
@@ -250,9 +250,10 @@ describe('sendTurn — spec path 1 / 4 (HANDOFF: text directive)', () => {
   it('strips the HANDOFF: directive from the persisted message (developer never sees it)', async () => {
     const llmResponse =
       "Absolutely, I'll hand you over to Michael.\n\nHANDOFF: michael-brown | note";
-    const { ctx, appendMessage } = makeCtx(llmResponse);
+    const { ctx, deps, appendMessage, agentManager } = makeCtx(llmResponse);
+    const plugins = makePlugins(agentManager);
 
-    await sendTurn('can i talk to michael?', makePlugins(), ctx);
+    await sendTurn('can i talk to michael?', plugins, ctx, undefined, deps);
 
     const persistedMsg: ChatMessage | undefined = appendMessage.mock.calls.at(-1)?.[1] as
       | ChatMessage
@@ -271,9 +272,10 @@ describe('sendTurn — spec path 2 (FORWARD_TO: text directive)', () => {
   it('sets handedOff:true when response contains FORWARD_TO: agentId | note', async () => {
     const llmResponse =
       'Let me bring Sarah in.\n\nFORWARD_TO: sarah-morgan | Please help Clemens with the CSS design system.';
-    const { ctx } = makeCtx(llmResponse);
+    const { ctx, deps, agentManager } = makeCtx(llmResponse);
+    const plugins = makePlugins(agentManager);
 
-    const result = await sendTurn('can sarah help?', makePlugins(), ctx);
+    const result = await sendTurn('can sarah help?', plugins, ctx, undefined, deps);
 
     expect(result.handedOff).toBe(true);
     expect(result.handoffTargetId).toBe('sarah-morgan');
@@ -282,9 +284,10 @@ describe('sendTurn — spec path 2 (FORWARD_TO: text directive)', () => {
 
   it('strips FORWARD_TO: from persisted message', async () => {
     const llmResponse = 'Let me bring Sarah in.\n\nFORWARD_TO: sarah-morgan | note';
-    const { ctx, appendMessage } = makeCtx(llmResponse);
+    const { ctx, deps, appendMessage, agentManager } = makeCtx(llmResponse);
+    const plugins = makePlugins(agentManager);
 
-    await sendTurn('can sarah help?', makePlugins(), ctx);
+    await sendTurn('can sarah help?', plugins, ctx, undefined, deps);
 
     const persistedMsg = appendMessage.mock.calls.find(
       (call: unknown[]) => !(call[1] as ChatMessage | undefined)?.isHuman
@@ -296,41 +299,43 @@ describe('sendTurn — spec path 2 (FORWARD_TO: text directive)', () => {
   });
 
   it('emits info events when role/specialization skills are loaded', async () => {
-    const { ctx } = makeCtx('Hello there!');
-    (ctx.skillManager as any).resolveSkillsForAgent = vi.fn(() => ({
+    const { ctx, deps, emit, skillManager, agentManager } = makeCtx('Hello there!');
+    skillManager.resolveSkillsForAgent = vi.fn(() => ({
       roleSkill: { name: 'assistant' },
       specializationSkills: [{ name: 'frontend-web-delivery' }],
       skills: [{ name: 'assistant' }, { name: 'frontend-web-delivery' }],
       missingSkillNames: [],
     }));
+    deps.skillManager = skillManager as any;
 
-    await sendTurn('hello', makePlugins(), ctx);
+    const plugins = makePlugins(agentManager);
 
-    const emit = ctx.hooks.emit;
+    await sendTurn('hello', plugins, ctx, undefined, deps);
+
     expect(
-      emit.mock.calls.some(
-        ([event]) =>
-          (event as { kind?: string; level?: string; message?: string }).kind === 'log' &&
-          (event as { kind?: string; level?: string; message?: string }).level === 'info' &&
-          (event as { kind?: string; level?: string; message?: string }).message?.includes(
-            'Loaded role skill: assistant'
-          )
-      )
+      emit.mock.calls.some((call: any[]) => {
+        const event = call[0] as { kind?: string; level?: string; message?: string };
+        return (
+          event.kind === 'log' &&
+          event.level === 'info' &&
+          event.message?.includes('Loaded role skill: assistant')
+        );
+      })
     ).toBe(true);
     expect(
-      emit.mock.calls.some(
-        ([event]) =>
-          (event as { kind?: string; level?: string; message?: string }).kind === 'log' &&
-          (event as { kind?: string; level?: string; message?: string }).level === 'info' &&
-          (event as { kind?: string; level?: string; message?: string }).message?.includes(
-            'Loaded specialization skill: frontend-web-delivery'
-          )
-      )
+      emit.mock.calls.some((call: any[]) => {
+        const event = call[0] as { kind?: string; level?: string; message?: string };
+        return (
+          event.kind === 'log' &&
+          event.level === 'info' &&
+          event.message?.includes('Loaded specialization skill: frontend-web-delivery')
+        );
+      })
     ).toBe(true);
   });
 
   it('supports one plugin hooking multiple lifecycle hooks', async () => {
-    const { ctx, appendMessage } = makeCtx('Hello plugin world');
+    const { ctx, deps, appendMessage, agentManager } = makeCtx('Hello plugin world');
     const onTurnStart = vi.fn(async () => {});
     const onMessagesPrepared = vi.fn(async () => {});
     const onBeforePersistAssistantMessage = vi.fn(
@@ -340,7 +345,7 @@ describe('sendTurn — spec path 2 (FORWARD_TO: text directive)', () => {
     const onTurnCompleted = vi.fn(async () => {});
 
     const plugins = {
-      ...makePlugins(),
+      ...makePlugins(agentManager),
       hookPlugins: [
         {
           name: 'multi-hook-plugin',
@@ -352,7 +357,7 @@ describe('sendTurn — spec path 2 (FORWARD_TO: text directive)', () => {
       ],
     };
 
-    const result = await sendTurn('hello', plugins, ctx);
+    const result = await sendTurn('hello', plugins, ctx, undefined, deps);
 
     expect(onTurnStart).toHaveBeenCalledOnce();
     expect(onMessagesPrepared).toHaveBeenCalledOnce();
@@ -373,9 +378,10 @@ describe('sendTurn — spec path 2 (FORWARD_TO: text directive)', () => {
 describe('sendTurn — no directive (normal turn)', () => {
   it('does not set handedOff when response has no directive', async () => {
     const llmResponse = 'Hi Clemens! How can I help you today?';
-    const { ctx } = makeCtx(llmResponse);
+    const { ctx, deps, agentManager } = makeCtx(llmResponse);
+    const plugins = makePlugins(agentManager);
 
-    const result = await sendTurn('hello', makePlugins(), ctx);
+    const result = await sendTurn('hello', plugins, ctx, undefined, deps);
 
     expect(result.handedOff).toBeFalsy();
     expect(result.handoffTargetId).toBeUndefined();
@@ -384,9 +390,10 @@ describe('sendTurn — no directive (normal turn)', () => {
 
   it('ignores HANDOFF directive that targets current agent (self-handoff)', async () => {
     const llmResponse = 'I can help you with HR workflows.\n\nHANDOFF: emily-davis | staying here';
-    const { ctx } = makeCtx(llmResponse);
+    const { ctx, deps, agentManager } = makeCtx(llmResponse);
+    const plugins = makePlugins(agentManager);
 
-    const result = await sendTurn('what can you do?', makePlugins(), ctx);
+    const result = await sendTurn('what can you do?', plugins, ctx, undefined, deps);
 
     expect(result.handedOff).toBeFalsy();
     expect(result.handoffTargetId).toBeUndefined();
@@ -395,9 +402,10 @@ describe('sendTurn — no directive (normal turn)', () => {
 
   it('ignores HANDOFF directive when target agent cannot be resolved', async () => {
     const llmResponse = 'Working on it.\n\nHANDOFF: hr-director | Please continue there';
-    const { ctx } = makeCtx(llmResponse);
+    const { ctx, deps, agentManager } = makeCtx(llmResponse);
+    const plugins = makePlugins(agentManager);
 
-    const result = await sendTurn('what files can you read?', makePlugins(), ctx);
+    const result = await sendTurn('what files can you read?', plugins, ctx, undefined, deps);
 
     expect(result.handedOff).toBeFalsy();
     expect(result.handoffTargetId).toBeUndefined();
@@ -407,18 +415,19 @@ describe('sendTurn — no directive (normal turn)', () => {
 
 describe('sendTurn — llm failure fallback', () => {
   it('returns a retryable timeout message and persists it as archived when LLM invocation fails', async () => {
-    const { ctx, appendMessage } = makeCtx('unused');
-    (ctx.llmService as { streamChat: unknown }).streamChat = vi.fn(async () => {
+    const { ctx, deps, appendMessage, llmService, agentManager } = makeCtx('unused');
+    llmService.streamChat = vi.fn(async () => {
       throw new Error('LLM request timed out after 30s.');
     });
+    deps.llmService = llmService as any;
 
     const outputHandle = vi.fn(async () => {});
     const plugins = {
-      ...makePlugins(),
+      ...makePlugins(agentManager),
       outputHandler: { handle: outputHandle } as any,
     };
 
-    const result = await sendTurn('hello', plugins, ctx);
+    const result = await sendTurn('hello', plugins, ctx, undefined, deps);
 
     expect(result.done).toBe(true);
     expect(result.text).toBe("Sorry — I couldn't complete that request in time. Please try again.");
@@ -473,10 +482,23 @@ type ChatWithToolsFn = (
 
 function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
   ctx: ExecutionContext;
+  deps: SendTurnDeps;
+  emit: ReturnType<typeof vi.fn>;
+  questionService: { confirm: ReturnType<typeof vi.fn> };
   executeToolMock: ReturnType<typeof vi.fn>;
+  llmService: {
+    chatWithTools: ReturnType<typeof vi.fn>;
+    streamChat: ReturnType<typeof vi.fn>;
+  };
+  toolManager: {
+    toSchema: ReturnType<typeof vi.fn>;
+  };
   appendMessage: ReturnType<typeof vi.fn>;
 } {
+  const workspaceRoot = '/workspace';
   const appendMessage = vi.fn().mockResolvedValue(undefined);
+  const emit = vi.fn();
+  const emitService = new EmitService(emit);
   const agent = makeAgent('victor-alvarez', 'Victor Alvarez');
 
   const executeToolMock = vi
@@ -509,61 +531,88 @@ function makeCtxWithTools(chatWithToolsMock: ReturnType<typeof vi.fn>): {
       return { ok: false, toolName, error: `Unexpected tool in test: ${toolName}` };
     });
 
-  const ctx: ExecutionContext = {
-    agent,
-    workspaceRoot: '/workspace',
-    sessionId: 'sess-victor-1',
-    hooks: {
-      emit: vi.fn(),
-      questionConfirm: vi.fn().mockResolvedValue(true), // auto-approve write tools
-    },
-    history: [],
-    toolManager: {
-      getToolsForAgent: vi.fn().mockReturnValue([]),
-      toSchema: vi.fn().mockImplementation((name: string) => ({
-        name,
-        description: `${name} description`,
-        parameters: { type: 'object', properties: {} },
-      })),
-      execute: executeToolMock,
-      get: vi.fn().mockReturnValue(undefined),
-    } as any,
-    sessionManager: {
-      appendMessage,
-      getSession: vi.fn().mockResolvedValue({ id: 'sess-victor-1', developerId: 'clemens' }),
-    } as any,
-    agentManager: {
-      recordInteractionAsync: vi.fn().mockResolvedValue(undefined),
-      getAllAgentsAsync: vi.fn(async () => [agent]),
-    } as any,
-    skillManager: {
-      resolveSkillsForAgent: vi.fn(() => ({
-        roleSkill: undefined,
-        specializationSkills: [],
-        skills: [],
-        missingSkillNames: [],
-      })),
-    } as any,
-    llmService: {
-      chatWithTools: chatWithToolsMock,
-      streamChat: vi.fn(), // must NOT be called when tools are in play
-    } as any,
+  const toolManager = {
+    getToolsForAgent: vi.fn().mockReturnValue([]),
+    toSchema: vi.fn().mockImplementation((name: string) => ({
+      name,
+      description: `${name} description`,
+      parameters: { type: 'object', properties: {} },
+    })),
+    execute: executeToolMock,
+    get: vi.fn().mockReturnValue(undefined),
+  };
+  const sessionManager = {
+    appendMessage,
+    getSession: vi.fn().mockResolvedValue({ id: 'sess-victor-1', developerId: 'clemens' }),
+  };
+  const agentManager = {
+    recordInteractionAsync: vi.fn().mockResolvedValue(undefined),
+    getAllAgentsAsync: vi.fn(async () => [agent]),
+  };
+  const skillManager = {
+    resolveSkillsForAgent: vi.fn(() => ({
+      roleSkill: undefined,
+      specializationSkills: [],
+      skills: [],
+      missingSkillNames: [],
+    })),
+  };
+  const llmService = {
+    chatWithTools: chatWithToolsMock,
+    streamChat: vi.fn(), // must NOT be called when tools are in play
+  };
+  const questionService: IQuestionService = {
+    input: vi.fn(async () => ''),
+    confirm: vi.fn(async () => true), // auto-approve write tools
+    select: vi.fn(async () => ''),
+    password: vi.fn(async () => ''),
+    checklist: vi.fn(async () => []),
   };
 
-  const emitService = new EmitService(ctx.hooks.emit as any);
-  setServiceContainer({
-    resolve: (token: { id?: string }) => {
-      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
-        return emitService;
-      }
-      if (token?.id === COMMAND_FACTORY_TOKENS.AgentManager.id) {
-        return ctx.agentManager;
-      }
-      throw new Error(`Unexpected token: ${String(token?.id)}`);
-    },
-  } as any);
+  const ctx: ExecutionContext = {
+    agent,
+    workspaceRoot,
+    sessionId: 'sess-victor-1',
+    history: [],
+  };
 
-  return { ctx, executeToolMock, appendMessage };
+  const support = new ToolDispatchSupportService(
+    workspaceRoot,
+    new ToolSerializationService(),
+    llmService as any,
+    {
+      create: () => ({ save: vi.fn() }),
+    } as any
+  );
+
+  const toolDispatcher = new ToolDispatcher(
+    toolManager as any,
+    sessionManager as any,
+    support,
+    questionService,
+    emitService
+  );
+
+  const deps: SendTurnDeps = {
+    sessionManager: sessionManager as any,
+    llmService: llmService as any,
+    skillManager: skillManager as any,
+    agentManager: agentManager as any,
+    hooks: {},
+    emitService,
+    toolDispatcher,
+  };
+
+  return {
+    ctx,
+    deps,
+    emit,
+    questionService: questionService as any,
+    executeToolMock,
+    llmService,
+    toolManager: { toSchema: toolManager.toSchema },
+    appendMessage,
+  };
 }
 
 function makePluginsWithTools(): ResolvedPlugins {
@@ -607,12 +656,12 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
     const chatWithToolsMock = vi.fn<ChatWithToolsFn>(async () => ({
       text: 'All done via tools.',
     }));
-    const { ctx } = makeCtxWithTools(chatWithToolsMock);
+    const { ctx, deps, llmService } = makeCtxWithTools(chatWithToolsMock);
 
-    await sendTurn('do something with tools', makePluginsWithTools(), ctx);
+    await sendTurn('do something with tools', makePluginsWithTools(), ctx, undefined, deps);
 
     expect(chatWithToolsMock).toHaveBeenCalledOnce();
-    expect(ctx.llmService.streamChat).not.toHaveBeenCalled();
+    expect(llmService.streamChat).not.toHaveBeenCalled();
   });
 
   it('reads a file then proposes a line change: proves the full tool-calling path', async () => {
@@ -644,9 +693,16 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
       return { text: FINAL_RESPONSE };
     });
 
-    const { ctx, executeToolMock, appendMessage } = makeCtxWithTools(chatWithToolsMock);
+    const { ctx, deps, questionService, executeToolMock, appendMessage } =
+      makeCtxWithTools(chatWithToolsMock);
 
-    const result = await sendTurn('fix greet.ts to say Hello Clemens', makePluginsWithTools(), ctx);
+    const result = await sendTurn(
+      'fix greet.ts to say Hello Clemens',
+      makePluginsWithTools(),
+      ctx,
+      undefined,
+      deps
+    );
 
     // ── Tool execution ──────────────────────────────────────────────────────
     expect(executeToolMock).toHaveBeenCalledTimes(2);
@@ -683,7 +739,7 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
     // ── Approval ────────────────────────────────────────────────────────────
     // fs_apply_patch is a write tool → must ask for user confirmation
     // fs_read is silent → no confirmation prompt
-    expect((ctx.hooks as any).questionConfirm).toHaveBeenCalledOnce();
+    expect(questionService.confirm).toHaveBeenCalledOnce();
 
     // ── Final result ────────────────────────────────────────────────────────
     expect(result.text).toBe(FINAL_RESPONSE);
@@ -701,19 +757,16 @@ describe('sendTurn — spec path 3 (tool-calling path)', () => {
     expect(agentMsg.content).toBe(FINAL_RESPONSE);
   });
 
-  it('reuses cached tool schemas across turns for the same tool manager', async () => {
+  it('does not rely on ExecutionContext tool manager schema plumbing', async () => {
     const chatWithToolsMock = vi.fn<ChatWithToolsFn>(async () => ({
       text: 'Done.',
     }));
-    const { ctx } = makeCtxWithTools(chatWithToolsMock);
+    const { ctx, deps, toolManager } = makeCtxWithTools(chatWithToolsMock);
 
-    await sendTurn('first turn', makePluginsWithTools(), ctx);
-    await sendTurn('second turn', makePluginsWithTools(), ctx);
+    await sendTurn('first turn', makePluginsWithTools(), ctx, undefined, deps);
+    await sendTurn('second turn', makePluginsWithTools(), ctx, undefined, deps);
 
-    const toSchema = (ctx.toolManager as unknown as { toSchema: ReturnType<typeof vi.fn> })
-      .toSchema;
-    expect(toSchema).toHaveBeenCalledTimes(2);
-    expect(toSchema).toHaveBeenNthCalledWith(1, 'fs_read');
-    expect(toSchema).toHaveBeenNthCalledWith(2, 'fs_apply_patch');
+    const toSchema = toolManager.toSchema;
+    expect(toSchema).not.toHaveBeenCalled();
   });
 });

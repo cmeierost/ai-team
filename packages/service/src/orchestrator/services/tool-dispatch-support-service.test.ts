@@ -12,9 +12,17 @@ vi.mock('../../service-registry.js', () => ({
 
 import { ToolDispatchSupportService } from './tool-dispatch-support-service.js';
 import { ToolSerializationService } from './tool-serialization-service.js';
+import { EmitService } from './emit-service.js';
 
 describe('ToolDispatchSupportService', () => {
-  const support = new ToolDispatchSupportService(new ToolSerializationService(), {} as any);
+  const support = new ToolDispatchSupportService(
+    'c:/workspace',
+    new ToolSerializationService(),
+    {} as any,
+    {
+      create: () => ({ save: vi.fn() }),
+    } as any
+  );
 
   it('flags policy-denied results from permission_denied status', () => {
     const denial = support.classifyToolDenial(true, {
@@ -41,13 +49,13 @@ describe('ToolDispatchSupportService', () => {
         save: (data: { agentName: string }) => saved.push(data),
       }),
     };
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-'));
     const supportWithStore = new ToolDispatchSupportService(
+      tmpDir,
       new ToolSerializationService(),
       {} as any,
       storeFactory as any
     );
-
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-'));
     try {
       const ctx: ExecutionContext = {
         workspaceRoot: tmpDir,
@@ -71,7 +79,8 @@ describe('ToolDispatchSupportService', () => {
             },
           ],
         },
-        ctx
+        ctx,
+        new EmitService(() => {})
       );
 
       expect(saved).toHaveLength(1);

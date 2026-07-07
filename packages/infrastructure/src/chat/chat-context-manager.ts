@@ -171,7 +171,7 @@ export class ChatManager {
    */
   private generateSummaryContent(messages: ChatMessage[]): string {
     return messages
-      .map((msg, idx) => {
+      .map((msg, _idx) => {
         const speaker = msg.from === 'human' ? 'User' : msg.from;
         return `**${speaker}:** ${msg.content}`;
       })

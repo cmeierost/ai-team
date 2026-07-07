@@ -7,9 +7,7 @@ import type {
 } from '@ai-team/api-contracts';
 import type {
   IAgentManager,
-  IConfigurationStorage,
   IPermissionStorage,
-  IFileTreeService,
 } from '@ai-team/core';
 import { FileTreeService } from '../commands/fs/file-tree.js';
 import { BadRequestError } from '@ai-team/core';
@@ -23,22 +21,19 @@ function resolvePathMode(mode: string | undefined): PathMode {
 
 export class FilesService implements IPermissionService {
   constructor(
-    private readonly workspaceRoot: string,
     private readonly agentManager: IAgentManager,
-    private readonly configurationStorage: IConfigurationStorage,
+    private readonly fileTree: { readPaths?: string[]; writePaths?: string[] },
     private readonly permRegistry: IPermissionStorage,
-    private readonly fileTreeService: IFileTreeService,
     private readonly fileTreeAccessService: FileTreeService
   ) {}
 
   async getPatterns(query?: { agent?: string }): Promise<GetFilePatternsResponse> {
-    const config = await this.configurationStorage.loadTeamConfigAsync(this.workspaceRoot);
     const globalPatterns = {
       allowPaths: Array.from(
-        new Set([...(config?.fileTree?.readPaths ?? []), ...(config?.fileTree?.writePaths ?? [])])
+        new Set([...(this.fileTree?.readPaths ?? []), ...(this.fileTree?.writePaths ?? [])])
       ),
-      readPaths: config?.fileTree?.readPaths ?? [],
-      writePaths: config?.fileTree?.writePaths ?? [],
+      readPaths: this.fileTree?.readPaths ?? [],
+      writePaths: this.fileTree?.writePaths ?? [],
       listPaths: [] as string[],
     };
     if (!query?.agent) return { global: globalPatterns };

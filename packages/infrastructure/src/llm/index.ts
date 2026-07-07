@@ -30,13 +30,10 @@ import type {
   Skill,
   InstructionFile,
   ChatMessage,
-  IConfigurationStorage,
-  IEnvironmentStorage,
+  TeamConfig,
 } from '@ai-team/core';
 import { resolveEffectiveLlmSettings } from '@ai-team/core';
 import type { LlmChatOptions, LlmDiagnosticMessage, LlmDiagnosticReporter } from '@ai-team/core';
-import { ConfigurationStorage } from '../agent/configuration-storage.js';
-import { EnvironmentStorage } from '../agent/environment-storage.js';
 
 const GITHUB_COPILOT_API_URL = 'https://api.individual.githubcopilot.com';
 const GITHUB_COPILOT_MODELS_URL = 'https://api.individual.githubcopilot.com/models';
@@ -146,23 +143,20 @@ import { isLlmConsoleLogEnabled, writeLlmLogToConsole } from './llm-console-log.
  * ```
  */
 export class LlmService {
-  private workspaceRoot: string;
   private client!: OpenAI;
   private config!: LlmConfig;
   private providerRef?: string;
   private model!: string;
   private initialized = false;
-  private logDir: string;
+  private readonly logDir: string;
   private logDirReady = false;
   private diagnosticReporter?: LlmDiagnosticReporter;
 
   constructor(
     workspaceRoot: string,
-    private readonly configurationStorage: IConfigurationStorage,
-    private readonly environmentStorage: IEnvironmentStorage
+    private readonly teamConfig: TeamConfig
   ) {
-    this.workspaceRoot = workspaceRoot;
-    this.logDir = path.join(this.workspaceRoot, '.ai-team', 'logs', 'llm');
+    this.logDir = path.join(workspaceRoot, '.ai-team', 'logs', 'llm');
   }
 
   setDiagnosticReporter(reporter?: LlmDiagnosticReporter): void {
@@ -190,28 +184,30 @@ export class LlmService {
     skill?: Pick<Skill, 'llm'>,
     runtimeOverrides?: LlmChatOptions
   ): Promise<LlmChatOptions> {
-    const teamConfig = await this.configurationStorage.loadEffectiveConfigAsync(this.workspaceRoot);
-    if (!teamConfig) {
+    if (!this.teamConfig) {
       throw new Error('No LLM configuration found. Run "ait init" to configure a provider.');
     }
 
-    const resolved = resolveEffectiveLlmSettings(teamConfig, agent, skill, runtimeOverrides);
+    const resolved = resolveEffectiveLlmSettings(this.teamConfig, agent, skill, runtimeOverrides);
     this.config = resolved.config;
     this.providerRef = resolved.providerRef;
     this.model = getDefaultModel(this.config);
 
-    const env = await this.environmentStorage.loadEnvFileAsync(this.workspaceRoot);
-    const apiKeyResolution = resolveApiKeyFromEnv(env, resolved.apiKeyEnvVar);
+    const apiKey = resolved.config.apiKey;
 
     for (const diagnostic of buildApiKeyResolutionDiagnostics(
-      apiKeyResolution,
+      {
+        preferredEnvVar: 'resolved-config.apiKey',
+        lookupOrder: ['resolved-config.apiKey'],
+        selectedEnvVar: apiKey ? 'resolved-config.apiKey' : undefined,
+        apiKey,
+        foundPreferred: Boolean(apiKey),
+      },
       this.config,
       this.providerRef
     )) {
       this.emitDiagnostic(diagnostic);
     }
-
-    const apiKey = apiKeyResolution.apiKey;
 
     this.client = createLlmClient(this.config, apiKey);
     this.initialized = true;
@@ -765,7 +761,7 @@ export class LlmService {
    * @param agentId - The agent ID (messages from this agent become "assistant")
    * @returns OpenAI-compatible message array
    */
-  static historyToMessages(history: ChatMessage[], agentId: string): ChatCompletionMessageParam[] {
+  static historyToMessages(history: ChatMessage[], _agentId: string): ChatCompletionMessageParam[] {
     return history
       .filter((msg) => !msg.archived && !msg.hiddenFromLlm)
       .map((msg) => ({
@@ -1157,10 +1153,6 @@ ${excerpts}`;
   }
 }
 
-export function createLlmService(workspaceRoot: string): LlmService {
-  return new LlmService(workspaceRoot, new ConfigurationStorage(), new EnvironmentStorage());
-}
-
 // ============================================================================
 // System prompt builder
 // ============================================================================
@@ -1479,22 +1471,25 @@ export function resolveApiKeyFromEnv(
   env: Record<string, string>,
   preferredEnvVar?: string
 ): ApiKeyResolutionResult {
-  const normalizedPreferred = preferredEnvVar?.trim() || 'AI_TEAM_LLM_API_KEY';
-  const lookupOrder = Array.from(
-    new Set([normalizedPreferred, 'AI_TEAM_LLM_API_KEY', 'LLM_API_KEY', 'OPENAI_API_KEY'])
-  );
+  const normalizedPreferred = preferredEnvVar?.trim();
+  if (!normalizedPreferred) {
+    return {
+      preferredEnvVar: '',
+      lookupOrder: [],
+      apiKey: undefined,
+      foundPreferred: false,
+    };
+  }
 
-  const selectedEnvVar = lookupOrder.find((envVar) => {
-    const value = env[envVar];
-    return typeof value === 'string' && value.length > 0;
-  });
+  const value = env[normalizedPreferred];
+  const apiKey = typeof value === 'string' && value.length > 0 ? value : undefined;
 
   return {
     preferredEnvVar: normalizedPreferred,
-    lookupOrder,
-    selectedEnvVar,
-    apiKey: selectedEnvVar ? env[selectedEnvVar] : undefined,
-    foundPreferred: Boolean(env[normalizedPreferred]),
+    lookupOrder: [normalizedPreferred],
+    selectedEnvVar: apiKey ? normalizedPreferred : undefined,
+    apiKey,
+    foundPreferred: Boolean(apiKey),
   };
 }
 

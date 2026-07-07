@@ -105,20 +105,46 @@ export interface IAgentDocumentStorage {
   loadAllInstructionFilesAsync(workspaceRoot: string): Promise<InstructionFile[]>;
 }
 
-export interface IConfigurationStorage {
-  getConfigPath(workspaceRoot: string): string;
-  loadTeamConfigAsync(workspaceRoot: string): Promise<TeamConfig | undefined>;
-  saveTeamConfigAsync(workspaceRoot: string, config: TeamConfig): Promise<void>;
-  getUserConfigPath(workspaceRoot: string): string;
-  loadUserConfigAsync(workspaceRoot: string): Promise<UserConfig | undefined>;
-  saveUserConfigAsync(workspaceRoot: string, config: UserConfig): Promise<UserConfig>;
-  loadEffectiveConfigAsync(workspaceRoot: string): Promise<TeamConfig | undefined>;
-}
+/** Dot-separated path string that resolves to a leaf or node inside T. */
+export type ConfigPath<T> = T extends string | number | boolean | undefined | null
+  ? never
+  : {
+      [K in keyof T]-?: K extends string
+        ? T[K] extends Record<string, unknown> | undefined | null
+          ? `${K}` | `${K}.${ConfigPath<NonNullable<T[K]>>}`
+          : `${K}`
+        : never;
+    }[keyof T];
 
-export interface IEnvironmentStorage {
-  getEnvPath(workspaceRoot: string): string;
-  loadEnvFileAsync(workspaceRoot: string): Promise<Record<string, string>>;
-  saveEnvFileAsync(workspaceRoot: string, vars: Record<string, string>): Promise<void>;
+/** Resolves a dot-separated path to the corresponding type inside T. */
+export type PathValue<T, P extends string> = P extends `${infer Key}.${infer Rest}`
+  ? Key extends keyof T
+    ? Rest extends string
+      ? PathValue<NonNullable<T[Key]>, Rest>
+      : never
+    : never
+  : P extends keyof T
+    ? T[P]
+    : never;
+
+export interface IConfigurationStorage {
+  /** Get the full resolved config. */
+  get(): TeamConfig;
+  /** Read a config value by dot-separated path. Returns undefined if not set. */
+  get<Path extends ConfigPath<TeamConfig>>(path: Path): PathValue<TeamConfig, Path>;
+  /**
+   * Write a config value.
+   * @param scope 'user' → config.user.json, undefined → config.json (default)
+   */
+  set<Path extends ConfigPath<TeamConfig>>(
+    path: Path,
+    value: PathValue<TeamConfig, Path>,
+    scope?: 'user'
+  ): Promise<void>;
+  /** Store a secret (API key, etc.) in .env. */
+  setSecret(name: string, value: string): Promise<void>;
+  /** Get the developer profile (name, email, etc.). */
+  getDeveloperProfile(): UserConfig['developer'] | undefined;
 }
 
 export interface IPermissionStorage {

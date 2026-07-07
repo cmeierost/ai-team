@@ -2,7 +2,6 @@ import { z } from 'zod';
 import type {
   ICommand,
   IAgentManager,
-  IConfigurationStorage,
   IPermissionStorage,
   ExecutionContext,
   CommandResponse,
@@ -29,19 +28,18 @@ export class FilesPatternsCommand implements ICommand<Params, FilesPatternsRespo
   readonly metadata = FilesPatternsCommandMetadata;
 
   constructor(
-    private readonly configStorage: IConfigurationStorage,
+    private readonly fileTree: { readPaths?: string[]; writePaths?: string[] },
     private readonly agents: IAgentManager,
     private readonly permStorage: IPermissionStorage
   ) {}
 
   async execute(
     payload: Params,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<CommandResponse<FilesPatternsResponse>> {
-    const config = await this.configStorage.loadTeamConfigAsync(ctx.workspaceRoot);
     const global = {
-      read: config?.fileTree?.readPaths ?? [],
-      write: config?.fileTree?.writePaths ?? [],
+      read: this.fileTree?.readPaths ?? [],
+      write: this.fileTree?.writePaths ?? [],
     };
 
     if (!payload.agent) {

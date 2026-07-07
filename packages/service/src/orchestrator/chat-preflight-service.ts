@@ -1,10 +1,10 @@
 import type {
+  TeamConfig,
   IConfigurationStorage,
   IDeveloperIdentityService,
-  IEnvironmentStorage,
+  IProviderConfigurationService,
 } from '@ai-team/core';
-import { ensureUserEnvVars as ensureServiceUserEnvVars } from '../utils/user-env.js';
-import { resolveDeveloperName } from '../utils/agent-selection.js';
+import { ServiceDomainError } from '../errors.js';
 import { withAbortSignal } from '../utils/async-utils.js';
 import { withTimeout } from '../utils/with-timeout.js';
 import type { ChatRuntimeHooks } from './hooks.js';
@@ -21,51 +21,60 @@ export interface IChatPreflightService {
 
 export class ChatPreflightService implements IChatPreflightService {
   constructor(
-    private readonly configurationStorage: Pick<IConfigurationStorage, 'loadEffectiveConfigAsync'>,
-    private readonly environmentStorage: Pick<
-      IEnvironmentStorage,
-      'loadEnvFileAsync' | 'saveEnvFileAsync'
-    >,
+    private readonly teamConfig: TeamConfig,
+    private readonly configurationStorage: IConfigurationStorage,
     private readonly developerIdentityService: Pick<IDeveloperIdentityService, 'getUserName'>,
-    private readonly emitService: IEmitService
+    private readonly emitService: IEmitService,
+    private readonly providerConfigurationService: IProviderConfigurationService
   ) {}
 
   async resolve(
-    workspaceRoot: string,
+    _workspaceRoot: string,
     hooks: ChatRuntimeHooks
   ): Promise<{ developerName: string | undefined }> {
-    const teamConfig = await this.runStep(hooks, 'Loading team configuration...', () =>
-      this.configurationStorage.loadEffectiveConfigAsync(workspaceRoot)
-    );
+    const teamConfig = this.teamConfig;
 
-    const registry = teamConfig?.providers;
-    const defaultProviderRef = registry
-      ? teamConfig?.defaultModel?.provider && registry[teamConfig.defaultModel.provider]
-        ? teamConfig.defaultModel.provider
-        : (Object.entries(registry).find(([, cfg]) => cfg.defaultModel)?.[0] ??
-          Object.keys(registry)[0])
-      : undefined;
-    const defaultProviderKind = defaultProviderRef
-      ? registry?.[defaultProviderRef]?.kind
-      : undefined;
-    const defaultProviderApiKeyEnvVar = defaultProviderRef
-      ? registry?.[defaultProviderRef]?.apiKeyEnvVar
-      : undefined;
+    const defaultProvider = this.providerConfigurationService.resolveDefaultProvider(teamConfig);
+    const defaultProviderKind = defaultProvider?.config.kind;
     const requiresApiKey = defaultProviderKind
       ? defaultProviderKind === 'openai-compatible'
-      : teamConfig?.llm?.provider === 'openai-compatible';
+      : false;
 
-    const env = await this.runStep(hooks, 'Validating user environment...', () =>
-      ensureServiceUserEnvVars(
-        workspaceRoot,
-        { developerName: true, apiKey: requiresApiKey },
-        { quiet: true, apiKeyEnvVar: defaultProviderApiKeyEnvVar },
-        this.environmentStorage as IEnvironmentStorage
-      )
-    );
+    await this.runStep(hooks, 'Validating user environment...', async () => {
+      if (!requiresApiKey) {
+        return;
+      }
 
-    const developerName = resolveDeveloperName(env) ?? this.developerIdentityService.getUserName();
+      const providerApiKey = defaultProvider?.config.apiKey;
+
+      if (typeof providerApiKey === 'string' && providerApiKey.trim().length > 0) {
+        return;
+      }
+
+      const envVarName = this.extractEnvVarName(providerApiKey);
+      throw new ServiceDomainError(
+        'INPUT_REQUIRED',
+        `Missing API key. Set ${envVarName} in .ai-team/.env and reference it via config (e.g. \${${envVarName}}).`,
+        { envVar: envVarName },
+        {
+          kind: 'env-var',
+          key: envVarName,
+          prompt: `Enter API key for ${envVarName}:`,
+        }
+      );
+    });
+
+    const developerName = this.developerIdentityService.getUserName();
     return { developerName };
+  }
+
+  private extractEnvVarName(apiKeyValue: string | undefined): string {
+    if (!apiKeyValue) {
+      return 'LLM_API_KEY';
+    }
+
+    const match = /^\$\{([A-Za-z_]\w*)\}$/.exec(apiKeyValue.trim());
+    return match?.[1] ?? 'LLM_API_KEY';
   }
 
   private async runStep<T>(

@@ -23,6 +23,7 @@ export interface LlmConfig {
   provider: string;
   model?: string;
   baseUrl?: string;
+  apiKey?: string;
   params?: LlmGenerationParams;
 }
 
@@ -42,7 +43,6 @@ export interface LlmProviderConfig {
   models?: ProviderModel[];
   imageModels?: Record<string, string>;
   baseUrl?: string;
-  apiKeyEnvVar?: string;
   params?: LlmGenerationParams;
   contextWindow?: number;
 }
@@ -59,7 +59,6 @@ export interface ModelKeyEntry {
 export interface TeamConfig {
   version: string;
   projectName?: string;
-  llm?: LlmConfig;
   providers?: Record<string, LlmProviderConfig>;
   defaultModel?: { provider: string; model: string; contextWindow?: number };
   skillSources?: string[];
@@ -122,6 +121,7 @@ export interface UserConfig {
     { provider?: string; modelKey?: string; model?: string; contextWindow?: number }
   >;
   developer?: UserProfile;
+  mcpConfigFiles?: string[];
 }
 
 export interface IConfigService {
@@ -130,13 +130,7 @@ export interface IConfigService {
   getAgentModelKeys(): Promise<{ usedKeys: string[]; keysByAgent: Record<string, string> }>;
   getUserConfig(): Promise<UserConfig>;
   saveUserConfig(body: Partial<UserConfig>): Promise<UserConfig>;
-  testProviderConnection(
-    providerRef: string
-  ): Promise<{ ok: boolean; latencyMs?: number; error?: string; message?: string }>;
-  refreshUserProviderModels(providerRef: string): Promise<unknown>;
   refreshProviderModels(providerRef: string): Promise<unknown>;
-  getEnvStatus(): Promise<Record<string, boolean>>;
-  setEnvVar(body: { key: string; value: string }): Promise<{ ok: boolean }>;
   getMcpServers(query?: { agent?: string }): Promise<GetMcpServersResponse>;
   allowMcpServer(body: { agent: string; server: string }): Promise<UpdateMcpServerResponse>;
   disallowMcpServer(body: { agent: string; server: string }): Promise<UpdateMcpServerResponse>;
@@ -150,14 +144,7 @@ export const configDesc: ApiDescription<IConfigService> = {
     getAgentModelKeys: { method: 'GET', path: 'agent-model-keys' },
     getUserConfig: { method: 'GET', path: 'user-config' },
     saveUserConfig: { method: 'PUT', path: 'user-config' },
-    testProviderConnection: { method: 'POST', path: 'user-config/providers/:providerRef/test' },
-    refreshUserProviderModels: {
-      method: 'POST',
-      path: 'user-config/providers/:providerRef/models/refresh',
-    },
     refreshProviderModels: { method: 'POST', path: 'providers/:providerRef/models/refresh' },
-    getEnvStatus: { method: 'GET', path: 'env-status' },
-    setEnvVar: { method: 'PUT', path: 'env-key' },
     getMcpServers: { method: 'GET', path: 'mcp-servers' },
     allowMcpServer: { method: 'POST', path: 'mcp-servers/allow' },
     disallowMcpServer: { method: 'POST', path: 'mcp-servers/disallow' },

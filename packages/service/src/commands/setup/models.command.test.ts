@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   ProviderListICommand,
-  ProviderModelsICommand,
+  ProviderModelsCommand,
   ProviderModelsRefreshICommand,
 } from './models.command.js';
 
 function createDeps() {
   const configurationStorage = {
-    loadTeamConfigAsync: vi.fn().mockResolvedValue({
+    get: vi.fn().mockReturnValue({
       version: '0.1.0',
       randomAvatarUrls: [],
       providers: {
@@ -15,13 +15,7 @@ function createDeps() {
       },
       defaultModel: { provider: 'copilot', model: 'gpt-4o' },
     }),
-    loadUserConfigAsync: vi.fn().mockResolvedValue(undefined),
-    saveTeamConfigAsync: vi.fn().mockResolvedValue(undefined),
-    saveUserConfigAsync: vi.fn().mockResolvedValue(undefined),
-  };
-
-  const environmentStorage = {
-    loadEnvFileAsync: vi.fn().mockResolvedValue({}),
+    set: vi.fn().mockResolvedValue(undefined),
   };
 
   const discoveryService = {
@@ -33,7 +27,6 @@ function createDeps() {
 
   return {
     configurationStorage,
-    environmentStorage,
     modelDiscoveryRegistry,
   };
 }
@@ -43,12 +36,10 @@ describe('Provider models ICommand wrappers', () => {
     const deps = createDeps();
     const listCmd = new ProviderListICommand(
       deps.configurationStorage as any,
-      deps.environmentStorage as any,
       deps.modelDiscoveryRegistry as any
     );
-    const modelsCmd = new ProviderModelsICommand(
+    const modelsCmd = new ProviderModelsCommand(
       deps.configurationStorage as any,
-      deps.environmentStorage as any,
       deps.modelDiscoveryRegistry as any
     );
 
@@ -62,20 +53,19 @@ describe('Provider models ICommand wrappers', () => {
     } as any);
     logSpy.mockRestore();
 
-    expect(deps.configurationStorage.loadTeamConfigAsync).toHaveBeenCalled();
+    expect(deps.configurationStorage.get).toHaveBeenCalled();
   });
 
   it('refresh wrapper triggers model discovery and persists models', async () => {
     const deps = createDeps();
     const refreshCmd = new ProviderModelsRefreshICommand(
       deps.configurationStorage as any,
-      deps.environmentStorage as any,
       deps.modelDiscoveryRegistry as any
     );
 
     await refreshCmd.execute({ provider: 'copilot' }, undefined, { workspaceRoot: 'C:/ws' } as any);
 
     expect(deps.modelDiscoveryRegistry.getForKind).toHaveBeenCalledWith('github-copilot');
-    expect(deps.configurationStorage.saveUserConfigAsync).toHaveBeenCalled();
+    expect(deps.configurationStorage.set).toHaveBeenCalled();
   });
 });

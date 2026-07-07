@@ -17,9 +17,8 @@ export {
   type InfrastructureCoreRegistrationTokens,
 } from './registration/register-infrastructure-core-services.js';
 export { ConfigurationStorage } from './agent/configuration-storage.js';
-export { EnvironmentStorage } from './agent/environment-storage.js';
 export { TeamGraphBuilder } from './agent/team-graph-builder.js';
-export { AvatarManager, generateAgentColor, parseHslHue } from './agent/avatar.js';
+export { AvatarManager } from './agent/avatar.js';
 
 // Chat and command metadata catalog
 export { ChatManager, ChatStorage } from './chat/index.js';

@@ -18,6 +18,12 @@ export interface FsPathAccessEnvelope {
 export const accessRightSchema = z.enum(['read', 'write', 'list']);
 export type AccessRight = z.infer<typeof accessRightSchema>;
 
+type WorkspacePathMeta = {
+  absolute: string;
+  relative: string;
+  insideWorkspace: boolean;
+};
+
 export function canListViaContextManager(
   checker: IPathPermissionChecker,
   permissions: PermissionConfig | undefined,
@@ -176,4 +182,41 @@ export function toFsPathMeta(
     absolute: absolutePath,
     relative: relativePath,
   };
+}
+
+export function toAccessPathPayload(inputPath: string, pathMeta: WorkspacePathMeta): {
+  input: string;
+  absolute: string;
+  relative: string;
+} {
+  return {
+    input: inputPath,
+    absolute: pathMeta.absolute,
+    relative: pathMeta.relative,
+  };
+}
+
+export function getAccessRightsForPath(
+  checker: IPathPermissionChecker,
+  permissions: PermissionConfig | undefined,
+  relativePath: string
+): AccessRight[] {
+  const rights: AccessRight[] = [];
+  if (checker.canReadPath(permissions, relativePath)) rights.push('read');
+  if (checker.canWritePath(permissions, relativePath)) rights.push('write');
+  if (checker.canListPath(permissions, relativePath)) rights.push('list');
+  return rights;
+}
+
+export function findAgentsWithPathRight(
+  agents: Agent[],
+  checker: IPathPermissionChecker,
+  relativePath: string,
+  right: AccessRight
+): Agent[] {
+  return agents.filter((agent) => {
+    if (right === 'read') return checker.canReadPath(agent.permissions, relativePath);
+    if (right === 'write') return checker.canWritePath(agent.permissions, relativePath);
+    return checker.canListPath(agent.permissions, relativePath);
+  });
 }

@@ -74,7 +74,7 @@
         }
       ],
       "baseUrl": "https://api.llmhub.infs.ai/v1",
-      "apiKeyEnvVar": "LLM_HUB_API_KEY"
+      "apiKey": "${LLM_HUB_API_KEY}"
     },
     "copilot": {
       "kind": "github-copilot",
@@ -555,7 +555,7 @@
         }
       ],
       "baseUrl": "https://api.openai.com/v1",
-      "apiKeyEnvVar": "OPENAI_API_KEY"
+      "apiKey": "${OPENAI_API_KEY}"
     },
     "ollama-local": {
       "kind": "openai-compatible",
@@ -588,7 +588,7 @@
     "personal-openai": {
       "kind": "openai-compatible",
       "baseUrl": "https://api.llmhub.infs.ai/v1",
-      "apiKeyEnvVar": "LLM_HUB_API_KEY",
+      "apiKey": "${LLM_HUB_API_KEY}",
       "defaultModel": "best-chat",
       "models": [
         {

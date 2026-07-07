@@ -14,7 +14,15 @@ const _handoffCommandSchema = z.object({
   briefingNote: z
     .string()
     .min(1)
-    .describe('Concise summary of the conversation and what the target agent needs to do.'),
+    .describe(
+      'Final, dominant instruction for the target agent. This is the last word — what the target should actually do.'
+    ),
+  summary: z
+    .string()
+    .optional()
+    .describe(
+      'Optional summary of the prior conversation. Prepended to the briefing note as context. The briefing note remains the dominant message.'
+    ),
 });
 
 export const HandoffCommandMetadata = {
@@ -43,7 +51,7 @@ export class HandoffCommand implements ICommand<Params, HandoffRequest> {
     params: Params,
     context: ExecutionContext
   ): Promise<CommandResponse<HandoffRequest>> {
-    const { targetAgentId, briefingNote } = params;
+    const { targetAgentId, briefingNote, summary } = params;
 
     const target =
       (await this.agents.getAgentAsync(targetAgentId)) ??
@@ -69,12 +77,18 @@ export class HandoffCommand implements ICommand<Params, HandoffRequest> {
 
     const existingSession = await this.sessions.getLatestSession(target.id);
 
+    // Prepend summary (context) before the briefing note (dominant final instruction).
+    const composedBriefing = summary?.trim()
+      ? `## Prior context\n\n${summary.trim()}\n\n## Your task\n\n${briefingNote}`
+      : briefingNote;
+
     return {
       status: 'ok',
       data: {
         type: 'handoff',
         targetAgentId: target.id,
-        briefingNote,
+        briefingNote: composedBriefing,
+        summary,
         targetSessionId: existingSession?.id,
         timestamp: new Date().toISOString(),
       },

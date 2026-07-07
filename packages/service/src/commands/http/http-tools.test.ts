@@ -174,7 +174,6 @@ describe('http commands', () => {
       toLlmToolDefinitions: () => [],
     } as any;
     const manager = new ToolManager(
-      workspaceRoot,
       {
         canReadPath: () => true,
         canWritePath: () => true,
@@ -232,7 +231,6 @@ describe('http commands', () => {
       toLlmToolDefinitions: () => [],
     } as any;
     const manager = new ToolManager(
-      workspaceRoot,
       {
         canReadPath: () => true,
         canWritePath: () => true,

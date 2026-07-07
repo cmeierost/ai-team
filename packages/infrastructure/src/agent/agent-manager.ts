@@ -4,6 +4,8 @@ import {
   IAgentDocumentStorage,
   IWorkspaceStorage,
   IWorkspaceDiscoveryStorage,
+  IConfigurationStorage,
+  FileTypeGroupConfig,
   IPermissionStorage,
   Agent,
   AgentConfig,
@@ -40,7 +42,8 @@ export class AgentManager implements IAgentManager {
     private readonly agentStorage: IAgentDocumentStorage,
     private readonly workspaceStorage: IWorkspaceStorage,
     private readonly discoveryStorage: IWorkspaceDiscoveryStorage,
-    private readonly permRegistry: IPermissionStorage
+    private readonly permRegistry: IPermissionStorage,
+    private readonly configurationStorage?: IConfigurationStorage
   ) {
     this.workspaceRoot = workspaceRoot;
   }
@@ -488,7 +491,15 @@ export class AgentManager implements IAgentManager {
     options: AnalyzePermissionOverlapOptions = {}
   ): Promise<PermissionOverlapReport> {
     const { analyzeWorkspacePermissionOverlap } = await import('../context/perm-overlap.js');
-    return analyzeWorkspacePermissionOverlap(this.workspaceRoot, options);
+    let fileTypeGroupsFromConfig: Record<string, FileTypeGroupConfig> | undefined;
+    try {
+      fileTypeGroupsFromConfig =
+        this.configurationStorage?.get('fileTypeGroups') as Record<string, FileTypeGroupConfig> | undefined;
+    } catch {
+      fileTypeGroupsFromConfig = undefined;
+    }
+
+    return analyzeWorkspacePermissionOverlap(this.workspaceRoot, options, fileTypeGroupsFromConfig);
   }
 
   /**

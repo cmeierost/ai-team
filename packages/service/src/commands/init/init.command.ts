@@ -4,6 +4,7 @@ import type { ICommand, CommandResponse, ICommandDescriptor } from '@ai-team/cor
 import { InitCommand, initCommand } from './init.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 import type { IQuestionService } from '../../questions/question-service.js';
+import type { IEmitService } from '../../orchestrator/services/emit-service.js';
 
 type Params = z.infer<typeof InitICommand.schema>;
 const _initICommandSchema = z.object({
@@ -26,6 +27,7 @@ export class InitICommand implements ICommand<Params, void> {
   constructor(
     private readonly workspaceRoot: string,
     private readonly questionService?: IQuestionService,
+    private readonly emitService?: IEmitService,
     private readonly initCmd?: InitCommand
   ) {}
 
@@ -50,7 +52,7 @@ export class InitICommand implements ICommand<Params, void> {
     const noop = (): Promise<never> => Promise.reject(new Error('not available'));
     return {
       signal: runtime?.signal,
-      emit: runtime?.emit,
+      emitService: this.emitService,
       questionInput: (request) => this.questionService?.input(request) ?? noop(),
       questionConfirm: (request) =>
         this.questionService?.confirm(request) ?? (() => Promise.resolve(false))(),

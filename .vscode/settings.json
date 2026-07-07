@@ -11,6 +11,9 @@
     },
     "github.copilot.chat.alternateGptPrompt.enabled": true,
     "github.copilot.chat.anthropic.tools.websearch.enabled": false,
+    "chat.useCopilotModelsForUtilityModels": false,
+    "chat.utilityModel": "customendpoint/best-chat",
+    "chat.utilitySmallModel": "customendpoint/best-chat",
     "chat.viewProgressBadge.enabled": true,
     "chat.useNestedAgentsMdFiles": true,
     "chat.unifiedAgentsBar.enabled": true,
@@ -18,8 +21,6 @@
     "chat.promptFilesLocations": {
         ".ai-team/prompts": true
     },
-    "chat.mcp.gallery.enabled": true,
-    "chat.mcp.assisted.nuget.enabled": true,
     "chat.instructionsFilesLocations": {
         ".ai-team/instructions": true
     },
@@ -27,18 +28,9 @@
     "chat.hookFilesLocations": {
         ".ai-team/hooks": true
     },
-    "chat.experimental.useSkillAdherencePrompt": true,
     "chat.editing.explainChanges.enabled": true,
-    "chat.customAgentInSubagent.enabled": true,
     "chat.checkpoints.showFileChanges": true,
-    "chat.allowAnonymousAccess": true,
-    "chat.agentSkillsLocations": {
-        ".ai-team/skills": true
-    },
     "chat.agentSessionProjection.enabled": true,
-    "chat.agentFilesLocations": {
-        ".ai-team/agents": true
-    },
     "cSpell.language": "en",
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnPaste": true,
@@ -132,7 +124,6 @@
     "[html]": {
         "editor.defaultFormatter": "vscode.html-language-features"
     },
-    "vitest.enable": true,
     "jestrunner.jestCommand": "pnpm vitest run",
-    "jestrunner.isMonorepo": true
+    "js/ts.experimental.useTsgo": false
 }

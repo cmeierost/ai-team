@@ -23,20 +23,20 @@ shared intermediate representation; pipelines and calculators consume it.
                                           └──────────────────┘
 ```
 
-| Package | Description |
-|---------|-------------|
-| [`@aspect/contracts`](./contracts/) | Technology-agnostic JSON Schema contracts, generated types, validators, binary framing |
+| Package                                                    | Description                                                                                          |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [`@aspect/contracts`](./contracts/)                        | Technology-agnostic JSON Schema contracts, generated types, validators, binary framing               |
 | [`@aspect/collector-typescript`](./collectors/typescript/) | TypeScript/JavaScript fact extractor using AST visitors, dependency-cruiser, jscpd, eslint, coverage |
-| [`@aspect/collector-css`](./collectors/css/) | CSS fact extractor |
-| [`@aspect/collector-config`](./collectors/config/) | Config file fact extractor |
-| [`@aspect/collector-markdown`](./collectors/markdown/) | Markdown/documentation fact extractor |
-| [`@aspect/collector-shared`](./collectors/shared/) | Shared collector utilities |
-| [`@aspect/complexity`](./complexity/) | Cyclomatic, cognitive, and Halstead complexity calculators |
-| [`@aspect/duplication`](./duplication/) | Code duplication detection and metrics |
-| [`@aspect/solid`](./solid/) | SOLID indicators and LCOM4 cohesion |
-| [`@aspect/structural`](./structural/) | Structural pipeline (classification, clustering, alignment, recommendations) |
-| [`@aspect/viewer`](./viewer/) | React component library for visualizing analysis results |
-| [`@aspect/viewer-app`](./viewer-app/) | Standalone viewer app for analysis output |
+| [`@aspect/collector-css`](./collectors/css/)               | CSS fact extractor                                                                                   |
+| [`@aspect/collector-config`](./collectors/config/)         | Config file fact extractor                                                                           |
+| [`@aspect/collector-markdown`](./collectors/markdown/)     | Markdown/documentation fact extractor                                                                |
+| [`@aspect/collector-shared`](./collectors/shared/)         | Shared collector utilities                                                                           |
+| [`@aspect/complexity`](./complexity/)                      | Cyclomatic, cognitive, and Halstead complexity calculators                                           |
+| [`@aspect/duplication`](./duplication/)                    | Code duplication detection and metrics                                                               |
+| [`@aspect/solid`](./solid/)                                | SOLID indicators and LCOM4 cohesion                                                                  |
+| [`@aspect/structural`](./structural/)                      | Structural pipeline (classification, clustering, alignment, recommendations)                         |
+| [`@aspect/viewer`](./viewer/)                              | React component library for visualizing analysis results                                             |
+| [`@aspect/viewer-app`](./viewer-app/)                      | Standalone viewer app for analysis output                                                            |
 
 ## Quick Start (Structural Pipeline)
 
@@ -48,11 +48,7 @@ import { runStructuralPipeline } from '@aspect/structural';
 const { data } = await collect({ rootDir: './my-project' });
 
 // 2. Analyze (structural pipeline)
-const result = runStructuralPipeline(
-  data.entities,
-  data.relationships,
-  data.moduleBoundaries,
-);
+const result = runStructuralPipeline(data.entities, data.relationships, data.moduleBoundaries);
 ```
 
 ## Viewer App Pipeline Example
@@ -74,6 +70,22 @@ node analysis/viewer-app/generate-data.mjs
 ```bash
 pnpm install
 pnpm -r build          # builds contracts → collectors → calculators → viewer
+```
+
+## Fuzzy Duplication Scan (feature + cleanup gate)
+
+When implementing a new feature or performing cleanup/refactor work, run the fuzzy duplication detector for the changed scope and review hotspots before finishing.
+
+```bash
+pnpm --filter @aspect/duplication build
+node analysis/duplication/dist/cli/fuzzy-dup.js <scope> --format text
+```
+
+Examples:
+
+```bash
+node analysis/duplication/dist/cli/fuzzy-dup.js packages/service --match-length 12 --fuzz 2 --gap-tolerance 1 --max-hole-size 1
+node analysis/duplication/dist/cli/fuzzy-dup.js packages --format json
 ```
 
 ## Adding a New Language Collector

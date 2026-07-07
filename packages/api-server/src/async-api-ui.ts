@@ -19,7 +19,7 @@ export function asyncApiUi(app: Application) {
   );
 
   // Swagger JSON spec endpoint
-  app.get('/api-docs.json', (req, res) => {
+  app.get('/api-docs.json', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.json(swaggerSpec);
   });

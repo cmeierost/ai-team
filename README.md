@@ -46,6 +46,14 @@ The goal is to evolve this into an open source coding tool of the future—one t
 - Clear package boundaries between core domain logic, orchestration, and adapters
 - Documentation that connects architecture intent to implementation surfaces
 
+## Documentation quickstart (progressive disclosure)
+
+Start with the documentation map:
+
+- [docs/README.md](docs/README.md)
+
+Use shallow docs first and load deep references (`ARCHITECTURE.md`, `docs/api/contracts.md`) only when your task actually needs them.
+
 ## Package docs
 
 - Core: [packages/core/README.md](packages/core/README.md)
@@ -130,6 +138,9 @@ Provider URLs and defaults live in `.ai-team/config.user.json`:
 - Install: `pnpm install`
 - Build all: `pnpm -r build`
 - Test all: `pnpm -r test`
+- For every feature and cleanup/refactor change, run fuzzy duplication scan on the affected scope:
+  - `pnpm --filter @aspect/duplication build`
+  - `node analysis/duplication/dist/cli/fuzzy-dup.js <scope> --format text`
 
 For package-specific verification and guardrails, follow [.github/copilot-instructions.md](.github/copilot-instructions.md).
 

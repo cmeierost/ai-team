@@ -71,7 +71,7 @@ export class ToolDispatcher {
   ): Promise<ToolCallResponse> {
     const { toolName, toolCallId, args } = call;
     const label = `${toolName}(${this.support.formatArgs(args)})`;
-    this.emitToolLifecycle('request', toolName, toolCallId, label, args, ctx);
+    this.emitToolLifecycle('request', toolName, toolCallId, label, args);
 
     const deniedByUser = await this._requestExecutionApproval(
       toolName,
@@ -90,7 +90,7 @@ export class ToolDispatcher {
       };
     }
 
-    this.emitToolLifecycle('start', toolName, toolCallId, 'In progress', args, ctx);
+    this.emitToolLifecycle('start', toolName, toolCallId, 'In progress', args);
 
     const execResult = await this.toolManager.execute(
       ctx.agent!,
@@ -242,8 +242,7 @@ export class ToolDispatcher {
     toolName: string,
     toolCallId: string,
     message: string,
-    args: unknown,
-    ctx: ExecutionContext
+    args: unknown
   ): void {
     this.emitService.emit({
       kind: 'tool',

@@ -1,4 +1,4 @@
-import { LlmConfig, LlmProviderConfig } from './config';
+import { LlmProviderConfig } from './config';
 
 export interface TestConnectionOptions {
   provider?: string;
@@ -29,8 +29,6 @@ export interface AddProviderOptions {
 export interface ProviderSetupInput {
   providerRef: string;
   providerConfig: LlmProviderConfig;
-  legacyLlm: LlmConfig;
-  apiKeyEnvVar?: string;
   apiKey?: string;
 }
 

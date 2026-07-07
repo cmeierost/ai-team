@@ -125,7 +125,7 @@ sequenceDiagram
   Chat->>Orch: run(message)
   Orch->>Turn: sendTurn(...)
   loop token/event streaming
-    Turn-->>Service: hooks.emit(runtime event)
+    Turn-->>Service: emitService.emit(runtime event)
     Service-->>WSH: stream event
     WSH-->>Browser: { type, data }
   end
@@ -178,7 +178,7 @@ sequenceDiagram
   Invoke->>Chat: chatCommand(...)
   Chat->>Orch: run(message)
   Orch->>Turn: sendTurn(...)
-  Turn-->>Invoke: runtime events via hooks.emit
+  Turn-->>Invoke: runtime events via emitService.emit
   Invoke-->>Service: runtime events queued
   Service-->>Surface: status / log / token / tool / question / handoff
   Invoke-->>Service: result or error

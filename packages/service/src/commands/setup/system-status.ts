@@ -8,15 +8,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import type { ICommand, IConfigurationStorage, ICommandDescriptor } from '@ai-team/core';
+import type { ICommand, TeamConfig, ICommandDescriptor } from '@ai-team/core';
 import type { SystemStatus } from '@ai-team/api-contracts';
 import { resolveEffectiveLlmSettings } from '@ai-team/core';
 
 export class SystemStatusCommand {
-  constructor(private readonly configurationStorage: IConfigurationStorage) {}
+  constructor(private readonly teamConfig: TeamConfig) {}
 
   async executeAsync(workspaceRoot: string): Promise<SystemStatus> {
-    return getSystemStatusAsync(workspaceRoot, this.configurationStorage);
+    return getSystemStatusAsync(workspaceRoot, this.teamConfig);
   }
 }
 
@@ -35,17 +35,17 @@ export class SystemStatusICommand implements ICommand<Params, SystemStatus> {
   static readonly schema = _systemStatusICommandSchema;
   readonly metadata = SystemStatusICommandMetadata;
 
-  constructor(private readonly configurationStorage: IConfigurationStorage) {}
+  constructor(private readonly teamConfig: TeamConfig) {}
 
   async execute(_payload: Params, _unusedOrCtx?: unknown, ctx?: any): Promise<any> {
     const workspaceRoot = (ctx ?? (_unusedOrCtx as any))?.workspaceRoot ?? '';
-    return getSystemStatusAsync(workspaceRoot, this.configurationStorage);
+    return getSystemStatusAsync(workspaceRoot, this.teamConfig);
   }
 }
 
 async function getSystemStatusAsync(
   workspaceRoot: string,
-  configurationStorage: IConfigurationStorage
+  teamConfig: TeamConfig
 ): Promise<SystemStatus> {
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
 
@@ -60,11 +60,8 @@ async function getSystemStatusAsync(
   let hasLlmConfig = false;
   if (initialized) {
     try {
-      const teamConfig = await configurationStorage.loadTeamConfigAsync(workspaceRoot);
-      if (teamConfig) {
-        resolveEffectiveLlmSettings(teamConfig);
-        hasLlmConfig = true;
-      }
+      resolveEffectiveLlmSettings(teamConfig);
+      hasLlmConfig = true;
     } catch {
       hasLlmConfig = false;
     }

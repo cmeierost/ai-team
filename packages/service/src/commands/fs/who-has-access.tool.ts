@@ -8,9 +8,14 @@ import type {
   Agent,
   ICommandDescriptor,
 } from '@ai-team/core';
-import { checkPathRight, resolveWorkspacePathMeta } from '@ai-team/core';
+import { resolveWorkspacePathMeta } from '@ai-team/core';
 import type { WhoHasPermissionResponse } from '@ai-team/api-contracts';
-import { accessRightSchema, type AccessRight } from './fs-access.js';
+import {
+  accessRightSchema,
+  findAgentsWithPathRight,
+  toAccessPathPayload,
+  type AccessRight,
+} from './fs-access.js';
 
 export interface WhoHasAccessParams {
   path: string;
@@ -41,7 +46,7 @@ export class WhoHasAccessTool implements ICommand<WhoHasAccessParams, WhoHasAcce
 
   async execute(
     params: WhoHasAccessParams,
-    context: ExecutionContext
+    _context: ExecutionContext
   ): Promise<CommandResponse<WhoHasAccessResult>> {
     const { path: targetPath, right = 'list' } = params;
     const pathMeta = resolveWorkspacePathMeta(this.workspaceRoot, targetPath);
@@ -50,11 +55,7 @@ export class WhoHasAccessTool implements ICommand<WhoHasAccessParams, WhoHasAcce
       return {
         status: 'ok',
         data: {
-          path: {
-            input: targetPath,
-            absolute: pathMeta.absolute,
-            relative: pathMeta.relative,
-          },
+          path: toAccessPathPayload(targetPath, pathMeta),
           right,
           contextIds: [],
           contexts: [],
@@ -64,8 +65,11 @@ export class WhoHasAccessTool implements ICommand<WhoHasAccessParams, WhoHasAcce
     }
 
     const agents = await this.agentManager.getAllAgentsAsync();
-    const matching = agents.filter((a: Agent) =>
-      checkPathRight(this.pathPermissionChecker, a.permissions, pathMeta.relative, right)
+    const matching = findAgentsWithPathRight(
+      agents,
+      this.pathPermissionChecker,
+      pathMeta.relative,
+      right
     );
     const contextIds = matching.map((a: Agent) => a.id);
     const contexts = matching.map((a: Agent) => ({ contextId: a.id, label: a.name }));

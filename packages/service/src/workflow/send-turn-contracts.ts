@@ -1,9 +1,12 @@
 import type { ILlmChatMessageParam, StructuredToolResult, ExecutionContext } from '@ai-team/core';
 import { z } from 'zod';
 
-import type { SendTurnResolvedSkillsAndTools, SendTurnDeps } from '../orchestrator/send-turn-steps.js';
+import type {
+  SendTurnResolvedSkillsAndTools,
+  SendTurnDeps,
+  SendTurnOptions,
+} from '../orchestrator/send-turn-steps.js';
 export type { SendTurnDeps } from '../orchestrator/send-turn-steps.js';
-import type { SendTurnOptions } from '../orchestrator/send-turn.js';
 import type { ResolvedPlugins, TurnResult } from '../orchestrator/pipeline.js';
 import { chatSendTurnResultSchema, type ChatSendTurnResult } from './chat-loop-contracts.js';
 

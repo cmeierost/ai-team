@@ -22,7 +22,6 @@ import type {
   ISystemInfoService,
   ITeamGraphBuilder,
   IConfigurationStorage,
-  IEnvironmentStorage,
   IAgentDocumentStorage,
   ISkillManager,
   IMarkdownSectionService,
@@ -36,9 +35,37 @@ import type {
   IIdeAdapterFactory,
   IPlanningRepository,
   IWorkspaceFsFactory,
+  TeamConfig,
 } from '@ai-team/core';
 import { type IQuestionService } from '../questions/question-service.js';
 import { AskUserCommand, AskUserCommandMetadata } from '../commands/com/ask.command.js';
+import { LlmCallCommand, LlmCallCommandMetadata } from '../commands/orchestration/llm-call.tool.js';
+import {
+  ChatPhaseCommand,
+  ChatPhaseCommandMetadata,
+} from '../commands/orchestration/chat-phase.tool.js';
+import {
+  BootstrapFilesCommand,
+  BootstrapFilesCommandMetadata,
+} from '../commands/orchestration/bootstrap-files.tool.js';
+import {
+  SaveTranscriptCommand,
+  SaveTranscriptCommandMetadata,
+} from '../commands/orchestration/save-transcript.tool.js';
+import {
+  SetPermissionsCommand,
+  SetPermissionsCommandMetadata,
+} from '../commands/orchestration/set-permissions.tool.js';
+import {
+  NameSuggestionsCommand,
+  NameSuggestionsCommandMetadata,
+} from '../commands/orchestration/name-suggestions.tool.js';
+import {
+  PrepareOnboardingCommand,
+  PrepareOnboardingCommandMetadata,
+} from '../commands/orchestration/onboarding-prepare.tool.js';
+import { hireWorkflowDefinition } from '../commands/hr/hire-workflow.js';
+import { createOnboardingWorkflowDefinition } from '../commands/hr/onboarding-workflow.js';
 import { SessionManager } from '../session-manager.js';
 import { ToolManager } from '../tools/tool-manager.js';
 import { CommandRegistry } from '../command-registry-impl.js';
@@ -124,19 +151,13 @@ import { DefaultLlmSelector } from '../orchestrator/defaults/llm-selector.js';
 import { DefaultOutputHandler } from '../orchestrator/defaults/output-handler.js';
 import { buildDefaultHookPlugins } from '../orchestrator/defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from '../orchestrator/defaults/turn-result-parsers.js';
-import { EmitService } from '../orchestrator/services/emit-service.js';
 import { ToolSchemaService } from '../orchestrator/services/schema-service.js';
 import { ToolDispatchSupportService } from '../orchestrator/services/tool-dispatch-support-service.js';
 import { ToolSerializationService } from '../orchestrator/services/tool-serialization-service.js';
 import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import {
-  InfoChatCommand,
-  ChatCommand,
-  ChatInfoService,
-  ChatPreflightService,
-} from '../commands/chat/index.js';
+import { ChatCommand } from '../commands/chat/index.js';
 import { IInteractionService, InteractionService } from '../interaction-service.js';
-import { WorkflowRunnerFactory } from '../workflow/runner.js';
+import { WorkflowRunnerFactory, workflowDescriptor } from '../workflow/runner.js';
 import { GovernanceService } from '../commands/agents/governance.js';
 import { AgentToolsService } from '../commands/tools/tools-service.js';
 import {
@@ -227,7 +248,6 @@ export interface ServiceLayerRegistrationTokens {
   AccessService: IContainerToken<IAccessService>;
 
   ConfigurationStorage: IContainerToken<IConfigurationStorage>;
-  EnvironmentStorage: IContainerToken<IEnvironmentStorage>;
   AgentDocumentStorage: IContainerToken<IAgentDocumentStorage>;
   LlmService: IContainerToken<ILlmService>;
   SkillManager: IContainerToken<ISkillManager>;
@@ -256,38 +276,7 @@ export function buildInteractionService(
   tokens: ServiceLayerRegistrationTokens,
   workspaceRoot: string
 ): InteractionService {
-  const cmd = new ChatCommand(
-    {
-      configurationStorage: c.resolve(tokens.ConfigurationStorage),
-      environmentStorage: c.resolve(tokens.EnvironmentStorage),
-      developerIdentityService: c.resolve(tokens.DeveloperIdentityService),
-      ...(null as any),
-      contextService: c.resolve(tokens.MetaService),
-    },
-    {
-      agentManager: c.resolve(tokens.AgentManager),
-      agentDocumentStorage: c.resolve(tokens.AgentDocumentStorage),
-      markdownSectionService: c.resolve(tokens.MarkdownSectionService),
-      skillManager: c.resolve(tokens.SkillManager),
-    },
-    {
-      sessionManager: c.resolve(tokens.SessionManager),
-      llmService: c.resolve(tokens.LlmService),
-      proposalStoreFactory: c.resolve(tokens.ProposalStoreFactory),
-    },
-    {
-      pathPermissionChecker: c.resolve(tokens.PathPermissionChecker),
-      serviceContainer: c as any,
-    },
-    new ChatInfoService(EmitService.forConsole()),
-    new ChatPreflightService(
-      c.resolve(tokens.ConfigurationStorage),
-      c.resolve(tokens.EnvironmentStorage),
-      c.resolve(tokens.DeveloperIdentityService),
-      EmitService.forConsole()
-    ),
-    new InfoChatCommand(c.resolve(tokens.AgentManager), c.resolve(tokens.QuestionService))
-  );
+  const cmd = new ChatCommand(c);
 
   const runChat = (wr: string, agentId: string | undefined, options: any, hooks: any) =>
     cmd.execute(wr, agentId, options, hooks);
@@ -315,11 +304,11 @@ export function registerServiceLayerServices(
 
   container.registerScoped(
     COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory,
-    (c) => new WorkflowRunnerFactory(c.child())
+    (_c) => new WorkflowRunnerFactory(_c.child())
   );
 
   // Register CommandRegistry with all built-in tools
-  container.registerSingleton(COMMAND_FACTORY_TOKENS.CommandRegistry, (c) => {
+  container.registerSingleton(COMMAND_FACTORY_TOKENS.CommandRegistry, (_c) => {
     const registry = new CommandRegistry();
     // File system tools
     registry.register(
@@ -336,35 +325,35 @@ export function registerServiceLayerServices(
     );
     registry.register(
       FsWriteFileToolMetadata,
-      (r) => new FsWriteFileTool(r.resolve(tokens.WorkspaceFsFactory))
+      () => new FsWriteFileTool(_c.resolve(tokens.WorkspaceFsFactory))
     );
     registry.register(
       FsCreateFileToolMetadata,
-      (r) => new FsCreateFileTool(r.resolve(tokens.WorkspaceFsFactory))
+      () => new FsCreateFileTool(_c.resolve(tokens.WorkspaceFsFactory))
     );
     registry.register(
       FsDeletePathToolMetadata,
-      (r) => new FsDeletePathTool(r.resolve(tokens.WorkspaceFsFactory))
+      () => new FsDeletePathTool(_c.resolve(tokens.WorkspaceFsFactory))
     );
     registry.register(
       FsMkdirToolMetadata,
-      (r) => new FsMkdirTool(r.resolve(tokens.WorkspaceFsFactory))
+      () => new FsMkdirTool(_c.resolve(tokens.WorkspaceFsFactory))
     );
     registry.register(
       FsExistsToolMetadata,
-      (r) => new FsExistsTool(r.resolve(tokens.WorkspaceFsFactory))
+      () => new FsExistsTool(_c.resolve(tokens.WorkspaceFsFactory))
     );
     registry.register(
       FsInfoToolMetadata,
-      (r) => new FsInfoTool(r.resolve(tokens.WorkspaceFsFactory))
+      () => new FsInfoTool(_c.resolve(tokens.WorkspaceFsFactory))
     );
     registry.register(
       FsListToolMetadata,
-      (r) => new FsListTool(r.resolve(tokens.WorkspaceFsFactory))
+      () => new FsListTool(_c.resolve(tokens.WorkspaceFsFactory))
     );
     registry.register(
       FsTreeToolMetadata,
-      (r) => new FsTreeTool(r.resolve(tokens.WorkspaceFsFactory))
+      () => new FsTreeTool(_c.resolve(tokens.WorkspaceFsFactory))
     );
     registry.register(
       FsSearchContentToolMetadata,
@@ -420,12 +409,12 @@ export function registerServiceLayerServices(
       LspToolMetadata,
       (r) => new LspTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.IdeAdapterFactory))
     );
-    registry.register(GrepCodeToolMetadata, (r) => new GrepCodeTool());
+    registry.register(GrepCodeToolMetadata, () => new GrepCodeTool());
     // HTTP tools
-    registry.register(HttpFetchCommandMetadata, (r) => new HttpFetchCommand());
-    registry.register(HttpCrawlCommandMetadata, (r) => new HttpCrawlCommand());
+    registry.register(HttpFetchCommandMetadata, () => new HttpFetchCommand());
+    registry.register(HttpCrawlCommandMetadata, () => new HttpCrawlCommand());
     // Additional editing tools
-    registry.register(CodeSearchToolMetadata, (r) => new CodeSearchTool());
+    registry.register(CodeSearchToolMetadata, () => new CodeSearchTool());
     registry.register(
       FsEditToolMetadata,
       (r) =>
@@ -495,6 +484,56 @@ export function registerServiceLayerServices(
       AskUserCommandMetadata,
       (r) => new AskUserCommand(r.resolve(COMMAND_FACTORY_TOKENS.QuestionService))
     );
+    registry.register(
+      LlmCallCommandMetadata,
+      (r) => new LlmCallCommand(r.resolve(COMMAND_FACTORY_TOKENS.LlmService))
+    );
+    registry.register(ChatPhaseCommandMetadata, (r) => {
+      const questionService = r.resolve(COMMAND_FACTORY_TOKENS.QuestionService);
+      const chatCommand = new ChatCommand(r);
+
+      return new ChatPhaseCommand(
+        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+        chatCommand,
+        r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
+        questionService
+      );
+    });
+    registry.register(
+      BootstrapFilesCommandMetadata,
+      (r) => new BootstrapFilesCommand(r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot))
+    );
+    registry.register(
+      PrepareOnboardingCommandMetadata,
+      (r) =>
+        new PrepareOnboardingCommand(
+          r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+          r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService)
+        )
+    );
+    registry.register(
+      SaveTranscriptCommandMetadata,
+      (r) => new SaveTranscriptCommand(r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot))
+    );
+    registry.register(
+      SetPermissionsCommandMetadata,
+      (r) => new SetPermissionsCommand(r.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage))
+    );
+    registry.register(
+      NameSuggestionsCommandMetadata,
+      (r) => new NameSuggestionsCommand(r.resolve(COMMAND_FACTORY_TOKENS.LlmService))
+    );
+
+    // Workflow-defined tools: registered via WorkflowRunnerFactory.asCommand().
+    // The factory wraps a WorkflowDefinition as an ICommand whose execute()
+    // runs the workflow steps end-to-end.
+    registry.register(workflowDescriptor(hireWorkflowDefinition), (r) =>
+      r.resolve(COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory).asCommand(hireWorkflowDefinition)
+    );
+    const onboardWorkflowDefinition = createOnboardingWorkflowDefinition();
+    registry.register(workflowDescriptor(onboardWorkflowDefinition), (r) =>
+      r.resolve(COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory).asCommand(onboardWorkflowDefinition)
+    );
     return registry;
   });
 
@@ -504,32 +543,39 @@ export function registerServiceLayerServices(
   // (e.g. AskUserCommand) resolve the live WsQuestionService rather than the
   // root-container no-op fallback.
   container.registerScoped(tokens.ToolManager, (c) => {
-    const workspaceRoot = c.resolve(tokens.WorkspaceRoot) as string;
     const pathPermissionChecker = c.resolve(tokens.PathPermissionChecker);
     const registry = c.resolve(COMMAND_FACTORY_TOKENS.CommandRegistry);
 
-    const manager = new ToolManager(workspaceRoot, pathPermissionChecker, registry, c);
+    const manager = new ToolManager(pathPermissionChecker, registry, c);
 
     // Register orchestration tools (factory-constructed)
     const workflowCatalog = {
       listWorkflowIds(): string[] {
         return registry
-          .getAll({ availableIn: { tool: true }, group: 'workflow' })
-          .filter((t) => t.key !== 'list')
+          .getAll({ availableIn: { tool: true } })
+          .filter(
+            (t) =>
+              t.key !== 'list' &&
+              (t.group === 'workflow' || (t.tags ?? []).includes('workflow-definition'))
+          )
           .map((t) => t.key);
       },
       async getWorkflowDefinition(workflowId: string) {
-        const meta = registry.get(`workflow_${workflowId}`);
-        if (!meta?.availableIn?.tool) {
-          throw new Error(`Workflow definition '${workflowId}' is not available.`);
+        const candidates = [workflowId, `workflow_${workflowId}`];
+
+        for (const candidate of candidates) {
+          const meta = registry.get(candidate);
+          if (!meta?.availableIn?.tool) continue;
+
+          const tool = registry.resolve(candidate, c) as
+            | { getDefinition?: () => unknown }
+            | undefined;
+          if (tool?.getDefinition) {
+            return tool.getDefinition() as import('@ai-team/api-contracts').WorkflowDefinitionApiResponse;
+          }
         }
-        const tool = registry.resolve(`workflow_${workflowId}`, c) as
-          | { getDefinition?: () => unknown }
-          | undefined;
-        if (!tool?.getDefinition) {
-          throw new Error(`Workflow definition '${workflowId}' is not available.`);
-        }
-        return tool.getDefinition() as import('@ai-team/api-contracts').WorkflowDefinitionApiResponse;
+
+        throw new Error(`Workflow definition '${workflowId}' is not available.`);
       },
     };
 
@@ -562,6 +608,7 @@ export function registerServiceLayerServices(
     tokens.ToolDispatchSupportService,
     (c) =>
       new ToolDispatchSupportService(
+        c.resolve(tokens.WorkspaceRoot),
         c.resolve(tokens.ToolSerializationService),
         c.resolve(tokens.LlmService),
         c.resolve(tokens.ProposalStoreFactory)
@@ -571,8 +618,6 @@ export function registerServiceLayerServices(
     new WorkspaceOverviewEnricher(),
     new TeamRosterEnricher(c.resolve(tokens.AgentManager)),
   ]);
-  const emitServiceInstance = new EmitService(() => {});
-  container.registerSingleton(COMMAND_FACTORY_TOKENS.EmitService, () => emitServiceInstance);
   container.registerSingleton(
     COMMAND_FACTORY_TOKENS.ToolSchemaService,
     (c) => new ToolSchemaService(c.resolve(COMMAND_FACTORY_TOKENS.ToolManager))
@@ -602,19 +647,17 @@ export function registerServiceLayerServices(
         c.resolve(tokens.SystemInfoService)
       )
   );
-  container.registerSingleton(
-    tokens.AgentsService,
-    (c) =>
-      new AgentsService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.ToolManager),
-        c.resolve(tokens.ConfigurationStorage),
-        c.resolve(tokens.PermissionStorage),
-        c.resolve(tokens.MarkdownSectionService),
-        c.resolve(tokens.FileAnnotationService)
-      )
-  );
+  container.registerSingleton(tokens.AgentsService, (c) => {
+    const configStorage = c.resolve(tokens.ConfigurationStorage);
+    return new AgentsService(
+      c.resolve(tokens.WorkspaceRoot),
+      c.resolve(tokens.AgentManager),
+        configStorage.get(),
+      c.resolve(tokens.PermissionStorage),
+      c.resolve(tokens.MarkdownSectionService),
+      c.resolve(tokens.FileAnnotationService)
+    );
+  });
   container.registerSingleton(
     tokens.TeamService,
     (c) => new TeamService(c.resolve(tokens.TeamGraphBuilder))
@@ -669,25 +712,23 @@ export function registerServiceLayerServices(
     tokens.DeveloperService,
     (c) => new DeveloperService(c.resolve(tokens.DeveloperIdentityService))
   );
-  container.registerSingleton(
-    tokens.FilesService,
-    (c) =>
-      new FilesService(
+  container.registerSingleton(tokens.FilesService, (c) => {
+    const configStorage = c.resolve(tokens.ConfigurationStorage);
+    const fileTree = configStorage.get('fileTree') ?? {};
+    return new FilesService(
+      c.resolve(tokens.AgentManager),
+      fileTree,
+      c.resolve(tokens.PermissionStorage),
+      new FileTreeService(
         c.resolve(tokens.WorkspaceRoot),
         c.resolve(tokens.AgentManager),
         c.resolve(tokens.ConfigurationStorage),
         c.resolve(tokens.PermissionStorage),
-        c.resolve(tokens.FileTreeService),
-        new FileTreeService(
-          c.resolve(tokens.WorkspaceRoot),
-          c.resolve(tokens.AgentManager),
-          c.resolve(tokens.ConfigurationStorage),
-          c.resolve(tokens.PermissionStorage),
-          new GovernanceService(c.resolve(tokens.AgentManager), c.resolve(tokens.QuestionService)),
-          c.resolve(tokens.FileTreeService)
-        )
+        new GovernanceService(c.resolve(tokens.AgentManager), c.resolve(tokens.QuestionService)),
+        c.resolve(tokens.FileTreeService)
       )
-  );
+    );
+  });
   container.registerSingleton(
     tokens.IdeService,
     (c) => new IdeService(c.resolve(tokens.WorkspaceRoot), c.resolve(tokens.IdeAdapterFactory))
@@ -722,9 +763,7 @@ export function registerServiceLayerServices(
       new ConfigService(
         cfg.workspaceRoot,
         c.resolve(tokens.AgentManager),
-        c.resolve(tokens.ConfigurationStorage),
-        c.resolve(tokens.EnvironmentStorage),
-        c.resolve(tokens.LlmProviderTester)
+        c.resolve(tokens.ConfigurationStorage)
       )
   );
   container.registerSingleton(

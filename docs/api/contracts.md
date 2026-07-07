@@ -1,5 +1,8 @@
 # API Contracts
 
+> Deep reference (on-demand): use this document for API/transport/WebSocket tasks.
+> For general architecture orientation, start with `docs/architecture/overview.md`.
+
 This document defines stable contracts between frontend and backend services.
 
 ## Interactive API Documentation
@@ -102,6 +105,7 @@ Swagger UI provides:
   - `status`, `token`, `tool`, `question`, `error`, `done`
 - **Runtime detail**:
   - `data.kind` mirrors service runtime events (for example: `status`, `token`, `tool`, `question`, `handoff`, `log`, `code_edit_proposal`)
+  - runtime events are correlated per request by `InteractionStream` using request-scoped queueing over a connection-scoped `EmitService` sink
 
 ```mermaid
 sequenceDiagram

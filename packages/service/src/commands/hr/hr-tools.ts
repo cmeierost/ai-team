@@ -4,10 +4,10 @@ import type {
   AgentConfig,
   IAgentManager,
   IAvatarManager,
-  IConfigurationStorage,
+  TeamConfig,
   CommandResponse,
 } from '@ai-team/core';
-import { ContextLevel } from '@ai-team/core';
+import { ContextLevel, resolveEffectiveLlmSettings } from '@ai-team/core';
 
 function ok<T>(data: T): CommandResponse<T> {
   return { status: 'ok', data };
@@ -235,15 +235,14 @@ export class AddPictureTool {
   });
 
   constructor(
-    private readonly workspaceRoot: string,
     private readonly agentManager: IAgentManager,
     private readonly avatarManager: IAvatarManager,
-    private readonly configStorage: IConfigurationStorage
+    private readonly teamConfig: TeamConfig
   ) {}
 
   async execute(
     params: AddPictureParams,
-    context: ExecutionContext
+    _context: ExecutionContext
   ): Promise<CommandResponse<AddPictureResult>> {
     const { agent, prompt, urlTemplate, provider, modelName, apiKey } = params;
 
@@ -266,31 +265,30 @@ export class AddPictureTool {
         apiKey
       );
     } else {
-      const teamConfig = await this.configStorage.loadTeamConfigAsync(this.workspaceRoot);
-      const templateUrl = (teamConfig as any)?.avatarUrlTemplate;
+      const templateUrl = (this.teamConfig as any)?.avatarUrlTemplate;
       if (templateUrl) {
         imageData = await this.avatarManager.downloadRandomAvatar(templateUrl, target);
       } else {
         const builtPrompt = this.avatarManager.buildAvatarPrompt(target);
-        const config = await this.configStorage.loadEffectiveConfigAsync(this.workspaceRoot);
-        const llmConfig = config?.llm as any;
-        if (!llmConfig)
+        const resolved = resolveEffectiveLlmSettings(this.teamConfig);
+        if (!resolved.config.provider)
           throw new Error('No LLM config or URL template available for avatar generation.');
+        const providerConfig = resolved.providerRef
+          ? this.teamConfig.providers?.[resolved.providerRef]
+          : undefined;
+        if (!providerConfig) throw new Error('No provider config found for avatar generation.');
         imageData = await this.avatarManager.generateAvatarWithAI(
           builtPrompt,
-          llmConfig,
-          llmConfig.model ?? llmConfig.modelKey ?? 'gpt-4o',
-          llmConfig.apiKey ?? ''
+          providerConfig,
+          resolved.config.model ?? 'gpt-4o',
+          resolved.config.apiKey ?? ''
         );
       }
     }
 
-    await this.avatarManager.saveAvatarPreview(target.name, imageData, this.workspaceRoot);
-    const avatarRelPath = await this.avatarManager.finalizeAvatar(
-      target.name,
-      this.workspaceRoot
-    );
-    await this.avatarManager.updateAgentAvatar(target, avatarRelPath, this.workspaceRoot);
+    await this.avatarManager.saveAvatarPreview(target.name, imageData);
+    const avatarRelPath = await this.avatarManager.finalizeAvatar(target.name);
+    await this.avatarManager.updateAgentAvatar(target, avatarRelPath);
 
     return ok({
       agentId: target.id,

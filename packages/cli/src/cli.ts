@@ -14,7 +14,9 @@ import {
   findWorkspaceRoot,
   ServiceDomainError,
   type ServiceErrorInputRequest,
+  EmitService,
 } from '@ai-team/service';
+import { COMMAND_FACTORY_TOKENS } from '@ai-team/service/src/types.js';
 import { createQuestionResponders } from './handlers/question-responders.js';
 import { runCommandStream } from './handlers/stream-runner.js';
 import { registerCliResultHandlers } from './handlers/result-renderers.js';
@@ -113,6 +115,11 @@ const workspaceRoot = findWorkspaceRoot();
 
 const commandContainer = createContainerWithBootstrap({ workspaceRoot }, (c) => {
   c.registerInstance(TOKENS.QuestionService, createQuestionResponders());
+  // EmitService for the CLI — registered under both container and service-layer
+  // tokens so both consumers can resolve it.
+  const emitService = EmitService.forConsole();
+  c.registerInstance(TOKENS.EmitService, emitService);
+  c.registerInstance(COMMAND_FACTORY_TOKENS.EmitService, emitService);
 });
 registerCliResultHandlers(commandContainer as unknown as IServiceContainer);
 const commandClient = new CliCommandClient(
@@ -180,7 +187,6 @@ function toCliExecutionContext(args: unknown[]): ExecutionContext {
       : undefined;
 
   return {
-    workspaceRoot,
     invocationSurface: 'cli',
     calledByHuman: true,
     history: [],
@@ -233,7 +239,7 @@ function createGenericPayloadBuilder(entry: CliCommandMetadata): (...args: unkno
       if (typeof arg === 'string') {
         positionals.push(arg);
       } else if (Array.isArray(arg) && arg.every((part) => typeof part === 'string')) {
-        positionals.push(...(arg as string[]));
+        positionals.push(...arg);
       }
     }
 

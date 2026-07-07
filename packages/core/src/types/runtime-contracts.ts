@@ -302,11 +302,6 @@ export interface IModelDiscoveryRegistry {
 }
 
 export interface ILlmProviderTester {
-  testConnectionAsync(
-    workspaceRoot: string,
-    config: TeamConfig,
-    providerRef: string,
-    injectedApiKey?: string
-  ): Promise<void>;
+  testConnectionAsync(config: TeamConfig, providerRef: string): Promise<void>;
   testLlmConnectionAsync(config: LlmConfig, apiKey?: string): Promise<string>;
 }

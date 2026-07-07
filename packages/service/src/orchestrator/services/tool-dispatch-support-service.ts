@@ -85,9 +85,10 @@ const SILENT_TOOL_NAMES = new Set([
 
 export class ToolDispatchSupportService {
   constructor(
+    private readonly workspaceRoot: string,
     private readonly serialization: ToolSerializationService,
     private readonly llmService: ILlmService,
-    private readonly proposalStoreFactory?: IProposalStoreFactory
+    private readonly proposalStoreFactory: IProposalStoreFactory
   ) {}
 
   formatArgs(args: unknown): string {
@@ -269,7 +270,7 @@ export class ToolDispatchSupportService {
     result: unknown,
     args: unknown,
     ctx: ExecutionContext,
-    emitService?: IEmitService
+    emitService: IEmitService
   ): Promise<void> {
     const r = result as Record<string, unknown>;
     if (r?.status !== 'pending_approval') return;
@@ -281,8 +282,8 @@ export class ToolDispatchSupportService {
       newContent: string;
     }>;
 
-    const resolvedFiles = await this.resolveProposalFiles(ctx.workspaceRoot, changes);
-    const store = this.resolveProposalStore(ctx.workspaceRoot);
+    const resolvedFiles = await this.resolveProposalFiles(changes);
+    const store = this.resolveProposalStore();
 
     const { agentName } = this.resolveAgentIdentity(ctx);
     store.save({
@@ -295,7 +296,7 @@ export class ToolDispatchSupportService {
 
     const { additions, deletions } = this.resolveDiffCounts(r, resolvedFiles);
 
-    emitService?.emit({
+    emitService.emit({
       kind: 'code_edit_proposal',
       proposalId,
       agentName,
@@ -314,25 +315,19 @@ export class ToolDispatchSupportService {
     return { agentId, agentName };
   }
 
-  private resolveProposalStore(workspaceRoot: string): IProposalStore {
-    const store = this.proposalStoreFactory?.create(workspaceRoot) as IProposalStore | undefined;
-    if (!store) {
-      throw new Error(
-        'Proposal store factory is not configured for code edit proposal persistence.'
-      );
-    }
+  private resolveProposalStore(): IProposalStore {
+    const store = this.proposalStoreFactory.create(this.workspaceRoot) as IProposalStore;
     return store;
   }
 
   private async resolveProposalFiles(
-    workspaceRoot: string,
     changes: Array<{ filePath: string; oldContent: string; newContent: string }>
   ): Promise<Array<{ filePath: string; oldContent: string; newContent: string }>> {
     const resolvedFiles: typeof changes = [];
     for (const change of changes) {
       const absPath = path.isAbsolute(change.filePath)
         ? change.filePath
-        : path.join(workspaceRoot, change.filePath);
+        : path.join(this.workspaceRoot, change.filePath);
       await fs.mkdir(path.dirname(absPath), { recursive: true });
       await fs.writeFile(absPath, change.newContent, 'utf8');
       resolvedFiles.push({

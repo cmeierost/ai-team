@@ -198,7 +198,7 @@ export class FindSymbolTool implements ICommand<FindSymbolParams, unknown> {
     if (filePath && line != null && character != null) {
       const absPath = path.isAbsolute(filePath)
         ? filePath
-        : path.join(context.workspaceRoot, filePath);
+        : path.join(this.workspaceRoot, filePath);
       const result = await lsp.execute('goToDefinition', {
         filePath: absPath,
         line: line - 1,
@@ -210,7 +210,7 @@ export class FindSymbolTool implements ICommand<FindSymbolParams, unknown> {
     if (filePath) {
       const absPath = path.isAbsolute(filePath)
         ? filePath
-        : path.join(context.workspaceRoot, filePath);
+        : path.join(this.workspaceRoot, filePath);
       const result = await lsp.execute('documentSymbol', { filePath: absPath });
       if (result.kind === 'symbols') {
         const filtered = filterSymbolsByName(result.symbols, symbolName);
@@ -308,9 +308,7 @@ export class FindReferencesTool implements ICommand<FindReferencesParams, unknow
       };
     }
 
-    const absPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(context.workspaceRoot, filePath);
+    const absPath = path.isAbsolute(filePath) ? filePath : path.join(this.workspaceRoot, filePath);
     const result = await lsp.execute('findReferences', {
       filePath: absPath,
       line: line - 1,
@@ -385,9 +383,7 @@ export class LspTool implements ICommand<LspParams, unknown> {
       };
     }
 
-    const absPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(context.workspaceRoot, filePath);
+    const absPath = path.isAbsolute(filePath) ? filePath : path.join(this.workspaceRoot, filePath);
     const result = await lsp.execute(operation, {
       filePath: absPath,
       line: line == null ? undefined : line - 1,
@@ -423,6 +419,8 @@ export class GrepCodeTool implements ICommand<GrepCodeParams, GrepCodeResult> {
   readonly metadata = GrepCodeToolMetadata;
   readonly name = 'grep';
 
+  constructor(private readonly workspaceRoot: string) {}
+
   formatForLlm(result: unknown): unknown {
     const r = result as GrepCodeResult;
     const header = `pattern: ${r.pattern}\n${r.matchCount} matches in ${r.fileCount} files`;
@@ -431,13 +429,10 @@ export class GrepCodeTool implements ICommand<GrepCodeParams, GrepCodeResult> {
     return `${header}\n\n${lines.join('\n')}`;
   }
 
-  async execute(
-    params: GrepCodeParams,
-    context: ExecutionContext
-  ): Promise<CommandResponse<GrepCodeResult>> {
+  async execute(params: GrepCodeParams): Promise<CommandResponse<GrepCodeResult>> {
     const { pattern, filePatterns, limit } = params;
     const matches = await Ripgrep.search({
-      cwd: context.workspaceRoot,
+      cwd: this.workspaceRoot,
       pattern,
       glob: filePatterns,
       limit,
@@ -483,7 +478,10 @@ export class AnalyzeComplexityTool {
       .describe('Specific function to analyze (omit for all functions)'),
   });
 
-  constructor(private readonly analyzer: ITypeScriptAnalyzer) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly analyzer: ITypeScriptAnalyzer
+  ) {}
 
   formatForLlm(result: unknown): unknown {
     const r = result as any;
@@ -509,7 +507,7 @@ export class AnalyzeComplexityTool {
     const { filePath, functionName } = params;
     const absolutePath = path.isAbsolute(filePath)
       ? filePath
-      : path.join(context.workspaceRoot, filePath);
+      : path.join(this.workspaceRoot, filePath);
 
     getPathPermissionChecker(context);
 
@@ -555,7 +553,10 @@ export class ApplyCodeEditTool {
       .describe('List of file changes to apply'),
   });
 
-  constructor(private readonly editManager: ICodeEditManager) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly editManager: ICodeEditManager
+  ) {}
 
   async execute(params: ApplyCodeEditParams, context: ExecutionContext): Promise<unknown> {
     const { description, changes } = params;
@@ -564,7 +565,7 @@ export class ApplyCodeEditTool {
       ...change,
       filePath: path.isAbsolute(change.filePath)
         ? change.filePath
-        : path.join(context.workspaceRoot, change.filePath),
+        : path.join(this.workspaceRoot, change.filePath),
     }));
 
     const filePaths = absoluteChanges.map((c) => c.filePath);

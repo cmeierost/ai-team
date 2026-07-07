@@ -15,11 +15,13 @@ export const HhRefreshCommandMetadata = {
 export class HhRefreshCommand implements ICommand<Record<string, never>, void> {
   readonly metadata = HhRefreshCommandMetadata;
 
+  constructor(private readonly workspaceRoot: string) {}
+
   async execute(
     _payload: Record<string, never>,
     ctx: ExecutionContext
   ): Promise<CommandResponse<void>> {
-    await hhRefreshCommand(ctx.workspaceRoot);
+    await hhRefreshCommand(this.workspaceRoot);
     return { status: 'ok' };
   }
 }

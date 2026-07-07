@@ -9,12 +9,7 @@ import type {
   QuestionPasswordRequest,
 } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
-import {
-  generateAgentColor,
-  parseHslHue,
-  createIdeAdapter,
-  ConfigurationStorage,
-} from '@ai-team/infrastructure';
+import { createIdeAdapter } from '@ai-team/infrastructure';
 import { findWorkspaceRoot, type IQuestionService } from '@ai-team/service';
 import { checkbox, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
@@ -331,10 +326,10 @@ function handleOneShotEvent(
 
   if (event.kind === 'tool') {
     const phase = event.toolPhase || 'event';
-    const formatted = formatToolEventMessage(event as Record<string, unknown>);
+    const formatted = formatToolEventMessage(event);
     const suffix = formatted ? ` — ${formatted}` : '';
     writeStderrLine(chalk.cyan(`[backend:tool:${phase}] ${event.toolName}${suffix}`));
-    const detail = formatToolEventDetail(event as Record<string, unknown>);
+    const detail = formatToolEventDetail(event);
     if (detail) writeStderrLine(detail);
     return;
   }
@@ -399,6 +394,26 @@ function resolveDeveloperDisplayName(env: NodeJS.ProcessEnv): string {
     // git not available or not configured
   }
   return 'You';
+}
+
+function hashStringToHue(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (str.codePointAt(i) ?? 0) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash % 360);
+}
+
+function generateAgentColor(agent: { name: string; avatar?: { color?: string; seed?: string } }): string {
+  if (agent.avatar?.color) return agent.avatar.color;
+  const seed = agent.avatar?.seed || agent.name;
+  const hue = hashStringToHue(seed);
+  return `hsl(${hue}, 70%, 60%)`;
+}
+
+function parseHslHue(hsl: string): number | undefined {
+  const m = /^hsl\((\d+)/i.exec(hsl);
+  return m ? Number(m[1]) : undefined;
 }
 
 function countTreeNodes(node?: FileTreeNodeLike): { files: number; directories: number } {
@@ -673,11 +688,25 @@ export async function renderChat(
   client: ICliCommandClient,
   agentId: string | undefined,
   options: ChatOptions,
-  mediatorLog: boolean = false
+  mediatorLog: boolean = false,
+  resolveProjectName?: (workspaceRoot: string) => Promise<string | undefined>
 ) {
   const mediatorLoggerEnabled = mediatorLog || process.env.AI_TEAM_MEDIATOR_LOG === '1';
   const frontendFileLogEnabled = isFrontendFileLogEnabled();
   const workspaceRoot = findWorkspaceRoot();
+  const resolveProjectNameFromWorkspace = async (): Promise<string | undefined> => {
+    if (resolveProjectName) {
+      return resolveProjectName(workspaceRoot);
+    }
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      const pkg = JSON.parse(await readFile(join(workspaceRoot, 'package.json'), 'utf8'));
+      return pkg.name as string | undefined;
+    } catch {
+      return undefined;
+    }
+  };
   const chatCommands = client.getCommands({ chat: true });
   const writeStderrLine = (text: string) => {
     process.stderr.write(`${text}\n`);
@@ -843,20 +872,7 @@ export async function renderChat(
         abortControl.signal,
         startSpinner,
         stopSpinner,
-        async () => {
-          const cfg = await new ConfigurationStorage().loadTeamConfigAsync(workspaceRoot);
-          const cfgName = (cfg as any)?.projectName as string | undefined;
-          if (cfgName) return cfgName;
-          // Fall back to package.json name
-          try {
-            const { readFile } = await import('node:fs/promises');
-            const { join } = await import('node:path');
-            const pkg = JSON.parse(await readFile(join(workspaceRoot, 'package.json'), 'utf8'));
-            return pkg.name as string | undefined;
-          } catch {
-            return undefined;
-          }
-        },
+        resolveProjectNameFromWorkspace,
         chatCommands
       )
     );

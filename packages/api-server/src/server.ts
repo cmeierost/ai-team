@@ -7,7 +7,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
-import { findWorkspaceRoot, WsQuestionService } from '@ai-team/service';
+import { findWorkspaceRoot, WsQuestionService, EmitService } from '@ai-team/service';
+import { COMMAND_FACTORY_TOKENS } from '@ai-team/service/src/types.js';
 import { SqliteBackend } from '@ai-team/infrastructure';
 import { createExpressRouter } from '@ts-http/express';
 import {
@@ -193,6 +194,16 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     const questionService = new WsQuestionService();
     questionService.setup((data) => ws.send(JSON.stringify({ type: 'question', data })));
     connectionContainer.registerInstance(TOKENS.QuestionService, questionService);
+
+    // Per-connection EmitService. Default sink is the connection-level WebSocket;
+    // InteractionStream temporarily rebinds the sink per request so it can
+    // correlate events with the current requestId and emit terminal state.
+    const emitService = new EmitService((event) => {
+      ws.send(JSON.stringify({ type: 'runtime', data: event }));
+    });
+    connectionContainer.registerInstance(TOKENS.EmitService, emitService);
+    connectionContainer.registerInstance(COMMAND_FACTORY_TOKENS.EmitService, emitService);
+
     const interactionService = connectionContainer.resolve(TOKENS.InteractionService);
 
     setupChatWebSocket(ws, agentId, interactionService, sessionManager, sessionId, {

@@ -129,7 +129,6 @@ async function setupManager(
     toLlmToolDefinitions: () => [],
   } as any;
   const manager = new ToolManager(
-    workspaceRoot,
     {
       can: () => true,
       canReadPath: () => true,

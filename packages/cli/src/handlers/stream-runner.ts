@@ -74,7 +74,6 @@ export async function runCommandStream(
 
   try {
     const executionContext: ExecutionContext = {
-      workspaceRoot: '',
       history: [],
       invocationSurface: 'cli',
       calledByHuman: true,

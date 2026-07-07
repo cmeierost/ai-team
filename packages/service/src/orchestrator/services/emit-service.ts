@@ -41,18 +41,46 @@ export interface IEmitService extends ChatCommandEmitter {
     toolDenial?: ToolDenialEvent,
     toolResult?: ToolRuntimePayloadEvent
   ): void;
+  /**
+   * Temporarily route events through a different sink and return a restore
+   * function. Used by request-scoped wrappers (e.g. `InteractionStream`).
+   */
+  bindSink(sink: (event: RuntimeStreamEvent) => void): () => void;
 }
 
 /**
  * Per-connection event emitter.
  * Construct at connection time; the DI container provides per-connection
  * isolation via a scoped child container — no AsyncLocalStorage needed.
+ *
+ * The sink is mutable so a request-scoped wrapper (e.g. `InteractionStream`)
+ * can temporarily route events through its own queue/correlator and restore
+ * the connection-level sink when the request completes.
  */
 export class EmitService implements IEmitService {
-  constructor(private readonly emitter: (event: RuntimeStreamEvent) => void) {}
+  private emitter: (event: RuntimeStreamEvent) => void;
+
+  constructor(emitter: (event: RuntimeStreamEvent) => void) {
+    this.emitter = emitter;
+  }
 
   emit(event: RuntimeStreamEvent): void {
     this.emitter(event);
+  }
+
+  /**
+   * Replace the current sink and return a restore function.
+   *
+   * Used by `InteractionStream` to route runtime events through a per-request
+   * queue for request/response correlation. The restore callback must be invoked
+   * when the request finishes so subsequent emits go back to the connection sink.
+   */
+  bindSink(sink: (event: RuntimeStreamEvent) => void): () => void {
+    const previous = this.emitter;
+    this.emitter = sink;
+    return () => {
+      this.emitter = previous;
+    };
   }
 
   log(level: 'info' | 'warn' | 'error', message: string): void {

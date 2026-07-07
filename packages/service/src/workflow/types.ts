@@ -13,18 +13,87 @@ export class WorkflowAbortError extends Error {
   }
 }
 
+// ─── Expression types ─────────────────────────────────────────────────────────
+
+export type WorkflowArgScalar = string | number | boolean | null;
+
+/** Explicit literal passthrough (prevents expression parsing/coercion). */
+export interface WorkflowLiteralTransform {
+  $literal: unknown;
+}
+
+/** Return first non-null/non-undefined value. */
+export interface WorkflowCoalesceTransform {
+  $coalesce: WorkflowArgValue[];
+}
+
+/**
+ * Map an input array into a derived array value.
+ *
+ * Example:
+ * {
+ *   $map: {
+ *     from: '{{ceo_names.suggestions}}',
+ *     as: 'candidate',
+ *     value: { name: '{{candidate}}', value: '{{candidate}}' }
+ *   }
+ * }
+ */
+export interface WorkflowMapTransform {
+  $map: {
+    from: WorkflowArgValue;
+    as?: string;
+    value: WorkflowArgValue;
+  };
+}
+
+export type WorkflowArgValue =
+  | WorkflowArgScalar
+  | WorkflowArgValue[]
+  | { [key: string]: WorkflowArgValue }
+  | WorkflowLiteralTransform
+  | WorkflowCoalesceTransform
+  | WorkflowMapTransform;
+
+/**
+ * A workflow expression is a template string that may contain `{{...}}` placeholders.
+ *
+ * - `{{stepId.field}}`  — reference a field from a previous step's result
+ * - `{{stepId[0].field}}` — reference an element from a loop step's array result
+ * - `{{index}}`          — current loop iteration index (0-based)
+ * - `{{input.field}}`    — reference a workflow input parameter
+ * - Literal values are also valid: `"CEO"`, `5`, `true`, `["a", "b"]`, `{ key: "value" }`
+ *
+ * The parameter resolver evaluates these against accumulated workflow state.
+ */
+
 // ─── Step types ───────────────────────────────────────────────────────────────
 
 /**
- * Dispatches a registered command with params derived from current state.
+ * Dispatches a registered tool/command with params derived from state.
+ *
+ * Two ways to specify params (exactly one must be provided):
+ * - `args`   — Declarative template strings (preferred). Each value is a `WorkflowExpression`
+ *              like `"{{stepId.field}}"` or a literal. Resolved by the parameter resolver.
+ * - `params` — Typed TS callback. Returns the full params object. Use for typed workflows
+ *              where template-string interpolation is too limited.
+ *
  * `applyResult` maps the raw command response back into state.
+ * When omitted, the result is stored under `state[step.id]` (or appended to an array
+ * when inside a loop).
+ *
  * Throw `WorkflowAbortError` from `applyResult` to abort cleanly.
  */
 export interface WorkflowCommandStep<TState> {
   id: string;
   command: string;
+  /** Declarative template-string args. Resolved against accumulated state. */
+  args?: Record<string, WorkflowArgValue>;
+  /** Typed callback returning the params object. Use when template strings are insufficient. */
+  params?: (state: TState) => unknown;
+  /** Declarative expression guard. Runs in addition to `skipWhen` when provided. */
+  when?: string;
   skipWhen?: (state: TState) => boolean;
-  params: (state: TState) => unknown;
   applyResult?: (state: TState, result: unknown) => TState;
 }
 
@@ -35,10 +104,35 @@ export interface WorkflowCommandStep<TState> {
 export interface WorkflowExecuteStep<TState> {
   id: string;
   execute: (state: TState, ctx: ExecutionContext) => Promise<TState>;
+  /** Declarative expression guard. Runs in addition to `skipWhen` when provided. */
+  when?: string;
   skipWhen?: (state: TState) => boolean;
 }
 
-export type WorkflowStep<TState> = WorkflowCommandStep<TState> | WorkflowExecuteStep<TState>;
+/**
+ * Loop step — executes child steps while a condition holds.
+ *
+ * - `while` is a template expression evaluated against state before each iteration.
+ *   Truthy values (non-empty string, true, non-zero number, non-empty array/object) continue the loop.
+ * - Each iteration appends child step results to arrays in state.
+ * - `{{index}}` is available inside loop steps for the current iteration (0-based).
+ * - `maxIterations` prevents infinite loops (default 100).
+ */
+export interface WorkflowLoopStep<TState> {
+  kind: 'loop';
+  id: string;
+  while: string;
+  steps: WorkflowStep<TState>[];
+  maxIterations?: number;
+  /** Declarative expression guard. Runs in addition to `skipWhen` when provided. */
+  when?: string;
+  skipWhen?: (state: TState) => boolean;
+}
+
+export type WorkflowStep<TState> =
+  | WorkflowCommandStep<TState>
+  | WorkflowExecuteStep<TState>
+  | WorkflowLoopStep<TState>;
 
 // ─── Workflow definition ──────────────────────────────────────────────────────
 
@@ -67,6 +161,11 @@ export interface WorkflowDefinition<TState> extends Omit<ICommandDescriptor, 'ke
    * When absent, the full state is returned.
    */
   toResult?: (state: TState) => unknown;
+  /**
+   * Declarative result projection. Applied when `toResult` is not provided.
+   * Supports the same template/expression features as step `args`.
+   */
+  result?: WorkflowArgValue;
 
   // ── Steps ────────────────────────────────────────────────────────────────
   readonly steps: WorkflowStep<TState>[];

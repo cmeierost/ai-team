@@ -314,7 +314,7 @@ export function buildPromptSlashCommand(
       availableIn: { chat: true, tool: false, cli: false },
       group: 'chat',
     },
-    execute: async (_args, ctx) => {
+    execute: async (_args, _ctx) => {
       const header = `# Prompt: ${entry.name}`;
       const payload = [header, entry.instructions].filter(Boolean).join('\n\n').trim();
       emitService.log('info', payload);

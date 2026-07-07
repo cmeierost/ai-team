@@ -26,7 +26,7 @@ vi.mock('node:net', () => ({
   createConnection: netApi.createConnection,
 }));
 
-vi.mock('../utils/workspace.js', () => ({
+vi.mock('../../utils/workspace.js', () => ({
   findWorkspaceRoot: workspaceApi.findWorkspaceRoot,
 }));
 

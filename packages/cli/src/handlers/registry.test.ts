@@ -25,21 +25,23 @@ describe('command registry metadata', () => {
     expect(CLI_COMMAND_REGISTRY.find(command => command.key === 'init')?.llmCallable).toBe(false);
   });
 
-  it('registers tools command metadata from dispatcher command definitions', () => {
-    const tools = getCliCommandMetadata('tools');
+  it('registers tool command metadata from dispatcher command definitions', () => {
+    const tools = getCliCommandMetadata('tool');
 
-    expect(tools.command).toBe('tools');
+    expect(tools.command).toBe('tool');
     expect(tools.directCli).toBe(true);
-    expect(tools.llmCallable).toBe(true);
+    // Parent command groups are synthetic/direct-cli commands and are not
+    // guaranteed to be LLM-callable themselves.
+    expect(tools.llmCallable).toBe(false);
   });
 
   it('marks direct CLI commands explicitly in the shared registry', () => {
     const init = getCliCommandMetadata('init');
-    const toolsAllow = getCliCommandMetadata('tools.allow');
+    const toolsAllow = getCliCommandMetadata('tool.allow');
 
     expect(init.directCli).toBe(true);
     expect(toolsAllow.directCli).toBe(true);
-    expect(toolsAllow.aliases).toContain('add');
+    expect(toolsAllow.command).toBe('allow');
   });
 
 });

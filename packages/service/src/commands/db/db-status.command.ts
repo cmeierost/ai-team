@@ -17,13 +17,16 @@ export const DbStatusCommandMetadata = {
 export class DbStatusCommand implements ICommand<Record<string, never>, DbStatusResponse> {
   readonly metadata = DbStatusCommandMetadata;
 
-  constructor(private readonly storage: IMessageStorage) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly storage: IMessageStorage
+  ) {}
 
   async execute(
     _payload: Record<string, never>,
     ctx: ExecutionContext
   ): Promise<CommandResponse<DbStatusResponse>> {
-    const dbPath = path.join(ctx.workspaceRoot, '.ai-team', 'private', 'ai-team.db');
+    const dbPath = path.join(this.workspaceRoot, '.ai-team', 'private', 'ai-team.db');
     const stats = await this.storage.getStats();
     return {
       status: 'ok',

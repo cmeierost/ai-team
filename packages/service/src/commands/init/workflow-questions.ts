@@ -1,5 +1,4 @@
 import type {
-  RuntimeStreamEvent,
   QuestionChecklistRequest,
   QuestionConfirmRequest,
   QuestionInputRequest,
@@ -10,6 +9,7 @@ import type {
 } from '@ai-team/api-contracts';
 import type { Agent, ExecutionContext, CommandResponse } from '@ai-team/core';
 import type { IQuestionService } from '../../questions/question-service.js';
+import type { IEmitService } from '../../orchestrator/services/emit-service.js';
 
 // ─── Runtime hooks ────────────────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ import type { IQuestionService } from '../../questions/question-service.js';
  */
 export interface InitRuntimeHooks {
   signal?: AbortSignal;
-  emit?: (event: RuntimeStreamEvent) => void;
+  emitService?: IEmitService;
   questionInput?: (request: QuestionInputRequest) => Promise<string>;
   questionConfirm?: (request: QuestionConfirmRequest) => Promise<boolean>;
   questionSelect?: (request: QuestionSelectRequest) => Promise<string>;
@@ -98,9 +98,8 @@ function resolveSelectAnswer(
 export class WorkflowQuestioner {
   constructor(
     private readonly questionService: IQuestionService,
-    private readonly context: ExecutionContext,
+    private readonly emitService: IEmitService,
     private readonly workflowService?: IWorkflowService,
-    private readonly emit?: (event: RuntimeStreamEvent) => void,
     private readonly signal?: AbortSignal
   ) {}
 
@@ -143,7 +142,7 @@ export class WorkflowQuestioner {
   async requestInput(request: QuestionInputRequest): Promise<string> {
     if (this.signal?.aborted) throw new Error('Workflow aborted');
     this.workflowService?.emitQuestionFrame({ kind: 'input', ...request });
-    this.emit?.({
+    this.emitService.emit({
       kind: 'question',
       questionType: 'input',
       message: request.message,
@@ -179,7 +178,7 @@ export class WorkflowQuestioner {
   async requestConfirm(request: QuestionConfirmRequest): Promise<boolean> {
     if (this.signal?.aborted) throw new Error('Workflow aborted');
     this.workflowService?.emitQuestionFrame({ kind: 'confirm', ...request });
-    this.emit?.({
+    this.emitService.emit({
       kind: 'question',
       questionType: 'confirm',
       message: request.message,
@@ -209,7 +208,7 @@ export class WorkflowQuestioner {
   async requestSelect(request: QuestionSelectRequest): Promise<string> {
     if (this.signal?.aborted) throw new Error('Workflow aborted');
     this.workflowService?.emitQuestionFrame({ kind: 'select', ...request });
-    this.emit?.({
+    this.emitService.emit({
       kind: 'question',
       questionType: 'select',
       message: request.message,
@@ -250,7 +249,7 @@ export class WorkflowQuestioner {
   async requestPassword(request: QuestionPasswordRequest): Promise<string> {
     if (this.signal?.aborted) throw new Error('Workflow aborted');
     this.workflowService?.emitQuestionFrame({ kind: 'password', ...request });
-    this.emit?.({
+    this.emitService.emit({
       kind: 'question',
       questionType: 'password',
       message: request.message,
@@ -280,7 +279,7 @@ export class WorkflowQuestioner {
   async requestChecklist(request: QuestionChecklistRequest): Promise<string[]> {
     if (this.signal?.aborted) throw new Error('Workflow aborted');
     this.workflowService?.emitQuestionFrame({ kind: 'checklist', ...request });
-    this.emit?.({
+    this.emitService.emit({
       kind: 'question',
       questionType: 'checklist',
       message: request.message,

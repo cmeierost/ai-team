@@ -11,7 +11,6 @@ import type {
   UserConfig,
   TeamConfig,
   IConfigurationStorage,
-  IEnvironmentStorage,
   IWorkspaceStorage,
   IModelDiscoveryRegistry,
   ILlmProviderTester,
@@ -33,9 +32,15 @@ export interface SetupCommandParams {
 export class SetupCommand {
   private static readonly DEFAULT_SKILL_SOURCES = ['https://github.com/anthropics/skills'];
 
+  private static toApiKeyEnvVar(providerRef: string): string {
+    return `${providerRef
+      .trim()
+      .toUpperCase()
+      .replaceAll(/[^A-Z0-9]+/g, '_')}_API_KEY`;
+  }
+
   constructor(
     private readonly configurationStorage: IConfigurationStorage,
-    private readonly environmentStorage: IEnvironmentStorage,
     private readonly workspaceStorage: IWorkspaceStorage,
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
     private readonly llmProviderTester: ILlmProviderTester,
@@ -60,9 +65,8 @@ export class SetupCommand {
     options: SetupOptions | undefined,
     context: ExecutionContext
   ): Promise<void> {
-    const { existingConfig, existingResolvedLlm } = await this.loadExistingLlmState(workspaceRoot);
+    const { existingConfig, existingResolvedLlm } = await this.loadExistingLlmState();
     const { llmConfig, reusedExistingLlm } = await this.resolveLlmConfig(
-      workspaceRoot,
       options,
       context,
       existingResolvedLlm
@@ -127,7 +131,8 @@ export class SetupCommand {
     defaultModel?: NonNullable<TeamConfig['defaultModel']>;
   } {
     const providerRef = setup.providerRef || SetupCommand.inferDefaultProviderRef(setup);
-    const apiKeyEnvVar = setup.apiKeyEnvVar || (setup.apiKey ? 'AI_TEAM_LLM_API_KEY' : undefined);
+    const apiKeyEnvVar = setup.apiKey ? SetupCommand.toApiKeyEnvVar(providerRef) : undefined;
+    const apiKeyRef = apiKeyEnvVar ? `\${${apiKeyEnvVar}}` : undefined;
 
     const providerEntry: NonNullable<TeamConfig['providers']>[string] =
       setup.provider === 'github-copilot'
@@ -141,7 +146,7 @@ export class SetupCommand {
             ...(setup.baseUrl ? { baseUrl: setup.baseUrl } : {}),
             ...(setup.model ? { defaultModel: setup.model } : {}),
             ...(setup.model ? { models: [{ name: setup.model }] } : {}),
-            ...(apiKeyEnvVar ? { apiKeyEnvVar } : {}),
+            ...(apiKeyRef ? { apiKey: apiKeyRef } : {}),
           };
 
     return {
@@ -174,11 +179,16 @@ export class SetupCommand {
     };
   }
 
-  private async loadExistingLlmState(workspaceRoot: string): Promise<{
+  private async loadExistingLlmState(): Promise<{
     existingConfig: TeamConfig | undefined;
     existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined;
   }> {
-    const existingConfig = await this.configurationStorage.loadTeamConfigAsync(workspaceRoot);
+    let existingConfig: TeamConfig | undefined;
+    try {
+      existingConfig = this.configurationStorage.get();
+    } catch {
+      existingConfig = undefined;
+    }
     let existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined;
     try {
       if (existingConfig) {
@@ -191,7 +201,6 @@ export class SetupCommand {
   }
 
   private async resolveLlmConfig(
-    workspaceRoot: string,
     options: SetupOptions | undefined,
     context: ExecutionContext,
     existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined
@@ -213,7 +222,7 @@ export class SetupCommand {
     }
 
     if (options?.force && existingResolvedLlm) {
-      return this.resolveWithReuse(workspaceRoot, context, existingResolvedLlm);
+      return this.resolveWithReuse(context, existingResolvedLlm);
     }
 
     const llmConfig = await askLlmSetup(
@@ -224,7 +233,6 @@ export class SetupCommand {
   }
 
   private async resolveWithReuse(
-    workspaceRoot: string,
     context: ExecutionContext,
     existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings>
   ): Promise<{ llmConfig: LlmSetupResult; reusedExistingLlm: boolean }> {
@@ -249,18 +257,11 @@ export class SetupCommand {
     }
 
     if (existingResolvedLlm.config.provider === 'openai-compatible') {
-      const envVars = await this.environmentStorage.loadEnvFileAsync(workspaceRoot);
-      const keyEnvVar = existingResolvedLlm.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-      const existingKey =
-        envVars[keyEnvVar] ||
-        envVars['AI_TEAM_LLM_API_KEY'] ||
-        envVars['LLM_API_KEY'] ||
-        envVars['OPENAI_API_KEY'];
+      const existingKey = existingResolvedLlm.config.apiKey;
       if (existingKey) {
         const llmConfig: LlmSetupResult = {
           ...existingResolvedLlm.config,
           providerRef: existingResolvedLlm.providerRef,
-          apiKeyEnvVar: keyEnvVar,
           apiKey: existingKey,
         };
         this.writeLine(context, 'Reusing existing OpenAI-compatible configuration.');
@@ -289,21 +290,15 @@ export class SetupCommand {
     llmConfig: LlmSetupResult,
     reusedExistingLlm: boolean
   ): Promise<{
-    safeLlmConfig: Omit<LlmSetupResult, 'apiKey' | 'providerRef' | 'apiKeyEnvVar'>;
+    safeLlmConfig: Omit<LlmSetupResult, 'apiKey' | 'providerRef'>;
     apiKey?: string;
   }> {
     await this.workspaceStorage.ensureAiTeamDirectoryAsync(workspaceRoot);
     const registration = SetupCommand.buildProviderRegistrationFromSetup(llmConfig);
-    const {
-      apiKey,
-      providerRef: _providerRef,
-      apiKeyEnvVar: _apiKeyEnvVar,
-      ...safeLlmConfig
-    } = llmConfig;
+    const { apiKey, providerRef: _providerRef, ...safeLlmConfig } = llmConfig;
     const teamConfig: TeamConfig = existingConfig
       ? {
           ...existingConfig,
-          llm: safeLlmConfig,
           providers: existingConfig.providers
             ? {
                 ...existingConfig.providers,
@@ -318,21 +313,38 @@ export class SetupCommand {
       : {
           version: '0.1.0',
           randomAvatarUrls: [],
-          llm: safeLlmConfig,
           providers: { [registration.providerRef]: registration.providerEntry },
           defaultModel: registration.defaultModel,
           skillSources: SetupCommand.DEFAULT_SKILL_SOURCES,
         };
-    await this.configurationStorage.saveTeamConfigAsync(workspaceRoot, teamConfig);
-    if (apiKey && !reusedExistingLlm) {
-      await this.environmentStorage.saveEnvFileAsync(workspaceRoot, {
-        [llmConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY']: apiKey,
-      });
+    await this.configurationStorage.set('version', teamConfig.version);
+    await this.configurationStorage.set('randomAvatarUrls', teamConfig.randomAvatarUrls);
+    if (teamConfig.providers) {
+      await this.configurationStorage.set('providers', teamConfig.providers);
     }
-    await this.configurationStorage.saveUserConfigAsync(
-      workspaceRoot,
-      SetupCommand.buildUserConfigFromSetup(llmConfig, this.developerIdentityService)
+    if (teamConfig.defaultModel) {
+      await this.configurationStorage.set('defaultModel', teamConfig.defaultModel);
+    }
+    if (teamConfig.skillSources) {
+      await this.configurationStorage.set('skillSources', teamConfig.skillSources);
+    }
+    if (apiKey && !reusedExistingLlm) {
+      const envVar = SetupCommand.toApiKeyEnvVar(registration.providerRef);
+      await this.configurationStorage.setSecret(envVar, apiKey);
+    }
+    const userConfig = SetupCommand.buildUserConfigFromSetup(
+      llmConfig,
+      this.developerIdentityService
     );
+    if (userConfig.developer) {
+      await this.configurationStorage.set('developer' as any, userConfig.developer, 'user');
+    }
+    if (userConfig.providers) {
+      await this.configurationStorage.set('providers', userConfig.providers, 'user');
+    }
+    if (userConfig.defaultModel) {
+      await this.configurationStorage.set('defaultModel', userConfig.defaultModel, 'user');
+    }
     this.writeLine(context, 'Saved LLM configuration.');
     return { safeLlmConfig, apiKey };
   }
@@ -356,15 +368,16 @@ export class SetupCommand {
     if (llmConfig.model) {
       this.writeLine(context, `  Model:    ${llmConfig.model}`);
     }
+    const registration = SetupCommand.buildProviderRegistrationFromSetup(llmConfig);
     const apiKeyStatus = apiKey
-      ? `saved to .ai-team/.env (${llmConfig.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY'})`
+      ? `saved to .ai-team/.env (${SetupCommand.toApiKeyEnvVar(registration.providerRef)})`
       : 'not set';
     this.writeLine(context, `  API Key:  ${apiKeyStatus}`);
   }
 
   private async testLlmConnection(
     context: ExecutionContext,
-    safeLlmConfig: Omit<LlmSetupResult, 'apiKey' | 'providerRef' | 'apiKeyEnvVar'>,
+    safeLlmConfig: Omit<LlmSetupResult, 'apiKey' | 'providerRef'>,
     apiKey?: string
   ): Promise<void> {
     this.writeLine(context, '');

@@ -34,7 +34,7 @@ export class CodeEditRejectCommand implements ICommand<RejectParams, { proposalI
 
   async execute(
     payload: RejectParams,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<CommandResponse<{ proposalId: string }>> {
     const proposal = this.manager.getProposal(payload.proposalId);
     if (!proposal) {

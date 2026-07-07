@@ -14,7 +14,10 @@ export interface ISessionGateway {
 export interface IAgentRegistry {
   getAgentAsync(id: string): Promise<Agent | undefined>;
   getAllAgentsAsync(): Promise<Agent[]>;
-  createAgentAsync(config: AgentConfig): Promise<Agent>;
+  createAgentAsync(
+    config: AgentConfig,
+    options?: { markdown?: string; targetPath?: string }
+  ): Promise<Agent>;
 }
 
 /**

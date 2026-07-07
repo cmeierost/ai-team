@@ -1,6 +1,4 @@
 import type {
-  IConfigurationStorage,
-  IEnvironmentStorage,
   TeamConfig,
   ResolvedLlmSettings,
   IAgentManager,
@@ -17,8 +15,7 @@ export interface TestConnectionCommandParams {
 
 export class TestConnectionCommand {
   constructor(
-    private readonly configurationStorage: IConfigurationStorage,
-    private readonly environmentStorage: IEnvironmentStorage,
+    private readonly teamConfig: TeamConfig,
     private readonly agentManager: IAgentManager,
     private readonly llmProviderTester: ILlmProviderTester,
     private readonly textToolCallParser: ITextToolCallParser
@@ -26,10 +23,8 @@ export class TestConnectionCommand {
 
   async execute(params: TestConnectionCommandParams): Promise<void> {
     return testConnectionCommandAsync(
-      params.workspaceRoot,
       params.options ?? {},
-      this.configurationStorage,
-      this.environmentStorage,
+      this.teamConfig,
       this.agentManager,
       this.llmProviderTester,
       this.textToolCallParser
@@ -42,10 +37,8 @@ export class TestConnectionCommand {
 }
 
 async function testConnectionCommandAsync(
-  workspaceRoot: string,
   options: TestConnectionOptions = {},
-  configurationStorage: IConfigurationStorage,
-  environmentStorage: IEnvironmentStorage,
+  teamConfig: TeamConfig,
   agentManager: IAgentManager,
   llmProviderTester: ILlmProviderTester,
   textToolCallParser: ITextToolCallParser
@@ -68,15 +61,10 @@ async function testConnectionCommandAsync(
     throw new Error('Do not combine --all with --tool-call.');
   }
 
-  const config = await configurationStorage.loadEffectiveConfigAsync(workspaceRoot);
-  if (!config) {
-    throw new Error('No LLM configured. Run ait init first.');
-  }
-
-  const env = await environmentStorage.loadEnvFileAsync(workspaceRoot);
+  const config = teamConfig;
 
   if (options.all) {
-    await testAllConfiguredModels(config, env, llmProviderTester, options.provider);
+    await testAllConfiguredModels(config, llmProviderTester, options.provider);
     console.log('✓ All connection tests passed');
     return;
   }
@@ -139,9 +127,7 @@ async function testConnectionCommandAsync(
     );
   }
 
-  const apiKeyName = effective.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-  const apiKey =
-    env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
+  const apiKey = effective.config.apiKey;
 
   try {
     await llmProviderTester.testLlmConnectionAsync(effective.config, apiKey);
@@ -396,7 +382,7 @@ function buildFailureMessage(
   }
 
   if (providerKind === 'openai-compatible' && normalized.includes('401')) {
-    lines.push('Hint: Check your API key in .ai-team/.env and provider apiKeyEnvVar mapping.');
+    lines.push('Hint: Check your API key in .ai-team/.env.');
   }
 
   if (normalized.includes('429') || normalized.includes('quota')) {
@@ -408,7 +394,6 @@ function buildFailureMessage(
 
 async function testAllConfiguredModels(
   config: TeamConfig,
-  env: Record<string, string>,
   llmProviderTester: ILlmProviderTester,
   providerFilter?: string
 ): Promise<void> {
@@ -461,9 +446,7 @@ async function testAllConfiguredModels(
       continue;
     }
 
-    const apiKeyName = effective.apiKeyEnvVar || 'AI_TEAM_LLM_API_KEY';
-    const apiKey =
-      env[apiKeyName] || env['AI_TEAM_LLM_API_KEY'] || env['LLM_API_KEY'] || env['OPENAI_API_KEY'];
+    const apiKey = effective.config.apiKey;
 
     try {
       await llmProviderTester.testLlmConnectionAsync(effective.config, apiKey);

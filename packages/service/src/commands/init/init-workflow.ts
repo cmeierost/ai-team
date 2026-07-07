@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { InitOptions } from '@ai-team/api-contracts';
 import type { ExecutionContext } from '@ai-team/core';
-import type { SessionManager } from '../../session-manager.js';
+import { EmitService, type IEmitService } from '../../orchestrator/services/emit-service.js';
 import type { WorkflowDefinition } from '../../workflow/types.js';
 import type { IWorkflowRunnerFactory } from '../../workflow/runner.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
@@ -17,13 +17,7 @@ export interface InitWorkflowState {
 }
 
 interface OnboardExecutor {
-  execute(
-    params: {
-      options?: { template?: string };
-      injected?: { sessionManager?: SessionManager };
-    },
-    context?: InitRuntimeHooks
-  ): Promise<void>;
+  execute(params: { options?: Record<string, never> }, signal?: AbortSignal): Promise<void>;
 }
 
 interface SetupExecutor {
@@ -41,18 +35,15 @@ export interface InitWorkflowDependencies {
   onboard: OnboardExecutor;
   setup: SetupExecutor;
   testConnection: TestConnectionExecutor;
-  sessionManager?: SessionManager;
 }
 
 const FORCE_KEEP = new Set(['config.json', '.env']);
 const INIT_RUNTIME_ARTIFACTS = new Set(['agents', 'logs', 'private', '.ide-server.json']);
 
 function emitLog(ctx: ExecutionContext, level: 'info' | 'warn', message: string): void {
-  if (ctx.emit) {
-    ctx.emit({ kind: 'log', level, message });
-  } else {
-    process.stdout.write(`${message}\n`);
-  }
+  const emitService =
+    (ctx as unknown as { emitService?: IEmitService }).emitService ?? new EmitService(() => {});
+  emitService.log(level, message);
 }
 
 async function clearAiTeamDirectory(workspaceRoot: string, ctx: ExecutionContext): Promise<void> {
@@ -192,13 +183,7 @@ export function createInitWorkflowDefinition(
         id: 'run-onboarding',
         skipWhen: (state) => state.shouldSkip,
         execute: async (state) => {
-          await deps.onboard.execute(
-            {
-              options: { template: state.options.template },
-              injected: { sessionManager: deps.sessionManager },
-            },
-            state.hooks
-          );
+          await deps.onboard.execute({ options: {} }, state.hooks?.signal);
           return state;
         },
       },
@@ -224,7 +209,6 @@ export async function runInitWorkflowAsync(
 
   await runnerFactory.create().run(createInitWorkflowDefinition(deps), initialState, {
     signal: hooks?.signal,
-    emit: hooks?.emit,
-    executionContext: { workspaceRoot, history: [] },
+    executionContext: { workspaceRoot, history: [], emitService: hooks?.emitService } as ExecutionContext,
   });
 }

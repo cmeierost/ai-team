@@ -71,16 +71,27 @@ export class ChatOrchestrator {
     serialization?: ToolSerializationService,
     toolSource?: IPreLlmToolSource
   ) {
-    this.toolDispatcher = toolDispatcher;
-    this.handoffOrchestrator = handoffOrchestrator;
-    this.hooks = hooks ?? ({} as ChatRuntimeHooks);
-    this.agentManager = agentManager!;
-    this.sessionManager = sessionManager!;
-    this.llmService = llmService!;
+    this.toolDispatcher = toolDispatcher ?? (ctx as any).toolDispatcher;
+    this.hooks = hooks ?? ((ctx as any).hooks ?? {});
+    this.agentManager = agentManager ?? ((ctx as any).agentManager as IAgentManager);
+    this.sessionManager = sessionManager ?? ((ctx as any).sessionManager as SessionManager);
+    this.llmService = llmService ?? ((ctx as any).llmService as ILlmService);
     this.serialization = serialization ?? new ToolSerializationService();
-    this.emitService = this.hooks.emitService ?? EmitService.forConsole();
+    this.emitService =
+      this.hooks.emitService ??
+      (ctx as any).hooks?.emitService ??
+      (ctx as any).emitService ??
+      new EmitService(() => {});
     this.skillManager = this.hooks.skillManager;
     this.intentResolver = new PreLlmIntentResolver(toolSource ?? { getForAgent: () => [] });
+    this.handoffOrchestrator =
+      handoffOrchestrator ??
+      new HandoffOrchestrator(
+        this.agentManager,
+        this.sessionManager,
+        this.llmService,
+        this.emitService
+      );
   }
 
   async run(options: RunOptions): Promise<string> {
@@ -121,6 +132,7 @@ export class ChatOrchestrator {
             sessionManager: this.sessionManager,
             llmService: this.llmService,
             skillManager: this.skillManager!,
+            agentManager: this.agentManager,
             hooks: this.hooks,
             emitService: this.emitService,
             toolDispatcher: this.toolDispatcher,
@@ -405,7 +417,7 @@ export class ChatOrchestrator {
         request: rawArgs,
         commandResponse: executionResult,
       },
-    } as RuntimeStreamEvent);
+    });
   }
 
   private toCommandResponse(rawResult: unknown, commandKey: string): CommandResponse | void {
@@ -576,7 +588,7 @@ export class ChatOrchestrator {
         kind: 'session_title_updated',
         sessionId: this.ctx.sessionId!,
         title: generatedTitle,
-      } as RuntimeStreamEvent);
+      });
     }
 
     this.ctx.history.push(userMsg);

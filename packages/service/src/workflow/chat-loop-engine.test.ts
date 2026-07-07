@@ -130,7 +130,6 @@ describe('xstate-chat-loop-engine', () => {
   it('uses ToolManager registry first for tool round execution', async () => {
     const registry = new CommandRegistry();
     const toolManager = new ToolManager(
-      '/workspace',
       {
         canReadPath: () => true,
         canWritePath: () => true,
@@ -212,7 +211,6 @@ describe('xstate-chat-loop-engine', () => {
       tooling: {
         agent: createAgent(),
         toolManager: new ToolManager(
-          '/workspace',
           {
             canReadPath: () => true,
             canWritePath: () => true,

@@ -113,10 +113,6 @@
                     "type": "string",
                     "nullable": true
                   },
-                  "llm": {
-                    "$ref": "#/components/schemas/LlmConfig",
-                    "nullable": true
-                  },
                   "providers": {
                     "type": "object",
                     "properties": {},
@@ -415,6 +411,13 @@
                   "developer": {
                     "$ref": "#/components/schemas/UserProfile",
                     "nullable": true
+                  },
+                  "mcpConfigFiles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "nullable": true
                   }
                 }
               }
@@ -429,84 +432,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/UserConfig"
                 }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/config/user-config/providers/{providerRef}/test": {
-      "post": {
-        "operationId": "testProviderConnection",
-        "parameters": [
-          {
-            "name": "providerRef",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean"
-                    },
-                    "latencyMs": {
-                      "type": "number",
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "string",
-                      "nullable": true
-                    },
-                    "message": {
-                      "type": "string",
-                      "nullable": true
-                    }
-                  },
-                  "required": [
-                    "ok"
-                  ]
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/config/user-config/providers/{providerRef}/models/refresh": {
-      "post": {
-        "operationId": "refreshUserProviderModels",
-        "parameters": [
-          {
-            "name": "providerRef",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           },
@@ -535,77 +460,6 @@
             "content": {
               "application/json": {
                 "schema": {}
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/config/env-status": {
-      "get": {
-        "operationId": "getEnvStatus",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {}
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "Error"
-          }
-        }
-      }
-    },
-    "/api/config/env-key": {
-      "put": {
-        "operationId": "setEnvVar",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "key": {
-                    "type": "string"
-                  },
-                  "value": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "key",
-                  "value"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "ok"
-                  ]
-                }
               }
             }
           },
@@ -7185,61 +7039,6 @@
   },
   "components": {
     "schemas": {
-      "LlmGenerationParams": {
-        "type": "object",
-        "properties": {
-          "temperature": {
-            "type": "number",
-            "nullable": true
-          },
-          "maxTokens": {
-            "type": "number",
-            "nullable": true
-          },
-          "topP": {
-            "type": "number",
-            "nullable": true
-          },
-          "presencePenalty": {
-            "type": "number",
-            "nullable": true
-          },
-          "frequencyPenalty": {
-            "type": "number",
-            "nullable": true
-          },
-          "stop": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "nullable": true
-          }
-        }
-      },
-      "LlmConfig": {
-        "type": "object",
-        "properties": {
-          "provider": {
-            "type": "string"
-          },
-          "model": {
-            "type": "string",
-            "nullable": true
-          },
-          "baseUrl": {
-            "type": "string",
-            "nullable": true
-          },
-          "params": {
-            "$ref": "#/components/schemas/LlmGenerationParams",
-            "nullable": true
-          }
-        },
-        "required": [
-          "provider"
-        ]
-      },
       "TeamConfig": {
         "type": "object",
         "properties": {
@@ -7248,10 +7047,6 @@
           },
           "projectName": {
             "type": "string",
-            "nullable": true
-          },
-          "llm": {
-            "$ref": "#/components/schemas/LlmConfig",
             "nullable": true
           },
           "providers": {
@@ -7361,6 +7156,65 @@
         },
         "required": [
           "version"
+        ]
+      },
+      "LlmGenerationParams": {
+        "type": "object",
+        "properties": {
+          "temperature": {
+            "type": "number",
+            "nullable": true
+          },
+          "maxTokens": {
+            "type": "number",
+            "nullable": true
+          },
+          "topP": {
+            "type": "number",
+            "nullable": true
+          },
+          "presencePenalty": {
+            "type": "number",
+            "nullable": true
+          },
+          "frequencyPenalty": {
+            "type": "number",
+            "nullable": true
+          },
+          "stop": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        }
+      },
+      "LlmConfig": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "baseUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "apiKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "params": {
+            "$ref": "#/components/schemas/LlmGenerationParams",
+            "nullable": true
+          }
+        },
+        "required": [
+          "provider"
         ]
       },
       "UserProfile": {
@@ -7498,6 +7352,13 @@
           },
           "developer": {
             "$ref": "#/components/schemas/UserProfile",
+            "nullable": true
+          },
+          "mcpConfigFiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "nullable": true
           }
         }

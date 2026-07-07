@@ -10,7 +10,7 @@ import type {
 import { generateIntroduction } from '../orchestrator/introduction.js';
 import type {
   IAgentManager,
-  IConfigurationStorage,
+  TeamConfig,
   IFileAnnotationService,
   IMarkdownSectionService,
   IPermissionStorage,
@@ -23,7 +23,6 @@ import {
   resolveEffectiveLlmSettings,
 } from '@ai-team/core';
 import { join } from 'node:path';
-import { ToolManager } from '../tools/tool-manager.js';
 
 function parseArrayParam(param: unknown): string[] | undefined {
   if (!param) return undefined;
@@ -34,8 +33,7 @@ export class AgentsService implements IAgentsService {
   constructor(
     private readonly workspaceRoot: string,
     private readonly agentManager: IAgentManager,
-    private readonly toolManager: ToolManager,
-    private readonly configurationStorage: IConfigurationStorage,
+    private readonly teamConfig: TeamConfig,
     private readonly permRegistry: IPermissionStorage,
     private readonly markdownSectionService: IMarkdownSectionService,
     private readonly fileAnnotationService: IFileAnnotationService
@@ -43,13 +41,10 @@ export class AgentsService implements IAgentsService {
 
   async list(): Promise<Agent[]> {
     const agents = await this.agentManager.getAllAgentsAsync();
-    const effectiveConfig = await this.configurationStorage.loadEffectiveConfigAsync(
-      this.workspaceRoot
-    );
     return agents.map((agent) => {
-      if (!effectiveConfig) return agent;
+      if (!this.teamConfig) return agent;
       try {
-        const resolved = resolveEffectiveLlmSettings(effectiveConfig, agent as any);
+        const resolved = resolveEffectiveLlmSettings(this.teamConfig, agent as any);
         const hasExplicit = Boolean((agent as any).llm?.provider || (agent as any).llm?.model);
         return {
           ...agent,
@@ -222,10 +217,7 @@ export class AgentsService implements IAgentsService {
     };
   }
 
-  async generateHandoffPrompt(
-    id: string,
-    body: { targetAgentId: string; context?: string }
-  ): Promise<{ prompt: string }> {
+  async generateHandoffPrompt(id: string): Promise<{ prompt: string }> {
     const matches = await this.agentManager.resolveAgentAsync(id);
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
     return { prompt: '' };

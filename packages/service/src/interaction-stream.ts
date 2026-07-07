@@ -19,6 +19,14 @@ export interface InteractionStreamDeps {
 export interface StreamParams<TCommand extends string = string> {
   request: InteractionRequest;
   context?: Record<string, unknown>;
+  /**
+   * Per-connection EmitService. The stream temporarily rebinds its sink to its
+   * per-request queue so events emitted during `invoke()` are correlated with
+   * the current request. When omitted, a fresh per-request `EmitService` is
+   * constructed (legacy behavior). New callers should always supply this from
+   * the connection-scoped DI container.
+   */
+  emitService?: IEmitService;
   invoke: (ctx: ExecutionContext, emitService: IEmitService) => Promise<CommandResponse<unknown>>;
   normalizeError?: (error: unknown) => Error;
   onRuntimeEvent?: (event: RuntimeStreamEvent) => void;
@@ -112,7 +120,18 @@ export class InteractionStream {
       timestamp: timestamp(),
     });
 
-    const emitService = new EmitService(emitRuntimeEvent);
+    // Per-connection EmitService: rebind its sink to our per-request queue so
+    // events emitted during invoke() are correlated with this request. The
+    // restore callback returns the sink to its connection-level default when
+    // the request completes.
+    //
+    // When no connection-scoped EmitService was supplied (legacy callers), fall
+    // back to constructing a one-off instance bound directly to our queue.
+    const restoreSink = params.emitService
+      ? params.emitService.bindSink(emitRuntimeEvent)
+      : undefined;
+    const emitService = params.emitService ?? new EmitService(emitRuntimeEvent);
+
     invoke(
       {
         ...(context as Partial<ExecutionContext>),
@@ -127,6 +146,7 @@ export class InteractionStream {
       })
       .finally(() => {
         invokeSettled = true;
+        restoreSink?.();
         if (runtimeWaiter) {
           runtimeWaiter();
           runtimeWaiter = undefined;
@@ -261,4 +281,3 @@ export function streamInteraction<TCommand extends string = string>(
 ): AsyncIterable<StreamEvent<TCommand>> {
   return new InteractionStream().stream(params);
 }
-

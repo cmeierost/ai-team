@@ -2,13 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   askLlmSetup,
   providerNameToProviderRef,
-  providerRefToApiKeyEnvVar,
 } from './llm-settings.js';
 
 describe('llm-settings', () => {
-  it('derives provider ref and env var from provider name', () => {
+  it('derives provider ref from provider name', () => {
     expect(providerNameToProviderRef('LLM Hub Infs AI')).toBe('llm-hub-infs-ai');
-    expect(providerRefToApiKeyEnvVar('llm-hub-infs-ai')).toBe('LLM_HUB_INFS_AI_API_KEY');
   });
 
   it('asks openai-compatible setup in providerName -> baseUrl -> apiKey order', async () => {
@@ -49,16 +47,15 @@ describe('llm-settings', () => {
     );
     expect(password).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'API key for LLM_HUB_API_KEY:',
+        message: 'API key:',
       })
     );
 
     expect(result).toEqual({
       provider: 'openai-compatible',
       providerRef: 'llm-hub',
-      apiKeyEnvVar: 'LLM_HUB_API_KEY',
-      baseUrl: 'https://api.llmhub.infs.ai/v1',
       apiKey: 'sk-test',
+      baseUrl: 'https://api.llmhub.infs.ai/v1',
       model: 'best-chat',
     });
   });

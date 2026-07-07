@@ -8,11 +8,7 @@ describe('resolveEffectiveLlmSettings', () => {
       providers: {
         copilot: {
           kind: 'github-copilot',
-          models: [
-            { name: 'gpt-4o-mini' },
-            { name: 'gpt-4o' },
-            { name: 'claude-sonnet-4.6' },
-          ],
+          models: [{ name: 'gpt-4o-mini' }, { name: 'gpt-4o' }, { name: 'claude-sonnet-4.6' }],
           params: {
             temperature: 0.1,
             maxTokens: 100,
@@ -20,6 +16,7 @@ describe('resolveEffectiveLlmSettings', () => {
           },
         },
       },
+      defaultModel: { provider: 'copilot', model: 'gpt-4o' },
     } as any;
 
     const skill = {
@@ -77,11 +74,10 @@ describe('resolveEffectiveLlmSettings', () => {
         copilot: {
           kind: 'github-copilot',
           defaultModel: 'gpt-4o-mini',
-          models: [
-            { name: 'gpt-4o-mini' },
-          ],
+          models: [{ name: 'gpt-4o-mini' }],
         },
       },
+      defaultModel: { provider: 'copilot', model: 'gpt-4o-mini' },
     } as any;
 
     const agent = {
@@ -107,10 +103,11 @@ describe('resolveEffectiveLlmSettings', () => {
           kind: 'openai-compatible',
           baseUrl: 'https://api.openai.com/v1',
           defaultModel: 'gpt-4.1-mini',
-          apiKeyEnvVar: 'OPENAI_API_KEY',
+          apiKey: '${OPENAI_API_KEY}',
           models: [{ name: 'gpt-4.1-mini' }],
         },
       },
+      defaultModel: { provider: 'openai', model: 'gpt-4.1-mini' },
       modelKeys: {
         fast: {
           provider: 'openai',
@@ -130,7 +127,7 @@ describe('resolveEffectiveLlmSettings', () => {
     expect(resolved.providerRef).toBe('openai');
     expect(resolved.config.provider).toBe('openai-compatible');
     expect(resolved.config.model).toBe('gpt-4.1-mini');
-    expect(resolved.apiKeyEnvVar).toBe('OPENAI_API_KEY');
+    expect(resolved.config.apiKey).toBe('${OPENAI_API_KEY}');
   });
 
   it('falls back to provider-local model lookup when explicit provider conflicts with named modelKey provider', () => {
@@ -149,6 +146,7 @@ describe('resolveEffectiveLlmSettings', () => {
           models: [{ name: 'gpt-5-mini' }],
         },
       },
+      defaultModel: { provider: 'copilot', model: 'gpt-4o' },
       modelKeys: {
         'gpt-4o-mini': {
           provider: 'openai',

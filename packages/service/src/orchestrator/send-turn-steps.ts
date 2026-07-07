@@ -2,6 +2,7 @@ import path from 'node:path';
 import { inspect } from 'node:util';
 import type {
   Agent,
+  IAgentManager,
   AgentSkillFile,
   ICommand,
   ChatMessage,
@@ -12,10 +13,10 @@ import type {
   StructuredToolResult,
   ExecutionContext,
 } from '@ai-team/core';
-import type { ChatRuntimeHooks } from '../commands/chat/index.js';
+import type { ChatRuntimeHooks } from './hooks.js';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import { ToolIdentity } from '../tools/tool-manager.js';
-import { ZodSchemaTools } from '../utils/zod-schema.js';
+import { ToolSchemaService } from './services/schema-service.js';
 import type {
   BeforePersistAssistantMessageHookPayload,
   IOrchestratorHookPlugin,
@@ -25,10 +26,11 @@ import type {
 import { invokeLlm } from './llm-invoke.js';
 import type { IEmitService } from './services/emit-service.js';
 import type { ToolDispatcher } from './tool-dispatch.js';
-import { getServiceContainer } from '../service-registry.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import type { SendTurnOptions } from './send-turn.js';
 import type { SessionManager } from '../session-manager.js';
+
+export interface SendTurnOptions {
+  skipPersist?: boolean;
+}
 
 /**
  * Runtime dependencies threaded explicitly into send-turn steps.
@@ -38,21 +40,131 @@ export interface SendTurnDeps {
   sessionManager: Pick<SessionManager, 'appendMessage' | 'getSessionSkills' | 'addSessionSkill'>;
   llmService: ILlmService | undefined;
   skillManager: ISkillManager;
-  hooks: ChatRuntimeHooks;
+  agentManager: Pick<IAgentManager, 'getAllAgentsAsync' | 'recordInteractionAsync'>;
+  runtimeHooks: ChatRuntimeHooks;
   emitService: IEmitService;
   toolDispatcher?: ToolDispatcher;
+  toolSchemaService?: ToolSchemaService;
+  workspaceRoot?: string;
 }
 
-function buildToolDefinitions(tools: ICommand[]): LlmToolDefinition[] {
-  const schemaTools = new ZodSchemaTools();
-  return tools.map((tool) => ({
-    name: ToolIdentity.key(tool.metadata),
-    description: tool.metadata.summary ?? tool.metadata.description,
-    parameters: tool.metadata.parameters
-      ? schemaTools.toJsonSchema(tool.metadata.parameters, { additionalProperties: true })
-      : undefined,
-    group: tool.metadata.group,
-  }));
+export class SendTurnStepService {
+  constructor(private readonly deps: SendTurnDeps) {}
+
+  async ensureTurnStartAsync(
+    userMessage: string,
+    plugins: ResolvedPlugins,
+    ctx: ExecutionContext,
+    options?: SendTurnOptions
+  ): Promise<void> {
+    return ensureTurnStartAsyncInternal(userMessage, plugins, ctx, options, this.deps);
+  }
+
+  async persistUserMessageAsync(
+    userMessage: string,
+    ctx: ExecutionContext,
+    options?: SendTurnOptions
+  ): Promise<ChatMessage> {
+    return persistUserMessageAsyncInternal(userMessage, ctx, options, this.deps);
+  }
+
+  async prepareMessagesAsync(
+    userMessage: string,
+    plugins: ResolvedPlugins,
+    ctx: ExecutionContext
+  ): Promise<ILlmChatMessageParam[]> {
+    return prepareMessagesAsyncInternal(userMessage, plugins, ctx, this.deps);
+  }
+
+  async resolveSkillsAndToolsAsync(
+    userMessage: string,
+    plugins: ResolvedPlugins,
+    ctx: ExecutionContext
+  ): Promise<SendTurnResolvedSkillsAndTools> {
+    return resolveSkillsAndToolsAsyncInternal(userMessage, plugins, ctx, this.deps);
+  }
+
+  async invokeTurnLlmAsync(
+    messages: ILlmChatMessageParam[],
+    resolved: SendTurnResolvedSkillsAndTools,
+    ctx: ExecutionContext
+  ): Promise<SendTurnLlmInvocationResult> {
+    return invokeTurnLlmAsyncInternal(messages, resolved, ctx, this.deps);
+  }
+
+  async handleLlmFailureAsync(
+    error: unknown,
+    plugins: ResolvedPlugins,
+    ctx: ExecutionContext,
+    options?: SendTurnOptions,
+    structuredResults: StructuredToolResult[] = []
+  ): Promise<TurnResult> {
+    return handleLlmFailureAsyncInternal(
+      error,
+      plugins,
+      ctx,
+      options,
+      structuredResults,
+      this.deps
+    );
+  }
+
+  async persistAssistantMessageAsync(
+    fullResponse: string,
+    plugins: ResolvedPlugins,
+    ctx: ExecutionContext
+  ): Promise<{ persistedContent: string; persistedMessage: ChatMessage }> {
+    return persistAssistantMessageAsyncInternal(fullResponse, plugins, ctx, this.deps);
+  }
+
+  async parseTurnResultAsync(
+    structuredResults: StructuredToolResult[],
+    fullResponse: string,
+    persistedContent: string,
+    plugins: ResolvedPlugins,
+    ctx: ExecutionContext
+  ): Promise<TurnResult | null> {
+    return parseTurnResultAsyncInternal(
+      structuredResults,
+      fullResponse,
+      persistedContent,
+      plugins,
+      ctx,
+      this.deps
+    );
+  }
+
+  async finalizeTurnResultAsync(
+    turnResult: TurnResult,
+    fullResponse: string,
+    persistedContent: string,
+    structuredResults: StructuredToolResult[],
+    plugins: ResolvedPlugins,
+    ctx: ExecutionContext
+  ): Promise<TurnResult> {
+    return finalizeTurnResultAsyncInternal(
+      turnResult,
+      fullResponse,
+      persistedContent,
+      structuredResults,
+      plugins,
+      ctx,
+      this.deps
+    );
+  }
+}
+
+function buildToolDefinitions(tools: ICommand[], deps: SendTurnDeps): LlmToolDefinition[] {
+  if (!deps.toolSchemaService) {
+    return tools.map((tool) => ({
+      name: ToolIdentity.key(tool.metadata),
+      description: tool.metadata.summary ?? tool.metadata.description,
+      parameters: undefined,
+      group: tool.metadata.group,
+    }));
+  }
+
+  return deps.toolSchemaService.buildToolDefinitions(tools);
 }
 
 function filterDiscoveredToolsForAgent(agent: Agent, discoveredTools: ICommand[]): ICommand[] {
@@ -113,14 +225,14 @@ function toErrorMessage(error: unknown): string {
   return inspect(error, { depth: 1, breakLength: Infinity });
 }
 
-export async function ensureTurnStartAsync(
+async function ensureTurnStartAsyncInternal(
   userMessage: string,
   plugins: ResolvedPlugins,
   ctx: ExecutionContext,
   options?: SendTurnOptions,
   deps?: SendTurnDeps
 ): Promise<void> {
-  if (deps?.hooks?.signal?.aborted) {
+  if (deps?.runtimeHooks?.signal?.aborted) {
     throw new DOMException('Chat request aborted by user.', 'AbortError');
   }
 
@@ -132,11 +244,11 @@ export async function ensureTurnStartAsync(
       options: options ? { skipPersist: options.skipPersist } : undefined,
       ctx,
     },
-    deps?.hooks
+    deps!.emitService
   );
 }
 
-export async function persistUserMessageAsync(
+async function persistUserMessageAsyncInternal(
   userMessage: string,
   ctx: ExecutionContext,
   options?: SendTurnOptions,
@@ -170,7 +282,7 @@ export async function persistUserMessageAsync(
   return userMsg;
 }
 
-export async function prepareMessagesAsync(
+async function prepareMessagesAsyncInternal(
   userMessage: string,
   plugins: ResolvedPlugins,
   ctx: ExecutionContext,
@@ -195,13 +307,13 @@ export async function prepareMessagesAsync(
     plugins.hookPlugins ?? [],
     'onMessagesPrepared',
     { messages, ctx },
-    deps?.hooks
+    deps!.emitService
   );
 
   return messages;
 }
 
-export async function resolveSkillsAndToolsAsync(
+async function resolveSkillsAndToolsAsyncInternal(
   userMessage: string,
   plugins: ResolvedPlugins,
   ctx: ExecutionContext,
@@ -229,7 +341,7 @@ export async function resolveSkillsAndToolsAsync(
       missingSkillNames: resolvedSkills.missingSkillNames,
       ctx,
     },
-    deps?.hooks
+    deps!.emitService
   );
 
   const allowedSkillIds = (ctx.agent!.skills ?? []).map((skill: { id: string }) => skill.id);
@@ -249,7 +361,10 @@ export async function resolveSkillsAndToolsAsync(
     );
 
     for (const skill of newlyLoaded) {
-      const relPath = path.relative(ctx.workspaceRoot, skill.filePath).replaceAll('\\', '/');
+      const runtimeWorkspaceRoot = deps!.workspaceRoot;
+      const relPath = path
+        .relative(runtimeWorkspaceRoot ?? process.cwd(), skill.filePath)
+        .replaceAll('\\', '/');
       await deps!.sessionManager.addSessionSkill(ctx.sessionId!, relPath);
       deps!.emitService.log('info', `[session-skills] Triggered: ${skill.name}`);
     }
@@ -264,8 +379,8 @@ export async function resolveSkillsAndToolsAsync(
   }
 
   const skills: Skill[] = [...resolvedSkills.skills, ...(sessionSkillFiles as unknown as Skill[])];
-  const agentManager = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.AgentManager);
-  const teamRoster = await agentManager.getAllAgentsAsync();
+  let teamRoster: Agent[] = [];
+  teamRoster = await deps!.agentManager.getAllAgentsAsync();
 
   const discoverMcpTools = (plugins.mcpGateway as { discover?: () => Promise<ICommand[]> })
     .discover;
@@ -281,7 +396,7 @@ export async function resolveSkillsAndToolsAsync(
 
   await plugins.llmSelector.select(ctx);
 
-  const toolDefs = buildToolDefinitions(allTools);
+  const toolDefs = buildToolDefinitions(allTools, deps!);
 
   await runVoidHookAsync(
     plugins.hookPlugins ?? [],
@@ -291,7 +406,7 @@ export async function resolveSkillsAndToolsAsync(
       toolDefs,
       ctx,
     },
-    deps?.hooks
+    deps!.emitService
   );
 
   return {
@@ -302,7 +417,7 @@ export async function resolveSkillsAndToolsAsync(
   };
 }
 
-export async function invokeTurnLlmAsync(
+async function invokeTurnLlmAsyncInternal(
   messages: ILlmChatMessageParam[],
   resolved: SendTurnResolvedSkillsAndTools,
   ctx: ExecutionContext,
@@ -317,7 +432,7 @@ export async function invokeTurnLlmAsync(
     ctx,
     emitService: deps!.emitService,
     llmService: deps!.llmService!,
-    hooks: deps!.hooks,
+    hooks: deps!.runtimeHooks,
     toolDispatcher: deps!.toolDispatcher,
   });
 
@@ -327,7 +442,7 @@ export async function invokeTurnLlmAsync(
   };
 }
 
-export async function handleLlmFailureAsync(
+async function handleLlmFailureAsyncInternal(
   error: unknown,
   plugins: ResolvedPlugins,
   ctx: ExecutionContext,
@@ -351,7 +466,7 @@ export async function handleLlmFailureAsync(
       persistedContent: fallbackContent,
       ctx,
     },
-    deps?.hooks
+    deps!.emitService
   );
 
   const failedAgentMsg: ChatMessage = {
@@ -382,13 +497,13 @@ export async function handleLlmFailureAsync(
       turnResult: failedTurnResult,
       ctx,
     },
-    deps?.hooks
+    deps!.emitService
   );
 
   return failedTurnResult;
 }
 
-export async function persistAssistantMessageAsync(
+async function persistAssistantMessageAsyncInternal(
   fullResponse: string,
   plugins: ResolvedPlugins,
   ctx: ExecutionContext,
@@ -401,7 +516,7 @@ export async function persistAssistantMessageAsync(
       persistedContent: fullResponse,
       ctx,
     },
-    deps?.hooks
+    deps!.emitService
   );
 
   const agentMsg: ChatMessage = {
@@ -436,12 +551,10 @@ export async function persistAssistantMessageAsync(
       persistedMessage: agentMsg,
       ctx,
     },
-    deps?.hooks
+    deps!.emitService
   );
 
-  await getServiceContainer()
-    .resolve(COMMAND_FACTORY_TOKENS.AgentManager)
-    .recordInteractionAsync(ctx.agent!.id);
+  await deps!.agentManager.recordInteractionAsync(ctx.agent!.id);
 
   return {
     persistedContent,
@@ -449,7 +562,7 @@ export async function persistAssistantMessageAsync(
   };
 }
 
-export async function parseTurnResultAsync(
+async function parseTurnResultAsyncInternal(
   structuredResults: StructuredToolResult[],
   fullResponse: string,
   persistedContent: string,
@@ -472,7 +585,7 @@ export async function parseTurnResultAsync(
           turnResult: parsedResult,
           ctx,
         },
-        deps?.hooks
+        deps!.emitService
       );
 
       return parsedResult;
@@ -482,7 +595,7 @@ export async function parseTurnResultAsync(
   return null;
 }
 
-export async function finalizeTurnResultAsync(
+async function finalizeTurnResultAsyncInternal(
   turnResult: TurnResult,
   fullResponse: string,
   persistedContent: string,
@@ -503,7 +616,7 @@ export async function finalizeTurnResultAsync(
       turnResult,
       ctx,
     },
-    deps?.hooks
+    deps!.emitService
   );
 
   return turnResult;
@@ -530,7 +643,7 @@ export async function runVoidHookAsync<T extends keyof IOrchestratorHookPlugin>(
   hookPlugins: IOrchestratorHookPlugin[],
   hookName: T,
   payload: unknown,
-  hooks: ChatRuntimeHooks | undefined
+  emitService: IEmitService
 ): Promise<void> {
   for (const plugin of hookPlugins) {
     const hook = plugin[hookName];
@@ -542,16 +655,7 @@ export async function runVoidHookAsync<T extends keyof IOrchestratorHookPlugin>(
       await (hook as (hookPayload: typeof payload) => Promise<void> | void)(payload);
     } catch (error) {
       const message = toErrorMessage(error);
-      if (hooks?.emitService) {
-        hooks.emitService.log(
-          'warn',
-          `[plugin:${plugin.name}] Hook ${String(hookName)} failed: ${message}`
-        );
-      } else {
-        process.stderr.write(
-          `[warn] [plugin:${plugin.name}] Hook ${String(hookName)} failed: ${message}\n`
-        );
-      }
+      emitService.log('warn', `[plugin:${plugin.name}] Hook ${String(hookName)} failed: ${message}`);
     }
   }
 }
@@ -559,7 +663,7 @@ export async function runVoidHookAsync<T extends keyof IOrchestratorHookPlugin>(
 export async function runBeforePersistMessageHooksAsync(
   hookPlugins: IOrchestratorHookPlugin[],
   payload: BeforePersistAssistantMessageHookPayload,
-  hooks: ChatRuntimeHooks | undefined
+  emitService: IEmitService
 ): Promise<string> {
   let persistedContent = payload.persistedContent;
 
@@ -576,16 +680,10 @@ export async function runBeforePersistMessageHooksAsync(
       }
     } catch (error) {
       const message = toErrorMessage(error);
-      if (hooks?.emitService) {
-        hooks.emitService.log(
-          'warn',
-          `[plugin:${plugin.name}] Hook onBeforePersistAssistantMessage failed: ${message}`
-        );
-      } else {
-        process.stderr.write(
-          `[warn] [plugin:${plugin.name}] Hook onBeforePersistAssistantMessage failed: ${message}\n`
-        );
-      }
+      emitService.log(
+        'warn',
+        `[plugin:${plugin.name}] Hook onBeforePersistAssistantMessage failed: ${message}`
+      );
     }
   }
 

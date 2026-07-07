@@ -114,6 +114,8 @@ export class CliCommandClient implements ICliCommandClient {
     const originalWarn = console.warn;
     const originalError = console.error;
     const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+    const isInteractiveChatCommand = request.command === 'chat-chat' || request.command === 'chat';
+    const shouldCaptureStdout = active && !isInteractiveChatCommand;
 
     // Patch console and stdout to route through the active EmitService when present.
     // Do NOT mirror log events back to console.log/warn/error here:
@@ -133,36 +135,40 @@ export class CliCommandClient implements ICliCommandClient {
         svc!.emit({ kind: 'log', level: 'error', message: formatRuntimeConsoleArgs(args) });
       };
 
-      process.stdout.write = (
-        chunk: unknown,
-        encoding?: BufferEncoding | ((error?: Error | null) => void),
-        cb?: (error?: Error | null) => void
-      ) => {
-        if (!STDOUT_CAPTURE_SCOPE.getStore() || STDOUT_CAPTURE_BYPASS_SCOPE.getStore()) {
-          if (typeof encoding === 'function') {
-            return originalStdoutWrite(chunk as never, encoding as never);
+      if (shouldCaptureStdout) {
+        process.stdout.write = (
+          chunk: unknown,
+          encoding?: BufferEncoding | ((error?: Error | null) => void),
+          cb?: (error?: Error | null) => void
+        ) => {
+          if (!STDOUT_CAPTURE_SCOPE.getStore() || STDOUT_CAPTURE_BYPASS_SCOPE.getStore()) {
+            if (typeof encoding === 'function') {
+              return originalStdoutWrite(chunk as never, encoding as never);
+            }
+            return originalStdoutWrite(chunk as never, encoding as never, cb as never);
           }
-          return originalStdoutWrite(chunk as never, encoding as never, cb as never);
-        }
 
-        const text =
-          typeof chunk === 'string'
-            ? chunk
-            : Buffer.isBuffer(chunk)
-              ? chunk.toString(typeof encoding === 'string' ? encoding : undefined)
-              : String(chunk);
+          let text: string;
+          if (typeof chunk === 'string') {
+            text = chunk;
+          } else if (Buffer.isBuffer(chunk)) {
+            text = chunk.toString(typeof encoding === 'string' ? encoding : undefined);
+          } else {
+            text = String(chunk);
+          }
 
-        svc!.emit({ kind: 'token', text });
+          svc!.emit({ kind: 'token', text });
 
-        if (typeof encoding === 'function') {
-          encoding(null);
+          if (typeof encoding === 'function') {
+            encoding(null);
+            return true;
+          }
+          if (cb) {
+            cb(null);
+          }
           return true;
-        }
-        if (cb) {
-          cb(null);
-        }
-        return true;
-      };
+        };
+      }
     }
 
     const invokeCore = async (): Promise<CommandResponse<unknown>> => {
@@ -205,7 +211,9 @@ export class CliCommandClient implements ICliCommandClient {
         console.log = originalLog;
         console.warn = originalWarn;
         console.error = originalError;
-        process.stdout.write = originalStdoutWrite;
+        if (shouldCaptureStdout) {
+          process.stdout.write = originalStdoutWrite;
+        }
       }
     }
   }
@@ -288,11 +296,20 @@ export class CliCommandClient implements ICliCommandClient {
         logger({ channel: 'stream', event });
       }
     };
-    const interactionStream = new InteractionStream({ translateRuntimeEvent: runtimeEventToStreamEvent });
+    const interactionStream = new InteractionStream({
+      translateRuntimeEvent: runtimeEventToStreamEvent,
+    });
+    // Per-connection EmitService resolved from the container; InteractionStream
+    // rebinds its sink to the per-request queue while invoke() runs.
+    const connectionEmitService = this.resolver.tryResolve<IEmitService>(
+      COMMAND_FACTORY_TOKENS.EmitService
+    );
     yield* interactionStream.stream({
       request,
       context: context,
-      invoke: (ctx: ExecutionContext, emitService: IEmitService) => this.invokeTool(request, ctx, emitService),
+      emitService: connectionEmitService,
+      invoke: (ctx: ExecutionContext, emitService: IEmitService) =>
+        this.invokeTool(request, ctx, emitService),
       normalizeError: (error: unknown) =>
         toServiceDomainError(error, `Command '${request.command}' failed.`),
       onRuntimeEvent: handleRuntimeEvent,

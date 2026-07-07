@@ -8,7 +8,6 @@ import type {
   IAgentManager,
   ISkillManager,
   IConfigurationStorage,
-  IEnvironmentStorage,
   IDeveloperIdentityService,
   ISystemInfoService,
   IPermissionStorage,
@@ -27,6 +26,7 @@ import type {
   IProposalStoreFactory,
   IWorkspaceFsFactory,
   ICommandRegistry,
+  IProviderConfigurationService,
 } from '@ai-team/core';
 import type { IContextService } from '@ai-team/api-contracts';
 import type { ToolManager } from './tools/tool-manager.js';
@@ -61,7 +61,6 @@ export const COMMAND_FACTORY_TOKENS = {
   EmitService: createContainerToken<EmitService>('EmitService'),
   ToolSchemaService: createContainerToken<ToolSchemaService>('ToolSchemaService'),
   ConfigurationStorage: createContainerToken<IConfigurationStorage>('ConfigurationStorage'),
-  EnvironmentStorage: createContainerToken<IEnvironmentStorage>('EnvironmentStorage'),
   DeveloperIdentityService: createContainerToken<IDeveloperIdentityService>(
     'DeveloperIdentityService'
   ),
@@ -85,6 +84,8 @@ export const COMMAND_FACTORY_TOKENS = {
   NoteAttachmentReader: createContainerToken<INoteAttachmentReader>('NoteAttachmentReader'),
   LlmService: createContainerToken<ILlmService>('LlmService'),
   TextToolCallParser: createContainerToken<ITextToolCallParser>('TextToolCallParser'),
+  ProviderConfigurationService:
+    createContainerToken<IProviderConfigurationService>('ProviderConfigurationService'),
   ContextService:
     createContainerToken<Pick<IContextService, 'getContextEstimate'>>('ContextService'),
   MessageStorage: createContainerToken<IMessageStorage>('SqliteBackend'),

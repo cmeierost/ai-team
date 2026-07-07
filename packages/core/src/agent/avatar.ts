@@ -12,8 +12,8 @@ export interface IAvatarManager {
     apiKey: string
   ): Promise<Buffer>;
   buildAvatarPrompt(agent: Agent): string;
-  saveAvatarPreview(agentName: string, imageData: Buffer, workspaceRoot: string): Promise<string>;
-  finalizeAvatar(agentName: string, workspaceRoot: string): Promise<string>;
-  cleanupPreview(agentName: string, workspaceRoot: string): Promise<void>;
-  updateAgentAvatar(agent: Agent, avatarRelPath: string, workspaceRoot: string): Promise<void>;
+  saveAvatarPreview(agentName: string, imageData: Buffer): Promise<string>;
+  finalizeAvatar(agentName: string): Promise<string>;
+  cleanupPreview(agentName: string): Promise<void>;
+  updateAgentAvatar(agent: Agent, avatarRelPath: string): Promise<void>;
 }

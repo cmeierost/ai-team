@@ -12,13 +12,12 @@ import {
   type RightOverlapSummary,
   PermFileRegistry,
 } from 'fs-context';
-import type { PermissionRule, Right, FileTypeGroupConfig, TeamConfig } from '@ai-team/core';
+import type { PermissionRule, Right, FileTypeGroupConfig } from '@ai-team/core';
 import { AgentDocumentStorage } from '../agent/agent-document-storage.js';
 import { MarkdownSectionService } from '../agent/markdown-service.js';
 import { WorkspaceDiscoveryStorage } from '../agent/workspace-discovery-storage.js';
 import { WorkspaceStorage } from '../agent/workspace-storage.js';
 import { AgentManager } from '../agent/index.js';
-import { ConfigurationStorage } from '../agent/configuration-storage.js';
 
 export type PermissionOverlapMode = 'files' | 'patterns';
 
@@ -290,13 +289,13 @@ const DEFAULT_FILE_TYPE_GROUPS: Record<string, FileTypeGroupConfig> = {
 };
 
 function normalizeFileTypeGroups(
-  config: TeamConfig | undefined
+  configured: Record<string, FileTypeGroupConfig> | undefined
 ): Record<string, FileTypeGroupConfig> {
-  const configured = config?.fileTypeGroups ?? {};
+  const configuredGroups = configured ?? {};
   const merged: Record<string, FileTypeGroupConfig> = {};
   const source = {
     ...DEFAULT_FILE_TYPE_GROUPS,
-    ...configured,
+    ...configuredGroups,
   };
   for (const [id, group] of Object.entries(source)) {
     const normalizedId = id.trim();
@@ -428,7 +427,6 @@ function mergeUniquePatterns(...groups: ReadonlyArray<readonly string[]>): strin
 }
 
 async function mergeAgentAccessPatterns(
-  workspaceRoot: string,
   permRegistry: PermFileRegistry,
   agents: readonly Awaited<ReturnType<AgentManager['getAllAgentsAsync']>>[number][]
 ): Promise<Awaited<ReturnType<AgentManager['getAllAgentsAsync']>>> {
@@ -699,7 +697,8 @@ export async function loadAgentPermissionRules(workspaceRoot: string): Promise<A
 
 export async function analyzeWorkspacePermissionOverlap(
   workspaceRoot: string,
-  options: AnalyzePermissionOverlapOptions = {}
+  options: AnalyzePermissionOverlapOptions = {},
+  fileTypeGroupsFromConfig?: Record<string, FileTypeGroupConfig>
 ): Promise<PermissionOverlapReport> {
   const mode = options.mode ?? 'files';
 
@@ -708,11 +707,11 @@ export async function analyzeWorkspacePermissionOverlap(
     return buildPatternReport(analyzePermOverlap(rulesByAgent));
   }
 
-  const config = await new ConfigurationStorage().loadTeamConfigAsync(workspaceRoot);
-  const fileTypeGroups = normalizeFileTypeGroups(config);
+  const fileTypeGroups = normalizeFileTypeGroups(fileTypeGroupsFromConfig);
   const agentManager = new AgentManager(
     workspaceRoot,
     new AgentDocumentStorage(
+      workspaceRoot,
       new MarkdownSectionService(),
       new WorkspaceStorage(),
       new WorkspaceDiscoveryStorage()
@@ -723,7 +722,6 @@ export async function analyzeWorkspacePermissionOverlap(
   );
   const permRegistry = new PermFileRegistry(workspaceRoot);
   const agents = await mergeAgentAccessPatterns(
-    workspaceRoot,
     permRegistry,
     await agentManager.getAllAgentsAsync()
   );

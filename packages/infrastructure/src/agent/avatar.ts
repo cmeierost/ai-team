@@ -13,13 +13,12 @@ import type {
   IAgentDocumentStorage,
   IAvatarManager,
 } from '@ai-team/core';
-import { AgentDocumentStorage } from './agent-document-storage.js';
-import { MarkdownSectionService } from './markdown-service.js';
-import { WorkspaceDiscoveryStorage } from './workspace-discovery-storage.js';
-import { WorkspaceStorage } from './workspace-storage.js';
 
 export class AvatarManager implements IAvatarManager {
-  constructor(private readonly agentDocumentStorage: IAgentDocumentStorage) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly agentDocumentStorage: IAgentDocumentStorage
+  ) {}
 
   /**
    * Generate a deterministic hue (0-359) from a string using a simple hash.
@@ -28,7 +27,7 @@ export class AvatarManager implements IAvatarManager {
   private hashStringToHue(str: string): number {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+      hash = (str.codePointAt(i) ?? 0) + ((hash << 5) - hash);
     }
     return Math.abs(hash % 360);
   }
@@ -51,15 +50,15 @@ export class AvatarManager implements IAvatarManager {
   }
 
   parseHslHue(hsl: string): number | undefined {
-    const m = hsl.match(/^hsl\((\d+)/i);
+    const m = /^hsl\((\d+)/i.exec(hsl);
     return m ? Number(m[1]) : undefined;
   }
 
   substituteUrlPlaceholders(urlTemplate: string, agent: Agent): string {
     return urlTemplate
-      .replace(/\{name\}/g, encodeURIComponent(agent.name))
-      .replace(/\{id\}/g, encodeURIComponent(agent.id))
-      .replace(/\{seed\}/g, encodeURIComponent(agent.id));
+      .replaceAll('{name}', encodeURIComponent(agent.name))
+      .replaceAll('{id}', encodeURIComponent(agent.id))
+      .replaceAll('{seed}', encodeURIComponent(agent.id));
   }
 
   async downloadRandomAvatar(urlTemplate: string, agent: Agent): Promise<Buffer> {
@@ -133,12 +132,8 @@ export class AvatarManager implements IAvatarManager {
     return parts.join(', ');
   }
 
-  async saveAvatarPreview(
-    agentName: string,
-    imageData: Buffer,
-    workspaceRoot: string
-  ): Promise<string> {
-    const avatarsDir = path.join(workspaceRoot, '.ai-team', 'avatars');
+  async saveAvatarPreview(agentName: string, imageData: Buffer): Promise<string> {
+    const avatarsDir = path.join(this.workspaceRoot, '.ai-team', 'avatars');
     await fs.mkdir(avatarsDir, { recursive: true });
 
     const fileName = `${agentName}-preview.jpg`;
@@ -148,8 +143,8 @@ export class AvatarManager implements IAvatarManager {
     return filePath;
   }
 
-  async finalizeAvatar(agentName: string, workspaceRoot: string): Promise<string> {
-    const avatarsDir = path.join(workspaceRoot, '.ai-team', 'avatars');
+  async finalizeAvatar(agentName: string): Promise<string> {
+    const avatarsDir = path.join(this.workspaceRoot, '.ai-team', 'avatars');
     const previewPath = path.join(avatarsDir, `${agentName}-preview.jpg`);
     const finalPath = path.join(avatarsDir, `${agentName}.jpg`);
 
@@ -163,8 +158,8 @@ export class AvatarManager implements IAvatarManager {
     return `.ai-team/avatars/${agentName}.jpg`;
   }
 
-  async cleanupPreview(agentName: string, workspaceRoot: string): Promise<void> {
-    const avatarsDir = path.join(workspaceRoot, '.ai-team', 'avatars');
+  async cleanupPreview(agentName: string): Promise<void> {
+    const avatarsDir = path.join(this.workspaceRoot, '.ai-team', 'avatars');
     const previewPath = path.join(avatarsDir, `${agentName}-preview.jpg`);
 
     try {
@@ -174,11 +169,7 @@ export class AvatarManager implements IAvatarManager {
     }
   }
 
-  async updateAgentAvatar(
-    agent: Agent,
-    avatarRelPath: string,
-    workspaceRoot: string
-  ): Promise<void> {
+  async updateAgentAvatar(agent: Agent, avatarRelPath: string): Promise<void> {
     agent.avatar = {
       type: 'url',
       url: avatarRelPath,
@@ -199,85 +190,4 @@ export class AvatarManager implements IAvatarManager {
 
     await this.agentDocumentStorage.saveAgentAsync(agent);
   }
-}
-
-export function createAvatarManager(): AvatarManager {
-  const markdownSectionService = new MarkdownSectionService();
-  const workspaceStorage = new WorkspaceStorage();
-  const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
-  const agentDocumentStorage = new AgentDocumentStorage(
-    markdownSectionService,
-    workspaceStorage,
-    workspaceDiscoveryStorage
-  );
-
-  return new AvatarManager(agentDocumentStorage);
-}
-
-let defaultAvatarManager: AvatarManager | undefined;
-
-function getAvatarManager(): AvatarManager {
-  defaultAvatarManager ??= createAvatarManager();
-  return defaultAvatarManager;
-}
-
-export const avatarManager: AvatarManager = new Proxy({} as AvatarManager, {
-  get(_target, prop, receiver) {
-    const manager = getAvatarManager();
-    const value = Reflect.get(manager as unknown as object, prop, receiver);
-    return typeof value === 'function' ? value.bind(manager) : value;
-  },
-});
-
-export function generateAgentColor(agent: Pick<Agent, 'name' | 'avatar'>): string {
-  return getAvatarManager().generateAgentColor(agent);
-}
-
-export function parseHslHue(hsl: string): number | undefined {
-  return getAvatarManager().parseHslHue(hsl);
-}
-
-export function substituteUrlPlaceholders(urlTemplate: string, agent: Agent): string {
-  return getAvatarManager().substituteUrlPlaceholders(urlTemplate, agent);
-}
-
-export async function downloadRandomAvatar(urlTemplate: string, agent: Agent): Promise<Buffer> {
-  return getAvatarManager().downloadRandomAvatar(urlTemplate, agent);
-}
-
-export async function generateAvatarWithAI(
-  prompt: string,
-  provider: LlmProviderConfig,
-  modelName: string,
-  apiKey: string
-): Promise<Buffer> {
-  return getAvatarManager().generateAvatarWithAI(prompt, provider, modelName, apiKey);
-}
-
-export function buildAvatarPrompt(agent: Agent): string {
-  return getAvatarManager().buildAvatarPrompt(agent);
-}
-
-export async function saveAvatarPreview(
-  agentName: string,
-  imageData: Buffer,
-  workspaceRoot: string
-): Promise<string> {
-  return getAvatarManager().saveAvatarPreview(agentName, imageData, workspaceRoot);
-}
-
-export async function finalizeAvatar(agentName: string, workspaceRoot: string): Promise<string> {
-  return getAvatarManager().finalizeAvatar(agentName, workspaceRoot);
-}
-
-export async function cleanupPreview(agentName: string, workspaceRoot: string): Promise<void> {
-  return getAvatarManager().cleanupPreview(agentName, workspaceRoot);
-}
-
-export async function updateAgentAvatar(
-  agent: Agent,
-  avatarRelPath: string,
-  workspaceRoot: string
-): Promise<void> {
-  return getAvatarManager().updateAgentAvatar(agent, avatarRelPath, workspaceRoot);
 }

@@ -4,11 +4,15 @@
   "description": "Code duplication detection and metrics calculator",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "aspect-fuzzy-dup": "dist/cli/fuzzy-dup.js"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run --passWithNoTests",
+    "fuzzy": "node dist/cli/fuzzy-dup.js",
     "clean": "rm -rf dist"
   },
   "license": "MIT",

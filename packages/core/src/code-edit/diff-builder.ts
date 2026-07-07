@@ -32,8 +32,3 @@ export interface DiffOptions {
   /** New file label */
   newLabel?: string;
 }
-
-/**
- * Options for diff generation
- * Moved to infrastructure - no longer exported from core
- */
