@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { writeLlmLogToConsole, type LlmLogPayload } from './llm-console-log.js';
+import { InfrastructureLlmConsoleLog, type LlmLogPayload } from './llm-console-log.js';
 
 function createBasePayload(): LlmLogPayload {
   return {
@@ -14,8 +14,9 @@ function createBasePayload(): LlmLogPayload {
   };
 }
 
-describe('writeLlmLogToConsole', () => {
+describe('InfrastructureLlmConsoleLog.write', () => {
   it('prints warning (not error) when fallback mode has an error', () => {
+    const logger = new InfrastructureLlmConsoleLog();
     const writes: string[] = [];
     const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
       writes.push(String(chunk));
@@ -23,7 +24,7 @@ describe('writeLlmLogToConsole', () => {
     });
 
     try {
-      writeLlmLogToConsole({
+      logger.write({
         ...createBasePayload(),
         response: {
           text: 'Fix Session Title Persistence',
@@ -44,6 +45,7 @@ describe('writeLlmLogToConsole', () => {
   });
 
   it('prints error for non-fallback errors', () => {
+    const logger = new InfrastructureLlmConsoleLog();
     const writes: string[] = [];
     const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
       writes.push(String(chunk));
@@ -51,7 +53,7 @@ describe('writeLlmLogToConsole', () => {
     });
 
     try {
-      writeLlmLogToConsole({
+      logger.write({
         ...createBasePayload(),
         error: {
           message: 'network failure',

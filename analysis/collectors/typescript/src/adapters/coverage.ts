@@ -4,7 +4,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { relative, resolve } from 'node:path';
+import { relative, resolve, win32 } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Intermediate schema types
@@ -95,7 +95,19 @@ interface IstanbulFileCoverage {
 // ---------------------------------------------------------------------------
 
 function relativize(filePath: string, rootDir: string): string {
-  // If the path starts with the rootDir, make it relative
+  const normalizedFilePath = filePath.replace(/\\/g, '/');
+  const normalizedRootDir = rootDir.replace(/\\/g, '/');
+  const isWindowsAbsolutePath = /^[A-Za-z]:\//;
+
+  // Handle Windows absolute paths deterministically, regardless of host OS.
+  if (
+    isWindowsAbsolutePath.test(normalizedFilePath) &&
+    isWindowsAbsolutePath.test(normalizedRootDir)
+  ) {
+    return win32.relative(normalizedRootDir, normalizedFilePath).replace(/\\/g, '/');
+  }
+
+  // Fallback to host-relative resolution for POSIX and mixed relative inputs.
   const rel = relative(resolve(rootDir), resolve(filePath));
   return rel.replace(/\\/g, '/');
 }

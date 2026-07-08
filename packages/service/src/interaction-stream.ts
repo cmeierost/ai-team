@@ -2,11 +2,10 @@ import type {
   CommandResponse,
   StreamEvent,
   InteractionRequest,
-  RuntimeStreamEvent,
 } from '@ai-team/api-contracts';
-import type { ExecutionContext } from '@ai-team/core';
+import type { ExecutionContext, IEmitService, RuntimeStreamEvent } from '@ai-team/core';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
-import { EmitService, type IEmitService } from './orchestrator/services/emit-service.js';
+import { EmitService } from './orchestrator/services/emit-service.js';
 
 export interface InteractionStreamDeps {
   timestamp?: () => string;

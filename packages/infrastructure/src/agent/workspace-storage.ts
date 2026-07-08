@@ -3,17 +3,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export class WorkspaceStorage implements IWorkspaceStorage {
+  constructor(private readonly workspaceRoot: string) {}
   public async fileExistsAsync(filePath: string): Promise<boolean> {
     try {
-      await fs.access(filePath);
+      await fs.access(path.join(this.workspaceRoot, filePath));
       return true;
     } catch {
       return false;
     }
   }
 
-  public async ensureAiTeamDirectoryAsync(workspaceRoot: string): Promise<void> {
-    const aiTeamDir = path.join(workspaceRoot, '.ai-team');
+  public async ensureAiTeamDirectoryAsync(): Promise<void> {
+    const aiTeamDir = path.join(this.workspaceRoot, '.ai-team');
     await fs.mkdir(path.join(aiTeamDir, 'agents'), { recursive: true });
     await fs.mkdir(path.join(aiTeamDir, 'instructions'), { recursive: true });
     await fs.mkdir(path.join(aiTeamDir, 'prompts'), { recursive: true });

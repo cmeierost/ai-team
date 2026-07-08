@@ -1,24 +1,25 @@
 import {
   createCommandDispatcher,
   type CommandDispatcher,
-} from '@ai-team/service/src/command-dispatcher.js';
+  type IEmitService,
+  type IQuestionService,
+  toServiceDomainError,
+  InteractionStream,
+  runtimeEventToStreamEvent,
+  parseStreamPerfEnv,
+  createStreamPerfTracker,
+  writeBackendDebugLog,
+  setBackendDebugLogSettingsResolver,
+} from '@ai-team/service';
 import type {
   CommandAvailability,
   CommandDescriptor,
   CommandResponse,
   StreamEvent,
   InteractionRequest,
-  RuntimeStreamEvent,
 } from '@ai-team/api-contracts';
-import { toServiceDomainError } from '@ai-team/service/src/errors.js';
-import { writeBackendDebugLog } from '@ai-team/service/src/utils/debug-log.js';
-import type { IEmitService } from '@ai-team/service/src/orchestrator/services/emit-service.js';
-import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service/src/stream-perf.js';
-import { runtimeEventToStreamEvent } from '@ai-team/service/src/runtime-event-translator.js';
-import { InteractionStream } from '@ai-team/service/src/interaction-stream.js';
-import type { ExecutionContext, IServiceContainer } from '@ai-team/core';
-import type { IQuestionService } from '@ai-team/service';
-import { COMMAND_FACTORY_TOKENS } from '@ai-team/service/src/types.js';
+import type { ExecutionContext, IConfigurationStorage, IServiceContainer } from '@ai-team/core';
+import { COMMAND_FACTORY_TOKENS } from '@ai-team/service';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -77,6 +78,22 @@ export class CliCommandClient implements ICliCommandClient {
     this.workspaceRoot = workspaceRoot;
     this.resolver = resolver;
     this.dispatcher = createCommandDispatcher(workspaceRoot, resolver);
+
+    const configurationStorage = this.resolver.tryResolve(
+      COMMAND_FACTORY_TOKENS.ConfigurationStorage
+    ) as IConfigurationStorage | undefined;
+    if (configurationStorage) {
+      setBackendDebugLogSettingsResolver((resolvedWorkspaceRoot: string) => {
+        if (resolvedWorkspaceRoot !== this.workspaceRoot) {
+          return { file: false, console: false };
+        }
+
+        return {
+          file: Boolean(configurationStorage.get('log.file')),
+          console: Boolean(configurationStorage.get('log.console')),
+        };
+      });
+    }
   }
 
   withQuestionService(service: IQuestionService): CliCommandClient {
@@ -172,7 +189,10 @@ export class CliCommandClient implements ICliCommandClient {
     }
 
     const invokeCore = async (): Promise<CommandResponse<unknown>> => {
-      const response = await this.dispatcher.dispatch(request.command, request.payload, context);
+      const response = await this.dispatcher.dispatch({
+        command: request.command,
+        payload: request.payload,
+      });
 
       svc?.status('completed', `Completed command '${request.command}'`);
       writeBackendDebugLog(this.workspaceRoot, {
@@ -237,7 +257,7 @@ export class CliCommandClient implements ICliCommandClient {
       (context.logger as ((entry: { channel: string; event: unknown }) => void) | undefined) ??
       (() => {});
 
-    const handleRuntimeEvent = (event: RuntimeStreamEvent) => {
+    const handleRuntimeEvent = (event: unknown) => {
       if (perf) {
         const t0 = perf.nowNs();
         writeBackendDebugLog(this.workspaceRoot, {

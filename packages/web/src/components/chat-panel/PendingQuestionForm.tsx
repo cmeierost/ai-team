@@ -4,13 +4,11 @@ interface PendingQuestionFormProps {
   pendingQuestion: PendingQuestion;
   pendingInputAnswer: string;
   pendingPasswordAnswer: string;
-  pendingConfirmAnswer: boolean;
   pendingSelectAnswer: string;
   pendingChecklistAnswer: string[];
   pendingFormAnswer: Record<string, string>;
   onPendingInputAnswerChange: (value: string) => void;
   onPendingPasswordAnswerChange: (value: string) => void;
-  onPendingConfirmAnswerChange: (value: boolean) => void;
   onPendingSelectAnswerChange: (value: string) => void;
   onTogglePendingChecklistValue: (choiceValue: string, checked: boolean) => void;
   onPendingFormFieldChange: (fieldId: string, value: string) => void;
@@ -22,13 +20,11 @@ export function PendingQuestionForm({
   pendingQuestion,
   pendingInputAnswer,
   pendingPasswordAnswer,
-  pendingConfirmAnswer,
   pendingSelectAnswer,
   pendingChecklistAnswer,
   pendingFormAnswer,
   onPendingInputAnswerChange,
   onPendingPasswordAnswerChange,
-  onPendingConfirmAnswerChange,
   onPendingSelectAnswerChange,
   onTogglePendingChecklistValue,
   onPendingFormFieldChange,

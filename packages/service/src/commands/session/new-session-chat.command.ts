@@ -6,7 +6,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
-import type { IEmitService } from '../../orchestrator/services/emit-service.js';
+import type { IEmitService } from '@ai-team/core';
 export const NewSessionChatCommandMetadata = {
   key: 'new',
   description: 'Start a new session with the current agent',

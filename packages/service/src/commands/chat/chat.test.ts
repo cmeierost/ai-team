@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  requestInput,
-  stripHandoffDirective,
-} from './index.js';
-import type { ChatRuntimeHooks } from './index.js';
+import { requestInput } from '../com/questions.js';
+import { ChatCommand } from './chat.command.js';
+import type { ChatRuntimeHooks } from '../../orchestrator/hooks.js';
 
 // ---------------------------------------------------------------------------
 // requestInput — setImmediate ordering
@@ -65,7 +63,7 @@ describe('requestInput — setImmediate ordering', () => {
 describe('stripHandoffDirective', () => {
   it('removes a bare HANDOFF: line', () => {
     const input = 'Sure thing!\nHANDOFF: engineer | pass to dev team\nLet me know.';
-    const result = stripHandoffDirective(input);
+    const result = ChatCommand.stripHandoffDirective(input);
     expect(result).toContain('Sure thing!');
     expect(result).toContain('Let me know.');
     expect(result).not.toMatch(/HANDOFF/i);
@@ -73,7 +71,7 @@ describe('stripHandoffDirective', () => {
 
   it('removes multiple HANDOFF: lines', () => {
     const input = 'HANDOFF: hr | go here\nSome text.\nHANDOFF:CEO| also here\nDone.';
-    const result = stripHandoffDirective(input);
+    const result = ChatCommand.stripHandoffDirective(input);
     expect(result).toContain('Some text.');
     expect(result).toContain('Done.');
     expect(result).not.toMatch(/HANDOFF/i);
@@ -82,7 +80,7 @@ describe('stripHandoffDirective', () => {
   it('is case-insensitive', () => {
     const input = 'Hello.\nhandoff: engineer | route it\nBye.';
     // Removing the directive line leaves one blank line; that is acceptable
-    const result = stripHandoffDirective(input);
+    const result = ChatCommand.stripHandoffDirective(input);
     expect(result).toContain('Hello.');
     expect(result).toContain('Bye.');
     expect(result).not.toMatch(/handoff/i);
@@ -90,7 +88,7 @@ describe('stripHandoffDirective', () => {
 
   it('handles leading/trailing whitespace on the directive line', () => {
     const input = 'Hi.\n   HANDOFF:CEO| urgent   \nThanks.';
-    const result = stripHandoffDirective(input);
+    const result = ChatCommand.stripHandoffDirective(input);
     expect(result).toContain('Hi.');
     expect(result).toContain('Thanks.');
     expect(result).not.toMatch(/HANDOFF/i);
@@ -98,7 +96,7 @@ describe('stripHandoffDirective', () => {
 
   it('collapses more than two consecutive blank lines left by removal', () => {
     const input = 'Start.\n\n\nHANDOFF: x | y\n\n\n\nEnd.';
-    const result = stripHandoffDirective(input);
+    const result = ChatCommand.stripHandoffDirective(input);
     expect(result).not.toMatch(/\n{3,}/);
     expect(result).toContain('Start.');
     expect(result).toContain('End.');
@@ -106,30 +104,30 @@ describe('stripHandoffDirective', () => {
 
   it('leaves text without a directive unchanged', () => {
     const input = 'This is a normal message.';
-    expect(stripHandoffDirective(input)).toBe('This is a normal message.');
+    expect(ChatCommand.stripHandoffDirective(input)).toBe('This is a normal message.');
   });
 
   it('does not strip lines that merely mention handoff in a sentence', () => {
     const input = 'The handoff process is important.\nHANDOFF:CEO| do it\nProceed.';
-    const result = stripHandoffDirective(input);
+    const result = ChatCommand.stripHandoffDirective(input);
     expect(result).toContain('The handoff process is important.');
     expect(result).not.toContain('HANDOFF: cto');
   });
 
   it('returns empty string when input is only a HANDOFF directive', () => {
-    expect(stripHandoffDirective('HANDOFF: engineer | go')).toBe('');
+    expect(ChatCommand.stripHandoffDirective('HANDOFF: engineer | go')).toBe('');
   });
 
   it('removes inline HANDOFF directive appended to normal text on same line', () => {
     const input = 'Sure — I can help. HANDOFF: hr-director | Please proceed.';
-    const result = stripHandoffDirective(input);
+    const result = ChatCommand.stripHandoffDirective(input);
     expect(result).toBe('Sure — I can help.');
     expect(result).not.toMatch(/HANDOFF/i);
   });
 
   it('returns trimmed result', () => {
     const input = '\n\nHANDOFF: x | y\n\n';
-    expect(stripHandoffDirective(input)).toBe('');
+    expect(ChatCommand.stripHandoffDirective(input)).toBe('');
   });
 });
 

@@ -286,7 +286,7 @@ async function askLlmProfileAsync(
 // ── Utility helpers ───────────────────────────────────────────────────────────
 
 function emitLog(context: IQuestionService, message: string) {
-  context.emit?.({ kind: 'log', level: 'info', message });
+  console.log(message);
 }
 
 function toNonEmpty(value: string | undefined): string | undefined {

@@ -8,7 +8,7 @@ import type {
 } from '@ai-team/core';
 import type { ChatRuntimeHooks } from '../../orchestrator/hooks.js';
 import type { SessionManager } from '../../session-manager.js';
-import type { ChatCommand } from '../chat/chat.command.js';
+import type { ChatRuntimeOptions } from '../chat/chat.command.js';
 import type { IQuestionService } from '../../questions/question-service.js';
 
 const chatPhaseParamsSchema = z.object({
@@ -69,7 +69,14 @@ export class ChatPhaseCommand implements ICommand<ChatPhaseParams, ChatPhaseResu
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly chatCommand: Pick<ChatCommand, 'execute'>,
+    private readonly chatCommand: {
+      executeRuntime: (
+        workspaceRoot: string,
+        agentId: string | undefined,
+        options: ChatRuntimeOptions,
+        hooks?: ChatRuntimeHooks
+      ) => Promise<void>;
+    },
     private readonly sessionManager: Pick<
       SessionManager,
       'getLatestSession' | 'getSessionMessages'
@@ -90,10 +97,9 @@ export class ChatPhaseCommand implements ICommand<ChatPhaseParams, ChatPhaseResu
       questionPassword: (request) => this.questionService.password(request),
       questionChecklist: (request) => this.questionService.checklist(request),
       workflowState: ctx.workflowState as ChatRuntimeHooks['workflowState'],
-      onWorkflowFrame: ctx.onWorkflowFrame,
     };
 
-    await this.chatCommand.execute(
+    await this.chatCommand.executeRuntime(
       this.workspaceRoot,
       params.agentId,
       {

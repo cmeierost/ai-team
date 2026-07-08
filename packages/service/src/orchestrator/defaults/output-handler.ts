@@ -10,7 +10,7 @@ import type { ExecutionContext } from '@ai-team/core';
  */
 
 import type { IOutputHandler, TurnResult } from '../pipeline.js';
-import type { IEmitService } from '../services/emit-service.js';
+import type { IEmitService } from '@ai-team/core';
 
 export class DefaultOutputHandler implements IOutputHandler {
   constructor(private readonly emitService: IEmitService) {}

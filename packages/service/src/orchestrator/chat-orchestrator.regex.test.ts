@@ -13,10 +13,19 @@ import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import { ToolSerializationService } from './services/tool-serialization-service.js';
 import { EmitService } from './services/emit-service.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import { setServiceContainer } from '../service-registry.js';
+import type { ExecutionContext } from '@ai-team/core';
 
 const serialization = new ToolSerializationService();
+
+type TestContext = ExecutionContext & {
+  workspaceRoot: string;
+  hooks: Record<string, unknown>;
+  emitService: EmitService;
+  sessionManager: any;
+  agentManager: any;
+  skillManager: any;
+  llmService: any;
+};
 
 const PRE_LLM_INTENT_PROVIDERS = [
   {
@@ -48,29 +57,23 @@ const PRE_LLM_INTENT_PROVIDERS = [
   },
 ];
 
-function makeContext(): ExecutionContext {
+function makeContext(): TestContext {
   const appendMessage = vi.fn(async () => null);
   const emit = vi.fn();
+  const emitService = new EmitService(emit as any);
 
   const ctx = {
     agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
-    hooks: { emit } as any,
+    hooks: {} as any,
+    emitService,
     sessionManager: { appendMessage } as any,
     agentManager: { loadAllAgents: vi.fn(async () => {}) } as any,
     skillManager: {} as any,
     llmService: {} as any,
     history: [],
-  } as ExecutionContext;
-
-  const emitService = new EmitService(emit as any);
-  setServiceContainer({
-    resolve: (token: { id?: string }) => {
-      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) return emitService;
-      throw new Error(`Unexpected token: ${String(token?.id)}`);
-    },
-  } as any);
+  } as TestContext;
 
   return ctx;
 }
@@ -121,7 +124,9 @@ describe('ChatOrchestrator regex tool intents', () => {
       ctx.agentManager as any,
       ctx.sessionManager as any,
       ctx.llmService as any,
-      serialization
+      serialization,
+      ctx.emitService,
+      ctx.skillManager as any
     );
 
     const result = await orchestrator.run({ message: 'show your visible file tree' });
@@ -176,7 +181,9 @@ describe('ChatOrchestrator regex tool intents', () => {
       ctx.agentManager as any,
       ctx.sessionManager as any,
       ctx.llmService as any,
-      serialization
+      serialization,
+      ctx.emitService,
+      ctx.skillManager as any
     );
 
     const result = await orchestrator.run({
@@ -217,7 +224,9 @@ describe('ChatOrchestrator regex tool intents', () => {
       ctx.agentManager as any,
       ctx.sessionManager as any,
       ctx.llmService as any,
-      serialization
+      serialization,
+      ctx.emitService,
+      ctx.skillManager as any
     );
 
     const result = await orchestrator.run({ message: 'what tools can you use?' });
@@ -255,7 +264,9 @@ describe('ChatOrchestrator regex tool intents', () => {
       ctx.agentManager as any,
       ctx.sessionManager as any,
       ctx.llmService as any,
-      serialization
+      serialization,
+      ctx.emitService,
+      ctx.skillManager as any
     );
 
     const result = await orchestrator.run({ message: 'help me refactor this module' });
@@ -285,7 +296,9 @@ describe('ChatOrchestrator regex tool intents', () => {
       ctx.agentManager as any,
       ctx.sessionManager as any,
       ctx.llmService as any,
-      serialization
+      serialization,
+      ctx.emitService,
+      ctx.skillManager as any
     );
 
     const result = await orchestrator.run({ message: 'what employees do we have?' });
@@ -323,7 +336,9 @@ describe('ChatOrchestrator regex tool intents', () => {
       ctx.agentManager as any,
       ctx.sessionManager as any,
       ctx.llmService as any,
-      serialization
+      serialization,
+      ctx.emitService,
+      ctx.skillManager as any
     );
 
     const result = await orchestrator.run({ message: 'who is on the team?' });
@@ -401,6 +416,8 @@ describe('ChatOrchestrator regex tool intents', () => {
       ctx.sessionManager as any,
       ctx.llmService as any,
       serialization,
+      ctx.emitService,
+      ctx.skillManager as any,
       toolSource
     );
     const result = await orchestrator.run({ message: 'show structure please' });

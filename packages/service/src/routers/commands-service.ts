@@ -2,7 +2,7 @@ import type { ICommandsService } from '@ai-team/api-contracts';
 import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 import type { IConfigurationStorage, ISkillManager } from '@ai-team/core';
 import { EmitService } from '../orchestrator/services/emit-service.js';
-import { buildChatCommandRegistry } from '../commands/chat/chat-commands.command.js';
+import { IN_CHAT_COMMAND_REGISTRY } from '../command-registry.js';
 import {
   buildDynamicSlashCatalog,
   toDynamicChatCommandRegistryEntries,
@@ -19,7 +19,7 @@ export class CommandsService implements ICommandsService {
   ) {}
 
   async list(): Promise<ChatCommandRegistryEntry[]> {
-    const webChatCommandRegistry = buildChatCommandRegistry({ includeCliChat: false });
+    const webChatCommandRegistry = IN_CHAT_COMMAND_REGISTRY;
     const reservedKeys = new Set<string>();
     for (const command of webChatCommandRegistry) {
       reservedKeys.add(command.key.toLowerCase());

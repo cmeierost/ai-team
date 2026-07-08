@@ -26,6 +26,8 @@ const ARCHITECT_ROLES = ['architect', 'tech-lead', 'engineering-manager', 'cto',
 export class WorkspaceOverviewEnricher implements IContextEnricher {
   readonly name = 'workspace-overview';
 
+  constructor(private readonly workspaceRoot: string) {}
+
   async enrich(ctx: ExecutionContext): Promise<string | null> {
     const role = ctx.agent!.role.toLowerCase();
     const isHighContextAgent =
@@ -34,9 +36,8 @@ export class WorkspaceOverviewEnricher implements IContextEnricher {
       ctx.agent!.contextLevel === ContextLevel.REPOSITORY;
 
     if (!isHighContextAgent) return null;
-
     try {
-      const tree = await buildDirectoryTree(ctx.workspaceRoot, 3);
+      const tree = await buildDirectoryTree(this.workspaceRoot, 3);
       return `## Current workspace structure\n\`\`\`\n${tree}\n\`\`\``;
     } catch {
       return null;

@@ -4,7 +4,7 @@ import type { ICommand, CommandResponse, ICommandDescriptor } from '@ai-team/cor
 import { InitCommand, initCommand } from './init.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 import type { IQuestionService } from '../../questions/question-service.js';
-import type { IEmitService } from '../../orchestrator/services/emit-service.js';
+import type { IEmitService } from '@ai-team/core';
 
 type Params = z.infer<typeof InitICommand.schema>;
 const _initICommandSchema = z.object({
@@ -26,8 +26,8 @@ export class InitICommand implements ICommand<Params, void> {
 
   constructor(
     private readonly workspaceRoot: string,
+    private readonly emitService: IEmitService,
     private readonly questionService?: IQuestionService,
-    private readonly emitService?: IEmitService,
     private readonly initCmd?: InitCommand
   ) {}
 
@@ -60,7 +60,6 @@ export class InitICommand implements ICommand<Params, void> {
       questionPassword: (request) => this.questionService?.password(request) ?? noop(),
       questionChecklist: (request) => this.questionService?.checklist(request) ?? noop(),
       workflowState: runtime?.workflowState as InitRuntimeHooks['workflowState'],
-      onWorkflowFrame: runtime?.onWorkflowFrame,
     };
   }
 }

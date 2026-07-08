@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IAgentManager } from '@ai-team/core';
-import { GovernanceService } from './governance.js';
+import { GovernanceService } from './governance-service.js';
 
 function actor(role: string, id = role): any {
   return {

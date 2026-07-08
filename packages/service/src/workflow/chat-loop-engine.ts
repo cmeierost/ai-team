@@ -1,4 +1,9 @@
-import type { Agent, IContainerToken, IServiceContainer, ExecutionContext } from '@ai-team/core';
+import {
+  Token,
+  type Agent,
+  type IServiceContainer,
+  type ExecutionContext,
+} from '@ai-team/core';
 import type {
   WorkflowDefinitionDocument,
   WorkflowDefinitionState,
@@ -27,13 +32,6 @@ const DEFAULT_MAX_HOPS = 10;
 const DEFAULT_AUTO_REACT_MESSAGE =
   '[Handoff received] You have just been handed this conversation. Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.';
 
-function createWorkflowToken<T>(id: string): IContainerToken<T> {
-  return {
-    id,
-    toString: () => `Token(${id})`,
-  } as IContainerToken<T>;
-}
-
 export interface ChatLoopToolRoundExecutionRequest {
   toolCall: ChatToolCall;
   hop: number;
@@ -45,7 +43,7 @@ export interface ChatLoopToolRoundExecutor {
 }
 
 export const WORKFLOW_ENGINE_TOKENS = {
-  ChatLoopToolRoundExecutor: createWorkflowToken<ChatLoopToolRoundExecutor>(
+  ChatLoopToolRoundExecutor: new Token<ChatLoopToolRoundExecutor>(
     'WorkflowEngine.ChatLoopToolRoundExecutor'
   ),
 } as const;

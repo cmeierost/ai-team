@@ -216,6 +216,20 @@ export const FileTreeConfigSchema = z.object({
 
 export type FileTreeConfig = z.infer<typeof FileTreeConfigSchema>;
 
+export const LogConfigSchema = z.object({
+  file: z.boolean().default(false),
+  console: z.boolean().default(false),
+});
+
+export type LogConfig = z.infer<typeof LogConfigSchema>;
+
+export const UserLogConfigSchema = z.object({
+  file: z.boolean().optional(),
+  console: z.boolean().optional(),
+});
+
+export type UserLogConfig = z.infer<typeof UserLogConfigSchema>;
+
 export const FileTypeGroupConfigSchema = z.object({
   label: z.string().min(1).optional(),
   patterns: z.array(z.string().min(1)).optional().default([]),
@@ -234,6 +248,7 @@ export type DynamicSlashCatalogConfig = z.infer<typeof DynamicSlashCatalogConfig
 
 export const TeamConfigSchema = z.object({
   version: z.string(),
+  log: LogConfigSchema.default({ file: false, console: false }),
   developer: UserProfileSchema.optional(),
   providers: z.record(z.string(), LlmProviderConfigSchema).optional(),
   defaultModel: z
@@ -270,6 +285,7 @@ export type TeamConfig = z.infer<typeof TeamConfigSchema>;
 
 export const UserConfigSchema = TeamConfigSchema.extend({
   version: z.string().optional(),
+  log: UserLogConfigSchema.optional(),
   developer: UserProfileSchema.optional(),
   providers: z.record(z.string(), ProviderConfigSchema).optional(),
   randomAvatarUrls: z.array(z.string().url()).optional(),

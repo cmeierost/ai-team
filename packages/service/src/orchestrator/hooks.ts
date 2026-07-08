@@ -7,8 +7,7 @@ import type {
   WorkflowFrame,
   WorkflowStateSnapshot,
 } from '@ai-team/api-contracts';
-import type { ISkillManager } from '@ai-team/core';
-import type { IEmitService } from './services/emit-service.js';
+import type { ISkillManager, IEmitService } from '@ai-team/core';
 
 export interface ChatRuntimeHooks {
   emitService?: IEmitService;

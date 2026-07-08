@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AskUserCommand } from '../commands/com/ask.command.js';
-import { InteractionQuestionService } from '../questions/question-service.js';
+import type { IQuestionService } from '../questions/question-service.js';
 
 function makeContext(overrides: Record<string, unknown> = {}) {
   return {
@@ -12,10 +12,23 @@ function makeContext(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
+function makeQuestionService(
+  overrides: Partial<IQuestionService>
+): IQuestionService {
+  return {
+    input: vi.fn(async () => ''),
+    confirm: vi.fn(async () => true),
+    select: vi.fn(async () => ''),
+    password: vi.fn(async () => ''),
+    checklist: vi.fn(async () => []),
+    ...overrides,
+  };
+}
+
 describe('AskUserCommand', () => {
   it('passes workflow metadata through in tool result payload', async () => {
     const questionInput = vi.fn(async () => 'approved');
-    const questionService = new InteractionQuestionService({
+    const questionService = makeQuestionService({
       input: questionInput,
       confirm: vi.fn(async () => true),
       select: vi.fn(async () => ''),
@@ -58,7 +71,7 @@ describe('AskUserCommand', () => {
 
   it('falls back to questionInput for select when questionSelect is missing', async () => {
     const questionInput = vi.fn(async () => 'ai-team-context');
-    const questionService = new InteractionQuestionService({
+    const questionService = makeQuestionService({
       input: questionInput,
       confirm: vi.fn(async () => true),
       select: undefined,
@@ -94,7 +107,7 @@ describe('AskUserCommand', () => {
 
   it('falls back to questionInput for checklist when questionChecklist is missing', async () => {
     const questionInput = vi.fn(async () => 'a, c');
-    const questionService = new InteractionQuestionService({
+    const questionService = makeQuestionService({
       input: questionInput,
       confirm: vi.fn(async () => true),
       select: vi.fn(async () => ''),
@@ -130,7 +143,7 @@ describe('AskUserCommand', () => {
 
   it('falls back to questionInput for confirm when questionConfirm is missing', async () => {
     const questionInput = vi.fn(async () => 'yes');
-    const questionService = new InteractionQuestionService({
+    const questionService = makeQuestionService({
       input: questionInput,
       confirm: undefined,
       select: vi.fn(async () => ''),

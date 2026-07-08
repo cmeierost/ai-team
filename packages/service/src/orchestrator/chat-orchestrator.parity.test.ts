@@ -16,6 +16,7 @@ import { runChatLoopWorkflowAsync } from '../workflow/chat-loop-engine.js';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import type { ResolvedPlugins } from './pipeline.js';
 import { ToolSerializationService } from './services/tool-serialization-service.js';
+import { EmitService } from './services/emit-service.js';
 
 const serialization = new ToolSerializationService();
 
@@ -44,16 +45,20 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins, handoffOrchestrat
     ctx.agentManager,
     ctx.sessionManager,
     ctx.llmService,
-    serialization
+    serialization,
+    ctx.emitService,
+    ctx.skillManager
   );
 }
 
 function makeContext() {
+  const emitService = new EmitService(vi.fn());
   return {
     agent: { id: 'emily-davis', name: 'Emily Davis', role: 'frontend-developer' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
-    hooks: { emit: vi.fn() } as any,
+    hooks: {} as any,
+    emitService,
     sessionManager: {} as any,
     agentManager: {
       getAgentAsync: vi.fn(async () => null),

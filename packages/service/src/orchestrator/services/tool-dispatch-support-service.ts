@@ -1,13 +1,15 @@
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import type { ExecutionContext, ILlmService, IProposalStoreFactory } from '@ai-team/core';
-import type { FsPathAccessEnvelope } from '../../commands/fs/fs-access.js';
 import type {
   CommandResponse,
+  ExecutionContext,
+  IEmitService,
+  ILlmService,
+  IProposalStoreFactory,
   ToolDenialEvent,
   ToolRuntimePayloadEvent,
-} from '@ai-team/api-contracts';
-import type { IEmitService } from './emit-service.js';
+} from '@ai-team/core';
+import type { FsPathAccessEnvelope } from '../../commands/fs/fs-access.js';
 import { ToolSerializationService } from './tool-serialization-service.js';
 
 export type ToolDenialKind = 'user-denied' | 'policy-denied' | 'execution-failed';
@@ -90,6 +92,10 @@ export class ToolDispatchSupportService {
     private readonly llmService: ILlmService,
     private readonly proposalStoreFactory: IProposalStoreFactory
   ) {}
+
+  getWorkspaceRoot(): string {
+    return this.workspaceRoot;
+  }
 
   formatArgs(args: unknown): string {
     return this.serialization.formatArgs(args);
@@ -181,6 +187,7 @@ export class ToolDispatchSupportService {
         data: result,
         error: {
           code: denial.reasonCode,
+          message,
           details: {
             toolName,
             kind: denial.kind,
@@ -195,7 +202,6 @@ export class ToolDispatchSupportService {
       status: 'ok',
       message,
       data: result,
-      saveable: result,
     };
   }
 

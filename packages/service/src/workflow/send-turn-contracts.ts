@@ -6,7 +6,7 @@ import type {
   SendTurnDeps,
   SendTurnOptions,
 } from '../orchestrator/send-turn-steps.js';
-export type { SendTurnDeps } from '../orchestrator/send-turn-steps.js';
+export type { SendTurnDeps };
 import type { ResolvedPlugins, TurnResult } from '../orchestrator/pipeline.js';
 import { chatSendTurnResultSchema, type ChatSendTurnResult } from './chat-loop-contracts.js';
 

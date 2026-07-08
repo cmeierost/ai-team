@@ -20,12 +20,12 @@ import type {
   LlmChatOptions,
   Skill,
   StructuredToolResult,
+  IEmitService,
   ExecutionContext,
 } from '@ai-team/core';
 import { withAbortSignal } from '../utils/async-utils.js';
 import type { LlmToolDefinition } from '../tools/tool-manager.js';
 import type { ChatRuntimeHooks } from './hooks.js';
-import type { IEmitService } from './services/emit-service.js';
 import type { ToolDispatcher } from './tool-dispatch.js';
 
 import { extractStreamDeltaText } from './stream-events.js';

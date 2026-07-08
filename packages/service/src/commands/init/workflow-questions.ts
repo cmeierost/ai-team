@@ -7,9 +7,9 @@ import type {
   WorkflowFrame,
   WorkflowStateSnapshot,
 } from '@ai-team/api-contracts';
-import type { Agent, ExecutionContext, CommandResponse } from '@ai-team/core';
+import type { Agent, CommandResponse } from '@ai-team/core';
 import type { IQuestionService } from '../../questions/question-service.js';
-import type { IEmitService } from '../../orchestrator/services/emit-service.js';
+import type { IEmitService } from '@ai-team/core';
 
 // ─── Runtime hooks ────────────────────────────────────────────────────────────
 
@@ -41,15 +41,6 @@ const INIT_ASK_AGENT: Agent = {
   skillPath: '',
   createdAt: new Date().toISOString(),
 };
-
-function createAskExecutionContext(): ExecutionContext {
-  return {
-    agent: INIT_ASK_AGENT,
-    agentId: INIT_ASK_AGENT.id,
-    workspaceRoot: '',
-    history: [],
-  };
-}
 
 type AskKind = 'input' | 'confirm' | 'select' | 'password' | 'checklist';
 
@@ -124,7 +115,11 @@ export class WorkflowQuestioner {
     mask?: string;
   }): Promise<unknown> {
     const askUserCommand = new AskUserCommand(this.questionService);
-    const result = await askUserCommand.execute(params, createAskExecutionContext());
+    const result = await askUserCommand.execute(params, {
+      agent: INIT_ASK_AGENT,
+      agentId: INIT_ASK_AGENT.id,
+      history: [],
+    });
     const response =
       result && typeof result === 'object' && 'status' in result
         ? (result as CommandResponse<unknown>)

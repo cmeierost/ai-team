@@ -6,8 +6,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { FileTreeService, type PathMode } from './file-tree.js';
-import type { IQuestionService } from '../../questions/question-service.js';
-import { GovernanceService } from '../agents/governance.js';
+import { GovernanceService } from '../../governance/governance-service.js';
 
 type Params = z.infer<typeof FilesAllowCommand.schema>;
 type Result = { paths: string[] };

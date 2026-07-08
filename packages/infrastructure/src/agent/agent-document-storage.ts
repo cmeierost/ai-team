@@ -314,7 +314,7 @@ export class AgentDocumentStorage implements IAgentDocumentStorage {
   }
 
   public async loadAllInstructionFilesAsync(): Promise<InstructionFile[]> {
-    const filePaths = await this.workspaceDiscoveryStorage.findInstructionFilesAsync(this.workspaceRoot);
+    const filePaths = await this.workspaceDiscoveryStorage.findInstructionFilesAsync();
     const results: InstructionFile[] = [];
     for (const fp of filePaths) {
       try {

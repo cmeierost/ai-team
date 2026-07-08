@@ -1,41 +1,8 @@
 import type {
+  CoreServiceRegistrationTokens,
   IContainerToken,
   IServiceContainer,
   IServiceContainerRegistrar,
-  ILlmService,
-  IChatManager,
-  IPathPermissionChecker,
-  IMessagesRepository,
-  ISessionsRepository,
-  INotesRepository,
-  IAgentManager,
-  INoteAttachmentReader,
-  IChatStorage,
-  IContextCompressor,
-  IContextBuilder,
-  IContextEnricher,
-  IRagProvider,
-  IToolResolver,
-  IMcpGateway,
-  ILlmSelector,
-  IOutputHandler,
-  ISystemInfoService,
-  ITeamGraphBuilder,
-  IConfigurationStorage,
-  IAgentDocumentStorage,
-  ISkillManager,
-  IMarkdownSectionService,
-  IProposalStoreFactory,
-  IDeveloperIdentityService,
-  IPermissionStorage,
-  IFileAnnotationService,
-  IFileTreeService,
-  ILlmProviderTester,
-  IWorkspaceAccessRuntime,
-  IIdeAdapterFactory,
-  IPlanningRepository,
-  IWorkspaceFsFactory,
-  TeamConfig,
 } from '@ai-team/core';
 import { type IQuestionService } from '../questions/question-service.js';
 import { AskUserCommand, AskUserCommandMetadata } from '../commands/com/ask.command.js';
@@ -69,11 +36,9 @@ import { createOnboardingWorkflowDefinition } from '../commands/hr/onboarding-wo
 import { SessionManager } from '../session-manager.js';
 import { ToolManager } from '../tools/tool-manager.js';
 import { CommandRegistry } from '../command-registry-impl.js';
-import {
-  WhoHasAccessTool,
-  DoIHaveAccessTool,
-  AnalyzePermissionOverlapTool,
-} from '../commands/fs/access-introspection-tools.js';
+import { WhoHasAccessTool } from '../commands/fs/who-has-access.tool.js';
+import { DoIHaveAccessTool } from '../commands/fs/do-i-have-access.tool.js';
+import { AnalyzePermissionOverlapTool } from '../commands/fs/analyze-permission-overlap.tool.js';
 import {
   FsExistsTool,
   FsInfoTool,
@@ -155,10 +120,10 @@ import { ToolSchemaService } from '../orchestrator/services/schema-service.js';
 import { ToolDispatchSupportService } from '../orchestrator/services/tool-dispatch-support-service.js';
 import { ToolSerializationService } from '../orchestrator/services/tool-serialization-service.js';
 import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import { ChatCommand } from '../commands/chat/index.js';
+import { ChatCommand } from '../commands/chat/chat.command.js';
 import { IInteractionService, InteractionService } from '../interaction-service.js';
 import { WorkflowRunnerFactory, workflowDescriptor } from '../workflow/runner.js';
-import { GovernanceService } from '../commands/agents/governance.js';
+import { GovernanceService } from '../governance/governance-service.js';
 import { AgentToolsService } from '../commands/tools/tools-service.js';
 import {
   SystemService,
@@ -197,38 +162,53 @@ import {
   IToolsService,
 } from '@ai-team/api-contracts';
 
-export interface ServiceLayerRegistrationTokens {
-  WorkspaceRoot: IContainerToken<string>;
-  MessagesRepository: IContainerToken<IMessagesRepository>;
-  SessionsRepository: IContainerToken<ISessionsRepository>;
-  NotesRepository: IContainerToken<INotesRepository>;
-  AgentManager: IContainerToken<IAgentManager>;
-  NoteAttachmentReader: IContainerToken<INoteAttachmentReader>;
+export interface ServiceLayerRegistrationTokens extends Pick<
+  CoreServiceRegistrationTokens,
+  | 'WorkspaceRoot'
+  | 'MessagesRepository'
+  | 'SessionsRepository'
+  | 'NotesRepository'
+  | 'AgentManager'
+  | 'NoteAttachmentReader'
+  | 'PathPermissionChecker'
+  | 'WorkspaceFsFactory'
+  | 'ChatStorage'
+  | 'ChatManager'
+  | 'ContextCompressor'
+  | 'ContextBuilder'
+  | 'ContextEnrichers'
+  | 'RagProvider'
+  | 'ToolResolver'
+  | 'McpGateway'
+  | 'LlmSelector'
+  | 'OutputHandler'
+  | 'TurnResultParsers'
+  | 'HookPlugins'
+  | 'SystemInfoService'
+  | 'TeamGraphBuilder'
+  | 'ConfigurationStorage'
+  | 'AgentDocumentStorage'
+  | 'LlmService'
+  | 'SkillManager'
+  | 'MarkdownSectionService'
+  | 'ProposalStoreFactory'
+  | 'DeveloperIdentityService'
+  | 'PermissionStorage'
+  | 'FileAnnotationService'
+  | 'LlmProviderTester'
+  | 'FileTreeService'
+  | 'IdeAdapterFactory'
+  | 'WorkspaceAccessRuntime'
+  | 'PlanningRepository'
+> {
   SessionManager: IContainerToken<SessionManager>;
   ToolManager: IContainerToken<ToolManager>;
   ToolDispatchSupportService: IContainerToken<ToolDispatchSupportService>;
   ToolSerializationService: IContainerToken<ToolSerializationService>;
-  PathPermissionChecker: IContainerToken<IPathPermissionChecker>;
-  WorkspaceFsFactory: IContainerToken<IWorkspaceFsFactory>;
-  ChatStorage: IContainerToken<IChatStorage>;
-  ChatManager: IContainerToken<IChatManager>;
-
-  ContextCompressor: IContainerToken<IContextCompressor>;
-  ContextBuilder: IContainerToken<IContextBuilder>;
-  ContextEnrichers: IContainerToken<IContextEnricher[]>;
-  RagProvider: IContainerToken<IRagProvider>;
-  ToolResolver: IContainerToken<IToolResolver>;
-  McpGateway: IContainerToken<IMcpGateway>;
-  LlmSelector: IContainerToken<ILlmSelector>;
-  OutputHandler: IContainerToken<IOutputHandler>;
-  TurnResultParsers: IContainerToken<any[]>;
-  HookPlugins: IContainerToken<any>;
 
   ApiBaseUrl: IContainerToken<string>;
-  SystemInfoService: IContainerToken<ISystemInfoService>;
   SystemService: IContainerToken<ISystemService>;
   AgentsService: IContainerToken<IAgentsService>;
-  TeamGraphBuilder: IContainerToken<ITeamGraphBuilder>;
   TeamService: IContainerToken<any>;
   InteractionService: IContainerToken<IInteractionService>;
   ChatService: IContainerToken<IChatService>;
@@ -247,22 +227,8 @@ export interface ServiceLayerRegistrationTokens {
   ContextRuntime: IContainerToken<any>;
   AccessService: IContainerToken<IAccessService>;
 
-  ConfigurationStorage: IContainerToken<IConfigurationStorage>;
-  AgentDocumentStorage: IContainerToken<IAgentDocumentStorage>;
-  LlmService: IContainerToken<ILlmService>;
-  SkillManager: IContainerToken<ISkillManager>;
-  MarkdownSectionService: IContainerToken<IMarkdownSectionService>;
-  ProposalStoreFactory: IContainerToken<IProposalStoreFactory>;
   ContextService: IContainerToken<IContextService>;
-  DeveloperIdentityService: IContainerToken<IDeveloperIdentityService>;
-
-  PermissionStorage: IContainerToken<IPermissionStorage>;
-  FileAnnotationService: IContainerToken<IFileAnnotationService>;
-  LlmProviderTester: IContainerToken<ILlmProviderTester>;
-  FileTreeService: IContainerToken<IFileTreeService>;
-  IdeAdapterFactory: IContainerToken<IIdeAdapterFactory>;
-  WorkspaceAccessRuntime: IContainerToken<IWorkspaceAccessRuntime>;
-  PlanningRepository: IContainerToken<IPlanningRepository>;
+  // Keep service-specific specialization for question DTO generics.
   QuestionService: IContainerToken<IQuestionService>;
 }
 
@@ -273,13 +239,12 @@ export interface ServiceLayerRegistrationConfig {
 
 export function buildInteractionService(
   c: IServiceContainer,
-  tokens: ServiceLayerRegistrationTokens,
   workspaceRoot: string
 ): InteractionService {
   const cmd = new ChatCommand(c);
 
   const runChat = (wr: string, agentId: string | undefined, options: any, hooks: any) =>
-    cmd.execute(wr, agentId, options, hooks);
+    cmd.executeRuntime(wr, agentId, options, hooks);
 
   return new InteractionService(workspaceRoot, runChat);
 }
@@ -409,7 +374,10 @@ export function registerServiceLayerServices(
       LspToolMetadata,
       (r) => new LspTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.IdeAdapterFactory))
     );
-    registry.register(GrepCodeToolMetadata, () => new GrepCodeTool());
+    registry.register(
+      GrepCodeToolMetadata,
+      (r) => new GrepCodeTool(r.resolve(tokens.WorkspaceRoot))
+    );
     // HTTP tools
     registry.register(HttpFetchCommandMetadata, () => new HttpFetchCommand());
     registry.register(HttpCrawlCommandMetadata, () => new HttpCrawlCommand());
@@ -467,7 +435,11 @@ export function registerServiceLayerServices(
     );
     registry.register(
       SemanticSearchToolMetadata,
-      (r) => new SemanticSearchTool(r.resolve(tokens.FileAnnotationService))
+      (r) =>
+        new SemanticSearchTool(
+          r.resolve(tokens.WorkspaceRoot),
+          r.resolve(tokens.FileAnnotationService)
+        )
     );
     registry.register(
       GetErrorsToolMetadata,
@@ -615,7 +587,7 @@ export function registerServiceLayerServices(
       )
   );
   container.registerSingleton(tokens.ContextEnrichers, (c) => [
-    new WorkspaceOverviewEnricher(),
+    new WorkspaceOverviewEnricher(c.resolve(tokens.WorkspaceRoot)),
     new TeamRosterEnricher(c.resolve(tokens.AgentManager)),
   ]);
   container.registerSingleton(
@@ -636,7 +608,9 @@ export function registerServiceLayerServices(
     tokens.OutputHandler,
     (c) => new DefaultOutputHandler(c.resolve(COMMAND_FACTORY_TOKENS.EmitService))
   );
-  container.registerSingleton(tokens.TurnResultParsers, () => buildDefaultTurnResultParsers());
+  container.registerSingleton(tokens.TurnResultParsers, (c) =>
+    buildDefaultTurnResultParsers(c.resolve(tokens.AgentManager))
+  );
   container.registerSingleton(tokens.HookPlugins, () => buildDefaultHookPlugins());
   container.registerSingleton(
     tokens.SystemService,
@@ -652,7 +626,7 @@ export function registerServiceLayerServices(
     return new AgentsService(
       c.resolve(tokens.WorkspaceRoot),
       c.resolve(tokens.AgentManager),
-        configStorage.get(),
+      configStorage.get(),
       c.resolve(tokens.PermissionStorage),
       c.resolve(tokens.MarkdownSectionService),
       c.resolve(tokens.FileAnnotationService)
@@ -673,7 +647,7 @@ export function registerServiceLayerServices(
   });
 
   container.registerScoped(tokens.InteractionService, (c) =>
-    buildInteractionService(c, tokens, cfg.workspaceRoot)
+    buildInteractionService(c, cfg.workspaceRoot)
   );
 
   container.registerSingleton(

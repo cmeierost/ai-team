@@ -424,7 +424,7 @@ export function MarkdownMessage({
         p({ children, ...props }: any) {
           return <p {...props}>{children}</p>;
         },
-        a({ node, children, href, ...props }: any) {
+        a({ children, href, ...props }: any) {
           return (
             <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
               {children}

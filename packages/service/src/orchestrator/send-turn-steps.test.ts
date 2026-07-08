@@ -2,8 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Agent, ExecutionContext } from '@ai-team/core';
 import { resolveSkillsAndToolsAsync } from './send-turn-steps.js';
 import type { SendTurnDeps } from './send-turn-steps.js';
-import { setServiceContainer } from '../service-registry.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
 function makeTool(name: string) {
   const [group, ...rest] = name.split('_');
@@ -53,20 +51,15 @@ describe('resolveSkillsAndToolsAsync', () => {
 
     const agentManager = {
       getAllAgentsAsync: vi.fn(async () => [agent]),
-    };
-
-    setServiceContainer({
-      resolve: (token: { id?: string }) => {
-        if (token?.id === COMMAND_FACTORY_TOKENS.AgentManager.id) return agentManager;
-        throw new Error(`Unexpected token: ${String(token?.id)}`);
-      },
-    } as any);
+      recordInteractionAsync: vi.fn(async () => undefined),
+    } as any;
 
     const deps: SendTurnDeps = {
       skillManager,
       sessionManager,
+      agentManager,
       llmService: undefined,
-      hooks: {} as any,
+      runtimeHooks: {} as any,
       emitService: { log: vi.fn(), emit: vi.fn(), status: vi.fn() } as any,
     };
 

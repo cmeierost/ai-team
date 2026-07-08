@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { parseHandoffDirective, stripHandoffDirective } from '../commands/chat/index.js';
+import { ChatCommand } from '../commands/chat/chat.command.js';
 import { buildRetryableFailureMessage, sendTurn } from './send-turn.js';
 import { buildDefaultHookPlugins } from './defaults/hook-plugins.js';
 import { buildDefaultTurnResultParsers } from './defaults/turn-result-parsers.js';
@@ -38,23 +38,25 @@ import { ToolSerializationService } from './services/tool-serialization-service.
 describe('parseHandoffDirective', () => {
   // Spec path 1 & 4: HANDOFF: agentId | note
   it('parses HANDOFF: with note', () => {
-    const result = parseHandoffDirective('HANDOFF: michael-brown | Clemens wants to chat.');
+    const result = ChatCommand.parseHandoffDirective(
+      'HANDOFF: michael-brown | Clemens wants to chat.'
+    );
     expect(result).toEqual({ targetAgentId: 'michael-brown', note: 'Clemens wants to chat.' });
   });
 
   it('parses HANDOFF: without note', () => {
-    const result = parseHandoffDirective('HANDOFF: michael-brown');
+    const result = ChatCommand.parseHandoffDirective('HANDOFF: michael-brown');
     expect(result).toEqual({ targetAgentId: 'michael-brown', note: '' });
   });
 
   it('parses HANDOFF: with extra whitespace', () => {
-    const result = parseHandoffDirective('  HANDOFF:  michael-brown  |  some note  ');
+    const result = ChatCommand.parseHandoffDirective('  HANDOFF:  michael-brown  |  some note  ');
     expect(result).toEqual({ targetAgentId: 'michael-brown', note: 'some note' });
   });
 
   it('parses HANDOFF: at end of multi-line agent response', () => {
     const text = `Sure, I'll connect you to Michael.\n\nHANDOFF: michael-brown | Clemens would like to talk with you.`;
-    const result = parseHandoffDirective(text);
+    const result = ChatCommand.parseHandoffDirective(text);
     expect(result).toEqual({
       targetAgentId: 'michael-brown',
       note: 'Clemens would like to talk with you.',
@@ -63,7 +65,7 @@ describe('parseHandoffDirective', () => {
 
   // Spec path 2: FORWARD_TO: variant
   it('parses FORWARD_TO: with note', () => {
-    const result = parseHandoffDirective(
+    const result = ChatCommand.parseHandoffDirective(
       'FORWARD_TO: sarah-morgan | Please help Clemens with the UI.'
     );
     expect(result).toEqual({
@@ -73,19 +75,19 @@ describe('parseHandoffDirective', () => {
   });
 
   it('parses FORWARD_TO: without note', () => {
-    const result = parseHandoffDirective('FORWARD_TO: sarah-morgan');
+    const result = ChatCommand.parseHandoffDirective('FORWARD_TO: sarah-morgan');
     expect(result).toEqual({ targetAgentId: 'sarah-morgan', note: '' });
   });
 
   it('is case-insensitive (handoff: lowercase)', () => {
-    const result = parseHandoffDirective('handoff: michael-brown | note');
+    const result = ChatCommand.parseHandoffDirective('handoff: michael-brown | note');
     expect(result).toEqual({ targetAgentId: 'michael-brown', note: 'note' });
   });
 
   it('returns null when no directive present', () => {
-    expect(parseHandoffDirective('Sure, I can help with that!')).toBeNull();
-    expect(parseHandoffDirective('')).toBeNull();
-    expect(parseHandoffDirective('HANDOFFNOTE: something')).toBeNull();
+    expect(ChatCommand.parseHandoffDirective('Sure, I can help with that!')).toBeNull();
+    expect(ChatCommand.parseHandoffDirective('')).toBeNull();
+    expect(ChatCommand.parseHandoffDirective('HANDOFFNOTE: something')).toBeNull();
   });
 });
 
@@ -96,17 +98,19 @@ describe('parseHandoffDirective', () => {
 describe('stripHandoffDirective', () => {
   it('removes HANDOFF: line, leaving the visible text', () => {
     const input = "Absolutely, I'll hand you over to Michael.\n\nHANDOFF: michael-brown | note";
-    expect(stripHandoffDirective(input)).toBe("Absolutely, I'll hand you over to Michael.");
+    expect(ChatCommand.stripHandoffDirective(input)).toBe(
+      "Absolutely, I'll hand you over to Michael."
+    );
   });
 
   it('removes FORWARD_TO: line', () => {
     const input = 'Let me connect you to Sarah.\n\nFORWARD_TO: sarah-morgan | note';
-    expect(stripHandoffDirective(input)).toBe('Let me connect you to Sarah.');
+    expect(ChatCommand.stripHandoffDirective(input)).toBe('Let me connect you to Sarah.');
   });
 
   it('leaves text unchanged when no directive present', () => {
     const input = 'Hello, how can I help?';
-    expect(stripHandoffDirective(input)).toBe(input);
+    expect(ChatCommand.stripHandoffDirective(input)).toBe(input);
   });
 });
 

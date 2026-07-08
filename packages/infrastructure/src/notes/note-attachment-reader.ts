@@ -8,92 +8,100 @@ import type {
   AttachmentReaderTool,
 } from '@ai-team/core';
 
-const TEXT_EXTENSIONS = new Set([
-  '.txt',
-  '.md',
-  '.markdown',
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.cjs',
-  '.json',
-  '.jsonc',
-  '.yaml',
-  '.yml',
-  '.toml',
-  '.ini',
-  '.cfg',
-  '.env',
-  '.sh',
-  '.bash',
-  '.zsh',
-  '.ps1',
-  '.py',
-  '.rb',
-  '.go',
-  '.rs',
-  '.java',
-  '.c',
-  '.cpp',
-  '.h',
-  '.hpp',
-  '.cs',
-  '.html',
-  '.htm',
-  '.css',
-  '.scss',
-  '.less',
-  '.xml',
-  '.svg',
-  '.csv',
-  '.sql',
-  '.graphql',
-  '.gql',
-  '.proto',
-  '.tf',
-  '.hcl',
-]);
-
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
-
-function isSupportedTextFile(attachment: NoteAttachment): boolean {
-  const ext = path.extname(attachment.fileName).toLowerCase();
-  if (TEXT_EXTENSIONS.has(ext)) return true;
-  const ct = attachment.contentType ?? '';
-  return ct.startsWith('text/') || ct === 'application/json';
-}
-
-function isPdf(attachment: NoteAttachment): boolean {
-  const ext = path.extname(attachment.fileName).toLowerCase();
-  return ext === '.pdf' || attachment.contentType === 'application/pdf';
-}
-
-function mimeTypeFromExtension(ext: string): string | undefined {
-  switch (ext) {
-    case '.png':
-      return 'image/png';
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg';
-    case '.gif':
-      return 'image/gif';
-    case '.webp':
-      return 'image/webp';
-    case '.bmp':
-      return 'image/bmp';
-    case '.svg':
-      return 'image/svg+xml';
-    default:
-      return undefined;
-  }
-}
-
 export class NoteAttachmentReader implements INoteAttachmentReader {
+  private readonly textExtensions = new Set([
+    '.txt',
+    '.md',
+    '.markdown',
+    '.ts',
+    '.tsx',
+    '.js',
+    '.jsx',
+    '.mjs',
+    '.cjs',
+    '.json',
+    '.jsonc',
+    '.yaml',
+    '.yml',
+    '.toml',
+    '.ini',
+    '.cfg',
+    '.env',
+    '.sh',
+    '.bash',
+    '.zsh',
+    '.ps1',
+    '.py',
+    '.rb',
+    '.go',
+    '.rs',
+    '.java',
+    '.c',
+    '.cpp',
+    '.h',
+    '.hpp',
+    '.cs',
+    '.html',
+    '.htm',
+    '.css',
+    '.scss',
+    '.less',
+    '.xml',
+    '.svg',
+    '.csv',
+    '.sql',
+    '.graphql',
+    '.gql',
+    '.proto',
+    '.tf',
+    '.hcl',
+  ]);
+
+  private readonly imageExtensions = new Set([
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.webp',
+    '.bmp',
+    '.svg',
+  ]);
+
+  private isSupportedTextFile(attachment: NoteAttachment): boolean {
+    const ext = path.extname(attachment.fileName).toLowerCase();
+    if (this.textExtensions.has(ext)) return true;
+    const ct = attachment.contentType ?? '';
+    return ct.startsWith('text/') || ct === 'application/json';
+  }
+
+  private isPdf(attachment: NoteAttachment): boolean {
+    const ext = path.extname(attachment.fileName).toLowerCase();
+    return ext === '.pdf' || attachment.contentType === 'application/pdf';
+  }
+
+  private mimeTypeFromExtension(ext: string): string | undefined {
+    switch (ext) {
+      case '.png':
+        return 'image/png';
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg';
+      case '.gif':
+        return 'image/gif';
+      case '.webp':
+        return 'image/webp';
+      case '.bmp':
+        return 'image/bmp';
+      case '.svg':
+        return 'image/svg+xml';
+      default:
+        return undefined;
+    }
+  }
+
   isImageAttachment(attachment: NoteAttachment): boolean {
     const ext = path.extname(attachment.fileName).toLowerCase();
-    if (IMAGE_EXTENSIONS.has(ext)) return true;
+    if (this.imageExtensions.has(ext)) return true;
     const contentType = attachment.contentType ?? '';
     return contentType.startsWith('image/');
   }
@@ -102,12 +110,12 @@ export class NoteAttachmentReader implements INoteAttachmentReader {
     const buffer = await readFile(attachment.filePath);
     const ext = path.extname(attachment.fileName).toLowerCase();
     const contentType =
-      attachment.contentType || mimeTypeFromExtension(ext) || 'application/octet-stream';
+      attachment.contentType || this.mimeTypeFromExtension(ext) || 'application/octet-stream';
     return `data:${contentType};base64,${buffer.toString('base64')}`;
   }
 
   async extractAttachmentContentAsync(attachment: NoteAttachment): Promise<string> {
-    if (isPdf(attachment)) {
+    if (this.isPdf(attachment)) {
       const { PDFParse } = await import('pdf-parse');
       const buffer = await readFile(attachment.filePath);
       const parser = new PDFParse({ data: buffer });
@@ -115,7 +123,7 @@ export class NoteAttachmentReader implements INoteAttachmentReader {
       return result.text;
     }
 
-    if (isSupportedTextFile(attachment)) {
+    if (this.isSupportedTextFile(attachment)) {
       return readFile(attachment.filePath, 'utf-8');
     }
 

@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import type { Agent, StructuredToolResult } from '@ai-team/core';
+import type { Agent, StructuredToolResult, ExecutionContext } from '@ai-team/core';
 import {
   HandoffToolResultParser,
   TextHandoffParser,
@@ -225,17 +225,17 @@ describe('TextHandoffParser', () => {
 
 describe('buildDefaultTurnResultParsers', () => {
   it('returns an array of two parsers', () => {
-    const parsers = buildDefaultTurnResultParsers();
+    const parsers = buildDefaultTurnResultParsers(makeAgentManager() as any);
     expect(parsers).toHaveLength(2);
   });
 
   it('first parser is HandoffToolResultParser', () => {
-    const [first] = buildDefaultTurnResultParsers();
+    const [first] = buildDefaultTurnResultParsers(makeAgentManager() as any);
     expect(first).toBeInstanceOf(HandoffToolResultParser);
   });
 
   it('second parser is TextHandoffParser', () => {
-    const [, second] = buildDefaultTurnResultParsers();
+    const [, second] = buildDefaultTurnResultParsers(makeAgentManager() as any);
     expect(second).toBeInstanceOf(TextHandoffParser);
   });
 });

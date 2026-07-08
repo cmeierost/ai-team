@@ -8,11 +8,11 @@ import type {
   Agent,
   ICommandDescriptor,
 } from '@ai-team/core';
-import { checkPathRight, resolveWorkspacePathMeta } from '@ai-team/core';
 import type { DoIHavePermissionResponse } from '@ai-team/api-contracts';
 import {
   accessRightSchema,
   getAccessRightsForPath,
+  resolveWorkspacePathMeta,
   toAccessPathPayload,
   type AccessRight,
 } from './fs-access.js';
@@ -93,12 +93,7 @@ export class DoIHaveAccessTool implements ICommand<DoIHaveAccessParams, DoIHaveA
       selectedBy = 'default-first-agent';
     }
 
-    const allowed = checkPathRight(
-      this.pathPermissionChecker,
-      agent.permissions,
-      pathMeta.relative,
-      right
-    );
+    const allowed = this.pathPermissionChecker.can(right, agent.permissions, pathMeta.relative);
     const allRights: DoIHavePermissionResponse['allRights'] = getAccessRightsForPath(
       this.pathPermissionChecker,
       agent.permissions,

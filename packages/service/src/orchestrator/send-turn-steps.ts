@@ -24,7 +24,7 @@ import type {
   TurnResult,
 } from './pipeline.js';
 import { invokeLlm } from './llm-invoke.js';
-import type { IEmitService } from './services/emit-service.js';
+import type { IEmitService } from '@ai-team/core';
 import type { ToolDispatcher } from './tool-dispatch.js';
 import type { SessionManager } from '../session-manager.js';
 
@@ -152,6 +152,110 @@ export class SendTurnStepService {
       this.deps
     );
   }
+}
+
+export async function ensureTurnStartAsync(
+  userMessage: string,
+  plugins: ResolvedPlugins,
+  ctx: ExecutionContext,
+  options: SendTurnOptions | undefined,
+  deps: SendTurnDeps
+): Promise<void> {
+  return ensureTurnStartAsyncInternal(userMessage, plugins, ctx, options, deps);
+}
+
+export async function persistUserMessageAsync(
+  userMessage: string,
+  ctx: ExecutionContext,
+  options: SendTurnOptions | undefined,
+  deps: SendTurnDeps
+): Promise<ChatMessage> {
+  return persistUserMessageAsyncInternal(userMessage, ctx, options, deps);
+}
+
+export async function prepareMessagesAsync(
+  userMessage: string,
+  plugins: ResolvedPlugins,
+  ctx: ExecutionContext,
+  deps: SendTurnDeps
+): Promise<ILlmChatMessageParam[]> {
+  return prepareMessagesAsyncInternal(userMessage, plugins, ctx, deps);
+}
+
+export async function resolveSkillsAndToolsAsync(
+  userMessage: string,
+  plugins: ResolvedPlugins,
+  ctx: ExecutionContext,
+  deps: SendTurnDeps
+): Promise<SendTurnResolvedSkillsAndTools> {
+  return resolveSkillsAndToolsAsyncInternal(userMessage, plugins, ctx, deps);
+}
+
+export async function invokeTurnLlmAsync(
+  messages: ILlmChatMessageParam[],
+  resolved: SendTurnResolvedSkillsAndTools,
+  ctx: ExecutionContext,
+  deps: SendTurnDeps
+): Promise<SendTurnLlmInvocationResult> {
+  return invokeTurnLlmAsyncInternal(messages, resolved, ctx, deps);
+}
+
+export async function handleLlmFailureAsync(
+  error: unknown,
+  plugins: ResolvedPlugins,
+  ctx: ExecutionContext,
+  options: SendTurnOptions | undefined,
+  structuredResults: StructuredToolResult[],
+  deps: SendTurnDeps
+): Promise<TurnResult> {
+  return handleLlmFailureAsyncInternal(error, plugins, ctx, options, structuredResults, deps);
+}
+
+export async function persistAssistantMessageAsync(
+  fullResponse: string,
+  plugins: ResolvedPlugins,
+  ctx: ExecutionContext,
+  deps: SendTurnDeps
+): Promise<{ persistedContent: string; persistedMessage: ChatMessage }> {
+  return persistAssistantMessageAsyncInternal(fullResponse, plugins, ctx, deps);
+}
+
+export async function parseTurnResultAsync(
+  structuredResults: StructuredToolResult[],
+  fullResponse: string,
+  persistedContent: string,
+  plugins: ResolvedPlugins,
+  ctx: ExecutionContext,
+  deps: SendTurnDeps
+): Promise<TurnResult | null> {
+  return parseTurnResultAsyncInternal(
+    structuredResults,
+    fullResponse,
+    persistedContent,
+    plugins,
+    ctx,
+    deps
+  );
+}
+
+export async function finalizeTurnResultAsync(
+  turnResult: TurnResult,
+  fullResponse: string,
+  persistedContent: string,
+  structuredResults: StructuredToolResult[],
+  plugins: ResolvedPlugins,
+  ctx: ExecutionContext,
+  deps: SendTurnDeps
+): Promise<TurnResult> {
+  return finalizeTurnResultAsyncInternal(
+    turnResult,
+    fullResponse,
+    persistedContent,
+    structuredResults,
+    plugins,
+    ctx,
+    deps
+  );
 }
 
 function buildToolDefinitions(tools: ICommand[], deps: SendTurnDeps): LlmToolDefinition[] {

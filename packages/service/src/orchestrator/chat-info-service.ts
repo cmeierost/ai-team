@@ -1,5 +1,4 @@
-import type { Agent, ChatMessage } from '@ai-team/core';
-import type { IEmitService } from './services/emit-service.js';
+import type { Agent, ChatMessage, IEmitService } from '@ai-team/core';
 
 export interface IChatInfoService {
   showSessionIntro(args: {

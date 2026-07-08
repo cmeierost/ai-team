@@ -3,13 +3,16 @@ import type {
   ICommandDescriptor,
   ExecutionContext,
   CommandResponse,
+  IEmitService,
 } from '@ai-team/core';
-import type { IEmitService } from './services/emit-service.js';
-import { getServiceContainer } from '../service-registry.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
+import type { ToolManager } from '../tools/tool-manager.js';
 
 export class WorkflowSlashCommand implements ICommand<string, void> {
-  constructor(private readonly emitService: IEmitService) {}
+  constructor(
+    private readonly emitService: IEmitService,
+    private readonly toolManager: Pick<ToolManager, 'execute'>,
+    private readonly workspaceRoot: string
+  ) {}
 
   readonly metadata: ICommandDescriptor<string> = {
     key: 'workflow',
@@ -22,15 +25,13 @@ export class WorkflowSlashCommand implements ICommand<string, void> {
     const input = args.trim();
     const toolName = !input || input === 'list' ? 'workflow_list' : `workflow_${input}`;
 
-    const toolManager = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.ToolManager);
-    const result = await toolManager.execute(
+    const result = await this.toolManager.execute(
       ctx.agent!,
       toolName,
       {},
       {
-        agentId: ctx.agent!.id,
-        workspaceRoot: ctx.workspaceRoot,
         history: [],
+        agentId: ctx.agent!.id,
       }
     );
 

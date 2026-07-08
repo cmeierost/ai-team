@@ -11,13 +11,13 @@ import type {
   ChatMessage,
   ExecutionContext,
   IAgentManager,
+  IEmitService,
   ILlmService,
   ISkillManager,
 } from '@ai-team/core';
 import { isCommandResponse } from '@ai-team/api-contracts';
 import type { CommandResponse, RuntimeStreamEvent } from '@ai-team/api-contracts';
 
-import { EmitService, type IEmitService } from './services/emit-service.js';
 import type { SendTurnDeps } from '../workflow/send-turn-contracts.js';
 import {
   PreLlmIntentResolver,
@@ -47,51 +47,41 @@ export class ChatOrchestrator {
   private preTurnUserMessageOverride: string | undefined;
   private lastManualOutput: string | undefined;
 
-  private readonly toolDispatcher: ToolDispatcher | undefined;
-  private readonly handoffOrchestrator: HandoffOrchestrator | undefined;
+  private readonly toolDispatcher: ToolDispatcher;
+  private readonly handoffOrchestrator: HandoffOrchestrator;
   private readonly hooks: ChatRuntimeHooks;
   private readonly agentManager: IAgentManager;
   private readonly sessionManager: SessionManager;
   private readonly llmService: ILlmService;
   private readonly serialization: ToolSerializationService;
   private readonly emitService: IEmitService;
-  private readonly skillManager: ISkillManager | undefined;
+  private readonly skillManager: ISkillManager;
   private readonly intentResolver: PreLlmIntentResolver;
 
-  // eslint-disable-next-line max-params
   constructor(
     private readonly ctx: ExecutionContext,
     private readonly plugins: ResolvedPlugins,
-    toolDispatcher?: ToolDispatcher,
-    handoffOrchestrator?: HandoffOrchestrator,
-    hooks?: ChatRuntimeHooks,
-    agentManager?: IAgentManager,
-    sessionManager?: SessionManager,
-    llmService?: ILlmService,
-    serialization?: ToolSerializationService,
+    toolDispatcher: ToolDispatcher,
+    handoffOrchestrator: HandoffOrchestrator,
+    hooks: ChatRuntimeHooks,
+    agentManager: IAgentManager,
+    sessionManager: SessionManager,
+    llmService: ILlmService,
+    serialization: ToolSerializationService,
+    emitService: IEmitService,
+    skillManager: ISkillManager,
     toolSource?: IPreLlmToolSource
   ) {
-    this.toolDispatcher = toolDispatcher ?? (ctx as any).toolDispatcher;
-    this.hooks = hooks ?? ((ctx as any).hooks ?? {});
-    this.agentManager = agentManager ?? ((ctx as any).agentManager as IAgentManager);
-    this.sessionManager = sessionManager ?? ((ctx as any).sessionManager as SessionManager);
-    this.llmService = llmService ?? ((ctx as any).llmService as ILlmService);
-    this.serialization = serialization ?? new ToolSerializationService();
-    this.emitService =
-      this.hooks.emitService ??
-      (ctx as any).hooks?.emitService ??
-      (ctx as any).emitService ??
-      new EmitService(() => {});
-    this.skillManager = this.hooks.skillManager;
+    this.toolDispatcher = toolDispatcher;
+    this.hooks = hooks;
+    this.agentManager = agentManager;
+    this.sessionManager = sessionManager;
+    this.llmService = llmService;
+    this.serialization = serialization;
+    this.emitService = emitService;
+    this.skillManager = skillManager;
     this.intentResolver = new PreLlmIntentResolver(toolSource ?? { getForAgent: () => [] });
-    this.handoffOrchestrator =
-      handoffOrchestrator ??
-      new HandoffOrchestrator(
-        this.agentManager,
-        this.sessionManager,
-        this.llmService,
-        this.emitService
-      );
+    this.handoffOrchestrator = handoffOrchestrator;
   }
 
   async run(options: RunOptions): Promise<string> {
@@ -131,9 +121,9 @@ export class ChatOrchestrator {
           const deps: SendTurnDeps = {
             sessionManager: this.sessionManager,
             llmService: this.llmService,
-            skillManager: this.skillManager!,
+            skillManager: this.skillManager,
             agentManager: this.agentManager,
-            hooks: this.hooks,
+            runtimeHooks: this.hooks,
             emitService: this.emitService,
             toolDispatcher: this.toolDispatcher,
           };
@@ -196,7 +186,7 @@ export class ChatOrchestrator {
         runHandoffTransitionAsync: async ({ handoff }) => {
           if (!handoff.handoffTargetId) return {};
 
-          const switched = await this.handoffOrchestrator!.executeHandoff(
+          const switched = await this.handoffOrchestrator.executeHandoff(
             this.ctx,
             handoff.handoffTargetId,
             handoff.handoffTargetSessionId,
@@ -245,7 +235,7 @@ export class ChatOrchestrator {
     }
 
     // ── Natural-language forward detection ──────────────────────────────────
-    const nlResult = await this.handoffOrchestrator!.tryNlForward(message, this.ctx);
+    const nlResult = await this.handoffOrchestrator.tryNlForward(message, this.ctx);
     if (nlResult === null) return undefined;
 
     if (nlResult === 'forwarded') {
@@ -496,7 +486,7 @@ export class ChatOrchestrator {
     contextFiles?: string[]
   ): Promise<boolean> {
     if (intent.kind === 'tool') {
-      await this.toolDispatcher!.dispatch(
+      await this.toolDispatcher.dispatch(
         {
           toolCallId: `pre-llm-intent-${Date.now()}`,
           toolName: intent.toolName,
@@ -508,7 +498,7 @@ export class ChatOrchestrator {
       return true;
     }
 
-    const askResult = await this.toolDispatcher!.dispatch(
+    const askResult = await this.toolDispatcher.dispatch(
       {
         toolCallId: `pre-llm-intent-ask-${Date.now()}`,
         toolName: 'com_ask',
@@ -538,7 +528,7 @@ export class ChatOrchestrator {
       return false;
     }
 
-    await this.toolDispatcher!.dispatch(
+    await this.toolDispatcher.dispatch(
       {
         toolCallId: `pre-llm-intent-${Date.now()}`,
         toolName: intent.toolName,

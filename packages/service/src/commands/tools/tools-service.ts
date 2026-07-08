@@ -9,7 +9,7 @@ import type { ToolManager } from '../../tools/tool-manager.js';
 import { ToolIdentity } from '../../tools/tool-manager.js';
 import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-contracts';
 import type { IMcpGateway } from '../../orchestrator/pipeline.js';
-import { GovernanceService } from '../agents/governance.js';
+import { GovernanceService } from '../../governance/governance-service.js';
 
 export interface ListToolsOptions {
   agent?: string;

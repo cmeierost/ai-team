@@ -8,11 +8,11 @@ import type {
   Agent,
   ICommandDescriptor,
 } from '@ai-team/core';
-import { resolveWorkspacePathMeta } from '@ai-team/core';
 import type { WhoHasPermissionResponse } from '@ai-team/api-contracts';
 import {
   accessRightSchema,
   findAgentsWithPathRight,
+  resolveWorkspacePathMeta,
   toAccessPathPayload,
   type AccessRight,
 } from './fs-access.js';

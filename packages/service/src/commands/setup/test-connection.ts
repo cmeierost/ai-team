@@ -5,8 +5,8 @@ import type {
   ILlmProviderTester,
   ITextToolCallParser,
 } from '@ai-team/core';
-import { resolveEffectiveLlmSettings } from '@ai-team/core';
 import { TestConnectionOptions } from '@ai-team/api-contracts';
+import { resolveEffectiveLlmSettings } from '../../llm/settings.js';
 
 export interface TestConnectionCommandParams {
   workspaceRoot: string;

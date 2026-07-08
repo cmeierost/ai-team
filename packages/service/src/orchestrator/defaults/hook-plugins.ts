@@ -2,7 +2,7 @@ import type {
   BeforePersistAssistantMessageHookPayload,
   IOrchestratorHookPlugin,
 } from '../pipeline.js';
-import { stripHandoffDirective } from '../../commands/chat/index.js';
+import { ChatCommand } from '../../commands/chat/chat.command.js';
 
 /**
  * Default persist-time assistant message filter.
@@ -18,7 +18,7 @@ export class StripInternalHandoffDirectivePlugin implements IOrchestratorHookPlu
     persistedContent,
   }: BeforePersistAssistantMessageHookPayload): string {
     const source = persistedContent || fullResponse;
-    const filtered = stripHandoffDirective(source);
+    const filtered = ChatCommand.stripHandoffDirective(source);
     return filtered;
   }
 }

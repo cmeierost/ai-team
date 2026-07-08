@@ -16,15 +16,16 @@ import {
   isFindCapableAgentResult,
   isToolCatalogResult,
   isTeamListResult,
+  type IEmitService,
   type StructuredToolResult,
   type ExecutionContext,
   type CommandResponse as CoreCommandResponse,
+  type RuntimeStreamEvent,
+  type ToolRuntimePayloadEvent,
 } from '@ai-team/core';
 import type { ToolManager } from '../tools/tool-manager.js';
 import type { SessionManager } from '../session-manager.js';
 import type { IQuestionService } from '../questions/question-service.js';
-import type { IEmitService } from './services/emit-service.js';
-import type { RuntimeStreamEvent, ToolRuntimePayloadEvent } from '@ai-team/api-contracts';
 import {
   ToolDispatchSupportService,
   type ToolDenial,
@@ -257,7 +258,7 @@ export class ToolDispatcher {
   private buildExecutionContext(ctx: ExecutionContext, contextFiles?: string[]) {
     return {
       agentId: ctx.agent!.id,
-      workspaceRoot: ctx.workspaceRoot,
+      workspaceRoot: this.support.getWorkspaceRoot(),
       currentFiles: contextFiles,
       history: [],
     };

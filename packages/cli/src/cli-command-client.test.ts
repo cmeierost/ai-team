@@ -55,7 +55,7 @@ function createEmitServiceStub() {
 }
 
 describe('CliCommandClient.invokeTool stdout capture', () => {
-  it('captures stdout for interactive chat command as token runtime events', async () => {
+  it('does not capture stdout for interactive chat command', async () => {
     const client = createClient();
     registerDirect(client, 'chat-chat', async () => {
       process.stdout.write('chat prompt output\n');
@@ -71,8 +71,8 @@ describe('CliCommandClient.invokeTool stdout capture', () => {
       emitService as any
     );
 
-    expect(stdoutSpy).not.toHaveBeenCalledWith('chat prompt output\n');
-    expect(emitService.emit).toHaveBeenCalledWith(
+    expect(stdoutSpy).toHaveBeenCalledWith('chat prompt output\n');
+    expect(emitService.emit).not.toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'token', text: 'chat prompt output\n' })
     );
   });

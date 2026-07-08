@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   ProviderListICommand,
-  ProviderModelsCommand,
+  ProviderModelsICommand,
   ProviderModelsRefreshICommand,
-} from './models.command.js';
+} from './setup-models.command.js';
 
 function createDeps() {
   const configurationStorage = {
@@ -38,7 +38,7 @@ describe('Provider models ICommand wrappers', () => {
       deps.configurationStorage as any,
       deps.modelDiscoveryRegistry as any
     );
-    const modelsCmd = new ProviderModelsCommand(
+    const modelsCmd = new ProviderModelsICommand(
       deps.configurationStorage as any,
       deps.modelDiscoveryRegistry as any
     );

@@ -27,22 +27,12 @@ export type {
   LlmDiagnosticReporter,
   LlmChatOptions,
 } from './llm/index.js';
+export type { ILlmSettingsResolver } from './llm/settings.js';
+export type { ResolvedLlmSettings } from './llm/settings.js';
 export {
-  resolveEffectiveLlmSettings,
-  resolveSystemLlmSettings,
-  getEffectiveContextWindow,
-  type ResolvedLlmSettings,
-} from './llm/settings.js';
-export {
-  ProviderConfigurationService,
   type IProviderConfigurationService,
   type ResolvedDefaultProvider,
 } from './llm/provider-configuration.service.js';
-export type {
-  CliCommandMetadata,
-  CommandOptionMetadata,
-  CommandArgumentMetadata,
-} from './command-catalog/index.js';
 export type {
   AnnotatedFile,
   FileTreeNode,
@@ -54,11 +44,7 @@ export type {
   IWorkspaceFs,
   IWorkspaceFsFactory,
 } from './context/index.js';
-export {
-  checkPathRight,
-  resolveWorkspacePathMeta,
-  type WorkspacePathMeta,
-} from './context/index.js';
+export type { WorkspacePathMeta } from './types/index.js';
 export type { IProposalStoreFactory } from './storage/index.js';
 export type { ITypeScriptAnalyzer } from './code-analysis/typescript-analyzer.js';
 export type { INoteAttachmentReader } from './repositories/notes-repository.js';

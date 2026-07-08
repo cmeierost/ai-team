@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { InitOptions } from '@ai-team/api-contracts';
 import type { ExecutionContext } from '@ai-team/core';
-import { EmitService, type IEmitService } from '../../orchestrator/services/emit-service.js';
+import type { IEmitService } from '@ai-team/core';
+import { EmitService } from '../../orchestrator/services/emit-service.js';
 import type { WorkflowDefinition } from '../../workflow/types.js';
 import type { IWorkflowRunnerFactory } from '../../workflow/runner.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
@@ -40,13 +41,10 @@ export interface InitWorkflowDependencies {
 const FORCE_KEEP = new Set(['config.json', '.env']);
 const INIT_RUNTIME_ARTIFACTS = new Set(['agents', 'logs', 'private', '.ide-server.json']);
 
-function emitLog(ctx: ExecutionContext, level: 'info' | 'warn', message: string): void {
-  const emitService =
-    (ctx as unknown as { emitService?: IEmitService }).emitService ?? new EmitService(() => {});
-  emitService.log(level, message);
-}
-
-async function clearAiTeamDirectory(workspaceRoot: string, ctx: ExecutionContext): Promise<void> {
+async function clearAiTeamDirectory(
+  workspaceRoot: string,
+  emitService: IEmitService
+): Promise<void> {
   const aiTeamDir = path.join(workspaceRoot, '.ai-team');
   let entries: import('node:fs').Dirent[];
   try {
@@ -59,10 +57,9 @@ async function clearAiTeamDirectory(workspaceRoot: string, ctx: ExecutionContext
     const target = path.join(aiTeamDir, entry.name);
     try {
       await fs.rm(target, { recursive: true, force: true });
-      emitLog(ctx, 'info', `  Removed: ${entry.name}`);
+      emitService.log('info', `  Removed: ${entry.name}`);
     } catch (err) {
-      emitLog(
-        ctx,
+      emitService.log(
         'warn',
         `  Could not remove ${entry.name}: ${err instanceof Error ? err.message : String(err)}`
       );
@@ -71,7 +68,8 @@ async function clearAiTeamDirectory(workspaceRoot: string, ctx: ExecutionContext
 }
 
 export function createInitWorkflowDefinition(
-  deps: InitWorkflowDependencies
+  deps: InitWorkflowDependencies,
+  emitService: IEmitService
 ): WorkflowDefinition<InitWorkflowState> {
   return {
     id: 'init-command',
@@ -80,7 +78,7 @@ export function createInitWorkflowDefinition(
     steps: [
       {
         id: 'inspect-existing',
-        execute: async (state, ctx) => {
+        execute: async (state, _ctx) => {
           try {
             const stats = await fs.stat(state.aiTeamDir);
             if (stats.isDirectory()) {
@@ -105,8 +103,7 @@ export function createInitWorkflowDefinition(
               }
 
               if (state.options.force) {
-                emitLog(
-                  ctx,
+                emitService.log(
                   'warn',
                   hasAgentFiles
                     ? '  Force flag detected - reinitializing...'
@@ -116,10 +113,10 @@ export function createInitWorkflowDefinition(
               }
 
               if (hasAgentFiles) {
-                emitLog(ctx, 'warn', 'AI Team is already initialized in this workspace');
-                emitLog(ctx, 'info', `  Location: ${state.aiTeamDir}`);
-                emitLog(ctx, 'info', '  Use --force to fully reinitialize team onboarding.');
-                emitLog(ctx, 'info', '  Skipping initialization.');
+                emitService.log('warn', 'AI Team is already initialized in this workspace');
+                emitService.log('info', `  Location: ${state.aiTeamDir}`);
+                emitService.log('info', '  Use --force to fully reinitialize team onboarding.');
+                emitService.log('info', '  Skipping initialization.');
                 return { ...state, shouldSkip: true };
               }
 
@@ -127,8 +124,7 @@ export function createInitWorkflowDefinition(
                 return state;
               }
 
-              emitLog(
-                ctx,
+              emitService.log(
                 'warn',
                 `Found existing .ai-team scaffold without agents at ${state.aiTeamDir}; continuing initialization.`
               );
@@ -143,8 +139,8 @@ export function createInitWorkflowDefinition(
       {
         id: 'clear-existing',
         skipWhen: (state) => state.shouldSkip || !state.shouldClear,
-        execute: async (state, ctx) => {
-          await clearAiTeamDirectory(state.workspaceRoot, ctx);
+        execute: async (state) => {
+          await clearAiTeamDirectory(state.workspaceRoot, emitService);
           return state;
         },
       },
@@ -162,9 +158,9 @@ export function createInitWorkflowDefinition(
       {
         id: 'test-llm-connection',
         skipWhen: (state) => state.shouldSkip,
-        execute: async (state, ctx) => {
-          emitLog(ctx, 'info', '');
-          emitLog(ctx, 'info', 'Verifying LLM connection...');
+        execute: async (state) => {
+          emitService.log('info', '');
+          emitService.log('info', 'Verifying LLM connection...');
           await deps.testConnection.execute({ workspaceRoot: state.workspaceRoot, options: {} });
           return state;
         },
@@ -172,10 +168,10 @@ export function createInitWorkflowDefinition(
       {
         id: 'emit-welcome',
         skipWhen: (state) => state.shouldSkip,
-        execute: async (state, ctx) => {
-          emitLog(ctx, 'info', '');
-          emitLog(ctx, 'info', 'Welcome to AI Team!');
-          emitLog(ctx, 'info', "Let's set up your virtual development team.");
+        execute: async (state) => {
+          emitService.log('info', '');
+          emitService.log('info', 'Welcome to AI Team!');
+          emitService.log('info', "Let's set up your virtual development team.");
           return state;
         },
       },
@@ -206,9 +202,13 @@ export async function runInitWorkflowAsync(
     shouldSkip: false,
     shouldClear: false,
   };
+  const emitService = hooks?.emitService ?? EmitService.forConsole();
 
-  await runnerFactory.create().run(createInitWorkflowDefinition(deps), initialState, {
+  await runnerFactory.create().run(createInitWorkflowDefinition(deps, emitService), initialState, {
     signal: hooks?.signal,
-    executionContext: { workspaceRoot, history: [], emitService: hooks?.emitService } as ExecutionContext,
+    executionContext: {
+      workspaceRoot,
+      history: [],
+    } as ExecutionContext,
   });
 }

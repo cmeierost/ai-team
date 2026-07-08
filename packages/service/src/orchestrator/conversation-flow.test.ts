@@ -27,23 +27,12 @@ import { ToolDispatchSupportService } from './services/tool-dispatch-support-ser
 import { ToolSerializationService } from './services/tool-serialization-service.js';
 import { HandoffOrchestrator } from './handoff.js';
 import { EmitService } from './services/emit-service.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import { setServiceContainer } from '../service-registry.js';
 import type { IQuestionService } from '../questions/question-service.js';
 
 const serialization = new ToolSerializationService();
 
 function installEmitService(emit: (event: any) => void) {
-  const emitService = new EmitService(emit);
-  setServiceContainer({
-    resolve: (token: { id?: string }) => {
-      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
-        return emitService;
-      }
-      throw new Error(`Unexpected token: ${String(token?.id)}`);
-    },
-  } as any);
-  return emitService;
+  return new EmitService(emit);
 }
 
 function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
@@ -51,14 +40,9 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
     get: vi.fn(() => undefined),
     execute: vi.fn(async () => ({ ok: true, result: { ok: true } })),
   } as any;
-  const support = new ToolDispatchSupportService(
-    ctx.workspaceRoot,
-    serialization,
-    ctx.llmService,
-    {
-      create: () => ({ save: vi.fn() }),
-    } as any
-  );
+  const support = new ToolDispatchSupportService(ctx.workspaceRoot, serialization, ctx.llmService, {
+    create: () => ({ save: vi.fn() }),
+  } as any);
   const emitService = installEmitService((event: any) => ctx.runtime.emit(event));
   const questionService: IQuestionService = {
     input: vi.fn(async () => ''),
@@ -77,7 +61,8 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
   const handoffOrchestrator = new HandoffOrchestrator(
     ctx.agentManager,
     ctx.sessionManager,
-    ctx.llmService
+    ctx.llmService,
+    emitService
   );
 
   const hooks = {
@@ -94,7 +79,9 @@ function buildOrchestrator(ctx: any, plugins: ResolvedPlugins) {
     ctx.agentManager,
     ctx.sessionManager,
     ctx.llmService,
-    serialization
+    serialization,
+    emitService,
+    ctx.skillManager
   );
 }
 

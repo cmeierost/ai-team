@@ -24,11 +24,9 @@ import { HttpFetchCommand } from './http-fetch.command.js';
 import { HttpCrawlCommand } from './http-crawl.command.js';
 import { CodeSearchTool } from '../edit/codesearch-tool.js';
 import { ApplyPatchTool, MultiEditTool, FsEditTool } from '../fs/edit-tools.js';
-import {
-  WhoHasAccessTool,
-  DoIHaveAccessTool,
-  AnalyzePermissionOverlapTool,
-} from '../fs/access-introspection-tools.js';
+import { WhoHasAccessTool } from '../fs/who-has-access.tool.js';
+import { DoIHaveAccessTool } from '../fs/do-i-have-access.tool.js';
+import { AnalyzePermissionOverlapTool } from '../fs/analyze-permission-overlap.tool.js';
 import { WorkspaceFs } from 'fs-context';
 
 function getBuiltInTools(workspaceRoot: string): ICommand[] {

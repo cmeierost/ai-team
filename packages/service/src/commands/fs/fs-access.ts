@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { z } from 'zod';
 import {
   resolveInsideWorkspace,
@@ -5,7 +6,7 @@ import {
   type FileTreeNode,
   type Right,
 } from 'fs-context';
-import type { Agent, IPathPermissionChecker, PermissionConfig } from '@ai-team/core';
+import type { Agent, IPathPermissionChecker, PermissionConfig, WorkspacePathMeta } from '@ai-team/core';
 
 export interface FsPathAccessEnvelope {
   allowed: boolean;
@@ -18,11 +19,24 @@ export interface FsPathAccessEnvelope {
 export const accessRightSchema = z.enum(['read', 'write', 'list']);
 export type AccessRight = z.infer<typeof accessRightSchema>;
 
-type WorkspacePathMeta = {
-  absolute: string;
-  relative: string;
-  insideWorkspace: boolean;
-};
+export function resolveWorkspacePathMeta(
+  workspaceRoot: string,
+  inputPath: string
+): WorkspacePathMeta {
+  const absolute = path.isAbsolute(inputPath)
+    ? path.resolve(inputPath)
+    : path.resolve(workspaceRoot, inputPath);
+
+  const relative = path.relative(workspaceRoot, absolute).replaceAll('\\', '/');
+  const insideWorkspace =
+    relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+
+  return {
+    insideWorkspace,
+    absolute,
+    relative,
+  };
+}
 
 export function canListViaContextManager(
   checker: IPathPermissionChecker,

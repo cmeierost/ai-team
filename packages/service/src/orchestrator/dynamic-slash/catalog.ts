@@ -1,14 +1,12 @@
-import type { ICommand, ISkillManager } from '@ai-team/core';
+import type { ICommand, ISkillManager, IEmitService } from '@ai-team/core';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { glob } from 'glob/raw';
 import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
-import type { IEmitService } from '../services/emit-service.js';
-import { getServiceContainer } from '../../service-registry.js';
-import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 import { JsonWorkflowSchema } from '../../workflow/json-workflow-tool.js';
 import type { DynamicSlashCatalogConfigInput } from './config.js';
+import type { ToolManager } from '../../tools/tool-manager.js';
 
 export interface DynamicSlashCatalogOptions {
   workspaceRoot: string;
@@ -140,15 +138,19 @@ export async function buildDynamicSlashCatalog(
 
 export function buildDynamicSlashCommands(
   entries: DynamicSlashEntry[],
-  emitService: IEmitService
+  emitService: IEmitService,
+  deps?: {
+    workspaceRoot?: string;
+    toolManager?: Pick<ToolManager, 'execute'>;
+  }
 ): ICommand<string, unknown>[] {
   assertUniqueDynamicSlashEntries(entries, 'buildDynamicSlashCommands');
   return entries.map((entry) => {
     if (entry.source === 'skill') {
-      return buildSkillSlashCommand(entry, emitService);
+      return buildSkillSlashCommand(entry, emitService, deps?.workspaceRoot);
     }
     if (entry.source === 'workflow') {
-      return buildWorkflowSlashCommand(entry, emitService);
+      return buildWorkflowSlashCommand(entry, emitService, deps?.toolManager, deps?.workspaceRoot);
     }
     return buildPromptSlashCommand(entry, emitService);
   });
@@ -264,7 +266,8 @@ async function loadPromptEntries(
 
 export function buildSkillSlashCommand(
   entry: DynamicSlashEntry,
-  emitService: IEmitService
+  emitService: IEmitService,
+  workspaceRoot?: string
 ): ICommand<string, unknown> {
   return {
     metadata: {
@@ -275,7 +278,10 @@ export function buildSkillSlashCommand(
       group: 'chat',
     },
     execute: async (_args, ctx) => {
-      const relativeSkillPath = toWorkspaceRelative(ctx.workspaceRoot, entry.filePath);
+      if (!workspaceRoot) {
+        return { status: 'error', message: 'Workspace root is not configured for dynamic skill loading.' };
+      }
+      const relativeSkillPath = toWorkspaceRelative(workspaceRoot, entry.filePath);
       await (ctx as any).sessionManager.addSessionSkill(ctx.sessionId, relativeSkillPath);
       await (ctx as any).sessionManager.setSessionSkillPaused(
         ctx.sessionId,
@@ -450,7 +456,9 @@ async function loadWorkflowEntries(
 
 export function buildWorkflowSlashCommand(
   entry: DynamicSlashEntry,
-  emitService: IEmitService
+  emitService: IEmitService,
+  toolManager?: Pick<ToolManager, 'execute'>,
+  workspaceRoot?: string
 ): ICommand<string, unknown> {
   return {
     metadata: {
@@ -461,16 +469,16 @@ export function buildWorkflowSlashCommand(
       group: 'chat',
     },
     execute: async (_args, ctx) => {
+      if (!toolManager || !workspaceRoot) {
+        return { status: 'error', message: 'Workflow tool execution dependencies are not configured.' };
+      }
       const toolName = entry.name;
-
-      const toolManager = getServiceContainer().resolve(COMMAND_FACTORY_TOKENS.ToolManager);
       const result = await toolManager.execute(
         ctx.agent!,
         toolName,
         {},
         {
           agentId: ctx.agent!.id,
-          workspaceRoot: ctx.workspaceRoot,
           history: [],
         }
       );

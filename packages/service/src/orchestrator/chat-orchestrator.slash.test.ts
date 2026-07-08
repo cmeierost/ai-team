@@ -13,34 +13,90 @@ import type { ResolvedPlugins } from './pipeline.js';
 import type { CommandResponse, ICommandDispatcher } from '@ai-team/api-contracts';
 import { EmitService } from './services/emit-service.js';
 import { ExecutionContext } from '@ai-team/core';
+import { ToolSerializationService } from './services/tool-serialization-service.js';
 
 type OrchestratorCtor = new (
   ctx: ExecutionContext,
-  plugins: ResolvedPlugins
+  plugins: ResolvedPlugins,
+  deps: ReturnType<typeof makeDeps>
 ) => {
   run(options: { message: string; contextFiles?: string[]; maxHops?: number }): Promise<string>;
 };
 
 const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: OrchestratorCtor }> = [
-  { name: 'xstate-drop-in', Orchestrator: ChatOrchestrator },
+  {
+    name: 'xstate-drop-in',
+    Orchestrator: class {
+      private readonly impl: ChatOrchestrator;
+
+      constructor(ctx: ExecutionContext, plugins: ResolvedPlugins, deps: ReturnType<typeof makeDeps>) {
+        this.impl = new ChatOrchestrator(
+          ctx,
+          plugins,
+          deps.toolDispatcher,
+          deps.handoffOrchestrator,
+          deps.hooks,
+          deps.agentManager,
+          deps.sessionManager,
+          deps.llmService,
+          deps.serialization,
+          deps.emitService,
+          deps.skillManager
+        );
+      }
+
+      run(options: { message: string; contextFiles?: string[]; maxHops?: number }): Promise<string> {
+        return this.impl.run(options);
+      }
+    },
+  },
 ];
 
-function makeContext(): { ctx: ExecutionContext; emitSpy: ReturnType<typeof vi.fn> } {
+function makeDeps() {
   const emitSpy = vi.fn();
   const emitService = new EmitService(emitSpy);
+  const sessionManager = {
+    appendMessage: vi.fn(async () => null),
+    getSession: vi.fn(async () => ({ developerId: 'dev-1' })),
+    resolveHandoffSession: vi.fn(async () => ({ session: { id: 'sess-2' } })),
+    getSessionMessages: vi.fn(async () => []),
+  } as any;
+  const agentManager = {
+    getAgentAsync: vi.fn(async () => null),
+    resolveAgentAsync: vi.fn(async () => []),
+    getAllAgentsAsync: vi.fn(async () => []),
+    recordInteractionAsync: vi.fn(async () => undefined),
+  } as any;
+  const llmService = {
+    chat: vi.fn(async () => 'briefing'),
+  } as any;
+
+  return {
+    emitSpy,
+    emitService,
+    sessionManager,
+    agentManager,
+    llmService,
+    hooks: {} as any,
+    toolDispatcher: { dispatch: vi.fn(async () => ({ isError: false, result: {} })) } as any,
+    handoffOrchestrator: {
+      tryNlForward: vi.fn(async () => null),
+      executeHandoff: vi.fn(async () => true),
+    } as any,
+    serialization: new ToolSerializationService(),
+    skillManager: {} as any,
+  };
+}
+
+function makeContext(): { ctx: ExecutionContext; emitSpy: ReturnType<typeof vi.fn> } {
   const ctx = {
     agent: { id: 'hr-director', name: 'Robert Davis', role: 'hr-director' } as any,
     workspaceRoot: '/workspace',
     sessionId: 'sess-1',
-    hooks: { emitService } as any,
-    toolManager: {} as any,
-    sessionManager: {} as any,
-    agentManager: { loadAllAgents: vi.fn(async () => {}) } as any,
-    skillManager: {} as any,
     history: [],
   } as ExecutionContext;
 
-  return { ctx, emitSpy };
+  return { ctx, emitSpy: vi.fn() };
 }
 
 function makePlugins(): ResolvedPlugins {
@@ -66,21 +122,23 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
   'ChatOrchestrator slash handling [$name]',
   ({ Orchestrator }) => {
     it('consumes unknown slash commands and does not forward to LLM turn execution', async () => {
-      const { ctx, emitSpy } = makeContext();
+      const { ctx } = makeContext();
+      const deps = makeDeps();
       const plugins = makePlugins();
-      const orchestrator = new Orchestrator(ctx, plugins);
+      const orchestrator = new Orchestrator(ctx, plugins, deps);
 
       const result = await orchestrator.run({ message: '/doesnotexist' });
 
       expect(result).toBe('');
       expect(runSendTurnMachineAsync).not.toHaveBeenCalled();
-      expect(emitSpy).toHaveBeenCalledWith(expect.objectContaining({ kind: 'log', level: 'warn' }));
+      expect(deps.emitSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'log', level: 'warn' })
+      );
     });
 
     it('persists executed slash commands as hidden tool-call messages', async () => {
-      const appendMessage = vi.fn(async () => null);
       const { ctx } = makeContext();
-      (ctx.sessionManager as any) = { appendMessage };
+      const deps = makeDeps();
 
       const plugins = makePlugins();
       plugins.commandDispatcher = {
@@ -95,11 +153,11 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         ),
       };
 
-      const orchestrator = new Orchestrator(ctx, plugins);
+      const orchestrator = new Orchestrator(ctx, plugins, deps);
       const result = await orchestrator.run({ message: '/who' });
 
       expect(result).toBe('');
-      expect(appendMessage).toHaveBeenCalledWith(
+      expect(deps.sessionManager.appendMessage).toHaveBeenCalledWith(
         'sess-1',
         expect.objectContaining({
           from: 'human',
@@ -120,9 +178,8 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
     });
 
     it('continues to LLM with prompt text when a prompt slash command is invoked', async () => {
-      const appendMessage = vi.fn(async () => null);
       const { ctx } = makeContext();
-      (ctx.sessionManager as any) = { appendMessage };
+      const deps = makeDeps();
 
       const promptText = 'You are a strict reviewer. Find edge cases.';
       const plugins = makePlugins();
@@ -146,14 +203,14 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
         ),
       };
 
-      const orchestrator = new Orchestrator(ctx, plugins);
+      const orchestrator = new Orchestrator(ctx, plugins, deps);
       const result = await orchestrator.run({ message: '/prompt-review' });
 
       expect(result).toBe('llm-called');
       expect(runSendTurnMachineAsync).toHaveBeenCalledWith(
         expect.objectContaining({ userMessage: promptText })
       );
-      expect(appendMessage).toHaveBeenCalledWith(
+      expect(deps.sessionManager.appendMessage).toHaveBeenCalledWith(
         'sess-1',
         expect.objectContaining({
           content: '/prompt-review',

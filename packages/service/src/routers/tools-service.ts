@@ -5,7 +5,7 @@ import type {
 } from '@ai-team/api-contracts';
 import { BadRequestError } from '@ai-team/core';
 import { AgentToolsService } from '../commands/tools/tools-service.js';
-import { GovernanceService } from '../commands/agents/governance.js';
+import { GovernanceService } from '../governance/governance-service.js';
 
 export class ToolsService implements IToolsService {
   constructor(

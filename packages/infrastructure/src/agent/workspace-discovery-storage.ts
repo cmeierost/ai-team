@@ -3,7 +3,9 @@ import { glob } from 'glob/raw';
 import path from 'node:path';
 
 export class WorkspaceDiscoveryStorage implements IWorkspaceDiscoveryStorage {
-  public async findAgentFilesAsync(workspaceRoot: string): Promise<string[]> {
+  constructor(private readonly workspaceRoot: string) {}
+
+  public async findAgentFilesAsync(): Promise<string[]> {
     const patterns = [
       '**/agent.md',
       '**/*.agent.md',
@@ -12,27 +14,27 @@ export class WorkspaceDiscoveryStorage implements IWorkspaceDiscoveryStorage {
     ];
     const ignore = ['**/node_modules/**', '**/.git/**'];
     const allResults = await Promise.all(
-      patterns.map((pattern) => glob(pattern, { cwd: workspaceRoot, absolute: true, ignore }))
+      patterns.map((pattern) => glob(pattern, { cwd: this.workspaceRoot, absolute: true, ignore }))
     );
 
     return Array.from(new Set(allResults.flat())).sort((a, b) => a.localeCompare(b));
   }
 
-  public async findSkillFilesAsync(workspaceRoot: string): Promise<string[]> {
+  public async findSkillFilesAsync(): Promise<string[]> {
     return glob('.ai-team/**/SKILL.md', {
-      cwd: workspaceRoot,
+      cwd: this.workspaceRoot,
       absolute: true,
       ignore: ['**/node_modules/**', '**/.git/**'],
     });
   }
 
-  public resolveAgentSkillFilePath(workspaceRoot: string, skillId: string): string {
-    return path.join(workspaceRoot, '.ai-team', 'skills', skillId, 'SKILL.md');
+  public resolveAgentSkillFilePath(skillId: string): string {
+    return path.join(this.workspaceRoot, '.ai-team', 'skills', skillId, 'SKILL.md');
   }
 
-  public async findInstructionFilesAsync(workspaceRoot: string): Promise<string[]> {
+  public async findInstructionFilesAsync(): Promise<string[]> {
     return glob('.ai-team/instructions/*.instructions.md', {
-      cwd: workspaceRoot,
+      cwd: this.workspaceRoot,
       absolute: true,
       ignore: ['**/node_modules/**', '**/.git/**'],
     });

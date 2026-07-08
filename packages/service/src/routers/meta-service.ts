@@ -322,7 +322,7 @@ export class MetaService implements IContextService {
         return [];
       }
 
-      const files = await this.agentDocumentStorage.loadAllInstructionFilesAsync(workspaceRoot);
+      const files = await this.agentDocumentStorage.loadAllInstructionFilesAsync();
       return files
         .filter((f: any) => f.instructions?.trim())
         .filter((f: any) => this.isInstructionRelevant(f.applyTo, writePatterns, writtenFiles))

@@ -343,11 +343,3 @@ function coerceArgValue(value: string): string | number | boolean {
   return value;
 }
 
-function isCommandResponseLike(value: unknown): value is CommandResponse {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<CommandResponse>;
-  return (
-    (candidate.status === 'ok' || candidate.status === 'error') &&
-    typeof candidate.message === 'string'
-  );
-}

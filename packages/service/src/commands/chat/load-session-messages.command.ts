@@ -1,5 +1,5 @@
 import type { ChatMessage } from '@ai-team/core';
-import type { IEmitService } from '../../orchestrator/services/emit-service.js';
+import type { IEmitService } from '@ai-team/core';
 import type { SessionManager } from '../../session-manager.js';
 
 export interface LoadSessionMessagesParams {

@@ -12,7 +12,7 @@
 import type { ILlmChatMessageParam, ChatMessage, ExecutionContext } from '@ai-team/core';
 import type { IContextBuilder } from '../pipeline.js';
 
-function historyToMessages(history: ChatMessage[], _agentId: string): ILlmChatMessageParam[] {
+function historyToMessages(history: ChatMessage[]): ILlmChatMessageParam[] {
   return history
     .filter((msg) => !msg.archived && !msg.hiddenFromLlm)
     .map((msg) => ({
@@ -22,7 +22,7 @@ function historyToMessages(history: ChatMessage[], _agentId: string): ILlmChatMe
 }
 
 export class DefaultContextBuilder implements IContextBuilder {
-  async build(history: ChatMessage[], ctx: ExecutionContext): Promise<ILlmChatMessageParam[]> {
-    return historyToMessages(history, ctx.agent!.id);
+  async build(history: ChatMessage[], _ctx: ExecutionContext): Promise<ILlmChatMessageParam[]> {
+    return historyToMessages(history);
   }
 }

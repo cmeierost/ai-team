@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProviderICommand } from './provider.command.js';
-import { ProviderCommand } from './provider.js';
+import { ProviderICommand } from './setup-provider.command.js';
 
 function createDeps() {
   const configurationStorage = {
@@ -59,14 +58,13 @@ const setupPayload = {
 describe('ProviderICommand', () => {
   it('configure sub-command executes and persists config', async () => {
     const deps = createDeps();
-    const providerCmd = new ProviderCommand(
+    const cmd = new ProviderICommand(
       deps.configurationStorage,
       deps.llmProviderTester,
       deps.modelDiscoveryRegistry,
       deps.questionService,
       deps.providerConfigurationService
     );
-    const cmd = new ProviderICommand(providerCmd);
 
     expect(cmd.key).toBe('provider');
     expect(cmd.cli).toEqual({ command: 'provider', parentKey: undefined });
@@ -80,14 +78,13 @@ describe('ProviderICommand', () => {
 
   it('add sub-command executes with makeDefault', async () => {
     const deps = createDeps();
-    const providerCmd = new ProviderCommand(
+    const cmd = new ProviderICommand(
       deps.configurationStorage,
       deps.llmProviderTester,
       deps.modelDiscoveryRegistry,
       deps.questionService,
       deps.providerConfigurationService
     );
-    const cmd = new ProviderICommand(providerCmd);
 
     await cmd.execute({ ...setupPayload, subCommand: 'add', makeDefault: true }, undefined, {
       workspaceRoot: 'C:/ws',
@@ -99,14 +96,13 @@ describe('ProviderICommand', () => {
 
   it('set sub-command delegates to configure', async () => {
     const deps = createDeps();
-    const providerCmd = new ProviderCommand(
+    const cmd = new ProviderICommand(
       deps.configurationStorage,
       deps.llmProviderTester,
       deps.modelDiscoveryRegistry,
       deps.questionService,
       deps.providerConfigurationService
     );
-    const cmd = new ProviderICommand(providerCmd);
 
     await cmd.execute({ ...setupPayload, subCommand: 'set' }, undefined, {
       workspaceRoot: 'C:/ws',
@@ -117,14 +113,13 @@ describe('ProviderICommand', () => {
 
   it('defaults to configure when no subCommand provided', async () => {
     const deps = createDeps();
-    const providerCmd = new ProviderCommand(
+    const cmd = new ProviderICommand(
       deps.configurationStorage,
       deps.llmProviderTester,
       deps.modelDiscoveryRegistry,
       deps.questionService,
       deps.providerConfigurationService
     );
-    const cmd = new ProviderICommand(providerCmd);
 
     await cmd.execute(setupPayload, undefined, { workspaceRoot: 'C:/ws' } as any);
 

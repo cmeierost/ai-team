@@ -3,7 +3,9 @@ import type {
   RuntimeStreamEvent,
   ToolDenialEvent,
   ToolRuntimePayloadEvent,
-} from '@ai-team/api-contracts';
+  ChatCommandEmitter,
+  IEmitService,
+} from '@ai-team/core';
 
 export function formatConsoleArgs(args: unknown[]): string {
   if (args.length === 0) return '';
@@ -21,32 +23,6 @@ export function formatConsoleArgs(args: unknown[]): string {
 }
 
 /** Structural interface for commands that need to write output via the emit pipeline. */
-export interface ChatCommandEmitter {
-  write(message: string): void;
-  warn(message: string): void;
-  error(message: string): void;
-  event(event: RuntimeStreamEvent): void;
-}
-
-export interface IEmitService extends ChatCommandEmitter {
-  emit(event: RuntimeStreamEvent): void;
-  log(level: 'info' | 'warn' | 'error', message: string): void;
-  status(phase: string, message?: string): void;
-  token(text: string): void;
-  toolEvent(
-    toolName: string,
-    toolCallId: string | undefined,
-    toolPhase: 'start' | 'result' | 'error' | 'denied',
-    message?: string,
-    toolDenial?: ToolDenialEvent,
-    toolResult?: ToolRuntimePayloadEvent
-  ): void;
-  /**
-   * Temporarily route events through a different sink and return a restore
-   * function. Used by request-scoped wrappers (e.g. `InteractionStream`).
-   */
-  bindSink(sink: (event: RuntimeStreamEvent) => void): () => void;
-}
 
 /**
  * Per-connection event emitter.
@@ -136,10 +112,12 @@ export class EmitService implements IEmitService {
    */
   static forConsole(): EmitService {
     return new EmitService((event) => {
-      if (event.kind === 'token' && 'text' in event && (event as { text?: string }).text) {
-        process.stdout.write((event as { text: string }).text);
-      } else if (event.kind === 'log' && 'message' in event) {
-        const { level, message } = event as { level: string; message: string };
+      const record = event as Record<string, unknown>;
+      if (event.kind === 'token' && typeof record.text === 'string' && record.text.length > 0) {
+        process.stdout.write(record.text);
+      } else if (event.kind === 'log' && typeof record.message === 'string') {
+        const level = record.level;
+        const message = record.message;
         if (level === 'error') {
           process.stderr.write(`${message}\n`);
         } else {

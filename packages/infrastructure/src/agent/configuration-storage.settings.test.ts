@@ -14,6 +14,8 @@ async function createWorkspaceAsync(): Promise<string> {
 
 afterEach(async () => {
   delete process.env.AI_TEAM_TEST_SECRET;
+  delete process.env.LOG_FILE;
+  delete process.env.LOG_CONSOLE;
   await Promise.all(
     createdDirs
       .splice(0, createdDirs.length)
@@ -82,5 +84,39 @@ describe('ConfigurationStorage settings APIs', () => {
 
     const resolvedApiKey = storage.get('providers.demo.apiKey');
     expect(resolvedApiKey).toBe('demo-secret');
+  });
+
+  it('resolves LOG_FILE override precedence: startup > root .env > .ai-team/.env > config', async () => {
+    const workspaceRoot = await createWorkspaceAsync();
+    const storage = new ConfigurationStorage(workspaceRoot);
+
+    await storage.set('log.file', false);
+
+    await fs.mkdir(path.join(workspaceRoot, '.ai-team'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, '.ai-team', '.env'), 'LOG_FILE="true"\n', 'utf-8');
+    await fs.writeFile(path.join(workspaceRoot, '.env'), 'LOG_FILE="false"\n', 'utf-8');
+    process.env.LOG_FILE = 'true';
+
+    expect(storage.get('log.file')).toBe(true);
+  });
+
+  it('resolves LOG_CONSOLE from .env when startup env is absent', async () => {
+    const workspaceRoot = await createWorkspaceAsync();
+    const storage = new ConfigurationStorage(workspaceRoot);
+
+    await storage.set('log.console', false);
+    await fs.writeFile(path.join(workspaceRoot, '.env'), 'LOG_CONSOLE="on"\n', 'utf-8');
+
+    expect(storage.get('log.console')).toBe(true);
+  });
+
+  it('ignores invalid LOG_FILE values and keeps config value', async () => {
+    const workspaceRoot = await createWorkspaceAsync();
+    const storage = new ConfigurationStorage(workspaceRoot);
+
+    await storage.set('log.file', true);
+    process.env.LOG_FILE = 'banana';
+
+    expect(storage.get('log.file')).toBe(true);
   });
 });

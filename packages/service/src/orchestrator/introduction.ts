@@ -8,10 +8,10 @@ import {
   type IAgentManager,
   type ChatMessage,
   type IMarkdownSectionService,
+  type IEmitService,
 } from '@ai-team/core';
 import type { SessionManager } from '../session-manager.js';
-import type { ChatRuntimeHooks } from '../commands/chat/index.js';
-import type { IEmitService } from './services/emit-service.js';
+import type { ChatRuntimeHooks } from './hooks.js';
 
 const DEFAULT_GREETING_TEMPLATE =
   "Hi {{developerName}}, I'm {{agentName}} ({{agentRole}}). How can I help today?";

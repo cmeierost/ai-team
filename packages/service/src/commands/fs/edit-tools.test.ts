@@ -30,11 +30,9 @@ import {
   FsEditTool,
   stripLineNumberPrefixes,
 } from './edit-tools.js';
-import {
-  WhoHasAccessTool,
-  DoIHaveAccessTool,
-  AnalyzePermissionOverlapTool,
-} from './access-introspection-tools.js';
+import { WhoHasAccessTool } from './who-has-access.tool.js';
+import { DoIHaveAccessTool } from './do-i-have-access.tool.js';
+import { AnalyzePermissionOverlapTool } from './analyze-permission-overlap.tool.js';
 
 function getBuiltInTools(workspaceRoot: string): ICommand[] {
   const accessChecker = {

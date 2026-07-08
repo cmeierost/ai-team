@@ -1,6 +1,7 @@
 import type { ICommand, IServiceContainer } from '@ai-team/core';
 import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 
+import { AskUserCommand } from '../com/ask.command.js';
 import { HandoffCommand } from '../com/handoff.command.js';
 import { HireOrchestrationCommand } from '../hr/hire-orchestration.command.js';
 import { ListToolsOrchestrationCommand } from '../tools/tool-catalog.command.js';
@@ -17,9 +18,7 @@ export type {
   IWorkflowCatalog,
 } from './orchestration.types.js';
 
-export { AskUserCommand } from '../com/ask.command.js';
-export { HandoffCommand } from '../com/handoff.command.js';
-export { HireOrchestrationCommand } from '../hr/hire-orchestration.command.js';
+export { AskUserCommand, HandoffCommand, HireOrchestrationCommand };
 export {
   ListToolsOrchestrationCommand,
   TOOL_LIST_PRE_LLM_PATTERNS,
@@ -35,7 +34,7 @@ export {
   ListWorkflowsOrchestrationCommand,
   WorkflowDefinitionOrchestrationCommand,
 } from '../workflow/workflow-tools.command.js';
-export { WhoShouldCommand } from '../fs/who-should.command.js';
+export { WhoShouldCommand };
 
 /** Assemble orchestration commands using DI container resolution only. */
 export function createOrchestrationCommands(

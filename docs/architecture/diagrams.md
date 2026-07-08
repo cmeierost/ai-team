@@ -84,7 +84,7 @@ This is the high-level control flow for the shared chat pipeline inside `@ai-tea
 
 ```mermaid
 flowchart TD
-  CHATCMD[chatCommand\npackages/service/src/commands/chat/index.ts]
+  CHATCMD[chatCommand\npackages/service/src/commands/chat/chat.command.ts]
   ORCH[ChatOrchestrator.run\npackages/service/src/orchestrator/chat-orchestrator.ts]
   SENDTURN[sendTurn\npackages/service/src/orchestrator/send-turn.ts]
   HANDOFF[handoff.ts\ncontext switch + briefing]

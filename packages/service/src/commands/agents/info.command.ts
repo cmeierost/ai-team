@@ -2,6 +2,7 @@ import type {
   ICommand,
   IAgentManager,
   ILlmService,
+  IEmitService,
   ExecutionContext,
   CommandResponse,
   Agent,
@@ -85,6 +86,7 @@ export class InfoChatCommand implements ICommand<string, Agent[]> {
   constructor(
     private readonly agentManager: IAgentManager,
     private readonly questionService: IQuestionService,
+    private readonly emitService: IEmitService,
     private readonly llmService?: ILlmService
   ) {}
 
@@ -121,11 +123,10 @@ export class InfoChatCommand implements ICommand<string, Agent[]> {
           message: 'No agents found in this workspace. Run ait init to initialize your team.',
         };
       }
-      ctx.emit?.({
-        kind: 'log',
-        level: 'info',
-        message: `No agent specified; defaulting to ${resolved.name} (${resolved.role}).`,
-      });
+      this.emitService.log(
+        'info',
+        `No agent specified; defaulting to ${resolved.name} (${resolved.role}).`
+      );
       const resolvedLlm = await this.resolveActiveLlm(resolved);
       return {
         status: 'ok',

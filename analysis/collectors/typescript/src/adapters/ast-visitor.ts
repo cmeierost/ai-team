@@ -124,7 +124,7 @@ export function visitSourceFile(
 
   // Walk top-level statements
   for (const stmt of sourceFile.statements) {
-    collectEntities(stmt, sourceFile, filePath, fileEntity.id, entities, 0);
+    collectEntities(stmt, sourceFile, filePath, fileEntity.id, entities);
   }
 
   finalizeHierarchy(entities);
@@ -139,7 +139,6 @@ function collectEntities(
   filePath: string,
   parentId: string,
   entities: Entity[],
-  nestingBase: number,
 ): void {
   // Class declaration / expression
   if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {

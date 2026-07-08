@@ -3,7 +3,6 @@ import { createAiTeamClient, type AiTeamHttpClient } from '@ai-team/api-contract
 import { Agent, GraphData, Developer } from '../types';
 import { useBackendConnectionStore } from '../stores/backendConnectionStore';
 import { API_BASE } from '../config/api-base';
-export { API_BASE } from '../config/api-base';
 
 interface TeamContextValue {
   agents: Agent[];

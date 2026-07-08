@@ -1,19 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-export function isFileLogEnabledFromEnv(envVarName: string): boolean {
-  const value = process.env[envVarName]?.trim().toLowerCase();
-  if (!value) {
-    return true;
-  }
-  return value !== '0' && value !== 'false' && value !== 'off';
-}
-
-export function isConsoleLogEnabled(): boolean {
-  const value = process.env.AI_TEAM_CONSOLE_LOG?.trim().toLowerCase();
-  return value === '1' || value === 'true' || value === 'on';
-}
-
 const C = {
   reset: '\x1b[0m',
   dim: '\x1b[2m',
@@ -81,7 +68,8 @@ function writeToConsole(entry: unknown): void {
 }
 
 export interface CreateDebugLogWriterOptions<TArgs extends unknown[]> {
-  isFileLogEnabled: () => boolean;
+  isFileLogEnabled: (...args: TArgs) => boolean;
+  isConsoleLogEnabled?: (...args: TArgs) => boolean;
   resolveFilePath: (...args: TArgs) => string;
 }
 
@@ -91,11 +79,11 @@ export function createDebugLogWriter<TArgs extends unknown[]>(
   let writeQueue: Promise<void> = Promise.resolve();
 
   return (entry: unknown, ...args: TArgs): void => {
-    if (isConsoleLogEnabled()) {
+    if (options.isConsoleLogEnabled?.(...args)) {
       writeToConsole(entry);
     }
 
-    if (!options.isFileLogEnabled()) {
+    if (!options.isFileLogEnabled(...args)) {
       return;
     }
 

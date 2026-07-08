@@ -1,22 +1,29 @@
+import { z } from 'zod';
 import ora from 'ora';
 import type {
   Agent,
   ChatMessage,
-  ExecutionContext,
   ICommand,
+  ExecutionContext,
+  CommandResponse,
+  ICommandDescriptor,
   IServiceContainer,
   IAgentManager,
   ILlmService,
+  IEmitService,
   IMarkdownSectionService,
   ISkillManager,
   TeamConfig,
+  JsonValue,
 } from '@ai-team/core';
-import type { ChatOptions } from '@ai-team/api-contracts';
+import type {
+  ChatOptions,
+  WorkflowStateSnapshot,
+} from '@ai-team/api-contracts';
 import { SessionManager } from '../../session-manager.js';
 import { ChatOrchestrator } from '../../orchestrator/chat-orchestrator.js';
 import { tryIntroduceUser as tryIntroduceUserNew } from '../../orchestrator/introduction.js';
 import type { ResolvedPlugins } from '../../orchestrator/pipeline.js';
-import { type IEmitService } from '../../orchestrator/services/emit-service.js';
 import { NoOpCompressor } from '../../orchestrator/defaults/context-compressor.js';
 import { DefaultContextBuilder } from '../../orchestrator/defaults/context-builder.js';
 import {
@@ -34,7 +41,6 @@ import { buildDefaultTurnResultParsers } from '../../orchestrator/defaults/turn-
 import { createCommandDispatcher } from '../../command-dispatcher.js';
 import { ToolDispatcher } from '../../orchestrator/tool-dispatch.js';
 import { HandoffOrchestrator } from '../../orchestrator/handoff.js';
-import type { IQuestionService } from '../../questions/question-service.js';
 import { WorkflowIntentProvider } from '../../tools/workflow-intent-provider.js';
 import { buildDynamicSlashCatalog } from '../../orchestrator/dynamic-slash/catalog.js';
 import { readDynamicSlashCatalogConfig } from '../../orchestrator/dynamic-slash/config.js';
@@ -52,8 +58,24 @@ import { ResolveChatSessionCommand } from './resolve-chat-session.command.js';
 import { LoadSessionMessagesCommand } from './load-session-messages.command.js';
 import { runChatSessionStartupWorkflow } from './chat-session-startup.workflow.js';
 import { COMMAND_FACTORY_TOKENS } from '../../types.js';
-import { setServiceContainer } from '../../service-registry.js';
 import type { WorkflowToolPolicy } from '../../workflow/chat-loop-contracts.js';
+import type { IQuestionService } from '../../questions/question-service.js';
+
+type Params = z.infer<typeof ChatCommand.schema>;
+const _chatICommandSchema = z.object({
+  employeeId: z.string().optional().describe('Agent id, name, or role query'),
+  options: z
+    .object({
+      message: z.string().optional(),
+      context: z.array(z.string()).optional(),
+      mediatorLog: z.boolean().optional(),
+      new: z.boolean().optional(),
+      createNewSession: z.boolean().optional(),
+      sessionId: z.string().optional(),
+    })
+    .optional()
+    .default({}),
+});
 
 const CHAT_CONNECT_TIMEOUT_MS = 20_000;
 
@@ -67,6 +89,7 @@ interface WorkflowChatOptions {
 }
 
 type ChatCommandOptions = ChatOptions & WorkflowChatOptions;
+export type ChatRuntimeOptions = ChatCommandOptions;
 
 function wireLlmDiagnostics(llm: ILlmService, emitService: IEmitService): void {
   llm.setDiagnosticReporter((entry) => {
@@ -87,19 +110,94 @@ interface ChatResolvedDeps {
   llmService: ILlmService;
   skillManager: ISkillManager;
   markdownSectionService: IMarkdownSectionService;
-  serviceContainer: IServiceContainer;
 }
 
-export class ChatCommand {
+export class ChatCommand implements ICommand<Params, void> {
+  static readonly schema = _chatICommandSchema;
+  static readonly metadata = {
+    key: 'chat' as const,
+    description: 'Start a chat session with an agent',
+    availableIn: { cli: true, chat: false, tool: false },
+    group: 'chat',
+    parameters: _chatICommandSchema,
+  } satisfies ICommandDescriptor;
+
+  readonly metadata = ChatCommand.metadata;
+
+  /** Strip HANDOFF:/FORWARD_TO: directive lines from agent text before persisting. */
+  static stripHandoffDirective(text: string): string {
+    let cleaned = text.replaceAll(/\s*(?:HANDOFF|FORWARD_TO):\s*[^|\n]+(?:\s*\|\s*[^\n]*)?/gim, '');
+    cleaned = cleaned.replaceAll(/\n{3,}/g, '\n\n').trim();
+    return cleaned;
+  }
+
+  /**
+   * Parse a HANDOFF/FORWARD_TO directive from agent response text.
+   *
+   * Matches: `HANDOFF: <agentId> | <optional note>`
+   *          `FORWARD_TO: <agentId> | <optional note>`
+   */
+  static parseHandoffDirective(text: string): { targetAgentId: string; note: string } | null {
+    // Allow spaces in the agent name — LLMs write "Emily Davis", not "emily-davis".
+    const re =
+      /(?:^|\n)\s*(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*(?:$|\n)|\s+(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*$/im;
+    const match = re.exec(text);
+    if (!match) return null;
+    const target = (match[1] ?? match[3] ?? '').trim();
+    const note = (match[2] ?? match[4] ?? '').trim();
+    if (!target) return null;
+    return { targetAgentId: target, note };
+  }
+
   constructor(private readonly serviceContainer: IServiceContainer) {}
 
-  async execute(
+  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
+    let { employeeId } = payload;
+    const rawOptions = payload.options ?? {};
+    const createNewSession = rawOptions.createNewSession ?? rawOptions.new;
+    const options: typeof rawOptions & { createNewSession?: boolean } = {
+      ...rawOptions,
+      createNewSession,
+    };
+
+    // When no agent is specified and no session is pinned, jump back to the
+    // most recently active session regardless of which agent it belongs to.
+    if (!employeeId && !options.sessionId && !createNewSession) {
+      const sessionManager = this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.SessionManager);
+      const recent = await sessionManager.listRecentSessions(1);
+      if (recent.length > 0) {
+        const last = recent[0];
+        employeeId = last.agentId;
+        options.sessionId = last.id;
+      }
+    }
+
+    const runtimeCtx = ctx as unknown as {
+      invocationSurface?: ExecutionContext['invocationSurface'];
+      signal?: AbortSignal;
+      workflowState?: unknown;
+    };
+    const hooks = {
+      invocationSurface: runtimeCtx.invocationSurface,
+      signal: runtimeCtx.signal,
+      workflowState: runtimeCtx.workflowState as WorkflowStateSnapshot | undefined,
+    };
+
+    await this.executeRuntime(
+      this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+      employeeId,
+      options,
+      hooks
+    );
+    return { status: 'ok' };
+  }
+
+  public async executeRuntime(
     workspaceRoot: string,
     agentId: string | undefined,
-    options: ChatCommandOptions,
+    options: ChatRuntimeOptions,
     hooks: ChatRuntimeHooks = {}
   ): Promise<void> {
-    setServiceContainer(this.serviceContainer);
     const deps = this.resolveDeps();
 
     try {
@@ -193,6 +291,7 @@ export class ChatCommand {
       agentResolutionService: new InfoChatCommand(
         this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
         questionService,
+        emitService,
         this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.LlmService)
       ),
       agentManager: this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
@@ -202,7 +301,6 @@ export class ChatCommand {
       markdownSectionService: this.serviceContainer.resolve(
         COMMAND_FACTORY_TOKENS.MarkdownSectionService
       ),
-      serviceContainer: this.serviceContainer,
     };
   }
 
@@ -220,7 +318,7 @@ export class ChatCommand {
     developerName: string;
     agent: Agent;
     llm: ILlmService;
-    instructions: unknown;
+    instructions: JsonValue;
     currentSessionId: string;
     history: ChatMessage[];
     loadSessionMessagesCommand: LoadSessionMessagesCommand;
@@ -262,12 +360,7 @@ export class ChatCommand {
 
     const agent = agentResolution.data![0];
     const llm = await this.initializeLlm(hooks, emitService, sessionManager);
-    const instructions = await this.loadSkillAndInstructions(
-      workspaceRoot,
-      agent,
-      options,
-      emitService
-    );
+    const instructions = await this.loadSkillAndInstructions(agent, options, emitService);
 
     this.resolveDeps().chatInfoService.showSessionIntro({
       agent,
@@ -279,8 +372,7 @@ export class ChatCommand {
     const workflowContext: ExecutionContext = {
       history: [],
       signal: hooks.signal,
-      workflowState: hooks.workflowState,
-      onWorkflowFrame: hooks.onWorkflowFrame as ExecutionContext['onWorkflowFrame'],
+      workflowState: hooks.workflowState as unknown as JsonValue,
       invocationSurface: hooks.invocationSurface,
     };
 
@@ -373,11 +465,10 @@ export class ChatCommand {
   }
 
   private async loadSkillAndInstructions(
-    workspaceRoot: string,
     agent: Agent,
     options: ChatCommandOptions,
     emitService: IEmitService
-  ) {
+  ): Promise<JsonValue> {
     const agentDocumentStorage = this.serviceContainer.resolve(
       COMMAND_FACTORY_TOKENS.AgentDocumentStorage
     );
@@ -389,7 +480,7 @@ export class ChatCommand {
       emitService.log('info', `No skill file found for ${agent.role}, using agent portfolio only`);
     }
 
-    let instructions = await agentDocumentStorage.loadAllInstructionFilesAsync(workspaceRoot);
+    let instructions = await agentDocumentStorage.loadAllInstructionFilesAsync();
     if (options.workflowSystemPrompt?.trim()) {
       instructions = [
         ...instructions,
@@ -402,7 +493,7 @@ export class ChatCommand {
     }
 
     this.resolveDeps().chatInfoService.showLoadedInstructions(instructions.length);
-    return instructions;
+    return instructions as unknown as JsonValue;
   }
 
   private async handleInitialIntroductions(params: {
@@ -467,7 +558,7 @@ export class ChatCommand {
     currentSessionId: string;
     agent: Agent;
     history: ChatMessage[];
-    instructions: unknown;
+    instructions: JsonValue;
     llm: ILlmService;
     hooks: ChatRuntimeHooks;
     sessionManager: SessionManager;
@@ -515,7 +606,7 @@ export class ChatCommand {
       agent,
       sessionId: currentSessionId,
       history,
-      instructions,
+      instructions: instructions as JsonValue,
     };
 
     const commandDispatcher = createCommandDispatcher(workspaceRoot, this.serviceContainer);
@@ -542,7 +633,10 @@ export class ChatCommand {
     const plugins: ResolvedPlugins = {
       compressor: new NoOpCompressor(),
       contextBuilder: new DefaultContextBuilder(),
-      enrichers: [new WorkspaceOverviewEnricher(), new TeamRosterEnricher(agentManager)],
+      enrichers: [
+        new WorkspaceOverviewEnricher(workspaceRoot),
+        new TeamRosterEnricher(agentManager),
+      ],
       ragProvider: new NoOpRagProvider(),
       toolResolver: toolPolicy
         ? new WorkflowToolResolver(new DefaultToolResolver(chatToolManager), toolPolicy)
@@ -551,7 +645,7 @@ export class ChatCommand {
       llmSelector: new DefaultLlmSelector(llm),
       outputHandler: new DefaultOutputHandler(emitService),
       commandDispatcher,
-      turnResultParsers: buildDefaultTurnResultParsers(),
+      turnResultParsers: buildDefaultTurnResultParsers(agentManager),
       hookPlugins: buildDefaultHookPlugins(),
       preLlmIntentProviders: [new WorkflowIntentProvider()],
     };
@@ -574,6 +668,8 @@ export class ChatCommand {
       sessionManager,
       llm,
       toolSerialization,
+      emitService,
+      skillManager,
       chatToolManager
     );
 

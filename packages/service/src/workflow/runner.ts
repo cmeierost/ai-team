@@ -319,16 +319,7 @@ export function workflowDescriptor<TState>(
   const tags = new Set<string>(definition.tags ?? []);
   tags.add('workflow-definition');
 
-  const {
-    id,
-    steps: _steps,
-    prepare: _prepare,
-    toResult: _toResult,
-    result: _result,
-    aliases: _aliases,
-    tags: _tags,
-    ...descriptorFields
-  } = definition;
+  const { id, aliases: _aliases, tags: _tags, ...descriptorFields } = definition;
 
   return {
     ...descriptorFields,
@@ -355,7 +346,14 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
    * and `parameters` directly — no wrapper class needed.
    */
   asCommand<TState>(definition: WorkflowDefinition<TState>): ICommand {
-    const { id, steps, prepare, toResult, result, ...descriptorFields } = definition;
+    const {
+      id,
+      steps: _steps,
+      prepare: _prepare,
+      toResult: _toResult,
+      result: _result,
+      ...descriptorFields
+    } = definition;
 
     const definitionProvider = {
       getDefinition: (): WorkflowDefinitionApiResponse =>

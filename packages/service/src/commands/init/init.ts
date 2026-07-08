@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { resolveEffectiveLlmSettings } from '@ai-team/core';
 import {
   ensureAiTeamDirectory,
   loadTeamConfig,
@@ -30,7 +29,7 @@ import { updateWorkspaceSettings } from './update-workspace-settings.js';
 import type { OnboardICommand } from '../hr/onboard.js';
 import type { SetupCommand } from '../setup/setup.js';
 import type { TestConnectionCommand } from '../setup/test-connection.js';
-import type { IEmitService } from '../../orchestrator/services/emit-service.js';
+import type { IEmitService } from '@ai-team/core';
 import { EmitService } from '../../orchestrator/services/emit-service.js';
 
 const FORCE_KEEP = new Set(['config.json', '.env']);
@@ -97,16 +96,14 @@ function describeResolvedProvider(effective: {
   return `OpenAI-compatible (${effective.config?.baseUrl ?? 'custom base URL'})`;
 }
 
+type ExistingResolvedLlm = {
+  config: { provider?: string; baseUrl?: string; apiKey?: string };
+  providerRef?: string;
+  apiKey?: string;
+};
+
 class InitLegacyFlow {
   constructor(private readonly emitService: IEmitService) {}
-
-  private writeLine(message: string) {
-    this.emitService.log('info', message);
-  }
-
-  private writeWarn(message: string) {
-    this.emitService.log('warn', message);
-  }
 
   async clearAiTeamDirectory(workspaceRoot: string) {
     const aiTeamDir = path.join(workspaceRoot, '.ai-team');
@@ -122,9 +119,10 @@ class InitLegacyFlow {
       const target = path.join(aiTeamDir, entry.name);
       try {
         await fs.rm(target, { recursive: true, force: true });
-        this.writeLine(`  Removed: ${entry.name}`);
+        this.emitService.log('info', `  Removed: ${entry.name}`);
       } catch (err) {
-        this.writeWarn(
+        this.emitService.log(
+          'warn',
           `  Could not remove ${entry.name}: ${err instanceof Error ? err.message : String(err)}`
         );
       }
@@ -138,7 +136,8 @@ class InitLegacyFlow {
   ): Promise<boolean> {
     if (options.force) {
       if (state.hasAgentFiles || state.hasNonAgentArtifacts) {
-        this.writeWarn(
+        this.emitService.log(
+          'warn',
           state.hasAgentFiles
             ? '  Force flag detected - reinitializing...'
             : '  Force flag detected - clearing existing AI Team scaffold...'
@@ -149,15 +148,16 @@ class InitLegacyFlow {
     }
 
     if (state.hasAgentFiles) {
-      this.writeWarn('AI Team is already initialized in this workspace');
-      this.writeLine(`  Location: ${state.aiTeamDir}`);
-      this.writeLine('  Use --force to fully reinitialize team onboarding.');
-      this.writeLine('  Skipping initialization.');
+      this.emitService.log('warn', 'AI Team is already initialized in this workspace');
+      this.emitService.log('info', `  Location: ${state.aiTeamDir}`);
+      this.emitService.log('info', '  Use --force to fully reinitialize team onboarding.');
+      this.emitService.log('info', '  Skipping initialization.');
       return false;
     }
 
     if (state.hasNonAgentArtifacts) {
-      this.writeWarn(
+      this.emitService.log(
+        'warn',
         `Found existing .ai-team scaffold without agents at ${state.aiTeamDir}; continuing initialization.`
       );
     }
@@ -167,41 +167,49 @@ class InitLegacyFlow {
 
   async tryReuseExistingLlm(
     options: InitOptions,
-    existingResolved: ReturnType<typeof resolveEffectiveLlmSettings> | undefined,
+    existingResolved: ExistingResolvedLlm | undefined,
     hooks: InitRuntimeHooks | undefined
   ): Promise<boolean> {
     if (!options.force || !existingResolved) return false;
 
-    const providerRefLabel = existingResolved.providerRef ? ` [${existingResolved.providerRef}]` : '';
-    this.writeLine(`  Current LLM: ${describeResolvedProvider(existingResolved)}${providerRefLabel}`);
+    const providerRefLabel = existingResolved.providerRef
+      ? ` [${existingResolved.providerRef}]`
+      : '';
+    this.emitService.log(
+      'info',
+      `  Current LLM: ${describeResolvedProvider(existingResolved)}${providerRefLabel}`
+    );
 
     const questionParams = {
       message: 'Reuse existing default LLM connection?',
       default: true,
     };
+    this.emitService.emit({
+      kind: 'question',
+      questionType: 'confirm',
+      message: questionParams.message,
+    } as any);
     const reuse = (await hooks?.questionConfirm?.(questionParams)) ?? true;
 
     if (!reuse) return false;
-
-    if (!existingResolved.config.apiKey) return false;
 
     const kind =
       existingResolved.config.provider === 'github-copilot'
         ? 'GitHub Copilot'
         : 'OpenAI-compatible';
-    this.writeLine(`Reusing existing ${kind} connection.`);
+    this.emitService.log('info', `Reusing existing ${kind} connection.`);
     return true;
   }
 
   writeWelcomeAndVerify() {
-    this.writeLine('');
-    this.writeLine('Verifying LLM connection...');
+    this.emitService.log('info', '');
+    this.emitService.log('info', 'Verifying LLM connection...');
   }
 
   writeWelcomeBanner() {
-    this.writeLine('');
-    this.writeLine('Welcome to AI Team!');
-    this.writeLine("Let's set up your virtual development team.");
+    this.emitService.log('info', '');
+    this.emitService.log('info', 'Welcome to AI Team!');
+    this.emitService.log('info', "Let's set up your virtual development team.");
   }
 }
 
@@ -318,9 +326,7 @@ export async function initCommand(
   options: InitOptions = {},
   hooks?: InitRuntimeHooks
 ): Promise<void> {
-  const emitService =
-    hooks?.emitService ??
-    EmitService.forConsole();
+  const emitService = hooks?.emitService ?? EmitService.forConsole();
   const flow = new InitLegacyFlow(emitService);
 
   const state = await getInitState(workspaceRoot);
@@ -389,11 +395,45 @@ async function getInitState(workspaceRoot: string): Promise<{
 
 async function resolveExistingLlmConfig(
   workspaceRoot: string
-): Promise<ReturnType<typeof resolveEffectiveLlmSettings> | undefined> {
+): Promise<ExistingResolvedLlm | undefined> {
   const existingConfig = await loadTeamConfig(workspaceRoot);
   if (!existingConfig) return undefined;
+
+  const legacy = existingConfig as {
+    llm?: { provider?: string; baseUrl?: string; apiKey?: string };
+  };
+
+  if (legacy.llm?.provider) {
+    return {
+      config: {
+        provider: legacy.llm.provider,
+        baseUrl: legacy.llm.baseUrl,
+        apiKey: legacy.llm.apiKey,
+      },
+      providerRef: legacy.llm.provider,
+      apiKey: legacy.llm.apiKey,
+    };
+  }
+
   try {
-    return resolveEffectiveLlmSettings(existingConfig as any);
+    const providers = (existingConfig as { providers?: Record<string, unknown> }).providers;
+    if (providers && typeof providers === 'object') {
+      const firstProvider = Object.entries(providers)[0];
+      if (firstProvider) {
+        const [providerRef, value] = firstProvider;
+        const provider = value as { kind?: string; baseUrl?: string; apiKey?: string };
+        return {
+          config: {
+            provider: provider.kind,
+            baseUrl: provider.baseUrl,
+            apiKey: provider.apiKey,
+          },
+          providerRef,
+          apiKey: provider.apiKey,
+        };
+      }
+    }
+    return undefined;
   } catch {
     return undefined;
   }

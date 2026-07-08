@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { LlmConfig } from '@ai-team/core';
-import {
-  buildRuntimeToolEvidence,
-  getChatRequestTimeoutMs,
-  LlmService,
-  resolveResponsesContentTypeForRole,
-  shouldUseResponsesApiForToolLoop,
-} from './index.js';
+import { LlmToolEvidenceBuilder } from './llm-tool-evidence.js';
+import { LlmTimeoutPolicy } from './llm-timeout-policy.js';
+
+const toolEvidenceBuilder = new LlmToolEvidenceBuilder();
+const timeoutPolicy = new LlmTimeoutPolicy();
 
 describe('getChatRequestTimeoutMs', () => {
   it('uses longer timeout for GPT-5 on api.openai.com', () => {
@@ -16,7 +14,7 @@ describe('getChatRequestTimeoutMs', () => {
       model: 'gpt-5.4',
     };
 
-    expect(getChatRequestTimeoutMs(config, 'gpt-5.4')).toBe(90_000);
+    expect(timeoutPolicy.getChatRequestTimeoutMs(config, 'gpt-5.4')).toBe(90_000);
   });
 
   it('uses default timeout for non-GPT-5 or non-OpenAI hosts', () => {
@@ -32,19 +30,19 @@ describe('getChatRequestTimeoutMs', () => {
       model: 'gpt-4o',
     };
 
-    expect(getChatRequestTimeoutMs(proxyConfig, 'gpt-5.4')).toBe(30_000);
-    expect(getChatRequestTimeoutMs(nonGpt5Config, 'gpt-4o')).toBe(30_000);
+    expect(timeoutPolicy.getChatRequestTimeoutMs(proxyConfig, 'gpt-5.4')).toBe(30_000);
+    expect(timeoutPolicy.getChatRequestTimeoutMs(nonGpt5Config, 'gpt-4o')).toBe(30_000);
   });
 });
 
 describe('resolveResponsesContentTypeForRole', () => {
   it('uses input_text for system and user turns', () => {
-    expect(resolveResponsesContentTypeForRole('system')).toBe('input_text');
-    expect(resolveResponsesContentTypeForRole('user')).toBe('input_text');
+    expect(timeoutPolicy.resolveResponsesContentTypeForRole('system')).toBe('input_text');
+    expect(timeoutPolicy.resolveResponsesContentTypeForRole('user')).toBe('input_text');
   });
 
   it('uses output_text for assistant turns', () => {
-    expect(resolveResponsesContentTypeForRole('assistant')).toBe('output_text');
+    expect(timeoutPolicy.resolveResponsesContentTypeForRole('assistant')).toBe('output_text');
   });
 });
 
@@ -56,8 +54,8 @@ describe('shouldUseResponsesApiForToolLoop', () => {
       model: 'gpt-5',
     };
 
-    expect(shouldUseResponsesApiForToolLoop(config, 'gpt-5')).toBe(true);
-    expect(shouldUseResponsesApiForToolLoop(config, 'gpt-5-mini')).toBe(true);
+    expect(timeoutPolicy.shouldUseResponsesApiForToolLoop(config, 'gpt-5')).toBe(true);
+    expect(timeoutPolicy.shouldUseResponsesApiForToolLoop(config, 'gpt-5-mini')).toBe(true);
   });
 
   it('disables Responses tool loop for non-OpenAI hosts or non-GPT-5 models', () => {
@@ -72,10 +70,10 @@ describe('shouldUseResponsesApiForToolLoop', () => {
       model: 'gpt-5',
     };
 
-    expect(shouldUseResponsesApiForToolLoop(openAiCompatible, 'gpt-5')).toBe(false);
-    expect(shouldUseResponsesApiForToolLoop(copilot, 'gpt-5')).toBe(false);
+    expect(timeoutPolicy.shouldUseResponsesApiForToolLoop(openAiCompatible, 'gpt-5')).toBe(false);
+    expect(timeoutPolicy.shouldUseResponsesApiForToolLoop(copilot, 'gpt-5')).toBe(false);
     expect(
-      shouldUseResponsesApiForToolLoop(
+      timeoutPolicy.shouldUseResponsesApiForToolLoop(
         { ...openAiCompatible, baseUrl: 'https://api.openai.com/v1' },
         'gpt-4o'
       )
@@ -85,7 +83,7 @@ describe('shouldUseResponsesApiForToolLoop', () => {
 
 describe('buildRuntimeToolEvidence', () => {
   it('serializes successful tool output with direct provenance', () => {
-    const evidence = buildRuntimeToolEvidence(
+    const evidence = toolEvidenceBuilder.buildRuntimeToolEvidence(
       {
         toolName: 'http_fetch',
         result: { title: 'Conductor OSS' },
@@ -105,7 +103,7 @@ describe('buildRuntimeToolEvidence', () => {
   });
 
   it('serializes failed tool output with error status', () => {
-    const evidence = buildRuntimeToolEvidence(
+    const evidence = toolEvidenceBuilder.buildRuntimeToolEvidence(
       {
         toolName: 'http_fetch',
         result: 'fetch failed',
@@ -125,7 +123,7 @@ describe('buildRuntimeToolEvidence', () => {
   });
 });
 
-describe('LlmService.historyToMessages', () => {
+describe('history conversion', () => {
   it('excludes archived and hidden messages from LLM context conversion', () => {
     const messages = [
       {
@@ -153,7 +151,17 @@ describe('LlmService.historyToMessages', () => {
       },
     ];
 
-    const converted = LlmService.historyToMessages(messages as any, 'agent');
+    const converted = (messages as Array<{
+      from: string;
+      content: string;
+      archived?: boolean;
+      hiddenFromLlm?: boolean;
+    }>)
+      .filter((msg) => !msg.archived && !msg.hiddenFromLlm)
+      .map((msg) => ({
+        role: msg.from === 'human' ? ('user' as const) : ('assistant' as const),
+        content: msg.content,
+      }));
 
     expect(converted).toEqual([{ role: 'user', content: 'keep this' }]);
   });

@@ -8,8 +8,8 @@ import type {
   Agent,
   ICommandDescriptor,
 } from '@ai-team/core';
-import { checkPathRight, resolveWorkspacePathMeta } from '@ai-team/core';
 import type { DoIHavePermissionResponse } from '@ai-team/api-contracts';
+import { resolveWorkspacePathMeta } from '../fs/fs-access.js';
 
 type Params = z.infer<typeof AccessCanCommand.schema>;
 const _accessCanCommandSchema = z.object({
@@ -85,18 +85,13 @@ export class AccessCanCommand implements ICommand<Params, DoIHavePermissionRespo
       selectedBy = 'default-first-agent';
     }
 
-    const allowed = checkPathRight(
-      this.pathPermissionChecker,
-      agent.permissions,
-      pathMeta.relative,
-      right
-    );
+    const allowed = this.pathPermissionChecker.can(right, agent.permissions, pathMeta.relative);
     const allRights: DoIHavePermissionResponse['allRights'] = [];
-    if (checkPathRight(this.pathPermissionChecker, agent.permissions, pathMeta.relative, 'read'))
+    if (this.pathPermissionChecker.can('read', agent.permissions, pathMeta.relative))
       allRights.push('read');
-    if (checkPathRight(this.pathPermissionChecker, agent.permissions, pathMeta.relative, 'write'))
+    if (this.pathPermissionChecker.can('write', agent.permissions, pathMeta.relative))
       allRights.push('write');
-    if (checkPathRight(this.pathPermissionChecker, agent.permissions, pathMeta.relative, 'list'))
+    if (this.pathPermissionChecker.can('list', agent.permissions, pathMeta.relative))
       allRights.push('list');
 
     return {

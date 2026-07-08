@@ -3,8 +3,7 @@
  *
  * Dispatches by command key against an ICommandRegistry. The caller provides
  * a fully-constructed ExecutionContext — no interaction hooks or context
- * conversion happens here. CLI creates a fresh context from request parameters;
-   (r) => new ChatICommand(r)
+ * conversion happens here. CLI creates a fresh context from request parameters.
  */
 
 import type {
@@ -20,13 +19,12 @@ import type {
   ExecutionContext,
   ICommand,
   TeamConfig,
+  IEmitService,
 } from '@ai-team/core';
 import { COMMAND_FACTORY_TOKENS } from './types.js';
 import { resolveCommandArgs, parseArgsIntelligently } from './command-adapters.js';
-import { setServiceContainer } from './service-registry.js';
 import { CommandRegistry } from './command-registry-impl.js';
 import type { DynamicSlashEntry } from './orchestrator/dynamic-slash/catalog.js';
-import type { IEmitService } from './orchestrator/services/emit-service.js';
 import { EmitService } from './orchestrator/services/emit-service.js';
 import {
   buildSkillSlashCommand,
@@ -111,7 +109,6 @@ import {
   ProviderICommand,
   ProviderCommandMetadata,
 } from './commands/setup/setup-provider.command.js';
-import { ProviderCommand } from './commands/setup/provider.js';
 import {
   ProviderListICommand,
   ProviderListICommandMetadata,
@@ -141,8 +138,8 @@ import {
 import { ToolsDenyCommand, ToolsDenyCommandMetadata } from './commands/tools/tools-deny.command.js';
 import { ToolsListCommand, ToolsListCommandMetadata } from './commands/tools/tools-list.command.js';
 import { AgentToolsService } from './commands/tools/tools-service.js';
-import { GovernanceService } from './commands/agents/governance.js';
-import { ChatICommand, ChatCommandMetadata } from './commands/chat/chat-i.command.js';
+import { GovernanceService } from './governance/governance-service.js';
+import { ChatCommand } from './commands/chat/chat.command.js';
 import { HelpChatCommand } from './commands/help/help.command.js';
 import { MetaService } from './routers/meta-service.js';
 
@@ -218,13 +215,8 @@ import {
   ListWorkflowsOrchestrationCommandMetadata,
 } from './commands/workflow/workflow-tools.command.js';
 
-function readWorkspaceRootFromExecutionContext(ctx?: ExecutionContext): string {
-  return (ctx as unknown as { workspaceRoot?: string } | undefined)?.workspaceRoot ?? '';
-}
-
 function createMinimalExecutionContext(): ExecutionContext {
   return {
-    workspaceRoot: '',
     history: [],
   };
 }
@@ -246,6 +238,14 @@ export class CommandDispatcher implements ICommandDispatcher {
     private readonly registry: ICommandRegistry,
     private readonly resolver: IServiceContainer
   ) {}
+
+  private resolveWorkspaceRoot(): string {
+    try {
+      return this.resolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot);
+    } catch {
+      return '';
+    }
+  }
 
   register(entry: {
     key: string;
@@ -269,7 +269,7 @@ export class CommandDispatcher implements ICommandDispatcher {
               availableIn: entry.availableIn,
             },
             execute: async (params: unknown, ctx: ExecutionContext) =>
-              entry.handler(readWorkspaceRootFromExecutionContext(ctx), params, ctx),
+              entry.handler(this.resolveWorkspaceRoot(), params, ctx),
           }) as unknown as ICommand<unknown, unknown>
       );
     } catch {
@@ -362,11 +362,7 @@ export class CommandDispatcher implements ICommandDispatcher {
     const directHandler = this._directHandlers.get(key);
     if (directHandler) {
       const executionContext = ctx ?? createMinimalExecutionContext();
-      return directHandler(
-        readWorkspaceRootFromExecutionContext(executionContext),
-        params,
-        executionContext
-      );
+      return directHandler(this.resolveWorkspaceRoot(), params, executionContext);
     }
 
     try {
@@ -424,8 +420,8 @@ export class CommandDispatcher implements ICommandDispatcher {
    * typed factory based on the entry source. Built-in commands always win — duplicate
    * keys are silently skipped, not overwritten.
    */
-  registerDynamic(entries: DynamicSlashEntry[], emitService?: IEmitService): void {
-    const es: IEmitService = emitService ?? EmitService.forConsole();
+  registerDynamic(entries: DynamicSlashEntry[], emitService: IEmitService): void {
+    const es: IEmitService = emitService;
     for (const entry of entries) {
       try {
         const descriptor = {
@@ -437,8 +433,14 @@ export class CommandDispatcher implements ICommandDispatcher {
           path: ['dynamic', entry.source],
         };
         this.registry.register(descriptor, () => {
-          if (entry.source === 'skill') return buildSkillSlashCommand(entry, es);
-          if (entry.source === 'workflow') return buildWorkflowSlashCommand(entry, es);
+          const workspaceRoot = this.resolver.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot);
+          const toolManager = this.resolver.resolve(COMMAND_FACTORY_TOKENS.ToolManager);
+          if (entry.source === 'workflow') {
+            return buildWorkflowSlashCommand(entry, es, toolManager, workspaceRoot);
+          }
+          if (entry.source === 'skill') {
+            return buildSkillSlashCommand(entry, es, workspaceRoot);
+          }
           return buildPromptSlashCommand(entry, es);
         });
       } catch {
@@ -460,8 +462,6 @@ export function createCommandDispatcher(
       'createCommandDispatcher requires a resolver. Use createContainerWithBootstrap(...).child() and pass it in.'
     );
   }
-
-  setServiceContainer(resolver);
 
   const scopedResolver = resolver.child();
   scopedResolver.registerInstance(COMMAND_FACTORY_TOKENS.WorkspaceRoot, workspaceRoot);
@@ -520,7 +520,8 @@ export function createCommandDispatcher(
       r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
       r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
       r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+      r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
     );
     const onboardCmd = new OnboardICommand(
       r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
@@ -529,8 +530,8 @@ export function createCommandDispatcher(
     );
     return new InitICommand(
       r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
       r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
+      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
       new InitCommand(
         onboardCmd,
         setupCmd,
@@ -549,13 +550,15 @@ export function createCommandDispatcher(
     SetupICommandMetadata,
     (r) =>
       new SetupICommand(
+        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
         new SetupCommand(
           r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
           r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceStorage),
           r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
           r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
           r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-          r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+          r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+          r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
         )
       )
   );
@@ -572,20 +575,22 @@ export function createCommandDispatcher(
 
   registry.register(SystemStatusICommandMetadata, (r) => {
     const configStorage = r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage);
-    return new SystemStatusICommand(configStorage.get() as TeamConfig);
+    return new SystemStatusICommand(
+      r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+      configStorage.get() as TeamConfig
+    );
   });
 
   // ── Provider commands ──────────────────────────────────────────────────
 
   registry.register(ProviderCommandMetadata, (r) => {
-    const providerCmd = new ProviderCommand(
+    return new ProviderICommand(
       r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
       r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
       r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
       r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
       r.resolve(COMMAND_FACTORY_TOKENS.ProviderConfigurationService)
     );
-    return new ProviderICommand(providerCmd);
   });
 
   registry.register(
@@ -771,7 +776,8 @@ export function createCommandDispatcher(
       new HireICommand(
         r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
         r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
+        r.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
+        r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
       )
   );
 
@@ -797,23 +803,32 @@ export function createCommandDispatcher(
       r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
       configStorage.get(),
       r.resolve(COMMAND_FACTORY_TOKENS.AvatarManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+      r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
     );
   });
 
-  registry.register(HhRefreshCommandMetadata, () => new HhRefreshCommand());
+  registry.register(
+    HhRefreshCommandMetadata,
+    (r) => new HhRefreshCommand(r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot))
+  );
 
   // ── Utility commands ───────────────────────────────────────────────────
 
   registry.register(
     SystemInfoCommandMetadata,
-    (r) => new SystemInfoCommand(r.resolve(COMMAND_FACTORY_TOKENS.SystemInfoService))
+    (r) =>
+      new SystemInfoCommand(
+        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+        r.resolve(COMMAND_FACTORY_TOKENS.SystemInfoService)
+      )
   );
 
   registry.register(
     TestConnectionICommandMetadata,
     (r) =>
       new TestConnectionICommand(
+        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
         r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
         r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
         r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
@@ -828,20 +843,25 @@ export function createCommandDispatcher(
 
   registry.register(
     DbStatusCommandMetadata,
-    (r) => new DbStatusCommand(r.resolve(COMMAND_FACTORY_TOKENS.MessageStorage))
+    (r) =>
+      new DbStatusCommand(
+        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+        r.resolve(COMMAND_FACTORY_TOKENS.MessageStorage)
+      )
   );
 
   registry.register(
     PatchApplyCommandMetadata,
     (r) =>
       new PatchApplyCommand(
+        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
         r.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
         r.resolve(COMMAND_FACTORY_TOKENS.IdeAdapterFactory),
         r.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory)
       )
   );
 
-  registry.register(ChatCommandMetadata, (r) => new ChatICommand(r));
+  registry.register(ChatCommand.metadata, (r) => new ChatCommand(r));
 
   registry.register(
     CodeEditListCommandMetadata,
@@ -879,6 +899,7 @@ export function createCommandDispatcher(
       new InfoChatCommand(
         r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
         r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+        r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
         r.resolve(COMMAND_FACTORY_TOKENS.LlmService)
       )
   );
@@ -893,7 +914,12 @@ export function createCommandDispatcher(
 
   registry.register(
     OverviewChatCommandMetadata,
-    (r) => new OverviewChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.SessionManager), sharedEmitter)
+    (r) =>
+      new OverviewChatCommand(
+        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+        r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
+        sharedEmitter
+      )
   );
 
   // ── Session & context commands ─────────────────────────────────────────
@@ -993,7 +1019,10 @@ export function createCommandDispatcher(
 
   // ── CLI chat command ───────────────────────────────────────────────────
 
-  registry.register(RunShellChatCommandMetadata, (_r) => new RunShellChatCommand(sharedEmitter));
+  registry.register(
+    RunShellChatCommandMetadata,
+    (r) => new RunShellChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot), sharedEmitter)
+  );
 
   // ── Workflow commands (cli + chat) ─────────────────────────────────────
 

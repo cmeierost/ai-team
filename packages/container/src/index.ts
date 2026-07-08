@@ -1,4 +1,3 @@
-export { Token } from './token.js';
 export {
   ServiceContainer,
   createContainerForTokenSets,

@@ -55,7 +55,10 @@ function deriveCliKey(command: string, parentKey?: string): string {
 function loadServiceCliCommandRegistry(): CliCommandMetadata[] {
   const workspaceRoot = findWorkspaceRoot();
   const container = createContainerWithBootstrap({ workspaceRoot }, (c) => {
-    c.registerInstance(TOKENS.QuestionService, createQuestionResponders());
+    c.registerInstance(
+      TOKENS.QuestionService,
+      createQuestionResponders() as unknown as import('@ai-team/core').IQuestionService
+    );
   });
   const dispatcher = createCommandDispatcher(
     workspaceRoot,

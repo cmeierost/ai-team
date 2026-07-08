@@ -1,4 +1,4 @@
-import { ProposalStatus } from '@ai-team/core';
+import { type CodeEditProposal, type ICodeEditManager, ProposalStatus } from '@ai-team/core';
 
 interface ProposalSummary {
   id: string;
@@ -9,25 +9,25 @@ interface ProposalSummary {
 
 interface ListResult {
   proposals: ProposalSummary[];
-  stats: unknown;
+  stats: ReturnType<ICodeEditManager['getStatistics']>;
 }
 
 export class CodeEditService {
-  constructor(private readonly manager: any) {}
+  constructor(private readonly manager: ICodeEditManager) {}
 
   async listAsync({ status }: { status?: string } = {}): Promise<ListResult> {
-    const proposals: any[] = status
+    const proposals: CodeEditProposal[] = status
       ? this.manager.getProposalsByStatus(
           ProposalStatus[status.toUpperCase() as keyof typeof ProposalStatus]
         )
       : this.manager.getAllProposals();
 
     return {
-      proposals: proposals.map((p: any) => ({
+      proposals: proposals.map((p) => ({
         id: p.id,
         filesChanged: p.changes.length,
-        additions: p.changes.reduce((sum: number, c: any) => sum + (c.diff?.additions ?? 0), 0),
-        deletions: p.changes.reduce((sum: number, c: any) => sum + (c.diff?.deletions ?? 0), 0),
+        additions: p.changes.reduce((sum, c) => sum + (c.diff?.additions ?? 0), 0),
+        deletions: p.changes.reduce((sum, c) => sum + (c.diff?.deletions ?? 0), 0),
       })),
       stats: this.manager.getStatistics(),
     };

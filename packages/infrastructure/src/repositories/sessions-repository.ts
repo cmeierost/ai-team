@@ -3,13 +3,12 @@ import type {
   SessionFilter,
   SessionDeleteImpact,
   SessionDeleteOptions,
+  INotesRepository,
   ISessionsRepository,
 } from '@ai-team/core';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { SqliteDrizzleDatabase } from '../storage/sqlite/connection.js';
 import * as dbSchema from '../storage/sqlite/schema.js';
-import type { NotesRepository } from './notes-repository.js';
-
 type EnsureReadyAsync = () => Promise<void>;
 type GetDb = () => SqliteDrizzleDatabase;
 
@@ -17,7 +16,7 @@ export class SessionsRepository implements ISessionsRepository {
   constructor(
     private readonly ensureReadyAsync: EnsureReadyAsync,
     private readonly getDb: GetDb,
-    private readonly notesRepository: NotesRepository
+    private readonly notesRepository: INotesRepository
   ) {}
 
   private db() {

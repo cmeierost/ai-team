@@ -8,7 +8,7 @@ import { ServiceDomainError } from '../errors.js';
 import { withAbortSignal } from '../utils/async-utils.js';
 import { withTimeout } from '../utils/with-timeout.js';
 import type { ChatRuntimeHooks } from './hooks.js';
-import type { IEmitService } from './services/emit-service.js';
+import type { IEmitService } from '@ai-team/core';
 
 const PREFLIGHT_STEP_TIMEOUT_MS = 15_000;
 
@@ -32,9 +32,7 @@ export class ChatPreflightService implements IChatPreflightService {
     _workspaceRoot: string,
     hooks: ChatRuntimeHooks
   ): Promise<{ developerName: string | undefined }> {
-    const teamConfig = this.teamConfig;
-
-    const defaultProvider = this.providerConfigurationService.resolveDefaultProvider(teamConfig);
+    const defaultProvider = this.providerConfigurationService.resolveDefaultProvider();
     const defaultProviderKind = defaultProvider?.config.kind;
     const requiresApiKey = defaultProviderKind
       ? defaultProviderKind === 'openai-compatible'

@@ -1,17 +1,13 @@
-import {
-  buildChatCommandRegistry,
-  buildChatCommandAliases,
-} from './commands/chat/chat-commands.command.js';
+import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 /**
- * Flat registry of in-chat slash commands.
- * Derived from the ISlashCommand objects in slash-commands.ts (single source of truth).
+ * Compatibility export retained for legacy CLI imports.
+ *
+ * Chat command registration now lives in command-dispatcher.ts and runtime command registry wiring.
+ * This static module intentionally exports empty values until legacy consumers are fully removed.
  */
-export const IN_CHAT_COMMAND_REGISTRY = buildChatCommandRegistry({ includeCliChat: true });
+export const IN_CHAT_COMMAND_REGISTRY: ChatCommandRegistryEntry[] = [];
 
 /**
- * Alias → canonical-key map for in-chat slash commands.
- * Derived from the aliases on each ISlashCommand object in slash-commands.ts.
+ * Compatibility export retained for legacy CLI imports.
  */
-export const IN_CHAT_COMMAND_ALIASES: Record<string, string> = buildChatCommandAliases({
-  includeCliChat: true,
-});
+export const IN_CHAT_COMMAND_ALIASES: Record<string, string> = {};

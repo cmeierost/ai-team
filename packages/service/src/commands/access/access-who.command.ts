@@ -7,8 +7,8 @@ import type {
   Agent,
   ICommandDescriptor,
 } from '@ai-team/core';
-import { checkPathRight, resolveWorkspacePathMeta } from '@ai-team/core';
 import type { WhoHasPermissionResponse } from '@ai-team/api-contracts';
+import { resolveWorkspacePathMeta } from '../fs/fs-access.js';
 
 type Params = z.infer<typeof AccessWhoCommand.schema>;
 const schema = z.object({
@@ -58,7 +58,7 @@ export class AccessWhoCommand implements ICommand<Params, WhoHasPermissionRespon
 
     const agents = await this.agentManager.getAllAgentsAsync();
     const matching = agents.filter((a: Agent) =>
-      checkPathRight(this.pathPermissionChecker, a.permissions, pathMeta.relative, right)
+      this.pathPermissionChecker.can(right, a.permissions, pathMeta.relative)
     );
     const contextIds = matching.map((a: Agent) => a.id);
     const contexts = matching.map((a: Agent) => ({ contextId: a.id, label: a.name }));

@@ -27,14 +27,12 @@ export function ChatPanel() {
       pendingQuestion={controller.pendingQuestion}
       pendingInputAnswer={controller.pendingInputAnswer}
       pendingPasswordAnswer={controller.pendingPasswordAnswer}
-      pendingConfirmAnswer={controller.pendingConfirmAnswer}
       pendingSelectAnswer={controller.pendingSelectAnswer}
       pendingChecklistAnswer={controller.pendingChecklistAnswer}
       pendingFormAnswer={controller.pendingFormAnswer}
       input={controller.input}
       isRecording={controller.isRecording}
       interimTranscript={controller.interimTranscript}
-      recognition={controller.recognition}
       ttsEnabled={controller.ttsEnabled}
       ttsSupported={controller.ttsSupported}
       ttsSpeaking={controller.ttsSpeaking}
@@ -77,7 +75,6 @@ export function ChatPanel() {
       onOpenAgentReference={controller.handleOpenAgentReference}
       onPendingInputAnswerChange={controller.setPendingInputAnswer}
       onPendingPasswordAnswerChange={controller.setPendingPasswordAnswer}
-      onPendingConfirmAnswerChange={controller.setPendingConfirmAnswer}
       onPendingSelectAnswerChange={controller.setPendingSelectAnswer}
       onTogglePendingChecklistValue={controller.togglePendingChecklistValue}
       onPendingFormFieldChange={controller.setPendingFormFieldValue}

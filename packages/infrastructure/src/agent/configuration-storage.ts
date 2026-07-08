@@ -16,6 +16,10 @@ import path from 'node:path';
 export class ConfigurationStorage implements IConfigurationStorage {
   private cachedResolvedSettings: TeamConfig | undefined;
   private initialized = false;
+  private static readonly ENV_CONFIG_PATH_OVERRIDES: Readonly<Record<string, string>> = {
+    LOG_FILE: 'log.file',
+    LOG_CONSOLE: 'log.console',
+  };
 
   constructor(private readonly workspaceRoot: string) {}
 
@@ -30,8 +34,9 @@ export class ConfigurationStorage implements IConfigurationStorage {
     this.hydrateDeveloperProfileFromGit();
     const envVars = this.loadMergedEnvironment(this.workspaceRoot);
     const substituted = this.substituteEnvVariablesInConfig(effectiveConfig, envVars);
+    const envOverridden = this.applyEnvPathOverridesToConfig(substituted, envVars);
     const developer = this.getDeveloperProfile();
-    this.cachedResolvedSettings = { ...substituted, ...(developer ? { developer } : {}) };
+    this.cachedResolvedSettings = { ...envOverridden, ...(developer ? { developer } : {}) };
   }
 
   /** Get the full resolved config. */
@@ -71,6 +76,28 @@ export class ConfigurationStorage implements IConfigurationStorage {
   private async storeUser(pathExpression: string, value: unknown): Promise<void> {
     const userConfig = this.normalizeUserConfig(this.loadUserConfig() ?? {});
     this.setByPath(userConfig, pathExpression, value);
+
+    const pathParts = pathExpression
+      .split('.')
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+
+    // Provider entries in user config require a `kind` field. When users set
+    // nested provider values (e.g. providers.demo.baseUrl), inherit kind from
+    // existing user/team config if not explicitly set.
+    if (pathParts[0] === 'providers' && pathParts.length >= 3 && pathParts[2] !== 'kind') {
+      const providerKey = pathParts[1];
+      const currentKind = this.getByPath(userConfig, `providers.${providerKey}.kind`);
+      if (typeof currentKind !== 'string' || currentKind.length === 0) {
+        const inheritedKind =
+          this.getByPath(this.loadUserConfig() ?? {}, `providers.${providerKey}.kind`) ??
+          this.getByPath(this.loadTeamConfig() ?? {}, `providers.${providerKey}.kind`);
+        if (typeof inheritedKind === 'string' && inheritedKind.length > 0) {
+          this.setByPath(userConfig, `providers.${providerKey}.kind`, inheritedKind);
+        }
+      }
+    }
+
     await this.saveUserConfigAsync(userConfig);
   }
 
@@ -237,11 +264,12 @@ export class ConfigurationStorage implements IConfigurationStorage {
     const userConfig = this.loadUserConfig();
     if (!userConfig) return teamConfig;
 
-    const { developer: _developer, ...teamCompatibleUserConfig } = userConfig;
+    const { developer: _developer, log: userLogConfig, ...teamCompatibleUserConfig } = userConfig;
 
     return {
       ...teamConfig,
       ...teamCompatibleUserConfig,
+      log: userLogConfig ? { ...teamConfig.log, ...userLogConfig } : teamConfig.log,
       providers: this.mergeProviderRegistries(teamConfig.providers, userConfig.providers),
       defaultModel: userConfig.defaultModel ?? teamConfig.defaultModel,
       modelKeys: userConfig.modelKeys
@@ -256,6 +284,34 @@ export class ConfigurationStorage implements IConfigurationStorage {
   private normalizeUserConfig(input: unknown): UserConfig {
     if (!input || typeof input !== 'object') return {};
     const raw = input as Record<string, unknown>;
+
+    const providersRaw = raw.providers;
+    if (providersRaw && typeof providersRaw === 'object' && !Array.isArray(providersRaw)) {
+      for (const [providerKey, providerValue] of Object.entries(
+        providersRaw as Record<string, unknown>
+      )) {
+        if (!providerValue || typeof providerValue !== 'object' || Array.isArray(providerValue)) {
+          continue;
+        }
+
+        const providerRecord = providerValue as Record<string, unknown>;
+        const kind = providerRecord.kind;
+        const isValidKind = kind === 'github-copilot' || kind === 'openai-compatible';
+        if (isValidKind) {
+          continue;
+        }
+
+        const looksOpenAiCompatible =
+          typeof providerRecord.baseUrl === 'string' ||
+          typeof providerRecord.apiKey === 'string' ||
+          Array.isArray(providerRecord.models);
+
+        (providersRaw as Record<string, unknown>)[providerKey] = {
+          ...providerRecord,
+          kind: looksOpenAiCompatible ? 'openai-compatible' : 'github-copilot',
+        };
+      }
+    }
 
     return UserConfigSchema.parse(raw);
   }
@@ -471,6 +527,84 @@ export class ConfigurationStorage implements IConfigurationStorage {
     };
 
     return visit(config) as TeamConfig;
+  }
+
+  private applyEnvPathOverridesToConfig(
+    config: TeamConfig,
+    envVars: Record<string, string>
+  ): TeamConfig {
+    const nextConfig = this.cloneTeamConfig(config) as Record<string, unknown>;
+
+    for (const [envVarName, rawValue] of Object.entries(envVars)) {
+      const overridePath = this.resolveEnvOverridePath(envVarName, nextConfig);
+      if (!overridePath) {
+        continue;
+      }
+
+      const currentValue = this.getByPath(nextConfig, overridePath);
+      const coercedValue = this.coerceEnvOverrideValue(rawValue, currentValue);
+      if (coercedValue === undefined) {
+        continue;
+      }
+
+      this.setByPath(nextConfig, overridePath, coercedValue);
+    }
+
+    return TeamConfigSchema.parse(nextConfig);
+  }
+
+  private resolveEnvOverridePath(
+    envVarName: string,
+    config: Record<string, unknown>
+  ): string | undefined {
+    const explicit = ConfigurationStorage.ENV_CONFIG_PATH_OVERRIDES[envVarName];
+    if (explicit && this.getByPath(config, explicit) !== undefined) {
+      return explicit;
+    }
+
+    if (!/^[A-Z0-9_]+$/.test(envVarName) || !envVarName.includes('_')) {
+      return undefined;
+    }
+
+    const inferredPath = envVarName
+      .split('_')
+      .map((segment) => segment.trim().toLowerCase())
+      .filter(Boolean)
+      .join('.');
+
+    if (!inferredPath) {
+      return undefined;
+    }
+
+    return this.getByPath(config, inferredPath) !== undefined ? inferredPath : undefined;
+  }
+
+  private coerceEnvOverrideValue(rawValue: string, currentValue: unknown): unknown {
+    if (typeof currentValue === 'boolean') {
+      return this.parseBooleanEnvValue(rawValue);
+    }
+
+    if (typeof currentValue === 'number') {
+      const parsedNumber = Number(rawValue.trim());
+      return Number.isFinite(parsedNumber) ? parsedNumber : undefined;
+    }
+
+    if (typeof currentValue === 'string') {
+      return rawValue;
+    }
+
+    return undefined;
+  }
+
+  private parseBooleanEnvValue(value: string): boolean | undefined {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === '1' || normalized === 'true' || normalized === 'on') {
+      return true;
+    }
+    if (normalized === '0' || normalized === 'false' || normalized === 'off') {
+      return false;
+    }
+    return undefined;
   }
 
   private getByPath(root: Record<string, unknown>, pathExpression: string): unknown {

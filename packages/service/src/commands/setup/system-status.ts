@@ -8,9 +8,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import type { ICommand, TeamConfig, ICommandDescriptor } from '@ai-team/core';
+import type { ICommand, TeamConfig, ICommandDescriptor, CommandResponse, ExecutionContext } from '@ai-team/core';
 import type { SystemStatus } from '@ai-team/api-contracts';
-import { resolveEffectiveLlmSettings } from '@ai-team/core';
+import { resolveEffectiveLlmSettings } from '../../llm/settings.js';
 
 export class SystemStatusCommand {
   constructor(private readonly teamConfig: TeamConfig) {}
@@ -35,11 +35,14 @@ export class SystemStatusICommand implements ICommand<Params, SystemStatus> {
   static readonly schema = _systemStatusICommandSchema;
   readonly metadata = SystemStatusICommandMetadata;
 
-  constructor(private readonly teamConfig: TeamConfig) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly teamConfig: TeamConfig
+  ) {}
 
-  async execute(_payload: Params, _unusedOrCtx?: unknown, ctx?: any): Promise<any> {
-    const workspaceRoot = (ctx ?? (_unusedOrCtx as any))?.workspaceRoot ?? '';
-    return getSystemStatusAsync(workspaceRoot, this.teamConfig);
+  async execute(_payload: Params, _ctx: ExecutionContext): Promise<CommandResponse<SystemStatus>> {
+    const data = await getSystemStatusAsync(this.workspaceRoot, this.teamConfig);
+    return { status: 'ok', data };
   }
 }
 

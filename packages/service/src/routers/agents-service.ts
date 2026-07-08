@@ -16,13 +16,9 @@ import type {
   IPermissionStorage,
 } from '@ai-team/core';
 import { listCachedWorkspaceFiles } from 'fs-context';
-import {
-  AgentSchema,
-  BadRequestError,
-  NotFoundError,
-  resolveEffectiveLlmSettings,
-} from '@ai-team/core';
+import { AgentSchema, BadRequestError, NotFoundError } from '@ai-team/core';
 import { join } from 'node:path';
+import { resolveEffectiveLlmSettings } from '../llm/settings.js';
 
 function parseArrayParam(param: unknown): string[] | undefined {
   if (!param) return undefined;

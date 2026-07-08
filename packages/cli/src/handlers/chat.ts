@@ -10,7 +10,8 @@ import type {
 } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { createIdeAdapter } from '@ai-team/infrastructure';
-import { findWorkspaceRoot, type IQuestionService } from '@ai-team/service';
+import type { IQuestionService } from '@ai-team/core';
+import { findWorkspaceRoot } from '@ai-team/service';
 import { checkbox, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';

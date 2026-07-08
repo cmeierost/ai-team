@@ -41,11 +41,13 @@ export function registerAgentInfrastructureServices(
   tokens: AgentInfrastructureRegistrationTokens
 ): void {
   container.registerSingleton(tokens.MarkdownSectionService, () => new MarkdownSectionService());
-  container.registerSingleton(tokens.WorkspaceStorage, () => new WorkspaceStorage());
+  container.registerSingleton(tokens.WorkspaceStorage, (c) => {
+    return new WorkspaceStorage(c.resolve(tokens.WorkspaceRoot));
+  });
 
   container.registerSingleton(tokens.AgentDocumentStorage, (c) => {
     const workspaceStorage = c.resolve(tokens.WorkspaceStorage);
-    const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
+    const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage(c.resolve(tokens.WorkspaceRoot));
     return new AgentDocumentStorage(
       c.resolve(tokens.WorkspaceRoot),
       c.resolve(tokens.MarkdownSectionService),
@@ -57,7 +59,7 @@ export function registerAgentInfrastructureServices(
   container.registerSingleton(tokens.AgentManager, (c) => {
     const agentDocumentStorage = c.resolve(tokens.AgentDocumentStorage);
     const workspaceStorage = c.resolve(tokens.WorkspaceStorage);
-    const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
+    const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage(c.resolve(tokens.WorkspaceRoot));
 
     return new AgentManager(
       c.resolve(tokens.WorkspaceRoot),
@@ -71,7 +73,7 @@ export function registerAgentInfrastructureServices(
 
   container.registerSingleton(tokens.SkillManager, (c) => {
     const agentDocumentStorage = c.resolve(tokens.AgentDocumentStorage);
-    const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
+    const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage(c.resolve(tokens.WorkspaceRoot));
     return new SkillManager(
       c.resolve(tokens.WorkspaceRoot),
       agentDocumentStorage,

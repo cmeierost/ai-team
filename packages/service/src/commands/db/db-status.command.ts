@@ -24,7 +24,7 @@ export class DbStatusCommand implements ICommand<Record<string, never>, DbStatus
 
   async execute(
     _payload: Record<string, never>,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<CommandResponse<DbStatusResponse>> {
     const dbPath = path.join(this.workspaceRoot, '.ai-team', 'private', 'ai-team.db');
     const stats = await this.storage.getStats();

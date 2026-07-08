@@ -9,7 +9,7 @@ vi.mock('./init.js', () => ({
 
 describe('InitICommand', () => {
   it('delegates to InitCommand with runtime workspace/options and injected session manager', async () => {
-    const cmd = new InitICommand('C:/workspace', undefined, new EmitService(() => {}));
+    const cmd = new InitICommand('C:/workspace', new EmitService(() => {}), undefined);
 
     await cmd.execute({ options: { force: true } }, undefined as unknown as any);
 

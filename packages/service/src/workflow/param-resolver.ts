@@ -275,9 +275,7 @@ function evaluateConditionOperand(
 }
 
 function looksLikePath(value: string): boolean {
-  return /^[a-zA-Z_$][a-zA-Z0-9_$]*(\[\d+\])?(\.[a-zA-Z_$][a-zA-Z0-9_$]*(\[\d+\])?)*$/.test(
-    value
-  );
+  return /^[a-zA-Z_$][a-zA-Z0-9_$]*(\[\d+\])?(\.[a-zA-Z_$][a-zA-Z0-9_$]*(\[\d+\])?)*$/.test(value);
 }
 
 function isTruthy(value: unknown): boolean {

@@ -12,23 +12,41 @@ export { IN_CHAT_COMMAND_ALIASES, IN_CHAT_COMMAND_REGISTRY } from './command-reg
 export {
   ServiceDomainError,
   AmbiguousAgentQueryError,
+  toServiceDomainError,
   type ServiceErrorCode,
   type ServiceErrorInputRequest,
 } from './errors.js';
 export { SessionManager } from './session-manager.js';
 export { findWorkspaceRoot } from './utils/workspace.js';
-export { type ChatRuntimeHooks } from './commands/chat/index.js';
-export { type IQuestionService } from './questions/question-service.js';
+export { type ChatRuntimeHooks } from './orchestrator/hooks.js';
+export type { IQuestionService } from './questions/question-service.js';
+export type { IEmitService, ChatCommandEmitter } from '@ai-team/core';
+export {
+  getEffectiveContextWindow,
+  resolveEffectiveLlmSettings,
+  resolveSystemLlmSettings,
+} from './llm/settings.js';
 export { WsQuestionService } from './questions/ws-question-service.js';
-export { EmitService, type IEmitService } from './orchestrator/services/emit-service.js';
+export { EmitService } from './orchestrator/services/emit-service.js';
 export { serveApiCommand, type ServeApiOptions } from './commands/start/serve.js';
 export { runUiCommand, type UiCommandOptions } from './commands/start/ui.js';
-export {
-  COMMAND_FACTORY_TOKENS,
-} from './types.js';
+export { COMMAND_FACTORY_TOKENS } from './types.js';
 
 // Interaction service (streaming interface for transports)
 export { InteractionService, type IInteractionService } from './interaction-service.js';
+export { InteractionStream } from './interaction-stream.js';
+export { runtimeEventToStreamEvent } from './runtime-event-translator.js';
+export { parseStreamPerfEnv, createStreamPerfTracker } from './stream-perf.js';
+export {
+  writeBackendDebugLog,
+  setBackendDebugLogSettingsResolver,
+  type BackendDebugLogSettingsResolver,
+  type DebugLogSettings,
+} from './utils/debug-log.js';
+export {
+  createDebugLogWriter,
+  formatDebugLogForConsole,
+} from './utils/debug-log-shared.js';
 
 // Command dispatcher (unified command dispatch for CLI + chat + tools)
 export { CommandDispatcher, createCommandDispatcher } from './command-dispatcher.js';

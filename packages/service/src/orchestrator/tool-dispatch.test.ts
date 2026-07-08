@@ -3,10 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { ToolDispatcher } from './tool-dispatch.js';
 import { ToolDispatchSupportService } from './services/tool-dispatch-support-service.js';
 import { ToolSerializationService } from './services/tool-serialization-service.js';
-import { InteractionQuestionService } from '../questions/question-service.js';
+import type { IQuestionService } from '../questions/question-service.js';
 import { EmitService } from './services/emit-service.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import { setServiceContainer } from '../service-registry.js';
 
 // Module-level capture used by createEmitService → createDispatcher to thread
 // the per-test emit mock into ToolDispatcher without touching every call site.
@@ -27,7 +25,7 @@ function createDispatcher(
   toolManager: any,
   sessionManager: any,
   llmService: ILlmService,
-  questionService = InteractionQuestionService({
+  questionService = makeQuestionService({
     input: vi.fn(async () => ''),
     confirm: vi.fn(async () => true),
     select: vi.fn(async () => ''),
@@ -43,17 +41,20 @@ function createDispatcher(
   return new ToolDispatcher(toolManager, sessionManager, support, questionService, emitService);
 }
 
+function makeQuestionService(overrides: Partial<IQuestionService>): IQuestionService {
+  return {
+    input: vi.fn(async () => ''),
+    confirm: vi.fn(async () => true),
+    select: vi.fn(async () => ''),
+    password: vi.fn(async () => ''),
+    checklist: vi.fn(async () => []),
+    ...overrides,
+  };
+}
+
 function createEmitService(emit: (event: any) => void) {
   _testEmitFn = emit;
-  const emitService = new EmitService(emit);
-  setServiceContainer({
-    resolve: (token: { id?: string }) => {
-      if (token?.id === COMMAND_FACTORY_TOKENS.EmitService.id) {
-        return emitService;
-      }
-      throw new Error(`Unexpected token: ${String(token?.id)}`);
-    },
-  } as any);
+  new EmitService(emit);
 }
 
 describe('dispatchToolCall denial metadata', () => {
@@ -277,7 +278,7 @@ describe('dispatchToolCall denial metadata', () => {
     const ctx = makeContext({});
     const emit = vi.fn();
     createEmitService(emit);
-    const questionService = InteractionQuestionService({
+    const questionService = makeQuestionService({
       input: vi.fn(async () => ''),
       confirm: vi.fn(async () => false),
       select: vi.fn(async () => ''),

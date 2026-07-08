@@ -21,7 +21,7 @@ import type {
   AnalyzePermissionOverlapOptions,
   PermissionOverlapReport,
 } from '../context/perm-overlap.js';
-import { rankAgents, rankAgentsByIdentity, filterAndRankAgents } from './agent-search.js';
+import { levenshtein } from '../utils/str.js';
 
 export class AgentManager implements IAgentManager {
   private agents: Map<string, Agent> = new Map();
@@ -54,7 +54,7 @@ export class AgentManager implements IAgentManager {
   async getAgentsAsync(): Promise<Map<string, Agent>> {
     if (!this.agentsLoaded) {
       this.agentsLoaded = true;
-      await this.workspaceStorage.ensureAiTeamDirectoryAsync(this.workspaceRoot);
+      await this.workspaceStorage.ensureAiTeamDirectoryAsync();
       this.agents = await this.loadAllAgentsAsync();
     }
     return this.agents;
@@ -71,15 +71,18 @@ export class AgentManager implements IAgentManager {
   }
 
   async rankAgents(query: string | undefined): Promise<RankedAgentResult[]> {
-    return rankAgents(query, Array.from((await this.getAgentsAsync()).values()));
+    return this.rankAgentsInternal(query, Array.from((await this.getAgentsAsync()).values()));
   }
 
   async rankAgentsByIdentity(query: string | undefined): Promise<RankedAgentResult[]> {
-    return rankAgentsByIdentity(query, Array.from((await this.getAgentsAsync()).values()));
+    return this.rankAgentsByIdentityInternal(
+      query,
+      Array.from((await this.getAgentsAsync()).values())
+    );
   }
 
   filterAndRankAgents(options: AgentSearchOptions, agents: Agent[]): AgentSearchResult[] {
-    return filterAndRankAgents(options, agents);
+    return this.filterAndRankAgentsInternal(options, agents);
   }
 
   /**
@@ -169,7 +172,7 @@ export class AgentManager implements IAgentManager {
    * Load all agents from workspace
    */
   private async loadAllAgentsAsync(): Promise<Map<string, Agent>> {
-    const agentFiles = await this.discoveryStorage.findAgentFilesAsync(this.workspaceRoot);
+    const agentFiles = await this.discoveryStorage.findAgentFilesAsync();
     const agents = new Map<string, Agent>();
 
     this.clearIndexes();
@@ -279,7 +282,7 @@ export class AgentManager implements IAgentManager {
 
     const candidates = await this.getCandidates(queryNorm);
 
-    return rankAgentsByIdentity(query, candidates).map((r) => r.agent);
+    return this.rankAgentsByIdentityInternal(query, candidates).map((r) => r.agent);
   }
 
   /**
@@ -484,7 +487,7 @@ export class AgentManager implements IAgentManager {
   }
 
   async searchAgentsAsync(options: AgentSearchOptions): Promise<AgentSearchResult[]> {
-    return filterAndRankAgents(options, await this.getAllAgentsAsync());
+    return this.filterAndRankAgentsInternal(options, await this.getAllAgentsAsync());
   }
 
   async analyzeWorkspacePermissionOverlap(
@@ -603,5 +606,214 @@ export class AgentManager implements IAgentManager {
     return Array.from(candidateIds)
       .map((id) => this.agents!.get(id))
       .filter((agent): agent is Agent => Boolean(agent));
+  }
+
+  private rankAgentsInternal(query: string | undefined, agents: Agent[]): RankedAgentResult[] {
+    if (!query || query.trim() === '') {
+      return agents.map((agent) => ({ agent, score: 50, matches: [] }));
+    }
+
+    const q = query.toLowerCase().trim();
+    const results: RankedAgentResult[] = [];
+
+    for (const agent of agents) {
+      let score = 0;
+      const matches: string[] = [];
+
+      if (agent.id === q) {
+        score = 100;
+        matches.push('id');
+      } else if (agent.name.toLowerCase() === q) {
+        score = 95;
+        matches.push('name');
+      } else if (agent.role.toLowerCase() === q) {
+        score = 90;
+        matches.push('role');
+      } else if (agent.name.toLowerCase().includes(q)) {
+        score = 85;
+        matches.push('name');
+      } else if (agent.id.includes(q)) {
+        score = 80;
+        matches.push('id');
+      } else if (agent.role.toLowerCase().includes(q)) {
+        score = 75;
+        matches.push('role');
+      } else if (levenshtein(agent.name.toLowerCase(), q) <= 2) {
+        score = 70 + (2 - levenshtein(agent.name.toLowerCase(), q)) * 2.5;
+        matches.push('name');
+      } else {
+        const firstName = agent.name.toLowerCase().split(/\s+/)[0];
+        if (levenshtein(firstName, q) <= 2) {
+          score = 65 + (2 - levenshtein(firstName, q)) * 2.5;
+          matches.push('name');
+        }
+      }
+
+      if (agent.specializations) {
+        for (const spec of agent.specializations) {
+          const s = spec.toLowerCase();
+          if (s === q) {
+            score = Math.max(score, 70);
+            if (!matches.includes('specializations')) matches.push('specializations');
+          } else if (s.includes(q)) {
+            score = Math.max(score, 60);
+            if (!matches.includes('specializations')) matches.push('specializations');
+          } else if (q.length > 3 && levenshtein(s, q) <= 2) {
+            score = Math.max(score, 55);
+            if (!matches.includes('specializations')) matches.push('specializations');
+          }
+        }
+      }
+
+      if (agent.features) {
+        for (const feature of agent.features) {
+          const f = feature.toLowerCase();
+          if (f.includes(q) || q.includes(f)) {
+            score = Math.max(score, 55);
+            if (!matches.includes('features')) matches.push('features');
+          }
+        }
+      }
+
+      const agentTools = [...(agent.tools ?? []), ...(agent.cliTools ?? [])];
+      for (const tool of agentTools) {
+        const t = tool.toLowerCase();
+        if (t === q) {
+          score = Math.max(score, 50);
+          if (!matches.includes('tools')) matches.push('tools');
+        } else if (t.includes(q)) {
+          score = Math.max(score, 45);
+          if (!matches.includes('tools')) matches.push('tools');
+        }
+      }
+
+      if (agent.markdown) {
+        const c = agent.markdown.toLowerCase();
+        if (c.includes(q)) {
+          score = Math.max(score, q.length > 5 ? 40 : 35);
+          if (!matches.includes('markdown')) matches.push('markdown');
+        }
+      }
+
+      if (score > 0) {
+        results.push({ agent, score, matches });
+      }
+    }
+
+    results.sort((a, b) => b.score - a.score);
+    return results;
+  }
+
+  private rankAgentsByIdentityInternal(
+    query: string | undefined,
+    agents: Agent[]
+  ): RankedAgentResult[] {
+    if (!query || query.trim() === '') {
+      return agents.map((agent) => ({ agent, score: 50, matches: [] }));
+    }
+
+    const q = query.toLowerCase().trim();
+    const results: RankedAgentResult[] = [];
+
+    for (const agent of agents) {
+      let score = 0;
+      const matches: string[] = [];
+
+      if (agent.id === q) {
+        score = 100;
+        matches.push('id');
+      } else if (agent.name.toLowerCase() === q) {
+        score = 95;
+        matches.push('name');
+      } else if (agent.role.toLowerCase() === q) {
+        score = 90;
+        matches.push('role');
+      } else if (agent.name.toLowerCase().includes(q)) {
+        score = 85;
+        matches.push('name');
+      } else if (agent.id.includes(q)) {
+        score = 80;
+        matches.push('id');
+      } else if (agent.role.toLowerCase().includes(q)) {
+        score = 75;
+        matches.push('role');
+      } else if (levenshtein(agent.name.toLowerCase(), q) <= 2) {
+        score = 70 + (2 - levenshtein(agent.name.toLowerCase(), q)) * 2.5;
+        matches.push('name');
+      } else {
+        const firstName = agent.name.toLowerCase().split(/\s+/)[0];
+        if (levenshtein(firstName, q) <= 2) {
+          score = 65 + (2 - levenshtein(firstName, q)) * 2.5;
+          matches.push('name');
+        }
+      }
+
+      if (score > 0) {
+        results.push({ agent, score, matches });
+      }
+    }
+
+    results.sort((a, b) => b.score - a.score);
+    return results;
+  }
+
+  private filterAndRankAgentsInternal(
+    options: AgentSearchOptions,
+    agents: Agent[]
+  ): AgentSearchResult[] {
+    let filtered = agents;
+
+    if (options.role) {
+      const roles = Array.isArray(options.role) ? options.role : [options.role];
+      filtered = filtered.filter((a) =>
+        roles.some((r) => a.role.toLowerCase() === r.toLowerCase())
+      );
+    }
+    if (options.type) {
+      const types = Array.isArray(options.type) ? options.type : [options.type];
+      filtered = filtered.filter((a) => a.type && types.includes(a.type));
+    }
+    if (options.status) {
+      const statuses = Array.isArray(options.status) ? options.status : [options.status];
+      filtered = filtered.filter((a) => a.status && statuses.includes(a.status));
+    }
+    if (options.contextLevel) {
+      const levels = Array.isArray(options.contextLevel)
+        ? options.contextLevel
+        : [options.contextLevel];
+      filtered = filtered.filter((a) => levels.includes(a.contextLevel));
+    }
+    if (options.feature) {
+      const features = Array.isArray(options.feature) ? options.feature : [options.feature];
+      filtered = filtered.filter(
+        (a) => a.features && features.some((f) => a.features!.includes(f))
+      );
+    }
+    if (options.specialization) {
+      const specs = Array.isArray(options.specialization)
+        ? options.specialization
+        : [options.specialization];
+      filtered = filtered.filter(
+        (a) =>
+          a.specializations &&
+          specs.some((s) =>
+            a.specializations!.some((as) => as.toLowerCase().includes(s.toLowerCase()))
+          )
+      );
+    }
+    if (options.tool) {
+      const tools = Array.isArray(options.tool) ? options.tool : [options.tool];
+      filtered = filtered.filter((a) => {
+        const agentTools = [...(a.tools ?? []), ...(a.cliTools ?? [])];
+        return tools.some((t) =>
+          agentTools.some((at) => at.toLowerCase().includes(t.toLowerCase()))
+        );
+      });
+    }
+    if (options.reportsTo !== undefined) {
+      filtered = filtered.filter((a) => a.reportsTo === options.reportsTo);
+    }
+
+    return this.rankAgentsInternal(options.query, filtered);
   }
 }

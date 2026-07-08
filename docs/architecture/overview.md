@@ -174,7 +174,7 @@ flowchart LR
 
 The shared chat behavior lives in `@ai-team/service`, not in the adapters.
 
-`chatCommand()` in `packages/service/src/commands/chat/index.ts` is the thin bootstrap. `ChatOrchestrator` and `sendTurn()` own the real orchestration behavior:
+`chatCommand()` in `packages/service/src/commands/chat/chat.command.ts` is the thin bootstrap. `ChatOrchestrator` and `sendTurn()` own the real orchestration behavior:
 
 - slash command routing
 - natural-language forwarding

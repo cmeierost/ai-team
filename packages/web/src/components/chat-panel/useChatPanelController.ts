@@ -868,7 +868,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     });
   };
 
-  const ensureSessionForSend = async (pendingIntroductionContent?: string) => {
+  const ensureSessionForSend = async () => {
     if (currentSessionId) {
       return currentSessionId;
     }
@@ -1246,7 +1246,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     });
 
     try {
-      const sessionId = await ensureSessionForSend(pendingIntroductionContent);
+      const sessionId = await ensureSessionForSend();
 
       const abortSignal = abortControllerRef.current?.signal;
       if (!abortSignal) {
@@ -1629,7 +1629,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     }
   };
 
-  const handleUnlinkNote = async (messageIndex: number, noteId: string) => {
+  const handleUnlinkNote = async (_messageIndex: number, noteId: string) => {
     if (!currentSessionId) return;
     try {
       await client.sessions.unlinkNote(currentSessionId, noteId);
