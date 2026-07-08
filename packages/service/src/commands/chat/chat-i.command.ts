@@ -10,17 +10,16 @@ import type {
   IServiceContainer,
   IAgentManager,
   ILlmService,
-  IEmitService,
   IMarkdownSectionService,
   ISkillManager,
   TeamConfig,
-  JsonValue,
 } from '@ai-team/core';
 import type { ChatOptions, WorkflowStateSnapshot } from '@ai-team/api-contracts';
 import { SessionManager } from '../../session-manager.js';
 import { ChatOrchestrator } from '../../orchestrator/chat-orchestrator.js';
 import { tryIntroduceUser as tryIntroduceUserNew } from '../../orchestrator/introduction.js';
 import type { ResolvedPlugins } from '../../orchestrator/pipeline.js';
+import { type IEmitService } from '../../orchestrator/services/emit-service.js';
 import { NoOpCompressor } from '../../orchestrator/defaults/context-compressor.js';
 import { DefaultContextBuilder } from '../../orchestrator/defaults/context-builder.js';
 import {
@@ -38,6 +37,7 @@ import { buildDefaultTurnResultParsers } from '../../orchestrator/defaults/turn-
 import { createCommandDispatcher } from '../../command-dispatcher.js';
 import { ToolDispatcher } from '../../orchestrator/tool-dispatch.js';
 import { HandoffOrchestrator } from '../../orchestrator/handoff.js';
+import type { IQuestionService } from '../../questions/question-service.js';
 import { WorkflowIntentProvider } from '../../tools/workflow-intent-provider.js';
 import { buildDynamicSlashCatalog } from '../../orchestrator/dynamic-slash/catalog.js';
 import { readDynamicSlashCatalogConfig } from '../../orchestrator/dynamic-slash/config.js';
@@ -58,8 +58,8 @@ import { ResolveChatSessionCommand } from './resolve-chat-session.command.js';
 import { LoadSessionMessagesCommand } from './load-session-messages.command.js';
 import { runChatSessionStartupWorkflow } from './chat-session-startup.workflow.js';
 import { COMMAND_FACTORY_TOKENS } from '../../types.js';
+import { setServiceContainer } from '../../service-registry.js';
 import type { WorkflowToolPolicy } from '../../workflow/chat-loop-contracts.js';
-import type { IQuestionService } from '../../questions/question-service.js';
 
 type Params = z.infer<typeof ChatCommand.schema>;
 const _chatICommandSchema = z.object({
@@ -76,6 +76,14 @@ const _chatICommandSchema = z.object({
     .optional()
     .default({}),
 });
+
+export const ChatCommandMetadata = {
+  key: 'chat' as const,
+  description: 'Start a chat session with an agent',
+  availableIn: { cli: true, chat: false, tool: false },
+  group: 'chat',
+  parameters: _chatICommandSchema,
+} satisfies ICommandDescriptor;
 
 const CHAT_CONNECT_TIMEOUT_MS = 20_000;
 
@@ -114,40 +122,7 @@ interface ChatResolvedDeps {
 
 export class ChatCommand implements ICommand<Params, void> {
   static readonly schema = _chatICommandSchema;
-  static readonly metadata = {
-    key: 'chat' as const,
-    description: 'Start a chat session with an agent',
-    availableIn: { cli: true, chat: false, tool: false },
-    group: 'chat',
-    parameters: _chatICommandSchema,
-  } satisfies ICommandDescriptor;
-
-  readonly metadata = ChatCommand.metadata;
-
-  /** Strip HANDOFF:/FORWARD_TO: directive lines from agent text before persisting. */
-  static stripHandoffDirective(text: string): string {
-    let cleaned = text.replaceAll(/\s*(?:HANDOFF|FORWARD_TO):\s*[^|\n]+(?:\s*\|\s*[^\n]*)?/gim, '');
-    cleaned = cleaned.replaceAll(/\n{3,}/g, '\n\n').trim();
-    return cleaned;
-  }
-
-  /**
-   * Parse a HANDOFF/FORWARD_TO directive from agent response text.
-   *
-   * Matches: `HANDOFF: <agentId> | <optional note>`
-   *          `FORWARD_TO: <agentId> | <optional note>`
-   */
-  static parseHandoffDirective(text: string): { targetAgentId: string; note: string } | null {
-    // Allow spaces in the agent name — LLMs write "Emily Davis", not "emily-davis".
-    const re =
-      /(?:^|\n)\s*(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*(?:$|\n)|\s+(?:HANDOFF|FORWARD_TO):\s*([^|\n]+?)\s*(?:\|\s*([^\n]*?))?\s*$/im;
-    const match = re.exec(text);
-    if (!match) return null;
-    const target = (match[1] ?? match[3] ?? '').trim();
-    const note = (match[2] ?? match[4] ?? '').trim();
-    if (!target) return null;
-    return { targetAgentId: target, note };
-  }
+  readonly metadata = ChatCommandMetadata;
 
   constructor(private readonly serviceContainer: IServiceContainer) {}
 
@@ -176,11 +151,13 @@ export class ChatCommand implements ICommand<Params, void> {
       invocationSurface?: ExecutionContext['invocationSurface'];
       signal?: AbortSignal;
       workflowState?: unknown;
+      onWorkflowFrame?: ExecutionContext['onWorkflowFrame'];
     };
     const hooks = {
       invocationSurface: runtimeCtx.invocationSurface,
       signal: runtimeCtx.signal,
       workflowState: runtimeCtx.workflowState as WorkflowStateSnapshot | undefined,
+      onWorkflowFrame: runtimeCtx.onWorkflowFrame,
     };
 
     await this.executeRuntime(
@@ -198,6 +175,7 @@ export class ChatCommand implements ICommand<Params, void> {
     options: ChatRuntimeOptions,
     hooks: ChatRuntimeHooks = {}
   ): Promise<void> {
+    setServiceContainer(this.serviceContainer);
     const deps = this.resolveDeps();
 
     try {
@@ -291,8 +269,8 @@ export class ChatCommand implements ICommand<Params, void> {
       agentResolutionService: new InfoChatCommand(
         this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
         questionService,
-        emitService,
-        this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.LlmService)
+        this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.LlmService),
+        emitService
       ),
       agentManager: this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
       sessionManager: this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
@@ -318,7 +296,7 @@ export class ChatCommand implements ICommand<Params, void> {
     developerName: string;
     agent: Agent;
     llm: ILlmService;
-    instructions: JsonValue;
+    instructions: unknown;
     currentSessionId: string;
     history: ChatMessage[];
     loadSessionMessagesCommand: LoadSessionMessagesCommand;
@@ -372,7 +350,8 @@ export class ChatCommand implements ICommand<Params, void> {
     const workflowContext: ExecutionContext = {
       history: [],
       signal: hooks.signal,
-      workflowState: hooks.workflowState as unknown as JsonValue,
+      workflowState: hooks.workflowState,
+      onWorkflowFrame: hooks.onWorkflowFrame as ExecutionContext['onWorkflowFrame'],
       invocationSurface: hooks.invocationSurface,
     };
 
@@ -468,7 +447,7 @@ export class ChatCommand implements ICommand<Params, void> {
     agent: Agent,
     options: ChatCommandOptions,
     emitService: IEmitService
-  ): Promise<JsonValue> {
+  ) {
     const agentDocumentStorage = this.serviceContainer.resolve(
       COMMAND_FACTORY_TOKENS.AgentDocumentStorage
     );
@@ -493,7 +472,7 @@ export class ChatCommand implements ICommand<Params, void> {
     }
 
     this.resolveDeps().chatInfoService.showLoadedInstructions(instructions.length);
-    return instructions as unknown as JsonValue;
+    return instructions;
   }
 
   private async handleInitialIntroductions(params: {
@@ -558,7 +537,7 @@ export class ChatCommand implements ICommand<Params, void> {
     currentSessionId: string;
     agent: Agent;
     history: ChatMessage[];
-    instructions: JsonValue;
+    instructions: unknown;
     llm: ILlmService;
     hooks: ChatRuntimeHooks;
     sessionManager: SessionManager;
@@ -606,7 +585,7 @@ export class ChatCommand implements ICommand<Params, void> {
       agent,
       sessionId: currentSessionId,
       history,
-      instructions: instructions as JsonValue,
+      instructions,
     };
 
     const commandDispatcher = createCommandDispatcher(workspaceRoot, this.serviceContainer);
@@ -645,7 +624,7 @@ export class ChatCommand implements ICommand<Params, void> {
       llmSelector: new DefaultLlmSelector(llm),
       outputHandler: new DefaultOutputHandler(emitService),
       commandDispatcher,
-      turnResultParsers: buildDefaultTurnResultParsers(agentManager),
+      turnResultParsers: buildDefaultTurnResultParsers(),
       hookPlugins: buildDefaultHookPlugins(),
       preLlmIntentProviders: [new WorkflowIntentProvider()],
     };
@@ -668,8 +647,6 @@ export class ChatCommand implements ICommand<Params, void> {
       sessionManager,
       llm,
       toolSerialization,
-      emitService,
-      skillManager,
       chatToolManager
     );
 

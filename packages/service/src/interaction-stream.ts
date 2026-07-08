@@ -1,8 +1,4 @@
-import type {
-  CommandResponse,
-  StreamEvent,
-  InteractionRequest,
-} from '@ai-team/api-contracts';
+import type { CommandResponse, StreamEvent, InteractionRequest } from '@ai-team/api-contracts';
 import type { ExecutionContext, IEmitService, RuntimeStreamEvent } from '@ai-team/core';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
 import { EmitService } from './orchestrator/services/emit-service.js';

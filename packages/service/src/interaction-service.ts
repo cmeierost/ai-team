@@ -58,7 +58,9 @@ export class InteractionService implements IInteractionService {
       workflowState: hooks.workflowState as unknown as JsonValue,
     };
 
-    const interactionStream = new InteractionStream({ translateRuntimeEvent: runtimeEventToStreamEvent });
+    const interactionStream = new InteractionStream({
+      translateRuntimeEvent: runtimeEventToStreamEvent,
+    });
     yield* interactionStream.stream({
       request,
       context: context as unknown as Record<string, unknown>,

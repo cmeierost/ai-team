@@ -793,7 +793,8 @@ export function createCommandDispatcher(
       new CreateICommand(
         r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
         r.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
+        r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
       )
   );
 

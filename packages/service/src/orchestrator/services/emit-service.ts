@@ -3,7 +3,6 @@ import type {
   RuntimeStreamEvent,
   ToolDenialEvent,
   ToolRuntimePayloadEvent,
-  ChatCommandEmitter,
   IEmitService,
 } from '@ai-team/core';
 

@@ -279,7 +279,10 @@ export function buildSkillSlashCommand(
     },
     execute: async (_args, ctx) => {
       if (!workspaceRoot) {
-        return { status: 'error', message: 'Workspace root is not configured for dynamic skill loading.' };
+        return {
+          status: 'error',
+          message: 'Workspace root is not configured for dynamic skill loading.',
+        };
       }
       const relativeSkillPath = toWorkspaceRelative(workspaceRoot, entry.filePath);
       await (ctx as any).sessionManager.addSessionSkill(ctx.sessionId, relativeSkillPath);
@@ -470,7 +473,10 @@ export function buildWorkflowSlashCommand(
     },
     execute: async (_args, ctx) => {
       if (!toolManager || !workspaceRoot) {
-        return { status: 'error', message: 'Workflow tool execution dependencies are not configured.' };
+        return {
+          status: 'error',
+          message: 'Workflow tool execution dependencies are not configured.',
+        };
       }
       const toolName = entry.name;
       const result = await toolManager.execute(

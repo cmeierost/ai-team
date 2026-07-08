@@ -4,12 +4,6 @@ import { promises as fs } from 'node:fs';
 import type { ExecutionContext } from '@ai-team/core';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../service-registry.js', () => ({
-  getServiceContainer: () => ({
-    resolve: () => ({ emit: vi.fn(), hasEmitter: () => true }),
-  }),
-}));
-
 import { ToolDispatchSupportService } from './tool-dispatch-support-service.js';
 import { ToolSerializationService } from './tool-serialization-service.js';
 import { EmitService } from './emit-service.js';
@@ -25,11 +19,15 @@ describe('ToolDispatchSupportService', () => {
   );
 
   it('flags policy-denied results from permission_denied status', () => {
-    const denial = support.classifyToolDenial(true, {
-      status: 'permission_denied',
-      message: 'No access',
-      blockedFiles: [{ filePath: 'secret.ts' }],
-    }, 'No access');
+    const denial = support.classifyToolDenial(
+      true,
+      {
+        status: 'permission_denied',
+        message: 'No access',
+        blockedFiles: [{ filePath: 'secret.ts' }],
+      },
+      'No access'
+    );
 
     expect(denial).toBeDefined();
     expect(denial?.kind).toBe('policy-denied');
