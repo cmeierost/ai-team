@@ -29,7 +29,11 @@ const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: Orchestr
     Orchestrator: class {
       private readonly impl: ChatOrchestrator;
 
-      constructor(ctx: ExecutionContext, plugins: ResolvedPlugins, deps: ReturnType<typeof makeDeps>) {
+      constructor(
+        ctx: ExecutionContext,
+        plugins: ResolvedPlugins,
+        deps: ReturnType<typeof makeDeps>
+      ) {
         this.impl = new ChatOrchestrator(
           ctx,
           plugins,
@@ -45,7 +49,11 @@ const ORCHESTRATOR_IMPLEMENTATIONS: Array<{ name: string; Orchestrator: Orchestr
         );
       }
 
-      run(options: { message: string; contextFiles?: string[]; maxHops?: number }): Promise<string> {
+      run(options: {
+        message: string;
+        contextFiles?: string[];
+        maxHops?: number;
+      }): Promise<string> {
         return this.impl.run(options);
       }
     },
@@ -217,6 +225,31 @@ describe.each(ORCHESTRATOR_IMPLEMENTATIONS)(
           hiddenFromLlm: true,
         })
       );
+    });
+
+    it('resolves grouped slash commands by unqualified key (e.g. /help -> system-help)', async () => {
+      const { ctx } = makeContext();
+      const deps = makeDeps();
+
+      const plugins = makePlugins();
+      plugins.commandDispatcher = {
+        dispatch: vi.fn(async () => ({ status: 'ok' as const, message: 'help text' })),
+        getCommands: vi.fn(() => [
+          {
+            key: 'help',
+            group: 'system',
+            description: 'Show help',
+            availableIn: { chat: true },
+          } as any,
+        ]),
+        getCommand: vi.fn(() => undefined),
+      };
+
+      const orchestrator = new Orchestrator(ctx, plugins, deps);
+      const result = await orchestrator.run({ message: '/help' });
+
+      expect(result).toBe('');
+      expect(plugins.commandDispatcher.dispatch).toHaveBeenCalledWith('system-help', '', ctx);
     });
   }
 );

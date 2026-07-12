@@ -39,64 +39,140 @@ export interface AskUserResult {
 }
 
 type Params = z.infer<typeof AskUserCommand.schema>;
-const _askUserCommandSchema = z.object({
-  kind: z
-    .enum(['input', 'confirm', 'select', 'password', 'checklist'])
-    .default('input')
-    .describe(
-      'Question kind: input (free text), confirm (yes/no), select (single choice), password (sensitive text), checklist (multi-select). Prefer checklist when more than one option can be valid.'
-    ),
-  message: z
-    .string()
-    .min(1)
-    .describe(
-      'User-visible prompt text. For checklist prompts, phrase as "select all that apply".'
-    ),
-  workflow: z
-    .object({
-      workflowId: z.string().optional().describe('Workflow ID for stateful flows.'),
-      stepId: z.string().optional().describe('Workflow step ID.'),
-      questionId: z.string().optional().describe('Stable workflow question identifier.'),
-      continuationToken: z.string().optional().describe('Workflow continuation token.'),
-    })
-    .optional()
-    .describe('Optional workflow metadata passthrough for workflow controllers.'),
-  defaultText: z
-    .string()
-    .optional()
-    .describe('Default text value for input/select when the user submits empty input.'),
-  defaultBoolean: z.boolean().optional().describe('Default yes/no value for confirm prompts.'),
-  choices: z
-    .array(
-      z.object({
-        name: z.string().min(1).describe('Human-readable option label.'),
-        value: z.string().min(1).describe('Machine-stable value returned to the model.'),
-        description: z.string().optional().describe('Optional helper text for this choice.'),
-        recommended: z
-          .boolean()
-          .optional()
-          .describe('Marks this option as recommended in capable UIs.'),
+const _askUserCommandSchema = z.preprocess(
+  (raw): unknown => {
+    if (!raw || typeof raw !== 'object') {
+      return raw;
+    }
+
+    const input = raw as Record<string, unknown>;
+    const normalized = { ...input };
+
+    const rawMessage = normalized.message ?? normalized.question ?? normalized.prompt;
+    if (typeof rawMessage === 'string' && rawMessage.trim().length > 0) {
+      normalized.message = rawMessage;
+    }
+
+    const rawChoices = normalized.choices ?? normalized.options;
+    if (rawChoices !== undefined) {
+      let choicesSource: unknown = rawChoices;
+      if (typeof choicesSource === 'string') {
+        try {
+          choicesSource = JSON.parse(choicesSource);
+        } catch {
+          // Keep as-is; schema validation will reject malformed values.
+        }
+      }
+
+      if (Array.isArray(choicesSource)) {
+        normalized.choices = choicesSource
+          .map((choice) => {
+            if (!choice || typeof choice !== 'object') {
+              return undefined;
+            }
+
+            const item = choice as Record<string, unknown>;
+            const nameCandidate = item.name ?? item.label;
+            const valueCandidate = item.value ?? item.name ?? item.label;
+
+            if (typeof nameCandidate !== 'string' || typeof valueCandidate !== 'string') {
+              return undefined;
+            }
+
+            const normalizedChoice: {
+              name: string;
+              value: string;
+              description?: string;
+              recommended?: boolean;
+            } = {
+              name: nameCandidate,
+              value: valueCandidate,
+            };
+
+            if (typeof item.description === 'string') {
+              normalizedChoice.description = item.description;
+            }
+
+            if (typeof item.recommended === 'boolean') {
+              normalizedChoice.recommended = item.recommended;
+            }
+
+            return normalizedChoice;
+          })
+          .filter(
+            (
+              choice
+            ): choice is {
+              name: string;
+              value: string;
+              description?: string;
+              recommended?: boolean;
+            } => Boolean(choice)
+          );
+      }
+    }
+
+    return normalized;
+  },
+  z.object({
+    kind: z
+      .enum(['input', 'confirm', 'select', 'password', 'checklist'])
+      .default('input')
+      .describe(
+        'Question kind: input (free text), confirm (yes/no), select (single choice), password (sensitive text), checklist (multi-select). Prefer checklist when more than one option can be valid.'
+      ),
+    message: z
+      .string()
+      .min(1)
+      .describe(
+        'User-visible prompt text. For checklist prompts, phrase as "select all that apply".'
+      ),
+    workflow: z
+      .object({
+        workflowId: z.string().optional().describe('Workflow ID for stateful flows.'),
+        stepId: z.string().optional().describe('Workflow step ID.'),
+        questionId: z.string().optional().describe('Stable workflow question identifier.'),
+        continuationToken: z.string().optional().describe('Workflow continuation token.'),
       })
-    )
-    .optional()
-    .describe('Required for select/checklist prompts. Include every valid option.'),
-  defaultChecklist: z
-    .array(z.string())
-    .optional()
-    .describe('Default selected values for checklist prompts (kind=checklist only).'),
-  allowOther: z
-    .boolean()
-    .optional()
-    .describe('Allow custom value outside listed choices in supported UIs.'),
-  otherLabel: z.string().optional().describe('Label for custom "other" option in supported UIs.'),
-  otherPrompt: z
-    .string()
-    .optional()
-    .describe('Prompt used when custom "other" option is selected.'),
-  minSelections: z.number().int().min(0).optional().describe('Minimum selections for checklist.'),
-  maxSelections: z.number().int().min(1).optional().describe('Maximum selections for checklist.'),
-  mask: z.string().optional().describe('Mask character for password prompts'),
-});
+      .optional()
+      .describe('Optional workflow metadata passthrough for workflow controllers.'),
+    defaultText: z
+      .string()
+      .optional()
+      .describe('Default text value for input/select when the user submits empty input.'),
+    defaultBoolean: z.boolean().optional().describe('Default yes/no value for confirm prompts.'),
+    choices: z
+      .array(
+        z.object({
+          name: z.string().min(1).describe('Human-readable option label.'),
+          value: z.string().min(1).describe('Machine-stable value returned to the model.'),
+          description: z.string().optional().describe('Optional helper text for this choice.'),
+          recommended: z
+            .boolean()
+            .optional()
+            .describe('Marks this option as recommended in capable UIs.'),
+        })
+      )
+      .optional()
+      .describe('Required for select/checklist prompts. Include every valid option.'),
+    defaultChecklist: z
+      .array(z.string())
+      .optional()
+      .describe('Default selected values for checklist prompts (kind=checklist only).'),
+    allowOther: z
+      .boolean()
+      .optional()
+      .describe('Allow custom value outside listed choices in supported UIs.'),
+    otherLabel: z.string().optional().describe('Label for custom "other" option in supported UIs.'),
+    otherPrompt: z
+      .string()
+      .optional()
+      .describe('Prompt used when custom "other" option is selected.'),
+    minSelections: z.number().int().min(0).optional().describe('Minimum selections for checklist.'),
+    maxSelections: z.number().int().min(1).optional().describe('Maximum selections for checklist.'),
+    mask: z.string().optional().describe('Mask character for password prompts'),
+  })
+);
 
 export const AskUserCommandMetadata = {
   key: 'ask',
@@ -119,7 +195,8 @@ export class AskUserCommand implements ICommand<Params, AskUserResult> {
     params: Params,
     _context: ExecutionContext
   ): Promise<CommandResponse<AskUserResult>> {
-    const result = await this.executeAskUser(params);
+    const normalizedParams = AskUserCommand.schema.parse(params);
+    const result = await this.executeAskUser(normalizedParams);
     return { status: 'ok', data: result };
   }
 

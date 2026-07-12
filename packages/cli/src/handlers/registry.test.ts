@@ -44,4 +44,19 @@ describe('command registry metadata', () => {
     expect(toolsAllow.command).toBe('allow');
   });
 
+  it('keeps top-level chat-v2 interface aligned with chat-style positional arguments', () => {
+    const chatV2 = getCliCommandMetadata('chat-v2');
+
+    expect(chatV2.arguments?.map((arg) => arg.syntax)).toEqual(['[agent-id]', '[session-id]']);
+    expect(chatV2.options?.some((opt) => opt.flags.includes('--session-id'))).toBe(true);
+  });
+
+  it('keeps nested chat chat-v2 interface aligned with top-level chat-v2', () => {
+    const top = getCliCommandMetadata('chat-v2');
+    const nested = getCliCommandMetadata('chat.chat-v2');
+
+    expect(nested.arguments).toEqual(top.arguments);
+    expect(nested.options).toEqual(top.options);
+  });
+
 });

@@ -112,7 +112,7 @@ function getContextValue(ctx: ExecutionContext, key: string): unknown {
   return getPathValue(ctx, key);
 }
 
-function getPathValue(source: unknown, path: string): unknown {
+export function getPathValue(source: unknown, path: string): unknown {
   if (!source || typeof source !== 'object' || !path) {
     return undefined;
   }
@@ -127,7 +127,7 @@ function getPathValue(source: unknown, path: string): unknown {
   return current;
 }
 
-function setPathValue(target: Record<string, unknown>, path: string, value: unknown): void {
+export function setPathValue(target: Record<string, unknown>, path: string, value: unknown): void {
   if (!path.includes('.')) {
     target[path] = value;
     return;

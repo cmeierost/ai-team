@@ -91,13 +91,6 @@ interface WorkflowChatOptions {
 type ChatCommandOptions = ChatOptions & WorkflowChatOptions;
 export type ChatRuntimeOptions = ChatCommandOptions;
 
-function wireLlmDiagnostics(llm: ILlmService, emitService: IEmitService): void {
-  llm.setDiagnosticReporter((entry) => {
-    const level = entry.level === 'debug' ? 'info' : entry.level;
-    emitService.log(level, entry.message);
-  });
-}
-
 interface ChatResolvedDeps {
   teamConfig: TeamConfig;
   emitService: IEmitService;
@@ -147,6 +140,13 @@ export class ChatCommand implements ICommand<Params, void> {
     const note = (match[2] ?? match[4] ?? '').trim();
     if (!target) return null;
     return { targetAgentId: target, note };
+  }
+
+  private static wireLlmDiagnostics(llm: ILlmService, emitService: IEmitService): void {
+    llm.setDiagnosticReporter((entry) => {
+      const level = entry.level === 'debug' ? 'info' : entry.level;
+      emitService.log(level, entry.message);
+    });
   }
 
   constructor(private readonly serviceContainer: IServiceContainer) {}
@@ -429,7 +429,7 @@ export class ChatCommand implements ICommand<Params, void> {
   ): Promise<ILlmService> {
     const llm = this.serviceContainer.resolve(COMMAND_FACTORY_TOKENS.LlmService);
 
-    wireLlmDiagnostics(llm, emitService);
+    ChatCommand.wireLlmDiagnostics(llm, emitService);
     const useSpinner = hooks.emitService === undefined && Boolean(process.stderr.isTTY);
     const spinner = useSpinner ? ora('Connecting to LLM...').start() : undefined;
     if (!spinner) emitService.log('info', 'Connecting to LLM...');

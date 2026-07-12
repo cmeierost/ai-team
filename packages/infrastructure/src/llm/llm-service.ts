@@ -43,6 +43,7 @@ import { LlmProviderNormalizationService } from './llm-provider-normalization.js
 
 const STREAM_CHUNK_TIMEOUT_MS = 30_000;
 const TITLE_REQUEST_TIMEOUT_MS = 8_000;
+const MAX_AUTOMATIC_TOOL_FAILURE_RETRIES = 1;
 
 // ============================================================================
 // LlmService — high-level abstraction for any configured provider
@@ -384,6 +385,7 @@ export class LlmService {
     const logBase = this.buildLogBase('chat', agent, allMessages, options, skills, teamRoster);
     const start = Date.now();
     const collectedResults: LlmToolResult[] = [];
+    const failedToolCallAttempts = new Map<string, number>();
 
     if (
       this.timeoutPolicy.shouldUseResponsesApiForToolLoop(this.config, options?.model ?? this.model)
@@ -396,7 +398,8 @@ export class LlmService {
           options,
           maxToolRounds,
           onToken,
-          collectedResults
+          collectedResults,
+          failedToolCallAttempts
         );
       } catch (error) {
         if (!this.utils.isResponsesApiFallbackError(error)) {
@@ -569,11 +572,25 @@ export class LlmService {
             args = {};
           }
 
+          this.enforceToolFailureRetryLimit(
+            failedToolCallAttempts,
+            toolName,
+            args,
+            MAX_AUTOMATIC_TOOL_FAILURE_RETRIES
+          );
+
           const toolResult = await executeTool({
             toolCallId: toolCall.id,
             toolName,
             args,
           });
+
+          this.recordToolFailureAttempt(
+            failedToolCallAttempts,
+            toolName,
+            args,
+            Boolean(toolResult.isError)
+          );
 
           collectedResults.push(toolResult);
 
@@ -613,7 +630,8 @@ export class LlmService {
     options: LlmChatOptions | undefined,
     maxToolRounds: number,
     onToken: ((token: string) => void) | undefined,
-    collectedResults: LlmToolResult[]
+    collectedResults: LlmToolResult[],
+    failedToolCallAttempts: Map<string, number>
   ): Promise<LlmToolChatResult> {
     const responseClient = (
       this.client as unknown as {
@@ -694,11 +712,27 @@ export class LlmService {
       }> = [];
       for (const call of functionCalls) {
         const args = this.utils.parseToolCallArguments(call.rawArgs);
+
+        this.enforceToolFailureRetryLimit(
+          failedToolCallAttempts,
+          call.toolName,
+          args,
+          MAX_AUTOMATIC_TOOL_FAILURE_RETRIES
+        );
+
         const toolResult = await executeTool({
           toolCallId: call.callId,
           toolName: call.toolName,
           args,
         });
+
+        this.recordToolFailureAttempt(
+          failedToolCallAttempts,
+          call.toolName,
+          args,
+          Boolean(toolResult.isError)
+        );
+
         collectedResults.push(toolResult);
 
         const payload = this.toolEvidenceBuilder.buildRuntimeToolEvidence(
@@ -1110,6 +1144,64 @@ ${excerpts}`;
     if (!this.initialized) {
       throw new Error('LlmService not initialized. Call initialize() first.');
     }
+  }
+
+  private enforceToolFailureRetryLimit(
+    failedToolCallAttempts: Map<string, number>,
+    toolName: string,
+    args: unknown,
+    maxAutomaticRetries: number
+  ): void {
+    const key = this.buildToolFailureRetryKey(toolName, args);
+    const failures = failedToolCallAttempts.get(key) ?? 0;
+    if (failures <= maxAutomaticRetries) {
+      return;
+    }
+
+    throw new Error(
+      `Tool '${toolName}' failed repeatedly with the same arguments. ` +
+        `Automatic retries are capped at ${maxAutomaticRetries}.`
+    );
+  }
+
+  private recordToolFailureAttempt(
+    failedToolCallAttempts: Map<string, number>,
+    toolName: string,
+    args: unknown,
+    failed: boolean
+  ): void {
+    const key = this.buildToolFailureRetryKey(toolName, args);
+
+    if (!failed) {
+      failedToolCallAttempts.delete(key);
+      return;
+    }
+
+    failedToolCallAttempts.set(key, (failedToolCallAttempts.get(key) ?? 0) + 1);
+  }
+
+  private buildToolFailureRetryKey(toolName: string, args: unknown): string {
+    return `${toolName}:${this.stableSerializeForRetryKey(args)}`;
+  }
+
+  private stableSerializeForRetryKey(value: unknown): string {
+    if (value === null || value === undefined) {
+      return String(value);
+    }
+
+    if (typeof value !== 'object') {
+      return JSON.stringify(value);
+    }
+
+    if (Array.isArray(value)) {
+      return `[${value.map((entry) => this.stableSerializeForRetryKey(entry)).join(',')}]`;
+    }
+
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${this.stableSerializeForRetryKey(entryValue)}`);
+
+    return `{${entries.join(',')}}`;
   }
 }
 

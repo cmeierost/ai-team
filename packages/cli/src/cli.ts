@@ -28,6 +28,7 @@ import {
   getCliDispatchCommandKey,
   hasCliDispatchKey,
 } from './handlers/registry.js';
+import { registerCliChatRuntimeV2 } from './chat-runtime-v2-cli-adapter.js';
 
 const program = new Command();
 
@@ -43,6 +44,7 @@ const commandContainer = createContainerWithBootstrap({ workspaceRoot }, (c) => 
   const emitService = EmitService.forConsole();
   c.registerInstance(TOKENS.EmitService, emitService);
   c.registerInstance(COMMAND_FACTORY_TOKENS.EmitService, emitService);
+  registerCliChatRuntimeV2(c as unknown as IServiceContainer);
 });
 registerCliResultHandlers(commandContainer as unknown as IServiceContainer);
 const commandClient = new CliCommandClient(
@@ -365,6 +367,68 @@ class CliApplication {
   }
 
   private createDirectCliActionHandlers(): Record<string, CliActionHandler> {
+    const runChatV2 = (...args: unknown[]) => {
+      const opts = this.tryGetCommanderOptions(args) ?? {};
+      const positionals = args.filter((a): a is string => typeof a === 'string');
+      const agentId = positionals[0];
+      const positionalSessionId = positionals[1];
+      const message = typeof opts.message === 'string' ? opts.message : undefined;
+      const sessionId = typeof opts.sessionId === 'string' ? opts.sessionId : positionalSessionId;
+      const rawMaxHops = opts.maxHops ?? opts['max-hops'];
+      const parsedMaxHops =
+        typeof rawMaxHops === 'number'
+          ? rawMaxHops
+          : typeof rawMaxHops === 'string'
+            ? Number.parseInt(rawMaxHops, 10)
+            : undefined;
+      const maxHops = Number.isFinite(parsedMaxHops) ? parsedMaxHops : undefined;
+      const autoReactMessage =
+        typeof opts.autoReactMessage === 'string'
+          ? opts.autoReactMessage
+          : typeof opts['auto-react-message'] === 'string'
+            ? opts['auto-react-message']
+            : undefined;
+
+      const chatOptions: ChatOptions = {
+        message,
+        oneShot: message !== undefined,
+        sessionId,
+      };
+
+      // Interactive parity path: reuse canonical chat command UX (greeting,
+      // speaker labels, token streaming, ask-question handling) when no
+      // explicit message was provided.
+      if (!message) {
+        return renderChat(this.deps.commandClient, agentId, chatOptions, opts.mediatorLog === true);
+      }
+
+      const isSlashMessage = message.trim().startsWith('/');
+      if (isSlashMessage) {
+        // Parity path: slash commands are intercepted by the canonical chat
+        // command runtime. Routing one-shot slash inputs through chat-v2
+        // bypasses that interceptor and yields "Unknown command" for built-ins
+        // like /help.
+        return renderChat(this.deps.commandClient, agentId, chatOptions, opts.mediatorLog === true);
+      }
+
+      // One-shot path: route through chat-v2 backend command.
+      return renderChat(
+        this.deps.commandClient,
+        agentId,
+        chatOptions,
+        opts.mediatorLog === true,
+        undefined,
+        'chat-chat-v2',
+        {
+          agentId,
+          sessionId,
+          message,
+          maxHops,
+          autoReactMessage,
+        }
+      );
+    };
+
     return {
       chat: (...args: unknown[]) => {
         const opts = this.tryGetCommanderOptions(args) ?? {};
@@ -378,6 +442,8 @@ class CliApplication {
         };
         return renderChat(this.deps.commandClient, agentId, chatOptions, opts.mediatorLog === true);
       },
+      'chat-v2': runChatV2,
+      'chat.chat-v2': runChatV2,
       serve: (options) => launchServer(options, this.deps.workspaceRoot),
       'serve.ui': (options) => launchServerWithUi(options, this.deps.workspaceRoot),
       ui: (options) => launchUi(options, this.deps.workspaceRoot),

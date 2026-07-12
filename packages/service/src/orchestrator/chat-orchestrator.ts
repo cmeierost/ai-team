@@ -32,6 +32,7 @@ import { runChatLoopWorkflowAsync } from '../workflow/chat-loop-engine.js';
 import { runSendTurnMachineAsync } from '../workflow/send-turn-machine.js';
 import type { SessionManager } from '../session-manager.js';
 import type { ChatRuntimeHooks } from './hooks.js';
+import { deriveRegistryKey } from '../command-registry-impl.js';
 
 const AUTO_REACT_MESSAGE =
   '[Handoff received] You have just been handed this conversation. Review the briefing above, acknowledge the context, and ask the developer how they would like to proceed.';
@@ -260,15 +261,15 @@ export class ChatOrchestrator {
     }
     const rawArgs = rest.join(' ');
 
-    const descriptor = this.plugins.commandDispatcher.getCommand(key);
+    const resolved = this.resolveSlashCommand(key);
 
-    if (!descriptor) {
+    if (!resolved) {
       this.emitService.log('warn', `Unknown command: /${key}. Try /help.`);
       return { kind: 'consumed', text: '' };
     }
 
     const { executionResult, capturedEvents } = await this.executeSlashCommandWithCapture(
-      key,
+      resolved.dispatchKey,
       rawArgs
     );
 
@@ -281,6 +282,34 @@ export class ChatOrchestrator {
       return { kind: 'continue' };
     }
     return { kind: 'consumed', text: '' };
+  }
+
+  private resolveSlashCommand(
+    rawKey: string
+  ): { dispatchKey: string } | undefined {
+    const direct = this.plugins.commandDispatcher.getCommand(rawKey);
+    if (direct) {
+      return { dispatchKey: rawKey };
+    }
+
+    const matched = this.plugins
+      .commandDispatcher
+      .getCommands({ chat: true })
+      .find((descriptor) => {
+        if (descriptor.key.toLowerCase() === rawKey) {
+          return true;
+        }
+
+        return (descriptor.aliases ?? []).some((alias) => alias.toLowerCase() === rawKey);
+      });
+
+    if (!matched) {
+      return undefined;
+    }
+
+    return {
+      dispatchKey: deriveRegistryKey(matched.group, matched.key),
+    };
   }
 
   private extractPromptForwardText(executionResult: unknown): string | undefined {

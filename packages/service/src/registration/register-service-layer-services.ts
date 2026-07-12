@@ -119,10 +119,12 @@ import { buildDefaultTurnResultParsers } from '../orchestrator/defaults/turn-res
 import { ToolSchemaService } from '../orchestrator/services/schema-service.js';
 import { ToolDispatchSupportService } from '../orchestrator/services/tool-dispatch-support-service.js';
 import { ToolSerializationService } from '../orchestrator/services/tool-serialization-service.js';
+import { createCommandDispatcher } from '../command-dispatcher.js';
 import { COMMAND_FACTORY_TOKENS } from '../types.js';
 import { ChatCommand } from '../commands/chat/chat.command.js';
 import { IInteractionService, InteractionService } from '../interaction-service.js';
 import { WorkflowRunnerFactory, workflowDescriptor } from '../workflow/runner.js';
+import type { IChatRuntimeV2 } from '../workflow-v2/chat/chat-runtime.js';
 import { GovernanceService } from '../governance/governance-service.js';
 import { AgentToolsService } from '../commands/tools/tools-service.js';
 import {
@@ -271,6 +273,22 @@ export function registerServiceLayerServices(
     COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory,
     (_c) => new WorkflowRunnerFactory(_c.child())
   );
+
+  container.registerScoped(COMMAND_FACTORY_TOKENS.CommandDispatcher, (c) =>
+    createCommandDispatcher(c.resolve(tokens.WorkspaceRoot), c)
+  );
+
+  container.registerScoped(COMMAND_FACTORY_TOKENS.ChatRuntimeV2, (): IChatRuntimeV2 => ({
+    async runAsync() {
+      return {
+        status: 'failed',
+        text: '',
+        hopCount: 0,
+        error:
+          'ChatRuntimeV2 is transport-scoped and must be registered by the CLI adapter container.',
+      };
+    },
+  }));
 
   // Register CommandRegistry with all built-in tools
   container.registerSingleton(COMMAND_FACTORY_TOKENS.CommandRegistry, (_c) => {

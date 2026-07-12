@@ -24,6 +24,7 @@ import type {
 import { COMMAND_FACTORY_TOKENS } from './types.js';
 import { resolveCommandArgs, parseArgsIntelligently } from './command-adapters.js';
 import { CommandRegistry } from './command-registry-impl.js';
+import { CommandParameterCompletionService } from './command-parameter-completion-service.js';
 import type { DynamicSlashEntry } from './orchestrator/dynamic-slash/catalog.js';
 import { EmitService } from './orchestrator/services/emit-service.js';
 import {
@@ -121,6 +122,7 @@ import {
   SystemInfoCommand,
   SystemInfoCommandMetadata,
 } from './commands/system/system-info.command.js';
+import { ExitChatCommand, ExitChatCommandMetadata } from './commands/system/exit.command.js';
 import {
   SystemStatusICommand,
   SystemStatusICommandMetadata,
@@ -140,6 +142,7 @@ import { ToolsListCommand, ToolsListCommandMetadata } from './commands/tools/too
 import { AgentToolsService } from './commands/tools/tools-service.js';
 import { GovernanceService } from './governance/governance-service.js';
 import { ChatCommand } from './commands/chat/chat.command.js';
+import { ChatV2Command } from './commands/chat/chat-v2.command.js';
 import { HelpChatCommand } from './commands/help/help.command.js';
 import { MetaService } from './routers/meta-service.js';
 
@@ -233,11 +236,14 @@ export class CommandDispatcher implements ICommandDispatcher {
     (workspaceRoot: string, payload: unknown, ctx: ExecutionContext) => Promise<CommandResponse>
   > = new Map();
   private readonly _directCommands: Map<string, ICommand<unknown, unknown>> = new Map();
+  private readonly parameterCompletionService: CommandParameterCompletionService;
 
   constructor(
     private readonly registry: ICommandRegistry,
     private readonly resolver: IServiceContainer
-  ) {}
+  ) {
+    this.parameterCompletionService = new CommandParameterCompletionService(resolver);
+  }
 
   private resolveWorkspaceRoot(): string {
     try {
@@ -368,18 +374,23 @@ export class CommandDispatcher implements ICommandDispatcher {
     try {
       const executionContext = ctx ?? createMinimalExecutionContext();
       // Parse raw string args using the Zod schema from the descriptor metadata —
-      // no command instantiation needed at this stage.
+      // keep partial payloads (without schema validation) so missing required
+      // values can be interactively completed before command execution.
       const parsed =
-        typeof params === 'string' && descriptor.parameters
-          ? parseArgsIntelligently(params, descriptor.parameters)
-          : params;
+        typeof params === 'string' ? parseArgsIntelligently(params) : params;
+
+      const completed = await this.parameterCompletionService.complete(
+        descriptor,
+        parsed,
+        executionContext
+      );
 
       const cmd = this.registry.resolve(key, this.resolver);
       if (!cmd) {
         return this.unknownCommandResponse(key);
       }
 
-      const resolvedParams = resolveCommandArgs(cmd, parsed, executionContext);
+      const resolvedParams = resolveCommandArgs(cmd, completed, executionContext);
       const result = await cmd.execute(resolvedParams, executionContext);
       if (isCommandResponse(result)) {
         return { ...result, message: result.message ?? '' };
@@ -825,6 +836,8 @@ export function createCommandDispatcher(
       )
   );
 
+  registry.register(ExitChatCommandMetadata, (_r) => new ExitChatCommand());
+
   registry.register(
     TestConnectionICommandMetadata,
     (r) =>
@@ -863,6 +876,16 @@ export function createCommandDispatcher(
   );
 
   registry.register(ChatCommand.metadata, (r) => new ChatCommand(r));
+
+  registry.register(
+    ChatV2Command.metadata,
+    (r) =>
+      new ChatV2Command(
+        r.resolve(COMMAND_FACTORY_TOKENS.ChatRuntimeV2),
+        r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
+        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      )
+  );
 
   registry.register(
     CodeEditListCommandMetadata,

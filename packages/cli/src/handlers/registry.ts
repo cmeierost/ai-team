@@ -7,6 +7,7 @@ import {
   GROUP_REGISTRY,
 } from '@ai-team/service';
 import { createQuestionResponders } from '../handlers/question-responders.js';
+import { registerCliChatRuntimeV2 } from '../chat-runtime-v2-cli-adapter.js';
 export { IN_CHAT_COMMAND_ALIASES, IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
 
 const cliDispatchKeyByKey = new Map<string, string>();
@@ -59,6 +60,7 @@ function loadServiceCliCommandRegistry(): CliCommandMetadata[] {
       TOKENS.QuestionService,
       createQuestionResponders() as unknown as import('@ai-team/core').IQuestionService
     );
+    registerCliChatRuntimeV2(c as unknown as import('@ai-team/core').IServiceContainer);
   });
   const dispatcher = createCommandDispatcher(
     workspaceRoot,
@@ -112,6 +114,34 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
 
   const localCliOnlyEntries: ServiceCliEntry[] = [
     {
+      key: 'chat-v2',
+      command: 'chat-v2',
+      description: 'Run chat using the workflow-v2 runtime',
+      llmCallable: false,
+      directCli: true,
+      arguments: [
+        {
+          syntax: '[agent-id]',
+          description: 'Agent id/name/role target (defaults to most recent session agent)',
+        },
+        {
+          syntax: '[session-id]',
+          description: 'Session id to resume explicitly (defaults to most recent session)',
+        },
+      ],
+      options: [
+        { flags: '-m, --message <text>', description: 'Message to send through workflow-v2' },
+        { flags: '-s, --session-id <id>', description: 'Resume a specific session id' },
+        { flags: '--max-hops <number>', description: 'Maximum handoff hops before exiting' },
+        {
+          flags: '--auto-react-message <text>',
+          description: 'Override auto-react message used after handoff transitions',
+        },
+      ],
+      dispatchKey: 'chat-chat-v2',
+      jsonSignature: true,
+    },
+    {
       key: 'chat',
       command: 'chat [agent-id]',
       description: 'Start a chat session with an agent',
@@ -125,6 +155,35 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
         { flags: '--mediator-log', description: 'Print mediator log to stderr (debug)' },
       ],
       dispatchKey: 'chat-chat',
+    },
+    {
+      key: 'chat.chat-v2',
+      parentKey: 'chat',
+      command: 'chat-v2',
+      description: 'Run chat using the workflow-v2 runtime',
+      llmCallable: false,
+      directCli: true,
+      arguments: [
+        {
+          syntax: '[agent-id]',
+          description: 'Agent id/name/role target (defaults to most recent session agent)',
+        },
+        {
+          syntax: '[session-id]',
+          description: 'Session id to resume explicitly (defaults to most recent session)',
+        },
+      ],
+      options: [
+        { flags: '-m, --message <text>', description: 'Message to send through workflow-v2' },
+        { flags: '-s, --session-id <id>', description: 'Resume a specific session id' },
+        { flags: '--max-hops <number>', description: 'Maximum handoff hops before exiting' },
+        {
+          flags: '--auto-react-message <text>',
+          description: 'Override auto-react message used after handoff transitions',
+        },
+      ],
+      dispatchKey: 'chat-chat-v2',
+      jsonSignature: true,
     },
     {
       key: 'help',

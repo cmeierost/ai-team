@@ -67,7 +67,7 @@ describe('chat command', () => {
     expect(clientApi.withQuestionService).toHaveBeenCalledWith(expect.any(Object));
     expect(clientApi.streamInteraction).toHaveBeenCalledWith(
       {
-        command: 'chat-chat',
+        command: 'chat',
         payload: {
           employeeId: 'maya',
           options: { message: 'hello', oneShot: true },
@@ -88,7 +88,7 @@ describe('chat command', () => {
     expect(clientApi.withQuestionService).toHaveBeenCalledWith(expect.any(Object));
     expect(clientApi.streamInteraction).toHaveBeenCalledWith(
       {
-        command: 'chat-chat',
+        command: 'chat',
         payload: {
           employeeId: 'maya',
           options: { message: 'hello', oneShot: true },

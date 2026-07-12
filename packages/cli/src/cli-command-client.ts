@@ -1,6 +1,7 @@
 import {
   createCommandDispatcher,
   type CommandDispatcher,
+  type IInteractionService,
   type IEmitService,
   type IQuestionService,
   toServiceDomainError,
@@ -11,6 +12,7 @@ import {
   writeBackendDebugLog,
   setBackendDebugLogSettingsResolver,
 } from '@ai-team/service';
+import { TOKENS } from '@ai-team/container';
 import type {
   CommandAvailability,
   CommandDescriptor,
@@ -131,7 +133,7 @@ export class CliCommandClient implements ICliCommandClient {
     const originalWarn = console.warn;
     const originalError = console.error;
     const originalStdoutWrite = process.stdout.write.bind(process.stdout);
-    const isInteractiveChatCommand = request.command === 'chat-chat' || request.command === 'chat';
+    const isInteractiveChatCommand = request.command === 'chat';
     const shouldCaptureStdout = active && !isInteractiveChatCommand;
 
     // Patch console and stdout to route through the active EmitService when present.
@@ -316,6 +318,30 @@ export class CliCommandClient implements ICliCommandClient {
         logger({ channel: 'stream', event });
       }
     };
+
+    const interactionService = this.resolver.tryResolve(TOKENS.InteractionService) as
+      | IInteractionService
+      | undefined;
+
+    if (interactionService && request.command === 'chat') {
+      const hookOptions = {
+        invocationSurface: context.invocationSurface as 'cli' | 'web' | 'api' | undefined,
+        calledByHuman:
+          typeof context.calledByHuman === 'boolean' ? context.calledByHuman : undefined,
+        signal: context.signal as AbortSignal | undefined,
+        workflowState: context.workflowState as any,
+        onWorkflowFrame: context.onWorkflowFrame as any,
+      };
+
+      for await (const event of interactionService.stream(request, hookOptions as any)) {
+        handleStreamEvent(event as StreamEvent<TCommand>);
+        yield event as StreamEvent<TCommand>;
+      }
+
+      perf?.flush('done');
+      return;
+    }
+
     const interactionStream = new InteractionStream({
       translateRuntimeEvent: runtimeEventToStreamEvent,
     });

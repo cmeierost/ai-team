@@ -43,10 +43,7 @@ export {
   type BackendDebugLogSettingsResolver,
   type DebugLogSettings,
 } from './utils/debug-log.js';
-export {
-  createDebugLogWriter,
-  formatDebugLogForConsole,
-} from './utils/debug-log-shared.js';
+export { createDebugLogWriter, formatDebugLogForConsole } from './utils/debug-log-shared.js';
 
 // Command dispatcher (unified command dispatch for CLI + chat + tools)
 export { CommandDispatcher, createCommandDispatcher } from './command-dispatcher.js';
@@ -102,7 +99,6 @@ export { DefaultLlmSelector } from './orchestrator/defaults/llm-selector.js';
 export { DefaultOutputHandler } from './orchestrator/defaults/output-handler.js';
 export { buildDefaultHookPlugins } from './orchestrator/defaults/hook-plugins.js';
 export { buildDefaultTurnResultParsers } from './orchestrator/defaults/turn-result-parsers.js';
-export { SlashCommandDispatcher } from './orchestrator/slash-command-dispatcher.js';
 export { ToolDispatchSupportService } from './orchestrator/services/tool-dispatch-support-service.js';
 export { ToolSerializationService } from './orchestrator/services/tool-serialization-service.js';
 export {
@@ -110,6 +106,45 @@ export {
   listWorkflowDefinitionIds,
   type WorkflowDefinitionResolver,
 } from './workflow/definition-catalog.js';
+export {
+  WorkflowV2Runner,
+  ChatLoopEngineV2,
+  WorkflowV2AbortError,
+  type ChatLoopV2EngineOptions,
+  type ChatLoopV2FailureInput,
+  type ChatLoopV2HandoffTransitionResult,
+  type ChatLoopV2Input,
+  type ChatLoopV2Output,
+  type ChatLoopV2PostTurnResolutionResult,
+  type ChatLoopV2PreturnResult,
+  type ChatLoopV2SendTurnResult,
+  type ChatLoopV2ToolCall,
+  type ChatLoopV2ToolRoundResult,
+  ChatRuntimeV2,
+  type ChatRuntimeV2RunInput,
+  type ChatRuntimeV2TurnInput,
+  type ChatRuntimeV2TurnResult,
+  type IChatRuntimeV2,
+  type IChatRuntimeV2Dependencies,
+  WorkflowV2PreTurnIntentResolver,
+  type IWorkflowV2ToolSource,
+  type WorkflowV2AskChoice,
+  type WorkflowV2AskSpec,
+  type WorkflowV2IntentProvider,
+  type WorkflowV2PreTurnIntent,
+  type WorkflowV2PreTurnIntentResolverOptions,
+  type WorkflowV2ScoredIntentCandidate,
+  type IWorkflowV2Runner,
+  type IChatLoopV2Services,
+  type WorkflowV2RunnerOptions,
+  type WorkflowV2Definition,
+  type WorkflowV2RunOptions,
+  type WorkflowV2RunResult,
+  type WorkflowV2Step,
+  type WorkflowV2StepFrame,
+  type WorkflowV2StepPhase,
+} from './workflow-v2/index.js';
+export { ChatCommand } from './commands/chat/chat.command.js';
 
 export {
   CommandsService,
@@ -130,6 +165,7 @@ export {
   SessionsService,
   IdeService,
 } from './routers/index.js';
+export { ChatV2Command, type ChatV2Params } from './commands/chat/chat-v2.command.js';
 export {
   registerServiceLayerServices,
   buildInteractionService,

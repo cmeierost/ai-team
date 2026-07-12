@@ -12,13 +12,13 @@ import type { ICliCommandClient } from '../cli-command-client.js';
 import { createIdeAdapter } from '@ai-team/infrastructure';
 import type { IQuestionService } from '@ai-team/core';
 import { findWorkspaceRoot } from '@ai-team/service';
-import { checkbox, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { isFrontendFileLogEnabled, writeFrontendDebugLog } from './debug-log.js';
 import { askWithSlashSuggestions } from '../utils/slash-prompt.js';
+import { createQuestionResponders } from './question-responders.js';
 
 function setupAbortController(writeStderrLine: (text: string) => void) {
   const controller = new AbortController();
@@ -109,7 +109,11 @@ function createChatQuestionResponders(
   onAnswered?: () => void,
   onQuestionStart?: () => void,
   projectNameFn?: () => Promise<string | undefined>,
-  chatCommands: CommandDescriptor[] = []
+  chatCommands: CommandDescriptor[] = [],
+  inquirerQuestionService: Pick<
+    IQuestionService,
+    'confirm' | 'select' | 'checklist' | 'password'
+  > = createQuestionResponders()
 ): Pick<IQuestionService, 'input' | 'confirm' | 'select' | 'checklist' | 'password'> {
   const normalizeSelection = (
     raw: string,
@@ -162,6 +166,12 @@ function createChatQuestionResponders(
     },
     confirm: async (request: QuestionConfirmRequest) => {
       onQuestionStart?.();
+      if (process.stdin.isTTY) {
+        const answer = await inquirerQuestionService.confirm(request);
+        onAnswered?.();
+        return answer;
+      }
+
       const defaultValue = request.default ?? false;
       const suffix = defaultValue ? '[Y/n]' : '[y/N]';
 
@@ -185,16 +195,7 @@ function createChatQuestionResponders(
     select: async (request: QuestionSelectRequest) => {
       onQuestionStart?.();
       if (process.stdin.isTTY) {
-        const selected = await select({
-          message: request.message,
-          default: request.default,
-          choices: request.choices.map((choice) => ({
-            name: choice.description ? `${choice.name} — ${choice.description}` : choice.name,
-            value: choice.value,
-            description: choice.description,
-          })),
-          loop: false,
-        });
+        const selected = await inquirerQuestionService.select(request);
         onAnswered?.();
         return selected;
       }
@@ -227,25 +228,7 @@ function createChatQuestionResponders(
     checklist: async (request: QuestionChecklistRequest) => {
       onQuestionStart?.();
       if (process.stdin.isTTY) {
-        const selected = await checkbox({
-          message: request.message,
-          choices: request.choices.map((choice) => ({
-            name: choice.description ? `${choice.name} — ${choice.description}` : choice.name,
-            value: choice.value,
-            checked: (request.default ?? []).includes(choice.value),
-            description: choice.description,
-          })),
-          validate: (values) => {
-            if (request.minSelections && values.length < request.minSelections) {
-              return `Please select at least ${request.minSelections} option(s).`;
-            }
-            if (request.maxSelections && values.length > request.maxSelections) {
-              return `Please select at most ${request.maxSelections} option(s).`;
-            }
-            return true;
-          },
-          loop: false,
-        });
+        const selected = await inquirerQuestionService.checklist(request);
         onAnswered?.();
         return selected;
       }
@@ -295,10 +278,7 @@ function createChatQuestionResponders(
     password: async (request: QuestionPasswordRequest) => {
       onQuestionStart?.();
       if (process.stdin.isTTY) {
-        const answer = await password({
-          message: request.message,
-          mask: request.mask ?? '*',
-        });
+        const answer = await inquirerQuestionService.password(request);
         onAnswered?.();
         return answer;
       }
@@ -308,6 +288,10 @@ function createChatQuestionResponders(
     },
   };
 }
+
+export const CHAT_RENDERING_TESTING = {
+  createChatQuestionResponders,
+};
 
 function handleOneShotEvent(
   event: StreamEvent<string>,
@@ -690,7 +674,9 @@ export async function renderChat(
   agentId: string | undefined,
   options: ChatOptions,
   mediatorLog: boolean = false,
-  resolveProjectName?: (workspaceRoot: string) => Promise<string | undefined>
+  resolveProjectName?: (workspaceRoot: string) => Promise<string | undefined>,
+  requestCommand: string = 'chat',
+  requestPayload?: Record<string, unknown>
 ) {
   const mediatorLoggerEnabled = mediatorLog || process.env.AI_TEAM_MEDIATOR_LOG === '1';
   const frontendFileLogEnabled = isFrontendFileLogEnabled();
@@ -879,11 +865,13 @@ export async function renderChat(
     );
     for await (const event of sessionClient.streamInteraction(
       {
-        command: 'chat-chat',
-        payload: {
-          employeeId: agentId,
-          options,
-        },
+        command: requestCommand,
+        payload:
+          requestPayload ??
+          {
+            employeeId: agentId,
+            options,
+          },
       },
       {
         workspaceRoot,
@@ -942,7 +930,7 @@ export async function renderChat(
       }
 
       if (event.kind === 'status' && event.message) {
-        if (options.oneShot || mediatorLoggerEnabled) {
+        if (mediatorLoggerEnabled) {
           writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
         }
         continue;
@@ -959,7 +947,7 @@ export async function renderChat(
         if (spinnerActive) {
           spinnerText = `${currentAgentName || currentAgentId || 'Agent'} is thinking…`;
         }
-        if ((options.oneShot || mediatorLoggerEnabled) && event.message) {
+        if (mediatorLoggerEnabled && event.message) {
           writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
         }
         continue;
@@ -1042,7 +1030,7 @@ export async function renderChat(
         if (frontendFileLogEnabled) {
           writeFrontendDebugLog({ command: 'chat', event });
         }
-        if (options.oneShot || mediatorLoggerEnabled) {
+        if (mediatorLoggerEnabled) {
           writeStderrLine(
             chalk.yellow(`[frontend:question:${event.questionType || 'input'}] ${event.message}`)
           );
