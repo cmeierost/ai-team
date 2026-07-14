@@ -4,7 +4,7 @@ const serviceApi = vi.hoisted(() => ({
   serveApiCommand: vi.fn(),
 }));
 
-vi.mock('@ai-team/service', () => ({
+vi.mock('./serve-command.js', () => ({
   serveApiCommand: serviceApi.serveApiCommand,
 }));
 

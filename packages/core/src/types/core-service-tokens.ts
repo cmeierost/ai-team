@@ -31,6 +31,7 @@ import type {
   IWorkspaceAccessRuntime,
   IWorkspaceFsFactory,
 } from '../context/index.js';
+import type { IBackendDebugLogSettingsService, IBackendLogService } from './logging.js';
 import type { IAgentManager } from '../agent/agent-manager.js';
 import type { IAvatarManager } from '../agent/avatar.js';
 import type { ITeamGraphBuilder } from '../agent/team-graph-builder.js';
@@ -74,6 +75,10 @@ export const CORE_SERVICE_TOKENS = {
   ChatManager: new Token<IChatManager>('ChatManager'),
 
   ConfigurationStorage: new Token<IConfigurationStorage>('ConfigurationStorage'),
+  BackendDebugLogSettingsService: new Token<IBackendDebugLogSettingsService>(
+    'BackendDebugLogSettingsService'
+  ),
+  BackendLogService: new Token<IBackendLogService>('BackendLogService'),
   DeveloperIdentityService: new Token<IDeveloperIdentityService>(
     'DeveloperIdentityService'
   ),

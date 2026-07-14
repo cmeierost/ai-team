@@ -1,13 +1,13 @@
 import type { ICommandsService } from '@ai-team/api-contracts';
 import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 import type { IConfigurationStorage, ISkillManager } from '@ai-team/core';
-import { EmitService } from '../orchestrator/services/emit-service.js';
-import { IN_CHAT_COMMAND_REGISTRY } from '../command-registry.js';
+import { EmitService } from '../interaction/emit-service.js';
+import { IN_CHAT_COMMAND_REGISTRY } from '../commands/chat/chat-command-registry.js';
 import {
-  buildDynamicSlashCatalog,
-  toDynamicChatCommandRegistryEntries,
-} from '../orchestrator/dynamic-slash/catalog.js';
-import { readDynamicSlashCatalogConfig } from '../orchestrator/dynamic-slash/config.js';
+  DynamicSlashCatalogService,
+  DynamicSlashCommandFactory,
+} from '../command-dispatcher/dynamic-slash/catalog.js';
+import { DynamicSlashCatalogConfigReader } from '../command-dispatcher/dynamic-slash/config.js';
 
 export class CommandsService implements ICommandsService {
   private readonly startupWarnings = new Set<string>();
@@ -28,16 +28,14 @@ export class CommandsService implements ICommandsService {
       }
     }
 
-    const dynamic = await buildDynamicSlashCatalog({
+    const dynamic = await new DynamicSlashCatalogService({
       workspaceRoot: this.workspaceRoot,
       skillManager: this.skillManager,
       reservedKeys,
-      dynamicSlashCatalog: readDynamicSlashCatalogConfig({
-        dynamicSlashCatalog:
-          this.configurationStorage.get('dynamicSlashCatalog') ?? undefined,
+      dynamicSlashCatalog: new DynamicSlashCatalogConfigReader().read({
+        dynamicSlashCatalog: this.configurationStorage.get('dynamicSlashCatalog') ?? undefined,
       }),
-      emitService: EmitService.forConsole(),
-    });
+    }).buildAsync();
 
     for (const warning of dynamic.warnings) {
       if (this.startupWarnings.has(warning)) continue;
@@ -45,6 +43,10 @@ export class CommandsService implements ICommandsService {
       console.warn(warning);
     }
 
-    return [...webChatCommandRegistry, ...toDynamicChatCommandRegistryEntries(dynamic.entries)];
+    const commandFactory = new DynamicSlashCommandFactory(EmitService.noop());
+    return [
+      ...webChatCommandRegistry,
+      ...commandFactory.toChatCommandRegistryEntries(dynamic.entries),
+    ];
   }
 }

@@ -33,9 +33,7 @@ import type { CodeContentRole } from './2-code-classification.js';
 import type { EntryPointAnalysis } from './entry-point-analysis.js';
 import type { FilesystemFitResult } from './filesystem-fit.js';
 import type { MoveSuggestionResult } from './move-suggestions.js';
-import type {
-  MaintainabilityResults, ComplexityResults,
-} from '@aspect/complexity';
+import type { MaintainabilityResults, ComplexityResults } from '@aspect/complexity';
 
 /** A raw dependency edge extracted from collector relationships. */
 export interface RawDependencyEdge {
@@ -293,6 +291,7 @@ export interface StructuralPipelineResult {
   centrality?: FileCentrality[];
   exportAnalysis?: ExportAnalysis;
   fileMetrics?: FileInterfaceMetrics[];
+  shallownessDiagnostics?: ShallownessDiagnostics;
   entryPointAnalysis?: EntryPointAnalysis;
   referenceDiagnostics?: import('./reference-diagnostics.js').ReferenceDiagnostics;
   locMetrics?: import('./loc-metrics.js').CanonicalLocMetrics;
@@ -313,7 +312,17 @@ export interface StructuralPipelineResult {
 /** A single exported symbol from a file. */
 export interface ExportedSymbol {
   name: string;
-  kind: 'function' | 'class' | 'interface' | 'type-alias' | 'enum' | 'namespace' | 'field' | 'method' | 'property' | 'other';
+  kind:
+    | 'function'
+    | 'class'
+    | 'interface'
+    | 'type-alias'
+    | 'enum'
+    | 'namespace'
+    | 'field'
+    | 'method'
+    | 'property'
+    | 'other';
   nature: 'logic' | 'contract';
   /** Number of files that import from this file (file-level, not per-symbol). */
   fileRefs: number;
@@ -390,6 +399,116 @@ export interface FileInterfaceMetrics {
   interfaceChangeRiskBand: InterfaceChangeRiskBand;
 }
 
+export type ShallownessRiskBand = 'medium' | 'high' | 'critical';
+
+export interface ShallownessMoveSuggestion {
+  suggestedDirectory: string;
+  confidence: 'high' | 'medium' | 'low';
+  source: 'move-suggestions' | 'misplaced-file';
+  rationale: string;
+}
+
+export interface ShallownessDirectionality {
+  providerModuleId: string;
+  dependentModuleId: string;
+  dependentToProviderEdges: number;
+  providerToDependentEdges: number;
+  isBidirectional: boolean;
+  directionalityRatio: number;
+  /** How often provider/dependent are imported by the same modules (0..1). */
+  coImportAffinity: number;
+}
+
+export type ShallownessRemediationStrategy =
+  | 'move-provider'
+  | 'deepen-dependent-module'
+  | 'improve-boundary-directionality';
+
+export interface ShallownessRemediation {
+  strategy: ShallownessRemediationStrategy;
+  rationale: string;
+  targetModuleId?: string;
+}
+
+export interface ShallownessExportSurfaceHint {
+  /** True when exports should likely be kept local and not propagated further. */
+  shouldStopFurtherExport: boolean;
+  /** Scope of current consumers relative to module boundaries. */
+  localConsumerScope: 'single-module-part' | 'few-module-parts';
+  /** Dominant consuming module-part, when identifiable. */
+  consumerModuleId?: string;
+  rationale: string;
+}
+
+export type ShallownessClassificationRecommendationStrategy =
+  | 'extract-contract-types'
+  | 'internalize-runtime-exports'
+  | 'split-runtime-and-types';
+
+export interface ShallownessClassificationRecommendation {
+  strategy: ShallownessClassificationRecommendationStrategy;
+  rationale: string;
+  contentRole: CodeContentRole | 'unknown';
+  typeLikeExportRatio: number;
+}
+
+export interface ShallownessThresholds {
+  /** Type-like export ratio that marks a file as contract-heavy. */
+  contractTypeLikeExportRatio: number;
+  /** Maximum type-like export ratio that marks a file as logic-heavy runtime surface. */
+  logicTypeLikeExportRatio: number;
+  /** Minimum score required to enter medium risk band. */
+  mediumRiskMinScore: number;
+  /** Minimum score required to enter high risk band. */
+  highRiskMinScore: number;
+  /** Minimum score required to enter critical risk band. */
+  criticalRiskMinScore: number;
+}
+
+export const DEFAULT_SHALLOWNESS_THRESHOLDS: ShallownessThresholds = {
+  contractTypeLikeExportRatio: 0.5,
+  logicTypeLikeExportRatio: 0.2,
+  mediumRiskMinScore: 50,
+  highRiskMinScore: 65,
+  criticalRiskMinScore: 80,
+};
+
+export interface ShallownessSignals {
+  interfaceSurfaceComplexityScore: number;
+  sharedResponsibilityLeakScore: number;
+  singleConsumerExportRatio: number;
+  hiddenComplexityRatio: number;
+  exportCount: number;
+  exportsPer100Loc: number;
+  /** Score bump signal: frequent joint imports of related modules. */
+  coImportAffinity: number;
+}
+
+export interface ShallownessFinding {
+  fileId: string;
+  filePath: string;
+  score: number;
+  riskBand: ShallownessRiskBand;
+  signals: ShallownessSignals;
+  directionality?: ShallownessDirectionality;
+  remediation?: ShallownessRemediation;
+  classificationAwareRecommendation?: ShallownessClassificationRecommendation;
+  exportSurfaceHint?: ShallownessExportSurfaceHint;
+  suggestedMove?: ShallownessMoveSuggestion;
+}
+
+export interface ShallownessDiagnostics {
+  findings: ShallownessFinding[];
+  summary: {
+    totalFiles: number;
+    flaggedFiles: number;
+    criticalCount: number;
+    highCount: number;
+    mediumCount: number;
+    moveSuggestedCount: number;
+  };
+}
+
 /** Exposure summary for one dependency group boundary. */
 export interface ClusterExposure {
   clusterId: string;
@@ -423,6 +542,8 @@ export interface PipelineSummary {
   moveSuggestionCount?: number;
   healthScore?: number;
   recommendationCount?: number;
+  shallownessFindingCount?: number;
+  shallownessMoveSuggestionCount?: number;
   appEntryPointCount?: number;
   exclusiveFileCount?: number;
   sharedFileCount?: number;
@@ -447,6 +568,8 @@ export interface PipelineSummary {
 
 export interface StructuralPipelineOptions {
   thresholds?: Partial<WarningThresholds>;
+  /** Optional shallowness-analysis tuning knobs. */
+  shallownessThresholds?: Partial<ShallownessThresholds>;
   /** Language profiles for classification. Defaults to [TYPESCRIPT_PROFILE]. */
   profiles?: import('./language-profile.js').LanguageProfile[];
   /** File inventory from collectors (optional enrichment) */
@@ -662,6 +785,32 @@ export interface PipelineRecommendation {
   impact: number;
 }
 
+export type LlmPriorityIssueSource = 'recommendation' | 'shallowness' | 'warning';
+
+export interface LlmPriorityIssue {
+  id: string;
+  source: LlmPriorityIssueSource;
+  priority: RecommendationPriority;
+  category: string;
+  title: string;
+  action: string;
+  rationale: string;
+  filePaths: string[];
+  score: number;
+}
+
+export interface LlmPriorityReaderOptions {
+  maxItems?: number;
+}
+
+export interface LlmPriorityReaderResult {
+  generatedAt: string;
+  healthScore?: number;
+  issueCount: number;
+  current?: LlmPriorityIssue;
+  next: LlmPriorityIssue[];
+}
+
 // ── Helpers shared across steps ─────────────────────────────────────────
 
 export function round3(n: number): number {
@@ -679,7 +828,10 @@ export function buildFileCommunityIndex(communities: Community[]): Map<string, s
   for (const community of communities) {
     for (const fileId of community.memberFileIds) {
       let list = index.get(fileId);
-      if (!list) { list = []; index.set(fileId, list); }
+      if (!list) {
+        list = [];
+        index.set(fileId, list);
+      }
       list.push(community.id);
     }
   }

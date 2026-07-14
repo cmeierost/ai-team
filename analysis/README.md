@@ -6,7 +6,7 @@ shared intermediate representation; pipelines and calculators consume it.
 
 ## Three-Layer Architecture
 
-```
+```text
  Collectors              Contracts              Pipelines + Calculators
 ┌──────────────┐   ┌──────────────────┐   ┌──────────────────┐
 │ TypeScript   │──▶│ CollectedCodeData│──▶│ Structural       │
@@ -49,6 +49,45 @@ const { data } = await collect({ rootDir: './my-project' });
 
 // 2. Analyze (structural pipeline)
 const result = runStructuralPipeline(data.entities, data.relationships, data.moduleBoundaries);
+```
+
+## Quick Start (LLM Priority Reader)
+
+Use the priority reader to get a compact, ordered action queue for an LLM:
+
+```ts
+import { collect } from '@aspect/collector-typescript';
+import { runStructuralPipeline, buildLlmPriorityReader } from '@aspect/structural';
+
+const { data } = await collect({ srcDirs: ['packages/service/src'], rootDir: process.cwd() });
+const result = runStructuralPipeline(data.entities, data.relationships, data.moduleBoundaries);
+
+const queue = buildLlmPriorityReader(result, { maxItems: 8 });
+
+// queue.current = most important issue to fix now
+// queue.next    = follow-up issues in priority order
+console.log(JSON.stringify(queue, null, 2));
+```
+
+Reader output shape (simplified):
+
+```json
+{
+  "generatedAt": "...",
+  "healthScore": 55,
+  "issueCount": 8,
+  "current": {
+    "id": "warning:file-too-large:...",
+    "source": "warning",
+    "priority": "critical",
+    "title": "...",
+    "action": "...",
+    "rationale": "...",
+    "filePaths": ["..."],
+    "score": 500
+  },
+  "next": [{ "id": "...", "priority": "critical", "action": "..." }]
+}
 ```
 
 ## Viewer App Pipeline Example

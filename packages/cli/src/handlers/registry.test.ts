@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { CLI_COMMAND_REGISTRY, getCliCommandMetadata, getLlmCallableCliCommands } from './registry.js';
+import {
+  CLI_COMMAND_REGISTRY,
+  getCliCommandMetadata,
+  getCliDispatchCommandKey,
+  getLlmCallableCliCommands,
+} from './registry.js';
 
 describe('command registry metadata', () => {
   it('keeps command keys unique after registry merge', () => {
@@ -21,8 +26,8 @@ describe('command registry metadata', () => {
   it('excludes init from LLM-callable command list', () => {
     const llmCommands = getLlmCallableCliCommands();
 
-    expect(llmCommands.find(command => command.key === 'init')).toBeUndefined();
-    expect(CLI_COMMAND_REGISTRY.find(command => command.key === 'init')?.llmCallable).toBe(false);
+    expect(llmCommands.find((command) => command.key === 'init')).toBeUndefined();
+    expect(CLI_COMMAND_REGISTRY.find((command) => command.key === 'init')?.llmCallable).toBe(false);
   });
 
   it('registers tool command metadata from dispatcher command definitions', () => {
@@ -44,19 +49,22 @@ describe('command registry metadata', () => {
     expect(toolsAllow.command).toBe('allow');
   });
 
-  it('keeps top-level chat-v2 interface aligned with chat-style positional arguments', () => {
-    const chatV2 = getCliCommandMetadata('chat-v2');
+  it('keeps chat interface aligned with workflow positional arguments and options', () => {
+    const chat = getCliCommandMetadata('chat');
 
-    expect(chatV2.arguments?.map((arg) => arg.syntax)).toEqual(['[agent-id]', '[session-id]']);
-    expect(chatV2.options?.some((opt) => opt.flags.includes('--session-id'))).toBe(true);
+    expect(chat.arguments?.map((arg) => arg.syntax)).toEqual(['[agent-id]', '[session-id]']);
+    expect(chat.options?.some((opt) => opt.flags.includes('--session-id'))).toBe(true);
+    expect(chat.options?.some((opt) => opt.flags.includes('--new'))).toBe(true);
+    expect(chat.options?.some((opt) => opt.flags.includes('--max-hops'))).toBe(true);
+    expect(chat.options?.some((opt) => opt.flags.includes('--auto-react-message'))).toBe(true);
   });
 
-  it('keeps nested chat chat-v2 interface aligned with top-level chat-v2', () => {
-    const top = getCliCommandMetadata('chat-v2');
-    const nested = getCliCommandMetadata('chat.chat-v2');
-
-    expect(nested.arguments).toEqual(top.arguments);
-    expect(nested.options).toEqual(top.options);
+  it('routes top-level chat through chat dispatch key', () => {
+    expect(getCliDispatchCommandKey('chat')).toBe('chat-chat');
   });
 
+  it('does not expose deprecated chat aliases as direct CLI commands', () => {
+    expect(CLI_COMMAND_REGISTRY.find((command) => command.key === 'chat-legacy')).toBeUndefined();
+    expect(CLI_COMMAND_REGISTRY.find((command) => command.key === 'chat.chat-legacy')).toBeUndefined();
+  });
 });

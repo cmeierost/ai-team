@@ -16,9 +16,8 @@ import type {
   AddProviderOptions,
   ConfigureProviderOptions,
   ProviderSetupInput,
-  SetProviderOptions,
 } from '@ai-team/api-contracts';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../interaction/question-service.js';
 
 type ProviderSubCommand = 'configure' | 'add' | 'set';
 type ProviderSetupResult = ProviderSetupInput;
@@ -81,7 +80,7 @@ export class ProviderICommand implements ICommand<z.infer<typeof _providerComman
         });
         break;
       case 'set':
-        await this.setAsync({
+        await this.configureAsync({
           fromInit: payload.fromInit,
           keepCurrentDefault: payload.keepCurrentDefault,
           setup: payload.setup,
@@ -183,10 +182,6 @@ export class ProviderICommand implements ICommand<z.infer<typeof _providerComman
     await this.providerTester.testConnectionAsync(next, setup.providerRef);
   }
 
-  private async setAsync(options: SetProviderOptions = {}) {
-    await this.configureAsync(options);
-  }
-
   private applyProviderConfiguration(
     existing: TeamConfig | undefined,
     setup: ProviderSetupResult,
@@ -194,7 +189,28 @@ export class ProviderICommand implements ICommand<z.infer<typeof _providerComman
   ): TeamConfig {
     const base: TeamConfig = existing
       ? { ...existing }
-      : { version: '0.1.0', log: { file: false, console: false }, randomAvatarUrls: [] };
+      : {
+          version: '0.1.0',
+          log: {
+            backend: {
+              file: 'off',
+              console: 'off',
+              targets: {
+                console: { file: 'off', console: 'off' },
+                api: { file: 'off', console: 'off' },
+              },
+            },
+            frontend: { file: 'off', console: 'off' },
+            chat: {
+              sessionStartupLoad: {
+                enabled: false,
+                file: 'off',
+                console: 'off',
+              },
+            },
+          },
+          randomAvatarUrls: [],
+        };
     const registry: Record<string, LlmProviderConfig> = {};
     const existingRegistry = base.providers;
     if (existingRegistry) {

@@ -18,7 +18,7 @@ tags:
   - api-server
   - architecture
 createdAt: 2026-07-12T22:02:00.000Z
-updatedAt: 2026-07-12T22:23:00.000Z
+updatedAt: 2026-07-12T22:31:00.000Z
 ---
 
 ## Goal
@@ -39,3 +39,5 @@ Converge all chat/workflow runtime behavior on workflow-v2 so CLI, WebSocket, an
 - [ ] Run duplication scan on affected scope and resolve hotspots.
 - [x] Delete legacy orchestrator `send-turn.ts` compatibility wrapper and obsolete tests after send-turn-machine parity validation.
 - [x] Delete dead orchestrator slash surfaces (`slash-command-dispatcher.ts`, `workflow-slash.command.ts`) and stale export from `service/index.ts`.
+- [x] Delete additional unreferenced legacy modules (`orchestrator/generate-handoff-prompt.ts`, `workflow/helpers.ts`, `workflow/json-workflow-loader.ts`).
+- [x] Delete test-only workflow state shim (`workflow-state.ts` and `workflow-state.test.ts`).

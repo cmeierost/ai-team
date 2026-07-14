@@ -155,16 +155,13 @@ export class LlmSystemPromptBuilder {
     parts.push(
       'If a person is not found, tell the user to run `chat <name>` so fuzzy search can resolve the employee.'
     );
-    parts.push(
-      'To hand off with a message, include exactly one line: HANDOFF: <name-or-role> | <message for that teammate>.'
-    );
-    parts.push(
-      'Example: HANDOFF: hr-director | Please hire a chief architect and start requirement engineering staffing.'
-    );
 
     parts.push('');
     parts.push('Stay in character. Respond as this team member would.');
     parts.push('Be concise and helpful. Use your expertise to assist the developer.');
+    parts.push(
+      'Do not emit transcript speaker-label lines such as "Name -> Name:" or "Name → Name:" in normal replies; write only the reply content.'
+    );
     parts.push(
       'Be curious and proactive: ask concise clarifying questions when requirements, constraints, or success criteria are ambiguous.'
     );
@@ -173,14 +170,6 @@ export class LlmSystemPromptBuilder {
     );
     parts.push(
       'Ask at most one high-impact clarification at a time unless the developer explicitly requests a questionnaire.'
-    );
-    parts.push(
-      'When the user asks to be forwarded or connected to another team member, acknowledge the handoff gracefully.'
-    );
-    parts.push('Only hand off to people listed in "Your Team". Do not invent names or roles.');
-    parts.push('Do not claim someone was hired unless they already exist in "Your Team".');
-    parts.push(
-      'If a requested person is not in "Your Team", tell the user to run the `hire` command first.'
     );
 
     return parts.join('\n');

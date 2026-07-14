@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ContextLevel, type Agent, type PermissionConfig, type ICommand } from '@ai-team/core';
 import { WorkspaceFs, canRead, canWrite } from 'fs-context';
 import { COMMAND_FACTORY_TOKENS } from '../../types.js';
-import { ToolManager } from '../../tools/tool-manager.js';
+import { ToolManager } from '../../tooling/manager/tool-manager.js';
 import {
   FsReadFileTool,
   FsReadLinesTool,

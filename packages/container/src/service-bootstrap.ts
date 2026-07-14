@@ -33,7 +33,7 @@ import {
   type AccessService,
   type ToolDispatchSupportService,
   type ToolSerializationService,
-  registerServiceLayerServices,
+  registerCommands,
   type ServiceLayerRegistrationTokens,
 } from '@ai-team/service';
 
@@ -87,6 +87,7 @@ export type ServiceBootstrapTypes = ContainerTokenValueMap<typeof TOKENS>;
 export interface ServiceBootstrapConfig {
   workspaceRoot: string;
   apiBaseUrl?: string;
+  executionTarget?: 'console' | 'api';
 }
 
 export type ServiceBootstrapTokens<T extends ServiceBootstrapTypes = ServiceBootstrapTypes> = {
@@ -102,12 +103,15 @@ function registerBaseServices(
   cfg: ServiceBootstrapConfig,
   tokens: ServiceBootstrapTokens<ServiceBootstrapTypes>
 ): void {
+  const executionTarget = cfg.executionTarget ?? (cfg.apiBaseUrl ? 'api' : 'console');
   c.registerSingleton(tokens.ApiBaseUrl, () => cfg.apiBaseUrl ?? 'http://localhost:3002');
   c.registerInstance(tokens.WorkspaceRoot, cfg.workspaceRoot);
 
   registerInfrastructureCoreServices(c as IServiceContainerRegistrar, tokens);
 
-  registerServiceLayerServices(
+  process.env.AI_TEAM_RUNTIME_TARGET ??= executionTarget;
+
+  registerCommands(
     c as unknown as IServiceContainerRegistrar,
     cfg,
     tokens as unknown as ServiceLayerRegistrationTokens

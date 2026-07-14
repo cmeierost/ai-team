@@ -1,128 +1,187 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "build:cli",
-      "type": "shell",
-      "command": "pnpm",
-      "args": [
-        "--filter",
-        "@ai-team/cli",
-        "build"
-      ],
-      "group": "build",
-      "problemMatcher": [
-        "$tsc"
-      ]
-    },
-    {
-      "label": "build:vscode",
-      "type": "shell",
-      "command": "pnpm",
-      "args": [
-        "--dir",
-        "packages/vscode",
-        "build"
-      ],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "dev:vscode",
-      "type": "shell",
-      "command": "pnpm",
-      "args": [
-        "--dir",
-        "packages/vscode",
-        "dev"
-      ],
-      "isBackground": true,
-      "presentation": {
-        "label": "vscode extension dev",
-        "group": "dev",
-        "reveal": "always",
-        "panel": "dedicated",
-        "showReuseMessage": false,
-        "clear": true
-      },
-      "problemMatcher": {
-        "owner": "custom",
-        "pattern": {
-          "regexp": "^(.*)$",
-          "message": 1
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": "\\[ai-team/vscode\\] Extension watch starting",
-          "endsPattern": "\\[ai-team/vscode\\] Extension watch ready"
-        }
-      }
-    },
-    {
-      "label": "dev:web",
-      "type": "shell",
-      "command": "pnpm",
-      "args": ["--filter", "@ai-team/web", "dev"],
-      "isBackground": true,
-      "presentation": {
-        "label": "web dev",
-        "group": "dev",
-        "reveal": "silent",
-        "panel": "dedicated",
-        "showReuseMessage": false,
-        "clear": true
-      },
-      "problemMatcher": {
-        "owner": "vite",
-        "pattern": {
-          "regexp": "^",
-          "file": 1,
-          "location": 2,
-          "message": 3
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": "VITE",
-          "endsPattern": "Local:\\s+http://localhost"
-        }
-      }
-    },
-    {
-      "label": "Log: Tail backend",
-      "type": "shell",
-      "command": "node",
-      "args": [
-        "scripts/tail-log.mjs"
-      ],
-      "isBackground": true,
-      "presentation": {
-        "label": "backend.log",
-        "group": "logs",
-        "reveal": "always",
-        "panel": "dedicated",
-        "showReuseMessage": false,
-        "clear": true
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Log: Tail backend (all sources)",
-      "type": "shell",
-      "command": "node",
-      "args": [
-        "scripts/tail-log.mjs",
-        "--all"
-      ],
-      "isBackground": true,
-      "presentation": {
-        "label": "backend.log (all)",
-        "group": "logs",
-        "reveal": "always",
-        "panel": "dedicated",
-        "showReuseMessage": false,
-        "clear": true
-      },
-      "problemMatcher": []
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build:cli",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"--filter",
+				"@ai-team/cli",
+				"build"
+			],
+			"group": "build",
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "build:vscode",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"--dir",
+				"packages/vscode",
+				"build"
+			],
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "dev:vscode",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"--dir",
+				"packages/vscode",
+				"dev"
+			],
+			"isBackground": true,
+			"presentation": {
+				"label": "vscode extension dev",
+				"group": "dev",
+				"reveal": "always",
+				"panel": "dedicated",
+				"showReuseMessage": false,
+				"clear": true
+			},
+			"problemMatcher": {
+				"owner": "custom",
+				"pattern": {
+					"regexp": "^(.*)$",
+					"message": 1
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": "\\[ai-team/vscode\\] Extension watch starting",
+					"endsPattern": "\\[ai-team/vscode\\] Extension watch ready"
+				}
+			}
+		},
+		{
+			"label": "dev:web",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"--filter",
+				"@ai-team/web",
+				"dev"
+			],
+			"isBackground": true,
+			"presentation": {
+				"label": "web dev",
+				"group": "dev",
+				"reveal": "silent",
+				"panel": "dedicated",
+				"showReuseMessage": false,
+				"clear": true
+			},
+			"problemMatcher": {
+				"owner": "vite",
+				"pattern": {
+					"regexp": "^",
+					"file": 1,
+					"location": 2,
+					"message": 3
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": "VITE",
+					"endsPattern": "Local:\\s+http://localhost"
+				}
+			}
+		},
+		{
+			"label": "Log: Tail backend",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/tail-log.mjs"
+			],
+			"isBackground": true,
+			"presentation": {
+				"label": "backend.log",
+				"group": "logs",
+				"reveal": "always",
+				"panel": "dedicated",
+				"showReuseMessage": false,
+				"clear": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Log: Tail backend (all sources)",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/tail-log.mjs",
+				"--all"
+			],
+			"isBackground": true,
+			"presentation": {
+				"label": "backend.log (all)",
+				"group": "logs",
+				"reveal": "always",
+				"panel": "dedicated",
+				"showReuseMessage": false,
+				"clear": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "validation:service-build",
+			"type": "shell",
+			"command": "pnpm --filter @ai-team/service build"
+		},
+		{
+			"label": "validation:service-tests",
+			"type": "shell",
+			"command": "pnpm --filter @ai-team/service test -- src/command-dispatcher/command-dispatcher.test.ts src/workflow-v2/chat/chat-loop-engine.test.ts src/workflow-v2/chat/chat-runtime.test.ts"
+		},
+		{
+			"label": "validation:duplication-scan",
+			"type": "shell",
+			"command": "pnpm --filter @aspect/duplication build && node analysis/duplication/dist/cli/fuzzy-dup.js packages/service/src/command-dispatcher packages/service/src/registration packages/service/src/commands/chat --format text"
+		},
+		{
+			"label": "diagnostic:pnpm-path",
+			"type": "shell",
+			"command": "command -v pnpm; ls -l \"$(command -v pnpm)\"; pnpm -v"
+		},
+		{
+			"label": "diagnostic:standalone-pnpm",
+			"type": "shell",
+			"command": "ls -l ~/.local/share/pnpm/pnpm 2>/dev/null || true; ls -l /opt/homebrew/bin/pnpm 2>/dev/null || true; ls -l /usr/local/bin/pnpm 2>/dev/null || true"
+		},
+		{
+			"label": "diagnostic:node-url-canparse",
+			"type": "shell",
+			"command": "node -e \"console.log(process.version, typeof URL.canParse)\"; /Users/cmeier/.nvm/versions/node/v23.7.0/bin/node -e \"console.log(process.version, typeof URL.canParse)\""
+		},
+		{
+			"label": "diagnostic:pnpm-via-node23",
+			"type": "shell",
+			"command": "/Users/cmeier/.nvm/versions/node/v23.7.0/bin/node /Users/cmeier/.nvm/versions/node/v23.7.0/lib/node_modules/corepack/dist/pnpm.js -v"
+		},
+		{
+			"label": "validation:service-build-node23",
+			"type": "shell",
+			"command": "/Users/cmeier/.nvm/versions/node/v23.7.0/bin/node /Users/cmeier/.nvm/versions/node/v23.7.0/lib/node_modules/corepack/dist/pnpm.js --filter @ai-team/service build"
+		},
+		{
+			"label": "validation:service-tests-node23",
+			"type": "shell",
+			"command": "/Users/cmeier/.nvm/versions/node/v23.7.0/bin/node /Users/cmeier/.nvm/versions/node/v23.7.0/lib/node_modules/corepack/dist/pnpm.js --filter @ai-team/service test -- src/command-dispatcher/command-dispatcher.test.ts src/workflow-v2/chat/chat-loop-engine.test.ts src/workflow-v2/chat/chat-runtime.test.ts"
+		},
+		{
+			"label": "validation:duplication-node23",
+			"type": "shell",
+			"command": "/Users/cmeier/.nvm/versions/node/v23.7.0/bin/node /Users/cmeier/.nvm/versions/node/v23.7.0/lib/node_modules/corepack/dist/pnpm.js --filter @aspect/duplication build && node analysis/duplication/dist/cli/fuzzy-dup.js packages/service/src/command-dispatcher packages/service/src/registration packages/service/src/commands/chat --format text"
+		},
+		{
+			"label": "validation:service-tests-node23-path",
+			"type": "shell",
+			"command": "PATH=/Users/cmeier/.nvm/versions/node/v23.7.0/bin:$PATH /Users/cmeier/.nvm/versions/node/v23.7.0/bin/node /Users/cmeier/.nvm/versions/node/v23.7.0/lib/node_modules/corepack/dist/pnpm.js --filter @ai-team/service test -- src/command-dispatcher/command-dispatcher.test.ts src/workflow-v2/chat/chat-loop-engine.test.ts src/workflow-v2/chat/chat-runtime.test.ts"
+		}
+	]
 }

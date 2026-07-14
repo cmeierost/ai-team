@@ -31,9 +31,9 @@ describe('frontend debug log', () => {
     tempCwd = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-frontend-log-'));
     process.chdir(tempCwd);
 
-    prevLogFile = process.env.LOG_FILE;
+    prevLogFile = process.env.LOG_FRONTEND_FILE;
     prevPath = process.env.AI_TEAM_FRONTEND_LOG_FILE;
-    delete process.env.LOG_FILE;
+    delete process.env.LOG_FRONTEND_FILE;
     delete process.env.AI_TEAM_FRONTEND_LOG_FILE;
   });
 
@@ -41,9 +41,9 @@ describe('frontend debug log', () => {
     process.chdir(originalCwd);
 
     if (prevLogFile === undefined) {
-      delete process.env.LOG_FILE;
+      delete process.env.LOG_FRONTEND_FILE;
     } else {
-      process.env.LOG_FILE = prevLogFile;
+      process.env.LOG_FRONTEND_FILE = prevLogFile;
     }
 
     if (prevPath === undefined) {
@@ -59,11 +59,11 @@ describe('frontend debug log', () => {
     expect(isFrontendFileLogEnabled()).toBe(false);
   });
 
-  it('writes to .ai-team/logs/frontend.log when log.file is enabled in config', async () => {
+  it('writes to .ai-team/logs/frontend.log when log.frontend.file is enabled in config', async () => {
     await fs.mkdir(path.join(tempCwd, '.ai-team'), { recursive: true });
     await fs.writeFile(
       path.join(tempCwd, '.ai-team', 'config.json'),
-      JSON.stringify({ version: '1', log: { file: true } }, null, 2) + '\n',
+      JSON.stringify({ version: '1', log: { frontend: { file: 'info' } } }, null, 2) + '\n',
       'utf-8'
     );
 
@@ -77,14 +77,14 @@ describe('frontend debug log', () => {
     expect(parsed.entry).toMatchObject({ source: 'test', ok: true });
   });
 
-  it('does not write when LOG_FILE env override disables file logging', async () => {
+  it('does not write when LOG_FRONTEND_FILE env override disables file logging', async () => {
     await fs.mkdir(path.join(tempCwd, '.ai-team'), { recursive: true });
     await fs.writeFile(
       path.join(tempCwd, '.ai-team', 'config.json'),
-      JSON.stringify({ version: '1', log: { file: true } }, null, 2) + '\n',
+      JSON.stringify({ version: '1', log: { frontend: { file: 'info' } } }, null, 2) + '\n',
       'utf-8'
     );
-    process.env.LOG_FILE = 'off';
+    process.env.LOG_FRONTEND_FILE = 'off';
     writeFrontendDebugLog({ source: 'disabled' });
 
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -100,7 +100,7 @@ describe('frontend debug log', () => {
     await fs.mkdir(path.join(tempCwd, '.ai-team'), { recursive: true });
     await fs.writeFile(
       path.join(tempCwd, '.ai-team', 'config.json'),
-      JSON.stringify({ version: '1', log: { file: true } }, null, 2) + '\n',
+      JSON.stringify({ version: '1', log: { frontend: { file: 'info' } } }, null, 2) + '\n',
       'utf-8'
     );
     process.env.AI_TEAM_FRONTEND_LOG_FILE = '.ai-team/logs/custom-frontend.log';

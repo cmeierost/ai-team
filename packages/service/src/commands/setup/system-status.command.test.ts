@@ -25,7 +25,20 @@ describe('SystemStatusICommand', () => {
     const workspaceRoot = await createTempWorkspace();
     const teamConfig = {
       version: '1',
-      log: { file: false, console: false },
+      log: {
+        backend: {
+          file: 'off',
+          console: 'off',
+          targets: {
+            console: { file: 'off', console: 'off' },
+            api: { file: 'off', console: 'off' },
+          },
+        },
+        frontend: { file: 'off', console: 'off' },
+        chat: {
+          sessionStartupLoad: { enabled: false, file: 'off', console: 'off' },
+        },
+      },
       randomAvatarUrls: [],
     } as any;
 
@@ -45,7 +58,20 @@ describe('SystemStatusICommand', () => {
 
     const teamConfig = {
       version: '1',
-      log: { file: false, console: false },
+      log: {
+        backend: {
+          file: 'off',
+          console: 'off',
+          targets: {
+            console: { file: 'off', console: 'off' },
+            api: { file: 'off', console: 'off' },
+          },
+        },
+        frontend: { file: 'off', console: 'off' },
+        chat: {
+          sessionStartupLoad: { enabled: false, file: 'off', console: 'off' },
+        },
+      },
       randomAvatarUrls: [],
     } as any;
 

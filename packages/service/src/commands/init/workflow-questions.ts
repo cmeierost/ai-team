@@ -4,32 +4,10 @@ import type {
   QuestionInputRequest,
   QuestionPasswordRequest,
   QuestionSelectRequest,
-  WorkflowFrame,
-  WorkflowStateSnapshot,
 } from '@ai-team/api-contracts';
-import type { Agent, CommandResponse } from '@ai-team/core';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { ICommandDispatcher } from '@ai-team/api-contracts';
+import type { Agent } from '@ai-team/core';
 import type { IEmitService } from '@ai-team/core';
-
-// ─── Runtime hooks ────────────────────────────────────────────────────────────
-
-/**
- * Callbacks injected by a transport layer (CLI, API, VS Code) to handle
- * streaming output and interactive questions during init/onboard flows.
- */
-export interface InitRuntimeHooks {
-  signal?: AbortSignal;
-  emitService?: IEmitService;
-  questionInput?: (request: QuestionInputRequest) => Promise<string>;
-  questionConfirm?: (request: QuestionConfirmRequest) => Promise<boolean>;
-  questionSelect?: (request: QuestionSelectRequest) => Promise<string>;
-  questionPassword?: (request: QuestionPasswordRequest) => Promise<string>;
-  questionChecklist?: (request: QuestionChecklistRequest) => Promise<string[]>;
-  workflowState?: WorkflowStateSnapshot;
-  onWorkflowFrame?: (frame: WorkflowFrame) => void;
-}
-import type { IWorkflowService } from '../../workflow/workflow-service.js';
-import { AskUserCommand } from '../com/ask.command.js';
 
 const INIT_ASK_AGENT: Agent = {
   id: 'init-system',
@@ -83,14 +61,13 @@ function resolveSelectAnswer(
 }
 
 /**
- * Orchestrates workflow question flows by delegating to an injected IQuestionService.
- * The service's methods do not require ExecutionContext parameters; context is bound at construction time.
+ * Orchestrates workflow question flows by delegating to CommandDispatcher.
+ * Uses 'com-ask' command which is resolved from DI container.
  */
-export class WorkflowQuestioner {
+export class InitWorkflowQuestioner {
   constructor(
-    private readonly questionService: IQuestionService,
+    private readonly commandDispatcher: ICommandDispatcher,
     private readonly emitService: IEmitService,
-    private readonly workflowService?: IWorkflowService,
     private readonly signal?: AbortSignal
   ) {}
 
@@ -114,40 +91,30 @@ export class WorkflowQuestioner {
     maxSelections?: number;
     mask?: string;
   }): Promise<unknown> {
-    const askUserCommand = new AskUserCommand(this.questionService);
-    const result = await askUserCommand.execute(params, {
+    const response = await this.commandDispatcher.dispatch('com-ask', params, {
       agent: INIT_ASK_AGENT,
       agentId: INIT_ASK_AGENT.id,
       history: [],
     });
-    const response =
-      result && typeof result === 'object' && 'status' in result
-        ? (result as CommandResponse<unknown>)
-        : undefined;
-    if (response?.status === 'error') {
-      throw new Error(response.message || 'com_ask returned an error response.');
+
+    if (response.status === 'error') {
+      throw new Error(response.message || 'com-ask command returned an error response.');
     }
-    const payload = response?.data ?? result;
-    if (!payload || typeof payload !== 'object' || !('answer' in payload)) {
-      throw new Error('com_ask returned an unexpected response shape.');
+
+    const result = response.data;
+    if (!result || typeof result !== 'object' || !('answer' in result)) {
+      throw new Error('com-ask command returned an unexpected response shape.');
     }
-    return (payload as Record<string, unknown>).answer;
+    return (result as Record<string, unknown>).answer;
   }
 
   async requestInput(request: QuestionInputRequest): Promise<string> {
     if (this.signal?.aborted) throw new Error('Workflow aborted');
-    this.workflowService?.emitQuestionFrame({ kind: 'input', ...request });
     this.emitService.emit({
       kind: 'question',
       questionType: 'input',
       message: request.message,
     });
-
-    const resumed = this.workflowService?.resolveAnswer(request);
-    if (typeof resumed === 'string') {
-      this.workflowService?.emitResultFrame(request, resumed);
-      return resumed;
-    }
 
     const answer = await this.askViaComAsk({
       kind: 'input',
@@ -166,24 +133,16 @@ export class WorkflowQuestioner {
       }
     }
 
-    this.workflowService?.emitResultFrame(request, answer);
     return answer;
   }
 
   async requestConfirm(request: QuestionConfirmRequest): Promise<boolean> {
     if (this.signal?.aborted) throw new Error('Workflow aborted');
-    this.workflowService?.emitQuestionFrame({ kind: 'confirm', ...request });
     this.emitService.emit({
       kind: 'question',
       questionType: 'confirm',
       message: request.message,
     });
-
-    const resumed = this.workflowService?.resolveAnswer(request);
-    if (typeof resumed === 'boolean') {
-      this.workflowService?.emitResultFrame(request, resumed);
-      return resumed;
-    }
 
     const answer = await this.askViaComAsk({
       kind: 'confirm',
@@ -196,25 +155,17 @@ export class WorkflowQuestioner {
       throw new TypeError('Confirm question expected a boolean answer from com_ask.');
     }
 
-    this.workflowService?.emitResultFrame(request, answer);
     return answer;
   }
 
   async requestSelect(request: QuestionSelectRequest): Promise<string> {
     if (this.signal?.aborted) throw new Error('Workflow aborted');
-    this.workflowService?.emitQuestionFrame({ kind: 'select', ...request });
     this.emitService.emit({
       kind: 'question',
       questionType: 'select',
       message: request.message,
       choices: request.choices,
     });
-
-    const resumed = this.workflowService?.resolveAnswer(request);
-    if (typeof resumed === 'string') {
-      this.workflowService?.emitResultFrame(request, resumed);
-      return resumed;
-    }
 
     const answer = await this.askViaComAsk({
       kind: 'select',
@@ -237,24 +188,16 @@ export class WorkflowQuestioner {
         'Select responder returned an invalid choice. Please choose one of the listed options.'
       );
     }
-    this.workflowService?.emitResultFrame(request, resolved);
     return resolved;
   }
 
   async requestPassword(request: QuestionPasswordRequest): Promise<string> {
     if (this.signal?.aborted) throw new Error('Workflow aborted');
-    this.workflowService?.emitQuestionFrame({ kind: 'password', ...request });
     this.emitService.emit({
       kind: 'question',
       questionType: 'password',
       message: request.message,
     });
-
-    const resumed = this.workflowService?.resolveAnswer(request);
-    if (typeof resumed === 'string') {
-      this.workflowService?.emitResultFrame(request, resumed);
-      return resumed;
-    }
 
     const answer = await this.askViaComAsk({
       kind: 'password',
@@ -267,25 +210,17 @@ export class WorkflowQuestioner {
       throw new TypeError('Password question expected a string answer from com_ask.');
     }
 
-    this.workflowService?.emitResultFrame(request, answer);
     return answer;
   }
 
   async requestChecklist(request: QuestionChecklistRequest): Promise<string[]> {
     if (this.signal?.aborted) throw new Error('Workflow aborted');
-    this.workflowService?.emitQuestionFrame({ kind: 'checklist', ...request });
     this.emitService.emit({
       kind: 'question',
       questionType: 'checklist',
       message: request.message,
       choices: request.choices,
     });
-
-    const resumed = this.workflowService?.resolveAnswer(request);
-    if (Array.isArray(resumed) && resumed.every((value) => typeof value === 'string')) {
-      this.workflowService?.emitResultFrame(request, resumed);
-      return resumed;
-    }
 
     const answer = await this.askViaComAsk({
       kind: 'checklist',
@@ -311,7 +246,6 @@ export class WorkflowQuestioner {
       }
     }
 
-    this.workflowService?.emitResultFrame(request, parsed);
     return parsed;
   }
 }

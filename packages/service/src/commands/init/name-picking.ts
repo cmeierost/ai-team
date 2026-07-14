@@ -1,6 +1,6 @@
 import ora from 'ora';
-import type { ILlmService } from '@ai-team/core';
-import type { InitRuntimeHooks } from './workflow-questions.js';
+import type { ILlmService, IEmitService } from '@ai-team/core';
+import type { InitWorkflowQuestioner } from './workflow-questions.js';
 import { renderTemplate, type InitTemplates } from './template-utils.js';
 
 type BinaryGender = 'male' | 'female';
@@ -35,84 +35,53 @@ const DEFAULT_GENDER_BY_FIRST_NAME = new Map(
   ])
 );
 
-export interface NamePickingIo {
-  requestSelect: (
-    hooks: InitRuntimeHooks | undefined,
-    request: { message: string; choices: Array<{ name: string; value: string }> }
-  ) => Promise<string>;
-  requestInput: (
-    hooks: InitRuntimeHooks | undefined,
-    request: { message: string; validate?: (value: string) => true | string }
-  ) => Promise<string>;
-  writeWarn: (hooks: InitRuntimeHooks | undefined, message: string) => void;
-  writeInfo?: (hooks: InitRuntimeHooks | undefined, message: string) => void;
-}
-
 export interface PickAgentNameOptions {
   selectionMessage?: string;
   suggestionAnnouncement?: (suggestions: string[]) => string;
 }
 
-export async function pickAgentName(
-  llm: ILlmService,
-  templates: InitTemplates,
-  roleLabel: string,
-  selectedNames: string[] = [],
-  hooks: InitRuntimeHooks | undefined,
-  io: NamePickingIo,
-  options?: PickAgentNameOptions
-): Promise<string> {
-  const spinner = ora(`Generating name suggestions for ${roleLabel}...`).start();
-  let suggestions: string[] = [];
-  let lastError: unknown;
+/**
+ * Service for picking agent names with LLM-generated suggestions.
+ * Uses constructor injection for all dependencies.
+ */
+export class NamePickingService {
+  constructor(
+    private readonly llmService: ILlmService,
+    private readonly questioner: InitWorkflowQuestioner,
+    private readonly emitService: IEmitService,
+    private readonly templates: InitTemplates
+  ) {}
 
-  try {
-    const selectedContext =
-      selectedNames.length > 0 ? `Already selected names: ${selectedNames.join(', ')}. ` : '';
+  async pickAgentName(
+    roleLabel: string,
+    selectedNames: string[] = [],
+    options?: PickAgentNameOptions
+  ): Promise<string> {
+    const spinner = ora(`Generating name suggestions for ${roleLabel}...`).start();
+    let suggestions: string[] = [];
+    let lastError: unknown;
 
     try {
-      const firstRaw = await llm.rawChat(
-        templates.nameSystemPrompt.trim(),
-        [
-          {
-            role: 'user',
-            content: renderTemplate(templates.nameRequestPrompt, {
-              selectedContext,
-              roleLabel,
-            }).trim(),
-          },
-        ],
-        { temperature: 1.2, maxTokens: 120 }
-      );
+      const selectedContext =
+        selectedNames.length > 0 ? `Already selected names: ${selectedNames.join(', ')}. ` : '';
 
-      suggestions = normalizeSuggestedNames(
-        parseNameSuggestions(firstRaw, selectedNames),
-        selectedNames,
-        5
-      );
-    } catch (error) {
-      lastError = error;
-      suggestions = [];
-    }
-
-    if (suggestions.length === 0) {
       try {
-        const strictRaw = await llm.rawChat(
-          templates.nameSystemPrompt.trim(),
+        const firstRaw = await this.llmService.rawChat(
+          this.templates.nameSystemPrompt.trim(),
           [
             {
               role: 'user',
-              content: renderTemplate(templates.nameRequestStrictPrompt, {
+              content: renderTemplate(this.templates.nameRequestPrompt, {
                 selectedContext,
                 roleLabel,
               }).trim(),
             },
           ],
-          { maxTokens: 120 }
+          { temperature: 1.2, maxTokens: 120 }
         );
 
         suggestions = normalizeSuggestedNames(
-          parseNameSuggestions(strictRaw, selectedNames),
+          parseNameSuggestions(firstRaw, selectedNames),
           selectedNames,
           5
         );
@@ -121,50 +90,68 @@ export async function pickAgentName(
         suggestions = [];
       }
 
-      if (suggestions.length === 0 && lastError) {
-        throw lastError;
+      if (suggestions.length === 0) {
+        try {
+          const strictRaw = await this.llmService.rawChat(
+            this.templates.nameSystemPrompt.trim(),
+            [
+              {
+                role: 'user',
+                content: renderTemplate(this.templates.nameRequestStrictPrompt, {
+                  selectedContext,
+                  roleLabel,
+                }).trim(),
+              },
+            ],
+            { maxTokens: 120 }
+          );
+
+          suggestions = normalizeSuggestedNames(
+            parseNameSuggestions(strictRaw, selectedNames),
+            selectedNames,
+            5
+          );
+        } catch (error) {
+          lastError = error;
+          suggestions = [];
+        }
+
+        if (suggestions.length === 0 && lastError) {
+          throw lastError;
+        }
+
+        if (suggestions.length === 0) {
+          throw new Error('Name generation returned no usable suggestions after strict retry.');
+        }
       }
 
-      if (suggestions.length === 0) {
-        throw new Error('Name generation returned no usable suggestions after strict retry.');
-      }
+      spinner.stop();
+    } catch (error) {
+      spinner.stop();
+      // Fallback to default suggestions on LLM failure
+      suggestions = buildFallbackNameSuggestions(selectedNames, 5);
     }
 
-    spinner.stop();
-  } catch (error) {
-    spinner.stop();
-    const reason = error instanceof Error ? error.message : String(error);
-    io.writeWarn(
-      hooks,
-      `  Could not generate names from LLM (${reason}). Using fallback suggestions.`
-    );
-    suggestions = buildFallbackNameSuggestions(selectedNames, 5);
-  }
+    const customValue = '__custom__';
+    const choices = [
+      ...suggestions.map((n) => ({ name: n, value: n })),
+      { name: 'Enter a custom name...', value: customValue },
+    ];
 
-  const customValue = '__custom__';
-  const choices = [
-    ...suggestions.map((n) => ({ name: n, value: n })),
-    { name: 'Enter a custom name...', value: customValue },
-  ];
-
-  const suggestionAnnouncement = options?.suggestionAnnouncement?.(suggestions);
-  if (suggestionAnnouncement?.trim() && io.writeInfo) {
-    io.writeInfo(hooks, suggestionAnnouncement.trim());
-  }
-
-  const chosen = await io.requestSelect(hooks, {
-    message: options?.selectionMessage ?? `Name your ${roleLabel}:`,
-    choices,
-  });
-
-  if (chosen === customValue) {
-    return io.requestInput(hooks, {
-      message: 'Enter a name:',
-      validate: (v: string) => v.trim().length > 0 || 'Name cannot be empty',
+    const chosen = await this.questioner.requestSelect({
+      message: options?.selectionMessage ?? `Name your ${roleLabel}:`,
+      choices,
     });
-  }
 
-  return chosen;
+    if (chosen === customValue) {
+      return this.questioner.requestInput({
+        message: 'Enter a name:',
+        validate: (v: string) => v.trim().length > 0 || 'Name cannot be empty',
+      });
+    }
+
+    return chosen;
+  }
 }
 
 function parseNameSuggestions(raw: string, selectedNames: string[]): string[] {

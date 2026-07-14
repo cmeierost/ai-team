@@ -4,7 +4,7 @@ import type {
   CommandResponse,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { SessionManager } from '../../session-manager.js';
+import type { SessionManager } from '../../sessions/session-manager.js';
 import { parseContextArgs, type StoredMessage } from './context-utils.js';
 export const ContextRemoveChatCommandMetadata = {
   key: 'remove',

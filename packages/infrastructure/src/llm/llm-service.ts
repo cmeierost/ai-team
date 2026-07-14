@@ -456,14 +456,16 @@ export class LlmService {
 
           const chunk = nextChunk.value;
           const delta = chunk.choices?.[0]?.delta;
-          const deltaText =
-            this.utils.extractDeltaText(delta?.content) ||
-            this.utils.extractDeltaText(
-              (delta as { reasoning_content?: unknown } | undefined)?.reasoning_content
-            );
-          if (deltaText) {
-            assistantText += deltaText;
-            onToken?.(deltaText);
+          const contentText = this.utils.extractDeltaText(delta?.content);
+          const reasoningText = this.utils.extractDeltaText(
+            (delta as { reasoning_content?: unknown } | undefined)?.reasoning_content
+          );
+          if (reasoningText) {
+            onToken?.(`💭 ${reasoningText}`);
+          }
+          if (contentText) {
+            assistantText += contentText;
+            onToken?.(contentText);
           }
 
           const deltaToolCalls = (
@@ -1199,7 +1201,10 @@ ${excerpts}`;
 
     const entries = Object.entries(value as Record<string, unknown>)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entryValue]) => `${JSON.stringify(key)}:${this.stableSerializeForRetryKey(entryValue)}`);
+      .map(
+        ([key, entryValue]) =>
+          `${JSON.stringify(key)}:${this.stableSerializeForRetryKey(entryValue)}`
+      );
 
     return `{${entries.join(',')}}`;
   }

@@ -216,19 +216,106 @@ export const FileTreeConfigSchema = z.object({
 
 export type FileTreeConfig = z.infer<typeof FileTreeConfigSchema>;
 
+export const LogLevelSchema = z.enum(['error', 'warning', 'info', 'debug']);
+export type LogLevel = z.infer<typeof LogLevelSchema>;
+
+export const LogDestinationLevelSchema = z.preprocess(
+  (value) => {
+    if (typeof value === 'boolean') {
+      return value ? 'info' : 'off';
+    }
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'true' || normalized === '1' || normalized === 'on') {
+        return 'info';
+      }
+      if (normalized === 'false' || normalized === '0' || normalized === 'off') {
+        return 'off';
+      }
+      return normalized;
+    }
+    return value;
+  },
+  z.union([LogLevelSchema, z.literal('off')])
+);
+
+export type LogDestinationLevel = z.infer<typeof LogDestinationLevelSchema>;
+
+export const LogOutputConfigSchema = z.object({
+  file: LogDestinationLevelSchema.default('off'),
+  console: LogDestinationLevelSchema.default('off'),
+});
+
+export type LogOutputConfig = z.infer<typeof LogOutputConfigSchema>;
+
+export const ChatSessionStartupLoadLogConfigSchema = LogOutputConfigSchema.extend({
+  enabled: z.boolean().default(false),
+});
+
+export type ChatSessionStartupLoadLogConfig = z.infer<typeof ChatSessionStartupLoadLogConfigSchema>;
+
+export const ChatLogConfigSchema = z.object({
+  sessionStartupLoad: ChatSessionStartupLoadLogConfigSchema.default({
+    enabled: false,
+    file: 'off',
+    console: 'off',
+  }),
+});
+
+export type ChatLogConfig = z.infer<typeof ChatLogConfigSchema>;
+
+export const BackendLogTargetOverridesSchema = z.object({
+  console: LogOutputConfigSchema.partial().optional(),
+  api: LogOutputConfigSchema.partial().optional(),
+});
+
+export type BackendLogTargetOverrides = z.infer<typeof BackendLogTargetOverridesSchema>;
+
+export const BackendLogConfigSchema = LogOutputConfigSchema.extend({
+  targets: BackendLogTargetOverridesSchema.default({
+    console: { file: 'off', console: 'off' },
+    api: { file: 'off', console: 'off' },
+  }),
+});
+
+export type BackendLogConfig = z.infer<typeof BackendLogConfigSchema>;
+
 export const LogConfigSchema = z.object({
-  file: z.boolean().default(false),
-  console: z.boolean().default(false),
+  backend: BackendLogConfigSchema.default({
+    file: 'off',
+    console: 'off',
+    targets: {
+      console: { file: 'off', console: 'off' },
+      api: { file: 'off', console: 'off' },
+    },
+  }),
+  frontend: LogOutputConfigSchema.default({ file: 'off', console: 'off' }),
+  chat: ChatLogConfigSchema.default({
+    sessionStartupLoad: { enabled: false, file: 'off', console: 'off' },
+  }),
 });
 
 export type LogConfig = z.infer<typeof LogConfigSchema>;
 
-export const UserLogConfigSchema = z.object({
-  file: z.boolean().optional(),
-  console: z.boolean().optional(),
+const PartialLogConfigSchema = z.object({
+  backend: BackendLogConfigSchema.partial()
+    .extend({
+      targets: BackendLogTargetOverridesSchema.partial()
+        .extend({
+          console: LogOutputConfigSchema.partial().optional(),
+          api: LogOutputConfigSchema.partial().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  frontend: LogOutputConfigSchema.partial().optional(),
+  chat: z
+    .object({
+      sessionStartupLoad: ChatSessionStartupLoadLogConfigSchema.partial().optional(),
+    })
+    .partial()
+    .optional(),
 });
-
-export type UserLogConfig = z.infer<typeof UserLogConfigSchema>;
 
 export const FileTypeGroupConfigSchema = z.object({
   label: z.string().min(1).optional(),
@@ -248,7 +335,18 @@ export type DynamicSlashCatalogConfig = z.infer<typeof DynamicSlashCatalogConfig
 
 export const TeamConfigSchema = z.object({
   version: z.string(),
-  log: LogConfigSchema.default({ file: false, console: false }),
+  log: LogConfigSchema.default({
+    backend: {
+      file: 'off',
+      console: 'off',
+      targets: {
+        console: { file: 'off', console: 'off' },
+        api: { file: 'off', console: 'off' },
+      },
+    },
+    frontend: { file: 'off', console: 'off' },
+    chat: { sessionStartupLoad: { enabled: false, file: 'off', console: 'off' } },
+  }),
   developer: UserProfileSchema.optional(),
   providers: z.record(z.string(), LlmProviderConfigSchema).optional(),
   defaultModel: z
@@ -285,7 +383,7 @@ export type TeamConfig = z.infer<typeof TeamConfigSchema>;
 
 export const UserConfigSchema = TeamConfigSchema.extend({
   version: z.string().optional(),
-  log: UserLogConfigSchema.optional(),
+  log: PartialLogConfigSchema.optional(),
   developer: UserProfileSchema.optional(),
   providers: z.record(z.string(), ProviderConfigSchema).optional(),
   randomAvatarUrls: z.array(z.string().url()).optional(),

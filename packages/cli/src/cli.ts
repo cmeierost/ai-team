@@ -7,18 +7,27 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
-import type { IServiceContainer, ExecutionContext, CliCommandMetadata } from '@ai-team/core';
+import { findWorkspaceRoot } from '@ai-team/infrastructure';
+import type {
+  IServiceContainer,
+  ExecutionContext,
+  CliCommandMetadata,
+  ContainerTokenValue,
+} from '@ai-team/core';
 import { CliCommandClient } from './cli-command-client.js';
 import {
-  findWorkspaceRoot,
+  ChatRuntime,
+  createChatRuntimeStepCommand,
   ServiceDomainError,
+  type ChatRuntimeTurnInput,
+  type ChatRuntimeStepResolver,
   type ServiceErrorInputRequest,
-  EmitService,
   COMMAND_FACTORY_TOKENS,
 } from '@ai-team/service';
 import { createQuestionResponders } from './handlers/question-responders.js';
 import { runCommandStream } from './handlers/stream-runner.js';
 import { registerCliResultHandlers } from './handlers/result-renderers.js';
+import { createConsoleEmitService } from './emit/console-emit-service.js';
 import type { ChatOptions } from '@ai-team/api-contracts';
 import { renderChat } from './handlers/chat.js';
 import { launchServer, launchServerWithUi } from './handlers/serve.js';
@@ -28,11 +37,91 @@ import {
   getCliDispatchCommandKey,
   hasCliDispatchKey,
 } from './handlers/registry.js';
-import { registerCliChatRuntimeV2 } from './chat-runtime-v2-cli-adapter.js';
 
 const program = new Command();
 
 const workspaceRoot = findWorkspaceRoot();
+
+type CliCommandDispatcher = ContainerTokenValue<typeof COMMAND_FACTORY_TOKENS.CommandDispatcher>;
+type CliWorkflowRunnerFactory = ContainerTokenValue<
+  typeof COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory
+>;
+
+class CliChatRuntimeBridge {
+  constructor(
+    private readonly commandDispatcher: CliCommandDispatcher,
+    private readonly workflowRunnerFactory: CliWorkflowRunnerFactory
+  ) {}
+
+  async runAsync(input: Parameters<ChatRuntime['runAsync']>[0]) {
+    const resolveStep: ChatRuntimeStepResolver = (step) => {
+      switch (step) {
+        case 'preturn':
+          return createChatRuntimeStepCommand('preturn', async (_input: { message: string }) => ({
+            outcome: 'continue' as const,
+          }));
+        case 'sendTurn':
+          return createChatRuntimeStepCommand(
+            'sendTurn',
+            async (turnInput: ChatRuntimeTurnInput) => {
+              const response = await this.commandDispatcher.dispatch(
+                'chat-chat-turn',
+                {
+                  employeeId: input.agentId,
+                  options: {
+                    message: turnInput.userMessage,
+                    disableProcessExit: true,
+                    suppressAutoIntroduction: turnInput.options.skipPersist,
+                    sessionId: input.sessionId,
+                    createNewSession: input.createNewSession,
+                  },
+                },
+                { history: [] }
+              );
+
+              if (response.status === 'error') {
+                throw new Error(response.message || 'chat turn dispatch failed');
+              }
+
+              return {
+                text: typeof response.data === 'string' ? response.data : '',
+                toolRoundNeeded: false,
+              };
+            }
+          );
+        case 'postTurnResolution':
+          return createChatRuntimeStepCommand(
+            'postTurnResolution',
+            async (_input: { text: string; hop: number }) => ({ outcome: 'normal_complete' as const })
+          );
+        case 'handoffTransition':
+          return createChatRuntimeStepCommand(
+            'handoffTransition',
+            async (_input: { handoff: { outcome: 'normal_complete' | 'handoff_required' }; hop: number }) => ({})
+          );
+        case 'toolRound':
+          return undefined;
+        case 'failure':
+          return undefined;
+        default:
+          throw new Error(`Unsupported chat runtime step: ${String(step)}`);
+      }
+    };
+
+    const runtime = new ChatRuntime(resolveStep, this.workflowRunnerFactory.create());
+
+    return runtime.runAsync(input);
+  }
+}
+
+function registerCliChatRuntime(container: IServiceContainer): void {
+  container.registerScoped(COMMAND_FACTORY_TOKENS.ChatRuntime, (c) => {
+    const commandDispatcher = c.resolve(COMMAND_FACTORY_TOKENS.CommandDispatcher);
+    const workflowRunnerFactory = c.resolve(COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory);
+
+    return new CliChatRuntimeBridge(commandDispatcher, workflowRunnerFactory);
+  });
+}
 
 const commandContainer = createContainerWithBootstrap({ workspaceRoot }, (c) => {
   c.registerInstance(
@@ -41,10 +130,10 @@ const commandContainer = createContainerWithBootstrap({ workspaceRoot }, (c) => 
   );
   // EmitService for the CLI — registered under both container and service-layer
   // tokens so both consumers can resolve it.
-  const emitService = EmitService.forConsole();
+  const emitService = createConsoleEmitService();
   c.registerInstance(TOKENS.EmitService, emitService);
   c.registerInstance(COMMAND_FACTORY_TOKENS.EmitService, emitService);
-  registerCliChatRuntimeV2(c as unknown as IServiceContainer);
+  registerCliChatRuntime(c as unknown as IServiceContainer);
 });
 registerCliResultHandlers(commandContainer as unknown as IServiceContainer);
 const commandClient = new CliCommandClient(
@@ -72,6 +161,48 @@ interface CliApplicationDeps {
 
 class CliApplication {
   constructor(private readonly deps: CliApplicationDeps) {}
+
+  private async resolveChatStartupTarget(params: {
+    agentId?: string;
+    sessionId?: string;
+    createNewSession: boolean;
+  }): Promise<{ agentId?: string; sessionId?: string }> {
+    if (params.createNewSession || params.agentId || params.sessionId) {
+      return { agentId: params.agentId, sessionId: params.sessionId };
+    }
+
+    try {
+      const sessionManager = this.deps.commandContainer.resolve(
+        COMMAND_FACTORY_TOKENS.SessionManager
+      ) as {
+        resolveLatestSessionForResume: (
+          developerId?: string
+        ) => Promise<{ id: string; agentId?: string } | null>;
+      };
+
+      const developerIdentityService = this.deps.commandContainer.resolve(
+        COMMAND_FACTORY_TOKENS.DeveloperIdentityService
+      ) as {
+        getUserName?: () => string | undefined;
+        toDeveloperId?: (name: string) => string;
+      };
+
+      const developerName = developerIdentityService?.getUserName?.() || 'developer';
+      const developerId = developerIdentityService?.toDeveloperId?.(developerName);
+      const latest = await sessionManager.resolveLatestSessionForResume(developerId);
+
+      if (!latest) {
+        return { agentId: undefined, sessionId: undefined };
+      }
+
+      return {
+        agentId: latest.agentId,
+        sessionId: latest.id,
+      };
+    } catch {
+      return { agentId: params.agentId, sessionId: params.sessionId };
+    }
+  }
 
   public initialize(): void {
     this.deps.program
@@ -367,7 +498,7 @@ class CliApplication {
   }
 
   private createDirectCliActionHandlers(): Record<string, CliActionHandler> {
-    const runChatV2 = (...args: unknown[]) => {
+    const runChat = async (...args: unknown[]) => {
       const opts = this.tryGetCommanderOptions(args) ?? {};
       const positionals = args.filter((a): a is string => typeof a === 'string');
       const agentId = positionals[0];
@@ -388,40 +519,53 @@ class CliApplication {
           : typeof opts['auto-react-message'] === 'string'
             ? opts['auto-react-message']
             : undefined;
+      const createNewSession = opts.new === true;
+
+      const startupTarget = await this.resolveChatStartupTarget({
+        agentId,
+        sessionId,
+        createNewSession,
+      });
+      const resolvedAgentId = startupTarget.agentId;
+      const resolvedSessionId = startupTarget.sessionId;
 
       const chatOptions: ChatOptions = {
         message,
         oneShot: message !== undefined,
-        sessionId,
+        sessionId: resolvedSessionId,
+        createNewSession,
       };
 
-      // Interactive parity path: reuse canonical chat command UX (greeting,
-      // speaker labels, token streaming, ask-question handling) when no
-      // explicit message was provided.
-      if (!message) {
-        return renderChat(this.deps.commandClient, agentId, chatOptions, opts.mediatorLog === true);
+      if (message === undefined) {
+        await runCommandStream(
+          this.deps.commandClient,
+          {
+            command: 'chat-chat-startup',
+            payload: {
+              employeeId: resolvedAgentId,
+              options: {
+                sessionId: resolvedSessionId,
+                createNewSession,
+              },
+            },
+          },
+          {
+            executionContext: this.toCliExecutionContext(args),
+          }
+        );
       }
 
-      const isSlashMessage = message.trim().startsWith('/');
-      if (isSlashMessage) {
-        // Parity path: slash commands are intercepted by the canonical chat
-        // command runtime. Routing one-shot slash inputs through chat-v2
-        // bypasses that interceptor and yields "Unknown command" for built-ins
-        // like /help.
-        return renderChat(this.deps.commandClient, agentId, chatOptions, opts.mediatorLog === true);
-      }
-
-      // One-shot path: route through chat-v2 backend command.
       return renderChat(
         this.deps.commandClient,
-        agentId,
+        resolvedAgentId,
         chatOptions,
         opts.mediatorLog === true,
         undefined,
-        'chat-chat-v2',
+        'chat-chat',
         {
-          agentId,
-          sessionId,
+          agentId: resolvedAgentId,
+          sessionId: resolvedSessionId,
+          createNewSession,
           message,
           maxHops,
           autoReactMessage,
@@ -430,20 +574,7 @@ class CliApplication {
     };
 
     return {
-      chat: (...args: unknown[]) => {
-        const opts = this.tryGetCommanderOptions(args) ?? {};
-        const agentId = args.find((a) => typeof a === 'string') as string | undefined;
-        const message = typeof opts.message === 'string' ? opts.message : undefined;
-        const chatOptions: ChatOptions = {
-          message,
-          oneShot: message !== undefined,
-          sessionId: typeof opts.sessionId === 'string' ? opts.sessionId : undefined,
-          createNewSession: opts.new === true,
-        };
-        return renderChat(this.deps.commandClient, agentId, chatOptions, opts.mediatorLog === true);
-      },
-      'chat-v2': runChatV2,
-      'chat.chat-v2': runChatV2,
+      chat: runChat,
       serve: (options) => launchServer(options, this.deps.workspaceRoot),
       'serve.ui': (options) => launchServerWithUi(options, this.deps.workspaceRoot),
       ui: (options) => launchUi(options, this.deps.workspaceRoot),

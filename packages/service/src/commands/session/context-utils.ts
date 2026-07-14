@@ -1,5 +1,5 @@
 import type { ILlmService, ChatMessage } from '@ai-team/core';
-import type { SessionManager } from '../../session-manager.js';
+import type { SessionManager } from '../../sessions/session-manager.js';
 
 /** A persisted ChatMessage that carries a storage-assigned numeric id. */
 export type StoredMessage = ChatMessage & { id?: number };

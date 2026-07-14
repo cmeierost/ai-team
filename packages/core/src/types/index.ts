@@ -22,6 +22,7 @@ export * from './graph.js';
 export * from './runtime-contracts.js';
 export * from './interaction-services.js';
 export * from './platform-services.js';
+export * from './logging.js';
 export * from './errors.js';
 export * from './ide.js';
 export * from './tool-tokens.js';

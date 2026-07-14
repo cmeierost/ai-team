@@ -72,5 +72,12 @@ export type {
   DetectedBoundary,
 } from './boundary-detector.js';
 
+export { findOneLineMethodsAsync, findOneLineMethodsInSource } from './one-line-methods.js';
+export type {
+  OneLineMethodFinding,
+  OneLineMethodKind,
+  OneLineMethodScanOptions,
+} from './one-line-methods.js';
+
 export { buildPathFilter } from '@aspect/collector-shared';
 export type { PathFilter } from '@aspect/collector-shared';

@@ -25,17 +25,19 @@ describe('chat command', () => {
     process.env.AI_TEAM_MEDIATOR_LOG = '0';
     process.env.AI_TEAM_FRONTEND_FILE_LOG = '0';
     clientApi.getCommands.mockReturnValue([]);
-    clientApi.withQuestionService.mockReturnValue({ streamInteraction: clientApi.streamInteraction });
+    clientApi.withQuestionService.mockReturnValue({
+      streamInteraction: clientApi.streamInteraction,
+    });
     clientApi.streamInteraction.mockReturnValue(
       (async function* () {
         yield {
           kind: 'started',
-          command: 'chat',
+          command: 'chat-chat',
           timestamp: new Date().toISOString(),
         };
         yield {
           kind: 'done',
-          command: 'chat',
+          command: 'chat-chat',
           timestamp: new Date().toISOString(),
         };
       })()
@@ -67,11 +69,13 @@ describe('chat command', () => {
     expect(clientApi.withQuestionService).toHaveBeenCalledWith(expect.any(Object));
     expect(clientApi.streamInteraction).toHaveBeenCalledWith(
       {
-        command: 'chat',
-        payload: {
-          employeeId: 'maya',
-          options: { message: 'hello', oneShot: true },
-        },
+        command: 'chat-chat',
+        payload: expect.objectContaining({
+          agentId: 'maya',
+          message: 'hello',
+          sessionId: undefined,
+          createNewSession: undefined,
+        }),
       },
       expect.objectContaining({
         logger: undefined,
@@ -88,11 +92,13 @@ describe('chat command', () => {
     expect(clientApi.withQuestionService).toHaveBeenCalledWith(expect.any(Object));
     expect(clientApi.streamInteraction).toHaveBeenCalledWith(
       {
-        command: 'chat',
-        payload: {
-          employeeId: 'maya',
-          options: { message: 'hello', oneShot: true },
-        },
+        command: 'chat-chat',
+        payload: expect.objectContaining({
+          agentId: 'maya',
+          message: 'hello',
+          sessionId: undefined,
+          createNewSession: undefined,
+        }),
       },
       expect.objectContaining({
         logger: expect.any(Function),
@@ -295,6 +301,51 @@ describe('chat command', () => {
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('com_ask'));
   });
 
+  it('renders tool events on a new line after streamed assistant text', async () => {
+    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'agent_info',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          agentId: 'sarah-lee',
+          agentName: 'Sarah Lee',
+          agentRole: 'chief-architect',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: 'I can hand this off now.',
+        };
+        yield {
+          kind: 'tool',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          toolName: 'com_handoff',
+          toolPhase: 'request',
+          message: 'com_handoff({"target":"michael-brown"})',
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await renderChat(client, 'sarah-lee', { message: 'handoff please', oneShot: true });
+
+    const stdoutOutput = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
+    expect(stdoutOutput).toContain('I can hand this off now.\n');
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('[backend:tool:request]'));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('com_handoff'));
+  });
+
   it('prints assistant reply header as Agent (role) → Developer before streamed tokens', async () => {
     process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
     clientApi.streamInteraction.mockReturnValue(
@@ -328,5 +379,393 @@ describe('chat command', () => {
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Michael Brown (ceo)'));
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('→ Clemens Meier: '));
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Hello.'));
+  });
+
+  it('writes thinking spinner to stderr and leaves streamed token text on stdout', async () => {
+    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
+    const originalStdoutIsTTY = process.stdout.isTTY;
+    const originalStderrIsTTY = process.stderr.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'agent_info',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          agentId: 'michael-brown',
+          agentName: 'Michael Brown',
+          agentRole: 'ceo',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: 'How can I help?',
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      await renderChat(client, 'michael-brown', { message: 'hello', oneShot: false });
+
+      const stderrOutput = stderrSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
+      expect(stderrOutput).toMatch(/is thinking/u);
+      expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('How can I help?'));
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutIsTTY,
+        configurable: true,
+      });
+      Object.defineProperty(process.stderr, 'isTTY', {
+        value: originalStderrIsTTY,
+        configurable: true,
+      });
+    }
+  });
+
+  it('renders thinking spinner from backend status phase event even without initial message', async () => {
+    const originalStdoutIsTTY = process.stdout.isTTY;
+    const originalStderrIsTTY = process.stderr.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'agent_info',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          agentId: 'sarah-lee',
+          agentName: 'Sarah Lee',
+          agentRole: 'chief-architect',
+        };
+        yield {
+          kind: 'status',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          phase: 'thinking',
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      await renderChat(client, 'sarah-lee', { oneShot: false });
+
+      const stderrOutput = stderrSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
+      expect(stderrOutput).toContain('Sarah Lee is thinking…');
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutIsTTY,
+        configurable: true,
+      });
+      Object.defineProperty(process.stderr, 'isTTY', {
+        value: originalStderrIsTTY,
+        configurable: true,
+      });
+    }
+  });
+
+  it('does not emit destructive spinner control sequences that can corrupt token rendering', async () => {
+    const originalStdoutIsTTY = process.stdout.isTTY;
+    const originalStderrIsTTY = process.stderr.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'agent_info',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          agentId: 'clara-bishop',
+          agentName: 'Clara Bishop',
+          agentRole: 'frontend-quality-engineer',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: 'Hello there',
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      await renderChat(client, 'clara-bishop', { message: 'hello', oneShot: false });
+
+      const stderrOutput = stderrSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
+      expect(stderrOutput).not.toContain('\r');
+      expect(stderrOutput).not.toContain('\x1b[K');
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutIsTTY,
+        configurable: true,
+      });
+      Object.defineProperty(process.stderr, 'isTTY', {
+        value: originalStderrIsTTY,
+        configurable: true,
+      });
+    }
+  });
+
+  it('capitalizes fallback agent name from lowercase alias in thinking indicator', async () => {
+    const originalStdoutIsTTY = process.stdout.isTTY;
+    const originalStderrIsTTY = process.stderr.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: 'Hi',
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      await renderChat(client, 'clara', { message: 'hello', oneShot: false });
+
+      const stderrOutput = stderrSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
+      expect(stderrOutput).toContain('Clara is thinking…');
+      expect(stderrOutput).not.toContain('clara is thinking…');
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutIsTTY,
+        configurable: true,
+      });
+      Object.defineProperty(process.stderr, 'isTTY', {
+        value: originalStderrIsTTY,
+        configurable: true,
+      });
+    }
+  });
+
+  it('renders thinking indicator again after tool result in the same turn', async () => {
+    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
+    const originalStdoutIsTTY = process.stdout.isTTY;
+    const originalStderrIsTTY = process.stderr.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'agent_info',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          agentId: 'clara-bishop',
+          agentName: 'Clara Bishop',
+          agentRole: 'frontend-quality-engineer',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: 'Sure — checking that now.',
+        };
+        yield {
+          kind: 'tool',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          toolName: 'skill_load',
+          toolPhase: 'result',
+          message: 'Loaded session skill.',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: 'Done.',
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      await renderChat(client, 'clara-bishop', { message: 'hello', oneShot: false });
+
+      const thinkingWrites = stderrSpy.mock.calls.filter((call) =>
+        String(call[0] ?? '').includes('Clara Bishop is thinking…')
+      );
+      expect(thinkingWrites.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutIsTTY,
+        configurable: true,
+      });
+      Object.defineProperty(process.stderr, 'isTTY', {
+        value: originalStderrIsTTY,
+        configurable: true,
+      });
+    }
+  });
+
+  it('groups thought token chunks into a single distinct thinking line', async () => {
+    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'agent_info',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          agentId: 'clara-bishop',
+          agentName: 'Clara Bishop',
+          agentRole: 'frontend-quality-engineer',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: '💭 The user ',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: '💭 asked about rendering.',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: "Let's fix it.",
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await renderChat(client, 'clara-bishop', { message: 'hello', oneShot: true });
+
+    const output = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
+    expect(output).toContain('💭 thinking: ');
+    expect(output).toContain('The user asked about rendering.');
+    expect(output).toContain('Clara Bishop (frontend-quality-engineer)');
+    expect(output).toContain("Let's fix it.");
+
+    const thoughtLabelCount = (output.match(/💭 thinking:/g) ?? []).length;
+    expect(thoughtLabelCount).toBe(1);
+  });
+
+  it('normalizes repeated 💭 markers inside one thought token chunk', async () => {
+    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'agent_info',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          agentId: 'clara-bishop',
+          agentName: 'Clara Bishop',
+          agentRole: 'frontend-quality-engineer',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: '💭 The user💭  wants me💭  to help.',
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await renderChat(client, 'clara-bishop', { message: 'hello', oneShot: true });
+
+    const output = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
+    expect(output).toContain('💭 thinking: ');
+    expect(output).toContain('The user wants me to help.');
+    expect(output).not.toContain('The user💭');
+  });
+
+  it('preserves spacing between thinking chunks when subsequent chunk starts with a leading space', async () => {
+    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'agent_info',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          agentId: 'sarah-lee',
+          agentName: 'Sarah Lee',
+          agentRole: 'chief-architect',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: '💭 The user',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: '💭 has now said hello.',
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await renderChat(client, 'sarah-lee', { message: 'hello', oneShot: true });
+
+    const output = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
+    expect(output).toContain('The user has now said hello.');
+    expect(output).not.toContain('The userhas');
   });
 });

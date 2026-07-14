@@ -10,8 +10,8 @@ import type {
 } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { createIdeAdapter } from '@ai-team/infrastructure';
+import { findWorkspaceRoot } from '@ai-team/infrastructure';
 import type { IQuestionService } from '@ai-team/core';
-import { findWorkspaceRoot } from '@ai-team/service';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
@@ -58,6 +58,13 @@ function setupAbortController(writeStderrLine: (text: string) => void) {
       process.off('SIGTERM', onSigterm);
     },
   };
+}
+
+const THINKING_TOKEN_PREFIX = '💭 ';
+
+function normalizeThinkingChunk(text: string): string {
+  if (!text) return '';
+  return text.replaceAll(/\s*💭\s*/g, ' ').replaceAll(/\s+/g, ' ');
 }
 
 function isAbortLikeError(error: unknown): boolean {
@@ -113,7 +120,8 @@ function createChatQuestionResponders(
   inquirerQuestionService: Pick<
     IQuestionService,
     'confirm' | 'select' | 'checklist' | 'password'
-  > = createQuestionResponders()
+  > = createQuestionResponders(),
+  promptMessageTransformer?: (message: string) => string
 ): Pick<IQuestionService, 'input' | 'confirm' | 'select' | 'checklist' | 'password'> {
   const normalizeSelection = (
     raw: string,
@@ -138,7 +146,10 @@ function createChatQuestionResponders(
     input: async (request: QuestionInputRequest) => {
       onQuestionStart?.();
       while (true) {
-        const answer = await askWithSlashSuggestions(request.message, chatCommands, signal);
+        const promptMessage = promptMessageTransformer
+          ? promptMessageTransformer(request.message)
+          : request.message;
+        const answer = await askWithSlashSuggestions(promptMessage, chatCommands, signal);
         const trimmed = answer.trim().toLowerCase();
         if (
           trimmed === 'exit' ||
@@ -160,7 +171,13 @@ function createChatQuestionResponders(
             continue;
           }
         }
-        onAnswered?.();
+        // Slash commands are command-style control inputs and may resolve
+        // immediately (including "unknown command" responses). Avoid showing
+        // the agent "thinking" spinner for these inputs.
+        const isSlashCommandInput = answer.trim().startsWith('/');
+        if (!isSlashCommandInput) {
+          onAnswered?.();
+        }
         return answer;
       }
     },
@@ -389,7 +406,10 @@ function hashStringToHue(str: string): number {
   return Math.abs(hash % 360);
 }
 
-function generateAgentColor(agent: { name: string; avatar?: { color?: string; seed?: string } }): string {
+function generateAgentColor(agent: {
+  name: string;
+  avatar?: { color?: string; seed?: string };
+}): string {
   if (agent.avatar?.color) return agent.avatar.color;
   const seed = agent.avatar?.seed || agent.name;
   const hue = hashStringToHue(seed);
@@ -399,6 +419,31 @@ function generateAgentColor(agent: { name: string; avatar?: { color?: string; se
 function parseHslHue(hsl: string): number | undefined {
   const m = /^hsl\((\d+)/i.exec(hsl);
   return m ? Number(m[1]) : undefined;
+}
+
+function toTitleCaseWords(input: string): string {
+  return input
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function normalizeAgentDisplayName(agentName?: string, agentId?: string): string {
+  const explicit = agentName?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  const fallback = agentId?.trim();
+  if (!fallback) {
+    return 'Agent';
+  }
+
+  // Convert ids/aliases like "clara-bishop" or "clara_bishop" to
+  // "Clara Bishop" and short aliases like "clara" to "Clara".
+  const words = fallback.replace(/[-_]+/g, ' ');
+  return toTitleCaseWords(words);
 }
 
 function countTreeNodes(node?: FileTreeNodeLike): { files: number; directories: number } {
@@ -675,7 +720,7 @@ export async function renderChat(
   options: ChatOptions,
   mediatorLog: boolean = false,
   resolveProjectName?: (workspaceRoot: string) => Promise<string | undefined>,
-  requestCommand: string = 'chat',
+  requestCommand: string = 'chat-chat',
   requestPayload?: Record<string, unknown>
 ) {
   const mediatorLoggerEnabled = mediatorLog || process.env.AI_TEAM_MEDIATOR_LOG === '1';
@@ -715,45 +760,42 @@ export async function renderChat(
   let bufferingBracketToolCall = false;
   let bracketToolBuffer = '';
   let bracketToolRenderedViaEvent = false;
+  let thinkingBurstOpen = false;
+  let thinkingHasWrittenContent = false;
+  let thinkingLastEndedWithWhitespace = true;
 
   let spinnerActive = false;
-  let spinnerTimer: ReturnType<typeof setInterval> | undefined;
   let spinnerText = '';
-  let spinnerFrame = 0;
-  const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let lastSpinnerRenderedText = '';
 
   const startSpinner = (text?: string) => {
-    if (options.oneShot || !process.stdout.isTTY) return;
-    stopSpinner();
-    spinnerText = text ?? `${currentAgentName || currentAgentId || 'Agent'} is thinking…`;
+    if (options.oneShot || !process.stderr.isTTY) return;
+    spinnerText =
+      text ?? `${normalizeAgentDisplayName(currentAgentName, currentAgentId)} is thinking…`;
+    if (spinnerActive) {
+      return;
+    }
     spinnerActive = true;
-    spinnerFrame = 0;
-    const tick = () => {
-      if (!spinnerActive) return;
-      process.stdout.write(
-        `\r${spinnerFrames[spinnerFrame % spinnerFrames.length]} ${chalk.dim(spinnerText)}`
-      );
-      spinnerFrame++;
-    };
-    tick();
-    spinnerTimer = setInterval(tick, 80);
+
+    // Use line-based status output (no carriage-return animation) to avoid
+    // cursor rewrites that can visually corrupt concurrently streamed tokens.
+    if (spinnerText !== lastSpinnerRenderedText) {
+      process.stderr.write(`${chalk.dim(`⠋ ${spinnerText}`)}\n`);
+      lastSpinnerRenderedText = spinnerText;
+    }
   };
   const stopSpinner = () => {
     if (!spinnerActive) return;
     spinnerActive = false;
-    if (spinnerTimer !== undefined) {
-      clearInterval(spinnerTimer);
-      spinnerTimer = undefined;
-    }
-    if (process.stdout.isTTY) {
-      process.stdout.write('\r\x1b[K');
-    }
+    // Allow the next thinking phase to render even if the text is unchanged.
+    lastSpinnerRenderedText = '';
   };
 
   function resolveAgentIdentity(id?: string, name?: string) {
+    const displayName = normalizeAgentDisplayName(name, id);
     return {
       id,
-      name: name ?? id ?? 'unknown',
+      name: displayName,
       avatar: undefined,
     };
   }
@@ -804,7 +846,8 @@ export async function renderChat(
 
   function openTokenHeaderIfNeeded() {
     if (tokenBurstOpen) return;
-    const agentName = currentAgentName || currentAgentId || 'Agent';
+    closeThinkingBurstIfNeeded();
+    const agentName = normalizeAgentDisplayName(currentAgentName, currentAgentId);
     const title = currentAgentRole ? `${agentName} (${currentAgentRole})` : agentName;
     // Lock in the chalk instance for this entire burst so every token uses the
     // same color — even if agent_info arrives later and updates currentAgentName.
@@ -820,8 +863,51 @@ export async function renderChat(
     process.stdout.write(currentBurstChalk(text));
   }
 
+  function writeThinkingToken(text: string) {
+    if (!text) return;
+    if (tokenBurstOpen) {
+      process.stdout.write('\n');
+      tokenBurstOpen = false;
+    }
+    if (!thinkingBurstOpen) {
+      process.stdout.write(`\n${chalk.dim.italic('💭 thinking: ')}`);
+      thinkingBurstOpen = true;
+    }
+    const normalized = normalizeThinkingChunk(text);
+    if (!normalized.trim()) return;
+    const needsBoundarySpace =
+      thinkingHasWrittenContent && !thinkingLastEndedWithWhitespace && !/^\s/.test(normalized);
+    const outputText = needsBoundarySpace ? ` ${normalized}` : normalized;
+    process.stdout.write(chalk.dim.italic(outputText));
+    thinkingHasWrittenContent = true;
+    thinkingLastEndedWithWhitespace = /\s$/.test(outputText);
+  }
+
+  function closeThinkingBurstIfNeeded() {
+    if (!thinkingBurstOpen) return;
+    process.stdout.write('\n');
+    thinkingBurstOpen = false;
+    thinkingHasWrittenContent = false;
+    thinkingLastEndedWithWhitespace = true;
+  }
+
+  function closeTokenBurstIfNeeded() {
+    if (!tokenBurstOpen) return;
+    process.stdout.write('\n');
+    tokenBurstOpen = false;
+  }
+
   function handleAssistantTokenChunk(deltaText: string) {
     if (!deltaText) return;
+
+    if (deltaText.startsWith(THINKING_TOKEN_PREFIX)) {
+      const thought = deltaText.slice(THINKING_TOKEN_PREFIX.length);
+      writeThinkingToken(thought);
+      return;
+    }
+
+    closeThinkingBurstIfNeeded();
+
     if (bufferingBracketToolCall) {
       bracketToolBuffer += deltaText;
       return;
@@ -853,25 +939,59 @@ export async function renderChat(
   }
 
   try {
-    startSpinner();
+    if (!options.oneShot && requestCommand === 'chat-chat') {
+      writeStderrLine(chalk.dim('chat ready — type a message or "exit" to quit.'));
+      const startupAgentId =
+        requestPayload && typeof requestPayload['agentId'] === 'string'
+          ? requestPayload['agentId']
+          : undefined;
+      const startupSessionId =
+        requestPayload && typeof requestPayload['sessionId'] === 'string'
+          ? requestPayload['sessionId']
+          : undefined;
+      if (startupSessionId || startupAgentId) {
+        const label = startupAgentId
+          ? normalizeAgentDisplayName(undefined, startupAgentId)
+          : 'last active agent';
+        const sessionPart = startupSessionId ? `session ${startupSessionId}` : 'latest session';
+        writeStderrLine(chalk.dim(`Resuming ${sessionPart} with ${label}.`));
+      }
+    }
+
+    if (typeof options.message === 'string' && options.message.trim().length > 0) {
+      startSpinner();
+    }
     const sessionClient = client.withQuestionService(
       createChatQuestionResponders(
         abortControl.signal,
         startSpinner,
         stopSpinner,
         resolveProjectNameFromWorkspace,
-        chatCommands
+        chatCommands,
+        undefined,
+        (message: string) => {
+          if (requestCommand !== 'chat-chat') {
+            return message;
+          }
+
+          if (message.trim().toLowerCase() !== 'you:') {
+            return message;
+          }
+
+          const agentLabel = normalizeAgentDisplayName(currentAgentName, currentAgentId);
+          return `${developerDisplayName} -> ${agentLabel}:`;
+        }
       )
     );
     for await (const event of sessionClient.streamInteraction(
       {
         command: requestCommand,
-        payload:
-          requestPayload ??
-          {
-            employeeId: agentId,
-            options,
-          },
+        payload: requestPayload ?? {
+          agentId,
+          message: options.message,
+          sessionId: options.sessionId,
+          createNewSession: options.createNewSession,
+        },
       },
       {
         workspaceRoot,
@@ -883,7 +1003,7 @@ export async function renderChat(
             ? (entry: { channel: string; event: unknown }) => {
                 if (frontendFileLogEnabled) {
                   writeFrontendDebugLog({
-                    command: 'chat',
+                    command: 'chat-chat',
                     channel: entry.channel,
                     event: entry.event,
                   });
@@ -914,23 +1034,32 @@ export async function renderChat(
         continue;
       }
 
-      tokenBurstOpen = false;
+      closeTokenBurstIfNeeded();
 
       if (event.kind === 'done') {
+        closeThinkingBurstIfNeeded();
         flushBracketToolBufferFallbackIfNeeded();
         continue;
       }
 
       if (event.kind === 'aborted') {
         stopSpinner();
+        closeThinkingBurstIfNeeded();
         flushBracketToolBufferFallbackIfNeeded();
         writeStderrLine(chalk.yellow('Chat aborted.'));
         process.exitCode = 130;
         return;
       }
 
-      if (event.kind === 'status' && event.message) {
-        if (mediatorLoggerEnabled) {
+      if (event.kind === 'status') {
+        const phase = (event.phase ?? '').toLowerCase();
+        if (phase === 'thinking') {
+          startSpinner(event.message || undefined);
+        } else if (phase === 'complete') {
+          stopSpinner();
+        }
+
+        if (event.message && mediatorLoggerEnabled) {
           writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
         }
         continue;
@@ -945,7 +1074,7 @@ export async function renderChat(
         }
         // Update spinner text now that we know the agent's name
         if (spinnerActive) {
-          spinnerText = `${currentAgentName || currentAgentId || 'Agent'} is thinking…`;
+          spinnerText = `${normalizeAgentDisplayName(currentAgentName, currentAgentId)} is thinking…`;
         }
         if (mediatorLoggerEnabled && event.message) {
           writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
@@ -955,6 +1084,7 @@ export async function renderChat(
 
       if (event.kind === 'tool') {
         stopSpinner();
+        closeThinkingBurstIfNeeded();
         const phase = event.toolPhase || 'event';
 
         // Slash command results go directly to stdout — they ARE the response.
@@ -985,8 +1115,14 @@ export async function renderChat(
         );
         const detail = formatToolEventDetail(event as unknown as Record<string, unknown>);
         if (detail) writeStderrLine(detail);
-        // After a tool result, the agent will continue thinking — restart the spinner
-        if (phase === 'result' || phase === 'error' || phase === 'denied') {
+        // During/after tool activity, keep visible progress feedback.
+        if (
+          phase === 'request' ||
+          phase === 'start' ||
+          phase === 'result' ||
+          phase === 'error' ||
+          phase === 'denied'
+        ) {
           startSpinner();
         }
         continue;
@@ -995,6 +1131,7 @@ export async function renderChat(
       // Handle code edit proposals
       if (event.kind === 'code_edit_proposal') {
         stopSpinner();
+        closeThinkingBurstIfNeeded();
         await handleCodeEditProposal(
           event,
           writeStderrLine,
@@ -1007,9 +1144,10 @@ export async function renderChat(
       // Handle agent handoff — print a single clean transition line
       if (event.kind === 'handoff') {
         stopSpinner();
+        closeThinkingBurstIfNeeded();
         const e = event;
-        const from = e.fromAgentName || e.fromAgentId;
-        const to = e.toAgentName || e.toAgentId;
+        const from = normalizeAgentDisplayName(e.fromAgentName, e.fromAgentId);
+        const to = normalizeAgentDisplayName(e.toAgentName, e.toAgentId);
         currentAgentId = e.toAgentId || currentAgentId;
         currentAgentName = e.toAgentName || e.toAgentId || currentAgentName;
         currentAgentRole = e.toAgentRole || currentAgentRole;
@@ -1028,7 +1166,7 @@ export async function renderChat(
 
       if (event.kind === 'question') {
         if (frontendFileLogEnabled) {
-          writeFrontendDebugLog({ command: 'chat', event });
+          writeFrontendDebugLog({ command: 'chat-chat', event });
         }
         if (mediatorLoggerEnabled) {
           writeStderrLine(
@@ -1040,6 +1178,7 @@ export async function renderChat(
 
       if (event.kind === 'log') {
         stopSpinner();
+        closeThinkingBurstIfNeeded();
         const line = `${event.message}\n`;
         if (event.level === 'error') {
           process.stderr.write(chalk.red(line));
@@ -1053,6 +1192,7 @@ export async function renderChat(
 
       if (event.kind === 'error') {
         stopSpinner();
+        closeThinkingBurstIfNeeded();
         flushBracketToolBufferFallbackIfNeeded();
         if (abortControl.wasAborted() || isAbortLikeError(event.message)) {
           writeStderrLine(chalk.yellow('Chat aborted.'));
@@ -1068,6 +1208,7 @@ export async function renderChat(
     }
   } catch (error) {
     if (abortControl.wasAborted() || isAbortLikeError(error)) {
+      closeThinkingBurstIfNeeded();
       flushBracketToolBufferFallbackIfNeeded();
       writeStderrLine(chalk.yellow('Chat aborted.'));
       process.exitCode = 130;
@@ -1076,6 +1217,7 @@ export async function renderChat(
     throw error;
   } finally {
     stopSpinner();
+    closeThinkingBurstIfNeeded();
     abortControl.dispose();
   }
 }

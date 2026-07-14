@@ -7,7 +7,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { ProposalStatus } from '@ai-team/core';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../interaction/question-service.js';
 
 type ApplyParams = z.infer<typeof CodeEditApplyCommand.schema>;
 const _codeEditApplyCommandSchema = z.object({

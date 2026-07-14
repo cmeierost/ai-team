@@ -4,7 +4,7 @@ const serviceApi = vi.hoisted(() => ({
   runUiCommand: vi.fn(),
 }));
 
-vi.mock('@ai-team/service', () => ({
+vi.mock('./ui-command.js', () => ({
   runUiCommand: serviceApi.runUiCommand,
 }));
 

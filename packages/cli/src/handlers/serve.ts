@@ -1,4 +1,4 @@
-import { serveApiCommand, type ServeApiOptions } from '@ai-team/service';
+import { serveApiCommand, type ServeApiOptions } from './serve-command.js';
 
 export async function launchServer(
   options: ServeApiOptions = {},

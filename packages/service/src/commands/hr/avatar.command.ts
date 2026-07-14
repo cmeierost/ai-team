@@ -12,7 +12,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import type { AvatarOptions, QuestionSelectChoice } from '@ai-team/api-contracts';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../interaction/question-service.js';
 import type { IEmitService } from '@ai-team/core';
 
 type Params = z.infer<typeof AvatarCommand.schema>;

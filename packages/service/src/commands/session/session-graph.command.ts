@@ -5,7 +5,7 @@ import type {
   ExecutionContext,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { SessionManager } from '../../session-manager.js';
+import type { SessionManager } from '../../sessions/session-manager.js';
 
 function buildGraphLines(chain: ChatSession[], currentSessionId: string): string[] {
   const childrenOf = new Map<string, ChatSession[]>();

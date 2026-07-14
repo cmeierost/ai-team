@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { InitICommand } from './init.command.js';
 import { initCommand } from './init.js';
-import { EmitService } from '../../orchestrator/services/emit-service.js';
+import { EmitService } from '../../interaction/emit-service.js';
 
 vi.mock('./init.js', () => ({
   initCommand: vi.fn(async () => undefined),

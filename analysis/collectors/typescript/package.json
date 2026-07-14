@@ -4,12 +4,16 @@
   "description": "TypeScript/JavaScript code analysis collector — extracts raw facts using dependency-cruiser, jscpd, eslint, and custom AST visitors",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "aspect-one-line-methods": "dist/cli/one-line-methods.js"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage",
+    "one-line-methods": "node dist/cli/one-line-methods.js",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },

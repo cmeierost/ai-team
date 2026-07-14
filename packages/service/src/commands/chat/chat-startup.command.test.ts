@@ -1,0 +1,96 @@
+import { describe, expect, it, vi } from 'vitest';
+import { ChatStartupCommand } from './chat-startup.command.js';
+
+describe('ChatStartupCommand', () => {
+  it('runs startup workflow and emits resume context', async () => {
+    const agentManager = {
+      getAgentAsync: vi.fn(async () => ({
+        id: 'sarah-lee',
+        name: 'Sarah Lee',
+        role: 'chief-architect',
+      })),
+    };
+    const resolveChatSessionCommand = {
+      execute: vi.fn(async () => ({
+        sessionId: 'session-1',
+        shouldLoadHistory: true,
+        reason: 'startup' as const,
+      })),
+    };
+    const loadSessionMessagesCommand = {
+      execute: vi.fn(async () => []),
+    };
+    const chatInfoService = {
+      showSessionIntro: vi.fn(),
+      showLoadedInstructions: vi.fn(),
+      showSessionResume: vi.fn(),
+    };
+    const introductionCommand = {
+      execute: vi.fn(async () => undefined),
+    };
+    const developerIdentityService = {
+      getUserName: vi.fn(() => 'Clemens Meier'),
+    };
+
+    const command = new ChatStartupCommand(
+      agentManager as any,
+      resolveChatSessionCommand as any,
+      loadSessionMessagesCommand as any,
+      introductionCommand as any,
+      chatInfoService as any,
+      developerIdentityService as any
+    );
+
+    const response = await command.execute(
+      {
+        employeeId: 'sarah-lee',
+        options: {
+          sessionId: 'session-1',
+          createNewSession: false,
+        },
+      },
+      {
+        invocationSurface: 'cli',
+        history: [],
+      } as any
+    );
+
+    expect(agentManager.getAgentAsync).toHaveBeenCalledWith('sarah-lee');
+    expect(resolveChatSessionCommand.execute).toHaveBeenCalled();
+    expect(loadSessionMessagesCommand.execute).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      reason: 'startup',
+    });
+    expect(chatInfoService.showSessionIntro).toHaveBeenCalledWith(
+      expect.objectContaining({ developerName: 'Clemens Meier' })
+    );
+    expect(chatInfoService.showSessionResume).toHaveBeenCalled();
+
+    expect(response).toEqual({ status: 'ok', data: '', message: 'completed' });
+  });
+
+  it('returns ok no-op when employeeId is omitted', async () => {
+    const command = new ChatStartupCommand(
+      { getAgentAsync: vi.fn() } as any,
+      { execute: vi.fn() } as any,
+      { execute: vi.fn() } as any,
+      { execute: vi.fn() } as any,
+      {
+        showSessionIntro: vi.fn(),
+        showLoadedInstructions: vi.fn(),
+        showSessionResume: vi.fn(),
+      } as any,
+      { getUserName: vi.fn(() => 'Clemens Meier') } as any
+    );
+
+    const response = await command.execute(
+      {
+        employeeId: undefined,
+        options: {},
+      },
+      { history: [] } as any
+    );
+
+    expect(response).toEqual({ status: 'ok', data: '', message: 'completed' });
+  });
+});

@@ -1,0 +1,163 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { Agent, StructuredToolResult, ExecutionContext } from '@ai-team/core';
+import { HandoffToolResultParser, buildDefaultTurnResultParsers } from './runtime-defaults.js';
+
+function makeAgent(id: string, name = id): Agent {
+  return { id, name, role: 'assistant', systemPrompt: '' } as unknown as Agent;
+}
+
+function makeAgentManager(currentAgentId = 'current-agent') {
+  const currentAgent = makeAgent(currentAgentId);
+  const targetAgent = makeAgent('target-agent', 'Target Agent');
+  const roster = [currentAgent, targetAgent];
+  return {
+    agents: roster,
+    getAgent: vi.fn((id: string) => roster.find((a) => a.id === id)),
+    resolveAgent: vi.fn((query: string) =>
+      roster.filter((a) => a.id === query || a.name === query)
+    ),
+  };
+}
+
+function makeCtx(currentAgentId = 'current-agent'): ExecutionContext {
+  return {
+    agent: makeAgent(currentAgentId),
+    workspaceRoot: '',
+    history: [],
+  } as unknown as ExecutionContext;
+}
+
+function handoffResult(
+  targetAgentId: string,
+  extra?: Partial<StructuredToolResult>
+): StructuredToolResult {
+  return {
+    type: 'handoff',
+    targetAgentId,
+    briefingNote: 'Briefing note',
+    timestamp: new Date().toISOString(),
+    ...extra,
+  } as StructuredToolResult;
+}
+
+function runChain(
+  structuredResults: StructuredToolResult[],
+  fullResponse: string,
+  persistedContent: string,
+  ctx: ExecutionContext
+) {
+  const agentManager = makeAgentManager(ctx.agent?.id);
+  for (const parser of buildDefaultTurnResultParsers(agentManager as any)) {
+    const override = parser.parse(structuredResults, fullResponse, persistedContent, ctx);
+    if (override !== null) return override;
+  }
+  return null;
+}
+
+describe('HandoffToolResultParser', () => {
+  const agentManager = makeAgentManager();
+  const parser = new HandoffToolResultParser(agentManager as any);
+
+  it('returns null when structuredResults contains no handoff entry', () => {
+    const result = parser.parse([], 'some response', 'some response', makeCtx());
+    expect(result).toBeNull();
+  });
+
+  it('returns null when structuredResults contains only non-handoff entries', () => {
+    const result = parser.parse(
+      [{ type: 'tool_list_result' } as StructuredToolResult],
+      'text',
+      'text',
+      makeCtx()
+    );
+    expect(result).toBeNull();
+  });
+
+  it('returns handedOff:true when target is found and is not self', () => {
+    const ctx = makeCtx('current-agent');
+    const result = parser.parse([handoffResult('target-agent')], 'response', 'persisted', ctx);
+
+    expect(result).toMatchObject({
+      text: 'persisted',
+      done: false,
+      handedOff: true,
+      handoffTargetId: 'target-agent',
+    });
+  });
+
+  it('carries briefingNote into handoffNote', () => {
+    const structured = {
+      type: 'handoff',
+      targetAgentId: 'target-agent',
+      briefingNote: 'Briefing for the handoff',
+      timestamp: '',
+    } as StructuredToolResult;
+
+    const result = parser.parse([structured], '', 'text', makeCtx());
+
+    expect(result).toMatchObject({ handoffNote: 'Briefing for the handoff' });
+  });
+
+  it('carries targetSessionId when provided', () => {
+    const structured = {
+      type: 'handoff',
+      targetAgentId: 'target-agent',
+      briefingNote: '',
+      targetSessionId: 'sess-999',
+      timestamp: '',
+    } as StructuredToolResult;
+
+    const result = parser.parse([structured], '', 'text', makeCtx());
+
+    expect(result).toMatchObject({ handoffTargetSessionId: 'sess-999' });
+  });
+
+  it('returns { done:false } (no handoff) when target agent is not found', () => {
+    const ctx = makeCtx('current-agent');
+    const result = parser.parse([handoffResult('unknown-agent')], '', 'persisted', ctx);
+
+    expect(result).toEqual({ text: 'persisted', done: false });
+    expect(result).not.toHaveProperty('handedOff');
+  });
+
+  it('returns { done:false } (no handoff) when target resolves to the current agent (self-handoff)', () => {
+    const ctx = makeCtx('current-agent');
+    const result = parser.parse([handoffResult('current-agent')], '', 'persisted', ctx);
+
+    expect(result).toEqual({ text: 'persisted', done: false });
+    expect(result).not.toHaveProperty('handedOff');
+  });
+});
+
+describe('buildDefaultTurnResultParsers', () => {
+  it('returns an array of one parser', () => {
+    const parsers = buildDefaultTurnResultParsers(makeAgentManager() as any);
+    expect(parsers).toHaveLength(1);
+  });
+
+  it('first parser is HandoffToolResultParser', () => {
+    const [first] = buildDefaultTurnResultParsers(makeAgentManager() as any);
+    expect(first).toBeInstanceOf(HandoffToolResultParser);
+  });
+});
+
+describe('Parser chain priority', () => {
+  it('tool handoff is parsed when structured handoff is present', () => {
+    const ctx = makeCtx('current-agent');
+    const result = runChain(
+      [handoffResult('target-agent')],
+      'HANDOFF: target-agent | also in text',
+      'text',
+      ctx
+    );
+
+    expect(result).toMatchObject({ handedOff: true, handoffTargetId: 'target-agent' });
+  });
+
+  it('returns null (no override) when no parser matches', () => {
+    const ctx = makeCtx('current-agent');
+    const result = runChain([], 'Just a normal reply.', 'Just a normal reply.', ctx);
+
+    expect(result).toBeNull();
+  });
+});

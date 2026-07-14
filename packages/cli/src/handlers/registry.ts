@@ -1,13 +1,8 @@
 import type { CliCommandMetadata } from '@ai-team/core';
 import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
-import {
-  createCommandDispatcher,
-  deriveRegistryKey,
-  findWorkspaceRoot,
-  GROUP_REGISTRY,
-} from '@ai-team/service';
+import { findWorkspaceRoot } from '@ai-team/infrastructure';
+import { createCommandDispatcher, deriveRegistryKey, GROUP_REGISTRY } from '@ai-team/service';
 import { createQuestionResponders } from '../handlers/question-responders.js';
-import { registerCliChatRuntimeV2 } from '../chat-runtime-v2-cli-adapter.js';
 export { IN_CHAT_COMMAND_ALIASES, IN_CHAT_COMMAND_REGISTRY } from '@ai-team/service';
 
 const cliDispatchKeyByKey = new Map<string, string>();
@@ -60,7 +55,6 @@ function loadServiceCliCommandRegistry(): CliCommandMetadata[] {
       TOKENS.QuestionService,
       createQuestionResponders() as unknown as import('@ai-team/core').IQuestionService
     );
-    registerCliChatRuntimeV2(c as unknown as import('@ai-team/core').IServiceContainer);
   });
   const dispatcher = createCommandDispatcher(
     workspaceRoot,
@@ -114,9 +108,9 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
 
   const localCliOnlyEntries: ServiceCliEntry[] = [
     {
-      key: 'chat-v2',
-      command: 'chat-v2',
-      description: 'Run chat using the workflow-v2 runtime',
+      key: 'chat',
+      command: 'chat',
+      description: 'Run chat using the workflow runtime',
       llmCallable: false,
       directCli: true,
       arguments: [
@@ -130,59 +124,17 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
         },
       ],
       options: [
-        { flags: '-m, --message <text>', description: 'Message to send through workflow-v2' },
+        { flags: '-m, --message <text>', description: 'Message to send through workflow' },
         { flags: '-s, --session-id <id>', description: 'Resume a specific session id' },
+        { flags: '-n, --new', description: 'Force-create a new session instead of resuming' },
         { flags: '--max-hops <number>', description: 'Maximum handoff hops before exiting' },
         {
           flags: '--auto-react-message <text>',
           description: 'Override auto-react message used after handoff transitions',
         },
-      ],
-      dispatchKey: 'chat-chat-v2',
-      jsonSignature: true,
-    },
-    {
-      key: 'chat',
-      command: 'chat [agent-id]',
-      description: 'Start a chat session with an agent',
-      llmCallable: false,
-      directCli: true,
-      arguments: [{ syntax: '[agent-id]', description: 'Agent name, first name, ID, or role' }],
-      options: [
-        { flags: '-m, --message <text>', description: 'Send a single message (one-shot mode)' },
-        { flags: '-s, --session-id <id>', description: 'Resume or continue a specific session' },
-        { flags: '-n, --new', description: 'Force-create a new session instead of resuming' },
         { flags: '--mediator-log', description: 'Print mediator log to stderr (debug)' },
       ],
       dispatchKey: 'chat-chat',
-    },
-    {
-      key: 'chat.chat-v2',
-      parentKey: 'chat',
-      command: 'chat-v2',
-      description: 'Run chat using the workflow-v2 runtime',
-      llmCallable: false,
-      directCli: true,
-      arguments: [
-        {
-          syntax: '[agent-id]',
-          description: 'Agent id/name/role target (defaults to most recent session agent)',
-        },
-        {
-          syntax: '[session-id]',
-          description: 'Session id to resume explicitly (defaults to most recent session)',
-        },
-      ],
-      options: [
-        { flags: '-m, --message <text>', description: 'Message to send through workflow-v2' },
-        { flags: '-s, --session-id <id>', description: 'Resume a specific session id' },
-        { flags: '--max-hops <number>', description: 'Maximum handoff hops before exiting' },
-        {
-          flags: '--auto-react-message <text>',
-          description: 'Override auto-react message used after handoff transitions',
-        },
-      ],
-      dispatchKey: 'chat-chat-v2',
       jsonSignature: true,
     },
     {
@@ -281,6 +233,11 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
     upsert(localEntry);
   }
 
+  const removedAliasKeys = new Set<string>();
+  for (const key of removedAliasKeys) {
+    merged.delete(key);
+  }
+
   const ensureSyntheticParent = (parentKey: string): void => {
     if (merged.has(parentKey)) {
       return;
@@ -311,7 +268,9 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
     }
   }
 
-  for (const key of orderedKeys) {
+  const activeOrderedKeys = orderedKeys.filter((key) => !removedAliasKeys.has(key));
+
+  for (const key of activeOrderedKeys) {
     const dispatchKey = merged.get(key)?.dispatchKey;
     if (dispatchKey) {
       cliDispatchKeyByKey.set(key, dispatchKey);
@@ -319,7 +278,7 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
   }
 
   // Sort: parents first (no parentKey), then children — all alphabetically within their level
-  const sortedKeys = [...orderedKeys].sort((a, b) => {
+  const sortedKeys = [...activeOrderedKeys].sort((a, b) => {
     const ea = merged.get(a)!;
     const eb = merged.get(b)!;
     const parentA = ea.parentKey ?? '';

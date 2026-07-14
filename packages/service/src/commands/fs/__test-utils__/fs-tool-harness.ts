@@ -5,8 +5,8 @@ import { vi } from 'vitest';
 import { WorkspaceFs, canRead, canWrite } from 'fs-context';
 import { ContextLevel, type Agent, type PermissionConfig, type ICommand } from '@ai-team/core';
 import { COMMAND_FACTORY_TOKENS } from '../../../types.js';
-import { CommandRegistry } from '../../../command-registry-impl.js';
-import { ToolManager } from '../../../tools/tool-manager.js';
+import { CommandRegistry } from '../../../command-dispatcher/command-registry.js';
+import { ToolManager } from '../../../tooling/manager/tool-manager.js';
 import {
   FsReadFileTool,
   FsReadLinesTool,

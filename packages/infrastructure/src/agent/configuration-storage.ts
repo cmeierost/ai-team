@@ -16,10 +16,6 @@ import path from 'node:path';
 export class ConfigurationStorage implements IConfigurationStorage {
   private cachedResolvedSettings: TeamConfig | undefined;
   private initialized = false;
-  private static readonly ENV_CONFIG_PATH_OVERRIDES: Readonly<Record<string, string>> = {
-    LOG_FILE: 'log.file',
-    LOG_CONSOLE: 'log.console',
-  };
 
   constructor(private readonly workspaceRoot: string) {}
 
@@ -269,7 +265,49 @@ export class ConfigurationStorage implements IConfigurationStorage {
     return {
       ...teamConfig,
       ...teamCompatibleUserConfig,
-      log: userLogConfig ? { ...teamConfig.log, ...userLogConfig } : teamConfig.log,
+      log: userLogConfig
+        ? {
+            ...teamConfig.log,
+            ...userLogConfig,
+            backend: {
+              ...teamConfig.log.backend,
+              ...(userLogConfig.backend ?? {}),
+              targets: {
+                ...(teamConfig.log.backend.targets ?? {}),
+                ...((userLogConfig.backend as { targets?: Record<string, unknown> } | undefined)
+                  ?.targets ?? {}),
+                console: {
+                  ...(teamConfig.log.backend.targets?.console ?? {}),
+                  ...((
+                    userLogConfig.backend as
+                      | { targets?: { console?: Record<string, unknown> } }
+                      | undefined
+                  )?.targets?.console ?? {}),
+                },
+                api: {
+                  ...(teamConfig.log.backend.targets?.api ?? {}),
+                  ...((
+                    userLogConfig.backend as
+                      | { targets?: { api?: Record<string, unknown> } }
+                      | undefined
+                  )?.targets?.api ?? {}),
+                },
+              },
+            },
+            frontend: {
+              ...teamConfig.log.frontend,
+              ...(userLogConfig.frontend ?? {}),
+            },
+            chat: {
+              ...teamConfig.log.chat,
+              ...(userLogConfig.chat ?? {}),
+              sessionStartupLoad: {
+                ...teamConfig.log.chat.sessionStartupLoad,
+                ...(userLogConfig.chat?.sessionStartupLoad ?? {}),
+              },
+            },
+          }
+        : teamConfig.log,
       providers: this.mergeProviderRegistries(teamConfig.providers, userConfig.providers),
       defaultModel: userConfig.defaultModel ?? teamConfig.defaultModel,
       modelKeys: userConfig.modelKeys
@@ -557,10 +595,8 @@ export class ConfigurationStorage implements IConfigurationStorage {
     envVarName: string,
     config: Record<string, unknown>
   ): string | undefined {
-    const explicit = ConfigurationStorage.ENV_CONFIG_PATH_OVERRIDES[envVarName];
-    if (explicit && this.getByPath(config, explicit) !== undefined) {
-      return explicit;
-    }
+    const generated = this.buildEnvOverridePathMap(config).get(envVarName);
+    if (generated) return generated;
 
     if (!/^[A-Z0-9_]+$/.test(envVarName) || !envVarName.includes('_')) {
       return undefined;
@@ -579,6 +615,38 @@ export class ConfigurationStorage implements IConfigurationStorage {
     return this.getByPath(config, inferredPath) !== undefined ? inferredPath : undefined;
   }
 
+  private buildEnvOverridePathMap(config: Record<string, unknown>): Map<string, string> {
+    const result = new Map<string, string>();
+
+    const visit = (node: unknown, prefix: string): void => {
+      if (!node || typeof node !== 'object' || Array.isArray(node)) {
+        return;
+      }
+
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        const pathExpression = prefix ? `${prefix}.${key}` : key;
+        if (value === null || value === undefined) {
+          continue;
+        }
+
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+          // Schema-derived env variable convention:
+          //   log.backend.file -> LOG_BACKEND_FILE
+          const envVar = pathExpression.toUpperCase().replaceAll('.', '_');
+          result.set(envVar, pathExpression);
+          continue;
+        }
+
+        if (typeof value === 'object' && !Array.isArray(value)) {
+          visit(value, pathExpression);
+        }
+      }
+    };
+
+    visit(config, '');
+    return result;
+  }
+
   private coerceEnvOverrideValue(rawValue: string, currentValue: unknown): unknown {
     if (typeof currentValue === 'boolean') {
       return this.parseBooleanEnvValue(rawValue);
@@ -590,6 +658,33 @@ export class ConfigurationStorage implements IConfigurationStorage {
     }
 
     if (typeof currentValue === 'string') {
+      const normalizedCurrent = currentValue.trim().toLowerCase();
+      const isLogDestinationLevel =
+        normalizedCurrent === 'off' ||
+        normalizedCurrent === 'error' ||
+        normalizedCurrent === 'warning' ||
+        normalizedCurrent === 'info' ||
+        normalizedCurrent === 'debug';
+
+      if (isLogDestinationLevel) {
+        const normalizedRaw = rawValue.trim().toLowerCase();
+        if (normalizedRaw === 'true' || normalizedRaw === '1' || normalizedRaw === 'on') {
+          return 'info';
+        }
+        if (normalizedRaw === 'false' || normalizedRaw === '0' || normalizedRaw === 'off') {
+          return 'off';
+        }
+        if (
+          normalizedRaw === 'error' ||
+          normalizedRaw === 'warning' ||
+          normalizedRaw === 'info' ||
+          normalizedRaw === 'debug'
+        ) {
+          return normalizedRaw;
+        }
+        return undefined;
+      }
+
       return rawValue;
     }
 

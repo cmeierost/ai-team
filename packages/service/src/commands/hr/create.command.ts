@@ -16,7 +16,7 @@ import type {
   LlmGenerationParams,
   LlmProfile,
 } from '@ai-team/api-contracts';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../interaction/question-service.js';
 
 type Params = z.infer<typeof CreateICommand.schema>;
 const _createICommandSchema = z.object({

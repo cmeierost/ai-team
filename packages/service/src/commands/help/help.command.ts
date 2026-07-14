@@ -9,7 +9,7 @@ import { ZodSchemaTools } from '../../utils/zod-schema.js';
 
 type RegistryEntry = Pick<
   ICommandDescriptor,
-  'usage' | 'description' | 'key' | 'group' | 'availableIn' | 'path'
+  'usage' | 'description' | 'key' | 'group' | 'availableIn' | 'path' | 'aliases'
 > & { parameters?: unknown };
 
 interface HelpPayload {
@@ -64,6 +64,16 @@ function buildDetailPrefix(entry: RegistryEntry, isCliInvocation: boolean): stri
   return entry.group ? `/${entry.group} ${entry.key}` : `/${entry.key}`;
 }
 
+function formatAliases(entry: RegistryEntry, isCliInvocation: boolean): string {
+  const aliases = entry.aliases ?? [];
+  if (aliases.length === 0) return '';
+
+  const formatted = aliases
+    .map((alias) => (isCliInvocation ? `ait ${alias}` : `/${alias}`))
+    .join(', ');
+  return `\nAliases: ${formatted}`;
+}
+
 function buildParamSuffix(p: ParamInfo): string {
   const tags: string[] = [];
   if (p.optional) tags.push('optional');
@@ -78,6 +88,10 @@ function renderDetailView(entry: RegistryEntry, isCliInvocation: boolean): strin
     '',
     `  ${entry.description}`,
   ];
+  const aliasLine = formatAliases(entry, isCliInvocation);
+  if (aliasLine) {
+    lines.push('', aliasLine);
+  }
   const params = parseCommandParams(entry.parameters);
   if (params.length > 0) {
     lines.push('', 'Parameters:');
@@ -147,7 +161,8 @@ export class HelpChatCommand implements ICommand<string, string> {
     const formatEntry = (c: RegistryEntry) => {
       const invocation = formatInvocation(c);
       const usageHint = c.usage && c.usage !== c.key ? ` (${c.usage})` : '';
-      lines.push(`    ${invocation.padEnd(28)} ${c.description}${usageHint}`);
+      const aliasHint = (c.aliases?.length ?? 0) > 0 ? ` [aliases: ${(c.aliases ?? []).join(', ')}]` : '';
+      lines.push(`    ${invocation.padEnd(28)} ${c.description}${usageHint}${aliasHint}`);
     };
 
     const appendGroupedSection = (title: string, entries: RegistryEntry[]) => {

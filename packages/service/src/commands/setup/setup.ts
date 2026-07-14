@@ -21,7 +21,7 @@ import { resolveEffectiveLlmSettings } from '../../llm/settings.js';
 import { updateWorkspaceSettings } from '../init/update-workspace-settings.js';
 import { updateGitignore } from '../init/update-gitignore.js';
 import { askLlmSetup, type LlmSetupResult, type LlmSettingsIo } from '../init/llm-settings.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../interaction/question-service.js';
 import type { IEmitService } from '@ai-team/core';
 
 export interface SetupCommandParams {
@@ -268,7 +268,24 @@ export class SetupCommand {
         }
       : {
           version: '0.1.0',
-          log: { file: false, console: false },
+          log: {
+            backend: {
+              file: 'off',
+              console: 'off',
+              targets: {
+                console: { file: 'off', console: 'off' },
+                api: { file: 'off', console: 'off' },
+              },
+            },
+            frontend: { file: 'off', console: 'off' },
+            chat: {
+              sessionStartupLoad: {
+                enabled: false,
+                file: 'off',
+                console: 'off',
+              },
+            },
+          },
           randomAvatarUrls: [],
           providers: { [registration.providerRef]: registration.providerEntry },
           defaultModel: registration.defaultModel,

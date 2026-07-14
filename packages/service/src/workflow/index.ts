@@ -1,71 +1,44 @@
-export type {
-  WorkflowCommandStep,
-  WorkflowExecuteStep,
-  WorkflowStep,
-  WorkflowDefinition,
-  WorkflowResult,
-} from './types.js';
-export { WorkflowAbortError } from './types.js';
+// Legacy stateful workflow exports removed - use WorkflowRunner instead
 
-export { WorkflowRunner, WorkflowRunnerFactory } from './runner.js';
-export type {
-  IWorkflowRunner,
-  IWorkflowRunnerFactory,
-  IWorkflowLocalCommand,
-  WorkflowRunOptions,
-} from './runner.js';
 export {
-  chatHandoffTransitionResultSchema,
-  chatWorkflowIdSchema,
-  chatPostTurnOutcomeSchema,
-  chatPostTurnResolutionResultSchema,
-  chatPreturnOutcomeSchema,
-  chatPreturnResultSchema,
-  chatSendTurnResultSchema,
-  chatToolCallSchema,
-  chatToolRoundOutcomeSchema,
-  chatToolRoundResultSchema,
-  workflowSessionPolicySchema,
-  workflowToolPolicySchema,
-  parseChatHandoffTransitionResult,
-  parseChatPostTurnResolutionResult,
-  parseChatPreturnResult,
-  parseChatSendTurnResult,
-  parseChatToolRoundResult,
-} from './chat-loop-contracts.js';
+  WorkflowRunner,
+  WorkflowRunnerFactory,
+  workflowDescriptor,
+  type IWorkflowLocalCommand,
+  type IWorkflowRunner,
+  type IWorkflowRunnerFactory,
+  type WorkflowRunOptions,
+} from './xstate-workflow-runner.js';
 
-export type {
-  ChatHandoffTransitionResult,
-  ChatPreturnOutcome,
-  ChatPreturnResult,
-  ChatWorkflowId,
-  ChatPostTurnOutcome,
-  ChatPostTurnResolutionResult,
-  ChatSendTurnResult,
-  ChatToolCall,
-  ChatToolRoundOutcome,
-  ChatToolRoundResult,
-  WorkflowSessionPolicy,
-  WorkflowToolPolicy,
-} from './chat-loop-contracts.js';
+// Workflow composition examples and utilities
+export {
+  createApprovalWorkflow,
+  createHiringProcessWorkflow,
+  registerComposableWorkflows,
+} from './workflow-composition-example.js';
+
+export {
+  WorkflowAbortError,
+  type WorkflowArgValue,
+  type WorkflowCommandStep,
+  type WorkflowDefinition,
+  type WorkflowExecuteStep,
+  type WorkflowLoopStep,
+  type WorkflowResult,
+  type WorkflowStep,
+} from './workflow-types.js';
+
+export {
+  evaluateWorkflowCondition,
+  getUnresolvedParamNames,
+  hasUnresolvedParams,
+  resolveParamsAsync,
+  resolveTemplateData,
+  resolveTemplateExpressions,
+  type IParamResolverContext,
+} from './workflow-param-resolver.js';
 
 export { workflowDefinitionJsonToYaml, workflowDefinitionYamlToJson } from './definition-format.js';
-
-export type {
-  WorkflowDefinitionArray,
-  WorkflowDefinitionObject,
-  WorkflowDefinitionScalar,
-  WorkflowDefinitionValue,
-} from './definition-format.js';
-
-export {
-  WORKFLOW_ENGINE_TOKENS,
-  createChatLoopMachine,
-  getChatLoopWorkflowDefinitionJson,
-  getChatLoopWorkflowDefinitionYaml,
-  runChatLoopWorkflowAsync,
-} from './chat-loop-engine.js';
-
 export {
   getWorkflowDefinitionResolvers,
   listWorkflowDefinitionIds,
@@ -73,28 +46,10 @@ export {
 } from './definition-catalog.js';
 
 export {
-  createSendTurnMachine,
-  getSendTurnWorkflowDefinitionJson,
-  getSendTurnWorkflowDefinitionYaml,
-  runSendTurnMachineAsync,
-} from './send-turn-machine.js';
+  JsonWorkflowSchema,
+  JsonWorkflowTool,
+  type JsonWorkflow,
+  type JsonWorkflowResult,
+} from './json-workflow-tool.js';
 
-export type {
-  ChatLoopMachineOptions,
-  ChatLoopWorkflowDefinitionJson,
-  ChatLoopToolingContext,
-  ChatLoopToolRoundExecutionRequest,
-  ChatLoopToolRoundExecutor,
-  ChatLoopWorkflowStateJson,
-  ChatLoopWorkflowInput,
-  ChatLoopWorkflowOutput,
-  ChatLoopWorkflowTransitionJson,
-  ChatLoopWorkflowServices,
-} from './chat-loop-engine.js';
-
-export type {
-  SendTurnMachineOutput,
-  SendTurnWorkflowDefinitionJson,
-  SendTurnWorkflowStateJson,
-  SendTurnWorkflowTransitionJson,
-} from './send-turn-machine.js';
+export * from './chat/index.js';

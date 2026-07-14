@@ -7,7 +7,7 @@ import {
   testLlmConnection,
 } from './init-compat.js';
 import type { InitOptions } from '@ai-team/api-contracts';
-import type { SessionManager } from '../../session-manager.js';
+import type { SessionManager } from '../../sessions/session-manager.js';
 import type { InitRuntimeHooks } from './workflow-questions.js';
 import {
   createBootstrapInstructions,
@@ -17,7 +17,7 @@ import {
   createRoleTemplates,
 } from './bootstrap-files.js';
 import { runInitWorkflowAsync } from './init-workflow.js';
-import type { IWorkflowRunnerFactory } from '../../workflow/runner.js';
+import type { IWorkflowRunnerFactory } from '../../workflow/index.js';
 import {
   getWorkspaceTemplatePath,
   INIT_TEMPLATE_FILE_MAP,
@@ -30,7 +30,7 @@ import type { OnboardICommand } from '../hr/onboard.js';
 import type { SetupCommand } from '../setup/setup.js';
 import type { TestConnectionCommand } from '../setup/test-connection.js';
 import type { IEmitService } from '@ai-team/core';
-import { EmitService } from '../../orchestrator/services/emit-service.js';
+import { EmitService } from '../../interaction/emit-service.js';
 
 const FORCE_KEEP = new Set(['config.json', '.env']);
 const INIT_RUNTIME_ARTIFACTS = new Set(['agents', 'logs', 'private', '.ide-server.json']);
@@ -46,16 +46,23 @@ export class InitCommand {
     private readonly onboard: Pick<OnboardICommand, 'executeOnboarding'>,
     private readonly setup: SetupCommand,
     private readonly testConnection: TestConnectionCommand,
-    private readonly runnerFactory: IWorkflowRunnerFactory
+    private readonly workflowRunnerFactory: IWorkflowRunnerFactory
   ) {}
 
-  async execute(params: InitCommandParams, hooks?: InitRuntimeHooks): Promise<void> {
+  async execute(
+    params: InitCommandParams,
+    emitService: IEmitService,
+    signal?: AbortSignal,
+    workflowState?: unknown
+  ): Promise<void> {
     const { workspaceRoot, options } = params;
 
     await runInitWorkflowAsync(
       workspaceRoot,
       options,
-      hooks,
+      emitService,
+      signal,
+      workflowState,
       {
         onboard: {
           execute: (params, signal) => this.onboard.executeOnboarding(params, signal),
@@ -63,7 +70,7 @@ export class InitCommand {
         setup: this.setup,
         testConnection: this.testConnection,
       },
-      this.runnerFactory
+      this.workflowRunnerFactory
     );
   }
 }
@@ -168,7 +175,13 @@ class InitLegacyFlow {
   async tryReuseExistingLlm(
     options: InitOptions,
     existingResolved: ExistingResolvedLlm | undefined,
-    hooks: InitRuntimeHooks | undefined
+    hooks:
+      | {
+          signal?: AbortSignal;
+          emitService?: IEmitService;
+          workflowState?: unknown;
+        }
+      | undefined
   ): Promise<boolean> {
     if (!options.force || !existingResolved) return false;
 
@@ -231,7 +244,13 @@ async function bootstrapOnboardingAssets(workspaceRoot: string): Promise<void> {
 
 async function runCompatibilityOnboarding(
   workspaceRoot: string,
-  hooks: InitRuntimeHooks | undefined
+  hooks:
+    | {
+        signal?: AbortSignal;
+        emitService?: IEmitService;
+        workflowState?: unknown;
+      }
+    | undefined
 ): Promise<void> {
   await bootstrapOnboardingAssets(workspaceRoot);
 
@@ -324,9 +343,10 @@ async function runCompatibilityOnboarding(
 export async function initCommand(
   workspaceRoot: string,
   options: InitOptions = {},
-  hooks?: InitRuntimeHooks
+  emitService: IEmitService = EmitService.noop(),
+  signal?: AbortSignal,
+  workflowState?: unknown
 ): Promise<void> {
-  const emitService = hooks?.emitService ?? EmitService.forConsole();
   const flow = new InitLegacyFlow(emitService);
 
   const state = await getInitState(workspaceRoot);

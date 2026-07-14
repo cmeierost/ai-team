@@ -90,12 +90,22 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
     const agentDocumentStorage = {
       loadAllInstructionFilesAsync: async () => [
         {
-          filePath: path.join(workspaceRoot, '.ai-team', 'instructions', 'backend-team.instructions.md'),
+          filePath: path.join(
+            workspaceRoot,
+            '.ai-team',
+            'instructions',
+            'backend-team.instructions.md'
+          ),
           applyTo: 'packages/service/**/*,packages/api-server/**/*',
           instructions: 'Backend instruction content.',
         },
         {
-          filePath: path.join(workspaceRoot, '.ai-team', 'instructions', 'frontend-team.instructions.md'),
+          filePath: path.join(
+            workspaceRoot,
+            '.ai-team',
+            'instructions',
+            'frontend-team.instructions.md'
+          ),
           applyTo: 'packages/web/**/*',
           instructions: 'Frontend instruction content.',
         },
@@ -323,57 +333,7 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
     expect(todosSegment?.chars).toBeGreaterThan(0);
   });
 
-  it('returns chat workflow definition in both JSON and YAML formats', async () => {
-    const service = createService([], ['packages/service/**/*']);
-
-    const definition = await service.getWorkflowDefinition('chat-full-loop');
-
-    expect(definition.workflowId).toBe('chat-full-loop');
-    expect(definition.format).toBe('workflow/v1');
-    expect(definition.definitionJson).toMatchObject({
-      id: 'chat-full-loop',
-      initial: 'preturn',
-    });
-    expect(definition.definitionYaml).toContain('id: chat-full-loop');
-    expect(definition.definitionYaml).toContain('states:');
-  });
-
-  it('returns send-turn workflow definition in both JSON and YAML formats', async () => {
-    const service = createService([], ['packages/service/**/*']);
-
-    const definition = await service.getWorkflowDefinition('chat-send-turn');
-
-    expect(definition.workflowId).toBe('chat-send-turn');
-    expect(definition.format).toBe('workflow/v1');
-    expect(definition.definitionJson).toMatchObject({
-      id: 'chat-send-turn',
-      initial: 'ensureTurnStart',
-    });
-    expect(definition.definitionYaml).toContain('id: chat-send-turn');
-    expect(definition.definitionYaml).toContain('states:');
-  });
-
-  it('returns definitions for all declared chat workflow IDs', async () => {
-    const service = createService([], ['packages/service/**/*']);
-
-    const knownIds = [
-      'chat-full-loop',
-      'chat-preturn-interceptors',
-      'chat-send-turn',
-      'chat-tool-round',
-      'chat-post-turn-resolution',
-      'chat-handoff-transition',
-      'chat-turn-failure',
-    ];
-
-    for (const workflowId of knownIds) {
-      const definition = await service.getWorkflowDefinition(workflowId);
-      expect(definition.workflowId).toBe(workflowId);
-      expect(definition.format).toBe('workflow/v1');
-      expect(definition.definitionJson.id).toBe(workflowId);
-      expect(definition.definitionYaml).toContain(`id: ${workflowId}`);
-    }
-  });
+  // Legacy workflow definition tests removed - workflows migrated to XState-based WorkflowRunner
 
   it('throws for unknown workflow definitions', async () => {
     const service = createService([], ['packages/service/**/*']);

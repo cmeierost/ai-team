@@ -22,4 +22,31 @@ describe('buildSystemPrompt questioning guidance', () => {
       'Ask at most one high-impact clarification at a time unless the developer explicitly requests a questionnaire.'
     );
   });
+
+  it('does not include legacy hardcoded handoff directive text', () => {
+    const prompt = systemPromptBuilder.build({
+      id: 'michael-brown',
+      name: 'Michael Brown',
+      role: 'ceo',
+      systemPrompt: '',
+    } as any);
+
+    expect(prompt).not.toContain('To hand off with a message, include exactly one line: HANDOFF:');
+    expect(prompt).not.toContain(
+      'When the user asks to be forwarded or connected to another team member, acknowledge the handoff gracefully.'
+    );
+  });
+
+  it('includes guidance to avoid transcript-style speaker labels in replies', () => {
+    const prompt = systemPromptBuilder.build({
+      id: 'michael-brown',
+      name: 'Michael Brown',
+      role: 'ceo',
+      systemPrompt: '',
+    } as any);
+
+    expect(prompt).toContain(
+      'Do not emit transcript speaker-label lines such as "Name -> Name:" or "Name → Name:" in normal replies; write only the reply content.'
+    );
+  });
 });

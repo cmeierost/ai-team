@@ -7,7 +7,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
-import { findWorkspaceRoot, WsQuestionService, EmitService, COMMAND_FACTORY_TOKENS } from '@ai-team/service';
+import { findWorkspaceRoot } from '@ai-team/infrastructure';
+import { EmitService, COMMAND_FACTORY_TOKENS } from '@ai-team/service';
 import type { IMessageStorage } from '@ai-team/core';
 import { createExpressRouter } from '@ts-http/express';
 import {
@@ -32,6 +33,7 @@ import {
 
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { setupChatWebSocket } from './ws/chat-handler.js';
+import { WsQuestionService } from './ws/ws-question-service.js';
 import { asyncApiUi as serveApiDefinition } from './async-api-ui.js';
 import { serveStaticFiles } from './serve-static-files.js';
 

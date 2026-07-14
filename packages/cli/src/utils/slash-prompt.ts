@@ -29,7 +29,7 @@ type CommandEntry = Pick<CommandDescriptor, 'key' | 'aliases' | 'usage' | 'descr
 
 /** Strip ANSI escape codes to measure visible character width. */
 function visibleLength(str: string): number {
-  // eslint-disable-next-line no-control-regex
+   
   return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').length;
 }
 
@@ -194,12 +194,14 @@ export async function askWithSlashSuggestions(
     };
 
     const finish = (value: string) => {
+      // Clear the interactive prompt line and any suggestion UI so we don't
+      // re-show submitted input in a way that can look like a duplicated turn.
       if (currentInputRows > 1) {
         moveCursor(output, 0, -(currentInputRows - 1));
       }
       cursorTo(output, 0);
       clearScreenDown(output);
-      output.write(`${promptText} ${value}\n`);
+      output.write('\n');
       cleanup();
       resolve(value.trim());
     };

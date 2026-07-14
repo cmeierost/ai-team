@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ContextLevel, type Agent, type ICommand } from '@ai-team/core';
-import { ToolManager } from '../../tools/tool-manager.js';
+import { ToolManager } from '../../tooling/manager/tool-manager.js';
 import {
   FsReadFileTool,
   FsReadLinesTool,

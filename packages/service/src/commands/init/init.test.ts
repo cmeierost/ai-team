@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EmitService } from '../../orchestrator/services/emit-service.js';
+import { EmitService } from '../../interaction/emit-service.js';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
 

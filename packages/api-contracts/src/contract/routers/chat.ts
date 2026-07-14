@@ -4,10 +4,7 @@ import type { ChatSummary, ChatMessage, MessageStats } from '../shared-types.js'
 export interface IChatService {
   getSummaries(): Promise<ChatSummary[]>;
   getMessages(agentId: string, query?: { includeArchived?: boolean }): Promise<ChatMessage[]>;
-  post(
-    agentId: string,
-    body: { content: string; pendingIntroduction?: string }
-  ): Promise<{ content: string; handoff?: unknown }>;
+  post(agentId: string, body: { content: string }): Promise<{ content: string; handoff?: unknown }>;
   editMessage(agentId: string, index: string, body: { content: string }): Promise<ChatMessage>;
   archiveMessage(agentId: string, index: string): Promise<{ ok: boolean }>;
   unarchiveMessage(agentId: string, index: string): Promise<{ ok: boolean }>;

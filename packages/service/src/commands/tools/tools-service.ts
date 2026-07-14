@@ -5,10 +5,10 @@ import type {
   ICommandDescriptor,
   ExecutionContext,
 } from '@ai-team/core';
-import type { ToolManager } from '../../tools/tool-manager.js';
-import { ToolIdentity } from '../../tools/tool-manager.js';
+import type { ToolManager } from '../../tooling/manager/tool-manager.js';
+import { ToolIdentity } from '../../tooling/manager/tool-manager.js';
 import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-contracts';
-import type { IMcpGateway } from '../../orchestrator/pipeline.js';
+import type { IMcpGateway } from '../../workflow/runtime/pipeline.js';
 import { GovernanceService } from '../../governance/governance-service.js';
 
 export interface ListToolsOptions {

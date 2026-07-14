@@ -1,11 +1,18 @@
 import { z } from 'zod';
-import type { ChatMessage, ICommandDescriptor } from '@ai-team/core';
-import type { WorkflowDefinition } from '../../workflow/types.js';
+import type {
+  ChatMessage,
+  CommandResponse,
+  ExecutionContext,
+  ICommand,
+  ICommandDescriptor,
+} from '@ai-team/core';
+import type { WorkflowDefinition, WorkflowStep, IWorkflowRunnerFactory } from '../../workflow/index.js';
+import { runWorkflowPhaseAsync } from './workflow-phase.js';
 
 /**
  * Input parameters for the `hire` sub-workflow.
  *
- * - `hrAgentId`        — HR agent running the chat phase (typically the HR Director)
+ * - `hrAgentId`        — HR agent running the workflow chat phase (typically the HR Director)
  * - `requesterAgentId` — Manager/CTO requesting the hire (used in the system prompt)
  * - `instructions`     — Free-form context describing what to hire for
  * - `openingMessage`   — Optional handoff message HR says first
@@ -58,6 +65,10 @@ Your goal: identify what new team members are needed and create them.
 - Permission defaults: list/read \`['**/*']\`, write usually limited (e.g. \`['docs/**/*', '.ai-team/agents/**/*']\`).
 `;
 
+function withHireInstructions(instructions: string): string {
+  return hireSystemPrompt.replace('{{instructions}}', instructions);
+}
+
 export const HireWorkflowMetadata = {
   key: 'hire_workflow',
   group: 'hr',
@@ -70,37 +81,111 @@ export const HireWorkflowMetadata = {
 } satisfies ICommandDescriptor;
 
 /**
- * `hire_workflow` — a focused chat phase with the HR Director where the
- * HR agent uses `hr_hire` and `set_permissions` tools to create new agents.
- *
- * This is a thin workflow: a single `chat_phase` step with a hire-focused
- * system prompt and a tool allowlist that includes only the tools relevant
- * to hiring.
+ * Hire workflow - OOP design for extensibility.
+ * 
+ * To extend this workflow:
+ * 1. Extend this class
+ * 2. Override createSteps() to reorder or add steps
+ * 3. Override individual step methods (createHrChatStep) to customize behavior
+ * 
+ * @example
+ * class CustomHireWorkflow extends HireWorkflow {
+ *   createSteps() {
+ *     return [
+ *       this.createPreApprovalStep(),  // Add new step before
+ *       this.createHrChatStep(),        // Keep existing
+ *       this.createNotificationStep()   // Add new step after
+ *     ];
+ *   }
+ * }
  */
-export const hireWorkflowDefinition: WorkflowDefinition<HireWorkflowState> = {
-  id: HireWorkflowMetadata.key,
-  description: HireWorkflowMetadata.description,
-  availableIn: HireWorkflowMetadata.availableIn,
-  group: HireWorkflowMetadata.group,
-  parameters: hireWorkflowParamsSchema,
-  tags: HireWorkflowMetadata.tags,
-  prepare: (params) => params as HireWorkflowState,
-  result: {
-    messages: {
-      $coalesce: ['{{hr_chat.messages}}', []],
-    },
-  },
-  steps: [
-    {
+export class HireWorkflow {
+  constructor() {}
+
+  getDefinition(): WorkflowDefinition<HireWorkflowState> {
+    return {
+      id: HireWorkflowMetadata.key,
+      description: HireWorkflowMetadata.description,
+      availableIn: HireWorkflowMetadata.availableIn,
+      prepare: (params: unknown) => this.prepare(params),
+      toResult: (state: HireWorkflowState) => this.toResult(state),
+      steps: this.createSteps(),
+    };
+  }
+
+  protected prepare(params: unknown): HireWorkflowState {
+    const validated = hireWorkflowParamsSchema.parse(params);
+    return validated as HireWorkflowState;
+  }
+
+  protected toResult(state: HireWorkflowState): HireWorkflowResult {
+    return {
+      messages: state.hr_chat?.messages ?? [],
+    };
+  }
+
+  protected createSteps(): WorkflowStep<HireWorkflowState>[] {
+    return [this.createHrChatStep()];
+  }
+
+  protected createHrChatStep(): WorkflowStep<HireWorkflowState> {
+    return {
       id: 'hr_chat',
-      command: 'chat_phase',
-      args: {
-        agentId: '{{hrAgentId}}',
-        systemPrompt: hireSystemPrompt,
-        exitWords: JSON.stringify(['done']),
-        toolAllowlist: JSON.stringify(['hr_hire', 'com_ask', 'access_set_permissions']),
-        openingMessage: '{{openingMessage}}',
+      execute: async (state, ctx, services) => {
+        const messages = await runWorkflowPhaseAsync(
+          {
+            agentId: state.hrAgentId,
+            systemPrompt: withHireInstructions(state.instructions),
+            exitWords: ['done'],
+            toolAllowlist: ['hr_hire', 'com_ask', 'access_set_permissions'],
+            openingMessage: state.openingMessage,
+          },
+          ctx,
+          services
+        );
+
+        return {
+          ...state,
+          hr_chat: { messages },
+        };
       },
-    },
-  ],
-};
+    };
+  }
+
+  asCommand(factory: IWorkflowRunnerFactory): ICommand {
+    return factory.asCommand(this.getDefinition());
+  }
+}
+
+/**
+ * Legacy command wrapper for backward compatibility.
+ */
+export class HireWorkflowCommand implements ICommand<HireWorkflowParams, HireWorkflowResult> {
+  readonly metadata = HireWorkflowMetadata;
+  private readonly workflow: HireWorkflow;
+
+  constructor(private readonly workflowRunnerFactory: IWorkflowRunnerFactory) {
+    this.workflow = new HireWorkflow();
+  }
+
+  async execute(
+    params: HireWorkflowParams,
+    ctx: ExecutionContext
+  ): Promise<CommandResponse<HireWorkflowResult>> {
+    const initialState: HireWorkflowState = {
+      ...params,
+    };
+
+    const result = await this.workflowRunnerFactory.create().run(this.workflow.getDefinition(), initialState, {
+      signal: ctx.signal,
+      executionContext: ctx,
+    });
+
+    return {
+      status: 'ok',
+      data: {
+        messages: result.state.hr_chat?.messages ?? [],
+      },
+    };
+  }
+}

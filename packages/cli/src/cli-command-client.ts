@@ -1,17 +1,3 @@
-import {
-  createCommandDispatcher,
-  type CommandDispatcher,
-  type IInteractionService,
-  type IEmitService,
-  type IQuestionService,
-  toServiceDomainError,
-  InteractionStream,
-  runtimeEventToStreamEvent,
-  parseStreamPerfEnv,
-  createStreamPerfTracker,
-  writeBackendDebugLog,
-  setBackendDebugLogSettingsResolver,
-} from '@ai-team/service';
 import { TOKENS } from '@ai-team/container';
 import type {
   CommandAvailability,
@@ -20,7 +6,14 @@ import type {
   StreamEvent,
   InteractionRequest,
 } from '@ai-team/api-contracts';
-import type { ExecutionContext, IConfigurationStorage, IServiceContainer } from '@ai-team/core';
+import type { ExecutionContext, IBackendLogService, IServiceContainer } from '@ai-team/core';
+import type { IEmitService, IQuestionService } from '@ai-team/core';
+import { IInteractionService } from '@ai-team/service';
+import { createCommandDispatcher, type CommandDispatcher } from '@ai-team/service';
+import { toServiceDomainError } from '@ai-team/service';
+import { InteractionStream } from '@ai-team/service';
+import { runtimeEventToStreamEvent } from '@ai-team/service';
+import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service';
 import { COMMAND_FACTORY_TOKENS } from '@ai-team/service';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -75,27 +68,19 @@ export class CliCommandClient implements ICliCommandClient {
   public readonly workspaceRoot: string;
   private readonly resolver: IServiceContainer;
   private readonly dispatcher: CommandDispatcher;
+  private readonly backendLogService?: IBackendLogService;
 
   constructor(workspaceRoot: string, resolver: IServiceContainer) {
     this.workspaceRoot = workspaceRoot;
     this.resolver = resolver;
     this.dispatcher = createCommandDispatcher(workspaceRoot, resolver);
+    this.backendLogService = resolver.tryResolve(TOKENS.BackendLogService) as
+      | IBackendLogService
+      | undefined;
+  }
 
-    const configurationStorage = this.resolver.tryResolve(
-      COMMAND_FACTORY_TOKENS.ConfigurationStorage
-    ) as IConfigurationStorage | undefined;
-    if (configurationStorage) {
-      setBackendDebugLogSettingsResolver((resolvedWorkspaceRoot: string) => {
-        if (resolvedWorkspaceRoot !== this.workspaceRoot) {
-          return { file: false, console: false };
-        }
-
-        return {
-          file: Boolean(configurationStorage.get('log.file')),
-          console: Boolean(configurationStorage.get('log.console')),
-        };
-      });
-    }
+  private writeBackendLog(entry: unknown): void {
+    this.backendLogService?.write(entry);
   }
 
   withQuestionService(service: IQuestionService): CliCommandClient {
@@ -121,7 +106,7 @@ export class CliCommandClient implements ICliCommandClient {
     const active = Boolean(svc);
 
     svc?.status('dispatch', `Dispatching command '${request.command}'`);
-    writeBackendDebugLog(this.workspaceRoot, {
+    this.writeBackendLog({
       source: 'invoke',
       phase: 'dispatch',
       command: request.command,
@@ -133,7 +118,7 @@ export class CliCommandClient implements ICliCommandClient {
     const originalWarn = console.warn;
     const originalError = console.error;
     const originalStdoutWrite = process.stdout.write.bind(process.stdout);
-    const isInteractiveChatCommand = request.command === 'chat';
+    const isInteractiveChatCommand = request.command === 'chat' || request.command === 'chat-chat';
     const shouldCaptureStdout = active && !isInteractiveChatCommand;
 
     // Patch console and stdout to route through the active EmitService when present.
@@ -197,7 +182,7 @@ export class CliCommandClient implements ICliCommandClient {
       });
 
       svc?.status('completed', `Completed command '${request.command}'`);
-      writeBackendDebugLog(this.workspaceRoot, {
+      this.writeBackendLog({
         source: 'invoke',
         phase: 'completed',
         command: request.command,
@@ -211,7 +196,7 @@ export class CliCommandClient implements ICliCommandClient {
       return active ? await STDOUT_CAPTURE_SCOPE.run(true, invokeCore) : await invokeCore();
     } catch (error) {
       const serviceError = toServiceDomainError(error, `Command '${request.command}' failed.`);
-      writeBackendDebugLog(this.workspaceRoot, {
+      this.writeBackendLog({
         source: 'invoke',
         phase: 'error',
         command: request.command,
@@ -246,7 +231,9 @@ export class CliCommandClient implements ICliCommandClient {
   ): AsyncIterable<StreamEvent<TCommand>> {
     const { enabled: perfEnabled, slowMs: perfSlowMs } = parseStreamPerfEnv();
     const perf = perfEnabled
-      ? createStreamPerfTracker(this.workspaceRoot, request.command, request.requestId, perfSlowMs)
+      ? createStreamPerfTracker(request.command, request.requestId, perfSlowMs, (entry) =>
+          this.writeBackendLog(entry)
+        )
       : null;
 
     // No-op default logger: calling console.log here would trigger a feedback loop
@@ -262,7 +249,7 @@ export class CliCommandClient implements ICliCommandClient {
     const handleRuntimeEvent = (event: unknown) => {
       if (perf) {
         const t0 = perf.nowNs();
-        writeBackendDebugLog(this.workspaceRoot, {
+        this.writeBackendLog({
           source: 'runtime',
           command: request.command,
           requestId: request.requestId,
@@ -274,7 +261,7 @@ export class CliCommandClient implements ICliCommandClient {
         perf.state.emitRuntimeLoggerMs += perf.elapsedMs(t1);
         perf.state.runtimeEventsQueued += 1;
       } else {
-        writeBackendDebugLog(this.workspaceRoot, {
+        this.writeBackendLog({
           source: 'runtime',
           command: request.command,
           requestId: request.requestId,
@@ -288,7 +275,7 @@ export class CliCommandClient implements ICliCommandClient {
       if (perf) {
         const totalStart = perf.nowNs();
         const t0 = perf.nowNs();
-        writeBackendDebugLog(this.workspaceRoot, {
+        this.writeBackendLog({
           source: 'stream',
           command: request.command,
           requestId: request.requestId,
@@ -309,7 +296,7 @@ export class CliCommandClient implements ICliCommandClient {
         if (durationMs >= perf.slowThresholdMs) perf.state.slowToStreamEventCount += 1;
         perf.logSlowEvent(event.kind, durationMs);
       } else {
-        writeBackendDebugLog(this.workspaceRoot, {
+        this.writeBackendLog({
           source: 'stream',
           command: request.command,
           requestId: request.requestId,

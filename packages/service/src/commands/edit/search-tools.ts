@@ -9,7 +9,7 @@ import type {
   LspProvider,
   ICommandDescriptor,
 } from '@ai-team/core';
-import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
+import { collectPostWriteDiagnostics } from '../../tooling/catalog/diagnostics-helper.js';
 
 // ─── SemanticSearch ───────────────────────────────────────────────────────────
 

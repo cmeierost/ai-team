@@ -226,7 +226,7 @@ export function extractSessionActivatedTools(notes?: string): SessionActivatedTo
  */
 export function backfillActivatedToolRequests(
   tools: SessionActivatedTool[],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   messages: any[]
 ): SessionActivatedTool[] {
   if (tools.length === 0) return tools;
@@ -269,7 +269,7 @@ export function backfillActivatedToolRequests(
  * Each message whose content starts with `[tool:name]` is treated as a completed call.
  */
 export function reconstructActivatedToolsFromMessages(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   messages: any[]
 ): SessionActivatedTool[] {
   const results: SessionActivatedTool[] = [];

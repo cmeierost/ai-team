@@ -75,6 +75,40 @@ describe('CliCommandClient.invokeTool stdout capture', () => {
     );
   });
 
+  it('does not capture stdout for interactive chat command', async () => {
+    const client = createClient();
+    const dispatchSpy = vi.fn(async () => {
+      process.stdout.write('You: ');
+      return { status: 'ok' as const, message: '' };
+    });
+    (
+      client as unknown as {
+        dispatcher: { dispatch: (request: unknown) => Promise<CommandResponse> };
+      }
+    ).dispatcher = {
+      dispatch: dispatchSpy,
+    };
+
+    const emitService = createEmitServiceStub();
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    try {
+      await client.invokeTool(
+        { command: 'chat-chat', payload: {} } as any,
+        { workspaceRoot: 'C:/workspace', history: [] } as ExecutionContext,
+        emitService as any
+      );
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1);
+    expect(emitService.emit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'token', text: 'You: ' })
+    );
+  });
+
   it('captures stdout for non-chat commands as token runtime events', async () => {
     const client = createClient();
     registerDirect(client, 'demo-cmd', async () => {
