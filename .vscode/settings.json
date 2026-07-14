@@ -11,7 +11,6 @@
     },
     "github.copilot.chat.alternateGptPrompt.enabled": true,
     "github.copilot.chat.anthropic.tools.websearch.enabled": false,
-    "chat.useCopilotModelsForUtilityModels": false,
     "chat.utilityModel": "customendpoint/best-chat",
     "chat.utilitySmallModel": "customendpoint/best-chat",
     "chat.viewProgressBadge.enabled": true,
@@ -125,5 +124,6 @@
         "editor.defaultFormatter": "vscode.html-language-features"
     },
     "jestrunner.jestCommand": "pnpm vitest run",
-    "js/ts.experimental.useTsgo": false
+    "js/ts.experimental.useTsgo": false,
+    "chat.byokUtilityModelDefault": "none"
 }
