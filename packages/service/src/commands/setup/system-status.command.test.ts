@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { SystemStatusICommand } from './system-status.js';
 
 const tmpDirs: string[] = [];
@@ -23,14 +23,32 @@ afterEach(async () => {
 describe('SystemStatusICommand', () => {
   it('reports not initialized when .ai-team is missing', async () => {
     const workspaceRoot = await createTempWorkspace();
-    const configurationStorage = {
-      loadTeamConfigAsync: vi.fn().mockResolvedValue(undefined),
-    };
+    const teamConfig = {
+      version: '1',
+      log: {
+        backend: {
+          file: 'off',
+          console: 'off',
+          targets: {
+            console: { file: 'off', console: 'off' },
+            api: { file: 'off', console: 'off' },
+          },
+        },
+        frontend: { file: 'off', console: 'off' },
+        chat: {
+          sessionStartupLoad: { enabled: false, file: 'off', console: 'off' },
+        },
+      },
+      randomAvatarUrls: [],
+    } as any;
 
-    const cmd = new SystemStatusICommand(configurationStorage as any);
-    const result = await cmd.execute({}, undefined, { workspaceRoot } as any);
+    const cmd = new SystemStatusICommand(workspaceRoot, teamConfig);
+    const result = await cmd.execute({}, {} as any);
 
-    expect(result).toEqual({ initialized: false, hasLlmConfig: false, hasAgents: false });
+    expect(result).toEqual({
+      status: 'ok',
+      data: { initialized: false, hasLlmConfig: false, hasAgents: false },
+    });
   });
 
   it('reports initialized and agents when agent files exist', async () => {
@@ -38,13 +56,31 @@ describe('SystemStatusICommand', () => {
     await fs.mkdir(path.join(workspaceRoot, '.ai-team', 'agents'), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, '.ai-team', 'agents', 'alex.agent.md'), '# Alex');
 
-    const configurationStorage = {
-      loadTeamConfigAsync: vi.fn().mockResolvedValue(undefined),
-    };
+    const teamConfig = {
+      version: '1',
+      log: {
+        backend: {
+          file: 'off',
+          console: 'off',
+          targets: {
+            console: { file: 'off', console: 'off' },
+            api: { file: 'off', console: 'off' },
+          },
+        },
+        frontend: { file: 'off', console: 'off' },
+        chat: {
+          sessionStartupLoad: { enabled: false, file: 'off', console: 'off' },
+        },
+      },
+      randomAvatarUrls: [],
+    } as any;
 
-    const cmd = new SystemStatusICommand(configurationStorage as any);
-    const result = await cmd.execute({}, undefined, { workspaceRoot } as any);
+    const cmd = new SystemStatusICommand(workspaceRoot, teamConfig);
+    const result = await cmd.execute({}, {} as any);
 
-    expect(result).toEqual({ initialized: true, hasLlmConfig: false, hasAgents: true });
+    expect(result).toEqual({
+      status: 'ok',
+      data: { initialized: true, hasLlmConfig: false, hasAgents: true },
+    });
   });
 });

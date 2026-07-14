@@ -1,4 +1,4 @@
-/* eslint-disable */
+ 
 /* This file is auto-generated. Do not edit manually. */
 
 export type { SourceRange } from './source-range.js';

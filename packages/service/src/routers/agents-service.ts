@@ -7,7 +7,7 @@ import type {
   SearchAgentsResponse,
   IAgentsService,
 } from '@ai-team/api-contracts';
-import { generateIntroduction } from '../orchestrator/introduction.js';
+import { IntroductionRenderer } from '../commands/chat/introduction.command.js';
 import type {
   IAgentManager,
   TeamConfig,
@@ -16,13 +16,9 @@ import type {
   IPermissionStorage,
 } from '@ai-team/core';
 import { listCachedWorkspaceFiles } from 'fs-context';
-import {
-  AgentSchema,
-  BadRequestError,
-  NotFoundError,
-  resolveEffectiveLlmSettings,
-} from '@ai-team/core';
+import { AgentSchema, BadRequestError, NotFoundError } from '@ai-team/core';
 import { join } from 'node:path';
+import { resolveEffectiveLlmSettings } from '../llm/settings.js';
 
 function parseArrayParam(param: unknown): string[] | undefined {
   if (!param) return undefined;
@@ -30,6 +26,8 @@ function parseArrayParam(param: unknown): string[] | undefined {
 }
 
 export class AgentsService implements IAgentsService {
+  private readonly introductionRenderer: IntroductionRenderer;
+
   constructor(
     private readonly workspaceRoot: string,
     private readonly agentManager: IAgentManager,
@@ -37,7 +35,9 @@ export class AgentsService implements IAgentsService {
     private readonly permRegistry: IPermissionStorage,
     private readonly markdownSectionService: IMarkdownSectionService,
     private readonly fileAnnotationService: IFileAnnotationService
-  ) {}
+  ) {
+    this.introductionRenderer = new IntroductionRenderer(this.markdownSectionService);
+  }
 
   async list(): Promise<Agent[]> {
     const agents = await this.agentManager.getAllAgentsAsync();
@@ -236,11 +236,7 @@ export class AgentsService implements IAgentsService {
     const matches = await this.agentManager.resolveAgentAsync(id);
     if (matches.length === 0) throw new NotFoundError(`No agent matching "${id}"`);
     const agent = matches[0] as any;
-    const content = await generateIntroduction(
-      this.markdownSectionService,
-      agent,
-      query?.developerName
-    );
+    const content = this.introductionRenderer.render(agent, query?.developerName);
     return { agentId: agent.id, content, timestamp: new Date().toISOString() };
   }
 }

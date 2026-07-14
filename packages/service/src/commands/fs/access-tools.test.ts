@@ -4,12 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { ContextLevel, type Agent, type ICommand } from '@ai-team/core';
 import { WorkspaceFs } from 'fs-context';
-import { ToolManager } from '../../tools/tool-manager.js';
-import {
-  WhoHasAccessTool,
-  DoIHaveAccessTool,
-  AnalyzePermissionOverlapTool,
-} from '../fs/access-introspection-tools.js';
+import { ToolManager } from '../../tooling/manager/tool-manager.js';
+import { WhoHasAccessTool } from '../fs/who-has-access.tool.js';
+import { DoIHaveAccessTool } from '../fs/do-i-have-access.tool.js';
+import { AnalyzePermissionOverlapTool } from '../fs/analyze-permission-overlap.tool.js';
 import {
   FsExistsTool,
   FsInfoTool,

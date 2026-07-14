@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProposalStatus } from '@ai-team/core';
+import { type ICodeEditManager, ProposalStatus } from '@ai-team/core';
 import { CodeEditService } from './code-edit.js';
 
 const { managerMock } = vi.hoisted(() => {
@@ -61,7 +61,7 @@ describe('CodeEditService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new CodeEditService(managerMock as any);
+    service = new CodeEditService(managerMock as unknown as ICodeEditManager);
   });
 
   it('lists proposals and computes summaries', async () => {

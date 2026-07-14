@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useTeam, API_BASE } from '../context/TeamContext';
+import { useTeam } from '../context/TeamContext';
+import { API_BASE } from '../config/api-base';
 import type { Note, NoteAttachmentInput, NoteAttachmentUpdateInput } from '../types';
 import { contextPanelQueryKeys } from './contextPanelQueryKeys';
 import { summarizeNoteViaWebSocket } from '@ai-team/api-contracts';

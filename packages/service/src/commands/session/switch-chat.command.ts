@@ -7,7 +7,7 @@ import type {
   ExecutionContext,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { SessionManager } from '../../session-manager.js';
+import type { SessionManager } from '../../sessions/session-manager.js';
 import { FindAgentSessionCommand } from './find-agent-session.command.js';
 export const SwitchChatCommandMetadata = {
   key: 'switch',

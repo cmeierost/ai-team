@@ -114,5 +114,3 @@ export interface IFileAnnotationService {
     allFiles: string[]
   ): string[];
 }
-
-export * from './access-evaluation.js';

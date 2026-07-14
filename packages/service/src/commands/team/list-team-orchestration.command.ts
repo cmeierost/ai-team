@@ -7,7 +7,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 
-import type { ScoredPreLlmIntentCandidate } from '../../tools/pre-llm-intents.js';
+import type { ScoredPreLlmIntentCandidate } from '../../interaction/intents/pre-llm-intents.js';
 import type { IAgentRegistry } from '../orchestration/orchestration.types.js';
 
 export const TEAM_LIST_PRE_LLM_PATTERNS: readonly RegExp[] = [

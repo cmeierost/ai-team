@@ -220,13 +220,6 @@ export interface ChatOptions {
   addAgentToSession?: string; // Add another agent to this session (multi-agent mode)
 
   /**
-   * Introduction text already displayed by the client (e.g. web UI). When provided on an empty-history
-   * session, the introduction is persisted (with importance: 'low') immediately before the first user
-   * message, without triggering a second LLM call. Mutually exclusive with the CLI introduction flow.
-   */
-  pendingIntroduction?: string;
-
-  /**
    * Workflow mode: keeps normal chat runtime/orchestrator, but allows tailored onboarding prompts
    * and workflow-aware exit behavior.
    */

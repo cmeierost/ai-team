@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import type { SetupOptions } from '@ai-team/api-contracts';
-import type { ICommand, CommandResponse, ICommandDescriptor } from '@ai-team/core';
+import type {
+  ICommand,
+  CommandResponse,
+  ICommandDescriptor,
+  ExecutionContext,
+} from '@ai-team/core';
 import type { SetupCommand } from './setup.js';
 
 type Params = z.infer<typeof SetupICommand.schema>;
@@ -20,22 +25,16 @@ export class SetupICommand implements ICommand<Params, void> {
   static readonly schema = _setupICommandSchema;
   readonly metadata = SetupICommandMetadata;
 
-  constructor(private readonly setupCommand: Pick<SetupCommand, 'execute'>) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly setupCommand: Pick<SetupCommand, 'execute'>
+  ) {}
 
-  async execute(
-    payload: Params,
-    _unusedOrCtx?: unknown,
-    ctx?: any
-  ): Promise<CommandResponse<void>> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const resolvedCtx = (ctx ?? _unusedOrCtx) as unknown as any;
-    await this.setupCommand.execute(
-      {
-        workspaceRoot: resolvedCtx?.workspaceRoot ?? '',
-        options: (payload.options ?? {}) as SetupOptions,
-      },
-      resolvedCtx
-    );
+  async execute(payload: Params, _ctx: ExecutionContext): Promise<CommandResponse<void>> {
+    await this.setupCommand.execute({
+      workspaceRoot: this.workspaceRoot,
+      options: (payload.options ?? {}) as SetupOptions,
+    });
     return { status: 'ok' };
   }
 }

@@ -1,4 +1,9 @@
-import type { IContainerToken, ILlmToolDefinition, IServiceContainer } from './runtime-contracts.js';
+import {
+  Token,
+  type IContainerToken,
+  type ILlmToolDefinition,
+  type IServiceContainer,
+} from './runtime-contracts.js';
 import type { ICommand, ICommandDescriptor, CommandAvailability } from './command-types.js';
 
 // ── ICommandRegistry ──────────────────────────────────────────────────────────
@@ -45,9 +50,10 @@ export interface ICommandRegistry {
    *
    * Use `resolve()` to turn any descriptor into an executable instance.
    */
-  getAll(
-    filter?: { availableIn?: Partial<CommandAvailability>; group?: string }
-  ): ICommandDescriptor[];
+  getAll(filter?: {
+    availableIn?: Partial<CommandAvailability>;
+    group?: string;
+  }): ICommandDescriptor[];
 
   /**
    * Instantiate a command by calling its registered factory with the given
@@ -70,7 +76,5 @@ export interface ICommandRegistry {
  * Registered by the container bootstrap and used by ToolManager, the
  * ChatOrchestrator, CommandDispatcher, and discovery surfaces.
  */
-export const COMMAND_REGISTRY_TOKEN: IContainerToken<ICommandRegistry> = {
-  id: 'CommandRegistry',
-  toString: () => 'Token(CommandRegistry)',
-};
+export const COMMAND_REGISTRY_TOKEN: IContainerToken<ICommandRegistry> =
+  new Token<ICommandRegistry>('CommandRegistry');

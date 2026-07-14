@@ -1,4 +1,4 @@
-import { getEffectiveContextWindow, ICommandDescriptor } from '@ai-team/core';
+import { ICommandDescriptor } from '@ai-team/core';
 import type { IContextService } from '@ai-team/api-contracts';
 import type {
   ICommand,
@@ -8,6 +8,7 @@ import type {
   ExecutionContext,
   Agent,
 } from '@ai-team/core';
+import { getEffectiveContextWindow } from '../../llm/settings.js';
 
 interface ModelInfo {
   modelName: string;
@@ -16,7 +17,6 @@ interface ModelInfo {
 
 async function resolveModelInfo(
   agent: Agent,
-  _workspaceRoot: string,
   llmService: ILlmService,
   teamConfig: TeamConfig
 ): Promise<ModelInfo | undefined> {
@@ -75,7 +75,6 @@ export class SessionContextChatCommand implements ICommand<string, string> {
 
     const modelInfo = await resolveModelInfo(
       ctx.agent!,
-      ctx.workspaceRoot,
       this.llmService,
       this.teamConfig
     );

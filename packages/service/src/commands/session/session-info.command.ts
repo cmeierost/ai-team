@@ -4,7 +4,7 @@ import type {
   ExecutionContext,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { SessionManager } from '../../session-manager.js';
+import type { SessionManager } from '../../sessions/session-manager.js';
 export const SessionInfoChatCommandMetadata = {
   key: 'session',
   usage: '/session',

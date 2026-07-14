@@ -12,7 +12,8 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import type { AvatarOptions, QuestionSelectChoice } from '@ai-team/api-contracts';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../interaction/question-service.js';
+import type { IEmitService } from '@ai-team/core';
 
 type Params = z.infer<typeof AvatarCommand.schema>;
 
@@ -46,37 +47,34 @@ export class AvatarCommand implements ICommand<Params, void> {
     private readonly agentManager: IAgentManager,
     private readonly teamConfig: TeamConfig,
     private readonly avatarManager: IAvatarManager,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IQuestionService,
+    private readonly emitService: IEmitService
   ) {}
 
-  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    await this.executeAvatar(payload.options, ctx);
+  async execute(payload: Params, _ctx: ExecutionContext): Promise<CommandResponse<void>> {
+    await this.executeAvatar(payload.options);
     return { status: 'ok' };
   }
 
-  private async executeAvatar(options: AvatarOptions, context: ExecutionContext): Promise<void> {
+  private async executeAvatar(options: AvatarOptions): Promise<void> {
     const agent = await this.agentManager.resolveAgentOrThrowAsync(options.agentQuery);
-    this.emitLog(context, `Found agent: ${agent.name}`);
+    this.emitService.log('info', `Found agent: ${agent.name}`);
 
     if (!this.teamConfig) {
       throw new Error('Team config not found. Run `ait init` first.');
     }
 
-    const success = await this.avatarSelectionFlow(agent, this.teamConfig, context);
+    const success = await this.avatarSelectionFlow(agent, this.teamConfig);
     if (!success) {
-      this.emitLog(context, 'Avatar selection cancelled.');
+      this.emitService.log('info', 'Avatar selection cancelled.');
     }
   }
 
-  private async avatarSelectionFlow(
-    agent: Agent,
-    teamConfig: TeamConfig,
-    context: ExecutionContext
-  ): Promise<boolean> {
+  private async avatarSelectionFlow(agent: Agent, teamConfig: TeamConfig): Promise<boolean> {
     try {
       const sourceType = await this.askAvatarSource(teamConfig);
       if (!sourceType) {
-        this.emitLog(context, 'No avatar sources configured.');
+        this.emitService.log('info', 'No avatar sources configured.');
         return false;
       }
 
@@ -86,7 +84,7 @@ export class AvatarCommand implements ICommand<Params, void> {
         const randomUrls = teamConfig.randomAvatarUrls || [];
         source.urlIndex = await this.askRandomUrl(randomUrls);
       } else if (sourceType === 'generate') {
-        const aiConfig = await this.askAiGeneration(agent, teamConfig, context);
+        const aiConfig = await this.askAiGeneration(agent, teamConfig);
         source.provider = aiConfig.provider;
         source.modelName = aiConfig.modelName;
         source.prompt = aiConfig.prompt;
@@ -106,17 +104,17 @@ export class AvatarCommand implements ICommand<Params, void> {
         });
       }
 
-      const approved = await this.previewAndApproveLoop(agent, source, teamConfig, context);
+      const approved = await this.previewAndApproveLoop(agent, source, teamConfig);
       if (!approved) return false;
 
-      this.emitLog(context, 'Finalizing avatar...');
+      this.emitService.log('info', 'Finalizing avatar...');
       const avatarPath = await this.avatarManager.finalizeAvatar(agent.id);
       await this.avatarManager.updateAgentAvatar(agent, avatarPath);
-      this.emitLog(context, `✓ Avatar saved for ${agent.name}`);
-      this.emitLog(context, `  Path: ${avatarPath}`);
+      this.emitService.log('info', `✓ Avatar saved for ${agent.name}`);
+      this.emitService.log('info', `  Path: ${avatarPath}`);
       return true;
     } catch (error) {
-      this.emitLog(context, `✗ Error: ${(error as Error).message}`, 'error');
+      this.emitService.log('error', `✗ Error: ${(error as Error).message}`);
       await this.avatarManager.cleanupPreview(agent.id);
       return false;
     }
@@ -180,8 +178,7 @@ export class AvatarCommand implements ICommand<Params, void> {
 
   private async askAiGeneration(
     agent: Agent,
-    teamConfig: TeamConfig,
-    context: ExecutionContext
+    teamConfig: TeamConfig
   ): Promise<{ provider: [string, LlmProviderConfig]; modelName: string; prompt: string }> {
     const providers = teamConfig.providers || {};
     const imageCapableProviders = Object.entries(providers).filter(
@@ -227,7 +224,7 @@ export class AvatarCommand implements ICommand<Params, void> {
     }
 
     const defaultPrompt = this.avatarManager.buildAvatarPrompt(agent);
-    this.emitLog(context, `Default prompt: ${defaultPrompt}`);
+    this.emitService.log('info', `Default prompt: ${defaultPrompt}`);
 
     const promptValue = await this.questionService.input({
       message: 'Avatar generation prompt (press Enter to use default):',
@@ -243,16 +240,15 @@ export class AvatarCommand implements ICommand<Params, void> {
   private async previewAndApproveLoop(
     agent: Agent,
     source: AvatarSource,
-    teamConfig: TeamConfig,
-    context: ExecutionContext
+    teamConfig: TeamConfig
   ): Promise<boolean> {
     while (true) {
-      this.emitLog(context, 'Generating avatar...');
+      this.emitService.log('info', 'Generating avatar...');
 
       try {
         const imageData = await this.generateAvatarImage(source, agent, teamConfig);
         const previewPath = await this.avatarManager.saveAvatarPreview(agent.id, imageData);
-        this.emitLog(context, `✓ Preview saved: ${previewPath}`);
+        this.emitService.log('info', `✓ Preview saved: ${previewPath}`);
 
         let imageBase64: string | undefined;
         try {
@@ -262,7 +258,7 @@ export class AvatarCommand implements ICommand<Params, void> {
           /* non-critical — CLI will use file path */
         }
 
-        context.emit?.({
+        this.emitService.emit({
           kind: 'avatar-preview',
           agentId: agent.id,
           agentName: agent.name,
@@ -278,9 +274,9 @@ export class AvatarCommand implements ICommand<Params, void> {
         if (approved) return true;
 
         await this.avatarManager.cleanupPreview(agent.id);
-        this.emitLog(context, "Let's try another one...");
+        this.emitService.log('info', "Let's try another one...");
       } catch (error) {
-        this.emitLog(context, `✗ Error generating avatar: ${(error as Error).message}`, 'error');
+        this.emitService.log('error', `✗ Error generating avatar: ${(error as Error).message}`);
         await this.avatarManager.cleanupPreview(agent.id);
 
         const retry = await this.questionService.confirm({
@@ -324,13 +320,5 @@ export class AvatarCommand implements ICommand<Params, void> {
       source.modelName!,
       apiKey
     );
-  }
-
-  private emitLog(
-    context: ExecutionContext,
-    message: string,
-    level: 'info' | 'warn' | 'error' = 'info'
-  ) {
-    context.emit?.({ kind: 'log', level, message });
   }
 }

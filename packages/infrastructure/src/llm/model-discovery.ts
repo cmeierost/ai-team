@@ -3,13 +3,17 @@ import type {
   IModelDiscoveryRegistry,
   IModelDiscoveryService,
 } from '@ai-team/core';
-import { fetchGitHubModels, fetchOpenAICompatibleModelsDetailed } from './index.js';
+import { InfrastructureModelCatalogService } from './model-catalog.service.js';
 
 export class GitHubModelDiscoveryService implements IModelDiscoveryService {
   readonly kind = 'github-copilot';
 
+  constructor(
+    private readonly modelCatalog: InfrastructureModelCatalogService = new InfrastructureModelCatalogService()
+  ) {}
+
   async fetchModelsAsync(): Promise<DiscoveredModel[]> {
-    const models = await fetchGitHubModels();
+    const models = await this.modelCatalog.fetchGitHubModelsAsync();
     return models.map((m) => ({
       name: m.id,
       contextWindow: m.contextWindow,
@@ -23,11 +27,18 @@ export class GitHubModelDiscoveryService implements IModelDiscoveryService {
 export class OpenAICompatibleModelDiscoveryService implements IModelDiscoveryService {
   readonly kind = 'openai-compatible';
 
+  constructor(
+    private readonly modelCatalog: InfrastructureModelCatalogService = new InfrastructureModelCatalogService()
+  ) {}
+
   async fetchModelsAsync(baseUrl?: string, apiKey?: string): Promise<DiscoveredModel[]> {
     if (!baseUrl) {
       throw new Error('baseUrl is required for openai-compatible model discovery.');
     }
-    const models = await fetchOpenAICompatibleModelsDetailed(baseUrl, apiKey);
+    const models = await this.modelCatalog.fetchOpenAiCompatibleModelsDetailedAsync(
+      baseUrl,
+      apiKey
+    );
     return models.map((m) => ({
       name: m.id,
       contextWindow: m.contextWindow,
@@ -48,11 +59,4 @@ export class ModelDiscoveryRegistry implements IModelDiscoveryRegistry {
   getForKind(kind: string): IModelDiscoveryService | undefined {
     return this.services.get(kind);
   }
-}
-
-export function createModelDiscoveryRegistry(): ModelDiscoveryRegistry {
-  return new ModelDiscoveryRegistry([
-    new GitHubModelDiscoveryService(),
-    new OpenAICompatibleModelDiscoveryService(),
-  ]);
 }

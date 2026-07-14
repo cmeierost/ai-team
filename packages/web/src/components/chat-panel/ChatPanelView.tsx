@@ -177,14 +177,12 @@ interface ChatPanelViewProps {
   pendingQuestion: PendingQuestion | null;
   pendingInputAnswer: string;
   pendingPasswordAnswer: string;
-  pendingConfirmAnswer: boolean;
   pendingSelectAnswer: string;
   pendingChecklistAnswer: string[];
   pendingFormAnswer: Record<string, string>;
   input: string;
   isRecording: boolean;
   interimTranscript: string;
-  recognition: any;
   ttsEnabled: boolean;
   ttsSupported: boolean;
   ttsSpeaking: boolean;
@@ -237,7 +235,6 @@ interface ChatPanelViewProps {
   onResumeSpeaking: () => void;
   onPendingInputAnswerChange: (value: string) => void;
   onPendingPasswordAnswerChange: (value: string) => void;
-  onPendingConfirmAnswerChange: (value: boolean) => void;
   onPendingSelectAnswerChange: (value: string) => void;
   onTogglePendingChecklistValue: (choiceValue: string, checked: boolean) => void;
   onPendingFormFieldChange: (fieldId: string, value: string) => void;
@@ -289,14 +286,12 @@ export function ChatPanelView({
   pendingQuestion,
   pendingInputAnswer,
   pendingPasswordAnswer,
-  pendingConfirmAnswer,
   pendingSelectAnswer,
   pendingChecklistAnswer,
   pendingFormAnswer,
   input,
   isRecording,
   interimTranscript,
-  recognition,
   ttsEnabled,
   ttsSupported,
   ttsSpeaking,
@@ -339,7 +334,6 @@ export function ChatPanelView({
   onResumeSpeaking,
   onPendingInputAnswerChange,
   onPendingPasswordAnswerChange,
-  onPendingConfirmAnswerChange,
   onPendingSelectAnswerChange,
   onTogglePendingChecklistValue,
   onPendingFormFieldChange,
@@ -654,13 +648,11 @@ export function ChatPanelView({
               pendingQuestion={pendingQuestion}
               pendingInputAnswer={pendingInputAnswer}
               pendingPasswordAnswer={pendingPasswordAnswer}
-              pendingConfirmAnswer={pendingConfirmAnswer}
               pendingSelectAnswer={pendingSelectAnswer}
               pendingChecklistAnswer={pendingChecklistAnswer}
               pendingFormAnswer={pendingFormAnswer}
               onPendingInputAnswerChange={onPendingInputAnswerChange}
               onPendingPasswordAnswerChange={onPendingPasswordAnswerChange}
-              onPendingConfirmAnswerChange={onPendingConfirmAnswerChange}
               onPendingSelectAnswerChange={onPendingSelectAnswerChange}
               onTogglePendingChecklistValue={onTogglePendingChecklistValue}
               onPendingFormFieldChange={onPendingFormFieldChange}

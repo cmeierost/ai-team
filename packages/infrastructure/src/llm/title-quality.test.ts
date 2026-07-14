@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { deriveFallbackTitle, isWeakGeneratedTitle } from './index.js';
+import { LlmTitleFallbackService } from './llm-title-fallback.js';
+
+const titleFallbackService = new LlmTitleFallbackService();
 
 describe('title quality helpers', () => {
   it('derives a meaningful retirement-planning fallback title', () => {
-    const title = deriveFallbackTitle([
+    const title = titleFallbackService.deriveFallbackTitle([
       {
         isHuman: true,
         content: 'we want to plan how to retire agents',
@@ -18,14 +20,14 @@ describe('title quality helpers', () => {
   });
 
   it('marks filler-heavy nonsense title as weak', () => {
-    expect(isWeakGeneratedTitle('Let Plan Future Want')).toBe(true);
+    expect(titleFallbackService.isWeakGeneratedTitle('Let Plan Future Want')).toBe(true);
   });
 
   it('marks titles starting with Let as weak', () => {
-    expect(isWeakGeneratedTitle('Let Test Title Generated')).toBe(true);
+    expect(titleFallbackService.isWeakGeneratedTitle('Let Test Title Generated')).toBe(true);
   });
 
   it('accepts specific action-oriented title', () => {
-    expect(isWeakGeneratedTitle('Plan Agent Retirement')).toBe(false);
+    expect(titleFallbackService.isWeakGeneratedTitle('Plan Agent Retirement')).toBe(false);
   });
 });

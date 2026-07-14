@@ -9,7 +9,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { resolveFsAbsolutePath, toFsPathAccessEnvelope } from './fs-access.js';
-import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
+import { collectPostWriteDiagnostics } from '../../tooling/catalog/diagnostics-helper.js';
 import { FsEditTool } from './fs-edit.tool.js';
 
 export interface MultiEditParams {

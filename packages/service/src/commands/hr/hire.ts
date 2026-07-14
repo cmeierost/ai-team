@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ContextLevel, RoleType } from '@ai-team/core';
-import type { IAgentManager, IMarkdownSectionService, ExecutionContext } from '@ai-team/core';
+import type { IAgentManager, IMarkdownSectionService } from '@ai-team/core';
 import type { HireOptions } from '@ai-team/api-contracts';
+import type { IEmitService } from '@ai-team/core';
 
 export function getPersonalityForHire(role: string, roleType: RoleType) {
   const r = role.toLowerCase();
@@ -64,16 +65,17 @@ export class HireCommand {
   constructor(
     private readonly workspaceRoot: string,
     private readonly agentManager: IAgentManager,
-    private readonly markdownSectionService: IMarkdownSectionService
+    private readonly markdownSectionService: IMarkdownSectionService,
+    private readonly emitService: IEmitService
   ) {}
 
-  async execute(options: HireOptions, ctx: ExecutionContext): Promise<void> {
+  async execute(options: HireOptions): Promise<void> {
     return hireCommandImpl(
       this.workspaceRoot,
       this.agentManager,
       this.markdownSectionService,
-      options,
-      ctx
+      this.emitService,
+      options
     );
   }
 }
@@ -82,8 +84,8 @@ async function hireCommandImpl(
   workspaceRoot: string,
   agentManager: IAgentManager,
   markdownSectionService: IMarkdownSectionService,
-  options: HireOptions,
-  ctx: ExecutionContext
+  emitService: IEmitService,
+  options: HireOptions
 ) {
   try {
     if (!options.name || !options.role) {
@@ -147,11 +149,7 @@ async function hireCommandImpl(
       { markdown }
     );
 
-    ctx.emit?.({
-      kind: 'log',
-      level: 'info',
-      message: `✓ ${config.name} has been hired as ${config.role}.`,
-    });
+    emitService.log('info', `✓ ${config.name} has been hired as ${config.role}.`);
 
     if (config.reportsTo) {
       await agentManager.getAgentAsync(config.reportsTo);

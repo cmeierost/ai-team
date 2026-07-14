@@ -328,7 +328,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     Array<{ key: string; label: string; markdown: string }>
   >([]);
   const [scrollToHandoffId, setScrollToHandoffId] = useState<string | null>(null);
-  const [isEphemeral, setIsEphemeral] = useState(false);
+  const [_isEphemeral, setIsEphemeral] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -868,7 +868,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     });
   };
 
-  const ensureSessionForSend = async (pendingIntroductionContent?: string) => {
+  const ensureSessionForSend = async () => {
     if (currentSessionId) {
       return currentSessionId;
     }
@@ -1200,7 +1200,6 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
     const messageContent = composedMessage.trim();
     setChatError(null);
-    const pendingIntroductionContent = isEphemeral ? messages[0]?.content : undefined;
     const userMessage: ChatMessage = {
       from: 'human',
       content: messageContent,
@@ -1246,7 +1245,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     });
 
     try {
-      const sessionId = await ensureSessionForSend(pendingIntroductionContent);
+      const sessionId = await ensureSessionForSend();
 
       const abortSignal = abortControllerRef.current?.signal;
       if (!abortSignal) {
@@ -1255,17 +1254,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
       const stream = client.stream(
         {
-          command: 'chat',
+          command: 'chat-chat',
           payload: {
-            employeeId: currentAgentId,
-            options: {
-              message: messageContent,
-              sessionId: sessionId ?? undefined,
-              oneShot: true,
-              ...(pendingIntroductionContent
-                ? { pendingIntroduction: pendingIntroductionContent }
-                : {}),
-            },
+            agentId: currentAgentId,
+            message: messageContent,
+            sessionId: sessionId ?? undefined,
           },
         },
         {
@@ -1629,7 +1622,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     }
   };
 
-  const handleUnlinkNote = async (messageIndex: number, noteId: string) => {
+  const handleUnlinkNote = async (_messageIndex: number, noteId: string) => {
     if (!currentSessionId) return;
     try {
       await client.sessions.unlinkNote(currentSessionId, noteId);

@@ -19,7 +19,7 @@ export class ServiceDomainError extends Error {
     public readonly code: ServiceErrorCode,
     message: string,
     public readonly details?: Record<string, unknown>,
-    public readonly inputRequest?: ServiceErrorInputRequest,
+    public readonly inputRequest?: ServiceErrorInputRequest
   ) {
     super(message);
     this.name = 'ServiceDomainError';

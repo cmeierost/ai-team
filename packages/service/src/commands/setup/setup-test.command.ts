@@ -35,20 +35,21 @@ export class TestConnectionICommand implements ICommand<Params, void> {
   readonly metadata = TestConnectionICommandMetadata;
 
   constructor(
+    private readonly workspaceRoot: string,
     private readonly configStorage: IConfigurationStorage,
     private readonly agentManager: IAgentManager,
     private readonly llmProviderTester: ILlmProviderTester,
     private readonly textToolCallParser: ITextToolCallParser
   ) {}
 
-  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
+  async execute(payload: Params, _ctx: ExecutionContext): Promise<CommandResponse<void>> {
     const cmd = new TestConnectionCommandImpl(
       this.configStorage.get() as TeamConfig,
       this.agentManager,
       this.llmProviderTester,
       this.textToolCallParser
     );
-    await cmd.executeAsync(ctx.workspaceRoot, payload);
+    await cmd.executeAsync(this.workspaceRoot, payload);
     return { status: 'ok' };
   }
 }

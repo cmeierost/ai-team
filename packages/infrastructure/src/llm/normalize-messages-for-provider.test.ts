@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { LlmConfig } from '@ai-team/core';
-import { normalizeMessagesForProvider } from './index.js';
+import { LlmProviderNormalizationService } from './llm-provider-normalization.js';
+
+const normalizationService = new LlmProviderNormalizationService();
 
 describe('normalizeMessagesForProvider', () => {
   const openAiCompatibleConfig: LlmConfig = {
@@ -21,7 +23,10 @@ describe('normalizeMessagesForProvider', () => {
       ],
     };
 
-    const normalized = normalizeMessagesForProvider(request, openAiCompatibleConfig);
+    const normalized = normalizationService.normalizeMessagesForProvider(
+      request,
+      openAiCompatibleConfig
+    );
     const messages = normalized.messages as Array<{ role: string; content: string }>;
 
     expect(messages).toHaveLength(3);
@@ -43,7 +48,7 @@ describe('normalizeMessagesForProvider', () => {
       ],
     };
 
-    const normalized = normalizeMessagesForProvider(request, {
+    const normalized = normalizationService.normalizeMessagesForProvider(request, {
       provider: 'github-copilot',
       model: 'claude-haiku-4.5',
     });

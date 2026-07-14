@@ -5,16 +5,26 @@ import type {
   IPlanningService,
   WorkflowDefinitionApiResponse,
 } from '@ai-team/api-contracts';
-import type { IAgentManager, ICommand, IAgentDocumentStorage, ISkillManager } from '@ai-team/core';
-import { ToolIdentity, type LlmToolDefinition, type ToolManager } from '../tools/tool-manager.js';
+import type {
+  Agent,
+  IAgentManager,
+  ICommand,
+  IAgentDocumentStorage,
+  ISkillManager,
+} from '@ai-team/core';
+import {
+  ToolIdentity,
+  type LlmToolDefinition,
+  type ToolManager,
+} from '../tooling/manager/tool-manager.js';
 import { ZodSchemaTools } from '../utils/zod-schema.js';
-import type { IMcpGateway } from '../orchestrator/pipeline.js';
-import type { SessionManager } from '../session-manager.js';
+import type { IMcpGateway } from '../workflow/runtime/pipeline.js';
+import type { SessionManager } from '../sessions/session-manager.js';
 import { NotFoundError } from '@ai-team/core';
 import {
   getWorkflowDefinitionResolvers,
   type WorkflowDefinitionResolver,
-} from '../workflow/index.js';
+} from '../workflow/definition-catalog.js';
 
 export interface ContextEstimateSegment {
   label: string;
@@ -103,7 +113,7 @@ export class MetaService implements IContextService {
 
   private async getToolsForAgent(
     agentId: string,
-    agent: Parameters<ToolManager['describeAll']>[0]
+    agent: Agent
   ): Promise<{ tools: ContextEstimateTool[]; chars: number }> {
     const cached = this.toolCache.get(agentId);
     if (cached && Date.now() - cached.at < MetaService.TOOL_CACHE_TTL_MS) {
@@ -298,7 +308,7 @@ export class MetaService implements IContextService {
       parts.push(`Communication style: ${JSON.stringify(p.communication_style)}`);
     if (p?.expertise_level) parts.push(`Expertise level: ${JSON.stringify(p.expertise_level)}`);
     const cliBlock =
-      '## CLI Commands Available To The User\nThe developer can run these in-chat commands: chat, list, hire, history, portfolio, graph, overview, run, help, exit.\nHANDOFF: <name-or-role> | <message>.\nStay in character. Be concise and helpful.';
+      '## CLI Commands Available To The User\nThe developer can run these in-chat commands: chat, list, hire, history, portfolio, graph, overview, run, help, exit.\nUse tool calls (for example `com_handoff`) for delegation and handoffs.\nStay in character. Be concise and helpful.';
     return parts.join('\n').length + cliBlock.length;
   }
 
@@ -322,7 +332,7 @@ export class MetaService implements IContextService {
         return [];
       }
 
-      const files = await this.agentDocumentStorage.loadAllInstructionFilesAsync(workspaceRoot);
+      const files = await this.agentDocumentStorage.loadAllInstructionFilesAsync();
       return files
         .filter((f: any) => f.instructions?.trim())
         .filter((f: any) => this.isInstructionRelevant(f.applyTo, writePatterns, writtenFiles))

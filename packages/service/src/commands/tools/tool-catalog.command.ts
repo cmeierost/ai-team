@@ -7,7 +7,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 
-import type { ScoredPreLlmIntentCandidate } from '../../tools/pre-llm-intents.js';
+import type { ScoredPreLlmIntentCandidate } from '../../interaction/intents/pre-llm-intents.js';
 import type { IToolCatalog } from '../orchestration/orchestration.types.js';
 
 export const TOOL_LIST_PRE_LLM_PATTERNS: readonly RegExp[] = [

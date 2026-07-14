@@ -15,14 +15,14 @@ import type {
   IModelDiscoveryRegistry,
   ILlmProviderTester,
   IDeveloperIdentityService,
-  ExecutionContext,
 } from '@ai-team/core';
 import type { SetupOptions } from '@ai-team/api-contracts';
-import { resolveEffectiveLlmSettings } from '@ai-team/core';
+import { resolveEffectiveLlmSettings } from '../../llm/settings.js';
 import { updateWorkspaceSettings } from '../init/update-workspace-settings.js';
 import { updateGitignore } from '../init/update-gitignore.js';
 import { askLlmSetup, type LlmSetupResult, type LlmSettingsIo } from '../init/llm-settings.js';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../interaction/question-service.js';
+import type { IEmitService } from '@ai-team/core';
 
 export interface SetupCommandParams {
   workspaceRoot: string;
@@ -45,35 +45,25 @@ export class SetupCommand {
     private readonly modelDiscoveryRegistry: IModelDiscoveryRegistry,
     private readonly llmProviderTester: ILlmProviderTester,
     private readonly developerIdentityService: IDeveloperIdentityService,
-    private readonly questionService: IQuestionService
+    private readonly questionService: IQuestionService,
+    private readonly emitService: IEmitService
   ) {}
 
-  async execute(params: SetupCommandParams, context: ExecutionContext): Promise<void> {
-    await this.runSetup(params.workspaceRoot, params.options, context);
+  async execute(params: SetupCommandParams): Promise<void> {
+    await this.runSetup(params.workspaceRoot, params.options);
   }
 
-  async executeAsync(
-    workspaceRoot: string,
-    options?: SetupOptions,
-    context?: ExecutionContext
-  ): Promise<void> {
-    await this.execute({ workspaceRoot, options }, context as ExecutionContext);
+  async executeAsync(workspaceRoot: string, options?: SetupOptions): Promise<void> {
+    await this.execute({ workspaceRoot, options });
   }
 
-  private async runSetup(
-    workspaceRoot: string,
-    options: SetupOptions | undefined,
-    context: ExecutionContext
-  ): Promise<void> {
+  private async runSetup(workspaceRoot: string, options: SetupOptions | undefined): Promise<void> {
     const { existingConfig, existingResolvedLlm } = await this.loadExistingLlmState();
     const { llmConfig, reusedExistingLlm } = await this.resolveLlmConfig(
       options,
-      context,
       existingResolvedLlm
     );
     const { safeLlmConfig, apiKey } = await this.persistLlmConfig(
-      workspaceRoot,
-      context,
       existingConfig,
       llmConfig,
       reusedExistingLlm
@@ -82,38 +72,17 @@ export class SetupCommand {
     await updateWorkspaceSettings(workspaceRoot);
     await updateGitignore(workspaceRoot);
 
-    this.renderConfigSummary(context, llmConfig, apiKey);
-    await this.testLlmConnection(context, safeLlmConfig, apiKey);
+    this.renderConfigSummary(llmConfig, apiKey);
+    await this.testLlmConnection(safeLlmConfig, apiKey);
   }
 
-  private writeLine(context: ExecutionContext | undefined, message: string) {
-    context?.emit?.({ kind: 'log', level: 'info', message } as any);
-    if (!context?.emit) {
-      process.stdout.write(`${message}\n`);
-    }
-  }
-
-  private writeWarn(context: ExecutionContext | undefined, message: string) {
-    context?.emit?.({ kind: 'log', level: 'warn', message } as any);
-    if (!context?.emit) {
-      process.stdout.write(`${message}\n`);
-    }
-  }
-
-  private writeError(context: ExecutionContext | undefined, message: string) {
-    context?.emit?.({ kind: 'log', level: 'error', message } as any);
-    if (!context?.emit) {
-      process.stderr.write(`${message}\n`);
-    }
-  }
-
-  private buildLlmSettingsIo(context: ExecutionContext | undefined): LlmSettingsIo {
+  private buildLlmSettingsIo(): LlmSettingsIo {
     return {
       select: (request) => this.questionService.select(request),
       input: (request) => this.questionService.input(request),
       password: (request) => this.questionService.password(request),
-      writeLine: (message) => this.writeLine(context, message),
-      writeWarn: (message) => this.writeWarn(context, message),
+      writeLine: (message) => this.emitService.log('info', message),
+      writeWarn: (message) => this.emitService.log('warn', message),
     };
   }
 
@@ -202,7 +171,6 @@ export class SetupCommand {
 
   private async resolveLlmConfig(
     options: SetupOptions | undefined,
-    context: ExecutionContext,
     existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings> | undefined
   ): Promise<{ llmConfig: LlmSetupResult; reusedExistingLlm: boolean }> {
     if (existingResolvedLlm && !options?.force) {
@@ -210,30 +178,26 @@ export class SetupCommand {
         existingResolvedLlm.config.provider === 'github-copilot'
           ? 'GitHub Copilot'
           : `OpenAI-compatible (${existingResolvedLlm.config.baseUrl ?? 'custom base URL'})`;
-      this.writeLine(context, `LLM already configured: ${providerLabel}`);
+      this.emitService.log('info', `LLM already configured: ${providerLabel}`);
       const reconfigure = await this.questionService.confirm({
         message: 'Reconfigure LLM connection?',
         default: false,
       });
       if (!reconfigure) {
-        this.writeLine(context, 'Keeping existing LLM configuration.');
+        this.emitService.log('info', 'Keeping existing LLM configuration.');
         return { llmConfig: existingResolvedLlm.config, reusedExistingLlm: true };
       }
     }
 
     if (options?.force && existingResolvedLlm) {
-      return this.resolveWithReuse(context, existingResolvedLlm);
+      return this.resolveWithReuse(existingResolvedLlm);
     }
 
-    const llmConfig = await askLlmSetup(
-      this.buildLlmSettingsIo(context),
-      this.modelDiscoveryRegistry
-    );
+    const llmConfig = await askLlmSetup(this.buildLlmSettingsIo(), this.modelDiscoveryRegistry);
     return { llmConfig, reusedExistingLlm: false };
   }
 
   private async resolveWithReuse(
-    context: ExecutionContext,
     existingResolvedLlm: ReturnType<typeof resolveEffectiveLlmSettings>
   ): Promise<{ llmConfig: LlmSetupResult; reusedExistingLlm: boolean }> {
     const providerLabel =
@@ -243,16 +207,13 @@ export class SetupCommand {
     const providerRefSuffix = existingResolvedLlm.providerRef
       ? ` [${existingResolvedLlm.providerRef}]`
       : '';
-    this.writeLine(context, `  Current LLM: ${providerLabel}${providerRefSuffix}`);
+    this.emitService.log('info', `  Current LLM: ${providerLabel}${providerRefSuffix}`);
     const reuse = await this.questionService.confirm({
       message: 'Reuse existing default LLM connection?',
       default: true,
     });
     if (!reuse) {
-      const llmConfig = await askLlmSetup(
-        this.buildLlmSettingsIo(context),
-        this.modelDiscoveryRegistry
-      );
+      const llmConfig = await askLlmSetup(this.buildLlmSettingsIo(), this.modelDiscoveryRegistry);
       return { llmConfig, reusedExistingLlm: false };
     }
 
@@ -264,14 +225,11 @@ export class SetupCommand {
           providerRef: existingResolvedLlm.providerRef,
           apiKey: existingKey,
         };
-        this.writeLine(context, 'Reusing existing OpenAI-compatible configuration.');
+        this.emitService.log('info', 'Reusing existing OpenAI-compatible configuration.');
         return { llmConfig, reusedExistingLlm: true };
       }
-      this.writeWarn(context, 'No API key found; re-running setup...');
-      const llmConfig = await askLlmSetup(
-        this.buildLlmSettingsIo(context),
-        this.modelDiscoveryRegistry
-      );
+      this.emitService.log('warn', 'No API key found; re-running setup...');
+      const llmConfig = await askLlmSetup(this.buildLlmSettingsIo(), this.modelDiscoveryRegistry);
       return { llmConfig, reusedExistingLlm: false };
     }
 
@@ -279,13 +237,11 @@ export class SetupCommand {
       ...existingResolvedLlm.config,
       providerRef: existingResolvedLlm.providerRef,
     };
-    this.writeLine(context, 'Reusing existing GitHub Copilot configuration.');
+    this.emitService.log('info', 'Reusing existing GitHub Copilot configuration.');
     return { llmConfig, reusedExistingLlm: true };
   }
 
   private async persistLlmConfig(
-    workspaceRoot: string,
-    context: ExecutionContext,
     existingConfig: TeamConfig | undefined,
     llmConfig: LlmSetupResult,
     reusedExistingLlm: boolean
@@ -293,7 +249,7 @@ export class SetupCommand {
     safeLlmConfig: Omit<LlmSetupResult, 'apiKey' | 'providerRef'>;
     apiKey?: string;
   }> {
-    await this.workspaceStorage.ensureAiTeamDirectoryAsync(workspaceRoot);
+    await this.workspaceStorage.ensureAiTeamDirectoryAsync();
     const registration = SetupCommand.buildProviderRegistrationFromSetup(llmConfig);
     const { apiKey, providerRef: _providerRef, ...safeLlmConfig } = llmConfig;
     const teamConfig: TeamConfig = existingConfig
@@ -312,6 +268,24 @@ export class SetupCommand {
         }
       : {
           version: '0.1.0',
+          log: {
+            backend: {
+              file: 'off',
+              console: 'off',
+              targets: {
+                console: { file: 'off', console: 'off' },
+                api: { file: 'off', console: 'off' },
+              },
+            },
+            frontend: { file: 'off', console: 'off' },
+            chat: {
+              sessionStartupLoad: {
+                enabled: false,
+                file: 'off',
+                console: 'off',
+              },
+            },
+          },
           randomAvatarUrls: [],
           providers: { [registration.providerRef]: registration.providerEntry },
           defaultModel: registration.defaultModel,
@@ -345,53 +319,48 @@ export class SetupCommand {
     if (userConfig.defaultModel) {
       await this.configurationStorage.set('defaultModel', userConfig.defaultModel, 'user');
     }
-    this.writeLine(context, 'Saved LLM configuration.');
+    this.emitService.log('info', 'Saved LLM configuration.');
     return { safeLlmConfig, apiKey };
   }
 
-  private renderConfigSummary(
-    context: ExecutionContext,
-    llmConfig: LlmSetupResult,
-    apiKey?: string
-  ): void {
-    this.writeLine(context, '');
-    this.writeLine(context, 'LLM Configuration:');
+  private renderConfigSummary(llmConfig: LlmSetupResult, apiKey?: string): void {
+    this.emitService.log('info', '');
+    this.emitService.log('info', 'LLM Configuration:');
     if (llmConfig.provider === 'github-copilot') {
-      this.writeLine(context, '  Provider: GitHub Copilot');
+      this.emitService.log('info', '  Provider: GitHub Copilot');
       if (llmConfig.model) {
-        this.writeLine(context, `  Model:    ${llmConfig.model}`);
+        this.emitService.log('info', `  Model:    ${llmConfig.model}`);
       }
       return;
     }
-    this.writeLine(context, '  Provider: OpenAI-compatible');
-    this.writeLine(context, `  Base URL: ${llmConfig.baseUrl}`);
+    this.emitService.log('info', '  Provider: OpenAI-compatible');
+    this.emitService.log('info', `  Base URL: ${llmConfig.baseUrl}`);
     if (llmConfig.model) {
-      this.writeLine(context, `  Model:    ${llmConfig.model}`);
+      this.emitService.log('info', `  Model:    ${llmConfig.model}`);
     }
     const registration = SetupCommand.buildProviderRegistrationFromSetup(llmConfig);
     const apiKeyStatus = apiKey
       ? `saved to .ai-team/.env (${SetupCommand.toApiKeyEnvVar(registration.providerRef)})`
       : 'not set';
-    this.writeLine(context, `  API Key:  ${apiKeyStatus}`);
+    this.emitService.log('info', `  API Key:  ${apiKeyStatus}`);
   }
 
   private async testLlmConnection(
-    context: ExecutionContext,
     safeLlmConfig: Omit<LlmSetupResult, 'apiKey' | 'providerRef'>,
     apiKey?: string
   ): Promise<void> {
-    this.writeLine(context, '');
-    this.writeLine(context, 'Testing LLM connection...');
+    this.emitService.log('info', '');
+    this.emitService.log('info', 'Testing LLM connection...');
     try {
       const reply = await this.llmProviderTester.testLlmConnectionAsync(safeLlmConfig, apiKey);
-      this.writeLine(context, 'LLM connection working!');
-      this.writeLine(context, `  Response: ${reply}`);
+      this.emitService.log('info', 'LLM connection working!');
+      this.emitService.log('info', `  Response: ${reply}`);
     } catch (testError) {
-      this.writeError(
-        context,
+      this.emitService.log(
+        'error',
         `LLM connection failed: ${testError instanceof Error ? testError.message : String(testError)}`
       );
-      this.writeLine(context, '  You can retry later with: ait test-connection');
+      this.emitService.log('info', '  You can retry later with: ait test-connection');
     }
   }
 }

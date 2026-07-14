@@ -1,7 +1,7 @@
 // @aspect/collector-typescript — eslint adapter
 
 import { execFile } from 'node:child_process';
-import { resolve, relative, join } from 'node:path';
+import { resolve, relative, join, win32 } from 'node:path';
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 
@@ -100,6 +100,21 @@ function toForwardSlash(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
+function relativizeFilePath(rootDir: string, filePath: string): string {
+  const normalizedRootDir = toForwardSlash(rootDir);
+  const normalizedFilePath = toForwardSlash(filePath);
+  const isWindowsAbsolutePath = /^[A-Za-z]:\//;
+
+  if (
+    isWindowsAbsolutePath.test(normalizedRootDir) &&
+    isWindowsAbsolutePath.test(normalizedFilePath)
+  ) {
+    return toForwardSlash(win32.relative(normalizedRootDir, normalizedFilePath));
+  }
+
+  return toForwardSlash(relative(rootDir, filePath));
+}
+
 export function normalizeEslintOutput(
   rawOutput: EslintRawOutput[],
   rootDir: string,
@@ -113,7 +128,7 @@ export function normalizeEslintOutput(
       // Skip messages without a ruleId (parse errors, fatal issues)
       if (msg.ruleId === null) continue;
 
-      const relPath = toForwardSlash(relative(rootDir, file.filePath));
+      const relPath = relativizeFilePath(rootDir, file.filePath);
 
       results.push({
         filePath: relPath,

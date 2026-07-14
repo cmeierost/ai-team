@@ -4,14 +4,13 @@ import { z } from 'zod';
 import type {
   ICommand,
   IAgentManager,
+  IQuestionService,
   ExecutionContext,
   CommandResponse,
   ICommandDescriptor,
 } from '@ai-team/core';
 import type { FireOptions } from '@ai-team/api-contracts';
-import { WorkflowAbortError } from '../../workflow/types.js';
-import type { WorkflowDefinition } from '../../workflow/types.js';
-import type { IWorkflowRunnerFactory } from '../../workflow/runner.js';
+import { WorkflowAbortError, type WorkflowDefinition, type IWorkflowRunnerFactory } from '../../workflow/index.js';
 
 type Params = z.infer<typeof FireICommand.schema>;
 const _fireICommandSchema = z.object({
@@ -38,18 +37,19 @@ export class FireICommand implements ICommand<Params, void> {
 
   constructor(
     private readonly agents: IAgentManager,
-    private readonly runnerFactory: IWorkflowRunnerFactory
+    private readonly questionService: Pick<IQuestionService, 'confirm'>,
+    private readonly workflowRunnerFactory: IWorkflowRunnerFactory
   ) {}
 
   async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    await this.runnerFactory.create().run(
-      fireWorkflow,
+    await this.workflowRunnerFactory.create().run(
+      createFireWorkflowDefinition(this.questionService),
       {
         agentManager: this.agents,
         agentQuery: payload.agentQuery,
         options: { force: payload.options?.force },
       },
-      { executionContext: ctx }
+      { executionContext: ctx, signal: ctx.signal }
     );
     return { status: 'ok' };
   }
@@ -62,55 +62,57 @@ interface FireWorkflowState {
   agent?: { name: string; id: string; role: string; filePath: string };
 }
 
-const fireWorkflow: WorkflowDefinition<FireWorkflowState> = {
-  id: 'fire',
-  description: 'Fire (delete) an agent and remove their data',
-  availableIn: { cli: true, chat: true, tool: true },
-  group: 'hr',
-  steps: [
-    {
-      id: 'resolve',
-      execute: async (state) => {
-        const matches = await state.agentManager.resolveAgentAsync(state.agentQuery);
+function createFireWorkflowDefinition(
+  questionService: Pick<IQuestionService, 'confirm'>
+): WorkflowDefinition<FireWorkflowState> {
+  return {
+    id: 'fire',
+    description: 'Fire an AI agent and remove their agent file',
+    availableIn: { cli: true, chat: false, tool: false },
+    steps: [
+      {
+        id: 'resolve',
+        execute: async (state) => {
+          const matches = await state.agentManager.resolveAgentAsync(state.agentQuery);
 
-        if (matches.length === 0) {
-          throw new Error(`No agent found matching "${state.agentQuery}".`);
-        }
+          if (matches.length === 0) {
+            throw new Error(`No agent found matching "${state.agentQuery}".`);
+          }
 
-        if (matches.length > 1) {
-          const summary = matches.map((m) => `${m.name} (${m.role}) [${m.id}]`).join(', ');
-          throw new Error(`Multiple agents match "${state.agentQuery}": ${summary}`);
-        }
+          if (matches.length > 1) {
+            const summary = matches.map((m) => `${m.name} (${m.role}) [${m.id}]`).join(', ');
+            throw new Error(`Multiple agents match "${state.agentQuery}": ${summary}`);
+          }
 
-        return { ...state, agent: matches[0] };
+          return { ...state, agent: matches[0] };
+        },
       },
-    },
-    {
-      id: 'confirm',
-      command: 'com_ask',
-      skipWhen: (state) => state.options.force === true,
-      params: (state) => ({
-        kind: 'confirm',
-        message: `Are you sure you want to fire '${state.agent!.name}' (${state.agent!.id})? This will delete their agent file.`,
-        defaultBoolean: false,
-      }),
-      applyResult: (state, raw) => {
-        const confirmed = (raw as { data?: { answer?: boolean } }).data?.answer;
-        if (!confirmed) throw new WorkflowAbortError();
-        return state;
+      {
+        id: 'confirm',
+        skipWhen: 'options.force === true',
+        execute: async (state) => {
+          const confirmed = await questionService.confirm({
+            message: `Are you sure you want to fire '${state.agent!.name}' (${state.agent!.id})? This will delete their agent file.`,
+            default: false,
+          });
+          if (!confirmed) {
+            throw new WorkflowAbortError();
+          }
+          return state;
+        },
       },
-    },
-    {
-      id: 'delete',
-      execute: async (state) => {
-        const { agent } = state;
-        if (agent?.filePath?.endsWith('.md')) {
-          await fs.unlink(agent.filePath);
-        } else {
-          throw new Error('Could not determine agent file path.');
-        }
-        return state;
+      {
+        id: 'delete',
+        execute: async (state) => {
+          const { agent } = state;
+          if (agent?.filePath?.endsWith('.md')) {
+            await fs.unlink(agent.filePath);
+          } else {
+            throw new Error('Could not determine agent file path.');
+          }
+          return state;
+        },
       },
-    },
-  ],
-};
+    ],
+  };
+}

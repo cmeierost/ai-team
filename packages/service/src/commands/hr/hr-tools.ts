@@ -7,7 +7,8 @@ import type {
   TeamConfig,
   CommandResponse,
 } from '@ai-team/core';
-import { ContextLevel, resolveEffectiveLlmSettings } from '@ai-team/core';
+import { ContextLevel } from '@ai-team/core';
+import { resolveEffectiveLlmSettings } from '../../llm/settings.js';
 
 function ok<T>(data: T): CommandResponse<T> {
   return { status: 'ok', data };

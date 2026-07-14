@@ -5,7 +5,7 @@ import type {
   ChatSession,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { SessionManager } from '../../session-manager.js';
+import type { SessionManager } from '../../sessions/session-manager.js';
 
 export interface AgentSessionResult {
   session: ChatSession;

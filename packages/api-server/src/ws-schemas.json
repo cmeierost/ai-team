@@ -34,13 +34,13 @@
             "description": "Answer value (string/bool/number/array/object depending on question type)",
             "anyOf": [
               {
-                "$ref": "#/definitions/Record%3Cstring%2Cstring%3E"
-              },
-              {
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
+              },
+              {
+                "$ref": "#/definitions/Record%3Cstring%2Cstring%3E"
               },
               {
                 "type": [
@@ -125,5 +125,5 @@
     ],
     "$schema": "http://json-schema.org/draft-07/schema#"
   },
-  "generatedAt": "2026-07-06T15:55:42.120Z"
+  "generatedAt": "2026-07-14T10:16:37.260Z"
 }

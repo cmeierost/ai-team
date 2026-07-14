@@ -1,6 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { ExecutionContext } from '@ai-team/core';
-import type { IQuestionService } from '../../questions/question-service.js';
+import type { IQuestionService } from '../../interaction/question-service.js';
 
 const askExecute = vi.hoisted(() => vi.fn());
 
@@ -10,11 +9,21 @@ vi.mock('../com/ask.command.js', () => ({
   },
 }));
 
-import { WorkflowQuestioner } from './workflow-questions.js';
-import { EmitService } from '../../orchestrator/services/emit-service.js';
+import { InitWorkflowQuestioner } from './workflow-questions.js';
+import { EmitService } from '../../interaction/emit-service.js';
 
-const minimalCtx: ExecutionContext = { workspaceRoot: '', history: [] };
-const noopService = {} as IQuestionService;
+function makeQuestionService(overrides: Partial<IQuestionService> = {}): IQuestionService {
+  return {
+    input: vi.fn(async () => ''),
+    confirm: vi.fn(async () => true),
+    select: vi.fn(async () => ''),
+    password: vi.fn(async () => ''),
+    checklist: vi.fn(async () => []),
+    ...overrides,
+  };
+}
+
+const noopService = makeQuestionService();
 
 describe('workflow questions ask-tool bridge', () => {
   beforeEach(() => {
@@ -23,8 +32,8 @@ describe('workflow questions ask-tool bridge', () => {
 
   it('routes input questions through com_ask and preserves workflow request payload', async () => {
     const questionInput = vi.fn().mockResolvedValue('ok-value');
-    const questionService = { input: questionInput } as IQuestionService;
-    const questioner = new WorkflowQuestioner(questionService, new EmitService(() => {}));
+    const questionService = makeQuestionService({ input: questionInput });
+    const questioner = new InitWorkflowQuestioner(questionService, new EmitService(() => {}));
 
     askExecute.mockImplementation(async (params) => {
       expect(params.kind).toBe('input');

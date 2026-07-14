@@ -18,18 +18,9 @@ export interface IPathPermissionChecker {
     permissions: PermissionConfig | undefined,
     filePath: string
   ): boolean;
-  canReadPath(
-    permissions: PermissionConfig | undefined,
-    filePath: string
-  ): boolean;
-  canWritePath(
-    permissions: PermissionConfig | undefined,
-    filePath: string
-  ): boolean;
-  canListPath(
-    permissions: PermissionConfig | undefined,
-    filePath: string
-  ): boolean;
+  canReadPath(permissions: PermissionConfig | undefined, filePath: string): boolean;
+  canWritePath(permissions: PermissionConfig | undefined, filePath: string): boolean;
+  canListPath(permissions: PermissionConfig | undefined, filePath: string): boolean;
   assertCanReadPath(
     contextId: string,
     permissions: PermissionConfig | undefined,
@@ -240,11 +231,20 @@ export interface IOrchestratorHookPlugin<
   onTurnCompleted?(payload: TurnCompletedHookPayload<Ctx, TResult>): Promise<void> | void;
 }
 
-export interface IContainerToken<T> {
-  readonly id: string;
-  toString(): string;
-  readonly __type?: T;
+export class Token<T> {
+  declare readonly __type?: T;
+
+  constructor(readonly id: string) {}
+
+  toString(): string {
+    return `Token(${this.id})`;
+  }
 }
+
+/**
+ * @deprecated Use Token<T> directly. Kept as compatibility alias during migration.
+ */
+export type IContainerToken<T> = Token<T>;
 
 export type ContainerTokenValue<TToken extends IContainerToken<unknown>> =
   TToken extends IContainerToken<infer TValue> ? TValue : never;
@@ -270,10 +270,7 @@ export interface IServiceContainerRegistrar {
     factory: (container: IServiceContainer) => T
   ): this;
   /** One instance per child container scope — each child creates its own singleton. */
-  registerScoped<T>(
-    token: IContainerToken<T>,
-    factory: (container: IServiceContainer) => T
-  ): this;
+  registerScoped<T>(token: IContainerToken<T>, factory: (container: IServiceContainer) => T): this;
   registerInstance<T>(token: IContainerToken<T>, instance: T): this;
 }
 

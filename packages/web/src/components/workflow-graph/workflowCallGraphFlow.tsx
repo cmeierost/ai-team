@@ -718,7 +718,7 @@ export function transformWorkflowDefinitionToReactFlow(
   });
 
   const sortedDepths = [...entriesByDepth.keys()].sort((left, right) => left - right);
-  const maxMainDepth = sortedDepths.reduce((lastDepth, depth) => depth, 0);
+  const maxMainDepth = sortedDepths.reduce((_lastDepth, depth) => depth, 0);
   const errorSinkDepth = maxMainDepth + 1;
 
   sortedDepths.forEach((depth) => {

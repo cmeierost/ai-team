@@ -4,8 +4,8 @@
  * When the user types `/`, a filtered list of matching commands is rendered
  * below the current line. Navigation:
  *   ↑ / ↓   move selection
- *   Tab      apply the highlighted command's usage template
- *   Enter    submit (applies highlighted entry first if one is selected)
+ *   Tab/→    apply the highlighted command's usage template
+ *   Enter    submit (auto-applies if one command matches, or when one is highlighted)
  *   Escape   dismiss the suggestion list
  *
  * Falls back to a plain `readline.question()` when stdin is not a TTY.
@@ -29,7 +29,7 @@ type CommandEntry = Pick<CommandDescriptor, 'key' | 'aliases' | 'usage' | 'descr
 
 /** Strip ANSI escape codes to measure visible character width. */
 function visibleLength(str: string): number {
-  // eslint-disable-next-line no-control-regex
+   
   return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').length;
 }
 
@@ -64,6 +64,16 @@ function getSuggestions(commands: CommandEntry[], buf: string): CommandEntry[] {
     const keys = [cmd.key, ...(cmd.aliases ?? [])];
     return keys.some((k) => k.startsWith(fragment));
   });
+}
+
+function shouldApplySelectionOnEnter(
+  buffer: string,
+  suggestions: CommandEntry[],
+  selectedIdx: number
+): boolean {
+  if (!buffer.startsWith('/')) return false;
+  if (selectedIdx >= 0 && suggestions.length > 0) return true;
+  return suggestions.length === 1;
 }
 
 /**
@@ -184,12 +194,14 @@ export async function askWithSlashSuggestions(
     };
 
     const finish = (value: string) => {
+      // Clear the interactive prompt line and any suggestion UI so we don't
+      // re-show submitted input in a way that can look like a duplicated turn.
       if (currentInputRows > 1) {
         moveCursor(output, 0, -(currentInputRows - 1));
       }
       cursorTo(output, 0);
       clearScreenDown(output);
-      output.write(`${promptText} ${value}\n`);
+      output.write('\n');
       cleanup();
       resolve(value.trim());
     };
@@ -227,13 +239,16 @@ export async function askWithSlashSuggestions(
 
       // Enter
       if (key.name === 'return' || key.name === 'enter') {
-        if (selectedIdx >= 0) applySelection();
+        const suggestions = getSuggestions(commands, buffer);
+        if (shouldApplySelectionOnEnter(buffer, suggestions, selectedIdx)) {
+          applySelection();
+        }
         finish(buffer);
         return;
       }
 
-      // Tab — apply top/selected suggestion
-      if (key.name === 'tab') {
+      // Tab/Right Arrow — apply top/selected suggestion
+      if (key.name === 'tab' || key.name === 'right') {
         applySelection();
         return;
       }
@@ -305,3 +320,9 @@ export async function askWithSlashSuggestions(
     output.write(`${promptText} `);
   });
 }
+
+export const SLASH_PROMPT_TESTING = {
+  getSuggestions,
+  renderAll,
+  shouldApplySelectionOnEnter,
+};

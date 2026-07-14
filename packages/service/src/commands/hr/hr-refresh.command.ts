@@ -19,7 +19,7 @@ export class HhRefreshCommand implements ICommand<Record<string, never>, void> {
 
   async execute(
     _payload: Record<string, never>,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<CommandResponse<void>> {
     await hhRefreshCommand(this.workspaceRoot);
     return { status: 'ok' };

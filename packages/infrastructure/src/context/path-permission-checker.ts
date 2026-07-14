@@ -1,14 +1,12 @@
 import type { IPathPermissionChecker, PermissionConfig } from '@ai-team/core';
-import {
-  canReadPath,
-  canWritePath,
-  canListPath,
-  assertCanReadPath,
-  assertCanWritePath,
-} from './index.js';
+import { ContextPermissionService } from './permission-services.js';
 
 export class PathPermissionChecker implements IPathPermissionChecker {
-  constructor(private readonly workspaceRoot: string) {}
+  private readonly permissionService: ContextPermissionService;
+
+  constructor(workspaceRoot: string) {
+    this.permissionService = new ContextPermissionService(workspaceRoot);
+  }
 
   can(
     right: 'read' | 'write' | 'list',
@@ -29,21 +27,21 @@ export class PathPermissionChecker implements IPathPermissionChecker {
     permissions: PermissionConfig | undefined,
     filePath: string
   ): boolean {
-    return canReadPath(this.workspaceRoot, permissions, filePath);
+    return this.permissionService.canReadPath(permissions, filePath);
   }
 
   canWritePath(
     permissions: PermissionConfig | undefined,
     filePath: string
   ): boolean {
-    return canWritePath(this.workspaceRoot, permissions, filePath);
+    return this.permissionService.canWritePath(permissions, filePath);
   }
 
   canListPath(
     permissions: PermissionConfig | undefined,
     filePath: string
   ): boolean {
-    return canListPath(this.workspaceRoot, permissions, filePath);
+    return this.permissionService.canListPath(permissions, filePath);
   }
 
   assertCanReadPath(
@@ -51,7 +49,7 @@ export class PathPermissionChecker implements IPathPermissionChecker {
     permissions: PermissionConfig | undefined,
     filePath: string
   ): void {
-    assertCanReadPath(this.workspaceRoot, contextId, permissions, filePath);
+    this.permissionService.assertCanReadPath(contextId, permissions, filePath);
   }
 
   assertCanWritePath(
@@ -59,6 +57,6 @@ export class PathPermissionChecker implements IPathPermissionChecker {
     permissions: PermissionConfig | undefined,
     filePath: string
   ): void {
-    assertCanWritePath(this.workspaceRoot, contextId, permissions, filePath);
+    this.permissionService.assertCanWritePath(contextId, permissions, filePath);
   }
 }

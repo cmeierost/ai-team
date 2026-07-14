@@ -4,7 +4,7 @@ import type {
   CommandResponse,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { SessionManager } from '../../session-manager.js';
+import type { SessionManager } from '../../sessions/session-manager.js';
 import type { StoredMessage } from './context-utils.js';
 
 function formatMessageEntry(m: StoredMessage): string[] {

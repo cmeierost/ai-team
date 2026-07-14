@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { LlmConfig } from '@ai-team/core';
-import { buildDisableThinkingFallbackRequest, hasReasoningOnlyCompletion } from './index.js';
+import { LlmProviderNormalizationService } from './llm-provider-normalization.js';
+
+const normalizationService = new LlmProviderNormalizationService();
 
 describe('reasoning-only completion fallback', () => {
   it('detects reasoning-only chat completions', () => {
@@ -17,7 +19,7 @@ describe('reasoning-only completion fallback', () => {
       ],
     };
 
-    expect(hasReasoningOnlyCompletion(response)).toBe(true);
+    expect(normalizationService.hasReasoningOnlyCompletion(response)).toBe(true);
   });
 
   it('does not detect reasoning-only when normal content exists', () => {
@@ -34,7 +36,7 @@ describe('reasoning-only completion fallback', () => {
       ],
     };
 
-    expect(hasReasoningOnlyCompletion(response)).toBe(false);
+    expect(normalizationService.hasReasoningOnlyCompletion(response)).toBe(false);
   });
 
   it('builds fallback request with enable_thinking=false for openai-compatible', () => {
@@ -66,7 +68,9 @@ describe('reasoning-only completion fallback', () => {
       ],
     };
 
-    expect(buildDisableThinkingFallbackRequest(config, request, response)).toEqual({
+    expect(
+      normalizationService.buildDisableThinkingFallbackRequest(config, request, response)
+    ).toEqual({
       ...request,
       chat_template_kwargs: {
         some_other_flag: true,
@@ -99,6 +103,8 @@ describe('reasoning-only completion fallback', () => {
       ],
     };
 
-    expect(buildDisableThinkingFallbackRequest(config, request, response)).toBeUndefined();
+    expect(
+      normalizationService.buildDisableThinkingFallbackRequest(config, request, response)
+    ).toBeUndefined();
   });
 });

@@ -6497,10 +6497,6 @@
                 "properties": {
                   "content": {
                     "type": "string"
-                  },
-                  "pendingIntroduction": {
-                    "type": "string",
-                    "nullable": true
                   }
                 },
                 "required": [

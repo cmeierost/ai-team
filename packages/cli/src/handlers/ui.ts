@@ -1,4 +1,4 @@
-import { runUiCommand, type UiCommandOptions } from '@ai-team/service';
+import { runUiCommand, type UiCommandOptions } from './ui-command.js';
 
 export async function launchUi(
   options: UiCommandOptions = {},

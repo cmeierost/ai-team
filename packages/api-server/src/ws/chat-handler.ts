@@ -2,7 +2,8 @@ import type { WebSocket } from 'ws';
 import type { StreamEvent } from '@ai-team/api-contracts';
 import type { IAgentManager, IdeAdapter } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/infrastructure';
-import { type IInteractionService, SessionManager, WsQuestionService } from '@ai-team/service';
+import { type IInteractionService, SessionManager } from '@ai-team/service';
+import { WsQuestionService } from './ws-question-service.js';
 
 /**
  * Messages sent from client to server over WebSocket.
@@ -235,28 +236,20 @@ export async function setupChatWebSocket(
           // Message persistence is handled by the service layer (chatCommand/sendMessage)
           // — no need to save user or assistant messages here.
 
-          // Stream chat response with question handlers
+          // Stream chat response
+          // Note: QuestionService is already resolved from the per-connection child container
+          // Signal is handled via ExecutionContext in the service layer
           const stream = interactionService.stream(
             {
-              command: 'chat',
+              command: 'chat-chat',
               payload: {
-                employeeId: agentId,
-                options: {
-                  message: message.content,
-                  sessionId: sessionId ?? undefined,
-                  ...message.options,
-                  oneShot: message.options?.oneShot ?? true,
-                },
+                agentId,
+                message: message.content,
+                sessionId: sessionId ?? undefined,
+                createNewSession: message.options?.createNewSession,
               },
             },
-            {
-              signal: currentAbortController.signal,
-              questionInput: (r) => questionService.input(r),
-              questionConfirm: (r) => questionService.confirm(r),
-              questionSelect: (r) => questionService.select(r),
-              questionPassword: (r) => questionService.password(r),
-              questionChecklist: (r) => questionService.checklist(r),
-            }
+            {} // WorkflowCallbacks - signal and questions are handled via DI
           );
 
           for await (const event of stream) {

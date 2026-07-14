@@ -297,12 +297,12 @@ This keeps runtime event routing isolated and predictable across concurrent requ
 
 ## ChatOrchestrator Pipeline
 
-`packages/service/src/commands/chat/index.ts` is intentionally thin. It performs preflight checks, resolves the current agent/session, builds the orchestration context, and hands control to `ChatOrchestrator`.
+`packages/service/src/commands/chat/chat.command.ts` is intentionally thin. It performs preflight checks, resolves the current agent/session, builds the orchestration context, and hands control to `ChatOrchestrator`.
 
 The orchestration pipeline lives in `packages/service/src/orchestrator/`.
 
 ```text
-chatCommand (commands/chat/index.ts)
+chatCommand (commands/chat/chat.command.ts)
   └─ ChatOrchestrator.run(message)
        ├─ 1. trySlashCommand()
        ├─ 2. tryNlForward()

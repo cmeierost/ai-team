@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ICommand, ExecutionContext, ICommandDescriptor } from '@ai-team/core';
 import type { WorkflowDefinitionApiResponse } from '@ai-team/api-contracts';
 
-import type { ScoredPreLlmIntentCandidate } from '../../tools/pre-llm-intents.js';
+import type { ScoredPreLlmIntentCandidate } from '../../interaction/intents/pre-llm-intents.js';
 import type { IWorkflowCatalog } from '../orchestration/orchestration.types.js';
 import type { WorkflowDefinitionResolver } from '../../workflow/definition-catalog.js';
 

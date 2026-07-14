@@ -84,14 +84,14 @@ export interface IMarkdownSectionService {
 
 export interface IWorkspaceStorage {
   fileExistsAsync(filePath: string): Promise<boolean>;
-  ensureAiTeamDirectoryAsync(workspaceRoot: string): Promise<void>;
+  ensureAiTeamDirectoryAsync(): Promise<void>;
 }
 
 export interface IWorkspaceDiscoveryStorage {
-  findAgentFilesAsync(workspaceRoot: string): Promise<string[]>;
-  findSkillFilesAsync(workspaceRoot: string): Promise<string[]>;
-  resolveAgentSkillFilePath(workspaceRoot: string, skillId: string): string;
-  findInstructionFilesAsync(workspaceRoot: string): Promise<string[]>;
+  findAgentFilesAsync(): Promise<string[]>;
+  findSkillFilesAsync(): Promise<string[]>;
+  resolveAgentSkillFilePath(skillId: string): string;
+  findInstructionFilesAsync(): Promise<string[]>;
 }
 
 export interface IAgentDocumentStorage {
@@ -102,7 +102,7 @@ export interface IAgentDocumentStorage {
   saveSkillAsync(skill: Skill): Promise<void>;
   loadAgentSkillFileAsync(filePath: string): Promise<AgentSkillFile>;
   loadInstructionFileAsync(filePath: string): Promise<InstructionFile>;
-  loadAllInstructionFilesAsync(workspaceRoot: string): Promise<InstructionFile[]>;
+  loadAllInstructionFilesAsync(): Promise<InstructionFile[]>;
 }
 
 /** Dot-separated path string that resolves to a leaf or node inside T. */

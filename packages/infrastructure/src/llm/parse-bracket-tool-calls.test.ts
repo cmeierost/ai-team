@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { parseBracketToolCalls, parseTextToolCalls } from './index.js';
+import { LlmTextToolParser } from './llm-text-tool-parser.js';
+
+const textToolParser = new LlmTextToolParser();
 
 describe('parseBracketToolCalls', () => {
   it('parses [tool:name] JSON blocks for known tools', () => {
-    const parsed = parseBracketToolCalls(
+    const parsed = textToolParser.parseBracketToolCalls(
       `[tool:com_ask]\n{\n  "kind": "select",\n  "message": "pick",\n  "choices": [{"name":"A","value":"a"}]\n}`,
       new Set(['com_ask'])
     );
@@ -18,7 +20,7 @@ describe('parseBracketToolCalls', () => {
   });
 
   it('ignores unknown tools and invalid JSON payloads', () => {
-    const parsed = parseBracketToolCalls(
+    const parsed = textToolParser.parseBracketToolCalls(
       `[tool:unknown]\n{}\n\n[tool:com_ask]\nnot-json`,
       new Set(['com_ask'])
     );
@@ -27,7 +29,7 @@ describe('parseBracketToolCalls', () => {
   });
 
   it('supports fenced json payloads', () => {
-    const parsed = parseBracketToolCalls(
+    const parsed = textToolParser.parseBracketToolCalls(
       `[tool:com_ask]\n\n\`\`\`json\n{\n  "kind": "input",\n  "message": "hello"\n}\n\`\`\``,
       new Set(['com_ask'])
     );
@@ -37,7 +39,7 @@ describe('parseBracketToolCalls', () => {
   });
 
   it('parses plain JSON text with name/arguments shape', () => {
-    const parsed = parseTextToolCalls(
+    const parsed = textToolParser.parseTextToolCalls(
       '{"name":"com_ask","arguments":{"kind":"input","message":"hello"}}',
       new Set(['com_ask'])
     );
@@ -48,7 +50,7 @@ describe('parseBracketToolCalls', () => {
   });
 
   it('parses fenced JSON text with nested function shape', () => {
-    const parsed = parseTextToolCalls(
+    const parsed = textToolParser.parseTextToolCalls(
       '```json\n{"function":{"name":"com_ask","arguments":"{\\"kind\\":\\"confirm\\",\\"message\\":\\"Proceed?\\"}"}}\n```',
       new Set(['com_ask'])
     );

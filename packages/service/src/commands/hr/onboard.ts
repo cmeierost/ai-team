@@ -18,7 +18,7 @@ import type {
 } from '@ai-team/core';
 import { z } from 'zod';
 import type { OnboardOptions } from '@ai-team/api-contracts';
-import { type IEmitService } from '../../orchestrator/services/emit-service.js';
+import type { IEmitService } from '@ai-team/core';
 import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 
 // ── OnboardCommand ────────────────────────────────────────────────────────────

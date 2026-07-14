@@ -1,24 +1,20 @@
-import {
-  createCommandDispatcher,
-  type CommandDispatcher,
-} from '@ai-team/service/src/command-dispatcher.js';
+import { TOKENS } from '@ai-team/container';
 import type {
   CommandAvailability,
   CommandDescriptor,
   CommandResponse,
   StreamEvent,
   InteractionRequest,
-  RuntimeStreamEvent,
 } from '@ai-team/api-contracts';
-import { toServiceDomainError } from '@ai-team/service/src/errors.js';
-import { writeBackendDebugLog } from '@ai-team/service/src/utils/debug-log.js';
-import type { IEmitService } from '@ai-team/service/src/orchestrator/services/emit-service.js';
-import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service/src/stream-perf.js';
-import { runtimeEventToStreamEvent } from '@ai-team/service/src/runtime-event-translator.js';
-import { InteractionStream } from '@ai-team/service/src/interaction-stream.js';
-import type { ExecutionContext, IServiceContainer } from '@ai-team/core';
-import type { IQuestionService } from '@ai-team/service';
-import { COMMAND_FACTORY_TOKENS } from '@ai-team/service/src/types.js';
+import type { ExecutionContext, IBackendLogService, IServiceContainer } from '@ai-team/core';
+import type { IEmitService, IQuestionService } from '@ai-team/core';
+import { IInteractionService } from '@ai-team/service';
+import { createCommandDispatcher, type CommandDispatcher } from '@ai-team/service';
+import { toServiceDomainError } from '@ai-team/service';
+import { InteractionStream } from '@ai-team/service';
+import { runtimeEventToStreamEvent } from '@ai-team/service';
+import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service';
+import { COMMAND_FACTORY_TOKENS } from '@ai-team/service';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -72,11 +68,19 @@ export class CliCommandClient implements ICliCommandClient {
   public readonly workspaceRoot: string;
   private readonly resolver: IServiceContainer;
   private readonly dispatcher: CommandDispatcher;
+  private readonly backendLogService?: IBackendLogService;
 
   constructor(workspaceRoot: string, resolver: IServiceContainer) {
     this.workspaceRoot = workspaceRoot;
     this.resolver = resolver;
     this.dispatcher = createCommandDispatcher(workspaceRoot, resolver);
+    this.backendLogService = resolver.tryResolve(TOKENS.BackendLogService) as
+      | IBackendLogService
+      | undefined;
+  }
+
+  private writeBackendLog(entry: unknown): void {
+    this.backendLogService?.write(entry);
   }
 
   withQuestionService(service: IQuestionService): CliCommandClient {
@@ -102,7 +106,7 @@ export class CliCommandClient implements ICliCommandClient {
     const active = Boolean(svc);
 
     svc?.status('dispatch', `Dispatching command '${request.command}'`);
-    writeBackendDebugLog(this.workspaceRoot, {
+    this.writeBackendLog({
       source: 'invoke',
       phase: 'dispatch',
       command: request.command,
@@ -114,7 +118,7 @@ export class CliCommandClient implements ICliCommandClient {
     const originalWarn = console.warn;
     const originalError = console.error;
     const originalStdoutWrite = process.stdout.write.bind(process.stdout);
-    const isInteractiveChatCommand = request.command === 'chat-chat' || request.command === 'chat';
+    const isInteractiveChatCommand = request.command === 'chat' || request.command === 'chat-chat';
     const shouldCaptureStdout = active && !isInteractiveChatCommand;
 
     // Patch console and stdout to route through the active EmitService when present.
@@ -172,10 +176,13 @@ export class CliCommandClient implements ICliCommandClient {
     }
 
     const invokeCore = async (): Promise<CommandResponse<unknown>> => {
-      const response = await this.dispatcher.dispatch(request.command, request.payload, context);
+      const response = await this.dispatcher.dispatch({
+        command: request.command,
+        payload: request.payload,
+      });
 
       svc?.status('completed', `Completed command '${request.command}'`);
-      writeBackendDebugLog(this.workspaceRoot, {
+      this.writeBackendLog({
         source: 'invoke',
         phase: 'completed',
         command: request.command,
@@ -189,7 +196,7 @@ export class CliCommandClient implements ICliCommandClient {
       return active ? await STDOUT_CAPTURE_SCOPE.run(true, invokeCore) : await invokeCore();
     } catch (error) {
       const serviceError = toServiceDomainError(error, `Command '${request.command}' failed.`);
-      writeBackendDebugLog(this.workspaceRoot, {
+      this.writeBackendLog({
         source: 'invoke',
         phase: 'error',
         command: request.command,
@@ -224,7 +231,9 @@ export class CliCommandClient implements ICliCommandClient {
   ): AsyncIterable<StreamEvent<TCommand>> {
     const { enabled: perfEnabled, slowMs: perfSlowMs } = parseStreamPerfEnv();
     const perf = perfEnabled
-      ? createStreamPerfTracker(this.workspaceRoot, request.command, request.requestId, perfSlowMs)
+      ? createStreamPerfTracker(request.command, request.requestId, perfSlowMs, (entry) =>
+          this.writeBackendLog(entry)
+        )
       : null;
 
     // No-op default logger: calling console.log here would trigger a feedback loop
@@ -237,10 +246,10 @@ export class CliCommandClient implements ICliCommandClient {
       (context.logger as ((entry: { channel: string; event: unknown }) => void) | undefined) ??
       (() => {});
 
-    const handleRuntimeEvent = (event: RuntimeStreamEvent) => {
+    const handleRuntimeEvent = (event: unknown) => {
       if (perf) {
         const t0 = perf.nowNs();
-        writeBackendDebugLog(this.workspaceRoot, {
+        this.writeBackendLog({
           source: 'runtime',
           command: request.command,
           requestId: request.requestId,
@@ -252,7 +261,7 @@ export class CliCommandClient implements ICliCommandClient {
         perf.state.emitRuntimeLoggerMs += perf.elapsedMs(t1);
         perf.state.runtimeEventsQueued += 1;
       } else {
-        writeBackendDebugLog(this.workspaceRoot, {
+        this.writeBackendLog({
           source: 'runtime',
           command: request.command,
           requestId: request.requestId,
@@ -266,7 +275,7 @@ export class CliCommandClient implements ICliCommandClient {
       if (perf) {
         const totalStart = perf.nowNs();
         const t0 = perf.nowNs();
-        writeBackendDebugLog(this.workspaceRoot, {
+        this.writeBackendLog({
           source: 'stream',
           command: request.command,
           requestId: request.requestId,
@@ -287,7 +296,7 @@ export class CliCommandClient implements ICliCommandClient {
         if (durationMs >= perf.slowThresholdMs) perf.state.slowToStreamEventCount += 1;
         perf.logSlowEvent(event.kind, durationMs);
       } else {
-        writeBackendDebugLog(this.workspaceRoot, {
+        this.writeBackendLog({
           source: 'stream',
           command: request.command,
           requestId: request.requestId,
@@ -296,6 +305,30 @@ export class CliCommandClient implements ICliCommandClient {
         logger({ channel: 'stream', event });
       }
     };
+
+    const interactionService = this.resolver.tryResolve(TOKENS.InteractionService) as
+      | IInteractionService
+      | undefined;
+
+    if (interactionService && request.command === 'chat') {
+      const hookOptions = {
+        invocationSurface: context.invocationSurface as 'cli' | 'web' | 'api' | undefined,
+        calledByHuman:
+          typeof context.calledByHuman === 'boolean' ? context.calledByHuman : undefined,
+        signal: context.signal as AbortSignal | undefined,
+        workflowState: context.workflowState as any,
+        onWorkflowFrame: context.onWorkflowFrame as any,
+      };
+
+      for await (const event of interactionService.stream(request, hookOptions as any)) {
+        handleStreamEvent(event as StreamEvent<TCommand>);
+        yield event as StreamEvent<TCommand>;
+      }
+
+      perf?.flush('done');
+      return;
+    }
+
     const interactionStream = new InteractionStream({
       translateRuntimeEvent: runtimeEventToStreamEvent,
     });

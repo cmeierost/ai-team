@@ -8,6 +8,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { HireCommand as HireCommandImpl } from './hire.js';
+import type { IEmitService } from '@ai-team/core';
 
 type Params = z.infer<typeof HireICommand.schema>;
 const _hireICommandSchema = z.object({
@@ -34,12 +35,18 @@ export class HireICommand implements ICommand<Params, void> {
   constructor(
     private readonly workspaceRoot: string,
     private readonly agents: IAgentManager,
-    private readonly markdown: IMarkdownSectionService
+    private readonly markdown: IMarkdownSectionService,
+    private readonly emitService: IEmitService
   ) {}
 
-  async execute(payload: Params, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    const cmd = new HireCommandImpl(this.workspaceRoot, this.agents, this.markdown);
-    await cmd.execute(payload, ctx);
+  async execute(payload: Params, _ctx: ExecutionContext): Promise<CommandResponse<void>> {
+    const cmd = new HireCommandImpl(
+      this.workspaceRoot,
+      this.agents,
+      this.markdown,
+      this.emitService
+    );
+    await cmd.execute(payload);
     return { status: 'ok' };
   }
 }

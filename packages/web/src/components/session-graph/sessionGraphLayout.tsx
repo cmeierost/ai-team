@@ -248,7 +248,7 @@ function toTextUnits(textLength: number): number {
   return Math.max(textLength / CHARS_PER_TEXT_UNIT, MIN_MESSAGE_TEXT_UNITS);
 }
 
-function pickTickStepUnits(totalUnits: number): number {
+function pickTickStepUnits(_totalUnits: number): number {
   const minimumTickDistancePx = 90;
   const targetStepUnits = minimumTickDistancePx / PX_PER_TEXT_UNIT;
   const candidates = [10, 20, 25, 50, 100, 200, 500, 1000];

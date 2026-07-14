@@ -11,7 +11,7 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import { resolveFsAbsolutePath, toFsPathAccessEnvelope, toFsPathMeta } from './fs-access.js';
-import { collectPostWriteDiagnostics } from '../../tools/catalog/diagnostics-helper.js';
+import { collectPostWriteDiagnostics } from '../../tooling/catalog/diagnostics-helper.js';
 import { stripLineNumberPrefixes } from './fs-edit-helpers.js';
 
 export interface FsEditParams {

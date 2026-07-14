@@ -1,6 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ChatService } from './chat-service.js';
 
+describe('ChatService post routing', () => {
+  it('routes standard post requests through workflow command', async () => {
+    const interactionService = {
+      stream: vi.fn(() =>
+        (async function* () {
+          yield { kind: 'token', text: 'Hello from workflow' };
+        })()
+      ),
+    } as any;
+
+    const service = new ChatService(interactionService, {} as any, {} as any, {} as any, {} as any);
+
+    const result = await service.post('sarah-lee', { content: 'hello' });
+
+    expect(interactionService.stream).toHaveBeenCalledWith({
+      command: 'chat-chat',
+      payload: {
+        agentId: 'sarah-lee',
+        message: 'hello',
+      },
+    });
+    expect(result).toEqual({ content: 'Hello from workflow' });
+  });
+});
+
 describe('ChatService tool result actions', () => {
   it('hides tool result from LLM by writing empty resultLlm', async () => {
     const sessionManager = {

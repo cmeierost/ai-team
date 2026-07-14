@@ -1,9 +1,10 @@
 import type {
-  IConfigurationStorage,
+  CoreServiceRegistrationTokens,
+  ILlmService,
   IContainerToken,
   IServiceContainerRegistrar,
 } from '@ai-team/core';
-import { ProviderConfigurationService } from '@ai-team/core';
+import { ContextRuntime } from 'fs-context';
 import { SqliteBackend } from '../storage/sqlite/sqlite-storage.js';
 import { NotesRepository } from '../repositories/notes-repository.js';
 import { MessagesRepository } from '../repositories/messages-repository.js';
@@ -14,7 +15,7 @@ import { ConfigurationStorage } from '../agent/configuration-storage.js';
 import { PathPermissionChecker } from '../context/path-permission-checker.js';
 import { DeveloperIdentityService } from '../platform/developer-identity-service.js';
 import { SystemInfoService } from '../platform/system-info-service.js';
-import { createModelDiscoveryRegistry } from '../llm/model-discovery.js';
+import { ModelDiscoveryRegistry } from '../llm/model-discovery.js';
 import { LlmProviderTester } from '../llm/provider-tester.js';
 import { PermFileRegistry } from 'fs-context';
 import { registerAgentInfrastructureServices } from '../agent/register-agent-infrastructure-services.js';
@@ -33,47 +34,56 @@ import { InfrastructureProposalStoreFactory } from '../storage/proposal-store.js
 import { InfrastructureTextToolCallParser } from '../llm/text-tool-call-parser.js';
 import { ChatStorage, ChatManager } from '../chat/index.js';
 import { TeamGraphBuilder } from '../agent/team-graph-builder.js';
-
-export interface InfrastructureCoreRegistrationTokens {
-  WorkspaceRoot: IContainerToken<any>;
-  SqliteBackend: IContainerToken<any>;
-  NotesRepository: IContainerToken<any>;
-  MessagesRepository: IContainerToken<any>;
-  SessionsRepository: IContainerToken<any>;
-  PlanningRepository: IContainerToken<any>;
-  LlmService: IContainerToken<any>;
-  ConfigurationStorage: IContainerToken<IConfigurationStorage>;
-  PathPermissionChecker: IContainerToken<any>;
-  DeveloperIdentityService: IContainerToken<any>;
-  SystemInfoService: IContainerToken<any>;
-  PermissionStorage: IContainerToken<any>;
-  ModelDiscoveryRegistry: IContainerToken<any>;
-  LlmProviderTester: IContainerToken<any>;
-  ProviderConfigurationService: IContainerToken<any>;
-  MarkdownSectionService: IContainerToken<any>;
-  WorkspaceStorage: IContainerToken<any>;
-  AgentDocumentStorage: IContainerToken<any>;
-  AgentManager: IContainerToken<any>;
-  SkillManager: IContainerToken<any>;
-  AvatarManager: IContainerToken<any>;
-  CodeEditManager: IContainerToken<any>;
-  TypeScriptAnalyzer: IContainerToken<any>;
-  FileAnnotationService: IContainerToken<any>;
-  FileTreeService: IContainerToken<any>;
-  IdeAdapterFactory: IContainerToken<any>;
-  WorkspaceAccessRuntime: IContainerToken<any>;
-  WorkspaceFsFactory: IContainerToken<any>;
-  NoteAttachmentReader: IContainerToken<any>;
-  ProposalStoreFactory: IContainerToken<any>;
-  TextToolCallParser: IContainerToken<any>;
-  ChatStorage: IContainerToken<any>;
-  ChatManager: IContainerToken<any>;
-  TeamGraphBuilder: IContainerToken<any>;
-}
+import { ProviderConfigurationService } from '../llm/provider-configuration.service.js';
+import { InfrastructureLlmSettingsResolver } from '../llm/llm-settings-resolver.js';
+import { InfrastructureLlmConsoleLog } from '../llm/llm-console-log.js';
+import {
+  GitHubModelDiscoveryService,
+  OpenAICompatibleModelDiscoveryService,
+} from '../llm/model-discovery.js';
 
 export function registerInfrastructureCoreServices(
   container: IServiceContainerRegistrar,
-  tokens: InfrastructureCoreRegistrationTokens
+  tokens: Pick<
+    CoreServiceRegistrationTokens,
+    | 'WorkspaceRoot'
+    | 'NotesRepository'
+    | 'MessagesRepository'
+    | 'SessionsRepository'
+    | 'PlanningRepository'
+    | 'LlmService'
+    | 'ConfigurationStorage'
+    | 'PathPermissionChecker'
+    | 'DeveloperIdentityService'
+    | 'SystemInfoService'
+    | 'PermissionStorage'
+    | 'ModelDiscoveryRegistry'
+    | 'LlmProviderTester'
+    | 'ProviderConfigurationService'
+    | 'LlmSettingsResolver'
+    | 'MarkdownSectionService'
+    | 'WorkspaceStorage'
+    | 'AgentDocumentStorage'
+    | 'AgentManager'
+    | 'SkillManager'
+    | 'AvatarManager'
+    | 'CodeEditManager'
+    | 'TypeScriptAnalyzer'
+    | 'FileAnnotationService'
+    | 'FileTreeService'
+    | 'IdeAdapterFactory'
+    | 'WorkspaceAccessRuntime'
+    | 'WorkspaceFsFactory'
+    | 'NoteAttachmentReader'
+    | 'ProposalStoreFactory'
+    | 'TextToolCallParser'
+    | 'ChatStorage'
+    | 'ChatManager'
+    | 'TeamGraphBuilder'
+  > & {
+    SqliteBackend: IContainerToken<SqliteBackend>;
+    ContextRuntime: IContainerToken<ContextRuntime>;
+  }
 ): void {
   container.registerSingleton(
     tokens.SqliteBackend,
@@ -103,7 +113,12 @@ export function registerInfrastructureCoreServices(
   container.registerSingleton(tokens.LlmService, (c) => {
     const configStorage = c.resolve(tokens.ConfigurationStorage);
     const teamConfig = configStorage.get();
-    return new LlmService(c.resolve(tokens.WorkspaceRoot), teamConfig);
+    return new LlmService(
+      c.resolve(tokens.WorkspaceRoot),
+      teamConfig,
+      c.resolve(tokens.LlmSettingsResolver),
+      new InfrastructureLlmConsoleLog()
+    ) as unknown as ILlmService;
   });
 
   container.registerSingleton(
@@ -119,11 +134,26 @@ export function registerInfrastructureCoreServices(
     tokens.PermissionStorage,
     (c) => new PermFileRegistry(c.resolve(tokens.WorkspaceRoot))
   );
-  container.registerSingleton(tokens.ModelDiscoveryRegistry, () => createModelDiscoveryRegistry());
-  container.registerSingleton(tokens.LlmProviderTester, () => new LlmProviderTester());
   container.registerSingleton(
-    tokens.ProviderConfigurationService,
-    () => new ProviderConfigurationService()
+    tokens.ModelDiscoveryRegistry,
+    () =>
+      new ModelDiscoveryRegistry([
+        new GitHubModelDiscoveryService(),
+        new OpenAICompatibleModelDiscoveryService(),
+      ])
+  );
+  container.registerSingleton(
+    tokens.LlmProviderTester,
+    (c) => new LlmProviderTester(c.resolve(tokens.LlmSettingsResolver))
+  );
+  container.registerSingleton(tokens.ProviderConfigurationService, (c) => {
+    const configStorage = c.resolve(tokens.ConfigurationStorage);
+    const teamConfig = configStorage.get();
+    return new ProviderConfigurationService(teamConfig);
+  });
+  container.registerSingleton(
+    tokens.LlmSettingsResolver,
+    (c) => new InfrastructureLlmSettingsResolver(c.resolve(tokens.ProviderConfigurationService))
   );
 
   registerAgentInfrastructureServices(container, {
@@ -139,7 +169,8 @@ export function registerInfrastructureCoreServices(
 
   container.registerSingleton(
     tokens.AvatarManager,
-    (c) => new AvatarManager(c.resolve(tokens.WorkspaceRoot), c.resolve(tokens.AgentDocumentStorage))
+    (c) =>
+      new AvatarManager(c.resolve(tokens.WorkspaceRoot), c.resolve(tokens.AgentDocumentStorage))
   );
   container.registerSingleton(tokens.CodeEditManager, () => new CodeEditManager());
   container.registerSingleton(tokens.TypeScriptAnalyzer, () => new TypeScriptAnalyzer());
@@ -178,4 +209,5 @@ export function registerInfrastructureCoreServices(
     tokens.TeamGraphBuilder,
     (c) => new TeamGraphBuilder(c.resolve(tokens.AgentManager))
   );
+  container.registerSingleton(tokens.ContextRuntime, () => new ContextRuntime());
 }

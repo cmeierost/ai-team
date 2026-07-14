@@ -12,7 +12,7 @@ import type {
   NoteSessionShare,
   SessionDeleteImpact,
 } from '@ai-team/core';
-import type { SessionManager } from '../session-manager.js';
+import type { SessionManager } from '../sessions/session-manager.js';
 import { BadRequestError, NotFoundError } from '@ai-team/core';
 
 // ── Session meta helpers ──────────────────────────────────────────────────────

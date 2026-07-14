@@ -16,13 +16,16 @@ export const SystemInfoCommandMetadata = {
 export class SystemInfoCommand implements ICommand<Record<string, never>, SystemInfoResponse> {
   readonly metadata = SystemInfoCommandMetadata;
 
-  constructor(private readonly systemInfoService: ISystemInfoService) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly systemInfoService: ISystemInfoService
+  ) {}
 
   async execute(
     _payload: Record<string, never>,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<CommandResponse<SystemInfoResponse>> {
-    const data = this.systemInfoService.getSystemInfo(ctx.workspaceRoot);
+    const data = this.systemInfoService.getSystemInfo(this.workspaceRoot);
     return { status: 'ok', data };
   }
 }

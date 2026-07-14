@@ -13,7 +13,7 @@ import type {
   UpdateAgentSkillResponse,
   WhoHasPermissionResponse,
 } from '@ai-team/api-contracts';
-import type { IContainerToken, IServiceContainer } from '@ai-team/core';
+import { Token, type IContainerToken, type IServiceContainer } from '@ai-team/core';
 import { exec } from 'node:child_process';
 import chalk from 'chalk';
 import { renderAccessCan, renderAccessOverlap, renderAccessWho } from './access.js';
@@ -69,10 +69,8 @@ class CliResultHandlerRegistry implements ICliResultHandlerRegistry {
   }
 }
 
-export const CLI_RESULT_HANDLER_REGISTRY_TOKEN: IContainerToken<ICliResultHandlerRegistry> = {
-  id: 'CliResultHandlerRegistry',
-  toString: () => 'Token(CliResultHandlerRegistry)',
-};
+export const CLI_RESULT_HANDLER_REGISTRY_TOKEN: IContainerToken<ICliResultHandlerRegistry> =
+  new Token<ICliResultHandlerRegistry>('CliResultHandlerRegistry');
 
 export function registerCliResultHandlers(container: IServiceContainer): void {
   const existing = container.tryResolve(CLI_RESULT_HANDLER_REGISTRY_TOKEN);

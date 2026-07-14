@@ -14,10 +14,6 @@ import type {
   Skill,
   SkillConfig,
 } from '@ai-team/core';
-import { AgentDocumentStorage } from '../agent/agent-document-storage.js';
-import { MarkdownSectionService } from '../agent/markdown-service.js';
-import { WorkspaceDiscoveryStorage } from '../agent/workspace-discovery-storage.js';
-import { WorkspaceStorage } from '../agent/workspace-storage.js';
 
 export class SkillManager {
   private skills: Map<string, Skill> | undefined;
@@ -51,7 +47,7 @@ export class SkillManager {
    * Load all skill templates from workspace
    */
   private async loadAllSkills(): Promise<Map<string, Skill>> {
-    const skillFiles = await this.workspaceDiscoveryStorage.findSkillFilesAsync(this.workspaceRoot);
+    const skillFiles = await this.workspaceDiscoveryStorage.findSkillFilesAsync();
     const skills = new Map<string, Skill>();
 
     for (const filePath of skillFiles) {
@@ -213,10 +209,7 @@ export class SkillManager {
 
     // Check each allowed skill not yet in the session
     for (const skillId of allowedSkillIds) {
-      const absPath = this.workspaceDiscoveryStorage.resolveAgentSkillFilePath(
-        this.workspaceRoot,
-        skillId
-      );
+      const absPath = this.workspaceDiscoveryStorage.resolveAgentSkillFilePath(skillId);
       const relPath = path.relative(this.workspaceRoot, absPath).replaceAll('\\', '/');
       if (loadedPaths.has(relPath) || pausedPaths.has(relPath)) continue;
 
@@ -236,18 +229,4 @@ export class SkillManager {
 
     return { newlyLoaded, activeSkills: Array.from(activeByPath.values()) };
   }
-}
-
-export function createSkillManager(workspaceRoot: string): SkillManager {
-  const markdownSectionService = new MarkdownSectionService();
-  const workspaceStorage = new WorkspaceStorage();
-  const workspaceDiscoveryStorage = new WorkspaceDiscoveryStorage();
-  const agentDocumentStorage = new AgentDocumentStorage(
-    workspaceRoot,
-    markdownSectionService,
-    workspaceStorage,
-    workspaceDiscoveryStorage
-  );
-
-  return new SkillManager(workspaceRoot, agentDocumentStorage, workspaceDiscoveryStorage);
 }

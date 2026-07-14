@@ -7,15 +7,8 @@ import {
 } from './workflow-tools.command.js';
 
 function makeWorkflowCatalog() {
-  const ids = [
-    'chat-full-loop',
-    'chat-preturn-interceptors',
-    'chat-send-turn',
-    'chat-tool-round',
-    'chat-post-turn-resolution',
-    'chat-handoff-transition',
-    'chat-turn-failure',
-  ];
+  // Legacy workflows migrated to XState-based WorkflowRunner
+  const ids: string[] = [];
 
   return {
     listWorkflowIds: () => ids,
@@ -29,18 +22,15 @@ function makeWorkflowCatalog() {
 }
 
 describe('workflow orchestration tools', () => {
-  it('creates one dedicated workflow tool per workflow ID plus workflow_list', () => {
+  it('creates workflow_list command when no legacy workflows present', () => {
     const commands = createWorkflowDefinitionCommands(makeWorkflowCatalog() as any);
 
     const keys = commands.map((command) => `${command.group}_${command.key}`);
     expect(keys).toContain('workflow_list');
-    expect(keys).toContain('workflow_chat-full-loop');
-    expect(keys).toContain('workflow_chat-send-turn');
-    expect(keys).toContain('workflow_chat-turn-failure');
-    expect(commands).toHaveLength(8);
+    expect(commands).toHaveLength(1);
   });
 
-  it('workflow_list command returns all workflow IDs', async () => {
+  it('workflow_list command returns empty array when no legacy workflows', async () => {
     const command = new ListWorkflowsOrchestrationCommand(makeWorkflowCatalog() as any);
 
     const result = await command.execute(
@@ -54,7 +44,6 @@ describe('workflow orchestration tools', () => {
     );
 
     expect(result.type).toBe('workflow_list_result');
-    expect(result.workflows).toContain('chat-full-loop');
-    expect(result.workflows).toContain('chat-send-turn');
+    expect(result.workflows).toEqual([]);
   });
 });

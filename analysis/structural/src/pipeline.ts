@@ -21,8 +21,16 @@
 import type { Entity, Relationship, ModuleBoundary } from '@aspect/contracts';
 import { calculateComplexity } from '@aspect/complexity';
 
-import { classifyByFilename, type FileClassification, type FileCategory } from './1-file-classification.js';
-import { classifyCodeContent, type ContentClassification, type CodeContentRole } from './2-code-classification.js';
+import {
+  classifyByFilename,
+  type FileClassification,
+  type FileCategory,
+} from './1-file-classification.js';
+import {
+  classifyCodeContent,
+  type ContentClassification,
+  type CodeContentRole,
+} from './2-code-classification.js';
 import { buildRawEdges, computeFileCouplingStats } from './3-import-analysis.js';
 import { weightAllEdges } from './4-edge-weighting.js';
 import { analyseStructuralAlignment } from './8-optimization.js';
@@ -35,6 +43,7 @@ import { generateMoveSuggestions } from './move-suggestions.js';
 import { analyseExports } from './export-analysis.js';
 import { analyseEntryPoints } from './entry-point-analysis.js';
 import { computeFileInterfaceMetrics } from './file-metrics.js';
+import { computeShallownessDiagnostics } from './shallowness-diagnostics.js';
 import { computeReferenceDiagnostics } from './reference-diagnostics.js';
 import { computeCanonicalLocMetrics } from './loc-metrics.js';
 import { computeNonQualifiedDiagnostics } from './nonqualified-diagnostics.js';
@@ -49,12 +58,17 @@ import { mergeFileHints, findProfileForExtension } from './language-profile.js';
 import { TYPESCRIPT_PROFILE } from './profiles/typescript.js';
 
 import type {
-  FileInfo, StructuralFileInfo, WeightedEdge,
+  FileInfo,
+  StructuralFileInfo,
+  WeightedEdge,
   StructuralAlignmentResult,
-  FileClassificationEntry, StructuralPipelineResult,
-  PipelineSummary, StructuralPipelineOptions,
+  FileClassificationEntry,
+  StructuralPipelineResult,
+  PipelineSummary,
+  StructuralPipelineOptions,
   WarningThresholds,
-  EntityGraphArtefact, CommunityMapArtefact,
+  EntityGraphArtefact,
+  CommunityMapArtefact,
 } from './types.js';
 import { DEFAULT_THRESHOLDS } from './types.js';
 
@@ -67,7 +81,7 @@ export function runStructuralPipeline(
   entities: Entity[],
   relationships: Relationship[],
   moduleBoundaries: ModuleBoundary[],
-  options?: StructuralPipelineOptions,
+  options?: StructuralPipelineOptions
 ): StructuralPipelineResult {
   const thresholds: WarningThresholds = { ...DEFAULT_THRESHOLDS, ...options?.thresholds };
 
@@ -119,7 +133,10 @@ export function runStructuralPipeline(
   for (const child of childEntities) {
     const pid = child.parentEntityId!;
     let list = fileChildMap.get(pid);
-    if (!list) { list = []; fileChildMap.set(pid, list); }
+    if (!list) {
+      list = [];
+      fileChildMap.set(pid, list);
+    }
     list.push(child);
   }
 
@@ -165,7 +182,8 @@ export function runStructuralPipeline(
     for (const child of children) {
       if (child.kind !== 'class') continue;
       const matrix = (child as any).methodFieldAccessMatrix as
-        Array<{ methodName: string; accessedFields: string[] }> | undefined;
+        | Array<{ methodName: string; accessedFields: string[] }>
+        | undefined;
       if (!matrix || matrix.length < 2) continue;
       const score = computeLcom4(matrix);
       if (score > worstLcom4) worstLcom4 = score;
@@ -227,13 +245,18 @@ export function runStructuralPipeline(
 
   // ── Move suggestions ──────────────────────────────────────────────
 
-  const moveSuggestions = generateMoveSuggestions(fileClassifications, communities.communities, weightedEdges);
+  const moveSuggestions = generateMoveSuggestions(
+    fileClassifications,
+    communities.communities,
+    weightedEdges
+  );
 
   // ── Steps 6–7b: Grouping comparison (ARI / NMI) ───────────────────
 
-  const groupingComparisons = communities.communities.length > 0
-    ? compareAllGroupings(communities.communities, fileClassifications)
-    : [];
+  const groupingComparisons =
+    communities.communities.length > 0
+      ? compareAllGroupings(communities.communities, fileClassifications)
+      : [];
 
   // ── Step 8b: Centrality + bridge detection ─────────────────────────
 
@@ -300,7 +323,9 @@ export function runStructuralPipeline(
   // ── Entry point reachability analysis ──────────────────────────────
 
   const entryPointAnalysis = analyseEntryPoints(
-    moduleBoundaries, fileClassifications, weightedEdges,
+    moduleBoundaries,
+    fileClassifications,
+    weightedEdges
   );
 
   // ── File-level interface/change-cost metrics ───────────────────────
@@ -310,7 +335,19 @@ export function runStructuralPipeline(
     fileClassifications,
     weightedEdges,
     exportAnalysis,
+    communities
+  );
+
+  // ── Shallowness diagnostics ─────────────────────────────────────────
+
+  const shallownessDiagnostics = computeShallownessDiagnostics(
+    fileMetrics,
+    exportAnalysis,
+    moveSuggestions,
     communities,
+    weightedEdges,
+    fileClassifications,
+    options?.shallownessThresholds
   );
 
   // ── Complexity & Maintainability Index ──────────────────────────────
@@ -358,6 +395,7 @@ export function runStructuralPipeline(
     centrality,
     exportAnalysis,
     fileMetrics,
+    shallownessDiagnostics,
     entryPointAnalysis,
     referenceDiagnostics,
     locMetrics,
@@ -392,7 +430,7 @@ export function runStructuralPipeline(
 
   const communitySizes = communities.communities.map((c) => c.memberFileIds.length);
   const oversizedFileCount = fileClassifications.filter(
-    (f) => f.category === 'code' && f.linesOfCode && f.linesOfCode > thresholds.maxFileLoc,
+    (f) => f.category === 'code' && f.linesOfCode && f.linesOfCode > thresholds.maxFileLoc
   ).length;
 
   result.summary = {
@@ -401,15 +439,16 @@ export function runStructuralPipeline(
     categoryCounts,
     roleCounts,
     clusterCount: communities.communities.length,
-    avgClusterSize: communitySizes.length > 0
-      ? Math.round(communitySizes.reduce((a, b) => a + b, 0) / communitySizes.length)
-      : 0,
+    avgClusterSize:
+      communitySizes.length > 0
+        ? Math.round(communitySizes.reduce((a, b) => a + b, 0) / communitySizes.length)
+        : 0,
     maxClusterSize: communitySizes.length > 0 ? Math.max(...communitySizes) : 0,
     warningCount: alignment.warnings.length,
     criticalWarningCount: alignment.warnings.filter((w) => w.severity === 'critical').length,
     focusedFolderCount: alignment.folderFocus.filter((f) => f.assessment === 'focused').length,
     unfocusedFolderCount: alignment.folderFocus.filter(
-      (f) => f.assessment === 'mixed' || f.assessment === 'cluster-scattered',
+      (f) => f.assessment === 'mixed' || f.assessment === 'cluster-scattered'
     ).length,
     splitCandidateCount: alignment.splitCandidates.length,
     oversizedFileCount,
@@ -421,6 +460,8 @@ export function runStructuralPipeline(
     bridgeFileCount: centrality.filter((c) => c.isBridge).length,
     healthScore,
     recommendationCount: recommendations.length,
+    shallownessFindingCount: shallownessDiagnostics.summary.flaggedFiles,
+    shallownessMoveSuggestionCount: shallownessDiagnostics.summary.moveSuggestedCount,
     appEntryPointCount: entryPointAnalysis.summary.appEntryPointCount,
     exclusiveFileCount: entryPointAnalysis.summary.exclusiveFileCount,
     sharedFileCount: entryPointAnalysis.summary.sharedFileCount,
@@ -429,12 +470,21 @@ export function runStructuralPipeline(
     totalCanonicalLoc: locMetrics.totalCanonicalLoc,
     nonQualifiedRatio: nonQualifiedDiagnostics.nonQualifiedRatio,
     avgClusterSeparation: roleSeparation.repoSummary.avgClusterSeparation,
-    avgMaintainabilityIndex: complexity.maintainability.entities.length > 0
-      ? Math.round(complexity.maintainability.entities.reduce((s, e) => s + e.maintainabilityIndex, 0) / complexity.maintainability.entities.length * 100) / 100
-      : undefined,
-    miRedCount: complexity.maintainability.entities.filter((e) => e.riskBand === 'red').length || undefined,
-    miYellowCount: complexity.maintainability.entities.filter((e) => e.riskBand === 'yellow').length || undefined,
-    miGreenCount: complexity.maintainability.entities.filter((e) => e.riskBand === 'green').length || undefined,
+    avgMaintainabilityIndex:
+      complexity.maintainability.entities.length > 0
+        ? Math.round(
+            (complexity.maintainability.entities.reduce((s, e) => s + e.maintainabilityIndex, 0) /
+              complexity.maintainability.entities.length) *
+              100
+          ) / 100
+        : undefined,
+    miRedCount:
+      complexity.maintainability.entities.filter((e) => e.riskBand === 'red').length || undefined,
+    miYellowCount:
+      complexity.maintainability.entities.filter((e) => e.riskBand === 'yellow').length ||
+      undefined,
+    miGreenCount:
+      complexity.maintainability.entities.filter((e) => e.riskBand === 'green').length || undefined,
   };
 
   return result;
@@ -487,7 +537,10 @@ function computeLcom4(matrix: Array<{ methodName: string; accessedFields: string
     while (queue.length > 0) {
       const cur = queue.shift()!;
       for (const neighbor of adj.get(cur)!) {
-        if (!visited.has(neighbor)) { visited.add(neighbor); queue.push(neighbor); }
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push(neighbor);
+        }
       }
     }
   }

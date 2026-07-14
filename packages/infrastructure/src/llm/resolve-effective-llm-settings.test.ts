@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { resolveEffectiveLlmSettings } from './index.js';
+import { ProviderConfigurationService } from './provider-configuration.service.js';
+import { InfrastructureLlmSettingsResolver } from './llm-settings-resolver.js';
 
 describe('resolveEffectiveLlmSettings', () => {
+  const createResolver = (teamConfig: any) =>
+    new InfrastructureLlmSettingsResolver(new ProviderConfigurationService(teamConfig));
+
   it('applies precedence: team default -> skill -> agent -> runtime options', () => {
     const teamConfig = {
       version: '1',
@@ -45,7 +49,8 @@ describe('resolveEffectiveLlmSettings', () => {
       stop: ['END'],
     } as any;
 
-    const resolved = resolveEffectiveLlmSettings(teamConfig, agent, skill, runtimeOptions);
+    const resolver = createResolver(teamConfig);
+    const resolved = resolver.resolveEffectiveLlmSettings(teamConfig, agent, skill, runtimeOptions);
 
     expect(resolved.providerRef).toBe('copilot');
     expect(resolved.config.provider).toBe('github-copilot');
@@ -86,7 +91,8 @@ describe('resolveEffectiveLlmSettings', () => {
       },
     } as any;
 
-    const resolved = resolveEffectiveLlmSettings(teamConfig, agent);
+    const resolver = createResolver(teamConfig);
+    const resolved = resolver.resolveEffectiveLlmSettings(teamConfig, agent);
     expect(resolved.config.model).toBe('gpt-4o-mini');
   });
 
@@ -122,7 +128,8 @@ describe('resolveEffectiveLlmSettings', () => {
       },
     } as any;
 
-    const resolved = resolveEffectiveLlmSettings(teamConfig, agent);
+    const resolver = createResolver(teamConfig);
+    const resolved = resolver.resolveEffectiveLlmSettings(teamConfig, agent);
 
     expect(resolved.providerRef).toBe('openai');
     expect(resolved.config.provider).toBe('openai-compatible');
@@ -162,7 +169,8 @@ describe('resolveEffectiveLlmSettings', () => {
       },
     } as any;
 
-    const resolved = resolveEffectiveLlmSettings(teamConfig, agent);
+    const resolver = createResolver(teamConfig);
+    const resolved = resolver.resolveEffectiveLlmSettings(teamConfig, agent);
 
     expect(resolved.providerRef).toBe('copilot');
     expect(resolved.config.provider).toBe('github-copilot');

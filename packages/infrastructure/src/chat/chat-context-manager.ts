@@ -13,12 +13,12 @@ import {
   ChatSummary,
   ArtifactReference,
   MessageStats,
+  IChatStorage,
 } from '@ai-team/core';
-import { ChatStorage } from './chat-storage.js';
 
 export class ChatManager {
   constructor(
-    private readonly storage: ChatStorage,
+    private readonly storage: IChatStorage,
     private readonly workspaceRoot: string
   ) {}
 
@@ -88,8 +88,8 @@ export class ChatManager {
     agentId: string,
     messageIndex: number,
     newContent: string
-  ): Promise<ChatMessage> {
-    return this.updateMessageField(agentId, messageIndex, 'content', newContent);
+  ): Promise<void> {
+    await this.updateMessageField(agentId, messageIndex, 'content', newContent);
   }
 
   /**

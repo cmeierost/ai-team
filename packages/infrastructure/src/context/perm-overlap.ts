@@ -713,11 +713,11 @@ export async function analyzeWorkspacePermissionOverlap(
     new AgentDocumentStorage(
       workspaceRoot,
       new MarkdownSectionService(),
-      new WorkspaceStorage(),
-      new WorkspaceDiscoveryStorage()
+      new WorkspaceStorage(workspaceRoot),
+      new WorkspaceDiscoveryStorage(workspaceRoot)
     ),
-    new WorkspaceStorage(),
-    new WorkspaceDiscoveryStorage(),
+    new WorkspaceStorage(workspaceRoot),
+    new WorkspaceDiscoveryStorage(workspaceRoot),
     new PermFileRegistry(workspaceRoot)
   );
   const permRegistry = new PermFileRegistry(workspaceRoot);

@@ -5,7 +5,7 @@ import type {
   CommandResponse,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { SessionManager } from '../../session-manager.js';
+import type { SessionManager } from '../../sessions/session-manager.js';
 import { parseContextArgs, summarizeMessage, type StoredMessage } from './context-utils.js';
 export const ContextSummarizeChatCommandMetadata = {
   key: 'summarize',

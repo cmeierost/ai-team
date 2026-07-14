@@ -8,7 +8,7 @@ Use this only when the task needs code-level navigation across runtime layers.
 | ---------------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | Mediator command payload/response/event contracts                                        | `packages/service/src/contracts.ts`                       |
 | Service command dispatch, `invoke()`, `stream()`, and runtime event bridging             | `packages/service/src/index.ts`                           |
-| Thin chat bootstrap: env checks, agent resolution, session selection, orchestrator setup | `packages/service/src/commands/chat/index.ts`             |
+| Thin chat bootstrap: env checks, agent resolution, session selection, orchestrator setup | `packages/service/src/commands/chat/chat.command.ts`      |
 | Chat turn controller: slash commands, NL forwarding, handoffs, turn loop                 | `packages/service/src/orchestrator/chat-orchestrator.ts`  |
 | Single-turn LLM pipeline: context build, tool dispatch, handoff/hire detection           | `packages/service/src/orchestrator/send-turn.ts`          |
 | Handoff protocol and context mutation                                                    | `packages/service/src/orchestrator/handoff.ts`            |

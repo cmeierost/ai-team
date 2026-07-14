@@ -10,7 +10,7 @@ import {
 } from '@ai-team/core';
 
 import type { FilesTreeResponse } from '@ai-team/api-contracts';
-import { type GovernanceRequest, GovernanceService } from '../agents/governance.js';
+import { type GovernanceRequest, GovernanceService } from '../../governance/governance-service.js';
 
 export type PathMode = 'read' | 'write' | 'list';
 

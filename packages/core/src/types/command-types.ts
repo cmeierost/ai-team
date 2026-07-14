@@ -3,6 +3,10 @@ import type { Agent } from './agent-models.js';
 import type { ChatMessage } from './communication.js';
 import type { PermissionDescriptor } from './tool-types.js';
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonObject = { [key: string]: JsonValue };
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+
 // ── CommandAvailability ───────────────────────────────────────────────────────
 
 /**
@@ -75,6 +79,9 @@ export interface WorkflowInputBinding {
  * Serializable runtime context passed to every command execution.
  * Contains only plain values — no service instances, no function bridges.
  *
+ * Note: `signal` is an ephemeral runtime cancellation channel and is not
+ * expected to be serialized/persisted.
+ *
  * All services (agentManager, sessionManager, etc.) and callable capabilities
  * (emit, question services) must be injected via constructor.
  */
@@ -98,7 +105,7 @@ export interface ExecutionContext {
   /** Current workflow step being executed. */
   stepId?: string;
   /** Result payload from the last completed workflow step — used by workflowInputBindings. */
-  workflowLastResult?: unknown;
+  workflowLastResult?: JsonValue;
   /** Abort signal from the calling surface. */
   signal?: AbortSignal;
 
@@ -108,15 +115,23 @@ export interface ExecutionContext {
   currentFiles?: string[];
 
   /** Loaded workspace instructions for the active session. */
-  instructions?: unknown;
+  instructions?: JsonValue;
 
   /** Back-navigation stack for agent handoff chains. Mutated by /back. */
   navStack?: SessionNavEntry[];
 
   /** Back-navigation stack for handoff chains. */
-  workflowState?: unknown;
-  onWorkflowFrame?: (frame: unknown) => void;
+  workflowState?: JsonValue;
 }
+
+type AnyFunction = (...args: never[]) => unknown;
+type FunctionPropertyKeys<T> = {
+  [K in keyof T]-?: Extract<T[K], AnyFunction> extends never ? never : K;
+}[keyof T];
+type AssertTrue<T extends true> = T;
+type _ExecutionContextMustNotExposeFunctionProperties = AssertTrue<
+  FunctionPropertyKeys<ExecutionContext> extends never ? true : false
+>;
 
 // ── SessionSnapshot ───────────────────────────────────────────────────────────
 

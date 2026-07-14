@@ -1,97 +1,47 @@
 export {
-  ApplicationError,
-  BadRequestError,
-  NotFoundError,
-  ForbiddenError,
-  ConflictError,
-  InternalError,
-} from '@ai-team/core';
-export type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
-export { IN_CHAT_COMMAND_ALIASES, IN_CHAT_COMMAND_REGISTRY } from './command-registry.js';
+  registerServiceLayerServices,
+  buildInteractionService,
+  type ServiceLayerRegistrationTokens,
+  type ServiceLayerRegistrationConfig,
+} from './register-services.js';
+export { registerCommands } from './register-commands.js';
 
 export {
   ServiceDomainError,
   AmbiguousAgentQueryError,
+  toServiceDomainError,
   type ServiceErrorCode,
   type ServiceErrorInputRequest,
 } from './errors.js';
-export { SessionManager } from './session-manager.js';
-export { findWorkspaceRoot } from './utils/workspace.js';
-export { type ChatRuntimeHooks } from './commands/chat/index.js';
-export { type IQuestionService } from './questions/question-service.js';
-export { WsQuestionService } from './questions/ws-question-service.js';
-export { EmitService, type IEmitService } from './orchestrator/services/emit-service.js';
-export { serveApiCommand, type ServeApiOptions } from './commands/start/serve.js';
-export { runUiCommand, type UiCommandOptions } from './commands/start/ui.js';
+
+export { EmitService } from './interaction/emit-service.js';
+export { InteractionService, type IInteractionService } from './interaction/interaction-service.js';
+export { InteractionStream } from './interaction/interaction-stream.js';
+export { runtimeEventToStreamEvent } from './interaction/runtime-event-translator.js';
+export { parseStreamPerfEnv, createStreamPerfTracker } from './interaction/stream-perf.js';
+
+export { COMMAND_FACTORY_TOKENS } from './types.js';
 export {
-  COMMAND_FACTORY_TOKENS,
-} from './types.js';
-
-// Interaction service (streaming interface for transports)
-export { InteractionService, type IInteractionService } from './interaction-service.js';
-
-// Command dispatcher (unified command dispatch for CLI + chat + tools)
-export { CommandDispatcher, createCommandDispatcher } from './command-dispatcher.js';
-
-// Command registry utilities
-export { deriveRegistryKey } from './command-registry-impl.js';
+  CommandDispatcher,
+  createCommandDispatcher,
+} from './command-dispatcher/command-dispatcher.js';
+export { deriveRegistryKey } from './command-dispatcher/command-registry.js';
 export { GROUP_REGISTRY, type GroupInfo } from './commands/groups.js';
-
-// Storage abstraction layer
-export type {
-  IPlanningStorage,
-  IProposalStore,
-  IProposalStoreFactory,
-  MessageFilter,
-  SessionFilter,
-  StorageStats,
-  MessageInsertResult,
-  StoredProposal,
-  StoredProposalFile,
-} from '@ai-team/core';
-export type { AgentFilesResponse } from '@ai-team/api-contracts';
-
-export { createToolManager } from './tools/create-tool-manager.js';
-export { ToolManager } from './tools/tool-manager.js';
-export type {
-  LlmToolDefinition,
-  ToolExecutionResult as ToolManagerExecutionResult,
-  ToolExecutionOptions as ToolManagerExecutionOptions,
-} from './tools/tool-manager.js';
-export { type ResolvedPlugins } from './orchestrator/pipeline.js';
-export type {
-  IContextBuilder,
-  IContextCompressor,
-  IContextEnricher,
-  ILlmSelector,
-  IMcpGateway,
-  IOrchestratorHookPlugin,
-  IOutputHandler,
-  IRagProvider,
-  IToolResolver,
-  ITurnResultParser,
-} from '@ai-team/core';
-export { NoOpCompressor } from './orchestrator/defaults/context-compressor.js';
-export { DefaultContextBuilder } from './orchestrator/defaults/context-builder.js';
 export {
-  WorkspaceOverviewEnricher,
-  TeamRosterEnricher,
-} from './orchestrator/defaults/context-enrichers.js';
-export { NoOpRagProvider } from './orchestrator/defaults/rag-provider.js';
-export { DefaultToolResolver } from './orchestrator/defaults/tool-resolver.js';
-export { NoOpMcpGateway } from './orchestrator/defaults/mcp-gateway.js';
-export { DefaultLlmSelector } from './orchestrator/defaults/llm-selector.js';
-export { DefaultOutputHandler } from './orchestrator/defaults/output-handler.js';
-export { buildDefaultHookPlugins } from './orchestrator/defaults/hook-plugins.js';
-export { buildDefaultTurnResultParsers } from './orchestrator/defaults/turn-result-parsers.js';
-export { SlashCommandDispatcher } from './orchestrator/slash-command-dispatcher.js';
-export { ToolDispatchSupportService } from './orchestrator/services/tool-dispatch-support-service.js';
-export { ToolSerializationService } from './orchestrator/services/tool-serialization-service.js';
+  IN_CHAT_COMMAND_ALIASES,
+  IN_CHAT_COMMAND_REGISTRY,
+} from './commands/chat/chat-command-registry.js';
+export { SessionManager } from './sessions/session-manager.js';
+
 export {
-  getWorkflowDefinitionResolvers,
-  listWorkflowDefinitionIds,
-  type WorkflowDefinitionResolver,
-} from './workflow/definition-catalog.js';
+  ChatRuntime,
+  createChatRuntimeStepCommand,
+  type ChatRuntimeStepContractMap,
+  type ChatRuntimeStepName,
+  type ChatRuntimeStepResolver,
+  type ChatRuntimeTurnInput,
+} from './workflow/index.js';
+export { type IQuestionService } from './interaction/question-service.js';
 
 export {
   CommandsService,
@@ -112,9 +62,7 @@ export {
   SessionsService,
   IdeService,
 } from './routers/index.js';
-export {
-  registerServiceLayerServices,
-  buildInteractionService,
-  type ServiceLayerRegistrationTokens,
-  type ServiceLayerRegistrationConfig,
-} from './registration/register-service-layer-services.js';
+
+export { ToolManager } from './tooling/manager/tool-manager.js';
+export { ToolDispatchSupportService } from './workflow/runtime/tools/tool-dispatch-support-service.js';
+export { ToolSerializationService } from './workflow/runtime/tools/tool-serialization-service.js';

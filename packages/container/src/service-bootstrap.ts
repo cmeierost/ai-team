@@ -1,59 +1,14 @@
+import { CORE_SERVICE_TOKENS, Token } from '@ai-team/core';
 import type {
   ContainerTokenValueMap,
-  IAvatarManager,
-  IAgentDocumentStorage,
-  IAgentManager,
-  ICodeEditManager,
-  IConfigurationStorage,
   IContainerToken,
-  IContextBuilder,
-  IContextCompressor,
-  IContextEnricher,
-  IDeveloperIdentityService,
-  IFileAnnotationService,
-  IFileTreeService,
-  ITypeScriptAnalyzer,
-  ILlmSelector,
-  IMarkdownSectionService,
-  IMcpGateway,
-  IModelDiscoveryRegistry,
-  ILlmProviderTester,
-  IOrchestratorHookPlugin,
-  IOutputHandler,
-  IPathPermissionChecker,
-  IPermissionStorage,
-  ICommand,
-  IRagProvider,
-  ISkillManager,
-  ITeamGraphBuilder,
-  IToolResolver,
-  ITurnResultParser,
-  IWorkspaceStorage,
   IServiceContainerRegistrar,
-  IIdeAdapterFactory,
-  IWorkspaceAccessRuntime,
-  IWorkspaceFsFactory,
-  ISystemInfoService,
-  INoteAttachmentReader,
-  ITextToolCallParser,
-  IProposalStoreFactory,
-  IProviderConfigurationService,
   CliCommandMetadata,
+  IMessageStorage,
 } from '@ai-team/core';
 import { createBootstrappedContainer, type ContainerBootstrapper } from './bootstrap.js';
 import type { MergeTokenSets, ServiceContainer, TokenSet } from './container.js';
-import {
-  registerInfrastructureCoreServices,
-  ContextRuntime,
-  type SqliteBackend,
-  type MessagesRepository,
-  type SessionsRepository,
-  type NotesRepository,
-  type PlanningRepository,
-  type LlmService,
-  type ChatStorage,
-  type ChatManager,
-} from '@ai-team/infrastructure';
+import { registerInfrastructureCoreServices } from '@ai-team/infrastructure';
 
 import {
   type ToolManager,
@@ -78,68 +33,28 @@ import {
   type AccessService,
   type ToolDispatchSupportService,
   type ToolSerializationService,
-  type IQuestionService,
-  type IEmitService,
-  registerServiceLayerServices,
+  registerCommands,
   type ServiceLayerRegistrationTokens,
 } from '@ai-team/service';
-import { setServiceContainer } from '@ai-team/service/src/service-registry.js';
-import { Token } from './token.js';
 
 export const SERVERTokens = {} as const;
 
 export const EXCHANGABLE_TOKENS = {} as const;
 
 export const TOKENS = {
-  // ── Exchangable ───────────────────────────────────────────────────────
+  // ── Exchangable / transport-local tokens ───────────────────────────────
   ApiBaseUrl: new Token<string>('ApiBaseUrl'),
   InteractionService: new Token<IInteractionService>('IInteractionService'),
 
-  // ── Core infrastructure ─────────────────────────────────────────────────
-  WorkspaceRoot: new Token<string>('WorkspaceRoot'),
-  SqliteBackend: new Token<SqliteBackend>('SqliteBackend'),
-  MessagesRepository: new Token<MessagesRepository>('MessagesRepository'),
-  SessionsRepository: new Token<SessionsRepository>('SessionsRepository'),
-  NotesRepository: new Token<NotesRepository>('NotesRepository'),
-  PlanningRepository: new Token<PlanningRepository>('PlanningRepository'),
-  LlmService: new Token<LlmService>('LlmService'),
-  AgentManager: new Token<IAgentManager>('AgentManager'),
-  AgentDocumentStorage: new Token<IAgentDocumentStorage>('AgentDocumentStorage'),
-  AvatarManager: new Token<IAvatarManager>('AvatarManager'),
-  CodeEditManager: new Token<ICodeEditManager>('CodeEditManager'),
-  TypeScriptAnalyzer: new Token<ITypeScriptAnalyzer>('TypeScriptAnalyzer'),
-  SkillManager: new Token<ISkillManager>('SkillManager'),
+  // ── Core interface-backed tokens (source of truth: @ai-team/core) ─────
+  ...CORE_SERVICE_TOKENS,
+
+  // ── Local / concrete tokens ─────────────────────────────────────────────
+  MessageStorage: new Token<IMessageStorage>('MessageStorage'),
   SessionManager: new Token<SessionManager>('SessionManager'),
   ToolManager: new Token<ToolManager>('ToolManager'),
   ToolDispatchSupportService: new Token<ToolDispatchSupportService>('ToolDispatchSupportService'),
   ToolSerializationService: new Token<ToolSerializationService>('ToolSerializationService'),
-  QuestionService: new Token<IQuestionService>('QuestionService'),
-  EmitService: new Token<IEmitService>('EmitService'),
-  ChatStorage: new Token<ChatStorage>('ChatStorage'),
-  ChatManager: new Token<ChatManager>('ChatManager'),
-
-  // ── Storage interfaces (shared singletons) ───────────────────────────────
-  ConfigurationStorage: new Token<IConfigurationStorage>('ConfigurationStorage'),
-  DeveloperIdentityService: new Token<IDeveloperIdentityService>('DeveloperIdentityService'),
-  SystemInfoService: new Token<ISystemInfoService>('SystemInfoService'),
-  PermissionStorage: new Token<IPermissionStorage>('PermissionStorage'),
-  MarkdownSectionService: new Token<IMarkdownSectionService>('MarkdownSectionService'),
-  PathPermissionChecker: new Token<IPathPermissionChecker>('PathPermissionChecker'),
-  WorkspaceStorage: new Token<IWorkspaceStorage>('WorkspaceStorage'),
-  FileTreeService: new Token<IFileTreeService>('FileTreeService'),
-  FileAnnotationService: new Token<IFileAnnotationService>('FileAnnotationService'),
-  IdeAdapterFactory: new Token<IIdeAdapterFactory>('IdeAdapterFactory'),
-  WorkspaceAccessRuntime: new Token<IWorkspaceAccessRuntime>('WorkspaceAccessRuntime'),
-  WorkspaceFsFactory: new Token<IWorkspaceFsFactory>('WorkspaceFsFactory'),
-  NoteAttachmentReader: new Token<INoteAttachmentReader>('NoteAttachmentReader'),
-  ProposalStoreFactory: new Token<IProposalStoreFactory>('ProposalStoreFactory'),
-  TextToolCallParser: new Token<ITextToolCallParser>('TextToolCallParser'),
-
-  // ── Model discovery ──────────────────────────────────────────────────────
-  ModelDiscoveryRegistry: new Token<IModelDiscoveryRegistry>('ModelDiscoveryRegistry'),
-  LlmProviderTester: new Token<ILlmProviderTester>('LlmProviderTester'),
-  ProviderConfigurationService: new Token<IProviderConfigurationService>('ProviderConfigurationService'),
-  TeamGraphBuilder: new Token<ITeamGraphBuilder>('TeamGraphBuilder'),
 
   // ── HTTP route services ──────────────────────────────────────────────────
 
@@ -160,24 +75,7 @@ export const TOKENS = {
   MetaService: new Token<MetaService>('MetaService'),
   CommandsService: new Token<CommandsService>('CommandsService'),
   AccessService: new Token<AccessService>('AccessService'),
-  ContextRuntime: new Token<ContextRuntime>('ContextRuntime'),
-
-  // ── Pipeline plugins — all override-able before first resolve ───────────
-  ContextCompressor: new Token<IContextCompressor>('IContextCompressor'),
-  ContextBuilder: new Token<IContextBuilder>('IContextBuilder'),
-  /** Array of enrichers; resolved as a single Token to keep ordering explicit. */
-  ContextEnrichers: new Token<IContextEnricher[]>('IContextEnricher[]'),
-  RagProvider: new Token<IRagProvider>('IRagProvider'),
-  ToolResolver: new Token<IToolResolver>('IToolResolver'),
-  McpGateway: new Token<IMcpGateway>('IMcpGateway'),
-  LlmSelector: new Token<ILlmSelector>('ILlmSelector'),
-  OutputHandler: new Token<IOutputHandler>('IOutputHandler'),
-  /** Array of slash commands; each command registers itself. */
-  SlashCommands: new Token<ICommand[]>('ICommand[]'),
-  /** Ordered array of turn-result parsers; first non-null return wins. */
-  TurnResultParsers: new Token<ITurnResultParser[]>('ITurnResultParser[]'),
-  /** Ordered array of hook plugins; each plugin may implement multiple hooks. */
-  HookPlugins: new Token<IOrchestratorHookPlugin[]>('IOrchestratorHookPlugin[]'),
+  ContextRuntime: new Token<any>('ContextRuntime'),
 } as const;
 
 export const COMMAND_METADATA_BY_KEY = new Token<Map<string, CliCommandMetadata>>(
@@ -189,6 +87,7 @@ export type ServiceBootstrapTypes = ContainerTokenValueMap<typeof TOKENS>;
 export interface ServiceBootstrapConfig {
   workspaceRoot: string;
   apiBaseUrl?: string;
+  executionTarget?: 'console' | 'api';
 }
 
 export type ServiceBootstrapTokens<T extends ServiceBootstrapTypes = ServiceBootstrapTypes> = {
@@ -204,14 +103,15 @@ function registerBaseServices(
   cfg: ServiceBootstrapConfig,
   tokens: ServiceBootstrapTokens<ServiceBootstrapTypes>
 ): void {
+  const executionTarget = cfg.executionTarget ?? (cfg.apiBaseUrl ? 'api' : 'console');
   c.registerSingleton(tokens.ApiBaseUrl, () => cfg.apiBaseUrl ?? 'http://localhost:3002');
   c.registerInstance(tokens.WorkspaceRoot, cfg.workspaceRoot);
 
   registerInfrastructureCoreServices(c as IServiceContainerRegistrar, tokens);
 
-  c.registerSingleton(tokens.ContextRuntime, () => new ContextRuntime());
+  process.env.AI_TEAM_RUNTIME_TARGET ??= executionTarget;
 
-  registerServiceLayerServices(
+  registerCommands(
     c as unknown as IServiceContainerRegistrar,
     cfg,
     tokens as unknown as ServiceLayerRegistrationTokens
@@ -251,8 +151,6 @@ export function createContainer<const TSets extends readonly TokenSet[]>(
     ...tokenSets
   ) as unknown as ServiceContainer<ServiceBootstrapTypes & MergeTokenSets<TSets>>;
 
-  setServiceContainer(container as any);
-
   return container as unknown as ServiceContainer<
     ServiceBootstrapTypes | (ServiceBootstrapTypes & MergeTokenSets<TSets>)
   >;
@@ -262,11 +160,7 @@ export function createContainerWithTokenSets<const TSets extends readonly TokenS
   config: ServiceBootstrapConfig,
   ...tokenSets: TSets
 ): ExtendedServiceContainer<TSets> {
-  return createContainer(
-    config,
-    () => {},
-    ...tokenSets
-  ) as ExtendedServiceContainer<TSets>;
+  return createContainer(config, () => {}, ...tokenSets) as ExtendedServiceContainer<TSets>;
 }
 
 export function createContainerWithBootstrap<const TSets extends readonly TokenSet[]>(

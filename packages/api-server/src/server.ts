@@ -7,9 +7,9 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
-import { findWorkspaceRoot, WsQuestionService, EmitService } from '@ai-team/service';
-import { COMMAND_FACTORY_TOKENS } from '@ai-team/service/src/types.js';
-import { SqliteBackend } from '@ai-team/infrastructure';
+import { findWorkspaceRoot } from '@ai-team/infrastructure';
+import { EmitService, COMMAND_FACTORY_TOKENS } from '@ai-team/service';
+import type { IMessageStorage } from '@ai-team/core';
 import { createExpressRouter } from '@ts-http/express';
 import {
   systemDesc,
@@ -33,6 +33,7 @@ import {
 
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { setupChatWebSocket } from './ws/chat-handler.js';
+import { WsQuestionService } from './ws/ws-question-service.js';
 import { asyncApiUi as serveApiDefinition } from './async-api-ui.js';
 import { serveStaticFiles } from './serve-static-files.js';
 
@@ -61,9 +62,6 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     console.warn(`Make sure to run 'ait init' in your workspace first.`);
   }
 
-  const backend = new SqliteBackend(workspaceRoot);
-  await backend.migrate();
-
   const apiBaseUrl = `http://localhost:${port}`;
 
   const container = createContainerWithBootstrap(
@@ -72,12 +70,13 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
       apiBaseUrl,
     },
     (c) => {
-      // Provide the pre-migrated backend so the container doesn't re-create it.
-      c.registerInstance(TOKENS.SqliteBackend, backend);
       // Provide the actual API base URL for SystemService.
       c.registerInstance(TOKENS.ApiBaseUrl, apiBaseUrl);
     }
   );
+
+  const backend = container.resolve(TOKENS.MessageStorage) as IMessageStorage;
+  await backend.migrate();
 
   const agentManager = container.resolve(TOKENS.AgentManager);
   const sessionManager = container.resolve(TOKENS.SessionManager);

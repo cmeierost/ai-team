@@ -1,8 +1,8 @@
 import type { IChatService, ChatSummary, ChatMessage, MessageStats } from '@ai-team/api-contracts';
-import type { SessionManager } from '../session-manager.js';
+import type { SessionManager } from '../sessions/session-manager.js';
 import { BadRequestError, NotFoundError } from '@ai-team/core';
 import type { ILlmService, IChatManager, IChatStorage } from '@ai-team/core';
-import type { IInteractionService } from '../interaction-service.js';
+import type { IInteractionService } from '../interaction/interaction-service.js';
 
 export class ChatService implements IChatService {
   constructor(
@@ -423,19 +423,15 @@ export class ChatService implements IChatService {
 
   async post(
     agentId: string,
-    body: { content: string; pendingIntroduction?: string }
+    body: { content: string }
   ): Promise<{ content: string; handoff?: unknown }> {
     if (!body.content || typeof body.content !== 'string')
       throw new BadRequestError('content is required');
     const stream = this.interactionService.stream({
-      command: 'chat',
+      command: 'chat-chat',
       payload: {
-        employeeId: agentId,
-        options: {
-          message: body.content,
-          oneShot: true,
-          ...(body.pendingIntroduction ? { pendingIntroduction: body.pendingIntroduction } : {}),
-        },
+        agentId,
+        message: body.content,
       },
     });
     let reply = '';

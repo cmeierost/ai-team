@@ -4,9 +4,7 @@ import type {
   Skill,
   InstructionFile,
   ChatMessage,
-  TeamConfig,
 } from '../types/index.js';
-import type { ResolvedLlmSettings } from './settings.js';
 
 // ============================================================================
 // LlmService — high-level abstraction for any configured provider
@@ -227,48 +225,6 @@ export interface ILlmService {
    * Register a reporter for diagnostic messages (e.g. warnings, errors during init).
    */
   setDiagnosticReporter(reporter?: LlmDiagnosticReporter): void;
-}
-
-interface LlmProviderAdapter {
-  kind: string;
-  createClient(config: LlmConfig, apiKey?: string): OpenAIAdapter;
-  getDefaultModel(config: LlmConfig): string;
-}
-
-export type { ResolvedLlmSettings } from './settings.js';
-
-export interface IProviderRegistry {
-  registerBuiltInAdapters(): void;
-  registerLlmProviderAdapter(adapter: LlmProviderAdapter): void;
-  getEffectiveContextWindow(
-    providerConfig:
-      | {
-          contextWindow?: number;
-          models?: Array<{ name: string; contextWindow?: number }>;
-        }
-      | undefined,
-    modelKey?: string
-  ): number | undefined;
-  resolveSystemLlmSettings(teamConfig: TeamConfig, purposeKey: string): ResolvedLlmSettings;
-  createLlmClient(config: LlmConfig, apiKey?: string): OpenAIAdapter;
-  getDefaultModel(config: LlmConfig): string;
-  testLlmConnection(config: LlmConfig, apiKey?: string): Promise<string>;
-  fetchGitHubModels(): Promise<
-    {
-      id: string;
-      name: string;
-      contextWindow?: number;
-      maxPromptTokens?: number;
-      maxContextWindowTokens?: number;
-      maxOutputTokens?: number;
-    }[]
-  >;
-  fetchOpenAICompatibleModels(baseUrl: string, apiKey?: string): Promise<string[]>;
-  fetchOpenAICompatibleModelsDetailed(
-    baseUrl: string,
-    apiKey?: string
-  ): Promise<DiscoveredProviderModel[]>;
-  getGitHubToken(): string;
 }
 
 // ============================================================================

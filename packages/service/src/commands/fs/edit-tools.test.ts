@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ContextLevel, type Agent, type PermissionConfig, type ICommand } from '@ai-team/core';
 import { WorkspaceFs, canRead, canWrite } from 'fs-context';
 import { COMMAND_FACTORY_TOKENS } from '../../types.js';
-import { ToolManager } from '../../tools/tool-manager.js';
+import { ToolManager } from '../../tooling/manager/tool-manager.js';
 import {
   FsReadFileTool,
   FsReadLinesTool,
@@ -30,11 +30,9 @@ import {
   FsEditTool,
   stripLineNumberPrefixes,
 } from './edit-tools.js';
-import {
-  WhoHasAccessTool,
-  DoIHaveAccessTool,
-  AnalyzePermissionOverlapTool,
-} from './access-introspection-tools.js';
+import { WhoHasAccessTool } from './who-has-access.tool.js';
+import { DoIHaveAccessTool } from './do-i-have-access.tool.js';
+import { AnalyzePermissionOverlapTool } from './analyze-permission-overlap.tool.js';
 
 function getBuiltInTools(workspaceRoot: string): ICommand[] {
   const accessChecker = {

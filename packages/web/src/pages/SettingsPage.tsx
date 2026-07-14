@@ -232,7 +232,7 @@ interface ApiKeyFieldProps {
   saving: boolean;
 }
 
-function ApiKeyField({ envVarName, isSet, onSave, saving }: Readonly<ApiKeyFieldProps>) {
+function _ApiKeyField({ envVarName, isSet, onSave, saving }: Readonly<ApiKeyFieldProps>) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState('');
 
@@ -332,7 +332,6 @@ interface DevProviderCardProps {
   providerRef: string;
   provider: ProviderConfig;
   onChange: (p: ProviderConfig) => void;
-  onSave: () => void;
   allowProviderEdit?: boolean;
 }
 
@@ -340,7 +339,6 @@ function DevProviderCard({
   providerRef,
   provider,
   onChange,
-  onSave,
   allowProviderEdit = true,
 }: Readonly<DevProviderCardProps>) {
   const { mutate: refreshModels, isPending: refreshing } = useRefreshDevProviderModels();
@@ -592,7 +590,6 @@ function UserProvidersSection({
             if (!isUserProvider) return;
             onChange(setUserProviders(devDraft, { ...providers, [ref]: p }));
           }}
-          onSave={() => {}}
         />
         );
       })}
