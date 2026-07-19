@@ -21,9 +21,14 @@ describe('LoadSessionMessagesCommand', () => {
       emit: vi.fn(),
     } as any;
 
-    const command = new LoadSessionMessagesCommand(sessionManager as any, emitService, {
-      get: vi.fn((_path?: string) => undefined),
-    } as any);
+    const command = new LoadSessionMessagesCommand(
+      sessionManager as any,
+      emitService,
+      {
+        get: vi.fn((_path?: string) => undefined),
+      } as any,
+      { logAsync: vi.fn() } as any
+    );
 
     const result = await command.execute({ sessionId: 'session-1', reason: 'startup' });
 
@@ -58,13 +63,18 @@ describe('LoadSessionMessagesCommand', () => {
       emit: vi.fn(),
     } as any;
 
-    const command = new LoadSessionMessagesCommand(sessionManager as any, emitService, {
-      get: vi.fn((path?: string) =>
-        path === 'log.chat.sessionStartupLoad'
-          ? { enabled: true, console: 'info', file: 'off' }
-          : undefined
-      ),
-    } as any);
+    const command = new LoadSessionMessagesCommand(
+      sessionManager as any,
+      emitService,
+      {
+        get: vi.fn((path?: string) =>
+          path === 'log.chat.sessionStartupLoad'
+            ? { enabled: true, console: 'info', file: 'off' }
+            : undefined
+        ),
+      } as any,
+      { logAsync: vi.fn() } as any
+    );
 
     const result = await command.execute({ sessionId: 'session-2', reason: 'startup' });
 

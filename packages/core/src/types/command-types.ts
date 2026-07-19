@@ -122,6 +122,9 @@ export interface ExecutionContext {
 
   /** Back-navigation stack for handoff chains. */
   workflowState?: JsonValue;
+
+  /** Depth counter for handoff subworkflows. Incremented when a handoff tool starts a subworkflow. Used to prevent nested handoffs. */
+  subworkflowDepth?: number;
 }
 
 type AnyFunction = (...args: never[]) => unknown;

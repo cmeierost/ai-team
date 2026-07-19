@@ -32,6 +32,7 @@ export class ChatInfoService implements IChatInfoService {
       agentName: agent.name,
       agentRole: agent.role,
       developerName: developerName ?? undefined,
+      llmModel: agent.resolvedLlm?.model,
     });
 
     this.emitService.log('info', 'Type "exit" to end the conversation');

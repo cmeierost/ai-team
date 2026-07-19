@@ -1,8 +1,8 @@
 import fs from 'fs/promises';
 import path from 'node:path';
-import { type ChatMessage, type MeetingSummary } from '@ai-team/core';
+import { type ChatMessage, type MeetingSummary, type IChatStorage } from '@ai-team/core';
 
-export class ChatStorage {
+export class ChatStorage implements IChatStorage {
   constructor(private readonly workspaceRoot: string) {}
 
   /**

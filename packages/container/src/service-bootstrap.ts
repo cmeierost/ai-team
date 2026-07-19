@@ -1,81 +1,28 @@
 import { CORE_SERVICE_TOKENS, Token } from '@ai-team/core';
 import type {
   ContainerTokenValueMap,
-  IContainerToken,
   IServiceContainerRegistrar,
   CliCommandMetadata,
-  IMessageStorage,
 } from '@ai-team/core';
+import { CONTRACT_SERVICE_TOKENS } from '@ai-team/api-contracts';
 import { createBootstrappedContainer, type ContainerBootstrapper } from './bootstrap.js';
 import type { MergeTokenSets, ServiceContainer, TokenSet } from './container.js';
 import { registerInfrastructureCoreServices } from '@ai-team/infrastructure';
 
-import {
-  type ToolManager,
-  type SessionManager,
-  type IInteractionService,
-  type SystemService,
-  type AgentsService,
-  type TeamService,
-  type ChatService,
-  type SessionsService,
-  type ArtifactsService,
-  type TasksService,
-  type PlanningService,
-  type DeveloperService,
-  type FilesService,
-  type IdeService,
-  type SkillsService,
-  type ToolsService,
-  type ConfigService,
-  type MetaService,
-  type CommandsService,
-  type AccessService,
-  type ToolDispatchSupportService,
-  type ToolSerializationService,
-  registerCommands,
-  type ServiceLayerRegistrationTokens,
-} from '@ai-team/service';
-
-export const SERVERTokens = {} as const;
-
-export const EXCHANGABLE_TOKENS = {} as const;
+import { registerCommands } from '@ai-team/service';
+import type { IInteractionService } from '@ai-team/api-contracts';
 
 export const TOKENS = {
-  // ── Exchangable / transport-local tokens ───────────────────────────────
+  // ── Exchangeable / transport-local tokens ──────────────────────────────
   ApiBaseUrl: new Token<string>('ApiBaseUrl'),
   InteractionService: new Token<IInteractionService>('IInteractionService'),
+  ContextRuntime: new Token<any>('ContextRuntime'),
 
   // ── Core interface-backed tokens (source of truth: @ai-team/core) ─────
   ...CORE_SERVICE_TOKENS,
 
-  // ── Local / concrete tokens ─────────────────────────────────────────────
-  MessageStorage: new Token<IMessageStorage>('MessageStorage'),
-  SessionManager: new Token<SessionManager>('SessionManager'),
-  ToolManager: new Token<ToolManager>('ToolManager'),
-  ToolDispatchSupportService: new Token<ToolDispatchSupportService>('ToolDispatchSupportService'),
-  ToolSerializationService: new Token<ToolSerializationService>('ToolSerializationService'),
-
-  // ── HTTP route services ──────────────────────────────────────────────────
-
-  SystemService: new Token<SystemService>('SystemService'),
-  AgentsService: new Token<AgentsService>('AgentsService'),
-  TeamService: new Token<TeamService>('TeamService'),
-  ChatService: new Token<ChatService>('ChatService'),
-  SessionsService: new Token<SessionsService>('SessionsService'),
-  ArtifactsService: new Token<ArtifactsService>('ArtifactsService'),
-  TasksService: new Token<TasksService>('TasksService'),
-  PlanningService: new Token<PlanningService>('PlanningService'),
-  DeveloperService: new Token<DeveloperService>('DeveloperService'),
-  FilesService: new Token<FilesService>('FilesService'),
-  IdeService: new Token<IdeService>('IdeService'),
-  SkillsService: new Token<SkillsService>('SkillsService'),
-  ToolsService: new Token<ToolsService>('ToolsService'),
-  ConfigService: new Token<ConfigService>('ConfigService'),
-  MetaService: new Token<MetaService>('MetaService'),
-  CommandsService: new Token<CommandsService>('CommandsService'),
-  AccessService: new Token<AccessService>('AccessService'),
-  ContextRuntime: new Token<any>('ContextRuntime'),
+  // ── HTTP route services (contract interfaces) ──────────────────────────
+  ...CONTRACT_SERVICE_TOKENS,
 } as const;
 
 export const COMMAND_METADATA_BY_KEY = new Token<Map<string, CliCommandMetadata>>(
@@ -91,7 +38,7 @@ export interface ServiceBootstrapConfig {
 }
 
 export type ServiceBootstrapTokens<T extends ServiceBootstrapTypes = ServiceBootstrapTypes> = {
-  [K in keyof T]: IContainerToken<T[K]>;
+  [K in keyof T]: Token<T[K]>;
 };
 
 export type ExtendedServiceContainer<TSets extends readonly TokenSet[]> = ServiceContainer<
@@ -111,11 +58,7 @@ function registerBaseServices(
 
   process.env.AI_TEAM_RUNTIME_TARGET ??= executionTarget;
 
-  registerCommands(
-    c as unknown as IServiceContainerRegistrar,
-    cfg,
-    tokens as unknown as ServiceLayerRegistrationTokens
-  );
+  registerCommands(c as IServiceContainerRegistrar, cfg);
 }
 
 export function createContainer(

@@ -4,15 +4,10 @@ import type {
   AgentConfig,
   IAgentManager,
   IAvatarManager,
-  TeamConfig,
+  IConfigurationStorage,
   CommandResponse,
 } from '@ai-team/core';
 import { ContextLevel } from '@ai-team/core';
-import { resolveEffectiveLlmSettings } from '../../llm/settings.js';
-
-function ok<T>(data: T): CommandResponse<T> {
-  return { status: 'ok', data };
-}
 
 // ─── CreateAgent ──────────────────────────────────────────────────────────────
 
@@ -52,7 +47,7 @@ export class CreateAgentTool {
     params: CreateAgentParams,
     context: ExecutionContext
   ): Promise<CommandResponse<CreateAgentResult>> {
-    if ((context as any).agent?.contextLevel !== 'organization') {
+    if (context.agent?.contextLevel !== 'organization') {
       throw new Error('create_agent requires organization-level context.');
     }
 
@@ -72,13 +67,16 @@ export class CreateAgentTool {
 
     const created = await this.agentManager.createAgentAsync(config);
 
-    return ok({
-      agentId: created.id,
-      name: created.name,
-      role: created.role,
-      reportsTo: created.reportsTo,
-      filePath: created.filePath,
-    });
+    return {
+      status: 'ok',
+      data: {
+        agentId: created.id,
+        name: created.name,
+        role: created.role,
+        reportsTo: created.reportsTo,
+        filePath: created.filePath,
+      },
+    };
   }
 }
 
@@ -124,8 +122,7 @@ export class ArchiveAgentTool {
 
     const target = matches[0];
     const canManage =
-      (context as any).agent?.contextLevel === 'organization' ||
-      target.reportsTo === currentAgent.id;
+      context.agent?.contextLevel === 'organization' || target.reportsTo === currentAgent.id;
 
     if (!canManage) {
       throw new Error(`You do not have permission to archive ${target.id}.`);
@@ -133,7 +130,7 @@ export class ArchiveAgentTool {
 
     await this.agentManager.archiveAgentAsync(target.id);
 
-    return ok({ agentId: target.id, name: target.name, archived: true });
+    return { status: 'ok', data: { agentId: target.id, name: target.name, archived: true } };
   }
 }
 
@@ -188,15 +185,18 @@ export class AssessPerformanceTool {
       throw new Error(`No agent found matching '${agent}'.`);
     }
 
-    return ok({
-      assessments: targets.map((a) => ({
-        agentId: a.id,
-        name: a.name,
-        role: a.role,
-        status: (a as any).status ?? 'active',
-        reportsTo: a.reportsTo,
-      })),
-    });
+    return {
+      status: 'ok',
+      data: {
+        assessments: targets.map((a) => ({
+          agentId: a.id,
+          name: a.name,
+          role: a.role,
+          status: (a as any).status ?? 'active',
+          reportsTo: a.reportsTo,
+        })),
+      },
+    };
   }
 }
 
@@ -236,9 +236,10 @@ export class AddPictureTool {
   });
 
   constructor(
+    private readonly workspaceRoot: string,
     private readonly agentManager: IAgentManager,
     private readonly avatarManager: IAvatarManager,
-    private readonly teamConfig: TeamConfig
+    private readonly configStorage: IConfigurationStorage
   ) {}
 
   async execute(
@@ -266,23 +267,20 @@ export class AddPictureTool {
         apiKey
       );
     } else {
-      const templateUrl = (this.teamConfig as any)?.avatarUrlTemplate;
+      const teamConfig = this.configStorage.get();
+      const templateUrl = (teamConfig as any)?.avatarUrlTemplate;
       if (templateUrl) {
         imageData = await this.avatarManager.downloadRandomAvatar(templateUrl, target);
       } else {
         const builtPrompt = this.avatarManager.buildAvatarPrompt(target);
-        const resolved = resolveEffectiveLlmSettings(this.teamConfig);
-        if (!resolved.config.provider)
+        const llmConfig = (teamConfig as any)?.llm;
+        if (!llmConfig)
           throw new Error('No LLM config or URL template available for avatar generation.');
-        const providerConfig = resolved.providerRef
-          ? this.teamConfig.providers?.[resolved.providerRef]
-          : undefined;
-        if (!providerConfig) throw new Error('No provider config found for avatar generation.');
         imageData = await this.avatarManager.generateAvatarWithAI(
           builtPrompt,
-          providerConfig,
-          resolved.config.model ?? 'gpt-4o',
-          resolved.config.apiKey ?? ''
+          llmConfig,
+          llmConfig.model ?? llmConfig.modelKey ?? 'gpt-4o',
+          llmConfig.apiKey ?? ''
         );
       }
     }
@@ -290,12 +288,14 @@ export class AddPictureTool {
     await this.avatarManager.saveAvatarPreview(target.name, imageData);
     const avatarRelPath = await this.avatarManager.finalizeAvatar(target.name);
     await this.avatarManager.updateAgentAvatar(target, avatarRelPath);
-
-    return ok({
-      agentId: target.id,
-      name: target.name,
-      avatarPath: avatarRelPath,
-      updated: true,
-    });
+    return {
+      status: 'ok',
+      data: {
+        agentId: target.id,
+        name: target.name,
+        avatarPath: avatarRelPath,
+        updated: true,
+      },
+    };
   }
 }

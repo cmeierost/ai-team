@@ -1,20 +1,25 @@
-import { TOKENS } from '@ai-team/container';
 import type {
   CommandAvailability,
   CommandDescriptor,
   CommandResponse,
-  StreamEvent,
   InteractionRequest,
+  IInteractionService,
+  StreamEvent,
 } from '@ai-team/api-contracts';
-import type { ExecutionContext, IBackendLogService, IServiceContainer } from '@ai-team/core';
-import type { IEmitService, IQuestionService } from '@ai-team/core';
-import { IInteractionService } from '@ai-team/service';
-import { createCommandDispatcher, type CommandDispatcher } from '@ai-team/service';
-import { toServiceDomainError } from '@ai-team/service';
-import { InteractionStream } from '@ai-team/service';
-import { runtimeEventToStreamEvent } from '@ai-team/service';
-import { parseStreamPerfEnv, createStreamPerfTracker } from '@ai-team/service';
-import { COMMAND_FACTORY_TOKENS } from '@ai-team/service';
+import {
+  type IEmitService,
+  type ExecutionContext,
+  type IBackendLogService,
+  ICommandDispatcher,
+} from '@ai-team/core';
+
+import {
+  parseStreamPerfEnv,
+  createStreamPerfTracker,
+  runtimeEventToStreamEvent,
+  InteractionStream,
+  toServiceDomainError,
+} from '@ai-team/service';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -55,39 +60,15 @@ export interface ICliCommandClient {
     context?: Record<string, unknown>
   ): AsyncIterable<StreamEvent<TCommand>>;
   getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[];
-  /**
-   * Returns a new client scoped to a single chat session that uses `service`
-   * as the `IQuestionService` for all commands dispatched through it.  The
-   * caller owns the returned client's lifetime — dropping the reference is
-   * sufficient cleanup because no persistent resources are held.
-   */
-  withQuestionService(service: IQuestionService): ICliCommandClient;
 }
 
 export class CliCommandClient implements ICliCommandClient {
-  public readonly workspaceRoot: string;
-  private readonly resolver: IServiceContainer;
-  private readonly dispatcher: CommandDispatcher;
-  private readonly backendLogService?: IBackendLogService;
-
-  constructor(workspaceRoot: string, resolver: IServiceContainer) {
-    this.workspaceRoot = workspaceRoot;
-    this.resolver = resolver;
-    this.dispatcher = createCommandDispatcher(workspaceRoot, resolver);
-    this.backendLogService = resolver.tryResolve(TOKENS.BackendLogService) as
-      | IBackendLogService
-      | undefined;
-  }
-
-  private writeBackendLog(entry: unknown): void {
-    this.backendLogService?.write(entry);
-  }
-
-  withQuestionService(service: IQuestionService): CliCommandClient {
-    const sessionContainer = this.resolver.child();
-    sessionContainer.registerInstance(COMMAND_FACTORY_TOKENS.QuestionService, service);
-    return new CliCommandClient(this.workspaceRoot, sessionContainer);
-  }
+  constructor(
+    private readonly dispatcher: ICommandDispatcher,
+    private readonly emitService: IEmitService,
+    private readonly backendLogService: IBackendLogService,
+    private readonly interactionService: IInteractionService
+  ) {}
 
   getCommands(filter?: Partial<CommandAvailability>): CommandDescriptor[] {
     return this.dispatcher.getCommands(filter);
@@ -106,7 +87,7 @@ export class CliCommandClient implements ICliCommandClient {
     const active = Boolean(svc);
 
     svc?.status('dispatch', `Dispatching command '${request.command}'`);
-    this.writeBackendLog({
+    this.backendLogService?.write({
       source: 'invoke',
       phase: 'dispatch',
       command: request.command,
@@ -176,13 +157,14 @@ export class CliCommandClient implements ICliCommandClient {
     }
 
     const invokeCore = async (): Promise<CommandResponse<unknown>> => {
-      const response = await this.dispatcher.dispatch({
-        command: request.command,
-        payload: request.payload,
-      });
+      const response = await this.dispatcher.dispatch(
+        request.command,
+        request.payload,
+        context
+      );
 
       svc?.status('completed', `Completed command '${request.command}'`);
-      this.writeBackendLog({
+      this.backendLogService?.write({
         source: 'invoke',
         phase: 'completed',
         command: request.command,
@@ -196,7 +178,7 @@ export class CliCommandClient implements ICliCommandClient {
       return active ? await STDOUT_CAPTURE_SCOPE.run(true, invokeCore) : await invokeCore();
     } catch (error) {
       const serviceError = toServiceDomainError(error, `Command '${request.command}' failed.`);
-      this.writeBackendLog({
+      this.backendLogService?.write({
         source: 'invoke',
         phase: 'error',
         command: request.command,
@@ -232,7 +214,7 @@ export class CliCommandClient implements ICliCommandClient {
     const { enabled: perfEnabled, slowMs: perfSlowMs } = parseStreamPerfEnv();
     const perf = perfEnabled
       ? createStreamPerfTracker(request.command, request.requestId, perfSlowMs, (entry) =>
-          this.writeBackendLog(entry)
+          this.backendLogService?.write(entry)
         )
       : null;
 
@@ -249,7 +231,7 @@ export class CliCommandClient implements ICliCommandClient {
     const handleRuntimeEvent = (event: unknown) => {
       if (perf) {
         const t0 = perf.nowNs();
-        this.writeBackendLog({
+        this.backendLogService?.write({
           source: 'runtime',
           command: request.command,
           requestId: request.requestId,
@@ -261,7 +243,7 @@ export class CliCommandClient implements ICliCommandClient {
         perf.state.emitRuntimeLoggerMs += perf.elapsedMs(t1);
         perf.state.runtimeEventsQueued += 1;
       } else {
-        this.writeBackendLog({
+        this.backendLogService?.write({
           source: 'runtime',
           command: request.command,
           requestId: request.requestId,
@@ -275,7 +257,7 @@ export class CliCommandClient implements ICliCommandClient {
       if (perf) {
         const totalStart = perf.nowNs();
         const t0 = perf.nowNs();
-        this.writeBackendLog({
+        this.backendLogService?.write({
           source: 'stream',
           command: request.command,
           requestId: request.requestId,
@@ -296,7 +278,7 @@ export class CliCommandClient implements ICliCommandClient {
         if (durationMs >= perf.slowThresholdMs) perf.state.slowToStreamEventCount += 1;
         perf.logSlowEvent(event.kind, durationMs);
       } else {
-        this.writeBackendLog({
+        this.backendLogService?.write({
           source: 'stream',
           command: request.command,
           requestId: request.requestId,
@@ -306,21 +288,17 @@ export class CliCommandClient implements ICliCommandClient {
       }
     };
 
-    const interactionService = this.resolver.tryResolve(TOKENS.InteractionService) as
-      | IInteractionService
-      | undefined;
-
-    if (interactionService && request.command === 'chat') {
+    if (request.command === 'chat') {
       const hookOptions = {
         invocationSurface: context.invocationSurface as 'cli' | 'web' | 'api' | undefined,
         calledByHuman:
           typeof context.calledByHuman === 'boolean' ? context.calledByHuman : undefined,
         signal: context.signal as AbortSignal | undefined,
-        workflowState: context.workflowState as any,
-        onWorkflowFrame: context.onWorkflowFrame as any,
+        workflowState: context.workflowState,
+        onWorkflowFrame: context.onWorkflowFrame,
       };
 
-      for await (const event of interactionService.stream(request, hookOptions as any)) {
+      for await (const event of this.interactionService.stream(request, hookOptions as any)) {
         handleStreamEvent(event as StreamEvent<TCommand>);
         yield event as StreamEvent<TCommand>;
       }
@@ -332,15 +310,10 @@ export class CliCommandClient implements ICliCommandClient {
     const interactionStream = new InteractionStream({
       translateRuntimeEvent: runtimeEventToStreamEvent,
     });
-    // Per-connection EmitService resolved from the container; InteractionStream
-    // rebinds its sink to the per-request queue while invoke() runs.
-    const connectionEmitService = this.resolver.tryResolve<IEmitService>(
-      COMMAND_FACTORY_TOKENS.EmitService
-    );
     yield* interactionStream.stream({
       request,
       context: context,
-      emitService: connectionEmitService,
+      emitService: this.emitService,
       invoke: (ctx: ExecutionContext, emitService: IEmitService) =>
         this.invokeTool(request, ctx, emitService),
       normalizeError: (error: unknown) =>

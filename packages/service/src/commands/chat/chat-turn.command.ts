@@ -35,17 +35,17 @@ export class ChatTurnCommand implements ICommand<ChatTurnParams, string> {
 
   constructor(private readonly runtime: IChatRuntime) {}
 
-  async execute(payload: ChatTurnParams, _ctx: ExecutionContext): Promise<CommandResponse<string>> {
+  async execute(payload: ChatTurnParams, ctx: ExecutionContext): Promise<CommandResponse<string>> {
     const output = await this.runtime.runAsync({
       agentId: payload.employeeId,
       sessionId: payload.options.sessionId,
       createNewSession: payload.options.createNewSession,
       introduction:
-        payload.options.introduction ??
-        (payload.options.suppressAutoIntroduction !== true ? true : false),
+        payload.options.introduction ?? payload.options.suppressAutoIntroduction !== true,
       contextFiles: payload.options.contextFiles,
       message: payload.options.message,
       maxHops: 0,
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
     if (output.status === 'failed') {

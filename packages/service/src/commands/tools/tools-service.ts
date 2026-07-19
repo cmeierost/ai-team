@@ -1,15 +1,21 @@
 import type {
   Agent,
   IAgentManager,
-  ICommand,
   ICommandDescriptor,
   ExecutionContext,
+  IToolManager,
 } from '@ai-team/core';
-import type { ToolManager } from '../../tooling/manager/tool-manager.js';
 import { ToolIdentity } from '../../tooling/manager/tool-manager.js';
 import type { ListToolsResponse, UpdateAgentToolResponse } from '@ai-team/api-contracts';
 import type { IMcpGateway } from '../../workflow/runtime/pipeline.js';
 import { GovernanceService } from '../../governance/governance-service.js';
+
+/** No-op MCP gateway that returns an empty tool list. Useful for tests. */
+export class NoOpMcpGateway implements IMcpGateway {
+  async discover(): Promise<import('@ai-team/core').ICommand[]> {
+    return [];
+  }
+}
 
 export interface ListToolsOptions {
   agent?: string;
@@ -23,15 +29,15 @@ export interface UpdateAgentToolOptions {
 export class AgentToolsService {
   constructor(
     private readonly agentManager: IAgentManager,
-    private readonly toolManager: ToolManager,
+    private readonly toolManager: IToolManager,
     private readonly governanceService: GovernanceService,
-    private readonly mcpGateway?: IMcpGateway
+    private readonly mcpGateway: IMcpGateway
   ) {}
 
   async list(options: ListToolsOptions = {}): Promise<ListToolsResponse> {
     const [staticTools, mcpTools] = await Promise.all([
       Promise.resolve(this.sortDescriptorsByName(this.toolManager.getAll())),
-      this.mcpGateway ? this.mcpGateway.discover() : Promise.resolve([] as ICommand[]),
+      this.mcpGateway.discover(),
     ]);
 
     if (!options.agent) {

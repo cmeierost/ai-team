@@ -1,10 +1,15 @@
 import type {
-  CoreServiceRegistrationTokens,
-  IContainerToken,
+  IChatSkillService,
+  IChatRuntime,
+  ILlmInvokeService,
+  ISendTurnStepService,
+  IToolDispatchService,
+  ExecutionContext,
   IServiceContainer,
   IServiceContainerRegistrar,
-  IQuestionService,
 } from '@ai-team/core';
+import { CORE_SERVICE_TOKENS, Token } from '@ai-team/core';
+import { CONTRACT_SERVICE_TOKENS } from '@ai-team/api-contracts';
 import { AskUserCommand, AskUserCommandMetadata } from '../commands/com/ask.command.js';
 import { LlmCallCommand, LlmCallCommandMetadata } from '../commands/orchestration/llm-call.tool.js';
 import {
@@ -33,11 +38,11 @@ import {
   OnboardingWorkflowMetadata,
 } from '../commands/hr/onboarding-workflow.js';
 import { SessionManager } from '../sessions/session-manager.js';
+import { TitleGenerator } from '../sessions/title-generator.js';
+import { ThreadManager } from '../sessions/thread-manager.js';
+import { NotesManager } from '../sessions/notes-manager.js';
 import { ToolManager } from '../tooling/manager/tool-manager.js';
 import { CommandRegistry } from '../command-dispatcher/command-registry.js';
-import { WhoHasAccessTool } from '../commands/fs/who-has-access.tool.js';
-import { DoIHaveAccessTool } from '../commands/fs/do-i-have-access.tool.js';
-import { AnalyzePermissionOverlapTool } from '../commands/fs/analyze-permission-overlap.tool.js';
 import {
   FsExistsTool,
   FsInfoTool,
@@ -79,9 +84,15 @@ import { FsListToolMetadata } from '../commands/fs/fs-list.tool.js';
 import { FsTreeToolMetadata } from '../commands/fs/fs-tree.tool.js';
 import { FsSearchContentToolMetadata } from '../commands/fs/fs-search-content.tool.js';
 import { FsSearchMetadataToolMetadata } from '../commands/fs/fs-search-metadata.tool.js';
-import { WhoHasAccessToolMetadata } from '../commands/fs/who-has-access.tool.js';
-import { DoIHaveAccessToolMetadata } from '../commands/fs/do-i-have-access.tool.js';
-import { AnalyzePermissionOverlapToolMetadata } from '../commands/fs/analyze-permission-overlap.tool.js';
+import { WhoHasAccessTool, WhoHasAccessToolMetadata } from '../commands/fs/who-has-access.tool.js';
+import {
+  DoIHaveAccessTool,
+  DoIHaveAccessToolMetadata,
+} from '../commands/fs/do-i-have-access.tool.js';
+import {
+  AnalyzePermissionOverlapTool,
+  AnalyzePermissionOverlapToolMetadata,
+} from '../commands/fs/analyze-permission-overlap.tool.js';
 import { FsEditToolMetadata } from '../commands/fs/fs-edit.tool.js';
 import { ApplyPatchToolMetadata } from '../commands/fs/apply-patch.tool.js';
 import { MultiEditToolMetadata } from '../commands/fs/multi-edit.tool.js';
@@ -120,11 +131,16 @@ import {
 import { ToolSchemaService } from '../workflow/runtime/tools/schema-service.js';
 import { ToolDispatchSupportService } from '../workflow/runtime/tools/tool-dispatch-support-service.js';
 import { ToolSerializationService } from '../workflow/runtime/tools/tool-serialization-service.js';
+import { ChatSkillService } from '../workflow/chat/chat-skill-service.js';
+import { ToolDispatcher } from '../workflow/runtime/tools/tool-dispatch.js';
+import { SendTurnStepService } from '../workflow/chat/send-turn-step-service.js';
+import { LlmInvokeService } from '../llm/llm-invoke.js';
 import { createCommandDispatcher } from '../command-dispatcher/command-dispatcher.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import { IInteractionService, InteractionService } from '../interaction/interaction-service.js';
+import {
+  InteractionService,
+} from '../interaction/interaction-service.js';
+import type { ChatOptions, IInteractionService, WorkflowCallbacks } from '@ai-team/api-contracts';
 import { WorkflowRunnerFactory } from '../workflow/index.js';
-import type { IChatRuntime } from '../workflow/chat/chat-runtime.js';
 import { GovernanceService } from '../governance/governance-service.js';
 import { AgentToolsService } from '../commands/tools/tools-service.js';
 import {
@@ -146,95 +162,15 @@ import {
   CommandsService,
   AccessService,
 } from '../routers/index.js';
-import {
-  IAccessService,
-  IAgentsService,
-  IArtifactsService,
-  IChatService,
-  ICommandsService,
-  IConfigService,
-  IContextService,
-  IDeveloperService,
-  IIdeService,
-  IPlanningService,
-  ISessionsService,
-  ISkillsService,
-  ISystemService,
-  ITasksService,
-  IToolsService,
-  ChatOptions,
-} from '@ai-team/api-contracts';
-import type { WorkflowCallbacks } from '../workflow/runtime/hooks.js';
 
-export interface ServiceLayerRegistrationTokens extends Pick<
-  CoreServiceRegistrationTokens,
-  | 'WorkspaceRoot'
-  | 'MessagesRepository'
-  | 'SessionsRepository'
-  | 'NotesRepository'
-  | 'AgentManager'
-  | 'NoteAttachmentReader'
-  | 'PathPermissionChecker'
-  | 'WorkspaceFsFactory'
-  | 'ChatStorage'
-  | 'ChatManager'
-  | 'ContextCompressor'
-  | 'ContextBuilder'
-  | 'ContextEnrichers'
-  | 'RagProvider'
-  | 'ToolResolver'
-  | 'McpGateway'
-  | 'LlmSelector'
-  | 'OutputHandler'
-  | 'TurnResultParsers'
-  | 'SystemInfoService'
-  | 'TeamGraphBuilder'
-  | 'ConfigurationStorage'
-  | 'BackendLogService'
-  | 'AgentDocumentStorage'
-  | 'LlmService'
-  | 'SkillManager'
-  | 'MarkdownSectionService'
-  | 'ProposalStoreFactory'
-  | 'DeveloperIdentityService'
-  | 'PermissionStorage'
-  | 'FileAnnotationService'
-  | 'LlmProviderTester'
-  | 'FileTreeService'
-  | 'IdeAdapterFactory'
-  | 'WorkspaceAccessRuntime'
-  | 'PlanningRepository'
-> {
-  SessionManager: IContainerToken<SessionManager>;
-  ToolManager: IContainerToken<ToolManager>;
-  ToolDispatchSupportService: IContainerToken<ToolDispatchSupportService>;
-  ToolSerializationService: IContainerToken<ToolSerializationService>;
-
-  ApiBaseUrl: IContainerToken<string>;
-  SystemService: IContainerToken<ISystemService>;
-  AgentsService: IContainerToken<IAgentsService>;
-  TeamService: IContainerToken<any>;
-  InteractionService: IContainerToken<IInteractionService>;
-  ChatService: IContainerToken<IChatService>;
-  SessionsService: IContainerToken<ISessionsService>;
-  ArtifactsService: IContainerToken<IArtifactsService>;
-  TasksService: IContainerToken<ITasksService>;
-  PlanningService: IContainerToken<IPlanningService>;
-  DeveloperService: IContainerToken<IDeveloperService>;
-  FilesService: IContainerToken<any>;
-  IdeService: IContainerToken<IIdeService>;
-  SkillsService: IContainerToken<ISkillsService>;
-  ToolsService: IContainerToken<IToolsService>;
-  ConfigService: IContainerToken<IConfigService>;
-  MetaService: IContainerToken<any>;
-  CommandsService: IContainerToken<ICommandsService>;
-  ContextRuntime: IContainerToken<any>;
-  AccessService: IContainerToken<IAccessService>;
-
-  ContextService: IContainerToken<IContextService>;
-  // Keep service-specific specialization for question DTO generics.
-  QuestionService: IContainerToken<IQuestionService>;
-}
+/**
+ * Tokens that are truly local to the service layer (not in core or contracts).
+ */
+const LOCAL_SERVICE_TOKENS = {
+  ApiBaseUrl: new Token<string>('ApiBaseUrl'),
+  InteractionService: new Token<IInteractionService>('IInteractionService'),
+  ContextRuntime: new Token<any>('ContextRuntime'),
+} as const;
 
 export interface ServiceLayerRegistrationConfig {
   workspaceRoot: string;
@@ -249,13 +185,14 @@ export function buildInteractionService(
   // This ensures commands get the correctly-scoped EmitService:
   // - CLI: console EmitService from root container
   // - API: connection-scoped EmitService from child container
-  const dispatcher = c.resolve(COMMAND_FACTORY_TOKENS.CommandDispatcher);
+  const dispatcher = c.resolve(CORE_SERVICE_TOKENS.CommandDispatcher);
 
   const runChat = async (
     _wr: string,
     agentId: string | undefined,
     options: ChatOptions,
-    _callbacks: WorkflowCallbacks
+    _callbacks: WorkflowCallbacks,
+    ctx: ExecutionContext
   ) => {
     const response = await dispatcher.dispatch(
       'chat-chat',
@@ -265,9 +202,7 @@ export function buildInteractionService(
         sessionId: options?.sessionId,
         createNewSession: options?.createNewSession,
       },
-      {
-        history: [],
-      }
+      ctx
     );
 
     if (response.status === 'error') {
@@ -280,33 +215,62 @@ export function buildInteractionService(
 
 export function registerServiceLayerServices(
   container: IServiceContainerRegistrar,
-  cfg: ServiceLayerRegistrationConfig,
-  tokens: ServiceLayerRegistrationTokens
+  cfg: ServiceLayerRegistrationConfig
 ): void {
+  // ── Session managers (dependency order: TitleGenerator → SessionManager → ThreadManager) ──
   container.registerSingleton(
-    tokens.SessionManager,
+    CORE_SERVICE_TOKENS.TitleGenerator,
+    (c) =>
+      new TitleGenerator(
+        c.resolve(CORE_SERVICE_TOKENS.MessagesRepository),
+        c.resolve(CORE_SERVICE_TOKENS.SessionsRepository)
+      )
+  );
+
+  container.registerSingleton(
+    CORE_SERVICE_TOKENS.SessionManager,
     (c) =>
       new SessionManager(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.MessagesRepository),
-        c.resolve(tokens.SessionsRepository),
-        c.resolve(tokens.NotesRepository),
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.NoteAttachmentReader)
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(CORE_SERVICE_TOKENS.MessagesRepository),
+        c.resolve(CORE_SERVICE_TOKENS.SessionsRepository),
+        c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        c.resolve(CORE_SERVICE_TOKENS.TitleGenerator)
+      )
+  );
+
+  container.registerSingleton(
+    CORE_SERVICE_TOKENS.ThreadManager,
+    (c) =>
+      new ThreadManager(
+        c.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        c.resolve(CORE_SERVICE_TOKENS.SessionsRepository),
+        c.resolve(CORE_SERVICE_TOKENS.NotesRepository)
+      )
+  );
+
+  container.registerSingleton(
+    CORE_SERVICE_TOKENS.NotesManager,
+    (c) =>
+      new NotesManager(
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(CORE_SERVICE_TOKENS.NotesRepository),
+        c.resolve(CORE_SERVICE_TOKENS.NoteAttachmentReader),
+        c.resolve(CORE_SERVICE_TOKENS.LlmService)
       )
   );
 
   container.registerScoped(
-    COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory,
+    CORE_SERVICE_TOKENS.WorkflowRunnerFactory,
     (_c) => new WorkflowRunnerFactory(_c.child())
   );
 
-  container.registerScoped(COMMAND_FACTORY_TOKENS.CommandDispatcher, (c) =>
-    createCommandDispatcher(c.resolve(tokens.WorkspaceRoot), c)
+  container.registerScoped(CORE_SERVICE_TOKENS.CommandDispatcher, (c) =>
+    createCommandDispatcher(c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot), c)
   );
 
   container.registerScoped(
-    COMMAND_FACTORY_TOKENS.ChatRuntime,
+    CORE_SERVICE_TOKENS.ChatRuntime,
     (): IChatRuntime => ({
       async runAsync() {
         return {
@@ -321,67 +285,73 @@ export function registerServiceLayerServices(
   );
 
   // Register CommandRegistry with all built-in tools
-  container.registerSingleton(COMMAND_FACTORY_TOKENS.CommandRegistry, (_c) => {
+  container.registerSingleton(CORE_SERVICE_TOKENS.CommandRegistry, (_c) => {
     const registry = new CommandRegistry();
     // File system tools
     registry.register(
       FsReadFileToolMetadata,
       (r) =>
-        new FsReadFileTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.WorkspaceFsFactory))
+        new FsReadFileTool(
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory)
+        )
     );
     registry.register(
       FsReadLinesToolMetadata,
       (r) =>
         new FsReadLinesTool(
-          new FsReadFileTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.WorkspaceFsFactory))
+          new FsReadFileTool(
+            r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+            r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory)
+          )
         )
     );
     registry.register(
       FsWriteFileToolMetadata,
-      () => new FsWriteFileTool(_c.resolve(tokens.WorkspaceFsFactory))
+      () => new FsWriteFileTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
       FsCreateFileToolMetadata,
-      () => new FsCreateFileTool(_c.resolve(tokens.WorkspaceFsFactory))
+      () => new FsCreateFileTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
       FsDeletePathToolMetadata,
-      () => new FsDeletePathTool(_c.resolve(tokens.WorkspaceFsFactory))
+      () => new FsDeletePathTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
       FsMkdirToolMetadata,
-      () => new FsMkdirTool(_c.resolve(tokens.WorkspaceFsFactory))
+      () => new FsMkdirTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
       FsExistsToolMetadata,
-      () => new FsExistsTool(_c.resolve(tokens.WorkspaceFsFactory))
+      () => new FsExistsTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
       FsInfoToolMetadata,
-      () => new FsInfoTool(_c.resolve(tokens.WorkspaceFsFactory))
+      () => new FsInfoTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
       FsListToolMetadata,
-      () => new FsListTool(_c.resolve(tokens.WorkspaceFsFactory))
+      () => new FsListTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
       FsTreeToolMetadata,
-      () => new FsTreeTool(_c.resolve(tokens.WorkspaceFsFactory))
+      () => new FsTreeTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
       FsSearchContentToolMetadata,
       (r) =>
         new FsSearchContentTool(
-          r.resolve(tokens.WorkspaceRoot),
-          r.resolve(tokens.WorkspaceFsFactory)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory)
         )
     );
     registry.register(
       FsSearchMetadataToolMetadata,
       (r) =>
         new FsSearchMetadataTool(
-          r.resolve(tokens.WorkspaceRoot),
-          r.resolve(tokens.WorkspaceFsFactory)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory)
         )
     );
     // File system access tools
@@ -389,42 +359,52 @@ export function registerServiceLayerServices(
       WhoHasAccessToolMetadata,
       (r) =>
         new WhoHasAccessTool(
-          r.resolve(tokens.WorkspaceRoot),
-          r.resolve(tokens.AgentManager),
-          r.resolve(tokens.PathPermissionChecker)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker)
         )
     );
     registry.register(
       DoIHaveAccessToolMetadata,
       (r) =>
         new DoIHaveAccessTool(
-          r.resolve(tokens.WorkspaceRoot),
-          r.resolve(tokens.AgentManager),
-          r.resolve(tokens.PathPermissionChecker)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker)
         )
     );
     registry.register(
       AnalyzePermissionOverlapToolMetadata,
-      (r) => new AnalyzePermissionOverlapTool(r.resolve(tokens.AgentManager))
+      (r) => new AnalyzePermissionOverlapTool(r.resolve(CORE_SERVICE_TOKENS.AgentManager))
     );
     // Code analysis and editing tools
     registry.register(
       FindSymbolToolMetadata,
       (r) =>
-        new FindSymbolTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.IdeAdapterFactory))
+        new FindSymbolTool(
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
+        )
     );
     registry.register(
       FindReferencesToolMetadata,
       (r) =>
-        new FindReferencesTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.IdeAdapterFactory))
+        new FindReferencesTool(
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
+        )
     );
     registry.register(
       LspToolMetadata,
-      (r) => new LspTool(r.resolve(tokens.WorkspaceRoot), r.resolve(tokens.IdeAdapterFactory))
+      (r) =>
+        new LspTool(
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
+        )
     );
     registry.register(
       GrepCodeToolMetadata,
-      (r) => new GrepCodeTool(r.resolve(tokens.WorkspaceRoot))
+      (r) => new GrepCodeTool(r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot))
     );
     // HTTP tools
     registry.register(HttpFetchCommandMetadata, () => new HttpFetchCommand());
@@ -435,32 +415,32 @@ export function registerServiceLayerServices(
       FsEditToolMetadata,
       (r) =>
         new FsEditTool(
-          r.resolve(tokens.WorkspaceRoot),
-          r.resolve(tokens.PathPermissionChecker),
-          r.resolve(tokens.IdeAdapterFactory)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker),
+          r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
         )
     );
     registry.register(
       ApplyPatchToolMetadata,
       (r) =>
         new ApplyPatchTool(
-          r.resolve(tokens.WorkspaceRoot),
-          r.resolve(tokens.PathPermissionChecker),
-          r.resolve(tokens.IdeAdapterFactory)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker),
+          r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
         )
     );
     registry.register(
       MultiEditToolMetadata,
       (r) =>
         new MultiEditTool(
-          r.resolve(tokens.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
           new FsEditTool(
-            r.resolve(tokens.WorkspaceRoot),
-            r.resolve(tokens.PathPermissionChecker),
-            r.resolve(tokens.IdeAdapterFactory)
+            r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+            r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker),
+            r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
           ),
-          r.resolve(tokens.PathPermissionChecker),
-          r.resolve(tokens.IdeAdapterFactory)
+          r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker),
+          r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
         )
     );
     registry.register(DelegateToAgentToolMetadata, (_r) => new DelegateToAgentCommand());
@@ -468,33 +448,33 @@ export function registerServiceLayerServices(
       UpdateEmployeeLlmToolMetadata,
       (r) =>
         new UpdateEmployeeLlmTool(
-          r.resolve(tokens.AgentManager),
-          r.resolve(tokens.AgentDocumentStorage)
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.AgentDocumentStorage)
         )
     );
     registry.register(
       RegisterCliToolMetadata,
       (r) =>
         new RegisterCliTool(
-          r.resolve(tokens.ConfigurationStorage) as any,
-          r.resolve(tokens.AgentManager),
-          r.resolve(tokens.AgentDocumentStorage)
+          r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.AgentDocumentStorage)
         )
     );
     registry.register(
       SemanticSearchToolMetadata,
       (r) =>
         new SemanticSearchTool(
-          r.resolve(tokens.WorkspaceRoot),
-          r.resolve(tokens.FileAnnotationService)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.FileAnnotationService)
         )
     );
     registry.register(
       GetErrorsToolMetadata,
       (r) =>
         new GetErrorsTool(
-          r.resolve(tokens.WorkspaceRoot) as string,
-          r.resolve(tokens.IdeAdapterFactory)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
         )
     );
     // AskUserCommand is registered here so each invocation resolves the
@@ -502,48 +482,48 @@ export function registerServiceLayerServices(
     // tool-resolution time (the scoped ToolManager's per-connection container).
     registry.register(
       AskUserCommandMetadata,
-      (r) => new AskUserCommand(r.resolve(COMMAND_FACTORY_TOKENS.QuestionService))
+      (r) => new AskUserCommand(r.resolve(CORE_SERVICE_TOKENS.QuestionService))
     );
     registry.register(
       LlmCallCommandMetadata,
-      (r) => new LlmCallCommand(r.resolve(COMMAND_FACTORY_TOKENS.LlmService))
+      (r) => new LlmCallCommand(r.resolve(CORE_SERVICE_TOKENS.LlmService))
     );
     registry.register(
       BootstrapFilesCommandMetadata,
-      (r) => new BootstrapFilesCommand(r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot))
+      (r) => new BootstrapFilesCommand(r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot))
     );
     registry.register(
       PrepareOnboardingCommandMetadata,
       (r) =>
         new PrepareOnboardingCommand(
-          r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-          r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService)
         )
     );
     registry.register(
       SaveTranscriptCommandMetadata,
-      (r) => new SaveTranscriptCommand(r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot))
+      (r) => new SaveTranscriptCommand(r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot))
     );
     registry.register(
       SetPermissionsCommandMetadata,
-      (r) => new SetPermissionsCommand(r.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage))
+      (r) => new SetPermissionsCommand(r.resolve(CORE_SERVICE_TOKENS.PermissionStorage))
     );
     registry.register(
       NameSuggestionsCommandMetadata,
-      (r) => new NameSuggestionsCommand(r.resolve(COMMAND_FACTORY_TOKENS.LlmService))
+      (r) => new NameSuggestionsCommand(r.resolve(CORE_SERVICE_TOKENS.LlmService))
     );
 
     // Workflow tools registered as explicit native commands.
     registry.register(
       HireWorkflowMetadata,
-      (r) => new HireWorkflowCommand(r.resolve(COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory))
+      (r) => new HireWorkflowCommand(r.resolve(CORE_SERVICE_TOKENS.WorkflowRunnerFactory))
     );
     registry.register(
       OnboardingWorkflowMetadata,
       (r) =>
         new OnboardingWorkflowCommand(
-          r.resolve(COMMAND_FACTORY_TOKENS.CommandDispatcher),
-          r.resolve(COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory)
+          r.resolve(CORE_SERVICE_TOKENS.CommandDispatcher),
+          r.resolve(CORE_SERVICE_TOKENS.WorkflowRunnerFactory)
         )
     );
     return registry;
@@ -554,9 +534,9 @@ export function registerServiceLayerServices(
   // instance bound to the per-connection child container, so tool factories
   // (e.g. AskUserCommand) resolve the live WsQuestionService rather than the
   // root-container no-op fallback.
-  container.registerScoped(tokens.ToolManager, (c) => {
-    const pathPermissionChecker = c.resolve(tokens.PathPermissionChecker);
-    const registry = c.resolve(COMMAND_FACTORY_TOKENS.CommandRegistry);
+  container.registerScoped(CORE_SERVICE_TOKENS.ToolManager, (c) => {
+    const pathPermissionChecker = c.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker);
+    const registry = c.resolve(CORE_SERVICE_TOKENS.CommandRegistry);
 
     const manager = new ToolManager(pathPermissionChecker, registry, c);
 
@@ -603,221 +583,284 @@ export function registerServiceLayerServices(
 
     return manager;
   });
-  container.registerSingleton(tokens.ContextCompressor, () => new RecentTurnsContextCompressor());
-  container.registerSingleton(tokens.ContextBuilder, () => new DefaultContextBuilder());
   container.registerSingleton(
-    tokens.ToolSerializationService,
+    CORE_SERVICE_TOKENS.ContextCompressor,
+    () => new RecentTurnsContextCompressor()
+  );
+  container.registerSingleton(
+    CORE_SERVICE_TOKENS.ContextBuilder,
+    () => new DefaultContextBuilder()
+  );
+  container.registerSingleton(
+    CORE_SERVICE_TOKENS.ToolSerializationService,
     () => new ToolSerializationService()
   );
   container.registerSingleton(
-    tokens.ToolDispatchSupportService,
+    CORE_SERVICE_TOKENS.ToolDispatchSupportService,
     (c) =>
       new ToolDispatchSupportService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.ToolSerializationService),
-        c.resolve(tokens.LlmService),
-        c.resolve(tokens.ProposalStoreFactory)
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(CORE_SERVICE_TOKENS.ToolSerializationService),
+        c.resolve(CORE_SERVICE_TOKENS.LlmService),
+        c.resolve(CORE_SERVICE_TOKENS.ProposalStoreFactory)
       )
   );
-  container.registerSingleton(tokens.ContextEnrichers, (c) => [
-    new WorkspaceOverviewEnricher(c.resolve(tokens.WorkspaceRoot)),
-    new TeamRosterEnricher(c.resolve(tokens.AgentManager)),
+  container.registerSingleton(CORE_SERVICE_TOKENS.ContextEnrichers, (c) => [
+    new WorkspaceOverviewEnricher(c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot)),
+    new TeamRosterEnricher(c.resolve(CORE_SERVICE_TOKENS.AgentManager)),
   ]);
   container.registerSingleton(
-    COMMAND_FACTORY_TOKENS.ToolSchemaService,
-    (c) => new ToolSchemaService(c.resolve(COMMAND_FACTORY_TOKENS.ToolManager))
+    CORE_SERVICE_TOKENS.ToolSchemaService,
+    (c) => new ToolSchemaService(c.resolve(CORE_SERVICE_TOKENS.ToolManager))
+  );
+  container.registerScoped(
+    CORE_SERVICE_TOKENS.ChatSkillService,
+    (c): IChatSkillService =>
+      new ChatSkillService({
+        skillManager: c.resolve(CORE_SERVICE_TOKENS.SkillManager),
+        sessionManager: c.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        emitService: c.resolve(CORE_SERVICE_TOKENS.EmitService),
+        workspaceRoot: c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+      })
+  );
+  container.registerScoped(
+    CORE_SERVICE_TOKENS.ToolDispatcher,
+    (c): IToolDispatchService =>
+      new ToolDispatcher(
+        c.resolve(CORE_SERVICE_TOKENS.ToolManager),
+        c.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        c.resolve(CORE_SERVICE_TOKENS.ToolDispatchSupportService),
+        c.resolve(CORE_SERVICE_TOKENS.QuestionService),
+        c.resolve(CORE_SERVICE_TOKENS.EmitService)
+      )
+  );
+  container.registerScoped(
+    CORE_SERVICE_TOKENS.LlmInvokeService,
+    (c): ILlmInvokeService =>
+      new LlmInvokeService(
+        c.resolve(CORE_SERVICE_TOKENS.LlmService),
+        c.resolve(CORE_SERVICE_TOKENS.EmitService),
+        c.resolve(CORE_SERVICE_TOKENS.ToolDispatcher)
+      )
+  );
+  container.registerScoped(
+    CORE_SERVICE_TOKENS.SendTurnStepService,
+    (c): ISendTurnStepService =>
+      new SendTurnStepService(
+        c.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        c.resolve(CORE_SERVICE_TOKENS.ChatSkillService),
+        c.resolve(CORE_SERVICE_TOKENS.LlmService),
+        c.resolve(CORE_SERVICE_TOKENS.LlmInvokeService),
+        c.resolve(CORE_SERVICE_TOKENS.ToolDispatcher),
+        c.resolve(CORE_SERVICE_TOKENS.ToolSchemaService),
+        {},
+        c.resolve(CORE_SERVICE_TOKENS.EmitService)
+      )
   );
   container.registerSingleton(
-    tokens.RagProvider,
+    CORE_SERVICE_TOKENS.RagProvider,
     (c) =>
       new SearchHintRagProvider(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.FileAnnotationService)
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(CORE_SERVICE_TOKENS.FileAnnotationService)
       )
   );
   container.registerSingleton(
-    tokens.ToolResolver,
-    (c) => new DefaultToolResolver(c.resolve(tokens.ToolManager))
+    CORE_SERVICE_TOKENS.ToolResolver,
+    (c) => new DefaultToolResolver(c.resolve(CORE_SERVICE_TOKENS.ToolManager))
   );
   container.registerSingleton(
-    tokens.McpGateway,
-    (c) => new RegistryMcpGateway(c.resolve(COMMAND_FACTORY_TOKENS.CommandRegistry), c)
+    CORE_SERVICE_TOKENS.McpGateway,
+    (c) => new RegistryMcpGateway(c.resolve(CORE_SERVICE_TOKENS.CommandRegistry), c)
   );
   container.registerSingleton(
-    tokens.LlmSelector,
-    (c) => new DefaultLlmSelector(c.resolve(tokens.LlmService))
+    CORE_SERVICE_TOKENS.LlmSelector,
+    (c) => new DefaultLlmSelector(c.resolve(CORE_SERVICE_TOKENS.LlmService))
   );
   container.registerSingleton(
-    tokens.OutputHandler,
-    (c) => new DefaultOutputHandler(c.resolve(COMMAND_FACTORY_TOKENS.EmitService))
+    CORE_SERVICE_TOKENS.OutputHandler,
+    (c) => new DefaultOutputHandler(c.resolve(CORE_SERVICE_TOKENS.EmitService))
   );
-  container.registerSingleton(tokens.TurnResultParsers, (c) =>
-    buildDefaultTurnResultParsers(c.resolve(tokens.AgentManager))
+  container.registerSingleton(CORE_SERVICE_TOKENS.TurnResultParsers, (c) =>
+    buildDefaultTurnResultParsers(c.resolve(CORE_SERVICE_TOKENS.AgentManager))
   );
   container.registerSingleton(
-    tokens.SystemService,
+    CONTRACT_SERVICE_TOKENS.SystemService,
     (c) =>
       new SystemService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.ApiBaseUrl),
-        c.resolve(tokens.SystemInfoService)
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(LOCAL_SERVICE_TOKENS.ApiBaseUrl),
+        c.resolve(CORE_SERVICE_TOKENS.SystemInfoService)
       )
   );
-  container.registerSingleton(tokens.AgentsService, (c) => {
-    const configStorage = c.resolve(tokens.ConfigurationStorage);
+  container.registerSingleton(CONTRACT_SERVICE_TOKENS.AgentsService, (c) => {
+    const configStorage = c.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage);
     return new AgentsService(
-      c.resolve(tokens.WorkspaceRoot),
-      c.resolve(tokens.AgentManager),
+      c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+      c.resolve(CORE_SERVICE_TOKENS.AgentManager),
       configStorage.get(),
-      c.resolve(tokens.PermissionStorage),
-      c.resolve(tokens.MarkdownSectionService),
-      c.resolve(tokens.FileAnnotationService)
+      c.resolve(CORE_SERVICE_TOKENS.PermissionStorage),
+      c.resolve(CORE_SERVICE_TOKENS.MarkdownSectionService),
+      c.resolve(CORE_SERVICE_TOKENS.FileAnnotationService)
     );
   });
   container.registerSingleton(
-    tokens.TeamService,
-    (c) => new TeamService(c.resolve(tokens.TeamGraphBuilder))
+    CONTRACT_SERVICE_TOKENS.TeamService,
+    (c) => new TeamService(c.resolve(CORE_SERVICE_TOKENS.TeamGraphBuilder))
   );
-  // Fallback QuestionService for the root container — satisfies the DI
-  // requirement of InfoChatCommand at startup. Per-connection child containers
-  // override this with a live WsQuestionService via registerInstance.
-  container.registerSingleton(tokens.QuestionService, (): IQuestionService => {
-    const noWs = (): never => {
-      throw new Error('QuestionService: no active WebSocket connection');
-    };
-    return { input: noWs, confirm: noWs, select: noWs, password: noWs, checklist: noWs };
-  });
 
   // InteractionService is registered as SCOPED (not singleton) to support child containers.
   // - CLI: resolves once from root container → console EmitService
   // - API: each WebSocket connection creates a child container with connection-scoped
   //   EmitService, and resolves InteractionService from that child → WebSocket EmitService
   // This ensures streaming events go to the correct destination (terminal or WebSocket).
-  container.registerScoped(tokens.InteractionService, (c) =>
+  container.registerScoped(LOCAL_SERVICE_TOKENS.InteractionService, (c) =>
     buildInteractionService(c, cfg.workspaceRoot)
   );
 
   container.registerSingleton(
-    tokens.ChatService,
+    CONTRACT_SERVICE_TOKENS.ChatService,
     (c) =>
       new ChatService(
-        c.resolve(tokens.InteractionService),
-        c.resolve(tokens.SessionManager),
-        c.resolve(tokens.ChatManager),
-        c.resolve(tokens.ChatStorage),
-        c.resolve(tokens.LlmService)
+        c.resolve(LOCAL_SERVICE_TOKENS.InteractionService),
+        c.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        c.resolve(CORE_SERVICE_TOKENS.TitleGenerator),
+        c.resolve(CORE_SERVICE_TOKENS.ChatManager),
+        c.resolve(CORE_SERVICE_TOKENS.ChatStorage),
+        c.resolve(CORE_SERVICE_TOKENS.LlmService)
       )
   );
   container.registerSingleton(
-    tokens.SessionsService,
+    CONTRACT_SERVICE_TOKENS.SessionsService,
     (c) =>
       new SessionsService(
-        c.resolve(tokens.SessionManager),
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.LlmService)
+        c.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        c.resolve(CORE_SERVICE_TOKENS.ThreadManager),
+        c.resolve(CORE_SERVICE_TOKENS.NotesManager),
+        c.resolve(CORE_SERVICE_TOKENS.TitleGenerator),
+        c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        c.resolve(CORE_SERVICE_TOKENS.LlmService)
       )
   );
   container.registerSingleton(
-    tokens.ArtifactsService,
-    (c) => new ArtifactsService(c.resolve(tokens.SessionManager))
+    CONTRACT_SERVICE_TOKENS.ArtifactsService,
+    (c) => new ArtifactsService(c.resolve(CORE_SERVICE_TOKENS.SessionManager))
   );
   container.registerSingleton(
-    tokens.TasksService,
-    (c) => new TasksService(c.resolve(tokens.WorkspaceRoot), c.resolve(tokens.AgentManager))
+    CONTRACT_SERVICE_TOKENS.TasksService,
+    (c) =>
+      new TasksService(
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(CORE_SERVICE_TOKENS.AgentManager)
+      )
   );
   container.registerSingleton(
-    tokens.PlanningService,
-    (c) => new PlanningService(c.resolve(tokens.PlanningRepository))
+    CONTRACT_SERVICE_TOKENS.PlanningService,
+    (c) => new PlanningService(c.resolve(CORE_SERVICE_TOKENS.PlanningRepository))
   );
   container.registerSingleton(
-    tokens.DeveloperService,
-    (c) => new DeveloperService(c.resolve(tokens.DeveloperIdentityService))
+    CONTRACT_SERVICE_TOKENS.DeveloperService,
+    (c) => new DeveloperService(c.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService))
   );
-  container.registerSingleton(tokens.FilesService, (c) => {
-    const configStorage = c.resolve(tokens.ConfigurationStorage);
+  container.registerSingleton(CONTRACT_SERVICE_TOKENS.FilesService, (c) => {
+    const configStorage = c.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage);
     const fileTree = configStorage.get('fileTree') ?? {};
     return new FilesService(
-      c.resolve(tokens.AgentManager),
+      c.resolve(CORE_SERVICE_TOKENS.AgentManager),
       fileTree,
-      c.resolve(tokens.PermissionStorage),
+      c.resolve(CORE_SERVICE_TOKENS.PermissionStorage),
       new FileTreeService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.ConfigurationStorage),
-        c.resolve(tokens.PermissionStorage),
-        new GovernanceService(c.resolve(tokens.AgentManager), c.resolve(tokens.QuestionService)),
-        c.resolve(tokens.FileTreeService)
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        c.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+        c.resolve(CORE_SERVICE_TOKENS.PermissionStorage),
+        new GovernanceService(
+          c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          c.resolve(CORE_SERVICE_TOKENS.QuestionService)
+        ),
+        c.resolve(CORE_SERVICE_TOKENS.FileTreeService),
+        c.resolve(CORE_SERVICE_TOKENS.FileAnnotationService)
       )
     );
   });
   container.registerSingleton(
-    tokens.IdeService,
-    (c) => new IdeService(c.resolve(tokens.WorkspaceRoot), c.resolve(tokens.IdeAdapterFactory))
-  );
-  container.registerSingleton(
-    tokens.SkillsService,
+    CONTRACT_SERVICE_TOKENS.IdeService,
     (c) =>
-      new SkillsService(
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.SkillManager),
-        c.resolve(tokens.MarkdownSectionService)
+      new IdeService(
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
       )
   );
-  container.registerSingleton(tokens.ToolsService, (c) => {
+  container.registerSingleton(
+    CONTRACT_SERVICE_TOKENS.SkillsService,
+    (c) =>
+      new SkillsService(
+        c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        c.resolve(CORE_SERVICE_TOKENS.SkillManager),
+        c.resolve(CORE_SERVICE_TOKENS.MarkdownSectionService)
+      )
+  );
+  container.registerSingleton(CONTRACT_SERVICE_TOKENS.ToolsService, (c) => {
     const governanceService = new GovernanceService(
-      c.resolve(tokens.AgentManager),
-      c.resolve(tokens.QuestionService)
+      c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      c.resolve(CORE_SERVICE_TOKENS.QuestionService)
     );
     return new ToolsService(
       new AgentToolsService(
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.ToolManager),
+        c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        c.resolve(CORE_SERVICE_TOKENS.ToolManager),
         governanceService,
-        c.resolve(tokens.McpGateway)
+        c.resolve(CORE_SERVICE_TOKENS.McpGateway)
       ),
       governanceService
     );
   });
   container.registerSingleton(
-    tokens.ConfigService,
+    CONTRACT_SERVICE_TOKENS.ConfigService,
     (c) =>
       new ConfigService(
         cfg.workspaceRoot,
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.ConfigurationStorage)
+        c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        c.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage)
       )
   );
   container.registerSingleton(
-    tokens.MetaService,
+    CONTRACT_SERVICE_TOKENS.MetaService,
     (c) =>
       new MetaService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.SessionManager),
-        c.resolve(tokens.SkillManager),
-        c.resolve(tokens.ToolManager),
-        c.resolve(tokens.AgentDocumentStorage),
-        c.resolve(tokens.McpGateway),
-        c.resolve(tokens.PlanningService)
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        c.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        c.resolve(CORE_SERVICE_TOKENS.NotesManager),
+        c.resolve(CORE_SERVICE_TOKENS.SkillManager),
+        c.resolve(CORE_SERVICE_TOKENS.ToolManager),
+        c.resolve(CORE_SERVICE_TOKENS.AgentDocumentStorage),
+        c.resolve(CORE_SERVICE_TOKENS.McpGateway),
+        c.resolve(CONTRACT_SERVICE_TOKENS.PlanningService)
       )
   );
   container.registerSingleton(
-    tokens.CommandsService,
+    CONTRACT_SERVICE_TOKENS.CommandsService,
     (c) =>
       new CommandsService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.SkillManager),
-        c.resolve(tokens.ConfigurationStorage)
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(CORE_SERVICE_TOKENS.CommandRegistry),
+        c.resolve(CORE_SERVICE_TOKENS.SkillManager),
+        c.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+        c.resolve(CORE_SERVICE_TOKENS.EmitService),
+        c.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        c.resolve(CORE_SERVICE_TOKENS.ToolManager)
       )
   );
   container.registerSingleton(
-    tokens.AccessService,
+    CONTRACT_SERVICE_TOKENS.AccessService,
     (c) =>
       new AccessService(
-        c.resolve(tokens.WorkspaceRoot),
-        c.resolve(tokens.ContextRuntime),
-        c.resolve(tokens.AgentManager),
-        c.resolve(tokens.WorkspaceAccessRuntime)
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        c.resolve(LOCAL_SERVICE_TOKENS.ContextRuntime),
+        c.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        c.resolve(CORE_SERVICE_TOKENS.WorkspaceAccessRuntime)
       )
   );
 }

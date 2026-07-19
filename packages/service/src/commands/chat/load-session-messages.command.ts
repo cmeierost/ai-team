@@ -23,8 +23,8 @@ export class LoadSessionMessagesCommand {
   constructor(
     private readonly sessionManager: Pick<SessionManager, 'getSessionMessages'>,
     private readonly emitService: IEmitService,
-    private readonly configurationStorage?: Pick<IConfigurationStorage, 'get'>,
-    private readonly backendLogService?: IBackendLogService
+    private readonly configurationStorage: Pick<IConfigurationStorage, 'get'>,
+    private readonly backendLogService: IBackendLogService
   ) {}
 
   private normalizeOutputLevel(value: unknown): LogDestinationLevel {
@@ -72,7 +72,7 @@ export class LoadSessionMessagesCommand {
     const startedAt = Date.now();
     const messages = await this.sessionManager.getSessionMessages(sessionId);
     const elapsedMs = Date.now() - startedAt;
-    const logConfig = this.configurationStorage?.get('log.chat.sessionStartupLoad');
+    const logConfig = this.configurationStorage.get('log.chat.sessionStartupLoad');
     const logEnabled = logConfig?.enabled === true;
     if (logEnabled) {
       const message = `[perf] loaded ${messages.length} message(s) for session ${sessionId} in ${elapsedMs}ms (${reason})`;

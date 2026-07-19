@@ -1,5 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { useQuery } from '@tanstack/react-query';
 
 const mockSlashCommands = vi.hoisted(() => [
   { key: 'help', usage: '/help', description: 'Show this help', llmCallable: false },
@@ -136,5 +137,32 @@ describe('useSlashCommandSuggestions', () => {
 
     rerender({ input: '/c' });
     expect(result.current.isOpen).toBe(true);
+  });
+
+  it('orders built-in commands before dynamic skills for bare / input', () => {
+    const skillEntry = {
+      key: 'a-skill',
+      usage: '/a-skill',
+      description: 'Dynamic skill entry',
+      aliases: [],
+      availableIn: { chat: true },
+      path: ['dynamic', 'skill'],
+    };
+    const commandEntry = {
+      key: 'help',
+      usage: '/help',
+      description: 'Show this help',
+      aliases: [],
+      availableIn: { chat: true },
+      path: ['chat'],
+    };
+
+    vi.mocked(useQuery).mockReturnValue({
+      data: [skillEntry, commandEntry],
+    } as any);
+
+    const { result } = renderHook(() => useSlashCommandSuggestions('/'));
+    expect(result.current.suggestions[0]?.key).toBe('help');
+    expect(result.current.suggestions[1]?.key).toBe('a-skill');
   });
 });

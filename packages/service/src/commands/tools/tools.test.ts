@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AgentToolsService, type ListToolsOptions } from './tools-service.js';
+import { AgentToolsService, NoOpMcpGateway, type ListToolsOptions } from './tools-service.js';
 
 interface MutableAgent {
   id: string;
@@ -50,7 +50,12 @@ function createService(agent?: MutableAgent) {
   const toolManager = createToolManager();
   const governanceService = {} as any;
   return {
-    service: new AgentToolsService(agentManager, toolManager, governanceService),
+    service: new AgentToolsService(
+      agentManager,
+      toolManager,
+      governanceService,
+      new NoOpMcpGateway()
+    ),
     agentManager,
     toolManager,
   };

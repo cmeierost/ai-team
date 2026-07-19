@@ -1,7 +1,6 @@
 import type { InitOptions } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import chalk from 'chalk';
-import { createQuestionResponders } from './question-responders.js';
 import { isFrontendFileLogEnabled, writeFrontendDebugLog } from './debug-log.js';
 
 function setupAbortController() {
@@ -56,8 +55,7 @@ export async function renderInit(client: ICliCommandClient, options: InitOptions
   const frontendFileLogEnabled = isFrontendFileLogEnabled();
 
   try {
-    const sessionClient = client.withQuestionService(createQuestionResponders());
-    for await (const event of sessionClient.streamInteraction(
+    for await (const event of client.streamInteraction(
       {
         command: 'init',
         payload: { options },

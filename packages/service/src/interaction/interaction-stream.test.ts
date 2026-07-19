@@ -43,7 +43,12 @@ describe('streamInteraction', () => {
       events.push(event as { kind: string; [key: string]: unknown });
     }
 
-    expect(events.map((event) => event.kind)).toEqual(['started', 'token', 'result', 'done']);
+    expect(events.map((event) => event.kind)).toEqual([
+      'started',
+      'token',
+      'result',
+      'turn_finished',
+    ]);
     expect(events[1]).toMatchObject({ kind: 'token', text: 'shared hello' });
   });
 

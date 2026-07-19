@@ -33,10 +33,31 @@ export class HttpFetchChatCommand implements ICommand<string, string> {
       return { status: 'error', message: parsed.error };
     }
 
-    const result = (await this.toolManager.execute(ctx.agent!, 'http_fetch', {
-      url: parsed.url,
-      ...parsed.options,
-    })) as { ok?: boolean; error?: string; result?: unknown };
+    const result = (await this.toolManager.execute(
+      ctx.agent!,
+      'http_fetch',
+      {
+        url: parsed.url,
+        ...parsed.options,
+      },
+      {
+        history: ctx.history,
+        sessionId: ctx.sessionId,
+        workflowId: ctx.workflowId,
+        workflowInstanceId: ctx.workflowInstanceId,
+        stepId: ctx.stepId,
+        workflowState: ctx.workflowState,
+        currentFiles: ctx.currentFiles,
+        signal: ctx.signal,
+        invocationSurface: ctx.invocationSurface,
+        callerType: ctx.callerType,
+        calledByHuman: ctx.calledByHuman,
+        agentId: ctx.agentId,
+        instructions: ctx.instructions,
+        navStack: ctx.navStack,
+        workflowLastResult: ctx.workflowLastResult,
+      }
+    )) as { ok?: boolean; error?: string; result?: unknown };
 
     if (!result.ok) {
       return {

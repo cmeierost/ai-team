@@ -24,7 +24,9 @@ describe('chat session startup', () => {
     });
     const loadSessionMessagesCommand = new LoadSessionMessagesCommand(
       sessionManager as any,
-      { log: vi.fn(), emit: vi.fn() } as any
+      { log: vi.fn(), emit: vi.fn() } as any,
+      { get: vi.fn(() => undefined) } as any,
+      { logAsync: vi.fn() } as any
     );
 
     const result = await runChatSessionStartup(
@@ -67,7 +69,9 @@ describe('chat session startup', () => {
     });
     const loadSessionMessagesCommand = new LoadSessionMessagesCommand(
       sessionManager as any,
-      { log: vi.fn(), emit: vi.fn() } as any
+      { log: vi.fn(), emit: vi.fn() } as any,
+      { get: vi.fn(() => undefined) } as any,
+      { logAsync: vi.fn() } as any
     );
 
     const result = await runChatSessionStartup(
@@ -109,7 +113,9 @@ describe('chat session startup', () => {
     });
     const loadSessionMessagesCommand = new LoadSessionMessagesCommand(
       sessionManager as any,
-      { log: vi.fn(), emit: vi.fn() } as any
+      { log: vi.fn(), emit: vi.fn() } as any,
+      { get: vi.fn(() => undefined) } as any,
+      { logAsync: vi.fn() } as any
     );
     const introductionCommand = {
       execute: vi.fn(async () => undefined),

@@ -1,4 +1,10 @@
-import type { ICommand, ISkillManager, IEmitService } from '@ai-team/core';
+import type {
+  ICommand,
+  ISkillManager,
+  IEmitService,
+  ISessionManager,
+  IToolManager,
+} from '@ai-team/core';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
@@ -6,7 +12,6 @@ import { glob } from 'glob/raw';
 import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 import { JsonWorkflowSchema } from '../../workflow/json-workflow-tool.js';
 import type { DynamicSlashCatalogConfigInput } from './config.js';
-import type { ToolManager } from '../../tooling/manager/tool-manager.js';
 
 export interface DynamicSlashCatalogOptions {
   workspaceRoot: string;
@@ -360,11 +365,13 @@ export class DynamicSlashCommandFactory {
   private readonly normalizer = new DynamicSlashKeyNormalizer();
 
   constructor(
+    private readonly workspaceRoot: string,
     private readonly emitService: IEmitService,
-    private readonly deps?: {
-      workspaceRoot?: string;
-      toolManager?: Pick<ToolManager, 'execute'>;
-    }
+    private readonly sessionManager: Pick<
+      ISessionManager,
+      'addSessionSkill' | 'setSessionSkillPaused'
+    >,
+    private readonly toolManager: Pick<IToolManager, 'execute'>
   ) {}
 
   buildCommands(entries: DynamicSlashEntry[]): ICommand<string, unknown>[] {
@@ -409,19 +416,12 @@ export class DynamicSlashCommandFactory {
         group: 'chat',
       },
       execute: async (_args, ctx) => {
-        if (!this.deps?.workspaceRoot) {
-          return {
-            status: 'error',
-            message: 'Workspace root is not configured for dynamic skill loading.',
-          };
+        if (!ctx.sessionId) {
+          throw new Error('Session ID is required for skill commands');
         }
-        const relativeSkillPath = this.toWorkspaceRelative(entry.filePath, this.deps.workspaceRoot);
-        await (ctx as any).sessionManager.addSessionSkill(ctx.sessionId, relativeSkillPath);
-        await (ctx as any).sessionManager.setSessionSkillPaused(
-          ctx.sessionId,
-          relativeSkillPath,
-          false
-        );
+        const relativeSkillPath = this.toWorkspaceRelative(entry.filePath);
+        await this.sessionManager.addSessionSkill(ctx.sessionId, relativeSkillPath);
+        await this.sessionManager.setSessionSkillPaused(ctx.sessionId, relativeSkillPath, false);
 
         this.emitService.log(
           'info',
@@ -452,14 +452,8 @@ export class DynamicSlashCommandFactory {
         group: 'chat',
       },
       execute: async (_args, ctx) => {
-        if (!this.deps?.toolManager || !this.deps.workspaceRoot) {
-          return {
-            status: 'error',
-            message: 'Workflow tool execution dependencies are not configured.',
-          };
-        }
         const toolName = entry.name;
-        const result = await this.deps.toolManager.execute(
+        const result = await this.toolManager.execute(
           ctx.agent!,
           toolName,
           {},
@@ -551,7 +545,7 @@ export class DynamicSlashCommandFactory {
     }
   }
 
-  private toWorkspaceRelative(absolutePath: string, workspaceRoot: string): string {
-    return path.relative(workspaceRoot, absolutePath).replaceAll('\\', '/');
+  private toWorkspaceRelative(absolutePath: string): string {
+    return path.relative(this.workspaceRoot, absolutePath).replaceAll('\\', '/');
   }
 }

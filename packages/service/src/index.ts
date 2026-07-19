@@ -1,7 +1,6 @@
 export {
   registerServiceLayerServices,
   buildInteractionService,
-  type ServiceLayerRegistrationTokens,
   type ServiceLayerRegistrationConfig,
 } from './register-services.js';
 export { registerCommands } from './register-commands.js';
@@ -15,12 +14,12 @@ export {
 } from './errors.js';
 
 export { EmitService } from './interaction/emit-service.js';
-export { InteractionService, type IInteractionService } from './interaction/interaction-service.js';
+export { InteractionService } from './interaction/interaction-service.js';
 export { InteractionStream } from './interaction/interaction-stream.js';
 export { runtimeEventToStreamEvent } from './interaction/runtime-event-translator.js';
 export { parseStreamPerfEnv, createStreamPerfTracker } from './interaction/stream-perf.js';
 
-export { COMMAND_FACTORY_TOKENS } from './types.js';
+export { CORE_SERVICE_TOKENS } from './types.js';
 export {
   CommandDispatcher,
   createCommandDispatcher,
@@ -32,6 +31,9 @@ export {
   IN_CHAT_COMMAND_REGISTRY,
 } from './commands/chat/chat-command-registry.js';
 export { SessionManager } from './sessions/session-manager.js';
+export { TitleGenerator } from './sessions/title-generator.js';
+export { ThreadManager } from './sessions/thread-manager.js';
+export { NotesManager } from './sessions/notes-manager.js';
 
 export {
   ChatRuntime,

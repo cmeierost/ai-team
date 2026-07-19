@@ -10,16 +10,15 @@
 import type {
   ICommandRegistry,
   IServiceContainer,
-  ILlmService,
   ICommand,
   CommandResponse,
   ICommandDescriptor,
   ExecutionContext,
+  IEmitService,
 } from '@ai-team/core';
 import { z } from 'zod';
 import type { OnboardOptions } from '@ai-team/api-contracts';
-import type { IEmitService } from '@ai-team/core';
-import { COMMAND_FACTORY_TOKENS } from '../../types.js';
+import { CORE_SERVICE_TOKENS } from '../../types.js';
 
 // ── OnboardCommand ────────────────────────────────────────────────────────────
 const _onboardICommandSchema = z.object({
@@ -47,7 +46,7 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
   constructor(
     private readonly workspaceRoot: string,
     private readonly emitService: IEmitService,
-    private readonly serviceContainer?: IServiceContainer
+    private readonly serviceContainer: IServiceContainer
   ) {}
 
   async execute(
@@ -81,13 +80,11 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
     const workspaceRoot = this.workspaceRoot;
     const emitService = this.emitService;
 
-    const llmService = this.serviceContainer.resolve(
-      COMMAND_FACTORY_TOKENS.LlmService
-    ) as ILlmService;
+    const llmService = this.serviceContainer.resolve(CORE_SERVICE_TOKENS.LlmService);
     await llmService.initialize();
 
     const registry = this.serviceContainer.resolve(
-      COMMAND_FACTORY_TOKENS.CommandRegistry
+      CORE_SERVICE_TOKENS.CommandRegistry
     ) as ICommandRegistry;
     const workflowCommand =
       registry.resolve('onboard_workflow', this.serviceContainer) ??

@@ -98,8 +98,8 @@ export class CommandAdapterService {
       );
     }
 
-    if (cmd.metadata.parameters && typeof (cmd.metadata.parameters as any).parse === 'function') {
-      return (cmd.metadata.parameters as any).parse(resolved);
+    if (cmd.metadata.parameters && typeof cmd.metadata.parameters.parse === 'function') {
+      return cmd.metadata.parameters.parse(resolved);
     }
 
     return resolved;

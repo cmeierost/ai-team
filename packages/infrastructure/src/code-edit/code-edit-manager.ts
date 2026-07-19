@@ -10,11 +10,12 @@ import {
   ProposalValidator,
   generateProposalId,
 } from './edit-proposal.js';
+import { type ICodeEditManager } from '@ai-team/core';
 
 /**
  * Manages code edit proposals and their lifecycle
  */
-export class CodeEditManager {
+export class CodeEditManager implements ICodeEditManager {
   private readonly diffBuilder: DiffBuilder;
   private readonly validator: ProposalValidator;
   private readonly proposals: Map<string, CodeEditProposal> = new Map();

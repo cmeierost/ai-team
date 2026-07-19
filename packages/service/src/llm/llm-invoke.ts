@@ -21,10 +21,11 @@ import type {
   StructuredToolResult,
   IEmitService,
   ExecutionContext,
+  IToolDispatchService,
+  ILlmInvokeService,
 } from '@ai-team/core';
 import { withAbortSignal } from '../utils/async-utils.js';
 import type { LlmToolDefinition } from '../tooling/manager/tool-manager.js';
-import type { ToolDispatcher } from '../workflow/runtime/tools/tool-dispatch.js';
 
 import { LlmStreamDeltaExtractor, type LlmStreamChunk } from './stream-events.js';
 
@@ -63,6 +64,7 @@ export interface LlmInvokeParams {
   toolDefs: LlmToolDefinition[];
   skills: Skill[];
   teamRoster: Agent[];
+  instructions?: InstructionFile[];
   ctx: ExecutionContext;
 }
 
@@ -71,17 +73,17 @@ export interface LlmInvokeResult {
   structuredResults: StructuredToolResult[];
 }
 
-export class LlmInvokeService {
+export class LlmInvokeService implements ILlmInvokeService {
   private readonly streamDeltaExtractor = new LlmStreamDeltaExtractor();
 
   constructor(
     private readonly llmService: ILlmService,
     private readonly emitService: IEmitService,
-    private readonly toolDispatcher: ToolDispatcher
+    private readonly toolDispatcher: IToolDispatchService
   ) {}
 
   async invokeAsync(params: LlmInvokeParams): Promise<LlmInvokeResult> {
-    const { messages, tools, toolDefs, skills, teamRoster, ctx } = params;
+    const { messages, tools, toolDefs, skills, teamRoster, instructions, ctx } = params;
     const { agent } = ctx;
     if (!agent) {
       throw new Error('LLM invocation requires an active agent.');
@@ -156,7 +158,7 @@ export class LlmInvokeService {
                 fullResponse += delta;
               }
             },
-            (ctx as any).instructions
+            instructions
           ),
           ctx.signal,
           'Chat aborted.'

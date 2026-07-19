@@ -1,5 +1,4 @@
-import type { ILlmService, ChatMessage } from '@ai-team/core';
-import type { SessionManager } from '../../sessions/session-manager.js';
+import type { ChatMessage, ISessionManager, ITitleGenerator } from '@ai-team/core';
 
 /** A persisted ChatMessage that carries a storage-assigned numeric id. */
 export type StoredMessage = ChatMessage & { id?: number };
@@ -32,6 +31,12 @@ export function parseContextArgs(args: string): ParsedContextArgs {
   const positional: string[] = [];
 
   for (let i = 0; i < tokens.length; i++) {
+    processToken(i);
+  }
+
+  return { messageId, summarizedInstruction, summarizeInstruction, positional };
+
+  function processToken(i: number) {
     const token = tokens[i];
     if (token === '--message') {
       const next = tokens[i + 1];
@@ -59,9 +64,8 @@ export function parseContextArgs(args: string): ParsedContextArgs {
     } else {
       positional.push(token);
     }
+    return i;
   }
-
-  return { messageId, summarizedInstruction, summarizeInstruction, positional };
 }
 
 /**
@@ -72,11 +76,8 @@ export function parseContextArgs(args: string): ParsedContextArgs {
  */
 export async function summarizeMessage(
   target: StoredMessage & { id: number },
-  sessionManager: Pick<
-    SessionManager,
-    'summarizeForContextAsync' | 'updateToolCallLlmResult' | 'updateMessageContent'
-  >,
-  llmService: ILlmService,
+  sessionManager: ISessionManager,
+  titleGenerator: ITitleGenerator,
   instruction: string | undefined
 ): Promise<string> {
   const toolCall = [...(target.tool_calls ?? [])].reverse().find((tc) => tc.id != null);
@@ -89,8 +90,7 @@ export async function summarizeMessage(
   const clipped =
     sourceText.length > 24_000 ? `${sourceText.slice(0, 24_000)}\n...[clipped]` : sourceText;
 
-  const summary = await sessionManager.summarizeForContextAsync(
-    llmService,
+  const summary = await titleGenerator.summarizeForContextAsync(
     clipped,
     200,
     instruction?.trim() || undefined

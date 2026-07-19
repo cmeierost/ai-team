@@ -13,9 +13,10 @@ import type {
   SessionSkillRecord,
   Skill,
   SkillConfig,
+  ISkillManager,
 } from '@ai-team/core';
 
-export class SkillManager {
+export class SkillManager implements ISkillManager {
   private skills: Map<string, Skill> | undefined;
   private readonly workspaceRoot: string;
 

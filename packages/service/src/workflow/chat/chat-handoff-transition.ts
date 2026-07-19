@@ -6,8 +6,9 @@ import type {
   ILlmService,
   IEmitService,
   ExecutionContext,
+  ISessionManager,
+  IThreadManager,
 } from '@ai-team/core';
-import type { SessionManager } from '../../sessions/session-manager.js';
 
 /**
  * Runtime service for chat handoff transitions.
@@ -22,7 +23,8 @@ import type { SessionManager } from '../../sessions/session-manager.js';
 export class ChatHandoffTransitionService {
   constructor(
     private readonly agentManager: IAgentManager,
-    private readonly sessionManager: SessionManager,
+    private readonly sessionManager: ISessionManager,
+    private readonly threadManager: IThreadManager,
     private readonly llmService: ILlmService,
     private readonly emitService: IEmitService
   ) {}
@@ -51,7 +53,7 @@ export class ChatHandoffTransitionService {
       if (!pre) return false;
       toSessionId = pre.id;
     } else {
-      const { session } = await this.sessionManager.resolveHandoffSession(
+      const { session } = await this.threadManager.resolveHandoffSession(
         target.id,
         fromSessionId,
         developerId
@@ -97,6 +99,15 @@ export class ChatHandoffTransitionService {
       toSessionId,
       handoffNote,
       briefingContent,
+    });
+
+    // Notify downstream (CLI, etc.) about the new agent identity including model.
+    this.emitService.emit({
+      kind: 'agent_info',
+      agentId: target.id,
+      agentName: target.name,
+      agentRole: target.role,
+      llmModel: target.resolvedLlm?.model,
     });
 
     ctx.agent = target;

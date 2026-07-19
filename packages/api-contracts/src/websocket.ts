@@ -167,7 +167,8 @@ export async function* streamViaWebSocket<TCommand extends string = string>(
           });
           return;
         }
-        if (streamEvent.kind === 'done') {
+        if (streamEvent.kind === 'done' || streamEvent.kind === 'turn_finished') {
+          events.push(streamEvent);
           done = true;
           ws.close();
           wakeEventWaiter();
@@ -362,7 +363,7 @@ export async function* summarizeNoteViaWebSocket(
         if (streamEvent.kind === 'status') {
           options.onStatus?.((streamEvent as any).status ?? '');
         }
-        if (streamEvent.kind === 'done') {
+        if (streamEvent.kind === 'done' || streamEvent.kind === 'turn_finished') {
           events.push(streamEvent);
           done = true;
           ws.close();

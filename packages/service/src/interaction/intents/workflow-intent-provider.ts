@@ -68,7 +68,7 @@ export class WorkflowIntentProvider implements PreLlmIntentProvider {
       return [];
     }
 
-    const activeWorkflowId = (ctx as any).hooks.workflowState?.workflowId;
+    const activeWorkflowId = ctx.workflowId;
     const choices = buildChoices(activeWorkflowId);
     const useChecklist = prefersMultiSelect(text);
 
@@ -84,7 +84,6 @@ export class WorkflowIntentProvider implements PreLlmIntentProvider {
           workflow: {
             workflowId: activeWorkflowId,
             questionId: 'pre-llm-workflow-switch',
-            continuationToken: (ctx as any).hooks.workflowState?.continuationToken,
           },
           choices,
           ...(useChecklist

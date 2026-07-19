@@ -12,24 +12,63 @@
  */
 
 import {
-  createInterface,
   emitKeypressEvents,
   cursorTo,
   moveCursor,
   clearScreenDown,
 } from 'node:readline';
 import type { Key } from 'node:readline';
-import { stdin as input, stdout as output } from 'node:process';
+import { stdout as output } from 'node:process';
 import type { CommandDescriptor } from '@ai-team/api-contracts';
 import chalk from 'chalk';
 
 const MAX_VISIBLE = 7;
+const MAX_DESCRIPTION_CHARS = 72;
+const MAX_USAGE_HINT_CHARS = 36;
 
-type CommandEntry = Pick<CommandDescriptor, 'key' | 'aliases' | 'usage' | 'description'>;
+type CommandEntry = Pick<CommandDescriptor, 'key' | 'aliases' | 'usage' | 'description' | 'path'>;
+
+function normalizePromptPrefix(promptText: string): string {
+  return promptText.endsWith(' ') ? promptText : `${promptText} `;
+}
+
+function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  if (maxChars <= 1) return text.slice(0, maxChars);
+  return `${text.slice(0, maxChars - 1)}…`;
+}
+
+function getUsageToken(cmd: CommandEntry): string | undefined {
+  return (cmd.usage ?? '').trim().replace(/^\//, '').split(/\s+/, 1)[0]?.toLowerCase();
+}
+
+function isDynamicSkillCommand(cmd: CommandEntry): boolean {
+  return Array.isArray(cmd.path) && cmd.path[0] === 'dynamic' && cmd.path[1] === 'skill';
+}
+
+function commandSortRank(cmd: CommandEntry): number {
+  return isDynamicSkillCommand(cmd) ? 1 : 0;
+}
+
+function normalizeAppliedSlashUsage(cmd: CommandEntry): string {
+  const usage = cmd.usage?.trim();
+  if (!usage) {
+    return `/${cmd.key}`;
+  }
+
+  if (usage.startsWith('/')) {
+    return usage;
+  }
+
+  if (usage === cmd.key || usage.startsWith(`${cmd.key} `)) {
+    return `/${usage}`;
+  }
+
+  return `/${cmd.key}`;
+}
 
 /** Strip ANSI escape codes to measure visible character width. */
 function visibleLength(str: string): number {
-   
   return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').length;
 }
 
@@ -41,7 +80,7 @@ function textRows(text: string, columns: number): number {
 
 function measureInputRows(promptText: string, buf: string): number {
   const columns = Math.max(1, output.columns ?? 80);
-  const textLen = Math.max(1, promptText.length + 1 + buf.length);
+  const textLen = Math.max(1, visibleLength(promptText) + buf.length);
   return Math.max(1, Math.ceil(textLen / columns));
 }
 
@@ -50,7 +89,7 @@ function resolveCursorPosition(
   buf: string
 ): { rowOffset: number; column: number } {
   const columns = Math.max(1, output.columns ?? 80);
-  const absoluteCol = promptText.length + 1 + buf.length;
+  const absoluteCol = visibleLength(promptText) + buf.length;
   return {
     rowOffset: Math.floor(absoluteCol / columns),
     column: absoluteCol % columns,
@@ -60,10 +99,20 @@ function resolveCursorPosition(
 function getSuggestions(commands: CommandEntry[], buf: string): CommandEntry[] {
   if (!buf.startsWith('/')) return [];
   const fragment = buf.slice(1).toLowerCase();
-  return commands.filter((cmd) => {
-    const keys = [cmd.key, ...(cmd.aliases ?? [])];
-    return keys.some((k) => k.startsWith(fragment));
-  });
+  return commands
+    .filter((cmd) => {
+      const usageToken = getUsageToken(cmd);
+      const keys = [cmd.key, ...(cmd.aliases ?? []), usageToken]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.toLowerCase());
+      return keys.some((k) => k.startsWith(fragment));
+    })
+    .sort((left, right) => {
+      const leftRank = commandSortRank(left);
+      const rightRank = commandSortRank(right);
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return left.key.localeCompare(right.key);
+    });
 }
 
 function shouldApplySelectionOnEnter(
@@ -92,7 +141,7 @@ function renderAll(
   }
   cursorTo(output, 0);
   clearScreenDown(output);
-  output.write(`${promptText} ${buf}`);
+  output.write(`${promptText}${buf}`);
 
   const inputRows = measureInputRows(promptText, buf);
 
@@ -115,12 +164,17 @@ function renderAll(
   for (let i = 0; i < visible.length; i++) {
     const cmd = visible[i];
     const invocation = `/${cmd.key}`;
-    const usageHint = cmd.usage && cmd.usage !== cmd.key ? ` (${cmd.usage})` : '';
+    const usageHint =
+      cmd.usage && cmd.usage !== cmd.key
+        ? ` (${truncateText(cmd.usage, MAX_USAGE_HINT_CHARS)})`
+        : '';
+    const description = truncateText(cmd.description, MAX_DESCRIPTION_CHARS);
+    const kindHint = isDynamicSkillCommand(cmd) ? ' [skill]' : '';
     const isSelected = windowStart + i === selectedIdx;
     const line = isSelected
       ? chalk.bgBlue.white(` ${invocation.padEnd(26)} `) +
-        chalk.dim(`  ${cmd.description}${usageHint}`)
-      : chalk.cyan(` ${invocation}`) + chalk.dim(`  ${cmd.description}${usageHint}`);
+        chalk.dim(`  ${description}${usageHint}${kindHint}`)
+      : chalk.cyan(` ${invocation}`) + chalk.dim(`  ${description}${usageHint}${kindHint}`);
     output.write(`\n${line}`);
     rows += textRows(line, columns);
   }
@@ -155,13 +209,19 @@ export async function askWithSlashSuggestions(
   commands: CommandEntry[],
   signal?: AbortSignal
 ): Promise<string> {
+  const promptPrefix = normalizePromptPrefix(promptText);
+
   if (!process.stdin.isTTY) {
-    const rl = createInterface({ input, output });
-    try {
-      return (await (rl as any).question(`${promptText} `, { signal })).trim();
-    } finally {
-      rl.close();
-    }
+    // Avoid readline.question() which adds "?" prefix and "✔" suffix.
+    output.write(promptPrefix);
+    return new Promise<string>((resolve) => {
+      process.stdin.once('data', (data) => {
+        resolve(String(data).trim());
+      });
+      if (signal) {
+        signal.addEventListener('abort', () => resolve(''), { once: true });
+      }
+    });
   }
 
   return new Promise<string>((resolve, reject) => {
@@ -177,7 +237,7 @@ export async function askWithSlashSuggestions(
     const rerender = () => {
       const suggs = dismissed ? [] : getSuggestions(commands, buffer);
       selectedIdx = suggs.length === 0 ? -1 : Math.min(selectedIdx, suggs.length - 1);
-      currentInputRows = renderAll(promptText, buffer, suggs, selectedIdx, currentInputRows);
+      currentInputRows = renderAll(promptPrefix, buffer, suggs, selectedIdx, currentInputRows);
     };
 
     const applySelection = (): boolean => {
@@ -186,7 +246,7 @@ export async function askWithSlashSuggestions(
       const idx = selectedIdx >= 0 ? selectedIdx : 0;
       const cmd = suggs[idx];
       if (!cmd) return false;
-      buffer = cmd.usage ?? `/${cmd.key}`;
+      buffer = normalizeAppliedSlashUsage(cmd);
       selectedIdx = -1;
       dismissed = false;
       rerender();
@@ -259,7 +319,7 @@ export async function askWithSlashSuggestions(
         if (suggs.length > 0) {
           dismissed = false;
           selectedIdx = selectedIdx <= 0 ? suggs.length - 1 : selectedIdx - 1;
-          currentInputRows = renderAll(promptText, buffer, suggs, selectedIdx, currentInputRows);
+          currentInputRows = renderAll(promptPrefix, buffer, suggs, selectedIdx, currentInputRows);
         }
         return;
       }
@@ -270,7 +330,7 @@ export async function askWithSlashSuggestions(
         if (suggs.length > 0) {
           dismissed = false;
           selectedIdx = selectedIdx >= suggs.length - 1 ? 0 : selectedIdx + 1;
-          currentInputRows = renderAll(promptText, buffer, suggs, selectedIdx, currentInputRows);
+          currentInputRows = renderAll(promptPrefix, buffer, suggs, selectedIdx, currentInputRows);
         }
         return;
       }
@@ -317,12 +377,14 @@ export async function askWithSlashSuggestions(
     }
 
     process.stdin.on('keypress', onKey);
-    output.write(`${promptText} `);
+    output.write(promptPrefix);
   });
 }
 
 export const SLASH_PROMPT_TESTING = {
   getSuggestions,
-  renderAll,
   shouldApplySelectionOnEnter,
+  normalizeAppliedSlashUsage,
+  normalizePromptPrefix,
+  renderAll,
 };

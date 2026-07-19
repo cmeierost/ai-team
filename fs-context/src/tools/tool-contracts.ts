@@ -68,7 +68,3 @@ export const FS_TOOL_REQUIRED_RIGHT: Record<FsToolName, FsAccessRight> = {
   fs_temp: 'write',
   fs_find: 'list',
 };
-
-export const FS_LIST_RIGHT_TOOLS: readonly FsToolName[] = FS_TOOL_NAMES.filter(
-  (toolName) => FS_TOOL_REQUIRED_RIGHT[toolName] === 'list',
-);

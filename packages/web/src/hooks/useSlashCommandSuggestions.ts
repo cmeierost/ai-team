@@ -3,6 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { type ChatCommandRegistryEntry } from '@ai-team/api-contracts';
 import { useTeam } from '../context/TeamContext';
 
+function isDynamicSkillCommand(cmd: Pick<ChatCommandRegistryEntry, 'path'>): boolean {
+  return Array.isArray(cmd.path) && cmd.path[0] === 'dynamic' && cmd.path[1] === 'skill';
+}
+
+function commandSortRank(cmd: Pick<ChatCommandRegistryEntry, 'path'>): number {
+  return isDynamicSkillCommand(cmd) ? 1 : 0;
+}
+
 export interface SlashCommandSuggestionsState {
   /** Filtered commands matching the current input fragment. Empty when not active. */
   suggestions: ChatCommandRegistryEntry[];
@@ -44,17 +52,24 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
 
   const suggestions = useMemo((): ChatCommandRegistryEntry[] => {
     if (fragment === null) return [];
-    return registry.filter((cmd) => {
-      const usageToken = (cmd.usage ?? '')
-        .trim()
-        .replace(/^\//, '')
-        .split(/\s+/, 1)[0]
-        ?.toLowerCase();
-      const keys = [cmd.key, ...(cmd.aliases ?? []), usageToken]
-        .filter((value): value is string => Boolean(value))
-        .map((value) => value.toLowerCase());
-      return keys.some((k) => k.startsWith(fragment));
-    });
+    return registry
+      .filter((cmd) => {
+        const usageToken = (cmd.usage ?? '')
+          .trim()
+          .replace(/^\//, '')
+          .split(/\s+/, 1)[0]
+          ?.toLowerCase();
+        const keys = [cmd.key, ...(cmd.aliases ?? []), usageToken]
+          .filter((value): value is string => Boolean(value))
+          .map((value) => value.toLowerCase());
+        return keys.some((k) => k.startsWith(fragment));
+      })
+      .sort((left, right) => {
+        const leftRank = commandSortRank(left);
+        const rightRank = commandSortRank(right);
+        if (leftRank !== rightRank) return leftRank - rightRank;
+        return left.key.localeCompare(right.key);
+      });
   }, [fragment, registry]);
 
   // Reset selection and dismissed state when suggestions change.

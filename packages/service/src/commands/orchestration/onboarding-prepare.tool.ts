@@ -46,14 +46,15 @@ export const PrepareOnboardingCommandMetadata = {
   tags: ['orchestration', 'init', 'workflow'],
 } satisfies ICommandDescriptor;
 
-export class PrepareOnboardingCommand
-  implements ICommand<PrepareOnboardingParams, PrepareOnboardingResult>
-{
+export class PrepareOnboardingCommand implements ICommand<
+  PrepareOnboardingParams,
+  PrepareOnboardingResult
+> {
   readonly metadata = PrepareOnboardingCommandMetadata;
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly developerIdentityService?: IDeveloperIdentityService
+    private readonly developerIdentityService: IDeveloperIdentityService
   ) {}
 
   async execute(
@@ -66,7 +67,7 @@ export class PrepareOnboardingCommand
     }
 
     const templates = await loadInitTemplates(workspaceRoot);
-    const developerName = this.developerIdentityService?.getUserName();
+    const developerName = this.developerIdentityService.getUserName();
 
     const onboardingPhases = loadOnboardingWorkflowDefinitionFromTemplates({
       templates,

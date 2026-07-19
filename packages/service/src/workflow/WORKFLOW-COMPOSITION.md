@@ -17,7 +17,9 @@ const myWorkflow: WorkflowDefinition<MyState> = {
   availableIn: { tool: true },
   prepare: (params) => params as MyState,
   toResult: (state) => ({ result: state.output }),
-  steps: [/* ... */]
+  steps: [
+    /* ... */
+  ],
 };
 
 // Convert to command
@@ -37,16 +39,16 @@ const parentWorkflow: WorkflowDefinition<ParentState> = {
   steps: [
     {
       id: 'call-child',
-      command: 'my-workflow',  // Reference the registered workflow
+      command: 'my-workflow', // Reference the registered workflow
       params: (state) => ({
-        input: state.someData
+        input: state.someData,
       }),
       applyResult: (state, result) => ({
         ...state,
-        childOutput: result
-      })
-    }
-  ]
+        childOutput: result,
+      }),
+    },
+  ],
 };
 ```
 
@@ -78,14 +80,14 @@ export const approvalWorkflow: WorkflowDefinition<ApprovalState> = {
   id: 'approval-workflow',
   description: 'Generic approval workflow',
   availableIn: { tool: true },
-  
+
   prepare: (params: unknown) => params as ApprovalState,
-  
+
   toResult: (state) => ({
     approved: state.approved ?? false,
-    approver: state.approver
+    approver: state.approver,
   }),
-  
+
   steps: [
     {
       id: 'ask-approval',
@@ -94,16 +96,16 @@ export const approvalWorkflow: WorkflowDefinition<ApprovalState> = {
         question: `Approve request ${state.requestId}?`,
         choices: [
           { label: 'Approve', value: 'yes' },
-          { label: 'Reject', value: 'no' }
-        ]
+          { label: 'Reject', value: 'no' },
+        ],
       }),
       applyResult: (state, result: any) => ({
         ...state,
         approved: result.answer === 'yes',
-        approver: 'current-user'
-      })
-    }
-  ]
+        approver: 'current-user',
+      }),
+    },
+  ],
 };
 ```
 
@@ -113,17 +115,14 @@ export const approvalWorkflow: WorkflowDefinition<ApprovalState> = {
 // registration.ts
 export function registerWorkflows(container: IServiceContainer) {
   const factory = container.resolve<IWorkflowRunnerFactory>(
-    COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory
+    CORE_SERVICE_TOKENS.WorkflowRunnerFactory
   );
-  
+
   // Convert workflow to command
   const approvalCommand = factory.asCommand(approvalWorkflow);
-  
+
   // Register in container
-  container.registerInstance(
-    'approval-workflow',
-    approvalCommand
-  );
+  container.registerInstance('approval-workflow', approvalCommand);
 }
 ```
 
@@ -142,40 +141,40 @@ export const deployWorkflow: WorkflowDefinition<DeployState> = {
   id: 'deploy-workflow',
   description: 'Deploy with approval gate',
   availableIn: { tool: true },
-  
+
   prepare: (params: unknown) => params as DeployState,
-  
+
   toResult: (state) => ({
     deployed: state.deployed ?? false,
-    environment: state.environment
+    environment: state.environment,
   }),
-  
+
   steps: [
     {
       id: 'request-approval',
-      command: 'approval-workflow',  // ← Compose the approval workflow!
+      command: 'approval-workflow', // ← Compose the approval workflow!
       params: (state) => ({
-        requestId: `deploy-${state.environment}`
+        requestId: `deploy-${state.environment}`,
       }),
       applyResult: (state, result) => ({
         ...state,
-        approvalResult: result
-      })
+        approvalResult: result,
+      }),
     },
     {
       id: 'execute-deploy',
-      skipWhen: 'approvalResult.approved !== true',  // Guard on approval
+      skipWhen: 'approvalResult.approved !== true', // Guard on approval
       command: 'kubectl-apply',
       params: (state) => ({
         manifest: state.manifestPath,
-        environment: state.environment
+        environment: state.environment,
       }),
       applyResult: (state, result) => ({
         ...state,
-        deployed: true
-      })
-    }
-  ]
+        deployed: true,
+      }),
+    },
+  ],
 };
 ```
 
@@ -188,8 +187,8 @@ Call workflows one after another:
 ```typescript
 steps: [
   { id: 'step1', command: 'workflow-a', params: (s) => s.input1 },
-  { id: 'step2', command: 'workflow-b', params: (s) => s.input2 }
-]
+  { id: 'step2', command: 'workflow-b', params: (s) => s.input2 },
+];
 ```
 
 ### Pattern 2: Conditional Composition
@@ -202,9 +201,9 @@ steps: [
     id: 'conditional-workflow',
     command: 'special-workflow',
     skipWhen: 'needsSpecialHandling !== true',
-    params: (s) => s.specialInput
-  }
-]
+    params: (s) => s.specialInput,
+  },
+];
 ```
 
 ### Pattern 3: Loop Composition
@@ -221,11 +220,11 @@ steps: [
       {
         id: 'process-one',
         command: 'item-processor-workflow',
-        params: (s) => s.items[s.itemIndex]
-      }
-    ]
-  }
-]
+        params: (s) => s.items[s.itemIndex],
+      },
+    ],
+  },
+];
 ```
 
 ### Pattern 4: Parallel Fan-Out (Using State)
@@ -252,12 +251,12 @@ const fanOutWorkflow: WorkflowDefinition<FanOutState> = {
           applyResult: (s, result) => ({
             ...s,
             results: [...s.results, result],
-            currentIndex: s.currentIndex + 1
-          })
-        }
-      ]
-    }
-  ]
+            currentIndex: s.currentIndex + 1,
+          }),
+        },
+      ],
+    },
+  ],
 };
 ```
 
@@ -293,7 +292,7 @@ Transform data at workflow boundaries:
       timestamp: new Date().toISOString()
     };
   },
-  
+
   toResult: (state) => ({
     // Extract only what consumers need
     success: state.completed,
@@ -328,7 +327,7 @@ Use JSDoc to document what workflows/commands are required:
 ```typescript
 /**
  * Multi-stage approval workflow
- * 
+ *
  * @requires approval-workflow - Basic approval workflow
  * @requires notification-workflow - Email notification
  */
@@ -366,7 +365,9 @@ export const myWorkflow: WorkflowDefinition<MyState> = {
   id: 'my-workflow',
   prepare: (params) => this.prepareState(params),
   toResult: (state) => this.extractResult(state),
-  steps: [/* ... */]
+  steps: [
+    /* ... */
+  ],
 };
 
 // In registration:
@@ -383,12 +384,9 @@ describe('approval workflow', () => {
   it('should approve when user says yes', async () => {
     const factory = new WorkflowRunnerFactory(container);
     const cmd = factory.asCommand(approvalWorkflow);
-    
-    const result = await cmd.execute(
-      { requestId: 'test-123' },
-      mockContext
-    );
-    
+
+    const result = await cmd.execute({ requestId: 'test-123' }, mockContext);
+
     expect(result.data.approved).toBe(true);
   });
 });

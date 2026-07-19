@@ -1,9 +1,4 @@
-import {
-  Token,
-  type IContainerToken,
-  type ILlmToolDefinition,
-  type IServiceContainer,
-} from './runtime-contracts.js';
+import { type ILlmToolDefinition, type IServiceContainer } from './runtime-contracts.js';
 import type { ICommand, ICommandDescriptor, CommandAvailability } from './command-types.js';
 
 // ── ICommandRegistry ──────────────────────────────────────────────────────────
@@ -70,11 +65,3 @@ export interface ICommandRegistry {
    */
   toLlmToolDefinitions(): ILlmToolDefinition[];
 }
-
-/**
- * DI token for the singleton ICommandRegistry.
- * Registered by the container bootstrap and used by ToolManager, the
- * ChatOrchestrator, CommandDispatcher, and discovery surfaces.
- */
-export const COMMAND_REGISTRY_TOKEN: IContainerToken<ICommandRegistry> =
-  new Token<ICommandRegistry>('CommandRegistry');

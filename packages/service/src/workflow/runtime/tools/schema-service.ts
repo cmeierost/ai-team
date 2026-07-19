@@ -1,14 +1,13 @@
-import type { ICommand } from '@ai-team/core';
+import type { ICommand, IToolManager, IToolSchemaService } from '@ai-team/core';
 import { ZodSchemaTools } from '../../../utils/zod-schema.js';
 import type { LlmToolDefinition } from '../../../tooling/manager/tool-manager.js';
 import { ToolIdentity } from '../../../tooling/manager/tool-manager.js';
-import type { ToolManager } from '../../../tooling/manager/tool-manager.js';
 
-export class ToolSchemaService {
+export class ToolSchemaService implements IToolSchemaService {
   private readonly schemaTools = new ZodSchemaTools();
   private readonly cache = new Map<string, LlmToolDefinition>();
 
-  constructor(private readonly toolManager: ToolManager) {}
+  constructor(private readonly toolManager: IToolManager) {}
 
   getToolSchema(tool: ICommand): LlmToolDefinition {
     const key = ToolIdentity.key(tool.metadata);

@@ -7,7 +7,6 @@ import type {
   IEmitService,
 } from '@ai-team/core';
 import type { IChatRuntime } from '../../workflow/chat/chat-runtime.js';
-import type { IQuestionService } from '../../interaction/question-service.js';
 
 const chatParamsSchema = z.object({
   agentId: z.string().min(1).optional(),
@@ -35,24 +34,30 @@ export class ChatCommand implements ICommand<ChatParams, string> {
 
   constructor(
     private readonly runtime: IChatRuntime,
-    private readonly emitService: IEmitService,
-    private readonly questionService: IQuestionService
+    private readonly emitService: IEmitService
   ) {}
 
-  async execute(params: ChatParams, _ctx: ExecutionContext): Promise<CommandResponse<string>> {
-    if (!params.message) {
-      return this.runInteractiveAsync(params);
+  async execute(params: ChatParams, ctx: ExecutionContext): Promise<CommandResponse<string>> {
+    const message = params.message?.trim();
+    if (!message) {
+      const errorMessage = 'Chat message is required.';
+      this.emitService.log('error', errorMessage);
+      return {
+        status: 'error',
+        message: errorMessage,
+      };
     }
 
     const output = await this.runtime.runAsync({
-      agentId: params.agentId,
-      sessionId: params.sessionId,
+      agentId: params.agentId ?? ctx.agentId,
+      sessionId: params.sessionId ?? ctx.sessionId,
       createNewSession: params.createNewSession,
       introduction: params.introduction,
       contextFiles: params.contextFiles,
-      message: params.message,
+      message,
       maxHops: params.maxHops,
       autoReactMessage: params.autoReactMessage,
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
     if (output.status === 'failed') {
@@ -69,58 +74,5 @@ export class ChatCommand implements ICommand<ChatParams, string> {
       data: output.text,
       message: output.status,
     };
-  }
-
-  private async runInteractiveAsync(params: ChatParams): Promise<CommandResponse<string>> {
-    while (true) {
-      let message: string;
-      try {
-        message = await this.questionService.input({
-          message: 'You: ',
-          validate: (value: string) => value.trim().length > 0 || 'Message cannot be empty',
-        });
-      } catch {
-        this.emitService.log('info', 'Goodbye!');
-        return {
-          status: 'ok',
-          message: 'interactive_exit',
-          data: '',
-        };
-      }
-
-      const normalized = message.trim().toLowerCase();
-      if (normalized === 'exit') {
-        this.emitService.log('info', 'Goodbye!');
-        return {
-          status: 'ok',
-          message: 'interactive_exit',
-          data: '',
-        };
-      }
-
-      const output = await this.runtime.runAsync({
-        agentId: params.agentId,
-        sessionId: params.sessionId,
-        createNewSession: params.createNewSession,
-        introduction: params.introduction,
-        contextFiles: params.contextFiles,
-        message,
-        maxHops: params.maxHops,
-        autoReactMessage: params.autoReactMessage,
-      });
-
-      if (output.status === 'failed') {
-        const errorMessage = output.error ?? 'chat runtime failed';
-        this.emitService.log('error', errorMessage);
-        return {
-          status: 'error',
-          message: errorMessage,
-        };
-      }
-
-      if (output.text.trim().length > 0) {
-        this.emitService.log('info', output.text);
-      }
-    }
   }
 }

@@ -22,7 +22,28 @@ export class TeamListChatCommand implements ICommand<string, void> {
   ) {}
 
   async execute(_args: string, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    const result = (await this.toolManager.execute(ctx.agent!, 'team_list', {})) as {
+    const result = (await this.toolManager.execute(
+      ctx.agent!,
+      'team_list',
+      {},
+      {
+        history: ctx.history,
+        sessionId: ctx.sessionId,
+        workflowId: ctx.workflowId,
+        workflowInstanceId: ctx.workflowInstanceId,
+        stepId: ctx.stepId,
+        workflowState: ctx.workflowState,
+        currentFiles: ctx.currentFiles,
+        signal: ctx.signal,
+        invocationSurface: ctx.invocationSurface,
+        callerType: ctx.callerType,
+        calledByHuman: ctx.calledByHuman,
+        agentId: ctx.agentId,
+        instructions: ctx.instructions,
+        navStack: ctx.navStack,
+        workflowLastResult: ctx.workflowLastResult,
+      }
+    )) as {
       ok?: boolean;
       error?: string;
       result?: unknown;

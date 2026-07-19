@@ -21,6 +21,7 @@ import {
   PermissionResult,
   ToolCatalogEntry,
   type PermissionDescriptor,
+  type IToolManager,
 } from '@ai-team/core';
 import { withTimeout } from '../../utils/with-timeout.js';
 import { ZodSchemaTools } from '../../utils/zod-schema.js';
@@ -106,17 +107,14 @@ const DEFAULT_TIMEOUT_MS = 60_000;
  * ToolManager is the single source of truth for what tools exist,
  * which tools an agent may use, and how they are executed safely.
  */
-export class ToolManager {
+export class ToolManager implements IToolManager {
   private static readonly schemaTools = new ZodSchemaTools();
 
   /**
    * Tools that are available to every agent by default.
    * Agents may still deny these via their `disallowedTools` list.
    */
-  private static readonly DEFAULT_TOOLS: ReadonlySet<string> = new Set([
-    'com_ask',
-    'com_handoff',
-  ]);
+  private static readonly DEFAULT_TOOLS: ReadonlySet<string> = new Set(['com_ask', 'com_handoff']);
 
   /** Directly-registered tool instances, keyed by canonical name. */
   private readonly directTools = new Map<string, ICommand>();

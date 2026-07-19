@@ -30,9 +30,12 @@ import type {
   InstructionFile,
   ChatMessage,
   TeamConfig,
+  IBackendLogService,
   ILlmSettingsResolver,
+  ILlmService,
+  LlmChatOptions,
+  LlmDiagnosticReporter,
 } from '@ai-team/core';
-import type { LlmChatOptions, LlmDiagnosticReporter } from '@ai-team/core';
 import { LlmProviderClient } from './llm-provider-client.js';
 import { LlmSystemPromptBuilder } from './llm-system-prompt.js';
 import { LlmTimeoutPolicy } from './llm-timeout-policy.js';
@@ -84,7 +87,7 @@ export interface LlmToolChatResult {
   toolResults: LlmToolResult[];
 }
 
-import type { ILlmConsoleLog, LlmLogPayload, SerializedError } from './llm-console-log.js';
+import type { LlmLogPayload, SerializedError } from './llm-console-log.js';
 
 /**
  * High-level LLM service that reads workspace config and exposes a
@@ -96,7 +99,7 @@ import type { ILlmConsoleLog, LlmLogPayload, SerializedError } from './llm-conso
  * const reply = await llm.chat(agent, [{ role: 'user', content: 'hi' }]);
  * ```
  */
-export class LlmService {
+export class LlmService implements ILlmService {
   private client!: OpenAI;
   private config!: LlmConfig;
   private providerRef?: string;
@@ -113,16 +116,16 @@ export class LlmService {
   private readonly titleFallbackService = new LlmTitleFallbackService();
   private readonly normalizationService = new LlmProviderNormalizationService();
   private readonly utils = new LlmServiceUtils(this.normalizationService);
-  private readonly consoleLog: ILlmConsoleLog;
+  private readonly backendLogService: IBackendLogService;
 
   constructor(
     workspaceRoot: string,
     private readonly teamConfig: TeamConfig,
     private readonly llmSettingsResolver: ILlmSettingsResolver,
-    consoleLog: ILlmConsoleLog
+    backendLogService: IBackendLogService
   ) {
     this.logDir = path.join(workspaceRoot, '.ai-team', 'logs', 'llm');
-    this.consoleLog = consoleLog;
+    this.backendLogService = backendLogService;
   }
 
   setDiagnosticReporter(reporter?: LlmDiagnosticReporter): void {
@@ -1124,9 +1127,13 @@ ${excerpts}`;
   }
 
   private async writeLlmLog(payload: LlmLogPayload): Promise<void> {
-    if (this.consoleLog.isEnabled()) {
-      this.consoleLog.write(payload);
-    }
+    // Route through unified backend logger — it handles console formatting
+    // and file output based on log level configuration.
+    this.backendLogService.write({
+      source: 'llm',
+      level: payload.error ? 'error' : 'info',
+      ...payload,
+    });
 
     try {
       if (!this.logDirReady) {

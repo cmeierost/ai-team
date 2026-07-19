@@ -45,6 +45,6 @@ describe('buildInteractionService', () => {
     expect(runtimeEvents.filter((event) => event.kind === 'token')).toHaveLength(0);
     expect(streamEvents.some((event) => event.kind === 'token')).toBe(false);
     expect(streamEvents.map((event) => event.kind)).toContain('result');
-    expect(streamEvents.map((event) => event.kind)).toContain('done');
+    expect(streamEvents.map((event) => event.kind)).toContain('turn_finished');
   });
 });

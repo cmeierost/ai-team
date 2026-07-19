@@ -149,14 +149,15 @@ describe('streamViaWebSocket', () => {
     ws.emit({
       type: 'mediator',
       data: {
-        kind: 'done',
+        kind: 'turn_finished',
         command: 'chat',
         timestamp: new Date().toISOString(),
       },
     });
 
     const events = await consumePromise;
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({ kind: 'turn_finished' });
     expect(onQuestion).toHaveBeenCalledTimes(1);
 
     const parsedMessages = ws.sentMessages.map((payload) => JSON.parse(payload));
@@ -228,15 +229,16 @@ describe('streamViaWebSocket', () => {
     ws.emit({
       type: 'mediator',
       data: {
-        kind: 'done',
+        kind: 'turn_finished',
         command: 'chat',
         timestamp: new Date().toISOString(),
       },
     });
 
     const events = await consumePromise;
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({ kind: 'token', text: 'confirmed' });
+    expect(events[1]).toMatchObject({ kind: 'turn_finished' });
     expect(onQuestion).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'confirm',

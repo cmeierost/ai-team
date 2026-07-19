@@ -143,7 +143,7 @@ export class RunShellChatCommand implements ICommand<string, void> {
       const result = await runCommand(
         { command, args: rest },
         this.workspaceRoot,
-        (ctx.agent! as any)?.cliTools
+        ctx.agent?.cliTools ?? []
       );
       const out = [result.stdout, result.stderr].filter(Boolean).join('\n\n') || '(no output)';
       this.emitter.write(out);

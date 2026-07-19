@@ -12,17 +12,10 @@ import type {
   ICommand,
   IIdeAdapterFactory,
   ICommandDescriptor,
+  IPathPermissionChecker,
 } from '@ai-team/core';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getPathPermissionChecker(context: ExecutionContext) {
-  const checker = (context as any).pathPermissionChecker;
-  if (!checker) {
-    throw new Error('ExecutionContext.pathPermissionChecker is required for code tools.');
-  }
-  return checker;
-}
 
 class LspResolver {
   constructor(
@@ -503,13 +496,11 @@ export class AnalyzeComplexityTool {
     return JSON.stringify(result, null, 2);
   }
 
-  async execute(params: AnalyzeComplexityParams, context: ExecutionContext): Promise<unknown> {
+  async execute(params: AnalyzeComplexityParams, _context: ExecutionContext): Promise<unknown> {
     const { filePath, functionName } = params;
     const absolutePath = path.isAbsolute(filePath)
       ? filePath
       : path.join(this.workspaceRoot, filePath);
-
-    getPathPermissionChecker(context);
 
     if (functionName) {
       const complexity = await this.analyzer.calculateComplexity(absolutePath, functionName);
@@ -555,7 +546,8 @@ export class ApplyCodeEditTool {
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly editManager: ICodeEditManager
+    private readonly editManager: ICodeEditManager,
+    private readonly pathPermissionChecker: IPathPermissionChecker
   ) {}
 
   async execute(params: ApplyCodeEditParams, context: ExecutionContext): Promise<unknown> {
@@ -569,9 +561,8 @@ export class ApplyCodeEditTool {
     }));
 
     const filePaths = absoluteChanges.map((c) => c.filePath);
-    const checker = getPathPermissionChecker(context);
     const blockedFiles = filePaths.filter(
-      (fp: string) => !checker.canWritePath(context.agent!.permissions, fp)
+      (fp: string) => !this.pathPermissionChecker.canWritePath(context.agent!.permissions, fp)
     );
 
     if (blockedFiles.length > 0) {

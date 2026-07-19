@@ -1,6 +1,21 @@
-import type { ICommandRegistry, IServiceContainer, TeamConfig } from '@ai-team/core';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
-import { EmitService } from '../interaction/emit-service.js';
+import type {
+  ICommandRegistry,
+  IServiceContainer,
+  TeamConfig,
+  ExecutionContext,
+  ISendTurnStepService,
+  IContextCompressor,
+  IContextBuilder,
+  IContextEnricher,
+  IRagProvider,
+  IToolResolver,
+  IMcpGateway,
+  ILlmSelector,
+  IOutputHandler,
+  ITurnResultParser,
+} from '@ai-team/core';
+import { CORE_SERVICE_TOKENS } from '@ai-team/core';
+import { CONTRACT_SERVICE_TOKENS } from '@ai-team/api-contracts';
 import {
   AccessCanCommand,
   AccessCanCommandMetadata,
@@ -120,6 +135,8 @@ import { GovernanceService } from '../governance/governance-service.js';
 import { ChatCommand } from '../commands/chat/chat.command.js';
 import { ChatStartupCommand } from '../commands/chat/chat-startup.command.js';
 import { ChatTurnCommand } from '../commands/chat/chat-turn.command.js';
+import { ChatDirectTurnCommand } from '../commands/chat/chat-direct-turn.command.js';
+import { ChatTurnBootstrapResolver } from '../workflow/chat/chat-turn-bootstrap-resolver.js';
 import { IntroductionCommand } from '../commands/chat/introduction.command.js';
 import { ResolveChatSessionCommand } from '../commands/chat/resolve-chat-session.command.js';
 import { LoadSessionMessagesCommand } from '../commands/chat/load-session-messages.command.js';
@@ -202,19 +219,52 @@ import {
   ListWorkflowsOrchestrationCommandMetadata,
 } from '../commands/workflow/workflow-tools.command.js';
 import { listWorkflowToolIds } from '../commands/workflow/workflow-catalog.js';
+import type { ResolvedPlugins, TurnResult } from '../workflow/runtime/pipeline.js';
+import type { SendTurnResolvedSkillsAndTools } from '../workflow/chat/send-turn-step-service.js';
+import { IWorkflowCatalog } from '../commands/orchestration/index.js';
 
 export function registerBuiltInCommands(
   registry: ICommandRegistry,
   scopedResolver: IServiceContainer
 ): void {
-  scopedResolver.registerTransient(COMMAND_FACTORY_TOKENS.ContextService, (r) => {
+  const createChatDirectTurnDeps = (r: IServiceContainer) => {
+    return {
+      compressor: r.resolve<IContextCompressor<ExecutionContext>>(
+        CORE_SERVICE_TOKENS.ContextCompressor
+      ),
+      contextBuilder: r.resolve(CORE_SERVICE_TOKENS.ContextBuilder) as IContextBuilder<
+        ExecutionContext,
+        import('@ai-team/core').ILlmChatMessageParam
+      >,
+      enrichers: r.resolve<IContextEnricher<ExecutionContext>[]>(
+        CORE_SERVICE_TOKENS.ContextEnrichers
+      ),
+      ragProvider: r.resolve<IRagProvider<ExecutionContext>>(CORE_SERVICE_TOKENS.RagProvider),
+      toolResolver: r.resolve<IToolResolver<ExecutionContext>>(CORE_SERVICE_TOKENS.ToolResolver),
+      mcpGateway: r.resolve<IMcpGateway>(CORE_SERVICE_TOKENS.McpGateway),
+      llmSelector: r.resolve<ILlmSelector<ExecutionContext>>(CORE_SERVICE_TOKENS.LlmSelector),
+      outputHandler: r.resolve<IOutputHandler<ExecutionContext, TurnResult>>(
+        CORE_SERVICE_TOKENS.OutputHandler
+      ),
+      commandDispatcher: r.resolve(CORE_SERVICE_TOKENS.CommandDispatcher),
+      turnResultParsers: r.resolve<ITurnResultParser<ExecutionContext, TurnResult>[]>(
+        CORE_SERVICE_TOKENS.TurnResultParsers
+      ),
+      preLlmIntentProviders: [],
+    };
+  };
+
+  scopedResolver.registerTransient(CORE_SERVICE_TOKENS.ContextService, (r) => {
     return new MetaService(
-      r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.AgentDocumentStorage)
+      r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+      r.resolve(CORE_SERVICE_TOKENS.NotesManager),
+      r.resolve(CORE_SERVICE_TOKENS.SkillManager),
+      r.resolve(CORE_SERVICE_TOKENS.ToolManager),
+      r.resolve(CORE_SERVICE_TOKENS.AgentDocumentStorage),
+      r.resolve(CORE_SERVICE_TOKENS.McpGateway),
+      r.resolve(CONTRACT_SERVICE_TOKENS.PlanningService)
     );
   });
 
@@ -222,59 +272,59 @@ export function registerBuiltInCommands(
     AccessCanCommandMetadata,
     (r) =>
       new AccessCanCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker)
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker)
       )
   );
 
   registry.register(
     AccessOverlapCommandMetadata,
-    (r) => new AccessOverlapCommand(r.resolve(COMMAND_FACTORY_TOKENS.AgentManager))
+    (r) => new AccessOverlapCommand(r.resolve(CORE_SERVICE_TOKENS.AgentManager))
   );
 
   registry.register(
     AccessWhoCommandMetadata,
     (r) =>
       new AccessWhoCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.PathPermissionChecker)
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker)
       )
   );
 
   registry.register(
     TeamListICommandMetadata,
-    (r) => new TeamListICommand(r.resolve(COMMAND_FACTORY_TOKENS.AgentManager))
+    (r) => new TeamListICommand(r.resolve(CORE_SERVICE_TOKENS.AgentManager))
   );
 
   registry.register(InitICommandMetadata, (r) => {
     const setupCmd = new SetupCommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-      r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceStorage),
-      r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
-      r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-      r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-      r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
+      r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+      r.resolve(CORE_SERVICE_TOKENS.WorkspaceStorage),
+      r.resolve(CORE_SERVICE_TOKENS.ModelDiscoveryRegistry),
+      r.resolve(CORE_SERVICE_TOKENS.LlmProviderTester),
+      r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService),
+      r.resolve(CORE_SERVICE_TOKENS.QuestionService),
+      r.resolve(CORE_SERVICE_TOKENS.EmitService)
     );
     const onboardCmd = new OnboardICommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-      r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
+      r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+      r.resolve(CORE_SERVICE_TOKENS.EmitService),
       r
     );
     return new InitICommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-      r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
+      r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+      r.resolve(CORE_SERVICE_TOKENS.EmitService),
       onboardCmd,
       setupCmd,
       new TestConnectionCommand(
-        null as any,
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        r.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
+        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage).get(),
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.LlmProviderTester),
+        r.resolve(CORE_SERVICE_TOKENS.TextToolCallParser)
       ),
-      r.resolve(COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory)
+      r.resolve(CORE_SERVICE_TOKENS.WorkflowRunnerFactory)
     );
   });
 
@@ -282,15 +332,15 @@ export function registerBuiltInCommands(
     SetupICommandMetadata,
     (r) =>
       new SetupICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
         new SetupCommand(
-          r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-          r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceStorage),
-          r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
-          r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-          r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-          r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-          r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
+          r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceStorage),
+          r.resolve(CORE_SERVICE_TOKENS.ModelDiscoveryRegistry),
+          r.resolve(CORE_SERVICE_TOKENS.LlmProviderTester),
+          r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService),
+          r.resolve(CORE_SERVICE_TOKENS.QuestionService),
+          r.resolve(CORE_SERVICE_TOKENS.EmitService)
         )
       )
   );
@@ -299,27 +349,27 @@ export function registerBuiltInCommands(
     OnboardICommandMetadata,
     (r) =>
       new OnboardICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService),
         r
       )
   );
 
   registry.register(SystemStatusICommandMetadata, (r) => {
-    const configStorage = r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage);
+    const configStorage = r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage);
     return new SystemStatusICommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
+      r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
       configStorage.get() as TeamConfig
     );
   });
 
   registry.register(ProviderCommandMetadata, (r) => {
     return new ProviderICommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-      r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-      r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-      r.resolve(COMMAND_FACTORY_TOKENS.ProviderConfigurationService)
+      r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+      r.resolve(CORE_SERVICE_TOKENS.LlmProviderTester),
+      r.resolve(CORE_SERVICE_TOKENS.ModelDiscoveryRegistry),
+      r.resolve(CORE_SERVICE_TOKENS.QuestionService),
+      r.resolve(CORE_SERVICE_TOKENS.ProviderConfigurationService)
     );
   });
 
@@ -327,8 +377,8 @@ export function registerBuiltInCommands(
     ProviderListICommandMetadata,
     (r) =>
       new ProviderListICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
+        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+        r.resolve(CORE_SERVICE_TOKENS.ModelDiscoveryRegistry)
       )
   );
 
@@ -336,8 +386,8 @@ export function registerBuiltInCommands(
     ProviderModelsICommandMetadata,
     (r) =>
       new ProviderModelsICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
+        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+        r.resolve(CORE_SERVICE_TOKENS.ModelDiscoveryRegistry)
       )
   );
 
@@ -345,27 +395,27 @@ export function registerBuiltInCommands(
     ProviderModelsRefreshICommandMetadata,
     (r) =>
       new ProviderModelsRefreshICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.ModelDiscoveryRegistry)
+        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+        r.resolve(CORE_SERVICE_TOKENS.ModelDiscoveryRegistry)
       )
   );
 
   registry.register(
     SearchAgentsICommandMetadata,
-    (r) => new SearchAgentsICommand(r.resolve(COMMAND_FACTORY_TOKENS.AgentManager))
+    (r) => new SearchAgentsICommand(r.resolve(CORE_SERVICE_TOKENS.AgentManager))
   );
 
   registry.register(
     ResolveEmployeesICommandMetadata,
-    (r) => new ResolveEmployeesICommand(r.resolve(COMMAND_FACTORY_TOKENS.AgentManager))
+    (r) => new ResolveEmployeesICommand(r.resolve(CORE_SERVICE_TOKENS.AgentManager))
   );
 
   registry.register(
     SkillsListCommandMetadata,
     (r) =>
       new SkillsListCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.SkillManager)
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.SkillManager)
       )
   );
 
@@ -373,9 +423,9 @@ export function registerBuiltInCommands(
     SkillsAddCommandMetadata,
     (r) =>
       new SkillsAddCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.SkillManager),
+        r.resolve(CORE_SERVICE_TOKENS.MarkdownSectionService)
       )
   );
 
@@ -383,9 +433,9 @@ export function registerBuiltInCommands(
     SkillsRemoveCommandMetadata,
     (r) =>
       new SkillsRemoveCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.SkillManager),
+        r.resolve(CORE_SERVICE_TOKENS.MarkdownSectionService)
       )
   );
 
@@ -394,12 +444,13 @@ export function registerBuiltInCommands(
     (r) =>
       new ToolsListCommand(
         new AgentToolsService(
-          r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-          r.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.ToolManager),
           new GovernanceService(
-            r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-            r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-          )
+            r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+            r.resolve(CORE_SERVICE_TOKENS.QuestionService)
+          ),
+          r.resolve(CORE_SERVICE_TOKENS.McpGateway)
         )
       )
   );
@@ -409,12 +460,13 @@ export function registerBuiltInCommands(
     (r) =>
       new ToolsAllowCommand(
         new AgentToolsService(
-          r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-          r.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.ToolManager),
           new GovernanceService(
-            r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-            r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-          )
+            r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+            r.resolve(CORE_SERVICE_TOKENS.QuestionService)
+          ),
+          r.resolve(CORE_SERVICE_TOKENS.McpGateway)
         )
       )
   );
@@ -424,30 +476,31 @@ export function registerBuiltInCommands(
     (r) =>
       new ToolsDenyCommand(
         new AgentToolsService(
-          r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-          r.resolve(COMMAND_FACTORY_TOKENS.ToolManager),
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.ToolManager),
           new GovernanceService(
-            r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-            r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
-          )
+            r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+            r.resolve(CORE_SERVICE_TOKENS.QuestionService)
+          ),
+          r.resolve(CORE_SERVICE_TOKENS.McpGateway)
         )
       )
   );
 
   registry.register(FilesAllowCommandMetadata, (r) => {
     const governance = new GovernanceService(
-      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      r.resolve(CORE_SERVICE_TOKENS.QuestionService)
     );
     return new FilesAllowCommand(
       new FileTreeService(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+        r.resolve(CORE_SERVICE_TOKENS.PermissionStorage),
         governance,
-        r.resolve(COMMAND_FACTORY_TOKENS.FileTreeService),
-        r.resolve(COMMAND_FACTORY_TOKENS.FileAnnotationService)
+        r.resolve(CORE_SERVICE_TOKENS.FileTreeService),
+        r.resolve(CORE_SERVICE_TOKENS.FileAnnotationService)
       ),
       governance
     );
@@ -455,51 +508,51 @@ export function registerBuiltInCommands(
 
   registry.register(FilesDenyCommandMetadata, (r) => {
     const governance = new GovernanceService(
-      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      r.resolve(CORE_SERVICE_TOKENS.QuestionService)
     );
     return new FilesDenyCommand(
       new FileTreeService(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage),
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+        r.resolve(CORE_SERVICE_TOKENS.PermissionStorage),
         governance,
-        r.resolve(COMMAND_FACTORY_TOKENS.FileTreeService),
-        r.resolve(COMMAND_FACTORY_TOKENS.FileAnnotationService)
+        r.resolve(CORE_SERVICE_TOKENS.FileTreeService),
+        r.resolve(CORE_SERVICE_TOKENS.FileAnnotationService)
       ),
       governance
     );
   });
 
   registry.register(FilesPatternsCommandMetadata, (r) => {
-    const configStorage = r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage);
+    const configStorage = r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage);
     const fileTree = configStorage.get('fileTree') ?? {};
     return new FilesPatternsCommand(
       fileTree,
-      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.PermissionStorage)
+      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      r.resolve(CORE_SERVICE_TOKENS.PermissionStorage)
     );
   });
 
   registry.register(
     GraphCommandMetadata,
-    (r) => new GraphCommand(r.resolve(COMMAND_FACTORY_TOKENS.TeamGraphBuilder))
+    (r) => new GraphCommand(r.resolve(CORE_SERVICE_TOKENS.TeamGraphBuilder))
   );
 
   registry.register(
     OrgCommandMetadata,
-    (r) => new OrgCommand(r.resolve(COMMAND_FACTORY_TOKENS.TeamGraphBuilder))
+    (r) => new OrgCommand(r.resolve(CORE_SERVICE_TOKENS.TeamGraphBuilder))
   );
 
   registry.register(
     HireICommandMetadata,
     (r) =>
       new HireICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
-        r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.MarkdownSectionService),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService)
       )
   );
 
@@ -507,9 +560,9 @@ export function registerBuiltInCommands(
     FireICommandMetadata,
     (r) =>
       new FireICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkflowRunnerFactory)
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.QuestionService),
+        r.resolve(CORE_SERVICE_TOKENS.WorkflowRunnerFactory)
       )
   );
 
@@ -517,35 +570,35 @@ export function registerBuiltInCommands(
     CreateICommandMetadata,
     (r) =>
       new CreateICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.SkillManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-        r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.SkillManager),
+        r.resolve(CORE_SERVICE_TOKENS.QuestionService),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService)
       )
   );
 
   registry.register(AvatarCommandMetadata, (r) => {
-    const configStorage = r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage);
+    const configStorage = r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage);
     return new AvatarCommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
       configStorage.get(),
-      r.resolve(COMMAND_FACTORY_TOKENS.AvatarManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-      r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
+      r.resolve(CORE_SERVICE_TOKENS.AvatarManager),
+      r.resolve(CORE_SERVICE_TOKENS.QuestionService),
+      r.resolve(CORE_SERVICE_TOKENS.EmitService)
     );
   });
 
   registry.register(
     HhRefreshCommandMetadata,
-    (r) => new HhRefreshCommand(r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot))
+    (r) => new HhRefreshCommand(r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot))
   );
 
   registry.register(
     SystemInfoCommandMetadata,
     (r) =>
       new SystemInfoCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.SystemInfoService)
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.SystemInfoService)
       )
   );
 
@@ -555,25 +608,25 @@ export function registerBuiltInCommands(
     TestConnectionICommandMetadata,
     (r) =>
       new TestConnectionICommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.LlmProviderTester),
-        r.resolve(COMMAND_FACTORY_TOKENS.TextToolCallParser)
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.LlmProviderTester),
+        r.resolve(CORE_SERVICE_TOKENS.TextToolCallParser)
       )
   );
 
   registry.register(
     DbMigrateCommandMetadata,
-    (r) => new DbMigrateCommand(r.resolve(COMMAND_FACTORY_TOKENS.MessageStorage))
+    (r) => new DbMigrateCommand(r.resolve(CORE_SERVICE_TOKENS.MessageStorage))
   );
 
   registry.register(
     DbStatusCommandMetadata,
     (r) =>
       new DbStatusCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.MessageStorage)
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.MessageStorage)
       )
   );
 
@@ -581,10 +634,10 @@ export function registerBuiltInCommands(
     PatchApplyCommandMetadata,
     (r) =>
       new PatchApplyCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.IdeAdapterFactory),
-        r.resolve(COMMAND_FACTORY_TOKENS.ProposalStoreFactory)
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.CodeEditManager),
+        r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory),
+        r.resolve(CORE_SERVICE_TOKENS.ProposalStoreFactory)
       )
   );
 
@@ -592,61 +645,80 @@ export function registerBuiltInCommands(
     ChatCommand.metadata,
     (r) =>
       new ChatCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.ChatRuntime),
-        r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        r.resolve(CORE_SERVICE_TOKENS.ChatRuntime),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService)
       )
   );
 
   registry.register(ChatStartupCommand.metadata, (r) => {
     const resolveChatSessionCommand = new ResolveChatSessionCommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService)
+      r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+      r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService)
     );
     const loadSessionMessagesCommand = new LoadSessionMessagesCommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
-      r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage),
-      r.resolve(COMMAND_FACTORY_TOKENS.BackendLogService)
+      r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+      r.resolve(CORE_SERVICE_TOKENS.EmitService),
+      r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+      r.resolve(CORE_SERVICE_TOKENS.BackendLogService)
     );
     const introductionCommand = new IntroductionCommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService),
-      r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-      r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
+      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      r.resolve(CORE_SERVICE_TOKENS.MarkdownSectionService),
+      r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+      r.resolve(CORE_SERVICE_TOKENS.EmitService)
     );
 
     return new ChatStartupCommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
+      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
       resolveChatSessionCommand,
       loadSessionMessagesCommand,
       introductionCommand,
-      new ChatInfoService(r.resolve(COMMAND_FACTORY_TOKENS.EmitService)),
-      r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService)
+      new ChatInfoService(r.resolve(CORE_SERVICE_TOKENS.EmitService)),
+      r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService)
     );
   });
 
   registry.register(
     ChatTurnCommand.metadata,
-    (r) => new ChatTurnCommand(r.resolve(COMMAND_FACTORY_TOKENS.ChatRuntime))
+    (r) => new ChatTurnCommand(r.resolve(CORE_SERVICE_TOKENS.ChatRuntime))
   );
+
+  registry.register(ChatDirectTurnCommand.metadata, (r) => {
+    const plugins = createChatDirectTurnDeps(r);
+    const bootstrapResolver = new ChatTurnBootstrapResolver(
+      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+      r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService)
+    );
+    return new ChatDirectTurnCommand(
+      bootstrapResolver,
+      r.resolve(CORE_SERVICE_TOKENS.SendTurnStepService) as ISendTurnStepService<
+        ResolvedPlugins,
+        SendTurnResolvedSkillsAndTools,
+        TurnResult
+      >,
+      plugins,
+      r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+      r.resolve(CORE_SERVICE_TOKENS.EmitService)
+    );
+  });
 
   registry.register(
     CodeEditListCommandMetadata,
-    (r) => new CodeEditListCommand(r.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager))
+    (r) => new CodeEditListCommand(r.resolve(CORE_SERVICE_TOKENS.CodeEditManager))
   );
 
   registry.register(
     CodeEditApproveCommandMetadata,
-    (r) => new CodeEditApproveCommand(r.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager))
+    (r) => new CodeEditApproveCommand(r.resolve(CORE_SERVICE_TOKENS.CodeEditManager))
   );
 
   registry.register(
     CodeEditRejectCommandMetadata,
     (r) =>
       new CodeEditRejectCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        r.resolve(CORE_SERVICE_TOKENS.CodeEditManager),
+        r.resolve(CORE_SERVICE_TOKENS.QuestionService)
       )
   );
 
@@ -654,8 +726,8 @@ export function registerBuiltInCommands(
     CodeEditApplyCommandMetadata,
     (r) =>
       new CodeEditApplyCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.CodeEditManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService)
+        r.resolve(CORE_SERVICE_TOKENS.CodeEditManager),
+        r.resolve(CORE_SERVICE_TOKENS.QuestionService)
       )
   );
 
@@ -663,28 +735,29 @@ export function registerBuiltInCommands(
     InfoChatCommandMetadata,
     (r) =>
       new InfoChatCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.QuestionService),
-        r.resolve(COMMAND_FACTORY_TOKENS.EmitService),
-        r.resolve(COMMAND_FACTORY_TOKENS.LlmService)
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.QuestionService),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService),
+        r.resolve(CORE_SERVICE_TOKENS.LlmService)
       )
   );
-
-  const sharedEmitter = EmitService.noop();
 
   registry.register(
     TeamListChatCommandMetadata,
     (r) =>
-      new TeamListChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.ToolManager) as any, sharedEmitter)
+      new TeamListChatCommand(
+        r.resolve(CORE_SERVICE_TOKENS.ToolManager),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService)
+      )
   );
 
   registry.register(
     OverviewChatCommandMetadata,
     (r) =>
       new OverviewChatCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot),
-        r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-        sharedEmitter
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService)
       )
   );
 
@@ -692,9 +765,9 @@ export function registerBuiltInCommands(
     SwitchChatCommandMetadata,
     (r) =>
       new SwitchChatCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.SessionManager)
+        r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService),
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.SessionManager)
       )
   );
 
@@ -702,10 +775,11 @@ export function registerBuiltInCommands(
     HandoffChatCommandMetadata,
     (r) =>
       new HandoffChatCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.LlmService),
-        r.resolve(COMMAND_FACTORY_TOKENS.EmitService)
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
+        r.resolve(CORE_SERVICE_TOKENS.LlmService),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService)
       )
   );
 
@@ -713,99 +787,101 @@ export function registerBuiltInCommands(
     NewSessionChatCommandMetadata,
     (r) =>
       new NewSessionChatCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.DeveloperIdentityService),
-        r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-        EmitService.noop()
+        r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService),
+        r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService)
       )
   );
 
   registry.register(
     BackChatCommandMetadata,
-    (r) => new BackChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.AgentManager))
+    (r) => new BackChatCommand(r.resolve(CORE_SERVICE_TOKENS.AgentManager))
   );
 
   registry.register(HistoryChatCommandMetadata, (_r) => new HistoryChatCommand());
 
   registry.register(
     InspectChatCommandMetadata,
-    (r) => new InspectChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.QuestionService))
+    (r) => new InspectChatCommand(r.resolve(CORE_SERVICE_TOKENS.QuestionService))
   );
 
   registry.register(
     ContextAddChatCommandMetadata,
     (r) =>
       new ContextAddChatCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.LlmService)
+        r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        r.resolve(CORE_SERVICE_TOKENS.TitleGenerator)
       )
   );
 
   registry.register(
     ContextRemoveChatCommandMetadata,
-    (r) => new ContextRemoveChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.SessionManager))
+    (r) => new ContextRemoveChatCommand(r.resolve(CORE_SERVICE_TOKENS.SessionManager))
   );
 
   registry.register(
     ContextListChatCommandMetadata,
-    (r) => new ContextListChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.SessionManager))
+    (r) => new ContextListChatCommand(r.resolve(CORE_SERVICE_TOKENS.SessionManager))
   );
 
   registry.register(
     ContextSummarizeChatCommandMetadata,
     (r) =>
       new ContextSummarizeChatCommand(
-        r.resolve(COMMAND_FACTORY_TOKENS.SessionManager),
-        r.resolve(COMMAND_FACTORY_TOKENS.LlmService)
+        r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        r.resolve(CORE_SERVICE_TOKENS.TitleGenerator)
       )
   );
 
   registry.register(
     SessionInfoChatCommandMetadata,
-    (r) => new SessionInfoChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.SessionManager))
+    (r) => new SessionInfoChatCommand(r.resolve(CORE_SERVICE_TOKENS.SessionManager))
   );
 
   registry.register(SessionMessagesChatCommandMetadata, (_r) => new SessionMessagesChatCommand());
 
   registry.register(
     SessionGraphChatCommandMetadata,
-    (r) => new SessionGraphChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.SessionManager))
+    (r) => new SessionGraphChatCommand(r.resolve(CORE_SERVICE_TOKENS.ThreadManager))
   );
 
   registry.register(SessionContextChatCommandMetadata, (r) => {
-    const configStorage = r.resolve(COMMAND_FACTORY_TOKENS.ConfigurationStorage);
+    const configStorage = r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage);
     return new SessionContextChatCommand(
-      r.resolve(COMMAND_FACTORY_TOKENS.ContextService),
-      r.resolve(COMMAND_FACTORY_TOKENS.LlmService),
+      r.resolve(CORE_SERVICE_TOKENS.ContextService),
+      r.resolve(CORE_SERVICE_TOKENS.LlmService),
       configStorage.get() as TeamConfig
     );
   });
 
   registry.register(
     HttpFetchChatCommandMetadata,
-    (r) => new HttpFetchChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.ToolManager) as any)
+    (r) => new HttpFetchChatCommand(r.resolve(CORE_SERVICE_TOKENS.ToolManager))
   );
 
   registry.register(
     HttpCrawlChatCommandMetadata,
-    (r) => new HttpCrawlChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.ToolManager) as any)
+    (r) => new HttpCrawlChatCommand(r.resolve(CORE_SERVICE_TOKENS.ToolManager))
   );
 
   registry.register(
     RunShellChatCommandMetadata,
-    (r) => new RunShellChatCommand(r.resolve(COMMAND_FACTORY_TOKENS.WorkspaceRoot), sharedEmitter)
+    (r) =>
+      new RunShellChatCommand(
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService)
+      )
   );
 
   registry.register(ListWorkflowsOrchestrationCommandMetadata, (r) => {
-    const serviceCommandRegistry = r.resolve(COMMAND_FACTORY_TOKENS.CommandRegistry) as
-      | ICommandRegistry
-      | undefined;
+    const serviceCommandRegistry = r.resolve(CORE_SERVICE_TOKENS.CommandRegistry);
 
     const workflowCatalog = {
       listWorkflowIds(): string[] {
         return serviceCommandRegistry ? listWorkflowToolIds(serviceCommandRegistry) : [];
       },
     };
-    return new ListWorkflowsOrchestrationCommand(workflowCatalog as any);
+    return new ListWorkflowsOrchestrationCommand(workflowCatalog as IWorkflowCatalog);
   });
 }
 

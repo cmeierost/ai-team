@@ -131,8 +131,8 @@ describe('ToolsSection', () => {
   it('counts tools with no toolPhase (legacy stored events)', () => {
     // Sessions loaded from notes may not have toolPhase stored
     const events = [
-      { toolName: 'fs_tree', timestamp: new Date().toISOString() } as any,
-      { toolName: 'fs_tree', timestamp: new Date().toISOString() } as any,
+      { toolName: 'fs_tree', timestamp: new Date().toISOString() },
+      { toolName: 'fs_tree', timestamp: new Date().toISOString() },
     ];
     render(<ToolsSection {...baseProps} recentToolEvents={events} />);
     expect(screen.getByText('2')).toBeTruthy();

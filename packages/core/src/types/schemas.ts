@@ -271,11 +271,16 @@ export const BackendLogTargetOverridesSchema = z.object({
 
 export type BackendLogTargetOverrides = z.infer<typeof BackendLogTargetOverridesSchema>;
 
+export const BackendLogSourcesSchema = z.record(z.string(), LogDestinationLevelSchema);
+
+export type BackendLogSources = z.infer<typeof BackendLogSourcesSchema>;
+
 export const BackendLogConfigSchema = LogOutputConfigSchema.extend({
   targets: BackendLogTargetOverridesSchema.default({
-    console: { file: 'off', console: 'off' },
+    console: { file: 'off', console: 'debug' },
     api: { file: 'off', console: 'off' },
   }),
+  sources: BackendLogSourcesSchema.default({}),
 });
 
 export type BackendLogConfig = z.infer<typeof BackendLogConfigSchema>;
@@ -285,9 +290,10 @@ export const LogConfigSchema = z.object({
     file: 'off',
     console: 'off',
     targets: {
-      console: { file: 'off', console: 'off' },
+      console: { file: 'off', console: 'debug' },
       api: { file: 'off', console: 'off' },
     },
+    sources: {},
   }),
   frontend: LogOutputConfigSchema.default({ file: 'off', console: 'off' }),
   chat: ChatLogConfigSchema.default({
@@ -340,9 +346,10 @@ export const TeamConfigSchema = z.object({
       file: 'off',
       console: 'off',
       targets: {
-        console: { file: 'off', console: 'off' },
+        console: { file: 'off', console: 'debug' },
         api: { file: 'off', console: 'off' },
       },
+      sources: {},
     },
     frontend: { file: 'off', console: 'off' },
     chat: { sessionStartupLoad: { enabled: false, file: 'off', console: 'off' } },

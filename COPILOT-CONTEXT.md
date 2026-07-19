@@ -88,7 +88,7 @@ Do not rely on a successful build alone for UI work. Open the browser, navigate 
 
 ## Duplication Verification
 
-For every new feature and every cleanup/refactor, run fuzzy duplication scanning on the affected scope before finishing:
+Run fuzzy duplication scanning on the affected scope periodically (especially for larger refactors/features), and prompt the user from time to time when a scan is recommended:
 
 - `pnpm --filter @aspect/duplication build`
 - `node analysis/duplication/dist/cli/fuzzy-dup.js <scope> --format text`

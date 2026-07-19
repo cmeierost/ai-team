@@ -14,9 +14,10 @@ import {
   ArtifactReference,
   MessageStats,
   IChatStorage,
+  IChatManager,
 } from '@ai-team/core';
 
-export class ChatManager {
+export class ChatManager implements IChatManager {
   constructor(
     private readonly storage: IChatStorage,
     private readonly workspaceRoot: string

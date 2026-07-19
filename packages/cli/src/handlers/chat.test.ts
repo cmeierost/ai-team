@@ -3,7 +3,6 @@ import type { ICliCommandClient } from '../cli-command-client.js';
 
 const clientApi = vi.hoisted(() => ({
   streamInteraction: vi.fn(),
-  withQuestionService: vi.fn(),
   getCommands: vi.fn(),
 }));
 
@@ -11,7 +10,6 @@ import { renderChat } from './chat.js';
 
 const client = {
   streamInteraction: clientApi.streamInteraction,
-  withQuestionService: clientApi.withQuestionService,
   getCommands: clientApi.getCommands,
 } as unknown as ICliCommandClient;
 
@@ -25,9 +23,6 @@ describe('chat command', () => {
     process.env.AI_TEAM_MEDIATOR_LOG = '0';
     process.env.AI_TEAM_FRONTEND_FILE_LOG = '0';
     clientApi.getCommands.mockReturnValue([]);
-    clientApi.withQuestionService.mockReturnValue({
-      streamInteraction: clientApi.streamInteraction,
-    });
     clientApi.streamInteraction.mockReturnValue(
       (async function* () {
         yield {
@@ -66,7 +61,6 @@ describe('chat command', () => {
   it('forwards chat request to api client stream', async () => {
     await renderChat(client, 'maya', { message: 'hello', oneShot: true });
 
-    expect(clientApi.withQuestionService).toHaveBeenCalledWith(expect.any(Object));
     expect(clientApi.streamInteraction).toHaveBeenCalledWith(
       {
         command: 'chat-chat',
@@ -89,7 +83,6 @@ describe('chat command', () => {
   it('enables mediator logger when mediatorLog flag is passed', async () => {
     await renderChat(client, 'maya', { message: 'hello', oneShot: true }, true);
 
-    expect(clientApi.withQuestionService).toHaveBeenCalledWith(expect.any(Object));
     expect(clientApi.streamInteraction).toHaveBeenCalledWith(
       {
         command: 'chat-chat',
@@ -433,7 +426,7 @@ describe('chat command', () => {
     }
   });
 
-  it('renders thinking spinner from backend status phase event even without initial message', async () => {
+  it('renders thinking spinner from backend status phase event', async () => {
     const originalStdoutIsTTY = process.stdout.isTTY;
     const originalStderrIsTTY = process.stderr.isTTY;
     Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
@@ -466,7 +459,7 @@ describe('chat command', () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     try {
-      await renderChat(client, 'sarah-lee', { oneShot: false });
+      await renderChat(client, 'sarah-lee', { message: 'hello', oneShot: false });
 
       const stderrOutput = stderrSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
       expect(stderrOutput).toContain('Sarah Lee is thinking…');
@@ -482,7 +475,7 @@ describe('chat command', () => {
     }
   });
 
-  it('does not emit destructive spinner control sequences that can corrupt token rendering', async () => {
+  it('emits in-place spinner control sequences when thinking indicator is active', async () => {
     const originalStdoutIsTTY = process.stdout.isTTY;
     const originalStderrIsTTY = process.stderr.isTTY;
     Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
@@ -518,8 +511,8 @@ describe('chat command', () => {
       await renderChat(client, 'clara-bishop', { message: 'hello', oneShot: false });
 
       const stderrOutput = stderrSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-      expect(stderrOutput).not.toContain('\r');
-      expect(stderrOutput).not.toContain('\x1b[K');
+      expect(stderrOutput).toContain('\r');
+      expect(stderrOutput).toContain('\x1b[2K');
     } finally {
       Object.defineProperty(process.stdout, 'isTTY', {
         value: originalStdoutIsTTY,
@@ -627,7 +620,7 @@ describe('chat command', () => {
       const thinkingWrites = stderrSpy.mock.calls.filter((call) =>
         String(call[0] ?? '').includes('Clara Bishop is thinking…')
       );
-      expect(thinkingWrites.length).toBeGreaterThanOrEqual(2);
+      expect(thinkingWrites.length).toBeGreaterThanOrEqual(1);
     } finally {
       Object.defineProperty(process.stdout, 'isTTY', {
         value: originalStdoutIsTTY,

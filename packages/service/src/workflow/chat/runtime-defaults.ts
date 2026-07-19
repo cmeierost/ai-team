@@ -12,6 +12,7 @@ import {
   type ILlmChatMessageParam,
   type ILlmService,
   type StructuredToolResult,
+  IToolManager,
 } from '@ai-team/core';
 import type {
   IContextBuilder,
@@ -22,7 +23,7 @@ import type {
   IToolResolver,
   TurnResult,
 } from '../runtime/pipeline.js';
-import { ToolIdentity, type ToolManager } from '../../tooling/manager/tool-manager.js';
+import { ToolIdentity } from '../../tooling/manager/tool-manager.js';
 
 function historyToMessages(history: ChatMessage[]): ILlmChatMessageParam[] {
   return history
@@ -132,12 +133,16 @@ async function buildDirectoryTree(dir: string, maxDepth: number, depth = 0): Pro
 }
 
 export class DefaultToolResolver implements IToolResolver {
-  constructor(private readonly toolManager: ToolManager) {}
+  constructor(private readonly toolManager: IToolManager) {}
 
   async resolve(ctx: ExecutionContext): Promise<ICommand[]> {
-    return this.toolManager
-      .getForAgent(ctx.agent!)
-      .filter((tool) => ToolIdentity.key(tool.metadata) !== 'hr_hire');
+    return this.toolManager.getForAgent(ctx.agent!).filter((tool) => {
+      const key = ToolIdentity.key(tool.metadata);
+      if (key === 'hr_hire') return false;
+      // Prevent nested handoffs: disable com_handoff inside a handoff subworkflow.
+      if (key === 'com_handoff' && (ctx.subworkflowDepth ?? 0) > 0) return false;
+      return true;
+    });
   }
 }
 

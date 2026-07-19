@@ -1,8 +1,7 @@
 import type { WebSocket } from 'ws';
-import type { StreamEvent } from '@ai-team/api-contracts';
-import type { IAgentManager, IdeAdapter } from '@ai-team/core';
+import type { ISessionsService, StreamEvent, IInteractionService } from '@ai-team/api-contracts';
+import type { IAgentManager, IdeAdapter, ISessionManager } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/infrastructure';
-import { type IInteractionService, SessionManager } from '@ai-team/service';
 import { WsQuestionService } from './ws-question-service.js';
 
 /**
@@ -137,11 +136,11 @@ export async function setupChatWebSocket(
   ws: WebSocket,
   agentQuery: string,
   interactionService: IInteractionService,
-  sessionManager: SessionManager,
+  _sessionManager: ISessionManager,
   sessionId: string | null,
-  options: ChatWebSocketSetupOptions = {}
+  options: ChatWebSocketSetupOptions & { sessionsService?: ISessionsService } = {}
 ): Promise<void> {
-  const { agentManager, workspaceRoot, llmService } = options;
+  const { agentManager, workspaceRoot, llmService, sessionsService } = options;
   // Resolve agent query to exact ID
   let agentId = agentQuery;
   if (agentManager) {
@@ -177,6 +176,7 @@ export async function setupChatWebSocket(
   }
 
   let currentAbortController: AbortController | null = null;
+  const runtimeWorkflowState: Record<string, unknown> = {};
 
   let questionService = options.questionService;
   if (!questionService) {
@@ -249,7 +249,9 @@ export async function setupChatWebSocket(
                 createNewSession: message.options?.createNewSession,
               },
             },
-            {} // WorkflowCallbacks - signal and questions are handled via DI
+            {
+              workflowState: runtimeWorkflowState,
+            } as any // Execution context fields are supported by InteractionService runtime bridge
           );
 
           for await (const event of stream) {
@@ -351,29 +353,41 @@ export async function setupChatWebSocket(
               );
               return;
             }
-            send({ kind: 'status', status: 'Crawling website...' } as any);
-            const note = await sessionManager.summarizeWebsiteNoteAsync(
+            send({ kind: 'status', command: 'chat', timestamp: new Date().toISOString(), message: 'Crawling website...' });
+            const note = await sessionsService?.crawlSummarizeWebsiteNote(
+              sessionId ?? '',
               message.noteId,
-              llmService,
-              message.websiteUrl,
-              message.maxPages,
-              message.maxWords,
-              message.focusInstruction,
-              message.generateTitle === true
+              {
+                websiteUrl: message.websiteUrl,
+                maxPages: message.maxPages,
+                maxWords: message.maxWords,
+                focusInstruction: message.focusInstruction,
+              }
             );
-            send({ kind: 'status', status: 'Done' } as any);
-            send({ kind: 'done', result: note } as any);
+            send({ kind: 'status', command: 'chat', timestamp: new Date().toISOString(), message: 'Done' });
+            send({
+              kind: 'result',
+              command: 'chat',
+              timestamp: new Date().toISOString(),
+              data: { status: 'ok' as const, message: 'Note summarized', data: note },
+            });
           } else {
-            send({ kind: 'status', status: 'Summarizing note...' } as any);
-            const note = await sessionManager.compactNoteAsync(
+            send({ kind: 'status', command: 'chat', timestamp: new Date().toISOString(), message: 'Summarizing note...' });
+            const note = await sessionsService?.compactNote(
+              sessionId ?? '',
               message.noteId,
-              llmService,
-              message.maxWords,
-              message.focusInstruction,
-              message.generateTitle === true
+              {
+                maxWords: message.maxWords,
+                focusInstruction: message.focusInstruction,
+              }
             );
-            send({ kind: 'status', status: 'Done' } as any);
-            send({ kind: 'done', result: note } as any);
+            send({ kind: 'status', command: 'chat', timestamp: new Date().toISOString(), message: 'Done' });
+            send({
+              kind: 'result',
+              command: 'chat',
+              timestamp: new Date().toISOString(),
+              data: { status: 'ok' as const, message: 'Note compacted', data: note },
+            });
           }
         } catch (error: any) {
           if (error.name === 'AbortError' || currentAbortController?.signal.aborted) {

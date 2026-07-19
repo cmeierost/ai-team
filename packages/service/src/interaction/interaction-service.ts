@@ -3,27 +3,15 @@ import type {
   CommandResponse,
   StreamEvent,
   InteractionRequest,
+  IInteractionService,
+  WorkflowCallbacks,
 } from '@ai-team/api-contracts';
 import type { ExecutionContext, IEmitService } from '@ai-team/core';
-import type { WorkflowCallbacks } from '../workflow/runtime/hooks.js';
 import { runtimeEventToStreamEvent } from './runtime-event-translator.js';
 import { InteractionStream } from './interaction-stream.js';
 
-// ─── Public interface ─────────────────────────────────────────────────────────
-
-/**
- * Service-layer streaming interface.
- *
- * All transports (API server WebSocket, CLI, VS Code extension) call
- * `stream()` to drive a chat interaction. Command dispatch and transport I/O
- * remain the caller's concern.
- */
-export interface IInteractionService {
-  stream<TCommand extends string = string>(
-    request: InteractionRequest,
-    callbacks?: WorkflowCallbacks
-  ): AsyncIterable<StreamEvent<TCommand>>;
-}
+// Re-export interface for backward compatibility
+export type { IInteractionService } from '@ai-team/api-contracts';
 
 // ─── Default implementation ───────────────────────────────────────────────────
 
@@ -31,7 +19,8 @@ type ChatRunner = (
   workspaceRoot: string,
   agentId: string | undefined,
   options: ChatOptions,
-  callbacks: WorkflowCallbacks
+  callbacks: WorkflowCallbacks,
+  ctx: ExecutionContext
 ) => Promise<void>;
 
 export class InteractionService implements IInteractionService {
@@ -55,6 +44,8 @@ export class InteractionService implements IInteractionService {
       createNewSession?: boolean;
     };
 
+    const callbackContext = callbacks as WorkflowCallbacks & Partial<ExecutionContext>;
+
     const options: ChatOptions = {
       message: payload.message,
       sessionId: payload.sessionId,
@@ -64,6 +55,16 @@ export class InteractionService implements IInteractionService {
 
     const context: ExecutionContext = {
       history: [],
+      agentId: payload.agentId,
+      sessionId: payload.sessionId,
+      ...(callbackContext.signal ? { signal: callbackContext.signal } : {}),
+      ...(callbackContext.invocationSurface
+        ? { invocationSurface: callbackContext.invocationSurface }
+        : {}),
+      ...(callbackContext.calledByHuman !== undefined
+        ? { calledByHuman: callbackContext.calledByHuman }
+        : {}),
+      ...(callbackContext.workflowState ? { workflowState: callbackContext.workflowState } : {}),
     };
 
     const interactionStream = new InteractionStream({
@@ -72,8 +73,8 @@ export class InteractionService implements IInteractionService {
     yield* interactionStream.stream({
       request,
       context: context as unknown as Record<string, unknown>,
-      invoke: async (_invokeCtx: ExecutionContext, _emitService: IEmitService) => {
-        await this.runChat(this.workspaceRoot, payload.agentId, options, callbacks);
+      invoke: async (invokeCtx: ExecutionContext, _emitService: IEmitService) => {
+        await this.runChat(this.workspaceRoot, payload.agentId, options, callbacks, invokeCtx);
 
         return { status: 'ok' as const, message: '' } satisfies CommandResponse<void>;
       },

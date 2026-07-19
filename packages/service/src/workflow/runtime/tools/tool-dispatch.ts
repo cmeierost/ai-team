@@ -22,11 +22,13 @@ import {
   type CommandResponse as CoreCommandResponse,
   type RuntimeStreamEvent,
   type ToolRuntimePayloadEvent,
+  type IToolManager,
+  type ISessionManager,
+  type IToolDispatchSupportService,
+  type IToolDispatchService,
 } from '@ai-team/core';
-import type { ToolManager } from '../../../tooling/manager/tool-manager.js';
-import type { SessionManager } from '../../../sessions/session-manager.js';
 import type { IQuestionService } from '../../../interaction/question-service.js';
-import { ToolDispatchSupportService, type ToolDenial } from './tool-dispatch-support-service.js';
+import { type ToolDenial } from './tool-dispatch-support-service.js';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -53,11 +55,11 @@ const tick = () => new Promise<void>((r) => setImmediate(r));
 
 // ── ToolDispatcher class ──────────────────────────────────────────────────────
 
-export class ToolDispatcher {
+export class ToolDispatcher implements IToolDispatchService {
   constructor(
-    private readonly toolManager: ToolManager,
-    private readonly sessionManager: SessionManager,
-    private readonly support: ToolDispatchSupportService,
+    private readonly toolManager: IToolManager,
+    private readonly sessionManager: ISessionManager,
+    private readonly support: IToolDispatchSupportService,
     private readonly questionService: IQuestionService,
     private readonly emitService: IEmitService
   ) {}

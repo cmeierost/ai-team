@@ -11,15 +11,8 @@ describe('ChatCommand', () => {
       })),
     };
     const emitService = { log: vi.fn() } as any;
-    const questionService = {
-      input: vi.fn(),
-      confirm: vi.fn(),
-      select: vi.fn(),
-      password: vi.fn(),
-      checklist: vi.fn(),
-    } as any;
 
-    const command = new ChatCommand(runtime as any, emitService, questionService);
+    const command = new ChatCommand(runtime as any, emitService);
     const response = await command.execute(
       {
         message: 'hello',
@@ -52,15 +45,8 @@ describe('ChatCommand', () => {
       })),
     };
     const emitService = { log: vi.fn() } as any;
-    const questionService = {
-      input: vi.fn(),
-      confirm: vi.fn(),
-      select: vi.fn(),
-      password: vi.fn(),
-      checklist: vi.fn(),
-    } as any;
 
-    const command = new ChatCommand(runtime as any, emitService, questionService);
+    const command = new ChatCommand(runtime as any, emitService);
     await command.execute(
       {
         message: 'hello',
@@ -88,15 +74,8 @@ describe('ChatCommand', () => {
       })),
     };
     const emitService = { log: vi.fn() } as any;
-    const questionService = {
-      input: vi.fn(),
-      confirm: vi.fn(),
-      select: vi.fn(),
-      password: vi.fn(),
-      checklist: vi.fn(),
-    } as any;
 
-    const command = new ChatCommand(runtime as any, emitService, questionService);
+    const command = new ChatCommand(runtime as any, emitService);
     await command.execute(
       {
         message: 'hello',
@@ -124,15 +103,8 @@ describe('ChatCommand', () => {
       })),
     };
     const emitService = { log: vi.fn() } as any;
-    const questionService = {
-      input: vi.fn(),
-      confirm: vi.fn(),
-      select: vi.fn(),
-      password: vi.fn(),
-      checklist: vi.fn(),
-    } as any;
 
-    const command = new ChatCommand(runtime as any, emitService, questionService);
+    const command = new ChatCommand(runtime as any, emitService);
     await command.execute(
       {
         message: 'hello',
@@ -161,15 +133,8 @@ describe('ChatCommand', () => {
       })),
     };
     const emitService = { log: vi.fn() } as any;
-    const questionService = {
-      input: vi.fn(),
-      confirm: vi.fn(),
-      select: vi.fn(),
-      password: vi.fn(),
-      checklist: vi.fn(),
-    } as any;
 
-    const command = new ChatCommand(runtime as any, emitService, questionService);
+    const command = new ChatCommand(runtime as any, emitService);
     const response = await command.execute(
       {
         message: 'hello',
@@ -186,57 +151,41 @@ describe('ChatCommand', () => {
     expect(emitService.log).toHaveBeenCalledWith('error', 'boom');
   });
 
-  it('runs in interactive mode when no message is provided', async () => {
+  it('forwards execution context signal to runtime', async () => {
     const runtime = {
-      runAsync: vi
-        .fn()
-        .mockResolvedValueOnce({ status: 'completed' as const, text: 'hello there', hopCount: 0 })
-        .mockResolvedValueOnce({ status: 'completed' as const, text: '', hopCount: 0 }),
+      runAsync: vi.fn(async () => ({
+        status: 'completed' as const,
+        text: 'ok',
+        hopCount: 0,
+      })),
     };
     const emitService = { log: vi.fn() } as any;
-    const questionService = {
-      input: vi.fn().mockResolvedValueOnce('Hi Michael').mockResolvedValueOnce('exit'),
-      confirm: vi.fn(),
-      select: vi.fn(),
-      password: vi.fn(),
-      checklist: vi.fn(),
-    } as any;
+    const signal = new AbortController().signal;
 
-    const command = new ChatCommand(runtime as any, emitService, questionService);
-    const response = await command.execute(
+    const command = new ChatCommand(runtime as any, emitService);
+    await command.execute(
+      { message: 'hello' },
       {
-        agentId: 'michael-brown',
-      } as any,
-      { history: [] } as any
+        history: [],
+        signal,
+      } as any
     );
 
     expect(runtime.runAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ agentId: 'michael-brown', message: 'Hi Michael' })
+      expect.objectContaining({
+        message: 'hello',
+        signal,
+      })
     );
-    expect(emitService.log).toHaveBeenCalledWith('info', 'hello there');
-    expect(response).toEqual({
-      status: 'ok',
-      message: 'interactive_exit',
-      data: '',
-    });
   });
 
-  it('exits interactive mode gracefully when prompt input is closed', async () => {
+  it('returns error when no message is provided', async () => {
     const runtime = {
       runAsync: vi.fn(),
     };
     const emitService = { log: vi.fn() } as any;
-    const questionService = {
-      input: vi.fn(async () => {
-        throw new Error('prompt closed');
-      }),
-      confirm: vi.fn(),
-      select: vi.fn(),
-      password: vi.fn(),
-      checklist: vi.fn(),
-    } as any;
 
-    const command = new ChatCommand(runtime as any, emitService, questionService);
+    const command = new ChatCommand(runtime as any, emitService);
     const response = await command.execute(
       {
         agentId: 'michael-brown',
@@ -245,11 +194,10 @@ describe('ChatCommand', () => {
     );
 
     expect(runtime.runAsync).not.toHaveBeenCalled();
-    expect(emitService.log).toHaveBeenCalledWith('info', 'Goodbye!');
+    expect(emitService.log).toHaveBeenCalledWith('error', 'Chat message is required.');
     expect(response).toEqual({
-      status: 'ok',
-      message: 'interactive_exit',
-      data: '',
+      status: 'error',
+      message: 'Chat message is required.',
     });
   });
 });

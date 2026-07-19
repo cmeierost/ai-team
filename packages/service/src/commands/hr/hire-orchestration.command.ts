@@ -82,7 +82,7 @@ export class HireOrchestrationCommand implements ICommand<Params, HireResult> {
 
   constructor(
     private readonly agents: IAgentRegistry,
-    private readonly markdownSectionService?: IMarkdownSectionService
+    private readonly markdownSectionService: IMarkdownSectionService
   ) {}
 
   async execute(params: Params, ctx: ExecutionContext): Promise<CommandResponse<HireResult>> {

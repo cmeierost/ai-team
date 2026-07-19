@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MetaService } from './meta-service.js';
+import { NoOpMcpGateway } from '../commands/tools/tools-service.js';
 
 function instruction(frontmatter: string, body: string): string {
   return `---\n${frontmatter}\n---\n\n${body}\n`;
@@ -69,6 +70,9 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
       }),
       getSessionMessages: async () => sessionMessages,
       getSessionSkills: async () => [],
+    } as any;
+
+    const notesManager = {
       listAgentNotes: async (agentId: string) => options?.notesByAgentId?.[agentId] ?? [],
       listNoteSessionSharesAsync: async () => [],
     } as any;
@@ -122,10 +126,11 @@ describe('MetaService.getContextEstimate instruction relevance', () => {
       workspaceRoot,
       agentManager,
       sessionManager,
+      notesManager,
       skillManager,
       toolManager,
       agentDocumentStorage,
-      undefined,
+      new NoOpMcpGateway(),
       planningService
     );
   }

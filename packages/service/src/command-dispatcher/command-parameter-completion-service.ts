@@ -1,5 +1,5 @@
 import type { ExecutionContext, IServiceContainer, ICommandDescriptor } from '@ai-team/core';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
+import { CORE_SERVICE_TOKENS } from '../types.js';
 import { getPathValue, setPathValue } from './command-adapters.js';
 import type { IQuestionService } from '../interaction/question-service.js';
 import { ZodSchemaTools } from '../utils/zod-schema.js';
@@ -31,7 +31,7 @@ export class CommandParameterCompletionService {
       return payload;
     }
 
-    const questionService = this.resolver.tryResolve(COMMAND_FACTORY_TOKENS.QuestionService) as
+    const questionService = this.resolver.tryResolve(CORE_SERVICE_TOKENS.QuestionService) as
       | IQuestionService
       | undefined;
 

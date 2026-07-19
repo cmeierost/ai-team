@@ -4,7 +4,8 @@
   "private": true,
   "description": "AI Team - AI supported software engineering without losing control",
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "pnpm --filter \"@ai-team/*\" --filter \"ai-team\" --filter \"fs-context\" build",
+    "build-analysis": "pnpm --filter \"@aspect/*\" --filter \"fs-context\" build",
     "debug:cli": "pnpm --filter @ai-team/cli build && node --inspect-brk packages/cli/dist/cli.js chat",
     "dev": "node scripts/dev-debug.mjs",
     "dev:debug": "node scripts/dev-debug.mjs --inspect",

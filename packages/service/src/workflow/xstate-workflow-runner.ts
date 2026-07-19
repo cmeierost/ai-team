@@ -1,16 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { setup, fromPromise, createActor, assign, toPromise, type AnyActorLogic } from 'xstate';
+import { setup, fromPromise, createActor, assign, toPromise, type AnyActorLogic, type InspectionEvent } from 'xstate';
 import type {
   RuntimeStreamEvent,
   WorkflowDefinitionApiResponse,
   WorkflowDefinitionDocument,
 } from '@ai-team/api-contracts';
-import type {
-  ExecutionContext,
-  ICommand,
-  ICommandDescriptor,
-  CommandResponse,
-  IServiceContainer,
+import {
+  type ExecutionContext,
+  type IBackendLogService,
+  type ICommand,
+  type ICommandDescriptor,
+  type CommandResponse,
+  type IServiceContainer,
+  type IToolManager,
+  CORE_SERVICE_TOKENS,
 } from '@ai-team/core';
 import type {
   WorkflowCommandStep,
@@ -22,7 +25,6 @@ import type {
 } from './workflow-types.js';
 import { WorkflowAbortError } from './workflow-types.js';
 import type { ToolManager } from '../tooling/manager/tool-manager.js';
-import { COMMAND_FACTORY_TOKENS } from '../types.js';
 import {
   evaluateWorkflowCondition,
   resolveTemplateData,
@@ -52,11 +54,13 @@ export interface IWorkflowRunner {
 interface WorkflowMachineContext<TState> {
   state: TState;
   container: IServiceContainer;
+  backendLogService?: IBackendLogService;
   toolManager?: ToolManager;
   options?: WorkflowRunOptions;
   workflowId: string;
   workflowInstanceId: string;
   aborted: boolean;
+  abortedError: string | undefined;
   loopIterations: Record<string, number>;
 }
 
@@ -68,7 +72,10 @@ interface CommandExecutionInput {
 }
 
 export class WorkflowRunner implements IWorkflowRunner {
-  constructor(private readonly container: IServiceContainer) {}
+  constructor(
+    private readonly container: IServiceContainer,
+    private readonly backendLogService: IBackendLogService
+  ) {}
 
   async run<TState>(
     definition: WorkflowDefinition<TState>,
@@ -77,8 +84,30 @@ export class WorkflowRunner implements IWorkflowRunner {
   ): Promise<WorkflowResult<TState>> {
     const workflowInstanceId = `${definition.id}:${randomUUID()}`;
 
+    this.logWorkflowRunDebug({
+      phase: 'run-start',
+      workflowId: definition.id,
+      workflowInstanceId,
+      initialStepId: definition.steps[0]?.id ?? 'completed',
+      stepCount: definition.steps.length,
+    });
+
     // Create the machine
     const machine = this.compileMachine(definition);
+
+    // Create XState inspector — only log events the state subscription doesn't already cover.
+    // The subscription handles state transitions; the inspector adds invoke lifecycle (actor
+    // spawn/stop) and action execution, which are useful for debugging timing and side effects.
+    const inspect: (event: InspectionEvent) => void = (event) => {
+      if (event.type === '@xstate.actor') {
+        this.logWorkflowRunDebug({
+          phase: 'xstate-actor',
+          workflowId: definition.id,
+          workflowInstanceId,
+          actorRef: (event as any).actorRef?.id ?? 'root',
+        });
+      }
+    };
 
     // Create and start the actor
     const actor = createActor(machine, {
@@ -89,25 +118,91 @@ export class WorkflowRunner implements IWorkflowRunner {
         workflowId: definition.id,
         workflowInstanceId,
       },
+      inspect,
+    });
+
+    let previousStateValue = '';
+    const subscription = actor.subscribe((snapshot) => {
+      const currentStateValue = this.serializeStateValue(snapshot.value);
+      if (currentStateValue === previousStateValue) {
+        return;
+      }
+
+      const context = snapshot.context as WorkflowMachineContext<TState>;
+      this.logWorkflowDebug(context, {
+        phase: 'state-transition',
+        ...(previousStateValue ? { fromState: previousStateValue } : {}),
+        toState: currentStateValue,
+        status: snapshot.status,
+        loopIterations: { ...context.loopIterations },
+      });
+      previousStateValue = currentStateValue;
     });
 
     actor.start();
 
     // Handle abort signal
-    if (options?.signal) {
-      const abortHandler = () => {
+    let abortHandler: (() => void) | undefined;
+    let abortRequested = false;
+    const abortPromise = new Promise<never>((_resolve, reject) => {
+      if (!options?.signal) {
+        return;
+      }
+
+      abortHandler = () => {
+        abortRequested = true;
+
+        // Capture current snapshot BEFORE stopping the actor
+        try {
+          const snapshot = actor.getSnapshot();
+          const ctx = snapshot.context as WorkflowMachineContext<TState>;
+          this.logWorkflowRunDebug({
+            phase: 'run-abort-requested',
+            workflowId: definition.id,
+            workflowInstanceId,
+            currentState: this.serializeStateValue(snapshot.value),
+            status: snapshot.status,
+            loopIterations: { ...ctx.loopIterations },
+            aborted: ctx.aborted,
+            abortedError: ctx.abortedError,
+          });
+        } catch (e) {
+          this.logWorkflowRunDebug({
+            phase: 'run-abort-requested',
+            workflowId: definition.id,
+            workflowInstanceId,
+            snapshotError: this.toErrorMessage(e),
+          });
+        }
+
         actor.stop();
+        reject(new WorkflowAbortError());
       };
+
+      if (options.signal.aborted) {
+        abortHandler();
+        return;
+      }
+
       options.signal.addEventListener('abort', abortHandler, { once: true });
-    }
+    });
 
     try {
       // Wait for the actor to complete and get the final snapshot
-      await toPromise(actor);
+      await Promise.race([toPromise(actor), abortPromise]);
+      if (abortRequested || options?.signal?.aborted) {
+        throw new WorkflowAbortError();
+      }
       const snapshot = actor.getSnapshot();
 
       // Access the context from the snapshot
       const context = snapshot.context as WorkflowMachineContext<TState>;
+
+      this.logWorkflowDebug(context, {
+        phase: 'run-complete',
+        aborted: context.aborted,
+        finalState: this.serializeStateValue(snapshot.value),
+      });
 
       return {
         state: context.state,
@@ -115,12 +210,53 @@ export class WorkflowRunner implements IWorkflowRunner {
       };
     } catch (error) {
       if (error instanceof WorkflowAbortError) {
+        // Try to get the last known state from the actor before it was stopped
+        let lastState = initialState;
+        try {
+          const snapshot = actor.getSnapshot();
+          const ctx = snapshot.context as WorkflowMachineContext<TState>;
+          lastState = ctx.state ?? initialState;
+        } catch {
+          // Actor already stopped or never started, fall back to initial state
+        }
+
+        this.logWorkflowRunDebug({
+          phase: 'run-aborted',
+          workflowId: definition.id,
+          workflowInstanceId,
+          recoveredStateAvailable: lastState !== initialState,
+        });
         return {
-          state: initialState,
+          state: lastState,
           aborted: true,
         };
       }
+
+      // Check if the machine transitioned to #aborted (step-level onError).
+      // Log the captured error so it's visible on the console.
+      const snapshot = actor.getSnapshot();
+      const ctx = snapshot.context as WorkflowMachineContext<TState>;
+      if (ctx.aborted && ctx.abortedError) {
+        this.logWorkflowAbortError(ctx, ctx.abortedError);
+        return {
+          state: ctx.state,
+          aborted: true,
+          abortedError: ctx.abortedError,
+        };
+      }
+
+      this.logWorkflowRunDebug({
+        phase: 'run-error',
+        workflowId: definition.id,
+        workflowInstanceId,
+        error: this.toErrorMessage(error),
+      });
       throw error;
+    } finally {
+      subscription.unsubscribe();
+      if (abortHandler && options?.signal) {
+        options.signal.removeEventListener('abort', abortHandler);
+      }
     }
   }
 
@@ -147,10 +283,12 @@ export class WorkflowRunner implements IWorkflowRunner {
       context: ({ input }) => ({
         state: input.initialState,
         container: input.container,
+        backendLogService: this.backendLogService,
         options: input.options,
         workflowId: input.workflowId,
         workflowInstanceId: input.workflowInstanceId,
         aborted: false,
+        abortedError: undefined,
         loopIterations: {},
       }),
       initial: definition.steps[0]?.id ?? 'completed',
@@ -166,17 +304,46 @@ export class WorkflowRunner implements IWorkflowRunner {
       executeCommand: fromPromise(async ({ input }: { input: CommandExecutionInput }) => {
         const { commandToken, params, ctx, context } = input;
 
+        this.logWorkflowDebug(context, {
+          phase: 'command-start',
+          stepId: ctx.stepId,
+          commandToken,
+        });
+        const startedAt = Date.now();
+
         // Resolve command (check overrides first, then ToolManager)
         const cmd =
           context.options?.commands?.[commandToken] ??
           this.getToolManager(context.container).get(commandToken);
 
         if (!cmd) {
+          this.logWorkflowDebug(context, {
+            phase: 'command-missing',
+            stepId: ctx.stepId,
+            commandToken,
+          });
           throw new Error(`WorkflowRunner: command '${commandToken}' not registered`);
         }
 
-        const result = await cmd.execute(params, ctx);
-        return result;
+        try {
+          const result = await cmd.execute(params, ctx);
+          this.logWorkflowDebug(context, {
+            phase: 'command-complete',
+            stepId: ctx.stepId,
+            commandToken,
+            elapsedMs: Date.now() - startedAt,
+          });
+          return result;
+        } catch (error) {
+          this.logWorkflowDebug(context, {
+            phase: 'command-error',
+            stepId: ctx.stepId,
+            commandToken,
+            elapsedMs: Date.now() - startedAt,
+            error: this.toErrorMessage(error),
+          });
+          throw error;
+        }
       }),
     };
 
@@ -190,7 +357,25 @@ export class WorkflowRunner implements IWorkflowRunner {
           }: {
             input: { state: TState; ctx: ExecutionContext; container: IServiceContainer };
           }) => {
-            return await executeStep.execute(input.state, input.ctx, input.container);
+            this.logExecutionContextDebug(input.ctx, {
+              phase: 'execute-start',
+            });
+            const startedAt = Date.now();
+            try {
+              const result = await executeStep.execute(input.state, input.ctx, input.container);
+              this.logExecutionContextDebug(input.ctx, {
+                phase: 'execute-complete',
+                elapsedMs: Date.now() - startedAt,
+              });
+              return result;
+            } catch (error) {
+              this.logExecutionContextDebug(input.ctx, {
+                phase: 'execute-error',
+                elapsedMs: Date.now() - startedAt,
+                error: this.toErrorMessage(error),
+              });
+              throw error;
+            }
           }
         );
       }
@@ -219,7 +404,25 @@ export class WorkflowRunner implements IWorkflowRunner {
           }: {
             input: { state: TState; ctx: ExecutionContext; container: IServiceContainer };
           }) => {
-            return await executeStep.execute(input.state, input.ctx, input.container);
+            this.logExecutionContextDebug(input.ctx, {
+              phase: 'execute-start',
+            });
+            const startedAt = Date.now();
+            try {
+              const result = await executeStep.execute(input.state, input.ctx, input.container);
+              this.logExecutionContextDebug(input.ctx, {
+                phase: 'execute-complete',
+                elapsedMs: Date.now() - startedAt,
+              });
+              return result;
+            } catch (error) {
+              this.logExecutionContextDebug(input.ctx, {
+                phase: 'execute-error',
+                elapsedMs: Date.now() - startedAt,
+                error: this.toErrorMessage(error),
+              });
+              throw error;
+            }
           }
         );
       }
@@ -235,53 +438,12 @@ export class WorkflowRunner implements IWorkflowRunner {
     const guards: Record<string, any> = {};
 
     for (const step of definition.steps) {
-      // Guard for 'when' condition
-      if ('when' in step && step.when) {
-        guards[`when_${step.id}`] = ({ context }: { context: WorkflowMachineContext<TState> }) => {
-          return evaluateWorkflowCondition(
-            step.when!,
-            context.state as Record<string, unknown>,
-            undefined
-          );
-        };
-      }
-
-      // Guard for 'skipWhen' condition (inverse logic)
-      if ('skipWhen' in step && step.skipWhen) {
-        guards[`skipWhen_${step.id}`] = ({
-          context,
-        }: {
-          context: WorkflowMachineContext<TState>;
-        }) => {
-          // Evaluate string expression - return true if we should NOT skip (inverse logic)
-          return !evaluateWorkflowCondition(
-            step.skipWhen!,
-            context.state as Record<string, unknown>
-          );
-        };
-      }
+      this.registerStepSkipGuard(guards, step, step.id);
 
       // Guards for loop steps
       if ('kind' in step && step.kind === 'loop') {
         const loopStep = step as WorkflowLoopStep<TState>;
-        guards[`loop_${step.id}_continue`] = ({
-          context,
-        }: {
-          context: WorkflowMachineContext<TState>;
-        }) => {
-          const iteration = context.loopIterations[step.id] ?? 0;
-          const maxIterations = loopStep.maxIterations ?? 100;
-
-          if (iteration >= maxIterations) {
-            return false;
-          }
-
-          return evaluateWorkflowCondition(
-            loopStep.while,
-            context.state as Record<string, unknown>,
-            iteration
-          );
-        };
+        guards[`loop_${step.id}_continue`] = this.createLoopContinueGuard(loopStep, step.id);
 
         // Add guards for loop body steps
         this.addLoopGuards(guards, loopStep, step.id);
@@ -298,34 +460,15 @@ export class WorkflowRunner implements IWorkflowRunner {
   ): void {
     for (const step of loopStep.steps) {
       const stepId = `${loopId}_${step.id}`;
-
-      if ('when' in step && step.when) {
-        guards[`when_${stepId}`] = ({ context }: { context: WorkflowMachineContext<TState> }) => {
-          const iteration = context.loopIterations[loopId] ?? 0;
-          return evaluateWorkflowCondition(
-            step.when!,
-            context.state as Record<string, unknown>,
-            iteration
-          );
-        };
-      }
-
-      if ('skipWhen' in step && step.skipWhen) {
-        guards[`skipWhen_${stepId}`] = ({
-          context,
-        }: {
-          context: WorkflowMachineContext<TState>;
-        }) => {
-          // Evaluate string expression - return true if we should NOT skip (inverse logic)
-          return !evaluateWorkflowCondition(
-            step.skipWhen!,
-            context.state as Record<string, unknown>
-          );
-        };
-      }
+      this.registerStepSkipGuard(guards, step, stepId, loopId);
 
       if ('kind' in step && step.kind === 'loop') {
-        this.addLoopGuards(guards, step as WorkflowLoopStep<TState>, stepId);
+        const nestedLoopStep = step as WorkflowLoopStep<TState>;
+        guards[`loop_${nestedLoopStep.id}_continue`] = this.createLoopContinueGuard(
+          nestedLoopStep,
+          nestedLoopStep.id
+        );
+        this.addLoopGuards(guards, nestedLoopStep, nestedLoopStep.id);
       }
     }
   }
@@ -363,10 +506,17 @@ export class WorkflowRunner implements IWorkflowRunner {
   }
 
   private compileCommandState<TState>(step: WorkflowCommandStep<TState>, nextStepId: string): any {
-    const shouldSkip = 'skipWhen' in step && step.skipWhen;
-    const hasWhen = 'when' in step && step.when;
+    const hasConditions = this.hasStepConditions(step);
 
     return {
+      always: hasConditions
+        ? [
+            {
+              target: nextStepId,
+              guard: { type: this.getStepSkipGuardType(step.id) },
+            },
+          ]
+        : undefined,
       invoke: {
         src: 'executeCommand',
         input: ({ context }: { context: WorkflowMachineContext<TState> }) => ({
@@ -377,7 +527,6 @@ export class WorkflowRunner implements IWorkflowRunner {
         }),
         onDone: {
           target: nextStepId,
-          guard: this.buildTransitionGuard(step),
           actions: assign(({ context, event }: any) => {
             const newState = this.applyStepResult(step, context.state, event.output);
             return { ...context, state: newState };
@@ -387,23 +536,25 @@ export class WorkflowRunner implements IWorkflowRunner {
           target: '#aborted',
           actions: assign({
             aborted: true,
+            abortedError: ({ event }: any) => this.toErrorMessage(event.error),
           }),
         },
       },
-      always:
-        shouldSkip || hasWhen
-          ? [
-              {
-                target: nextStepId,
-                guard: shouldSkip ? { type: `skipWhen_${step.id}`, params: {} } : undefined,
-              },
-            ]
-          : undefined,
     };
   }
 
   private compileExecuteState<TState>(step: WorkflowExecuteStep<TState>, nextStepId: string): any {
+    const hasConditions = this.hasStepConditions(step);
+
     return {
+      always: hasConditions
+        ? [
+            {
+              target: nextStepId,
+              guard: { type: this.getStepSkipGuardType(step.id) },
+            },
+          ]
+        : undefined,
       invoke: {
         src: `execute_${step.id}`,
         input: ({ context }: { context: WorkflowMachineContext<TState> }) => ({
@@ -413,13 +564,16 @@ export class WorkflowRunner implements IWorkflowRunner {
         }),
         onDone: {
           target: nextStepId,
-          guard: this.buildTransitionGuard(step),
           actions: assign(({ event }: any) => ({
             state: event.output,
           })),
         },
         onError: {
           target: '#aborted',
+          actions: assign({
+            aborted: true,
+            abortedError: ({ event }: any) => this.toErrorMessage(event.error),
+          }),
         },
       },
     };
@@ -498,13 +652,24 @@ export class WorkflowRunner implements IWorkflowRunner {
     nextStepId: string,
     loopId: string
   ): any {
+    const stepId = `${loopId}_${step.id}`;
+    const hasConditions = this.hasStepConditions(step);
+
     return {
+      always: hasConditions
+        ? [
+            {
+              target: nextStepId,
+              guard: { type: this.getStepSkipGuardType(stepId) },
+            },
+          ]
+        : undefined,
       invoke: {
         src: 'executeCommand',
         input: ({ context }: { context: WorkflowMachineContext<TState> }) => ({
           commandToken: step.command,
           params: this.resolveParams(step, context.state, context.loopIterations[loopId]),
-          ctx: this.createExecutionContext(context, `${loopId}_${step.id}`),
+          ctx: this.createExecutionContext(context, stepId),
           context,
         }),
         onDone: {
@@ -514,7 +679,13 @@ export class WorkflowRunner implements IWorkflowRunner {
             return { ...context, state: newState };
           }),
         },
-        onError: '#aborted',
+        onError: {
+          target: '#aborted',
+          actions: assign({
+            aborted: true,
+            abortedError: ({ event }: any) => this.toErrorMessage(event.error),
+          }),
+        },
       },
     };
   }
@@ -524,12 +695,23 @@ export class WorkflowRunner implements IWorkflowRunner {
     nextStepId: string,
     loopId: string
   ): any {
+    const stepId = `${loopId}_${step.id}`;
+    const hasConditions = this.hasStepConditions(step);
+
     return {
+      always: hasConditions
+        ? [
+            {
+              target: nextStepId,
+              guard: { type: this.getStepSkipGuardType(stepId) },
+            },
+          ]
+        : undefined,
       invoke: {
         src: `execute_${loopId}_${step.id}`,
         input: ({ context }: { context: WorkflowMachineContext<TState> }) => ({
           state: context.state,
-          ctx: this.createExecutionContext(context, `${loopId}_${step.id}`),
+          ctx: this.createExecutionContext(context, stepId),
           container: context.container,
         }),
         onDone: {
@@ -538,28 +720,110 @@ export class WorkflowRunner implements IWorkflowRunner {
             state: event.output,
           })),
         },
-        onError: '#aborted',
+        onError: {
+          target: '#aborted',
+          actions: assign({
+            aborted: true,
+            abortedError: ({ event }: any) => this.toErrorMessage(event.error),
+          }),
+        },
       },
     };
   }
 
-  private buildTransitionGuard<TState>(step: WorkflowStep<TState>): any {
-    const hasWhen = 'when' in step && step.when;
-    const hasSkipWhen = 'skipWhen' in step && step.skipWhen;
+  private hasStepConditions<TState>(step: WorkflowStep<TState>): boolean {
+    return Boolean(('when' in step && step.when) || ('skipWhen' in step && step.skipWhen));
+  }
 
-    if (!hasWhen && !hasSkipWhen) {
-      return undefined;
+  private getStepSkipGuardType(stepId: string): string {
+    return `shouldSkip_${stepId}`;
+  }
+
+  private registerStepSkipGuard<TState>(
+    guards: Record<string, any>,
+    step: WorkflowStep<TState>,
+    stepId: string,
+    loopId?: string
+  ): void {
+    if (!this.hasStepConditions(step)) {
+      return;
     }
 
-    const guards = [];
-    if (hasWhen) {
-      guards.push({ type: `when_${step.id}` });
-    }
-    if (hasSkipWhen) {
-      guards.push({ type: `skipWhen_${step.id}` });
-    }
+    guards[this.getStepSkipGuardType(stepId)] = ({
+      context,
+    }: {
+      context: WorkflowMachineContext<TState>;
+    }) => {
+      const iteration = loopId ? (context.loopIterations[loopId] ?? 0) : undefined;
+      const whenCondition = 'when' in step ? step.when : undefined;
+      const skipWhenCondition = 'skipWhen' in step ? step.skipWhen : undefined;
 
-    return guards.length === 1 ? guards[0] : { type: 'and', guards };
+      const whenSatisfied = whenCondition
+        ? evaluateWorkflowCondition(
+            whenCondition,
+            context.state as Record<string, unknown>,
+            iteration
+          )
+        : true;
+
+      const skipRequested = skipWhenCondition
+        ? evaluateWorkflowCondition(
+            skipWhenCondition,
+            context.state as Record<string, unknown>,
+            iteration
+          )
+        : false;
+
+      const shouldSkip = !whenSatisfied || skipRequested;
+      if (shouldSkip) {
+        this.logWorkflowDebug(context, {
+          phase: 'step-skipped',
+          stepId,
+          iteration,
+          ...(whenCondition ? { whenCondition } : {}),
+          ...(skipWhenCondition ? { skipWhenCondition } : {}),
+        });
+      }
+      return shouldSkip;
+    };
+  }
+
+  private createLoopContinueGuard<TState>(
+    loopStep: WorkflowLoopStep<TState>,
+    loopId: string
+  ): ({ context }: { context: WorkflowMachineContext<TState> }) => boolean {
+    return ({ context }: { context: WorkflowMachineContext<TState> }) => {
+      const iteration = context.loopIterations[loopId] ?? 0;
+      const maxIterations = loopStep.maxIterations ?? 100;
+
+      if (iteration >= maxIterations) {
+        this.logWorkflowDebug(context, {
+          phase: 'loop-check',
+          stepId: loopId,
+          iteration,
+          maxIterations,
+          shouldContinue: false,
+          reason: 'max-iterations-reached',
+        });
+        return false;
+      }
+
+      const shouldContinue = evaluateWorkflowCondition(
+        loopStep.while,
+        context.state as Record<string, unknown>,
+        iteration
+      );
+
+      this.logWorkflowDebug(context, {
+        phase: 'loop-check',
+        stepId: loopId,
+        iteration,
+        maxIterations,
+        shouldContinue,
+      });
+
+      return shouldContinue;
+    };
   }
 
   private resolveParams<TState>(
@@ -605,8 +869,97 @@ export class WorkflowRunner implements IWorkflowRunner {
     };
   }
 
-  private getToolManager(container: IServiceContainer): ToolManager {
-    return container.resolve<ToolManager>(COMMAND_FACTORY_TOKENS.ToolManager);
+  private getToolManager(container: IServiceContainer): IToolManager {
+    return container.resolve(CORE_SERVICE_TOKENS.ToolManager);
+  }
+
+  private logWorkflowAbortError<TState>(
+    context: WorkflowMachineContext<TState>,
+    errorMessage: string
+  ): void {
+    const backendLogService =
+      context.backendLogService ?? this.backendLogService;
+    if (!backendLogService) {
+      return;
+    }
+
+    backendLogService.write({
+      source: 'workflow-runner',
+      level: 'error',
+      phase: 'workflow-aborted',
+      workflowId: context.workflowId,
+      workflowInstanceId: context.workflowInstanceId,
+      error: errorMessage,
+    });
+  }
+
+  private logWorkflowRunDebug(entry: Record<string, unknown>): void {
+    this.backendLogService.write({
+      source: 'workflow-runner',
+      level: 'debug',
+      ...entry,
+    });
+  }
+
+  private logWorkflowDebug<TState>(
+    context: WorkflowMachineContext<TState>,
+    entry: Record<string, unknown>
+  ): void {
+    const backendLogService =
+      context.backendLogService ?? this.backendLogService;
+    if (!backendLogService) {
+      return;
+    }
+
+    backendLogService.write({
+      source: 'workflow-runner',
+      level: 'debug',
+      workflowId: context.workflowId,
+      workflowInstanceId: context.workflowInstanceId,
+      ...entry,
+    });
+  }
+
+  private logExecutionContextDebug(
+    executionContext: ExecutionContext,
+    entry: Record<string, unknown>
+  ): void {
+    this.backendLogService.write({
+      source: 'workflow-runner',
+      level: 'debug',
+      workflowId: executionContext.workflowId,
+      workflowInstanceId: executionContext.workflowInstanceId,
+      stepId: executionContext.stepId,
+      ...entry,
+    });
+  }
+
+  private serializeStateValue(value: unknown): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  private toErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    if (typeof error === 'string') {
+      return error;
+    }
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
   }
 }
 
@@ -643,7 +996,8 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
   constructor(private readonly container: IServiceContainer) {}
 
   create(): IWorkflowRunner {
-    return new WorkflowRunner(this.container);
+    const backendLogService = this.container.resolve(CORE_SERVICE_TOKENS.BackendLogService) as IBackendLogService;
+    return new WorkflowRunner(this.container, backendLogService);
   }
 
   asCommand<TState>(definition: WorkflowDefinition<TState>): ICommand {
@@ -676,7 +1030,10 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
   ): Promise<CommandResponse<unknown>> {
     const initialState = definition.prepare ? definition.prepare(params) : (params as TState);
     const runResult = await this.create().run(definition, initialState, { executionContext: ctx });
-    if (runResult.aborted) return { status: 'error', message: 'Workflow aborted' };
+    if (runResult.aborted) {
+      const detail = runResult.abortedError ? `: ${runResult.abortedError}` : '';
+      return { status: 'error', message: `Workflow aborted${detail}` };
+    }
 
     let data: unknown = runResult.state;
     if (definition.result !== undefined) {

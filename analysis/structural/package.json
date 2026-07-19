@@ -4,17 +4,22 @@
   "description": "Structural analysis pipeline — file classification, clustering, alignment, community detection, and recommendations",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "aspect-dead-code": "dist/cli/dead-code.js"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run --passWithNoTests",
+    "dead-code": "node dist/cli/dead-code.js",
     "clean": "rm -rf dist"
   },
   "license": "MIT",
   "dependencies": {
     "@aspect/contracts": "workspace:*",
-    "@aspect/complexity": "workspace:*",
+    "@aspect/complexity": "workspace:",
+    "typescript": "^5.9.3",
     "graphology": "^0.26.0",
     "graphology-metrics": "^2.4.0",
     "graphology-communities-louvain": "^2.0.2",

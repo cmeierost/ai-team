@@ -1,13 +1,24 @@
-import type { IChatService, ChatSummary, ChatMessage, MessageStats } from '@ai-team/api-contracts';
-import type { SessionManager } from '../sessions/session-manager.js';
+import type {
+  IChatService,
+  ChatSummary,
+  ChatMessage,
+  MessageStats,
+  IInteractionService,
+} from '@ai-team/api-contracts';
 import { BadRequestError, NotFoundError } from '@ai-team/core';
-import type { ILlmService, IChatManager, IChatStorage } from '@ai-team/core';
-import type { IInteractionService } from '../interaction/interaction-service.js';
+import type {
+  ILlmService,
+  IChatManager,
+  IChatStorage,
+  ISessionManager,
+  ITitleGenerator,
+} from '@ai-team/core';
 
 export class ChatService implements IChatService {
   constructor(
     private readonly interactionService: IInteractionService,
-    private readonly sessionManager: SessionManager,
+    private readonly sessionManager: ISessionManager,
+    private readonly titleGenerator: ITitleGenerator,
     private readonly mgr: IChatManager,
     private readonly storage: IChatStorage,
     private readonly llmService: ILlmService
@@ -451,16 +462,16 @@ export class ChatService implements IChatService {
     index: string,
     body: { content: string }
   ): Promise<ChatMessage> {
-    const idx = parseInt(index, 10);
-    if (isNaN(idx)) throw new BadRequestError('invalid index');
+    const idx = Number.parseInt(index, 10);
+    if (Number.isNaN(idx)) throw new BadRequestError('invalid index');
     const updated = await this.mgr.editMessage(agentId, idx, body.content);
     if (updated === undefined || updated === null) throw new NotFoundError('message not found');
     return updated;
   }
 
   async archiveMessage(agentId: string, index: string): Promise<{ ok: boolean }> {
-    const idx = parseInt(index, 10);
-    if (isNaN(idx)) throw new BadRequestError('invalid index');
+    const idx = Number.parseInt(index, 10);
+    if (Number.isNaN(idx)) throw new BadRequestError('invalid index');
 
     const session = await this.sessionManager.getLatestSession(agentId);
     if (!session) throw new NotFoundError('session not found');
@@ -478,8 +489,8 @@ export class ChatService implements IChatService {
   }
 
   async unarchiveMessage(agentId: string, index: string): Promise<{ ok: boolean }> {
-    const idx = parseInt(index, 10);
-    if (isNaN(idx)) throw new BadRequestError('invalid index');
+    const idx = Number.parseInt(index, 10);
+    if (Number.isNaN(idx)) throw new BadRequestError('invalid index');
 
     const session = await this.sessionManager.getLatestSession(agentId);
     if (!session) throw new NotFoundError('session not found');
@@ -538,8 +549,7 @@ export class ChatService implements IChatService {
     let normalizedSummary = '';
     try {
       await this.llmService.ensureInitialized();
-      const summary = await this.sessionManager.summarizeForContextAsync(
-        this.llmService,
+      const summary = await this.titleGenerator.summarizeForContextAsync(
         sourceText,
         maxWords,
         focusInstruction || undefined
@@ -557,8 +567,7 @@ export class ChatService implements IChatService {
           .filter(Boolean)
           .join(' ');
 
-        const strictSummary = await this.sessionManager.summarizeForContextAsync(
-          this.llmService,
+        const strictSummary = await this.titleGenerator.summarizeForContextAsync(
           sourceText,
           Math.max(20, Math.floor(maxWords * 0.8)),
           stricterFocus

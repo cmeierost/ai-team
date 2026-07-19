@@ -1,4 +1,32 @@
 import type { IPlanningRepository } from '../repositories/planning-repository.js';
+import type { ChatMessage } from '../types/communication.js';
+
+export interface SessionThreadGraphSession {
+  sessionId: string;
+  agentIds: string[];
+  developerId: string | null;
+  title: string | null;
+  startedAt: string;
+  lastActivityAt: string;
+  previousSessionId: string | null;
+  mergedFromSessionIds: string[] | null;
+  messageCount: number;
+  messages: ChatMessage[];
+}
+
+export interface HandoffEdge {
+  fromSessionId: string;
+  toSessionId: string;
+  agentId: string;
+  createdAt: string;
+}
+
+export interface SessionThreadGraphData {
+  rootSessionId: string;
+  depth: number;
+  sessions: SessionThreadGraphSession[];
+  handoffs: HandoffEdge[];
+}
 
 export interface SessionDeleteImpactTransfer {
   noteId: string;

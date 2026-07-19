@@ -88,12 +88,4 @@ export class EmitService implements IEmitService {
   event(e: RuntimeStreamEvent): void {
     this.emit(e);
   }
-
-  /**
-   * Transport-neutral fallback emitter that intentionally drops events.
-   * Adapters should provide a concrete sink (CLI console, WebSocket, IDE, ...).
-   */
-  static noop(): EmitService {
-    return new EmitService(() => {});
-  }
 }

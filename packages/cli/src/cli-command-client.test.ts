@@ -1,23 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CommandResponse } from '@ai-team/api-contracts';
-import type { CommandAvailability, ExecutionContext, IServiceContainer } from '@ai-team/core';
+import type { CommandAvailability, ExecutionContext } from '@ai-team/core';
 import { CliCommandClient } from './cli-command-client.js';
 
 function createClient(): CliCommandClient {
-  const resolver = {
-    child: () => resolver,
-    registerInstance: () => resolver,
-    registerSingleton: () => resolver,
-    registerScoped: () => resolver,
-    registerTransient: () => resolver,
-    has: () => false,
-    tryResolve: () => undefined,
-    resolve: () => {
-      throw new Error('resolve not implemented in test resolver');
-    },
-  } as unknown as IServiceContainer;
-
-  return new CliCommandClient('C:/workspace', resolver);
+  return new CliCommandClient(
+    { getCommands: () => [], dispatch: async () => ({ status: 'ok', message: '' }) } as any,
+    { emit: () => {}, status: () => {}, log: () => {}, token: () => {}, toolLifecycle: () => {} } as any,
+    { write: () => {} } as any,
+    { stream: async function* () {} } as any,
+  );
 }
 
 type DirectHandler = (

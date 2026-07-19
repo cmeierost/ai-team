@@ -74,7 +74,7 @@ export function useSessionNotes(sessionId?: string, agentId?: string) {
         body.attachments = input.attachments;
       }
 
-      return client.sessions.createNote(input.sessionId, body as any) as Promise<Note>;
+      return client.sessions.createNote(input.sessionId, body as any);
     },
     onSuccess: async () => {
       await invalidateNotesAsync();

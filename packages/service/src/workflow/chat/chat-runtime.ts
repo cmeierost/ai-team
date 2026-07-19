@@ -89,6 +89,9 @@ export interface ChatRuntimeRunInput extends ChatLoopInput {
   createNewSession?: boolean;
   introduction?: boolean;
   contextFiles?: string[];
+  signal?: AbortSignal;
+  /** Depth counter for handoff subworkflows. Passed through to ExecutionContext to prevent nested handoffs. */
+  subworkflowDepth?: number;
 }
 
 export interface IChatRuntime {
@@ -111,6 +114,9 @@ interface ChatRuntimeState {
   toolRound?: ChatLoopToolRoundResult;
   postTurn?: ChatLoopPostTurnResolutionResult;
   handoff?: ChatLoopHandoffTransitionResult;
+  shouldRunToolRound?: boolean;
+  shouldRunPostTurnResolution?: boolean;
+  shouldRunHandoffTransition?: boolean;
 }
 
 export class ChatRuntime implements IChatRuntime {
@@ -157,9 +163,19 @@ export class ChatRuntime implements IChatRuntime {
       );
 
       const runResult = await this.workflowRunner.run(definition, initialState, {
-        executionContext: this.createStepExecutionContext('sendTurn'),
+        executionContext: this.createStepExecutionContext('sendTurn', input.signal),
+        signal: input.signal,
         commands,
       });
+
+      if (runResult.aborted) {
+        return {
+          status: 'failed',
+          text: runResult.state.lastText,
+          hopCount: runResult.state.hop,
+          error: 'Workflow aborted',
+        };
+      }
 
       return {
         status: runResult.state.status,
@@ -169,11 +185,15 @@ export class ChatRuntime implements IChatRuntime {
       };
     } catch (error) {
       const message = this.toErrorMessage(error);
-      await this.runFailureAsync(failureCommand, {
-        error: message,
-        hop: initialState.hop,
-        state: this.resolveFailureState(error),
-      });
+      await this.runFailureAsync(
+        failureCommand,
+        {
+          error: message,
+          hop: initialState.hop,
+          state: this.resolveFailureState(error),
+        },
+        input.signal
+      );
 
       return {
         status: 'failed',
@@ -254,6 +274,9 @@ export class ChatRuntime implements IChatRuntime {
                   toolRound: undefined,
                   postTurn: undefined,
                   handoff: undefined,
+                  shouldRunToolRound: undefined,
+                  shouldRunPostTurnResolution: undefined,
+                  shouldRunHandoffTransition: undefined,
                   lastText: sendTurn.text,
                 };
               },
@@ -273,9 +296,23 @@ export class ChatRuntime implements IChatRuntime {
               },
             },
             {
+              id: 'computeToolRoundExecution',
+              execute: async (state) => {
+                const shouldRunToolRound =
+                  !state.done &&
+                  state.sendTurn?.toolRoundNeeded === true &&
+                  Boolean(state.sendTurn?.pendingToolCall);
+
+                return {
+                  ...state,
+                  shouldRunToolRound,
+                };
+              },
+            },
+            {
               id: 'toolRound',
               command: toolRoundCommand?.metadata.key ?? 'chat-runtime-step:toolRound',
-              skipWhen: '!sendTurn?.toolRoundNeeded || done || !sendTurn?.pendingToolCall',
+              skipWhen: 'shouldRunToolRound != true',
               params: (state) => ({
                 toolCall: state.sendTurn!.pendingToolCall!,
                 hop: state.hop,
@@ -335,9 +372,25 @@ export class ChatRuntime implements IChatRuntime {
               },
             },
             {
+              id: 'computePostTurnExecution',
+              execute: async (state) => {
+                const shouldRunPostTurnResolution =
+                  !state.done &&
+                  !(
+                    state.sendTurn?.toolRoundNeeded === true &&
+                    state.toolRound?.outcome === 'resume_llm'
+                  );
+
+                return {
+                  ...state,
+                  shouldRunPostTurnResolution,
+                };
+              },
+            },
+            {
               id: 'postTurnResolution',
               command: postTurnResolutionCommand.metadata.key,
-              skipWhen: 'done || (sendTurn?.toolRoundNeeded === true && toolRound?.outcome === "resume_llm")',
+              skipWhen: 'shouldRunPostTurnResolution != true',
               params: (state) => ({ text: state.lastText, hop: state.hop }),
               applyResult: (state, raw) => {
                 const postTurn = this.unwrapStepResponse<ChatLoopPostTurnResolutionResult>(
@@ -377,9 +430,23 @@ export class ChatRuntime implements IChatRuntime {
               },
             },
             {
+              id: 'computeHandoffExecution',
+              execute: async (state) => {
+                const shouldRunHandoffTransition =
+                  !state.done &&
+                  state.postTurn?.outcome === 'handoff_required' &&
+                  state.hop < state.maxHops;
+
+                return {
+                  ...state,
+                  shouldRunHandoffTransition,
+                };
+              },
+            },
+            {
               id: 'handoffTransition',
               command: handoffTransitionCommand.metadata.key,
-              skipWhen: 'done || postTurn?.outcome !== "handoff_required" || hop >= maxHops',
+              skipWhen: 'shouldRunHandoffTransition != true',
               params: (state) => ({ handoff: state.postTurn!, hop: state.hop }),
               applyResult: (state, raw) => {
                 const handoff = this.unwrapStepResponse<ChatLoopHandoffTransitionResult>(
@@ -394,6 +461,9 @@ export class ChatRuntime implements IChatRuntime {
                   sendTurn: undefined,
                   toolRound: undefined,
                   postTurn: undefined,
+                  shouldRunToolRound: undefined,
+                  shouldRunPostTurnResolution: undefined,
+                  shouldRunHandoffTransition: undefined,
                 };
               },
             },
@@ -422,9 +492,10 @@ export class ChatRuntime implements IChatRuntime {
   private async executeCommand<TInput, TOutput>(
     command: IChatRuntimeStepCommand<TInput, TOutput>,
     step: ChatRuntimeStepName,
-    params: TInput
+    params: TInput,
+    signal?: AbortSignal
   ): Promise<TOutput> {
-    const response = await command.execute(params, this.createStepExecutionContext(step));
+    const response = await command.execute(params, this.createStepExecutionContext(step, signal));
     if (response.status !== 'ok') {
       throw new Error(response.message ?? `Chat runtime step failed: ${step}`);
     }
@@ -433,29 +504,34 @@ export class ChatRuntime implements IChatRuntime {
 
   private async runFailureAsync(
     failureCommand: ChatRuntimeStepContractMap['failure'] | undefined,
-    input: ChatLoopFailureInput
+    input: ChatLoopFailureInput,
+    signal?: AbortSignal
   ): Promise<void> {
     if (!failureCommand) {
       return;
     }
 
-    await this.executeCommand(failureCommand, 'failure', input);
+    await this.executeCommand(failureCommand, 'failure', input, signal);
   }
 
   private unwrapStepResponse<T>(raw: unknown, step: ChatRuntimeStepName): T {
     const response = raw as CommandResponse<T>;
-    if (!response || response.status !== 'ok') {
+    if (response?.status !== 'ok') {
       throw new Error(response?.message ?? `Chat runtime step failed: ${step}`);
     }
     return response.data as T;
   }
 
-  private createStepExecutionContext(step: ChatRuntimeStepName): ExecutionContext {
+  private createStepExecutionContext(
+    step: ChatRuntimeStepName,
+    signal?: AbortSignal
+  ): ExecutionContext {
     return {
       history: [],
       workflowId: 'chat-runtime',
       workflowInstanceId: 'chat-runtime',
       stepId: step,
+      ...(signal ? { signal } : {}),
     };
   }
 

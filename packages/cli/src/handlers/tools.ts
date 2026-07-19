@@ -42,7 +42,7 @@ function printToolList(response: ListToolsResponse): void {
 
   const grouped = new Map<string, typeof response.entries>();
   for (const entry of response.entries) {
-    const key = (entry as any).group ?? 'other';
+    const key = entry.group ?? 'other';
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(entry);
   }

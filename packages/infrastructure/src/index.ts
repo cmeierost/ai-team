@@ -7,7 +7,6 @@
 
 import type {
   CoreServiceRegistrationTokens,
-  IBackendDebugLogSettingsService,
   ILlmService,
   IMessageStorage,
   IContainerToken,
@@ -49,7 +48,7 @@ import { ChatStorage, ChatManager } from './chat/index.js';
 import { TeamGraphBuilder } from './agent/team-graph-builder.js';
 import { ProviderConfigurationService } from './llm/provider-configuration.service.js';
 import { InfrastructureLlmSettingsResolver } from './llm/llm-settings-resolver.js';
-import { InfrastructureLlmConsoleLog } from './llm/llm-console-log.js';
+
 import { InfrastructureBackendDebugLogSettingsService } from './logging/infrastructure-backend-debug-log-settings-service.js';
 import { InfrastructureBackendLogService } from './logging/infrastructure-backend-log-service.js';
 
@@ -103,18 +102,12 @@ export function registerInfrastructureCoreServices(
   );
   container.registerSingleton(tokens.LlmService, (c) => {
     const configStorage = c.resolve(tokens.ConfigurationStorage);
-    const backendLogSettingsService = c.resolve(
-      tokens.BackendDebugLogSettingsService
-    ) as IBackendDebugLogSettingsService;
-    const runtimeProfile = process.env.AI_TEAM_RUNTIME_TARGET === 'api' ? 'api' : 'console';
     const teamConfig = configStorage.get();
     return new LlmService(
       c.resolve(tokens.WorkspaceRoot),
       teamConfig,
       c.resolve(tokens.LlmSettingsResolver),
-      new InfrastructureLlmConsoleLog(
-        () => backendLogSettingsService.resolveForRuntime(runtimeProfile).console !== 'off'
-      )
+      c.resolve(tokens.BackendLogService)
     ) as unknown as ILlmService;
   });
 

@@ -2,7 +2,6 @@ import type { IServiceContainerRegistrar } from '@ai-team/core';
 import {
   registerServiceLayerServices,
   type ServiceLayerRegistrationConfig,
-  type ServiceLayerRegistrationTokens,
 } from './register-services.js';
 
 /**
@@ -13,8 +12,7 @@ import {
  */
 export function registerCommands(
   container: IServiceContainerRegistrar,
-  cfg: ServiceLayerRegistrationConfig,
-  tokens: ServiceLayerRegistrationTokens
+  cfg: ServiceLayerRegistrationConfig
 ): void {
-  registerServiceLayerServices(container, cfg, tokens);
+  registerServiceLayerServices(container, cfg);
 }

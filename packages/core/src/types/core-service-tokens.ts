@@ -1,20 +1,34 @@
 import {
   Token,
   type IContextBuilder,
+  type IContextService,
   type IContextCompressor,
   type IContextEnricher,
+  type ICommandDispatcher,
+  type IChatSkillService,
+  type IChatRuntime,
+  type ILlmInvokeService,
   type ILlmSelector,
   type IMcpGateway,
   type IModelDiscoveryRegistry,
   type ILlmProviderTester,
-  type IOrchestratorHookPlugin,
   type IOutputHandler,
   type IPathPermissionChecker,
   type IRagProvider,
+  type ISendTurnStepService,
+  type IToolSchemaService,
+  type IToolSerializationService,
+  type IToolDispatchSupportService,
+  type IToolDispatchService,
   type IToolResolver,
   type ITurnResultParser,
+  type IWorkflowRunnerFactory,
+  IToolManager,
+  ISessionManager,
 } from './runtime-contracts.js';
-import type { ICommand } from './command-types.js';
+import type { ITitleGenerator } from './title-generator.js';
+import type { IThreadManager } from './thread-manager.js';
+import type { INotesManager } from './notes-manager.js';
 import type { IQuestionService, IEmitService } from './interaction-services.js';
 import type {
   IAgentDocumentStorage,
@@ -39,6 +53,7 @@ import type { ICodeEditManager } from '../code-edit/code-edit-manager.js';
 import type { ITypeScriptAnalyzer } from '../code-analysis/typescript-analyzer.js';
 import type { ISkillManager } from '../skill/index.js';
 import type { ILlmService, ITextToolCallParser } from '../llm/index.js';
+import type { ICommandRegistry } from './command-registry.js';
 import type { ILlmSettingsResolver } from '../llm/settings.js';
 import type { IProviderConfigurationService } from '../llm/provider-configuration.service.js';
 import type { IMessagesRepository } from '../repositories/messages-repository.js';
@@ -47,7 +62,7 @@ import type { ISessionsRepository } from '../repositories/sessions-repository.js
 import type { IPlanningRepository } from '../repositories/planning-repository.js';
 import type { IChatStorage } from '../chat/chat-storage.js';
 import type { IChatManager } from '../chat/chat-context-manager.js';
-import type { IProposalStoreFactory } from '../storage/contracts.js';
+import type { IMessageStorage, IProposalStoreFactory } from '../storage/contracts.js';
 
 /**
  * Canonical token set for interface-backed services shared across packages.
@@ -73,15 +88,27 @@ export const CORE_SERVICE_TOKENS = {
   EmitService: new Token<IEmitService>('EmitService'),
   ChatStorage: new Token<IChatStorage>('ChatStorage'),
   ChatManager: new Token<IChatManager>('ChatManager'),
+  ToolManager: new Token<IToolManager>('ToolManager'),
+  SessionManager: new Token<ISessionManager>('SessionManager'),
+  TitleGenerator: new Token<ITitleGenerator>('TitleGenerator'),
+  ThreadManager: new Token<IThreadManager>('ThreadManager'),
+  NotesManager: new Token<INotesManager>('NotesManager'),
+  MessageStorage: new Token<IMessageStorage>('MessageStorage'),
+  CommandRegistry: new Token<ICommandRegistry>('CommandRegistry'),
+  CommandDispatcher: new Token<ICommandDispatcher>('CommandDispatcher'),
+  WorkflowRunnerFactory: new Token<IWorkflowRunnerFactory>('WorkflowRunnerFactory'),
+  ChatRuntime: new Token<IChatRuntime>('ChatRuntime'),
+  ToolDispatchSupportService: new Token<IToolDispatchSupportService>('ToolDispatchSupportService'),
+  ToolSerializationService: new Token<IToolSerializationService>('ToolSerializationService'),
+  ToolSchemaService: new Token<IToolSchemaService>('ToolSchemaService'),
+  ContextService: new Token<IContextService>('ContextService'),
 
   ConfigurationStorage: new Token<IConfigurationStorage>('ConfigurationStorage'),
   BackendDebugLogSettingsService: new Token<IBackendDebugLogSettingsService>(
     'BackendDebugLogSettingsService'
   ),
   BackendLogService: new Token<IBackendLogService>('BackendLogService'),
-  DeveloperIdentityService: new Token<IDeveloperIdentityService>(
-    'DeveloperIdentityService'
-  ),
+  DeveloperIdentityService: new Token<IDeveloperIdentityService>('DeveloperIdentityService'),
   SystemInfoService: new Token<ISystemInfoService>('SystemInfoService'),
   PermissionStorage: new Token<IPermissionStorage>('PermissionStorage'),
   MarkdownSectionService: new Token<IMarkdownSectionService>('MarkdownSectionService'),
@@ -107,14 +134,16 @@ export const CORE_SERVICE_TOKENS = {
   ContextCompressor: new Token<IContextCompressor>('IContextCompressor'),
   ContextBuilder: new Token<IContextBuilder>('IContextBuilder'),
   ContextEnrichers: new Token<IContextEnricher[]>('IContextEnricher[]'),
+  ChatSkillService: new Token<IChatSkillService>('IChatSkillService'),
+  ToolDispatcher: new Token<IToolDispatchService>('IToolDispatchService'),
+  LlmInvokeService: new Token<ILlmInvokeService>('ILlmInvokeService'),
+  SendTurnStepService: new Token<ISendTurnStepService>('ISendTurnStepService'),
   RagProvider: new Token<IRagProvider>('IRagProvider'),
   ToolResolver: new Token<IToolResolver>('IToolResolver'),
   McpGateway: new Token<IMcpGateway>('McpGateway'),
   LlmSelector: new Token<ILlmSelector>('LlmSelector'),
   OutputHandler: new Token<IOutputHandler>('OutputHandler'),
-  SlashCommands: new Token<ICommand[]>('ICommand[]'),
   TurnResultParsers: new Token<ITurnResultParser[]>('ITurnResultParser[]'),
-  HookPlugins: new Token<IOrchestratorHookPlugin[]>('IOrchestratorHookPlugin[]'),
 } as const;
 
 export type CoreServiceRegistrationTokens = typeof CORE_SERVICE_TOKENS;

@@ -1,5 +1,6 @@
 import type {
   ChatOptions,
+  ChatCommandRegistryEntry,
   StreamEvent,
   CommandDescriptor,
   QuestionConfirmRequest,
@@ -9,8 +10,7 @@ import type {
   QuestionPasswordRequest,
 } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
-import { createIdeAdapter } from '@ai-team/infrastructure';
-import { findWorkspaceRoot } from '@ai-team/infrastructure';
+import { createIdeAdapter, findWorkspaceRoot } from '@ai-team/infrastructure';
 import type { IQuestionService } from '@ai-team/core';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';
@@ -111,7 +111,7 @@ async function askLine(
   }
 }
 
-function createChatQuestionResponders(
+function _createChatQuestionResponders(
   signal: AbortSignal,
   onAnswered?: () => void,
   onQuestionStart?: () => void,
@@ -305,10 +305,6 @@ function createChatQuestionResponders(
     },
   };
 }
-
-export const CHAT_RENDERING_TESTING = {
-  createChatQuestionResponders,
-};
 
 function handleOneShotEvent(
   event: StreamEvent<string>,
@@ -739,7 +735,15 @@ export async function renderChat(
       return undefined;
     }
   };
-  const chatCommands = client.getCommands({ chat: true });
+  const payloadSuggestions = Array.isArray(requestPayload?.['__slashSuggestions'])
+    ? (requestPayload?.['__slashSuggestions'] as Array<
+        Pick<CommandDescriptor, 'key' | 'aliases' | 'usage' | 'description'> | ChatCommandRegistryEntry
+      >)
+    : undefined;
+  const chatCommands =
+    payloadSuggestions && payloadSuggestions.length > 0
+      ? (payloadSuggestions as CommandDescriptor[])
+      : client.getCommands({ chat: true });
   const writeStderrLine = (text: string) => {
     process.stderr.write(`${text}\n`);
   };
@@ -752,6 +756,7 @@ export async function renderChat(
   let currentAgentId: string | undefined = agentId;
   let currentAgentName: string | undefined;
   let currentAgentRole: string | undefined;
+  let currentLlmModel: string | undefined;
   let developerDisplayName = resolveDeveloperDisplayName(process.env);
   let tokenBurstOpen = false;
   // Chalk instance locked in at burst open — stays consistent even if agent_info
@@ -766,7 +771,21 @@ export async function renderChat(
 
   let spinnerActive = false;
   let spinnerText = '';
-  let lastSpinnerRenderedText = '';
+  let spinnerFrameIndex = 0;
+  let spinnerTimer: NodeJS.Timeout | undefined;
+  let inToolRound = false;
+  const runtimeWorkflowState: Record<string, unknown> = {};
+  let inPreviousConversationLogBlock = false;
+  const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+  const renderSpinnerFrame = () => {
+    if (!spinnerActive || options.oneShot || !process.stderr.isTTY) return;
+    const frame = spinnerFrames[spinnerFrameIndex % spinnerFrames.length] ?? '⠋';
+    spinnerFrameIndex = (spinnerFrameIndex + 1) % spinnerFrames.length;
+    const line = chalk.dim(`${frame} ${spinnerText}`);
+    // Clear current terminal line and redraw spinner in-place.
+    process.stderr.write(`\u001b[2K\r${line}`);
+  };
 
   const startSpinner = (text?: string) => {
     if (options.oneShot || !process.stderr.isTTY) return;
@@ -776,19 +795,21 @@ export async function renderChat(
       return;
     }
     spinnerActive = true;
-
-    // Use line-based status output (no carriage-return animation) to avoid
-    // cursor rewrites that can visually corrupt concurrently streamed tokens.
-    if (spinnerText !== lastSpinnerRenderedText) {
-      process.stderr.write(`${chalk.dim(`⠋ ${spinnerText}`)}\n`);
-      lastSpinnerRenderedText = spinnerText;
-    }
+    spinnerFrameIndex = 0;
+    renderSpinnerFrame();
+    spinnerTimer = setInterval(renderSpinnerFrame, 80);
+    spinnerTimer.unref();
   };
+
   const stopSpinner = () => {
     if (!spinnerActive) return;
     spinnerActive = false;
-    // Allow the next thinking phase to render even if the text is unchanged.
-    lastSpinnerRenderedText = '';
+    if (spinnerTimer) {
+      clearInterval(spinnerTimer);
+      spinnerTimer = undefined;
+    }
+    // Clear spinner line and return cursor to column 0.
+    process.stderr.write('\u001b[2K\r');
   };
 
   function resolveAgentIdentity(id?: string, name?: string) {
@@ -853,7 +874,10 @@ export async function renderChat(
     // same color — even if agent_info arrives later and updates currentAgentName.
     currentBurstChalk = agentChalk(currentAgentId, currentAgentName);
     const styledTitle = currentBurstChalk.bold(title);
-    process.stdout.write(`\n${styledTitle}${chalk.dim(' → ')}${developerDisplayName}: `);
+    const modelSuffix = currentLlmModel ? chalk.dim(` (${currentLlmModel})`) : '';
+    process.stdout.write(
+      `\n${styledTitle}${modelSuffix}${chalk.dim(' → ')}${developerDisplayName}: `
+    );
     tokenBurstOpen = true;
   }
 
@@ -895,6 +919,35 @@ export async function renderChat(
     if (!tokenBurstOpen) return;
     process.stdout.write('\n');
     tokenBurstOpen = false;
+  }
+
+  function formatPreviousConversationLogLine(line: string): string {
+    if (!inPreviousConversationLogBlock) return line;
+
+    const dividerRegex = /^\s*─{10,}\s*$/;
+    if (dividerRegex.test(line)) {
+      return line;
+    }
+
+    const speakerMatch = /^([^:\n]+):\s(.*)$/u.exec(line);
+    if (!speakerMatch) {
+      return line;
+    }
+
+    const speaker = speakerMatch[1]?.trim();
+    const rest = speakerMatch[2] ?? '';
+    if (!speaker) {
+      return line;
+    }
+
+    const currentAgentDisplay = normalizeAgentDisplayName(currentAgentName, currentAgentId);
+    const isAgentSpeaker = speaker.toLowerCase() === currentAgentDisplay.toLowerCase();
+    if (!isAgentSpeaker) {
+      return line;
+    }
+
+    const speakerStyled = agentChalk(currentAgentId, currentAgentName).bold(speaker);
+    return `${speakerStyled}: ${rest}`;
   }
 
   function handleAssistantTokenChunk(deltaText: string) {
@@ -945,12 +998,18 @@ export async function renderChat(
         requestPayload && typeof requestPayload['agentId'] === 'string'
           ? requestPayload['agentId']
           : undefined;
+      const startupAgentName =
+        requestPayload && typeof requestPayload['agentName'] === 'string'
+          ? requestPayload['agentName']
+          : undefined;
       const startupSessionId =
         requestPayload && typeof requestPayload['sessionId'] === 'string'
           ? requestPayload['sessionId']
           : undefined;
       if (startupSessionId || startupAgentId) {
-        const label = startupAgentId
+        const label = startupAgentName?.trim()
+          ? startupAgentName.trim()
+          : startupAgentId
           ? normalizeAgentDisplayName(undefined, startupAgentId)
           : 'last active agent';
         const sessionPart = startupSessionId ? `session ${startupSessionId}` : 'latest session';
@@ -958,73 +1017,106 @@ export async function renderChat(
       }
     }
 
-    if (typeof options.message === 'string' && options.message.trim().length > 0) {
-      startSpinner();
-    }
-    const sessionClient = client.withQuestionService(
-      createChatQuestionResponders(
-        abortControl.signal,
-        startSpinner,
-        stopSpinner,
-        resolveProjectNameFromWorkspace,
-        chatCommands,
-        undefined,
-        (message: string) => {
-          if (requestCommand !== 'chat-chat') {
-            return message;
-          }
-
-          if (message.trim().toLowerCase() !== 'you:') {
-            return message;
-          }
-
-          const agentLabel = normalizeAgentDisplayName(currentAgentName, currentAgentId);
-          return `${developerDisplayName} -> ${agentLabel}:`;
+    const promptForNextMessageAsync = async (): Promise<string> => {
+      while (true) {
+        const to = normalizeAgentDisplayName(currentAgentName, currentAgentId);
+        const toStyled = agentChalk(currentAgentId, currentAgentName).bold(to);
+        const answer = await askWithSlashSuggestions(
+          `${developerDisplayName} -> ${toStyled}:`,
+          chatCommands,
+          abortControl.signal
+        );
+        const trimmed = answer.trim().toLowerCase();
+        if (
+          trimmed === 'exit' ||
+          trimmed === '/exit' ||
+          trimmed === 'quit' ||
+          trimmed === '/quit' ||
+          trimmed === 'q' ||
+          trimmed === '/q'
+        ) {
+          const resolvedName = await resolveProjectNameFromWorkspace();
+          const team = resolvedName ? `the ${resolvedName} team` : 'the team';
+          process.stdout.write(`See you next time — ${team} will be here when you need us 👋\n`);
+          process.exit(0);
         }
-      )
-    );
-    for await (const event of sessionClient.streamInteraction(
-      {
-        command: requestCommand,
-        payload: requestPayload ?? {
-          agentId,
-          message: options.message,
-          sessionId: options.sessionId,
-          createNewSession: options.createNewSession,
-        },
-      },
-      {
-        workspaceRoot,
-        invocationSurface: 'cli' as const,
-        calledByHuman: true,
-        signal: abortControl.signal,
-        logger:
-          mediatorLoggerEnabled || frontendFileLogEnabled
-            ? (entry: { channel: string; event: unknown }) => {
-                if (frontendFileLogEnabled) {
-                  writeFrontendDebugLog({
-                    command: 'chat-chat',
-                    channel: entry.channel,
-                    event: entry.event,
-                  });
-                }
-                try {
-                  if (mediatorLoggerEnabled) {
-                    writeStderrLine(
-                      `${chalk.gray('[frontend:mediator-log]')} ${JSON.stringify(entry)}`
-                    );
-                  }
-                } catch {
-                  if (mediatorLoggerEnabled) {
-                    writeStderrLine(
-                      `${chalk.gray('[frontend:mediator-log]')} ${JSON.stringify(entry)}`
-                    );
-                  }
-                }
-              }
-            : undefined,
+        if (!answer.trim()) {
+          continue;
+        }
+        return answer;
       }
-    )) {
+    };
+
+    let pendingMessage = options.message;
+    const interactivePromptLoopEnabled = !options.oneShot && options.message === undefined;
+    while (true) {
+      if (!options.oneShot) {
+        const hasPendingMessage =
+          typeof pendingMessage === 'string' && pendingMessage.trim().length > 0;
+        if (!hasPendingMessage) {
+          pendingMessage = await promptForNextMessageAsync();
+        }
+      }
+
+      const currentMessage = pendingMessage;
+      bracketToolRenderedViaEvent = false;
+      bufferingBracketToolCall = false;
+      bracketToolBuffer = '';
+
+      if (typeof currentMessage === 'string' && currentMessage.trim().length > 0) {
+        startSpinner();
+      }
+
+      const turnPayload = requestPayload
+        ? {
+            ...requestPayload,
+            message: currentMessage,
+          }
+        : {
+            agentId,
+            message: currentMessage,
+            sessionId: options.sessionId,
+            createNewSession: options.createNewSession,
+          };
+
+      for await (const event of client.streamInteraction(
+        {
+          command: requestCommand,
+          payload: turnPayload,
+        },
+        {
+          workspaceRoot,
+          invocationSurface: 'cli' as const,
+          calledByHuman: true,
+          workflowState: runtimeWorkflowState,
+          signal: abortControl.signal,
+          logger:
+            mediatorLoggerEnabled || frontendFileLogEnabled
+              ? (entry: { channel: string; event: unknown }) => {
+                  if (frontendFileLogEnabled) {
+                    writeFrontendDebugLog({
+                      command: 'chat-chat',
+                      channel: entry.channel,
+                      event: entry.event,
+                    });
+                  }
+                  try {
+                    if (mediatorLoggerEnabled) {
+                      writeStderrLine(
+                        `${chalk.gray('[frontend:mediator-log]')} ${JSON.stringify(entry)}`
+                      );
+                    }
+                  } catch {
+                    if (mediatorLoggerEnabled) {
+                      writeStderrLine(
+                        `${chalk.gray('[frontend:mediator-log]')} ${JSON.stringify(entry)}`
+                      );
+                    }
+                  }
+                }
+              : undefined,
+        }
+      )) {
       if (event.kind === 'token') {
         stopSpinner();
         // Always write tokens to stdout — same stream as readline's prompt,
@@ -1036,7 +1128,7 @@ export async function renderChat(
 
       closeTokenBurstIfNeeded();
 
-      if (event.kind === 'done') {
+      if (event.kind === 'done' || event.kind === 'turn_finished') {
         closeThinkingBurstIfNeeded();
         flushBracketToolBufferFallbackIfNeeded();
         continue;
@@ -1054,9 +1146,14 @@ export async function renderChat(
       if (event.kind === 'status') {
         const phase = (event.phase ?? '').toLowerCase();
         if (phase === 'thinking') {
-          startSpinner(event.message || undefined);
+          // Suppress spinner during tool round — tool events already provide
+          // visible progress. Re-starting here masks thinking token output.
+          if (!inToolRound) {
+            startSpinner(event.message || undefined);
+          }
         } else if (phase === 'complete') {
           stopSpinner();
+          inToolRound = false;
         }
 
         if (event.message && mediatorLoggerEnabled) {
@@ -1069,6 +1166,9 @@ export async function renderChat(
         currentAgentId = event.agentId || currentAgentId;
         currentAgentName = event.agentName.trim() || currentAgentName;
         currentAgentRole = event.agentRole?.trim() || currentAgentRole;
+        if (event.llmModel?.trim()) {
+          currentLlmModel = event.llmModel.trim();
+        }
         if (event.developerName?.trim()) {
           developerDisplayName = event.developerName.trim();
         }
@@ -1085,6 +1185,7 @@ export async function renderChat(
       if (event.kind === 'tool') {
         stopSpinner();
         closeThinkingBurstIfNeeded();
+        inToolRound = true;
         const phase = event.toolPhase || 'event';
 
         // Slash command results go directly to stdout — they ARE the response.
@@ -1108,6 +1209,15 @@ export async function renderChat(
           bufferingBracketToolCall = false;
           bracketToolBuffer = '';
         }
+
+        // Skip tool result line for com_handoff — the handoff event already rendered
+        // the transition (FromAgent → ToAgent + briefing) and the subworkflow tokens
+        // streamed live. Showing a second tool result line would be redundant.
+        if (event.toolName === 'com_handoff' && phase === 'result') {
+          stopSpinner();
+          continue;
+        }
+
         const formatted = formatToolEventMessage(event as unknown as Record<string, unknown>);
         const suffix = formatted ? chalk.gray(` — ${formatted}`) : '';
         writeStderrLine(
@@ -1115,15 +1225,11 @@ export async function renderChat(
         );
         const detail = formatToolEventDetail(event as unknown as Record<string, unknown>);
         if (detail) writeStderrLine(detail);
-        // During/after tool activity, keep visible progress feedback.
-        if (
-          phase === 'request' ||
-          phase === 'start' ||
-          phase === 'result' ||
-          phase === 'error' ||
-          phase === 'denied'
-        ) {
-          startSpinner();
+        // After tool completes, stop the spinner so the next thinking phase
+        // or token burst renders cleanly. Re-starting the spinner here caused
+        // "⠋ is thinking…" to reappear over already-rendered thinking content.
+        if (phase === 'result' || phase === 'error' || phase === 'denied') {
+          stopSpinner();
         }
         continue;
       }
@@ -1164,6 +1270,24 @@ export async function renderChat(
         continue;
       }
 
+      // Handle subworkflow start — prepare token header for the target agent.
+      if (event.kind === 'subworkflow_start') {
+        stopSpinner();
+        closeThinkingBurstIfNeeded();
+        const e = event;
+        currentAgentId = e.agentId || currentAgentId;
+        currentAgentName = e.agentName || currentAgentName;
+        currentAgentRole = e.agentRole || currentAgentRole;
+        continue;
+      }
+
+      // Handle subworkflow end — close any open token burst.
+      if (event.kind === 'subworkflow_end') {
+        stopSpinner();
+        closeTokenBurstIfNeeded();
+        continue;
+      }
+
       if (event.kind === 'question') {
         if (frontendFileLogEnabled) {
           writeFrontendDebugLog({ command: 'chat-chat', event });
@@ -1179,7 +1303,18 @@ export async function renderChat(
       if (event.kind === 'log') {
         stopSpinner();
         closeThinkingBurstIfNeeded();
-        const line = `${event.message}\n`;
+
+        if (/─── Previous conversation/i.test(event.message)) {
+          inPreviousConversationLogBlock = true;
+        } else if (
+          inPreviousConversationLogBlock &&
+          /^\s*─{10,}\s*$/u.test(event.message.trim())
+        ) {
+          inPreviousConversationLogBlock = false;
+        }
+
+        const lineText = formatPreviousConversationLogLine(event.message);
+        const line = `${lineText}\n`;
         if (event.level === 'error') {
           process.stderr.write(chalk.red(line));
         } else if (event.level === 'warn') {
@@ -1205,6 +1340,15 @@ export async function renderChat(
       if (options.oneShot) {
         handleOneShotEvent(event, writeStderrLine);
       }
+    }
+
+      if (options.oneShot) {
+        break;
+      }
+      if (!interactivePromptLoopEnabled) {
+        break;
+      }
+      pendingMessage = undefined;
     }
   } catch (error) {
     if (abortControl.wasAborted() || isAbortLikeError(error)) {

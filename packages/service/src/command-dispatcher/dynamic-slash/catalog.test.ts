@@ -201,7 +201,7 @@ describe('dynamic slash catalog', () => {
 
   it('throws when dynamic slash command entries contain duplicate keys', () => {
     expect(() =>
-      new DynamicSlashCommandFactory(EmitService.noop()).buildCommands([
+      new DynamicSlashCommandFactory('/tmp', undefined, undefined, undefined).buildCommands([
         {
           key: 'code-review',
           usage: '/code-review',
@@ -228,7 +228,12 @@ describe('dynamic slash catalog', () => {
 
   it('throws when dynamic slash registry entry key is not normalized', () => {
     expect(() =>
-      new DynamicSlashCommandFactory(EmitService.noop()).toChatCommandRegistryEntries([
+      new DynamicSlashCommandFactory(
+        '/tmp',
+        new EmitService(() => {}),
+        {},
+        {}
+      ).toChatCommandRegistryEntries([
         {
           key: 'Code Review',
           usage: '/Code Review',

@@ -1,11 +1,11 @@
 import type {
   ICommand,
-  ILlmService,
+  ISessionManager,
+  ITitleGenerator,
   ExecutionContext,
   CommandResponse,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { SessionManager } from '../../sessions/session-manager.js';
 import { parseContextArgs, summarizeMessage, type StoredMessage } from './context-utils.js';
 export const ContextAddChatCommandMetadata = {
   key: 'add',
@@ -20,16 +20,8 @@ export class ContextAddChatCommand implements ICommand<string, string> {
   readonly metadata = ContextAddChatCommandMetadata;
 
   constructor(
-    private readonly sessionManager: Pick<
-      SessionManager,
-      | 'listSessionMessages'
-      | 'setMessageHiddenFromLlm'
-      | 'getSessionMessages'
-      | 'summarizeForContextAsync'
-      | 'updateToolCallLlmResult'
-      | 'updateMessageContent'
-    >,
-    private readonly llmService: ILlmService
+    private readonly sessionManager: ISessionManager,
+    private readonly titleGenerator: ITitleGenerator
   ) {}
 
   async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
@@ -73,7 +65,7 @@ export class ContextAddChatCommand implements ICommand<string, string> {
       const summary = await summarizeMessage(
         target,
         this.sessionManager,
-        this.llmService,
+        this.titleGenerator,
         summarizedInstruction || fallback || undefined
       );
       await this.sessionManager.setMessageHiddenFromLlm(target.id, false);

@@ -45,7 +45,7 @@ Load on demand (only when needed):
 - Install dependencies with `pnpm install`.
 - Build shared or multi-package changes with `pnpm -r build`.
 - Use targeted package checks when scope is local (`pnpm --filter <pkg> build` and package tests).
-- For every new feature implementation or cleanup/refactor, run the fuzzy duplication scan on the affected scope and review hotspots before finishing (`pnpm --filter @aspect/duplication build` then `node analysis/duplication/dist/cli/fuzzy-dup.js <scope> --format text`).
+- Run the fuzzy duplication scan on the affected scope periodically (especially for larger feature/refactor batches) and ask the user from time to time whether they want to run it now (`pnpm --filter @aspect/duplication build` then `node analysis/duplication/dist/cli/fuzzy-dup.js <scope> --format text`).
 - **For UI changes in `packages/web`, use the Chrome / browser MCP tools to visually inspect the result in the live app.** Use `open_browser_page`, `mcp_microsoft_pla_browser_run_code`, and `mcp_microsoft_pla_browser_console_messages` to open the page, interact with it, and check for visual regressions or console errors before considering the task done.
 
 ## Change policy

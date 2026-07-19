@@ -11,15 +11,13 @@ import type {
   ICommand,
   IAgentDocumentStorage,
   ISkillManager,
+  ISessionManager,
+  INotesManager,
+  IToolManager,
 } from '@ai-team/core';
-import {
-  ToolIdentity,
-  type LlmToolDefinition,
-  type ToolManager,
-} from '../tooling/manager/tool-manager.js';
+import { ToolIdentity, type LlmToolDefinition } from '../tooling/manager/tool-manager.js';
 import { ZodSchemaTools } from '../utils/zod-schema.js';
 import type { IMcpGateway } from '../workflow/runtime/pipeline.js';
-import type { SessionManager } from '../sessions/session-manager.js';
 import { NotFoundError } from '@ai-team/core';
 import {
   getWorkflowDefinitionResolvers,
@@ -103,12 +101,13 @@ export class MetaService implements IContextService {
   constructor(
     private readonly workspaceRoot: string,
     private readonly agentManager: IAgentManager,
-    private readonly sessionManager: SessionManager,
+    private readonly sessionManager: ISessionManager,
+    private readonly notesManager: INotesManager,
     private readonly skillManager: ISkillManager,
-    private readonly toolManager: ToolManager,
+    private readonly toolManager: IToolManager,
     private readonly agentDocumentStorage: IAgentDocumentStorage,
-    private readonly mcpGateway?: IMcpGateway,
-    private readonly planningService?: IPlanningService
+    private readonly mcpGateway: IMcpGateway,
+    private readonly planningService: IPlanningService
   ) {}
 
   private async getToolsForAgent(
@@ -121,12 +120,7 @@ export class MetaService implements IContextService {
     }
 
     const staticTools = this.toolManager.getForAgent(agent);
-    const discoverMcpTools = (this.mcpGateway as { discover?: () => Promise<ICommand[]> })
-      ?.discover;
-    const mcpTools =
-      typeof discoverMcpTools === 'function'
-        ? await discoverMcpTools.call(this.mcpGateway)
-        : ([] as ICommand[]);
+    const mcpTools = await this.mcpGateway.discover();
 
     const defsByName = new Map<string, LlmToolDefinition>();
     for (const tool of [...staticTools, ...mcpTools]) {
@@ -405,7 +399,7 @@ export class MetaService implements IContextService {
     }
 
     // Load anchor/active metadata from note_session_shares for this session
-    const shares = await this.sessionManager.listNoteSessionSharesAsync(sessionId);
+    const shares = await this.notesManager.listNoteSessionSharesAsync(sessionId);
     const activeShareByNoteId = new Map(shares.filter((s) => s.active).map((s) => [s.noteId, s]));
 
     const allAgents = await this.agentManager.getAllAgentsAsync();
@@ -419,7 +413,7 @@ export class MetaService implements IContextService {
     const seenNoteIds = new Set<string>();
 
     for (const agent of allAgents) {
-      const sessionNotes = await this.sessionManager.listAgentNotes(agent.id);
+      const sessionNotes = await this.notesManager.listAgentNotes(agent.id);
       for (const note of sessionNotes) {
         if (seenNoteIds.has(note.id)) continue;
 
@@ -463,19 +457,26 @@ export class MetaService implements IContextService {
     }
 
     // Sort: anchored notes by anchorMessageId ASC (null/undefined last), then by updatedAt DESC
-    return noteEntries
-      .sort((left, right) => {
-        const la = left.anchorMessageId;
-        const ra = right.anchorMessageId;
-        if (la != null && ra != null) return la - ra;
-        if (la != null) return -1;
-        if (ra != null) return 1;
-        const updatedDiff =
-          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-        if (updatedDiff !== 0) return updatedDiff;
-        return left.note.id.localeCompare(right.note.id);
-      })
-      .map((entry) => entry.note);
+    return this.sortByAnchorMessageId(noteEntries).map((entry) => entry.note);
+  }
+
+  private sortByAnchorMessageId(
+    noteEntries: {
+      note: ContextEstimateNote;
+      updatedAt: string;
+      anchorMessageId: number | undefined;
+    }[]
+  ) {
+    return noteEntries.sort((left, right) => {
+      const la = left.anchorMessageId;
+      const ra = right.anchorMessageId;
+      if (la != null && ra != null) return la - ra;
+      if (la != null) return -1;
+      if (ra != null) return 1;
+      const updatedDiff = new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+      if (updatedDiff !== 0) return updatedDiff;
+      return left.note.id.localeCompare(right.note.id);
+    });
   }
 
   private async loadSessionPlanningForEstimate(sessionId: string): Promise<{

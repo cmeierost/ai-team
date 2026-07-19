@@ -26,9 +26,12 @@ describe('HandoffChatCommand', () => {
 
     const sessionManager = {
       getSession: vi.fn(async () => ({ id: 'sess-emily', developerId: 'dev-1' })),
-      resolveHandoffSession: vi.fn(async () => ({ session: { id: 'sess-michael' }, isNew: true })),
       getSessionMessages: vi.fn(async () => []),
       appendMessage: vi.fn(async () => undefined),
+    } as any;
+
+    const threadManager = {
+      resolveHandoffSession: vi.fn(async () => ({ session: { id: 'sess-michael' }, isNew: true })),
     } as any;
 
     const agentManager = {
@@ -49,12 +52,12 @@ describe('HandoffChatCommand', () => {
       chat: vi.fn(async () => 'Briefing for Michael.'),
     } as any;
 
-    return { emitService, sessionManager, agentManager, llmService };
+    return { emitService, sessionManager, threadManager, agentManager, llmService };
   }
 
   it('returns usage error when target is missing', async () => {
-    const { emitService, sessionManager, agentManager, llmService } = makeDeps();
-    const cmd = new HandoffChatCommand(agentManager, sessionManager, llmService, emitService);
+    const { emitService, sessionManager, threadManager, agentManager, llmService } = makeDeps();
+    const cmd = new HandoffChatCommand(agentManager, sessionManager, threadManager, llmService, emitService);
 
     const result = await cmd.execute('', {
       agent: EMILY,
@@ -67,8 +70,8 @@ describe('HandoffChatCommand', () => {
   });
 
   it('hands off and returns prompt-forward data', async () => {
-    const { emitService, sessionManager, agentManager, llmService } = makeDeps();
-    const cmd = new HandoffChatCommand(agentManager, sessionManager, llmService, emitService);
+    const { emitService, sessionManager, threadManager, agentManager, llmService } = makeDeps();
+    const cmd = new HandoffChatCommand(agentManager, sessionManager, threadManager, llmService, emitService);
 
     const ctx: any = {
       agent: EMILY,

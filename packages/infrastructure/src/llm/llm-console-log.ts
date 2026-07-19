@@ -63,7 +63,9 @@ const C = {
 };
 
 export class InfrastructureLlmConsoleLog implements ILlmConsoleLog {
-  constructor(private readonly isEnabledResolver: () => boolean = InfrastructureLlmConsoleLog.readFromEnv) {}
+  constructor(
+    private readonly isEnabledResolver: () => boolean = InfrastructureLlmConsoleLog.readFromEnv
+  ) {}
 
   isEnabled(): boolean {
     try {
@@ -74,6 +76,12 @@ export class InfrastructureLlmConsoleLog implements ILlmConsoleLog {
   }
 
   private static readFromEnv(): boolean {
+    // Only emit LLM console logs when the API server is running.
+    // CLI/console runs already stream tokens in real-time — a second
+    // summary pass would duplicate output.
+    if (process.env.AI_TEAM_RUNTIME_TARGET !== 'api') {
+      return false;
+    }
     const v = process.env.AI_TEAM_CONSOLE_LOG?.trim().toLowerCase();
     return v === '1' || v === 'true' || v === 'on';
   }

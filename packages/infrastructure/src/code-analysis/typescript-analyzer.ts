@@ -323,8 +323,7 @@ export class TypeScriptAnalyzer implements ITypeScriptAnalyzer<TSESTree.Program>
     return {
       cyclomaticComplexity: complexity,
       linesOfCode,
-      parameters:
-        'params' in node && Array.isArray(node.params) ? (node.params as any[]).length : 0,
+      parameters: 'params' in node && Array.isArray(node.params) ? node.params.length : 0,
       returnStatements,
       nestedDepth,
     };

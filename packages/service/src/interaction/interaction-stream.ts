@@ -246,11 +246,19 @@ export class InteractionStream {
         timestamp: timestamp(),
         data: data ?? { status: 'error' as const, message: 'No result' },
       });
+
+      const agentNameFromContext =
+        typeof (context as { agentName?: unknown }).agentName === 'string'
+          ? ((context as { agentName?: string }).agentName ?? undefined)
+          : undefined;
+      const isChatTurnBoundary = command === ('chat' as TCommand) || command === ('chat-chat' as TCommand);
+
       yield emitStreamEvent({
         requestId: request.requestId,
         command,
-        kind: 'done',
+        kind: isChatTurnBoundary ? 'turn_finished' : 'done',
         timestamp: timestamp(),
+        ...(agentNameFromContext ? { agentName: agentNameFromContext } : {}),
       });
       notifyTerminalState('done');
     } catch (error) {

@@ -6,11 +6,12 @@ import type {
   IEmitService,
   ILlmService,
   IProposalStoreFactory,
+  IToolSerializationService,
+  IToolDispatchSupportService,
   ToolDenialEvent,
   ToolRuntimePayloadEvent,
 } from '@ai-team/core';
 import type { FsPathAccessEnvelope } from '../../../commands/fs/fs-access.js';
-import { ToolSerializationService } from './tool-serialization-service.js';
 
 export type ToolDenialKind = 'user-denied' | 'policy-denied' | 'execution-failed';
 
@@ -85,10 +86,10 @@ const SILENT_TOOL_NAMES = new Set([
   'lsp',
 ]);
 
-export class ToolDispatchSupportService {
+export class ToolDispatchSupportService implements IToolDispatchSupportService {
   constructor(
     private readonly workspaceRoot: string,
-    private readonly serialization: ToolSerializationService,
+    private readonly serialization: IToolSerializationService,
     private readonly llmService: ILlmService,
     private readonly proposalStoreFactory: IProposalStoreFactory
   ) {}

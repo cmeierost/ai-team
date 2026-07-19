@@ -2,16 +2,23 @@ import type {
   BackendDebugLogSettings,
   BackendLogRuntimeProfile,
   IConfigurationStorage,
+  IBackendDebugLogSettingsService,
 } from '@ai-team/core';
 
 const DEFAULT_SETTINGS: BackendDebugLogSettings = {
   file: 'off',
   console: 'off',
+  sources: {
+    // Workflow runner emits a debug event for every state transition and step
+    // boundary. Even when the user enables console debug logging, this volume
+    // of structural noise is not useful on the terminal — route it to file only.
+    'workflow-runner': 'off',
+  },
 };
 
 type PartialSettings = Partial<BackendDebugLogSettings> | undefined;
 
-export class InfrastructureBackendDebugLogSettingsService {
+export class InfrastructureBackendDebugLogSettingsService implements IBackendDebugLogSettingsService {
   constructor(private readonly configurationStorage: Pick<IConfigurationStorage, 'get'>) {}
 
   resolveForRuntime(profile: BackendLogRuntimeProfile): BackendDebugLogSettings {
@@ -19,6 +26,9 @@ export class InfrastructureBackendDebugLogSettingsService {
       const backend = this.configurationStorage.get('log.backend') as {
         file?: BackendDebugLogSettings['file'];
         console?: BackendDebugLogSettings['console'];
+        sources?: BackendDebugLogSettings['sources'];
+        retentionHours?: BackendDebugLogSettings['retentionHours'];
+        retentionDays?: BackendDebugLogSettings['retentionDays'];
         targets?: {
           console?: PartialSettings;
           api?: PartialSettings;
@@ -28,6 +38,9 @@ export class InfrastructureBackendDebugLogSettingsService {
       const base: BackendDebugLogSettings = {
         file: backend?.file ?? DEFAULT_SETTINGS.file,
         console: backend?.console ?? DEFAULT_SETTINGS.console,
+        sources: backend?.sources ?? DEFAULT_SETTINGS.sources,
+        retentionHours: backend?.retentionHours,
+        retentionDays: backend?.retentionDays ?? 7,
       };
 
       const runtimeOverrides =
@@ -35,6 +48,9 @@ export class InfrastructureBackendDebugLogSettingsService {
       return {
         file: runtimeOverrides?.file ?? base.file,
         console: runtimeOverrides?.console ?? base.console,
+        sources: base.sources,
+        retentionHours: base.retentionHours,
+        retentionDays: base.retentionDays,
       };
     } catch {
       return DEFAULT_SETTINGS;

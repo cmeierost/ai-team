@@ -1,6 +1,6 @@
 export * from './access.js';
 export * from './agents.js';
-export * from './files.js';
+export * from './permissions.js';
 export * from './ide.js';
 export * from './llm.js';
 export * from './sessions.js';

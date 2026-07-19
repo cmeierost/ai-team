@@ -4,7 +4,7 @@ import path from 'node:path';
 import { vi } from 'vitest';
 import { WorkspaceFs, canRead, canWrite } from 'fs-context';
 import { ContextLevel, type Agent, type PermissionConfig, type ICommand } from '@ai-team/core';
-import { COMMAND_FACTORY_TOKENS } from '../../../types.js';
+import { CORE_SERVICE_TOKENS } from '../../../types.js';
 import { CommandRegistry } from '../../../command-dispatcher/command-registry.js';
 import { ToolManager } from '../../../tooling/manager/tool-manager.js';
 import {
@@ -174,7 +174,7 @@ export async function setupManager(workspaceRoot: string): Promise<ToolManager> 
 
   const container = {
     resolve: (token: { id?: string }) => {
-      if (token?.id !== COMMAND_FACTORY_TOKENS.WorkspaceFsFactory.id) {
+      if (token?.id !== CORE_SERVICE_TOKENS.WorkspaceFsFactory.id) {
         throw new Error(`Unexpected token requested in fs tool harness: ${String(token?.id)}`);
       }
 

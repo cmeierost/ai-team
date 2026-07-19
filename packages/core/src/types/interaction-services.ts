@@ -19,7 +19,9 @@ export interface RuntimeStreamEvent {
     | 'handoff'
     | 'avatar-preview'
     | 'session_switched'
-    | 'session_title_updated';
+    | 'session_title_updated'
+    | 'subworkflow_start'
+    | 'subworkflow_end';
   [key: string]: unknown;
 }
 

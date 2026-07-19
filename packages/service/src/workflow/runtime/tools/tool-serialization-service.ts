@@ -1,4 +1,6 @@
-export class ToolSerializationService {
+import type { IToolSerializationService } from '@ai-team/core';
+
+export class ToolSerializationService implements IToolSerializationService {
   formatArgs(args: unknown): string {
     if (args == null) return '';
     if (typeof args === 'string') return args;

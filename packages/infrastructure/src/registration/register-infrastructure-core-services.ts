@@ -36,7 +36,6 @@ import { ChatStorage, ChatManager } from '../chat/index.js';
 import { TeamGraphBuilder } from '../agent/team-graph-builder.js';
 import { ProviderConfigurationService } from '../llm/provider-configuration.service.js';
 import { InfrastructureLlmSettingsResolver } from '../llm/llm-settings-resolver.js';
-import { InfrastructureLlmConsoleLog } from '../llm/llm-console-log.js';
 import {
   GitHubModelDiscoveryService,
   OpenAICompatibleModelDiscoveryService,
@@ -53,6 +52,7 @@ export function registerInfrastructureCoreServices(
     | 'PlanningRepository'
     | 'LlmService'
     | 'ConfigurationStorage'
+    | 'BackendLogService'
     | 'PathPermissionChecker'
     | 'DeveloperIdentityService'
     | 'SystemInfoService'
@@ -117,7 +117,7 @@ export function registerInfrastructureCoreServices(
       c.resolve(tokens.WorkspaceRoot),
       teamConfig,
       c.resolve(tokens.LlmSettingsResolver),
-      new InfrastructureLlmConsoleLog()
+      c.resolve(tokens.BackendLogService)
     ) as unknown as ILlmService;
   });
 

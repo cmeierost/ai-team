@@ -4,8 +4,8 @@ import type {
   ChatSession,
   ExecutionContext,
   ICommandDescriptor,
+  IThreadManager,
 } from '@ai-team/core';
-import type { SessionManager } from '../../sessions/session-manager.js';
 
 function buildGraphLines(chain: ChatSession[], currentSessionId: string): string[] {
   const childrenOf = new Map<string, ChatSession[]>();
@@ -48,12 +48,12 @@ export const SessionGraphChatCommandMetadata = {
 export class SessionGraphChatCommand implements ICommand<string, string> {
   readonly metadata = SessionGraphChatCommandMetadata;
 
-  constructor(private readonly sessionManager: Pick<SessionManager, 'getSessionChain'>) {}
+  constructor(private readonly threadManager: IThreadManager) {}
 
   async execute(_args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
     let chain: ChatSession[];
     try {
-      chain = await this.sessionManager.getSessionChain(ctx.sessionId!!);
+      chain = await this.threadManager.getSessionChain(ctx.sessionId!!);
     } catch {
       return { status: 'error', message: 'Failed to load session chain.' };
     }

@@ -11,7 +11,7 @@ describe('ChatService post routing', () => {
       ),
     } as any;
 
-    const service = new ChatService(interactionService, {} as any, {} as any, {} as any, {} as any);
+    const service = new ChatService(interactionService, {} as any, {} as any, {} as any, {} as any, {} as any);
 
     const result = await service.post('sarah-lee', { content: 'hello' });
 
@@ -58,6 +58,7 @@ describe('ChatService tool result actions', () => {
       sessionManager,
       {} as any,
       {} as any,
+      {} as any,
       llmService
     );
 
@@ -91,8 +92,11 @@ describe('ChatService tool result actions', () => {
           ],
         },
       ]),
-      summarizeForContextAsync: vi.fn(async () => ' concise tool summary '),
       updateToolCallLlmResult: vi.fn(async () => undefined),
+    } as any;
+
+    const titleGenerator = {
+      summarizeForContextAsync: vi.fn(async () => ' concise tool summary '),
     } as any;
 
     const llmService = {
@@ -102,6 +106,7 @@ describe('ChatService tool result actions', () => {
     const service = new ChatService(
       { stream: vi.fn() } as any,
       sessionManager,
+      titleGenerator,
       {} as any,
       {} as any,
       llmService
@@ -113,8 +118,7 @@ describe('ChatService tool result actions', () => {
     });
 
     expect(llmService.ensureInitialized).toHaveBeenCalledOnce();
-    expect(sessionManager.summarizeForContextAsync).toHaveBeenCalledWith(
-      llmService,
+    expect(titleGenerator.summarizeForContextAsync).toHaveBeenCalledWith(
       expect.any(String),
       120,
       'only include key findings'
@@ -322,8 +326,11 @@ describe('ChatService tool result actions', () => {
           ],
         },
       ]),
-      summarizeForContextAsync: vi.fn(async () => 'new summary from raw'),
       updateToolCallLlmResult: vi.fn(async () => undefined),
+    } as any;
+
+    const titleGenerator2 = {
+      summarizeForContextAsync: vi.fn(async () => 'new summary from raw'),
     } as any;
 
     const llmService = {
@@ -333,6 +340,7 @@ describe('ChatService tool result actions', () => {
     const service = new ChatService(
       { stream: vi.fn() } as any,
       sessionManager,
+      titleGenerator2,
       {} as any,
       {} as any,
       llmService
@@ -343,8 +351,7 @@ describe('ChatService tool result actions', () => {
       focusInstruction: 'what changed the most',
     });
 
-    expect(sessionManager.summarizeForContextAsync).toHaveBeenCalledWith(
-      llmService,
+    expect(titleGenerator2.summarizeForContextAsync).toHaveBeenCalledWith(
       expect.stringContaining('RAW_SOURCE_MARKER'),
       80,
       'what changed the most'

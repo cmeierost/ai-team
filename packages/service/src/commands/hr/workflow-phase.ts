@@ -1,6 +1,6 @@
 import type { CommandResponse } from '@ai-team/api-contracts';
 import type { ChatMessage, ExecutionContext, IServiceContainer } from '@ai-team/core';
-import { COMMAND_FACTORY_TOKENS } from '../../types.js';
+import { CORE_SERVICE_TOKENS } from '../../types.js';
 
 interface WorkflowPhaseInput {
   agentId: string;
@@ -31,11 +31,11 @@ class WorkflowPhase {
 
   constructor(container: IServiceContainer) {
     this.dispatcher = container.resolve<CommandDispatcherLike>(
-      COMMAND_FACTORY_TOKENS.CommandDispatcher
+      CORE_SERVICE_TOKENS.CommandDispatcher
     );
-    this.sessionManager = container.resolve<SessionManagerLike>(COMMAND_FACTORY_TOKENS.SessionManager);
+    this.sessionManager = container.resolve<SessionManagerLike>(CORE_SERVICE_TOKENS.SessionManager);
     this.questionService = container.resolve<QuestionServiceLike>(
-      COMMAND_FACTORY_TOKENS.QuestionService
+      CORE_SERVICE_TOKENS.QuestionService
     );
   }
 

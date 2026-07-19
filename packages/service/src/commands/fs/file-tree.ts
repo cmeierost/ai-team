@@ -21,14 +21,11 @@ export class FileTreeService {
     private readonly configurationStorage: IConfigurationStorage,
     private readonly permissionStorage: IPermissionStorage,
     private readonly governanceService: GovernanceService,
-    private readonly fileTreeService?: IFileTreeService,
-    private readonly fileAnnotationService?: IFileAnnotationService
+    private readonly fileTreeService: IFileTreeService,
+    private readonly fileAnnotationService: IFileAnnotationService
   ) {}
 
   async getFileTree(options: Omit<GetFileTreeOptions, 'allowPaths'> = {}): Promise<FileTreeNode> {
-    if (!this.fileTreeService) {
-      throw new Error('File tree service is not available.');
-    }
     const fileTree = this.configurationStorage.get('fileTree') as
       | {
           readPaths?: string[];
@@ -48,7 +45,7 @@ export class FileTreeService {
         writePaths?: string[];
       }) ?? {};
     const key = mode === 'write' ? 'writePaths' : 'readPaths';
-    const current: string[] = (fileTree as any)?.[key] ?? [];
+    const current: string[] = fileTree[key] ?? [];
 
     if (current.includes(filePath)) return current;
 
@@ -69,7 +66,7 @@ export class FileTreeService {
         writePaths?: string[];
       }) ?? {};
     const key = mode === 'write' ? 'writePaths' : 'readPaths';
-    const current: string[] = (fileTree as any)?.[key] ?? [];
+    const current: string[] = fileTree[key] ?? [];
     const next = current.filter((p) => p !== filePath);
 
     if (next.length === current.length) return current;

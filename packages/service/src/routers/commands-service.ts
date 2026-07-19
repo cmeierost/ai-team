@@ -1,8 +1,12 @@
-import type { ICommandsService } from '@ai-team/api-contracts';
-import type { ChatCommandRegistryEntry } from '@ai-team/api-contracts';
-import type { IConfigurationStorage, ISkillManager } from '@ai-team/core';
-import { EmitService } from '../interaction/emit-service.js';
-import { IN_CHAT_COMMAND_REGISTRY } from '../commands/chat/chat-command-registry.js';
+import type { ChatCommandRegistryEntry, ICommandsService } from '@ai-team/api-contracts';
+import type {
+  IConfigurationStorage,
+  ICommandRegistry,
+  IEmitService,
+  ISkillManager,
+  ISessionManager,
+  IToolManager,
+} from '@ai-team/core';
 import {
   DynamicSlashCatalogService,
   DynamicSlashCommandFactory,
@@ -14,12 +18,21 @@ export class CommandsService implements ICommandsService {
 
   constructor(
     private readonly workspaceRoot: string,
+    private readonly commandRegistry: ICommandRegistry,
     private readonly skillManager: ISkillManager,
-    private readonly configurationStorage: IConfigurationStorage
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly emitService: IEmitService,
+    private readonly sessionManager: Pick<
+      ISessionManager,
+      'addSessionSkill' | 'setSessionSkillPaused'
+    >,
+    private readonly toolManager: Pick<IToolManager, 'execute'>
   ) {}
 
   async list(): Promise<ChatCommandRegistryEntry[]> {
-    const webChatCommandRegistry = IN_CHAT_COMMAND_REGISTRY;
+    const webChatCommandRegistry = this.commandRegistry.getAll({
+      availableIn: { chat: true },
+    }) as ChatCommandRegistryEntry[];
     const reservedKeys = new Set<string>();
     for (const command of webChatCommandRegistry) {
       reservedKeys.add(command.key.toLowerCase());
@@ -43,7 +56,12 @@ export class CommandsService implements ICommandsService {
       console.warn(warning);
     }
 
-    const commandFactory = new DynamicSlashCommandFactory(EmitService.noop());
+    const commandFactory = new DynamicSlashCommandFactory(
+      this.workspaceRoot,
+      this.emitService,
+      this.sessionManager,
+      this.toolManager
+    );
     return [
       ...webChatCommandRegistry,
       ...commandFactory.toChatCommandRegistryEntries(dynamic.entries),

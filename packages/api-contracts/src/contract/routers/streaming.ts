@@ -15,6 +15,7 @@ export type RuntimeStreamEvent =
       agentName: string;
       agentRole?: string;
       developerName?: string;
+      llmModel?: string;
       message?: string;
     }
   | {
@@ -107,6 +108,22 @@ export type RuntimeStreamEvent =
       kind: 'session_title_updated';
       sessionId: string;
       title: string;
+    }
+  | {
+      /** Emitted when a handoff subworkflow begins — tokens that follow belong to the target agent. */
+      kind: 'subworkflow_start';
+      agentId?: string;
+      agentName?: string;
+      agentRole?: string;
+      sessionId?: string;
+    }
+  | {
+      /** Emitted when a handoff subworkflow completes. */
+      kind: 'subworkflow_end';
+      agentId?: string;
+      agentName?: string;
+      status?: string;
+      hopCount?: number;
     };
 
 export interface AvatarOptions {
@@ -365,6 +382,7 @@ export type StreamEvent<TCommand extends string = string> =
       agentName: string;
       agentRole?: string;
       developerName?: string;
+      llmModel?: string;
       message?: string;
     }
   | {
@@ -487,6 +505,26 @@ export type StreamEvent<TCommand extends string = string> =
   | {
       requestId?: string;
       command: TCommand;
+      kind: 'subworkflow_start';
+      timestamp: string;
+      agentId?: string;
+      agentName?: string;
+      agentRole?: string;
+      sessionId?: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'subworkflow_end';
+      timestamp: string;
+      agentId?: string;
+      agentName?: string;
+      status?: string;
+      hopCount?: number;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
       kind: 'result';
       timestamp: string;
       data: CommandResponse<unknown>;
@@ -501,9 +539,31 @@ export type StreamEvent<TCommand extends string = string> =
   | {
       requestId?: string;
       command: TCommand;
-      kind: 'done' | 'aborted';
+      kind: 'done' | 'turn_finished' | 'aborted';
       timestamp: string;
+      agentName?: string;
     };
+
+/**
+ * Workflow-specific callbacks for runtime events.
+ */
+export interface WorkflowCallbacks {
+  onWorkflowFrame?: (frame: WorkflowFrame) => void;
+}
+
+/**
+ * Service-layer streaming interface.
+ *
+ * All transports (API server WebSocket, CLI, VS Code extension) call
+ * `stream()` to drive a chat interaction. Command dispatch and transport I/O
+ * remain the caller's concern.
+ */
+export interface IInteractionService {
+  stream<TCommand extends string = string>(
+    request: InteractionRequest,
+    callbacks?: WorkflowCallbacks
+  ): AsyncIterable<StreamEvent<TCommand>>;
+}
 
 export interface QuestionSelectChoice {
   name: string;

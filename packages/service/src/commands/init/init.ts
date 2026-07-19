@@ -8,7 +8,6 @@ import {
 } from './init-compat.js';
 import type { InitOptions } from '@ai-team/api-contracts';
 import type { SessionManager } from '../../sessions/session-manager.js';
-import type { InitRuntimeHooks } from './workflow-questions.js';
 import {
   createBootstrapInstructions,
   createBootstrapSkills,
@@ -29,8 +28,7 @@ import { updateWorkspaceSettings } from './update-workspace-settings.js';
 import type { OnboardICommand } from '../hr/onboard.js';
 import type { SetupCommand } from '../setup/setup.js';
 import type { TestConnectionCommand } from '../setup/test-connection.js';
-import type { IEmitService } from '@ai-team/core';
-import { EmitService } from '../../interaction/emit-service.js';
+import type { IEmitService, IQuestionService } from '@ai-team/core';
 
 const FORCE_KEEP = new Set(['config.json', '.env']);
 const INIT_RUNTIME_ARTIFACTS = new Set(['agents', 'logs', 'private', '.ide-server.json']);
@@ -46,12 +44,13 @@ export class InitCommand {
     private readonly onboard: Pick<OnboardICommand, 'executeOnboarding'>,
     private readonly setup: SetupCommand,
     private readonly testConnection: TestConnectionCommand,
-    private readonly workflowRunnerFactory: IWorkflowRunnerFactory
+    private readonly workflowRunnerFactory: IWorkflowRunnerFactory,
+    private readonly questionService: IQuestionService,
+    private readonly emitService: IEmitService
   ) {}
 
   async execute(
     params: InitCommandParams,
-    emitService: IEmitService,
     signal?: AbortSignal,
     workflowState?: unknown
   ): Promise<void> {
@@ -60,12 +59,12 @@ export class InitCommand {
     await runInitWorkflowAsync(
       workspaceRoot,
       options,
-      emitService,
+      this.emitService,
       signal,
       workflowState,
       {
         onboard: {
-          execute: (params, signal) => this.onboard.executeOnboarding(params, signal),
+          execute: (p, s) => this.onboard.executeOnboarding(p, s),
         },
         setup: this.setup,
         testConnection: this.testConnection,
@@ -73,46 +72,44 @@ export class InitCommand {
       this.workflowRunnerFactory
     );
   }
-}
 
-async function writeFileIfMissing(filePath: string, content: string): Promise<void> {
-  try {
-    await fs.access(filePath);
-  } catch {
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, content, 'utf-8');
+  async executeLegacy(workspaceRoot: string, options: InitOptions = {}): Promise<void> {
+    const state = await this.getInitState(workspaceRoot);
+    const shouldContinue = await this.handleExistingState(workspaceRoot, options, state);
+    if (!shouldContinue) {
+      return;
+    }
+
+    const existingResolved = await this.resolveExistingLlmConfig(workspaceRoot);
+    const llmReady = await this.tryReuseExistingLlm(options, existingResolved);
+
+    if (!llmReady) {
+      await ensureAiTeamDirectory(workspaceRoot);
+      await this.questionService.select({
+        message: 'Choose your LLM provider:',
+        choices: [
+          { name: 'GitHub Copilot', value: 'github-copilot' },
+          { name: 'OpenAI-compatible', value: 'openai-compatible' },
+        ],
+      });
+    }
+
+    this.emitService.log('info', '');
+    this.emitService.log('info', 'Verifying LLM connection...');
+    await testLlmConnection(workspaceRoot);
+
+    this.emitService.log('info', '');
+    this.emitService.log('info', 'Welcome to AI Team!');
+    this.emitService.log('info', "Let's set up your virtual development team.");
+
+    await updateWorkspaceSettings(workspaceRoot);
+    await this.bootstrapOnboardingAssets(workspaceRoot);
+    await this.runCompatibilityOnboarding(workspaceRoot);
   }
-}
 
-function slugifyAgentId(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, '-')
-    .replaceAll(/^-+|-+$/g, '');
-}
+  // ── Legacy flow methods ──────────────────────────────────────────────────
 
-function describeResolvedProvider(effective: {
-  config?: { provider?: string; baseUrl?: string };
-  providerRef?: string;
-}): string {
-  if (effective.config?.provider === 'github-copilot') {
-    return 'GitHub Copilot';
-  }
-
-  return `OpenAI-compatible (${effective.config?.baseUrl ?? 'custom base URL'})`;
-}
-
-type ExistingResolvedLlm = {
-  config: { provider?: string; baseUrl?: string; apiKey?: string };
-  providerRef?: string;
-  apiKey?: string;
-};
-
-class InitLegacyFlow {
-  constructor(private readonly emitService: IEmitService) {}
-
-  async clearAiTeamDirectory(workspaceRoot: string) {
+  private async clearAiTeamDirectory(workspaceRoot: string) {
     const aiTeamDir = path.join(workspaceRoot, '.ai-team');
     let entries: import('node:fs').Dirent[];
     try {
@@ -136,7 +133,7 @@ class InitLegacyFlow {
     }
   }
 
-  async handleExistingState(
+  private async handleExistingState(
     workspaceRoot: string,
     options: InitOptions,
     state: { aiTeamDir: string; hasAgentFiles: boolean; hasNonAgentArtifacts: boolean }
@@ -172,14 +169,13 @@ class InitLegacyFlow {
     return true;
   }
 
-  async tryReuseExistingLlm(
+  private async tryReuseExistingLlm(
     options: InitOptions,
-    existingResolved: ExistingResolvedLlm | undefined,
-    hooks:
+    existingResolved:
       | {
-          signal?: AbortSignal;
-          emitService?: IEmitService;
-          workflowState?: unknown;
+          config: { provider?: string; baseUrl?: string; apiKey?: string };
+          providerRef?: string;
+          apiKey?: string;
         }
       | undefined
   ): Promise<boolean> {
@@ -190,7 +186,7 @@ class InitLegacyFlow {
       : '';
     this.emitService.log(
       'info',
-      `  Current LLM: ${describeResolvedProvider(existingResolved)}${providerRefLabel}`
+      `  Current LLM: ${this.describeResolvedProvider(existingResolved)}${providerRefLabel}`
     );
 
     const questionParams = {
@@ -202,7 +198,7 @@ class InitLegacyFlow {
       questionType: 'confirm',
       message: questionParams.message,
     } as any);
-    const reuse = (await hooks?.questionConfirm?.(questionParams)) ?? true;
+    const reuse = await this.questionService.confirm(questionParams);
 
     if (!reuse) return false;
 
@@ -214,247 +210,221 @@ class InitLegacyFlow {
     return true;
   }
 
-  writeWelcomeAndVerify() {
-    this.emitService.log('info', '');
-    this.emitService.log('info', 'Verifying LLM connection...');
+  private async bootstrapOnboardingAssets(workspaceRoot: string): Promise<void> {
+    await createBootstrapTemplateFiles(workspaceRoot, {
+      templateKeys: Object.keys(INIT_TEMPLATE_FILE_MAP) as InitTemplateKey[],
+      readDefaultTemplate,
+      getWorkspaceTemplatePath,
+      writeFileIfMissing: this.writeFileIfMissing.bind(this),
+    });
+
+    const templates = await loadInitTemplates(workspaceRoot);
+
+    await createBootstrapWorkspaceFiles(
+      workspaceRoot,
+      templates,
+      this.writeFileIfMissing.bind(this)
+    );
+    await createBootstrapInstructions(workspaceRoot, templates, this.writeFileIfMissing.bind(this));
+    await createBootstrapSkills(workspaceRoot, templates);
+    await createRoleTemplates(workspaceRoot, templates);
   }
 
-  writeWelcomeBanner() {
-    this.emitService.log('info', '');
-    this.emitService.log('info', 'Welcome to AI Team!');
-    this.emitService.log('info', "Let's set up your virtual development team.");
+  private async runCompatibilityOnboarding(workspaceRoot: string): Promise<void> {
+    await this.bootstrapOnboardingAssets(workspaceRoot);
+
+    const ceoName =
+      (await this.questionService.select({
+        message: 'Name your CEO:',
+        choices: [
+          { name: 'John Smith', value: 'John Smith' },
+          { name: 'Michael Brown', value: 'Michael Brown' },
+          { name: 'Sarah Lee', value: 'Sarah Lee' },
+        ],
+      })) ?? 'Michael Brown';
+
+    const hrName =
+      (await this.questionService.select({
+        message: 'Name your HR leader:',
+        choices: [
+          { name: 'Emily Davis', value: 'Emily Davis' },
+          { name: 'Jessica Miller', value: 'Jessica Miller' },
+          { name: 'Olivia Martinez', value: 'Olivia Martinez' },
+        ],
+      })) ?? 'Emily Davis';
+
+    await saveAgentAccessPatterns(workspaceRoot, this.slugifyAgentId(ceoName), {
+      read: ['**/*'],
+      write: ['.ai-team/**/*'],
+    });
+
+    await saveAgentAccessPatterns(workspaceRoot, this.slugifyAgentId(hrName), {
+      read: ['**/*'],
+      write: ['.ai-team/skills-catalog/**/*', '.ai-team/instructions/**/*', '.ai-team/roles/**/*'],
+    });
+
+    const useGuidedMode =
+      (await this.questionService.confirm({
+        message: 'Use guided onboarding mode?',
+        default: true,
+      })) ?? true;
+
+    if (useGuidedMode) {
+      await this.questionService.select({
+        message: 'Choose your business mode:',
+        choices: [
+          { name: 'Greenfield', value: 'greenfield' },
+          { name: 'Modernize existing platform', value: 'modernize' },
+          { name: 'Internal transformation', value: 'internal' },
+        ],
+      });
+
+      await this.questionService.checklist({
+        message: 'Choose your top business priorities:',
+        choices: [
+          { name: 'Time to market', value: 'time-to-market' },
+          { name: 'Reliability', value: 'reliability' },
+          { name: 'Cost efficiency', value: 'cost-efficiency' },
+        ],
+      });
+
+      await this.questionService.checklist({
+        message: 'Choose your main delivery constraints:',
+        choices: [
+          { name: 'Small team', value: 'small-team' },
+          { name: 'Legacy integration', value: 'legacy-integration' },
+          { name: 'Tight deadlines', value: 'tight-deadlines' },
+        ],
+      });
+
+      await this.questionService.checklist({
+        message: 'Choose must-have hiring roles:',
+        choices: [
+          { name: 'Chief Architect', value: 'chief-architect' },
+          { name: 'Backend Lead', value: 'backend-lead' },
+          { name: 'Frontend Lead', value: 'frontend-lead' },
+        ],
+      });
+    }
+
+    await this.questionService.input({
+      message: 'Describe the product or business context for your founding team:',
+    });
   }
-}
 
-async function bootstrapOnboardingAssets(workspaceRoot: string): Promise<void> {
-  await createBootstrapTemplateFiles(workspaceRoot, {
-    templateKeys: Object.keys(INIT_TEMPLATE_FILE_MAP) as InitTemplateKey[],
-    readDefaultTemplate,
-    getWorkspaceTemplatePath,
-    writeFileIfMissing,
-  });
+  private async getInitState(workspaceRoot: string): Promise<{
+    aiTeamDir: string;
+    hasAgentFiles: boolean;
+    hasNonAgentArtifacts: boolean;
+  }> {
+    const aiTeamDir = path.join(workspaceRoot, '.ai-team');
+    let hasAgentFiles = false;
+    let hasNonAgentArtifacts = false;
+    try {
+      const stats = await fs.stat(aiTeamDir);
+      if (stats.isDirectory()) {
+        const agentsDir = path.join(aiTeamDir, 'agents');
 
-  const templates = await loadInitTemplates(workspaceRoot);
+        try {
+          const rootEntries = await fs.readdir(aiTeamDir, { withFileTypes: true });
+          hasNonAgentArtifacts = rootEntries.some(
+            (entry) => !INIT_RUNTIME_ARTIFACTS.has(entry.name)
+          );
+        } catch {
+          hasNonAgentArtifacts = false;
+        }
 
-  await createBootstrapWorkspaceFiles(workspaceRoot, templates, writeFileIfMissing);
-  await createBootstrapInstructions(workspaceRoot, templates, writeFileIfMissing);
-  await createBootstrapSkills(workspaceRoot, templates);
-  await createRoleTemplates(workspaceRoot, templates);
-}
+        try {
+          const agentEntries = await fs.readdir(agentsDir);
+          hasAgentFiles = agentEntries.some((entry) => entry.endsWith('.agent.md'));
+        } catch {
+          hasAgentFiles = false;
+        }
+      }
+    } catch {
+      // missing .ai-team is fine
+    }
 
-async function runCompatibilityOnboarding(
-  workspaceRoot: string,
-  hooks:
+    return { aiTeamDir, hasAgentFiles, hasNonAgentArtifacts };
+  }
+
+  private async resolveExistingLlmConfig(workspaceRoot: string): Promise<
     | {
-        signal?: AbortSignal;
-        emitService?: IEmitService;
-        workflowState?: unknown;
+        config: { provider?: string; baseUrl?: string; apiKey?: string };
+        providerRef?: string;
+        apiKey?: string;
       }
     | undefined
-): Promise<void> {
-  await bootstrapOnboardingAssets(workspaceRoot);
+  > {
+    const existingConfig = await loadTeamConfig(workspaceRoot);
+    if (!existingConfig) return undefined;
 
-  if (!hooks?.questionSelect && hooks?.questionInput) {
-    await hooks.questionInput({
-      message: 'Describe the product or team you want to set up:',
-    });
-    return;
-  }
-
-  const ceoName =
-    (await hooks?.questionSelect?.({
-      message: 'Name your CEO:',
-      choices: [
-        { name: 'John Smith', value: 'John Smith' },
-        { name: 'Michael Brown', value: 'Michael Brown' },
-        { name: 'Sarah Lee', value: 'Sarah Lee' },
-      ],
-    })) ?? 'Michael Brown';
-
-  const hrName =
-    (await hooks?.questionSelect?.({
-      message: 'Name your HR leader:',
-      choices: [
-        { name: 'Emily Davis', value: 'Emily Davis' },
-        { name: 'Jessica Miller', value: 'Jessica Miller' },
-        { name: 'Olivia Martinez', value: 'Olivia Martinez' },
-      ],
-    })) ?? 'Emily Davis';
-
-  await saveAgentAccessPatterns(workspaceRoot, slugifyAgentId(ceoName), {
-    read: ['**/*'],
-    write: ['.ai-team/**/*'],
-  });
-
-  await saveAgentAccessPatterns(workspaceRoot, slugifyAgentId(hrName), {
-    read: ['**/*'],
-    write: ['.ai-team/skills-catalog/**/*', '.ai-team/instructions/**/*', '.ai-team/roles/**/*'],
-  });
-
-  const useGuidedMode =
-    (await hooks?.questionConfirm?.({
-      message: 'Use guided onboarding mode?',
-      default: true,
-    })) ?? true;
-
-  if (useGuidedMode) {
-    await hooks?.questionSelect?.({
-      message: 'Choose your business mode:',
-      choices: [
-        { name: 'Greenfield', value: 'greenfield' },
-        { name: 'Modernize existing platform', value: 'modernize' },
-        { name: 'Internal transformation', value: 'internal' },
-      ],
-    });
-
-    await hooks?.questionChecklist?.({
-      message: 'Choose your top business priorities:',
-      choices: [
-        { name: 'Time to market', value: 'time-to-market' },
-        { name: 'Reliability', value: 'reliability' },
-        { name: 'Cost efficiency', value: 'cost-efficiency' },
-      ],
-    });
-
-    await hooks?.questionChecklist?.({
-      message: 'Choose your main delivery constraints:',
-      choices: [
-        { name: 'Small team', value: 'small-team' },
-        { name: 'Legacy integration', value: 'legacy-integration' },
-        { name: 'Tight deadlines', value: 'tight-deadlines' },
-      ],
-    });
-
-    await hooks?.questionChecklist?.({
-      message: 'Choose must-have hiring roles:',
-      choices: [
-        { name: 'Chief Architect', value: 'chief-architect' },
-        { name: 'Backend Lead', value: 'backend-lead' },
-        { name: 'Frontend Lead', value: 'frontend-lead' },
-      ],
-    });
-  }
-
-  await hooks?.questionInput?.({
-    message: 'Describe the product or business context for your founding team:',
-  });
-}
-
-export async function initCommand(
-  workspaceRoot: string,
-  options: InitOptions = {},
-  emitService: IEmitService = EmitService.noop(),
-  signal?: AbortSignal,
-  workflowState?: unknown
-): Promise<void> {
-  const flow = new InitLegacyFlow(emitService);
-
-  const state = await getInitState(workspaceRoot);
-  const shouldContinue = await flow.handleExistingState(workspaceRoot, options, state);
-  if (!shouldContinue) {
-    return;
-  }
-
-  const existingResolved = await resolveExistingLlmConfig(workspaceRoot);
-  const llmReady = await flow.tryReuseExistingLlm(options, existingResolved, hooks);
-
-  if (!llmReady) {
-    await ensureAiTeamDirectory(workspaceRoot);
-    await hooks?.questionSelect?.({
-      message: 'Choose your LLM provider:',
-      choices: [
-        { name: 'GitHub Copilot', value: 'github-copilot' },
-        { name: 'OpenAI-compatible', value: 'openai-compatible' },
-      ],
-    });
-  }
-
-  flow.writeWelcomeAndVerify();
-  await testLlmConnection(workspaceRoot);
-
-  flow.writeWelcomeBanner();
-
-  await updateWorkspaceSettings(workspaceRoot);
-  await bootstrapOnboardingAssets(workspaceRoot);
-  await runCompatibilityOnboarding(workspaceRoot, hooks);
-}
-
-async function getInitState(workspaceRoot: string): Promise<{
-  aiTeamDir: string;
-  hasAgentFiles: boolean;
-  hasNonAgentArtifacts: boolean;
-}> {
-  const aiTeamDir = path.join(workspaceRoot, '.ai-team');
-  let hasAgentFiles = false;
-  let hasNonAgentArtifacts = false;
-  try {
-    const stats = await fs.stat(aiTeamDir);
-    if (stats.isDirectory()) {
-      const agentsDir = path.join(aiTeamDir, 'agents');
-
-      try {
-        const rootEntries = await fs.readdir(aiTeamDir, { withFileTypes: true });
-        hasNonAgentArtifacts = rootEntries.some((entry) => !INIT_RUNTIME_ARTIFACTS.has(entry.name));
-      } catch {
-        hasNonAgentArtifacts = false;
-      }
-
-      try {
-        const agentEntries = await fs.readdir(agentsDir);
-        hasAgentFiles = agentEntries.some((entry) => entry.endsWith('.agent.md'));
-      } catch {
-        hasAgentFiles = false;
-      }
-    }
-  } catch {
-    // missing .ai-team is fine
-  }
-
-  return { aiTeamDir, hasAgentFiles, hasNonAgentArtifacts };
-}
-
-async function resolveExistingLlmConfig(
-  workspaceRoot: string
-): Promise<ExistingResolvedLlm | undefined> {
-  const existingConfig = await loadTeamConfig(workspaceRoot);
-  if (!existingConfig) return undefined;
-
-  const legacy = existingConfig as {
-    llm?: { provider?: string; baseUrl?: string; apiKey?: string };
-  };
-
-  if (legacy.llm?.provider) {
-    return {
-      config: {
-        provider: legacy.llm.provider,
-        baseUrl: legacy.llm.baseUrl,
-        apiKey: legacy.llm.apiKey,
-      },
-      providerRef: legacy.llm.provider,
-      apiKey: legacy.llm.apiKey,
+    const legacy = existingConfig as {
+      llm?: { provider?: string; baseUrl?: string; apiKey?: string };
     };
+
+    if (legacy.llm?.provider) {
+      return {
+        config: {
+          provider: legacy.llm.provider,
+          baseUrl: legacy.llm.baseUrl,
+          apiKey: legacy.llm.apiKey,
+        },
+        providerRef: legacy.llm.provider,
+        apiKey: legacy.llm.apiKey,
+      };
+    }
+
+    try {
+      const providers = (existingConfig as { providers?: Record<string, unknown> }).providers;
+      if (providers && typeof providers === 'object') {
+        const firstProvider = Object.entries(providers)[0];
+        if (firstProvider) {
+          const [providerRef, value] = firstProvider;
+          const provider = value as { kind?: string; baseUrl?: string; apiKey?: string };
+          return {
+            config: {
+              provider: provider.kind,
+              baseUrl: provider.baseUrl,
+              apiKey: provider.apiKey,
+            },
+            providerRef,
+            apiKey: provider.apiKey,
+          };
+        }
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
   }
 
-  try {
-    const providers = (existingConfig as { providers?: Record<string, unknown> }).providers;
-    if (providers && typeof providers === 'object') {
-      const firstProvider = Object.entries(providers)[0];
-      if (firstProvider) {
-        const [providerRef, value] = firstProvider;
-        const provider = value as { kind?: string; baseUrl?: string; apiKey?: string };
-        return {
-          config: {
-            provider: provider.kind,
-            baseUrl: provider.baseUrl,
-            apiKey: provider.apiKey,
-          },
-          providerRef,
-          apiKey: provider.apiKey,
-        };
-      }
+  private describeResolvedProvider(effective: {
+    config?: { provider?: string; baseUrl?: string };
+    providerRef?: string;
+  }): string {
+    if (effective.config?.provider === 'github-copilot') {
+      return 'GitHub Copilot';
     }
-    return undefined;
-  } catch {
-    return undefined;
+
+    return `OpenAI-compatible (${effective.config?.baseUrl ?? 'custom base URL'})`;
+  }
+
+  private slugifyAgentId(name: string): string {
+    return name
+      .trim()
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, '-')
+      .replace(/^-/, '')
+      .replace(/-$/, '');
+  }
+
+  private async writeFileIfMissing(filePath: string, content: string): Promise<void> {
+    try {
+      await fs.access(filePath);
+    } catch {
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, content, 'utf-8');
+    }
   }
 }

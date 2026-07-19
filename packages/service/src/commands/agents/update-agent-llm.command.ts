@@ -117,7 +117,7 @@ export class UpdateEmployeeLlmTool implements ICommand<
 
     const record = await this.agentDocumentStorage.loadAgentAsync(target.filePath);
     const currentProfile = record.llm || {};
-    const currentParams = (currentProfile as any).params || {};
+    const currentParams = currentProfile.params || {};
 
     const nextParams = {
       ...currentParams,

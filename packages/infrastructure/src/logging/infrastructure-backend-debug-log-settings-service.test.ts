@@ -44,10 +44,12 @@ describe('InfrastructureBackendDebugLogSettingsService', () => {
     expect(service.resolveForRuntime('console')).toEqual({
       file: 'warning',
       console: 'off',
+      sources: {},
     });
     expect(service.resolveForRuntime('api')).toEqual({
       file: 'warning',
       console: 'off',
+      sources: {},
     });
   });
 
@@ -65,6 +67,7 @@ describe('InfrastructureBackendDebugLogSettingsService', () => {
     expect(service.resolveForRuntime('console')).toEqual({
       file: 'info',
       console: 'debug',
+      sources: {},
     });
   });
 
@@ -82,11 +85,33 @@ describe('InfrastructureBackendDebugLogSettingsService', () => {
     expect(service.resolveForRuntime('api')).toEqual({
       file: 'warning',
       console: 'off',
+      sources: {},
     });
 
     expect(service.resolveForRuntime('console')).toEqual({
       file: 'off',
       console: 'off',
+      sources: {},
+    });
+  });
+
+  it('preserves per-source level overrides', () => {
+    const service = new InfrastructureBackendDebugLogSettingsService(
+      createStorage({
+        file: 'off',
+        console: 'off',
+        sources: {
+          'workflow-runner': 'debug',
+        },
+      }) as any
+    );
+
+    expect(service.resolveForRuntime('console')).toEqual({
+      file: 'off',
+      console: 'off',
+      sources: {
+        'workflow-runner': 'debug',
+      },
     });
   });
 });

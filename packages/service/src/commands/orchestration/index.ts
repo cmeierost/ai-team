@@ -1,5 +1,5 @@
 import type { ICommand, IServiceContainer } from '@ai-team/core';
-import { COMMAND_FACTORY_TOKENS } from '../../types.js';
+import { CORE_SERVICE_TOKENS } from '../../types.js';
 
 import { AskUserCommand } from '../com/ask.command.js';
 import { HandoffCommand } from '../com/handoff.command.js';
@@ -47,16 +47,20 @@ export function createOrchestrationCommands(
 ): ICommand<unknown, unknown>[] {
   return [
     new HandoffCommand(
-      resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.SessionManager)
+      resolver.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      resolver.resolve(CORE_SERVICE_TOKENS.SessionManager),
+      resolver.resolve(CORE_SERVICE_TOKENS.ThreadManager),
+      resolver.resolve(CORE_SERVICE_TOKENS.LlmService),
+      resolver.resolve(CORE_SERVICE_TOKENS.EmitService),
+      resolver.resolve(CORE_SERVICE_TOKENS.ChatRuntime)
     ),
     new HireOrchestrationCommand(
-      resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager),
-      resolver.resolve(COMMAND_FACTORY_TOKENS.MarkdownSectionService)
+      resolver.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      resolver.resolve(CORE_SERVICE_TOKENS.MarkdownSectionService)
     ),
-    new WhoShouldCommand(resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager), dependencies.tools),
+    new WhoShouldCommand(resolver.resolve(CORE_SERVICE_TOKENS.AgentManager), dependencies.tools),
     new ListToolsOrchestrationCommand(dependencies.tools),
-    new TeamListOrchestrationCommand(resolver.resolve(COMMAND_FACTORY_TOKENS.AgentManager)),
+    new TeamListOrchestrationCommand(resolver.resolve(CORE_SERVICE_TOKENS.AgentManager)),
     ...createWorkflowDefinitionCommands(dependencies.workflows, dependencies.workflowResolvers),
   ];
 }

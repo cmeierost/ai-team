@@ -66,8 +66,6 @@ export {
 
 export { HANDOFF_AUTO_REACT_MESSAGE } from './handoff-auto-react.js';
 
-export { ChatHandoffTransitionService } from './chat-handoff-transition.js';
-
 // Legacy send-turn-machine removed - use ChatRuntime with XState WorkflowRunner instead
 
 export {

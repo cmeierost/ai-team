@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import type {
   Agent,
+  ChatMessage,
   IAgentManager,
   ILlmService,
   IEmitService,
@@ -7,9 +9,9 @@ import type {
   CommandResponse,
   ExecutionContext,
   ICommandDescriptor,
+  ISessionManager,
+  IThreadManager,
 } from '@ai-team/core';
-import type { SessionManager } from '../../sessions/session-manager.js';
-import { ChatHandoffTransitionService } from '../../workflow/chat/chat-handoff-transition.js';
 import { HANDOFF_AUTO_REACT_MESSAGE } from '../../workflow/chat/handoff-auto-react.js';
 
 export const HandoffChatCommandMetadata = {
@@ -29,22 +31,24 @@ interface HandoffPromptForwardData {
 
 export class HandoffChatCommand implements ICommand<unknown, HandoffPromptForwardData> {
   readonly metadata = HandoffChatCommandMetadata;
-  private readonly handoffTransitionService: ChatHandoffTransitionService;
   private readonly agentManager: IAgentManager;
+  private readonly sessionManager: ISessionManager;
+  private readonly threadManager: IThreadManager;
+  private readonly llmService: ILlmService;
+  private readonly emitService: IEmitService;
 
   constructor(
     agentManager: IAgentManager,
-    sessionManager: SessionManager,
+    sessionManager: ISessionManager,
+    threadManager: IThreadManager,
     llmService: ILlmService,
     emitService: IEmitService
   ) {
     this.agentManager = agentManager;
-    this.handoffTransitionService = new ChatHandoffTransitionService(
-      agentManager,
-      sessionManager,
-      llmService,
-      emitService
-    );
+    this.sessionManager = sessionManager;
+    this.threadManager = threadManager;
+    this.llmService = llmService;
+    this.emitService = emitService;
   }
 
   async execute(
@@ -75,12 +79,7 @@ export class HandoffChatCommand implements ICommand<unknown, HandoffPromptForwar
       return { status: 'ok', message: `Already talking to ${ctx.agent?.name}.` };
     }
 
-    const switched = await this.handoffTransitionService.executeHandoff(
-      ctx,
-      target.id,
-      undefined,
-      note
-    );
+    const switched = await this.executeHandoffInline(ctx, target, note);
     if (!switched) {
       return {
         status: 'error',
@@ -96,6 +95,118 @@ export class HandoffChatCommand implements ICommand<unknown, HandoffPromptForwar
         promptText: HANDOFF_AUTO_REACT_MESSAGE,
       },
     };
+  }
+
+  private async executeHandoffInline(
+    ctx: ExecutionContext,
+    target: Agent,
+    handoffNote?: string
+  ): Promise<boolean> {
+    const fromAgent = ctx.agent!;
+    const fromSessionId = ctx.sessionId!;
+
+    const currentSession = await this.sessionManager.getSession(fromSessionId);
+    const developerId = currentSession?.developerId ?? 'unknown';
+
+    const { session: toSession } = await this.threadManager.resolveHandoffSession(
+      target.id,
+      fromSessionId,
+      developerId
+    );
+    const toSessionId = toSession.id;
+
+    const briefingContent = await this.generateHandoffBriefing(
+      ctx,
+      fromAgent,
+      target,
+      developerId,
+      handoffNote ?? ''
+    );
+
+    const handoffId = randomUUID();
+    const briefingMsg: ChatMessage = {
+      from: fromAgent.id,
+      to: target.id,
+      content: briefingContent,
+      timestamp: new Date().toISOString(),
+      isHuman: false,
+      handoffType: 'agent-briefing',
+      handoffFromSessionId: fromSessionId,
+      handoffToSessionId: toSessionId,
+      handoffId,
+    };
+
+    const history = await this.sessionManager.getSessionMessages(toSessionId);
+    history.push(briefingMsg);
+    await this.sessionManager.appendMessage(toSessionId, briefingMsg);
+    await this.sessionManager.appendMessage(fromSessionId, briefingMsg);
+
+    this.emitService.emit({
+      kind: 'handoff',
+      fromAgentId: fromAgent.id,
+      fromAgentName: fromAgent.name,
+      fromAgentRole: fromAgent.role,
+      fromSessionId,
+      toAgentId: target.id,
+      toAgentName: target.name,
+      toAgentRole: target.role,
+      toSessionId,
+      handoffNote,
+      briefingContent,
+    });
+
+    this.emitService.emit({
+      kind: 'agent_info',
+      agentId: target.id,
+      agentName: target.name,
+      agentRole: target.role,
+      llmModel: target.resolvedLlm?.model,
+    });
+
+    ctx.agent = target;
+    ctx.sessionId = toSessionId;
+    ctx.history = history;
+
+    return true;
+  }
+
+  private async generateHandoffBriefing(
+    ctx: ExecutionContext,
+    fromAgent: Agent,
+    toAgent: Agent,
+    developerName: string,
+    triggerMessage: string
+  ): Promise<string> {
+    try {
+      const recentHistory = ctx.history.slice(-12);
+      const historyText = recentHistory
+        .map((m) => `${m.isHuman ? developerName : m.from}: ${m.content}`)
+        .join('\n');
+
+      const agentTitle = fromAgent.role ? `${fromAgent.name} (${fromAgent.role})` : fromAgent.name;
+
+      const reply = await this.llmService.chat(
+        fromAgent,
+        [
+          {
+            role: 'user',
+            content:
+              `You are ${agentTitle}. ` +
+              `Write a handoff briefing for ${toAgent.name}.\n` +
+              (triggerMessage ? `${developerName} said: "${triggerMessage}"\n\n` : '') +
+              (historyText ? `Recent conversation:\n${historyText}\n\n` : '') +
+              `Write 2-10 sentences in first person as ${fromAgent.name}: summarise what you and ` +
+              `${developerName} discussed, what ${developerName}'s goal is, and why you are ` +
+              `forwarding them to ${toAgent.name}. ` +
+              `Do not repeat the request word-for-word. Do not add a subject line or greeting.`,
+          },
+        ],
+        { maxTokens: 250 }
+      );
+      return reply.trim();
+    } catch {
+      return triggerMessage || `Handoff from ${fromAgent.name} to ${toAgent.name}.`;
+    }
   }
 
   private normalizeArgs(args: unknown): string {

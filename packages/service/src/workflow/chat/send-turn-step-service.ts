@@ -9,16 +9,17 @@ import type {
   Skill,
   StructuredToolResult,
   ExecutionContext,
+  IEmitService,
+  ISessionManager,
+  ILlmInvokeService,
+  IToolDispatchService,
+  IToolSchemaService,
+  ISendTurnStepService,
 } from '@ai-team/core';
 import type { WorkflowCallbacks } from '../runtime/hooks.js';
 import type { LlmToolDefinition } from '../../tooling/manager/tool-manager.js';
 import { ToolIdentity } from '../../tooling/manager/tool-manager.js';
-import { ToolSchemaService } from '../runtime/tools/schema-service.js';
 import type { ResolvedPlugins, TurnResult } from '../runtime/pipeline.js';
-import { LlmInvokeService } from '../../llm/llm-invoke.js';
-import type { IEmitService } from '@ai-team/core';
-import type { ToolDispatcher } from '../runtime/tools/tool-dispatch.js';
-import type { SessionManager } from '../../sessions/session-manager.js';
 import type { IChatSkillService } from './chat-skill-service.js';
 
 export interface SendTurnOptions {
@@ -30,8 +31,8 @@ export interface SendTurnOptions {
  * These are NOT on ExecutionContext — they are injected by the runtime.
  */
 export interface SendTurnPersistenceDeps {
-  sessionManager: Pick<SessionManager, 'appendMessage'>;
-  agentManager: Pick<IAgentManager, 'getAllAgentsAsync' | 'recordInteractionAsync'>;
+  sessionManager: ISessionManager;
+  agentManager: IAgentManager;
 }
 
 export interface SendTurnSkillDeps {
@@ -40,9 +41,9 @@ export interface SendTurnSkillDeps {
 
 export interface SendTurnLlmDeps {
   llmService: ILlmService;
-  invokeService: LlmInvokeService;
-  toolDispatcher: ToolDispatcher;
-  toolSchemaService: ToolSchemaService;
+  invokeService: ILlmInvokeService;
+  toolDispatcher: IToolDispatchService;
+  toolSchemaService: IToolSchemaService;
 }
 
 export interface SendTurnRuntimeDeps {
@@ -71,15 +72,15 @@ export interface SendTurnLlmInvocationResult {
 
 const TITLE_GENERATION_MIN_HUMAN_TURNS = 3;
 
-export class SendTurnStepService {
+export class SendTurnStepService implements ISendTurnStepService {
   constructor(
-    private readonly sessionManager: Pick<SessionManager, 'appendMessage'>,
-    private readonly agentManager: Pick<IAgentManager, 'getAllAgentsAsync' | 'recordInteractionAsync'>,
+    private readonly sessionManager: ISessionManager,
+    private readonly agentManager: IAgentManager,
     private readonly chatSkillService: IChatSkillService,
     private readonly llmService: ILlmService,
-    private readonly llmInvokeService: LlmInvokeService,
-    private readonly toolDispatcher: ToolDispatcher,
-    private readonly toolSchemaService: ToolSchemaService,
+    private readonly llmInvokeService: ILlmInvokeService,
+    private readonly toolDispatcher: IToolDispatchService,
+    private readonly toolSchemaService: IToolSchemaService,
     private readonly runtimeCallbacks: WorkflowCallbacks,
     private readonly emitService: IEmitService
   ) {}

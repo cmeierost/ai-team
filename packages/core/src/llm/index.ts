@@ -1,10 +1,4 @@
-import type {
-  LlmConfig,
-  Agent,
-  Skill,
-  InstructionFile,
-  ChatMessage,
-} from '../types/index.js';
+import type { LlmConfig, Agent, Skill, InstructionFile, ChatMessage } from '../types/index.js';
 
 // ============================================================================
 // LlmService — high-level abstraction for any configured provider
@@ -144,7 +138,7 @@ export interface ILlmService {
    * @param options - Optional overrides
    * @param skills - Optional skills with role/specialization instructions
    * @param teamRoster - Optional list of all agents (injected into system prompt)
-   * @returns An async iterable of content chunks
+   * @returns A promise resolving to an async iterable of raw LLM stream chunks
    */
   streamChat(
     agent: Agent,
@@ -152,25 +146,7 @@ export interface ILlmService {
     options?: LlmChatOptions,
     skills?: Skill[],
     teamRoster?: Agent[]
-  ): AsyncIterable<string>;
-
-  /**
-   * Send a streaming chat completion request.
-   *
-   * @param agent - The agent whose persona is used as system prompt
-   * @param messages - Conversation messages
-   * @param options - Optional overrides
-   * @param skills - Optional skills with role/specialization instructions
-   * @param teamRoster - Optional list of all agents (injected into system prompt)
-   * @returns An async iterable of content chunks
-   */
-  streamChat(
-    agent: Agent,
-    messages: ChatCompletionMessageParams[],
-    options?: LlmChatOptions,
-    skills?: Skill[],
-    teamRoster?: Agent[]
-  ): AsyncIterable<string>;
+  ): Promise<AsyncIterable<unknown>>;
 
   chatWithTools(
     agent: Agent,
@@ -207,7 +183,7 @@ export interface ILlmService {
     systemPrompt: string,
     messages: ChatCompletionMessageParams[],
     options?: LlmChatOptions
-  ): AsyncIterable<string>;
+  ): Promise<AsyncIterable<unknown>>;
 
   /**
    * Generate a short title (≤5 words) for a conversation.

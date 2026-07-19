@@ -128,11 +128,10 @@ export class InfoChatCommand implements ICommand<string, Agent[]> {
     private readonly agentManager: IAgentManager,
     private readonly questionService: IQuestionService,
     private readonly emitService: IEmitService,
-    private readonly llmService?: ILlmService
+    private readonly llmService: ILlmService
   ) {}
 
   private async resolveActiveLlm(agent: Agent): Promise<ResolvedLlm | undefined> {
-    if (!this.llmService) return undefined;
     try {
       await this.llmService.initializeForChat(agent);
       return {

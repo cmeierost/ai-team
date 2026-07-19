@@ -72,4 +72,72 @@ describe('InfrastructureBackendLogService', () => {
       .catch(() => false);
     expect(exists).toBe(false);
   });
+
+  it('per-source override can enable a source even when global file level is off', async () => {
+    const settingsService = {
+      resolveForRuntime: vi.fn(() => ({
+        file: 'off',
+        console: 'off',
+        sources: { 'workflow-runner': 'debug' },
+      })),
+    };
+    const service = new InfrastructureBackendLogService(workspaceRoot, settingsService as any);
+
+    service.write({ source: 'workflow-runner', level: 'debug', phase: 'xstate-inspect' });
+
+    const filePath = path.join(workspaceRoot, '.ai-team', 'logs', 'backend.log');
+    const line = await waitForFileLine(filePath);
+
+    expect(line).toBeTruthy();
+    const parsed = JSON.parse(line as string) as { entry?: { source?: string } };
+    expect(parsed.entry?.source).toBe('workflow-runner');
+  });
+
+  it('per-source override raises level from error to debug for that source', async () => {
+    const stderrWrites: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderrWrites.push(typeof chunk === 'string' ? chunk : chunk.toString());
+      return true;
+    });
+
+    const settingsService = {
+      resolveForRuntime: vi.fn(() => ({
+        file: 'off',
+        console: 'error',
+        sources: { 'workflow-runner': 'debug' },
+      })),
+    };
+    const service = new InfrastructureBackendLogService(workspaceRoot, settingsService as any);
+
+    // This debug entry from workflow-runner should appear (source override = debug)
+    service.write({ source: 'workflow-runner', level: 'debug', phase: 'xstate-inspect' });
+
+    // This debug entry from another source should NOT appear (global console = error)
+    service.write({ source: 'other-source', level: 'debug', phase: 'something' });
+
+    expect(stderrWrites).toHaveLength(1);
+    const parsed = JSON.parse(stderrWrites[0]);
+    expect(parsed.source).toBe('workflow-runner');
+  });
+
+  it('per-source override can suppress a source even when global level allows it', async () => {
+    const stderrWrites: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderrWrites.push(typeof chunk === 'string' ? chunk : chunk.toString());
+      return true;
+    });
+
+    const settingsService = {
+      resolveForRuntime: vi.fn(() => ({
+        file: 'off',
+        console: 'debug',
+        sources: { 'workflow-runner': 'off' },
+      })),
+    };
+    const service = new InfrastructureBackendLogService(workspaceRoot, settingsService as any);
+
+    service.write({ source: 'workflow-runner', level: 'debug', phase: 'xstate-inspect' });
+
+    expect(stderrWrites).toHaveLength(0);
+  });
 });

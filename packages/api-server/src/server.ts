@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createContainerWithBootstrap, TOKENS } from '@ai-team/container';
 import { findWorkspaceRoot } from '@ai-team/infrastructure';
-import { EmitService, COMMAND_FACTORY_TOKENS } from '@ai-team/service';
+import { EmitService } from '@ai-team/service';
 import type { IMessageStorage } from '@ai-team/core';
 import { createExpressRouter } from '@ts-http/express';
 import {
@@ -201,7 +201,6 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
       ws.send(JSON.stringify({ type: 'runtime', data: event }));
     });
     connectionContainer.registerInstance(TOKENS.EmitService, emitService);
-    connectionContainer.registerInstance(COMMAND_FACTORY_TOKENS.EmitService, emitService);
 
     const interactionService = connectionContainer.resolve(TOKENS.InteractionService);
 
@@ -210,6 +209,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
       workspaceRoot,
       llmService: container.resolve(TOKENS.LlmService),
       questionService,
+      sessionsService: container.resolve(TOKENS.SessionsService),
     });
   });
 

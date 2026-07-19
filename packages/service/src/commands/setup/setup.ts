@@ -273,9 +273,10 @@ export class SetupCommand {
               file: 'off',
               console: 'off',
               targets: {
-                console: { file: 'off', console: 'off' },
+                console: { file: 'off', console: 'debug' },
                 api: { file: 'off', console: 'off' },
               },
+              sources: {},
             },
             frontend: { file: 'off', console: 'off' },
             chat: {

@@ -76,4 +76,6 @@ export interface WorkflowDefinition<TState> extends Omit<ICommandDescriptor, 'ke
 export interface WorkflowResult<TState> {
   state: TState;
   aborted: boolean;
+  /** Error message captured when the workflow aborted due to a step failure. */
+  abortedError?: string;
 }

@@ -39,4 +39,37 @@ describe('ChatTurnCommand', () => {
 
     expect(response).toEqual({ status: 'ok', data: 'ok', message: 'completed' });
   });
+
+  it('forwards execution context signal to runtime', async () => {
+    const runtime = {
+      runAsync: vi.fn(async () => ({
+        status: 'completed',
+        text: 'ok',
+        hopCount: 0,
+      })),
+    };
+    const command = new ChatTurnCommand(runtime as any);
+    const signal = new AbortController().signal;
+
+    await command.execute(
+      {
+        employeeId: 'alex-morgan',
+        options: {
+          message: 'hello',
+        },
+      },
+      {
+        invocationSurface: 'cli',
+        history: [],
+        signal,
+      } as any
+    );
+
+    expect(runtime.runAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'hello',
+        signal,
+      })
+    );
+  });
 });

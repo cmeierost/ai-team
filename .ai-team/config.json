@@ -1,5 +1,18 @@
 {
   "version": "0.1.0",
+  "log": {
+    "backend": {
+      "sources": {
+        "workflow-runner": "warning"
+      },
+      "targets": {
+        "console": {
+          "console": "warning"
+        }
+      },
+      "retentionHours": 1
+    }
+  },
   "providers": {
     "api-llmhub-infs-ai": {
       "kind": "openai-compatible",
@@ -556,45 +569,6 @@
       ],
       "baseUrl": "https://api.openai.com/v1",
       "apiKey": "${OPENAI_API_KEY}"
-    },
-    "ollama-local": {
-      "kind": "openai-compatible",
-      "defaultModel": "qwen2.5-coder:7b",
-      "models": [
-        {
-          "name": "glm-4.7-flash:latest"
-        },
-        {
-          "name": "qwen3.5:latest"
-        },
-        {
-          "name": "gemma3:4b"
-        },
-        {
-          "name": "deepseek-r1:8b"
-        },
-        {
-          "name": "qwen2.5-coder:7b"
-        },
-        {
-          "name": "qwen3-coder:30b"
-        },
-        {
-          "name": "qwen3:8b"
-        }
-      ],
-      "baseUrl": "http://localhost:11434/v1"
-    },
-    "personal-openai": {
-      "kind": "openai-compatible",
-      "baseUrl": "https://api.llmhub.infs.ai/v1",
-      "apiKey": "${LLM_HUB_API_KEY}",
-      "defaultModel": "best-chat",
-      "models": [
-        {
-          "name": "best-chat"
-        }
-      ]
     }
   },
   "defaultModel": {

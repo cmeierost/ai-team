@@ -82,17 +82,3 @@ export const permissionDesc: ApiDescription<IPermissionService> = {
     permissionDeny: { method: 'POST', path: 'permission-deny' },
   },
 };
-
-export const toolDesc: ApiDescription<IPermissionService> = {
-  subRoute: '/api/files',
-  mapping: {
-    getPatterns: { method: 'GET', path: 'patterns' },
-    getTree: { method: 'GET', path: 'tree' },
-    allowAll: { method: 'POST', path: 'allow' },
-    disallowAll: { method: 'DELETE', path: 'allow' },
-    allow: { method: 'POST', path: 'agent-allow' },
-    disallow: { method: 'POST', path: 'agent-disallow' },
-    permissionAllow: { method: 'POST', path: 'permission-allow' },
-    permissionDeny: { method: 'POST', path: 'permission-deny' },
-  },
-};
