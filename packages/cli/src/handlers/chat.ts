@@ -737,7 +737,8 @@ export async function renderChat(
   };
   const payloadSuggestions = Array.isArray(requestPayload?.['__slashSuggestions'])
     ? (requestPayload?.['__slashSuggestions'] as Array<
-        Pick<CommandDescriptor, 'key' | 'aliases' | 'usage' | 'description'> | ChatCommandRegistryEntry
+        | Pick<CommandDescriptor, 'key' | 'aliases' | 'usage' | 'description'>
+        | ChatCommandRegistryEntry
       >)
     : undefined;
   const chatCommands =
@@ -1010,8 +1011,8 @@ export async function renderChat(
         const label = startupAgentName?.trim()
           ? startupAgentName.trim()
           : startupAgentId
-          ? normalizeAgentDisplayName(undefined, startupAgentId)
-          : 'last active agent';
+            ? normalizeAgentDisplayName(undefined, startupAgentId)
+            : 'last active agent';
         const sessionPart = startupSessionId ? `session ${startupSessionId}` : 'latest session';
         writeStderrLine(chalk.dim(`Resuming ${sessionPart} with ${label}.`));
       }
@@ -1117,230 +1118,230 @@ export async function renderChat(
               : undefined,
         }
       )) {
-      if (event.kind === 'token') {
-        stopSpinner();
-        // Always write tokens to stdout — same stream as readline's prompt,
-        // guaranteeing correct ordering on Windows (ConPTY merges stdout/stderr
-        // but they may flush in non-deterministic order).
-        handleAssistantTokenChunk(event.text);
-        continue;
-      }
-
-      closeTokenBurstIfNeeded();
-
-      if (event.kind === 'done' || event.kind === 'turn_finished') {
-        closeThinkingBurstIfNeeded();
-        flushBracketToolBufferFallbackIfNeeded();
-        continue;
-      }
-
-      if (event.kind === 'aborted') {
-        stopSpinner();
-        closeThinkingBurstIfNeeded();
-        flushBracketToolBufferFallbackIfNeeded();
-        writeStderrLine(chalk.yellow('Chat aborted.'));
-        process.exitCode = 130;
-        return;
-      }
-
-      if (event.kind === 'status') {
-        const phase = (event.phase ?? '').toLowerCase();
-        if (phase === 'thinking') {
-          // Suppress spinner during tool round — tool events already provide
-          // visible progress. Re-starting here masks thinking token output.
-          if (!inToolRound) {
-            startSpinner(event.message || undefined);
-          }
-        } else if (phase === 'complete') {
+        if (event.kind === 'token') {
           stopSpinner();
-          inToolRound = false;
-        }
-
-        if (event.message && mediatorLoggerEnabled) {
-          writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
-        }
-        continue;
-      }
-
-      if (event.kind === 'agent_info') {
-        currentAgentId = event.agentId || currentAgentId;
-        currentAgentName = event.agentName.trim() || currentAgentName;
-        currentAgentRole = event.agentRole?.trim() || currentAgentRole;
-        if (event.llmModel?.trim()) {
-          currentLlmModel = event.llmModel.trim();
-        }
-        if (event.developerName?.trim()) {
-          developerDisplayName = event.developerName.trim();
-        }
-        // Update spinner text now that we know the agent's name
-        if (spinnerActive) {
-          spinnerText = `${normalizeAgentDisplayName(currentAgentName, currentAgentId)} is thinking…`;
-        }
-        if (mediatorLoggerEnabled && event.message) {
-          writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
-        }
-        continue;
-      }
-
-      if (event.kind === 'tool') {
-        stopSpinner();
-        closeThinkingBurstIfNeeded();
-        inToolRound = true;
-        const phase = event.toolPhase || 'event';
-
-        // Slash command results go directly to stdout — they ARE the response.
-        if (
-          typeof event.toolName === 'string' &&
-          event.toolName.startsWith('slash:') &&
-          (phase === 'result' || phase === 'error')
-        ) {
-          const slashOutput = resolveSlashCommandOutput(event);
-          if (slashOutput) {
-            process.stdout.write(slashOutput.endsWith('\n') ? slashOutput : slashOutput + '\n');
-          }
+          // Always write tokens to stdout — same stream as readline's prompt,
+          // guaranteeing correct ordering on Windows (ConPTY merges stdout/stderr
+          // but they may flush in non-deterministic order).
+          handleAssistantTokenChunk(event.text);
           continue;
         }
 
-        if (
-          bufferingBracketToolCall &&
-          (phase === 'result' || phase === 'error' || phase === 'denied')
-        ) {
-          bracketToolRenderedViaEvent = true;
-          bufferingBracketToolCall = false;
-          bracketToolBuffer = '';
-        }
-
-        // Skip tool result line for com_handoff — the handoff event already rendered
-        // the transition (FromAgent → ToAgent + briefing) and the subworkflow tokens
-        // streamed live. Showing a second tool result line would be redundant.
-        if (event.toolName === 'com_handoff' && phase === 'result') {
-          stopSpinner();
-          continue;
-        }
-
-        const formatted = formatToolEventMessage(event as unknown as Record<string, unknown>);
-        const suffix = formatted ? chalk.gray(` — ${formatted}`) : '';
-        writeStderrLine(
-          `${chalk.cyan(`[backend:tool:${phase}]`)} ${chalk.white(event.toolName)}${suffix}`
-        );
-        const detail = formatToolEventDetail(event as unknown as Record<string, unknown>);
-        if (detail) writeStderrLine(detail);
-        // After tool completes, stop the spinner so the next thinking phase
-        // or token burst renders cleanly. Re-starting the spinner here caused
-        // "⠋ is thinking…" to reappear over already-rendered thinking content.
-        if (phase === 'result' || phase === 'error' || phase === 'denied') {
-          stopSpinner();
-        }
-        continue;
-      }
-
-      // Handle code edit proposals
-      if (event.kind === 'code_edit_proposal') {
-        stopSpinner();
-        closeThinkingBurstIfNeeded();
-        await handleCodeEditProposal(
-          event,
-          writeStderrLine,
-          options.oneShot || false,
-          workspaceRoot
-        );
-        continue;
-      }
-
-      // Handle agent handoff — print a single clean transition line
-      if (event.kind === 'handoff') {
-        stopSpinner();
-        closeThinkingBurstIfNeeded();
-        const e = event;
-        const from = normalizeAgentDisplayName(e.fromAgentName, e.fromAgentId);
-        const to = normalizeAgentDisplayName(e.toAgentName, e.toAgentId);
-        currentAgentId = e.toAgentId || currentAgentId;
-        currentAgentName = e.toAgentName || e.toAgentId || currentAgentName;
-        currentAgentRole = e.toAgentRole || currentAgentRole;
-        const note = e.handoffNote ? `: ${e.handoffNote}` : '';
-        const fromStyled = agentChalk(e.fromAgentId, e.fromAgentName).bold(String(from));
-        const toStyled = agentChalk(e.toAgentId, e.toAgentName).bold(String(to));
-        writeStderrLine('');
-        writeStderrLine(fromStyled + chalk.dim(' → ') + toStyled + chalk.dim(note));
-        if (e.briefingContent) {
-          writeStderrLine('');
-          writeStderrLine(chalk.italic.gray(e.briefingContent));
-        }
-        writeStderrLine('');
-        continue;
-      }
-
-      // Handle subworkflow start — prepare token header for the target agent.
-      if (event.kind === 'subworkflow_start') {
-        stopSpinner();
-        closeThinkingBurstIfNeeded();
-        const e = event;
-        currentAgentId = e.agentId || currentAgentId;
-        currentAgentName = e.agentName || currentAgentName;
-        currentAgentRole = e.agentRole || currentAgentRole;
-        continue;
-      }
-
-      // Handle subworkflow end — close any open token burst.
-      if (event.kind === 'subworkflow_end') {
-        stopSpinner();
         closeTokenBurstIfNeeded();
-        continue;
-      }
 
-      if (event.kind === 'question') {
-        if (frontendFileLogEnabled) {
-          writeFrontendDebugLog({ command: 'chat-chat', event });
-        }
-        if (mediatorLoggerEnabled) {
-          writeStderrLine(
-            chalk.yellow(`[frontend:question:${event.questionType || 'input'}] ${event.message}`)
-          );
-        }
-        continue;
-      }
-
-      if (event.kind === 'log') {
-        stopSpinner();
-        closeThinkingBurstIfNeeded();
-
-        if (/─── Previous conversation/i.test(event.message)) {
-          inPreviousConversationLogBlock = true;
-        } else if (
-          inPreviousConversationLogBlock &&
-          /^\s*─{10,}\s*$/u.test(event.message.trim())
-        ) {
-          inPreviousConversationLogBlock = false;
+        if (event.kind === 'done' || event.kind === 'turn_finished') {
+          closeThinkingBurstIfNeeded();
+          flushBracketToolBufferFallbackIfNeeded();
+          continue;
         }
 
-        const lineText = formatPreviousConversationLogLine(event.message);
-        const line = `${lineText}\n`;
-        if (event.level === 'error') {
-          process.stderr.write(chalk.red(line));
-        } else if (event.level === 'warn') {
-          process.stderr.write(chalk.yellow(line));
-        } else {
-          streamOut.write(chalk.dim(line));
-        }
-        continue;
-      }
-
-      if (event.kind === 'error') {
-        stopSpinner();
-        closeThinkingBurstIfNeeded();
-        flushBracketToolBufferFallbackIfNeeded();
-        if (abortControl.wasAborted() || isAbortLikeError(event.message)) {
+        if (event.kind === 'aborted') {
+          stopSpinner();
+          closeThinkingBurstIfNeeded();
+          flushBracketToolBufferFallbackIfNeeded();
           writeStderrLine(chalk.yellow('Chat aborted.'));
           process.exitCode = 130;
           return;
         }
-        throw new Error(event.message);
-      }
 
-      if (options.oneShot) {
-        handleOneShotEvent(event, writeStderrLine);
+        if (event.kind === 'status') {
+          const phase = (event.phase ?? '').toLowerCase();
+          if (phase === 'thinking') {
+            // Suppress spinner during tool round — tool events already provide
+            // visible progress. Re-starting here masks thinking token output.
+            if (!inToolRound) {
+              startSpinner(event.message || undefined);
+            }
+          } else if (phase === 'complete') {
+            stopSpinner();
+            inToolRound = false;
+          }
+
+          if (event.message && mediatorLoggerEnabled) {
+            writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
+          }
+          continue;
+        }
+
+        if (event.kind === 'agent_info') {
+          currentAgentId = event.agentId || currentAgentId;
+          currentAgentName = event.agentName.trim() || currentAgentName;
+          currentAgentRole = event.agentRole?.trim() || currentAgentRole;
+          if (event.llmModel?.trim()) {
+            currentLlmModel = event.llmModel.trim();
+          }
+          if (event.developerName?.trim()) {
+            developerDisplayName = event.developerName.trim();
+          }
+          // Update spinner text now that we know the agent's name
+          if (spinnerActive) {
+            spinnerText = `${normalizeAgentDisplayName(currentAgentName, currentAgentId)} is thinking…`;
+          }
+          if (mediatorLoggerEnabled && event.message) {
+            writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
+          }
+          continue;
+        }
+
+        if (event.kind === 'tool') {
+          stopSpinner();
+          closeThinkingBurstIfNeeded();
+          inToolRound = true;
+          const phase = event.toolPhase || 'event';
+
+          // Slash command results go directly to stdout — they ARE the response.
+          if (
+            typeof event.toolName === 'string' &&
+            event.toolName.startsWith('slash:') &&
+            (phase === 'result' || phase === 'error')
+          ) {
+            const slashOutput = resolveSlashCommandOutput(event);
+            if (slashOutput) {
+              process.stdout.write(slashOutput.endsWith('\n') ? slashOutput : slashOutput + '\n');
+            }
+            continue;
+          }
+
+          if (
+            bufferingBracketToolCall &&
+            (phase === 'result' || phase === 'error' || phase === 'denied')
+          ) {
+            bracketToolRenderedViaEvent = true;
+            bufferingBracketToolCall = false;
+            bracketToolBuffer = '';
+          }
+
+          // Skip tool result line for com_handoff — the handoff event already rendered
+          // the transition (FromAgent → ToAgent + briefing) and the subworkflow tokens
+          // streamed live. Showing a second tool result line would be redundant.
+          if (event.toolName === 'com_handoff' && phase === 'result') {
+            stopSpinner();
+            continue;
+          }
+
+          const formatted = formatToolEventMessage(event as unknown as Record<string, unknown>);
+          const suffix = formatted ? chalk.gray(` — ${formatted}`) : '';
+          writeStderrLine(
+            `${chalk.cyan(`[backend:tool:${phase}]`)} ${chalk.white(event.toolName)}${suffix}`
+          );
+          const detail = formatToolEventDetail(event as unknown as Record<string, unknown>);
+          if (detail) writeStderrLine(detail);
+          // After tool completes, stop the spinner so the next thinking phase
+          // or token burst renders cleanly. Re-starting the spinner here caused
+          // "⠋ is thinking…" to reappear over already-rendered thinking content.
+          if (phase === 'result' || phase === 'error' || phase === 'denied') {
+            stopSpinner();
+          }
+          continue;
+        }
+
+        // Handle code edit proposals
+        if (event.kind === 'code_edit_proposal') {
+          stopSpinner();
+          closeThinkingBurstIfNeeded();
+          await handleCodeEditProposal(
+            event,
+            writeStderrLine,
+            options.oneShot || false,
+            workspaceRoot
+          );
+          continue;
+        }
+
+        // Handle agent handoff — print a single clean transition line
+        if (event.kind === 'handoff') {
+          stopSpinner();
+          closeThinkingBurstIfNeeded();
+          const e = event;
+          const from = normalizeAgentDisplayName(e.fromAgentName, e.fromAgentId);
+          const to = normalizeAgentDisplayName(e.toAgentName, e.toAgentId);
+          currentAgentId = e.toAgentId || currentAgentId;
+          currentAgentName = e.toAgentName || e.toAgentId || currentAgentName;
+          currentAgentRole = e.toAgentRole || currentAgentRole;
+          const note = e.handoffNote ? `: ${e.handoffNote}` : '';
+          const fromStyled = agentChalk(e.fromAgentId, e.fromAgentName).bold(String(from));
+          const toStyled = agentChalk(e.toAgentId, e.toAgentName).bold(String(to));
+          writeStderrLine('');
+          writeStderrLine(fromStyled + chalk.dim(' → ') + toStyled + chalk.dim(note));
+          if (e.briefingContent) {
+            writeStderrLine('');
+            writeStderrLine(chalk.italic.gray(e.briefingContent));
+          }
+          writeStderrLine('');
+          continue;
+        }
+
+        // Handle subworkflow start — prepare token header for the target agent.
+        if (event.kind === 'subworkflow_start') {
+          stopSpinner();
+          closeThinkingBurstIfNeeded();
+          const e = event;
+          currentAgentId = e.agentId || currentAgentId;
+          currentAgentName = e.agentName || currentAgentName;
+          currentAgentRole = e.agentRole || currentAgentRole;
+          continue;
+        }
+
+        // Handle subworkflow end — close any open token burst.
+        if (event.kind === 'subworkflow_end') {
+          stopSpinner();
+          closeTokenBurstIfNeeded();
+          continue;
+        }
+
+        if (event.kind === 'question') {
+          if (frontendFileLogEnabled) {
+            writeFrontendDebugLog({ command: 'chat-chat', event });
+          }
+          if (mediatorLoggerEnabled) {
+            writeStderrLine(
+              chalk.yellow(`[frontend:question:${event.questionType || 'input'}] ${event.message}`)
+            );
+          }
+          continue;
+        }
+
+        if (event.kind === 'log') {
+          stopSpinner();
+          closeThinkingBurstIfNeeded();
+
+          if (/─── Previous conversation/i.test(event.message)) {
+            inPreviousConversationLogBlock = true;
+          } else if (
+            inPreviousConversationLogBlock &&
+            /^\s*─{10,}\s*$/u.test(event.message.trim())
+          ) {
+            inPreviousConversationLogBlock = false;
+          }
+
+          const lineText = formatPreviousConversationLogLine(event.message);
+          const line = `${lineText}\n`;
+          if (event.level === 'error') {
+            process.stderr.write(chalk.red(line));
+          } else if (event.level === 'warn') {
+            process.stderr.write(chalk.yellow(line));
+          } else {
+            streamOut.write(chalk.dim(line));
+          }
+          continue;
+        }
+
+        if (event.kind === 'error') {
+          stopSpinner();
+          closeThinkingBurstIfNeeded();
+          flushBracketToolBufferFallbackIfNeeded();
+          if (abortControl.wasAborted() || isAbortLikeError(event.message)) {
+            writeStderrLine(chalk.yellow('Chat aborted.'));
+            process.exitCode = 130;
+            return;
+          }
+          throw new Error(event.message);
+        }
+
+        if (options.oneShot) {
+          handleOneShotEvent(event, writeStderrLine);
+        }
       }
-    }
 
       if (options.oneShot) {
         break;

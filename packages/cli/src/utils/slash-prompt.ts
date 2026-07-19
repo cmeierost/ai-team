@@ -11,12 +11,7 @@
  * Falls back to a plain `readline.question()` when stdin is not a TTY.
  */
 
-import {
-  emitKeypressEvents,
-  cursorTo,
-  moveCursor,
-  clearScreenDown,
-} from 'node:readline';
+import { emitKeypressEvents, cursorTo, moveCursor, clearScreenDown } from 'node:readline';
 import type { Key } from 'node:readline';
 import { stdout as output } from 'node:process';
 import type { CommandDescriptor } from '@ai-team/api-contracts';

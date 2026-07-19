@@ -353,7 +353,12 @@ export async function setupChatWebSocket(
               );
               return;
             }
-            send({ kind: 'status', command: 'chat', timestamp: new Date().toISOString(), message: 'Crawling website...' });
+            send({
+              kind: 'status',
+              command: 'chat',
+              timestamp: new Date().toISOString(),
+              message: 'Crawling website...',
+            });
             const note = await sessionsService?.crawlSummarizeWebsiteNote(
               sessionId ?? '',
               message.noteId,
@@ -364,7 +369,12 @@ export async function setupChatWebSocket(
                 focusInstruction: message.focusInstruction,
               }
             );
-            send({ kind: 'status', command: 'chat', timestamp: new Date().toISOString(), message: 'Done' });
+            send({
+              kind: 'status',
+              command: 'chat',
+              timestamp: new Date().toISOString(),
+              message: 'Done',
+            });
             send({
               kind: 'result',
               command: 'chat',
@@ -372,16 +382,22 @@ export async function setupChatWebSocket(
               data: { status: 'ok' as const, message: 'Note summarized', data: note },
             });
           } else {
-            send({ kind: 'status', command: 'chat', timestamp: new Date().toISOString(), message: 'Summarizing note...' });
-            const note = await sessionsService?.compactNote(
-              sessionId ?? '',
-              message.noteId,
-              {
-                maxWords: message.maxWords,
-                focusInstruction: message.focusInstruction,
-              }
-            );
-            send({ kind: 'status', command: 'chat', timestamp: new Date().toISOString(), message: 'Done' });
+            send({
+              kind: 'status',
+              command: 'chat',
+              timestamp: new Date().toISOString(),
+              message: 'Summarizing note...',
+            });
+            const note = await sessionsService?.compactNote(sessionId ?? '', message.noteId, {
+              maxWords: message.maxWords,
+              focusInstruction: message.focusInstruction,
+            });
+            send({
+              kind: 'status',
+              command: 'chat',
+              timestamp: new Date().toISOString(),
+              message: 'Done',
+            });
             send({
               kind: 'result',
               command: 'chat',

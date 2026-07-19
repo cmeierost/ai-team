@@ -6,9 +6,15 @@ import { CliCommandClient } from './cli-command-client.js';
 function createClient(): CliCommandClient {
   return new CliCommandClient(
     { getCommands: () => [], dispatch: async () => ({ status: 'ok', message: '' }) } as any,
-    { emit: () => {}, status: () => {}, log: () => {}, token: () => {}, toolLifecycle: () => {} } as any,
+    {
+      emit: () => {},
+      status: () => {},
+      log: () => {},
+      token: () => {},
+      toolLifecycle: () => {},
+    } as any,
     { write: () => {} } as any,
-    { stream: async function* () {} } as any,
+    { stream: async function* () {} } as any
   );
 }
 
