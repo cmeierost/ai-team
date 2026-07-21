@@ -761,4 +761,49 @@ describe('chat command', () => {
     expect(output).toContain('The user has now said hello.');
     expect(output).not.toContain('The userhas');
   });
+
+  it('keeps submitted interactive user message visible in chat transcript', async () => {
+    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
+    const originalStdoutIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+
+    clientApi.streamInteraction.mockReturnValue(
+      (async function* () {
+        yield {
+          kind: 'agent_info',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          agentId: 'michael-brown',
+          agentName: 'Michael Brown',
+          agentRole: 'ceo',
+        };
+        yield {
+          kind: 'token',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+          text: 'Got it.',
+        };
+        yield {
+          kind: 'done',
+          command: 'chat',
+          timestamp: new Date().toISOString(),
+        };
+      })()
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    try {
+      await renderChat(client, 'michael-brown', { message: 'hello michael', oneShot: false });
+      const output = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
+      expect(output).toContain('Clemens Meier -> ');
+      expect(output).toContain('hello michael');
+      expect(output).toContain('Got it.');
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutIsTTY,
+        configurable: true,
+      });
+    }
+  });
 });

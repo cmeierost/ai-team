@@ -26,7 +26,23 @@ const chatDirectTurnParamsSchema = z.object({
 
 type ChatDirectTurnParams = z.infer<typeof chatDirectTurnParamsSchema>;
 
-export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, string> {
+interface ChatDirectTurnResult {
+  text: string;
+  agentId: string;
+  sessionId: string;
+  handoffTargetId?: string;
+  handoffTargetSessionId?: string;
+  handoffNote?: string;
+  handoffTargetWorkflowId?: string;
+  handoffWorkflowToolPolicy?: {
+    allow?: string[];
+    deny?: string[];
+    add?: string[];
+    remove?: string[];
+  };
+}
+
+export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, ChatDirectTurnResult> {
   static readonly metadata = {
     key: 'chat-direct-turn' as const,
     description: 'Execute exactly one chat send-turn without invoking ChatRuntime recursively',
@@ -52,7 +68,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, str
   async execute(
     payload: ChatDirectTurnParams,
     ctx: ExecutionContext
-  ): Promise<CommandResponse<string>> {
+  ): Promise<CommandResponse<ChatDirectTurnResult>> {
     const bootstrap = await this.bootstrapResolver.resolveAsync(
       {
         agentQuery: payload.agentId,
@@ -72,12 +88,21 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, str
     const slashHandled = await this.tryHandleSlashCommandAsync(payload.options.message, turnContext);
     if (slashHandled) {
       this.bootstrapResolver.updateCachedRuntimeState(ctx, {
-        agentId: bootstrap.agent.id,
-        sessionId: bootstrap.sessionId,
+        agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+        sessionId: turnContext.sessionId ?? bootstrap.sessionId,
         history: turnContext.history,
+        navStack: turnContext.navStack,
       });
 
-      return { status: 'ok', data: slashHandled.responseText, message: 'completed' };
+      return {
+        status: 'ok',
+        data: {
+          text: slashHandled.responseText,
+          agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+          sessionId: turnContext.sessionId ?? bootstrap.sessionId,
+        },
+        message: 'completed',
+      };
     }
 
     await this.stepService.ensureTurnStartAsync();
@@ -114,12 +139,26 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, str
       );
 
       this.bootstrapResolver.updateCachedRuntimeState(ctx, {
-        agentId: bootstrap.agent.id,
-        sessionId: bootstrap.sessionId,
+        agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+        sessionId: turnContext.sessionId ?? bootstrap.sessionId,
         history: turnContext.history,
+        navStack: turnContext.navStack,
       });
 
-      return { status: 'ok', data: finalResult.text, message: 'completed' };
+      return {
+        status: 'ok',
+        data: {
+          text: finalResult.text,
+          agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+          sessionId: turnContext.sessionId ?? bootstrap.sessionId,
+          handoffTargetId: finalResult.handoffTargetId,
+          handoffTargetSessionId: finalResult.handoffTargetSessionId,
+          handoffNote: finalResult.handoffNote,
+          handoffTargetWorkflowId: finalResult.handoffTargetWorkflowId,
+          handoffWorkflowToolPolicy: finalResult.handoffWorkflowToolPolicy,
+        },
+        message: 'completed',
+      };
     } catch (error) {
       if (
         error instanceof Error &&
@@ -129,11 +168,25 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, str
       }
       const failed = await this.stepService.handleLlmFailureAsync(error, this.plugins, turnContext);
       this.bootstrapResolver.updateCachedRuntimeState(ctx, {
-        agentId: bootstrap.agent.id,
-        sessionId: bootstrap.sessionId,
+        agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+        sessionId: turnContext.sessionId ?? bootstrap.sessionId,
         history: turnContext.history,
+        navStack: turnContext.navStack,
       });
-      return { status: 'ok', data: failed.text, message: 'completed' };
+      return {
+        status: 'ok',
+        data: {
+          text: failed.text,
+          agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+          sessionId: turnContext.sessionId ?? bootstrap.sessionId,
+          handoffTargetId: failed.handoffTargetId,
+          handoffTargetSessionId: failed.handoffTargetSessionId,
+          handoffNote: failed.handoffNote,
+          handoffTargetWorkflowId: failed.handoffTargetWorkflowId,
+          handoffWorkflowToolPolicy: failed.handoffWorkflowToolPolicy,
+        },
+        message: 'completed',
+      };
     }
   }
 
@@ -153,6 +206,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, str
       ...(base.workflowInstanceId ? { workflowInstanceId: base.workflowInstanceId } : {}),
       ...(base.stepId ? { stepId: base.stepId } : {}),
       ...(base.workflowState ? { workflowState: base.workflowState } : {}),
+      ...(base.navStack ? { navStack: [...base.navStack] } : {}),
     };
   }
 

@@ -146,10 +146,68 @@ describe('dispatchToolCall denial metadata', () => {
     const executionContext = (execute.mock.calls[0] as any[])?.[3];
     expect(executionContext).toEqual(
       expect.objectContaining({
+        sessionId: 'sess-1',
+        history: [],
         workspaceRoot: 'c:/workspace',
         currentFiles: undefined,
       })
     );
+  });
+
+  it('passes workflow metadata to tools and isolates parent context from tool mutations', async () => {
+    let receivedContext: any;
+    const execute = vi.fn(async (_agent: any, _toolName: string, _args: unknown, toolCtx: any) => {
+      receivedContext = {
+        ...toolCtx,
+        history: Array.isArray(toolCtx.history) ? [...toolCtx.history] : toolCtx.history,
+      };
+      toolCtx.workflowId = 'mutated-in-tool';
+      toolCtx.sessionId = 'mutated-session';
+      if (Array.isArray(toolCtx.history)) {
+        toolCtx.history.push({ content: 'mutated' });
+      }
+      return { ok: true, result: { ok: true } };
+    });
+    const toolManager = {
+      get: vi.fn(() => undefined),
+      execute,
+    } as any;
+
+    const sessionManager = { appendMessage: vi.fn(async () => undefined) } as any;
+    const parentCtx = makeContext({
+      workflowId: 'parent-workflow',
+      workflowInstanceId: 'wf-1',
+      stepId: 'toolRound',
+      subworkflowDepth: 2,
+      history: [],
+    });
+    const emit = vi.fn();
+    createEmitService(emit);
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
+
+    await dispatcher.dispatch(
+      {
+        toolCallId: 'tc-parent-restore',
+        toolName: 'tool_list',
+        args: {},
+      },
+      parentCtx
+    );
+
+    expect(receivedContext).toEqual(
+      expect.objectContaining({
+        sessionId: 'sess-1',
+        workflowId: 'parent-workflow',
+        workflowInstanceId: 'wf-1',
+        stepId: 'toolRound',
+        subworkflowDepth: 2,
+      })
+    );
+
+    // Parent context remains untouched after tool execution.
+    expect(parentCtx.workflowId).toBe('parent-workflow');
+    expect(parentCtx.sessionId).toBe('sess-1');
+    expect(parentCtx.history).toEqual([]);
   });
 
   it('emits tool result event with a preview of successful output', async () => {

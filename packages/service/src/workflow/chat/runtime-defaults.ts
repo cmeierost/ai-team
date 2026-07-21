@@ -136,13 +136,68 @@ export class DefaultToolResolver implements IToolResolver {
   constructor(private readonly toolManager: IToolManager) {}
 
   async resolve(ctx: ExecutionContext): Promise<ICommand[]> {
+    const workflowPolicy = this.resolveWorkflowToolPolicy(ctx.workflowState);
+
     return this.toolManager.getForAgent(ctx.agent!).filter((tool) => {
       const key = ToolIdentity.key(tool.metadata);
       if (key === 'hr_hire') return false;
-      // Prevent nested handoffs: disable com_handoff inside a handoff subworkflow.
-      if (key === 'com_handoff' && (ctx.subworkflowDepth ?? 0) > 0) return false;
+      if (workflowPolicy && this.isToolDeniedByWorkflowPolicy(workflowPolicy, tool.metadata)) {
+        return false;
+      }
       return true;
     });
+  }
+
+  private resolveWorkflowToolPolicy(workflowState: unknown):
+    | {
+        deny?: string[];
+        remove?: string[];
+      }
+    | undefined {
+    if (!workflowState || typeof workflowState !== 'object' || Array.isArray(workflowState)) {
+      return undefined;
+    }
+
+    const bag = workflowState as Record<string, unknown>;
+    const workflow =
+      bag['workflow'] && typeof bag['workflow'] === 'object' && !Array.isArray(bag['workflow'])
+        ? (bag['workflow'] as Record<string, unknown>)
+        : undefined;
+
+    const policyCandidate =
+      bag['workflowToolPolicy'] ??
+      bag['toolPolicy'] ??
+      workflow?.['workflowToolPolicy'] ??
+      workflow?.['toolPolicy'];
+
+    if (
+      !policyCandidate ||
+      typeof policyCandidate !== 'object' ||
+      Array.isArray(policyCandidate)
+    ) {
+      return undefined;
+    }
+
+    const policy = policyCandidate as Record<string, unknown>;
+    const toSelectors = (value: unknown): string[] | undefined =>
+      Array.isArray(value)
+        ? value
+            .map((entry) => String(entry ?? '').trim())
+            .filter((entry) => entry.length > 0)
+        : undefined;
+
+    return {
+      deny: toSelectors(policy['deny']),
+      remove: toSelectors(policy['remove']),
+    };
+  }
+
+  private isToolDeniedByWorkflowPolicy(
+    policy: { deny?: string[]; remove?: string[] },
+    meta: ICommand['metadata']
+  ): boolean {
+    const selectors = [...(policy.deny ?? []), ...(policy.remove ?? [])];
+    return selectors.some((selector) => ToolIdentity.matchesSelector(selector, meta));
   }
 }
 
@@ -215,6 +270,8 @@ export class HandoffToolResultParser implements ITurnResultParser {
       handoffTargetId: target.id,
       handoffTargetSessionId: handoffReq.targetSessionId,
       handoffNote: handoffReq.briefingNote,
+      handoffTargetWorkflowId: handoffReq.targetWorkflowId,
+      handoffWorkflowToolPolicy: handoffReq.workflowToolPolicy,
     };
   }
 }

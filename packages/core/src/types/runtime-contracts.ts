@@ -128,7 +128,12 @@ export interface IChatTurnBootstrapResolver {
   ): Promise<ChatTurnBootstrapResolution>;
   updateCachedRuntimeState(
     ctx: ExecutionContext,
-    state: { agentId: string; sessionId: string; history: ChatMessage[] }
+    state: {
+      agentId: string;
+      sessionId: string;
+      history: ChatMessage[];
+      navStack: ExecutionContext['navStack'];
+    }
   ): void;
 }
 

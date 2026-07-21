@@ -37,6 +37,15 @@ export interface HandoffRequest {
   summary?: string;
   /** Pre-resolved by com_handoff via ISessionGateway — skips a redundant lookup in tool-dispatch. */
   targetSessionId?: string;
+  /** Workflow to run after handoff. Defaults to `chat` when omitted. */
+  targetWorkflowId?: string;
+  /** Optional workflow-level tool policy overlays for the target workflow. */
+  workflowToolPolicy?: {
+    allow?: string[];
+    deny?: string[];
+    add?: string[];
+    remove?: string[];
+  };
   timestamp: string;
 }
 

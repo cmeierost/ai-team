@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Agent, StructuredToolResult, ExecutionContext } from '@ai-team/core';
-import { HandoffToolResultParser, buildDefaultTurnResultParsers } from './runtime-defaults.js';
+import {
+  DefaultToolResolver,
+  HandoffToolResultParser,
+  buildDefaultTurnResultParsers,
+} from './runtime-defaults.js';
 
 function makeAgent(id: string, name = id): Agent {
   return { id, name, role: 'assistant', systemPrompt: '' } as unknown as Agent;
@@ -159,5 +163,90 @@ describe('Parser chain priority', () => {
     const result = runChain([], 'Just a normal reply.', 'Just a normal reply.', ctx);
 
     expect(result).toBeNull();
+  });
+});
+
+describe('DefaultToolResolver', () => {
+  it('keeps com_handoff available even when subworkflowDepth is greater than zero', async () => {
+    const comHandoffTool = {
+      metadata: {
+        key: 'handoff',
+        group: 'com',
+        availableIn: { tool: true },
+        description: 'handoff',
+      },
+    } as any;
+
+    const toolManager = {
+      getForAgent: vi.fn(() => [comHandoffTool]),
+    } as any;
+
+    const resolver = new DefaultToolResolver(toolManager);
+    const ctx = {
+      agent: makeAgent('current-agent'),
+      history: [],
+      subworkflowDepth: 2,
+    } as unknown as ExecutionContext;
+
+    const tools = await resolver.resolve(ctx);
+    expect(tools).toEqual([comHandoffTool]);
+  });
+
+  it('hides com_handoff when workflow policy deny explicitly blocks it', async () => {
+    const comHandoffTool = {
+      metadata: {
+        key: 'handoff',
+        group: 'com',
+        availableIn: { tool: true },
+        description: 'handoff',
+      },
+    } as any;
+
+    const toolManager = {
+      getForAgent: vi.fn(() => [comHandoffTool]),
+    } as any;
+
+    const resolver = new DefaultToolResolver(toolManager);
+    const ctx = {
+      agent: makeAgent('current-agent'),
+      history: [],
+      workflowState: {
+        workflowToolPolicy: {
+          deny: ['com_handoff'],
+        },
+      },
+    } as unknown as ExecutionContext;
+
+    const tools = await resolver.resolve(ctx);
+    expect(tools).toEqual([]);
+  });
+
+  it('hides com_handoff when workflow policy remove explicitly blocks it', async () => {
+    const comHandoffTool = {
+      metadata: {
+        key: 'handoff',
+        group: 'com',
+        availableIn: { tool: true },
+        description: 'handoff',
+      },
+    } as any;
+
+    const toolManager = {
+      getForAgent: vi.fn(() => [comHandoffTool]),
+    } as any;
+
+    const resolver = new DefaultToolResolver(toolManager);
+    const ctx = {
+      agent: makeAgent('current-agent'),
+      history: [],
+      workflowState: {
+        toolPolicy: {
+          remove: ['com_handoff'],
+        },
+      },
+    } as unknown as ExecutionContext;
+
+    const tools = await resolver.resolve(ctx);
+    expect(tools).toEqual([]);
   });
 });

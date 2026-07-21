@@ -1,8 +1,6 @@
 import type { ICommand, IServiceContainer } from '@ai-team/core';
 import { CORE_SERVICE_TOKENS } from '../../types.js';
 
-import { AskUserCommand } from '../com/ask.command.js';
-import { HandoffCommand } from '../com/handoff.command.js';
 import { HireOrchestrationCommand } from '../hr/hire-orchestration.command.js';
 import { ListToolsOrchestrationCommand } from '../tools/tool-catalog.command.js';
 import { TeamListOrchestrationCommand } from '../team/list-team-orchestration.command.js';
@@ -18,7 +16,8 @@ export type {
   IWorkflowCatalog,
 } from './orchestration.types.js';
 
-export { AskUserCommand, HandoffCommand, HireOrchestrationCommand };
+export { AskUserCommand } from '../com/ask.command.js';
+export { HireOrchestrationCommand };
 export {
   ListToolsOrchestrationCommand,
   TOOL_LIST_PRE_LLM_PATTERNS,
@@ -46,14 +45,6 @@ export function createOrchestrationCommands(
   }
 ): ICommand<unknown, unknown>[] {
   return [
-    new HandoffCommand(
-      resolver.resolve(CORE_SERVICE_TOKENS.AgentManager),
-      resolver.resolve(CORE_SERVICE_TOKENS.SessionManager),
-      resolver.resolve(CORE_SERVICE_TOKENS.ThreadManager),
-      resolver.resolve(CORE_SERVICE_TOKENS.LlmService),
-      resolver.resolve(CORE_SERVICE_TOKENS.EmitService),
-      resolver.resolve(CORE_SERVICE_TOKENS.ChatRuntime)
-    ),
     new HireOrchestrationCommand(
       resolver.resolve(CORE_SERVICE_TOKENS.AgentManager),
       resolver.resolve(CORE_SERVICE_TOKENS.MarkdownSectionService)

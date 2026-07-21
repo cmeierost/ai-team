@@ -109,6 +109,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
  */
 export class ToolManager implements IToolManager {
   private static readonly schemaTools = new ZodSchemaTools();
+  private static readonly ALWAYS_ALLOWED_TOOLS: ReadonlySet<string> = new Set(['com_handoff']);
 
   /**
    * Tools that are available to every agent by default.
@@ -162,8 +163,13 @@ export class ToolManager implements IToolManager {
       .filter((s) => s.length > 0);
 
     return this.getAllDescriptors().filter((meta) => {
-      if (deniedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta))) return false;
       const key = ToolIdentity.key(meta);
+
+      if (ToolManager.ALWAYS_ALLOWED_TOOLS.has(key)) {
+        return true;
+      }
+
+      if (deniedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta))) return false;
       return (
         ToolManager.DEFAULT_TOOLS.has(key) ||
         allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, meta))
@@ -175,11 +181,18 @@ export class ToolManager implements IToolManager {
 
   /** Look up a single tool by name. Returns undefined if not registered. */
   get(name: string): ICommand | undefined {
-    const direct = this.directTools.get(name);
-    if (direct) return direct;
-    const meta = this.registry.get(name);
-    if (!meta?.availableIn?.tool) return undefined;
-    return this.registry.resolve(name, this.container);
+    for (const candidate of this.getToolNameCandidates(name)) {
+      const direct = this.directTools.get(candidate);
+      if (direct) return direct;
+
+      const meta = this.registry.get(candidate);
+      if (!meta?.availableIn?.tool) continue;
+
+      const resolved = this.registry.resolve(candidate, this.container);
+      if (resolved) return resolved;
+    }
+
+    return undefined;
   }
 
   /** All registered tool descriptors, regardless of agent. */
@@ -212,8 +225,13 @@ export class ToolManager implements IToolManager {
       .filter((selector) => selector.length > 0);
 
     return this.resolveAll().filter((tool) => {
-      if (deniedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata))) return false;
       const key = ToolIdentity.key(tool.metadata);
+
+      if (ToolManager.ALWAYS_ALLOWED_TOOLS.has(key)) {
+        return true;
+      }
+
+      if (deniedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata))) return false;
       return (
         ToolManager.DEFAULT_TOOLS.has(key) ||
         allowedSelectors.some((s) => ToolIdentity.matchesSelector(s, tool.metadata))
@@ -229,17 +247,25 @@ export class ToolManager implements IToolManager {
    * No permission logic should live inside tool.execute().
    */
   async canExecute(agent: Agent, toolName: string, args: unknown): Promise<PermissionResult> {
-    const meta = this.registry.get(toolName) ?? this.directTools.get(toolName)?.metadata;
+    const { meta, canonicalName } = this.resolveToolMetadata(toolName);
     if (!meta) {
       return { allowed: false, reason: `Unknown tool: ${toolName}` };
     }
 
+    if (
+      ToolManager.ALWAYS_ALLOWED_TOOLS.has(toolName) ||
+      (canonicalName ? ToolManager.ALWAYS_ALLOWED_TOOLS.has(canonicalName) : false)
+    ) {
+      return { allowed: true };
+    }
+
     // Is the tool in the agent's allowed set?
     const available = this.getDescriptorsForAgent(agent).map((d) => ToolIdentity.key(d));
-    if (!available.includes(toolName)) {
+    const nameForAvailability = canonicalName ?? toolName;
+    if (!available.includes(nameForAvailability)) {
       return {
         allowed: false,
-        reason: `Tool '${toolName}' is not available to agent '${agent.id}'.`,
+        reason: `Tool '${nameForAvailability}' is not available to agent '${agent.id}'.`,
       };
     }
 
@@ -273,8 +299,19 @@ export class ToolManager implements IToolManager {
       return { ok: false, toolName, error: `Unknown tool: ${toolName}` };
     }
 
+    const canonicalToolName = ToolIdentity.key(tool.metadata);
+
+    const workflowPolicy = this.resolveWorkflowToolPolicy(context.workflowState);
+    if (this.isToolDeniedByWorkflowPolicy(workflowPolicy, tool.metadata)) {
+      return {
+        ok: false,
+        toolName,
+        error: `Tool '${toolName}' is disallowed by active workflow policy.`,
+      };
+    }
+
     // Authorization
-    const permission = await this.canExecute(agent, toolName, args);
+    const permission = await this.canExecute(agent, canonicalToolName, args);
     if (!permission.allowed) {
       return { ok: false, toolName, error: permission.reason ?? 'Permission denied' };
     }
@@ -633,5 +670,83 @@ export class ToolManager implements IToolManager {
 
   private static normalizeToolSelector(selector: string): string {
     return selector.trim();
+  }
+
+  private getToolNameCandidates(toolName: string): string[] {
+    const raw = String(toolName ?? '').trim();
+    if (!raw) return [];
+
+    const candidates = new Set<string>([raw]);
+
+    if (raw.includes('_')) {
+      candidates.add(raw.replace('_', '-'));
+      candidates.add(raw.replaceAll('_', '-'));
+    }
+    if (raw.includes('-')) {
+      candidates.add(raw.replace('-', '_'));
+      candidates.add(raw.replaceAll('-', '_'));
+    }
+
+    return [...candidates];
+  }
+
+  private resolveToolMetadata(toolName: string): {
+    meta?: ICommandDescriptor;
+    canonicalName?: string;
+  } {
+    for (const candidate of this.getToolNameCandidates(toolName)) {
+      const meta = this.registry.get(candidate) ?? this.directTools.get(candidate)?.metadata;
+      if (meta) {
+        return {
+          meta,
+          canonicalName: ToolIdentity.key(meta),
+        };
+      }
+    }
+
+    return {};
+  }
+
+  private resolveWorkflowToolPolicy(workflowState: unknown): {
+    deny: string[];
+    remove: string[];
+  } {
+    if (!workflowState || typeof workflowState !== 'object' || Array.isArray(workflowState)) {
+      return { deny: [], remove: [] };
+    }
+
+    const bag = workflowState as Record<string, unknown>;
+    const candidates = [
+      bag['toolPolicy'],
+      bag['workflowToolPolicy'],
+      (bag['workflow'] as Record<string, unknown> | undefined)?.['toolPolicy'],
+      (bag['workflow'] as Record<string, unknown> | undefined)?.['workflowToolPolicy'],
+    ];
+
+    const policy = candidates.find(
+      (candidate) => candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+    ) as Record<string, unknown> | undefined;
+
+    if (!policy) {
+      return { deny: [], remove: [] };
+    }
+
+    const toSelectors = (value: unknown): string[] =>
+      Array.isArray(value)
+        ? value.map((entry) => String(entry ?? '').trim()).filter((entry) => entry.length > 0)
+        : [];
+
+    return {
+      deny: toSelectors(policy['deny']),
+      remove: toSelectors(policy['remove']),
+    };
+  }
+
+  private isToolDeniedByWorkflowPolicy(
+    policy: { deny: string[]; remove: string[] },
+    meta: ICommandDescriptor
+  ): boolean {
+    const all = [...policy.deny, ...policy.remove];
+    return all.some((selector) => ToolIdentity.matchesSelector(selector, meta));
   }
 }

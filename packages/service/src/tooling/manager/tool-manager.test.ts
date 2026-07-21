@@ -118,13 +118,29 @@ describe('ToolManager wildcard selectors and default-deny policy', () => {
     expect(available).toEqual(['com_handoff']);
   });
 
-  it('supports explicit deny of default tools via disallowedTools', () => {
+  it('keeps com_handoff available even when listed in disallowedTools', () => {
     const manager = makeManager(makeTool('handoff', 'com'));
 
     const agent = makeAgent({ tools: [], disallowedTools: ['com_handoff'] });
     const available = manager.getForAgent(agent).map((cmd) => ToolIdentity.key(cmd.metadata));
 
-    expect(available).toEqual([]);
+    expect(available).toEqual(['com_handoff']);
+  });
+
+  it('resolves com_handoff when requested as com-handoff', () => {
+    const manager = makeManager(makeTool('handoff', 'com'));
+
+    const resolved = manager.get('com-handoff');
+    expect(resolved).toBeDefined();
+    expect(ToolIdentity.key(resolved!.metadata)).toBe('com_handoff');
+  });
+
+  it('resolves com-handoff when requested as com_handoff', () => {
+    const manager = makeManager(makeTool('handoff', 'com'));
+
+    const resolved = manager.get('com_handoff');
+    expect(resolved).toBeDefined();
+    expect(ToolIdentity.key(resolved!.metadata)).toBe('com_handoff');
   });
 });
 
@@ -153,7 +169,31 @@ describe('ToolManager permission descriptors', () => {
     expect(permission.allowed).toBe(true);
   });
 
-  it('denies agent-delegation when canDelegate is false', async () => {
+  it('authorizes com-handoff alias using canonical com_handoff policy', async () => {
+    const manager = makeManager({
+      metadata: {
+        key: 'handoff',
+        group: 'com',
+        availableIn: { tool: true, cli: false, chat: false },
+        description: 'handoff',
+        parameters: z.object({ targetAgentId: z.string() }),
+        permissionCheck: { type: 'agent-delegation', argsPath: 'targetAgentId' },
+      },
+      async execute() {
+        return { status: 'ok' as const };
+      },
+    } as ICommand);
+
+    const permission = await manager.canExecute(
+      makeAgent({ tools: ['com_handoff'] }),
+      'com-handoff',
+      { targetAgentId: 'michael-brown' }
+    );
+
+    expect(permission.allowed).toBe(true);
+  });
+
+  it('allows com_handoff even when canDelegate is false', async () => {
     const manager = makeManager({
       metadata: {
         key: 'handoff',
@@ -174,11 +214,10 @@ describe('ToolManager permission descriptors', () => {
       { targetAgentId: 'michael-brown' }
     );
 
-    expect(permission.allowed).toBe(false);
-    expect(permission.reason).toContain('not allowed to delegate');
+    expect(permission.allowed).toBe(true);
   });
 
-  it('enforces delegatesTo allow-list when present', async () => {
+  it('allows com_handoff even when delegatesTo does not include target', async () => {
     const manager = makeManager({
       metadata: {
         key: 'handoff',
@@ -205,8 +244,7 @@ describe('ToolManager permission descriptors', () => {
     );
 
     expect(allowed.allowed).toBe(true);
-    expect(denied.allowed).toBe(false);
-    expect(denied.reason).toContain('cannot delegate');
+    expect(denied.allowed).toBe(true);
   });
 
   it('allows delegation to configured handoff targets even when delegatesTo does not include target', async () => {

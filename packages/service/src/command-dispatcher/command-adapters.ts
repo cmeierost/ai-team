@@ -112,7 +112,7 @@ export class CommandAdapterService {
 
     const trimmed = rawArgs.trim();
     if (!trimmed) {
-      return schema && typeof (schema as any).parse === 'function' ? (schema as any).parse({}) : {};
+      return {};
     }
 
     try {
@@ -224,16 +224,82 @@ export class CommandAdapterService {
 
   private parseRawArgs(rawArgs: string, schema: unknown): unknown {
     if (!rawArgs.trim()) {
-      return schema && typeof (schema as any).parse === 'function' ? (schema as any).parse({}) : {};
+      return {};
     }
 
     const tokens = this.tokenizeRawArgs(rawArgs);
     const flat = this.parseTokensToFlat(tokens);
+    this.applyPositionalArgsFromSchema(flat, schema);
     const result = this.reconstructNestedObject(flat);
 
     return schema && typeof (schema as any).parse === 'function'
       ? (schema as any).parse(result)
       : result;
+  }
+
+  private applyPositionalArgsFromSchema(flat: Record<string, unknown>, schema: unknown): void {
+    const positionals = Array.isArray(flat._)
+      ? (flat._ as unknown[]).filter((value): value is string => typeof value === 'string')
+      : [];
+
+    if (positionals.length === 0) {
+      return;
+    }
+
+    if (!schema || typeof schema !== 'object' || typeof (schema as any).safeParse !== 'function') {
+      return;
+    }
+
+    const jsonSchema = this.zodSchemaTools.toJsonSchema(schema);
+    if (!jsonSchema || typeof jsonSchema !== 'object') {
+      return;
+    }
+
+    const properties = (jsonSchema as { properties?: unknown }).properties;
+    if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+      return;
+    }
+
+    const required = Array.isArray((jsonSchema as { required?: unknown }).required)
+      ? ((jsonSchema as { required: unknown[] }).required.filter(
+          (value): value is string => typeof value === 'string'
+        ) as string[])
+      : [];
+    const optional = Object.keys(properties as Record<string, unknown>).filter(
+      (key) => !required.includes(key)
+    );
+
+    const orderedTargets = [...required, ...optional];
+    const unassignedTargets = orderedTargets.filter((key) => flat[key] === undefined);
+    if (unassignedTargets.length === 0) {
+      return;
+    }
+
+    const consumedCount = Math.min(positionals.length, unassignedTargets.length);
+    let consumedPositionals = 0;
+    for (let i = 0; i < consumedCount; i += 1) {
+      const target = unassignedTargets[i];
+      const isLastTarget = i === consumedCount - 1;
+      const overflowStartsAt = i;
+      const shouldFoldRemainder =
+        isLastTarget && positionals.length > unassignedTargets.length && typeof positionals[i] === 'string';
+
+      if (shouldFoldRemainder) {
+        flat[target] = positionals.slice(overflowStartsAt).join(' ');
+        consumedPositionals = positionals.length;
+        break;
+      }
+
+      flat[target] = this.coerceArgValue(positionals[i]);
+      consumedPositionals = i + 1;
+    }
+
+    const remaining = positionals.slice(consumedPositionals);
+    if (remaining.length > 0) {
+      flat._ = remaining;
+    } else {
+      delete flat._;
+    }
   }
 
   private parseTokensToFlat(tokens: string[]): Record<string, unknown> {

@@ -187,6 +187,11 @@ export class LlmInvokeService implements ILlmInvokeService {
 
   private buildToolPolicyMessage(tools: ICommand[]): ILlmChatMessageParam {
     const hasAskTool = tools.some((t) => t.metadata.group === 'com' && (t as any).name === 'ask');
+    const hasHandoffTool = tools.some(
+      (t) =>
+        (t.metadata.group === 'com' && t.metadata.key === 'handoff') ||
+        (t as any).name === 'com_handoff'
+    );
     return {
       role: 'system',
       content:
@@ -194,6 +199,9 @@ export class LlmInvokeService implements ILlmInvokeService {
         'Do not invent tool names. ' +
         (hasAskTool
           ? 'If you need clarification or missing input from the developer, call com_ask instead of guessing. '
+          : '') +
+        (hasHandoffTool
+          ? 'If you propose routing, forwarding, transferring, or switching the developer to another agent, you must call com_handoff in this turn. Do not tell the developer to run /agent, chat <agent>, or similar as a substitute for handoff. If the developer explicitly asks to talk/switch/hand off to a specific agent, call com_handoff directly and do not gate it behind a confirm-style com_ask question. '
           : '') +
         'If the developer asks about what tools you can use, what files you can read/write, or access/permissions, call a relevant introspection tool (for example tool_list, tool_can_i, fs_who_can) before answering. ' +
         'If the developer asks to list or show visible/readable files (or file tree), call fs_tree on path "." (or requested path) first, then explain results.',

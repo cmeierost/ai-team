@@ -92,15 +92,19 @@ export class ToolDispatcher implements IToolDispatchService {
 
     this.emitToolLifecycle('start', toolName, toolCallId, 'In progress', args);
 
+    const executionContext = this.buildExecutionContext(ctx, contextFiles);
+
     const execResult = await this.toolManager.execute(
       ctx.agent!,
       toolName,
       args,
-      this.buildExecutionContext(ctx, contextFiles),
+      executionContext,
       {
         timeoutMs: toolName === 'com_ask' ? INTERACTIVE_ASK_TIMEOUT_MS : undefined,
       }
     );
+
+    this.applyHandoffContextMutation(ctx, toolName, execResult.ok, executionContext);
 
     const processed = this.prepareExecutionOutput(execResult, toolName);
     await this._appendToolHistory(
@@ -255,12 +259,56 @@ export class ToolDispatcher implements IToolDispatchService {
   }
 
   private buildExecutionContext(ctx: ExecutionContext, contextFiles?: string[]) {
+    const clonedWorkflowState =
+      ctx.workflowState && typeof ctx.workflowState === 'object'
+        ? ({
+            ...(ctx.workflowState as Record<string, unknown>),
+          } as ExecutionContext['workflowState'])
+        : ctx.workflowState;
+
     return {
-      agentId: ctx.agent!.id,
+      agent: ctx.agent,
+      history: [...(ctx.history ?? [])],
+      agentId: ctx.agent?.id ?? ctx.agentId,
+      sessionId: ctx.sessionId,
+      workflowId: ctx.workflowId,
+      workflowInstanceId: ctx.workflowInstanceId,
+      stepId: ctx.stepId,
+      workflowState: clonedWorkflowState,
+      workflowLastResult: ctx.workflowLastResult,
+      navStack: ctx.navStack,
+      invocationSurface: ctx.invocationSurface,
+      calledByHuman: ctx.calledByHuman,
+      subworkflowDepth: ctx.subworkflowDepth,
+      signal: ctx.signal,
       workspaceRoot: this.support.getWorkspaceRoot(),
       currentFiles: contextFiles,
-      history: [],
     };
+  }
+
+  private applyHandoffContextMutation(
+    ctx: ExecutionContext,
+    toolName: string,
+    ok: boolean,
+    executionContext: ReturnType<ToolDispatcher['buildExecutionContext']>
+  ): void {
+    if (!ok || toolName !== 'com_handoff') {
+      return;
+    }
+
+    if (executionContext.agent) {
+      ctx.agent = executionContext.agent;
+      ctx.agentId = executionContext.agent.id;
+    }
+    if (executionContext.sessionId) {
+      ctx.sessionId = executionContext.sessionId;
+    }
+    if (Array.isArray(executionContext.history)) {
+      ctx.history = executionContext.history;
+    }
+    if (Array.isArray(executionContext.navStack)) {
+      ctx.navStack = executionContext.navStack;
+    }
   }
 
   private prepareExecutionOutput(

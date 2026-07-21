@@ -53,6 +53,8 @@ export const chatPostTurnResolutionResultSchema = z.object({
   handoffTargetId: z.string().optional(),
   handoffTargetSessionId: z.string().optional(),
   handoffNote: z.string().optional(),
+  handoffTargetWorkflowId: z.string().optional(),
+  handoffWorkflowToolPolicy: workflowToolPolicySchema.optional(),
 });
 
 export type ChatPostTurnResolutionResult = z.infer<typeof chatPostTurnResolutionResultSchema>;
@@ -128,6 +130,8 @@ export function parseChatToolRoundResult(value: unknown): ChatToolRoundResult {
  */
 export const chatHandoffTransitionResultSchema = z.object({
   autoMessage: z.string().optional(),
+  agentId: z.string().optional(),
+  sessionId: z.string().optional(),
 });
 
 export type ChatHandoffTransitionResult = z.infer<typeof chatHandoffTransitionResultSchema>;

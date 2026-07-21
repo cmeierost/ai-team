@@ -13,6 +13,7 @@ interface ChatRuntimeWorkflowStateSnapshot {
   agentId: string;
   sessionId: string;
   history: ChatMessage[];
+  navStack: ExecutionContext['navStack'];
 }
 
 export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
@@ -83,7 +84,12 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
 
   updateCachedRuntimeState(
     ctx: ExecutionContext,
-    state: { agentId: string; sessionId: string; history: ChatMessage[] }
+    state: {
+      agentId: string;
+      sessionId: string;
+      history: ChatMessage[];
+      navStack: ExecutionContext['navStack'];
+    }
   ): void {
     if (!ctx.workflowState || typeof ctx.workflowState !== 'object' || Array.isArray(ctx.workflowState)) {
       ctx.workflowState = {};
@@ -94,7 +100,10 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
       agentId: state.agentId,
       sessionId: state.sessionId,
       history: [...state.history],
+      navStack: [...(state.navStack ?? [])],
     } satisfies ChatRuntimeWorkflowStateSnapshot;
+
+    ctx.navStack = [...(state.navStack ?? [])];
   }
 
   private async resolveRequestedSessionAsync(
@@ -207,15 +216,19 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
     if (
       typeof candidate.agentId !== 'string' ||
       typeof candidate.sessionId !== 'string' ||
-      !Array.isArray(candidate.history)
+      !Array.isArray(candidate.history) ||
+      !Array.isArray(candidate.navStack)
     ) {
       return null;
     }
+
+    ctx.navStack = candidate.navStack as ExecutionContext['navStack'];
 
     return {
       agentId: candidate.agentId,
       sessionId: candidate.sessionId,
       history: candidate.history as ChatMessage[],
+      navStack: candidate.navStack as ExecutionContext['navStack'],
     };
   }
 }

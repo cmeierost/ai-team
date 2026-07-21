@@ -186,7 +186,10 @@ export class CommandDispatcher implements ICommandDispatcher {
     }
 
     try {
-      const parsed = typeof payload === 'string' ? parseArgsIntelligently(payload) : payload;
+      const parsed =
+        typeof payload === 'string'
+          ? parseArgsIntelligently(payload, descriptor.parameters)
+          : payload;
       const withContextDefaults = this.applyContextDefaultsFromSchema(
         descriptor,
         parsed,
@@ -316,7 +319,10 @@ export class CommandDispatcher implements ICommandDispatcher {
 
     try {
       const executionContext = ctx ?? createMinimalExecutionContext();
-      const parsed = typeof params === 'string' ? parseArgsIntelligently(params) : params;
+      const parsed =
+        typeof params === 'string'
+          ? parseArgsIntelligently(params, descriptor.parameters)
+          : params;
       const cmd = this.registry.resolve(key, this.resolver);
       if (!cmd) {
         return this.unknownCommandResponse(key);

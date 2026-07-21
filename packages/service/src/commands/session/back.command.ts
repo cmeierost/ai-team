@@ -1,9 +1,11 @@
 import type {
   ExecutionContext,
   IAgentManager,
+  IEmitService,
   ICommand,
   CommandResponse,
   ICommandDescriptor,
+  ISessionManager,
 } from '@ai-team/core';
 
 export interface BackResult {
@@ -22,7 +24,11 @@ export const BackChatCommandMetadata = {
 export class BackChatCommand implements ICommand<string, BackResult> {
   readonly metadata = BackChatCommandMetadata;
 
-  constructor(private readonly agentManager: Pick<IAgentManager, 'getAgentAsync'>) {}
+  constructor(
+    private readonly agentManager: Pick<IAgentManager, 'getAgentAsync'>,
+    private readonly sessionManager: Pick<ISessionManager, 'getSessionMessages'>,
+    private readonly emitService: IEmitService
+  ) {}
 
   async execute(_args: string, ctx: ExecutionContext): Promise<CommandResponse<BackResult>> {
     const navStack = ctx.navStack ?? [];
@@ -34,8 +40,47 @@ export class BackChatCommand implements ICommand<string, BackResult> {
     if (!prevAgent) {
       return { status: 'error', message: `Previous agent ${prev.agentId} no longer found.` };
     }
+
+    const fromAgent = ctx.agent;
+    const fromSessionId = ctx.sessionId;
+
+    const previousHistory = await this.sessionManager.getSessionMessages(prev.sessionId);
+
+    ctx.agent = prevAgent;
     ctx.agentId = prev.agentId;
     ctx.sessionId = prev.sessionId;
+    ctx.history = previousHistory;
+    ctx.navStack = navStack;
+
+    this.emitService.emit({
+      kind: 'handoff',
+      fromAgentId: fromAgent?.id,
+      fromAgentName: fromAgent?.name,
+      fromAgentRole: fromAgent?.role,
+      fromSessionId,
+      toAgentId: prevAgent.id,
+      toAgentName: prevAgent.name,
+      toAgentRole: prevAgent.role,
+      toSessionId: prev.sessionId,
+      handoffNote: 'Returning to parent session via /back',
+      briefingContent: 'Return handoff to parent session.',
+    });
+
+    this.emitService.emit({
+      kind: 'agent_info',
+      agentId: prevAgent.id,
+      agentName: prevAgent.name,
+      agentRole: prevAgent.role,
+      llmModel: prevAgent.resolvedLlm?.model,
+    });
+
+    this.emitService.emit({
+      kind: 'session_switched',
+      agentId: prevAgent.id,
+      sessionId: prev.sessionId,
+      source: 'back',
+    });
+
     return {
       status: 'ok',
       message: `← Returned to ${prevAgent.name} (${prevAgent.role})`,

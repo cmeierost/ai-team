@@ -121,4 +121,11 @@ export interface TurnResult {
   handoffTargetId?: string;
   handoffTargetSessionId?: string;
   handoffNote?: string;
+  handoffTargetWorkflowId?: string;
+  handoffWorkflowToolPolicy?: {
+    allow?: string[];
+    deny?: string[];
+    add?: string[];
+    remove?: string[];
+  };
 }

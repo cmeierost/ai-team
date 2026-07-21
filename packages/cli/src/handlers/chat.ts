@@ -994,7 +994,6 @@ export async function renderChat(
 
   try {
     if (!options.oneShot && requestCommand === 'chat-chat') {
-      writeStderrLine(chalk.dim('chat ready — type a message or "exit" to quit.'));
       const startupAgentId =
         requestPayload && typeof requestPayload['agentId'] === 'string'
           ? requestPayload['agentId']
@@ -1003,10 +1002,28 @@ export async function renderChat(
         requestPayload && typeof requestPayload['agentName'] === 'string'
           ? requestPayload['agentName']
           : undefined;
+      const startupAgentModel =
+        requestPayload && typeof requestPayload['llmModel'] === 'string'
+          ? requestPayload['llmModel']
+          : undefined;
       const startupSessionId =
         requestPayload && typeof requestPayload['sessionId'] === 'string'
           ? requestPayload['sessionId']
           : undefined;
+
+      // Set agent identity from payload BEFORE the stream starts, so the
+      // greeting token header uses the correct color and name.
+      if (startupAgentId) {
+        currentAgentId = startupAgentId;
+      }
+      if (startupAgentName) {
+        currentAgentName = startupAgentName;
+      }
+      if (startupAgentModel) {
+        currentLlmModel = startupAgentModel;
+      }
+
+      process.stdout.write(chalk.dim('chat ready — type a message or "exit" to quit.') + '\n');
       if (startupSessionId || startupAgentId) {
         const label = startupAgentName?.trim()
           ? startupAgentName.trim()
@@ -1014,7 +1031,7 @@ export async function renderChat(
             ? normalizeAgentDisplayName(undefined, startupAgentId)
             : 'last active agent';
         const sessionPart = startupSessionId ? `session ${startupSessionId}` : 'latest session';
-        writeStderrLine(chalk.dim(`Resuming ${sessionPart} with ${label}.`));
+        process.stdout.write(chalk.dim(`Resuming ${sessionPart} with ${label}.`) + '\n');
       }
     }
 
@@ -1022,8 +1039,9 @@ export async function renderChat(
       while (true) {
         const to = normalizeAgentDisplayName(currentAgentName, currentAgentId);
         const toStyled = agentChalk(currentAgentId, currentAgentName).bold(to);
+        const modelSuffix = currentLlmModel ? chalk.dim(` (${currentLlmModel})`) : '';
         const answer = await askWithSlashSuggestions(
-          `${developerDisplayName} -> ${toStyled}:`,
+          `${developerDisplayName} -> ${toStyled}${modelSuffix}:`,
           chatCommands,
           abortControl.signal
         );
@@ -1063,6 +1081,19 @@ export async function renderChat(
       bracketToolRenderedViaEvent = false;
       bufferingBracketToolCall = false;
       bracketToolBuffer = '';
+
+      if (
+        !options.oneShot &&
+        typeof currentMessage === 'string' &&
+        currentMessage.trim().length > 0
+      ) {
+        const to = normalizeAgentDisplayName(currentAgentName, currentAgentId);
+        const toStyled = agentChalk(currentAgentId, currentAgentName).bold(to);
+        const modelSuffix = currentLlmModel ? chalk.dim(` (${currentLlmModel})`) : '';
+        process.stdout.write(
+          `${developerDisplayName} -> ${toStyled}${modelSuffix}: ${currentMessage}\n`
+        );
+      }
 
       if (typeof currentMessage === 'string' && currentMessage.trim().length > 0) {
         startSpinner();

@@ -21,7 +21,86 @@ function makeTool(name: string): ICommand {
   } as unknown as ICommand;
 }
 
+function createService(llmService: unknown, emitService: EmitService): LlmInvokeService {
+  return new LlmInvokeService(llmService as any, emitService as any, { dispatch: vi.fn() } as any);
+}
+
 describe('LlmInvokeService', () => {
+  it('injects mandatory com_handoff guidance when handoff tool is available', async () => {
+    const capturedMessages: any[] = [];
+    const llmService = {
+      chatWithTools: vi.fn(async (...args: unknown[]) => {
+        capturedMessages.push(args[1]);
+        return { text: '' };
+      }),
+      streamChat: vi.fn(),
+    };
+
+    const emitService = new EmitService(() => {});
+    const service = createService(llmService, emitService);
+    await service.invokeAsync({
+      messages: [{ role: 'user', content: 'Please route me to Emily.' } as any],
+      tools: [makeTool('com_handoff')],
+      toolDefs: [
+        {
+          name: 'com_handoff',
+          description: 'Handoff to another agent',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+      skills: [],
+      teamRoster: [makeAgent('michael-brown', 'Michael Brown')],
+      ctx: {
+        agent: makeAgent('michael-brown', 'Michael Brown'),
+        workspaceRoot: '/workspace',
+        history: [],
+      } as any,
+    });
+
+    const policy = capturedMessages[0]?.[0];
+    expect(policy?.role).toBe('system');
+    expect(String(policy?.content)).toContain('must call com_handoff in this turn');
+    expect(String(policy?.content)).toContain('Do not tell the developer to run /agent');
+    expect(String(policy?.content)).toContain(
+      'call com_handoff directly and do not gate it behind a confirm-style com_ask question'
+    );
+  });
+
+  it('does not inject handoff mandate when com_handoff tool is unavailable', async () => {
+    const capturedMessages: any[] = [];
+    const llmService = {
+      chatWithTools: vi.fn(async (...args: unknown[]) => {
+        capturedMessages.push(args[1]);
+        return { text: '' };
+      }),
+      streamChat: vi.fn(),
+    };
+
+    const emitService = new EmitService(() => {});
+    const service = createService(llmService, emitService);
+    await service.invokeAsync({
+      messages: [{ role: 'user', content: 'Please route me to Emily.' } as any],
+      tools: [makeTool('fs_read')],
+      toolDefs: [
+        {
+          name: 'fs_read',
+          description: 'Read a file',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+      skills: [],
+      teamRoster: [makeAgent('michael-brown', 'Michael Brown')],
+      ctx: {
+        agent: makeAgent('michael-brown', 'Michael Brown'),
+        workspaceRoot: '/workspace',
+        history: [],
+      } as any,
+    });
+
+    const policy = capturedMessages[0]?.[0];
+    expect(String(policy?.content)).not.toContain('must call com_handoff in this turn');
+  });
+
   it('emits fallback token text when tool loop returns final text without streamed deltas', async () => {
     const emittedTokens: string[] = [];
     const emitService = new EmitService((event) => {
@@ -37,7 +116,7 @@ describe('LlmInvokeService', () => {
       streamChat: vi.fn(),
     };
 
-    const service = new LlmInvokeService();
+    const service = createService(llmService, emitService);
     const result = await service.invokeAsync({
       messages: [{ role: 'user', content: 'Hello' } as any],
       tools: [makeTool('fs_read')],
@@ -55,9 +134,6 @@ describe('LlmInvokeService', () => {
         workspaceRoot: '/workspace',
         history: [],
       } as any,
-      emitService,
-      llmService: llmService as any,
-      toolDispatcher: { dispatch: vi.fn() } as any,
     });
 
     expect(result.fullResponse).toBe('Final answer from model.');
@@ -84,7 +160,7 @@ describe('LlmInvokeService', () => {
       streamChat: vi.fn(),
     };
 
-    const service = new LlmInvokeService();
+    const service = createService(llmService, emitService);
     const result = await service.invokeAsync({
       messages: [{ role: 'user', content: 'Hi' } as any],
       tools: [makeTool('fs_read')],
@@ -102,9 +178,6 @@ describe('LlmInvokeService', () => {
         workspaceRoot: '/workspace',
         history: [],
       } as any,
-      emitService,
-      llmService: llmService as any,
-      toolDispatcher: { dispatch: vi.fn() } as any,
     });
 
     expect(result.fullResponse).toBe('Hello world');
@@ -143,7 +216,7 @@ describe('LlmInvokeService', () => {
       chatWithTools: vi.fn(),
     };
 
-    const service = new LlmInvokeService();
+    const service = createService(llmService, emitService);
     const result = await service.invokeAsync({
       messages: [{ role: 'user', content: 'Hello' } as any],
       tools: [],
@@ -155,9 +228,6 @@ describe('LlmInvokeService', () => {
         workspaceRoot: '/workspace',
         history: [],
       } as any,
-      emitService,
-      llmService: llmService as any,
-      toolDispatcher: { dispatch: vi.fn() } as any,
     });
 
     expect(result.fullResponse).toBe('Here is the answer.');
@@ -188,7 +258,7 @@ describe('LlmInvokeService', () => {
       chatWithTools: vi.fn(),
     };
 
-    const service = new LlmInvokeService();
+    const service = createService(llmService, emitService);
     const result = await service.invokeAsync({
       messages: [{ role: 'user', content: 'Hello' } as any],
       tools: [],
@@ -200,9 +270,6 @@ describe('LlmInvokeService', () => {
         workspaceRoot: '/workspace',
         history: [],
       } as any,
-      emitService,
-      llmService: llmService as any,
-      toolDispatcher: { dispatch: vi.fn() } as any,
     });
 
     expect(result.fullResponse).toBe(
@@ -236,7 +303,7 @@ describe('LlmInvokeService', () => {
       chatWithTools: vi.fn(),
     };
 
-    const service = new LlmInvokeService();
+    const service = createService(llmService, emitService);
     const result = await service.invokeAsync({
       messages: [{ role: 'user', content: 'Hello' } as any],
       tools: [],
@@ -248,9 +315,6 @@ describe('LlmInvokeService', () => {
         workspaceRoot: '/workspace',
         history: [],
       } as any,
-      emitService,
-      llmService: llmService as any,
-      toolDispatcher: { dispatch: vi.fn() } as any,
     });
 
     expect(result.fullResponse).toBe('Normal response line.\n');

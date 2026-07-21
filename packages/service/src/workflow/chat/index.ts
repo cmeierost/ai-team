@@ -65,6 +65,11 @@ export {
 } from './chat-skill-service.js';
 
 export { HANDOFF_AUTO_REACT_MESSAGE } from './handoff-auto-react.js';
+export {
+  HandoffSubWorkflow,
+  type HandoffSubWorkflowInput,
+  type HandoffSubWorkflowResult,
+} from './handoff-subworkflow.js';
 
 // Legacy send-turn-machine removed - use ChatRuntime with XState WorkflowRunner instead
 

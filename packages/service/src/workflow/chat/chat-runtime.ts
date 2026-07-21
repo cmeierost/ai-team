@@ -21,6 +21,9 @@ import { HANDOFF_AUTO_REACT_MESSAGE } from './handoff-auto-react.js';
 export interface ChatRuntimeTurnInput {
   userMessage: string;
   hop: number;
+  agentId?: string;
+  sessionId?: string;
+  createNewSession?: boolean;
   options: {
     skipPersist: boolean;
   };
@@ -30,6 +33,18 @@ export interface ChatRuntimeTurnResult {
   text: string;
   toolRoundNeeded: boolean;
   pendingToolCall?: ChatLoopToolCall;
+  handoffTargetId?: string;
+  handoffTargetSessionId?: string;
+  handoffNote?: string;
+  handoffTargetWorkflowId?: string;
+  handoffWorkflowToolPolicy?: {
+    allow?: string[];
+    deny?: string[];
+    add?: string[];
+    remove?: string[];
+  };
+  agentId?: string;
+  sessionId?: string;
 }
 
 export type IChatRuntimeStepCommand<TInput, TOutput> = ICommand<TInput, TOutput>;
@@ -46,11 +61,29 @@ export interface ChatRuntimeStepContractMap {
   preturn: IChatRuntimeStepCommand<{ message: string }, ChatLoopPreturnResult>;
   sendTurn: IChatRuntimeStepCommand<ChatRuntimeTurnInput, ChatRuntimeTurnResult>;
   postTurnResolution: IChatRuntimeStepCommand<
-    { text: string; hop: number },
+    {
+      text: string;
+      hop: number;
+      handoffTargetId?: string;
+      handoffTargetSessionId?: string;
+      handoffNote?: string;
+      handoffTargetWorkflowId?: string;
+      handoffWorkflowToolPolicy?: {
+        allow?: string[];
+        deny?: string[];
+        add?: string[];
+        remove?: string[];
+      };
+    },
     ChatLoopPostTurnResolutionResult
   >;
   handoffTransition: IChatRuntimeStepCommand<
-    { handoff: ChatLoopPostTurnResolutionResult; hop: number },
+    {
+      handoff: ChatLoopPostTurnResolutionResult;
+      hop: number;
+      fromAgentId?: string;
+      fromSessionId?: string;
+    },
     ChatLoopHandoffTransitionResult
   >;
   toolRound: IChatRuntimeStepCommand<
@@ -104,6 +137,9 @@ interface ChatRuntimeState {
   autoReactMessage: string;
   maxHops: number;
   hop: number;
+  currentAgentId?: string;
+  currentSessionId?: string;
+  createNewSession?: boolean;
   currentMessage: string;
   lastText: string;
   status: ChatLoopOutput['status'];
@@ -147,6 +183,9 @@ export class ChatRuntime implements IChatRuntime {
       autoReactMessage: input.autoReactMessage ?? HANDOFF_AUTO_REACT_MESSAGE,
       maxHops: input.maxHops ?? 10,
       hop: 0,
+      currentAgentId: input.agentId,
+      currentSessionId: input.sessionId,
+      createNewSession: input.createNewSession,
       currentMessage: input.message,
       lastText: '',
       status: 'completed',
@@ -258,6 +297,9 @@ export class ChatRuntime implements IChatRuntime {
               params: (state) => ({
                 userMessage: state.currentMessage,
                 hop: state.hop,
+                agentId: state.currentAgentId,
+                sessionId: state.currentSessionId,
+                createNewSession: state.createNewSession,
                 options: {
                   skipPersist: this.shouldSkipPersist(
                     state.currentMessage,
@@ -278,6 +320,9 @@ export class ChatRuntime implements IChatRuntime {
                   shouldRunPostTurnResolution: undefined,
                   shouldRunHandoffTransition: undefined,
                   lastText: sendTurn.text,
+                  currentAgentId: sendTurn.agentId ?? state.currentAgentId,
+                  currentSessionId: sendTurn.sessionId ?? state.currentSessionId,
+                  createNewSession: false,
                 };
               },
             },
@@ -391,7 +436,15 @@ export class ChatRuntime implements IChatRuntime {
               id: 'postTurnResolution',
               command: postTurnResolutionCommand.metadata.key,
               skipWhen: 'shouldRunPostTurnResolution != true',
-              params: (state) => ({ text: state.lastText, hop: state.hop }),
+              params: (state) => ({
+                text: state.lastText,
+                hop: state.hop,
+                handoffTargetId: state.sendTurn?.handoffTargetId,
+                handoffTargetSessionId: state.sendTurn?.handoffTargetSessionId,
+                handoffNote: state.sendTurn?.handoffNote,
+                handoffTargetWorkflowId: state.sendTurn?.handoffTargetWorkflowId,
+                handoffWorkflowToolPolicy: state.sendTurn?.handoffWorkflowToolPolicy,
+              }),
               applyResult: (state, raw) => {
                 const postTurn = this.unwrapStepResponse<ChatLoopPostTurnResolutionResult>(
                   raw,
@@ -447,7 +500,12 @@ export class ChatRuntime implements IChatRuntime {
               id: 'handoffTransition',
               command: handoffTransitionCommand.metadata.key,
               skipWhen: 'shouldRunHandoffTransition != true',
-              params: (state) => ({ handoff: state.postTurn!, hop: state.hop }),
+              params: (state) => ({
+                handoff: state.postTurn!,
+                hop: state.hop,
+                fromAgentId: state.currentAgentId,
+                fromSessionId: state.currentSessionId,
+              }),
               applyResult: (state, raw) => {
                 const handoff = this.unwrapStepResponse<ChatLoopHandoffTransitionResult>(
                   raw,
@@ -458,6 +516,9 @@ export class ChatRuntime implements IChatRuntime {
                   handoff,
                   currentMessage: handoff.autoMessage ?? state.autoReactMessage,
                   hop: state.hop + 1,
+                  currentAgentId: handoff.agentId ?? state.currentAgentId,
+                  currentSessionId: handoff.sessionId ?? state.currentSessionId,
+                  createNewSession: false,
                   sendTurn: undefined,
                   toolRound: undefined,
                   postTurn: undefined,

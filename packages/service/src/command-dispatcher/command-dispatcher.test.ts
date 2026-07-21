@@ -421,4 +421,154 @@ describe('CommandDispatcher typed dispatch', () => {
     expect(result.data).toEqual({ path: '/from-workflow' });
     expect(prompts).toHaveLength(0);
   });
+
+  it('maps positional string args into required schema fields for slash/chat dispatch', async () => {
+    const prompts: string[] = [];
+    const questionService: IQuestionService = {
+      input: async (request) => {
+        prompts.push(request.message);
+        return 'unused';
+      },
+      confirm: async () => true,
+      select: async () => 'unused',
+      password: async () => 'unused',
+      checklist: async () => [],
+    };
+
+    const { dispatcher, registry } = makeDispatcher(questionService);
+
+    const command: ICommand<{ path: string }, { path: string }> = {
+      metadata: {
+        key: 'path-check',
+        description: 'path-check',
+        availableIn: { chat: true, cli: true },
+        parameters: z.object({ path: z.string().min(1) }),
+      },
+      execute: async (payload) => ({ status: 'ok', message: '', data: { path: payload.path } }),
+    };
+
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const result = await dispatcher.dispatch('path-check', '/tmp/my-file.txt', {
+      invocationSurface: 'slash',
+      history: [],
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.data).toEqual({ path: '/tmp/my-file.txt' });
+    expect(prompts).toHaveLength(0);
+  });
+
+  it('maps positional string args in request-overload dispatch for CLI-like entry', async () => {
+    const { dispatcher, registry } = makeDispatcher();
+
+    const command: ICommand<{ agentId: string; sessionId: string }, { value: string }> = {
+      metadata: {
+        key: 'resume-session',
+        description: 'resume-session',
+        availableIn: { chat: true, cli: true },
+        parameters: z.object({
+          agentId: z.string().min(1),
+          sessionId: z.string().min(1),
+        }),
+      },
+      execute: async (payload) => ({
+        status: 'ok',
+        message: '',
+        data: { value: `${payload.agentId}:${payload.sessionId}` },
+      }),
+    };
+
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const result = await dispatcher.dispatch(
+      {
+        command: 'resume-session',
+        payload: 'michael-brown sess-123',
+      },
+      { invocationSurface: 'cli', history: [] }
+    );
+
+    expect(result.status).toBe('ok');
+    expect(result.data).toEqual({ value: 'michael-brown:sess-123' });
+  });
+
+  it('folds extra positional words into the last mapped schema field', async () => {
+    const { dispatcher, registry } = makeDispatcher();
+
+    const command: ICommand<{ targetAgentId: string; briefingNote?: string }, { value: string }> = {
+      metadata: {
+        key: 'handoff-like',
+        description: 'handoff-like',
+        availableIn: { chat: true, cli: true },
+        parameters: z.object({
+          targetAgentId: z.string().min(1),
+          briefingNote: z.string().optional(),
+        }),
+      },
+      execute: async (payload) => ({
+        status: 'ok',
+        message: '',
+        data: { value: `${payload.targetAgentId}|${payload.briefingNote ?? ''}` },
+      }),
+    };
+
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const result = await dispatcher.dispatch('handoff-like', 'michael-brown please review auth flow', {
+      invocationSurface: 'chat',
+      history: [],
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.data).toEqual({ value: 'michael-brown|please review auth flow' });
+  });
+
+  it('does not prompt for fields that are required in JSON schema but have defaults', async () => {
+    const prompts: string[] = [];
+    const questionService: IQuestionService = {
+      input: async (request) => {
+        prompts.push(request.message);
+        return 'unused';
+      },
+      confirm: async () => true,
+      select: async () => 'unused',
+      password: async () => 'unused',
+      checklist: async () => [],
+    };
+
+    const { dispatcher, registry } = makeDispatcher(questionService);
+
+    const command: ICommand<
+      { targetAgentId: string; briefingNote: string; retries: number },
+      { value: string }
+    > = {
+      metadata: {
+        key: 'defaulted-required',
+        description: 'defaulted-required',
+        availableIn: { chat: true, cli: true },
+        parameters: z.object({
+          targetAgentId: z.string().min(1),
+          briefingNote: z.string().default('auto-briefing'),
+          retries: z.number().int().default(3),
+        }),
+      },
+      execute: async (payload) => ({
+        status: 'ok',
+        message: '',
+        data: { value: `${payload.targetAgentId}|${payload.briefingNote}|${payload.retries}` },
+      }),
+    };
+
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const result = await dispatcher.dispatch('defaulted-required', 'michael-brown', {
+      invocationSurface: 'slash',
+      history: [],
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.data).toEqual({ value: 'michael-brown|auto-briefing|3' });
+    expect(prompts).toHaveLength(0);
+  });
 });

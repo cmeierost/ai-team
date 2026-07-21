@@ -137,6 +137,7 @@ import { ChatStartupCommand } from '../commands/chat/chat-startup.command.js';
 import { ChatTurnCommand } from '../commands/chat/chat-turn.command.js';
 import { ChatDirectTurnCommand } from '../commands/chat/chat-direct-turn.command.js';
 import { ChatTurnBootstrapResolver } from '../workflow/chat/chat-turn-bootstrap-resolver.js';
+import { HandoffSubWorkflow } from '../workflow/chat/handoff-subworkflow.js';
 import { IntroductionCommand } from '../commands/chat/introduction.command.js';
 import { ResolveChatSessionCommand } from '../commands/chat/resolve-chat-session.command.js';
 import { LoadSessionMessagesCommand } from '../commands/chat/load-session-messages.command.js';
@@ -156,10 +157,7 @@ import {
   SwitchChatCommand,
   SwitchChatCommandMetadata,
 } from '../commands/session/switch-chat.command.js';
-import {
-  HandoffChatCommand,
-  HandoffChatCommandMetadata,
-} from '../commands/chat/handoff.command.js';
+import { HandoffCommand, HandoffCommandMetadata } from '../commands/com/handoff.command.js';
 import {
   NewSessionChatCommand,
   NewSessionChatCommandMetadata,
@@ -771,17 +769,17 @@ export function registerBuiltInCommands(
       )
   );
 
-  registry.register(
-    HandoffChatCommandMetadata,
-    (r) =>
-      new HandoffChatCommand(
-        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
-        r.resolve(CORE_SERVICE_TOKENS.SessionManager),
-        r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
-        r.resolve(CORE_SERVICE_TOKENS.LlmService),
-        r.resolve(CORE_SERVICE_TOKENS.EmitService)
-      )
-  );
+  registry.register(HandoffCommandMetadata, (r) => {
+    const handoffSubWorkflow = new HandoffSubWorkflow(
+      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+      r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
+      r.resolve(CORE_SERVICE_TOKENS.LlmService),
+      r.resolve(CORE_SERVICE_TOKENS.EmitService)
+    );
+
+    return new HandoffCommand(handoffSubWorkflow, r.resolve(CORE_SERVICE_TOKENS.EmitService));
+  });
 
   registry.register(
     NewSessionChatCommandMetadata,
@@ -795,7 +793,12 @@ export function registerBuiltInCommands(
 
   registry.register(
     BackChatCommandMetadata,
-    (r) => new BackChatCommand(r.resolve(CORE_SERVICE_TOKENS.AgentManager))
+    (r) =>
+      new BackChatCommand(
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService)
+      )
   );
 
   registry.register(HistoryChatCommandMetadata, (_r) => new HistoryChatCommand());

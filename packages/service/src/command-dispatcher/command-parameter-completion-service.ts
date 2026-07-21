@@ -85,6 +85,11 @@ export class CommandParameterCompletionService {
 
       if (propSchema && typeof propSchema === 'object') {
         const propRecord = propSchema as Record<string, unknown>;
+        // Zod defaults are surfaced into JSON schema as `default`, and should
+        // satisfy required fields without interactive prompting.
+        if (Object.hasOwn(propRecord, 'default')) {
+          continue;
+        }
         const propType = typeof propRecord.type === 'string' ? propRecord.type : undefined;
         const nested = this.collectRequiredFieldMetadata(propSchema, path);
 
