@@ -385,7 +385,15 @@ export class LlmService implements ILlmService {
       ...messages,
     ];
 
-    const logBase = this.buildLogBase('chat', agent, allMessages, options, skills, teamRoster);
+    const logBase = this.buildLogBase(
+      'chat',
+      agent,
+      allMessages,
+      options,
+      skills,
+      teamRoster,
+      this.toChatCompletionTools(tools)
+    );
     const start = Date.now();
     const collectedResults: LlmToolResult[] = [];
     const failedToolCallAttempts = new Map<string, number>();
@@ -393,6 +401,8 @@ export class LlmService implements ILlmService {
     if (
       this.timeoutPolicy.shouldUseResponsesApiForToolLoop(this.config, options?.model ?? this.model)
     ) {
+      logBase.request.api = 'responses';
+      logBase.request.tools = this.toResponsesTools(tools);
       try {
         return await this.chatWithToolsViaResponses(
           allMessages,
@@ -410,6 +420,8 @@ export class LlmService implements ILlmService {
         }
         // Fall back to chat.completions for providers/endpoints that expose
         // GPT-5 model IDs but do not support Responses API tool loops.
+        logBase.request.api = 'chat-completions';
+        logBase.request.tools = this.toChatCompletionTools(tools);
       }
     }
 
@@ -425,17 +437,7 @@ export class LlmService implements ILlmService {
             presence_penalty: options?.presencePenalty,
             frequency_penalty: options?.frequencyPenalty,
             stop: options?.stop,
-            tools: tools.map((tool) => ({
-              type: 'function' as const,
-              function: {
-                name: tool.name,
-                description: tool.description,
-                parameters: tool.parameters ?? {
-                  type: 'object',
-                  additionalProperties: true,
-                },
-              },
-            })),
+            tools: this.toChatCompletionTools(tools),
             stream: true,
           }),
           requestTimeoutMs,
@@ -651,15 +653,7 @@ export class LlmService implements ILlmService {
     const requestTimeoutMs = this.timeoutPolicy.getChatRequestTimeoutMs(this.config, model);
     let inputItems = this.utils.mapChatMessagesToResponsesInput(allMessages);
     let previousResponseId: string | undefined;
-    const responseTools = tools.map((tool) => ({
-      type: 'function' as const,
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters ?? {
-        type: 'object',
-        additionalProperties: true,
-      },
-    }));
+    const responseTools = this.toResponsesTools(tools);
 
     let lastText = '';
 
@@ -1012,7 +1006,8 @@ ${excerpts}`;
     messages: ChatCompletionMessageParam[],
     options?: LlmChatOptions,
     skills?: Skill[],
-    teamRoster?: Agent[]
+    teamRoster?: Agent[],
+    tools?: unknown[]
   ): LlmLogBase {
     return {
       id: randomUUID(),
@@ -1026,7 +1021,9 @@ ${excerpts}`;
         role: agent.role,
       },
       request: {
+        api: tools ? 'chat-completions' : undefined,
         messages: this.cloneMessages(messages),
+        tools: tools ? this.utils.safeJsonClone(tools) : undefined,
         options: options ? this.utils.safeJsonClone(options) : undefined,
         skills: skills?.map((s) => ({
           name: s.name,
@@ -1061,6 +1058,26 @@ ${excerpts}`;
 
   private cloneMessages(messages: ChatCompletionMessageParam[]): ChatCompletionMessageParam[] {
     return messages.map((msg) => this.utils.safeJsonClone(msg) as ChatCompletionMessageParam);
+  }
+
+  private toChatCompletionTools(tools: LlmToolDefinition[]): Array<Record<string, unknown>> {
+    return tools.map((tool) => ({
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters ?? { type: 'object', additionalProperties: true },
+      },
+    }));
+  }
+
+  private toResponsesTools(tools: LlmToolDefinition[]): Array<Record<string, unknown>> {
+    return tools.map((tool) => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters ?? { type: 'object', additionalProperties: true },
+    }));
   }
 
   private wrapStreamWithLogging(
@@ -1231,7 +1248,9 @@ interface LlmLogBase {
     role: string;
   };
   request: {
+    api?: 'chat-completions' | 'responses';
     messages: ChatCompletionMessageParam[];
+    tools?: unknown[];
     options?: LlmChatOptions;
     skills?: {
       name: string;

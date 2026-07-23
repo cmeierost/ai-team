@@ -7,6 +7,7 @@ import type {
 import type { SessionManager } from '../../sessions/session-manager.js';
 export const SessionInfoChatCommandMetadata = {
   key: 'session',
+  group: 'session',
   usage: '/session',
   description: 'Show session info; subcommands: messages, graph, context',
   availableIn: { chat: true, tool: false },

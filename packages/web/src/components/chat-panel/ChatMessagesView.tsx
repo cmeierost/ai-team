@@ -849,9 +849,9 @@ export function ChatMessagesView({
               const displayName = getMessageDisplayName(message, agents, agent, developer?.name);
               const human = isHumanMessage(message);
               const senderAgent = agents.find((entry) => entry.id === message.from) ?? agent;
-              const messageKey =
-                message.handoffId ??
-                `${message.timestamp}-${message.from}-${message.content.slice(0, 24)}`;
+              // Content is streamed and timestamps can collide for persisted
+              // messages, so neither is a safe React identity by itself.
+              const messageKey = `message-${message.handoffId ?? `${message.timestamp}-${message.from}`}-${index}`;
               const isEditingMessage = editingIndex === index;
               const ttsKey = `${message.from}-${index}`;
               const isLastAgentMsg = !human && index === lastAssistantMessageIndex;

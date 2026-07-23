@@ -12,6 +12,8 @@ import {
   DynamicSlashCommandFactory,
 } from '../command-dispatcher/dynamic-slash/catalog.js';
 import { DynamicSlashCatalogConfigReader } from '../command-dispatcher/dynamic-slash/config.js';
+import { formatSlashInvocation } from '../command-dispatcher/slash-invocation.js';
+import { GROUP_REGISTRY } from '../commands/groups.js';
 
 export class CommandsService implements ICommandsService {
   private readonly startupWarnings = new Set<string>();
@@ -30,12 +32,15 @@ export class CommandsService implements ICommandsService {
   ) {}
 
   async list(): Promise<ChatCommandRegistryEntry[]> {
-    const webChatCommandRegistry = this.commandDispatcher.getCommands({
-      chat: true,
-    }) as ChatCommandRegistryEntry[];
-    const reservedKeys = new Set<string>();
-    for (const command of webChatCommandRegistry) {
+    const registeredChatCommands = this.commandDispatcher.getCommands({ chat: true });
+    const webChatCommandRegistry = registeredChatCommands.map((command) => ({
+      ...command,
+      usage: formatSlashInvocation(command),
+    })) as ChatCommandRegistryEntry[];
+    const reservedKeys = new Set<string>(Object.keys(GROUP_REGISTRY).map((key) => key.toLowerCase()));
+    for (const command of registeredChatCommands) {
       reservedKeys.add(command.key.toLowerCase());
+      if (command.group) reservedKeys.add(`${command.group}-${command.key}`.toLowerCase());
       for (const alias of command.aliases ?? []) {
         reservedKeys.add(alias.toLowerCase());
       }

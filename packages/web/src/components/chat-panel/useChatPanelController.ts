@@ -42,6 +42,7 @@ import type {
   PendingQuestion,
   SelectQuestionRequest,
 } from './chatPanelTypes';
+import { ChatRenderQueue, waitForNextPaint } from './chatRenderQueue';
 
 interface CodeEditProposalFile {
   filePath: string;
@@ -344,6 +345,15 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const greetingCancelRef = useRef<{ value: boolean }>({ value: false });
   const latestGreetingLoadIdRef = useRef(0);
   const lastGreetingSpeechRef = useRef<{ fingerprint: string; at: number } | null>(null);
+  const messageRenderQueueRef = useRef(new ChatRenderQueue());
+
+  const queueMessageRender = (
+    update: ChatMessage[] | ((previous: ChatMessage[]) => ChatMessage[])
+  ) =>
+    messageRenderQueueRef.current.enqueue(async () => {
+      setMessages(update);
+      await waitForNextPaint();
+    });
 
   const graphRouteMatch = useMatch(GRAPH_ROUTE);
   const noteRouteMatch = useMatch(NOTE_ROUTE);
@@ -431,11 +441,11 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         content: data.content ?? '',
         timestamp: data.timestamp ?? new Date().toISOString(),
       };
-      setMessages([greetingMessage]);
+      void queueMessageRender([greetingMessage]);
       setIsEphemeral(true);
       speakGreetingIfNeeded(greetingMessage);
     } catch {
-      setMessages([]);
+      void queueMessageRender([]);
       setIsEphemeral(false);
     }
   };
@@ -455,7 +465,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         ? sessionWithMessages.title.trim()
         : null
     );
-    setMessages(sessionWithMessages.messages || []);
+    void queueMessageRender(sessionWithMessages.messages || []);
     setArtifactsInContext(sessionWithMessages.artifacts || []);
     setActivatedTools(
       backfillActivatedToolRequests(
@@ -855,7 +865,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   }, []);
 
   const updateAssistantMessageContent = (content: string) => {
-    setMessages((previous) => {
+    void queueMessageRender((previous) => {
       const updated = [...previous];
       const index = assistantIndexRef.current;
       if (index >= 0 && index < updated.length) {
@@ -925,7 +935,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
       const existingMessages: ChatMessage[] = sessionWithMessages.messages || [];
       assistantIndexRef.current = existingMessages.length;
-      setMessages([
+      await queueMessageRender([
         ...existingMessages,
         {
           from: toAgentId,
@@ -1158,7 +1168,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       if (event.kind === 'session_switched') {
         const newSessionId = event.sessionId as string;
         setCurrentSessionId(newSessionId);
-        setMessages([]);
+        await queueMessageRender([]);
         setIsEphemeral(false);
         await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
         navigate(`/chat/${currentAgentId}/session/${newSessionId}`, { replace: true });
@@ -1206,7 +1216,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       timestamp: new Date().toISOString(),
     };
 
-    setMessages((previous) => [...previous, userMessage]);
+    await queueMessageRender((previous) => [...previous, userMessage]);
     if (messageOverride === undefined) {
       setInput('');
       if (textareaRef.current) {
@@ -1219,7 +1229,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     setStreaming(true);
     abortControllerRef.current = new AbortController();
 
-    setMessages((previous) => {
+    await queueMessageRender((previous) => {
       // Use the functional updater so assistantIndexRef is based on the actual
       // current length (not the stale closure value from `messages`).
       assistantIndexRef.current = previous.length;
@@ -1284,7 +1294,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       console.error('Failed to send message:', error);
       const rawMessage = error instanceof Error ? error.message : 'Failed to send message';
       setChatError(normalizeChatErrorMessage(rawMessage));
-      setMessages((previous) => {
+      void queueMessageRender((previous) => {
         const updated = [...previous];
         const index = assistantIndexRef.current;
         if (index >= 0 && index < updated.length) {
@@ -1464,7 +1474,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     if (editingIndex === index) {
       try {
         await client.chat.editMessage(currentAgentId, String(index), { content: editContent });
-        setMessages((previous) => {
+        await queueMessageRender((previous) => {
           const updated = [...previous];
           updated[index] = { ...updated[index], content: editContent };
           return updated;
@@ -1497,7 +1507,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       if (!currentSessionId) {
-        setMessages((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
+        await queueMessageRender((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
         return;
       }
 
@@ -1510,18 +1520,18 @@ export function useChatPanelController(): UseChatPanelControllerResult {
 
       if (!persistedMessage) {
         // Message not persisted yet or already deleted — just remove from local state.
-        setMessages((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
+        await queueMessageRender((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
         return;
       }
 
       try {
         await client.sessions.deleteMessage(currentSessionId, persistedMessage.timestamp);
       } catch {
-        setMessages(persistedMessages);
+        await queueMessageRender(persistedMessages);
         return;
       }
 
-      setMessages((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
+      await queueMessageRender((previous) => previous.filter((_, messageIndex) => messageIndex !== index));
 
       await queryClient.invalidateQueries({ queryKey: contextPanelQueryKeys.sessionsRoot });
       await syncSessionState(currentSessionId, currentAgentId);
@@ -1585,7 +1595,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       } else {
         await client.chat.archiveMessage(currentAgentId, String(index));
       }
-      setMessages((previous) => {
+      await queueMessageRender((previous) => {
         const updated = [...previous];
         updated[index] = {
           ...updated[index],
@@ -1780,7 +1790,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     if (deletedSessionId === currentSessionId) {
       setCurrentSessionId(null);
       setCurrentSessionTitle(null);
-      setMessages([]);
+      void queueMessageRender([]);
       setArtifactsInContext([]);
       navigate(`/chat/${currentAgentId}`);
     }
@@ -1791,7 +1801,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
     setCurrentSessionTitle(null);
     setArtifactsInContext([]);
     setActivatedTools([]);
-    setMessages([]);
+    await queueMessageRender([]);
     setIsEphemeral(false);
     skipNewSessionRef.current = true;
     greetingCancelRef.current.value = true;
@@ -1820,7 +1830,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       });
       const sessionWithMessages = await fetchSessionWithMessages(newSession.id);
       if (sessionWithMessages) {
-        setMessages(sessionWithMessages.messages || []);
+        await queueMessageRender(sessionWithMessages.messages || []);
         setCurrentSessionId(newSession.id);
         setCurrentSessionTitle(
           typeof sessionWithMessages.title === 'string' &&

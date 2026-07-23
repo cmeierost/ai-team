@@ -261,7 +261,9 @@ activity.
 
 Chat startup selection follows the same boundary. Adapters pass an optional
 agent/session plus the explicit-new flag; `ChatStartupTargetResolver` resolves
-bare resume and member-session resume through the persisted thread cursor.
+bare `ait chat` to the session with the latest message or persisted tool
+activity, while an explicit member-session resume follows the persisted thread cursor.
+An agent-only invocation starts a new root session for that agent.
 
 Handoff summaries are written to both source and target sessions with one
 `handoffId`. The service's presentation transcript traverses the complete

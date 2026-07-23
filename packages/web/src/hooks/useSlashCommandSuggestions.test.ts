@@ -3,18 +3,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { useQuery } from '@tanstack/react-query';
 
 const mockSlashCommands = vi.hoisted(() => [
-  { key: 'help', usage: '/help', description: 'Show this help', llmCallable: false },
-  { key: 'chat', usage: '/chat <name|role>', description: 'Switch to agent', llmCallable: false },
-  { key: 'history', usage: '/history [n]', description: 'Show messages', llmCallable: false },
+  { key: 'help', group: 'system', aliases: ['help'], usage: '/system help', description: 'Show this help', llmCallable: false },
+  { key: 'switch', group: 'session', aliases: ['switch'], usage: '/session switch', description: 'Switch to agent', llmCallable: false },
+  { key: 'history', group: 'session', usage: '/session history', description: 'Show messages', llmCallable: false },
   {
-    key: 'team-list',
-    usage: '/list',
+    key: 'list',
+    group: 'team',
+    usage: '/team list',
     description: 'List team members',
     llmCallable: false,
   },
   {
     key: 'run',
-    usage: '/run <command>',
+    group: 'chat',
+    usage: '/chat run',
     description: 'Run shell command',
     llmCallable: false,
     aliases: ['shell'],
@@ -53,15 +55,15 @@ describe('useSlashCommandSuggestions', () => {
     expect(result.current.suggestions).toHaveLength(5);
   });
 
-  it('filters commands by prefix', () => {
-    const { result } = renderHook(() => useSlashCommandSuggestions('/h'));
-    expect(result.current.suggestions.map((s) => s.key)).toEqual(['help', 'history']);
+  it('filters built-ins by group prefix', () => {
+    const { result } = renderHook(() => useSlashCommandSuggestions('/s'));
+    expect(result.current.suggestions.map((s) => s.key)).toEqual(['help', 'history', 'run', 'switch']);
   });
 
-  it('filters to a single match', () => {
-    const { result } = renderHook(() => useSlashCommandSuggestions('/ch'));
+  it('filters to a single grouped command', () => {
+    const { result } = renderHook(() => useSlashCommandSuggestions('/system h'));
     expect(result.current.suggestions).toHaveLength(1);
-    expect(result.current.suggestions[0].key).toBe('chat');
+    expect(result.current.suggestions[0].key).toBe('help');
   });
 
   it('matches aliases', () => {
@@ -70,9 +72,9 @@ describe('useSlashCommandSuggestions', () => {
     expect(result.current.suggestions[0].key).toBe('run');
   });
 
-  it('matches usage token while typing slash command text', () => {
-    const { result } = renderHook(() => useSlashCommandSuggestions('/li'));
-    expect(result.current.suggestions.map((suggestion) => suggestion.key)).toContain('team-list');
+  it('matches grouped command keys while typing slash command text', () => {
+    const { result } = renderHook(() => useSlashCommandSuggestions('/team li'));
+    expect(result.current.suggestions.map((suggestion) => suggestion.key)).toContain('list');
   });
 
   it('is closed when no commands match', () => {
@@ -82,13 +84,13 @@ describe('useSlashCommandSuggestions', () => {
   });
 
   it('is case-insensitive', () => {
-    const { result } = renderHook(() => useSlashCommandSuggestions('/HE'));
+    const { result } = renderHook(() => useSlashCommandSuggestions('/SYSTEM H'));
     expect(result.current.suggestions.map((s) => s.key)).toContain('help');
   });
 
   it('navigate(1) increments selectedIndex wrapping around', () => {
-    const { result } = renderHook(() => useSlashCommandSuggestions('/h'));
-    // suggestions: help, history → length 2, default selectedIndex = -1
+    const { result } = renderHook(() => useSlashCommandSuggestions('/session'));
+    // suggestions: history, switch → length 2, default selectedIndex = -1
     act(() => result.current.navigate(1));
     expect(result.current.selectedIndex).toBe(0);
     act(() => result.current.navigate(1));
@@ -98,30 +100,30 @@ describe('useSlashCommandSuggestions', () => {
   });
 
   it('navigate(-1) decrements selectedIndex wrapping around', () => {
-    const { result } = renderHook(() => useSlashCommandSuggestions('/h'));
+    const { result } = renderHook(() => useSlashCommandSuggestions('/session'));
     act(() => result.current.navigate(-1));
     expect(result.current.selectedIndex).toBe(1); // wraps from -1 to last
   });
 
-  it('select returns canonical /key and closes the dropdown', () => {
-    const { result } = renderHook(() => useSlashCommandSuggestions('/ch'));
+  it('select returns canonical grouped invocation and closes the dropdown', () => {
+    const { result } = renderHook(() => useSlashCommandSuggestions('/system h'));
     let usage!: string;
     act(() => {
       usage = result.current.select(0);
     });
-    expect(usage).toBe('/chat');
+    expect(usage).toBe('/system help');
     expect(result.current.isOpen).toBe(false);
   });
 
-  it('keeps filtering by command token when typing arguments', () => {
-    const { result } = renderHook(() => useSlashCommandSuggestions('/chat dan'));
+  it('keeps filtering by grouped command tokens when typing arguments', () => {
+    const { result } = renderHook(() => useSlashCommandSuggestions('/system help extra'));
     expect(result.current.isOpen).toBe(true);
     expect(result.current.suggestions).toHaveLength(1);
-    expect(result.current.suggestions[0].key).toBe('chat');
+    expect(result.current.suggestions[0].key).toBe('help');
   });
 
   it('dismiss closes the dropdown without changing input', () => {
-    const { result } = renderHook(() => useSlashCommandSuggestions('/h'));
+    const { result } = renderHook(() => useSlashCommandSuggestions('/s'));
     expect(result.current.isOpen).toBe(true);
     act(() => result.current.dismiss());
     expect(result.current.isOpen).toBe(false);
@@ -130,12 +132,12 @@ describe('useSlashCommandSuggestions', () => {
   it('resets dismissed state when input changes to a new / fragment', () => {
     const { result, rerender } = renderHook(
       ({ input }: { input: string }) => useSlashCommandSuggestions(input),
-      { initialProps: { input: '/h' } }
+      { initialProps: { input: '/session' } }
     );
     act(() => result.current.dismiss());
     expect(result.current.isOpen).toBe(false);
 
-    rerender({ input: '/c' });
+    rerender({ input: '/system' });
     expect(result.current.isOpen).toBe(true);
   });
 

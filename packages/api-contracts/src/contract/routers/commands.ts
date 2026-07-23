@@ -5,6 +5,7 @@ import type { ICommandDescriptor } from '@ai-team/core';
 export type ChatCommandRegistryEntry = Pick<
   ICommandDescriptor<unknown>,
   | 'key'
+  | 'group'
   | 'usage'
   | 'description'
   | 'aliases'

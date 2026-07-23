@@ -71,18 +71,13 @@ export class IntroductionCommand {
   }
 
   async execute(input: IntroductionCommandInput): Promise<void> {
-    // Emit agent name prefix
-    this.emitService.token(`\n${input.agent.name} (${input.agent.role}): `);
-
     const text = this.renderer.render(input.agent, input.developerName);
-    this.emitService.token(`${text}\n\n`);
 
     const agentMsg: ChatMessage = {
       timestamp: new Date().toISOString(),
       from: input.agent.id,
       to: 'human',
       content: text,
-      importance: 'low',
     };
     await this.sessionManager.appendMessage(input.sessionId, agentMsg);
     input.history.push(agentMsg);

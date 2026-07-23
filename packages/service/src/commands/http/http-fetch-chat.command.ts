@@ -8,8 +8,7 @@ import type {
 import { parseUrlAndJsonOptions } from './http-chat-utils.js';
 export const HttpFetchChatCommandMetadata = {
   key: 'fetch',
-  aliases: ['http-fetch'],
-  usage: '/fetch <url> [json-options]',
+  usage: '/chat fetch <url> [json-options]',
   description:
     'Fetch a web page via http_fetch and print the extracted result (great before /context add).',
   availableIn: { chat: true, tool: false },

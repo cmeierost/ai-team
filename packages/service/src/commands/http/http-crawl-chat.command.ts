@@ -8,8 +8,7 @@ import type {
 import { parseUrlAndJsonOptions } from './http-chat-utils.js';
 export const HttpCrawlChatCommandMetadata = {
   key: 'crawl',
-  aliases: ['http-crawl'],
-  usage: '/crawl <url> [json-options]',
+  usage: '/chat crawl <url> [json-options]',
   description:
     'Crawl links via http_crawl and print extracted results (supports depth/page limits).',
   availableIn: { chat: true, tool: false },

@@ -7,6 +7,7 @@ describe('CommandRegistry availability filters', () => {
 
     registry.register({
       key: 'history',
+      group: 'session',
       description: 'history',
       availableIn: { chat: true, cliChat: true },
       execute: async () => undefined,
@@ -14,6 +15,7 @@ describe('CommandRegistry availability filters', () => {
 
     registry.register({
       key: 'help',
+      group: 'system',
       description: 'help',
       availableIn: { chat: true },
       execute: async () => undefined,
@@ -47,5 +49,21 @@ describe('CommandRegistry availability filters', () => {
 
     expect(registry.get('fs_list')).toBe(fsList);
     expect(registry.get('team_list')).toBe(teamList);
+  });
+
+  it('rejects aliases that would make the slash group namespace ambiguous', () => {
+    const registry = new CommandRegistry();
+    expect(() =>
+      registry.register(
+        {
+          key: 'status',
+          group: 'system',
+          aliases: ['session'],
+          description: 'status',
+          availableIn: { chat: true },
+        } as any,
+        () => ({}) as any
+      )
+    ).toThrow("conflicts with slash command group 'session'");
   });
 });

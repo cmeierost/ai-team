@@ -16,7 +16,10 @@ import type { CommandResponse as ContractCommandResponse } from '@ai-team/api-co
 import type { ResolvedPlugins, TurnResult } from '../../workflow/runtime/pipeline.js';
 import { SendTurnResolvedSkillsAndTools } from '../../workflow/chat/send-turn-step-service.js';
 import { HANDOFF_AUTO_REACT_MESSAGE } from '../../workflow/chat/handoff-auto-react.js';
-import { parseSlashInvocation } from '../../command-dispatcher/slash-invocation.js';
+import {
+  parseSlashInvocation,
+  resolveSlashInvocation,
+} from '../../command-dispatcher/slash-invocation.js';
 
 const chatDirectTurnParamsSchema = z.object({
   agentId: z.string().optional(),
@@ -248,18 +251,26 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     userMessage: string,
     ctx: ExecutionContext
   ): Promise<{ responseText: string } | null> {
-    const parsed = parseSlashInvocation(userMessage);
-    if (!parsed) {
+    const rawInvocation = parseSlashInvocation(userMessage);
+    if (!rawInvocation) {
       return null;
     }
+    const parsed = resolveSlashInvocation(
+      userMessage,
+      this.plugins.commandDispatcher.getCommands({ chat: true })
+    );
 
-    const resolvedCommand = this.resolveSlashCommand(parsed.commandToken);
-    const commandKey = resolvedCommand?.canonicalKey ?? parsed.commandToken;
-    const slashToolName = `slash:${resolvedCommand?.descriptorKey ?? parsed.commandToken}`;
+    const commandKey = parsed?.commandKey ?? rawInvocation.commandToken;
+    const slashToolName = `slash:${parsed?.descriptor.key ?? rawInvocation.commandToken}`;
     const slashCallId = randomUUID();
 
-    let commandResponse;
-    if (resolvedCommand) {
+    let commandResponse: CommandResponse<unknown>;
+    if (!parsed) {
+      commandResponse = {
+        status: 'error',
+        message: `Unknown chat command: /${rawInvocation.commandToken}`,
+      };
+    } else {
       const previousInvocationSurface = ctx.invocationSurface;
       const previousCalledByHuman = ctx.calledByHuman;
       const previousCallerType = ctx.callerType;
@@ -281,20 +292,15 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
         ctx.callerType = previousCallerType;
         ctx.commandInvocation = previousCommandInvocation;
       }
-    } else {
-      commandResponse = {
-        status: 'error' as const,
-        message: `Unknown chat command: /${parsed.commandToken}`,
-      };
     }
 
     const responseText = this.toSlashResponseText(commandResponse);
 
     const invocationRequest = {
       commandKey,
-      commandToken: parsed.commandToken,
-      rawArgs: parsed.rawArgs,
-      rawInput: parsed.rawInput,
+      commandToken: parsed?.commandToken ?? rawInvocation.commandToken,
+      rawArgs: parsed?.rawArgs ?? rawInvocation.rawArgs,
+      rawInput: parsed?.rawInput ?? rawInvocation.rawInput,
       invokedBy: 'user',
     };
     const slashMessage: ChatMessage = {
@@ -303,7 +309,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
       to: ctx.agent!.id,
       isHuman: true,
       hiddenFromLlm: true,
-      content: parsed.rawInput,
+      content: rawInvocation.rawInput,
       tool_calls: [
         {
           tool: slashToolName,
@@ -333,27 +339,6 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     );
 
     return { responseText };
-  }
-
-  private resolveSlashCommand(
-    commandToken: string
-  ): { canonicalKey: string; descriptorKey: string } | undefined {
-    const matched = this.plugins.commandDispatcher
-      .getCommands({ chat: true })
-      .find(
-        (descriptor) =>
-          descriptor.key.toLowerCase() === commandToken ||
-          (descriptor.aliases ?? []).some((alias) => alias.toLowerCase() === commandToken)
-      );
-
-    if (!matched) {
-      return undefined;
-    }
-
-    return {
-      canonicalKey: matched.group ? `${matched.group}-${matched.key}` : matched.key,
-      descriptorKey: matched.key,
-    };
   }
 
   private toSlashResponseText(response: CommandResponse<unknown>): string {

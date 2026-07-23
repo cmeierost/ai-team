@@ -21,6 +21,10 @@ function createResolver() {
       id: 'session-emily',
       agentId: 'emily',
     })),
+    resolveLatestSessionWithActivity: vi.fn(async () => ({
+      id: 'session-michael',
+      agentId: 'michael',
+    })),
   } as any;
   const developerIdentity = {
     getUserName: vi.fn(() => 'Clemens Meier'),
@@ -35,18 +39,30 @@ function createResolver() {
 }
 
 describe('ChatStartupTargetResolver', () => {
-  it('resolves bare chat and explicit member-session resume to the same active target', async () => {
+  it('resolves bare chat to the session with the latest message or tool activity', async () => {
     const { resolver, threadManager } = createResolver();
 
     const bare = await resolver.resolve({});
-    const explicit = await resolver.resolve({ sessionId: 'session-michael' });
 
     expect(bare).toMatchObject({
+      agent: { id: 'michael' },
+      sessionId: 'session-michael',
+      createNewSession: false,
+    });
+    expect(threadManager.resolveLatestSessionWithActivity).toHaveBeenCalledWith('clemens-meier');
+    expect(threadManager.resolveLatestActiveSession).not.toHaveBeenCalled();
+  });
+
+  it('resolves an explicit member session through its persisted thread cursor', async () => {
+    const { resolver, threadManager } = createResolver();
+
+    const explicit = await resolver.resolve({ sessionId: 'session-michael' });
+
+    expect(explicit).toMatchObject({
       agent: { id: 'emily' },
       sessionId: 'session-emily',
+      createNewSession: false,
     });
-    expect(explicit).toEqual(bare);
-    expect(threadManager.resolveLatestActiveSession).toHaveBeenCalledWith('clemens-meier');
     expect(threadManager.resolveActiveSession).toHaveBeenCalledWith('session-michael');
   });
 
@@ -55,24 +71,32 @@ describe('ChatStartupTargetResolver', () => {
 
     const target = await resolver.resolve({
       agentQuery: 'Emily Davis',
-      createNewSession: true,
     });
 
-    expect(target).toMatchObject({ agent: { id: 'emily' }, sessionId: undefined });
+    expect(target).toMatchObject({
+      agent: { id: 'emily' },
+      sessionId: undefined,
+      createNewSession: true,
+    });
     expect(threadManager.resolveActiveSession).not.toHaveBeenCalled();
+    expect(threadManager.resolveLatestSessionWithActivity).not.toHaveBeenCalled();
     expect(threadManager.resolveLatestActiveSession).not.toHaveBeenCalled();
   });
 
   it('falls back to the top-level CEO when no resumable session exists', async () => {
     const { resolver, threadManager, agentManager } = createResolver();
-    threadManager.resolveLatestActiveSession.mockResolvedValueOnce(null);
+    threadManager.resolveLatestSessionWithActivity.mockResolvedValueOnce(null);
     agentManager.getAgentsByRoleAsync.mockResolvedValueOnce([
       { id: 'michael', name: 'Michael Brown', role: 'ceo' },
     ]);
 
     const target = await resolver.resolve({});
 
-    expect(target).toMatchObject({ agent: { id: 'michael' }, sessionId: undefined });
+    expect(target).toMatchObject({
+      agent: { id: 'michael' },
+      sessionId: undefined,
+      createNewSession: true,
+    });
     expect(agentManager.getAgentsByRoleAsync).toHaveBeenCalledWith('ceo');
   });
 });

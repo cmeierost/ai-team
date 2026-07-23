@@ -79,16 +79,16 @@ describe('IntroductionRenderer', () => {
 });
 
 describe('IntroductionCommand', () => {
-  it('renders, emits and persists introduction message', async () => {
+  it('persists the introduction for the standard transcript renderer', async () => {
     const recordInteractionAsync = vi.fn(async () => undefined);
     const appendMessage = vi.fn(async () => undefined);
-    const token = vi.fn();
+    const emit = vi.fn();
 
     const command = new IntroductionCommand(
       { recordInteractionAsync },
       markdownSectionService,
       { appendMessage } as any,
-      { token } as any
+      { emit } as any
     );
 
     const history: any[] = [];
@@ -107,8 +107,17 @@ describe('IntroductionCommand', () => {
       hooks: { emitService: {} as any },
     });
 
-    expect(token).toHaveBeenCalledWith('Hi Clemens\n\n');
     expect(appendMessage).toHaveBeenCalledTimes(1);
+    expect(appendMessage).toHaveBeenCalledWith(
+      'sess-1',
+      expect.objectContaining({
+        from: 'michael-brown',
+        to: 'human',
+        content: 'Hi Clemens',
+      })
+    );
+    expect(appendMessage.mock.calls[0]?.[1]).not.toHaveProperty('importance');
+    expect(emit).not.toHaveBeenCalled();
     expect(history).toHaveLength(1);
     expect(recordInteractionAsync).toHaveBeenCalledWith('michael-brown');
   });

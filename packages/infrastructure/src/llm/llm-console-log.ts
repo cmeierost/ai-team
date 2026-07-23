@@ -21,7 +21,11 @@ interface LlmLogBase {
     role: string;
   };
   request: {
+    /** The provider endpoint shape used for this request. */
+    api?: 'chat-completions' | 'responses';
     messages: ChatCompletionMessageParam[];
+    /** Exact provider-native function-tool payload sent with the request. */
+    tools?: unknown[];
     options?: LlmChatOptions;
     skills?: {
       name: string;

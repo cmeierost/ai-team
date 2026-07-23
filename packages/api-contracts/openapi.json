@@ -604,6 +604,10 @@
                       "key": {
                         "type": "string"
                       },
+                      "group": {
+                        "type": "string",
+                        "nullable": true
+                      },
                       "usage": {
                         "type": "string",
                         "nullable": true
@@ -1416,6 +1420,10 @@
                       },
                       "key": {
                         "type": "string"
+                      },
+                      "group": {
+                        "type": "string",
+                        "nullable": true
                       },
                       "usage": {
                         "type": "string",

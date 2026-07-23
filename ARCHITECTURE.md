@@ -339,10 +339,12 @@ multi-agent `thread` is the service-owned projection of sessions connected by
 `previousSessionId`; it is not a merged model history.
 
 The thread root persists `activeSessionId`, `threadNavigationStack`, and
-`threadLastActiveAt` in SQLite. `IThreadManager`/`ThreadManager` resolve any
-member session to that cursor, seed legacy threads deterministically, and own
-handoff push/return-pop behavior. Bare resume selects the most recently
-navigated thread rather than treating `lastActivityAt` as the active cursor.
+`threadLastActiveAt` in SQLite. `IThreadManager`/`ThreadManager` resolve an
+explicit member session to that cursor, seed legacy threads deterministically,
+and own handoff push/return-pop behavior. Bare `ait chat` instead selects the
+session with the latest message or persisted tool activity; it does not infer a
+thread cursor from `lastActivityAt`. An agent-only invocation always creates a
+new root session for the requested agent.
 `ChatStartupTargetResolver` also owns bare, member-session, and agent-only
 startup selection; CLI and API adapters pass intent and do not traverse thread
 state themselves.

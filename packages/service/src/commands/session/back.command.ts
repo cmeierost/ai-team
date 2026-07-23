@@ -16,6 +16,7 @@ export interface BackResult {
 }
 export const BackChatCommandMetadata = {
   key: 'back',
+  aliases: ['back'],
   description: 'Return to previous agent in handoff chain',
   availableIn: { chat: true, tool: false },
   group: 'session',

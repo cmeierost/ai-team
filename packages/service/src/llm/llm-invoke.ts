@@ -26,6 +26,7 @@ import type {
 } from '@ai-team/core';
 import { withAbortSignal } from '../utils/async-utils.js';
 import type { LlmToolDefinition } from '../tooling/manager/tool-manager.js';
+import { buildToolPolicyContent } from './tool-policy.js';
 
 import { LlmStreamDeltaExtractor, type LlmStreamChunk } from './stream-events.js';
 
@@ -83,7 +84,7 @@ export class LlmInvokeService implements ILlmInvokeService {
   ) {}
 
   async invokeAsync(params: LlmInvokeParams): Promise<LlmInvokeResult> {
-    const { messages, tools, toolDefs, skills, teamRoster, instructions, ctx } = params;
+    const { messages, toolDefs, skills, teamRoster, instructions, ctx } = params;
     const { agent } = ctx;
     if (!agent) {
       throw new Error('LLM invocation requires an active agent.');
@@ -95,7 +96,7 @@ export class LlmInvokeService implements ILlmInvokeService {
     const writeToken = (text: string) => this.emitService.token(text);
 
     const workingMessages: ILlmChatMessageParam[] =
-      toolDefs.length > 0 ? [this.buildToolPolicyMessage(tools), ...messages] : messages;
+      toolDefs.length > 0 ? [this.buildToolPolicyMessage(toolDefs), ...messages] : messages;
 
     try {
       if (toolDefs.length === 0) {
@@ -185,26 +186,10 @@ export class LlmInvokeService implements ILlmInvokeService {
     return { fullResponse, structuredResults };
   }
 
-  private buildToolPolicyMessage(tools: ICommand[]): ILlmChatMessageParam {
-    const hasAskTool = tools.some((t) => t.metadata.group === 'com' && (t as any).name === 'ask');
-    const hasHandoffTool = tools.some(
-      (t) =>
-        (t.metadata.group === 'com' && t.metadata.key === 'handoff') ||
-        (t as any).name === 'com_handoff'
-    );
+  private buildToolPolicyMessage(toolDefs: LlmToolDefinition[]): ILlmChatMessageParam {
     return {
       role: 'system',
-      content:
-        `Tool-calling is available. Registered tools: ${tools.map((t) => (t as any).name).join(', ')}. ` +
-        'Do not invent tool names or slash commands (for example /agent). ' +
-        (hasAskTool
-          ? 'If you need clarification or missing input from the developer, call com_ask instead of guessing. '
-          : '') +
-        (hasHandoffTool
-          ? 'If you propose routing, forwarding, transferring, or switching the developer to another agent, you must call com_handoff in this turn. Do not tell the developer to run /agent, chat <agent>, or similar as a substitute for handoff. If the developer explicitly asks to talk/switch/hand off to a specific agent, call com_handoff directly and do not gate it behind a confirm-style com_ask question. '
-          : '') +
-        'If the developer asks about what tools you can use, what files you can read/write, or access/permissions, call a relevant introspection tool (for example tool_list, tool_can_i, fs_who_can) before answering. ' +
-        'If the developer asks to list or show visible/readable files (or file tree), call fs_tree on path "." (or requested path) first, then explain results.',
+      content: buildToolPolicyContent(toolDefs.map((tool) => tool.name)),
     };
   }
 

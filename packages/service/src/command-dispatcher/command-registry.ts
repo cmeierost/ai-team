@@ -7,6 +7,8 @@ import type {
   ILlmToolDefinition,
 } from '@ai-team/core';
 import { ZodSchemaTools } from '../utils/zod-schema.js';
+import { GROUP_REGISTRY } from '../commands/groups.js';
+import { isDynamicSlashCommand } from './slash-invocation.js';
 
 /**
  * Derives the canonical dispatch/registry key for a command.
@@ -50,6 +52,13 @@ export class CommandRegistry implements ICommandRegistry {
     factory: (resolver: IServiceContainer) => ICommand<unknown, unknown>
   ): void {
     const registryKey = CommandRegistry.getRegistryKey(metadata);
+    if (metadata.availableIn.chat && !isDynamicSlashCommand(metadata)) {
+      if (!metadata.group || !GROUP_REGISTRY[metadata.group]) {
+        throw new Error(
+          `Chat command '${registryKey}' must declare a group in GROUP_REGISTRY.`
+        );
+      }
+    }
     const toolAlias = CommandRegistry.getDerivedToolName(metadata);
     const entryAliases = new Set<string>();
     if (toolAlias && toolAlias !== registryKey) {
@@ -67,6 +76,9 @@ export class CommandRegistry implements ICommandRegistry {
     }
 
     for (const alias of entryAliases) {
+      if (GROUP_REGISTRY[alias]) {
+        throw new Error(`Command alias '${alias}' conflicts with slash command group '${alias}'.`);
+      }
       const existingAliasTarget = this.aliases.get(alias);
       if (existingAliasTarget && existingAliasTarget !== registryKey) {
         throw new Error(
@@ -79,6 +91,23 @@ export class CommandRegistry implements ICommandRegistry {
           `Command alias '${alias}' for '${registryKey}' conflicts with existing command key '${alias}'.`
         );
       }
+
+      const commandWithBareKey = [...this.entries.entries()].find(
+        ([existingRegistryKey, entry]) =>
+          existingRegistryKey !== registryKey && entry.metadata.key === alias
+      );
+      if (commandWithBareKey) {
+        throw new Error(
+          `Command alias '${alias}' for '${registryKey}' conflicts with command key '${commandWithBareKey[1].metadata.key}'.`
+        );
+      }
+    }
+
+    const existingAliasTarget = this.aliases.get(metadata.key);
+    if (existingAliasTarget && existingAliasTarget !== registryKey) {
+      throw new Error(
+        `Command key '${metadata.key}' conflicts with command alias targeting '${existingAliasTarget}'.`
+      );
     }
 
     this.entries.set(registryKey, { metadata, factory });

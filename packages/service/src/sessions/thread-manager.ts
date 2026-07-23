@@ -88,6 +88,31 @@ export class ThreadManager implements IThreadManager {
     return (await this.resolveActiveSession(latestRoot.id)).session;
   }
 
+  async resolveLatestSessionWithActivity(developerId?: string): Promise<ChatSession | null> {
+    const sessions = await this.sessions.listSessions(developerId ? { developerId } : undefined);
+    const candidates = await Promise.all(
+      sessions.map(async (session) => {
+        const messages = await this.sessionManager.getSessionMessages(session.id);
+        const lastActivity = messages.reduce<string | null>((latest, message) => {
+          const hasMessage = message.content.trim().length > 0;
+          const hasToolCall = (message.tool_calls?.length ?? 0) > 0;
+          if (!hasMessage && !hasToolCall) {
+            return latest;
+          }
+          return !latest || message.timestamp > latest ? message.timestamp : latest;
+        }, null);
+        return lastActivity ? { session, lastActivity } : null;
+      })
+    );
+
+    return candidates
+      .filter((candidate): candidate is { session: ChatSession; lastActivity: string } => Boolean(candidate))
+      .sort(
+        (left, right) =>
+          right.lastActivity.localeCompare(left.lastActivity) || right.session.id.localeCompare(left.session.id)
+      )[0]?.session ?? null;
+  }
+
   async recordHandoff(
     fromSessionId: string,
     toSessionId: string,

@@ -391,6 +391,32 @@ describe('ThreadManager active thread navigation', () => {
     expect(latest?.id).toBe(firstTarget.id);
   });
 
+  it('finds the latest session from message or persisted tool activity, not its thread cursor', async () => {
+    const michael = await sessionManager.createSession('michael-brown', 'dev-1');
+    const emily = await sessionManager.createHandoffSession('emily-davis', 'dev-1', michael.id);
+    await threadManager.recordHandoff(michael.id, emily.id, {
+      agentId: 'michael-brown',
+      agentName: 'Michael Brown',
+      sessionId: michael.id,
+    });
+
+    await sessionManager.appendMessage(michael.id, {
+      timestamp: '2026-07-24T09:00:00.000Z',
+      from: 'michael-brown',
+      content: 'Earlier message',
+    });
+    await sessionManager.appendMessage(emily.id, {
+      timestamp: '2026-07-24T10:00:00.000Z',
+      from: 'emily-davis',
+      content: '',
+      tool_calls: [{ tool: 'fs_read', params: {} }],
+    });
+
+    const latest = await threadManager.resolveLatestSessionWithActivity('dev-1');
+
+    expect(latest?.id).toBe(emily.id);
+  });
+
   it('reuses an existing agent session instead of creating a duplicate thread member', async () => {
     const michael = await sessionManager.createSession('michael-brown', 'dev-1');
     const emily = await sessionManager.createHandoffSession('emily-davis', 'dev-1', michael.id);

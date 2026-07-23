@@ -23,7 +23,7 @@ export { type HttpFetchParams, type HttpFetchResult } from './http-command-share
 export const HttpFetchCommandMetadata = {
   key: 'fetch',
   group: 'http',
-  usage: '/fetch <url> [json-options]',
+  usage: '/http fetch <url> [json-options]',
   availableIn: { tool: true, chat: true, cli: true },
   description:
     'Fetch a URL and return filtered chunks (lines, regex/search, length) for safe LLM context usage.',

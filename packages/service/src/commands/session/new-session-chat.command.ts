@@ -9,6 +9,7 @@ import type { SessionManager } from '../../sessions/session-manager.js';
 import type { IEmitService } from '@ai-team/core';
 export const NewSessionChatCommandMetadata = {
   key: 'new',
+  aliases: ['new'],
   description: 'Start a new session with the current agent',
   availableIn: { chat: true, tool: false },
   group: 'session',

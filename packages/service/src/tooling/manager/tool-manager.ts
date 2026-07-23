@@ -304,7 +304,7 @@ export class ToolManager implements IToolManager {
     const canonicalToolName = ToolIdentity.key(tool.metadata);
 
     const workflowPolicy = this.resolveWorkflowToolPolicy(context.workflowState);
-    if (this.isToolDeniedByWorkflowPolicy(workflowPolicy, tool.metadata)) {
+    if (!this.isToolAllowedByWorkflowPolicy(workflowPolicy, tool.metadata)) {
       return {
         ok: false,
         toolName,
@@ -709,11 +709,12 @@ export class ToolManager implements IToolManager {
   }
 
   private resolveWorkflowToolPolicy(workflowState: unknown): {
+    allow: string[];
     deny: string[];
     remove: string[];
   } {
     if (!workflowState || typeof workflowState !== 'object' || Array.isArray(workflowState)) {
-      return { deny: [], remove: [] };
+      return { allow: [], deny: [], remove: [] };
     }
 
     const bag = workflowState as Record<string, unknown>;
@@ -729,7 +730,7 @@ export class ToolManager implements IToolManager {
     ) as Record<string, unknown> | undefined;
 
     if (!policy) {
-      return { deny: [], remove: [] };
+      return { allow: [], deny: [], remove: [] };
     }
 
     const toSelectors = (value: unknown): string[] =>
@@ -738,16 +739,22 @@ export class ToolManager implements IToolManager {
         : [];
 
     return {
+      allow: toSelectors(policy['allow']),
       deny: toSelectors(policy['deny']),
       remove: toSelectors(policy['remove']),
     };
   }
 
-  private isToolDeniedByWorkflowPolicy(
-    policy: { deny: string[]; remove: string[] },
+  private isToolAllowedByWorkflowPolicy(
+    policy: { allow: string[]; deny: string[]; remove: string[] },
     meta: ICommandDescriptor
   ): boolean {
-    const all = [...policy.deny, ...policy.remove];
-    return all.some((selector) => ToolIdentity.matchesSelector(selector, meta));
+    const isExplicitlyAllowed =
+      policy.allow.length === 0 ||
+      policy.allow.some((selector) => ToolIdentity.matchesSelector(selector, meta));
+    const isDenied = [...policy.deny, ...policy.remove].some((selector) =>
+      ToolIdentity.matchesSelector(selector, meta)
+    );
+    return isExplicitlyAllowed && !isDenied;
   }
 }

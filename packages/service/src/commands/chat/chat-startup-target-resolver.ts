@@ -8,6 +8,7 @@ import type {
 export interface ChatStartupTarget {
   agent: Agent;
   sessionId?: string;
+  createNewSession: boolean;
 }
 
 /**
@@ -28,6 +29,7 @@ export class ChatStartupTargetResolver {
   }): Promise<ChatStartupTarget | null> {
     let sessionId = input.sessionId;
     let agentQuery = input.agentQuery?.trim() || undefined;
+    let createNewSession = input.createNewSession === true;
 
     if (sessionId && input.createNewSession !== true) {
       const active = await this.threadManager.resolveActiveSession(sessionId);
@@ -37,7 +39,7 @@ export class ChatStartupTargetResolver {
     } else if (!agentQuery && input.createNewSession !== true) {
       const developerName = this.developerIdentityService.getUserName() || 'developer';
       const developerId = this.developerIdentityService.toDeveloperId(developerName);
-      const latest = await this.threadManager.resolveLatestActiveSession(developerId);
+      const latest = await this.threadManager.resolveLatestSessionWithActivity(developerId);
       if (latest) {
         sessionId = latest.id;
         agentQuery = latest.agentId;
@@ -48,6 +50,7 @@ export class ChatStartupTargetResolver {
         const ceo = ceos[0];
         if (!ceo) return null;
         agentQuery = ceo.id;
+        createNewSession = true;
       }
     }
 
@@ -57,6 +60,12 @@ export class ChatStartupTargetResolver {
       'chat startup'
     );
     const agent = await this.agentManager.getAgentAsync(resolved.id);
-    return agent ? { agent, sessionId } : null;
+    return agent
+      ? {
+          agent,
+          sessionId,
+          createNewSession: createNewSession || Boolean(agentQuery && !sessionId),
+        }
+      : null;
   }
 }

@@ -14,14 +14,16 @@ describe('slash prompt suggestions', () => {
     const commands = [
       {
         key: 'help',
-        aliases: ['h'],
-        usage: '/help',
+        group: 'system',
+        aliases: ['help'],
+        usage: '/system help',
         description: 'Show help',
       },
       {
         key: 'exit',
-        aliases: ['quit', 'q'],
-        usage: '/exit',
+        group: 'system',
+        aliases: ['exit', 'quit', 'q'],
+        usage: '/system exit',
         description: 'Exit chat',
       },
     ];
@@ -33,7 +35,7 @@ describe('slash prompt suggestions', () => {
     try {
       SLASH_PROMPT_TESTING.renderAll('You:', '/e', suggestions, 0, 1);
       const outputText = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-      expect(outputText).toContain('/exit');
+      expect(outputText).toContain('/system exit');
     } finally {
       stdoutSpy.mockRestore();
     }
@@ -41,8 +43,8 @@ describe('slash prompt suggestions', () => {
 
   it('auto-applies a single slash command match on enter', () => {
     const commands = [
-      { key: 'help', aliases: ['h'], usage: '/help', description: 'Show help' },
-      { key: 'exit', aliases: ['quit', 'q'], usage: '/exit', description: 'Exit chat' },
+      { key: 'help', group: 'system', aliases: ['help'], usage: '/system help', description: 'Show help' },
+      { key: 'exit', group: 'system', aliases: ['exit', 'quit', 'q'], usage: '/system exit', description: 'Exit chat' },
     ];
 
     const suggestions = SLASH_PROMPT_TESTING.getSuggestions(commands, '/he');
@@ -53,8 +55,8 @@ describe('slash prompt suggestions', () => {
 
   it('does not auto-apply on enter when multiple slash command matches exist', () => {
     const commands = [
-      { key: 'help', aliases: ['h'], usage: '/help', description: 'Show help' },
-      { key: 'hello', aliases: [], usage: '/hello', description: 'Say hello' },
+      { key: 'help', group: 'system', aliases: ['help'], usage: '/system help', description: 'Show help' },
+      { key: 'hello', group: 'system', aliases: ['hello'], usage: '/system hello', description: 'Say hello' },
     ];
 
     const suggestions = SLASH_PROMPT_TESTING.getSuggestions(commands, '/he');
@@ -76,11 +78,12 @@ describe('slash prompt suggestions', () => {
     const cmd = {
       key: 'switch',
       aliases: ['chat'],
-      usage: 'switch <agent|role>',
+      group: 'session',
+      usage: '/session switch',
       description: 'Switch to another team member',
     };
 
-    expect(SLASH_PROMPT_TESTING.normalizeAppliedSlashUsage(cmd)).toBe('/switch <agent|role>');
+    expect(SLASH_PROMPT_TESTING.normalizeAppliedSlashUsage(cmd)).toBe('/session switch');
   });
 
   it('falls back to /key when usage does not start with slash or key', () => {

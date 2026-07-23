@@ -11,6 +11,7 @@ import type { SessionManager } from '../../sessions/session-manager.js';
 import { FindAgentSessionCommand } from './find-agent-session.command.js';
 export const SwitchChatCommandMetadata = {
   key: 'switch',
+  aliases: ['switch'],
   usage: 'switch <agent|role>',
   description: 'Switch to another team member',
   availableIn: { chat: true, tool: false },
@@ -35,7 +36,7 @@ export class SwitchChatCommand implements ICommand<string, string> {
   async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<string>> {
     const query = args.trim();
     if (!query) {
-      return { status: 'error', message: 'Usage: /chat <name|role>' };
+      return { status: 'error', message: 'Usage: /session switch <name|role>' };
     }
 
     const matches = await this.agentManager.resolveAgentAsync(query);

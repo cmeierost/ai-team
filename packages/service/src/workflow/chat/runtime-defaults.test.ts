@@ -197,6 +197,26 @@ describe('DefaultContextBuilder', () => {
 });
 
 describe('DefaultToolResolver', () => {
+  it('intersects agent tools with a workflow allow-list', async () => {
+    const fsReadTool = {
+      metadata: { key: 'read', group: 'fs', availableIn: { tool: true }, description: 'read' },
+    } as any;
+    const fsWriteTool = {
+      metadata: { key: 'write', group: 'fs', availableIn: { tool: true }, description: 'write' },
+    } as any;
+    const resolver = new DefaultToolResolver({
+      getForAgent: vi.fn(() => [fsReadTool, fsWriteTool]),
+      get: vi.fn(() => undefined),
+    } as any);
+
+    const tools = await resolver.resolve({
+      ...makeCtx(),
+      workflowState: { workflowToolPolicy: { allow: ['fs_read'] } },
+    } as ExecutionContext);
+
+    expect(tools).toEqual([fsReadTool]);
+  });
+
   it('keeps com_handoff available even when subworkflowDepth is greater than zero', async () => {
     const comHandoffTool = {
       metadata: {

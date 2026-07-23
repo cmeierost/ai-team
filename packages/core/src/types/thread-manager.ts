@@ -25,6 +25,9 @@ export interface IThreadManager {
   /** Resolve the most recently active thread for a developer to its persisted cursor. */
   resolveLatestActiveSession(developerId?: string): Promise<ChatSession | null>;
 
+  /** Find the session with the developer's most recent message or persisted tool activity. */
+  resolveLatestSessionWithActivity(developerId?: string): Promise<ChatSession | null>;
+
   /** Persist a successful outward handoff and its return frame. */
   recordHandoff(
     fromSessionId: string,

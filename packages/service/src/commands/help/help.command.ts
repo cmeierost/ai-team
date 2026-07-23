@@ -6,6 +6,7 @@ import type {
 } from '@ai-team/core';
 import { GROUP_REGISTRY } from '../groups.js';
 import { ZodSchemaTools } from '../../utils/zod-schema.js';
+import { formatSlashInvocation } from '../../command-dispatcher/slash-invocation.js';
 
 type RegistryEntry = Pick<
   ICommandDescriptor,
@@ -28,7 +29,8 @@ function parseHelpPayload(args: string): HelpPayload {
       };
     }
   } catch {
-    // plain string arg — ignore
+    const filter = args.trim();
+    return filter ? { filter } : {};
   }
   return {};
 }
@@ -61,7 +63,7 @@ function buildDetailPrefix(entry: RegistryEntry, isCliInvocation: boolean): stri
   if (isCliInvocation) {
     return entry.group ? `ait ${entry.group} ${entry.key}` : `ait ${entry.key}`;
   }
-  return entry.group ? `/${entry.group} ${entry.key}` : `/${entry.key}`;
+  return formatSlashInvocation(entry);
 }
 
 function formatAliases(entry: RegistryEntry, isCliInvocation: boolean): string {
@@ -81,8 +83,20 @@ function buildParamSuffix(p: ParamInfo): string {
   return tags.length > 0 ? ` (${tags.join(', ')})` : '';
 }
 
+function getUsageSuffix(entry: RegistryEntry): string {
+  const usage = entry.usage?.trim();
+  if (!usage) return '';
+  if (usage.startsWith('/')) {
+    return usage.replace(/^\/\S+\s*/, '').trim();
+  }
+  if (usage === entry.key) return '';
+  if (usage.startsWith(`${entry.key} `)) return usage.slice(entry.key.length).trim();
+  return usage;
+}
+
 function renderDetailView(entry: RegistryEntry, isCliInvocation: boolean): string {
-  const usageSuffix = entry.usage ? ` ${entry.usage}` : '';
+  const usage = getUsageSuffix(entry);
+  const usageSuffix = usage ? ` ${usage}` : '';
   const lines: string[] = [
     `${buildDetailPrefix(entry, isCliInvocation)}${usageSuffix}`,
     '',
@@ -105,6 +119,7 @@ function renderDetailView(entry: RegistryEntry, isCliInvocation: boolean): strin
 export const HelpChatCommandMetadata = {
   key: 'help',
   group: 'system',
+  aliases: ['help'],
   description: 'Show this help',
   availableIn: { chat: true, tool: true, cli: true },
 } satisfies ICommandDescriptor;
@@ -122,7 +137,7 @@ export class HelpChatCommand implements ICommand<string, string> {
 
     // CLI callers may inject local-only entries (e.g. chat, serve) that live
     // outside the service registry, via a JSON payload { extra: RegistryEntry[], filter?: string }.
-    const payload = isCliInvocation && args ? parseHelpPayload(args) : {};
+    const payload = args ? parseHelpPayload(args) : {};
     const extraEntries = payload.extra ?? [];
 
     let visibleEntries: RegistryEntry[];
@@ -142,7 +157,7 @@ export class HelpChatCommand implements ICommand<string, string> {
       });
       const text = target
         ? renderDetailView(target, isCliInvocation)
-        : `Unknown command: ${payload.filter}\nRun 'ait help' to see all available commands.`;
+        : `Unknown command: ${payload.filter}\nRun '${isCliInvocation ? 'ait help' : '/help'}' to see all available commands.`;
       return { status: 'ok', message: text, data: text };
     }
 
@@ -155,13 +170,19 @@ export class HelpChatCommand implements ICommand<string, string> {
       if (isCliInvocation) {
         return c.group ? `ait ${c.group} ${c.key}` : `ait ${c.key}`;
       }
-      return c.group ? `/${c.group} ${c.key}` : `/${c.key}`;
+      return formatSlashInvocation(c);
     };
 
     const formatEntry = (c: RegistryEntry) => {
       const invocation = formatInvocation(c);
-      const usageHint = c.usage && c.usage !== c.key ? ` (${c.usage})` : '';
-      const aliasHint = (c.aliases?.length ?? 0) > 0 ? ` [aliases: ${(c.aliases ?? []).join(', ')}]` : '';
+      const usage = getUsageSuffix(c);
+      const usageHint = usage ? ` (${usage})` : '';
+      const aliasHint =
+        (c.aliases?.length ?? 0) > 0
+          ? ` [aliases: ${(c.aliases ?? [])
+              .map((alias) => (isCliInvocation ? `ait ${alias}` : `/${alias}`))
+              .join(', ')}]`
+          : '';
       lines.push(`    ${invocation.padEnd(28)} ${c.description}${usageHint}${aliasHint}`);
     };
 

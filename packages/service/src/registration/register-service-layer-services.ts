@@ -11,6 +11,7 @@ import type {
 import { CORE_SERVICE_TOKENS, Token } from '@ai-team/core';
 import { CONTRACT_SERVICE_TOKENS } from '@ai-team/api-contracts';
 import { AskUserCommand, AskUserCommandMetadata } from '../commands/com/ask.command.js';
+import { HandoffCommand, HandoffCommandMetadata } from '../commands/com/handoff.command.js';
 import { LlmCallCommand, LlmCallCommandMetadata } from '../commands/orchestration/llm-call.tool.js';
 import {
   BootstrapFilesCommand,
@@ -137,6 +138,8 @@ import { ToolDispatcher } from '../workflow/runtime/tools/tool-dispatch.js';
 import { SendTurnStepService } from '../workflow/chat/send-turn-step-service.js';
 import { LlmInvokeService } from '../llm/llm-invoke.js';
 import { createCommandDispatcher } from '../command-dispatcher/command-dispatcher.js';
+import { AgentRuntimeIdentityResolver } from '../commands/chat/agent-runtime-identity.js';
+import { HandoffSubWorkflow } from '../workflow/chat/handoff-subworkflow.js';
 import {
   InteractionService,
 } from '../interaction/interaction-service.js';
@@ -492,6 +495,28 @@ export function registerServiceLayerServices(
       AskUserCommandMetadata,
       (r) => new AskUserCommand(r.resolve(CORE_SERVICE_TOKENS.QuestionService))
     );
+    // The chat ToolManager resolves commands from this registry (not the
+    // dispatcher-local registry), so core handoff must be registered here too.
+    registry.register(HandoffCommandMetadata, (r) => {
+      const identityResolver = new AgentRuntimeIdentityResolver(
+        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+        r.resolve(CORE_SERVICE_TOKENS.LlmSettingsResolver)
+      );
+      const handoffSubWorkflow = new HandoffSubWorkflow(
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
+        r.resolve(CORE_SERVICE_TOKENS.LlmService),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService),
+        identityResolver
+      );
+      return new HandoffCommand(
+        handoffSubWorkflow,
+        r.resolve(CORE_SERVICE_TOKENS.EmitService),
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.CommandDispatcher)
+      );
+    });
     registry.register(
       LlmCallCommandMetadata,
       (r) => new LlmCallCommand(r.resolve(CORE_SERVICE_TOKENS.LlmService))

@@ -26,7 +26,10 @@ const MAX_VISIBLE = 7;
 const MAX_DESCRIPTION_CHARS = 72;
 const MAX_USAGE_HINT_CHARS = 36;
 
-type CommandEntry = Pick<CommandDescriptor, 'key' | 'aliases' | 'usage' | 'description' | 'path'>;
+type CommandEntry = Pick<
+  CommandDescriptor,
+  'key' | 'group' | 'aliases' | 'usage' | 'description' | 'path'
+>;
 
 function normalizePromptPrefix(promptText: string): string {
   return promptText.endsWith(' ') ? promptText : `${promptText} `;
@@ -38,12 +41,12 @@ function truncateText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars - 1)}…`;
 }
 
-function getUsageToken(cmd: CommandEntry): string | undefined {
-  return (cmd.usage ?? '').trim().replace(/^\//, '').split(/\s+/, 1)[0]?.toLowerCase();
-}
-
 function isDynamicSkillCommand(cmd: CommandEntry): boolean {
   return Array.isArray(cmd.path) && cmd.path[0] === 'dynamic' && cmd.path[1] === 'skill';
+}
+
+function isDynamicCommand(cmd: CommandEntry): boolean {
+  return Array.isArray(cmd.path) && cmd.path[0] === 'dynamic';
 }
 
 function commandSortRank(cmd: CommandEntry): number {
@@ -98,14 +101,28 @@ function resolveCursorPosition(
 
 function getSuggestions(commands: CommandEntry[], buf: string): CommandEntry[] {
   if (!buf.startsWith('/')) return [];
-  const fragment = buf.slice(1).toLowerCase();
+  const fragments = buf
+    .slice(1)
+    .trimStart()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((fragment) => fragment.toLowerCase());
+  const [groupFragment = '', keyFragment = ''] = fragments;
   return commands
     .filter((cmd) => {
-      const usageToken = getUsageToken(cmd);
-      const keys = [cmd.key, ...(cmd.aliases ?? []), usageToken]
-        .filter((value): value is string => Boolean(value))
-        .map((value) => value.toLowerCase());
-      return keys.some((k) => k.startsWith(fragment));
+      if (isDynamicCommand(cmd)) {
+        return fragments.length <= 1 && cmd.key.toLowerCase().startsWith(groupFragment);
+      }
+      if (fragments.length > 1) {
+        return (
+          (cmd.group ?? '').toLowerCase().startsWith(groupFragment) &&
+          cmd.key.toLowerCase().startsWith(keyFragment)
+        );
+      }
+      return (
+        (cmd.group ?? '').toLowerCase().startsWith(groupFragment) ||
+        (cmd.aliases ?? []).some((alias) => alias.toLowerCase().startsWith(groupFragment))
+      );
     })
     .sort((left, right) => {
       const leftRank = commandSortRank(left);
@@ -163,18 +180,18 @@ function renderAll(
 
   for (let i = 0; i < visible.length; i++) {
     const cmd = visible[i];
-    const invocation = `/${cmd.key}`;
-    const usageHint =
-      cmd.usage && cmd.usage !== cmd.key
-        ? ` (${truncateText(cmd.usage, MAX_USAGE_HINT_CHARS)})`
+    const invocation = cmd.usage ?? `/${cmd.key}`;
+    const aliasHint =
+      (cmd.aliases?.length ?? 0) > 0
+        ? ` (aliases: ${(cmd.aliases ?? []).map((alias) => `/${alias}`).join(', ')})`
         : '';
     const description = truncateText(cmd.description, MAX_DESCRIPTION_CHARS);
     const kindHint = isDynamicSkillCommand(cmd) ? ' [skill]' : '';
     const isSelected = windowStart + i === selectedIdx;
     const line = isSelected
       ? chalk.bgBlue.white(` ${invocation.padEnd(26)} `) +
-        chalk.dim(`  ${description}${usageHint}${kindHint}`)
-      : chalk.cyan(` ${invocation}`) + chalk.dim(`  ${description}${usageHint}${kindHint}`);
+        chalk.dim(`  ${description}${aliasHint}${kindHint}`)
+      : chalk.cyan(` ${invocation}`) + chalk.dim(`  ${description}${aliasHint}${kindHint}`);
     output.write(`\n${line}`);
     rows += textRows(line, columns);
   }

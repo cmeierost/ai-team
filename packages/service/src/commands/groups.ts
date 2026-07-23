@@ -8,13 +8,21 @@ export interface GroupInfo {
  * Used by help formatting and CLI parent command scaffolding.
  */
 export const GROUP_REGISTRY: Record<string, GroupInfo> = {
-  access: {
-    displayName: 'Access',
-    description: 'Inspect and analyze agent path permissions',
-  },
   chat: {
     displayName: 'Chat',
     description: 'General chat session commands',
+  },
+  cli: {
+    displayName: 'CLI',
+    description: 'Run approved local command-line tools',
+  },
+  com: {
+    displayName: 'Communication',
+    description: 'Coordinate work between team members',
+  },
+  access: {
+    displayName: 'Access',
+    description: 'Inspect and analyze agent path permissions',
   },
   code: {
     displayName: 'Code',

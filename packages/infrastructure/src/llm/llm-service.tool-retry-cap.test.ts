@@ -92,6 +92,43 @@ function createAssistantTextStream(text: string): AsyncIterable<unknown> {
 }
 
 describe('LlmService tool retry cap', () => {
+  it('logs the exact Chat Completions tool payload sent for a tool loop', async () => {
+    const resolver: ILlmSettingsResolver = {
+      resolveEffectiveLlmSettings: vi.fn(),
+    } as unknown as ILlmSettingsResolver;
+    const backendLog = { write: vi.fn() };
+    const service = new LlmService('/tmp', {} as TeamConfig, resolver, backendLog as any);
+    service.initializeFromConfig({
+      provider: 'openai-compatible',
+      model: 'gpt-4.1',
+      baseUrl: 'http://localhost:9999/v1',
+      apiKey: 'test-key',
+    });
+    (service as unknown as { client: unknown }).client = {
+      chat: { completions: { create: vi.fn(async () => createAssistantTextStream('Done.')) } },
+    };
+
+    await service.chatWithTools(
+      createAgent(),
+      [{ role: 'user', content: 'Ask a question' }],
+      [{ name: 'com_ask', description: 'Ask the developer', parameters: { type: 'object' } }],
+      vi.fn()
+    );
+
+    const payload = backendLog.write.mock.calls[0]?.[0];
+    expect(payload.request.api).toBe('chat-completions');
+    expect(payload.request.tools).toEqual([
+      {
+        type: 'function',
+        function: {
+          name: 'com_ask',
+          description: 'Ask the developer',
+          parameters: { type: 'object' },
+        },
+      },
+    ]);
+  });
+
   it('stops repeated failing tool calls after one automatic retry in chat-completions mode', async () => {
     const service = createService({
       provider: 'github-copilot',

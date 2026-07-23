@@ -75,7 +75,7 @@ describe('dynamic slash catalog', () => {
     expect(normalizer.normalize('  --Plan  Alpha--  ')).toBe('plan-alpha');
   });
 
-  it('skips skill keys that conflict with built-in commands and warns', async () => {
+  it('renames skill keys that conflict with built-in commands and warns', async () => {
     const workspaceRoot = await createTempWorkspace();
     const filePath = await writeSkillFile(
       workspaceRoot,
@@ -103,13 +103,15 @@ describe('dynamic slash catalog', () => {
       reservedKeys: ['help'],
     }).buildAsync();
 
-    expect(result.entries).toHaveLength(0);
+    expect(result.entries).toEqual([
+      expect.objectContaining({ key: 'skill-help', usage: '/skill-help' }),
+    ]);
     expect(result.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining('conflicts with built-in /help')])
+      expect.arrayContaining([expect.stringContaining('uses /skill-help because /help is reserved')])
     );
   });
 
-  it('chooses newer duplicate skills and warns', async () => {
+  it('keeps duplicate skills under deterministic source-prefixed keys', async () => {
     const workspaceRoot = await createTempWorkspace();
 
     const olderPath = await writeSkillFile(
@@ -154,15 +156,19 @@ describe('dynamic slash catalog', () => {
       skillManager,
     }).buildAsync();
 
-    expect(result.entries).toHaveLength(1);
+    expect(result.entries).toHaveLength(2);
     expect(result.entries[0]?.key).toBe('code-review');
-    expect(result.entries[0]?.description).toBe('Newer skill description');
+    expect(result.entries[0]?.description).toBe('Older skill description');
+    expect(result.entries[1]).toMatchObject({
+      key: 'skill-code-review',
+      description: 'Newer skill description',
+    });
     expect(result.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining('Duplicate skill key /code-review')])
+      expect.arrayContaining([expect.stringContaining('uses /skill-code-review because /code-review is reserved')])
     );
   });
 
-  it('chooses newer duplicate prompts and falls back to first content line for description', async () => {
+  it('keeps duplicate prompts under deterministic source-prefixed keys', async () => {
     const workspaceRoot = await createTempWorkspace();
 
     await writeSkillFile(
@@ -191,11 +197,11 @@ describe('dynamic slash catalog', () => {
       skillManager: stubSkillManager([]),
     }).buildAsync();
 
-    const codeReview = result.entries.find((entry) => entry.key === 'code-review');
+    const codeReview = result.entries.find((entry) => entry.key === 'prompt-code-review');
     expect(codeReview).toBeDefined();
     expect(codeReview?.description).toBe('First line used as fallback description.');
     expect(result.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining('Duplicate prompt key /code-review')])
+      expect.arrayContaining([expect.stringContaining('uses /prompt-code-review because /code-review is reserved')])
     );
   });
 

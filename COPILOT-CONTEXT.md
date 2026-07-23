@@ -46,7 +46,7 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 ## Chat thread invariant
 
 - A session is one agent's private LLM context. `previousSessionId` links handoff sessions into a human-visible thread.
-- The root session persists the thread's active session, return stack, and navigation timestamp. Resume must use `IThreadManager`; `lastActivityAt` is not an active-session cursor.
+- The root session persists the thread's active session, return stack, and navigation timestamp. Explicit-session resume uses `IThreadManager`'s persisted cursor; bare `ait chat` selects the session with the latest message or persisted tool activity. `ait chat <agent>` always creates a new root session for that agent.
 - Mirrored handoff summaries share one `handoffId` and appear once in the presentation transcript. Never pass the full thread transcript to an agent model.
 - Startup selection and handoff transitions are service-owned; adapters pass intent and render typed events, including `cancelled` command outcomes.
 

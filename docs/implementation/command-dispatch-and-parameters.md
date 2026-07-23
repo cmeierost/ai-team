@@ -47,6 +47,21 @@ derived as `group_key` in snake case. For example, the `run` tool has
 `group: "cli"` and is exposed as `cli_run`. Slash persistence uses the separate
 presentation identity `slash:<invoked-token>`, such as `slash:run`.
 
+## Public command names
+
+Built-in chat commands use a two-token public identity: `/group key`. For
+example, use `/system help` or `/chat run git status`. The registry dispatch
+key remains `group-key` and is not a public slash spelling.
+
+Only explicitly declared aliases may be invoked as one token. The core aliases
+are `/help`, `/new`, `/back`, and `/switch`; `/ho` and `/shell` remain aliases.
+Other bare built-in keys are rejected. Dynamic skill, prompt, and workflow
+commands remain one-token commands because their key is their public interface.
+
+Direct CLI commands are unaffected: `ait help` and `ait group key` use the
+same descriptor metadata but render and accept CLI syntax, and only commands
+with `availableIn.cli: true` are directly callable from the CLI.
+
 ## Parameter pipeline
 
 For slash and CLI-style dispatch, parameters pass through these stages:
@@ -78,7 +93,7 @@ required parameter that cannot be derived from context or workflow state.
 Structured commands accept their schema-shaped JSON object:
 
 ```text
-/run {"command":"git","args":["status","--short"]}
+/chat run {"command":"git","args":["status","--short"]}
 ```
 
 Malformed input beginning with `{` or `[` is reported as invalid JSON rather
@@ -141,8 +156,8 @@ const metadata = {
 With that metadata, these invocations normalize to the same object:
 
 ```text
-/run git status --short "folder with spaces" ""
-/run {"command":"git","args":["status","--short","folder with spaces",""]}
+/chat run git status --short "folder with spaces" ""
+/chat run {"command":"git","args":["status","--short","folder with spaces",""]}
 ```
 
 ```json
@@ -153,7 +168,7 @@ With that metadata, these invocations normalize to the same object:
 ```
 
 Tokens after the variadic boundary remain values even when they begin with
-`--`. This is essential for commands such as `/run`, where `--short` belongs to
+`--`. This is essential for commands such as `/chat run`, where `--short` belongs to
 `git`, not to the AI Team command parser.
 
 Properties before the variadic property consume positional tokens in schema
@@ -241,8 +256,8 @@ When a structured command starts with a required parameter followed by a
 declared variadic parameter, the completion prompt accepts the complete
 invocation. Its answer is passed through the normal command-line tokenizer and
 mapped back to the schema object. For example, answering `git status` to an
-empty `/run` prompt produces `{ "command": "git", "args": ["status"] }`,
-exactly like entering `/run git status` directly. Human-facing examples come
+empty `/chat run` prompt produces `{ "command": "git", "args": ["status"] }`,
+exactly like entering `/chat run git status` directly. Human-facing examples come
 from the command's `help.examples` metadata.
 
 ## LLM tool schemas
@@ -274,7 +289,7 @@ The result is emitted as a tool lifecycle event. UI adapters render it as a
 standalone transcript component; command implementations must not write
 presentation output directly to the terminal.
 
-`/run` and agent-invoked `cli_run` additionally emit correlated, non-persisted
+`/chat run` and agent-invoked `cli_run` additionally emit correlated, non-persisted
 tool `start` updates as stdout and stderr chunks arrive. The CLI's exact run
 renderer appends those chunks to one mutable transcript component. Because
 terminal-native scrollback cannot rewrite rows that have already left the
@@ -283,16 +298,16 @@ normalized suffix or failure detail without shrinking the live component. The
 terminal tool event remains the only persisted result, so resumed history is
 stable and does not replay individual chunks.
 
-This is why `/run` returns its invocation, stdout/stderr, and context note in
+This is why `/chat run` returns its invocation, stdout/stderr, and context note in
 its `CommandResponse`. It does not emit multiline `[INFO]` log messages.
 Streaming is a live projection of execution; the completed `CommandResponse`
 is authoritative for both the final live rendering and resumed history.
 
-## `/run` authorization
+## `/chat run` authorization
 
-`/run` and `cli_run` share execution behavior but have different callers:
+`/chat run` and `cli_run` share execution behavior but have different callers:
 
-- Human `/run`: executable must be present in global
+- Human `/chat run` (or its `/shell` alias): executable must be present in global
   `.ai-team/config.json` `allowedCliTools`.
 - Agent `cli_run`: the agent must be allowed to call `cli_run`, and the
   executable must be present in both the agent's `cliTools` and the global
@@ -303,14 +318,14 @@ Paths and whitespace are rejected in the executable field, and an optional
 working directory must remain inside the workspace root.
 
 On Windows, allowed commands may resolve to package-manager `.cmd` shims
-instead of native `.exe` files (`pnpm`, `npm`, and similar tools). `/run`
+instead of native `.exe` files (`pnpm`, `npm`, and similar tools). `/chat run`
 resolves those shims with `where.exe` and invokes them through the Windows
 command processor using separately escaped arguments. It does not concatenate
 unescaped user input into a shell command. Native executables continue to use
 direct `execFile` execution.
 
 A spawned process that exits non-zero still returns its captured stdout,
-stderr, and numeric exit code. `/run` presents that output followed by
+stderr, and numeric exit code. `/chat run` presents that output followed by
 `Command exited with code N` instead of discarding useful help or diagnostics
 inside Node's generic `execFile` exception. Failures to spawn the executable
 remain execution errors.

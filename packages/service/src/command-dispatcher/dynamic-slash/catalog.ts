@@ -107,47 +107,43 @@ export class DynamicSlashCatalogService {
       return left.index - right.index;
     });
 
-    const winnerByKey = new Map<string, CandidateRecord>();
-
     for (const candidate of candidates) {
-      const key = candidate.entry.key;
+      const key = candidate.entry.key.toLowerCase();
       if (!key) continue;
 
-      if (reserved.has(key)) {
+      const resolvedKey = this.resolveAvailableKey(key, candidate.entry.source, reserved);
+      if (resolvedKey !== key) {
         warnings.push(
-          `[slash] ${candidate.entry.source} "${candidate.entry.name}" conflicts with built-in /${key}; built-in command wins.`
-        );
-        continue;
-      }
-
-      const existing = winnerByKey.get(key);
-      if (!existing) {
-        winnerByKey.set(key, candidate);
-        continue;
-      }
-
-      const nextWins =
-        candidate.entry.modifiedAtMs > existing.entry.modifiedAtMs ||
-        (candidate.entry.modifiedAtMs === existing.entry.modifiedAtMs &&
-          candidate.index > existing.index);
-
-      if (nextWins) {
-        warnings.push(
-          `[slash] Duplicate ${candidate.entry.source} key /${key}: using newer "${candidate.entry.name}" from ${this.toWorkspaceRelative(candidate.entry.filePath)}; replaced "${existing.entry.name}".`
-        );
-        winnerByKey.set(key, candidate);
-      } else {
-        warnings.push(
-          `[slash] Duplicate ${candidate.entry.source} key /${key}: keeping newer "${existing.entry.name}"; ignored "${candidate.entry.name}".`
+          `[slash] ${candidate.entry.source} "${candidate.entry.name}" uses /${resolvedKey} because /${key} is reserved.`
         );
       }
+      candidate.entry.key = resolvedKey;
+      candidate.entry.usage = `/${resolvedKey}`;
+      reserved.add(resolvedKey);
     }
 
-    const entries = Array.from(winnerByKey.values())
-      .map((record) => record.entry)
+    const entries = candidates
+      .map((candidate) => candidate.entry)
       .sort((a, b) => a.key.localeCompare(b.key));
 
     return { entries, warnings };
+  }
+
+  private resolveAvailableKey(
+    requestedKey: string,
+    source: DynamicSlashEntry['source'],
+    reserved: Set<string>
+  ): string {
+    if (!reserved.has(requestedKey)) return requestedKey;
+
+    const base = `${source}-${requestedKey}`;
+    let candidate = base;
+    let suffix = 2;
+    while (reserved.has(candidate)) {
+      candidate = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    return candidate;
   }
 
   private async loadSkillEntries(skillGlobs: string[]): Promise<DynamicSlashEntry[]> {

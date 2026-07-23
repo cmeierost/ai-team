@@ -146,7 +146,7 @@ export class DefaultToolResolver implements IToolResolver {
     const resolved = this.toolManager.getForAgent(ctx.agent!).filter((tool) => {
       const key = ToolIdentity.key(tool.metadata);
       if (key === 'hr_hire') return false;
-      if (workflowPolicy && this.isToolDeniedByWorkflowPolicy(workflowPolicy, tool.metadata)) {
+      if (workflowPolicy && !this.isToolAllowedByWorkflowPolicy(workflowPolicy, tool.metadata)) {
         return false;
       }
       return true;
@@ -154,12 +154,12 @@ export class DefaultToolResolver implements IToolResolver {
 
     // Handoff is a core chat capability, not an agent opt-in. Keep it
     // available even if an adapter's agent-specific catalog omitted the
-    // default, while still honoring an explicit workflow deny/remove policy.
+    // default, while still honoring an explicit workflow allow/deny/remove policy.
     const handoff = this.toolManager.get?.('com_handoff');
     if (
       handoff
       && !resolved.some((tool) => ToolIdentity.key(tool.metadata) === 'com_handoff')
-      && (!workflowPolicy || !this.isToolDeniedByWorkflowPolicy(workflowPolicy, handoff.metadata))
+      && (!workflowPolicy || this.isToolAllowedByWorkflowPolicy(workflowPolicy, handoff.metadata))
     ) {
       resolved.push(handoff);
     }
@@ -169,6 +169,7 @@ export class DefaultToolResolver implements IToolResolver {
 
   private resolveWorkflowToolPolicy(workflowState: unknown):
     | {
+        allow?: string[];
         deny?: string[];
         remove?: string[];
       }
@@ -206,17 +207,24 @@ export class DefaultToolResolver implements IToolResolver {
         : undefined;
 
     return {
+      allow: toSelectors(policy['allow']),
       deny: toSelectors(policy['deny']),
       remove: toSelectors(policy['remove']),
     };
   }
 
-  private isToolDeniedByWorkflowPolicy(
-    policy: { deny?: string[]; remove?: string[] },
+  private isToolAllowedByWorkflowPolicy(
+    policy: { allow?: string[]; deny?: string[]; remove?: string[] },
     meta: ICommand['metadata']
   ): boolean {
-    const selectors = [...(policy.deny ?? []), ...(policy.remove ?? [])];
-    return selectors.some((selector) => ToolIdentity.matchesSelector(selector, meta));
+    const isExplicitlyAllowed =
+      !policy.allow ||
+      policy.allow.length === 0 ||
+      policy.allow.some((selector) => ToolIdentity.matchesSelector(selector, meta));
+    const isDenied = [...(policy.deny ?? []), ...(policy.remove ?? [])].some((selector) =>
+      ToolIdentity.matchesSelector(selector, meta)
+    );
+    return isExplicitlyAllowed && !isDenied;
   }
 }
 

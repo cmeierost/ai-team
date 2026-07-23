@@ -2,6 +2,8 @@ import type { CommandResponse, ExecutionContext, ICommand, ICommandDescriptor } 
 
 export const ExitChatCommandMetadata = {
   key: 'exit',
+  group: 'system',
+  aliases: ['exit'],
   description: 'Exit the current chat session',
   summary: 'Exit chat',
   availableIn: { chat: true, cli: false, tool: false },

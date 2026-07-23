@@ -26,6 +26,36 @@ function createService(llmService: unknown, emitService: EmitService): LlmInvoke
 }
 
 describe('LlmInvokeService', () => {
+  it('lists the canonical names from the provider tool definitions, not command implementation names', async () => {
+    const capturedMessages: any[] = [];
+    const llmService = {
+      chatWithTools: vi.fn(async (...args: unknown[]) => {
+        capturedMessages.push(args[1]);
+        return { text: '' };
+      }),
+      streamChat: vi.fn(),
+    };
+
+    const service = createService(llmService, new EmitService(() => {}));
+    await service.invokeAsync({
+      messages: [{ role: 'user', content: 'Find the prompt builder.' } as any],
+      tools: [makeTool('grep'), makeTool('handoff')],
+      toolDefs: [
+        { name: 'search_grep', description: 'Search workspace text', parameters: { type: 'object' } },
+        { name: 'com_handoff', description: 'Hand off to another agent', parameters: { type: 'object' } },
+      ],
+      skills: [],
+      teamRoster: [makeAgent('michael-brown', 'Michael Brown')],
+      ctx: { agent: makeAgent('michael-brown', 'Michael Brown'), workspaceRoot: '/workspace', history: [] } as any,
+    });
+
+    const policy = String(capturedMessages[0]?.[0]?.content);
+    expect(policy).toContain('search_grep, com_handoff');
+    expect(policy).not.toContain('callable tool names for this turn are: grep, handoff');
+    expect(policy).toContain('com_handoff is available for this turn');
+    expect(policy).not.toContain('fs_tree on path');
+  });
+
   it('injects mandatory com_handoff guidance when handoff tool is available', async () => {
     const capturedMessages: any[] = [];
     const llmService = {

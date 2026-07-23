@@ -16,6 +16,7 @@ import type {
   IToolManager,
 } from '@ai-team/core';
 import { ToolIdentity, type LlmToolDefinition } from '../tooling/manager/tool-manager.js';
+import { buildToolPolicyContent } from '../llm/tool-policy.js';
 import { ZodSchemaTools } from '../utils/zod-schema.js';
 import type { IMcpGateway } from '../workflow/runtime/pipeline.js';
 import { NotFoundError } from '@ai-team/core';
@@ -138,16 +139,7 @@ export class MetaService implements IContextService {
       }).length,
     }));
     // Include the tool policy system message that llm-invoke.ts injects when tools are present.
-    const toolPolicyChars =
-      tools.length > 0
-        ? (
-            `Tool-calling is available. Registered tools: ${tools.map((t) => t.name).join(', ')}. ` +
-            'Do not invent tool names. ' +
-            'If you need clarification or missing input from the developer, call com_ask instead of guessing. ' +
-            'If the developer asks about what tools you can use, what files you can read/write, or access/permissions, call a relevant introspection tool (for example tool_list, tool_can_i, fs_who_can) before answering. ' +
-            'If the developer asks to list or show visible/readable files (or file tree), call fs_tree on path "." (or requested path) first, then explain results.'
-          ).length
-        : 0;
+    const toolPolicyChars = tools.length > 0 ? buildToolPolicyContent(tools.map((tool) => tool.name)).length : 0;
     const chars = tools.reduce((s, t) => s + t.chars, 0) + toolPolicyChars;
     this.toolCache.set(agentId, { tools, chars, at: Date.now() });
     return { tools, chars };

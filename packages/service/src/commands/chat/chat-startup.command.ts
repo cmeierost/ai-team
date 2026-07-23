@@ -90,7 +90,7 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
         agent,
         options: {
           sessionId: startupTarget.sessionId,
-          createNewSession: payload.options.createNewSession,
+          createNewSession: startupTarget.createNewSession,
           introduction: payload.options.introduction,
         },
         developerName,

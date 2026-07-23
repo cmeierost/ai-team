@@ -46,7 +46,7 @@ export class ChatInfoService implements IChatInfoService {
 
     this.emitService.log('info', 'Type "exit" to end the conversation');
     this.emitService.log('info', 'Type "/help" to see available in-chat commands');
-    this.emitService.log('info', 'Ask to be forwarded or type "/chat <name>" to switch agents');
+    this.emitService.log('info', 'Ask to be forwarded or type "/handoff <name>" to switch agents');
 
     if (workflowMode && (workflowExitWords?.length ?? 0) > 0) {
       const exitWords = workflowExitWords?.filter(Boolean).join(', ');

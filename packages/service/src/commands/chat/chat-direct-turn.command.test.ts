@@ -68,12 +68,12 @@ function createDeps(overrides: {
   const commandDispatcher = {
     getCommand: vi.fn((key: string) => {
       if (key === 'help') {
-        return { key: 'help', group: 'system', aliases: ['h'] };
+        return { key: 'help', group: 'system', aliases: ['help'] };
       }
       return undefined;
     }),
     getCommands: vi.fn(() => [
-      { key: 'help', group: 'system', aliases: ['h'], availableIn: { chat: true } },
+      { key: 'help', group: 'system', aliases: ['help'], availableIn: { chat: true } },
     ]),
     dispatch: vi.fn(async (_key: string, _payload: unknown, _ctx: unknown) => ({
       status: 'ok',
@@ -603,7 +603,7 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     );
 
     const response = await command.execute(
-      { options: { message: '/handoff emily' } } as any,
+      { options: { message: '/com handoff emily' } } as any,
       { history: [] } as any
     );
 

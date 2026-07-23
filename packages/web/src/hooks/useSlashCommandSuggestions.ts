@@ -11,6 +11,10 @@ function commandSortRank(cmd: Pick<ChatCommandRegistryEntry, 'path'>): number {
   return isDynamicSkillCommand(cmd) ? 1 : 0;
 }
 
+function isDynamicCommand(cmd: Pick<ChatCommandRegistryEntry, 'path'>): boolean {
+  return Array.isArray(cmd.path) && cmd.path[0] === 'dynamic';
+}
+
 export interface SlashCommandSuggestionsState {
   /** Filtered commands matching the current input fragment. Empty when not active. */
   suggestions: ChatCommandRegistryEntry[];
@@ -43,26 +47,35 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
     staleTime: Infinity,
   });
 
-  const fragment = useMemo((): string | null => {
+  const fragments = useMemo((): string[] | null => {
     const trimmed = input.trimStart();
     if (!trimmed.startsWith('/') || trimmed.includes('\n')) return null;
-    const commandToken = trimmed.slice(1).split(/\s+/, 1)[0] ?? '';
-    return commandToken.toLowerCase();
+    return trimmed
+      .slice(1)
+      .trimStart()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((fragment) => fragment.toLowerCase());
   }, [input]);
 
   const suggestions = useMemo((): ChatCommandRegistryEntry[] => {
-    if (fragment === null) return [];
+    if (fragments === null) return [];
+    const [groupFragment = '', keyFragment = ''] = fragments;
     return registry
       .filter((cmd) => {
-        const usageToken = (cmd.usage ?? '')
-          .trim()
-          .replace(/^\//, '')
-          .split(/\s+/, 1)[0]
-          ?.toLowerCase();
-        const keys = [cmd.key, ...(cmd.aliases ?? []), usageToken]
-          .filter((value): value is string => Boolean(value))
-          .map((value) => value.toLowerCase());
-        return keys.some((k) => k.startsWith(fragment));
+        if (isDynamicCommand(cmd)) {
+          return fragments.length <= 1 && cmd.key.toLowerCase().startsWith(groupFragment);
+        }
+        if (fragments.length > 1) {
+          return (
+            (cmd.group ?? '').toLowerCase().startsWith(groupFragment) &&
+            cmd.key.toLowerCase().startsWith(keyFragment)
+          );
+        }
+        return (
+          (cmd.group ?? '').toLowerCase().startsWith(groupFragment) ||
+          (cmd.aliases ?? []).some((alias) => alias.toLowerCase().startsWith(groupFragment))
+        );
       })
       .sort((left, right) => {
         const leftRank = commandSortRank(left);
@@ -70,7 +83,7 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
         if (leftRank !== rightRank) return leftRank - rightRank;
         return left.key.localeCompare(right.key);
       });
-  }, [fragment, registry]);
+  }, [fragments, registry]);
 
   // Reset selection and dismissed state when suggestions change.
   useEffect(() => {
@@ -92,7 +105,7 @@ export function useSlashCommandSuggestions(input: string): SlashCommandSuggestio
   const select = (index: number): string => {
     const cmd = suggestions[index] ?? suggestions[0];
     setDismissed(true);
-    return cmd ? `/${cmd.key}` : input;
+    return cmd?.usage ?? input;
   };
 
   const dismiss = () => setDismissed(true);

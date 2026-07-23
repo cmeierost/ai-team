@@ -84,7 +84,10 @@ function loadServiceCliCommandRegistry(): CliCommandMetadata[] {
       description: command.description,
       llmCallable: Boolean(command.availableIn.tool),
       directCli: true,
-      aliases: command.aliases,
+      // Slash aliases may intentionally be the bare command key (for example
+      // `/help` for `/system help`). Commander rejects aliases identical to
+      // the CLI leaf command, so omit only those redundant CLI aliases.
+      aliases: command.aliases?.filter((alias) => alias !== leaf),
       options: undefined,
       hints: command.help?.hints,
       examples: command.help?.examples?.map((example) => example.value),

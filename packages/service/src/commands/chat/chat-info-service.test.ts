@@ -38,6 +38,7 @@ describe('ChatInfoService', () => {
       kind: 'session_switched',
       sessionId: 'session-2026-07-23-abc123',
       agentId: 'sarah-lee',
+      source: 'startup',
     });
   });
 
@@ -64,6 +65,21 @@ describe('ChatInfoService', () => {
         agentId: 'michael-brown',
         avatarColor: 'hsl(205, 70%, 60%)',
       })
+    );
+  });
+
+  it('guides people to the normal handoff command', () => {
+    const emitService = { emit: vi.fn(), log: vi.fn() };
+    const service = new ChatInfoService(emitService as any);
+
+    service.showSessionIntro({
+      agent: { id: 'michael-brown', name: 'Michael Brown', role: 'ceo' } as any,
+      developerName: 'Clemens Meier',
+    });
+
+    expect(emitService.log).toHaveBeenCalledWith(
+      'info',
+      'Ask to be forwarded or type "/handoff <name>" to switch agents'
     );
   });
 
