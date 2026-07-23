@@ -20,6 +20,11 @@ export type RuntimeStreamEvent =
       message?: string;
     }
   | {
+      kind: 'workspace_info';
+      workspace: string;
+      gitBranch?: string;
+    }
+  | {
       kind: 'history_message';
       content: string;
       isHuman: boolean;
@@ -102,6 +107,9 @@ export type RuntimeStreamEvent =
       toAvatarColor?: string;
       toLlmModel?: string;
       toSessionId?: string;
+      handoffId?: string;
+      handoffPhase?: 'start' | 'delta' | 'complete' | 'cancelled';
+      delta?: string;
       handoffNote?: string;
       /** True when replaying persisted history; projections must not change active runtime state. */
       historical?: boolean;
@@ -409,6 +417,14 @@ export type StreamEvent<TCommand extends string = string> =
   | {
       requestId?: string;
       command: TCommand;
+      kind: 'workspace_info';
+      timestamp: string;
+      workspace: string;
+      gitBranch?: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
       kind: 'history_message';
       timestamp: string;
       content: string;
@@ -491,6 +507,9 @@ export type StreamEvent<TCommand extends string = string> =
       toAvatarColor?: string;
       toLlmModel?: string;
       toSessionId?: string;
+      handoffId?: string;
+      handoffPhase?: 'start' | 'delta' | 'complete' | 'cancelled';
+      delta?: string;
       handoffNote?: string;
       historical?: boolean;
       briefingContent?: string;

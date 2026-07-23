@@ -22,4 +22,18 @@ describe('Markdown', () => {
     const markdown = new Markdown('A deliberately long Markdown paragraph for a narrow terminal.');
     expect(markdown.render(16).every((line) => visibleWidth(line) <= 16)).toBe(true);
   });
+
+  it('prefers word boundaries instead of splitting ordinary words', () => {
+    const markdown = new Markdown('A deliberately long Markdown paragraph for a narrow terminal.');
+    const plainLines = markdown
+      .render(16)
+      .map((line) => line.replaceAll(/\x1b\[[0-?]*[ -/]*[@-~]/g, ''));
+
+    expect(plainLines).toEqual([
+      'A deliberately',
+      'long Markdown',
+      'paragraph for a',
+      'narrow terminal.',
+    ]);
+  });
 });

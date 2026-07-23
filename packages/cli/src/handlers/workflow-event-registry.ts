@@ -31,6 +31,8 @@ export interface WorkflowEventState {
   currentAgent: AgentDisplayInfo | null;
   currentResponse: AgentResponse | null;
   currentThinking?: ThinkingBlock | null;
+  currentHandoff?: HandoffTransition | null;
+  currentHandoffId?: string;
   currentUserMessage?: UserMessage | null;
   developerName?: string;
   workflowName?: string;
@@ -167,8 +169,11 @@ function handleTool(
     ?? commandResponse?.message
     ?? toolResult?.resultLlm
     ?? payload.output;
-  state.currentResponse = null;
-  collapseThinking(state);
+  const historical = payload.historical === true;
+  if (!historical) {
+    state.currentResponse = null;
+    collapseThinking(state);
+  }
 
   if (
     toolName.startsWith('slash:')
@@ -187,6 +192,13 @@ function handleTool(
 
   const custom = registry.renderTool(toolName, input, output);
   if (custom) return custom;
+
+  if (historical) {
+    return new ToolEvent(toolName, input, output, payload.toolPhase, {
+      maxInputLines: 4,
+      maxOutputLines: 8,
+    });
+  }
 
   const toolKey = payload.toolCallId ?? toolName;
   const toolComponents = state.toolComponents ?? new Map<string, ToolEvent>();
@@ -233,7 +245,11 @@ function handleHistoryMessage(
   const developerName = payload.developerName ?? state.developerName;
 
   if (payload.isHuman) {
-    return new UserMessage(content, developerName);
+    const message = new UserMessage(content, developerName);
+    if (payload.historical === true) {
+      state.currentUserMessage = message;
+    }
+    return message;
   }
 
   const fallbackAgent = state.currentAgent;
@@ -253,6 +269,30 @@ function handleHandoff(
   _registry: ExtensionRegistry
 ): Component | null {
   const payload = event as any;
+  const handoffPhase = payload.handoffPhase as
+    | 'start'
+    | 'delta'
+    | 'complete'
+    | 'cancelled'
+    | undefined;
+  const handoffId = payload.handoffId as string | undefined;
+
+  if (handoffPhase === 'delta') {
+    if (!handoffId || !state.currentHandoffId || handoffId === state.currentHandoffId) {
+      state.currentHandoff?.append(typeof payload.delta === 'string' ? payload.delta : '');
+    }
+    return null;
+  }
+
+  if (handoffPhase === 'cancelled') {
+    if (!handoffId || !state.currentHandoffId || handoffId === state.currentHandoffId) {
+      state.currentHandoff?.remove();
+      state.currentHandoff = null;
+      state.currentHandoffId = undefined;
+    }
+    return null;
+  }
+
   const fromAgentName = payload.fromAgentName ?? state.currentAgent?.name ?? 'Agent';
   const currentAgent = state.currentAgent;
   const fromAgent =
@@ -273,6 +313,28 @@ function handleHandoff(
   });
   const reason = payload.handoffNote ?? payload.reason;
   const briefing = payload.briefingContent;
+
+  if (handoffPhase === 'start') {
+    collapseThinking(state);
+    state.currentResponse = null;
+    const transition = new HandoffTransition(fromAgent, toAgent);
+    state.currentHandoff = transition;
+    state.currentHandoffId = handoffId;
+    return transition;
+  }
+
+  if (handoffPhase === 'complete' && state.currentHandoff) {
+    if (!handoffId || !state.currentHandoffId || handoffId === state.currentHandoffId) {
+      state.currentHandoff.setText(briefing?.trim() ? briefing : (reason ?? ''));
+      state.currentHandoff = null;
+      state.currentHandoffId = undefined;
+      state.currentAgentId = payload.toAgentId ?? state.currentAgentId;
+      state.currentAgent = toAgent;
+      collapseThinking(state);
+      state.currentResponse = null;
+      return null;
+    }
+  }
 
   if (!payload.historical) {
     state.currentAgentId = payload.toAgentId ?? state.currentAgentId;

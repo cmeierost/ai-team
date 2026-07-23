@@ -25,6 +25,7 @@ function createStepService(overrides?: {
   toolSchemaService?: any;
   runtimeHooks?: any;
   emitService?: any;
+  developerIdentityService?: any;
 }) {
   const sessionManager =
     overrides?.sessionManager ??
@@ -57,6 +58,11 @@ function createStepService(overrides?: {
   const runtimeHooks = overrides?.runtimeHooks ?? ({} as any);
   const emitService =
     overrides?.emitService ?? ({ log: vi.fn(), emit: vi.fn(), status: vi.fn() } as any);
+  const developerIdentityService =
+    overrides?.developerIdentityService ??
+    ({
+      getUserName: vi.fn(() => 'Clemens Meier'),
+    } as any);
 
   return {
     stepService: new SendTurnStepService(
@@ -68,7 +74,8 @@ function createStepService(overrides?: {
       toolDispatcher,
       toolSchemaService,
       runtimeHooks,
-      emitService
+      emitService,
+      developerIdentityService
     ),
     sessionManager,
     agentManager,
@@ -79,8 +86,53 @@ function createStepService(overrides?: {
     toolSchemaService,
     runtimeHooks,
     emitService,
+    developerIdentityService,
   };
 }
+
+describe('SendTurnStepService.prepareMessagesAsync', () => {
+  it('identifies the configured developer as the human conversation partner', async () => {
+    const plugins = {
+      compressor: {
+        compress: vi.fn(async (history: unknown[]) => history),
+      },
+      contextBuilder: {
+        build: vi.fn(async () => [{ role: 'user', content: "what's up today?" }]),
+      },
+      enrichers: [],
+      ragProvider: {
+        retrieve: vi.fn(async () => null),
+      },
+    } as any;
+    const ctx = {
+      agent: { id: 'sarah-lee', name: 'Sarah Lee' },
+      sessionId: 'session-1',
+      history: [],
+    } as unknown as ExecutionContext;
+
+    const { stepService } = createStepService({
+      developerIdentityService: {
+        getUserName: vi.fn(() => 'Clemens Meier'),
+      },
+    });
+
+    const messages = await stepService.prepareMessagesAsync("what's up today?", plugins, ctx);
+
+    expect(messages[0]).toEqual({
+      role: 'system',
+      content: expect.stringContaining(
+        'You are speaking directly with Clemens Meier, the human developer using ai-team.'
+      ),
+    });
+    expect(messages[0]?.content).toContain(
+      'Clemens Meier is the author of messages with the user role'
+    );
+    expect(messages[0]?.content).toContain(
+      'usually use their first name, Clemens'
+    );
+    expect(messages[1]).toEqual({ role: 'user', content: "what's up today?" });
+  });
+});
 
 describe('SendTurnStepService.resolveSkillsAndToolsAsync', () => {
   it('describes only agent-allowed discovered tools', async () => {

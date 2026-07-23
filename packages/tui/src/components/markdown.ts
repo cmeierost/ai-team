@@ -29,6 +29,7 @@ const DIM = '\x1b[2m';
 const ITALIC = '\x1b[3m';
 const UNDERLINE = '\x1b[4m';
 const CYAN = '\x1b[36m';
+const ANSI_SEQUENCE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 
 export class Markdown implements Component {
   _parent: import('../component.js').Container | null = null;
@@ -171,16 +172,40 @@ export class Markdown implements Component {
   }
 
   private wrap(line: string, width: number): string[] {
+    const safeWidth = Math.max(1, width);
     const sourceLines = line.split('\n');
     const result: string[] = [];
     for (const source of sourceLines) {
       const sourceWidth = visibleWidth(source);
-      if (sourceWidth <= width) {
+      if (sourceWidth <= safeWidth) {
         result.push(source);
         continue;
       }
-      for (let offset = 0; offset < sourceWidth; offset += width) {
-        result.push(`${sliceByColumn(source, offset, width)}${RESET}`);
+
+      let offset = 0;
+      while (offset < sourceWidth) {
+        const remainingWidth = sourceWidth - offset;
+        if (remainingWidth <= safeWidth) {
+          result.push(`${sliceByColumn(source, offset, remainingWidth)}${RESET}`);
+          break;
+        }
+
+        const candidate = sliceByColumn(source, offset, safeWidth);
+        const visibleCandidate = candidate.replaceAll(ANSI_SEQUENCE, '');
+        const whitespaceRuns = Array.from(visibleCandidate.matchAll(/\s+/g)).filter(
+          (match) => (match.index ?? 0) > 0
+        );
+        const lastWhitespace = whitespaceRuns.at(-1);
+        const breakWidth = lastWhitespace
+          ? visibleWidth(visibleCandidate.slice(0, lastWhitespace.index))
+          : safeWidth;
+
+        result.push(`${sliceByColumn(source, offset, breakWidth)}${RESET}`);
+        offset += breakWidth;
+
+        if (lastWhitespace) {
+          offset += visibleWidth(lastWhitespace[0]);
+        }
       }
     }
     return result;

@@ -9,6 +9,8 @@ export interface IChatInfoService {
     workflowExitWords?: string[];
   }): void;
   showLoadedInstructions(instructionCount: number): void;
+  showWorkspaceInfo(args: { workspace: string; gitBranch?: string | null }): void;
+  showActiveSession(args: { sessionId: string; agentId: string }): void;
   showSessionResume(
     history: ChatMessage[],
     agent: Agent,
@@ -59,6 +61,22 @@ export class ChatInfoService implements IChatInfoService {
     }
   }
 
+  showWorkspaceInfo(args: { workspace: string; gitBranch?: string | null }): void {
+    this.emitService.emit({
+      kind: 'workspace_info',
+      workspace: args.workspace,
+      gitBranch: args.gitBranch ?? undefined,
+    });
+  }
+
+  showActiveSession(args: { sessionId: string; agentId: string }): void {
+    this.emitService.emit({
+      kind: 'session_switched',
+      sessionId: args.sessionId,
+      agentId: args.agentId,
+    });
+  }
+
   showSessionResume(
     history: ChatMessage[],
     agent: Agent,
@@ -68,17 +86,21 @@ export class ChatInfoService implements IChatInfoService {
     if (visible.length === 0) return;
 
     for (const msg of visible) {
-      this.emitService.emit({
-        kind: 'history_message',
-        content: msg.content,
-        isHuman: msg.isHuman,
-        developerName,
-        agentId: agent.id,
-        agentName: agent.name,
-        agentRole: agent.role,
-        llmModel: agent.resolvedLlm?.model,
-        avatarColor: agent.avatar?.color,
-      });
+      if (msg.content.trim().length > 0 || !msg.tool_calls?.length) {
+        this.emitService.emit({
+          kind: 'history_message',
+          historical: true,
+          content: msg.content,
+          isHuman: msg.isHuman,
+          developerName,
+          agentId: agent.id,
+          agentName: agent.name,
+          agentRole: agent.role,
+          llmModel: agent.resolvedLlm?.model,
+          avatarColor: agent.avatar?.color,
+        });
+      }
+      this.emitHistoricalTools(msg);
     }
   }
 
@@ -102,6 +124,7 @@ export class ChatInfoService implements IChatInfoService {
           fromAvatarColor: fromAgent?.avatar?.color,
           fromLlmModel: fromAgent?.resolvedLlm?.model,
           fromSessionId: message.handoffFromSessionId,
+          handoffId: message.handoffId,
           toAgentId: toAgent?.id ?? message.to ?? message.targetAgentId ?? 'unknown',
           toAgentName: toAgent?.name ?? message.to ?? message.targetAgentId ?? 'Agent',
           toAgentRole: toAgent?.role,
@@ -114,16 +137,45 @@ export class ChatInfoService implements IChatInfoService {
       }
 
       const agent = entry.agent;
+      if (message.content.trim().length > 0 || !message.tool_calls?.length) {
+        this.emitService.emit({
+          kind: 'history_message',
+          historical: true,
+          content: message.content,
+          isHuman: message.isHuman === true,
+          developerName,
+          agentId: agent?.id,
+          agentName: agent?.name,
+          agentRole: agent?.role,
+          llmModel: agent?.resolvedLlm?.model,
+          avatarColor: agent?.avatar?.color,
+        });
+      }
+      this.emitHistoricalTools(message);
+    }
+  }
+
+  private emitHistoricalTools(message: ChatMessage): void {
+    for (const call of message.tool_calls ?? []) {
+      const resultStatus =
+        call.result
+        && typeof call.result === 'object'
+        && 'status' in call.result
+          ? (call.result as { status?: unknown }).status
+          : undefined;
+      const toolPhase = resultStatus === 'error' ? 'error' : 'result';
+      const output = call.tool.startsWith('slash:')
+        ? (call.resultLlm ?? call.result)
+        : (call.result ?? call.resultLlm);
+
       this.emitService.emit({
-        kind: 'history_message',
-        content: message.content,
-        isHuman: message.isHuman === true,
-        developerName,
-        agentId: agent?.id,
-        agentName: agent?.name,
-        agentRole: agent?.role,
-        llmModel: agent?.resolvedLlm?.model,
-        avatarColor: agent?.avatar?.color,
+        kind: 'tool',
+        historical: true,
+        toolName: call.tool,
+        toolCallId: call.id === undefined ? undefined : String(call.id),
+        toolPhase,
+        input: call.params,
+        output,
       });
     }
   }

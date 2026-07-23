@@ -14,6 +14,9 @@ export const sessions = sqliteTable('sessions', {
   title: text('title'),
   notes: text('notes'),
   previousSessionId: text('previous_session_id'),
+  activeSessionId: text('active_session_id'),
+  threadNavigationStackJson: text('thread_navigation_stack_json'),
+  threadLastActiveAt: text('thread_last_active_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

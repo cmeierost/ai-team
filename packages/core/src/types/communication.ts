@@ -1,5 +1,6 @@
 import type { Agent, AgentSkillFile, InstructionFile, Skill } from './agent-models.js';
 import type { TeamConfig, UserConfig } from './schemas.js';
+import type { SessionNavEntry } from './command-types.js';
 
 export interface ContextItem {
   type: 'file' | 'selection' | 'note' | 'error';
@@ -175,6 +176,12 @@ export interface ChatSession {
   notes?: string;
   ragConfig?: SessionRagConfig;
   previousSessionId?: string;
+  /** Active private-context session for this thread. Persisted on the root session. */
+  activeSessionId?: string;
+  /** Delegation return path for this thread. Persisted on the root session. */
+  threadNavigationStack?: SessionNavEntry[];
+  /** Last time the thread's active-session cursor changed. */
+  threadLastActiveAt?: string;
   mergedFromSessionIds?: string[];
 }
 

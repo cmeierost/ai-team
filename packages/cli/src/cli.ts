@@ -34,6 +34,8 @@ import { CONTRACT_SERVICE_TOKENS } from '@ai-team/api-contracts';
 import { renderChat } from './handlers/chat-new.js';
 import { launchServer, launchServerWithUi } from './handlers/serve.js';
 import { launchUi } from './handlers/ui.js';
+import { requireSuccessfulHandoffTransition } from './chat-runtime-handoff-result.js';
+import { resolveChatInvocationTarget } from './chat-invocation-target.js';
 import {
   CLI_COMMAND_REGISTRY,
   getCliDispatchCommandKey,
@@ -68,7 +70,7 @@ class CliChatRuntimeBridge {
             async (turnInput: ChatRuntimeTurnInput) => {
               const directHandoffTarget = this.extractDirectHandoffTargetQuery(
                 turnInput.userMessage,
-                input.agentId
+                turnInput.agentId
               );
 
               if (directHandoffTarget) {
@@ -85,13 +87,13 @@ class CliChatRuntimeBridge {
               const response = await this.commandDispatcher.dispatch(
                 'chat-chat-direct-turn',
                 {
-                  agentId: input.agentId,
+                  agentId: turnInput.agentId,
                   options: {
                     message: turnInput.userMessage,
                     disableProcessExit: true,
                     suppressAutoIntroduction: turnInput.options.skipPersist,
-                    sessionId: input.sessionId,
-                    createNewSession: input.createNewSession,
+                    sessionId: turnInput.sessionId,
+                    createNewSession: turnInput.createNewSession,
                   },
                 },
                 (() => {
@@ -99,6 +101,11 @@ class CliChatRuntimeBridge {
                   const depth = (input as { subworkflowDepth?: number }).subworkflowDepth;
                   return {
                     history: [],
+                    agentId: turnInput.agentId,
+                    sessionId: turnInput.sessionId,
+                    invocationSurface: 'cli' as const,
+                    calledByHuman: true,
+                    callerType: 'human' as const,
                     ...(signal ? { signal } : {}),
                     ...(depth !== undefined ? { subworkflowDepth: depth } : {}),
                   };
@@ -113,6 +120,7 @@ class CliChatRuntimeBridge {
                 response.data && typeof response.data === 'object'
                   ? (response.data as {
                       text?: string;
+                      followUpMessage?: string;
                       handoffTargetId?: string;
                       handoffTargetSessionId?: string;
                       handoffNote?: string;
@@ -131,6 +139,7 @@ class CliChatRuntimeBridge {
               return {
                 text: typeof response.data === 'string' ? response.data : (payload?.text ?? ''),
                 toolRoundNeeded: false,
+                followUpMessage: payload?.followUpMessage,
                 handoffTargetId: payload?.handoffTargetId,
                 handoffTargetSessionId: payload?.handoffTargetSessionId,
                 handoffNote: payload?.handoffNote,
@@ -225,17 +234,7 @@ class CliChatRuntimeBridge {
                 })()
               );
 
-              if (transition.status === 'error') {
-                throw new Error(transition.message || 'handoff transition failed');
-              }
-
-              const data =
-                transition.data && typeof transition.data === 'object'
-                  ? (transition.data as {
-                      targetAgentId?: string;
-                      targetSessionId?: string;
-                    })
-                  : undefined;
+              const data = requireSuccessfulHandoffTransition(transition);
 
               return {
                 autoMessage: undefined,
@@ -376,14 +375,14 @@ class CliApplication {
   }): Promise<{ agentId?: string; agentName?: string; sessionId?: string }> {
     let resolvedAgentId = params.agentId?.trim() || undefined;
     let resolvedAgentName: string | undefined;
+    let resolvedSessionId = params.sessionId;
 
-    if (!resolvedAgentId && params.sessionId) {
+    if (params.sessionId && !params.createNewSession) {
       try {
-        const sessionManager = this.deps.commandContainer.resolve(
-          CORE_SERVICE_TOKENS.SessionManager
-        );
-        const session = await sessionManager.getSession(params.sessionId);
-        resolvedAgentId = session?.agentId;
+        const threadManager = this.deps.commandContainer.resolve(CORE_SERVICE_TOKENS.ThreadManager);
+        const active = await threadManager.resolveActiveSession(params.sessionId);
+        resolvedSessionId = active.session?.id ?? params.sessionId;
+        resolvedAgentId = active.session?.agentId ?? resolvedAgentId;
       } catch {
         // The normal startup path below will report an unknown session.
       }
@@ -403,12 +402,12 @@ class CliApplication {
       return {
         agentId: resolvedAgentId,
         agentName: resolvedAgentName,
-        sessionId: params.sessionId,
+        sessionId: resolvedSessionId,
       };
     }
 
     try {
-      const sessionManager = this.deps.commandContainer.resolve(CORE_SERVICE_TOKENS.SessionManager);
+      const threadManager = this.deps.commandContainer.resolve(CORE_SERVICE_TOKENS.ThreadManager);
 
       const developerIdentityService = this.deps.commandContainer.resolve(
         CORE_SERVICE_TOKENS.DeveloperIdentityService
@@ -416,7 +415,7 @@ class CliApplication {
 
       const developerName = developerIdentityService.getUserName() || 'developer';
       const developerId = developerIdentityService.toDeveloperId(developerName);
-      const latest = await sessionManager.resolveLatestSessionForResume(developerId);
+      const latest = await threadManager.resolveLatestActiveSession(developerId);
 
       if (!latest) {
         return { agentId: undefined, sessionId: undefined };
@@ -431,7 +430,7 @@ class CliApplication {
       return {
         agentId: resolvedAgentId,
         agentName: resolvedAgentName,
-        sessionId: params.sessionId,
+        sessionId: resolvedSessionId,
       };
     }
   }
@@ -733,19 +732,14 @@ class CliApplication {
     const runChat = async (...args: unknown[]) => {
       const opts = this.tryGetCommanderOptions(args) ?? {};
       const positionals = args.filter((a): a is string => typeof a === 'string');
-      const firstPositional = positionals[0];
-      const positionalSessionId = positionals[1];
       const message = typeof opts.message === 'string' ? opts.message : undefined;
       const explicitSessionId = typeof opts.sessionId === 'string' ? opts.sessionId : undefined;
-      const singlePositionalSession =
-        !explicitSessionId
-        && !positionalSessionId
-        && firstPositional?.startsWith('session-');
-      const agentId = singlePositionalSession ? undefined : firstPositional;
-      const sessionId =
-        explicitSessionId
-        ?? positionalSessionId
-        ?? (singlePositionalSession ? firstPositional : undefined);
+      const invocationTarget = resolveChatInvocationTarget(
+        positionals,
+        explicitSessionId,
+        opts.new === true
+      );
+      const { agentId, sessionId, createNewSession } = invocationTarget;
       const rawMaxHops = opts.maxHops ?? opts['max-hops'];
       const parsedMaxHops =
         typeof rawMaxHops === 'number'
@@ -760,8 +754,6 @@ class CliApplication {
           : typeof opts['auto-react-message'] === 'string'
             ? opts['auto-react-message']
             : undefined;
-      const createNewSession = opts.new === true;
-
       const startupTarget = await this.resolveChatStartupTarget({
         agentId,
         sessionId,

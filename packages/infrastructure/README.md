@@ -16,6 +16,11 @@ Concrete runtime implementations and adapters for AI Team. This package supplies
 - Wired through `@ai-team/container` and `@ai-team/service`
 - Avoids UI or transport-specific concerns
 
+The root session row also stores the active cursor and navigation stack for a
+multi-agent chat thread. The schema fields are infrastructure persistence for
+the core/service thread contract; transition semantics remain in
+`@ai-team/service`.
+
 ## Development
 
 ```bash

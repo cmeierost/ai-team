@@ -2,7 +2,12 @@
  * Tool event component — renders a tool call event.
  */
 
-import { Component } from '@ai-team/tui';
+import { Component, sliceByColumn, visibleWidth } from '@ai-team/tui';
+
+export interface ToolEventOptions {
+  maxInputLines?: number;
+  maxOutputLines?: number;
+}
 
 /**
  * Tool event — displays a tool call with input/output.
@@ -17,7 +22,13 @@ export class ToolEvent implements Component {
   private invalidated = true;
   private cachedLines?: string[];
 
-  constructor(toolName: string, input: unknown, output?: unknown, phase?: string) {
+  constructor(
+    toolName: string,
+    input: unknown,
+    output?: unknown,
+    phase?: string,
+    private readonly options: ToolEventOptions = {}
+  ) {
     this.toolName = toolName;
     this.input = input;
     this.output = output;
@@ -69,13 +80,23 @@ remove(): void {
     if (!this.collapsed) {
       // Input
       const inputStr = this.formatValue(this.input);
-      const inputLines = this.wrapBlock(`Input:`, inputStr, width);
+      const inputLines = this.wrapBlock(
+        'Input:',
+        inputStr,
+        width,
+        this.options.maxInputLines
+      );
       result.push(...inputLines);
 
       // Output
       if (this.output !== undefined) {
         const outputStr = this.formatValue(this.output);
-        const outputLines = this.wrapBlock(`Output:`, outputStr, width);
+        const outputLines = this.wrapBlock(
+          'Output:',
+          outputStr,
+          width,
+          this.options.maxOutputLines
+        );
         result.push(...outputLines);
       }
     }
@@ -103,38 +124,62 @@ remove(): void {
     }
   }
 
-  private wrapBlock(_label: string, content: string, width: number): string[] {
-    const lines: string[] = [`\x1b[2m  ${_label}\x1b[0m`];
+  private wrapBlock(
+    label: string,
+    content: string,
+    width: number,
+    maxContentLines?: number
+  ): string[] {
+    const lines: string[] = [`\x1b[2m  ${label}\x1b[0m`];
     const dimStyle = '\x1b[2m';
     const reset = '\x1b[0m';
 
-    const contentLines = content.split('\n');
-    for (const line of contentLines) {
-      const wrapped = this.wrapLine(`  ${line}`, width);
-      lines.push(...wrapped.map(l => `${dimStyle}${l}${reset}`));
+    const contentLines = content
+      .split('\n')
+      .flatMap((line) => this.wrapLine(`  ${line}`, width));
+    const visibleLines = maxContentLines === undefined
+      ? contentLines
+      : contentLines.slice(0, maxContentLines);
+    lines.push(...visibleLines.map((line) => `${dimStyle}${line}${reset}`));
+
+    const omittedLines = contentLines.length - visibleLines.length;
+    if (omittedLines > 0) {
+      lines.push(`${dimStyle}  … ${omittedLines} more lines${reset}`);
     }
 
     return lines;
   }
 
   private wrapLine(text: string, maxWidth: number): string[] {
-    if (text.length <= maxWidth) return [text];
-
+    const safeWidth = Math.max(1, maxWidth);
+    const sourceWidth = visibleWidth(text);
+    if (sourceWidth <= safeWidth) return [text];
     const result: string[] = [];
-    const words = text.split(' ');
-    let current = '';
+    let offset = 0;
 
-    for (const word of words) {
-      const test = current ? `${current} ${word}` : word;
-      if (test.length <= maxWidth || !current) {
-        current = test;
-      } else {
-        result.push(current);
-        current = word;
+    while (offset < sourceWidth) {
+      const remainingWidth = sourceWidth - offset;
+      if (remainingWidth <= safeWidth) {
+        result.push(sliceByColumn(text, offset, remainingWidth));
+        break;
+      }
+
+      const candidate = sliceByColumn(text, offset, safeWidth);
+      const whitespaceRuns = Array.from(candidate.matchAll(/\s+/g)).filter(
+        (match) => (match.index ?? 0) > 1
+      );
+      const lastWhitespace = whitespaceRuns.at(-1);
+      const breakWidth = lastWhitespace
+        ? visibleWidth(candidate.slice(0, lastWhitespace.index))
+        : safeWidth;
+
+      result.push(sliceByColumn(text, offset, breakWidth));
+      offset += breakWidth;
+      if (lastWhitespace) {
+        offset += visibleWidth(lastWhitespace[0]);
       }
     }
 
-    if (current) result.push(current);
     return result;
   }
 }

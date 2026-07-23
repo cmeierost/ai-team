@@ -14,6 +14,7 @@ import type {
 import type { CommandResponse as ContractCommandResponse } from '@ai-team/api-contracts';
 import type { ResolvedPlugins, TurnResult } from '../../workflow/runtime/pipeline.js';
 import { SendTurnResolvedSkillsAndTools } from '../../workflow/chat/send-turn-step-service.js';
+import { HANDOFF_AUTO_REACT_MESSAGE } from '../../workflow/chat/handoff-auto-react.js';
 
 const chatDirectTurnParamsSchema = z.object({
   agentId: z.string().optional(),
@@ -30,6 +31,7 @@ interface ChatDirectTurnResult {
   text: string;
   agentId: string;
   sessionId: string;
+  followUpMessage?: string;
   handoffTargetId?: string;
   handoffTargetSessionId?: string;
   handoffNote?: string;
@@ -84,6 +86,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
 
     const turnContext = this.toExecutionContext(ctx, bootstrap.sessionId, bootstrap.agent);
     turnContext.history.push(...bootstrap.history);
+    const sessionBeforeSlash = turnContext.sessionId;
 
     const slashHandled = await this.tryHandleSlashCommandAsync(payload.options.message, turnContext);
     if (slashHandled) {
@@ -100,6 +103,9 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
           text: slashHandled.responseText,
           agentId: turnContext.agent?.id ?? bootstrap.agent.id,
           sessionId: turnContext.sessionId ?? bootstrap.sessionId,
+          ...(turnContext.sessionId !== sessionBeforeSlash
+            ? { followUpMessage: HANDOFF_AUTO_REACT_MESSAGE }
+            : {}),
         },
         message: 'completed',
       };
@@ -223,18 +229,29 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     const commandKey = resolvedCommand?.canonicalKey ?? parsed.commandToken;
     const slashToolName = `slash:${parsed.commandToken}`;
 
-    const commandResponse = resolvedCommand
-      ? this.toCoreCommandResponse(
-          await this.plugins.commandDispatcher.dispatch(
-            commandKey,
-            parsed.rawArgs,
-            ctx
-          )
-        )
-      : {
-          status: 'error' as const,
-          message: `Unknown chat command: /${parsed.commandToken}`,
-        };
+    let commandResponse;
+    if (resolvedCommand) {
+      const previousInvocationSurface = ctx.invocationSurface;
+      const previousCalledByHuman = ctx.calledByHuman;
+      const previousCallerType = ctx.callerType;
+      ctx.invocationSurface = 'slash';
+      ctx.calledByHuman = true;
+      ctx.callerType = 'human';
+      try {
+        commandResponse = this.toCoreCommandResponse(
+          await this.plugins.commandDispatcher.dispatch(commandKey, parsed.rawArgs, ctx)
+        );
+      } finally {
+        ctx.invocationSurface = previousInvocationSurface;
+        ctx.calledByHuman = previousCalledByHuman;
+        ctx.callerType = previousCallerType;
+      }
+    } else {
+      commandResponse = {
+        status: 'error' as const,
+        message: `Unknown chat command: /${parsed.commandToken}`,
+      };
+    }
 
     const responseText = this.toSlashResponseText(commandResponse);
 

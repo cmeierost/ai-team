@@ -1,5 +1,13 @@
 import type { ChatSession } from './communication.js';
 import type { SessionThreadGraphData } from '../storage/contracts.js';
+import type { SessionNavEntry } from './command-types.js';
+
+export interface SessionThreadState {
+  rootSessionId: string;
+  activeSessionId: string;
+  navigationStack: SessionNavEntry[];
+  updatedAt: string;
+}
 
 /**
  * Thread management service for session hierarchy operations.
@@ -9,6 +17,24 @@ import type { SessionThreadGraphData } from '../storage/contracts.js';
  * basic session/message access.
  */
 export interface IThreadManager {
+  /** Resolve any member session to the persisted active session for its thread. */
+  resolveActiveSession(
+    sessionId: string
+  ): Promise<{ session: ChatSession | null; state: SessionThreadState }>;
+
+  /** Resolve the most recently active thread for a developer to its persisted cursor. */
+  resolveLatestActiveSession(developerId?: string): Promise<ChatSession | null>;
+
+  /** Persist a successful outward handoff and its return frame. */
+  recordHandoff(
+    fromSessionId: string,
+    toSessionId: string,
+    returnFrame: SessionNavEntry
+  ): Promise<SessionThreadState>;
+
+  /** Persist a successful summarized return handoff and pop its return frame. */
+  recordReturn(fromSessionId: string, toSessionId: string): Promise<SessionThreadState>;
+
   /**
    * Walk the previousSessionId chain from the given session back to the root.
    * Returns sessions ordered root → leaf (oldest first).

@@ -82,9 +82,8 @@ remove(): void {
       rightText ? `${dimStyle}${rightText}${reset}` : ''
     }`;
 
-    // Full width background
     return [
-      `\x1b[100m\x1b[37m${truncateToWidth(line, width)}${' '.repeat(
+      `${truncateToWidth(line, width)}${' '.repeat(
         Math.max(0, width - visibleWidth(line))
       )}${reset}`,
     ];

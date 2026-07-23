@@ -10,6 +10,7 @@ import type {
   StructuredToolResult,
   ExecutionContext,
   IEmitService,
+  IDeveloperIdentityService,
   ISessionManager,
   ILlmInvokeService,
   IToolDispatchService,
@@ -82,7 +83,8 @@ export class SendTurnStepService implements ISendTurnStepService {
     private readonly toolDispatcher: IToolDispatchService,
     private readonly toolSchemaService: IToolSchemaService,
     private readonly runtimeCallbacks: WorkflowCallbacks,
-    private readonly emitService: IEmitService
+    private readonly emitService: IEmitService,
+    private readonly developerIdentityService: Pick<IDeveloperIdentityService, 'getUserName'>
   ) {}
 
   async ensureTurnStartAsync(): Promise<void> {
@@ -137,12 +139,32 @@ export class SendTurnStepService implements ISendTurnStepService {
       }
     }
 
+    messages.unshift({
+      role: 'system',
+      content: this.buildConversationParticipantsPrompt(),
+    });
+
     const ragSnippet = await plugins.ragProvider.retrieve(userMessage, ctx);
     if (ragSnippet) {
       messages.push({ role: 'system', content: `## Relevant context\n${ragSnippet}` });
     }
 
     return messages;
+  }
+
+  private buildConversationParticipantsPrompt(): string {
+    const developerName = this.developerIdentityService.getUserName()?.trim() || 'the developer';
+    const developerFirstName =
+      developerName === 'the developer' ? developerName : developerName.split(/\s+/)[0];
+
+    return [
+      '## Conversation Participants',
+      `You are speaking directly with ${developerName}, the human developer using ai-team.`,
+      `${developerName} is the author of messages with the user role and is your current conversational counterpart.`,
+      `When addressing the developer by name, usually use their first name, ${developerFirstName}. Use ${developerName} only when the full name is genuinely useful or a more formal tone is appropriate.`,
+      'You may also address the developer naturally as "you". Do not address the developer as another AI team member.',
+      'People named in your role, reporting line, team roster, handoff context, or tool output are other team members unless they are explicitly identified as the human developer.',
+    ].join('\n');
   }
 
   async resolveSkillsAndToolsAsync(

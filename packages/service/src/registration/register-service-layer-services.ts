@@ -659,7 +659,8 @@ export function registerServiceLayerServices(
         c.resolve(CORE_SERVICE_TOKENS.ToolDispatcher),
         c.resolve(CORE_SERVICE_TOKENS.ToolSchemaService),
         {},
-        c.resolve(CORE_SERVICE_TOKENS.EmitService)
+        c.resolve(CORE_SERVICE_TOKENS.EmitService),
+        c.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService)
       )
   );
   container.registerSingleton(

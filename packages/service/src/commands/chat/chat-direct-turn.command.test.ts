@@ -338,12 +338,20 @@ describe('ChatDirectTurnCommand bootstrap', () => {
       getLatestSession: async () => ({ id: 'sess-agent', agentId: 'michael-brown' }),
       getSessionMessages: async () => [],
     });
+    commandDispatcher.dispatch.mockImplementationOnce(async (_key: string, _args: unknown, ctx: any) => {
+      expect(ctx.invocationSurface).toBe('slash');
+      expect(ctx.calledByHuman).toBe(true);
+      expect(ctx.callerType).toBe('human');
+      ctx.sessionId = 'session-after-slash';
+      return { status: 'ok', message: 'Help output', data: 'Help output' };
+    });
 
+    const outerContext = { history: [], invocationSurface: 'cli', calledByHuman: true } as any;
     const response = await command.execute(
       {
         options: { message: '/help chat' },
       } as any,
-      { history: [] } as any
+      outerContext
     );
 
     expect(response.status).toBe('ok');
@@ -362,6 +370,12 @@ describe('ChatDirectTurnCommand bootstrap', () => {
       'chat',
       expect.anything()
     );
+    expect(outerContext.invocationSurface).toBe('cli');
+    expect((outerContext.workflowState as any).chatRuntime.sessionId).toBe('session-after-slash');
+    expect(response.data).toMatchObject({
+      sessionId: 'session-after-slash',
+      followUpMessage: expect.any(String),
+    });
   });
 
   it('does not dispatch commands that are unavailable in chat', async () => {

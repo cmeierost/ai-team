@@ -143,6 +143,7 @@ import { IntroductionCommand } from '../commands/chat/introduction.command.js';
 import { ResolveChatSessionCommand } from '../commands/chat/resolve-chat-session.command.js';
 import { LoadSessionMessagesCommand } from '../commands/chat/load-session-messages.command.js';
 import { ChatInfoService } from '../commands/chat/chat-info-service.js';
+import { AgentRuntimeIdentityResolver } from '../commands/chat/agent-runtime-identity.js';
 import { HelpChatCommand } from '../commands/help/help.command.js';
 import { MetaService } from '../routers/meta-service.js';
 import { InfoChatCommand, InfoChatCommandMetadata } from '../commands/agents/info.command.js';
@@ -650,6 +651,10 @@ export function registerBuiltInCommands(
   );
 
   registry.register(ChatStartupCommand.metadata, (r) => {
+    const identityResolver = new AgentRuntimeIdentityResolver(
+      r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+      r.resolve(CORE_SERVICE_TOKENS.LlmSettingsResolver)
+    );
     const resolveChatSessionCommand = new ResolveChatSessionCommand(
       r.resolve(CORE_SERVICE_TOKENS.SessionManager),
       r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService)
@@ -675,10 +680,14 @@ export function registerBuiltInCommands(
       new ChatThreadTranscriptService(
         r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
         r.resolve(CORE_SERVICE_TOKENS.SessionManager),
-        r.resolve(CORE_SERVICE_TOKENS.AgentManager)
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        identityResolver
       ),
       new ChatInfoService(r.resolve(CORE_SERVICE_TOKENS.EmitService)),
-      r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService)
+      r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService),
+      identityResolver,
+      r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+      r.resolve(CORE_SERVICE_TOKENS.SystemInfoService)
     );
   });
 
@@ -692,7 +701,8 @@ export function registerBuiltInCommands(
     const bootstrapResolver = new ChatTurnBootstrapResolver(
       r.resolve(CORE_SERVICE_TOKENS.AgentManager),
       r.resolve(CORE_SERVICE_TOKENS.SessionManager),
-      r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService)
+      r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService),
+      r.resolve(CORE_SERVICE_TOKENS.ThreadManager)
     );
     return new ChatDirectTurnCommand(
       bootstrapResolver,
@@ -776,15 +786,25 @@ export function registerBuiltInCommands(
   );
 
   registry.register(HandoffCommandMetadata, (r) => {
+    const identityResolver = new AgentRuntimeIdentityResolver(
+      r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+      r.resolve(CORE_SERVICE_TOKENS.LlmSettingsResolver)
+    );
     const handoffSubWorkflow = new HandoffSubWorkflow(
       r.resolve(CORE_SERVICE_TOKENS.AgentManager),
       r.resolve(CORE_SERVICE_TOKENS.SessionManager),
       r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
       r.resolve(CORE_SERVICE_TOKENS.LlmService),
-      r.resolve(CORE_SERVICE_TOKENS.EmitService)
+      r.resolve(CORE_SERVICE_TOKENS.EmitService),
+      identityResolver
     );
 
-    return new HandoffCommand(handoffSubWorkflow, r.resolve(CORE_SERVICE_TOKENS.EmitService));
+    return new HandoffCommand(
+      handoffSubWorkflow,
+      r.resolve(CORE_SERVICE_TOKENS.EmitService),
+      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+      r.resolve(CORE_SERVICE_TOKENS.CommandDispatcher)
+    );
   });
 
   registry.register(
@@ -799,12 +819,24 @@ export function registerBuiltInCommands(
 
   registry.register(
     BackChatCommandMetadata,
-    (r) =>
-      new BackChatCommand(
+    (r) => {
+      const identityResolver = new AgentRuntimeIdentityResolver(
+        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+        r.resolve(CORE_SERVICE_TOKENS.LlmSettingsResolver)
+      );
+      const handoffSubWorkflow = new HandoffSubWorkflow(
         r.resolve(CORE_SERVICE_TOKENS.AgentManager),
         r.resolve(CORE_SERVICE_TOKENS.SessionManager),
+        r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
+        r.resolve(CORE_SERVICE_TOKENS.LlmService),
+        r.resolve(CORE_SERVICE_TOKENS.EmitService),
+        identityResolver
+      );
+      return new BackChatCommand(
+        handoffSubWorkflow,
         r.resolve(CORE_SERVICE_TOKENS.EmitService)
-      )
+      );
+    }
   );
 
   registry.register(HistoryChatCommandMetadata, (_r) => new HistoryChatCommand());

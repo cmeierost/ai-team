@@ -5,6 +5,7 @@ import type {
   ISessionManager,
   IThreadManager,
 } from '@ai-team/core';
+import type { AgentRuntimeIdentityResolver } from './agent-runtime-identity.js';
 
 export type ChatThreadTranscriptEntry =
   | {
@@ -22,6 +23,7 @@ export type ChatThreadTranscriptEntry =
 interface OrderedEntry {
   entry: ChatThreadTranscriptEntry;
   timestampMs: number;
+  messageId?: number;
   order: number;
 }
 
@@ -35,7 +37,8 @@ export class ChatThreadTranscriptService {
   constructor(
     private readonly threadManager: IThreadManager,
     private readonly sessionManager: ISessionManager,
-    private readonly agentManager: Pick<IAgentManager, 'getAgentAsync'>
+    private readonly agentManager: Pick<IAgentManager, 'getAgentAsync'>,
+    private readonly identityResolver?: Pick<AgentRuntimeIdentityResolver, 'resolve'>
   ) {}
 
   async load(sessionId: string): Promise<ChatThreadTranscriptEntry[]> {
@@ -62,7 +65,12 @@ export class ChatThreadTranscriptService {
     await Promise.all(
       Array.from(agentIds).map(async (agentId) => {
         const agent = await this.agentManager.getAgentAsync(agentId);
-        if (agent) agents.set(agentId, agent);
+        if (agent) {
+          agents.set(
+            agentId,
+            this.identityResolver?.resolve(agent) ?? agent
+          );
+        }
       })
     );
 
@@ -85,6 +93,7 @@ export class ChatThreadTranscriptService {
           seenHandoffs.add(handoffKey);
           entries.push({
             timestampMs,
+            messageId: message.id,
             order: order++,
             entry: {
               kind: 'handoff',
@@ -100,6 +109,7 @@ export class ChatThreadTranscriptService {
 
         entries.push({
           timestampMs,
+          messageId: message.id,
           order: order++,
           entry: {
             kind: 'message',
@@ -113,7 +123,13 @@ export class ChatThreadTranscriptService {
     }
 
     return entries
-      .sort((left, right) => left.timestampMs - right.timestampMs || left.order - right.order)
+      .sort(
+        (left, right) =>
+          left.timestampMs - right.timestampMs ||
+          (left.messageId !== undefined && right.messageId !== undefined
+            ? left.messageId - right.messageId
+            : left.order - right.order)
+      )
       .map(({ entry }) => entry);
   }
 }

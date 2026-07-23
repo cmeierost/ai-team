@@ -232,6 +232,21 @@ This keeps runtime events correctly correlated to the active request while prese
 
 ## What happens after you send a message to the server
 
+### Session context versus visible chat thread
+
+Each agent personality retains a separate session and private model history.
+Handoff-created sessions are linked by `previousSessionId`. The root session
+stores the thread's active-session cursor, delegation return stack, and
+navigation timestamp. `ThreadManager` owns resolution and legacy seeding, so
+CLI and API consumers do not infer the active personality from message
+activity.
+
+Handoff summaries are written to both source and target sessions with one
+`handoffId`. The service's presentation transcript traverses the complete
+thread, orders entries by timestamp and persisted message ID, and deduplicates
+the mirrored summary. That transcript is for UI rendering only; normal LLM
+turns load only the active agent session.
+
 This is the practical end-to-end flow for the **remote browser path** (`web -> api-server -> service`).
 
 1. The web client sends a WebSocket message (`type: "message"`) to `/ws/chat/:agentId`.

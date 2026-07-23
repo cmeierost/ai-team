@@ -32,6 +32,8 @@ export interface ChatRuntimeTurnInput {
 export interface ChatRuntimeTurnResult {
   text: string;
   toolRoundNeeded: boolean;
+  /** Continue the XState loop after a slash command already switched agent/session. */
+  followUpMessage?: string;
   pendingToolCall?: ChatLoopToolCall;
   handoffTargetId?: string;
   handoffTargetSessionId?: string;
@@ -153,6 +155,7 @@ interface ChatRuntimeState {
   shouldRunToolRound?: boolean;
   shouldRunPostTurnResolution?: boolean;
   shouldRunHandoffTransition?: boolean;
+  shouldContinueAppliedTransition?: boolean;
 }
 
 export class ChatRuntime implements IChatRuntime {
@@ -319,7 +322,10 @@ export class ChatRuntime implements IChatRuntime {
                   shouldRunToolRound: undefined,
                   shouldRunPostTurnResolution: undefined,
                   shouldRunHandoffTransition: undefined,
+                  shouldContinueAppliedTransition: Boolean(sendTurn.followUpMessage),
                   lastText: sendTurn.text,
+                  currentMessage: sendTurn.followUpMessage ?? state.currentMessage,
+                  hop: sendTurn.followUpMessage ? state.hop + 1 : state.hop,
                   currentAgentId: sendTurn.agentId ?? state.currentAgentId,
                   currentSessionId: sendTurn.sessionId ?? state.currentSessionId,
                   createNewSession: false,
@@ -421,6 +427,7 @@ export class ChatRuntime implements IChatRuntime {
               execute: async (state) => {
                 const shouldRunPostTurnResolution =
                   !state.done &&
+                  state.shouldContinueAppliedTransition !== true &&
                   !(
                     state.sendTurn?.toolRoundNeeded === true &&
                     state.toolRound?.outcome === 'resume_llm'
@@ -525,6 +532,7 @@ export class ChatRuntime implements IChatRuntime {
                   shouldRunToolRound: undefined,
                   shouldRunPostTurnResolution: undefined,
                   shouldRunHandoffTransition: undefined,
+                  shouldContinueAppliedTransition: undefined,
                 };
               },
             },

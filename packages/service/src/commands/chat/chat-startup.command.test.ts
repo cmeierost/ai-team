@@ -25,6 +25,8 @@ describe('ChatStartupCommand', () => {
       showLoadedInstructions: vi.fn(),
       showSessionResume: vi.fn(),
       showThreadResume: vi.fn(),
+      showActiveSession: vi.fn(),
+      showWorkspaceInfo: vi.fn(),
     };
     const chatThreadTranscriptService = {
       load: vi.fn(async () => [{ kind: 'message', message: { content: 'earlier' } }]),
@@ -35,6 +37,12 @@ describe('ChatStartupCommand', () => {
     const developerIdentityService = {
       getUserName: vi.fn(() => 'Clemens Meier'),
     };
+    const identityResolver = {
+      resolve: vi.fn((agent: any) => ({
+        ...agent,
+        resolvedLlm: { model: 'gpt-5.2', isDefault: false },
+      })),
+    };
 
     const command = new ChatStartupCommand(
       agentManager as any,
@@ -43,7 +51,16 @@ describe('ChatStartupCommand', () => {
       introductionCommand as any,
       chatThreadTranscriptService as any,
       chatInfoService as any,
-      developerIdentityService as any
+      developerIdentityService as any,
+      identityResolver as any,
+      'C:\\Projects\\ai-team',
+      {
+        getSystemInfo: vi.fn(() => ({
+          workspace: 'C:\\Projects\\ai-team',
+          branch: 'feature/tui',
+          package: null,
+        })),
+      }
     );
 
     const response = await command.execute(
@@ -67,9 +84,22 @@ describe('ChatStartupCommand', () => {
       reason: 'startup',
     });
     expect(chatInfoService.showSessionIntro).toHaveBeenCalledWith(
-      expect.objectContaining({ developerName: 'Clemens Meier' })
+      expect.objectContaining({
+        developerName: 'Clemens Meier',
+        agent: expect.objectContaining({
+          resolvedLlm: expect.objectContaining({ model: 'gpt-5.2' }),
+        }),
+      })
     );
     expect(chatThreadTranscriptService.load).toHaveBeenCalledWith('session-1');
+    expect(chatInfoService.showWorkspaceInfo).toHaveBeenCalledWith({
+      workspace: 'C:\\Projects\\ai-team',
+      gitBranch: 'feature/tui',
+    });
+    expect(chatInfoService.showActiveSession).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      agentId: 'sarah-lee',
+    });
     expect(chatInfoService.showThreadResume).toHaveBeenCalledWith(
       await chatThreadTranscriptService.load.mock.results[0].value,
       'Clemens Meier'
@@ -90,8 +120,19 @@ describe('ChatStartupCommand', () => {
         showLoadedInstructions: vi.fn(),
         showSessionResume: vi.fn(),
         showThreadResume: vi.fn(),
+        showActiveSession: vi.fn(),
+        showWorkspaceInfo: vi.fn(),
       } as any,
-      { getUserName: vi.fn(() => 'Clemens Meier') } as any
+      { getUserName: vi.fn(() => 'Clemens Meier') } as any,
+      undefined,
+      'C:\\Projects\\ai-team',
+      {
+        getSystemInfo: vi.fn(() => ({
+          workspace: 'C:\\Projects\\ai-team',
+          branch: null,
+          package: null,
+        })),
+      }
     );
 
     const response = await command.execute(

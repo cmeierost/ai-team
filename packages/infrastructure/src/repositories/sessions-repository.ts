@@ -41,6 +41,11 @@ export class SessionsRepository implements ISessionsRepository {
           title: session.title || null,
           notes: session.notes || null,
           previousSessionId: session.previousSessionId || null,
+          activeSessionId: session.activeSessionId || null,
+          threadNavigationStackJson: session.threadNavigationStack
+            ? JSON.stringify(session.threadNavigationStack)
+            : null,
+          threadLastActiveAt: session.threadLastActiveAt || null,
           createdAt: now,
           updatedAt: now,
         })
@@ -104,6 +109,9 @@ export class SessionsRepository implements ISessionsRepository {
         title: dbSchema.sessions.title,
         notes: dbSchema.sessions.notes,
         previous_session_id: dbSchema.sessions.previousSessionId,
+        active_session_id: dbSchema.sessions.activeSessionId,
+        thread_navigation_stack_json: dbSchema.sessions.threadNavigationStackJson,
+        thread_last_active_at: dbSchema.sessions.threadLastActiveAt,
         created_at: dbSchema.sessions.createdAt,
         updated_at: dbSchema.sessions.updatedAt,
       })
@@ -140,6 +148,18 @@ export class SessionsRepository implements ISessionsRepository {
 
     if (updates.previousSessionId !== undefined) {
       sessionUpdates.previousSessionId = updates.previousSessionId;
+    }
+
+    if (updates.activeSessionId !== undefined) {
+      sessionUpdates.activeSessionId = updates.activeSessionId;
+    }
+
+    if (updates.threadNavigationStack !== undefined) {
+      sessionUpdates.threadNavigationStackJson = JSON.stringify(updates.threadNavigationStack);
+    }
+
+    if (updates.threadLastActiveAt !== undefined) {
+      sessionUpdates.threadLastActiveAt = updates.threadLastActiveAt;
     }
 
     sessionUpdates.updatedAt = now;
@@ -262,6 +282,9 @@ export class SessionsRepository implements ISessionsRepository {
         title: dbSchema.sessions.title,
         notes: dbSchema.sessions.notes,
         previous_session_id: dbSchema.sessions.previousSessionId,
+        active_session_id: dbSchema.sessions.activeSessionId,
+        thread_navigation_stack_json: dbSchema.sessions.threadNavigationStackJson,
+        thread_last_active_at: dbSchema.sessions.threadLastActiveAt,
         created_at: dbSchema.sessions.createdAt,
         updated_at: dbSchema.sessions.updatedAt,
       })
@@ -513,6 +536,11 @@ export class SessionsRepository implements ISessionsRepository {
       notes: row.notes || undefined,
       ragConfig,
       previousSessionId: row.previous_session_id || undefined,
+      activeSessionId: row.active_session_id || undefined,
+      threadNavigationStack: row.thread_navigation_stack_json
+        ? JSON.parse(row.thread_navigation_stack_json)
+        : undefined,
+      threadLastActiveAt: row.thread_last_active_at || undefined,
       mergedFromSessionIds: mergedFromSessionIds.length > 0 ? mergedFromSessionIds : undefined,
     };
   }

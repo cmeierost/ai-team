@@ -9,6 +9,8 @@ import type {
   ISessionManager,
   IThreadManager,
 } from '@ai-team/core';
+import type { AgentRuntimeIdentityResolver } from '../../commands/chat/agent-runtime-identity.js';
+import { LlmStreamDeltaExtractor, type LlmStreamChunk } from '../../llm/stream-events.js';
 
 export interface HandoffSubWorkflowInput {
   ctx: ExecutionContext;
@@ -24,15 +26,19 @@ export interface HandoffSubWorkflowResult {
   history: ChatMessage[];
   handoffId: string;
   fromSessionId: string;
+  navigationStack: NonNullable<ExecutionContext['navStack']>;
 }
 
 export class HandoffSubWorkflow {
+  private readonly streamDeltaExtractor = new LlmStreamDeltaExtractor();
+
   constructor(
     private readonly agentManager: IAgentManager,
     private readonly sessionManager: ISessionManager,
     private readonly threadManager: IThreadManager,
     private readonly llmService: ILlmService,
-    private readonly emitService: IEmitService
+    private readonly emitService: IEmitService,
+    private readonly identityResolver?: Pick<AgentRuntimeIdentityResolver, 'resolve'>
   ) {}
 
   async executeAsync(input: HandoffSubWorkflowInput): Promise<HandoffSubWorkflowResult> {
@@ -44,11 +50,12 @@ export class HandoffSubWorkflow {
 
     const fromAgent = ctx.agent;
     const fromSessionId = ctx.sessionId;
-    const target = await this.resolveTargetAgentAsync(targetAgentQuery, fromAgent.id);
+    const loadedTarget = await this.resolveTargetAgentAsync(targetAgentQuery, fromAgent.id);
 
-    if (!target) {
+    if (!loadedTarget) {
       throw new Error(`No agent found matching: "${targetAgentQuery}"`);
     }
+    const target = this.identityResolver?.resolve(loadedTarget) ?? loadedTarget;
 
     if (target.id === fromAgent.id) {
       throw new Error('Cannot hand off to yourself. Choose another agent.');
@@ -56,23 +63,51 @@ export class HandoffSubWorkflow {
 
     const currentSession = await this.sessionManager.getSession(fromSessionId);
     const developerId = currentSession?.developerId ?? 'unknown';
+    const activeThread = await this.threadManager.resolveActiveSession(fromSessionId);
+    const returnFrame = activeThread.state.navigationStack.at(-1);
+    const isReturnHandoff = returnFrame?.agentId === target.id;
+    const toSessionId = isReturnHandoff
+      ? returnFrame.sessionId
+      : (
+          await this.threadManager.resolveHandoffSession(target.id, fromSessionId, developerId)
+        ).session.id;
 
-    const { session } = await this.threadManager.resolveHandoffSession(
-      target.id,
+    const handoffId = randomUUID();
+    const handoffEventBase = {
+      kind: 'handoff' as const,
+      handoffId,
+      fromAgentId: fromAgent.id,
+      fromAgentName: fromAgent.name,
+      fromAgentRole: fromAgent.role,
+      fromAvatarColor: fromAgent.avatar?.color,
       fromSessionId,
-      developerId
-    );
-    const toSessionId = session.id;
+      toAgentId: target.id,
+      toAgentName: target.name,
+      toAgentRole: target.role,
+      toAvatarColor: target.avatar?.color,
+      toSessionId,
+      handoffNote,
+    };
+    this.emitService.emit({
+      ...handoffEventBase,
+      handoffPhase: 'start',
+    });
 
     const briefingContent = await this.generateHandoffBriefingAsync(
       ctx,
       fromAgent,
       target,
       developerId,
-      handoffNote ?? ''
+      handoffNote ?? '',
+      (delta) => {
+        this.emitService.emit({
+          ...handoffEventBase,
+          handoffPhase: 'delta',
+          delta,
+        });
+      }
     );
 
-    const handoffId = randomUUID();
     const briefingMsg: ChatMessage = {
       from: fromAgent.id,
       to: target.id,
@@ -87,22 +122,38 @@ export class HandoffSubWorkflow {
 
     const history = await this.sessionManager.getSessionMessages(toSessionId);
     history.push(briefingMsg);
-    await this.sessionManager.appendMessage(toSessionId, briefingMsg);
-    await this.sessionManager.appendMessage(fromSessionId, briefingMsg);
+    let targetBriefingPersisted = false;
+    let sourceBriefingPersisted = false;
+    let threadState;
+    try {
+      await this.sessionManager.appendMessage(toSessionId, briefingMsg);
+      targetBriefingPersisted = true;
+      await this.sessionManager.appendMessage(fromSessionId, briefingMsg);
+      sourceBriefingPersisted = true;
+      threadState = isReturnHandoff
+        ? await this.threadManager.recordReturn(fromSessionId, toSessionId)
+        : await this.threadManager.recordHandoff(fromSessionId, toSessionId, {
+            agentId: fromAgent.id,
+            agentName: fromAgent.name,
+            sessionId: fromSessionId,
+          });
+    } catch (error) {
+      if (sourceBriefingPersisted) {
+        await this.sessionManager.deleteSessionMessage(fromSessionId, briefingMsg.timestamp);
+      }
+      if (targetBriefingPersisted) {
+        await this.sessionManager.deleteSessionMessage(toSessionId, briefingMsg.timestamp);
+      }
+      this.emitService.emit({
+        ...handoffEventBase,
+        handoffPhase: 'cancelled',
+      });
+      throw error;
+    }
 
     this.emitService.emit({
-      kind: 'handoff',
-      fromAgentId: fromAgent.id,
-      fromAgentName: fromAgent.name,
-      fromAgentRole: fromAgent.role,
-      fromAvatarColor: fromAgent.avatar?.color,
-      fromSessionId,
-      toAgentId: target.id,
-      toAgentName: target.name,
-      toAgentRole: target.role,
-      toAvatarColor: target.avatar?.color,
-      toSessionId,
-      handoffNote,
+      ...handoffEventBase,
+      handoffPhase: 'complete',
       briefingContent,
     });
 
@@ -123,6 +174,7 @@ export class HandoffSubWorkflow {
       history,
       handoffId,
       fromSessionId,
+      navigationStack: threadState.navigationStack,
     };
   }
 
@@ -167,7 +219,8 @@ export class HandoffSubWorkflow {
     fromAgent: Agent,
     toAgent: Agent,
     developerName: string,
-    triggerMessage: string
+    triggerMessage: string,
+    onDelta: (delta: string) => void
   ): Promise<string> {
     try {
       const fromSessionHistory =
@@ -182,7 +235,7 @@ export class HandoffSubWorkflow {
 
       const agentTitle = fromAgent.role ? `${fromAgent.name} (${fromAgent.role})` : fromAgent.name;
 
-      const reply = await this.llmService.chat(
+      const stream = await this.llmService.streamChat(
         fromAgent,
         [
           {
@@ -200,7 +253,16 @@ export class HandoffSubWorkflow {
         ],
         { maxTokens: 250 }
       );
-      return reply.trim();
+
+      let reply = '';
+      for await (const chunk of stream) {
+        const delta = this.streamDeltaExtractor.extractText(chunk as LlmStreamChunk);
+        if (!delta) continue;
+        reply += delta;
+        onDelta(delta);
+      }
+
+      return reply.trim() || triggerMessage || `Handoff from ${fromAgent.name} to ${toAgent.name}.`;
     } catch {
       return triggerMessage || `Handoff from ${fromAgent.name} to ${toAgent.name}.`;
     }

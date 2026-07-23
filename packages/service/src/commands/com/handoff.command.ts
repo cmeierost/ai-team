@@ -4,9 +4,10 @@ import type {
   ExecutionContext,
   CommandResponse,
   ICommandDescriptor,
-  SessionNavEntry,
   IEmitService,
   HandoffRequest,
+  IAgentManager,
+  ICommandDispatcher,
 } from '@ai-team/core';
 import { HandoffSubWorkflow } from '../../workflow/chat/handoff-subworkflow.js';
 
@@ -42,11 +43,11 @@ export const HandoffCommandMetadata = {
   description:
     'Transfer the current conversation to another agent who is better suited ' +
     'to handle the request. Use when a task is outside your area of responsibility. ' +
-    'You must have delegation permission to the target agent.',
+    'Unconfigured agent targets require developer approval.',
   availableIn: { tool: true, chat: true },
   group: 'com',
   parameters: _handoffCommandSchema,
-  permissionCheck: { type: 'agent-delegation' as const, argsPath: 'targetAgentId' },
+  permissionCheck: { type: 'none' as const },
   tags: ['orchestration'],
 } satisfies ICommandDescriptor;
 
@@ -56,7 +57,12 @@ export class HandoffCommand implements ICommand<Params, HandoffRequest> {
 
   constructor(
     private readonly handoffSubWorkflow: HandoffSubWorkflow,
-    private readonly emitService: IEmitService
+    private readonly emitService: IEmitService,
+    private readonly agentManager: Pick<
+      IAgentManager,
+      'resolveAgentForOperationAsync' | 'getAgentAsync'
+    >,
+    private readonly commandDispatcher: ICommandDispatcher
   ) {}
 
   async execute(
@@ -65,10 +71,64 @@ export class HandoffCommand implements ICommand<Params, HandoffRequest> {
   ): Promise<CommandResponse<HandoffRequest>> {
     const { targetAgentId, targetWorkflowId, briefingNote, workflowToolPolicy } = params;
     const composedBriefing = briefingNote?.trim();
+    const resolvedTarget = await this.agentManager.resolveAgentForOperationAsync(
+      targetAgentId,
+      'chat handoff'
+    );
+    const targetAgent = await this.agentManager.getAgentAsync(resolvedTarget.id);
+    if (!targetAgent) {
+      return { status: 'error', message: `No agent found matching: "${targetAgentId}"` };
+    }
+    const sourceAgent =
+      context.agent
+      ?? (context.agentId
+        ? await this.agentManager.getAgentAsync(context.agentId)
+        : undefined);
+    const isSlashInvocation = context.invocationSurface === 'slash';
+    if (targetAgent.id === sourceAgent?.id) {
+      return {
+        status: 'error',
+        message: isSlashInvocation
+          ? `You are already talking to ${targetAgent.name}. Choose another agent for the handoff.`
+          : 'Cannot hand off to yourself. Choose another agent.',
+      };
+    }
 
+    const isTrustedHumanSlash =
+      isSlashInvocation && context.calledByHuman === true;
+    const isConfiguredTarget = (sourceAgent?.handoffs ?? []).some(
+      (handoff) => handoff.agent === targetAgent.id
+    );
+
+    if (!isTrustedHumanSlash && !isConfiguredTarget) {
+      const approvalContext = sourceAgent && !context.agent
+        ? { ...context, agent: sourceAgent }
+        : context;
+      const approval = await this.commandDispatcher.dispatch(
+        'com-ask',
+        {
+          kind: 'confirm',
+          message: `${sourceAgent?.name ?? 'The current agent'} wants to hand the conversation to ${targetAgent.name}${targetAgent.role ? ` (${targetAgent.role})` : ''}. Allow this handoff?`,
+          defaultBoolean: false,
+        },
+        approvalContext
+      );
+      const answer =
+        approval.status === 'ok' &&
+        typeof approval.data === 'object' &&
+        approval.data !== null &&
+        (approval.data as { answer?: unknown }).answer === true;
+      if (!answer) {
+        return { status: 'cancelled', message: 'Handoff was not approved.' };
+      }
+    }
+
+    const transitionContext = sourceAgent && !context.agent
+      ? { ...context, agent: sourceAgent }
+      : context;
     const transition = await this.handoffSubWorkflow.executeAsync({
-      ctx: context,
-      targetAgentQuery: targetAgentId,
+      ctx: transitionContext,
+      targetAgentQuery: targetAgent.id,
       handoffNote: composedBriefing && composedBriefing.length > 0 ? composedBriefing : undefined,
     });
 
@@ -77,14 +137,7 @@ export class HandoffCommand implements ICommand<Params, HandoffRequest> {
     context.sessionId = transition.toSessionId;
     context.history = transition.history;
 
-    const navStack = context.navStack ?? [];
-    const parentFrame: SessionNavEntry = {
-      agentId: transition.fromAgent.id,
-      agentName: transition.fromAgent.name,
-      sessionId: transition.fromSessionId,
-    };
-    navStack.push(parentFrame);
-    context.navStack = navStack;
+    context.navStack = [...transition.navigationStack];
 
     this.emitService.emit({
       kind: 'session_switched',

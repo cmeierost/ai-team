@@ -11,6 +11,7 @@ export class ChatViewport implements Component {
   _parent: import("@ai-team/tui").Container | null = null;
   private content: Container;
   private scrollOffset = 0;
+  private maxScrollOffset = 0;
   private maxVisibleLines = 20;
   private autoScroll = true;
 
@@ -60,8 +61,11 @@ export class ChatViewport implements Component {
    * Scroll down by N lines.
    */
   scrollDown(lines: number): void {
-    this.scrollOffset = Math.max(0, this.scrollOffset - lines);
-    if (this.scrollOffset === 0) {
+    this.scrollOffset = Math.min(
+      this.maxScrollOffset,
+      this.scrollOffset + lines
+    );
+    if (this.scrollOffset === this.maxScrollOffset) {
       this.autoScroll = true;
     }
   }
@@ -108,9 +112,12 @@ remove(): void {
   render(width: number): string[] {
     const allLines = this.content.render(width);
     const totalLines = allLines.length;
+    this.maxScrollOffset = Math.max(0, totalLines - this.maxVisibleLines);
 
     if (this.autoScroll) {
-      this.scrollOffset = Math.max(0, totalLines - this.maxVisibleLines);
+      this.scrollOffset = this.maxScrollOffset;
+    } else {
+      this.scrollOffset = Math.min(this.scrollOffset, this.maxScrollOffset);
     }
 
     const startLine = this.scrollOffset;

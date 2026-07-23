@@ -48,6 +48,13 @@ export class ChatView implements Component {
   }
 
   /**
+   * Handle transcript navigation while the composer remains active.
+   */
+  handleInput(data: string): void {
+    this.viewport.handleInput(data);
+  }
+
+  /**
    * Add a spacer between messages.
    */
   addSpacer(): void {

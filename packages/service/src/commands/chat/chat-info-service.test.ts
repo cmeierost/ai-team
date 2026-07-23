@@ -2,6 +2,44 @@ import { describe, expect, it, vi } from 'vitest';
 import { ChatInfoService } from './chat-info-service.js';
 
 describe('ChatInfoService', () => {
+  it('emits workspace and Git branch metadata for runtime clients', () => {
+    const emitService = {
+      emit: vi.fn(),
+      log: vi.fn(),
+    };
+    const service = new ChatInfoService(emitService as any);
+
+    service.showWorkspaceInfo({
+      workspace: 'C:\\Projects\\ai-team',
+      gitBranch: 'feature/tui',
+    });
+
+    expect(emitService.emit).toHaveBeenCalledWith({
+      kind: 'workspace_info',
+      workspace: 'C:\\Projects\\ai-team',
+      gitBranch: 'feature/tui',
+    });
+  });
+
+  it('emits the active session identity after startup resolves it', () => {
+    const emitService = {
+      emit: vi.fn(),
+      log: vi.fn(),
+    };
+    const service = new ChatInfoService(emitService as any);
+
+    service.showActiveSession({
+      sessionId: 'session-2026-07-23-abc123',
+      agentId: 'sarah-lee',
+    });
+
+    expect(emitService.emit).toHaveBeenCalledWith({
+      kind: 'session_switched',
+      sessionId: 'session-2026-07-23-abc123',
+      agentId: 'sarah-lee',
+    });
+  });
+
   it('emits the configured agent avatar color with its display identity', () => {
     const emitService = {
       emit: vi.fn(),
@@ -131,6 +169,56 @@ describe('ChatInfoService', () => {
         fromAgentName: 'Michael Brown',
         toAgentName: 'Emily Davis',
         briefingContent: 'Emily has the implementation context.',
+      })
+    );
+  });
+
+  it('emits persisted tool results in their resumed transcript position', () => {
+    const emitService = {
+      emit: vi.fn(),
+      log: vi.fn(),
+    };
+    const service = new ChatInfoService(emitService as any);
+    const michael = {
+      id: 'michael-brown',
+      name: 'Michael Brown',
+      role: 'CEO',
+    };
+
+    service.showThreadResume(
+      [
+        {
+          kind: 'message',
+          message: {
+            content: '',
+            from: michael.id,
+            isHuman: false,
+            tool_calls: [
+              {
+                id: 42,
+                tool: 'fs_read',
+                params: { path: 'README.md' },
+                result: 'Project documentation',
+                resultLlm: 'README contents',
+              },
+            ],
+          },
+          agent: michael,
+        },
+      ] as any,
+      'Clemens Meier'
+    );
+
+    expect(emitService.emit).toHaveBeenCalledOnce();
+    expect(emitService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'tool',
+        historical: true,
+        toolCallId: '42',
+        toolName: 'fs_read',
+        toolPhase: 'result',
+        input: { path: 'README.md' },
+        output: 'Project documentation',
       })
     );
   });

@@ -295,6 +295,31 @@ Streaming paths now use a per-connection `EmitService` and request-scoped sink r
 
 This keeps runtime event routing isolated and predictable across concurrent requests on the same connection, while preserving command/tool code paths that emit through injected `IEmitService`.
 
+## Chat session threads and handoff state
+
+A chat `session` is the private LLM context of one agent personality. A visible
+multi-agent `thread` is the service-owned projection of sessions connected by
+`previousSessionId`; it is not a merged model history.
+
+The thread root persists `activeSessionId`, `threadNavigationStack`, and
+`threadLastActiveAt` in SQLite. `IThreadManager`/`ThreadManager` resolve any
+member session to that cursor, seed legacy threads deterministically, and own
+handoff push/return-pop behavior. Bare resume selects the most recently
+navigated thread rather than treating `lastActivityAt` as the active cursor.
+
+`com_handoff` owns delegation approval and transition semantics. A trusted
+human slash invocation is pre-approved; an agent tool call to a target absent
+from its configured `handoffs` invokes `com_ask` before any transition side
+effect. A handoff to the current return-stack top is a summarized return, which
+is also the implementation used by `/back`.
+
+One logical handoff summary is persisted in both participating sessions with a
+shared `handoffId`. The service builds a separate presentation transcript from
+all thread members, orders it by timestamp and persisted message ID, and
+deduplicates those mirrored summaries. Adapters render that projection and
+react to identity/session events; they do not own thread navigation or merge
+the projection into an agent's private history.
+
 ## ChatOrchestrator Pipeline
 
 `packages/service/src/commands/chat/chat.command.ts` is intentionally thin. It performs preflight checks, resolves the current agent/session, builds the orchestration context, and hands control to `ChatOrchestrator`.

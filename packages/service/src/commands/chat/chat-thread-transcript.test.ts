@@ -30,12 +30,14 @@ describe('ChatThreadTranscriptService', () => {
         root.id,
         [
           {
+            id: 1,
             timestamp: '2026-07-23T10:00:00.000Z',
             from: 'developer',
             isHuman: true,
             content: 'Can we repair this?',
           },
           {
+            id: 2,
             timestamp: '2026-07-23T10:01:00.000Z',
             from: 'michael-brown',
             isHuman: false,
@@ -49,6 +51,7 @@ describe('ChatThreadTranscriptService', () => {
         [
           briefing,
           {
+            id: 4,
             timestamp: '2026-07-23T10:03:00.000Z',
             from: 'emily-davis',
             isHuman: false,
@@ -64,7 +67,15 @@ describe('ChatThreadTranscriptService', () => {
     const service = new ChatThreadTranscriptService(
       { getSessionChain: vi.fn(async () => [root, child]) } as any,
       { getSessionMessages: vi.fn(async (id: string) => messages.get(id) ?? []) } as any,
-      { getAgentAsync: vi.fn(async (id: string) => agents.get(id)) } as any
+      { getAgentAsync: vi.fn(async (id: string) => agents.get(id)) } as any,
+      {
+        resolve: vi.fn((agent: any) => ({
+          ...agent,
+          resolvedLlm: {
+            model: agent.id === 'michael-brown' ? 'gpt-5.2' : 'claude-sonnet',
+          },
+        })),
+      } as any
     );
 
     const transcript = await service.load(child.id);
@@ -78,11 +89,11 @@ describe('ChatThreadTranscriptService', () => {
     expect(transcript.filter((entry) => entry.kind === 'handoff')).toHaveLength(1);
     expect(transcript[1]).toMatchObject({
       kind: 'message',
-      agent: { name: 'Michael Brown' },
+      agent: { name: 'Michael Brown', resolvedLlm: { model: 'gpt-5.2' } },
     });
     expect(transcript[3]).toMatchObject({
       kind: 'message',
-      agent: { name: 'Emily Davis' },
+      agent: { name: 'Emily Davis', resolvedLlm: { model: 'claude-sonnet' } },
     });
   });
 });

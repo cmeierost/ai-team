@@ -81,6 +81,8 @@ interface ChatCtx {
   prompt: Prompt;
   layout: ChatLayout;
   statusLine: StatusLine;
+  workspaceRoot: string;
+  gitBranch?: string;
   sessionId?: string;
   sessionTitle?: string;
   slashCommands: CommandDescriptor[];
@@ -178,6 +180,7 @@ function buildChatCtx(
     prompt,
     layout,
     statusLine,
+    workspaceRoot,
     sessionId,
     slashCommands,
   };
@@ -187,7 +190,6 @@ function buildChatCtx(
 
 function addToChatView(ctx: ChatCtx, component: unknown): void {
   ctx.chatView.getContent().addChild(component as any);
-  ctx.chatView.scrollToBottom();
 }
 
 function handleStreamEvent(ctx: ChatCtx, event: unknown): boolean {
@@ -206,6 +208,18 @@ function handleStreamEvent(ctx: ChatCtx, event: unknown): boolean {
       return true;
     case 'agent_info':
       handleAgentInfoEvent(ctx, event);
+      return true;
+    case 'workspace_info':
+      ctx.workspaceRoot =
+        typeof (event as any).workspace === 'string'
+          ? (event as any).workspace
+          : ctx.workspaceRoot;
+      ctx.gitBranch =
+        typeof (event as any).gitBranch === 'string'
+          ? (event as any).gitBranch
+          : undefined;
+      updateStatusLine(ctx);
+      ctx.tui.invalidate();
       return true;
     case 'handoff':
       stopSpinner(ctx);
@@ -318,8 +332,21 @@ function handleSubworkflowEnd(ctx: ChatCtx): void {
 }
 
 function updateStatusLine(
-  ctx: Pick<ChatCtx, 'statusLine' | 'eventState' | 'sessionId' | 'sessionTitle'>
+  ctx: Pick<
+    ChatCtx,
+    | 'statusLine'
+    | 'eventState'
+    | 'workspaceRoot'
+    | 'gitBranch'
+    | 'sessionId'
+    | 'sessionTitle'
+  >
 ): void {
+  const workspace = ctx.gitBranch
+    ? `${ctx.workspaceRoot} - ${ctx.gitBranch} -`
+    : `${ctx.workspaceRoot} -`;
+  ctx.statusLine.setLeft(workspace);
+
   const right: string[] = [];
   const agent = ctx.eventState.currentAgent;
   if (agent?.name) {
@@ -383,7 +410,7 @@ async function promptForMessage(
     );
     ctx.prompt = prompt;
     ctx.layout.setPrompt(prompt);
-    ctx.tui.setFocused(prompt);
+    ctx.tui.setFocused(ctx.layout);
     ctx.tui.invalidate();
   });
 }

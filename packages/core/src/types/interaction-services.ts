@@ -10,6 +10,7 @@ export interface RuntimeStreamEvent {
   kind:
     | 'status'
     | 'agent_info'
+    | 'workspace_info'
     | 'progress'
     | 'log'
     | 'token'

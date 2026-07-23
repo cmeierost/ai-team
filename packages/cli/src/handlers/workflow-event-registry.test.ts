@@ -158,6 +158,67 @@ describe('WorkflowEventRegistry', () => {
     expect(started?.render(80).join('\n')).toContain('done');
   });
 
+  it('renders each historical tool result without merging replayed calls', () => {
+    const harness = createHarness();
+    const first = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        historical: true,
+        toolName: 'fs_read',
+        toolPhase: 'result',
+        input: { path: 'one.md' },
+        output: 'first result',
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+    const second = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        historical: true,
+        toolName: 'fs_read',
+        toolPhase: 'result',
+        input: { path: 'two.md' },
+        output: 'second result',
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+
+    expect(first?.render(80).join('\n')).toContain('first result');
+    expect(second?.render(80).join('\n')).toContain('second result');
+  });
+
+  it('uses a bounded preview for a large historical tool result', () => {
+    const harness = createHarness();
+    const component = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        historical: true,
+        toolName: 'search_grep',
+        toolPhase: 'result',
+        input: { pattern: 'TODO' },
+        output: Array.from(
+          { length: 30 },
+          (_, index) => `result ${index + 1}`
+        ).join('\n'),
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+
+    const rendered = component?.render(80).join('\n') ?? '';
+    expect(rendered).toContain('result 1');
+    expect(rendered).not.toContain('result 30');
+    expect(rendered).toContain('more lines');
+  });
+
   it('keeps handoff briefing content visible in the transcript', () => {
     const harness = createHarness();
     const component = harness.registry.handle(
@@ -185,6 +246,105 @@ describe('WorkflowEventRegistry', () => {
     expect(rendered).toContain('\x1b[48;2;');
     expect(renderedLines.every((line) => visibleWidth(line) === 80)).toBe(true);
     expect(harness.state.currentAgent?.name).toBe('Sarah Lee');
+  });
+
+  it('does not render identical handoff reason and briefing content twice', () => {
+    const harness = createHarness();
+    const repeated = 'User explicitly requested to switch to michael.';
+    const component = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        fromAgentId: 'emily-davis',
+        fromAgentName: 'Emily Davis',
+        toAgentId: 'michael-brown',
+        toAgentName: 'Michael Brown',
+        handoffNote: repeated,
+        briefingContent: repeated,
+      },
+      harness.state,
+      harness.extensions
+    );
+
+    const rendered = component?.render(100).join('\n') ?? '';
+    expect(rendered.match(/User explicitly requested to switch to michael\./g)).toHaveLength(1);
+  });
+
+  it('streams a tool-owned handoff briefing into one source-to-target message', () => {
+    const harness = createHarness();
+    const start = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-1',
+        handoffPhase: 'start',
+        fromAgentId: 'emily-davis',
+        fromAgentName: 'Emily Davis',
+        toAgentId: 'michael-brown',
+        toAgentName: 'Michael Brown',
+      },
+      harness.state,
+      harness.extensions
+    );
+
+    harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-1',
+        handoffPhase: 'delta',
+        fromAgentId: 'emily-davis',
+        toAgentId: 'michael-brown',
+        delta: 'Clemens wants to ',
+      },
+      harness.state,
+      harness.extensions
+    );
+    harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-1',
+        handoffPhase: 'delta',
+        fromAgentId: 'emily-davis',
+        toAgentId: 'michael-brown',
+        delta: 'continue with Michael.',
+      },
+      harness.state,
+      harness.extensions
+    );
+
+    expect(start?.render(100).join('\n')).toContain(
+      'Clemens wants to continue with Michael.'
+    );
+    expect(harness.state.currentAgent?.name).not.toBe('Michael Brown');
+
+    const complete = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-1',
+        handoffPhase: 'complete',
+        fromAgentId: 'emily-davis',
+        fromAgentName: 'Emily Davis',
+        toAgentId: 'michael-brown',
+        toAgentName: 'Michael Brown',
+        briefingContent: 'Clemens wants to continue with Michael.',
+      },
+      harness.state,
+      harness.extensions
+    );
+
+    expect(complete).toBeNull();
+    expect(harness.state.currentAgent?.name).toBe('Michael Brown');
+    expect(start?.render(100).join('\n')).toContain(
+      'Clemens wants to continue with Michael.'
+    );
   });
 
   it('renders a resumed handoff without changing the active agent', () => {

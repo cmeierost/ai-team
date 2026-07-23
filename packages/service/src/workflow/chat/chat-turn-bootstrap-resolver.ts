@@ -7,6 +7,7 @@ import type {
   IChatTurnBootstrapResolver,
   IDeveloperIdentityService,
   ISessionManager,
+  IThreadManager,
 } from '@ai-team/core';
 
 interface ChatRuntimeWorkflowStateSnapshot {
@@ -20,7 +21,8 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
   constructor(
     private readonly agentManager: IAgentManager,
     private readonly sessionManager: ISessionManager,
-    private readonly developerIdentityService: IDeveloperIdentityService
+    private readonly developerIdentityService: IDeveloperIdentityService,
+    private readonly threadManager: IThreadManager
   ) {}
 
   async resolveAsync(
@@ -36,7 +38,7 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
     const cachedState = this.getCachedRuntimeState(ctx);
 
     const requestedSessionId = input.sessionId ?? ctx.sessionId ?? cachedState?.sessionId;
-    const requestedSession = requestedSessionId
+    let requestedSession = requestedSessionId
       ? await this.resolveRequestedSessionAsync(requestedSessionId, cachedState)
       : null;
 
@@ -45,6 +47,24 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
         ok: false,
         message: `Session '${requestedSessionId}' not found`,
       };
+    }
+
+    if (requestedSession && input.createNewSession !== true) {
+      const active = await this.threadManager.resolveActiveSession(requestedSession.id);
+      requestedSession = active.session;
+      ctx.navStack = [...active.state.navigationStack];
+    } else if (
+      !requestedSession &&
+      input.createNewSession !== true &&
+      !input.agentQuery &&
+      !ctx.agentId &&
+      !ctx.agent?.id
+    ) {
+      requestedSession = await this.threadManager.resolveLatestActiveSession(developerId);
+      if (requestedSession) {
+        const active = await this.threadManager.resolveActiveSession(requestedSession.id);
+        ctx.navStack = [...active.state.navigationStack];
+      }
     }
 
     const agent = await this.resolveAgentForTurnAsync(

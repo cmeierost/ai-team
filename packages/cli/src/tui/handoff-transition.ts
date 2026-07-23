@@ -13,8 +13,7 @@ export class HandoffTransition implements Component {
   _parent: import("@ai-team/tui").Container | null = null;
   private fromAgent: AgentDisplayInfo;
   private toAgent: AgentDisplayInfo;
-  private reason?: string;
-  private briefing?: string;
+  private text: string;
 
   constructor(
     fromAgent: AgentDisplayInfo,
@@ -24,11 +23,18 @@ export class HandoffTransition implements Component {
   ) {
     this.fromAgent = fromAgent;
     this.toAgent = toAgent;
-    this.reason = reason;
-    this.briefing = briefing;
+    this.text = briefing?.trim() ? briefing : (reason ?? '');
   }
 
-remove(): void {
+  append(delta: string): void {
+    this.text += delta;
+  }
+
+  setText(text: string): void {
+    this.text = text;
+  }
+
+  remove(): void {
     const parent = this._parent;
     if (parent) {
       const idx = parent.children.indexOf(this);
@@ -45,11 +51,7 @@ remove(): void {
 
   render(width: number): string[] {
     const response = new AgentResponse(this.fromAgent, this.toAgent.name);
-    response.setText(
-      [this.reason, this.briefing]
-        .filter((value): value is string => Boolean(value?.trim()))
-        .join('\n\n')
-    );
+    response.setText(this.text);
     return response.render(width);
   }
 }

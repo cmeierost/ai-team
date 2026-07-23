@@ -6,6 +6,7 @@ import type {
   ICommand,
   ICommandDescriptor,
   IDeveloperIdentityService,
+  ISystemInfoService,
 } from '@ai-team/core';
 import { type IChatInfoService } from './chat-info-service.js';
 import { runChatSessionStartup, type ChatSessionStartupResult } from './chat-session-startup.js';
@@ -13,6 +14,7 @@ import { ResolveChatSessionCommand } from './resolve-chat-session.command.js';
 import { LoadSessionMessagesCommand } from './load-session-messages.command.js';
 import { IntroductionCommand } from './introduction.command.js';
 import { ChatThreadTranscriptService } from './chat-thread-transcript.js';
+import type { AgentRuntimeIdentityResolver } from './agent-runtime-identity.js';
 
 const chatStartupParamsSchema = z.object({
   employeeId: z.string().optional(),
@@ -45,7 +47,10 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
     private readonly introductionCommand: IntroductionCommand,
     private readonly chatThreadTranscriptService: ChatThreadTranscriptService,
     private readonly chatInfoService: IChatInfoService,
-    private readonly developerIdentityService: Pick<IDeveloperIdentityService, 'getUserName'>
+    private readonly developerIdentityService: Pick<IDeveloperIdentityService, 'getUserName'>,
+    private readonly identityResolver: Pick<AgentRuntimeIdentityResolver, 'resolve'> | undefined,
+    private readonly workspaceRoot: string,
+    private readonly systemInfoService: Pick<ISystemInfoService, 'getSystemInfo'>
   ) {}
 
   async execute(
@@ -56,15 +61,22 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
       return { status: 'ok', data: '', message: 'completed' };
     }
 
-    const agent = await this.agentManager.getAgentAsync(payload.employeeId);
-    if (!agent) {
+    const loadedAgent = await this.agentManager.getAgentAsync(payload.employeeId);
+    if (!loadedAgent) {
       return {
         status: 'error',
         message: `Agent '${payload.employeeId}' not found`,
       };
     }
+    const agent = this.identityResolver?.resolve(loadedAgent) ?? loadedAgent;
 
     const developerName = this.developerIdentityService.getUserName() ?? 'Developer';
+    const systemInfo = this.systemInfoService.getSystemInfo(this.workspaceRoot);
+
+    this.chatInfoService.showWorkspaceInfo({
+      workspace: systemInfo.workspace,
+      gitBranch: systemInfo.branch,
+    });
 
     this.chatInfoService.showSessionIntro({
       agent,
@@ -93,6 +105,11 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
         workflowState: ctx.workflowState,
       }
     );
+
+    this.chatInfoService.showActiveSession({
+      sessionId: startup.sessionId,
+      agentId: agent.id,
+    });
 
     const transcript = await this.chatThreadTranscriptService.load(startup.sessionId);
     this.chatInfoService.showThreadResume(transcript, developerName);

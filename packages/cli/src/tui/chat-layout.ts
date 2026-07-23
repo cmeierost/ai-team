@@ -11,6 +11,7 @@ import type { StatusLine } from './status-line.js';
  */
 export class ChatLayout implements Component {
   _parent: import('@ai-team/tui').Container | null = null;
+  private isFocused = false;
 
   constructor(
     private readonly terminal: ITerminal,
@@ -22,7 +23,31 @@ export class ChatLayout implements Component {
   ) {}
 
   setPrompt(prompt: Prompt): void {
+    this.prompt.focused = false;
     this.prompt = prompt;
+    this.prompt.focused = this.isFocused;
+  }
+
+  get focused(): boolean {
+    return this.isFocused;
+  }
+
+  set focused(value: boolean) {
+    this.isFocused = value;
+    this.prompt.focused = value;
+  }
+
+  handleInput(data: string): void {
+    if (
+      data === '\x1b[5~'
+      || data === '\x1b[6~'
+      || data === '\x1b[1;5A'
+      || data === '\x1b[1;5B'
+    ) {
+      this.chat.handleInput(data);
+      return;
+    }
+    this.prompt.handleInput(data);
   }
 
   remove(): void {
@@ -48,7 +73,7 @@ export class ChatLayout implements Component {
     const transcriptRows = Math.max(0, this.terminal.rows - fixedRows);
 
     this.chat.setVisibleLines(transcriptRows);
-    const transcript = transcriptRows > 0 ? this.chat.render(width).slice(-transcriptRows) : [];
+    const transcript = transcriptRows > 0 ? this.chat.render(width) : [];
     const padding = Array.from(
       { length: Math.max(0, transcriptRows - transcript.length) },
       () => ''

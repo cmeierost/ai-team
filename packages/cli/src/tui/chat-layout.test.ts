@@ -78,4 +78,33 @@ describe('ChatLayout', () => {
     expect(lines.at(-3)).toContain('> ');
     expect(lines.at(-1)).toContain('session id: session-1');
   });
+
+  it('routes transcript navigation through the focused layout', () => {
+    const chat = new ChatView();
+    for (let index = 1; index <= 12; index += 1) {
+      chat.getContent().addChild(new Text(`message ${index}`));
+    }
+    const spinner = new Loader();
+    spinner.setVisible(false);
+    const prompt = new Prompt('> ', () => {});
+    const layout = new ChatLayout(
+      terminal,
+      new HeaderBar(),
+      chat,
+      spinner,
+      prompt,
+      new StatusLine()
+    );
+
+    layout.focused = true;
+    expect(layout.render(80).join('\n')).toContain('message 12');
+
+    layout.handleInput('\x1b[5~');
+    const older = layout.render(80).join('\n');
+    expect(older).toContain('message 1');
+    expect(older).not.toContain('message 12');
+
+    layout.handleInput('x');
+    expect(prompt.value).toBe('x');
+  });
 });

@@ -212,6 +212,70 @@ describe('new chat TUI projection', () => {
     );
   });
 
+  it('adopts a newly persisted startup session before the first turn', async () => {
+    const terminal = new FakeTerminal();
+    const requests: Array<{ command: string; payload?: Record<string, unknown> }> = [];
+    const client: ICliCommandClient = {
+      getCommands: () => [],
+      streamInteraction: async function* (request) {
+        requests.push(request as { command: string; payload?: Record<string, unknown> });
+        if (request.command === 'chat-chat-startup') {
+          yield {
+            command: request.command,
+            kind: 'agent_info',
+            timestamp,
+            agentId: 'sarah-lee',
+            agentName: 'Sarah Lee',
+            llmModel: 'best-chat',
+          };
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          yield {
+            command: request.command,
+            kind: 'workspace_info',
+            timestamp,
+            workspace: 'C:\\Projects\\ai-team',
+            gitBranch: 'feature/tui',
+          };
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          yield {
+            command: request.command,
+            kind: 'session_switched',
+            timestamp,
+            agentId: 'sarah-lee',
+            sessionId: 'session-new-sarah',
+          };
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        yield { command: request.command, kind: 'done', timestamp };
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      },
+    };
+
+    await renderChat(
+      client,
+      'sarah-lee',
+      { oneShot: false, message: 'Hello' },
+      false,
+      undefined,
+      'chat-chat',
+      {
+        agentId: 'sarah-lee',
+        agentName: 'Sarah Lee',
+      },
+      { terminal }
+    );
+
+    expect(requests[1]?.payload).toMatchObject({
+      agentId: 'sarah-lee',
+      sessionId: 'session-new-sarah',
+      message: 'Hello',
+    });
+    const output = terminal.writes.join('');
+    expect(output).toContain('C:\\Projects\\ai-team - feature/tui -');
+    expect(output).toContain('Sarah Lee');
+    expect(output).toContain('(best-chat) - session id: session-new-sarah');
+  });
+
   it('keeps both sides of a handoff in one transcript', async () => {
     const terminal = new FakeTerminal();
     const client = clientWith([
@@ -265,6 +329,79 @@ describe('new chat TUI projection', () => {
     expect(output).toContain('I will hand this over.');
     expect(output).toContain('Keep the service event-driven.');
     expect(output).toContain('I have the briefing.');
+  });
+
+  it('renders a streaming handoff briefing before the target agent starts thinking', async () => {
+    const terminal = new FakeTerminal();
+    const client = clientWith([
+      {
+        command: 'chat',
+        kind: 'agent_info',
+        timestamp,
+        agentId: 'emily-davis',
+        agentName: 'Emily Davis',
+      },
+      { command: 'chat', kind: 'status', timestamp, phase: 'thinking' },
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-1',
+        handoffPhase: 'start',
+        fromAgentId: 'emily-davis',
+        fromAgentName: 'Emily Davis',
+        toAgentId: 'michael-brown',
+        toAgentName: 'Michael Brown',
+      },
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-1',
+        handoffPhase: 'delta',
+        fromAgentId: 'emily-davis',
+        toAgentId: 'michael-brown',
+        delta: 'Clemens wants Michael to take over.',
+      },
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-1',
+        handoffPhase: 'complete',
+        fromAgentId: 'emily-davis',
+        fromAgentName: 'Emily Davis',
+        toAgentId: 'michael-brown',
+        toAgentName: 'Michael Brown',
+        briefingContent: 'Clemens wants Michael to take over.',
+      },
+      {
+        command: 'chat',
+        kind: 'agent_info',
+        timestamp,
+        agentId: 'michael-brown',
+        agentName: 'Michael Brown',
+      },
+      { command: 'chat', kind: 'status', timestamp, phase: 'thinking' },
+      { command: 'chat', kind: 'done', timestamp },
+    ] as any);
+
+    await renderChat(
+      client,
+      'emily-davis',
+      { oneShot: true, message: 'Let me talk to Michael' },
+      false,
+      undefined,
+      'chat',
+      undefined,
+      { terminal }
+    );
+
+    const output = terminal.writes.join('');
+    const briefingPosition = output.indexOf('Clemens wants Michael to take over.');
+    const targetThinkingPosition = output.indexOf('Michael Brown is thinking…');
+    expect(briefingPosition).toBeGreaterThanOrEqual(0);
+    expect(targetThinkingPosition).toBeGreaterThan(briefingPosition);
   });
 
   it('sends the next turn to the service-emitted handoff agent and session', async () => {

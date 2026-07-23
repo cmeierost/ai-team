@@ -36,6 +36,11 @@ function cloneSession(session: ChatSession): ChatSession {
     notes: session.notes,
     ragConfig: session.ragConfig ? { ...session.ragConfig } : undefined,
     previousSessionId: session.previousSessionId,
+    activeSessionId: session.activeSessionId,
+    threadNavigationStack: session.threadNavigationStack
+      ? session.threadNavigationStack.map((entry) => ({ ...entry }))
+      : undefined,
+    threadLastActiveAt: session.threadLastActiveAt,
     mergedFromSessionIds: session.mergedFromSessionIds
       ? [...session.mergedFromSessionIds]
       : undefined,
@@ -289,6 +294,100 @@ afterEach(async () => {
   await Promise.all(
     tempDirs.splice(0, tempDirs.length).map((dir) => fs.rm(dir, { recursive: true, force: true }))
   );
+});
+
+// ---------------------------------------------------------------------------
+// persisted active thread navigation
+// ---------------------------------------------------------------------------
+
+describe('ThreadManager active thread navigation', () => {
+  let sessionManager: SessionManager;
+  let threadManager: ThreadManager;
+
+  beforeEach(async () => {
+    ({ sessionManager, threadManager } = await createManagersForTest());
+  });
+
+  it('resolves every member of a thread to the persisted active handoff target', async () => {
+    const michael = await sessionManager.createSession('michael-brown', 'dev-1');
+    const emily = await sessionManager.createHandoffSession(
+      'emily-davis',
+      'dev-1',
+      michael.id
+    );
+
+    await threadManager.recordHandoff(michael.id, emily.id, {
+      agentId: 'michael-brown',
+      agentName: 'Michael Brown',
+      sessionId: michael.id,
+    });
+
+    const fromRoot = await threadManager.resolveActiveSession(michael.id);
+    const fromTarget = await threadManager.resolveActiveSession(emily.id);
+
+    expect(fromRoot.session?.id).toBe(emily.id);
+    expect(fromTarget.session?.id).toBe(emily.id);
+    expect(fromRoot.state).toMatchObject({
+      rootSessionId: michael.id,
+      activeSessionId: emily.id,
+      navigationStack: [{ sessionId: michael.id, agentId: 'michael-brown' }],
+    });
+  });
+
+  it('persists a return to the delegating session and pops the navigation stack', async () => {
+    const michael = await sessionManager.createSession('michael-brown', 'dev-1');
+    const emily = await sessionManager.createHandoffSession(
+      'emily-davis',
+      'dev-1',
+      michael.id
+    );
+
+    await threadManager.recordHandoff(michael.id, emily.id, {
+      agentId: 'michael-brown',
+      agentName: 'Michael Brown',
+      sessionId: michael.id,
+    });
+    await threadManager.recordReturn(emily.id, michael.id);
+
+    const resolved = await threadManager.resolveActiveSession(emily.id);
+
+    expect(resolved.session?.id).toBe(michael.id);
+    expect(resolved.state.navigationStack).toEqual([]);
+  });
+
+  it('seeds legacy threads deterministically at their newest leaf', async () => {
+    const michael = await sessionManager.createSession('michael-brown', 'dev-1');
+    const emily = await sessionManager.createHandoffSession(
+      'emily-davis',
+      'dev-1',
+      michael.id
+    );
+
+    const resolved = await threadManager.resolveActiveSession(michael.id);
+
+    expect(resolved.session?.id).toBe(emily.id);
+    expect(resolved.state.rootSessionId).toBe(michael.id);
+  });
+
+  it('resumes the most recently navigated thread at its active cursor', async () => {
+    const firstRoot = await sessionManager.createSession('michael-brown', 'dev-1');
+    const firstTarget = await sessionManager.createHandoffSession(
+      'emily-davis',
+      'dev-1',
+      firstRoot.id
+    );
+    await sessionManager.createSession('sarah-lee', 'dev-1');
+
+    await threadManager.recordHandoff(firstRoot.id, firstTarget.id, {
+      agentId: 'michael-brown',
+      agentName: 'Michael Brown',
+      sessionId: firstRoot.id,
+    });
+
+    const latest = await threadManager.resolveLatestActiveSession('dev-1');
+
+    expect(latest?.id).toBe(firstTarget.id);
+  });
 });
 
 // ---------------------------------------------------------------------------

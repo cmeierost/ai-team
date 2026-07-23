@@ -6,6 +6,8 @@ import {
   type ISessionManager,
   type ISessionsRepository,
   type INotesRepository,
+  type SessionNavEntry,
+  type SessionThreadState,
 } from '@ai-team/core';
 
 export interface SessionThreadGraphSession {
@@ -34,6 +36,110 @@ export class ThreadManager implements IThreadManager {
     private readonly sessions: ISessionsRepository,
     private readonly notes: INotesRepository
   ) {}
+
+  async resolveActiveSession(
+    sessionId: string
+  ): Promise<{ session: ChatSession | null; state: SessionThreadState }> {
+    const thread = await this.getSessionChain(sessionId);
+    const root = thread[0];
+    if (!root) {
+      return {
+        session: null,
+        state: {
+          rootSessionId: sessionId,
+          activeSessionId: sessionId,
+          navigationStack: [],
+          updatedAt: new Date(0).toISOString(),
+        },
+      };
+    }
+
+    const storedActive = root.activeSessionId
+      ? thread.find((session) => session.id === root.activeSessionId)
+      : undefined;
+    const active = storedActive ?? this.selectLegacyActiveSession(thread);
+    const state: SessionThreadState = {
+      rootSessionId: root.id,
+      activeSessionId: active.id,
+      navigationStack: storedActive
+        ? [...(root.threadNavigationStack ?? [])]
+        : this.buildLegacyNavigationStack(thread, active.id),
+      updatedAt: root.threadLastActiveAt ?? active.lastActivityAt ?? active.startedAt,
+    };
+
+    if (!storedActive) {
+      await this.persistThreadState(state);
+    }
+
+    return { session: active, state };
+  }
+
+  async resolveLatestActiveSession(developerId?: string): Promise<ChatSession | null> {
+    const sessions = await this.sessions.listSessions(developerId ? { developerId } : undefined);
+    const roots = sessions.filter((session) => !session.previousSessionId);
+    const latestRoot = [...roots].sort(
+      (left, right) =>
+        Number(Boolean(right.threadLastActiveAt)) - Number(Boolean(left.threadLastActiveAt)) ||
+        (right.threadLastActiveAt ?? right.lastActivityAt).localeCompare(
+          left.threadLastActiveAt ?? left.lastActivityAt
+        ) || right.id.localeCompare(left.id)
+    )[0];
+    if (!latestRoot) return null;
+    return (await this.resolveActiveSession(latestRoot.id)).session;
+  }
+
+  async recordHandoff(
+    fromSessionId: string,
+    toSessionId: string,
+    returnFrame: SessionNavEntry
+  ): Promise<SessionThreadState> {
+    const target = await this.sessionManager.getSession(toSessionId);
+    if (!target) {
+      throw new Error(`Handoff target session ${toSessionId} not found`);
+    }
+
+    const thread = await this.getSessionChain(fromSessionId);
+    const root = thread[0];
+    if (!root) {
+      throw new Error(`Handoff source session ${fromSessionId} not found`);
+    }
+    if (!thread.some((session) => session.id === target.id)) {
+      throw new Error(
+        `Session ${toSessionId} does not belong to thread ${root.id}`
+      );
+    }
+
+    const state: SessionThreadState = {
+      rootSessionId: root.id,
+      activeSessionId: target.id,
+      navigationStack: [
+        ...(root.activeSessionId
+          ? (root.threadNavigationStack ?? [])
+          : this.buildLegacyNavigationStack(thread, fromSessionId)),
+        { ...returnFrame },
+      ],
+      updatedAt: new Date().toISOString(),
+    };
+    await this.persistThreadState(state);
+    return state;
+  }
+
+  async recordReturn(fromSessionId: string, toSessionId: string): Promise<SessionThreadState> {
+    const resolved = await this.resolveActiveSession(fromSessionId);
+    const top = resolved.state.navigationStack.at(-1);
+    if (!top || top.sessionId !== toSessionId) {
+      throw new Error(`Session ${toSessionId} is not the current thread return target`);
+    }
+
+    const state: SessionThreadState = {
+      ...resolved.state,
+      activeSessionId: toSessionId,
+      navigationStack: resolved.state.navigationStack.slice(0, -1),
+      updatedAt: new Date().toISOString(),
+    };
+    await this.persistThreadState(state);
+    return state;
+  }
 
   async getSessionChain(sessionId: string): Promise<ChatSession[]> {
     // 1. Walk upward to find the root session.
@@ -339,5 +445,44 @@ export class ThreadManager implements IThreadManager {
     }
 
     return session.agentId ? [session.agentId] : [];
+  }
+
+  private selectLegacyActiveSession(thread: ChatSession[]): ChatSession {
+    const parentIds = new Set(
+      thread.map((session) => session.previousSessionId).filter((id): id is string => Boolean(id))
+    );
+    const leaves = thread.filter((session) => !parentIds.has(session.id));
+    return [...(leaves.length > 0 ? leaves : thread)].sort(
+      (left, right) =>
+        right.startedAt.localeCompare(left.startedAt) || right.id.localeCompare(left.id)
+    )[0];
+  }
+
+  private buildLegacyNavigationStack(
+    thread: ChatSession[],
+    activeSessionId: string
+  ): SessionNavEntry[] {
+    const byId = new Map(thread.map((session) => [session.id, session]));
+    const path: ChatSession[] = [];
+    let current = byId.get(activeSessionId);
+    while (current?.previousSessionId) {
+      const parent = byId.get(current.previousSessionId);
+      if (!parent) break;
+      path.unshift(parent);
+      current = parent;
+    }
+    return path.map((session) => ({
+      agentId: session.agentId,
+      agentName: session.agentId,
+      sessionId: session.id,
+    }));
+  }
+
+  private async persistThreadState(state: SessionThreadState): Promise<void> {
+    await this.sessions.updateSession(state.rootSessionId, {
+      activeSessionId: state.activeSessionId,
+      threadNavigationStack: state.navigationStack,
+      threadLastActiveAt: state.updatedAt,
+    });
   }
 }
